@@ -1,0 +1,119 @@
+# Slippage & Fill Reconciliation — Agent Prompt + Verification Checklist
+
+Audit finding this addresses: `apply_execution_realism_to_shadow_trade()` exists but is never
+called from the paper-trade write path (`write_paper_pick()` writes raw mid-price, zero
+slippage). `fixed_spread_slippage()`'s default `spread_pct=0.0005` (0.05%) is a liquid
+large-cap number, not appropriate for the nano-caps this system trades. There is also no
+fill reconciliation — no check that a recorded fill was actually achievable.
+
+---
+
+## PART A — PROMPT FOR REPLIT AGENT
+
+```
+TASK: Wire execution realism into the paper trading write path. Do NOT claim completion
+without raw evidence per item below.
+
+CONTEXT: apply_execution_realism_to_shadow_trade() in execution_simulator.py exists but is
+never called — write_paper_pick() writes raw mid-price with zero slippage. Also,
+fixed_spread_slippage()'s default spread_pct=0.0005 (0.05%) is a liquid-large-cap number;
+this system trades nano-caps.
+
+PART 1 — Wire slippage into the write path
+1. Find every call site of write_paper_pick(). List them (file:line).
+2. Insert a call to apply_execution_realism_to_shadow_trade() (or equivalent) BEFORE the
+   fill price is persisted, not after.
+3. Fill price must be the slippage-adjusted price, not the raw snapshot.
+4. Prove it: paste a raw SQL query
+   (SELECT ticker, mid_price, fill_price, spread_pct_used FROM paper_trades
+    ORDER BY id DESC LIMIT 5)
+   run AFTER a test trade, showing fill_price != mid_price.
+
+PART 2 — Fix spread_pct defaults for nano-caps
+1. Do not hardcode a new flat default. Instead: does the system have real bid/ask data
+   available at write time (Polygon/Tradier quote)?
+   - If YES: wire the REAL bid/ask spread into fixed_spread_slippage() instead of using
+     the default at all. Prove it with a query showing spread_pct_used varies per trade
+     (not constant).
+   - If NO real bid/ask is available at write time: report that back to me before writing
+     any code — do not fabricate a "nano-cap adjusted default." I'll decide the number.
+
+PART 3 — Minimal fill reconciliation (NOT a broker integration — do not build one)
+Goal: flag paper fills that are NOT achievable, not simulate a real broker.
+1. At write time, compare fill_price against that bar's high/low range (from the same
+   OHLC source already used for the signal).
+2. If fill_price is outside [low, high] for that timestamp's bar, set a boolean flag
+   unachievable_fill = true on the trade row. Do not block the trade — just flag it.
+3. Add a volume sanity check: if order_size_usd > some_pct * that bar's dollar volume,
+   flag illiquid_fill = true. Use a real number sourced from the ticker's actual
+   avg_daily_volume, not a guess — show me the query.
+4. Prove it: query showing at least one flagged row from historical paper_trades data
+   (retroactively run the check against existing rows) and the count of flagged vs total.
+
+RULES:
+- No self-report. Every claim above must come with the raw command/query output, not a
+  description of what you did.
+- Do not touch position_reconciler.py — it's intentionally disabled, this is a separate,
+  smaller check.
+- Do not change conviction scoring, Bonferroni gate, or HMAC signing in this pass.
+```
+
+---
+
+## PART B — INDEPENDENT VERIFICATION CHECKLIST (run this against the agent's report)
+
+Do not accept the agent's summary as evidence. For each claim, re-derive it yourself.
+
+### 1. Slippage actually wired in
+- [ ] `grep -rn "apply_execution_realism_to_shadow_trade" .` — confirm it's called from
+      the same function that calls `write_paper_pick()`, not just defined near it.
+- [ ] Confirm the call happens **before** the DB write, not after (read surrounding
+      code, don't trust a line number citation alone).
+- [ ] Independently run the SQL query yourself:
+      `SELECT ticker, mid_price, fill_price, spread_pct_used FROM paper_trades ORDER BY id DESC LIMIT 10`
+      — check that `fill_price` actually differs from `mid_price` by a plausible amount
+      (half-spread in the right direction for the trade side), not just "differs by $0.01
+      due to floating point."
+- [ ] Check the sign: for a long entry, fill_price should be ≥ mid_price (paying the ask).
+      For a short entry, fill_price should be ≤ mid_price. If it's backwards, the model is
+      wired but wrong.
+
+### 2. Spread source
+- [ ] If agent claims real bid/ask is wired: `grep` for the quote fetch call immediately
+      upstream of the slippage call, confirm it's a live API call and not a stored/stale
+      value.
+- [ ] Query `spread_pct_used` across ~20 recent rows — confirm it actually varies by
+      ticker/time. A constant value across all rows means the "real bid/ask" claim is false
+      regardless of what the agent reports.
+- [ ] If agent instead reports "no real bid/ask available" — verify that's true by checking
+      what data IS available at write time (`grep` the write-path function's local
+      variables/inputs). Don't let the agent pick a fabricated default without you approving
+      the number.
+
+### 3. Reconciliation flags
+- [ ] Run the OHLC-bounds check yourself against a handful of historical rows manually
+      (pick 3 trades, pull the actual bar data, compare by hand) — don't just trust the
+      agent's own retroactive query output, since that's the same code path that could have
+      a bug making everything pass.
+- [ ] Confirm `unachievable_fill` and `illiquid_fill` are actual boolean columns in the
+      schema (`\d paper_trades` or equivalent), not just an in-memory flag that never
+      persists.
+- [ ] Check the volume threshold used for `illiquid_fill` — is it sourced from a real
+      `avg_daily_volume` column with a defensible percentage, or a made-up constant? Ask
+      for the exact query and threshold value if not shown.
+- [ ] Confirm flags are non-blocking as instructed — the trade should still get written,
+      just flagged. If the agent silently started rejecting trades, that's scope creep and
+      needs to be called out.
+
+### 4. Scope discipline
+- [ ] Diff the changed files against the constraint list. Confirm nothing in
+      `position_reconciler.py`, conviction scoring, the Bonferroni gate, or HMAC signing
+      was touched.
+- [ ] If the agent says "while I was in there I also fixed X" — treat that as a red flag
+      requiring separate review, not a bonus.
+
+### 5. Net effect check
+- [ ] Compare aggregate paper P&L before vs. after this change on the same set of
+      historical trades (if re-runnable) — slippage should now be dragging returns down
+      slightly, and a nonzero fraction of trades should carry an achievability flag. If
+      P&L is unchanged, something isn't actually wired despite the agent's evidence.

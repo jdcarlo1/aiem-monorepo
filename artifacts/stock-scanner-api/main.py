@@ -484,6 +484,10 @@ class _YFRateLimiter:
 _YF_RATE_LIMITER      = _YFRateLimiter(calls_per_sec=3.0)
 _POLYGON_RATE_LIMITER = _YFRateLimiter(calls_per_sec=3.0)  # Starter plan: safe at 3/sec sustained
 _AIEM_PAPER_LOCK      = threading.Lock()  # prevents concurrent _aiem_paper_execute_today runs
+# Bid-ask spread used when no live quote is available at paper-trade write time.
+# 1.0% is the auditor-approved default for nano/micro-cap names.
+# Change this constant (only here) if a different spread is approved.
+_NANO_CAP_SPREAD_PCT  = 0.01
 
 # ── Rotating leaderboard cursor ────────────────────────────────────────────────
 # Each hourly scan covers a fresh 1,000-ticker segment so the full 6,610-ticker
@@ -35546,6 +35550,23 @@ def _aiem_paper_execute_today():
                 if _price <= 0:
                     continue
 
+                # ── Execution realism: apply half-spread slippage BEFORE persisting ──
+                # No live bid/ask available at write time (Tradier market-data only,
+                # Polygon prev-close only). _NANO_CAP_SPREAD_PCT is the auditor-approved
+                # default; change that constant — not this code — to adjust.
+                _mid_price = _price
+                try:
+                    import execution_simulator as _exec_sim
+                    _slip = _exec_sim.fixed_spread_slippage(
+                        _mid_price, "long", _NANO_CAP_SPREAD_PCT
+                    )
+                    _fill_price      = _slip["fill_price"]
+                    _spread_pct_used = _NANO_CAP_SPREAD_PCT
+                except Exception as _slip_exc:
+                    print(f"[aiem_paper] slippage calc failed, using mid: {_slip_exc}")
+                    _fill_price      = _mid_price
+                    _spread_pct_used = None
+
                 _notional  = 1000.0
                 _trade_type = pick["trade_type"]
 
@@ -35555,23 +35576,26 @@ def _aiem_paper_execute_today():
                     _qty       = 1.0
                     _hold_days = 3
                 elif _trade_type == "ETF":
-                    _qty       = round(_notional / _price, 4)
+                    _qty       = round(_notional / _fill_price, 4)
                     _hold_days = 5
                 else:  # STOCK
-                    _qty       = round(_notional / _price, 4)
+                    _qty       = round(_notional / _fill_price, 4)
                     _hold_days = 5
 
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
                         (trade_date, ticker, trade_type, entry_price, quantity,
                          notional, signal_source, signal_detail, hold_days_max,
-                         last_price, status, strike, expiry)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s)
+                         last_price, status, strike, expiry,
+                         mid_price, fill_price, spread_pct_used)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
+                            %s,%s,%s)
                     ON CONFLICT DO NOTHING
-                """, (_today, _t, _trade_type, _price, _qty,
+                """, (_today, _t, _trade_type, _fill_price, _qty,
                       _notional, pick["source"], pick.get("detail",""),
-                      _hold_days, _price,
-                      pick.get("strike"), pick.get("expiry")))
+                      _hold_days, _fill_price,
+                      pick.get("strike"), pick.get("expiry"),
+                      _mid_price, _fill_price, _spread_pct_used))
                 rows_inserted += 1
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
@@ -35581,6 +35605,76 @@ def _aiem_paper_execute_today():
         _log_finish("FAILED", _err=str(_e))
     finally:
         _AIEM_PAPER_LOCK.release()
+
+
+def _aiem_paper_flag_fills(trade_date_from=None):
+    """
+    Fill reconciliation: retroactively (and after each EOD) set two boolean flags
+    on aiem_paper_trades rows by joining against polygon_rvol_scan OHLC data.
+
+      unachievable_fill = TRUE  if the fill price fell outside [low, high] for
+                                that ticker/date in polygon_rvol_scan.  Polygon
+                                grouped_daily captures the prior session's bar, so
+                                this is a prev-day OHLC range check — a conservative
+                                sanity bound, not a tick-level replay.
+
+      illiquid_fill     = TRUE  if order notional exceeds 0.5 % of that session's
+                                avg-daily dollar volume (avg_volume * closing price).
+                                Source: polygon_rvol_scan.avg_volume / .price columns.
+                                Threshold: 0.5 % of daily $ vol is the standard
+                                institutional "not-too-impactful" ceiling for small
+                                orders; nano-cap $1 K orders trip this when
+                                avg_volume * price < $200 K.
+
+    Non-blocking: flags are informational only.  Trades are never rejected.
+    Returns dict with counts for audit evidence.
+    """
+    import psycopg2 as _pg2_f
+    _where_extra = ""
+    _params: list = []
+    if trade_date_from is not None:
+        _where_extra = " AND apt.trade_date >= %s"
+        _params.append(trade_date_from)
+
+    try:
+        with _pg2_f.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _cu.execute(f"""
+                UPDATE aiem_paper_trades AS apt
+                SET
+                    unachievable_fill = (
+                        COALESCE(apt.fill_price, apt.entry_price) < prs.low
+                        OR
+                        COALESCE(apt.fill_price, apt.entry_price) > prs.high
+                    ),
+                    illiquid_fill = (
+                        apt.notional > 0.005 * prs.avg_volume * prs.price
+                    )
+                FROM polygon_rvol_scan AS prs
+                WHERE prs.ticker    = apt.ticker
+                  AND prs.scan_date = apt.trade_date
+                  {_where_extra}
+            """, _params or None)
+            _updated = _cu.rowcount
+            _c.commit()
+
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE unachievable_fill = TRUE")
+            _unach = _cu.fetchone()[0]
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE illiquid_fill = TRUE")
+            _illiq = _cu.fetchone()[0]
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades")
+            _total = _cu.fetchone()[0]
+
+        result = {
+            "rows_updated": _updated,
+            "total_trades": _total,
+            "unachievable_fill_count": _unach,
+            "illiquid_fill_count": _illiq,
+        }
+        print(f"[aiem_paper_flag_fills] {result}")
+        return result
+    except Exception as _fe:
+        print(f"[aiem_paper_flag_fills] error: {_fe}")
+        return {"error": str(_fe)}
 
 
 def _aiem_paper_mark_to_market():
@@ -35934,6 +36028,12 @@ def _aiem_paper_mark_to_market():
         _x = sum(1 for v in _ai_decisions.values() if v.get("decision") == "EXIT")
         print(f"[aiem_paper] MTM done — {len(_open)} positions | {_x} exited | {len(_open)-_x} held")
 
+        # Run fill reconciliation flags now that today's OHLC is fully settled
+        try:
+            _aiem_paper_flag_fills(trade_date_from=_today)
+        except Exception as _ff_e:
+            print(f"[aiem_paper] flag_fills error (non-blocking): {_ff_e}")
+
     except Exception as _e:
         print(f"[aiem_paper] mark-to-market error: {_e}")
 
@@ -36185,6 +36285,69 @@ def aiem_paper_force_mtm():
     import threading as _mtm_thr
     _mtm_thr.Thread(target=_aiem_paper_mark_to_market, daemon=True).start()
     return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
+
+
+@app.route("/stock-api/admin/paper-fill-audit", methods=["GET", "POST"])
+def admin_paper_fill_audit():
+    """
+    Audit endpoint for independent reviewer verification of slippage & fill flags.
+    GET  — returns recent rows (ticker, mid_price, fill_price, spread_pct_used,
+           unachievable_fill, illiquid_fill) plus aggregate flag counts.
+    POST — re-runs _aiem_paper_flag_fills() retroactively over all rows, then
+           returns updated counts.  Requires X-Admin-Token header.
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+
+    try:
+        if request.method == "POST":
+            _flag_result = _aiem_paper_flag_fills()
+        else:
+            _flag_result = None
+
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT ticker, mid_price, fill_price, spread_pct_used,
+                       unachievable_fill, illiquid_fill
+                FROM aiem_paper_trades
+                ORDER BY id DESC LIMIT 10
+            """)
+            _rows = [
+                {
+                    "ticker": r[0],
+                    "mid_price":        float(r[1]) if r[1] is not None else None,
+                    "fill_price":       float(r[2]) if r[2] is not None else None,
+                    "spread_pct_used":  float(r[3]) if r[3] is not None else None,
+                    "unachievable_fill": r[4],
+                    "illiquid_fill":     r[5],
+                }
+                for r in _cu.fetchall()
+            ]
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades")
+            _total = _cu.fetchone()[0]
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE unachievable_fill=TRUE")
+            _unach = _cu.fetchone()[0]
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE illiquid_fill=TRUE")
+            _illiq = _cu.fetchone()[0]
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE fill_price IS NOT NULL")
+            _has_slip = _cu.fetchone()[0]
+
+        return jsonify({
+            "recent_rows": _rows,
+            "summary": {
+                "total_trades":           _total,
+                "trades_with_fill_price": _has_slip,
+                "unachievable_fill_count": _unach,
+                "illiquid_fill_count":     _illiq,
+                "nano_cap_spread_pct":     _NANO_CAP_SPREAD_PCT,
+                "spread_source":           "fixed constant — no live bid/ask available at write time",
+            },
+            "flag_run": _flag_result,
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 @app.route("/stock-api/admin/run-discovery-outcome-check", methods=["POST"])
