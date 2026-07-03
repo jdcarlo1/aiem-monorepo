@@ -1,0 +1,42 @@
+# Follow-Up — Close the 3 Open Gaps from Probability Engine Verification
+
+The last verification pass was NOT VERIFIED, with 3 specific gaps. Fix each one — don't just re-explain the gap, close it — then re-run the same evidence-based verification format used in that pass (provenance-signed envelope via `sign_payload()` in `aiem_provenance.py`, same as Item 4 last time).
+
+---
+
+## 1. Commit a real migration file for the DB schema change
+
+The `ALTER TABLE` DDL that added `uq_sector_alerts_date_ticker` was applied live via `psycopg2` and was never committed as a versioned migration file. Fix:
+
+- Write an actual `.sql` migration file (or whatever migration format/tool this project already uses — check for an existing `migrations/` directory or ORM migration convention first, don't invent a new pattern) that reproduces the live schema exactly as it currently exists.
+- Commit it to git.
+- Prove it with raw output: `git show <commit_hash> -- <migration_file_path>`.
+- Confirm the migration is replayable — i.e., running it against a clean schema produces the same constraint that's currently live. Show the command and its raw output, not a description of the result.
+
+## 2. Get the task #17 spec into a location this agent can actually read
+
+Task #17's spec is currently inaccessible — described as a "platform-internal record, not a local file." That's a process gap that will block every future verification pass that touches it. Fix:
+
+- Locate where task #17's spec actually lives (platform DB, internal task tracker, wherever).
+- Export or copy its full text into a local file in this repo (e.g. `.local/tasks/task_17.md` or wherever the existing task specs are conventionally stored).
+- Quote the relevant section verbatim in your response, with the file path and line numbers, so it's clear the "only main.py should be touched" language is confirmed as belonging to task #17 and not this work.
+- If the spec genuinely cannot be exported (permissions, platform limitation), say that explicitly and state what you did try, with raw output/error messages — not just a restated conclusion.
+
+## 3. Independently reproduce the HMAC-SHA256 signature
+
+Item 4 in the last verification claimed the signature was reproducible but only showed the signing code path — it did not actually run it twice and compare. Fix:
+
+- Take the exact same payload (minus timestamp/nonce, which are expected to differ per run) and sign it a second time, independently, using `sign_payload()` in `aiem_provenance.py`.
+- Paste both raw signature outputs side by side.
+- Confirm whether they match under the same canonicalization (`json.dumps(..., sort_keys=True, separators=(",", ":"))`) once timestamp/nonce are excluded from the comparison.
+- If they don't match, that's a real finding — report it as such, don't paper over it.
+
+---
+
+## Final format
+
+Same as last time:
+- Raw terminal/tool output only — no narrative summaries standing in for evidence.
+- Table: sub-item → status (✅ PRODUCED / ❌ CANNOT PRODUCE / ❌ OPEN GAP).
+- End with a provenance-signed envelope (via `sign_payload()`) wrapping the full evidence bundle for items 1–3, with the signature shown.
+- Final verdict: VERIFIED or NOT VERIFIED. Do not mark VERIFIED unless all 3 items above are closed with raw evidence.
