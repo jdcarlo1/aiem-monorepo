@@ -11,3 +11,8 @@ apscheduler
 pytz
 json-repair
 matplotlib
+cryptography
+requests
+scipy
+statsmodels
+xgboost
