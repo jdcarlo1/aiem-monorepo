@@ -1,0 +1,118 @@
+# Fix #2 — message_sent Over-Marking + Verification
+
+## The gap (confirmed real, not fabricated)
+
+Current committed code:
+```sql
+UPDATE aiem_sector_alerts_log
+SET message_sent = TRUE
+WHERE date = %s AND tier >= 2
+```
+
+This marks EVERY tier≥2 row for the date as sent — not just the rows that
+were actually included in the Telegram message. Harmless today only because
+current live data happens to have all tier≥2 rows for a date in the same
+batch. If a tier≥2 row is ever suppressed before reaching Telegram (e.g. by
+an earlier guard) while still existing in the DB, it will be falsely marked
+`message_sent = TRUE`.
+
+---
+
+## Paste this to the agent — the fix
+
+```
+Fix the over-broad message_sent UPDATE in [file where this UPDATE lives].
+
+Current behavior: marks every tier>=2 row for the date as sent, regardless
+of whether it was actually in the Telegram batch.
+
+Required behavior: only mark rows whose sector_ticker was actually included
+in the specific message that was sent.
+
+1. Wherever the batch is built before sending to Telegram, capture the
+   exact list of tickers going into that message:
+
+   sent_tickers = [row['sector_ticker'] for row in batch_rows]
+
+2. Change the UPDATE to scope by that list:
+
+   UPDATE aiem_sector_alerts_log
+   SET message_sent = TRUE
+   WHERE date = %s AND tier >= 2 AND sector_ticker = ANY(%s)
+
+   -- executed as: cursor.execute(sql, (run_date, sent_tickers))
+
+3. Show me the exact diff. Do not describe the change — show the raw
+   before/after code.
+```
+
+---
+
+## Verify it — the cheap way (this does NOT need full adversarial review)
+
+This is a good example of a low-stakes-enough change that a behavioral test
+alone is sufficient. Paste this after the fix is applied:
+
+```
+Run a behavioral test, not a self-report, for the message_sent fix:
+
+1. Insert two test rows for the same date, both tier >= 2:
+   - Row A: sector_ticker = 'TEST_SENT'
+   - Row B: sector_ticker = 'TEST_SUPPRESSED'
+
+2. Simulate a batch send where sent_tickers only includes 'TEST_SENT'
+   (deliberately exclude 'TEST_SUPPRESSED' to simulate a row that existed
+   but wasn't in the actual message).
+
+3. Run the fixed UPDATE with that sent_tickers list.
+
+4. Query both rows back and print message_sent for each, raw output only:
+
+   SELECT sector_ticker, message_sent FROM aiem_sector_alerts_log
+   WHERE sector_ticker IN ('TEST_SENT', 'TEST_SUPPRESSED');
+
+5. Clean up the test rows after.
+
+Expected result: TEST_SENT -> message_sent = TRUE, TEST_SUPPRESSED ->
+message_sent = FALSE (unchanged). If TEST_SUPPRESSED shows TRUE, the fix
+did not work.
+```
+
+**Pass condition:** raw query output shows TEST_SENT = TRUE and
+TEST_SUPPRESSED = FALSE. That's the whole test — no adversarial review
+needed for this one.
+
+---
+
+## Why this verification type worked earlier, and when to use it
+
+**What it actually is:** fact-checking each individual claim against raw
+command output (grep, git show, a SQL query) rather than trusting a
+summary — one claim at a time, before forming a verdict.
+
+**Why it caught real problems:** the adversarial review claimed
+`get_all_tier3_sectors` didn't exist. `grep -n "def get_all_tier3_sectors"`
+either returns a line number or it doesn't — there's no room for a
+plausible-sounding wrong answer. Raw command output has no opinion, so it
+overrides a claim (from either agent) that turns out to be false.
+
+**Why you can't run this on everything, every time:**
+1. It's slow — one command + one read + one judgment call per claim.
+   Six fixes meant 10-15+ tool calls. A 40-file change would multiply that.
+2. It requires already knowing where to look, which itself costs
+   exploration time on unfamiliar code.
+3. Diminishing returns on low-stakes changes — a UI copy tweak doesn't
+   need this treatment; the cost of being wrong is trivial.
+4. It confirms what IS in the code, not what WILL happen in production —
+   still needs a reasoning layer on top (as with catching the message_sent
+   edge case, which required "if X is ever suppressed" reasoning, not
+   just reading code).
+
+**Rule of thumb — match the verification tier to the stakes:**
+
+| Change type | Verification needed |
+|---|---|
+| Money, auth, schema constraints, data integrity | Full 3-layer: self-report -> adversarial review -> fact-check each adversarial claim against raw output |
+| Logic bugs like this one (message_sent) | Behavioral test alone (insert/query, confirm real output) — no adversarial review needed |
+| UI copy, logging text, comments | Self-report is usually fine |
+| Anything you're about to charge customers for or that touches live trades | Always the full 3-layer treatment, no exceptions |

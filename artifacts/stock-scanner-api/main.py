@@ -2772,9 +2772,11 @@ try:
             if n2 > 0:
                 lines.append(f"👀 SECTOR ROTATION — {n2} developing (Tier 2, watch)")
             if lines:
+                _sent_tickers = []
                 for row in result.get("snapshot", []):
                     t = row.get("tier")
                     if t and t >= 2:
+                        _sent_tickers.append(row["sector_ticker"])
                         label = "CONFIRMED" if t == 3 else "watch"
                         lines.append(
                             f"  {row['sector_ticker']:5s} ({row['sector_name']:24s}) "
@@ -2792,7 +2794,8 @@ try:
                                 UPDATE aiem_sector_alerts_log
                                 SET message_sent = TRUE
                                 WHERE date = %s AND tier >= 2
-                            """, (result.get("run_date"),))
+                                  AND sector_ticker = ANY(%s)
+                            """, (result.get("run_date"), _sent_tickers))
                             _c2.commit()
                     except Exception as _ms_exc:
                         print(f"[module7] message_sent update error: {_ms_exc}")
