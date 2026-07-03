@@ -1,0 +1,80 @@
+# Fix Fill-Flag Coverage — Agent Prompt (Strict Verification)
+
+Root cause: `_aiem_paper_flag_fills()` joins `aiem_paper_trades` to `polygon_rvol_scan`,
+which only stores a filtered subset of tickers (11–23/day out of the full universe).
+Measured coverage: 1.0% (1 of 100 trades in the last 30 days). This makes the
+reconciliation feature non-functional for the vast majority of trades subscribers see.
+
+---
+
+## PROMPT FOR REPLIT AGENT
+
+```
+TASK: Fix fill-flag coverage at the root cause. Do not summarize, do not conclude
+"done," do not interpret results in prose beyond what's asked. Every claim below
+requires raw output pasted under it — not a description of what you did.
+
+CONTEXT: _aiem_paper_flag_fills() currently sources OHLC/volume data by joining
+aiem_paper_trades to polygon_rvol_scan on (ticker, trade_date=scan_date).
+polygon_rvol_scan only persists a filtered subset of tickers per day, which is why
+coverage is 1%. This is the wrong data source for this join — it was built for
+screening, not as an OHLC record.
+
+STEP 1 — Identify the correct data source
+Find whatever table or live API call already backs the trade signal / paper-trade
+write path with OHLC bar data and volume for the SPECIFIC ticker being traded
+(not a pre-filtered scan universe). Likely candidates: a raw bars table, or a
+direct Polygon/Tradier API call made at signal time.
+Run: grep -rn "fetch_stock_data\|get_bars\|ohlc" main.py | head -30
+Paste the raw output. Tell me which function/table is the correct source — do not
+guess, show me the grep evidence.
+
+STEP 2 — Rewrite _aiem_paper_flag_fills() to use that source
+Replace the polygon_rvol_scan join with a per-ticker OHLC/volume lookup using the
+source identified in Step 1. This should work for ANY traded ticker, not just ones
+that happen to appear in a scan table.
+
+STEP 3 — PROVE COVERAGE, DO NOT ESTIMATE
+Run this exact query against the last 30 days of trades AFTER your fix:
+SELECT 
+  COUNT(*) AS total_trades,
+  COUNT(*) FILTER (WHERE mid_price IS NOT NULL) AS trades_evaluated,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE mid_price IS NOT NULL) / COUNT(*), 1) AS pct_covered
+FROM aiem_paper_trades
+WHERE trade_date >= CURRENT_DATE - INTERVAL '30 days';
+
+Paste the raw row. If pct_covered is still under 90%, do not call this done — explain
+exactly which trades are still uncovered and why (e.g. no bar data available for that
+ticker/date at all — a real data gap, not a wiring gap), with a query showing the
+specific uncovered tickers/dates.
+
+STEP 4 — PROVE IT RUNS AT WRITE TIME, NOT JUST EOD BATCH
+Show me the exact call site (file:line) where flag evaluation now fires synchronously
+inside the same function that writes a new paper trade — not only inside
+_aiem_paper_mark_to_market() or the admin POST endpoint. If you have NOT made it
+synchronous yet, say so explicitly — do not imply it's done if it isn't.
+
+STEP 5 — REGRESSION CHECK ON EXISTING FLAG LOGIC
+Confirm the achievability/liquidity boolean logic itself (fill outside [low,high],
+notional vs volume threshold) is UNCHANGED — only the data source changed. Run:
+SELECT COUNT(*) FILTER (WHERE unachievable_fill) AS unachievable,
+       COUNT(*) FILTER (WHERE illiquid_fill) AS illiquid,
+       COUNT(*) AS total
+FROM aiem_paper_trades
+WHERE trade_date >= CURRENT_DATE - INTERVAL '30 days' AND mid_price IS NOT NULL;
+Paste the raw row.
+
+STEP 6 — SCOPE CHECK
+Run: git diff --stat
+Paste the raw output. Confirm only the files required for this fix are touched.
+If anything outside main.py (and migrations if a new table/column is needed) is
+modified, explain exactly why before I'll accept it.
+
+RULES:
+- No self-report, no "should work," no prose summary replacing raw output.
+- If pct_covered comes back under 90%, this is NOT complete — continue investigating,
+  do not present it as done.
+- Do not touch conviction scoring, Bonferroni gate, HMAC signing, or
+  position_reconciler.py.
+- Paste raw output for every step, in order, then stop. No concluding paragraph.
+```

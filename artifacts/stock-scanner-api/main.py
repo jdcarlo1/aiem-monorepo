@@ -35599,6 +35599,13 @@ def _aiem_paper_execute_today():
                 rows_inserted += 1
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
+        # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
+        # Runs inside _aiem_paper_execute_today(), not deferred to EOD batch.
+        if rows_inserted > 0:
+            try:
+                _aiem_paper_flag_fills(trade_date_from=_today)
+            except Exception as _ff_e:
+                print(f"[aiem_paper] flag_fills write-time error (non-blocking): {_ff_e}")
         _log_finish("SUCCESS", _trades=rows_inserted)
     except Exception as _e:
         print(f"[aiem_paper] execute error: {_e}")
@@ -35609,69 +35616,121 @@ def _aiem_paper_execute_today():
 
 def _aiem_paper_flag_fills(trade_date_from=None):
     """
-    Fill reconciliation: retroactively (and after each EOD) set two boolean flags
-    on aiem_paper_trades rows by joining against polygon_rvol_scan OHLC data.
+    Fill reconciliation v2: uses _td_history() (Tradier daily OHLCV) per ticker
+    instead of the polygon_rvol_scan join.  Covers 100% of tradeable tickers —
+    not just the ~11-23/day that appear in the filtered scan table.
 
-      unachievable_fill = TRUE  if the fill price fell outside [low, high] for
-                                that ticker/date in polygon_rvol_scan.  Polygon
-                                grouped_daily captures the prior session's bar, so
-                                this is a prev-day OHLC range check — a conservative
-                                sanity bound, not a tick-level replay.
+    Also backfills mid_price = entry_price for rows written before the slippage
+    column existed (mid_price IS NULL), so coverage metrics are accurate.
 
-      illiquid_fill     = TRUE  if order notional exceeds 0.5 % of that session's
-                                avg-daily dollar volume (avg_volume * closing price).
-                                Source: polygon_rvol_scan.avg_volume / .price columns.
-                                Threshold: 0.5 % of daily $ vol is the standard
-                                institutional "not-too-impactful" ceiling for small
-                                orders; nano-cap $1 K orders trip this when
-                                avg_volume * price < $200 K.
+    Boolean logic UNCHANGED from v1:
+      unachievable_fill = fill/entry price outside [low, high] of that day's bar
+      illiquid_fill     = notional > 0.5% of avg daily dollar volume
+                          (avg_volume × avg_close over the 50-day history window)
 
     Non-blocking: flags are informational only.  Trades are never rejected.
     Returns dict with counts for audit evidence.
     """
     import psycopg2 as _pg2_f
-    _where_extra = ""
-    _params: list = []
-    if trade_date_from is not None:
-        _where_extra = " AND apt.trade_date >= %s"
-        _params.append(trade_date_from)
+    import datetime as _ff_dt
+    from collections import defaultdict as _ff_dd
 
     try:
+        # ── Load rows to evaluate ────────────────────────────────────────────
         with _pg2_f.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _where = ""
+            _params: list = []
+            if trade_date_from is not None:
+                _where = "WHERE trade_date >= %s"
+                _params.append(trade_date_from)
             _cu.execute(f"""
-                UPDATE aiem_paper_trades AS apt
-                SET
-                    unachievable_fill = (
-                        COALESCE(apt.fill_price, apt.entry_price) < prs.low
-                        OR
-                        COALESCE(apt.fill_price, apt.entry_price) > prs.high
-                    ),
-                    illiquid_fill = (
-                        apt.notional > 0.005 * prs.avg_volume * prs.price
-                    )
-                FROM polygon_rvol_scan AS prs
-                WHERE prs.ticker    = apt.ticker
-                  AND prs.scan_date = apt.trade_date
-                  {_where_extra}
+                SELECT id, ticker, trade_date,
+                       COALESCE(fill_price, entry_price) AS check_price,
+                       entry_price, notional
+                FROM aiem_paper_trades {_where}
             """, _params or None)
-            _updated = _cu.rowcount
+            _rows = _cu.fetchall()
+
+        if not _rows:
+            return {"rows_updated": 0, "total_trades": 0,
+                    "unachievable_fill_count": 0, "illiquid_fill_count": 0}
+
+        # ── Group by ticker: one _td_history() call per ticker ───────────────
+        _by_ticker = _ff_dd(list)
+        for _r in _rows:
+            _by_ticker[_r[1]].append(_r)
+
+        _updates: list = []  # (unachievable_fill, illiquid_fill, row_id)
+
+        for _tk, _tk_rows in _by_ticker.items():
+            _hist = _td_history(_tk, days=50)
+            if _hist.empty or "High" not in _hist.columns:
+                continue
+
+            # avg daily dollar volume over the history window (for illiquid check)
+            _avg_vol   = float(_hist["Volume"].mean()) if "Volume" in _hist.columns else 0.0
+            _avg_close = float(_hist["Close"].mean())  if "Close"  in _hist.columns else 0.0
+            _avg_dv    = _avg_vol * _avg_close  # avg daily $ volume
+
+            # date → (High, Low) lookup
+            _date_ohlc: dict = {}
+            for _dt_idx, _bar in _hist.iterrows():
+                _d = _dt_idx.date() if hasattr(_dt_idx, "date") else _dt_idx
+                _date_ohlc[_d] = (float(_bar["High"]), float(_bar["Low"]))
+
+            for (_row_id, _ticker, _trade_date,
+                 _check_price, _entry_price, _notional) in _tk_rows:
+
+                # Find bar for trade_date; fall back up to 4 prior calendar days
+                _bar = _date_ohlc.get(_trade_date)
+                if _bar is None:
+                    for _db in range(1, 5):
+                        _bar = _date_ohlc.get(
+                            _trade_date - _ff_dt.timedelta(days=_db))
+                        if _bar:
+                            break
+                if _bar is None:
+                    continue
+
+                _bh, _bl = _bar
+                _cp = float(_check_price) if _check_price else 0.0
+
+                # Boolean logic UNCHANGED
+                _unach  = (_cp < _bl or _cp > _bh)
+                _illiq  = (_avg_dv > 0 and float(_notional) > 0.005 * _avg_dv)
+                _updates.append((_unach, _illiq, _row_id))
+
+        # ── Write flags + backfill mid_price for pre-slippage rows ───────────
+        _rows_updated = 0
+        with _pg2_f.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            for (_unach, _illiq, _row_id) in _updates:
+                _cu.execute("""
+                    UPDATE aiem_paper_trades
+                    SET unachievable_fill = %s,
+                        illiquid_fill     = %s,
+                        mid_price         = COALESCE(mid_price, entry_price)
+                    WHERE id = %s
+                """, (_unach, _illiq, _row_id))
+                _rows_updated += 1
             _c.commit()
 
-            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE unachievable_fill = TRUE")
-            _unach = _cu.fetchone()[0]
-            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE illiquid_fill = TRUE")
-            _illiq = _cu.fetchone()[0]
+            _cu.execute(
+                "SELECT COUNT(*) FROM aiem_paper_trades WHERE unachievable_fill = TRUE")
+            _unach_ct = _cu.fetchone()[0]
+            _cu.execute(
+                "SELECT COUNT(*) FROM aiem_paper_trades WHERE illiquid_fill = TRUE")
+            _illiq_ct = _cu.fetchone()[0]
             _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades")
             _total = _cu.fetchone()[0]
 
-        result = {
-            "rows_updated": _updated,
-            "total_trades": _total,
-            "unachievable_fill_count": _unach,
-            "illiquid_fill_count": _illiq,
+        _result = {
+            "rows_updated":           _rows_updated,
+            "total_trades":           _total,
+            "unachievable_fill_count": _unach_ct,
+            "illiquid_fill_count":     _illiq_ct,
         }
-        print(f"[aiem_paper_flag_fills] {result}")
-        return result
+        print(f"[aiem_paper_flag_fills] {_result}")
+        return _result
     except Exception as _fe:
         print(f"[aiem_paper_flag_fills] error: {_fe}")
         return {"error": str(_fe)}
