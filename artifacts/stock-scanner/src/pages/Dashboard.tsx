@@ -12046,6 +12046,272 @@ function OverviewTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
   );
 }
 
+// ---- Gas Board Tab -------------------------------------------------------
+
+interface GasBoardSignal {
+  ticker: string;
+  score: number;
+  regime: string;
+  signal_type: string;
+  strategy: string;
+  risk_level: string;
+  probability: number;
+  signal: "bullish" | "neutral" | "bearish";
+  components: { momentum: number; flow: number; volatility: number };
+  weight_used: number;
+  in_watchlist: boolean;
+}
+
+interface GasBoardResult {
+  total_scored: number;
+  total_matched: number;
+  capped_at: number;
+  profile_used: { style: string; risk: string; min_score: number };
+  signals: GasBoardSignal[];
+  error?: string;
+}
+
+function ScoreBar({ value, color }: { value: number; color: string }) {
+  return (
+    <div style={{ height: 5, background: "#1a2540", borderRadius: 3, marginTop: 4, overflow: "hidden" }}>
+      <div style={{ height: "100%", width: `${value}%`, background: color, borderRadius: 3, transition: "width 0.4s ease" }} />
+    </div>
+  );
+}
+
+function GasBoardTab({ byokToken }: { byokToken: string }) {
+  const BB_CARD  = "#0d1726";
+  const BB_BORD  = "#1c3350";
+
+  const [tickerInput, setTickerInput]   = useState("");
+  const [riskOver,    setRiskOver]      = useState("balanced");
+  const [styleOver,   setStyleOver]     = useState("mixed");
+  const [minScore,    setMinScore]      = useState(65);
+  const [loading,     setLoading]       = useState(false);
+  const [result,      setResult]        = useState<GasBoardResult | null>(null);
+  const [err,         setErr]           = useState("");
+  const [useWl,       setUseWl]         = useState(false);
+
+  const run = async () => {
+    if (!byokToken) { setErr("Enter your API key in Settings → API Keys first."); return; }
+    setLoading(true); setErr(""); setResult(null);
+    const rawTickers = tickerInput.split(/[,\s]+/).map(t => t.trim().toUpperCase()).filter(Boolean);
+    try {
+      const res = await fetch("/stock-api/user/gas-board", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscriber_token:  byokToken,
+          tickers:           useWl ? [] : rawTickers,
+          risk_override:     riskOver,
+          style_override:    styleOver,
+          min_score_override: minScore,
+        }),
+      });
+      const data: GasBoardResult = await res.json();
+      if (!res.ok || data.error) { setErr(data.error || `Server error ${res.status}`); }
+      else { setResult(data); }
+    } catch (e: any) { setErr(e.message || "Network error"); }
+    finally { setLoading(false); }
+  };
+
+  const sigColor = (s: GasBoardSignal) =>
+    s.signal === "bullish" ? "#00ff9d" : s.signal === "bearish" ? "#ff4d4d" : "#aaa";
+
+  const regimeBadge = (r: string) =>
+    r === "trend" ? { bg: "#0d2a1a", fg: "#00cc7a", label: "TREND" } :
+    r === "chop"  ? { bg: "#2a1210", fg: "#ff6b6b", label: "CHOP"  } :
+                    { bg: "#1a1c2a", fg: "#8899cc", label: "NEUTRAL" };
+
+  return (
+    <div style={{ padding: "16px 20px", maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: "#fff", letterSpacing: 1 }}>
+          ⚡ GAS BOARD — LIVE PROBABILITY ENGINE
+        </div>
+        <div style={{ fontSize: 12, color: "#5a7fa0", marginTop: 3 }}>
+          Scores tickers against your saved profile · powered by polygon RVOL + call sweep data
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", marginBottom: 18,
+                    background: "#0a1220", border: `1px solid ${BB_BORD}`, borderRadius: 10, padding: "12px 14px" }}>
+        <div style={{ flex: "1 1 220px" }}>
+          <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>TICKERS (comma-separated)</div>
+          <input
+            value={tickerInput}
+            onChange={e => setTickerInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && run()}
+            placeholder="NVDA, TSLA, AAPL, META…"
+            disabled={useWl}
+            style={{ width: "100%", padding: "8px 10px", background: useWl ? "#0a1220" : "#0f1e35",
+                     border: `1px solid ${BB_BORD}`, borderRadius: 6, color: useWl ? "#4a6080" : "#fff",
+                     fontSize: 13, boxSizing: "border-box" }}
+          />
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8fb0d0",
+                         cursor: "pointer", paddingBottom: 2 }}>
+          <input type="checkbox" checked={useWl} onChange={e => setUseWl(e.target.checked)}
+                 style={{ accentColor: "#2b6cff" }} />
+          Use my watchlist
+        </label>
+
+        <div>
+          <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>RISK</div>
+          <select value={riskOver} onChange={e => setRiskOver(e.target.value)}
+                  style={{ padding: "8px 10px", background: "#0f1e35", border: `1px solid ${BB_BORD}`,
+                           borderRadius: 6, color: "#fff", fontSize: 13 }}>
+            <option value="conservative">Conservative</option>
+            <option value="moderate">Moderate</option>
+            <option value="aggressive">Aggressive</option>
+          </select>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>STRATEGY</div>
+          <select value={styleOver} onChange={e => setStyleOver(e.target.value)}
+                  style={{ padding: "8px 10px", background: "#0f1e35", border: `1px solid ${BB_BORD}`,
+                           borderRadius: 6, color: "#fff", fontSize: 13 }}>
+            <option value="momentum">Momentum</option>
+            <option value="flow">Options Flow</option>
+            <option value="breakout">Breakout</option>
+            <option value="reversal">Reversal</option>
+            <option value="mixed">Mixed</option>
+            <option value="swing">Swing</option>
+          </select>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, color: "#5a7fa0", marginBottom: 4 }}>MIN SCORE</div>
+          <input
+            type="number" min={0} max={100}
+            value={minScore}
+            onChange={e => setMinScore(Number(e.target.value))}
+            style={{ width: 80, padding: "8px 10px", background: "#0f1e35",
+                     border: `1px solid ${BB_BORD}`, borderRadius: 6, color: "#fff", fontSize: 13 }}
+          />
+        </div>
+
+        <button
+          onClick={run} disabled={loading}
+          style={{ padding: "9px 22px", background: loading ? "#1a2a4a" : "#1a4fff",
+                   border: "none", borderRadius: 7, color: "#fff", fontWeight: 700,
+                   fontSize: 14, cursor: loading ? "default" : "pointer", marginBottom: 0,
+                   letterSpacing: 0.5 }}>
+          {loading ? "Scoring…" : "⚡ Run"}
+        </button>
+      </div>
+
+      {/* Error */}
+      {err && (
+        <div style={{ background: "#2a0d0d", border: "1px solid #5a1a1a", borderRadius: 8,
+                      padding: "10px 14px", color: "#ff6b6b", fontSize: 13, marginBottom: 14 }}>
+          {err}
+        </div>
+      )}
+
+      {/* Profile bar */}
+      {result && (
+        <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
+                      marginBottom: 14, fontSize: 12, color: "#5a7fa0" }}>
+          <span>Scored <b style={{ color: "#8fb0d0" }}>{result.total_scored}</b> tickers</span>
+          <span>→ <b style={{ color: "#00ff9d" }}>{result.total_matched}</b> matched (min {result.profile_used.min_score})</span>
+          <span style={{ marginLeft: "auto", background: "#0a1220", border: `1px solid ${BB_BORD}`,
+                         borderRadius: 6, padding: "3px 10px" }}>
+            {result.profile_used.style} · {result.profile_used.risk}
+          </span>
+        </div>
+      )}
+
+      {/* Cards */}
+      {result && result.signals.length === 0 && (
+        <div style={{ textAlign: "center", color: "#4a6080", padding: 40, fontSize: 14 }}>
+          No tickers scored above {result.profile_used.min_score} — try lowering Min Score or adding more tickers.
+        </div>
+      )}
+
+      {result && result.signals.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {result.signals.map(s => {
+            const badge = regimeBadge(s.regime);
+            const c     = sigColor(s);
+            return (
+              <div key={s.ticker}
+                   style={{ background: BB_CARD, border: `1px solid ${s.signal === "bullish" ? "#0d3a22" : s.signal === "bearish" ? "#3a0d0d" : BB_BORD}`,
+                            borderRadius: 12, padding: 16 }}>
+                {/* Top row */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: c, letterSpacing: 1 }}>
+                      {s.ticker}
+                      {s.in_watchlist && <span style={{ fontSize: 11, marginLeft: 6, color: "#5ea0ff" }}>★</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#5a7fa0", marginTop: 2 }}>
+                      {s.strategy} · {s.signal_type}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: c }}>{s.score}</div>
+                    <div style={{ fontSize: 10, color: "#5a7fa0" }}>score</div>
+                  </div>
+                </div>
+
+                {/* Score bar */}
+                <ScoreBar value={s.score} color={c} />
+
+                {/* Probability + regime */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+                  <div style={{ fontSize: 13, color: "#d0e0f0" }}>
+                    {(s.probability * 100).toFixed(0)}% probability
+                  </div>
+                  <div style={{ background: badge.bg, color: badge.fg, fontSize: 10, fontWeight: 700,
+                                padding: "2px 8px", borderRadius: 4, letterSpacing: 0.5 }}>
+                    {badge.label}
+                  </div>
+                </div>
+
+                {/* Component bars */}
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 5 }}>
+                  {(["momentum", "flow", "volatility"] as const).map(k => (
+                    <div key={k}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#5a7fa0" }}>
+                        <span>{k}</span><span>{s.components[k].toFixed(0)}</span>
+                      </div>
+                      <ScoreBar value={s.components[k]}
+                                color={k === "momentum" ? "#2b6cff" : k === "flow" ? "#a855f7" : "#f59e0b"} />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Footer */}
+                <div style={{ marginTop: 10, fontSize: 10, color: "#3a5070", borderTop: `1px solid #0f1e35`, paddingTop: 7 }}>
+                  Risk: {s.risk_level} · weight ×{s.weight_used.toFixed(2)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!result && !loading && !err && (
+        <div style={{ textAlign: "center", color: "#3a5070", padding: "50px 20px", fontSize: 13 }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>⚡</div>
+          Enter tickers above (or enable "Use my watchlist") and click <b style={{ color: "#5a7fa0" }}>Run</b> to score them against your profile.
+          {!byokToken && (
+            <div style={{ marginTop: 12, color: "#ff6b6b", fontSize: 12 }}>
+              You need an API key — go to Settings → API Keys first.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Quant Agent Chat Tab ------------------------------------------------
 
 const POLL_INTERVAL_MS = 3000;
@@ -15032,7 +15298,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -15216,6 +15482,7 @@ export default function Dashboard() {
     { id: "steadygrinder",  label: "🔄 STEADY GRINDERS" },
     { id: "gapvolume",      label: "⚡ GAP+VOL SIGNAL" },
     { id: "quantagent",     label: "🤖 QUANT AGENT" },
+    { id: "gasboard",       label: "⚡ GAS BOARD" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -17283,6 +17550,7 @@ export default function Dashboard() {
         })()}
 
         {tab === "quantagent" && <QuantAgentTab />}
+        {tab === "gasboard"   && <GasBoardTab byokToken={byokToken} />}
 
       </div>
       </main>

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AEMI Gas Board</title>
+  <style>
+    body {
+      background: #0b0f1a;
+      color: white;
+      font-family: Arial;
+      margin: 0;
+      padding: 0;
+    }
+
+    .header {
+      padding: 20px;
+      font-size: 22px;
+      font-weight: bold;
+      background: #11182a;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      padding: 15px;
+      background: #0f1525;
+    }
+
+    select, input, button {
+      padding: 10px;
+      background: #1b2540;
+      color: white;
+      border: none;
+      border-radius: 6px;
+    }
+
+    button {
+      cursor: pointer;
+      background: #2b6cff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      padding: 15px;
+    }
+
+    .card {
+      background: #121a2e;
+      padding: 15px;
+      border-radius: 10px;
+      border: 1px solid #1f2a44;
+    }
+
+    .score {
+      font-size: 28px;
+      font-weight: bold;
+    }
+
+    .bullish {
+      color: #00ff9d;
+    }
+
+    .bearish {
+      color: #ff4d4d;
+    }
+
+    .meta {
+      font-size: 12px;
+      opacity: 0.7;
+      margin-top: 8px;
+    }
+
+    .label {
+      font-size: 12px;
+      opacity: 0.6;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="header">
+  ⚡ AEMI GAS BOARD — LIVE PROBABILITY ENGINE
+</div>
+
+<div class="controls">
+
+  <select id="risk">
+    <option value="conservative">Conservative</option>
+    <option value="balanced">Balanced</option>
+    <option value="aggressive">Aggressive</option>
+  </select>
+
+  <select id="strategy">
+    <option value="momentum">Momentum</option>
+    <option value="flow">Options Flow</option>
+    <option value="breakout">Breakout</option>
+    <option value="mixed">Mixed</option>
+  </select>
+
+  <input id="minScore" placeholder="Min Score (e.g. 75)" />
+
+  <input id="tickers" placeholder="Tickers (NVDA,TSLA,AAPL)" />
+
+  <button onclick="runAEMI()">Run AEMI</button>
+</div>
+
+<div class="grid" id="results"></div>
+
+<script>
+async function runAEMI() {
+
+  const risk = document.getElementById("risk").value;
+  const strategy = document.getElementById("strategy").value;
+  const minScore = parseInt(document.getElementById("minScore").value || "70");
+  const tickers = document.getElementById("tickers").value.split(",");
+
+  const res = await fetch("http://localhost:8000/aemi/signal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: "demo",
+      risk_level: risk,
+      strategy: strategy,
+      min_score: minScore,
+      watchlist_only: true,
+      tickers: tickers
+    })
+  });
+
+  const data = await res.json();
+
+  const container = document.getElementById("results");
+  container.innerHTML = "";
+
+  data.signals.forEach(s => {
+
+    const div = document.createElement("div");
+    div.className = "card";
+
+    div.innerHTML = `
+      <div class="label">${s.strategy} • ${s.regime}</div>
+      <div class="score ${s.signal === "bullish" ? "bullish" : "bearish"}">
+        ${s.ticker} ${s.score}
+      </div>
+      <div>Probability: ${(s.probability * 100).toFixed(1)}%</div>
+      <div class="meta">
+        Risk: ${s.risk_level} | Signal: ${s.signal}
+      </div>
+    `;
+
+    container.appendChild(div);
+  });
+}
+</script>
+
+</body>
+</html>

@@ -53720,6 +53720,164 @@ def user_score_signals():
         "capped_at": cap,
         "signals": capped,
     })
+
+
+@app.route("/stock-api/user/gas-board", methods=["POST"])
+def user_gas_board():
+    """
+    Gas Board — score a set of tickers against a subscriber's live profile.
+    Pulls real DB data (polygon_rvol_scan + call_sweep_log) to compute
+    momentum / flow / volatility component scores, then runs the full
+    personalized scoring pipeline (strategy × risk × regime × adaptive weight).
+
+    Body: { subscriber_token, tickers?: [...], risk_override?, style_override?, min_score_override? }
+    If tickers is omitted, the subscriber's saved watchlist is used.
+    """
+    import psycopg2 as _bpg
+    body  = request.get_json(silent=True) or {}
+    token = (body.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            if not cur.fetchone():
+                return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    prefs   = _sub_get_prefs(token)
+    weights = _sub_get_weights(token)
+
+    # Allow one-shot overrides (for the Gas Board controls) without saving to DB
+    if body.get("risk_override")  in ("conservative", "moderate", "aggressive"):
+        prefs["risk_level"]          = body["risk_override"]
+    if body.get("style_override") in _SUB_SIGNAL_TYPES + ["breakout", "mixed", "swing", "scalp"]:
+        prefs["preferred_style"]     = body["style_override"]
+    if isinstance(body.get("min_score_override"), (int, float)):
+        prefs["min_score_threshold"] = max(0, min(100, int(body["min_score_override"])))
+
+    # Resolve ticker list: explicit body list → watchlist → empty
+    raw_tickers = body.get("tickers") or []
+    if not raw_tickers:
+        raw_tickers = _sub_get_watchlist(token)
+    tickers = list({t.upper().strip()[:10] for t in raw_tickers
+                    if isinstance(t, str) and t.strip().isalpha()})[:50]
+    if not tickers:
+        return jsonify({"error": "No tickers provided and watchlist is empty"}), 400
+
+    # ── Pull stored DB scores for each ticker ─────────────────────────────────
+    # momentum  ← polygon_rvol_scan: rvol + pct_change (last available day)
+    # flow      ← call_sweep_log: recent sweeps + vol/OI ratio (last 7 days)
+    # volatility ← pct_change range in rvol scan (last 5 days)
+    ticker_data: dict = {t: {"momentum": 50.0, "flow": 50.0, "volatility": 50.0, "signal_type": prefs["preferred_style"]} for t in tickers}
+
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            # Momentum: map rvol 1x→40 3x→70 5x+→90, blend with pct_change direction
+            _tpl = ",".join(["%s"] * len(tickers))
+            cur.execute(f"""
+                SELECT ticker, rvol, pct_change
+                FROM polygon_rvol_scan
+                WHERE ticker IN ({_tpl})
+                  AND scan_date >= CURRENT_DATE - INTERVAL '2 days'
+                ORDER BY scan_date DESC
+            """, tickers)
+            _seen_rvol: set = set()
+            for row in cur.fetchall():
+                tk, rvol, pct = row[0], float(row[1] or 1.0), float(row[2] or 0.0)
+                if tk in _seen_rvol:
+                    continue
+                _seen_rvol.add(tk)
+                # rvol → 0-100: 1x=40, 2x=60, 3x=75, 5x=88, 10x=98
+                _mom = min(98, 40 + (rvol - 1.0) * 15) if rvol >= 1 else 30
+                # Bias upward on positive price change
+                if pct > 2:   _mom = min(100, _mom + 10)
+                elif pct < -2: _mom = max(10, _mom - 8)
+                ticker_data[tk]["momentum"] = round(_mom, 1)
+
+            # Flow: recent call sweeps → 0-100
+            cur.execute(f"""
+                SELECT ticker,
+                       COUNT(*) AS sweep_count,
+                       AVG(COALESCE(vol_oi, 1.0)) AS avg_voi,
+                       MAX(COALESCE(premium, 0)) AS max_prem
+                FROM call_sweep_log
+                WHERE ticker IN ({_tpl})
+                  AND last_seen >= NOW() - INTERVAL '7 days'
+                GROUP BY ticker
+            """, tickers)
+            for row in cur.fetchall():
+                tk, cnt, voi, prem = row[0], int(row[1] or 0), float(row[2] or 1.0), float(row[3] or 0)
+                # 0 sweeps = 35, 1=55, 3=70, 5+=85, very high premium bumps further
+                _flow = min(95, 35 + cnt * 10)
+                if voi > 5:  _flow = min(95, _flow + 8)
+                if prem > 500_000: _flow = min(95, _flow + 5)
+                ticker_data[tk]["flow"] = round(_flow, 1)
+
+            # Volatility: std of pct_change over last 5 rvol days → 0-100
+            cur.execute(f"""
+                SELECT ticker, STDDEV(pct_change) AS vol_std
+                FROM polygon_rvol_scan
+                WHERE ticker IN ({_tpl})
+                  AND scan_date >= CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY ticker
+            """, tickers)
+            for row in cur.fetchall():
+                tk, std = row[0], float(row[1] or 1.5)
+                # std 0-1% → 30, 2% → 55, 4% → 75, 7%+ → 95
+                _vol = min(95, 30 + std * 9)
+                ticker_data[tk]["volatility"] = round(_vol, 1)
+    except Exception as _e:
+        print(f"[gas-board] DB fetch error: {_e}")
+
+    # ── Apply personalized scoring (same logic as /user/signal) ──────────────
+    _RISK_MULT  = {"conservative": 0.90, "moderate": 1.0, "aggressive": 1.05}
+    _STRAT_MULT = {"momentum": 1.10, "flow": 1.05, "breakout": 1.08,
+                   "reversal": 1.05, "mixed": 1.0, "swing": 1.0, "scalp": 1.0}
+    wl = set(_sub_get_watchlist(token))
+
+    results = []
+    for tk, td in ticker_data.items():
+        m, f, v = td["momentum"], td["flow"], td["volatility"]
+        avg = (m + f + v) / 3.0
+        regime = "trend" if avg > 70 else ("neutral" if avg > 50 else "chop")
+
+        base = m * 0.4 + f * 0.4 + v * 0.2
+        base *= _STRAT_MULT.get(prefs["preferred_style"], 1.0)
+        base *= _RISK_MULT.get(prefs["risk_level"], 1.0)
+        if regime == "trend":  base *= 1.10
+        elif regime == "chop": base *= 0.85
+        sig_type = td["signal_type"]
+        base *= weights.get(sig_type, _SUB_DEFAULT_WEIGHT)
+
+        score = min(100, max(0, round(base / 1.2)))
+        if score < prefs["min_score_threshold"]:
+            continue
+
+        results.append({
+            "ticker":       tk,
+            "score":        score,
+            "regime":       regime,
+            "signal_type":  sig_type,
+            "strategy":     prefs["preferred_style"],
+            "risk_level":   prefs["risk_level"],
+            "probability":  round(score / 100.0, 2),
+            "signal":       "bullish" if score > 70 else ("bearish" if score < 40 else "neutral"),
+            "components":   {"momentum": m, "flow": f, "volatility": v},
+            "weight_used":  round(weights.get(sig_type, _SUB_DEFAULT_WEIGHT), 3),
+            "in_watchlist": tk in wl,
+        })
+
+    results.sort(key=lambda x: -x["score"])
+    cap = prefs["max_alerts_per_day"]
+    return jsonify({
+        "total_scored":  len(ticker_data),
+        "total_matched": len(results),
+        "capped_at":     cap,
+        "profile_used":  {"style": prefs["preferred_style"], "risk": prefs["risk_level"], "min_score": prefs["min_score_threshold"]},
+        "signals":       results[:cap],
+    })
 # ─────────────────────────────────────────────────────────────────────────────
 
 
