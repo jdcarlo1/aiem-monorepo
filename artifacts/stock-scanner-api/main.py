@@ -14148,6 +14148,50 @@ def _get_conviction_seed_accum(days_back: int = 3) -> list:
     return out
 
 
+def _get_fragility_crowding_penalties(tickers: list) -> dict:
+    """
+    Layer 10 - Fragility & Crowding Index.
+
+    A ticker that has appeared in the conviction engine's top results for multiple
+    consecutive days is increasingly 'consensus' — visible to every scanner
+    user/subscriber. The 'surprise' edge erodes as crowding grows.
+
+    Input: repeat_days = COUNT(DISTINCT snap_date) from conviction_stack_watchlist
+           in the last 14 trading days for each ticker (single SQL batch query).
+
+    Penalty tiers (design choices — no empirical backtest cited, flagged for audit):
+      repeat_days >= 5  ->  penalty = -1.0 pts  (one full trading week = stale play)
+      repeat_days >= 3  ->  penalty = -0.5 pts  (mid-week stale = moderately crowded)
+      repeat_days <  3  ->  penalty =  0.0 pts  (fresh; no penalty, no log)
+
+    Returns {ticker: {"repeat_days": int, "penalty_pts": float}}
+    for every ticker that has repeat_days >= 1 (zeros omitted to keep dict small).
+    """
+    if not tickers:
+        return {}
+    try:
+        import psycopg2 as _pg10, os as _os10
+        with _pg10.connect(_os10.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, COUNT(DISTINCT snap_date) AS repeat_days
+                FROM conviction_stack_watchlist
+                WHERE snap_date >= CURRENT_DATE - INTERVAL '14 days'
+                  AND ticker = ANY(%s)
+                GROUP BY ticker
+                HAVING COUNT(DISTINCT snap_date) >= 1
+            """, (tickers,))
+            rows = cur.fetchall()
+    except Exception as _exc:
+        print(f"[_get_fragility_crowding_penalties] DB error: {_exc}")
+        return {}
+
+    result = {}
+    for ticker, repeat_days in rows:
+        penalty = -1.0 if repeat_days >= 5 else -0.5 if repeat_days >= 3 else 0.0
+        result[ticker] = {"repeat_days": int(repeat_days), "penalty_pts": penalty}
+    return result
+
+
 def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> list:
     """
     Master 5-layer conviction scanner. Runs all signal layers and returns
@@ -14409,6 +14453,28 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
                     heat_score=heat,
                     lead_tickers=hs["lead_tickers"],
                     pts=pts,
+                )
+
+    # ── Layer 10: Fragility & Crowding Index ──────────────────────────────────
+    try:
+        import decision_logging_helper as _dlh_l10
+    except Exception as _dlh_l10_exc:
+        print(f"[L10] decision_logging_helper import failed: {_dlh_l10_exc}")
+        _dlh_l10 = None
+    _l10_penalties = _get_fragility_crowding_penalties(list(scores.keys()))
+    for tk, l10 in _l10_penalties.items():
+        penalty = l10["penalty_pts"]
+        repeat_days = l10["repeat_days"]
+        if penalty < 0.0 and tk in scores:
+            total_pts_before = sum(scores[tk]["pts"].values())
+            scores[tk]["pts"]["fragility_penalty"] = penalty
+            scores[tk]["meta"]["crowding_repeat_days"] = repeat_days
+            if _dlh_l10:
+                _dlh_l10.log_fragility_crowding_decision(
+                    ticker=tk,
+                    repeat_days=repeat_days,
+                    penalty_pts=penalty,
+                    total_pts_before=total_pts_before,
                 )
 
     # ── Build ranked results ───────────────────────────────────────────────────

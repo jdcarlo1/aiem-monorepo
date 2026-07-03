@@ -1,0 +1,41 @@
+# L10 — Fragility & Crowding Index: Scoping, Wiring, and Verification
+
+L1–L9 are closed. L10 is different in kind from L1–L9, so don't just copy the L1–L9 template blindly — scope it first, then build, then verify with the same rigor.
+
+## Part 1 — Scope before building
+
+L10 answers a different question than L1–L9. L1–L9 ask "how strong is this setup?" L10 asks "how crowded/fragile is this trade already — i.e. how much of the move is already played out or over-owned?" That's a risk/discount signal, not another conviction-add signal. Before writing code, answer explicitly:
+
+1. **What does L10 actually measure?** State the specific inputs (e.g. days since signal first fired, how many other layers already fired on this ticker, options volume relative to float, repeat-appearance frequency in recent scans — whatever the intended crowding proxy is). Don't let this stay vague.
+
+2. **Does L10 add to conviction, or subtract from it?** Every other layer (L1–L9) adds points. A fragility/crowding index should logically *reduce* confidence or *flag* a trade, not add to `total_pts` the same way. Decide explicitly: is this a penalty applied to the existing L1–L8 score, a separate flag/label surfaced alongside conviction, or something else? State the mechanism before implementing it.
+
+3. **Which function(s) does it wire into — and does that include the customer-facing conviction score this time?**
+   This is the direct lesson from L9: L9 turned out to be intentionally excluded from `_run_five_layer_conviction()` (the function that actually produces what a subscriber sees), and that wasn't discovered until specifically asked. For L10, answer this **before** building, not after:
+   - Should L10 modify `total_pts` / `conviction_pct` in `_run_five_layer_conviction()`? If yes, wire it in from the start.
+   - If L10 is meant to be a separate signal (like L9 currently is), state that plainly upfront, and confirm that's an intentional design choice, not a default you're drifting into.
+   - List every call site L10 should feed (dashboard, Telegram/email alerts, AI Trades tab, AI Short Calls tab, paper trading) and mark explicitly which ones it does and does not touch.
+
+## Part 2 — Build with the same discipline as L1–L9
+
+Once scope is settled:
+
+- Any tier/threshold constants must be traceable to a stated rationale — flag anything invented or "tuned" with no cited source, the same way the L9 `_WEIGHTS` and jump_risk constants were flagged.
+- Logging must be structurally gate-safe: the log call sits inside the same loop/dict that computes the L10 value, not a separate pass.
+- No silent scope creep — if L10 turns out to need a third call site not listed in Part 1, stop and flag it rather than wiring it in unannounced.
+
+## Part 3 — Verification (do not skip, do not summarize)
+
+Once implemented, verify with the same evidence bar used throughout this audit:
+
+1. **Full call trace** for every site L10 was wired into (per Part 1's list) — show exact function chain, same format as prior trace reports.
+2. **Gate-vs-scoring table** — every threshold, its value, its source.
+3. **Before/after row counts** matching batch size, clean exception grep, 5 newest rows with boundary cases annotated.
+4. **Boundary-case coverage** for every tier/threshold.
+5. **Cross-layer integration check — this is the new part, don't skip it:**
+   - Confirm whether L10 changes `total_pts` / `conviction_pct` output for a known test case, before and after L10 is wired in. Show the actual before/after conviction score for at least 2-3 real or synthetic tickers.
+   - If L10 is meant to be a penalty/discount, prove it actually reduces the score for a crowded/fragile case and leaves an uncrowded case unchanged — don't just show it computes a number, show it changes the right things and doesn't change the wrong things.
+   - Explicitly state, the same way Item 1 was resolved for L9: does the customer-facing conviction score include L10 or not? Don't leave this implicit.
+6. **Final status table update** in the same Layer/Status/Notes format, with L10 added and any "unvalidated but not blocking" constants listed for the permanent record.
+
+**Do not mark L10 VERIFIED until Part 3, item 5 is answered explicitly with raw output — this is the exact gap that made L9's first verification incomplete.**

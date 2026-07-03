@@ -13,6 +13,44 @@ failure NEVER propagates into the scanner that called it.
 import decision_logger as dl
 
 
+def log_fragility_crowding_decision(ticker: str, repeat_days: int,
+                                    penalty_pts: float, total_pts_before: float):
+    """Log an L10 Fragility & Crowding penalty event to agent_decisions.
+
+    Only called when a penalty is actually applied (repeat_days >= 3).
+    Confidence reflects certainty of crowding, not trade conviction:
+      repeat_days>=5 -> 0.85 (full trading week of appearances = stale play)
+      repeat_days>=3 -> 0.72 (mid-week stale = moderately crowded)
+
+    Threshold rationale: 5d = one trading week (qualitative "stale play"
+    horizon); 3d = midweek fatigue. Both are design choices with no cited
+    empirical backtest — flagged for the permanent audit record.
+
+    decision_type='no_trade': L10 signals reduced conviction, not an entry.
+    """
+    try:
+        confidence = 0.85 if repeat_days >= 5 else 0.72
+        reasoning = (
+            f"L10 Fragility & Crowding penalty applied to {ticker}: "
+            f"appeared {repeat_days} distinct days in conviction engine over "
+            f"the last 14 trading days. total_pts before penalty={total_pts_before:.1f}, "
+            f"penalty={penalty_pts:.1f} pts. "
+            f"Threshold: >=5d=stale play (-1.0pts); >=3d=moderately stale (-0.5pts). "
+            f"Penalty reduces customer-facing conviction_pct to reflect crowding risk. "
+            f"Thresholds are design choices (no empirical backtest cited)."
+        )
+        dl.log_decision(
+            signal_name="fragility_crowding",
+            decision_type="no_trade",
+            reasoning=reasoning,
+            ticker=ticker,
+            direction="long",
+            confidence=confidence,
+        )
+    except Exception as _exc:
+        print(f"[log_fragility_crowding_decision] {type(_exc).__name__}: {_exc}")
+
+
 def log_stat_edge_decision(ticker: str, stat9_score: float, regime: str,
                            vpin: float, jump_detected: bool, source: str):
     """Log a Layer 9 Statistical Edge computation to agent_decisions.
