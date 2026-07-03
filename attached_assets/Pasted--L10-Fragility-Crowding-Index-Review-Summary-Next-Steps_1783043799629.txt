@@ -1,0 +1,38 @@
+# L10 Fragility & Crowding Index — Review Summary & Next Steps
+
+## Status: L10 VERIFIED ✅
+
+Reviewed the Part 3 verification output for Layer 10 (Fragility & Crowding Index). Evidence checks out:
+
+- All 7 boundary/tier test cases matched expected values exactly, including edge cases at the 3-day and 5-day thresholds (repeat_days ≥5 → -1.0, ≥3 → -0.5, <3 → 0.0).
+- All 3 assertions passed (crowded ticker penalized, stale ticker penalized, fresh ticker unchanged).
+- Row counts before/after matched the penalty case count exactly (0 → 4, matching 4 penalty cases).
+- Exception grep returned clean (zero matches).
+- Full call trace confirms the penalty actually flows into `total_pts` / `conviction_pct` and the HIGH→MODERATE label change — it's wired into what customers see (dashboard, EOD email, Telegram), not just computed and discarded.
+- Agent was upfront about a real limitation: live watchlist currently only has 3 rows, so L10 will apply zero penalties in production until conviction stack runs accumulate 3+ consecutive days on a ticker. This is a known data-volume gap, not a bug.
+
+## Flagged but not blocking
+
+L9 (Statistical Edge) weights and thresholds (`_WEIGHTS` dict, `jump_risk`, repeat-day thresholds) are qualitative design choices with **no empirical backtest**. Not an L10 issue, but worth deciding before commercial launch whether to backtest or clearly document as a heuristic rather than a statistically derived model — especially at a $150/month price point.
+
+## Instructions for the agent
+
+Please answer the following before we proceed:
+
+1. **What exactly are items 8 and 12** from the open scope list? Please restate each item's description/requirements in full — the earlier message only referenced them by number without detail.
+2. For each of the two, confirm: is it a bug fix, a new feature, or a verification/audit task?
+3. Any dependencies between these items and the L10 work just completed?
+
+## Item 7 — Sector Rotation Detector — VERIFICATION REQUIRED
+
+We now have the spec for Module 7 (Sector Rotation Detector), but **no evidence it has actually been built, deployed, and verified** — following the same "prove it, don't tell me" standard used for L10. Do not report this as done without raw output for each of the following:
+
+1. **Code exists and runs.** Show the file path(s) and a terminal run of the module against real (or realistic test) sector ETF data — not a description, actual output.
+2. **Data source confirmed.** Confirm Polygon is actually being queried for the sector ETF universe (XLK, SMH, etc.) — show a raw API response or DB write, not just "it's wired to Polygon."
+3. **Tiered-confidence logic verified.** Show test cases exercising all three tiers (early move → developing trend → confirmed rotation), including the exact thresholds/day-counts separating each tier — same style as the L10 boundary tests (repeat_days ≥3, ≥5, etc.).
+4. **Telegram alert confirmed firing.** Show an actual delivered Telegram message (or the exact payload sent) for at least one tier — not just "wired to the same channel as AIEM."
+5. **Conviction-weighting integration confirmed.** This is the critical cross-module link: show that a heating/cooling sector state actually up-weights or down-weights a real conviction score feeding into the Fragility & Crowding (L10) layer — trace the call path the same way L10's `_run_five_layer_conviction()` was traced. Confirm which function reads sector state and where it modifies the score.
+6. **Row/data checks.** How many sector ETFs are currently tracked? How many days of data exist? Is there enough data yet for the tiered signal to produce anything beyond "early move" (same data-volume caveat as L10 — flag if applicable)?
+7. **Exception/error check.** Run the same clean exception grep used for L10 and report the result.
+
+Once item 7 is verified and items 8 and 12 are defined, we'll decide what to prioritize next.
