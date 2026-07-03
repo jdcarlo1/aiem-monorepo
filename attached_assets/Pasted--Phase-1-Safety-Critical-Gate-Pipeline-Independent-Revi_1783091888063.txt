@@ -1,0 +1,76 @@
+# Phase 1 Safety-Critical Gate Pipeline — Independent Review Follow-Up
+
+**Reviewed by:** Second-pass verification (Claude), against Phase 1 Six-Layer report
+**Baseline commit reviewed:** `c95006bacfa55497f0d39caa90e808a9cd7420c2` — 2026-07-03 14:39:26 +0000
+**Standard applied:** Findings only count as resolved if backed by raw terminal output, SQL query results, or equivalent behavioral proof — not agent self-report.
+
+---
+
+## Overall Read
+
+Six modules were audited. Four are clean with no material gaps. Two open items — both already flagged by the original audit, not new — need re-verification before this pipeline is trusted for anything beyond paper trading. Nothing in the original report appears fabricated or overstated; the "WIRED"/"INTEGRATED" labels are accurately scoped to what was actually tested. The items below are what still needs a harder look.
+
+---
+
+## ✅ Verified Clean — No Action Needed
+
+| Module | Verdict | Evidence |
+|---|---|---|
+| `daily_loss_limit.py` | WIRED, unconditional | `premarket_open_trader.py:216`, hard-blocks via `hard_blockers.append()`, fires on every ticker, scheduler Mon–Fri 9:52 AM ET, no flag required. Test: -2.5% loss vs 2.0% limit → `halt_trading=True`. |
+| `earnings_calendar.py` | WIRED, unconditional | First check in `evaluate_ticker()`, structurally in the code path (not agent-instruction-gated). Test: earnings 1 day out → `avoid=True`, hard block appended. |
+| `portfolio_correlation_risk.py` | WIRED, unconditional | Fires for every ticker in `evaluate_ticker()`. Test: 3/3 positions in same correlation group → `concentration_risk_flag=True`, hard block appended. |
+| `order_dedup.py` | WIRED, conditional by design | Only reached when `decision == "enter_now"` AND `decision_id` is set — this is intentional, not a gap. Test: duplicate `should_place_order()` call correctly returns `False` after first placement. Fail-safe direction confirmed correct (failure to log = skip, not duplicate). |
+
+**Nothing to re-verify here** — these were demonstrated with raw before/after output, not self-report.
+
+---
+
+## 🔴 Open Item 1 — Kill Switch Not in the Structural Gate Chain
+
+**Claim in report:** "WIRED (via AIEM tool, instruction-gated)"
+
+**What's actually true:** `premarket_open_trader.evaluate_ticker()` runs 6 hard gates. None of them is `kill_switch`. The only way `kill_switch` gets checked during the premarket flow is indirectly, via `pre_decision_risk_gate.py:224` calling `kill_switch._is_currently_halted()` internally — but `pre_decision_risk_gate` is itself only invoked if the AIEM agent chooses to call that tool. The standalone `check_kill_switch` tool is instruction-gated only (`main.py:30867` system prompt tells the agent to call it — nothing in code forces it).
+
+**Why this matters:** A ticker can pass all 6 hard gates and get a paper pick written at 9:52 AM without kill_switch ever being consulted, if the AIEM agent isn't running or skips the tool call at that moment.
+
+**What to ask for:**
+1. Confirm whether `pre_decision_risk_gate` (and therefore the internal kill_switch check) is unconditionally called somewhere in the premarket execution path, or only on agent discretion. If only on discretion, that's the actual gap.
+2. If it's discretion-only, request kill_switch be added as a **7th hard gate** directly inside `evaluate_ticker()`, structurally — same pattern as `daily_loss_limit` or `earnings_calendar` — so it can't be skipped regardless of what the AIEM agent does.
+3. Ask for a repeat of the isolated gate-block test but run *through the actual premarket execution path* (not a hand-constructed `check_kill_switch(...)` call) to prove reachability, not just correctness in isolation.
+
+---
+
+## 🔴 Open Item 2 — Risk Gate Hard-Block May Depend on LLM Availability
+
+**Claim in report:** "WIRED — INTEGRATED WITH GAPS"
+
+**What's actually true:** Test case WR=30%, n=10, conviction=0.2 — a deliberately weak signal — returned `APPROVED_WITH_CAUTION`, not `BLOCKED`, when run with no `ANTHROPIC_API_KEY` set (rule-based layers only). The devil's-advocate LLM pass was unavailable in that test.
+
+**Why this matters:** If the LLM pass is what actually produces hard blocks, then losing the API key in production silently downgrades this gate from a hard block to advisory-only — with no visible failure, no alert, just weaker gating.
+
+**What to ask for:**
+1. Re-run the identical test (WR=30%, n=10, conviction=0.2) **with a valid `ANTHROPIC_API_KEY` set**, to see if the LLM pass produces `BLOCKED` where the rule-based-only path produced `APPROVED_WITH_CAUTION`.
+2. If yes — confirm explicitly whether rule-based thresholds alone are intended to ever hard-block anything, or whether the LLM pass is a hard dependency for blocking. If it's a hard dependency, request either (a) rule-based thresholds tightened so a weak-enough signal blocks without the LLM, or (b) the system fails safe (blocks, not just cautions) when the API key is missing, rather than silently degrading.
+3. Ask for a log/alert to be added for "devil's advocate pass unavailable" events, so this degradation isn't invisible if it happens live.
+
+---
+
+## 🟡 Known Gap, Already Flagged, Confirm Fix Timeline
+
+**`position_reconciler.py`** — reconciliation logic itself is correct and unconditionally wired into the gate chain, but it compares against `mock_position_source()`, a hardcoded list (`[{"ticker":"AAPL","qty":10}]`), not a live broker feed. The report already flags this for Phase 2 (`execution.py`). No action needed now beyond confirming that's still the plan and it isn't accidentally left on mock data once `execution.py` ships.
+
+---
+
+## Schema Bug Caught Mid-Audit — Confirm It's Actually Fixed
+
+During the audit, Gate 3 failed because `reconciliation_log.checked_at` had no `DEFAULT` in the live table. The agent patched it and re-ran downstream gates. **Ask for explicit confirmation that this schema fix was applied to the live/production table**, not just the isolated test harness used to re-run the gate — a fix that only lives in a test script won't help you in production.
+
+---
+
+## Summary — What to Send Back
+
+> "Two things need harder proof before Phase 1 is fully trusted:
+> 1. Show kill_switch is reachable through the actual premarket execution path unconditionally — not just correct when called directly in isolation.
+> 2. Re-run the risk gate test with a live Anthropic API key and confirm whether hard-blocking is LLM-dependent. If it is, either tighten rule-based thresholds or fail closed when the key is missing.
+> 
+> Also confirm the `reconciliation_log.checked_at` DEFAULT fix landed in the live schema, not just the test harness."

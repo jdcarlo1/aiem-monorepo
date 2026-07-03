@@ -246,20 +246,32 @@ def run_risk_gate(
         reasons.extend(rule_flags)
 
     # 4. Devil's advocate pass
-    devils_advocate = devils_advocate_pass(ticker, signal_name, reasoning, conviction_score)
-    if devils_advocate.get("error"):
-        # A technical failure calling the API (timeout, rate limit, auth
-        # error, etc.) is NOT the same thing as a legitimate high-severity
-        # opinion from the LLM — this pick was never actually reviewed.
-        # Fail closed: block, don't just caution, so an API outage can't
-        # let an unreviewed pick through as merely "proceed with caution."
-        blocking_reasons.append(
-            f"Devil's advocate check could not run (API error): {devils_advocate.get('strongest_objection')}"
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print(
+            f"[pre_decision_risk_gate] WARNING: ANTHROPIC_API_KEY not set — "
+            f"devil's advocate LLM review unavailable. Failing closed for {ticker}/{signal_name}."
         )
-    elif devils_advocate.get("severity") == "high":
-        reasons.append(f"Devil's advocate (high severity): {devils_advocate.get('strongest_objection')}")
-    elif devils_advocate.get("severity") == "moderate":
-        reasons.append(f"Devil's advocate (moderate): {devils_advocate.get('strongest_objection')}")
+        blocking_reasons.append(
+            "Devil's advocate LLM review unavailable (ANTHROPIC_API_KEY not set). "
+            "Failing closed: picks require LLM review before approval. "
+            "Set ANTHROPIC_API_KEY to restore normal gating."
+        )
+        devils_advocate = {"severity": "unavailable", "strongest_objection": "API key not set"}
+    else:
+        devils_advocate = devils_advocate_pass(ticker, signal_name, reasoning, conviction_score)
+        if devils_advocate.get("error"):
+            # A technical failure calling the API (timeout, rate limit, auth
+            # error, etc.) is NOT the same thing as a legitimate high-severity
+            # opinion from the LLM — this pick was never actually reviewed.
+            # Fail closed: block, don't just caution, so an API outage can't
+            # let an unreviewed pick through as merely "proceed with caution."
+            blocking_reasons.append(
+                f"Devil's advocate check could not run (API error): {devils_advocate.get('strongest_objection')}"
+            )
+        elif devils_advocate.get("severity") == "high":
+            reasons.append(f"Devil's advocate (high severity): {devils_advocate.get('strongest_objection')}")
+        elif devils_advocate.get("severity") == "moderate":
+            reasons.append(f"Devil's advocate (moderate): {devils_advocate.get('strongest_objection')}")
 
     # 5. Cross-signal agreement
     agreement = None

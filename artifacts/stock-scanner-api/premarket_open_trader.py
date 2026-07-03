@@ -45,6 +45,7 @@ import position_reconciler as pr
 import daily_loss_limit as dll
 import order_dedup as od
 import portfolio_correlation_risk as pcr
+import kill_switch as ks
 
 BASE_PAPER_POSITION_USD = 1_000
 _CONFIDENCE_SCORE_MAP   = {"high": 0.85, "medium": 0.60, "low": 0.40}
@@ -258,6 +259,17 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
             )
     except Exception as _exc:
         hard_blockers.append(f"news catalyst check failed (fail closed): {_exc}")
+
+    # ── HARD GATE 7: kill switch (structural — not agent-discretion) ──
+    # Checks whether a prior check_kill_switch() call already halted
+    # the system. This is a read-only check (_is_currently_halted) so
+    # it is cheap and cannot create a new halt on its own.
+    try:
+        _halt_reason = ks._is_currently_halted()
+        if _halt_reason:
+            hard_blockers.append(f"kill switch is halted: {_halt_reason}")
+    except Exception as _exc:
+        hard_blockers.append(f"kill switch check failed (fail closed): {_exc}")
 
     # ── SOFT GATES ────────────────────────────────────────────────────
     if opening_pattern["pattern"] in ("fake_breakout", "fake_breakdown"):
