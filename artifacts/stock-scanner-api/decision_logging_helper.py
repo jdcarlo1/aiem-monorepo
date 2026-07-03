@@ -13,6 +13,40 @@ failure NEVER propagates into the scanner that called it.
 import decision_logger as dl
 
 
+def log_sector_sympathy_decision(ticker: str, sector: str, heat_score: int,
+                                 lead_tickers: list, pts: float):
+    """Log a sector sympathy play signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec in main.py —
+    no invented coefficient:
+      heat>=3 (pts=1.5) -> 0.85  (multiple lead tickers fired in sector)
+      heat>=2 (pts=1.0) -> 0.72  (two leads)
+      heat>=1 (pts=0.5) -> 0.60  (single lead — weakest L8 signal)
+    """
+    try:
+        _CONFIDENCE_MAP = {1.5: 0.85, 1.0: 0.72, 0.5: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.60)
+        leads_str = ", ".join(lead_tickers[:3])
+        reasoning = (
+            f"Sector sympathy flagged {ticker} in the {sector} sector: "
+            f"{heat_score} lead ticker(s) ({leads_str}) fired unusual call activity "
+            f"in the same sector within the past 2 days. "
+            f"Hedge funds monitor sector momentum — when a lead name moves, "
+            f"smaller-float sector peers are systematically scanned and positioned "
+            f"as sympathy plays. Layer 8 conviction tier: {pts:.1f} pts."
+        )
+        dl.log_decision(
+            signal_name="sector_sympathy",
+            decision_type="trade",
+            reasoning=reasoning,
+            ticker=ticker,
+            direction="long",
+            confidence=confidence,
+        )
+    except Exception as _exc:
+        print(f"[log_sector_sympathy_decision] {type(_exc).__name__}: {_exc}")
+
+
 def log_oi_build_decision(ticker: str, oi_pct: float, oi_chg: int,
                           strike: float, expiry: str, days_out: int, pts: float):
     """Log an OI accumulation build signal fire to agent_decisions.

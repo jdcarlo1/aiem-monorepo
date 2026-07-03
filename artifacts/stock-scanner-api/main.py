@@ -14386,6 +14386,11 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
     # ── Layer 8: Sector Theme Correlation ─────────────────────────────────────
     sector_heat = _get_sector_heat(days_back=2)
+    try:
+        import decision_logging_helper as _dlh_sec
+    except Exception as _dlh_sec_exc:
+        print(f"[L8] decision_logging_helper import failed: {_dlh_sec_exc}")
+        _dlh_sec = None
     for hs in sector_heat.get("hot_sectors", []):
         heat = hs["heat_score"]
         for tk in hs.get("sympathy_plays", []):
@@ -14397,6 +14402,14 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
             scores[tk]["meta"]["sector"]            = hs["sector"]
             scores[tk]["meta"]["sector_leads"]      = hs["lead_tickers"][:3]
             scores[tk]["meta"]["sector_heat_score"] = heat
+            if _dlh_sec:
+                _dlh_sec.log_sector_sympathy_decision(
+                    ticker=tk,
+                    sector=hs["sector"],
+                    heat_score=heat,
+                    lead_tickers=hs["lead_tickers"],
+                    pts=pts,
+                )
 
     # ── Build ranked results ───────────────────────────────────────────────────
     results = []
