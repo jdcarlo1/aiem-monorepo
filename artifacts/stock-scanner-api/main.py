@@ -12805,11 +12805,36 @@ def _run_daily_fundamentals_snapshot():
 def _aiem_paper_drift_check():
     """
     4:35 PM ET daily: compare paper trading win rates per signal source
-    against backtest baselines using drift_alarm (Fisher's exact test).
-    Surfaces any signals that are significantly under/outperforming.
+    against backtest baselines. Writes every run to drift_check_log.
+    Sends Telegram for any signal with |gap| >= 10pp. Telegram failure
+    is logged but never silences the DB write — the check running and
+    the alert dying in transit are distinguished in the log row.
     """
+    _DRIFT_DDL = """
+    CREATE TABLE IF NOT EXISTS drift_check_log (
+        id          SERIAL PRIMARY KEY,
+        checked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        signal_source TEXT NOT NULL,
+        live_wr     NUMERIC,
+        live_trades INT,
+        bt_wr       NUMERIC,
+        bt_trades   INT,
+        gap_pp      NUMERIC,
+        verdict     TEXT,
+        telegram_sent BOOLEAN NOT NULL DEFAULT FALSE,
+        telegram_error TEXT
+    );
+    """
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute(_DRIFT_DDL)
+    except Exception as _ddl_e:
+        print(f"[aiem_drift] DDL error (non-fatal): {_ddl_e}")
+
     if not _drift_alarm:
+        print("[aiem_drift] _drift_alarm module not loaded — skipping")
         return
+
     try:
         _baselines = {
             "gap_volume":       {"backtest_win_rate": 0.58, "backtest_n_trades": 495},
@@ -12832,25 +12857,78 @@ def _aiem_paper_drift_check():
             _live = {r[0]: {"wins": r[1], "total": r[2]} for r in _cu.fetchall()}
 
         _alerts, _ok = [], []
+        _log_rows = []
         for _src, _bl in _baselines.items():
-            _ld = _live.get(_src, {})
-            _n  = _ld.get("total", 0)
+            _ld  = _live.get(_src, {})
+            _n   = _ld.get("total", 0)
+            _bt_wr  = _bl["backtest_win_rate"]
+            _bt_n   = _bl["backtest_n_trades"]
             if _n < 15:
+                _log_rows.append((_src, None, _n, _bt_wr, _bt_n, None, "INSUFFICIENT_DATA", False, None))
                 continue
-            _wr   = _ld["wins"] / _n
-            _gap  = _wr - _bl["backtest_win_rate"]
-            _tag  = f"{_src}: {_wr:.0%} live vs {_bl['backtest_win_rate']:.0%} bt ({_gap:+.0%})"
+            _wr  = _ld["wins"] / _n
+            _gap = _wr - _bt_wr
+            _gap_pp = round(_gap * 100, 1)
+            _tag = f"{_src}: {_wr:.0%} live vs {_bt_wr:.0%} bt ({_gap:+.0%})"
             if abs(_gap) >= 0.10:
-                _alerts.append(f"⚠ {_tag}")
+                _verdict = "ALERT_UNDERPERFORMING" if _gap < 0 else "ALERT_OUTPERFORMING"
+                _alerts.append(f"DRIFT {_verdict}: {_tag}")
             else:
+                _verdict = "CONSISTENT"
                 _ok.append(_tag)
+            _log_rows.append((_src, round(_wr, 4), _n, _bt_wr, _bt_n, _gap_pp, _verdict, False, None))
+
+        # ── Telegram delivery — alerts only; failure is logged, never fatal ──
+        _tg_ok  = False
+        _tg_err = None
+        if _alerts:
+            _msg = (
+                "AIEM DRIFT ALERT (4:35 PM check)\n"
+                + "\n".join(_alerts)
+                + (f"\n\nConsistent: {len(_ok)} signals" if _ok else "")
+            )
+            try:
+                _tg_send(_msg)
+                _tg_ok = True
+                print(f"[aiem_drift] Telegram alert sent: {len(_alerts)} signals")
+            except Exception as _te:
+                _tg_err = str(_te)[:200]
+                print(f"[aiem_drift] Telegram FAILED (check ran, alert lost): {_te}")
+        else:
+            _msg_ok = (
+                f"AIEM drift check: all {len(_ok)} signals consistent"
+                if _ok else "AIEM drift check: not enough live trades yet (need >= 15 per source)"
+            )
+            try:
+                _tg_send(_msg_ok)
+                _tg_ok = True
+            except Exception as _te:
+                _tg_err = str(_te)[:200]
+
+        # ── Write every run to drift_check_log regardless of Telegram outcome ──
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+                for _row in _log_rows:
+                    _cu.execute("""
+                        INSERT INTO drift_check_log
+                            (signal_source, live_wr, live_trades, bt_wr, bt_trades,
+                             gap_pp, verdict, telegram_sent, telegram_error)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        _row[0], _row[1], _row[2], _row[3], _row[4],
+                        _row[5], _row[6],
+                        _tg_ok if _row[6] in ("ALERT_UNDERPERFORMING", "ALERT_OUTPERFORMING") else False,
+                        _tg_err,
+                    ))
+        except Exception as _log_e:
+            print(f"[aiem_drift] DB log error: {_log_e}")
 
         if _alerts:
             print(f"[aiem_drift] ALERTS ({len(_alerts)}): " + " | ".join(_alerts))
         if _ok:
             print(f"[aiem_drift] consistent ({len(_ok)}): " + " | ".join(_ok))
         if not _alerts and not _ok:
-            print("[aiem_drift] not enough live trades yet (need ≥15 per source)")
+            print("[aiem_drift] not enough live trades yet (need >=15 per source)")
     except Exception as _de:
         print(f"[aiem_drift] error: {_de}")
 

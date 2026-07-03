@@ -142,3 +142,4 @@
 - [Discovery outcome tracker retestability gap](discovery-outcome-tracker-retestability.md) — only discoveries with pure `{field}_min/_max` single-row conditions are mechanically re-testable; multi-day/lag-delta schemas get honest retestable=False, never faked
 - [Module 4 force-bypass](module4-force-bypass.md) — force=True in apply_action() bypasses evaluable_now gate; only for proven statistical invalidity (3-proof pattern), never for decay; prepends [FORCE-OVERRIDE] to audit reason
 - [LAG-aware Fisher harness for multi-day signals](lag-harness-multiday-signals.md) — run_fisher_test_lag() in aiem_stat_tests; prev_close_strength/prev_move_pct/prev_rvol/prev_gap_pct/prev_range_pct; no pm. prefix; id=3 first to survive (n=261, WR=61.69%, p=0.0037)
+- [Key rotation pattern](key-rotation-pattern.md) — signing_key_events table; rotate_signing_key() updates in-process global; NO grace period; Replit Secrets must be changed OOB

@@ -192,13 +192,28 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
         7. weak signal confluence
         8. defensive market regime
     """
-    snapshots       = ost.get_todays_snapshots(db_url, ticker)
-    opening_pattern = classify_from_snapshots(snapshots, premarket_gap_pct)
-    synthesis       = prs.synthesize_and_log(db_url, ticker)
-    regime          = rd.get_current_regime(db_url, "SPY")
-
     hard_blockers: List[str] = []
     soft_blockers: List[str] = []
+
+    try:
+        snapshots = ost.get_todays_snapshots(db_url, ticker)
+        opening_pattern = classify_from_snapshots(snapshots, premarket_gap_pct)
+    except Exception as _exc:
+        hard_blockers.append(f"snapshot fetch failed (fail closed — DB unreachable?): {_exc}")
+        snapshots = []
+        opening_pattern = {"pattern": "insufficient_data", "confidence": "low", "n_snapshots": 0}
+
+    try:
+        synthesis = prs.synthesize_and_log(db_url, ticker)
+    except Exception as _exc:
+        hard_blockers.append(f"signal synthesis failed (fail closed): {_exc}")
+        synthesis = {"confluence_count": 0}
+
+    try:
+        regime = rd.get_current_regime(db_url, "SPY")
+    except Exception as _exc:
+        hard_blockers.append(f"regime check failed (fail closed): {_exc}")
+        regime = {}
 
     # ── HARD GATE 1: earnings risk ────────────────────────────────────
     try:

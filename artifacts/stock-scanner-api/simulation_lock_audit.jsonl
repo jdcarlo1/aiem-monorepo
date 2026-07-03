@@ -3,3 +3,15 @@
 {"timestamp": "2026-07-03T15:43:10.774923+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
 {"timestamp": "2026-07-03T15:43:14.422590+00:00", "event": "simulation_check", "details": {"caller": "test_caller", "live_trading_enabled": true}}
 {"timestamp": "2026-07-03T15:43:19.449207+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": true}}
+{"timestamp": "2026-07-03T16:28:50.169913+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:50.459426+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:50.963156+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.001092+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.201978+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.447848+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.480631+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.616204+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.803978+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.858397+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:51.984348+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T16:28:52.024410+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}

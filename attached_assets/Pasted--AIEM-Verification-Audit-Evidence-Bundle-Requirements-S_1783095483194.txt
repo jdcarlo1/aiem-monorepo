@@ -1,0 +1,54 @@
+# AIEM Verification Audit — Evidence Bundle Requirements
+
+Source: Agent self-audit (7 items, priority-ranked). These are the requirements for the top 3 priority actions, converted from "prose description of what was done" into "raw evidence that proves it was done." Prose claims without the artifacts below are not acceptable close-out.
+
+---
+
+## 1. Independent Gamma/Charm Reimplementation
+**(Highest priority — do first. This is the only item that can catch a systematic error that's been silently wrong since the first implementation and is actively feeding the live conviction stack today.)**
+
+Required evidence:
+- Raw terminal output of the standalone reimplementation script running against 50 generated test cases with known analytical solutions
+- Full diff table: analytical value vs. `gamma_exposure_by_strike` (advanced_quant_indicators.py:360) output vs. `_get_charm_cascade_signals` (main.py:14265) output — per test case, with delta and % error columns
+- For any case disagreeing beyond 4 significant figures: the exact input parameters that triggered it (strike, spot, DTE, IV, r) so the discrepancy is reproducible
+- Git diff or file hash proving the reimplementation shares zero code, zero imports, and zero shared assumptions with the production Black-Scholes library
+
+**Additional question to close out:** Does the reimplementation use trading-day or calendar-day DTE, and does that match or intentionally differ from production? (Calendar-vs-trading-day DTE is one of the most common sources of silent Greek errors — confirm which convention production actually uses, not which one was assumed.)
+
+---
+
+## 2. Drift Alarm → Scheduled Telegram Alert
+
+Required evidence:
+- Terminal output showing the cron job actually firing (the crontab entry or scheduler config itself, not just the code that would run under it)
+- SQL query result showing a row written to the drift-check log table, with a real timestamp from an actual run
+- Screenshot or raw payload of an actual Telegram message received — not the code that calls `_tg_send()`, the delivered message
+- A deliberately forced test: manually skew one input so `p < 0.05` should trigger, then show the alert actually fired end-to-end
+
+**Additional question to close out:** What is the fallback if the Telegram send fails (rate limit, network error, bad token)? Confirm the drift check itself doesn't silently no-op if delivery fails — the check running but the alert dying in transit is functionally identical to no alerting at all.
+
+---
+
+## 3. Kill Switch — Key Rotation + Audit Log
+
+Required evidence:
+- `SELECT * FROM kill_switch_key_events` output after running `rotate_signing_key()` — actual row, actual timestamp, actual rotated-by field
+- Terminal proof that a provenance record signed with the **old** key fails `hmac.compare_digest()` verification after rotation (this is the real test — rotation is meaningless if old signatures still verify indefinitely)
+- Confirmation the env var actually changed (redacted key hash before/after — never the raw secret)
+
+**Additional question to close out:** Is there a grace period where both old and new keys verify (to avoid breaking in-flight signed records), and if so, how long, and is that window itself logged?
+
+---
+
+## Open Items Not Yet Assigned (raised by audit, not yet closed)
+
+**Multi-ticker connection pool exhaustion (Item 1 gap):**
+- Raw terminal output of N concurrent `evaluate_ticker()` calls run under artificially exhausted psycopg2 connection pool
+- Confirmation every call returns `decision=skip` with an explicit blocker entry — not a hang, not an empty result, not silent degradation
+
+**Cross-agent prompt injection (Item 4 gap):**
+- Test where `bull_bear_debate` or `specialist_council` output contains adversarial text designed to manipulate a downstream agent's scoring
+- Evidence of whether any sanitization layer exists between agent outputs — currently untested, not just unproven
+
+**Regulatory infrastructure (Item 7 — not urgent while paper-trading only, but flag before any transition):**
+- Confirm this stays explicitly gated as a pre-condition for real capital or multi-subscriber exposure, not something that gets skipped under deadline pressure later
