@@ -1,0 +1,35 @@
+# Speculative Next-Tier Verification (Reconstructed)
+
+**IMPORTANT — This is NOT a recovered copy of a real file.** The original "ultimate test" file that came after Advanced Stress Verification was lost, and its exact contents are unknown. This document is a reasoned reconstruction, based on the escalation pattern of the prior tiers (wiring → concurrency/adversarial → statistical soundness → soak test → security), of what a genuinely harder tier would logically need to cover. Treat it as a draft to review and edit, not as ground truth of what was previously sent.
+
+## 1. Chaos / Infrastructure Failure Injection
+
+Simulate real infrastructure failures rather than just code-level mid-write kills: Polygon/Tradier/Finnhub returning malformed or delayed data mid-cycle, Replit hosting restarting unexpectedly, DB connection pool exhaustion under load, and network partition between modules. Proof required: the system fails safe or recovers cleanly, not silently degrades or produces corrupted state.
+
+## 2. Adversarial Market Conditions
+
+Feed the system historical extreme-volatility data (e.g. May 2010 flash crash, February 2018 VIX spike, March 2020 COVID crash) or synthetic tail-risk scenarios. Check whether kill_switch trips fast enough, whether gamma/charm calculations remain stable at extreme values, and whether portfolio_correlation_risk correctly flags a scenario where most positions move together. Proof required: logs from a replay run showing gate behavior under stress, not a theoretical description.
+
+## 3. Model / Data Drift Detection
+
+A system statistically sound at build time can silently decay as live conditions diverge from backtest assumptions. Ask whether anything monitors live performance of the 9-layer conviction stack against its original validation baseline, and whether there is automated alerting for drift, or whether detection depends entirely on someone manually re-running validation. Proof required: evidence of a drift-monitoring mechanism, or an explicit admission that none exists.
+
+## 4. Adversarial Agent / Injection Resistance
+
+Because AIEM includes an autonomous research loop and multi-agent debate (Agent Lab), test whether malformed or adversarial inputs (ticker names, news text, agent-generated content) can manipulate agent reasoning or reach a downstream execution or SQL path. This goes beyond the SQL-injection check already covered in the prior security section — it targets the agents themselves, not just raw queries.
+
+## 5. Tamper-Evidence Under an Attacker Model
+
+HMAC provenance signing proves data wasn't altered after the fact, assuming the signing key itself is secure. Ask whether any downstream process or compromised credential could forge a valid-looking signed record, and whether the signing key has a single point of failure.
+
+## 6. Independent Cross-Implementation Check
+
+Reimplement one or two of the highest-stakes layers (e.g., gamma or charm) completely independently, outside the existing codebase, and diff the outputs against the live system over a sample period. This is the only method in the whole audit stack that can catch a bug that has been consistently wrong since day one and therefore looks correct in every internal test, because internal tests share the same underlying assumptions as the code being tested.
+
+## 7. Regulatory / Compliance Surface
+
+If real capital is ever involved, or the product is ever exposed to other users: pattern day trader rule handling, wash sale tracking, and whether any "signal discovery" language could be construed as investment advice.
+
+## Note on Priority
+
+Items 1, 3, and 6 are the ones most likely to catch a real problem that the other tiers structurally cannot — they don't assume the existing code is basically correct, and they test against reality (infrastructure, live drift, and an independent reimplementation) rather than against the system's own internal logic.
