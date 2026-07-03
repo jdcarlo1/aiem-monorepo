@@ -1,0 +1,91 @@
+# Phase 1 Verification — Status Update & Remaining Fix Required
+
+**Standard applied throughout:** raw output, query results, or exact code references only. No summary claims accepted without the underlying evidence.
+
+---
+
+## ✅ RESOLVED — Confirmed With Real Evidence
+
+### Item: Schema DEFAULT on `reconciliation_log.checked_at`
+**Status: Closed.** `ALTER TABLE reconciliation_log ALTER COLUMN checked_at SET DEFAULT now()` confirmed live in the schema (`column_default = now()`), not just in a test harness. No further action needed.
+
+### Item: Risk gate silently degrading when `ANTHROPIC_API_KEY` is missing
+**Status: Closed.** Confirmed via before/after test:
+- Before: no key → `devils_advocate_pass()` returned `severity="moderate"` → landed in `reasons` → `APPROVED_WITH_CAUTION`
+- After: no key → explicit `blocking_reasons.append(...)` + printed warning → always `BLOCKED`
+
+The degradation is now visible in logs and fails closed. No further action needed.
+
+---
+
+## ⚠️ PARTIALLY RESOLVED — Read Side Fixed, Write Side Still Open
+
+### Item: Kill switch reachability
+
+**What was actually fixed:** `premarket_open_trader.py` now imports `kill_switch` and Gate 7 calls `_is_currently_halted()` **unconditionally**, wrapped in try/except with fail-closed behavior. This is real and verified — the test showed that when a halt is already present in the DB, `evaluate_ticker()` correctly returns `skip` with the halt reason populated in `hard_blockers`.
+
+**What was not fixed, despite the claim "kill switch can no longer be bypassed":** `check_kill_switch()` — the function that actually **evaluates drawdown/loss metrics and writes the halt to the DB** — is still listed as agent-discretionary, dispatched only through the LLM tool path. Nothing in the structural code path calls it.
+
+**Why the claim is inaccurate:** the test that validated this fix worked by *manually setting the halt state first*, then confirming Gate 7 reads it correctly. That proves the **read side** works. It does not prove the **write side** — i.e., it does not prove that a real 50% drawdown, occurring live, would ever get detected and written as a halt without the AIEM agent independently choosing to call `check_kill_switch()`. If the agent never calls that tool, no halt is ever written, Gate 7 has nothing to read, and it passes through regardless of actual account state — exactly the original gap, just one layer deeper now.
+
+**How to fix this — concrete instruction:**
+
+The fix needs to add a call to `check_kill_switch()` itself into the same structural, unconditional code path where `_is_currently_halted()` now lives — not just a check of the halt flag, but the evaluation that sets it. Specifically:
+
+1. In `premarket_open_trader.py`, before or alongside Gate 7, add a call that runs the actual drawdown/loss evaluation unconditionally:
+   ```python
+   # Before Gate 7 (or combined with it):
+   try:
+       _current_equity = get_current_account_equity(db_url)  # however this is sourced today
+       _peak_equity = get_peak_equity(db_url)
+       ks.check_kill_switch(
+           current_equity=_current_equity,
+           peak_equity=_peak_equity,
+           limits=KillSwitchLimits(max_drawdown_pct=10.0)  # match existing config
+       )
+   except Exception as _exc:
+       hard_blockers.append(f"kill switch evaluation failed (fail closed): {_exc}")
+   ```
+2. This should run **before** the existing Gate 7 read (`_is_currently_halted()`), so that in the same execution pass: (a) real equity is evaluated, (b) a halt is written to the DB if breached, and (c) Gate 7 then reads that fresh state — all unconditionally, all in one pass, with no dependency on the AIEM agent calling anything.
+3. Confirm the source of `current_equity` / `peak_equity` in this context — if these values are only available via a live broker feed or a source that doesn't exist yet in the premarket path, that's a prerequisite gap to flag before this fix can be completed correctly.
+4. Re-run the same test as before, but this time **without pre-setting a halt** — construct a real drawdown condition (e.g., insert data that produces -50% vs a 10% limit) and confirm the halt gets **written** and **then read** in a single `evaluate_ticker()` call, end to end. That's the test that actually proves the fix, not a test that starts from an already-set halt.
+
+**Send back:** "Is `check_kill_switch()` now called unconditionally anywhere in the structural path, or does a real halt still only get written if the agent calls the tool? If not yet, please implement the change above and re-run the gate-block test without manually pre-setting the halt state first."
+
+---
+
+## 🔴 STILL OPEN — Unchanged From Prior Rounds
+
+### Item: `simulation_lock_check` — still fully agent-discretionary
+Confirmed unchanged in this round. Defined at `main.py:32611`, dispatched only through the LLM tool path. No code anywhere calls it outside that path. System prompt instructs the agent to "call FIRST before any order logic" — this is not enforced structurally.
+
+**How to fix:** Same pattern as the kill switch fix above — add an unconditional call to `simulation_lock_check()` (or the underlying `is_live_trading_enabled()` / `assert_simulation_mode()` functions it wraps) directly inside `evaluate_ticker()` or `premarket_open_trader.py`, wrapped in try/except with fail-closed behavior, so the paper-vs-live confirmation happens on every run regardless of agent behavior.
+
+**Send back:** "Please add `simulation_lock_check` (or its underlying env-var check) as a structural, unconditional gate in the same execution path as Gates 1-7, using the same try/except fail-closed pattern already used elsewhere."
+
+### Item: Gate 1 (earnings_calendar) — asymmetric failure handling
+Confirmed unchanged. Gates 2-7 all wrap their calls in try/except and produce an explicit `hard_blockers.append(...)` entry on failure. Gate 1 has no try/except in `evaluate_ticker()` — a DB failure there raises unhandled, propagates to the scheduler's outer exception handler, and the ticker is silently skipped with no audit trail for why.
+
+**How to fix:** Wrap Gate 1's call the same way Gates 2-7 already are:
+```python
+try:
+    _earnings_result = ec.should_avoid_entry(...)
+    if _earnings_result.get("avoid"):
+        hard_blockers.append(f"earnings risk: {_earnings_result['reason']}")
+except Exception as _exc:
+    hard_blockers.append(f"earnings calendar check failed (fail closed): {_exc}")
+```
+
+**Send back:** "Please add the same try/except → `hard_blockers.append()` pattern used in Gates 2-7 to Gate 1, so a DB failure there produces an explicit audit trail instead of a silent scheduler-level skip."
+
+---
+
+## Summary — What to Send Back
+
+> "Two of three prior items are confirmed resolved with real evidence — the schema DEFAULT fix and the risk gate's fail-closed behavior both check out.
+>
+> The kill switch fix is real but incomplete: Gate 7 now reliably blocks *if* a halt already exists in the DB, but nothing yet guarantees a halt gets written from a real drawdown event — `check_kill_switch()` itself is still agent-discretionary. Please add it as a structural, unconditional call in the same path as Gate 7 (see attached code sketch), then re-test using a real drawdown condition rather than a pre-set halt.
+>
+> `simulation_lock_check` remains fully agent-discretionary and untouched — needs the same structural fix.
+>
+> Gate 1 still lacks the try/except fail-closed pattern used everywhere else — please bring it in line with Gates 2-7."

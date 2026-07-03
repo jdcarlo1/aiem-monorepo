@@ -1,2 +1,5 @@
 {"timestamp": "2026-06-29T01:17:22.322953+00:00", "event": "simulation_check", "details": {"caller": "verification_checklist_section0", "live_trading_enabled": false}}
 {"timestamp": "2026-07-03T15:06:16.140647+00:00", "event": "simulation_check", "details": {"caller": "phase1_test", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T15:43:10.774923+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-03T15:43:14.422590+00:00", "event": "simulation_check", "details": {"caller": "test_caller", "live_trading_enabled": true}}
+{"timestamp": "2026-07-03T15:43:19.449207+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": true}}

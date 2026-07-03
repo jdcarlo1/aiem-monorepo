@@ -195,15 +195,19 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
     snapshots       = ost.get_todays_snapshots(db_url, ticker)
     opening_pattern = classify_from_snapshots(snapshots, premarket_gap_pct)
     synthesis       = prs.synthesize_and_log(db_url, ticker)
-    earnings        = ec.should_avoid_entry(db_url, ticker, buffer_days=2)
     regime          = rd.get_current_regime(db_url, "SPY")
 
     hard_blockers: List[str] = []
     soft_blockers: List[str] = []
 
     # ── HARD GATE 1: earnings risk ────────────────────────────────────
-    if earnings.get("avoid"):
-        hard_blockers.append(f"earnings risk: {earnings['reason']}")
+    try:
+        earnings = ec.should_avoid_entry(db_url, ticker, buffer_days=2)
+        if earnings.get("avoid"):
+            hard_blockers.append(f"earnings risk: {earnings['reason']}")
+    except Exception as _exc:
+        hard_blockers.append(f"earnings calendar check failed (fail closed): {_exc}")
+        earnings = {}
 
     # ── HARD GATE 2: unresolved broker/DB position mismatch ──────────
     try:
@@ -260,16 +264,74 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
     except Exception as _exc:
         hard_blockers.append(f"news catalyst check failed (fail closed): {_exc}")
 
-    # ── HARD GATE 7: kill switch (structural — not agent-discretion) ──
-    # Checks whether a prior check_kill_switch() call already halted
-    # the system. This is a read-only check (_is_currently_halted) so
-    # it is cheap and cannot create a new halt on its own.
+    # ── HARD GATE 7: kill switch — metrics evaluation + halt write + read
+    # Derives equity and trade metrics unconditionally from ai_stock_picks
+    # + ACCOUNT_VALUE_BASELINE; calls check_kill_switch() which evaluates
+    # the limits AND writes the halt to the DB if breached — all in one
+    # pass, no AIEM agent involvement required.
     try:
-        _halt_reason = ks._is_currently_halted()
-        if _halt_reason:
-            hard_blockers.append(f"kill switch is halted: {_halt_reason}")
+        _ks_baseline = dll.get_account_value(db_url)
+        if not _ks_baseline:
+            hard_blockers.append(
+                "kill switch evaluation skipped (fail closed): "
+                "ACCOUNT_VALUE_BASELINE not configured or invalid"
+            )
+        else:
+            _ks_db = psycopg2.connect(db_url)
+            try:
+                with _ks_db.cursor() as _cur:
+                    _cur.execute("""
+                        SELECT COALESCE(SUM(exit_price - score), 0.0)
+                        FROM ai_stock_picks
+                        WHERE status = 'closed' AND exit_price IS NOT NULL
+                    """)
+                    _ks_alltime_pnl = float(_cur.fetchone()[0])
+                    _cur.execute(
+                        "SELECT COUNT(*) FROM ai_stock_picks WHERE pick_date = CURRENT_DATE"
+                    )
+                    _ks_trades_today = int(_cur.fetchone()[0])
+                    _cur.execute("""
+                        SELECT (exit_price - score)
+                        FROM ai_stock_picks
+                        WHERE status = 'closed' AND exit_price IS NOT NULL
+                        ORDER BY closed_at DESC LIMIT 20
+                    """)
+                    _ks_consec = 0
+                    for (_pnl,) in _cur.fetchall():
+                        if float(_pnl) < 0:
+                            _ks_consec += 1
+                        else:
+                            break
+            finally:
+                _ks_db.close()
+
+            _ks_result = ks.check_kill_switch(
+                signal_name="premarket_open_trader",
+                current_equity=float(_ks_baseline) + _ks_alltime_pnl,
+                peak_equity=float(_ks_baseline),
+                trades_today=_ks_trades_today,
+                consecutive_losses=_ks_consec,
+                total_trades_this_window=_ks_trades_today,
+            )
+            if _ks_result.get("halted"):
+                hard_blockers.append(
+                    f"kill switch halted: {_ks_result.get('reason', '')}"
+                )
     except Exception as _exc:
-        hard_blockers.append(f"kill switch check failed (fail closed): {_exc}")
+        hard_blockers.append(f"kill switch evaluation failed (fail closed): {_exc}")
+
+    # ── HARD GATE 8: simulation lock — paper-mode guard ───────────────
+    # assert_simulation_mode() raises LiveTradingBlockedError when all
+    # three live-trading env vars are correctly configured. Any exception
+    # here fails closed — the gate is structural, not advisory.
+    try:
+        from simulation_lock import assert_simulation_mode
+        assert_simulation_mode("premarket_open_trader")
+    except Exception as _exc:
+        hard_blockers.append(
+            f"simulation lock blocked: premarket_open_trader is paper-only. "
+            f"[{type(_exc).__name__}] {_exc}"
+        )
 
     # ── SOFT GATES ────────────────────────────────────────────────────
     if opening_pattern["pattern"] in ("fake_breakout", "fake_breakdown"):
