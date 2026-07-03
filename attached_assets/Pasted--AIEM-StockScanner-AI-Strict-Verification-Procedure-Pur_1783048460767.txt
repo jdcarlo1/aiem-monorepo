@@ -1,0 +1,106 @@
+# AIEM / StockScanner AI — Strict Verification Procedure
+
+**Purpose:** Agent self-report ("✅ VERIFIED") proves internal consistency, not correctness.
+This procedure adds two checks that don't rely on trusting the same agent that wrote the code.
+
+---
+
+## Why this matters
+
+- The agent that writes code and the agent that reports on it are the same system — self-report isn't ground truth.
+- A cryptographic hash match (HMAC-SHA256 signature) only proves the evidence file **wasn't altered after signing**. It does NOT prove the underlying claims (e.g. "6 audit fixes applied correctly") were true when generated.
+- Verification scripts written in the same session as the fix inherit the same blind spots as the fix itself.
+
+**Rule of thumb:** behavioral tests you run yourself > fresh-context adversarial review > cryptographic tamper-evidence > self-report checklists.
+
+---
+
+## Step 1 — Tamper Test (run yourself, in the terminal — not through the agent)
+
+This confirms the verifier script actually catches corruption, before trusting any "MATCH" result it produces.
+
+```bash
+# 1. Back up the real payload first
+cp verification/evidence_payload.json /tmp/evidence_payload_backup.json
+
+# 2. Confirm it currently matches (sanity check)
+AIEM_SIGNING_KEY=<your_real_key> python3 verification/verify_signature.py
+
+# 3. Corrupt one value in the payload
+python3 -c "
+import json
+with open('verification/evidence_payload.json') as f:
+    data = json.load(f)
+# adjust key path to match your actual payload structure
+data['timestamp'] = data['timestamp'] + 1
+with open('verification/evidence_payload.json', 'w') as f:
+    json.dump(data, f, sort_keys=True, separators=(',',':'))
+"
+
+# 4. Rerun the verifier against the corrupted payload
+AIEM_SIGNING_KEY=<your_real_key> python3 verification/verify_signature.py
+
+# 5. Restore the real file
+cp /tmp/evidence_payload_backup.json verification/evidence_payload.json
+```
+
+**Expected result:** Step 4 must print `NO MATCH`.
+
+- If it prints `NO MATCH` → the verifier is doing its job. Proceed to Step 2.
+- If it prints `MATCH` → the verifier is broken (or not reading the file you think it is). Nothing signed by it can be trusted until this is fixed.
+
+---
+
+## Step 2 — Fresh-Context Adversarial Review
+
+Once Step 1 passes, open a **brand-new agent session** with no memory of the task — no prior "VERIFIED" verdict, no task narrative beyond the minimum needed to understand intent. Anchoring on an existing verdict defeats the purpose.
+
+**Prompt template:**
+
+```
+You are reviewing a code diff for correctness. Do not assume it is correct.
+Your job is to find every plausible way this change could fail, behave
+unexpectedly, or not do what it claims.
+
+Context: [one sentence — what the change is supposed to do, nothing more]
+
+Diff:
+[paste raw diff]
+
+Answer:
+1. What could make this fail silently?
+2. What edge cases are not handled?
+3. Does the code actually do what the stated intent claims, line by line?
+4. What would you test to prove this works, that isn't already in the diff?
+Be skeptical. List concrete scenarios, not general reassurance.
+```
+
+---
+
+## Step 3 — Behavioral Test (strongest check, do this per claimed fix)
+
+Don't just check that a migration file exists — trigger the actual failure condition it's supposed to prevent.
+
+**Example for a UNIQUE constraint migration:**
+
+```bash
+# Attempt to insert a duplicate (date, sector_ticker) row
+# Confirm Postgres itself rejects it with a constraint violation error
+# Read the raw error yourself — don't have the agent summarize it
+```
+
+Also verify "no other files modified" claims independently:
+
+```bash
+git status
+git diff --stat
+```
+
+---
+
+## Order of operations
+
+1. **Tamper test** (Step 1) — 2 minutes, tells you if the crypto layer is even honest.
+2. **Behavioral test** (Step 3) — trigger the real condition the fix claims to handle.
+3. **Fresh-context adversarial review** (Step 2) — catches logic errors self-review misses.
+4. Only after all three pass, treat a "VERIFIED" claim as meaningful.
