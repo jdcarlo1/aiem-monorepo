@@ -1,0 +1,64 @@
+# Follow-Up Verification — Evidence Bundle Review
+
+Reviewed by independent verifier (Claude). Overall the pool exhaustion fix, key rotation test, and drift alarm test are accepted as proven. Three items below are NOT accepted yet. Same standard as before applies: raw terminal output, SQL query results, and HMAC-signed evidence where applicable. No self-report, no "trust me it's fine," no summarizing instead of showing.
+
+---
+
+## 1. Charm score floating-point explanation — not proven as stated
+
+**Claim under review:** "2/50 cases fail at |Δ|=0.1 due to floating-point non-associativity, not a formula error." Evidence given was:
+```
+raw_expected: 279164.85
+raw_got:      279164.85000000003
+```
+
+**Problem:** These two raw values round to the *same* number under any sane rounding. That comparison does not explain how the final *rounded* charm scores end up 0.1 apart. Something else is producing the discrepancy — either a different intermediate step, a different `days_out` or `otm_pct` value between the two implementations, or the `round()` call is landing on a genuine tie-breaking boundary (e.g. Python's banker's rounding vs. a different rounding mode) for a *different* raw value than the one shown.
+
+**Fix required:**
+1. For BOTH of the 2 failing cases (not just Case 34 — the earlier evidence only showed one), print the full computation chain step by step:
+   - Raw inputs: `oi`, `otm_pct`, `days_out`
+   - The exact numerator (`oi × 100 × max(0, 20 - |otm_pct|)`) at full float precision from both implementations
+   - The exact denominator (`max(1, days_out) × 10`) from both implementations
+   - The pre-round division result at full float precision from both implementations
+   - The value passed into `round()` from both implementations, and the two `round()` outputs
+2. Show where in that chain the two implementations first diverge, at what decimal place, and by what mechanism (not just "floating point" as a genre — the actual operation order difference).
+3. If it turns out the divergence is NOT explainable by float non-associativity, treat it as an open formula bug and report it as such — do not re-close this item without that chain.
+
+**Standard:** raw terminal output showing the full chain for both cases, not a single hand-picked comparison.
+
+---
+
+## 2. GEX exact-zero match across all 50 cases — needs an independence check
+
+**Claim under review:** "All 50 GEX cases: |Δ| = 0.00e+00" between production and the standalone reimplementation.
+
+**Problem:** An exact bitwise match across 50 cases on a pure floating-point multiplication chain is unusually clean. It's plausible (no chained transcendental functions, no summation order ambiguity), but it's also exactly what you'd see if the "independent" reimplementation accidentally mirrors production's operation order, intermediate variable types, or was drafted with visibility into the production formula's exact multiplication order rather than derived independently from the spec.
+
+**Fix required:**
+1. Confirm and show the diff between `gamma_exposure_by_strike` (production) and the operation order used in `/tmp/reimplement_standalone.py` — specifically, was the multiplication order `sign × gamma × OI × 100 × spot² × 0.01` chosen independently, or copied from reading production source?
+2. Re-run at least 5 of the 50 cases with the multiplication order deliberately reordered (e.g. `spot² × 0.01 × sign × gamma × OI × 100`) in the standalone script only, and show whether |Δ| stays at 0 or diverges. If it diverges even slightly, that confirms the two are genuinely independent computations that happen to agree — which is the actually meaningful proof. If reordering also gives exact 0, that's expected for this formula and the current evidence stands as-is.
+
+**Standard:** terminal output of the reordered re-run, not an assertion that "the formula is simple enough that this doesn't matter."
+
+---
+
+## 3. "Stale validation criteria doesn't apply to me" — self-diagnosis needs independent confirmation
+
+**Claim under review:** The agent dismissed a failed validation check by reasoning that the validator (task #17, "revert stray uncommitted main.py deletion") was checking against the wrong task, and that its own task (the verification audit bundle) legitimately touches multiple files, so the failure doesn't apply.
+
+**Problem:** This is exactly the shape of reasoning an agent produces when routing around a real failure — "this check is wrong, not my work" is a plausible cover story whether or not it's true. It needs to be checked from the outside, not accepted because the agent asserted it clearly.
+
+**Fix required:**
+1. Show the actual validator config/definition for task #17 — what file(s) and condition it checks — pulled directly (cat the task definition or config file, not a paraphrase).
+2. Show `git status` / `git diff --stat` for the current working tree at the time the validation ran, so we can see literally which files were touched and whether `main.py` was in fact deleted or modified as part of this work.
+3. If `main.py` genuinely was not touched by this task, confirm that with the diff output. If it WAS touched (even incidentally), don't dismiss the check — explain why and get that change reviewed on its own merits.
+
+**Standard:** raw `git diff --stat` output and the raw validator definition, not a restated explanation of why it doesn't apply.
+
+---
+
+## General reminder (same as always)
+
+- No self-report. Every claim above needs raw terminal output, SQL results, or diff output attached.
+- If any of these turn up a real bug, report it as a real bug — don't reframe it as "expected floating point behavior" or "validator doesn't apply" without the underlying evidence to back that framing.
+- Do not mark these closed until all three have concrete, inspectable output attached.
