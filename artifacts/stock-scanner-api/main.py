@@ -28936,9 +28936,14 @@ def _build_aiem_tool_map():
         # ── RL / Deep RL / Portfolio / Causal / Ensemble / Execution ─────────
         "rl_get_paper_action":      _aiem_tool_rl_get_paper_action,
         "rl_readable_policy":       _aiem_tool_rl_readable_policy,
-        "deep_rl_get_paper_action": _aiem_tool_deep_rl_get_paper_action,
-        "deep_rl_probe":            _aiem_tool_deep_rl_probe,
-        "portfolio_allocate":       _aiem_tool_portfolio_allocate,
+        "deep_rl_get_paper_action":    _aiem_tool_deep_rl_get_paper_action,
+        "deep_rl_probe":               _aiem_tool_deep_rl_probe,
+        # ── Background-system live read tools ─────────────────────────────────
+        "get_meta_learning_weights":   _aiem_tool_get_meta_learning_weights,
+        "get_m2_decay_status":         _aiem_tool_get_m2_decay_status,
+        "get_m6_rediscovery_status":   _aiem_tool_get_m6_rediscovery_status,
+        "get_bh_fdr_status":           _aiem_tool_get_bh_fdr_status,
+        "portfolio_allocate":          _aiem_tool_portfolio_allocate,
         "get_current_regime":       _aiem_tool_get_current_regime,
         "build_features":           _aiem_tool_build_features,
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
@@ -30857,6 +30862,28 @@ _AIEM_AGENT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "model_name": {"type": "string", "description": "Model name to retrieve history for"},
         }, "required": ["model_name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "get_meta_learning_weights",
+        "description": "Read live per-signal trust weights from the Meta-Learning Signal Trust system. Shows each signal's context bucket, rolling win rate, n_outcomes_observed, and current trust_weight. Use this to answer 'which signals does the system trust most right now?' or 'has the meta-learning adjusted trust for X signal?'",
+        "parameters": {"type": "object", "properties": {
+            "min_observations": {"type": "integer", "description": "Minimum outcome observations to include (default 1)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "get_m2_decay_status",
+        "description": "Read the live M2 Signal Decay pipeline status for every signal. Returns each signal's current status (validated/testing/retired), win rate, OOS edge, p-value, and any decay/retire actions the M2 module has taken. Use this to answer 'is signal X decaying?' or 'what signals has M2 retired?'",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_m6_rediscovery_status",
+        "description": "Read the M6 Rediscovery Engine run history. Shows which retired signals were searched for improved variations, how many variations were tested, and how many passed statistical validation. Use this to answer 'has M6 found any valid variations of retired signals?'",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "get_bh_fdr_status",
+        "description": "Read the full BH-FDR corrected signal discovery ledger. Returns every tested signal with its p-value, OOS edge, win rate vs baseline, and BH-FDR validation status. Use this to answer 'what signals have survived BH-FDR correction?' or 'show me the current signal ledger with p-values.'",
+        "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
         "name": "portfolio_allocate",
@@ -32958,6 +32985,168 @@ def _aiem_tool_model_version_history(model_name):
         return {"error": str(_e)}
 
 
+def _aiem_tool_get_meta_learning_weights(min_observations: int = 1):
+    """Read live per-signal trust weights from the meta-learning system.
+    Returns each signal's context bucket, rolling win rate, and trust weight."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                               options="-c statement_timeout=4000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT signal_name, context_bucket, rolling_win_rate,
+                       n_outcomes_observed, trust_weight,
+                       last_updated_at AT TIME ZONE 'America/New_York' AS updated_et
+                FROM signal_trust_weights
+                WHERE n_outcomes_observed >= %s
+                ORDER BY trust_weight DESC
+            """, (min_observations,))
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+            for r in rows:
+                for k in ("rolling_win_rate", "trust_weight"):
+                    if r.get(k) is not None:
+                        r[k] = float(r[k])
+                if r.get("updated_et"):
+                    r["updated_et"] = str(r["updated_et"])
+        return {
+            "total_signals_tracked": len(rows),
+            "weights": rows,
+            "note": "trust_weight starts at ~0.967 and decays/rises with each outcome. "
+                    "Low rolling_win_rate on a high-trust signal = a signal the system hasn't "
+                    "seen enough outcomes on yet."
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_get_m2_decay_status():
+    """Read the live status of every signal in the M2 decay pipeline.
+    Shows evaluation_status, edge metrics, and any decay/retire actions taken."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                               options="-c statement_timeout=4000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT d.id, d.hypothesis_text, d.status, d.signal_n,
+                       d.signal_win_rate, d.oos_edge, d.p_value, d.horizon,
+                       d.discovered_at::date AS discovered,
+                       a.action, a.decay_verdict, a.realized_win_rate,
+                       a.realized_n, a.reason,
+                       a.approved_at AT TIME ZONE 'America/New_York' AS action_et
+                FROM aiem_signal_discoveries d
+                LEFT JOIN aiem_signal_actions a ON a.discovery_id = d.id
+                ORDER BY d.id DESC
+                LIMIT 30
+            """)
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+            for r in rows:
+                for k in ("signal_win_rate", "oos_edge", "p_value", "realized_win_rate"):
+                    if r.get(k) is not None:
+                        r[k] = float(r[k])
+                for k in ("discovered", "action_et"):
+                    if r.get(k) is not None:
+                        r[k] = str(r[k])
+        status_counts = {}
+        for r in rows:
+            s = r.get("status", "unknown")
+            status_counts[s] = status_counts.get(s, 0) + 1
+        return {
+            "signal_count": len(rows),
+            "status_breakdown": status_counts,
+            "signals": rows,
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_get_m6_rediscovery_status():
+    """Read M6 Rediscovery Engine run history — shows which retired signals
+    were searched for improved variations, how many variations were tested,
+    and how many passed statistical validation."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                               options="-c statement_timeout=4000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT r.run_id, r.batch_id, r.parent_signal_id,
+                       r.variations_tested, r.variations_passed,
+                       r.non_testable,
+                       r.run_timestamp AT TIME ZONE 'America/New_York' AS run_et,
+                       d.hypothesis_text AS parent_signal_name,
+                       d.status AS parent_status
+                FROM aiem_rediscovery_runs r
+                LEFT JOIN aiem_signal_discoveries d ON d.id = r.parent_signal_id
+                ORDER BY r.run_timestamp DESC
+                LIMIT 20
+            """)
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+            for r in rows:
+                for k in ("run_et",):
+                    if r.get(k) is not None:
+                        r[k] = str(r[k])
+        total_tested   = sum(r.get("variations_tested", 0) for r in rows)
+        total_passed   = sum(r.get("variations_passed", 0) for r in rows)
+        return {
+            "total_runs": len(rows),
+            "total_variations_tested": total_tested,
+            "total_variations_passed": total_passed,
+            "pass_rate_pct": round(100 * total_passed / total_tested, 1) if total_tested else 0,
+            "runs": rows,
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_get_bh_fdr_status():
+    """Read the current BH-FDR corrected signal discovery ledger.
+    Shows every tested signal's p-value, OOS edge, and whether it survived
+    the Benjamini-Hochberg False Discovery Rate correction."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                               options="-c statement_timeout=4000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT id, hypothesis_text, horizon, signal_n, signal_win_rate,
+                       baseline_win_rate, edge_broad, edge_tight, oos_edge,
+                       p_value, status, generation,
+                       discovered_at::date AS discovered,
+                       notes
+                FROM aiem_signal_discoveries
+                ORDER BY
+                    CASE status
+                        WHEN 'validated' THEN 1
+                        WHEN 'promoted'  THEN 2
+                        WHEN 'testing'   THEN 3
+                        WHEN 'retired'   THEN 4
+                        ELSE 5
+                    END, p_value NULLS LAST
+                LIMIT 30
+            """)
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+            for r in rows:
+                for k in ("signal_win_rate", "baseline_win_rate",
+                          "edge_broad", "edge_tight", "oos_edge", "p_value"):
+                    if r.get(k) is not None:
+                        r[k] = float(r[k])
+                if r.get("discovered"):
+                    r["discovered"] = str(r["discovered"])
+        status_counts = {}
+        for r in rows:
+            s = r.get("status", "unknown")
+            status_counts[s] = status_counts.get(s, 0) + 1
+        validated = [r for r in rows if r.get("status") in ("validated", "promoted")]
+        return {
+            "total_signals_in_ledger": len(rows),
+            "status_breakdown": status_counts,
+            "validated_signals": validated,
+            "all_signals": rows,
+            "note": "BH-FDR correction runs every Sunday across 75 tests × 3 horizons. "
+                    "p_value shown is pre-correction Fisher's exact; signals must also survive "
+                    "Benjamini-Hochberg across the full batch to achieve 'validated' status."
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 # ── Autonomous Safety Stack Tool Wrappers ─────────────────────────────────────
 
 def _aiem_tool_simulation_lock_check():
@@ -34831,6 +35020,11 @@ def _run_aiem_research_agent(max_iterations=None):
         "trust_get_weights":           _aiem_tool_trust_get_weights,
         "trust_get_history":           _aiem_tool_trust_get_history,
         "trust_apply_to_candidates":   _aiem_tool_trust_apply_to_candidates,
+        # ── Background-system live read tools ─────────────────────────────
+        "get_meta_learning_weights":   _aiem_tool_get_meta_learning_weights,
+        "get_m2_decay_status":         _aiem_tool_get_m2_decay_status,
+        "get_m6_rediscovery_status":   _aiem_tool_get_m6_rediscovery_status,
+        "get_bh_fdr_status":           _aiem_tool_get_bh_fdr_status,
     }
 
     # ── Phase 1: Primary research loop ───────────────────────────────────────

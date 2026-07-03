@@ -13,13 +13,22 @@ description: All user-provided modules wired into main.py, tool counts, and key 
 7. vwap_indicators — vwap_compute_features, vwap_price_vs, vwap_reclaim_detect
 8. meta_learning_signal_trust — trust_classify_context, trust_update, trust_get_weights, trust_get_history, trust_apply_to_candidates (DB: signal_trust_weights + signal_trust_history)
 
-**Total AIEM tools: ~53**
+**Total AIEM tools: ~57** (added 4 background-system live read tools: get_meta_learning_weights, get_m2_decay_status, get_m6_rediscovery_status, get_bh_fdr_status)
+
+## Background-system live read tools (added 2026-07-03)
+Pure DB-read tools that give AIEM mid-chat access to background pipeline outputs:
+- `get_meta_learning_weights` — reads `signal_trust_weights` (rolling win rate + trust weight per signal/context bucket)
+- `get_m2_decay_status` — reads `aiem_signal_discoveries` LEFT JOIN `aiem_signal_actions` (decay verdicts, realized WR, retire reasons)
+- `get_m6_rediscovery_status` — reads `aiem_rediscovery_runs` (variations_tested/passed per retired parent signal)
+- `get_bh_fdr_status` — reads `aiem_signal_discoveries` ordered by status/p_value (full BH-FDR corrected ledger)
+All 4 are in BOTH tool maps (`_build_aiem_tool_map` + research agent map) + `_AIEM_AGENT_TOOLS` schemas.
+Note: `trust_get_weights` (meta_learning module) already existed in research agent map; `get_meta_learning_weights` is the new general-purpose version in the primary map.
 
 ## Wiring conventions (must follow for every new tool)
 - Relative imports (`from . import X`) → change to `import X`
 - All wrappers use lazy imports inside the function (NOT top-level)
 - Schema init blocks: SIBLING of outer [aiem_integrity] try/except, NOT inside it
-- Add to: (1) _fs_tool_map in _run_aiem_focused_session, (2) main _tool_map in _run_aiem_research_agent, (3) _AIEM_AGENT_TOOLS schema list, (4) _AIEM_AGENT_SYSTEM prompt description
+- Add to: (1) _build_aiem_tool_map() dict, (2) research agent tool map dict (~line 35027), (3) _AIEM_AGENT_TOOLS schema list, (4) _AIEM_AGENT_SYSTEM prompt description
 
 ## Key architectural notes
 - vwap_indicators: ANALYTICAL signal (not execution) — distinct from execution_simulator's TWAP/VWAP fill algos
