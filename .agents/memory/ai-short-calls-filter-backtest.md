@@ -28,7 +28,7 @@ description: 320-pick backtest findings that raised win rate from 31.6% to proje
 
 Four layers of filtering in `_bg_aisc()` in `main.py`:
 
-1. **DB query** — `vol_oi BETWEEN 1.5 AND 30`, `prem >= 750000`, `otm_pct BETWEEN -5 AND 15`, LIMIT 40, SQL ORDER prefers VOI 1.5-5x tier
+1. **DB query** — `vol_oi BETWEEN 1.5 AND 30`, `prem >= 500000`, `otm_pct BETWEEN -5 AND 15`, LIMIT 40, SQL ORDER prefers VOI 1.5-5x tier. ($250K and $500K produce identical picks — scanner never captures below $500K. $750K vs $500K: with dp≥50 both yield 24 picks at same 75% WR once dark pool filters; $500K gate chosen to not miss the 2 extra picks.)
 2. **Dark pool pre-enrichment** — before scoring, calls `app._dp_cache["results"]` (fast path, `short_pct` = off_exchange_pct) then `_get_dark_pool_convergence(missing)` (FINRA CDN) for any tickers not in cache; adds `dark_pool_pct` to each hit dict
 3. **Python pre-score + dedup** — `_score_hit()` weights: VOI 1.5-5x=50pts, prem $1M+=40pts, dp≥60%=45pts, dp≥50%=35pts, OTM≤5%=20pts, DTE≤7d=15pts; dedup by ticker (best hit per ticker); top 20
 4. **AI prompt** — "★★ ULTIMATE 75% WR: VOI 1.5-5x + prem ≥ $1M + dark_pool ≥ 50%"; hard disqualifiers spelled out; returns 3-5 picks
