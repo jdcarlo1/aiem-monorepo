@@ -1,0 +1,68 @@
+# Follow-up: Verify the "MERGED state" explanation with evidence, not narrative
+
+Context: The agent's self-report claims the `mark_task_complete` RPC error
+(`FAILED_PRECONDITION: cannot report done from state MERGED`) is benign — that
+the task had already committed and reached the terminal `MERGED` state before
+`mark_task_complete` was called, so the call was rejected as a duplicate
+no-op rather than a sign of an interrupted/failed run.
+
+That explanation is plausible but currently unverified — it's the agent
+describing its own state machine, not proof. Paste the prompts below to the
+agent, in order. Require raw output for each — no summaries, no "confirmed."
+
+---
+
+## 1. Get the actual timestamps
+
+> Give me the exact timestamp of the commit that landed (from git log or the
+> Replit task history — whichever is authoritative), and the exact timestamp
+> of the `mark_task_complete` call that failed. Print both as raw output —
+> git log timestamp and the RPC call timestamp from the logs — not a
+> restated claim. If you don't have log access to get real timestamps, say
+> so explicitly instead of inferring an order of events.
+
+## 2. Confirm the commit is actually the one from this run
+
+> Show me the commit hash and commit message for the commit you claim landed
+> before the `mark_task_complete` call. Confirm this commit corresponds to
+> the code that was actually tested in Run 1 / Run 2 (25/25 passed) — not a
+> prior or unrelated commit. Show the diff or file list in that commit.
+
+## 3. Check whether MERGED was reached through the expected path
+
+> Was the `MERGED` state reached through a normal successful merge of this
+> specific task, or could a task land in `MERGED` state through some other
+> path (e.g., a stale/duplicate task ID, a retry, a different task that
+> happened to reuse this state)? Show whatever task ID / state history is
+> available to confirm this MERGED state belongs to this run and not another
+> one.
+
+## 4. Rule out silent partial failure
+
+> Between the commit landing and the `mark_task_complete` call, was there
+> any indication of a retry, timeout, or reconnection on the agent's side
+> that could mean two `mark_task_complete` calls were made (one that
+# succeeded silently, one that hit the duplicate-call rejection)? Show the
+> full sequence of calls/log lines around that window, not just the final
+> error.
+
+## 5. Independent corroboration
+
+> Is there a way to confirm the paper trading / verification results (25/25
+> checks) are tied to the exact commit hash from #2 above — e.g., by
+> checking out that commit hash fresh and re-running the test harness,
+> rather than trusting that the working directory still reflects it?
+
+---
+
+### What "nailed down" looks like
+- Two real timestamps (commit landing, RPC call) with the commit strictly
+  before the RPC call.
+- A commit hash you can independently inspect, matching the tested code.
+- No ambiguity about which task/run the MERGED state belongs to.
+- Confirmation (via fresh checkout + re-run, not restated claim) that the
+  25/25 result maps to that exact commit.
+
+If the agent can't produce raw timestamps/hashes and instead re-explains the
+state machine semantics again, that's the same unverified narrative — push
+back and ask specifically for logs, not reasoning.
