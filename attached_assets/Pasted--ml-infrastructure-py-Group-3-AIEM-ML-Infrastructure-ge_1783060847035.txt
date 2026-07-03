@@ -1,0 +1,522 @@
+"""
+ml_infrastructure.py
+=====================
+Group 3 — AIEM ML Infrastructure (general-purpose utilities superseded by
+the dedicated probability engine, but kept as standalone tools / fallback).
+
+Contains, in order:
+ 1. data_prep — point-in-time-safe train/test split helpers
+ 2. model_training — generic model training wrapper
+ 3. ml_engine — thin orchestration layer tying 1+2+4 together
+ 4. evaluation_metrics — classification/regression metrics for trading signals
+ 5. slippage_model — realistic cost modeling for paper trades
+ 6. signal_discovery_gp — Gaussian Process based signal search
+
+All modules are self-contained classes/functions with no dependency on the
+probability engine (train.py / Module 5), so they can be dropped in or run
+independently. Every public function raises on bad input rather than
+silently returning garbage — this is intentional given the "prove it, don't
+tell me" standard: failures should be loud.
+"""
+from __future__ import annotations
+
+import math
+import warnings
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Sequence
+
+import numpy as np
+import pandas as pd
+
+
+# ============================================================================
+# 1. data_prep.py — train/test split helpers
+# ============================================================================
+
+def time_series_train_test_split(
+    df: pd.DataFrame,
+    timestamp_col: str,
+    train_frac: float = 0.7,
+    embargo_bars: int = 0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Point-in-time-safe train/test split. Unlike sklearn's train_test_split,
+    this NEVER shuffles rows and enforces a strict chronological cut, with
+    an optional embargo gap between train and test to prevent leakage from
+    overlapping lookback windows (e.g. a 20-bar rolling feature computed
+    near the split boundary).
+
+    Args:
+        df: DataFrame containing a datetime-sortable column.
+        timestamp_col: name of that column.
+        train_frac: fraction of rows (by time, not randomly) used for train.
+        embargo_bars: number of rows dropped between train and test to
+            prevent leakage from rolling-window features.
+
+    Returns:
+        (train_df, test_df), both sorted by timestamp_col.
+
+    Raises:
+        ValueError: if timestamp_col is missing, unsorted-unsortable, or
+            train_frac is out of (0, 1).
+    """
+    if timestamp_col not in df.columns:
+        raise ValueError(f"timestamp_col '{timestamp_col}' not in DataFrame")
+    if not (0.0 < train_frac < 1.0):
+        raise ValueError(f"train_frac must be in (0, 1), got {train_frac}")
+
+    df = df.sort_values(timestamp_col).reset_index(drop=True)
+    n = len(df)
+    if n < 10:
+        raise ValueError(f"Need at least 10 rows to split safely, got {n}")
+
+    split_idx = int(n * train_frac)
+    embargo_end = min(split_idx + embargo_bars, n)
+
+    train_df = df.iloc[:split_idx].copy()
+    test_df = df.iloc[embargo_end:].copy()
+
+    if test_df.empty:
+        raise ValueError(
+            "Embargo consumed entire test set — reduce embargo_bars "
+            f"(embargo_bars={embargo_bars}, rows_after_split={n - split_idx})"
+        )
+
+    # Hard guarantee against lookahead: assert no test timestamp precedes
+    # the max train timestamp.
+    if test_df[timestamp_col].min() <= train_df[timestamp_col].max():
+        raise RuntimeError(
+            "Lookahead bias detected: test set contains a timestamp <= "
+            "max train timestamp. This should be impossible — investigate "
+            "duplicate timestamps in the source data."
+        )
+
+    return train_df, test_df
+
+
+def walk_forward_splits(
+    df: pd.DataFrame,
+    timestamp_col: str,
+    n_splits: int = 5,
+    min_train_frac: float = 0.4,
+    embargo_bars: int = 0,
+):
+    """
+    Generator yielding successive (train_df, test_df) walk-forward folds,
+    each with a strictly larger training window than the last (expanding
+    window CV). Suitable for backtesting where the model should only ever
+    see the past.
+
+    Yields:
+        (fold_index, train_df, test_df)
+    """
+    if n_splits < 2:
+        raise ValueError("n_splits must be >= 2")
+
+    df = df.sort_values(timestamp_col).reset_index(drop=True)
+    n = len(df)
+    min_train_size = int(n * min_train_frac)
+    remaining = n - min_train_size
+
+    if remaining < n_splits:
+        raise ValueError(
+            f"Not enough rows ({n}) for {n_splits} walk-forward splits "
+            f"with min_train_frac={min_train_frac}"
+        )
+
+    fold_size = remaining // n_splits
+
+    for fold in range(n_splits):
+        train_end = min_train_size + fold * fold_size
+        test_start = min(train_end + embargo_bars, n)
+        test_end = min(train_end + fold_size, n) if fold < n_splits - 1 else n
+
+        train_df = df.iloc[:train_end].copy()
+        test_df = df.iloc[test_start:test_end].copy()
+
+        if test_df.empty:
+            continue
+
+        yield fold, train_df, test_df
+
+
+# ============================================================================
+# 2. model_training.py — generic model training
+# ============================================================================
+
+@dataclass
+class TrainResult:
+    model: object
+    train_score: float
+    n_train_rows: int
+    feature_names: list[str]
+    fit_seconds: float
+
+
+def train_model(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    model_factory: Callable[[], object],
+    sample_weight: Optional[pd.Series] = None,
+) -> TrainResult:
+    """
+    Generic training wrapper around any sklearn-compatible estimator
+    (must implement .fit() and .score()).
+
+    Args:
+        X_train: feature matrix.
+        y_train: target vector, same length as X_train.
+        model_factory: zero-arg callable returning an unfit estimator
+            instance, e.g. `lambda: RandomForestClassifier(n_estimators=200)`.
+        sample_weight: optional per-row weights.
+
+    Returns:
+        TrainResult with the fit model and basic metadata.
+
+    Raises:
+        ValueError: on shape mismatch or empty input.
+    """
+    if len(X_train) != len(y_train):
+        raise ValueError(
+            f"X_train ({len(X_train)} rows) and y_train ({len(y_train)} rows) "
+            "length mismatch"
+        )
+    if len(X_train) == 0:
+        raise ValueError("X_train is empty — nothing to train on")
+    if X_train.isnull().any().any():
+        bad_cols = X_train.columns[X_train.isnull().any()].tolist()
+        raise ValueError(f"X_train contains NaNs in columns: {bad_cols}")
+
+    import time
+
+    model = model_factory()
+    start = time.time()
+
+    fit_kwargs = {}
+    if sample_weight is not None:
+        fit_kwargs["sample_weight"] = sample_weight.values
+
+    model.fit(X_train.values, y_train.values, **fit_kwargs)
+    fit_seconds = time.time() - start
+
+    try:
+        train_score = float(model.score(X_train.values, y_train.values))
+    except Exception as exc:  # some estimators don't implement .score
+        warnings.warn(f"model.score() failed: {exc}; train_score set to nan")
+        train_score = float("nan")
+
+    return TrainResult(
+        model=model,
+        train_score=train_score,
+        n_train_rows=len(X_train),
+        feature_names=list(X_train.columns),
+        fit_seconds=fit_seconds,
+    )
+
+
+def predict(model_result: TrainResult, X: pd.DataFrame) -> np.ndarray:
+    """Predict using a TrainResult, enforcing feature-name/order consistency."""
+    if list(X.columns) != model_result.feature_names:
+        missing = set(model_result.feature_names) - set(X.columns)
+        extra = set(X.columns) - set(model_result.feature_names)
+        raise ValueError(
+            "Feature mismatch between training and inference. "
+            f"missing={missing} extra={extra}"
+        )
+    X_ordered = X[model_result.feature_names]
+    return model_result.model.predict(X_ordered.values)
+
+
+# ============================================================================
+# 3. ml_engine.py — thin orchestration wrapper
+# ============================================================================
+
+class MLEngine:
+    """
+    Ties data_prep + model_training + evaluation_metrics together into a
+    single fit/evaluate call. This is a generic fallback engine — the live
+    probability engine (train.py, Module 5) supersedes this in production,
+    but this class is kept for ad-hoc experimentation and regression tests.
+    """
+
+    def __init__(
+        self,
+        model_factory: Callable[[], object],
+        timestamp_col: str,
+        embargo_bars: int = 5,
+    ):
+        self.model_factory = model_factory
+        self.timestamp_col = timestamp_col
+        self.embargo_bars = embargo_bars
+        self.result: Optional[TrainResult] = None
+
+    def fit(
+        self,
+        df: pd.DataFrame,
+        feature_cols: Sequence[str],
+        target_col: str,
+        train_frac: float = 0.7,
+    ) -> dict:
+        """Full fit + holdout evaluation in one call. Returns metrics dict."""
+        train_df, test_df = time_series_train_test_split(
+            df, self.timestamp_col, train_frac=train_frac,
+            embargo_bars=self.embargo_bars,
+        )
+
+        X_train, y_train = train_df[list(feature_cols)], train_df[target_col]
+        X_test, y_test = test_df[list(feature_cols)], test_df[target_col]
+
+        self.result = train_model(X_train, y_train, self.model_factory)
+        preds = predict(self.result, X_test)
+
+        is_classification = y_train.nunique() <= 10 and set(
+            np.unique(y_train)
+        ).issubset({0, 1})
+
+        if is_classification:
+            metrics = classification_metrics(y_test.values, preds)
+        else:
+            metrics = regression_metrics(y_test.values, preds)
+
+        metrics["n_train_rows"] = self.result.n_train_rows
+        metrics["n_test_rows"] = len(X_test)
+        metrics["fit_seconds"] = self.result.fit_seconds
+        return metrics
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        if self.result is None:
+            raise RuntimeError("MLEngine.fit() must be called before predict()")
+        return predict(self.result, X)
+
+
+# ============================================================================
+# 4. evaluation_metrics.py — model eval metrics
+# ============================================================================
+
+def classification_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
+    """Binary classification metrics with zero-division guards."""
+    y_true = np.asarray(y_true).astype(int)
+    y_pred = np.asarray(y_pred).astype(int)
+
+    if y_true.shape != y_pred.shape:
+        raise ValueError(f"Shape mismatch: {y_true.shape} vs {y_pred.shape}")
+
+    tp = int(np.sum((y_true == 1) & (y_pred == 1)))
+    fp = int(np.sum((y_true == 0) & (y_pred == 1)))
+    tn = int(np.sum((y_true == 0) & (y_pred == 0)))
+    fn = int(np.sum((y_true == 1) & (y_pred == 0)))
+
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall)
+        else 0.0
+    )
+    accuracy = (tp + tn) / len(y_true) if len(y_true) else 0.0
+
+    return {
+        "accuracy": round(accuracy, 4),
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1": round(f1, 4),
+        "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+        "n": len(y_true),
+    }
+
+
+def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
+    """Regression metrics: MAE, RMSE, R², and directional hit rate
+    (useful for price-move predictions where sign matters more than magnitude)."""
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+
+    if y_true.shape != y_pred.shape:
+        raise ValueError(f"Shape mismatch: {y_true.shape} vs {y_pred.shape}")
+    if len(y_true) == 0:
+        raise ValueError("Empty input to regression_metrics")
+
+    errors = y_pred - y_true
+    mae = float(np.mean(np.abs(errors)))
+    rmse = float(np.sqrt(np.mean(errors ** 2)))
+
+    ss_res = float(np.sum(errors ** 2))
+    ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+
+    directional_hit_rate = float(
+        np.mean(np.sign(y_pred) == np.sign(y_true))
+    )
+
+    return {
+        "mae": round(mae, 6),
+        "rmse": round(rmse, 6),
+        "r2": round(r2, 4) if not math.isnan(r2) else None,
+        "directional_hit_rate": round(directional_hit_rate, 4),
+        "n": len(y_true),
+    }
+
+
+# ============================================================================
+# 5. slippage_model.py — realistic cost modeling for paper trades
+# ============================================================================
+
+@dataclass
+class SlippageResult:
+    fill_price: float
+    slippage_dollars: float
+    slippage_bps: float
+    commission: float
+    total_cost: float
+
+
+class SlippageModel:
+    """
+    Models realistic execution cost for a paper trade so backtested P&L
+    isn't fantasy-fill-price P&L.
+
+    Cost = spread crossing + market impact (sqrt model) + commission.
+    """
+
+    def __init__(
+        self,
+        commission_per_contract: float = 0.65,
+        base_spread_bps: float = 2.0,
+        impact_coefficient: float = 0.10,
+    ):
+        if commission_per_contract < 0 or base_spread_bps < 0 or impact_coefficient < 0:
+            raise ValueError("Cost parameters must be non-negative")
+        self.commission_per_contract = commission_per_contract
+        self.base_spread_bps = base_spread_bps
+        self.impact_coefficient = impact_coefficient
+
+    def estimate_fill(
+        self,
+        mid_price: float,
+        quantity: int,
+        avg_daily_volume: float,
+        side: str,
+        bid_ask_spread: Optional[float] = None,
+    ) -> SlippageResult:
+        """
+        Args:
+            mid_price: (bid+ask)/2 at decision time.
+            quantity: number of contracts/shares (positive int).
+            avg_daily_volume: ADV used to size market impact.
+            side: 'buy' or 'sell'.
+            bid_ask_spread: actual quoted spread in dollars; if None,
+                falls back to base_spread_bps applied to mid_price.
+
+        Returns:
+            SlippageResult with fill price and total transaction cost.
+
+        Raises:
+            ValueError: on invalid side, non-positive price/quantity/ADV.
+        """
+        if side not in ("buy", "sell"):
+            raise ValueError(f"side must be 'buy' or 'sell', got '{side}'")
+        if mid_price <= 0:
+            raise ValueError(f"mid_price must be positive, got {mid_price}")
+        if quantity <= 0:
+            raise ValueError(f"quantity must be positive, got {quantity}")
+        if avg_daily_volume <= 0:
+            raise ValueError(f"avg_daily_volume must be positive, got {avg_daily_volume}")
+
+        spread = (
+            bid_ask_spread
+            if bid_ask_spread is not None
+            else mid_price * self.base_spread_bps / 10_000
+        )
+        half_spread = spread / 2
+
+        # Square-root market impact model (standard in execution literature):
+        # impact scales with sqrt(participation rate).
+        participation = quantity / avg_daily_volume
+        impact_bps = self.impact_coefficient * math.sqrt(participation) * 10_000
+        impact_dollars = mid_price * impact_bps / 10_000
+
+        direction = 1 if side == "buy" else -1
+        fill_price = mid_price + direction * (half_spread + impact_dollars)
+
+        slippage_dollars = abs(fill_price - mid_price) * quantity
+        slippage_bps = abs(fill_price - mid_price) / mid_price * 10_000
+        commission = self.commission_per_contract * quantity
+        total_cost = slippage_dollars + commission
+
+        return SlippageResult(
+            fill_price=round(fill_price, 4),
+            slippage_dollars=round(slippage_dollars, 2),
+            slippage_bps=round(slippage_bps, 2),
+            commission=round(commission, 2),
+            total_cost=round(total_cost, 2),
+        )
+
+
+# ============================================================================
+# 6. signal_discovery_gp.py — Gaussian Process signal search
+# ============================================================================
+
+def gp_signal_search(
+    X: pd.DataFrame,
+    y: pd.Series,
+    n_candidates: int = 20,
+    random_state: int = 42,
+) -> dict:
+    """
+    Uses a Gaussian Process Regressor to rank feature subsets/signals by
+    how well they explain forward returns, with a proper held-out fit
+    (not fit-on-everything-and-eyeball).
+
+    This is a generic exploratory tool. In production, the probability
+    engine performs the equivalent search via Module 5 — this function is
+    kept for offline research / sanity-checking new candidate features.
+
+    Args:
+        X: candidate feature matrix (columns = candidate signals).
+        y: forward return / target series, same index as X.
+        n_candidates: max number of top features to report.
+        random_state: for reproducibility of the GP's internal optimizer.
+
+    Returns:
+        dict with 'ranked_features' (list of (name, score) sorted desc)
+        and 'log_marginal_likelihood' for the full-feature GP fit.
+
+    Raises:
+        ValueError: on empty input or NaNs.
+    """
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import RBF, WhiteKernel
+
+    if X.empty or y.empty:
+        raise ValueError("X and y must be non-empty")
+    if X.isnull().any().any() or y.isnull().any():
+        raise ValueError("X/y contain NaNs — clean before signal search")
+    if len(X) != len(y):
+        raise ValueError(f"Length mismatch: X={len(X)}, y={len(y)}")
+
+    # Standardize — GPs are scale-sensitive.
+    X_std = (X - X.mean()) / X.std().replace(0, 1)
+
+    kernel = RBF(length_scale=1.0) + WhiteKernel(noise_level=0.1)
+    gp = GaussianProcessRegressor(kernel=kernel, random_state=random_state, normalize_y=True)
+    gp.fit(X_std.values, y.values)
+
+    # Per-feature score via ARD-style single-feature marginal likelihood
+    # (cheap proxy — fit a 1D GP per candidate feature).
+    scores = []
+    for col in X_std.columns:
+        single_kernel = RBF(length_scale=1.0) + WhiteKernel(noise_level=0.1)
+        gp_single = GaussianProcessRegressor(
+            kernel=single_kernel, random_state=random_state, normalize_y=True
+        )
+        gp_single.fit(X_std[[col]].values, y.values)
+        scores.append((col, float(gp_single.log_marginal_likelihood())))
+
+    scores.sort(key=lambda t: t[1], reverse=True)
+
+    return {
+        "ranked_features": scores[:n_candidates],
+        "log_marginal_likelihood_full_model": float(gp.log_marginal_likelihood()),
+        "n_samples": len(X),
+        "n_features_evaluated": len(X_std.columns),
+    }

@@ -28651,6 +28651,13 @@ def _build_aiem_tool_map():
         "microstructure_proxy":        _aiem_tool_microstructure_proxy,
         "reddit_sentiment":            _aiem_tool_reddit_sentiment,
         "precursor_signals":           _aiem_tool_precursor_signals,
+        # ── Group 3: ML Infrastructure tools ─────────────────────────────────
+        "ml_time_split":               _aiem_tool_ml_time_split,
+        "ml_train_model":              _aiem_tool_ml_train_model,
+        "ml_classification_metrics":   _aiem_tool_ml_classification_metrics,
+        "ml_regression_metrics":       _aiem_tool_ml_regression_metrics,
+        "ml_estimate_fill":            _aiem_tool_ml_estimate_fill,
+        "ml_gp_signal_search":         _aiem_tool_ml_gp_signal_search,
         "intraday_compute_features":   _aiem_tool_intraday_compute_features,
         # ── VWAP indicator tools ──────────────────────────────────────────────
         "vwap_compute_features": _aiem_tool_vwap_compute_features,
@@ -30261,6 +30268,66 @@ _AIEM_AGENT_TOOLS = [
             "price_history_json": {"type": "string", "description": "JSON list of {date,open,high,low,close,volume} dicts ascending by date"},
             "ticker": {"type": "string", "description": "Ticker symbol (for labeling output)"},
         }, "required": ["price_history_json"]},
+    }},
+    # ── Group 3: ML Infrastructure ───────────────────────────────────────────
+    {"type": "function", "function": {
+        "name": "ml_time_split",
+        "description": "Point-in-time-safe chronological train/test split with optional embargo gap to prevent lookahead leakage. Returns row counts and date ranges for each split.",
+        "parameters": {"type": "object", "properties": {
+            "data_json":      {"type": "string",  "description": "JSON list of row dicts (must include timestamp_col)"},
+            "timestamp_col":  {"type": "string",  "description": "Name of the datetime column"},
+            "train_frac":     {"type": "number",  "description": "Fraction of rows for training (0-1), default 0.7"},
+            "embargo_bars":   {"type": "integer", "description": "Rows to drop between train/test boundary, default 0"},
+        }, "required": ["data_json", "timestamp_col"]},
+    }},
+    {"type": "function", "function": {
+        "name": "ml_train_model",
+        "description": "Train a LogisticRegression classifier on time-series data with a point-in-time-safe split, returning holdout accuracy, precision, recall, F1, and fit timing.",
+        "parameters": {"type": "object", "properties": {
+            "data_json":      {"type": "string", "description": "JSON list of row dicts"},
+            "feature_cols":   {"type": "string", "description": "JSON list of column names to use as features"},
+            "target_col":     {"type": "string", "description": "Name of the binary 0/1 target column"},
+            "timestamp_col":  {"type": "string", "description": "Name of the datetime column for time-safe split"},
+            "train_frac":     {"type": "number", "description": "Train fraction (0-1), default 0.7"},
+        }, "required": ["data_json", "feature_cols", "target_col", "timestamp_col"]},
+    }},
+    {"type": "function", "function": {
+        "name": "ml_classification_metrics",
+        "description": "Compute accuracy, precision, recall, F1, TP/FP/TN/FN from two JSON arrays of 0/1 values (y_true and y_pred).",
+        "parameters": {"type": "object", "properties": {
+            "y_true_json": {"type": "string", "description": "JSON list of true binary labels (0/1)"},
+            "y_pred_json": {"type": "string", "description": "JSON list of predicted binary labels (0/1)"},
+        }, "required": ["y_true_json", "y_pred_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "ml_regression_metrics",
+        "description": "Compute MAE, RMSE, R², and directional hit rate from two JSON arrays of floats (y_true and y_pred).",
+        "parameters": {"type": "object", "properties": {
+            "y_true_json": {"type": "string", "description": "JSON list of true float values"},
+            "y_pred_json": {"type": "string", "description": "JSON list of predicted float values"},
+        }, "required": ["y_true_json", "y_pred_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "ml_estimate_fill",
+        "description": "Estimate realistic fill price, slippage (bps + dollars), commission, and total transaction cost for a paper trade using the square-root market impact model.",
+        "parameters": {"type": "object", "properties": {
+            "mid_price":         {"type": "number",  "description": "(bid+ask)/2 at decision time"},
+            "quantity":          {"type": "integer", "description": "Number of contracts/shares (positive)"},
+            "avg_daily_volume":  {"type": "number",  "description": "Average daily volume for market impact sizing"},
+            "side":              {"type": "string",  "description": "'buy' or 'sell'"},
+            "bid_ask_spread":    {"type": "number",  "description": "Actual quoted spread in dollars (optional; defaults to 2 bps of mid)"},
+            "commission_per_contract": {"type": "number", "description": "Commission per contract/share, default $0.65"},
+        }, "required": ["mid_price", "quantity", "avg_daily_volume", "side"]},
+    }},
+    {"type": "function", "function": {
+        "name": "ml_gp_signal_search",
+        "description": "Rank candidate features/signals by how well each independently explains forward returns, using a Gaussian Process marginal likelihood score. Useful for offline research or sanity-checking new candidate signals before full backtesting.",
+        "parameters": {"type": "object", "properties": {
+            "data_json":      {"type": "string",  "description": "JSON list of row dicts with feature columns and target column"},
+            "feature_cols":   {"type": "string",  "description": "JSON list of column names to rank"},
+            "target_col":     {"type": "string",  "description": "Forward return / target column name"},
+            "n_candidates":   {"type": "integer", "description": "Max features to return ranked, default 20"},
+        }, "required": ["data_json", "feature_cols", "target_col"]},
     }},
     {"type": "function", "function": {
         "name": "breakout_extract_features",
@@ -33221,6 +33288,138 @@ def _aiem_tool_precursor_signals(price_history_json: str, ticker: str = "") -> d
         return {"error": str(_e), "ticker": ticker}
 
 
+# ── Group 3: ML Infrastructure tools ─────────────────────────────────────────
+
+def _aiem_tool_ml_time_split(
+    data_json: str,
+    timestamp_col: str,
+    train_frac: float = 0.7,
+    embargo_bars: int = 0,
+) -> dict:
+    """Point-in-time-safe train/test split — returns row counts and date ranges."""
+    try:
+        import ml_infrastructure as _ml
+        import pandas as _pd, json as _j
+        df = _pd.DataFrame(_j.loads(data_json))
+        df[timestamp_col] = _pd.to_datetime(df[timestamp_col])
+        train_df, test_df = _ml.time_series_train_test_split(
+            df, timestamp_col, train_frac=train_frac, embargo_bars=embargo_bars
+        )
+        return {
+            "n_train":     len(train_df),
+            "n_test":      len(test_df),
+            "train_start": str(train_df[timestamp_col].min().date()),
+            "train_end":   str(train_df[timestamp_col].max().date()),
+            "test_start":  str(test_df[timestamp_col].min().date()),
+            "test_end":    str(test_df[timestamp_col].max().date()),
+            "embargo_bars": embargo_bars,
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_ml_train_model(
+    data_json: str,
+    feature_cols: str,
+    target_col: str,
+    timestamp_col: str,
+    train_frac: float = 0.7,
+) -> dict:
+    """Train LogisticRegression on time-series data; returns holdout eval metrics."""
+    try:
+        import ml_infrastructure as _ml
+        import pandas as _pd, json as _j
+        from sklearn.linear_model import LogisticRegression as _LR
+        df = _pd.DataFrame(_j.loads(data_json))
+        df[timestamp_col] = _pd.to_datetime(df[timestamp_col])
+        feature_list = _j.loads(feature_cols)
+        engine = _ml.MLEngine(
+            model_factory=lambda: _LR(max_iter=500, solver="lbfgs"),
+            timestamp_col=timestamp_col,
+            embargo_bars=5,
+        )
+        return engine.fit(df, feature_list, target_col, train_frac=train_frac)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_ml_classification_metrics(
+    y_true_json: str,
+    y_pred_json: str,
+) -> dict:
+    """Accuracy / precision / recall / F1 / confusion matrix from two JSON arrays."""
+    try:
+        import ml_infrastructure as _ml
+        import json as _j, numpy as _np
+        y_true = _np.array(_j.loads(y_true_json))
+        y_pred = _np.array(_j.loads(y_pred_json))
+        return _ml.classification_metrics(y_true, y_pred)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_ml_regression_metrics(
+    y_true_json: str,
+    y_pred_json: str,
+) -> dict:
+    """MAE / RMSE / R² / directional hit rate from two JSON arrays."""
+    try:
+        import ml_infrastructure as _ml
+        import json as _j, numpy as _np
+        y_true = _np.array(_j.loads(y_true_json), dtype=float)
+        y_pred = _np.array(_j.loads(y_pred_json), dtype=float)
+        return _ml.regression_metrics(y_true, y_pred)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_ml_estimate_fill(
+    mid_price: float,
+    quantity: int,
+    avg_daily_volume: float,
+    side: str,
+    bid_ask_spread: float = None,
+    commission_per_contract: float = 0.65,
+) -> dict:
+    """Square-root market impact slippage model — returns fill price and total cost."""
+    try:
+        import ml_infrastructure as _ml
+        model = _ml.SlippageModel(commission_per_contract=commission_per_contract)
+        r = model.estimate_fill(
+            mid_price=mid_price,
+            quantity=int(quantity),
+            avg_daily_volume=avg_daily_volume,
+            side=side,
+            bid_ask_spread=bid_ask_spread,
+        )
+        return {
+            "fill_price":       r.fill_price,
+            "slippage_dollars": r.slippage_dollars,
+            "slippage_bps":     r.slippage_bps,
+            "commission":       r.commission,
+            "total_cost":       r.total_cost,
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_ml_gp_signal_search(
+    data_json: str,
+    feature_cols: str,
+    target_col: str,
+    n_candidates: int = 20,
+) -> dict:
+    """Gaussian Process marginal-likelihood feature ranking — returns ranked_features list."""
+    try:
+        import ml_infrastructure as _ml
+        import pandas as _pd, json as _j
+        df = _pd.DataFrame(_j.loads(data_json))
+        feature_list = _j.loads(feature_cols)
+        return _ml.gp_signal_search(df[feature_list], df[target_col], n_candidates=n_candidates)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _aiem_tool_breakout_extract_features(
     price_history_json: str,
     ticker: str = "",
@@ -34257,6 +34456,13 @@ def _run_aiem_research_agent(max_iterations=None):
         "microstructure_proxy":        _aiem_tool_microstructure_proxy,
         "reddit_sentiment":            _aiem_tool_reddit_sentiment,
         "precursor_signals":           _aiem_tool_precursor_signals,
+        # ── Group 3: ML Infrastructure tools ─────────────────────────────────
+        "ml_time_split":               _aiem_tool_ml_time_split,
+        "ml_train_model":              _aiem_tool_ml_train_model,
+        "ml_classification_metrics":   _aiem_tool_ml_classification_metrics,
+        "ml_regression_metrics":       _aiem_tool_ml_regression_metrics,
+        "ml_estimate_fill":            _aiem_tool_ml_estimate_fill,
+        "ml_gp_signal_search":         _aiem_tool_ml_gp_signal_search,
         "intraday_compute_features":   _aiem_tool_intraday_compute_features,
         "send_discovery_alert":        _aiem_tool_send_discovery_alert,
         "retrain_pending":             _aiem_tool_retrain_pending,
