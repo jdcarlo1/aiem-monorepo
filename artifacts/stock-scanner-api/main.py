@@ -14173,6 +14173,11 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     charm_sigs = _get_charm_cascade_signals()
 
     scores: dict = {}
+    try:
+        import decision_logging_helper as _dlh_oi
+    except Exception as _dlh_oi_exc:
+        print(f"[L1] decision_logging_helper import failed: {_dlh_oi_exc}")
+        _dlh_oi = None
 
     for row in oi_sigs:
         if not row or len(row) < 10:
@@ -14188,6 +14193,16 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
         scores[ticker]["meta"]["strike"]     = float(strike)
         scores[ticker]["meta"]["expiry"]     = str(expiry)
         scores[ticker]["meta"]["days_out"]   = int(days)
+        if _dlh_oi:
+            _dlh_oi.log_oi_build_decision(
+                ticker=ticker,
+                oi_pct=oi_f,
+                oi_chg=int(oi_chg),
+                strike=float(strike),
+                expiry=str(expiry),
+                days_out=int(days),
+                pts=pts,
+            )
 
     for row in charm_sigs:
         ticker, price, strike, expiry, oi, otm, days, charm_score = row

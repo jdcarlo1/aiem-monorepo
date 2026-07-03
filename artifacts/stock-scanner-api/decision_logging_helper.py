@@ -13,11 +13,54 @@ failure NEVER propagates into the scanner that called it.
 import decision_logger as dl
 
 
+def log_oi_build_decision(ticker: str, oi_pct: float, oi_chg: int,
+                          strike: float, expiry: str, days_out: int, pts: float):
+    """Log an OI accumulation build signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec in main.py —
+    no invented coefficient:
+      oi_pct>=50% (pts=2.0) -> 0.85
+      oi_pct>=25% (pts=1.5) -> 0.72
+      oi_pct>=0%  (pts=1.0) -> 0.60
+    """
+    try:
+        _CONFIDENCE_MAP = {2.0: 0.85, 1.5: 0.72, 1.0: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.60)
+        reasoning = (
+            f"OI accumulation build flagged {ticker}: open interest rose {oi_pct:.1f}% "
+            f"({oi_chg:+,} contracts) on the ${strike:.2f} strike expiring {expiry} "
+            f"({days_out}d out). "
+            f"Rising OI on a single strike indicates NEW positions being opened — "
+            f"not roll or hedge activity — consistent with directional conviction "
+            f"building ahead of a move. Layer 1 conviction tier: {pts:.1f} pts."
+        )
+        dl.log_decision(
+            signal_name="oi_build",
+            decision_type="trade",
+            reasoning=reasoning,
+            ticker=ticker,
+            direction="long",
+            confidence=confidence,
+        )
+    except Exception as _exc:
+        print(f"[log_oi_build_decision] {type(_exc).__name__}: {_exc}")
+
+
 def log_gamma_decision(ticker: str, fir: float, vol_oi: float,
                        score: float, price_change_pct: float,
                        top_strike):
-    """Log a gamma pressure scan signal fire to agent_decisions."""
+    """Log a gamma pressure scan signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec in main.py —
+    no invented coefficient:
+      fir>=5 (pts=2.0) -> 0.85
+      fir>=3 (pts=1.5) -> 0.72
+      fir>=1.2 (pts=1.0, SQL floor in _scan_one) -> 0.60
+    """
     try:
+        pts = 2.0 if fir >= 5 else 1.5 if fir >= 3 else 1.0
+        _CONFIDENCE_MAP = {2.0: 0.85, 1.5: 0.72, 1.0: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.60)
         strike_str = f"${top_strike:.0f}" if top_strike else "near-ATM"
         direction  = "+" if price_change_pct >= 0 else ""
         reasoning = (
@@ -27,7 +70,7 @@ def log_gamma_decision(ticker: str, fir: float, vol_oi: float,
             f"concentrated near the {strike_str} strike. "
             f"Price {direction}{price_change_pct:.1f}% today — dealer delta-hedging of "
             f"fresh call volume is creating forced share demand. "
-            f"Composite score: {score:.1f}."
+            f"Composite score: {score:.1f}. Layer 2 conviction tier: {pts:.1f} pts."
         )
         dl.log_decision(
             signal_name="gamma_pressure_scan",
@@ -35,7 +78,7 @@ def log_gamma_decision(ticker: str, fir: float, vol_oi: float,
             reasoning=reasoning,
             ticker=ticker,
             direction="long",
-            confidence=round(min(0.92, 0.50 + fir * 0.08), 2),
+            confidence=confidence,
         )
     except Exception as _exc:
         print(f"[log_gamma_decision] {type(_exc).__name__}: {_exc}")
@@ -44,8 +87,22 @@ def log_gamma_decision(ticker: str, fir: float, vol_oi: float,
 def log_charm_decision(ticker: str, strike: float, expiry: str,
                        days_out: int, oi: int, otm_pct: float,
                        charm_score: float):
-    """Log a charm cascade signal fire to agent_decisions."""
+    """Log a charm cascade signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec in main.py —
+    no invented coefficient:
+      charm_score>=1000 (pts=2.0) -> 0.85
+      charm_score>=400  (pts=1.5) -> 0.72
+      charm_score>=0    (pts=1.0) -> 0.60
+
+    Previous formula min(0.88, 0.40 + min(charm_score,200)*0.002) was critically
+    wrong: any charm_score>=200 gave confidence=0.80 regardless of tier, meaning
+    pts=1.0 and pts=2.0 signals were indistinguishable above the 200 cap.
+    """
     try:
+        pts = 2.0 if charm_score >= 1000 else 1.5 if charm_score >= 400 else 1.0
+        _CONFIDENCE_MAP = {2.0: 0.85, 1.5: 0.72, 1.0: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.60)
         otm_label = f"{abs(otm_pct):.1f}% {'OTM' if otm_pct > 0 else 'ITM'}"
         reasoning = (
             f"Charm cascade flagged {ticker}: ${strike:.0f} strike expiring {expiry} "
@@ -53,7 +110,7 @@ def log_charm_decision(ticker: str, strike: float, expiry: str,
             f"At ≤10 days to expiry in this strike zone, charm (dDelta/dTime) is near "
             f"its maximum — dealer hedge ratios rise automatically each calendar day "
             f"even without price movement, creating deterministic forced buying. "
-            f"Charm score: {charm_score:.1f}."
+            f"Charm score: {charm_score:.1f}. Layer 3 conviction tier: {pts:.1f} pts."
         )
         dl.log_decision(
             signal_name="charm_cascade",
@@ -61,7 +118,7 @@ def log_charm_decision(ticker: str, strike: float, expiry: str,
             reasoning=reasoning,
             ticker=ticker,
             direction="long",
-            confidence=round(min(0.88, 0.40 + min(charm_score, 200) * 0.002), 2),
+            confidence=confidence,
         )
     except Exception as _exc:
         print(f"[log_charm_decision] {type(_exc).__name__}: {_exc}")
