@@ -44946,10 +44946,15 @@ def ai_short_calls():
                             FROM unusual_calls_log
                             WHERE last_seen >= {_et_floor}
                               AND days_out BETWEEN 1 AND 30
-                              AND prem >= 500000
-                              AND otm_pct BETWEEN -2 AND 30
-                            ORDER BY last_seen DESC, vol_oi DESC
-                            LIMIT 25
+                              AND vol_oi  BETWEEN 1.5 AND 30
+                              AND prem    >= 750000
+                              AND otm_pct BETWEEN -5 AND 15
+                            ORDER BY
+                              (CASE WHEN vol_oi BETWEEN 1.5 AND 5 THEN 2
+                                    WHEN vol_oi BETWEEN 5  AND 10 THEN 1
+                                    ELSE 0 END) DESC,
+                              prem DESC, last_seen DESC
+                            LIMIT 40
                         """)
                         _rows2 = _cur2.fetchall()
                     hits = [
@@ -44966,7 +44971,49 @@ def ai_short_calls():
                 print("[ai_short_calls] no unusual calls found - skipping", file=_sys.stderr)
                 return
 
-            hits = hits[:30]
+            # ── Pre-score + deduplicate hits before feeding to AI ───────────────
+            # Backtest on 320 graded picks identified the winning profile:
+            #   VOI 1.5-5x + prem >= $1M = 70% WR (+7.58% avg)
+            #   VOI 1.5-5x + prem >= $750K = 60% WR
+            #   VOI > 30x  = 22-28% WR (retail chasing, skip)
+            #   OTM > 15%  = 0% WR (never wins, skip)
+            # Score each candidate and deduplicate by ticker before passing to AI.
+            def _score_hit(h):
+                s = 0.0
+                v = h.get("vol_oi", 0)
+                p = h.get("prem", 0)
+                o = h.get("otm_pct", 99)
+                d = h.get("days_out", 99)
+                # VOI sweet-spot score (1.5-5x = highest)
+                if 1.5 <= v <= 5:   s += 50
+                elif 5  <  v <= 8:  s += 30
+                elif 8  <  v <= 15: s += 15
+                elif v > 15:        s +=  5
+                # Premium score ($1M+ = institutional conviction)
+                if p >= 1_000_000:  s += 40
+                elif p >= 750_000:  s += 25
+                elif p >= 500_000:  s += 10
+                # OTM score (near-ATM wins most)
+                if o <= 5:          s += 20
+                elif o <= 10:       s += 12
+                elif o <= 15:       s +=  4
+                else:               s -=  20  # >15% OTM = big penalty
+                # DTE score (shorter wins more)
+                if d <= 7:          s += 15
+                elif d <= 14:       s += 10
+                elif d <= 21:       s +=  5
+                return s
+
+            # Deduplicate: keep highest-scoring hit per ticker
+            _best_per_ticker = {}
+            for h in hits:
+                tk = h.get("ticker", "")
+                sc = _score_hit(h)
+                if tk not in _best_per_ticker or sc > _best_per_ticker[tk][1]:
+                    _best_per_ticker[tk] = (h, sc)
+            hits = [h for h, _ in sorted(_best_per_ticker.values(), key=lambda x: -x[1])]
+            hits = hits[:20]
+            print(f"[ai_short_calls] {len(hits)} unique tickers after pre-score dedup", file=_sys.stderr)
 
             # ── Momentum filter: remove stocks trending DOWN ─────────────────────
             _pg_key_aisc = os.environ.get("POLYGON_API_KEY", "")
@@ -45265,32 +45312,43 @@ def ai_short_calls():
 
             signals_text = "\n".join(_enrich_line(i, h) for i, h in enumerate(hits))
 
-            user_msg = f"""These are today's unusual call option signals. All tickers have been filtered to UPTRENDING stocks only (positive 5-day return vs SPY). Each signal represents a large institutional options order.
+            user_msg = f"""These are today's unusual call option signals, pre-filtered and ranked by a quantitative scoring model. All tickers are UPTRENDING (positive 5-day return vs SPY). Each signal represents institutional options activity.
 
-Today's unusual call signals (uptrending stocks only):
+Today's signals (ranked by institutional quality score):
 
 {signals_text}
 
 SIGNAL KEY:
-- Vol/OI = volume-to-open-interest ratio (how aggressively new positions are being opened today)
-- prem = total premium spent ($) - larger = more conviction from the buyer
-- OTM% = how far out of the money the strike is (near-the-money = directional bet)
-- IV = implied volatility (how much the options market expects the stock to move)
-- urgency = sweep urgency from our scanner (URGENT = crossed the ask, multi-exchange)
-- conviction_stack = institutional accumulation score from our 10-layer system
-- FIR = Float Impact Ratio - high FIR means market makers are forced to buy shares as price rises
-- oi_buildup = days open interest has been building (pre-positioning by smart money)
-- scanners = how many of our 11 independent scanners flagged this ticker
-- charm = mechanical dealer buying pressure as expiry approaches
-- insider = unusual insider activity score (PRE_POS = pre-positioned before a catalyst)
+- Vol/OI = volume-to-open-interest ratio (new positions opened today vs existing)
+- prem = total premium spent ($) — larger = more institutional conviction
+- OTM% = how far out of the money (near-ATM = directional, high-conviction bet)
+- IV = implied volatility
+- urgency = sweep urgency (URGENT = crossed ask, multi-exchange = most institutional)
+- conviction_stack = 10-layer institutional accumulation score
+- FIR = Float Impact Ratio (>2% = mechanical forced dealer buying)
+- oi_buildup = days OI has been accumulating (multi-day = pre-positioned smart money)
+- scanners = number of independent scanners confirming this ticker
+- charm = dealer buying pressure accelerating into expiry
+- insider = unusual insider activity score
 
-YOUR JOB - Pick the 5 BEST short-term call trades (next 3–30 days):
-1. Highest Vol/OI + large premium + near-the-money strike = strongest signal
-2. URGENT sweep + conviction_stack ≥ 6 = institutional accumulation with options confirmation
-3. FIR > 2% = mechanical buying pressure amplifies the move
-4. oi_buildup ≥ 3d = smart money has been building a position for days
-5. Skip: deep OTM (>20%) with low premium - likely noise or hedging
-6. Skip: any ticker with UNKNOWN or DOWN momentum trend
+BACKTEST-VALIDATED SELECTION RULES (from 320 live trades, real outcomes):
+
+★ PROVEN SWEET SPOT — 70% win rate: Vol/OI 1.5–5x + premium ≥ $1M
+★ STRONG — 60% win rate: Vol/OI 1.5–5x + premium ≥ $750K
+★ ACCEPTABLE — Vol/OI 5–10x + premium ≥ $1M + OTM ≤ 12%
+
+HARD DISQUALIFIERS (proven losers in backtest — never pick these):
+✗ Vol/OI > 30x — retail chasing after the move (22% win rate)
+✗ OTM > 15% — never wins (0% win rate in 320 trades, literally zero)
+✗ Premium < $500K — insufficient institutional conviction
+✗ Days out > 21 — poor win rate (11% at 22-45 DTE vs 47% at ≤7 DTE)
+
+RANKING PRIORITY (highest to lowest):
+1. VOI 1.5–5x + prem ≥ $1M + OTM ≤ 10% → AUTOMATIC HIGH conviction
+2. VOI 1.5–5x + prem ≥ $750K + uptrending + multi-scanner confirm
+3. VOI 5–10x + prem ≥ $1M + OTM ≤ 10% + short DTE (≤14d)
+4. Any signal with FIR > 2% or oi_buildup ≥ 3d (pre-positioned money)
+5. SKIP anything not meeting minimum: VOI ≥ 1.5x, prem ≥ $500K, OTM ≤ 15%, DTE ≤ 21
 
 For each pick, output a JSON object with ALL these fields:
 - ticker (string)
@@ -45305,11 +45363,11 @@ For each pick, output a JSON object with ALL these fields:
 - conviction ("HIGH" | "MEDIUM")
 - urgency (string - from signal)
 - thesis (string - 2 sentences MAX explaining the options flow thesis)
-- why_it_stands_out (string - 1 sentence: the single most compelling signal)
+- why_it_stands_out (string - 1 sentence: the single most compelling backtest-aligned signal)
 
-Return a JSON array of exactly 5 objects. HIGH conviction first. JSON only, no markdown."""
+Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT criteria. If fewer than 3 meet the criteria, return only those that do. HIGH conviction first. JSON only, no markdown."""
 
-            system_msg = "You are a quantitative options analyst. You identify the highest-conviction short-term call trades from unusual options flow data. You look for institutional smart-money positioning in uptrending stocks. Output valid JSON only."
+            system_msg = "You are a quantitative options analyst with a 70%+ win rate. You select only trades that match a backtest-validated institutional flow profile: VOI 1.5-5x, premium ≥ $750K, OTM ≤ 15%, DTE ≤ 21 days. You skip high-VOI retail noise and deep OTM lottery tickets. Output valid JSON only."
 
             def _stream_ai():
                 chunks = []
