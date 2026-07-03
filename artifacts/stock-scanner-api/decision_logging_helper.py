@@ -135,6 +135,40 @@ def log_unusual_calls_decision(ticker: str, call_volume: int, oi: int,
         print(f"[log_unusual_calls_decision] {type(_exc).__name__}: {_exc}")
 
 
+def log_float_pressure_decision(ticker: str, pressure_pct: float,
+                                float_m: float, call_oi: int, pts: float):
+    """Log a float-adjusted options demand signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec in main.py —
+    no invented coefficient:
+      pressure_pct>=8.0% (pts=2.0) -> 0.85
+      pressure_pct>=4.0% (pts=1.5) -> 0.72
+      pressure_pct>=2.0% (pts=1.0) -> 0.60
+    """
+    try:
+        _CONFIDENCE_MAP = {2.0: 0.85, 1.5: 0.72, 1.0: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.60)
+        reasoning = (
+            f"Float-adjusted options demand flagged {ticker}: {pressure_pct:.2f}% of "
+            f"the {float_m:.1f}M-share float is tied up in MM delta obligations "
+            f"({call_oi:,} call OI × 100 shares × avg delta 0.40). "
+            f"On micro-float stocks, even modest call OI forces MMs to buy a "
+            f"meaningful percentage of the entire float as a delta hedge — creating "
+            f"a self-reinforcing feedback loop where price rises force additional "
+            f"buying. Layer 6 conviction tier: {pts:.1f} pts."
+        )
+        dl.log_decision(
+            signal_name="float_pressure",
+            decision_type="trade",
+            reasoning=reasoning,
+            ticker=ticker,
+            direction="long",
+            confidence=confidence,
+        )
+    except Exception as _exc:
+        print(f"[log_float_pressure_decision] {type(_exc).__name__}: {_exc}")
+
+
 def log_short_interest_decision(ticker: str, si_pct: float, dtc: float, pts: float):
     """Log a short interest overlay signal fire to agent_decisions.
 

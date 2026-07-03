@@ -1,0 +1,96 @@
+# Layer 6 (Float-Adjusted Options Demand) — Audit & Fix Instructions
+
+## Context
+
+L1–L5 are now VERIFIED A–E. Each layer has turned up a real, distinct bug —
+not just theoretical gaps:
+
+- L3: silent exception swallowing in the logging helper
+- L4: no logging function existed at all
+- L5: two separate bugs — (1) a gate mismatch where the logging threshold
+  (≥45%) didn't match the scoring threshold (≥40%), silently dropping any
+  ticker in the 40–44.9% band from the audit trail entirely, and (2) a live
+  but unvalidated confidence coefficient (`off_exchange_pct * 0.006`) that
+  was measurably wrong (off by up to 0.09) relative to the existing tier
+  spec.
+
+L6 needs the same audit-first treatment, plus a new check specific to the
+gate-mismatch pattern just found in L5.
+
+## Instructions
+
+1. **Trace the L6 scoring path end to end.** Find the function that computes
+   float-adjusted options demand (the L6 equivalent of
+   `_get_dark_pool_convergence()`), and trace it exactly:
+   ```
+   function → function → INSERT INTO table
+   ```
+   Confirm whether logging is already wired in, partially wired (like L5),
+   or entirely absent (like L4 before the fix).
+
+2. **New check — gate-vs-scoring threshold mismatch.** This is the specific
+   bug pattern just found in L5: a scoring threshold and a logging threshold
+   that look similar but are not identical, causing signals to be scored and
+   held in memory but never persisted. For L6:
+   - Find every threshold/gate used in the scoring function (e.g. any
+     `if metric >= X` that assigns `pts` or a tier).
+   - Find every threshold/gate used in the logging call (e.g. any
+     `if metric >= Y` that decides whether to call the log function).
+   - Confirm X == Y at every tier boundary, not just approximately close.
+     Any mismatch here silently drops data the same way L5's did.
+
+3. **Confidence coefficient — determine live or dead, validated or not.**
+   - Does L6 already have a confidence formula anywhere in the codebase?
+   - If yes: is it actually called (live), or unreferenced (dead code, like
+     `aiem_trade_decisions` was for L3)?
+   - If live: does it match the existing tier/threshold spec, the way L5's
+     `off_exchange_pct * 0.006` was checked against `dp_pct` tiers? Show the
+     same before/after table (tier boundary → old formula output → tier-map
+     expected output) if there's a discrepancy.
+   - If no formula exists yet: do not invent one. Bring back the same
+     two-option choice (spec-traceable tier map vs. unvalidated formula) and
+     wait for a decision.
+
+4. **If a new `log_float_adjusted_decision()` function is needed** (or
+   whatever the correct name is), build it following the same pattern as
+   `log_short_interest_decision()` / `log_dark_pool_decision()`:
+   - No bare `except Exception: pass`
+   - Writes through `dl.log_decision(signal_name="<L6 signal name>", ...)`
+   - Target table: `agent_decisions` (no new table)
+   - Gate threshold in the logging path must match the scoring path exactly
+     (see step 2)
+
+5. **Verify with the same before/after test used for L4/L5:**
+   - Row count for the L6 signal name in `agent_decisions`, before and after
+     a fixed batch
+   - Confirm the delta matches the batch size exactly
+   - Include at least one boundary-case ticker in the test batch — i.e. a
+     ticker sitting right at the tier threshold — to specifically confirm
+     the gate-matching fix works, the same way L5's test batch included
+     RIVN (43.9%) and AFRM (44.7%) to test the exact previously-broken range
+   - Confirm zero exceptions during the test run
+     (`grep -n "except Exception:" decision_logging_helper.py` → 0 matches)
+   - Pull the 5 newest rows with real timestamps as proof
+
+## Also flag separately (not blocking L6)
+
+Check whether the L5 gate-mismatch pattern (logging threshold ≠ scoring
+threshold) exists anywhere in L1–L3 as well — not just the confidence-
+coefficient issue already flagged for those layers. This is a distinct bug
+class from the confidence audit and deserves its own check across all
+already-verified layers before launch.
+
+## Reporting requirement
+
+Report back with:
+- The full call trace
+- The gate-vs-scoring threshold comparison (step 2) — confirm match or flag
+  mismatch, same table format as L5
+- The confidence coefficient finding — live/dead, validated/not, with the
+  same before/after table format as L5 if applicable
+- Raw verification numbers (row counts, delta, boundary-case rows with
+  timestamps, exception grep output)
+
+Do not implement anything until the trace, gate comparison, and confidence
+finding are reported back. Do not mark L6 verified on code review alone —
+needs the same raw, live-output proof required for L1–L5.

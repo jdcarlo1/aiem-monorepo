@@ -14315,14 +14315,27 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
     # ── Layer 6: Float-Adjusted Options Demand ────────────────────────────────
     fp_data = _get_float_pressure_signals(active)
+    try:
+        import decision_logging_helper as _dlh_fp
+    except Exception as _dlh_fp_exc:
+        print(f"[L6] decision_logging_helper import failed: {_dlh_fp_exc}")
+        _dlh_fp = None
     for ticker, fp in fp_data.items():
         if ticker not in scores:
             scores[ticker] = {"price": 0, "pts": {}, "meta": {}}
         if fp["l6_pts"] > 0:
-            scores[ticker]["pts"]["float_pressure"]     = fp["l6_pts"]
+            scores[ticker]["pts"]["float_pressure"]      = fp["l6_pts"]
             scores[ticker]["meta"]["float_pressure_pct"] = fp["pressure_pct"]
             scores[ticker]["meta"]["float_m"]            = fp["float_m"]
             scores[ticker]["meta"]["call_oi"]            = fp["call_oi"]
+            if _dlh_fp:
+                _dlh_fp.log_float_pressure_decision(
+                    ticker=ticker,
+                    pressure_pct=fp["pressure_pct"],
+                    float_m=fp["float_m"],
+                    call_oi=fp["call_oi"],
+                    pts=fp["l6_pts"],
+                )
 
     # ── Layer 7: Far-OTM Sweep Detector ──────────────────────────────────────
     # `far_sweeps` / `sweep_by_ticker` were already built above (reused as a
