@@ -53900,6 +53900,9 @@ def byok_delete_keys():
         return jsonify({"error": "subscriber_token required"}), 400
     try:
         with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            if not cur.fetchone():
+                return jsonify({"error": "Invalid or inactive subscriber token"}), 403
             cur.execute(
                 "UPDATE sm_subscribers SET openai_key_enc=NULL, polygon_key_enc=NULL, anthropic_key_enc=NULL "
                 "WHERE token=%s AND active=true",
