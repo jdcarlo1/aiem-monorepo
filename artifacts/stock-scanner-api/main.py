@@ -5026,11 +5026,17 @@ try:
             except Exception as _e:
                 record_job_failure("aiem_model_retrain", str(_e))
                 print(f"[scheduler] model retrain error: {_e}")
-        _scheduler.add_job(
-            _run_model_retrain_job,
-            _CT_aiem(day_of_week="sun", hour=19, minute=0, timezone=_ET),
-            id="aiem_model_retrain_weekly", replace_existing=True,
-        )
+        # ML retrain from ai_stock_picks DISABLED — that table's picks have a
+        # ~40% win rate (below random). Training on bad picks would teach the
+        # model to replicate losses. AIEM learns instead through signal discovery
+        # (aiem_signal_discoveries), which uses real statistical validation on
+        # Polygon data. Re-enable only when a high-quality graded outcome source
+        # is available.
+        # _scheduler.add_job(
+        #     _run_model_retrain_job,
+        #     _CT_aiem(day_of_week="sun", hour=19, minute=0, timezone=_ET),
+        #     id="aiem_model_retrain_weekly", replace_existing=True,
+        # )
         # Shadow learning cycle: Sunday 8:30 PM ET (after ML retrain at 7 PM)
         # Item 5 — propose_update(promote=False) in shadow mode. Builds a gradient-
         # descent update on graded conviction eval-log rows. Saves to model_versions
