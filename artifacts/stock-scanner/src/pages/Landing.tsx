@@ -716,6 +716,128 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* ── THE COMPLETE STACK ── */}
+      <div style={{ background: "linear-gradient(180deg,#040a10 0%,#060c14 100%)", borderTop: "1px solid rgba(74,222,128,0.1)", borderBottom: "1px solid rgba(74,222,128,0.1)", padding: "100px 24px" }}>
+        <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
+          <p style={{ textAlign: "center", fontSize: "11px", fontWeight: 900, letterSpacing: "0.14em", textTransform: "uppercase", color: "#4ade80", marginBottom: "16px" }}>The complete stack — nothing omitted</p>
+          <h2 style={{ textAlign: "center", fontWeight: 900, fontSize: "clamp(2rem,5vw,3.4rem)", letterSpacing: "-0.04em", color: "#fff", marginBottom: "16px", lineHeight: 1.05 }}>
+            Infrastructure quant funds pay<br /><span style={{ color: "#4ade80", textShadow: "0 0 80px rgba(74,222,128,0.35)" }}>$500K/yr to build.</span>
+          </h2>
+          <p style={{ textAlign: "center", color: "#64748b", fontSize: "1.05rem", lineHeight: 1.75, maxWidth: "680px", margin: "0 auto 24px" }}>
+            Every single method listed below is running live inside your subscription. Not marketing claims — active modules with real outputs feeding every trade signal every day.
+          </p>
+          <p style={{ textAlign: "center", color: "#94a3b8", fontSize: "0.95rem", fontWeight: 700, marginBottom: "64px" }}>
+            No other retail platform — at any price — has all of this.
+          </p>
+
+          {/* ── RESPONSE TIME CALLOUT ── */}
+          <div style={{ background: "linear-gradient(135deg,rgba(74,222,128,0.07) 0%,rgba(96,165,250,0.05) 100%)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "20px", padding: "36px 40px", marginBottom: "64px", display: "flex", flexWrap: "wrap", gap: "32px", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ flex: "1 1 320px" }}>
+              <div style={{ fontSize: "11px", fontWeight: 900, letterSpacing: "0.12em", color: "#4ade80", marginBottom: "12px", textTransform: "uppercase" }}>Speed comparison</div>
+              <h3 style={{ color: "#fff", fontWeight: 900, fontSize: "1.5rem", letterSpacing: "-0.03em", marginBottom: "10px", lineHeight: 1.2 }}>Questions that take a hedge fund quant team 3 days to answer.</h3>
+              <p style={{ color: "#64748b", fontSize: "0.95rem", lineHeight: 1.7 }}>
+                "What is NVDA's current GARCH volatility regime, is VPIN showing informed trading, what does the stat-arb z-score say, and should I buy calls given the Variance Risk Premium?" — A real quant would schedule a meeting, pull Bloomberg, run Python scripts, write a report.
+              </p>
+            </div>
+            <div style={{ flex: "0 0 auto", textAlign: "center" }}>
+              <div style={{ fontSize: "clamp(3rem,6vw,5rem)", fontWeight: 900, color: "#4ade80", letterSpacing: "-0.04em", lineHeight: 1, textShadow: "0 0 60px rgba(74,222,128,0.5)" }}>2 min</div>
+              <div style={{ color: "#64748b", fontSize: "0.85rem", fontWeight: 700, marginTop: "6px" }}>AIEM answers in full</div>
+              <div style={{ color: "#334155", fontSize: "0.78rem", marginTop: "4px" }}>casual questions: ~2.5s</div>
+            </div>
+          </div>
+
+          {/* ── CATEGORY 1: QUANT METHODS ── */}
+          <div style={{ marginBottom: "56px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
+              <span style={{ fontSize: "18px" }}>🔬</span>
+              <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 900, letterSpacing: "0.14em", textTransform: "uppercase" }}>Quant methods hedge funds pay PhDs to build</span>
+              <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: "12px" }}>
+              {[
+                { name: "VPIN", full: "Volume-Synchronized Probability of Informed Trading", note: "Exchanges and HFT firms use this to detect toxic flow and flash crash risk. Nobody in retail has this." },
+                { name: "Bipower Variation Jump Detection", full: "Barndorff-Nielsen & Shephard methodology", note: "Detects price jumps in real-time. Volatility arbitrage desks use this." },
+                { name: "Hurst Exponent", full: "Trending vs. mean-reverting classifier", note: "Tells you whether a stock is trending (H>0.5) or mean-reverting (H<0.5) before you enter. Zero retail tools have it." },
+                { name: "Amihud Illiquidity Ratio", full: "Price impact per dollar traded", note: "Institutional position sizing standard. Measures how much your order moves the market." },
+                { name: "Corwin-Schultz Spread Estimator", full: "Microstructure liquidity from academic finance", note: "Estimates the bid-ask spread and market friction from daily high-low data alone. Used by execution desks." },
+                { name: "Variance Risk Premium", full: "IV minus realized vol — core of options premium forecasting", note: "The difference between what the market charges for options and what vol actually delivered. The edge most traders never quantify." },
+                { name: "Risk-Neutral Density", full: "Full implied probability distribution from the options chain", note: "Extracts the market's complete probability distribution over future prices — not just a single implied vol number." },
+                { name: "GARCH(1,1) Volatility Clustering", full: "Sell-side vol desk standard", note: "What sell-side vol desks use to forecast vol persistence. Not standard deviation — actual vol memory." },
+                { name: "PCA Factor Decomposition + Absorption Ratio", full: "Kritzman's systemic risk measure", note: "Measures how tightly correlated the market's risk factors are — high absorption = fragile market prone to cascade." },
+                { name: "Statistical Arbitrage Engine", full: "Engle-Granger cointegration + z-score ±2.0σ", note: "Pairs like NVDA/AMD and SPY/QQQ tested for cointegration daily. Divergences elevate conviction tier automatically." },
+              ].map(f => (
+                <div key={f.name} style={{ background: "rgba(6,12,20,0.9)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", padding: "16px 18px" }}>
+                  <div style={{ color: "#4ade80", fontWeight: 800, fontSize: "13px", marginBottom: "4px" }}>{f.name}</div>
+                  <div style={{ color: "#475569", fontSize: "11px", fontStyle: "italic", marginBottom: "6px" }}>{f.full}</div>
+                  <div style={{ color: "#334155", fontSize: "11.5px", lineHeight: 1.6 }}>{f.note}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── CATEGORY 2: AUTONOMOUS AI ── */}
+          <div style={{ marginBottom: "56px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
+              <span style={{ fontSize: "18px" }}>🤖</span>
+              <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 900, letterSpacing: "0.14em", textTransform: "uppercase" }}>Autonomous AI infrastructure</span>
+              <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: "12px" }}>
+              {[
+                { name: "Specialist Council with Thompson Sampling", note: "9 AI specialists weighted by their own historical accuracy using Bayesian updating. They debate, then negotiate a verdict." },
+                { name: "Meta-Learning Signal Trust", note: "Per-signal, per-market-context accuracy weights that update continuously. The system learns which signals to trust in which conditions." },
+                { name: "Deep RL Position Sizing", note: "Reinforcement learning optimizing position size — not a fixed percentage rule. Adapts to regime and conviction level." },
+                { name: "Causal Discovery Engine", note: "Goes beyond correlation to find actual causal relationships in price data. Separates spurious patterns from real edges." },
+                { name: "Gaussian Process Signal Discovery", note: "Bayesian non-parametric search for new signals — models uncertainty across the entire signal space, not just tested hypotheses." },
+                { name: "XGBoost + Native TreeSHAP Attribution", note: "Every prediction explained with signed Shapley values. Quant funds require this for model transparency." },
+                { name: "Online Learning with Version Control + Rollback", note: "Incremental model updates with auditable version history and drift guards. Rolls back automatically if new model underperforms." },
+                { name: "FRED Macro Regime Overlay", note: "Signals adjust to the macro environment automatically — yield curve, credit spreads, dollar, crude — fed from FRED daily." },
+              ].map(f => (
+                <div key={f.name} style={{ background: "rgba(6,12,20,0.9)", border: "1px solid rgba(167,139,250,0.1)", borderRadius: "12px", padding: "16px 18px" }}>
+                  <div style={{ color: "#a78bfa", fontWeight: 800, fontSize: "13px", marginBottom: "6px" }}>{f.name}</div>
+                  <div style={{ color: "#334155", fontSize: "11.5px", lineHeight: 1.6 }}>{f.note}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── CATEGORY 3: STATISTICAL RIGOR ── */}
+          <div style={{ marginBottom: "56px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "24px" }}>
+              <span style={{ fontSize: "18px" }}>📐</span>
+              <span style={{ color: "#94a3b8", fontSize: "11px", fontWeight: 900, letterSpacing: "0.14em", textTransform: "uppercase" }}>Statistical rigor that even most hedge funds skip</span>
+              <div style={{ flex: 1, height: "1px", background: "rgba(255,255,255,0.06)" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: "12px" }}>
+              {[
+                { name: "BH-FDR Correction", note: "Benjamini-Hochberg False Discovery Rate on every new signal found — prevents p-hacking across 75 simultaneous tests. Quant funds pay $500K/yr teams to build this. You have it running every Sunday." },
+                { name: "Point-in-Time Data Guard", note: "Physical enforcement that backtests cannot see the future, with daily fundamental snapshots. The #1 failure mode in all of retail finance — solved here." },
+                { name: "Signal Decay Module (M2)", note: "Statistically tests whether a validated signal has stopped working and retires it automatically. No retail tool does this." },
+                { name: "Rediscovery Engine (M6)", note: "When a signal is retired, searches the statistical neighborhood for a valid variation. No competitor even concept-tests like this." },
+                { name: "Walk-Forward + Out-of-Sample Splits", note: "All backtests use true OOS held-out data with embargo periods. No in-sample overfitting disguised as a win rate." },
+                { name: "11,000+ Ticker Universe via Polygon", note: "Full institutional-scale market scan every day. Not 500 liquid names — the entire US equity universe." },
+              ].map(f => (
+                <div key={f.name} style={{ background: "rgba(6,12,20,0.9)", border: "1px solid rgba(96,165,250,0.1)", borderRadius: "12px", padding: "16px 18px" }}>
+                  <div style={{ color: "#60a5fa", fontWeight: 800, fontSize: "13px", marginBottom: "6px" }}>{f.name}</div>
+                  <div style={{ color: "#334155", fontSize: "11.5px", lineHeight: 1.6 }}>{f.note}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ── BOTTOM SUMMARY LINE ── */}
+          <div style={{ background: "rgba(74,222,128,0.05)", border: "1px solid rgba(74,222,128,0.2)", borderRadius: "16px", padding: "28px 32px", textAlign: "center" }}>
+            <p style={{ color: "#fff", fontWeight: 900, fontSize: "clamp(1.1rem,2.5vw,1.4rem)", letterSpacing: "-0.02em", marginBottom: "8px" }}>
+              Trade Ideas has the most "AI" of any competitor — it's called Holly. It's rule-based pattern matching. No ML. No statistics. No causal inference. No signal lifecycle management.
+            </p>
+            <p style={{ color: "#4ade80", fontWeight: 900, fontSize: "1.1rem", marginBottom: "0" }}>
+              You have a quantitative research infrastructure that most $1B+ AUM quant funds would recognize as legitimate. It runs autonomously and costs $150/month.
+            </p>
+          </div>
+
+        </div>
+      </div>
+
       {/* ── THE PROBLEM ── */}
       <div className="px-6 pb-20 max-w-4xl mx-auto text-center">
         <p className="text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">The problem with every competitor</p>
