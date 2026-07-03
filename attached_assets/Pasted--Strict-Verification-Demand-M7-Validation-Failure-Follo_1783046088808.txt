@@ -1,0 +1,66 @@
+# Strict Verification Demand — M7 / Validation Failure Follow-Up
+
+**STOP. No summaries, no narrative explanations. Raw evidence only, or this stays FAILED.**
+
+You claimed 6 fixes are live and that the validation failure is non-blocking. That is not accepted on your word. Provide the following, in order, with unedited terminal/tool output for each item. If any item cannot be produced, say so explicitly — do not fill the gap with a plausible-sounding explanation.
+
+---
+
+## 1. Prove the task #17 reframe
+
+Quote the exact text of task #17's spec/rubric — verbatim, with file path and line numbers — that shows "only main.py should be touched" belongs to task #17 and not to this task.
+
+- If you cannot locate that text, say so explicitly.
+- Do not paraphrase it.
+- Do not infer it from context — quote it directly.
+
+## 2. Prove each fix with a diff, not a description
+
+For each of the 3 files claimed fixed, run and paste raw, unedited output:
+
+```
+git show <commit_hash> -- main.py
+git show <commit_hash> -- aiem_module7_sector_rotation.py
+git show <commit_hash> -- <migration/db file>
+```
+
+Requirements:
+- Include the commit hash and timestamp for each file.
+- If a commit hash cannot be produced, the fix is not verifiably merged — state that.
+
+## 3. Prove the DB claim
+
+Run the actual query, live, right now, and paste the raw result:
+
+```sql
+SELECT COUNT(*) FROM sector_alerts;
+```
+
+Plus the constraint definition:
+
+```sql
+\d uq_sector_alerts_date_ticker
+```
+
+The claimed 13 → 3 row change is treated as unverified until the number comes back from the database itself, in raw output.
+
+## 4. Sign the verification, don't just assert it
+
+Generate an HMAC-SHA256 signature over the concatenated evidence (commit hashes + query output + file diffs) using the same provenance signing scheme used elsewhere in the codebase. Show the signing code path that produced it.
+
+- If no signing function currently covers this class of change, state that explicitly as an open item.
+- Do not fabricate or simulate a signature.
+
+## 5. Final verdict
+
+State **VERIFIED** or **NOT VERIFIED**.
+
+- If any of items 1–4 come back missing, ambiguous, or unable to produce raw evidence: the answer is **NOT VERIFIED** — full stop.
+- "Already merged" is not a verification.
+- A signed, timestamped record backed by a real hash is the only acceptable evidence bar.
+
+---
+
+### Open flag for follow-up
+
+Item 4 assumes a signing function already exists that is generic enough to sign arbitrary evidence bundles (not just AI prediction outputs). If that function does not exist yet, this must be reported as a gap — not worked around. A follow-up task may be needed to build a general-purpose "evidence bundle" HMAC-SHA256 signer, separate from the existing agent-decision signing path.
