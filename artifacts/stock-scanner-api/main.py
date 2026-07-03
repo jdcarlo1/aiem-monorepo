@@ -1165,6 +1165,186 @@ def _byok_get_subscriber_keys(token: str):
     except Exception as _e:
         print(f"[byok] _byok_get_subscriber_keys error: {_e}")
         return None
+
+# ── Subscriber Preferences + Watchlist + Adaptive Signal Weights ──────────────
+def _init_subscriber_prefs():
+    """Create subscriber_preferences, subscriber_watchlist, subscriber_signal_weights tables."""
+    import psycopg2 as _sp_pg2
+    try:
+        with _sp_pg2.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriber_preferences (
+                    token               TEXT PRIMARY KEY,
+                    preferred_style     TEXT    NOT NULL DEFAULT 'momentum',
+                    holding_time        TEXT    NOT NULL DEFAULT '1-3d',
+                    risk_level          TEXT    NOT NULL DEFAULT 'moderate',
+                    min_score_threshold INT     NOT NULL DEFAULT 70,
+                    only_watchlist      BOOLEAN NOT NULL DEFAULT false,
+                    time_filter         TEXT    NOT NULL DEFAULT 'all',
+                    max_alerts_per_day  INT     NOT NULL DEFAULT 10,
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriber_watchlist (
+                    token    TEXT NOT NULL,
+                    ticker   TEXT NOT NULL,
+                    added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (token, ticker)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS subscriber_signal_weights (
+                    token       TEXT  NOT NULL,
+                    signal_type TEXT  NOT NULL,
+                    weight      FLOAT NOT NULL DEFAULT 1.0,
+                    wins        INT   NOT NULL DEFAULT 0,
+                    losses      INT   NOT NULL DEFAULT 0,
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (token, signal_type)
+                )
+            """)
+            conn.commit()
+        print("[prefs] subscriber preference tables ready")
+    except Exception as _e:
+        print(f"[prefs] _init_subscriber_prefs error: {_e}")
+_DEFERRED_INITS.append(_init_subscriber_prefs)
+
+_SUB_SIGNAL_TYPES   = ["breakout", "flow", "gap", "reversal", "momentum", "squeeze", "accumulation"]
+_SUB_DEFAULT_WEIGHT = 1.0
+
+def _sub_get_prefs(token: str) -> dict:
+    """Return preferences dict for a subscriber token, with safe defaults."""
+    import psycopg2 as _sp_pg2
+    _defaults = {
+        "preferred_style": "momentum", "holding_time": "1-3d",
+        "risk_level": "moderate", "min_score_threshold": 70,
+        "only_watchlist": False, "time_filter": "all", "max_alerts_per_day": 10,
+    }
+    try:
+        with _sp_pg2.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT preferred_style, holding_time, risk_level, min_score_threshold, "
+                "only_watchlist, time_filter, max_alerts_per_day "
+                "FROM subscriber_preferences WHERE token=%s LIMIT 1", (token,)
+            )
+            row = cur.fetchone()
+        if row:
+            return {
+                "preferred_style": row[0], "holding_time": row[1], "risk_level": row[2],
+                "min_score_threshold": int(row[3]), "only_watchlist": bool(row[4]),
+                "time_filter": row[5], "max_alerts_per_day": int(row[6]),
+            }
+    except Exception as _e:
+        print(f"[prefs] _sub_get_prefs error: {_e}")
+    return _defaults
+
+def _sub_get_watchlist(token: str) -> list:
+    """Return list of uppercase ticker strings for a subscriber."""
+    import psycopg2 as _sp_pg2
+    try:
+        with _sp_pg2.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ticker FROM subscriber_watchlist WHERE token=%s ORDER BY added_at DESC",
+                (token,)
+            )
+            return [r[0] for r in cur.fetchall()]
+    except Exception as _e:
+        print(f"[prefs] _sub_get_watchlist error: {_e}")
+    return []
+
+def _sub_get_weights(token: str) -> dict:
+    """Return dict of signal_type -> weight with defaults for missing types."""
+    import psycopg2 as _sp_pg2
+    weights = {st: _SUB_DEFAULT_WEIGHT for st in _SUB_SIGNAL_TYPES}
+    try:
+        with _sp_pg2.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT signal_type, weight, wins, losses "
+                "FROM subscriber_signal_weights WHERE token=%s", (token,)
+            )
+            for row in cur.fetchall():
+                if row[0] in weights:
+                    weights[row[0]] = float(row[1])
+    except Exception as _e:
+        print(f"[prefs] _sub_get_weights error: {_e}")
+    return weights
+
+def _sub_record_outcome(token: str, signal_type: str, won: bool):
+    """EMA-update adaptive weight for signal_type after a trade outcome."""
+    import psycopg2 as _sp_pg2
+    _alpha      = 0.15
+    _win_target = 1.4
+    _los_target = 0.6
+    _w_min, _w_max = 0.3, 2.0
+    target = _win_target if won else _los_target
+    try:
+        with _sp_pg2.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT weight, wins, losses FROM subscriber_signal_weights "
+                "WHERE token=%s AND signal_type=%s", (token, signal_type)
+            )
+            row = cur.fetchone()
+            if row:
+                new_w = max(_w_min, min(_w_max, row[0] * (1 - _alpha) + target * _alpha))
+                cur.execute(
+                    "UPDATE subscriber_signal_weights SET weight=%s, wins=%s, losses=%s, updated_at=NOW() "
+                    "WHERE token=%s AND signal_type=%s",
+                    (new_w, row[1] + (1 if won else 0), row[2] + (0 if won else 1), token, signal_type)
+                )
+            else:
+                init_w = max(_w_min, min(_w_max, _SUB_DEFAULT_WEIGHT * (1 - _alpha) + target * _alpha))
+                cur.execute(
+                    "INSERT INTO subscriber_signal_weights (token, signal_type, weight, wins, losses) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (token, signal_type, init_w, 1 if won else 0, 0 if won else 1)
+                )
+            conn.commit()
+    except Exception as _e:
+        print(f"[prefs] _sub_record_outcome error: {_e}")
+
+def _sub_build_context(token: str) -> str:
+    """Build personalization block injected into AIEM session system prompt."""
+    if not token:
+        return ""
+    try:
+        prefs   = _sub_get_prefs(token)
+        wl      = _sub_get_watchlist(token)
+        weights = _sub_get_weights(token)
+        lines = [
+            f"Trading style: {prefs['preferred_style']}",
+            f"Preferred holding time: {prefs['holding_time']}",
+            f"Risk level: {prefs['risk_level']}",
+            f"Minimum score threshold: {prefs['min_score_threshold']} "
+            f"(only surface picks scoring \u2265{prefs['min_score_threshold']})",
+            f"Max alerts per day: {prefs['max_alerts_per_day']}",
+        ]
+        if prefs["time_filter"] != "all":
+            lines.append(f"Time filter: {prefs['time_filter']}")
+        if wl:
+            wl_str  = ", ".join(wl[:20]) + ("…" if len(wl) > 20 else "")
+            wl_note = " — restrict research to these unless user asks otherwise" if prefs["only_watchlist"] else ""
+            lines.append(f"Watchlist ({len(wl)} tickers): {wl_str}{wl_note}")
+        weight_notes = []
+        for st, w in sorted(weights.items(), key=lambda x: -x[1]):
+            if abs(w - _SUB_DEFAULT_WEIGHT) >= 0.08:
+                arrow = "\u2191" if w > _SUB_DEFAULT_WEIGHT else "\u2193"
+                weight_notes.append(f"{st} {w:.2f}{arrow}")
+        if weight_notes:
+            lines.append(f"Adaptive signal weights (from win history): {', '.join(weight_notes)}")
+        block = "\n".join(f"  \u2022 {l}" for l in lines)
+        return (
+            f"This subscriber has saved personalization preferences. Apply them throughout this session:\n"
+            f"{block}\n"
+            f"Prioritize {prefs['preferred_style']} signals, prefer {prefs['holding_time']} setups, "
+            f"calibrate for {prefs['risk_level']} risk tolerance, "
+            f"and only flag picks scoring \u2265{prefs['min_score_threshold']}."
+            + (f" Restrict picks to watchlist tickers unless the user explicitly asks otherwise."
+               if prefs["only_watchlist"] and wl else "")
+        )
+    except Exception as _e:
+        print(f"[prefs] _sub_build_context error: {_e}")
+        return ""
 # ─────────────────────────────────────────────────────────────────────────────
 _DEFERRED_INITS.append(lambda: init_exit_log_table())
 _DEFERRED_INITS.append(lambda: init_call_sweep_log_table())
@@ -28874,7 +29054,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                                max_iterations: int = 12, on_step=None,
                                image_data_url: str | None = None,
                                image_data_urls: list | None = None,
-                               byok_openai_key: str | None = None):
+                               byok_openai_key: str | None = None,
+                               subscriber_context: str | None = None):
     """
     Parameterized research session. Returns (final_text, trace, error_str).
 
@@ -28912,8 +29093,13 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     _fs_tool_map = _build_aiem_tool_map()
     _fs_schema   = _AIEM_AGENT_TOOLS[:128]  # OpenAI hard-caps at 128 tools
 
+    _sub_ctx_block = (
+        f"\n\nSUBSCRIBER PERSONALIZATION:\n{subscriber_context}"
+        if subscriber_context else ""
+    )
     session_system = (
         _AIEM_AGENT_SYSTEM +
+        _sub_ctx_block +
         f"\n\nSESSION FOCUS ({session_name}): {focus_prompt}\n"
         "Start immediately with the most relevant tools for this session's focus. "
         "Be systematic. Every finding should be tested statistically before saving."
@@ -52365,6 +52551,9 @@ def aiem_chat_start():
         if _byok_keys:
             _byok_openai_key = _byok_keys.get("openai_key")
 
+    # Personalization: build subscriber context block for AIEM system prompt
+    _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
+
     def _worker():
         # No global lock — each chat session is fully isolated by job_id.
         # SMS/email/cron sessions manage app._aiem_qa_lock independently.
@@ -52391,6 +52580,7 @@ def aiem_chat_start():
                         on_step=_on_step,
                         image_data_urls=image_data_urls or None,
                         byok_openai_key=_byok_openai_key,
+                        subscriber_context=_subscriber_context,
                     )
                     # _run_aiem_focused_session returns (text, trace, err) or (text, trace, err, openai_id)
                     _sess_result[0] = _r[0]

@@ -1,0 +1,129 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List, Optional
+import random
+
+app = FastAPI()
+
+# =========================
+# USER PROFILE (PERSONALIZATION)
+# =========================
+
+class UserProfile(BaseModel):
+    user_id: str
+    risk_level: str          # conservative | balanced | aggressive
+    strategy: str            # momentum | flow | breakout | mixed
+    min_score: int           # 0-100
+    watchlist_only: bool
+    tickers: Optional[List[str]] = []
+
+# =========================
+# MARKET DATA INPUT (SIMULATED HERE)
+# =========================
+
+def get_market_data(ticker: str):
+    return {
+        "ticker": ticker,
+        "momentum": random.randint(40, 100),
+        "flow": random.randint(40, 100),
+        "volatility": random.randint(40, 100),
+    }
+
+# =========================
+# REGIME DETECTION MODULE
+# =========================
+
+def detect_regime(data):
+    avg = (data["momentum"] + data["flow"] + data["volatility"]) / 3
+    if avg > 70:
+        return "trend"
+    elif avg > 50:
+        return "neutral"
+    return "chop"
+
+# =========================
+# CORE AEMI SCORING ENGINE
+# =========================
+
+def calculate_score(data, profile: UserProfile, regime: str):
+
+    base = (data["momentum"] * 0.4 +
+            data["flow"] * 0.4 +
+            data["volatility"] * 0.2)
+
+    # strategy weighting
+    if profile.strategy == "momentum":
+        base *= 1.1
+    elif profile.strategy == "flow":
+        base *= 1.05
+
+    # risk adjustment
+    if profile.risk_level == "conservative":
+        base *= 0.9
+    elif profile.risk_level == "aggressive":
+        base *= 1.05
+
+    # regime adjustment
+    if regime == "trend":
+        base *= 1.1
+    elif regime == "chop":
+        base *= 0.85
+
+    return min(round(base / 1.2), 100)
+
+# =========================
+# WATCHLIST FILTER
+# =========================
+
+def watchlist_filter(ticker, profile: UserProfile):
+    if not profile.watchlist_only:
+        return True
+    return ticker in profile.tickers
+
+# =========================
+# FINAL SIGNAL ENGINE
+# =========================
+
+def generate_signal(ticker: str, profile: UserProfile):
+
+    if not watchlist_filter(ticker, profile):
+        return None
+
+    data = get_market_data(ticker)
+    regime = detect_regime(data)
+    score = calculate_score(data, profile, regime)
+
+    if score < profile.min_score:
+        return None
+
+    return {
+        "ticker": ticker,
+        "score": score,
+        "regime": regime,
+        "strategy": profile.strategy,
+        "risk_level": profile.risk_level,
+        "watchlist_only": profile.watchlist_only,
+        "probability": round(score / 100, 2),
+        "signal": "bullish" if score > 70 else "neutral"
+    }
+
+# =========================
+# API ENDPOINT (WHAT USERS CALL)
+# =========================
+
+@app.post("/aemi/signal")
+def aemi_signal(profile: UserProfile):
+
+    tickers = profile.tickers if profile.tickers else ["AAPL", "TSLA", "NVDA"]
+
+    results = []
+
+    for t in tickers:
+        signal = generate_signal(t, profile)
+        if signal:
+            results.append(signal)
+
+    return {
+        "total_signals": len(results),
+        "signals": results
+    }
