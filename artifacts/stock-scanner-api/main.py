@@ -38618,6 +38618,12 @@ def _enrich_layer9_signals(tickers_data: dict) -> None:
 
     scores = batch_layer9_scores(histories, timeout_per=4.0)
 
+    try:
+        import decision_logging_helper as _dlh_l9a
+    except Exception as _dlh_l9a_exc:
+        print(f"[L9-enrich] decision_logging_helper import failed: {_dlh_l9a_exc}", file=_l9sys.stderr)
+        _dlh_l9a = None
+
     for t, res in scores.items():
         if t not in tickers_data:
             continue
@@ -38631,6 +38637,15 @@ def _enrich_layer9_signals(tickers_data: dict) -> None:
         v["stat9_jump"]    = bool(flags.get("jump_detected", False))
         v["stat9_entropy"] = round(float(comps.get("entropy_clarity", {}).get("score", 50)), 1)
         v["stat9_tail"]    = round(float(comps.get("tail_risk",       {}).get("score", 50)), 1)
+        if _dlh_l9a and not res.get("error"):
+            _dlh_l9a.log_stat_edge_decision(
+                ticker=t,
+                stat9_score=v["stat9_score"],
+                regime=v["stat9_regime"],
+                vpin=v["stat9_vpin"],
+                jump_detected=v["stat9_jump"],
+                source="ai_trades_enrichment",
+            )
 
     print(f"[layer9] enriched {len(scores)}/{len(tickers)} tickers", file=_l9sys.stderr)
 
@@ -42938,6 +42953,10 @@ def _build_ai_stock_picks():
         # ── Layer 9 enrichment on top 20 candidates ───────────────────────────
         l9_scores = {}
         try:
+            import decision_logging_helper as _dlh_l9b
+        except Exception:
+            _dlh_l9b = None
+        try:
             from layer9_statistical_edge import compute_layer9_score
             from advanced_quant_indicators import hurst_exponent, vpin
             import pandas as _l9pd
@@ -42947,6 +42966,17 @@ def _build_ai_stock_picks():
                     if _l9df is not None and not _l9df.empty and len(_l9df) >= 30:
                         res = compute_layer9_score(_l9t, _l9df)
                         l9_scores[_l9t] = res
+                        if _dlh_l9b and not res.get("error"):
+                            _comps_l9 = res.get("components", {})
+                            _flags_l9 = res.get("flags", {})
+                            _dlh_l9b.log_stat_edge_decision(
+                                ticker=_l9t,
+                                stat9_score=float(res.get("statistical_score", 50.0)),
+                                regime=res.get("regime", ""),
+                                vpin=round(float(_comps_l9.get("vpin_toxicity", {}).get("raw", 0)), 3),
+                                jump_detected=bool(_flags_l9.get("jump_detected", False)),
+                                source="ai_short_calls_enrichment",
+                            )
                 except Exception as _exc:
                     print(f"[silent_except:L39298] {type(_exc).__name__}: {_exc}")
         except Exception as _exc:

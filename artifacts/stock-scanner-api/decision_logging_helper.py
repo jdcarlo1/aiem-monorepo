@@ -13,6 +13,45 @@ failure NEVER propagates into the scanner that called it.
 import decision_logger as dl
 
 
+def log_stat_edge_decision(ticker: str, stat9_score: float, regime: str,
+                           vpin: float, jump_detected: bool, source: str):
+    """Log a Layer 9 Statistical Edge computation to agent_decisions.
+
+    Confidence tiers are anchored to the semantic thresholds in the AI prompt spec
+    (line 39657 of main.py) — no invented coefficient:
+      stat9>=70 -> 0.85  ("strong statistical alignment")
+      stat9>=50 -> 0.72  (above neutral midpoint of 0-100 scale)
+      stat9< 50 -> 0.60  (below neutral; computed and relevant)
+
+    Statistical basis note: the 6 component weights in _WEIGHTS (hurst 0.20,
+    vpin 0.20, illiquidity 0.20, tail_risk 0.15, entropy 0.15, jump 0.10) are
+    labeled "Tuned for the existing 8-layer universe" but have no cited empirical
+    backtest. Flagged as design choices, not validated coefficients.
+    """
+    try:
+        confidence = 0.85 if stat9_score >= 70 else 0.72 if stat9_score >= 50 else 0.60
+        reasoning = (
+            f"Layer 9 Statistical Edge score for {ticker}: {stat9_score:.1f}/100 "
+            f"(source: {source}). "
+            f"Regime={regime}, VPIN={vpin:.3f} (informed-flow toxicity; "
+            f">=0.45=smart money positioning), jump_detected={jump_detected}. "
+            f"Components: Hurst(regime fit 0.20wt) + VPIN(flow 0.20wt) + "
+            f"Illiquidity(inverted 0.20wt) + Tail-risk(0.15wt) + "
+            f"Entropy-clarity(0.15wt) + Jump-risk(0.10wt). "
+            f"stat9>=70=strong alignment; stat9<40=edge unclear."
+        )
+        dl.log_decision(
+            signal_name="stat_edge_signal",
+            decision_type="trade",
+            reasoning=reasoning,
+            ticker=ticker,
+            direction="long",
+            confidence=confidence,
+        )
+    except Exception as _exc:
+        print(f"[log_stat_edge_decision] {type(_exc).__name__}: {_exc}")
+
+
 def log_sector_sympathy_decision(ticker: str, sector: str, heat_score: int,
                                  lead_tickers: list, pts: float):
     """Log a sector sympathy play signal fire to agent_decisions.
