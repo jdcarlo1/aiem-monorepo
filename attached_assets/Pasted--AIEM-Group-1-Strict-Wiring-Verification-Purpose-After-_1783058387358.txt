@@ -1,0 +1,117 @@
+# AIEM Group 1 — Strict Wiring Verification
+
+**Purpose:** After Replit Agent claims the integration spec is done, do NOT accept a self-report. Run these checks yourself (or paste them to the agent and demand raw terminal output for each — not a summary). Every item below has a pass/fail condition, not a yes/no opinion.
+
+---
+
+## 1. Static proof — the imports and calls actually exist in the file
+
+Run directly (don't ask the agent, verify yourself):
+
+```bash
+grep -n "^import position_reconciler\|^import daily_loss_limit\|^import order_dedup\|^import portfolio_correlation_risk" artifacts/stock-scanner-api/premarket_open_trader.py
+
+grep -n "pr\.has_unresolved_mismatch\|dll\.check_daily_loss_limit\|pcr\.check_current_portfolio_risk\|od\.should_place_order\|od\.mark_order_placed" artifacts/stock-scanner-api/premarket_open_trader.py
+
+grep -n "write_paper_pick(db_url, ticker" artifacts/stock-scanner-api/premarket_open_trader.py
+```
+
+- **Pass condition:** all 4 import lines present.
+- **Pass condition:** all 5 calls present (3 gate checks + `should_place_order` + `mark_order_placed`).
+- **Pass condition:** this call is now inside an `if od.should_place_order(...)` block, not called unconditionally on `decision == "enter_now"`. Paste the surrounding 15 lines and check the if-nesting yourself — don't take "yes it's wrapped" as an answer.
+
+---
+
+## 2. Ask the agent these questions directly
+
+Require code-line citations in the answer, not descriptions.
+
+1. Paste the exact line number and code block in `premarket_open_trader.py` where `daily_loss_limit.check_daily_loss_limit()` is called, and show the line where `halt_trading` is checked and mapped to a blocker.
+2. Show me the line where `decision_id` returned from `dl.log_decision()` is captured into a variable, and every place that variable is subsequently used.
+3. Is `portfolio_correlation_risk.check_current_portfolio_risk()` called with `db_url`, or with a hardcoded/mock value? Paste the exact call.
+4. If `has_unresolved_mismatch()` returns `True`, walk me through the exact code path — does `write_paper_pick()` get called or not? Show the branch.
+5. Does a hard blocker (loss limit, mismatch, correlation) short-circuit before the soft blockers (pattern/synthesis/regime) are even evaluated, or are they evaluated but simply ignored if there's only 1 blocker? Show me the exact condition that decides `skip` vs `wait_until_945`.
+
+If any answer is a paraphrase instead of a pasted code block with line numbers, treat it as unverified.
+
+---
+
+## 3. Behavioral proof — force each gate to fire and capture raw output
+
+Do NOT accept "I tested it and it works." Require the actual printed/logged output for each of these 4 forced scenarios.
+
+### A. Daily loss limit
+
+```bash
+DAILY_LOSS_LIMIT_PCT=0.01 python3 -c "
+import premarket_open_trader as pot
+import os
+print(pot.evaluate_ticker(os.environ['DATABASE_URL'], 'AAPL', premarket_gap_pct=4.5))
+"
+```
+
+- **Pass condition:** output shows `decision: skip` (or equivalent) and the blocker text contains "daily loss limit breached". Confirm no new row was written to `ai_stock_picks` for this run:
+
+```sql
+SELECT * FROM ai_stock_picks WHERE ticker='AAPL' AND pick_date=CURRENT_DATE;
+```
+
+### B. Position mismatch
+
+Temporarily edit `position_reconciler.mock_position_source()` to return a ticker not in the DB (e.g. add `{"ticker": "ZZZZ", "qty": 5, "side": "long"}`), then rerun `evaluate_ticker()`.
+
+- **Pass condition:** blocker text contains "unresolved position mismatch"; `reconciliation_log` gets a new row with `mismatch_found = true`. Revert the mock edit after.
+
+### C. Portfolio correlation risk
+
+Manually insert 3+ open positions from the same `CORRELATION_GROUPS` bucket in `portfolio_correlation_risk.py` (e.g. 3 of AAPL/MSFT/GOOGL/NVDA) into `ai_stock_picks` with `status='open'`, then rerun `evaluate_ticker()` for a 4th correlated ticker.
+
+- **Pass condition:** blocker text contains "concentration risk"; decision is `skip`.
+
+### D. Order dedup
+
+Call `evaluate_ticker()` twice in immediate succession for the same ticker on the same day where decision would be `enter_now`.
+
+- **Pass condition:** both counts must be exactly 1, not 2. If either is 2, dedup is not actually blocking the second write — the `should_place_order()` check is either not being called or not gating the write.
+
+---
+
+## 4. Schema proof
+
+```sql
+SELECT to_regclass('public.order_execution_log');
+SELECT to_regclass('public.daily_loss_breach_log');
+SELECT to_regclass('public.reconciliation_log');
+```
+
+- **Pass condition:** all 3 return non-null (tables exist). If `order_execution_log` is null, order_dedup cannot possibly be working regardless of what the code claims — `should_place_order()` will error out on every call.
+
+---
+
+## 5. Regression check — make sure gating a legitimate trade wasn't broken
+
+Run `evaluate_ticker()` for a ticker/scenario where all 4 gates should pass clean (no loss breach, no mismatch, no concentration, no existing decision_id) and confirm:
+
+```sql
+SELECT COUNT(*) FROM ai_stock_picks WHERE ticker='<TICKER>' AND pick_date=CURRENT_DATE;
+SELECT COUNT(*) FROM order_execution_log WHERE ticker='<TICKER>' AND submitted_at::date=CURRENT_DATE;
+```
+
+Confirm:
+- Decision can still reach `enter_now`
+- A row is written to `ai_stock_picks`
+- A row is written to `order_execution_log`
+
+- **Pass condition:** a healthy trade still goes through. If the new gates are wired so strictly that nothing can ever pass, that's a false-positive bug, not a working safety system.
+
+---
+
+## Final sign-off checklist
+
+- [ ] Section 1 static grep results pasted, all pass
+- [ ] Section 2 all 5 questions answered with pasted code + line numbers
+- [ ] Section 3 A–D all 4 forced-failure tests run with raw output/query results pasted
+- [ ] Section 4 all 3 tables confirmed to exist
+- [ ] Section 5 regression test confirms a clean trade still executes
+
+**Do not consider Group 1 complete until every box above is checked with pasted evidence, not a description of what should happen.**

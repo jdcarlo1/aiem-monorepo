@@ -301,7 +301,23 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
         print(f"[premarket_open_trader] log_decision failed: {_e}")
 
     if decision == "enter_now":
-        if decision_id is None:
+        _conn_chk = psycopg2.connect(db_url)
+        try:
+            with _conn_chk.cursor() as _cur:
+                _cur.execute(
+                    "SELECT COUNT(*) FROM ai_stock_picks WHERE ticker=%s AND pick_date=CURRENT_DATE",
+                    (ticker,)
+                )
+                _ticker_already_picked = _cur.fetchone()[0] > 0
+        finally:
+            _conn_chk.close()
+
+        if _ticker_already_picked:
+            print(
+                f"[premarket_open_trader] ticker-day dedup: {ticker} already has a pick today "
+                f"— skipping to prevent duplicate order_execution_log entry"
+            )
+        elif decision_id is None:
             print(
                 f"[premarket_open_trader] WARNING: decision_id is None for {ticker} "
                 f"(log_decision failed) — skipping write to preserve dedup guarantee"
