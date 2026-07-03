@@ -1108,6 +1108,64 @@ def _backfill_signal_outcomes():
 import threading as _thr_bso
 _thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
 _DEFERRED_INITS.append(lambda: init_sms_log_table())
+
+# ── BYOK (Bring Your Own Key) — subscribers supply their own OpenAI key ──────
+# Platform owner pays $0 for subscriber research compute.
+# Keys are encrypted at rest with AES-128-CBC (Fernet) using BYOK_MASTER_KEY.
+import os as _byok_os
+try:
+    from cryptography.fernet import Fernet as _Fernet
+    _BYOK_FERNET = _Fernet(_byok_os.environ.get("BYOK_MASTER_KEY", "").encode())
+    def _byok_encrypt(plaintext: str) -> str:
+        return _BYOK_FERNET.encrypt(plaintext.encode()).decode()
+    def _byok_decrypt(token_enc: str) -> str:
+        return _BYOK_FERNET.decrypt(token_enc.encode()).decode()
+except Exception as _byok_init_err:
+    print(f"[byok] Fernet init error: {_byok_init_err}")
+    def _byok_encrypt(plaintext: str) -> str:
+        raise RuntimeError("BYOK_MASTER_KEY not configured")
+    def _byok_decrypt(token_enc: str) -> str:
+        raise RuntimeError("BYOK_MASTER_KEY not configured")
+
+def _init_byok_columns():
+    """Add encrypted key columns to sm_subscribers if missing."""
+    import psycopg2 as _byok_pg2
+    try:
+        with _byok_pg2.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for col in ("openai_key_enc", "polygon_key_enc", "anthropic_key_enc"):
+                cur.execute(f"ALTER TABLE sm_subscribers ADD COLUMN IF NOT EXISTS {col} TEXT")
+            conn.commit()
+        print("[byok] subscriber key columns ready")
+    except Exception as _e:
+        print(f"[byok] _init_byok_columns error: {_e}")
+_DEFERRED_INITS.append(_init_byok_columns)
+
+def _byok_get_subscriber_keys(token: str):
+    """Return decrypted keys for a subscriber token, or None if not found/inactive."""
+    import psycopg2 as _byok_pg2
+    try:
+        with _byok_pg2.connect(_byok_os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT openai_key_enc, polygon_key_enc, anthropic_key_enc "
+                "FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1",
+                (token,)
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        def _safe_dec(v):
+            if not v: return None
+            try: return _byok_decrypt(v)
+            except Exception: return None
+        return {
+            "openai_key":    _safe_dec(row[0]),
+            "polygon_key":   _safe_dec(row[1]),
+            "anthropic_key": _safe_dec(row[2]),
+        }
+    except Exception as _e:
+        print(f"[byok] _byok_get_subscriber_keys error: {_e}")
+        return None
+# ─────────────────────────────────────────────────────────────────────────────
 _DEFERRED_INITS.append(lambda: init_exit_log_table())
 _DEFERRED_INITS.append(lambda: init_call_sweep_log_table())
 _DEFERRED_INITS.append(lambda: init_news_catalyst_log())
@@ -28815,7 +28873,8 @@ def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM",
 def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                                max_iterations: int = 12, on_step=None,
                                image_data_url: str | None = None,
-                               image_data_urls: list | None = None):
+                               image_data_urls: list | None = None,
+                               byok_openai_key: str | None = None):
     """
     Parameterized research session. Returns (final_text, trace, error_str).
 
@@ -28833,12 +28892,20 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
 
     try:
         from openai import OpenAI as _OAIFS
-        _oai = _OAIFS(
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-            timeout=25.0,
-            max_retries=1,
-        )
+        if byok_openai_key:
+            # Subscriber's own key — direct OpenAI, platform pays $0
+            _oai = _OAIFS(
+                api_key=byok_openai_key,
+                timeout=25.0,
+                max_retries=1,
+            )
+        else:
+            _oai = _OAIFS(
+                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
+                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
+                timeout=25.0,
+                max_retries=1,
+            )
     except Exception as _oe:
         return "", [], f"OpenAI init error: {_oe}"
 
@@ -52157,6 +52224,7 @@ def aiem_chat_start():
     data          = request.get_json(silent=True) or {}
     question      = (data.get("question") or "").strip()[:800]
     image_data_url  = (data.get("image_data_url") or "").strip()
+    subscriber_token = (data.get("subscriber_token") or "").strip()
     # image_data_urls (list) lets one session analyze several screenshots together
     # (e.g. comparing 1-week/1-month charts across tickers for common indicators).
     # Falls back to the single image_data_url field for backward compatibility.
@@ -52290,6 +52358,13 @@ def aiem_chat_start():
     if len(image_data_urls) >= 3 or max_iters >= 10:
         _session_deadline_s = 480  # 8 min — deep cross-ticker/cross-image research
 
+    # BYOK: look up subscriber's own OpenAI key so platform pays $0 for their compute
+    _byok_openai_key = None
+    if subscriber_token:
+        _byok_keys = _byok_get_subscriber_keys(subscriber_token)
+        if _byok_keys:
+            _byok_openai_key = _byok_keys.get("openai_key")
+
     def _worker():
         # No global lock — each chat session is fully isolated by job_id.
         # SMS/email/cron sessions manage app._aiem_qa_lock independently.
@@ -52315,6 +52390,7 @@ def aiem_chat_start():
                         max_iterations=max_iters,
                         on_step=_on_step,
                         image_data_urls=image_data_urls or None,
+                        byok_openai_key=_byok_openai_key,
                     )
                     # _run_aiem_focused_session returns (text, trace, err) or (text, trace, err, openai_id)
                     _sess_result[0] = _r[0]
@@ -53091,6 +53167,95 @@ def _debug_threads():
             traceback.print_stack(f, file=buf)
         out[f"{t.name}|{t.ident}"] = buf.getvalue()
     return jsonify(out)
+
+# ── BYOK key management endpoints ────────────────────────────────────────────
+# Subscribers identify themselves with their subscriber token (from welcome email).
+# PUT  /stock-api/user/keys   — save encrypted keys
+# GET  /stock-api/user/keys   — check which keys are set (never returns values)
+# DELETE /stock-api/user/keys — wipe all stored keys
+
+@app.route("/stock-api/user/keys", methods=["PUT"])
+def byok_save_keys():
+    import psycopg2 as _bpg
+    body  = request.get_json(silent=True) or {}
+    token = (body.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            row = cur.fetchone()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+    if not row:
+        return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+
+    updates, params = [], []
+    for field, col in (("openai_key", "openai_key_enc"), ("polygon_key", "polygon_key_enc"), ("anthropic_key", "anthropic_key_enc")):
+        val = (body.get(field) or "").strip()
+        if val:
+            try:
+                enc = _byok_encrypt(val)
+            except Exception as _e:
+                return jsonify({"error": f"Encryption error: {_e}"}), 500
+            updates.append(f"{col}=%s"); params.append(enc)
+    if not updates:
+        return jsonify({"error": "No keys provided"}), 400
+    params.append(token)
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"UPDATE sm_subscribers SET {', '.join(updates)} WHERE token=%s", params)
+            conn.commit()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+    return jsonify({"ok": True, "saved": len(updates)})
+
+
+@app.route("/stock-api/user/keys", methods=["GET"])
+def byok_key_status():
+    import psycopg2 as _bpg
+    token = (request.args.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT openai_key_enc, polygon_key_enc, anthropic_key_enc "
+                "FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1",
+                (token,)
+            )
+            row = cur.fetchone()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+    if not row:
+        return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+    return jsonify({
+        "openai_key_set":    bool(row[0]),
+        "polygon_key_set":   bool(row[1]),
+        "anthropic_key_set": bool(row[2]),
+    })
+
+
+@app.route("/stock-api/user/keys", methods=["DELETE"])
+def byok_delete_keys():
+    import psycopg2 as _bpg
+    body  = request.get_json(silent=True) or {}
+    token = (body.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sm_subscribers SET openai_key_enc=NULL, polygon_key_enc=NULL, anthropic_key_enc=NULL "
+                "WHERE token=%s AND active=true",
+                (token,)
+            )
+            conn.commit()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+    return jsonify({"ok": True})
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).

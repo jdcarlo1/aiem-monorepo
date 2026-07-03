@@ -12171,6 +12171,12 @@ function QuantAgentTab() {
   const recognitionRef  = useRef<any>(null);
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [byokToken,    setByokToken]    = useState(() => localStorage.getItem("aiem_byok_token") || "");
+  const [byokOAIKey,   setByokOAIKey]   = useState("");
+  const [showByok,     setShowByok]     = useState(false);
+  const [byokSaving,   setByokSaving]   = useState(false);
+  const [byokMsg,      setByokMsg]      = useState<{ok: boolean; text: string} | null>(null);
+  const [byokStatus,   setByokStatus]   = useState<{openai_key_set: boolean} | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -12306,6 +12312,8 @@ function QuantAgentTab() {
     try {
       const body: Record<string, string> = { question: q || "Analyze this chart/screenshot." };
       if (capturedImage) body.image_data_url = capturedImage;
+      const _tok = localStorage.getItem("aiem_byok_token") || "";
+      if (_tok) body.subscriber_token = _tok;
       const _submitCtrl = new AbortController();
       const _submitTimeout = setTimeout(() => _submitCtrl.abort(), 20000);
       let res: Response;
@@ -12552,7 +12560,110 @@ function QuantAgentTab() {
         >
           Send
         </button>
+        {/* BYOK settings gear */}
+        <button
+          onClick={async () => {
+            setShowByok(v => !v);
+            setByokMsg(null);
+            if (!showByok && byokToken) {
+              try {
+                const r = await fetch(`/stock-api/user/keys?subscriber_token=${encodeURIComponent(byokToken)}`);
+                if (r.ok) setByokStatus(await r.json());
+              } catch { /* non-fatal */ }
+            }
+          }}
+          title="API Key Settings"
+          style={{ width: 44, height: 44, flexShrink: 0, background: byokToken ? "#0d2a1a" : "#0d1726", border: `1px solid ${byokToken ? "#22c55e" : "#1c3350"}`, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={byokToken ? "#4ade80" : "#7fb3ff"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
       </div>
+
+      {/* BYOK settings panel */}
+      {showByok && (
+        <div style={{ background: "#0a1628", border: "1px solid #1c3350", borderRadius: 10, padding: "16px 18px", marginTop: 4, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ color: "#7fb3ff", fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>YOUR API KEYS — you pay OpenAI directly, we pay nothing</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ color: "#94a3b8", fontSize: 11 }}>Subscriber Token <span style={{ color: "#475569" }}>(from your welcome email)</span></label>
+            <input
+              type="text"
+              placeholder="paste your subscriber token…"
+              value={byokToken}
+              onChange={e => {
+                setByokToken(e.target.value);
+                localStorage.setItem("aiem_byok_token", e.target.value.trim());
+                setByokStatus(null);
+              }}
+              style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "7px 10px", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ color: "#94a3b8", fontSize: 11 }}>
+              OpenAI API Key
+              {byokStatus?.openai_key_set && <span style={{ color: "#4ade80", marginLeft: 8 }}>✓ saved</span>}
+            </label>
+            <input
+              type="password"
+              placeholder="sk-… (leave blank to keep existing)"
+              value={byokOAIKey}
+              onChange={e => setByokOAIKey(e.target.value)}
+              style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "7px 10px", fontSize: 12 }}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              disabled={byokSaving || !byokToken}
+              onClick={async () => {
+                if (!byokToken) return;
+                setByokSaving(true); setByokMsg(null);
+                try {
+                  const body: Record<string, string> = { subscriber_token: byokToken };
+                  if (byokOAIKey.trim()) body.openai_key = byokOAIKey.trim();
+                  const r = await fetch("/stock-api/user/keys", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                  });
+                  const d = await r.json();
+                  if (r.ok) {
+                    setByokMsg({ ok: true, text: "Keys saved. AIEM sessions now run on your OpenAI account." });
+                    setByokOAIKey("");
+                    setByokStatus({ openai_key_set: !!byokOAIKey.trim() || !!byokStatus?.openai_key_set });
+                  } else {
+                    setByokMsg({ ok: false, text: d.error || "Save failed" });
+                  }
+                } catch (e: any) {
+                  setByokMsg({ ok: false, text: String(e) });
+                } finally { setByokSaving(false); }
+              }}
+              style={{ background: byokSaving || !byokToken ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 6, padding: "7px 16px", cursor: byokSaving || !byokToken ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}
+            >
+              {byokSaving ? "Saving…" : "Save Keys"}
+            </button>
+            {byokToken && byokStatus?.openai_key_set && (
+              <button
+                onClick={async () => {
+                  if (!confirm("Remove your stored API keys?")) return;
+                  try {
+                    await fetch("/stock-api/user/keys", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscriber_token: byokToken }) });
+                    setByokStatus({ openai_key_set: false });
+                    setByokMsg({ ok: true, text: "Keys removed." });
+                  } catch { /* non-fatal */ }
+                }}
+                style={{ background: "transparent", color: "#f87171", border: "1px solid #7f1d1d", borderRadius: 6, padding: "7px 12px", cursor: "pointer", fontSize: 11 }}
+              >
+                Remove Keys
+              </button>
+            )}
+            {byokMsg && <span style={{ fontSize: 11, color: byokMsg.ok ? "#4ade80" : "#f87171" }}>{byokMsg.text}</span>}
+          </div>
+          <div style={{ color: "#475569", fontSize: 10, lineHeight: 1.5 }}>
+            Your key is encrypted before storage. We never log or transmit it in plaintext. Removing your token from this field stops all key lookups immediately.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
