@@ -1,0 +1,48 @@
+# Follow-Up — Make the Signed Bundle Independently Checkable
+
+Don't just report "signatures match" or "VERIFIED" in chat. Write actual files to the repo so this can be checked independently, outside of anything you control the wording of.
+
+---
+
+## 1. Write the evidence payload to a file
+
+Save the exact JSON payload you signed (everything except the `"signature"` field) to:
+```
+verification/evidence_payload.json
+```
+
+## 2. Write the reported signature to a file
+
+Save the signature string you computed to:
+```
+verification/reported_signature.txt
+```
+(plain text, just the hex string, nothing else)
+
+## 3. Write a standalone verifier script
+
+Create:
+```
+verification/verify_signature.py
+```
+
+It must:
+- Read `evidence_payload.json` and `reported_signature.txt`
+- Recompute the HMAC-SHA256 signature independently using `AIEM_SIGNING_KEY` and the same canonicalization (`json.dumps(payload, sort_keys=True, separators=(",", ":"))`)
+- Print the **raw computed hash** to the terminal
+- Print the **raw reported hash** to the terminal
+- Print `MATCH` or `NO MATCH` based on a direct string comparison — do not print a verdict without also printing both raw hashes above it
+
+Show me the full contents of this script (`cat verification/verify_signature.py`) so I can confirm it's actually doing the comparison and not just printing a hardcoded result.
+
+## 4. Confirm status on the 3 original gaps
+
+For each, raw evidence only:
+
+- **Migration file:** Is it committed? `git show <hash> -- verification/migrations/<file>` or wherever it landed. Confirm whether this matches an existing project convention or is a new pattern — say which.
+- **Task #17 spec:** Where exactly did you find it (which transcript/file)? Quote the relevant text verbatim with a path/line reference.
+- **Double-signed payload:** Show both raw signature outputs from the two independent runs, not just "match confirmed."
+
+## 5. Final output
+
+Run `verification/verify_signature.py` yourself right now and paste the raw terminal output — both hashes and the MATCH/NO MATCH line — into your response. Then state VERIFIED or NOT VERIFIED based on that output plus item 4.
