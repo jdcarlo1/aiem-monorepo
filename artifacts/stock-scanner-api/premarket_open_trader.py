@@ -10,10 +10,27 @@ ai_stock_picks.
 This is the orchestration layer — the piece that combines separate
 checks into one verdict instead of leaving you to read six numbers
 and decide yourself.
+
+SAFETY GATES (Group 1, wired 2026-07-03)
+-----------------------------------------
+Four hard-stop checks run before any paper pick is ever written:
+
+  1. position_reconciler  — unresolved broker/DB mismatch → skip
+  2. daily_loss_limit     — today's loss exceeds threshold → skip
+                            IMPORTANT: fails CLOSED when
+                            ACCOUNT_VALUE_BASELINE env var is not set.
+                            Set it (e.g. ACCOUNT_VALUE_BASELINE=50000)
+                            or every trade is blocked by design.
+  3. portfolio_correlation_risk — too many correlated positions → skip
+  4. order_dedup          — same decision_id attempted twice → skip
+
+Hard gates:  ANY single hit forces decision="skip", no pick written.
+Soft gates:  2+ soft hits force skip; 1 soft hit → wait_until_945.
 ====================================================================
 """
 
 import datetime as dt
+import os
 from typing import Dict, Any, List, Optional
 
 import psycopg2
@@ -22,8 +39,12 @@ import opening_snapshot_tracker as ost
 import pre_recommendation_synthesis as prs
 import earnings_calendar as ec
 import regime_detector as rd
+import position_reconciler as pr
+import daily_loss_limit as dll
+import order_dedup as od
+import portfolio_correlation_risk as pcr
 
-BASE_PAPER_POSITION_USD = 1_000   # base paper-trade size in USD; scaled by regime multiplier
+BASE_PAPER_POSITION_USD = 1_000
 _CONFIDENCE_SCORE_MAP   = {"high": 0.85, "medium": 0.60, "low": 0.40}
 
 _DECISION_TYPE_MAP = {
@@ -31,6 +52,70 @@ _DECISION_TYPE_MAP = {
     "wait_until_945": "no_trade",
     "skip":           "no_trade",
 }
+
+
+def init_schema(db_url: str = None) -> None:
+    """
+    Creates the tables required by the safety gate modules.
+    Call once at startup (wired into _DEFERRED_INITS in main.py).
+    Idempotent — safe to call on every boot.
+    """
+    if db_url is None:
+        db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        print("[premarket_open_trader] init_schema: DATABASE_URL not set, skipping")
+        return
+
+    statements = [
+        """
+        CREATE TABLE IF NOT EXISTS order_execution_log (
+            id              SERIAL PRIMARY KEY,
+            decision_id     INTEGER NOT NULL,
+            broker_order_id TEXT,
+            ticker          TEXT,
+            side            TEXT,
+            qty             DOUBLE PRECISION,
+            status          TEXT,
+            submitted_at    TIMESTAMPTZ NOT NULL,
+            filled_at       TIMESTAMPTZ,
+            fill_price      DOUBLE PRECISION,
+            UNIQUE (decision_id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS daily_loss_breach_log (
+            id              SERIAL PRIMARY KEY,
+            checked_at      TIMESTAMPTZ NOT NULL,
+            account_value   DOUBLE PRECISION,
+            realized_pnl    DOUBLE PRECISION,
+            loss_pct        DOUBLE PRECISION,
+            loss_limit_pct  DOUBLE PRECISION,
+            resolved        BOOLEAN DEFAULT FALSE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS reconciliation_log (
+            id              SERIAL PRIMARY KEY,
+            checked_at      TIMESTAMPTZ NOT NULL,
+            only_in_broker  TEXT,
+            only_in_db      TEXT,
+            mismatch_found  BOOLEAN,
+            resolved        BOOLEAN DEFAULT FALSE
+        )
+        """,
+    ]
+
+    conn = psycopg2.connect(db_url)
+    try:
+        with conn.cursor() as cur:
+            for sql in statements:
+                cur.execute(sql)
+        conn.commit()
+        print("[premarket_open_trader] init_schema: safety gate tables verified/created")
+    except Exception as exc:
+        print(f"[premarket_open_trader] init_schema error: {exc}")
+    finally:
+        conn.close()
 
 
 def classify_from_snapshots(snapshots: List[Dict[str, Any]],
@@ -41,14 +126,14 @@ def classify_from_snapshots(snapshots: List[Dict[str, Any]],
         return {"pattern": "insufficient_data", "confidence": "low",
                 "recommendation": "wait_for_more_scans"}
 
-    open_price  = snapshots[0]["price"]
+    open_price    = snapshots[0]["price"]
     current_price = snapshots[-1]["price"]
-    high_so_far = max(s["price"] for s in snapshots)
-    low_so_far  = min(s["price"] for s in snapshots)
+    high_so_far   = max(s["price"] for s in snapshots)
+    low_so_far    = min(s["price"] for s in snapshots)
 
-    move_from_open_pct      = ((current_price - open_price) / open_price) * 100 if open_price else 0
-    pulled_back_pct         = ((high_so_far - low_so_far) / high_so_far) * 100 if high_so_far else 0
-    recovered_from_low_pct  = ((current_price - low_so_far) / low_so_far) * 100 if low_so_far else 0
+    move_from_open_pct     = ((current_price - open_price) / open_price) * 100 if open_price else 0
+    pulled_back_pct        = ((high_so_far - low_so_far) / high_so_far) * 100 if high_so_far else 0
+    recovered_from_low_pct = ((current_price - low_so_far) / low_so_far) * 100 if low_so_far else 0
 
     is_gap_up = premarket_gap_pct > 0
 
@@ -76,12 +161,12 @@ def classify_from_snapshots(snapshots: List[Dict[str, Any]],
             pattern, confidence = "ambiguous", "low"
 
     return {
-        "pattern":                 pattern,
-        "confidence":              confidence,
-        "move_from_open_pct":      round(move_from_open_pct, 3),
-        "pulled_back_pct":         round(pulled_back_pct, 3),
-        "recovered_from_low_pct":  round(recovered_from_low_pct, 3),
-        "n_snapshots":             len(snapshots),
+        "pattern":                pattern,
+        "confidence":             confidence,
+        "move_from_open_pct":     round(move_from_open_pct, 3),
+        "pulled_back_pct":        round(pulled_back_pct, 3),
+        "recovered_from_low_pct": round(recovered_from_low_pct, 3),
+        "n_snapshots":            len(snapshots),
     }
 
 
@@ -90,6 +175,19 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
     THE FULL COMBINED DECISION. Pulls every relevant check and
     produces ONE verdict, with the reasoning trail showing which
     factors drove it.
+
+    Gate order:
+      Hard gates run first (any one → skip, no pick written):
+        1. earnings risk
+        2. unresolved position mismatch
+        3. daily loss limit breached
+        4. portfolio concentration risk
+
+      Soft gates run next (2+ → skip, 1 → wait_until_945):
+        5. opening pattern is a fake move
+        6. opening behavior still ambiguous
+        7. weak signal confluence
+        8. defensive market regime
     """
     snapshots       = ost.get_todays_snapshots(db_url, ticker)
     opening_pattern = classify_from_snapshots(snapshots, premarket_gap_pct)
@@ -97,26 +195,76 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
     earnings        = ec.should_avoid_entry(db_url, ticker, buffer_days=2)
     regime          = rd.get_current_regime(db_url, "SPY")
 
-    blockers = []
+    hard_blockers: List[str] = []
+    soft_blockers: List[str] = []
+
+    # ── HARD GATE 1: earnings risk ────────────────────────────────────
     if earnings.get("avoid"):
-        blockers.append(f"earnings risk: {earnings['reason']}")
+        hard_blockers.append(f"earnings risk: {earnings['reason']}")
+
+    # ── HARD GATE 2: unresolved broker/DB position mismatch ──────────
+    try:
+        if pr.has_unresolved_mismatch(db_url):
+            hard_blockers.append("unresolved position mismatch between broker and DB")
+    except Exception as _exc:
+        hard_blockers.append(f"position reconciler check failed (fail closed): {_exc}")
+
+    # ── HARD GATE 3: daily loss limit ────────────────────────────────
+    try:
+        dll_result = dll.check_daily_loss_limit(db_url)
+        if dll_result["halt_trading"]:
+            loss_pct   = dll_result.get("loss_pct")
+            limit_pct  = dll_result.get("loss_limit_pct")
+            reason     = dll_result.get("reason") or ""
+            if loss_pct is not None:
+                hard_blockers.append(
+                    f"daily loss limit breached: {loss_pct}% (limit -{limit_pct}%)"
+                )
+            else:
+                hard_blockers.append(
+                    f"daily loss limit check failed (fail closed): {reason[:120]}"
+                )
+    except Exception as _exc:
+        hard_blockers.append(f"daily loss limit check raised exception (fail closed): {_exc}")
+
+    # ── HARD GATE 4: portfolio concentration risk ─────────────────────
+    try:
+        correlation_result = pcr.check_current_portfolio_risk(db_url)
+        if correlation_result["concentration_risk_flag"]:
+            hard_blockers.append(
+                f"portfolio concentration risk: {correlation_result['warnings']}"
+            )
+    except Exception as _exc:
+        hard_blockers.append(f"portfolio correlation check failed (fail closed): {_exc}")
+
+    # ── SOFT GATES ────────────────────────────────────────────────────
     if opening_pattern["pattern"] in ("fake_breakout", "fake_breakdown"):
-        blockers.append(f"opening pattern looks like a fake move ({opening_pattern['pattern']})")
-    if opening_pattern["confidence"] == "low" or opening_pattern["pattern"] in ("ambiguous", "insufficient_data"):
-        blockers.append("opening behavior still ambiguous, not enough signal yet")
+        soft_blockers.append(
+            f"opening pattern looks like a fake move ({opening_pattern['pattern']})"
+        )
+    if opening_pattern["confidence"] == "low" or \
+       opening_pattern["pattern"] in ("ambiguous", "insufficient_data"):
+        soft_blockers.append("opening behavior still ambiguous, not enough signal yet")
     if synthesis["confluence_count"] < 2:
-        blockers.append(f"weak signal confluence ({synthesis['confluence_count']}/4)")
+        soft_blockers.append(f"weak signal confluence ({synthesis['confluence_count']}/4)")
     if regime.get("regime") in ("high_vol_downtrend",) or \
        (regime.get("confidence") == "low" and regime.get("total_score", 0) < 0):
-        blockers.append("defensive market regime")
+        soft_blockers.append("defensive market regime")
 
-    if blockers:
-        decision = "skip" if len(blockers) >= 2 else "wait_until_945"
+    # ── DECISION ──────────────────────────────────────────────────────
+    if hard_blockers:
+        decision = "skip"
+    elif len(soft_blockers) >= 2:
+        decision = "skip"
+    elif soft_blockers:
+        decision = "wait_until_945"
     elif opening_pattern["pattern"] in ("genuine_continuation", "genuine_breakdown") \
          and opening_pattern["confidence"] == "medium":
         decision = "enter_now"
     else:
         decision = "wait_until_945"
+
+    all_blockers = hard_blockers + soft_blockers
 
     result = {
         "ticker":               ticker,
@@ -125,7 +273,9 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
         "synthesis_confluence": synthesis["confluence_count"],
         "earnings_check":       earnings,
         "regime":               regime.get("regime"),
-        "blockers":             blockers,
+        "hard_blockers":        hard_blockers,
+        "soft_blockers":        soft_blockers,
+        "blockers":             all_blockers,
         "checked_at":           dt.datetime.utcnow().isoformat(),
     }
 
@@ -135,11 +285,13 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
         f"(confidence {opening_pattern['confidence']}, "
         f"{opening_pattern.get('n_snapshots', 0)} scans observed). "
         f"Synthesis confluence: {synthesis['confluence_count']}/4. "
-        f"Blockers: {blockers if blockers else 'none'}."
+        f"Hard blockers: {hard_blockers if hard_blockers else 'none'}. "
+        f"Soft blockers: {soft_blockers if soft_blockers else 'none'}."
     )
 
+    decision_id: Optional[int] = None
     try:
-        dl.log_decision(
+        decision_id = dl.log_decision(
             signal_name="premarket_open_trader",
             decision_type=_DECISION_TYPE_MAP.get(decision, "no_trade"),
             ticker=ticker,
@@ -149,8 +301,25 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
         print(f"[premarket_open_trader] log_decision failed: {_e}")
 
     if decision == "enter_now":
-        write_paper_pick(db_url, ticker, opening_pattern, synthesis, regime=regime)
+        if decision_id is None:
+            print(
+                f"[premarket_open_trader] WARNING: decision_id is None for {ticker} "
+                f"(log_decision failed) — skipping write to preserve dedup guarantee"
+            )
+        elif od.should_place_order(db_url, decision_id):
+            write_paper_pick(db_url, ticker, opening_pattern, synthesis, regime=regime)
+            od.mark_order_placed(
+                db_url, decision_id,
+                broker_order_id=f"paper-{decision_id}",
+                ticker=ticker, side="long", qty=1, status="filled",
+            )
+        else:
+            print(
+                f"[premarket_open_trader] duplicate blocked: "
+                f"decision_id={decision_id} already in order_execution_log"
+            )
 
+    result["decision_id"] = decision_id
     return result
 
 

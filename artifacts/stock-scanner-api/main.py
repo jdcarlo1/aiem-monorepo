@@ -1549,6 +1549,17 @@ def _init_washout_ignition_table():
 _DEFERRED_INITS.append(lambda: _init_washout_ignition_table())
 
 
+def _init_paper_trader_schema():
+    """Creates safety-gate tables for premarket_open_trader Group-1 gates."""
+    try:
+        import premarket_open_trader as _pot
+        _pot.init_schema()
+    except Exception as _exc:
+        print(f"[deferred_init] paper_trader_schema failed: {_exc}")
+
+_DEFERRED_INITS.append(lambda: _init_paper_trader_schema())
+
+
 def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTION_STACK_MAX,
                               precomputed: list = None) -> dict:
     """Persist today's L1-L8 EXTREME cohort (total_pts >= min_pts) from the money-

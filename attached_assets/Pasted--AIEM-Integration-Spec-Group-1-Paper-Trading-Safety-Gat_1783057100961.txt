@@ -1,0 +1,95 @@
+# AIEM Integration Spec — Group 1: Paper Trading Safety Gates
+
+**Target file to modify:** `artifacts/stock-scanner-api/premarket_open_trader.py`
+**Do not modify the 4 module files themselves** — they're already correct. This is purely a wiring task: call them from the paper trade entry point that currently skips them.
+
+## Verified problem
+
+`premarket_open_trader.evaluate_ticker()` is the function that decides to open a paper position, and `write_paper_pick()` is what inserts it into `ai_stock_picks`. Right now that function only imports and checks `opening_snapshot_tracker`, `pre_recommendation_synthesis`, `earnings_calendar`, and `regime_detector`. None of the following are called anywhere in this path:
+
+- `daily_loss_limit.py`
+- `order_dedup.py`
+- `position_reconciler.py`
+- `portfolio_correlation_risk.py`
+
+Separately, `pre_decision_risk_gate.run_risk_gate()` does call `daily_loss_limit`, `order_dedup`, and `position_reconciler` — but `run_risk_gate` is only exposed as an optional LLM agent tool (`_aiem_tool_run_risk_gate`), not something the code forces on every trade, so it can be skipped. `portfolio_correlation_risk` isn't called from `run_risk_gate` either — it has zero call sites anywhere in the codebase today.
+
+## Goal
+
+Make all 4 checks mandatory, hard-coded gates inside `evaluate_ticker()`, run **before** `write_paper_pick()` can ever be called — not optional, not dependent on an LLM agent choosing to invoke them.
+
+## Required changes to `premarket_open_trader.py`
+
+### 1. Add imports
+
+```python
+import position_reconciler as pr
+import daily_loss_limit as dll
+import order_dedup as od
+import portfolio_correlation_risk as pcr
+```
+
+### 2. Insert gate checks in `evaluate_ticker()`, immediately before the existing `blockers` logic
+
+Add these as new blocker sources, evaluated the same way earnings/pattern/synthesis/regime already are:
+
+```python
+# Position reconciliation — unresolved broker/DB mismatch blocks all new entries
+if pr.has_unresolved_mismatch(db_url):
+    blockers.append("unresolved position mismatch between broker and DB")
+
+# Daily loss limit circuit breaker
+dll_result = dll.check_daily_loss_limit(db_url)
+if dll_result["halt_trading"]:
+    blockers.append(
+        f"daily loss limit breached: {dll_result['loss_pct']}% "
+        f"(limit -{dll_result['loss_limit_pct']}%)"
+    )
+
+# Portfolio correlation risk — block new entries into an already-concentrated group
+correlation_result = pcr.check_current_portfolio_risk(db_url)
+if correlation_result["concentration_risk_flag"]:
+    blockers.append(f"portfolio concentration risk: {correlation_result['warnings']}")
+```
+
+These three are pure pre-checks (no `decision_id` needed) — same pattern as the existing `earnings`/`regime` blockers. Any hit here should make `decision = "skip"` regardless of the existing `len(blockers) >= 2` threshold, since these are hard risk breaches, not soft signal weaknesses. Split the blocker list into `hard_blockers` (these 3 + earnings) and `soft_blockers` (pattern/synthesis/regime) so a single hard blocker alone forces `skip`, matching how `pre_decision_risk_gate.py` treats its own blocking checks as absolute.
+
+### 3. Wire `order_dedup` around the actual write
+
+`order_dedup` needs a `decision_id`, which only exists after `dl.log_decision()` runs. Currently `evaluate_ticker()` calls `dl.log_decision()` and discards the returned id. Capture it and use it as the dedup key:
+
+```python
+decision_id = dl.log_decision(
+    signal_name="premarket_open_trader",
+    decision_type=_DECISION_TYPE_MAP.get(decision, "no_trade"),
+    ticker=ticker,
+    reasoning=reasoning,
+)
+
+if decision == "enter_now":
+    if od.should_place_order(db_url, decision_id):
+        write_paper_pick(db_url, ticker, opening_pattern, synthesis)
+        od.mark_order_placed(
+            db_url, decision_id,
+            broker_order_id=f"paper-{decision_id}",
+            ticker=ticker, side="long", qty=1, status="filled",
+        )
+    else:
+        print(f"[premarket_open_trader] duplicate blocked for decision_id={decision_id}")
+```
+
+This replaces the current unconditional `if decision == "enter_now": write_paper_pick(...)` call.
+
+### 4. One-time DB setup
+
+`order_execution_log` doesn't exist yet in the schema this file touches — `order_dedup.py`'s docstring includes the `CREATE TABLE IF NOT EXISTS order_execution_log (...)` statement. Run that once (or add an `init_schema()`-style call at startup) before this goes live, same as `daily_loss_limit_breach_log` and `reconciliation_log` already require.
+
+## Acceptance criteria
+
+- [ ] All 4 modules imported in `premarket_open_trader.py`
+- [ ] A daily loss breach forces `decision = "skip"`, no paper pick written
+- [ ] An unresolved broker/DB mismatch forces `decision = "skip"`
+- [ ] A concentration-risk flag forces `decision = "skip"`
+- [ ] `write_paper_pick()` never runs twice for the same `decision_id` — confirmed by calling `evaluate_ticker()` twice in a row for the same ticker/day and checking only one row lands in `ai_stock_picks` and `order_execution_log`
+- [ ] `order_execution_log` table created
+- [ ] Provide raw terminal output showing each of the 4 gates actually firing at least once in a manual test (e.g. temporarily lower `DAILY_LOSS_LIMIT_PCT` to force a breach, temporarily edit `mock_position_source()` to force a mismatch) — no self-reported "done," verifiable output only
