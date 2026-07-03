@@ -1464,6 +1464,60 @@ def _init_conviction_stack_watchlist():
 _DEFERRED_INITS.append(lambda: _init_conviction_stack_watchlist())
 
 
+def _init_aiem_conviction_eval_log_table():
+    """Item 7 — broader-universe eval log table. Logs every scored ticker daily
+    (not just 8+ pt ones) to build the forward-looking training corpus for shadow
+    learning. UNIQUE(eval_date, ticker) makes daily runs idempotent."""
+    import psycopg2 as _pg2
+    with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS aiem_conviction_eval_log (
+                id          BIGSERIAL PRIMARY KEY,
+                eval_date   DATE NOT NULL,
+                ticker      TEXT NOT NULL,
+                total_pts   DOUBLE PRECISION,
+                regime_adjusted_pts DOUBLE PRECISION,
+                regime      TEXT,
+                layers      JSONB,
+                meta        JSONB,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (eval_date, ticker)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS ix_aiem_conv_eval_log_date "
+                    "ON aiem_conviction_eval_log (eval_date)")
+        conn.commit()
+    print("[aiem_conviction_eval_log] table ready")
+_DEFERRED_INITS.append(lambda: _init_aiem_conviction_eval_log_table())
+
+
+def _init_aiem_learning_proposals_table():
+    """Item 5 — audit log for every shadow propose_update() call.
+    `promoted` starts FALSE; item 6 admin endpoint flips it to TRUE on approval."""
+    import psycopg2 as _pg2
+    with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS aiem_learning_proposals (
+                id                   BIGSERIAL PRIMARY KEY,
+                proposed_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+                model_name           TEXT NOT NULL,
+                n_samples            INT,
+                accepted             BOOLEAN,
+                promoted             BOOLEAN NOT NULL DEFAULT FALSE,
+                version_saved        INT,
+                weights_hash         TEXT,
+                max_drift_observed   DOUBLE PRECISION,
+                current_score        DOUBLE PRECISION,
+                new_score            DOUBLE PRECISION,
+                reason               TEXT,
+                notes                TEXT
+            )
+        """)
+        conn.commit()
+    print("[aiem_learning_proposals] table ready")
+_DEFERRED_INITS.append(lambda: _init_aiem_learning_proposals_table())
+
+
 def _init_washout_ignition_table():
     import psycopg2 as _wit_pg
     with _wit_pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
@@ -1548,6 +1602,161 @@ def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTIO
         c.commit()
     return {"ok": True, "status": "logged", "snap_date": str(today),
             "universe_count": universe_count, "logged": len(cohort)}
+
+
+def _run_conviction_eval_log_job() -> dict:
+    """Item 7 — Broader-universe evaluation logger.
+    Runs _run_five_layer_conviction with max_tickers=100 (no min_pts gate)
+    and logs every scored ticker to aiem_conviction_eval_log.
+    Called daily at 4:35 PM ET Mon-Fri. UNIQUE(eval_date, ticker) = idempotent.
+    Builds the forward-looking training corpus for shadow learning (item 5).
+    """
+    import psycopg2 as _pg2
+    from datetime import datetime as _dt
+    try:
+        today = _dt.now(_ET_TZ).date()
+        results = _run_five_layer_conviction(max_tickers=100)
+        if not results:
+            return {"logged": 0, "reason": "no results from conviction engine"}
+        rows = []
+        for r in results:
+            rows.append((
+                today,
+                r["ticker"],
+                float(r.get("total_pts", 0) or 0),
+                float(r.get("regime_adjusted_pts", 0) or 0),
+                r.get("meta", {}).get("regime_recommendation", "unknown"),
+                json.dumps(r.get("layers", {})),
+                json.dumps(r.get("meta", {})),
+            ))
+        with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO aiem_conviction_eval_log
+                       (eval_date, ticker, total_pts, regime_adjusted_pts, regime, layers, meta)
+                   VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                   ON CONFLICT (eval_date, ticker) DO UPDATE SET
+                       total_pts=EXCLUDED.total_pts,
+                       regime_adjusted_pts=EXCLUDED.regime_adjusted_pts,
+                       regime=EXCLUDED.regime,
+                       layers=EXCLUDED.layers,
+                       meta=EXCLUDED.meta""",
+                rows,
+            )
+            conn.commit()
+        print(f"[conviction_eval_log] logged {len(rows)} tickers for {today}")
+        return {"logged": len(rows), "eval_date": str(today)}
+    except Exception as _e:
+        print(f"[conviction_eval_log] error: {_e}")
+        return {"error": str(_e)}
+
+
+def _run_shadow_learning_cycle() -> dict:
+    """Item 5 — Shadow-mode online learning cycle.
+    Sources: aiem_conviction_eval_log (features) joined with conviction_stack_watchlist
+    (w1_pct/w2_pct outcomes). Calls propose_update(promote=False) so weights are
+    saved to model_versions (is_live=FALSE) — NEVER auto-promoted to live.
+    All proposals are logged to aiem_learning_proposals for human review (item 6).
+    Min-sample gate: 30 graded rows required. System accumulates usable data after
+    ~4-6 weeks of eval_log collection.
+    """
+    import psycopg2 as _pg2
+    import numpy as _np
+    from datetime import datetime as _dt, timedelta as _td
+    LAYER_KEYS = [
+        "oi_accum", "charm", "gamma_fir", "short_int",
+        "dark_pool", "float_pressure", "far_otm_sweep",
+        "sector_sympathy", "layer9_edge", "fragility_penalty",
+    ]
+    try:
+        cutoff = (_dt.now(_ET_TZ).date() - _td(days=120)).isoformat()
+        with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT cel.ticker, cel.eval_date, cel.layers, csw.w1_pct, csw.w2_pct
+                FROM aiem_conviction_eval_log cel
+                JOIN conviction_stack_watchlist csw
+                  ON csw.ticker = cel.ticker AND csw.snap_date = cel.eval_date
+                WHERE csw.w2_pct IS NOT NULL
+                  AND cel.eval_date >= %s
+                ORDER BY cel.eval_date
+            """, (cutoff,))
+            rows = cur.fetchall()
+
+        def _log_proposal(**kwargs):
+            with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cols = list(kwargs.keys())
+                vals = list(kwargs.values())
+                cur.execute(
+                    f"INSERT INTO aiem_learning_proposals ({','.join(cols)}) "
+                    f"VALUES ({','.join(['%s']*len(vals))})",
+                    vals,
+                )
+                conn.commit()
+
+        if len(rows) < 30:
+            msg = f"insufficient graded data: {len(rows)} rows (need >=30)"
+            print(f"[shadow_learning] {msg}")
+            _log_proposal(model_name="conviction_layer_weights",
+                          n_samples=len(rows), accepted=False, reason=msg,
+                          notes="auto-skipped")
+            return {"skipped": True, "reason": msg, "n_samples": len(rows)}
+
+        X_rows, y_rows = [], []
+        for _ticker, _date, _layers, _w1, _w2 in rows:
+            lmap = _layers if isinstance(_layers, dict) else {}
+            x_vec = [float(lmap.get(k, 0.0) or 0.0) for k in LAYER_KEYS]
+            y_val = 1.0 if (_w2 or 0.0) > 0 else 0.0
+            X_rows.append(x_vec)
+            y_rows.append(y_val)
+        X = _np.array(X_rows, dtype=_np.float64)
+        y = _np.array(y_rows, dtype=_np.float64)
+
+        split = max(1, int(len(X) * 0.8))
+        X_train, X_held = X[:split], X[split:]
+        y_train, y_held = y[:split], y[split:]
+
+        import online_learning as _ol
+        import pickle as _pkl
+        live = _ol.get_live_model("conviction_layer_weights")
+        if live:
+            with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+                cur.execute("SELECT weights_blob FROM model_versions WHERE id=%s",
+                            (live["id"],))
+                blob = cur.fetchone()[0]
+            current_w = _pkl.loads(bytes(blob))
+        else:
+            current_w = _np.ones(len(LAYER_KEYS), dtype=_np.float64) / len(LAYER_KEYS)
+
+        result = _ol.propose_update(
+            model_name="conviction_layer_weights",
+            current_weights=current_w,
+            new_batch_X=X_train,
+            new_batch_y=y_train,
+            held_out_X=X_held,
+            held_out_y=y_held,
+            learning_rate=0.005,
+            max_weight_drift=0.10,
+            promote=False,
+            notes=f"shadow cycle {_dt.now(_ET_TZ).date()} n={len(rows)}",
+        )
+        _log_proposal(
+            model_name=result["model_name"],
+            n_samples=len(rows),
+            accepted=result.get("accepted", False),
+            promoted=False,
+            version_saved=result.get("version_saved"),
+            weights_hash=result.get("weights_hash"),
+            max_drift_observed=result.get("max_drift_observed"),
+            current_score=result.get("current_held_out_score"),
+            new_score=result.get("new_held_out_score"),
+            reason=result.get("reason_rejected", "accepted"),
+            notes=result.get("notes", ""),
+        )
+        print(f"[shadow_learning] proposal logged: accepted={result.get('accepted')} "
+              f"n={len(rows)} drift={result.get('max_drift_observed')}")
+        return result
+    except Exception as _e:
+        print(f"[shadow_learning] error: {_e}")
+        return {"error": str(_e)}
 
 
 def fill_conviction_stack_outcomes() -> dict:
@@ -3835,6 +4044,25 @@ try:
         id="conviction_outcomes",
         replace_existing=True,
     )
+    # Conviction eval log: 4:35 PM ET Mon-Fri
+    # Item 7 — logs all scored tickers (no min_pts gate) to aiem_conviction_eval_log.
+    # Builds the training corpus for shadow learning (item 5).
+    def _run_conviction_eval_log_sched():
+        if not _intraday_scan_allowed():
+            return
+        try:
+            import threading as _thr_cel
+            _thr_cel.Thread(target=_run_conviction_eval_log_job, daemon=True).start()
+            record_job_success("conviction_eval_log")
+        except Exception as _e:
+            record_job_failure("conviction_eval_log", str(_e))
+            print(f"[scheduler] conviction_eval_log error: {_e}")
+    _scheduler.add_job(
+        _run_conviction_eval_log_sched,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=_ET),
+        id="conviction_eval_log",
+        replace_existing=True,
+    )
     # Morning Gamma Watchlist SMS: 8:45 AM ET - yesterday's unusual calls = today's squeeze list
     def _run_morning_gamma_watchlist():
         if not _intraday_scan_allowed():
@@ -4549,6 +4777,23 @@ try:
             _run_model_retrain_job,
             _CT_aiem(day_of_week="sun", hour=19, minute=0, timezone=_ET),
             id="aiem_model_retrain_weekly", replace_existing=True,
+        )
+        # Shadow learning cycle: Sunday 8:30 PM ET (after ML retrain at 7 PM)
+        # Item 5 — propose_update(promote=False) in shadow mode. Builds a gradient-
+        # descent update on graded conviction eval-log rows. Saves to model_versions
+        # with is_live=FALSE. Human approval required to promote (item 6 endpoint).
+        def _run_shadow_learning_sched():
+            try:
+                import threading as _thr_sl
+                _thr_sl.Thread(target=_run_shadow_learning_cycle, daemon=True).start()
+                record_job_success("shadow_learning_weekly")
+            except Exception as _e:
+                record_job_failure("shadow_learning_weekly", str(_e))
+                print(f"[scheduler] shadow_learning error: {_e}")
+        _scheduler.add_job(
+            _run_shadow_learning_sched,
+            _CT_aiem(day_of_week="sun", hour=20, minute=30, timezone=_ET),
+            id="shadow_learning_weekly", replace_existing=True,
         )
         # Signal bridge daily jobs: 4:50 PM Mon-Fri
         # Runs pre-squeeze + breakout detectors, logs fires, grades pending
@@ -50921,6 +51166,77 @@ def grinder_scan_endpoint():
         return jsonify({"results": [], "count": 0, "stale": True,
                         "generating": True,
                         "methodology": "Shakeout→Reentry + options sweep cross-confirm · 76% WR backtest"})
+
+
+@app.route("/stock-api/admin/learning-proposals", methods=["GET"])
+def admin_learning_proposals():
+    """Item 6 — List shadow learning proposals awaiting human approval.
+    Shows all proposals (accepted + rejected) sorted newest-first.
+    Accepted proposals with promoted=FALSE are ready for approval."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import psycopg2 as _pg2
+    try:
+        with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, proposed_at, model_name, n_samples, accepted, promoted,
+                       version_saved, weights_hash, max_drift_observed,
+                       current_score, new_score, reason, notes
+                FROM aiem_learning_proposals
+                ORDER BY proposed_at DESC
+                LIMIT 50
+            """)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        for r in rows:
+            if r.get("proposed_at"):
+                r["proposed_at"] = r["proposed_at"].isoformat()
+        pending = [r for r in rows if r.get("accepted") and not r.get("promoted")]
+        return jsonify({"proposals": rows, "total": len(rows),
+                        "pending_approval": len(pending)})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/learning-proposals/<int:proposal_id>/approve", methods=["POST"])
+def admin_approve_learning_proposal(proposal_id):
+    """Item 6 — Promote a shadow learning proposal to live.
+    Calls rollback_to_version() on the saved model_versions entry.
+    This is the ONLY promotion path — weights are NEVER auto-promoted.
+    Gate: proposal must be accepted=TRUE and promoted=FALSE."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import psycopg2 as _pg2
+    try:
+        with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT model_name, version_saved, accepted, promoted
+                FROM aiem_learning_proposals WHERE id=%s
+            """, (proposal_id,))
+            row = cur.fetchone()
+        if not row:
+            return jsonify({"error": f"proposal {proposal_id} not found"}), 404
+        model_name, version_saved, accepted, promoted = row
+        if not accepted:
+            return jsonify({"error": "proposal was rejected by drift/perf gates — cannot promote"}), 400
+        if promoted:
+            return jsonify({"error": "already promoted"}), 400
+        if not version_saved:
+            return jsonify({"error": "no version_saved on this proposal"}), 400
+        import online_learning as _ol
+        result = _ol.rollback_to_version(model_name, version_saved)
+        if "error" in result:
+            return jsonify(result), 500
+        with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("UPDATE aiem_learning_proposals SET promoted=TRUE WHERE id=%s",
+                        (proposal_id,))
+            conn.commit()
+        return jsonify({"promoted": True, "model_name": model_name,
+                        "version": version_saved, "detail": result})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 @app.route("/stock-api/admin/backfill-iv", methods=["POST"])
