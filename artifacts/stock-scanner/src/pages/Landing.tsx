@@ -593,6 +593,129 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* ── THE PLATFORM ── */}
+      <div className="px-6 pb-24 max-w-6xl mx-auto">
+        <p className="text-center text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">The platform</p>
+        <h2 className="text-center font-black mb-4" style={{ fontSize: "clamp(2rem,5vw,3.2rem)", letterSpacing: "-0.04em" }}>
+          A full institutional terminal.<br /><span style={{ color: "#4ade80" }}>Not another alerts app.</span>
+        </h2>
+        <p className="text-center text-slate-400 mb-16 mx-auto" style={{ maxWidth: "640px", fontSize: "1.05rem", lineHeight: 1.75 }}>
+          Every tab runs a separate scanner. Every scanner runs every night. Every morning you wake up to a live institutional-grade terminal — no setup, no scripts, no Bloomberg subscription.
+        </p>
+
+        {/* Scanner tabs grid */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-16">
+          {[
+            {
+              name: "High Conviction Picks",
+              color: "#4ade80", glow: "34,197,94",
+              badge: "FLAGSHIP",
+              desc: "5 ELITE setups every morning. AI-written thesis, exact strike + expiry, entry zone, stop, and target. Each setup requires 4+ of 8 conviction layers firing simultaneously.",
+              indicators: ["OI buildup days","Gamma lockup","Charm acceleration","Short squeeze fuel","Dark pool prints","Float demand (FIR)","Far-OTM sweep","Sector heat"],
+            },
+            {
+              name: "Unusual Options Flow",
+              color: "#60a5fa", glow: "96,165,250",
+              badge: "REAL-TIME",
+              desc: "Every sweep, block, and aggressive call printed with premium size, C/P ratio, and AIEM conviction score. Filtered for institutional intent — not retail noise.",
+              indicators: ["Call sweep detection","Premium size filter","C/P ratio","Vol/OI ratio","IV percentile","Moneyness (ITM/OTM)","DTE","Repeat sweep pattern"],
+            },
+            {
+              name: "Quant Agent (AIEM)",
+              color: "#a78bfa", glow: "167,139,250",
+              badge: "AI RESEARCH",
+              desc: "Ask AIEM anything about any ticker. It runs 53 institutional tools live — VPIN, GARCH, stat-arb z-score, SHAP attribution, macro overlay — and answers in plain English.",
+              indicators: ["53 live research tools","VPIN toxic flow","GARCH vol forecast","Stat-arb z-score","TreeSHAP attribution","FRED macro overlay","Specialist council vote","Hurst + Amihud Layer 9"],
+            },
+            {
+              name: "Net Flow & Dark Pool",
+              color: "#fb923c", glow: "251,146,60",
+              badge: "INSTITUTIONAL",
+              desc: "FINRA dark pool prints decoded into BUY/SELL conviction with tier ranking. Smart money vs retail divergence shown side-by-side. Filters out noise automatically.",
+              indicators: ["Dark pool block prints","Smart money signal","Retail divergence","Net premium flow","Block size tier","Repeat accumulation","Sector rotation","FINRA short-sale decoding"],
+            },
+            {
+              name: "Short Squeeze Scanner",
+              color: "#fbbf24", glow: "251,191,36",
+              badge: "MULTI-FACTOR",
+              desc: "Short float ≥15%, days-to-cover, borrow rate, catalyst risk, and momentum all scored together. AIEM rates each setup CRITICAL / HIGH / WATCH automatically.",
+              indicators: ["Short float %","Days to cover","Borrow rate","Float size","Catalyst window","MACD momentum","RSI oversold","Squeeze fuel score"],
+            },
+            {
+              name: "Microcap Calls",
+              color: "#34d399", glow: "52,211,153",
+              badge: "SMALL CAP",
+              desc: "Sub-$2B market cap universe with options. Low-float setups with massive leverage potential, scored by RVOL, premium relative to market cap, and sector heat.",
+              indicators: ["Market cap ≤$2B filter","RVOL 3–60× window","Premium/mktcap ratio","Low float gate","Above-VWAP open","IWM regime check","Options score","Sector heat"],
+            },
+            {
+              name: "Behavioral Fingerprint",
+              color: "#f472b6", glow: "244,114,182",
+              badge: "AI PATTERN",
+              desc: "2,946 historical pre-move templates. AIEM matches current market behavior to past setups that preceded 20%+ moves. 14-dimensional behavioral fingerprinting.",
+              indicators: ["14-dim fingerprint","Pre-move templates","2,946 pattern library","Volume profile match","Price structure match","Time-of-day profile","Sector behavior","Analogous ticker search"],
+            },
+            {
+              name: "Sector Rotation",
+              color: "#38bdf8", glow: "56,189,248",
+              badge: "MACRO",
+              desc: "18 ETFs monitored for institutional rotation. Tier 1 (Early), Tier 2 (Developing), Tier 3 (Confirmed) classification with MACD, relative strength, and 60-day vol breakouts.",
+              indicators: ["18 sector ETFs","Relative strength","60-day vol breakout","MACD crossover","MA confirmation","Tier 1/2/3 classification","US + International","Macro heat map"],
+            },
+            {
+              name: "Paper Trading + Grading",
+              color: "#e879f9", glow: "232,121,249",
+              badge: "LIVE TRACKING",
+              desc: "AIEM places paper trades on every pick it makes, tracks P&L in real-time with RSI/CMF/MACD/ADX at 4 PM mark-to-market, and grades its own accuracy every night.",
+              indicators: ["Mark-to-market 4PM","RSI exit signal","CMF momentum","MACD divergence","ADX trend strength","Specialist council exit","14-day max hold cap","Win rate by signal"],
+            },
+          ].map(tab => (
+            <div key={tab.name} style={{ background: "rgba(6,12,20,0.95)", border: `1px solid rgba(${tab.glow},0.18)`, borderRadius: "18px", padding: "22px", display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: "10px", fontWeight: 900, letterSpacing: "0.1em", color: `rgb(${tab.glow})`, background: `rgba(${tab.glow},0.1)`, border: `1px solid rgba(${tab.glow},0.25)`, padding: "3px 9px", borderRadius: "5px" }}>{tab.badge}</span>
+              </div>
+              <div style={{ color: "#fff", fontWeight: 800, fontSize: "15px", letterSpacing: "-0.01em" }}>{tab.name}</div>
+              <div style={{ color: "#64748b", fontSize: "12.5px", lineHeight: 1.65, flexGrow: 1 }}>{tab.desc}</div>
+              <div style={{ borderTop: `1px solid rgba(${tab.glow},0.1)`, paddingTop: "12px" }}>
+                <p style={{ color: "#334155", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "8px" }}>Indicators used</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                  {tab.indicators.map(ind => (
+                    <span key={ind} style={{ fontSize: "10px", color: "#475569", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", padding: "2px 7px", borderRadius: "4px" }}>{ind}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* AIEM intelligence callout */}
+        <div style={{ background: "linear-gradient(135deg, rgba(167,139,250,0.06) 0%, rgba(34,197,94,0.04) 100%)", border: "1px solid rgba(167,139,250,0.2)", borderRadius: "24px", padding: "48px", marginBottom: "0" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", marginBottom: "40px" }}>
+            <span style={{ fontSize: "10px", fontWeight: 900, letterSpacing: "0.12em", color: "#a78bfa", background: "rgba(167,139,250,0.1)", border: "1px solid rgba(167,139,250,0.3)", padding: "4px 14px", borderRadius: "999px", marginBottom: "16px" }}>AIEM — AUTONOMOUS INTELLIGENCE ENGINE</span>
+            <h3 style={{ color: "#fff", fontWeight: 900, fontSize: "clamp(1.6rem,3.5vw,2.4rem)", letterSpacing: "-0.03em", marginBottom: "12px" }}>The platform runs itself. Every night. Without you.</h3>
+            <p style={{ color: "#64748b", fontSize: "1.05rem", lineHeight: 1.75, maxWidth: "680px" }}>
+              AIEM doesn't just run the scanner — it discovers new signals, validates them statistically, tracks which ones are decaying, retires them automatically, and rediscovers improved versions. It's the first retail platform with a fully autonomous signal research loop.
+            </p>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px" }}>
+            {[
+              { icon: "🔬", color: "#4ade80", title: "M5 — Pattern Discovery", desc: "Runs Fisher's exact test across every signal dimension in your DB every Sunday. BH-FDR corrected. Finds real edges, not noise." },
+              { icon: "📉", color: "#60a5fa", title: "M2 — Decay Detection", desc: "Statistically tests every validated signal weekly for performance degradation. Auto-retires anything that stops working." },
+              { icon: "🔄", color: "#a78bfa", title: "M6 — Rediscovery", desc: "When a signal is retired, searches the statistical neighborhood for a valid variation. Never discards edge without trying refinements." },
+              { icon: "🧠", color: "#fbbf24", title: "53 Live Research Tools", desc: "Ask AIEM about any ticker. It has 53 institutional tools — VPIN, GARCH, cointegration, TreeSHAP, FRED macro, behavioral fingerprint — all live." },
+              { icon: "🎯", color: "#fb923c", title: "Specialist Council", desc: "9 AI specialists debate every pick. Each one is weighted by its own historical accuracy via Thompson Sampling. They vote, then negotiate." },
+              { icon: "📊", color: "#34d399", title: "Paper Trading + Self-Grading", desc: "AIEM tracks every call it makes. Grades outcomes nightly. Reviews its own accuracy before making new calls. Accountability built in." },
+            ].map(f => (
+              <div key={f.title} style={{ background: "rgba(6,12,20,0.8)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "14px", padding: "20px" }}>
+                <div style={{ fontSize: "22px", marginBottom: "10px" }}>{f.icon}</div>
+                <div style={{ color: f.color, fontWeight: 800, fontSize: "13px", marginBottom: "7px" }}>{f.title}</div>
+                <div style={{ color: "#475569", fontSize: "12.5px", lineHeight: 1.65 }}>{f.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* ── THE PROBLEM ── */}
       <div className="px-6 pb-20 max-w-4xl mx-auto text-center">
         <p className="text-slate-500 text-sm uppercase tracking-widest font-bold mb-4">The problem with every competitor</p>

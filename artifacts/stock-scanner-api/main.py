@@ -11657,7 +11657,7 @@ def _poll_ask_sms() -> None:
                         print(f"[poll_ask_sms] AIEM busy — will retry answer next poll (no duplicate confirmation)")
                         return
                     try:
-                        answer_text, _qa_trace, _qa_err = _run_aiem_focused_session(
+                        answer_text, _qa_trace, _qa_err, *_ = _run_aiem_focused_session(
                             session_name=f"sms_ask_{q[:20].replace(' ','_')}",
                             focus_prompt=p,
                             max_iterations=3
@@ -29094,10 +29094,21 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 max_retries=1,
             )
     except Exception as _oe:
-        return "", [], f"OpenAI init error: {_oe}"
+        return "", [], f"OpenAI init error: {_oe}", None
 
     _fs_tool_map = _build_aiem_tool_map()
     _fs_schema   = _AIEM_AGENT_TOOLS[:128]  # OpenAI hard-caps at 128 tools
+
+    # ── Model tiering: match intelligence level to question depth ──────────
+    # gpt-4o-mini  = sub-2s, casual/simple  (1 iteration, no tools)
+    # gpt-4o       = 3-8s,   standard research (2-5 iterations)
+    # gpt-5.4      = full power, deep analysis (6+ iterations)
+    _model_tier = (
+        "gpt-4o-mini" if max_iterations <= 1 else
+        "gpt-4o"      if max_iterations <= 5 else
+        "gpt-5.4"
+    )
+    # ──────────────────────────────────────────────────────────────────────
 
     _sub_ctx_block = (
         f"\n\nSUBSCRIBER PERSONALIZATION:\n{subscriber_context}"
@@ -29139,7 +29150,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         for _attempt in range(3):
             try:
                 resp = _oai.chat.completions.create(
-                    model="gpt-5.4",
+                    model=_model_tier,
                     messages=messages,
                     tools=_fs_schema,
                     # Fast-path: 1-iter casual questions skip tool use entirely
@@ -29150,7 +29161,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
             except Exception as _oe2:
                 if _attempt == 2:
                     print(f"[aiem_24h:{session_name}] OpenAI failed after retries: {_oe2}")
-                    return _last_text, trace, f"OpenAI call failed: {_oe2}"
+                    return _last_text, trace, f"OpenAI call failed: {_oe2}", None
                 _fst.sleep(1.5 * (_attempt + 1))
 
         _t_llm_elapsed = round(_fst.time() - _t_llm_start, 2)
@@ -52559,6 +52570,42 @@ def aiem_chat_start():
 
     # Personalization: build subscriber context block for AIEM system prompt
     _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
+
+    # ── Sync fast-path: casual 1-iter questions answered directly in POST ──
+    # Calls _run_aiem_focused_session synchronously in the request thread.
+    # max_iterations=1 → model tiering selects gpt-4o-mini → sub-2s typical.
+    # Returns answer in POST body — client gets it immediately, no polling.
+    # Falls back to async worker on any error or empty response.
+    if max_iters == 1 and not analysis_mode and not image_data_urls:
+        import time as _sfp_t
+        _sfp_start = _sfp_t.time()
+        try:
+            _qa_db_update(job_id, "running")
+            _sfp_text, _sfp_trace, _sfp_err, _sfp_oid = _run_aiem_focused_session(
+                session_name=f"quant_sync_{job_id[:8]}",
+                focus_prompt=prompt,
+                max_iterations=1,
+                byok_openai_key=_byok_openai_key,
+                subscriber_context=_subscriber_context,
+            )
+            _sfp_elapsed = round(_sfp_t.time() - _sfp_start, 3)
+            _sfp_answer = (_sfp_text or "").strip()
+            if _sfp_answer and len(_sfp_answer) >= 10:
+                _qa_db_update(job_id, "done", answer=_sfp_answer,
+                              tool_trace=_sfp_trace or [],
+                              openai_response_id=_sfp_oid or None)
+                print(f"[quant_chat] sync fast-path job={job_id[:8]} t={_sfp_elapsed}s")
+                return jsonify({
+                    "job_id":  job_id,
+                    "status":  "done",
+                    "answer":  _sfp_answer,
+                    "sync":    True,
+                    "elapsed": _sfp_elapsed,
+                })
+            print(f"[quant_chat] sync fast-path empty/short ({_sfp_elapsed}s), falling back to async")
+        except Exception as _sfp_e:
+            print(f"[quant_chat] sync fast-path error: {_sfp_e!r}, falling back to async")
+    # ──────────────────────────────────────────────────────────────────────
 
     def _worker():
         # No global lock — each chat session is fully isolated by job_id.

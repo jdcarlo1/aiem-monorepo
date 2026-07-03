@@ -33,6 +33,19 @@ The `/aiem/chat` endpoint previously held a `Semaphore(1)` that serialized all u
 
 ## Optimizations applied
 
+### 3. Sync fast-path for casual 1-iter questions
+- **Problem**: Every chat request went async (worker thread) even for trivial "hey are you working" messages — user had to poll for the response.
+- **Fix**: Added sync fast-path in `aiem_chat_start`: when `max_iters==1 and not analysis_mode and not image_data_urls`, calls `_run_aiem_focused_session(max_iterations=1)` synchronously in the request thread. Returns `{status:"done", answer:..., sync:true}` directly in POST body — client skips polling.
+- **Implementation detail**: Sync path calls `_run_aiem_focused_session` directly (NOT a reimplemented OpenAI call). This inherits model tiering (gpt-4o-mini for 1-iter), BYOK, subscriber context, and all error handling.
+- **Gotcha**: `_run_aiem_focused_session` had **inconsistent return arity** — success path returned 4-tuple `(text, trace, err, openai_id)` but two early-exit paths returned 3-tuples. 4-value unpack threw `ValueError` on every call → silent fallback to async. Fixed: both early exits now return 4-tuple (added `None` as 4th value). SMS caller at line ~11660 updated to use `*_` star unpack.
+- **Result**: Casual questions answered in ~2.5s (gpt-4o-mini 1-iter), no polling required.
+
+### 4. Model tiering in _run_aiem_focused_session
+- `max_iterations <= 1` → gpt-4o-mini
+- `max_iterations <= 5` → gpt-4o
+- `max_iterations > 5` → gpt-5.4
+- Variable `_model_tier` set once before the loop, used in every `completions.create()` call.
+
 ### 1. Conditional review_own_accuracy
 - **Problem**: "BEFORE answering: call review_own_accuracy" was injected into EVERY research prompt, forcing a wasted LLM round-trip (~2s) on data-retrieval questions.
 - **Fix**: Only inject when question contains self-review phrases: "your accuracy", "your track record", "your win rate", "your prediction", "your picks", "your calls", "your performance", "your record", "been wrong", "been right", "how have you done", "how well have you", "calibrat", etc.
