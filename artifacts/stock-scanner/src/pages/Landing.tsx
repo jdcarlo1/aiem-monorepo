@@ -42,6 +42,7 @@ export default function Landing() {
   const [topEmail, setTopEmail] = useState("");
   const [topStatus, setTopStatus] = useState<"idle"|"loading"|"ok"|"err">("idle");
   const [topErr, setTopErr] = useState("");
+  const [apiTab, setApiTab] = useState<"curl"|"python"|"node">("curl");
 
   useEffect(() => {
     fetchBullFlow().then(d => setLiveFlow(d.results ?? [])).catch(() => {});
@@ -139,6 +140,7 @@ export default function Landing() {
             <span className="font-black text-xl tracking-tight">StockScanner <span style={{ color: "#4ade80" }}>AI</span></span>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => document.getElementById("api")?.scrollIntoView({ behavior: "smooth" })} className="font-bold px-4 py-2 rounded-lg transition-colors text-sm hidden sm:block" style={{ color: "#4ade80", border: "1px solid rgba(34,197,94,0.25)", background: "rgba(34,197,94,0.06)" }}>API</button>
             <button onClick={() => setShowManage(!showManage)} className="font-medium px-4 py-2 rounded-lg transition-colors text-base" style={{ color: "#64748b" }}>Sign In</button>
             <button onClick={() => setLocation("/app")} className="font-black px-6 py-2.5 rounded-xl text-base transition-all" style={{ background: "#22c55e", color: "#fff", boxShadow: "0 4px 20px rgba(34,197,94,0.35)" }}>
               Open App →
@@ -281,6 +283,260 @@ export default function Landing() {
             </button>
           </div>
           <p className="text-slate-500 text-base">Cancel anytime · Instant access · No contracts</p>
+        </div>
+      </div>
+
+      {/* ── DEVELOPER API ── */}
+      <div id="api" style={{ background: "linear-gradient(180deg, #060c14 0%, #070f1a 60%, #060c14 100%)", borderTop: "1px solid rgba(34,197,94,0.12)", borderBottom: "1px solid rgba(34,197,94,0.12)", padding: "100px 24px" }}>
+        <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
+
+          {/* Top badge */}
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: "24px" }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.35)", borderRadius: "999px", padding: "6px 18px" }}>
+              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e", display: "inline-block", animation: "pulse 2s infinite" }} />
+              <span style={{ color: "#4ade80", fontWeight: 900, fontSize: "11px", letterSpacing: "0.12em", textTransform: "uppercase" }}>Developer API — Institutional Grade Intelligence</span>
+            </div>
+          </div>
+
+          {/* Headline */}
+          <h2 style={{ textAlign: "center", fontWeight: 900, fontSize: "clamp(2.8rem,7vw,5.5rem)", letterSpacing: "-0.05em", lineHeight: 0.95, marginBottom: "28px", color: "#fff" }}>
+            Hedge Fund Intelligence.<br />
+            <span style={{ color: "#4ade80", textShadow: "0 0 120px rgba(74,222,128,0.4)" }}>One API Call.</span>
+          </h2>
+
+          {/* Subtext */}
+          <p style={{ textAlign: "center", color: "#94a3b8", fontSize: "clamp(1rem,2vw,1.25rem)", lineHeight: 1.75, maxWidth: "700px", margin: "0 auto 48px" }}>
+            The quant infrastructure institutional desks spend millions to build in-house — BH-FDR corrected signals, point-in-time validated backtests, statistical arbitrage, and XGBoost ML with full SHAP attribution — available as a single REST API call. Bring your own OpenAI key. Zero idle cost.
+          </p>
+
+          {/* CTAs */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px", maxWidth: "480px", margin: "0 auto 64px", alignItems: "stretch" }}>
+            <button
+              onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
+              style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", fontWeight: 900, fontSize: "1.2rem", padding: "20px 0", borderRadius: "14px", border: "none", cursor: "pointer", boxShadow: "0 16px 56px rgba(34,197,94,0.45)", letterSpacing: "-0.02em", width: "100%" }}>
+              Get API Key →
+            </button>
+            <button
+              onClick={() => window.open("https://stockscanner.ai/stock-api/aiem/chat", "_blank")}
+              style={{ background: "transparent", color: "#cbd5e1", fontWeight: 700, fontSize: "1.1rem", padding: "18px 0", borderRadius: "14px", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer", width: "100%" }}>
+              View Endpoints →
+            </button>
+          </div>
+
+          {/* Stats grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: "2px", maxWidth: "640px", margin: "0 auto 80px", background: "rgba(255,255,255,0.05)", borderRadius: "20px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.07)" }}>
+            {[
+              { value: "28", label: "Signals per API Call" },
+              { value: "11K+", label: "Tickers in Universe" },
+              { value: "BH-FDR", label: "False Discovery Corrected" },
+              { value: "SHAP", label: "Every Prediction Explained" },
+            ].map((s, i) => (
+              <div key={i} style={{ padding: "32px 24px", textAlign: "center", background: "rgba(6,12,20,0.8)" }}>
+                <div style={{ fontWeight: 900, fontSize: "2.6rem", letterSpacing: "-0.04em", color: "#fff", lineHeight: 1 }}>{s.value}</div>
+                <div style={{ color: "#64748b", fontSize: "13px", marginTop: "8px", fontWeight: 600 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Code panel */}
+          <div style={{ borderRadius: "20px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.09)", boxShadow: "0 40px 100px rgba(0,0,0,0.6)" }}>
+            {/* Terminal bar */}
+            <div style={{ background: "#0d1a26", padding: "14px 20px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+              <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#ff5f57" }} />
+              <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#febc2e" }} />
+              <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#28c840" }} />
+              <span style={{ color: "#475569", fontSize: "12px", fontFamily: "monospace", marginLeft: "12px" }}>POST /stock-api/aiem/chat</span>
+              {/* Tab switcher */}
+              <div style={{ marginLeft: "auto", display: "flex", gap: "4px" }}>
+                {(["curl","python","node"] as const).map(t => (
+                  <button key={t} onClick={() => setApiTab(t)}
+                    style={{ padding: "4px 12px", borderRadius: "6px", border: "none", cursor: "pointer", fontSize: "11px", fontWeight: 700, fontFamily: "monospace",
+                      background: apiTab === t ? "rgba(34,197,94,0.2)" : "transparent",
+                      color: apiTab === t ? "#4ade80" : "#475569" }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Code + Response side by side */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", background: "#080f1a" }}>
+              {/* Request */}
+              <div style={{ padding: "28px", borderRight: "1px solid rgba(255,255,255,0.06)" }}>
+                <div style={{ color: "#475569", fontSize: "10px", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "16px" }}>Request</div>
+                <pre style={{ margin: 0, fontFamily: "monospace", fontSize: "12px", lineHeight: 1.75, color: "#94a3b8", whiteSpace: "pre-wrap" }}>
+                  {apiTab === "curl" && (
+                    <code>
+                      <span style={{ color: "#4ade80" }}>curl</span>{" "}<span style={{ color: "#60a5fa" }}>-X POST</span>{" \\\n"}
+                      {"  "}<span style={{ color: "#fbbf24" }}>"https://your-domain/stock-api/aiem/chat"</span>{" \\\n"}
+                      {"  "}<span style={{ color: "#60a5fa" }}>-H</span>{" "}<span style={{ color: "#fbbf24" }}>"Content-Type: application/json"</span>{" \\\n"}
+                      {"  "}<span style={{ color: "#60a5fa" }}>-d</span>{" \\\n"}
+                      {"  "}<span style={{ color: "#e2e8f0" }}>{"'{"}</span>{"\n"}
+                      {"    "}<span style={{ color: "#4ade80" }}>"subscriber_token"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"sub_•••••••••"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"    "}<span style={{ color: "#4ade80" }}>"message"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"Analyze NVDA — full signal stack"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"    "}<span style={{ color: "#4ade80" }}>"ticker"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"NVDA"</span>{"\n"}
+                      {"  "}<span style={{ color: "#e2e8f0" }}>{"}'"}</span>
+                    </code>
+                  )}
+                  {apiTab === "python" && (
+                    <code>
+                      <span style={{ color: "#60a5fa" }}>import</span>{" requests\n\n"}
+                      <span style={{ color: "#e2e8f0" }}>resp </span><span style={{ color: "#60a5fa" }}>=</span>{" requests."}
+                      <span style={{ color: "#4ade80" }}>post</span>
+                      <span style={{ color: "#e2e8f0" }}>(</span>{"\n"}
+                      {"  "}<span style={{ color: "#fbbf24" }}>"https://your-domain/stock-api/aiem/chat"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"  json"}<span style={{ color: "#60a5fa" }}>=</span><span style={{ color: "#e2e8f0" }}>{"{"}</span>{"\n"}
+                      {"    "}<span style={{ color: "#fbbf24" }}>"subscriber_token"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"sub_•••••••••"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"    "}<span style={{ color: "#fbbf24" }}>"message"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"Analyze NVDA"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"    "}<span style={{ color: "#fbbf24" }}>"ticker"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"NVDA"</span>{"\n"}
+                      {"  "}<span style={{ color: "#e2e8f0" }}>{"}"}</span>{"\n"}
+                      <span style={{ color: "#e2e8f0" }}>)</span>{"\n"}
+                      <span style={{ color: "#e2e8f0" }}>data </span><span style={{ color: "#60a5fa" }}>=</span>{" resp."}
+                      <span style={{ color: "#4ade80" }}>json</span>
+                      <span style={{ color: "#e2e8f0" }}>()</span>
+                    </code>
+                  )}
+                  {apiTab === "node" && (
+                    <code>
+                      <span style={{ color: "#60a5fa" }}>const</span>{" resp "}<span style={{ color: "#60a5fa" }}>=</span>{" "}<span style={{ color: "#60a5fa" }}>await</span>{" "}<span style={{ color: "#4ade80" }}>fetch</span><span style={{ color: "#e2e8f0" }}>(</span>{"\n"}
+                      {"  "}<span style={{ color: "#fbbf24" }}>"https://your-domain/stock-api/aiem/chat"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"  {"}<span style={{ color: "#e2e8f0" }}> method: </span><span style={{ color: "#fbbf24" }}>"POST"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"    "}<span style={{ color: "#e2e8f0" }}>headers: {"{"} </span><span style={{ color: "#fbbf24" }}>"Content-Type"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"application/json"</span><span style={{ color: "#e2e8f0" }}>{" }"}, </span>{"\n"}
+                      {"    "}<span style={{ color: "#e2e8f0" }}>body: </span><span style={{ color: "#4ade80" }}>JSON.stringify</span><span style={{ color: "#e2e8f0" }}>({"{"}</span>{"\n"}
+                      {"      "}<span style={{ color: "#4ade80" }}>subscriber_token</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"sub_•••••••••"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"      "}<span style={{ color: "#4ade80" }}>message</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"Analyze NVDA"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                      {"      "}<span style={{ color: "#4ade80" }}>ticker</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"NVDA"</span>{"\n"}
+                      {"    "}<span style={{ color: "#e2e8f0" }}>{"})"}</span>{"\n"}
+                      {"  }"}<span style={{ color: "#e2e8f0" }}>)</span>
+                    </code>
+                  )}
+                </pre>
+              </div>
+
+              {/* Response */}
+              <div style={{ padding: "28px" }}>
+                <div style={{ color: "#475569", fontSize: "10px", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "16px" }}>Response <span style={{ color: "#4ade80", marginLeft: "8px" }}>200 OK</span></div>
+                <pre style={{ margin: 0, fontFamily: "monospace", fontSize: "11px", lineHeight: 1.75, color: "#94a3b8", whiteSpace: "pre-wrap" }}>
+                  <code>
+                    <span style={{ color: "#e2e8f0" }}>{"{"}</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"ticker"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"NVDA"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"conviction"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"HIGH"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"direction"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"BULLISH"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"entry_strike"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#60a5fa" }}>140</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"expiry"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"2026-08-15"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"smp_score"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#60a5fa" }}>7</span><span style={{ color: "#e2e8f0" }}>,  </span><span style={{ color: "#334155" }}>// 7/8 layers firing</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"shap_top_drivers"</span><span style={{ color: "#e2e8f0" }}>: [</span>{"\n"}
+                    {"    "}<span style={{ color: "#fbbf24" }}>"oi_buildup_days: +0.31"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"    "}<span style={{ color: "#fbbf24" }}>"fir_ratio: +0.28"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"    "}<span style={{ color: "#fbbf24" }}>"dark_pool_signal: +0.19"</span>{"\n"}
+                    {"  "}<span style={{ color: "#e2e8f0" }}>],</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"regime"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#fbbf24" }}>"BULL_TRENDING"</span><span style={{ color: "#e2e8f0" }}>,</span>{"\n"}
+                    {"  "}<span style={{ color: "#4ade80" }}>"bh_fdr_validated"</span><span style={{ color: "#e2e8f0" }}>: </span><span style={{ color: "#60a5fa" }}>true</span>{"\n"}
+                    <span style={{ color: "#e2e8f0" }}>{"}"}</span>
+                  </code>
+                </pre>
+              </div>
+            </div>
+
+            {/* Bottom bar */}
+            <div style={{ background: "#0a1520", padding: "16px 28px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", flexWrap: "wrap", gap: "24px" }}>
+              {[
+                { icon: "🔐", text: "Bearer token auth" },
+                { icon: "⚡", text: "Async job model — no timeouts" },
+                { icon: "🧠", text: "BYOK — your OpenAI key, your cost" },
+                { icon: "📊", text: "Point-in-time validated, no look-ahead bias" },
+              ].map(f => (
+                <div key={f.text} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "14px" }}>{f.icon}</span>
+                  <span style={{ color: "#475569", fontSize: "12px", fontWeight: 600 }}>{f.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Competitor gap callout */}
+          <div style={{ margin: "64px auto 0", maxWidth: "860px", background: "rgba(251,191,36,0.04)", border: "1px solid rgba(251,191,36,0.2)", borderRadius: "16px", padding: "24px 32px" }}>
+            <p style={{ color: "#fbbf24", fontWeight: 900, fontSize: "12px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "12px" }}>We checked every competitor. None of them have any of this.</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+              {["Unusual Whales","FlowAlgo","BlackBoxStocks","Trade Ideas","Barchart","Benzinga Pro"].map(c => (
+                <span key={c} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#94a3b8", fontSize: "12px", fontWeight: 700, padding: "4px 12px", borderRadius: "6px", textDecoration: "line-through", textDecorationColor: "rgba(239,68,68,0.5)" }}>{c}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* What institutional quants get */}
+          <div style={{ marginTop: "48px" }}>
+            <p style={{ textAlign: "center", color: "#475569", fontSize: "11px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "40px" }}>The quant stack — none of this exists in retail tools at any price</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "16px" }}>
+              {[
+                {
+                  icon: "⚡", color: "#4ade80", glow: "34,197,94", tag: "FLOW TOXICITY",
+                  title: "VPIN — Informed Trading Detector",
+                  desc: "Volume-Synchronized Probability of Informed Trading. Exchanges and HFT firms use this to detect toxic flow and flash crash risk before it happens. Zero retail tools have this.",
+                  note: "Used by: NYSE, CME, institutional market makers"
+                },
+                {
+                  icon: "📐", color: "#60a5fa", glow: "96,165,250", tag: "STATISTICS",
+                  title: "BH-FDR — Anti-P-Hacking Engine",
+                  desc: "Benjamini-Hochberg False Discovery Rate correction runs across all 75 signal tests every Sunday. Prevents false positives when testing many hypotheses simultaneously. Most quant funds skip this.",
+                  note: "Running live: 75 tests × 3 horizons on 3.3M rows"
+                },
+                {
+                  icon: "🛡️", color: "#a78bfa", glow: "167,139,250", tag: "BACKTESTING INTEGRITY",
+                  title: "Point-in-Time Data Guard",
+                  desc: "Physical enforcement that no backtest can see future data. Daily fundamental snapshots stored so the AI only 'knows' what was public on the trade date. The #1 failure mode in all of retail finance — solved.",
+                  note: "LookaheadViolation exception raised on any future leak"
+                },
+                {
+                  icon: "🌊", color: "#fbbf24", glow: "251,191,36", tag: "VOLATILITY",
+                  title: "GARCH(1,1) + Jump Detection",
+                  desc: "Sell-side vol desk standard. GARCH models volatility memory — distinguishes a temporary spike from a persistent risk regime. Bipower variation detects price jumps in real-time (Barndorff-Nielsen & Shephard).",
+                  note: "Used by: vol desks, options market makers, risk funds"
+                },
+                {
+                  icon: "🔄", color: "#fb923c", glow: "251,146,60", tag: "MARKET NEUTRAL",
+                  title: "Statistical Arbitrage Engine",
+                  desc: "Cointegration-tested pairs (NVDA/AMD, SPY/QQQ etc.) with daily z-score scanning. When a standard signal aligns with a stat-arb divergence, conviction tier is automatically elevated.",
+                  note: "Engle-Granger cointegration + z-score threshold ±2.0σ"
+                },
+                {
+                  icon: "🧠", color: "#34d399", glow: "52,211,153", tag: "ENSEMBLE AI",
+                  title: "Specialist Council — Thompson Sampling",
+                  desc: "9 AI specialists (GARCH, macro, sentiment, microstructure, options flow, sector, quant, behavioral, fundamental) each weighted by their own historical accuracy using Bayesian updating. They debate, then negotiate a verdict.",
+                  note: "Escalates to LLM coordinator when specialists disagree"
+                },
+                {
+                  icon: "📊", color: "#f472b6", glow: "244,114,182", tag: "MACHINE LEARNING",
+                  title: "XGBoost + Native TreeSHAP",
+                  desc: "Every ML prediction comes with signed per-feature Shapley values — which signals drove the score and by how much. Institutional model transparency required for risk committees. Not a black box.",
+                  note: "pred_contribs=True — zero external shap package needed"
+                },
+                {
+                  icon: "🔬", color: "#e879f9", glow: "232,121,249", tag: "MICROSTRUCTURE",
+                  title: "Hurst Exponent + Amihud Illiquidity",
+                  desc: "Hurst exponent classifies a ticker as trending (H>0.5) or mean-reverting (H<0.5) before entry — strategy selection at the data level. Amihud illiquidity ratio quantifies price impact per dollar traded.",
+                  note: "Combined into Layer 9 Statistical Edge score (0–100)"
+                },
+                {
+                  icon: "♻️", color: "#38bdf8", glow: "56,189,248", tag: "AUTONOMOUS",
+                  title: "Self-Invalidating Signal Lifecycle",
+                  desc: "Module 2 statistically tests every validated signal for decay weekly. Module 6 searches the statistical neighborhood of retired signals for valid variations. The system gets stricter over time — automatically.",
+                  note: "M2 decay → M4 human gate → M6 rediscovery → M3 promotion"
+                },
+              ].map(f => (
+                <div key={f.title} style={{ background: "rgba(6,12,20,0.9)", border: `1px solid rgba(${f.glow},0.15)`, borderRadius: "16px", padding: "24px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+                    <span style={{ fontSize: "20px" }}>{f.icon}</span>
+                    <span style={{ fontSize: "9px", fontWeight: 900, letterSpacing: "0.12em", color: f.color, background: `rgba(${f.glow},0.1)`, border: `1px solid rgba(${f.glow},0.25)`, padding: "3px 8px", borderRadius: "4px" }}>{f.tag}</span>
+                  </div>
+                  <div style={{ color: "#fff", fontWeight: 800, fontSize: "15px", marginBottom: "8px", letterSpacing: "-0.01em" }}>{f.title}</div>
+                  <div style={{ color: "#64748b", fontSize: "13px", lineHeight: 1.65, marginBottom: "10px" }}>{f.desc}</div>
+                  <div style={{ color: "#334155", fontSize: "11px", fontFamily: "monospace", borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "10px" }}>{f.note}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
 
