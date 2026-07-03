@@ -317,7 +317,7 @@ export default function Landing() {
               Get API Key →
             </button>
             <button
-              onClick={() => window.open("https://stockscanner.ai/stock-api/aiem/chat", "_blank")}
+              onClick={() => document.getElementById("api-code")?.scrollIntoView({ behavior: "smooth" })}
               style={{ background: "transparent", color: "#cbd5e1", fontWeight: 700, fontSize: "1.1rem", padding: "18px 0", borderRadius: "14px", border: "1px solid rgba(255,255,255,0.15)", cursor: "pointer", width: "100%" }}>
               View Endpoints →
             </button>
@@ -339,7 +339,7 @@ export default function Landing() {
           </div>
 
           {/* Code panel */}
-          <div style={{ borderRadius: "20px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.09)", boxShadow: "0 40px 100px rgba(0,0,0,0.6)" }}>
+          <div id="api-code" style={{ borderRadius: "20px", overflow: "hidden", border: "1px solid rgba(255,255,255,0.09)", boxShadow: "0 40px 100px rgba(0,0,0,0.6)" }}>
             {/* Terminal bar */}
             <div style={{ background: "#0d1a26", padding: "14px 20px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
               <div style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#ff5f57" }} />
