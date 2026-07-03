@@ -3315,6 +3315,46 @@ try:
         id="aiem_miss_detection",
         replace_existing=True,
     )
+    # Regime monitor: 4:55 PM ET Mon-Fri — checks whether SPY vol/trend regime has
+    # shifted since signals were calibrated. Writes flags to regime_flags table for
+    # human review. Never disables signals automatically.
+    def _run_regime_monitor_job():
+        try:
+            import threading as _rmj_thr
+            def _bg_regime():
+                try:
+                    import psycopg2 as _pg_rm, pandas as _pd_rm, os as _os_rm
+                    from regime_monitor import run_all_regime_checks
+                    with _pg_rm.connect(_os_rm.environ["DATABASE_URL"]) as _rmconn:
+                        with _rmconn.cursor() as _rmcur:
+                            _rmcur.execute("""
+                                SELECT scan_date AS date, close_price AS close
+                                FROM polygon_market_daily
+                                WHERE ticker = 'SPY'
+                                ORDER BY scan_date ASC
+                            """)
+                            _rows = _rmcur.fetchall()
+                    if not _rows:
+                        print("[regime_monitor] no SPY price history found")
+                        return
+                    _ph = _pd_rm.DataFrame(_rows, columns=["date", "close"])
+                    _ph["date"] = _pd_rm.to_datetime(_ph["date"])
+                    result = run_all_regime_checks("SPY", _ph)
+                    print(f"[regime_monitor] SPY check: flags={result['flags_raised']} "
+                          f"— {result['recommendation']}")
+                except Exception as _e:
+                    print(f"[regime_monitor] bg check error: {_e}")
+            _rmj_thr.Thread(target=_bg_regime, daemon=True).start()
+            record_job_success("regime_monitor")
+        except Exception as e:
+            record_job_failure("regime_monitor", str(e))
+            print(f"[scheduler] regime monitor error: {e}")
+    _scheduler.add_job(
+        _run_regime_monitor_job,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=55, timezone=_ET),
+        id="regime_monitor",
+        replace_existing=True,
+    )
     # Continuous Research Loop: 6 PM ET Mon-Fri - daily autonomous hypothesis sweep.
     # Tests 11 standard signal templates against today's new outcome data,
     # saves any significant findings (p<0.05) to DB for Sunday consolidation.
@@ -14220,6 +14260,29 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     from datetime import date as _date
     _force = set((t or "").upper() for t in (force_tickers or []))
 
+    # ── Regime context (rules-based, no retraining required) ──────────────────
+    # Fetches cached 15-min regime snapshot via regime_detector; returns a safe
+    # fallback (1.0×) on any data failure — never raises, never blocks the scan.
+    # Multiplier is applied to regime_adjusted_pts (sort key + conviction_pct +
+    # label); raw total_pts is preserved unchanged for signal-quality auditing.
+    _regime_mult = 1.0
+    _regime_rec  = "unknown"
+    try:
+        import regime_detector as _rd_conv
+        _regime_result = _rd_conv.get_current_regime(
+            os.environ.get("DATABASE_URL", ""), "SPY"
+        )
+        _regime_rec  = _regime_result.get("recommendation", "unknown")
+        _regime_mult = {
+            "full_exposure":   1.00,
+            "normal_exposure": 1.00,
+            "reduce_exposure": 0.85,
+            "sit_out":         0.70,
+        }.get(_regime_rec, 1.00)
+        print(f"[conviction] regime={_regime_rec} multiplier={_regime_mult}")
+    except Exception as _re_exc:
+        print(f"[conviction] regime fetch failed (using 1.0): {_re_exc}")
+
     # ── Layer 1: OI Accumulation ──────────────────────────────────────────────
     # _get_oi_accumulation_signals returns (rows, day1_str, day2_str) - unpack
     # so oi_sigs is only the list of row-tuples, not the full 3-tuple (which
@@ -14534,23 +14597,30 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
             continue
         # Normalize conviction % to 95 ceiling.
         # Max possible = 14 pts (7 layers × 2 pts), but we scale against 10 for continuity.
-        conviction = min(95, round(total / 10.0 * 95, 0))
+        # Regime multiplier: reduce_exposure → 0.85×, sit_out → 0.70×, full → 1.0×.
+        # regime_adjusted_pts drives conviction_pct, label, and sort order so fewer
+        # EXTREME picks surface in bad regimes. Raw total_pts is preserved for auditing.
+        adj_total  = round(total * _regime_mult, 2)
+        conviction = min(95, round(adj_total / 10.0 * 95, 0))
+        data["meta"]["regime_recommendation"] = _regime_rec
+        data["meta"]["regime_multiplier"]     = _regime_mult
         results.append({
-            "ticker":         ticker,
-            "total_pts":      round(total, 1),
-            "conviction_pct": int(conviction),
-            "layers":         {k: round(v, 1) for k, v in data["pts"].items()},
-            "meta":           data["meta"],
-            "price":          round(data.get("price", 0), 2),
+            "ticker":              ticker,
+            "total_pts":           round(total, 1),
+            "regime_adjusted_pts": adj_total,
+            "conviction_pct":      int(conviction),
+            "layers":              {k: round(v, 1) for k, v in data["pts"].items()},
+            "meta":                data["meta"],
+            "price":               round(data.get("price", 0), 2),
             "label": (
-                "🔴 EXTREME" if total >= 8 else
-                "🟠 HIGH"    if total >= 6 else
-                "🟡 MODERATE" if total >= 4 else
+                "🔴 EXTREME" if adj_total >= 8 else
+                "🟠 HIGH"    if adj_total >= 6 else
+                "🟡 MODERATE" if adj_total >= 4 else
                 "🔵 WATCH"
             ),
         })
 
-    results.sort(key=lambda x: x["total_pts"], reverse=True)
+    results.sort(key=lambda x: x["regime_adjusted_pts"], reverse=True)
     top = results[:max_tickers]
     if _force:
         seen = {r["ticker"] for r in top}

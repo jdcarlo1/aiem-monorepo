@@ -149,9 +149,15 @@ def get_current_regime(db_url: str, proxy_ticker: str = "SPY") -> Dict[str, Any]
         return dict(_FALLBACK_REGIME, note=f"data fetch failed: {e}")
 
     try:
+        try:
+            from regime_monitor import get_open_flags as _get_flags
+            _rm_flags = _get_flags()
+        except Exception:
+            _rm_flags = []
         result = combine_regime_votes(
             vix_history=vix_hist,
             price_history=price_df,
+            regime_monitor_flags=_rm_flags,
         )
         rec = result.get("recommendation", "reduce_exposure")
         multipliers = REGIME_SIGNAL_MULTIPLIERS.get(

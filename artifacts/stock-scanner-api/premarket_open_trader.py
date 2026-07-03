@@ -23,6 +23,8 @@ import pre_recommendation_synthesis as prs
 import earnings_calendar as ec
 import regime_detector as rd
 
+BASE_PAPER_POSITION_USD = 1_000   # base paper-trade size in USD; scaled by regime multiplier
+_CONFIDENCE_SCORE_MAP   = {"high": 0.85, "medium": 0.60, "low": 0.40}
 
 _DECISION_TYPE_MAP = {
     "enter_now":      "trade",
@@ -147,29 +149,51 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
         print(f"[premarket_open_trader] log_decision failed: {_e}")
 
     if decision == "enter_now":
-        write_paper_pick(db_url, ticker, opening_pattern, synthesis)
+        write_paper_pick(db_url, ticker, opening_pattern, synthesis, regime=regime)
 
     return result
 
 
 def write_paper_pick(db_url: str, ticker: str, opening_pattern: Dict[str, Any],
-                      synthesis: Dict[str, Any]) -> None:
-    """Writes a REAL paper-trade row to ai_stock_picks — no real money,
-    no broker, just a recorded paper entry for later outcome tracking."""
+                      synthesis: Dict[str, Any],
+                      regime: Dict[str, Any] = None) -> None:
+    """Writes a paper-trade row to ai_stock_picks.
+    Applies regime multipliers so paper position size and confidence score
+    reflect the current market environment, not just the per-ticker signal.
+    """
+    import json as _json
+    multipliers  = (regime or {}).get("multipliers") or {}
+    pos_mult     = float(multipliers.get("position_size_multiplier", 1.0))
+    conf_mult    = float(multipliers.get("confidence_multiplier",    1.0))
+    base_conf    = _CONFIDENCE_SCORE_MAP.get(opening_pattern["confidence"], 0.5)
+    adj_conf     = round(min(1.0, base_conf * conf_mult), 4)
+    pos_size_usd = round(BASE_PAPER_POSITION_USD * pos_mult, 2)
+    regime_rec   = (regime or {}).get("recommendation", "unknown")
+
     note = (
         f"PAPER ENTRY (premarket_open_trader): "
         f"pattern={opening_pattern['pattern']}, "
-        f"confluence={synthesis['confluence_count']}/4"
+        f"confluence={synthesis['confluence_count']}/4, "
+        f"regime={regime_rec}, pos_size=${pos_size_usd:.0f}"
     )
+    signals_json = {
+        "position_size_usd":        pos_size_usd,
+        "position_size_multiplier": pos_mult,
+        "confidence_multiplier":    conf_mult,
+        "regime_recommendation":    regime_rec,
+        "base_confidence":          base_conf,
+        "adjusted_confidence":      adj_conf,
+    }
     conn = psycopg2.connect(db_url)
     try:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO ai_stock_picks
-                    (ticker, status, pick_date, entry_note, confidence)
-                VALUES (%s, 'open', CURRENT_DATE, %s, %s)
+                    (ticker, status, pick_date, entry_note, confidence, score, signals)
+                VALUES (%s, 'open', CURRENT_DATE, %s, %s, %s, %s)
                 ON CONFLICT (pick_date, ticker) DO NOTHING
-            """, (ticker, note, opening_pattern["confidence"]))
+            """, (ticker, note, opening_pattern["confidence"],
+                  adj_conf, _json.dumps(signals_json)))
         conn.commit()
     finally:
         conn.close()
