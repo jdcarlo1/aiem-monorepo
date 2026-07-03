@@ -39,6 +39,8 @@ import opening_snapshot_tracker as ost
 import pre_recommendation_synthesis as prs
 import earnings_calendar as ec
 import regime_detector as rd
+import regime_macro_patch as rmp
+import news_catalyst_monitor as ncm
 import position_reconciler as pr
 import daily_loss_limit as dll
 import order_dedup as od
@@ -236,6 +238,26 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
             )
     except Exception as _exc:
         hard_blockers.append(f"portfolio correlation check failed (fail closed): {_exc}")
+
+    # ── HARD GATE 5: high-impact macro event today ────────────────────
+    try:
+        macro_result = rmp.get_regime_with_macro_overlay(db_url, "SPY")
+        if macro_result["high_impact_macro_day"]:
+            hard_blockers.append(
+                f"high-impact macro event today: {macro_result['macro_events_today']}"
+            )
+    except Exception as _exc:
+        hard_blockers.append(f"macro overlay check failed (fail closed): {_exc}")
+
+    # ── HARD GATE 6: high-risk headline for this ticker ───────────────
+    try:
+        headline_check = ncm.check_recent_headlines(db_url, ticker)
+        if headline_check["high_risk_flag"]:
+            hard_blockers.append(
+                f"high-risk headline flagged: {headline_check['flagged_headlines']}"
+            )
+    except Exception as _exc:
+        hard_blockers.append(f"news catalyst check failed (fail closed): {_exc}")
 
     # ── SOFT GATES ────────────────────────────────────────────────────
     if opening_pattern["pattern"] in ("fake_breakout", "fake_breakdown"):

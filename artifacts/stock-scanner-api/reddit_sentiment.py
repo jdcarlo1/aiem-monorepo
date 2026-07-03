@@ -85,10 +85,18 @@ def get_sentiment_score(ticker: str) -> Dict[str, Any]:
     Reddit mentions. Score ranges roughly -1.0 (very negative) to +1.0
     (very positive); 0.0 means neutral or no data.
     """
+    _has_live_credentials = bool(
+        os.environ.get("REDDIT_CLIENT_ID") and os.environ.get("REDDIT_CLIENT_SECRET")
+    )
     posts = fetch_reddit_posts(ticker)
     if not posts:
-        return {"ticker": ticker, "sentiment_score": 0.0, "post_count": 0,
-                "checked_at": dt.datetime.utcnow().isoformat()}
+        return {
+            "ticker": ticker,
+            "sentiment_score": 0.0,
+            "post_count": 0,
+            "has_live_credentials": _has_live_credentials,
+            "checked_at": dt.datetime.utcnow().isoformat(),
+        }
 
     raw_scores = [score_text(p) for p in posts]
     total = sum(raw_scores)
@@ -100,6 +108,7 @@ def get_sentiment_score(ticker: str) -> Dict[str, Any]:
         "sentiment_score": round(normalized, 3),
         "post_count": len(posts),
         "raw_total_score": total,
+        "has_live_credentials": _has_live_credentials,
         "checked_at": dt.datetime.utcnow().isoformat(),
     }
 

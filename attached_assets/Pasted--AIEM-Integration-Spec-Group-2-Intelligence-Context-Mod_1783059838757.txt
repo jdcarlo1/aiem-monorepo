@@ -1,0 +1,172 @@
+# AIEM Integration Spec — Group 2: Intelligence/Context Modules
+
+**Files to modify:** `aiem_tool_map` / tool schema list (wherever `_aiem_tool_*` functions and the `{"type": "function", ...}` schema list live — same file that registers `run_risk_gate`, `breakout_discover`, etc.), `premarket_open_trader.py`, `retrain_pipeline.py`. **Do not modify the module files themselves** unless noted below — they're already correct.
+
+---
+
+## ⚠️ Discrepancy found — flag this to Replit before proceeding
+
+`precursor_signals.py` **does not exist anywhere in the codebase** you gave me. There is a similarly-described tool already wired in — `breakout_discover` (backed by `_aiem_tool_breakout_discover`, registered in the tool map, description: "Discover breakout precursor patterns from labeled price history") — which may be what the agent's audit was actually referring to, or `precursor_signals.py` may exist in a Replit workspace that wasn't included in this code export.
+
+**Ask Replit directly:** "Show me the exact file path of `precursor_signals.py` — `find . -name precursor_signals.py`." If it returns nothing, this item should be dropped from Group 2, not fabricated.
+
+The remaining 6 modules are confirmed to exist and are handled below.
+
+---
+
+## Current verified state of each module
+
+| Module | Exists | Has real data source | Currently wired anywhere |
+|---|---|---|---|
+| `economic_calendar.py` | ✅ | ⚠️ Manual-entry only (`add_event()`) — no automated feed | Only imported by `regime_macro_patch.py`, which itself is unwired |
+| `regime_macro_patch.py` | ✅ | via economic_calendar | Only called from its own `__main__` block — 100% orphaned |
+| `news_catalyst_monitor.py` | ✅ | ✅ `news_catalyst_log` is actively populated by `news_catalyst.py`'s scheduled scan | `check_recent_headlines()` itself is never called anywhere — real data sitting unused |
+| `microstructure_proxy.py` | ✅ | ✅ real OHLCV via `polygon_market_daily` | Not registered as a tool, not called in any gate or scheduled job |
+| `reddit_sentiment.py` | ✅ | ⚠️ Falls back to 2 hardcoded mock posts unless `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` env vars are set | Not called anywhere |
+| `niche_segment_finder.py` | ✅ | ✅ real settled-picks data | Partially wired — see bug below, worse than "not wired," it's silently discarded |
+
+### Important nuance on `niche_segment_finder.py`
+
+This one is **NOT** simply missing from the tool map like the others — it's actively called inside `retrain_pipeline.py`'s weekly Sunday-8PM retrain job. But there's a sequencing bug: `_log_retrain(...)` is called and persists the summary to `aiem_ml_retrain_log` **before** the niche segment search runs and appends `significant_segments` / `top_segments` to the `summary` dict. The segment results are computed, then thrown away — never persisted to `aiem_research_insights` (the table that actually feeds Monday's pick prompt), never logged anywhere. **This is a bug fix, not a "wire it up" task.**
+
+---
+
+## Required changes
+
+### 1. `economic_calendar.py` + `regime_macro_patch.py` — wire as a hard pre-entry gate
+
+Add to `premarket_open_trader.py` (same file touched in Group 1):
+
+```python
+from regime_macro_patch import get_regime_with_macro_overlay
+```
+
+Inside `evaluate_ticker()`, alongside the existing `regime = rd.get_current_regime(db_url, "SPY")` line, replace it with:
+
+```python
+regime_with_macro = get_regime_with_macro_overlay(db_url, "SPY")
+if regime_with_macro["high_impact_macro_day"]:
+    blockers.append(
+        f"high-impact macro event today: {regime_with_macro['macro_events_today']}"
+    )
+```
+
+**Caveat to flag for Replit:** this table (`economic_calendar`) is manually populated. Wiring the code is pointless if the table is empty. Require Replit to either (a) confirm someone is manually running `add_event()` weekly/monthly per the module's own docstring instruction, or (b) source FOMC/CPI/NFP dates from a free public calendar (e.g. scrape the Fed's published schedule) and populate automatically. Do not mark this task complete until the table actually has upcoming events in it — check with `SELECT * FROM economic_calendar WHERE event_date >= CURRENT_DATE;`.
+
+### 2. `news_catalyst_monitor.py` — wire as a hard pre-entry gate
+
+Add to `premarket_open_trader.py`:
+
+```python
+import news_catalyst_monitor as ncm
+```
+
+Inside `evaluate_ticker()`:
+
+```python
+headline_check = ncm.check_recent_headlines(db_url, ticker)
+if headline_check["high_risk_flag"]:
+    blockers.append(
+        f"high-risk headline flagged: {headline_check['flagged_headlines']}"
+    )
+```
+
+### 3. `microstructure_proxy.py` — register as an AIEM agent tool (not a hard gate)
+
+Unlike the above, this is intelligence, not a stop/go rule, so it belongs in the tool map (same pattern as `breakout_discover`) rather than a hard-coded blocker. In the tool-definitions file:
+
+```python
+def _aiem_tool_microstructure_proxy(ticker: str, window: int = 5) -> dict:
+    from microstructure_proxy import compute_microstructure_proxy
+    return compute_microstructure_proxy(ticker, window=window)
+```
+
+Add to the tool schema list:
+
+```python
+{"type": "function", "function": {
+    "name": "microstructure_proxy",
+    "description": "Approximates bid-ask spread, order flow imbalance, and price impact (Kyle's lambda) from OHLCV data.",
+    "parameters": {"type": "object", "properties": {
+        "ticker": {"type": "string", "description": "Ticker symbol"},
+        "window": {"type": "integer", "description": "Rolling window in days (default 5)"},
+    }, "required": ["ticker"]},
+}},
+```
+
+Register in the dispatch dict:
+
+```python
+"microstructure_proxy": _aiem_tool_microstructure_proxy,
+```
+
+### 4. `reddit_sentiment.py` — register as an AIEM agent tool
+
+Same pattern as #3:
+
+```python
+def _aiem_tool_reddit_sentiment(ticker: str) -> dict:
+    from reddit_sentiment import get_sentiment_score
+    return get_sentiment_score(ticker)
+```
+
+```python
+{"type": "function", "function": {
+    "name": "reddit_sentiment",
+    "description": "Lexicon-based sentiment score (-1 to +1) from recent r/wallstreetbets, r/stocks, r/options mentions.",
+    "parameters": {"type": "object", "properties": {
+        "ticker": {"type": "string", "description": "Ticker symbol"},
+    }, "required": ["ticker"]},
+}},
+```
+
+```python
+"reddit_sentiment": _aiem_tool_reddit_sentiment,
+```
+
+**Caveat to flag for Replit:** without `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` set, this silently returns sentiment computed from 2 hardcoded mock posts, not real data. Confirm these env vars are actually set before treating this as live. Have Replit print whether a `_HAS_ANTHROPIC`-style flag or credential check passes, e.g. add a `has_live_credentials: bool` field to the return dict so callers (and you) can tell mock output from real output at a glance.
+
+### 5. `niche_segment_finder.py` — fix the discard bug in `retrain_pipeline.py`
+
+Reorder so segment results are computed and merged into `summary` **before** `_log_retrain()` runs, and persist significant segments to `aiem_research_insights` so they actually reach the Monday prompt:
+
+```python
+# Run niche segment search BEFORE logging, so results aren't discarded
+try:
+    from niche_segment_finder import run_segment_search_on_settled_picks as _seg_search
+    seg_results = _seg_search(raw)
+    if not seg_results.empty:
+        sig = seg_results[seg_results["significant_after_correction"] == True]
+        summary["significant_segments"] = len(sig)
+        if not sig.empty:
+            top = sig.head(3)[["segment", "win_rate", "lift", "n_samples"]].to_dict(orient="records")
+            summary["top_segments"] = top
+            print(f"[retrain] top segments: {top}")
+            # Persist to the table that actually feeds the Monday prompt
+            _save_research_insight(
+                db_url,
+                insight_type="niche_segment",
+                content=summary["top_segments"],
+            )
+except Exception as _seg_e:
+    print(f"[retrain] segment search error: {_seg_e}")
+
+_log_retrain(
+    n_samples, cand_auc, cand_brier,
+    prod_auc, prod_brier, promoted, reason, summary
+)
+```
+
+You'll need to write `_save_research_insight()` (or find whatever existing function inserts into `aiem_research_insights` around line 33378/34216 of the code dump and reuse it) rather than inventing a new insert path — reuse the existing schema/columns.
+
+---
+
+## Acceptance criteria
+
+- [ ] Replit confirms `precursor_signals.py` either exists (path shown) or is dropped from scope
+- [ ] `regime_macro_patch` blocker fires in `premarket_open_trader.py` on a high-impact day
+- [ ] `economic_calendar` table confirmed to contain real upcoming events, not empty
+- [ ] `news_catalyst_monitor` blocker fires in `premarket_open_trader.py` when a flagged headline exists
+- [ ] `microstructure_proxy` and `reddit_sentiment` appear in the tool schema list **AND** the dispatch dict, callable by AIEM mid-session
+- [ ] `reddit_sentiment` output includes a flag distinguishing mock vs. live credentialed data
+- [ ] `niche_segment_finder` results are persisted to `aiem_research_insights` — confirmed by querying that table after a manual retrain run, not just reading the code

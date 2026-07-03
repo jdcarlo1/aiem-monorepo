@@ -28647,6 +28647,10 @@ def _build_aiem_tool_map():
         "gap_continuation_score":      _aiem_tool_gap_continuation_score,
         "squeeze_subscore":            _aiem_tool_squeeze_subscore,
         "intraday_continuation_score": _aiem_tool_intraday_continuation_score,
+        # ── Group 2 intelligence/context tools ───────────────────────────────
+        "microstructure_proxy":        _aiem_tool_microstructure_proxy,
+        "reddit_sentiment":            _aiem_tool_reddit_sentiment,
+        "precursor_signals":           _aiem_tool_precursor_signals,
         "intraday_compute_features":   _aiem_tool_intraday_compute_features,
         # ── VWAP indicator tools ──────────────────────────────────────────────
         "vwap_compute_features": _aiem_tool_vwap_compute_features,
@@ -30234,6 +30238,29 @@ _AIEM_AGENT_TOOLS = [
             "train_end_date": {"type": "string", "description": "ISO date — train only on data before this date (OOS boundary)"},
             "lookback_days_before_breakout": {"type": "integer", "description": "How many days before a breakout to examine (default 5)"},
         }, "required": ["price_histories_json", "train_end_date"]},
+    }},
+    {"type": "function", "function": {
+        "name": "microstructure_proxy",
+        "description": "Approximates bid-ask spread, order flow imbalance, and price impact (Kyle's lambda) from OHLCV data.",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol"},
+            "window": {"type": "integer", "description": "Rolling window in days (default 5)"},
+        }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "reddit_sentiment",
+        "description": "Lexicon-based sentiment score (-1 to +1) from recent r/wallstreetbets, r/stocks, r/options mentions. Check has_live_credentials in the response to confirm real vs mock data.",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol"},
+        }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "precursor_signals",
+        "description": "Pre-move feature engineering on OHLCV history: stealth accumulation score, 5-day close slope, squeeze duration, and pocket pivot count. Captures trend/velocity signals that precede multi-day runners.",
+        "parameters": {"type": "object", "properties": {
+            "price_history_json": {"type": "string", "description": "JSON list of {date,open,high,low,close,volume} dicts ascending by date"},
+            "ticker": {"type": "string", "description": "Ticker symbol (for labeling output)"},
+        }, "required": ["price_history_json"]},
     }},
     {"type": "function", "function": {
         "name": "breakout_extract_features",
@@ -33139,6 +33166,61 @@ def _aiem_tool_breakout_discover(
     except Exception as _e:
         return {"error": str(_e)}
 
+# ── Group 2 intelligence/context tools ───────────────────────────────────────
+
+def _aiem_tool_microstructure_proxy(ticker: str, window: int = 5) -> dict:
+    """Approximates bid-ask spread, order flow imbalance, and Kyle's lambda
+    (price impact) from OHLCV data in polygon_market_daily."""
+    try:
+        from microstructure_proxy import compute_microstructure_proxy
+        return compute_microstructure_proxy(ticker, window=window)
+    except Exception as _e:
+        return {"error": str(_e), "ticker": ticker}
+
+
+def _aiem_tool_reddit_sentiment(ticker: str) -> dict:
+    """Lexicon-based sentiment score (-1 to +1) from r/wallstreetbets, r/stocks,
+    r/options. has_live_credentials=False means output is from mock posts, not real Reddit data."""
+    try:
+        from reddit_sentiment import get_sentiment_score
+        return get_sentiment_score(ticker)
+    except Exception as _e:
+        return {"error": str(_e), "ticker": ticker}
+
+
+def _aiem_tool_precursor_signals(price_history_json: str, ticker: str = "") -> dict:
+    """Run pre-move feature engineering on OHLCV history: stealth accumulation
+    score, 5-day rolling close slope, squeeze duration, and pocket pivot flags.
+    price_history_json: JSON list of {date,open,high,low,close,volume} dicts ascending by date."""
+    try:
+        import precursor_signals as _ps
+        import pandas as _pd, json as _j
+        df = _pd.DataFrame(_j.loads(price_history_json))
+        df["date"] = _pd.to_datetime(df["date"])
+        df = df.sort_values("date").reset_index(drop=True)
+        result: dict = {"ticker": ticker}
+        if all(c in df.columns for c in ["close", "high", "low", "volume"]):
+            sa = _ps.stealth_accumulation_score(df)
+            val = sa["stealth_score"].dropna()
+            result["stealth_accum_latest"] = round(float(val.iloc[-1]), 4) if len(val) else None
+        if "close" in df.columns:
+            slope = _ps.rolling_slope(df["close"], window=5)
+            val2 = slope.dropna()
+            result["close_slope_5d"] = round(float(val2.iloc[-1]), 6) if len(val2) else None
+        if "close" in df.columns and "volume" in df.columns:
+            sq = _ps.squeeze_duration(df)
+            if len(sq) and "squeeze_days" in sq.columns:
+                result["squeeze_days"] = int(sq["squeeze_days"].iloc[-1])
+        if all(c in df.columns for c in ["open", "high", "low", "close", "volume"]):
+            pp = _ps.pocket_pivot_flag(df)
+            result["pocket_pivots_last_5d"] = (
+                int(pp["pocket_pivot"].tail(5).sum()) if "pocket_pivot" in pp.columns else 0
+            )
+        return result
+    except Exception as _e:
+        return {"error": str(_e), "ticker": ticker}
+
+
 def _aiem_tool_breakout_extract_features(
     price_history_json: str,
     ticker: str = "",
@@ -34171,6 +34253,10 @@ def _run_aiem_research_agent(max_iterations=None):
         "gap_continuation_score":      _aiem_tool_gap_continuation_score,
         "squeeze_subscore":            _aiem_tool_squeeze_subscore,
         "intraday_continuation_score":  _aiem_tool_intraday_continuation_score,
+        # ── Group 2 intelligence/context tools ───────────────────────────────
+        "microstructure_proxy":        _aiem_tool_microstructure_proxy,
+        "reddit_sentiment":            _aiem_tool_reddit_sentiment,
+        "precursor_signals":           _aiem_tool_precursor_signals,
         "intraday_compute_features":   _aiem_tool_intraday_compute_features,
         "send_discovery_alert":        _aiem_tool_send_discovery_alert,
         "retrain_pending":             _aiem_tool_retrain_pending,

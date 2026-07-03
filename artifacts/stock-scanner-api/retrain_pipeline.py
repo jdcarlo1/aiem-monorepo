@@ -273,12 +273,7 @@ def run_retrain_cycle() -> dict:
         "is_trustworthy":  candidate.is_trustworthy,
     }
 
-    _log_retrain(
-        n_samples, cand_auc, cand_brier,
-        prod_auc, prod_brier, promoted, reason, summary
-    )
-
-    # Run niche segment search on the same settled picks
+    # Run niche segment search BEFORE logging so results land in summary + get persisted
     try:
         from niche_segment_finder import run_segment_search_on_settled_picks as _seg_search
         seg_results = _seg_search(raw)
@@ -289,7 +284,28 @@ def run_retrain_cycle() -> dict:
                 top = sig.head(3)[["segment", "win_rate", "lift", "n_samples"]].to_dict(orient="records")
                 summary["top_segments"] = top
                 print(f"[retrain] top segments: {top}")
+                try:
+                    _conn_ri = psycopg2.connect(_DB_URL)
+                    with _conn_ri.cursor() as _cur_ri:
+                        _cur_ri.execute("""
+                            INSERT INTO aiem_research_insights (research_date, findings, confidence)
+                            VALUES (CURRENT_DATE, %s, 'medium')
+                            ON CONFLICT (research_date) DO UPDATE SET
+                                findings = aiem_research_insights.findings
+                                        || E'\\n' || EXCLUDED.findings
+                        """, (json.dumps({"source": "niche_segment_finder",
+                                          "top_segments": top}),))
+                    _conn_ri.commit()
+                    _conn_ri.close()
+                    print("[retrain] persisted top_segments to aiem_research_insights")
+                except Exception as _ri_e:
+                    print(f"[retrain] aiem_research_insights persist error: {_ri_e}")
     except Exception as _seg_e:
         print(f"[retrain] segment search error: {_seg_e}")
+
+    _log_retrain(
+        n_samples, cand_auc, cand_brier,
+        prod_auc, prod_brier, promoted, reason, summary
+    )
 
     return summary
