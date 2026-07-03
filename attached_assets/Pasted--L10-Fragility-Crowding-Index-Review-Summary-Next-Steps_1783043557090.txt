@@ -1,0 +1,26 @@
+# L10 Fragility & Crowding Index — Review Summary & Next Steps
+
+## Status: L10 VERIFIED ✅
+
+Reviewed the Part 3 verification output for Layer 10 (Fragility & Crowding Index). Evidence checks out:
+
+- All 7 boundary/tier test cases matched expected values exactly, including edge cases at the 3-day and 5-day thresholds (repeat_days ≥5 → -1.0, ≥3 → -0.5, <3 → 0.0).
+- All 3 assertions passed (crowded ticker penalized, stale ticker penalized, fresh ticker unchanged).
+- Row counts before/after matched the penalty case count exactly (0 → 4, matching 4 penalty cases).
+- Exception grep returned clean (zero matches).
+- Full call trace confirms the penalty actually flows into `total_pts` / `conviction_pct` and the HIGH→MODERATE label change — it's wired into what customers see (dashboard, EOD email, Telegram), not just computed and discarded.
+- Agent was upfront about a real limitation: live watchlist currently only has 3 rows, so L10 will apply zero penalties in production until conviction stack runs accumulate 3+ consecutive days on a ticker. This is a known data-volume gap, not a bug.
+
+## Flagged but not blocking
+
+L9 (Statistical Edge) weights and thresholds (`_WEIGHTS` dict, `jump_risk`, repeat-day thresholds) are qualitative design choices with **no empirical backtest**. Not an L10 issue, but worth deciding before commercial launch whether to backtest or clearly document as a heuristic rather than a statistically derived model — especially at a $150/month price point.
+
+## Instructions for the agent
+
+Please answer the following before we proceed:
+
+1. **What exactly are items 7, 8, and 12** from the open scope list? Please restate each item's description/requirements in full — the earlier message only referenced them by number without detail.
+2. For each of the three, confirm: is it a bug fix, a new feature, or a verification/audit task?
+3. Any dependencies between these items and the L10 work just completed?
+
+Once we have that, we'll decide which (if any) to greenlight next.
