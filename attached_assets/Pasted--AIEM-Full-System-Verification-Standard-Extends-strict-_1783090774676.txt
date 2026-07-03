@@ -1,0 +1,153 @@
+# AIEM Full-System Verification Standard
+### Extends: strict-verification-standard.md (commit hash / checksum / isolated re-run)
+### Adds: wiring, integration, and autonomous-operation proof
+
+---
+
+## Why single-module verification isn't enough here
+
+A module can pass 25/25 internal tests and still be functionally dead in
+the live system if:
+- Nothing actually imports or calls it
+- It's called with the wrong arguments / wrong data shape
+- Its output is computed correctly but never consumed downstream
+- It's wired into a code path that never executes (dead branch, disabled
+  flag, exception silently swallowed before it runs)
+- It works standalone but breaks under the real data flow (timing,
+  ordering, concurrency) that only shows up when the whole pipeline runs
+
+So the goal isn't "does `daily_loss_limit.py` work in isolation" — it's
+"does the live AIEM loop actually call `daily_loss_limit.py`, at the right
+point, with the right data, and does the result actually gate a trade."
+
+---
+
+## Layer 5 & 6 — added on top of the original four
+
+*(Layers 1–4 = commit provenance, checksum integrity, isolated re-run,
+explicit boundary-of-access statement — unchanged, still required per
+module.)*
+
+### Layer 5: Wiring proof (is it actually called?)
+
+For each module, require:
+- **Caller trace**: grep/search output showing every place the module is
+  imported and every place its main function/class is invoked — file +
+  line number, raw output, not a description
+- **Reachability**: confirm the calling code path is actually exercised
+  during a normal run — not gated behind a disabled flag, unused branch,
+  or config that's off by default. Show the flag/config value.
+- **Not just imported — invoked**: an `import` line is not proof of
+  wiring. Require the actual call site with arguments passed.
+
+### Layer 6: Integration proof (does the data actually flow correctly?)
+
+For each module boundary (A produces something B consumes):
+- Run the full pipeline (or the relevant sub-slice) end-to-end, not each
+  module in isolation
+- Capture the actual value that crosses the boundary — e.g., log or print
+  the object A returns and the object B receives, and confirm they match
+  in the live run (not just in a unit test with synthetic data)
+- For safety gates specifically (loss limit, dedup, reconciler,
+  correlation risk, kill switch): prove the gate can actually **block** a
+  trade — construct a real condition that should trigger it, run the live
+  path, and show the trade was rejected/modified, with raw output. A gate
+  that only "returns True in tests" but has never been shown to block a
+  real live-path attempt is not verified.
+- For the autonomous loop specifically: show at least one full unattended
+  cycle (research → signal → gate checks → decision/log → outcome
+  tracking) running without manual intervention, with raw logs for each
+  stage in sequence and timestamps showing the order of operations.
+
+### Red flag specific to wiring/integration
+- "This module is called by X" without a grep/line-number citation
+- A safety gate that has unit tests proving its own logic but no evidence
+  it's in the live decision path
+- Claims that the autonomous loop "runs end-to-end" without an actual raw
+  log of one full cycle
+
+---
+
+## Per-module report format (extended)
+
+```
+MODULE: <name>
+[... Layers 1–4 as in strict-verification-standard.md ...]
+
+LAYER 5 — WIRING:
+  Callers found: <file:line, file:line, ...>
+  Reachability: <config/flag state proving path is live>
+  Verdict: WIRED / NOT WIRED / PARTIALLY WIRED
+
+LAYER 6 — INTEGRATION:
+  Upstream producer: <module>
+  Downstream consumer: <module>
+  Live-run captured value at boundary: <raw output>
+  Gate-block test (if safety-critical): <condition constructed> →
+    <raw output showing block/no block>
+  Verdict: INTEGRATED / BROKEN / UNVERIFIED
+
+OVERALL STATUS: VERIFIED / VERIFIED WITH GAPS / FAILED / CANNOT VERIFY
+```
+
+A module only gets marked **VERIFIED** if all six layers pass. Anything
+missing wiring or integration proof gets **VERIFIED WITH GAPS** at best,
+even if its own unit tests are perfect — that distinction matters, so it
+shouldn't get flattened into a blanket "passed."
+
+---
+
+## Phased plan across ~97 modules / 156 tools
+
+Running all of this in one pass isn't practical. Suggested order —
+tell me if you want to reprioritize:
+
+**Phase 1 — Safety-critical gate pipeline (highest priority)**
+`daily_loss_limit.py`, `order_dedup.py`, `position_reconciler.py`,
+`portfolio_correlation_risk.py`, `kill_switch.py`, `simulation_lock.py`,
+`pre_decision_risk_gate.py`, `earnings_calendar.py`
+— these can block real trades; if any is unwired, that's the single
+highest-risk finding in the whole system.
+
+**Phase 2 — Execution & sizing**
+`execution.py`, `execution_simulator.py`, `position_sizing.py`,
+`portfolio_allocator.py`, `portfolio.py`
+
+**Phase 3 — Core AIEM gate/decay/promotion pipeline (Modules 2–7)**
+`aiem_module2_decay.py` through `aiem_module7_sector_rotation.py`,
+`aiem_level2.py`, `aiem_level3.py`, `aiem_exit_engine.py`,
+`aiem_isolation_guard.py`, `aiem_provenance.py`, `aiem_security.py`,
+`aiem_verification.py`
+
+**Phase 4 — ML infrastructure & signal discovery**
+`ml_infrastructure.py` (already done), `model_training.py`,
+`signal_discovery_gp.py`, `evaluation_metrics.py`, `data_prep.py`,
+`slippage_model.py`, retrain pipeline modules
+
+**Phase 5 — Prediction/decision logging & shadow ledger**
+`prediction_logger.py`, `decision_logger.py`, `shadow_ledger.py`,
+`historical_performance.py`, `evaluation_windows.py`
+
+**Phase 6 — Specialist intelligence & research loop**
+`specialist_council.py`, `bull_bear_debate.py`, `active_hypothesis_selection.py`,
+`hypothesis_registry.py`, `adversarial_critique.py`, market research
+(`mkt_*`) tools
+
+**Phase 7 — Full autonomous-loop end-to-end proof**
+Once Phases 1–6 individually pass, run one full unattended cycle and
+verify the whole chain communicates correctly live — this is the "100%
+working efficiently independently and autonomously" claim, and it can
+only be verified last, after every link in the chain is separately proven.
+
+---
+
+## What I need from you to start Phase 1
+
+For each module in the current phase:
+1. The source file
+2. Its existing test/verification script (if one exists — if not, we'll
+   need one written first)
+3. Confirmation of the current commit/branch state so hashes are stable
+
+Send Phase 1 modules first and I'll run the full six-layer check on each,
+then compile a single findings table before moving to Phase 2.
