@@ -135,6 +135,41 @@ def log_unusual_calls_decision(ticker: str, call_volume: int, oi: int,
         print(f"[log_unusual_calls_decision] {type(_exc).__name__}: {_exc}")
 
 
+def log_far_otm_sweep_decision(ticker: str, vol_oi: float, prem: int,
+                               otm_pct: float, strike: float, expiry: str,
+                               cap_tier: str, pts: float):
+    """Log a far-OTM sweep signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec in main.py —
+    no invented coefficient:
+      vol_oi>=10 (pts=2.0) -> 0.85
+      vol_oi>=7  (pts=1.5) -> 0.72
+      vol_oi>=5  (pts=1.0) -> 0.60   (SQL floor from _get_far_otm_sweeps)
+    """
+    try:
+        _CONFIDENCE_MAP = {2.0: 0.85, 1.5: 0.72, 1.0: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.60)
+        reasoning = (
+            f"Far-OTM sweep flagged {ticker}: vol/OI ratio {vol_oi:.1f}x on "
+            f"${strike:.2f} strike (exp {expiry}, {otm_pct:.0f}% OTM), "
+            f"premium ${prem:,}. "
+            f"High vol/OI on far-OTM calls signals directional conviction — "
+            f"buyers opening new positions rather than closing hedges — "
+            f"consistent with informed positioning ahead of a catalyst "
+            f"({cap_tier} cap). Layer 7 conviction tier: {pts:.1f} pts."
+        )
+        dl.log_decision(
+            signal_name="far_otm_sweep",
+            decision_type="trade",
+            reasoning=reasoning,
+            ticker=ticker,
+            direction="long",
+            confidence=confidence,
+        )
+    except Exception as _exc:
+        print(f"[log_far_otm_sweep_decision] {type(_exc).__name__}: {_exc}")
+
+
 def log_float_pressure_decision(ticker: str, pressure_pct: float,
                                 float_m: float, call_oi: int, pts: float):
     """Log a float-adjusted options demand signal fire to agent_decisions.

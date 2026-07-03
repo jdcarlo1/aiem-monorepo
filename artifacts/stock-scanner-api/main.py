@@ -14340,6 +14340,11 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
     # ── Layer 7: Far-OTM Sweep Detector ──────────────────────────────────────
     # `far_sweeps` / `sweep_by_ticker` were already built above (reused as a
     # discovery seed) - score them here without re-querying.
+    try:
+        import decision_logging_helper as _dlh_sw
+    except Exception as _dlh_sw_exc:
+        print(f"[L7] decision_logging_helper import failed: {_dlh_sw_exc}")
+        _dlh_sw = None
     for ticker, sweep in sweep_by_ticker.items():
         if ticker not in scores:
             scores[ticker] = {"price": float(sweep.get("price") or 0), "pts": {}, "meta": {}}
@@ -14352,6 +14357,17 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
         scores[ticker]["meta"]["sweep_expiry"]    = str(sweep.get("expiry") or "")
         scores[ticker]["meta"]["sweep_strike"]    = round(float(sweep.get("strike") or 0), 2)
         scores[ticker]["meta"]["sweep_seen"]      = str(sweep.get("last_seen_et") or "")
+        if _dlh_sw:
+            _dlh_sw.log_far_otm_sweep_decision(
+                ticker=ticker,
+                vol_oi=voi,
+                prem=int(sweep.get("prem") or 0),
+                otm_pct=float(sweep.get("otm_pct") or 0),
+                strike=float(sweep.get("strike") or 0),
+                expiry=str(sweep.get("expiry") or ""),
+                cap_tier=str(sweep.get("cap_tier") or "unknown"),
+                pts=pts,
+            )
 
     # ── Layer 8: Sector Theme Correlation ─────────────────────────────────────
     sector_heat = _get_sector_heat(days_back=2)

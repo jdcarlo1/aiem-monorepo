@@ -1,0 +1,97 @@
+# Layer 7 (Far-OTM Sweep) — Audit & Fix Instructions
+
+## Context
+
+L1–L6 are now VERIFIED A–E. Standard checks have found real bugs at nearly
+every layer:
+
+- L3: silent exception swallowing in the logging helper
+- L4: no logging function existed at all
+- L5: gate mismatch (logging fired at ≥45%, scoring at ≥40%) — silently
+  dropped real signals from the audit trail — plus a live but unvalidated
+  confidence coefficient
+- L6: no logging existed (clean build, no drift possible since nothing
+  existed)
+
+A full L1–L5 gate-vs-scoring sweep was also completed. Result: **L5 was the
+only gate mismatch found.** L1 has no logging yet (nothing to compare). L2
+and L3 are structurally safe — their gates live inside the same function
+that does the scoring, so drift isn't possible by construction.
+
+**Two items remain open and unresolved — not closed by any prior work:**
+1. L1 still has no logging function at all.
+2. The L1–L3 confidence coefficient validation (`fir*0.08` for L2,
+   `min(charm_score,200)*0.002` for L3) has never been checked against a
+   tier structure the way L4/L5/L6 were. This is separate from the gate-
+   drift sweep — do not treat that sweep as having resolved this.
+
+## Instructions
+
+1. **Trace the L7 scoring path end to end.** Find the function that computes
+   far-OTM sweep signals, and trace it exactly:
+   ```
+   function → function → INSERT INTO table
+   ```
+   Confirm whether logging is already wired in, partially wired (like L5
+   was), or entirely absent (like L4/L6 before their fixes).
+
+2. **Gate-vs-scoring threshold check.** Same check applied to L1–L6:
+   - Find every threshold/gate used in the scoring function.
+   - Find every threshold/gate used in the logging call (if one exists).
+   - Confirm they match exactly at every tier boundary. Also check whether
+     the gate is structurally safe by construction (like L2/L3 — gate lives
+     inside the same function as scoring) or is a separate comparison that
+     could drift (like L5 was).
+
+3. **Confidence coefficient — determine live or dead, validated or not.**
+   - Does L7 already have a confidence formula anywhere in the codebase?
+   - If yes: is it live (called) or dead code (unreferenced)?
+   - If live: does it match the existing tier/threshold spec? Show a
+     before/after table (tier boundary → old formula output → tier-map
+     expected output) if there's a discrepancy, same format as L5/L6.
+   - If no formula exists: do not invent one. Bring back the two-option
+     choice (spec-traceable tier map vs. unvalidated formula) and wait for
+     a decision.
+
+4. **If a new logging function is needed**, build it following the
+   established pattern:
+   - No bare `except Exception: pass`
+   - Writes through `dl.log_decision(signal_name="<L7 signal name>", ...)`
+   - Target table: `agent_decisions` (no new table)
+   - Gate threshold in the logging path must match the scoring path exactly
+
+5. **Verify with the same before/after test used for L4/L5/L6:**
+   - Row count for the L7 signal name in `agent_decisions`, before and after
+     a fixed batch
+   - Confirm the delta matches the batch size exactly
+   - Include at least one boundary-case ticker per tier in the test batch,
+     to specifically test the gate-matching
+   - Confirm zero exceptions during the test run
+     (`grep -n "except Exception:" decision_logging_helper.py` → 0 matches)
+   - Pull the 5 newest rows with real timestamps as proof
+
+## Also flag / carry forward (not blocking L7)
+
+These two items remain open from prior layers — report status on both, but
+do not attempt to resolve them as part of L7 unless explicitly instructed:
+
+1. **L1 has no logging function.** This needs its own build, same as L4/L6
+   needed. Not yet scheduled.
+2. **L1–L3 confidence coefficient validation is still outstanding.** The
+   gate-drift sweep did NOT check this — it only checked threshold
+   matching, not whether the confidence formulas themselves are numerically
+   sound. This still needs a dedicated pass before launch.
+
+## Reporting requirement
+
+Report back with:
+- The full call trace
+- The gate-vs-scoring threshold comparison (step 2)
+- The confidence coefficient finding, with before/after table if applicable
+- Raw verification numbers (row counts, delta, boundary-case rows with
+  timestamps, exception grep output)
+- A one-line status update on the two carried-forward open items above
+
+Do not implement anything until the trace, gate comparison, and confidence
+finding are reported back. Do not mark L7 verified on code review alone —
+needs the same raw, live-output proof required for L1–L6.
