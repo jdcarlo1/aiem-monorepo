@@ -35672,11 +35672,16 @@ def _aiem_paper_flag_fills(trade_date_from=None):
             _avg_close = float(_hist["Close"].mean())  if "Close"  in _hist.columns else 0.0
             _avg_dv    = _avg_vol * _avg_close  # avg daily $ volume
 
-            # date → (High, Low) lookup
+            # date → (High, Low, Close) lookup — Close is used as mid_price
+            # for pre-slippage rows (genuine fetched value, not entry_price)
             _date_ohlc: dict = {}
             for _dt_idx, _bar in _hist.iterrows():
                 _d = _dt_idx.date() if hasattr(_dt_idx, "date") else _dt_idx
-                _date_ohlc[_d] = (float(_bar["High"]), float(_bar["Low"]))
+                _date_ohlc[_d] = (
+                    float(_bar["High"]),
+                    float(_bar["Low"]),
+                    float(_bar["Close"]) if "Close" in _bar.index else None,
+                )
 
             for (_row_id, _ticker, _trade_date,
                  _check_price, _entry_price, _notional) in _tk_rows:
@@ -35692,25 +35697,32 @@ def _aiem_paper_flag_fills(trade_date_from=None):
                 if _bar is None:
                     continue
 
-                _bh, _bl = _bar
+                _bh, _bl, _bar_close = _bar
                 _cp = float(_check_price) if _check_price else 0.0
 
                 # Boolean logic UNCHANGED
                 _unach  = (_cp < _bl or _cp > _bh)
                 _illiq  = (_avg_dv > 0 and float(_notional) > 0.005 * _avg_dv)
-                _updates.append((_unach, _illiq, _row_id))
+                # bar_close is the genuine fetched mid_price — NOT entry_price fallback
+                _updates.append((_unach, _illiq, _bar_close, _row_id))
 
-        # ── Write flags + backfill mid_price for pre-slippage rows ───────────
+        # ── Write flags + set mid_price to real fetched bar close ─────────────
+        # Only overwrites mid_price when it is NULL (pre-slippage rows).
+        # New rows written by _aiem_paper_execute_today() already have the correct
+        # snapshot price in mid_price and are left untouched (CASE WHEN guard).
         _rows_updated = 0
         with _pg2_f.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
-            for (_unach, _illiq, _row_id) in _updates:
+            for (_unach, _illiq, _bar_close, _row_id) in _updates:
                 _cu.execute("""
                     UPDATE aiem_paper_trades
                     SET unachievable_fill = %s,
                         illiquid_fill     = %s,
-                        mid_price         = COALESCE(mid_price, entry_price)
+                        mid_price         = CASE
+                                              WHEN mid_price IS NULL THEN %s
+                                              ELSE mid_price
+                                            END
                     WHERE id = %s
-                """, (_unach, _illiq, _row_id))
+                """, (_unach, _illiq, _bar_close, _row_id))
                 _rows_updated += 1
             _c.commit()
 

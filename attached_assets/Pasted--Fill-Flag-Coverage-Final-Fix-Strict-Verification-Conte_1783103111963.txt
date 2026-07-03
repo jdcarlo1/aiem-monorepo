@@ -1,0 +1,82 @@
+# Fill-Flag Coverage — Final Fix + Strict Verification
+
+Context: Coverage went from 1% to 100% after swapping `polygon_rvol_scan` for
+`_td_history()`. Before accepting this as done, three things need to be resolved —
+the 100% number may be partly manufactured via a fallback default, the flag counts
+look suspiciously unchanged despite ~100x more rows being evaluated, and the OHLCV
+granularity may be too coarse to actually catch bad fills.
+
+---
+
+## PROMPT FOR REPLIT AGENT
+
+```
+STOP. Do not summarize, do not conclude "done," do not interpret results in prose
+beyond what's asked. Fix each issue below, then paste raw output as proof under
+each one. Nothing else.
+
+ISSUE 1 — "100% coverage" may be manufactured, not earned
+_aiem_paper_flag_fills() currently does:
+  mid_price = COALESCE(mid_price, entry_price)
+for historical rows. If _td_history() didn't return usable data, this silently
+substitutes entry_price as mid_price, which forces fill_price - mid_price = 0 by
+construction — not because slippage was genuinely computed. This inflates the
+coverage number without genuinely evaluating those rows.
+
+FIX: Stop using COALESCE(mid_price, entry_price) as a silent fallback. If
+_td_history() fails to return usable data for a ticker/date, leave mid_price NULL
+and do NOT count that row as "covered." A row is only "covered" if it has a real
+fetched mid_price, not a substituted one.
+
+PROOF REQUIRED:
+Run this exact query AFTER the fix:
+SELECT 
+  COUNT(*) AS total_rows,
+  COUNT(*) FILTER (WHERE mid_price IS NOT NULL) AS genuinely_covered,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE mid_price IS NOT NULL) / COUNT(*), 1) AS real_pct_covered
+FROM aiem_paper_trades
+WHERE trade_date >= CURRENT_DATE - INTERVAL '30 days';
+Paste the raw row. This number replaces the earlier 100% claim — if it's lower,
+that's the honest number, not a regression.
+
+ISSUE 2 — Flag counts unchanged despite ~100x more evaluated rows
+Before this fix: unachievable=4, illiquid=1, total=100 (1 row actually evaluated).
+After this fix: unachievable=4, illiquid=1, total=100 (100 rows evaluated).
+These should not be identical if coverage genuinely expanded. Explain this with
+data, not assertion.
+
+PROOF REQUIRED:
+Run the flag-count query again AFTER fixing Issue 1:
+SELECT COUNT(*) FILTER (WHERE unachievable_fill) AS unachievable,
+       COUNT(*) FILTER (WHERE illiquid_fill) AS illiquid,
+       COUNT(*) FILTER (WHERE mid_price IS NOT NULL) AS evaluated,
+       COUNT(*) AS total
+FROM aiem_paper_trades
+WHERE trade_date >= CURRENT_DATE - INTERVAL '30 days';
+Paste the raw row. If the counts are still nearly identical to the pre-fix numbers,
+explain why using specific row-level evidence (e.g. paste 5 evaluated rows showing
+fill_price vs bar high/low), not a general statement that "the logic is working
+correctly."
+
+ISSUE 3 — Daily OHLCV may be too coarse to catch bad fills
+_td_history() returns DAILY bars. Checking a fill against a full day's high/low
+range is much looser than intraday — a fill can be far from any realistic execution
+price and still land inside the day's range.
+
+INVESTIGATE AND REPORT (do not silently pick an answer):
+Does Tradier's API (the same account/plan already in use) offer an intraday bars
+endpoint (e.g. /v1/markets/timesales)? 
+- If YES: do not switch to it yet — just confirm availability and paste the
+  endpoint/response format. I will decide whether to prioritize switching.
+- If NO (not available on current plan/tier): state that explicitly as a known
+  limitation. Do not silently ship daily-only as if it's equivalent to intraday.
+
+RULES:
+- No self-report, no "should work," no prose summary replacing raw output.
+- Do not claim coverage or flag numbers are correct without the query output
+  proving it in this response.
+- Do not touch conviction scoring, Bonferroni gate, HMAC signing, or
+  position_reconciler.py.
+- Paste raw output for all three issues, in order, then stop. No concluding
+  paragraph declaring victory.
+```
