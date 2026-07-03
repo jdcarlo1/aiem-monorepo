@@ -44947,7 +44947,7 @@ def ai_short_calls():
                             WHERE last_seen >= {_et_floor}
                               AND days_out BETWEEN 1 AND 30
                               AND vol_oi  BETWEEN 1.5 AND 30
-                              AND prem    >= 500000
+                              AND prem    >= 250000
                               AND otm_pct BETWEEN -5 AND 15
                             ORDER BY
                               (CASE WHEN vol_oi BETWEEN 1.5 AND 5 THEN 2
