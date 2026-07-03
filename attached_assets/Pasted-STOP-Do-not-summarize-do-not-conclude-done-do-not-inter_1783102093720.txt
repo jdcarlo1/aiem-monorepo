@@ -1,0 +1,34 @@
+STOP. Do not summarize, do not conclude "done," do not interpret these results. Run each command below EXACTLY as written and paste the raw terminal/SQL output under each one. Nothing else.
+
+1. VALIDATION FAILURE — DO NOT EXPLAIN IT AWAY
+Run: [paste the exact command that produced "Validation failed · 1 failed" earlier]
+Paste the full raw failure output — the actual assertion, expected value, actual value. 
+Do not tell me it's "the wrong rubric." Show me the failure text and I will decide if it's relevant.
+
+2. COVERAGE — HOW MANY FUTURE TRADES WILL ACTUALLY GET FLAGGED
+Run this exact SQL:
+SELECT 
+  COUNT(*) AS total_trades_last_30d,
+  COUNT(p.ticker) AS trades_with_scan_match,
+  ROUND(100.0 * COUNT(p.ticker) / COUNT(*), 1) AS pct_covered
+FROM aiem_paper_trades t
+LEFT JOIN polygon_rvol_scan p 
+  ON t.ticker = p.ticker AND t.trade_date = p.scan_date
+WHERE t.trade_date >= CURRENT_DATE - INTERVAL '30 days';
+
+Paste the raw row. If pct_covered is under 50%, say so explicitly in one sentence — do not soften it.
+
+3. GOING FORWARD, NOT RETROACTIVE ONLY
+Confirm _aiem_paper_flag_fills() is called automatically on NEW trades at write time, not just in the EOD batch job. Show me the exact call site (file:line) where it fires per-trade, OR confirm it ONLY runs once daily at 4PM — state which of these two is true. Do not describe it as "wired in" without saying which of these two it is.
+
+4. UNIQUE CONSTRAINT ISSUE FROM EARLIER
+You said "unique constraint blocked the test insert" and worked around it by mutating a real row (AMCI id=76) instead. Confirm that row has been restored to its original values. Run:
+SELECT * FROM aiem_paper_trades WHERE id = 76;
+Paste the row. I need to see the mid_price/fill_price/flags match what they were before your test mutations, or an explanation of why they don't.
+
+5. FINAL SPREAD_PCT DECISION
+I'm not approving a flat 1% for everything. Show me the query to tier it: 
+SELECT ticker, avg_volume FROM polygon_rvol_scan ORDER BY avg_volume DESC LIMIT 20;
+Then propose two buckets — e.g. 0.5% above some volume cutoff, 2% below — based on what you actually see in that data, not arbitrary numbers. I'll approve or adjust the cutoff.
+
+Do not write a summary paragraph after this. Just the five numbered outputs.
