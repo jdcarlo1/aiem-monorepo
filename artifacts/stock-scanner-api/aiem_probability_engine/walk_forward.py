@@ -7,6 +7,18 @@ model_training.py, and flags any fold where the model's high-confidence win
 rate exceeds 65-70% - per the architect's plan, an unusually high in-sample
 win rate at this data volume is itself a leakage red flag worth a second
 look, not a result to celebrate uncritically.
+
+STATUS: DEVELOPER TOOL — NOT SCHEDULED, NOT AUTO-CALLED.
+run_walk_forward() has zero external callers. Run this by hand when you want
+a one-off validation report on the accumulated probability engine dataset.
+It is NOT called automatically by any scheduler, daily_scheduler.py, or
+main.py import. If you see walk-forward validation cited as an automatic
+quality gate, that claim is not supported by this file.
+
+The date_safe_walk_forward_splits() helper it uses (date_utils.py) now
+includes a real embargo gap (embargo_days=2 default) between train and val
+windows. This file still calls it with explicit step_days without the
+embargo_days kwarg — the default of 2 days applies automatically.
 """
 import os
 import sys

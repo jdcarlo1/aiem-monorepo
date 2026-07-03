@@ -1,0 +1,152 @@
+# Statistical Integrity Audit — What's Wired, What's Not, What Needs Fixing
+
+## Summary table
+
+| Component | Status | Notes |
+|---|---|---|
+| `date_safe_walk_forward_splits()` (date_utils.py) | **LIVE, real fix** | Splits by unique date not row count — closes a real leakage bug. Genuinely good. |
+| `run_walk_forward()` (walk_forward.py) | **DEAD** | Zero external callers. Developer script, run by hand only. |
+| `_aiem_tool_walk_forward_validate` (main.py) | **MANUAL-ONLY** | AIEM chat tool can call it, but nothing guarantees it runs — not scheduled. |
+| True embargo gap between train/val windows | **DOES NOT EXIST** | No implementation anywhere. Train/val windows sit back-to-back with zero separation. |
+| `_train_embargoed()` (pit_correction.py) | **LIVE** | Runs via `daily_scheduler.py`. But this is point-in-time correctness, not an embargo gap — different concept, same word. |
+| `hypothesis_registry.py` pre-registration | **LIVE but UNENFORCED** | Schema is live, functions work — but correction strength depends entirely on AIEM actually calling `register_hypothesis()` first. If it never does, correction = 0.05/1 = no correction. |
+| `aiem_test_ledger` Bonferroni gate | **LIVE and ENFORCED** — with 2 escape hatches | Blocks saves if p-value doesn't clear threshold. But: (1) passing `p_value=None` skips the gate entirely, (2) a DB failure silently disables it via bare `try/except: pass`. |
+| BH-FDR in Module 5/6 | **LIVE, fully enforced** | Unconditional, hardwired, no opt-out. The strongest of everything audited here. |
+
+## What needs to be wired/fixed, in order
+
+---
+
+### 1. Close the `aiem_test_ledger` escape hatches [BEHAVIORAL]
+
+**Why first:** this is the one component that's actually enforced today — closing its two bypasses is the highest-value, lowest-effort fix here. Don't let a working gate stay silently bypassable.
+
+**Prompt:**
+```
+In mkt_save_discovery / _mkt_tool_save_discovery (main.py, ~line 21540),
+the Bonferroni gate (_mkt_tool_required_pvalue) has two bypasses:
+
+1. The gate only fires if p_value is not None in the call. Fix: require
+   p_value to be provided — reject the save with a clear error if it's
+   missing, rather than silently skipping the gate.
+2. The gate is wrapped in try/except: pass ("non-fatal: if ledger
+   unavailable, don't block"). Fix: on DB failure, the save should FAIL
+   LOUD, not silently succeed unprotected. A statistical integrity gate
+   failing open is worse than the save failing entirely — log the error
+   and block the save, don't let a DB hiccup bypass Bonferroni correction.
+
+Show the exact diff for both changes.
+```
+
+**Verify:**
+```
+Test 1: Call mkt_test_signal / save with p_value=None. Confirm it's now
+REJECTED with a clear error, not silently saved unprotected.
+
+Test 2: Simulate a DB failure in the ledger query (e.g. temporarily point
+at a bad connection). Confirm the save now FAILS rather than succeeding
+silently. Restore normal DB connection after.
+
+Show raw output for both tests.
+```
+**Pass condition:** both previously-silent bypasses now produce explicit failures instead of silent pass-through.
+
+---
+
+### 2. Enforce hypothesis pre-registration, or make the gap visible [BEHAVIORAL]
+
+**Why second:** `hypothesis_registry.py` is well-built but its correction is only as strong as AIEM's discipline — currently nothing forces pre-registration before a test counts.
+
+**Prompt:**
+```
+hypothesis_registry.py's bonferroni_adjusted_alpha() only reflects reality
+if register_hypothesis() was actually called first — nothing currently
+requires that.
+
+Pick one:
+A) Enforce it: any code path that runs a statistical test and could save
+   a discovery must call register_hypothesis() first, or the save is
+   rejected — same enforcement pattern as aiem_test_ledger's gate.
+B) If full enforcement isn't feasible right now, at minimum: log a clear
+   warning/flag whenever a discovery is saved with hypothesis_counter at
+   0 or unchanged from its last value, so it's visible in the data itself
+   which discoveries had a real correction applied vs. none.
+
+Implement whichever is more appropriate given how hypothesis_registry.py
+is currently used elsewhere in the pipeline. Show the exact diff and state
+which option you chose and why.
+```
+
+**Verify:**
+```
+Attempt to save a discovery WITHOUT calling register_hypothesis() first.
+Show raw output: does it get rejected (if option A), or does it get
+saved with a visible "uncorrected" flag/warning (if option B)? Either is
+acceptable — silent 0.05/1 correction with no visibility is not.
+```
+**Pass condition:** the gap between "hypothesis was registered" and "hypothesis was not" is either enforced or at minimum visible in the saved data — never silent.
+
+---
+
+### 3. Build a real embargo gap for walk-forward validation [BEHAVIORAL, then consider FULL if this feeds live decisions]
+
+**Why third:** this is new functionality, not a fix to something broken — lower urgency than 1-2, but worth doing since the codebase has been informally claiming this exists.
+
+**Prompt:**
+```
+date_safe_walk_forward_splits() in date_utils.py currently produces
+back-to-back train/val windows with zero gap. Add a true embargo period:
+
+1. Add an embargo_days parameter (default something reasonable — e.g. 1-5
+   days depending on the shortest prediction horizon used elsewhere in
+   the system, check what horizons exist: t1/t3/t5).
+2. Exclude dates within the embargo window from BOTH train and val sets
+   — i.e. if train ends at date N, val should not start until date
+   N + embargo_days, and those excluded dates are dropped, not
+   reassigned to either set.
+3. Show the exact diff.
+
+Do NOT touch pit_correction.py's _train_embargoed() — that's a correctly
+named but different concept (point-in-time correctness) and should stay
+as-is.
+```
+
+**Verify:**
+```
+Run the modified splitter on a sample date range. Print the raw train
+dates, the excluded embargo dates, and the val dates for one split.
+Confirm: (1) embargo dates appear in neither train nor val, (2) the gap
+size matches the embargo_days parameter, (3) no date appears in both
+train and val (the original bug this splitter was built to fix).
+```
+**Pass condition:** raw output shows a real gap between train and val date ranges, with embargoed dates excluded from both.
+
+---
+
+### 4. Decide the fate of dead/manual-only walk-forward paths [RAW CHECK — decision, not a big build]
+
+**Why last:** cleanup, not a functional gap. Low priority.
+
+**Prompt:**
+```
+walk_forward.py / run_walk_forward() has zero external callers — it's a
+developer script. And _aiem_tool_walk_forward_validate is AIEM-callable
+but not scheduled.
+
+Decide and implement one of:
+A) Schedule _aiem_tool_walk_forward_validate (or the underlying
+   ValidationEngine.walk_forward_test()) to run automatically on a
+   reasonable cadence, now that it uses the corrected embargo splitter
+   from item 3.
+B) Leave both as manual/developer tools, but update any documentation or
+   comments that implied this runs automatically, so future audits (or
+   future you) don't get misled the way this one almost did.
+```
+
+**Verify:** [RAW CHECK] Confirm whichever option was chosen matches reality — either a real scheduler entry exists, or no code/comments overstate what's automatic.
+
+---
+
+## Note for later
+
+Once items 1-3 are done and verified, it would be worth re-running the same "fact-check the specific claim" exercise against any other specific technique named in a valuation estimate before trusting it — this session is a good template for that: check the actual code, not the description of the code.

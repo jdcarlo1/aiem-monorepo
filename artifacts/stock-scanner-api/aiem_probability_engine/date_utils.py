@@ -71,20 +71,38 @@ def date_safe_three_way_split(
 
 def date_safe_walk_forward_splits(df: pd.DataFrame, date_col: str,
                                    initial_train_days: int, val_window_days: int,
-                                   step_days: int):
+                                   step_days: int, embargo_days: int = 2):
     """
     Expanding-window walk-forward, windowed by unique date instead of row
     count, for the same reason as date_safe_three_way_split above.
+
+    embargo_days: number of unique trading dates to exclude between the end
+    of the training window and the start of the validation window. These
+    dates appear in NEITHER train NOR val — they are dropped entirely, not
+    reassigned to either set. This prevents leakage from features whose
+    computation windows overlap the train/val boundary (e.g. a 1d or 3d
+    return feature that can look forward from the last training date).
+
+    Default is 2 trading days, appropriate for the shortest prediction
+    horizon used in this system (1d). Set embargo_days=0 to restore the
+    original back-to-back behavior (not recommended).
+
+    Do NOT confuse with _train_embargoed() in pit_correction.py — that is
+    point-in-time correctness (excluding future data from a PIT model
+    retrain), which is a different concept using the same word.
     """
     dates = sorted(df[date_col].unique())
     n_dates = len(dates)
-    if n_dates < initial_train_days + val_window_days:
+    if n_dates < initial_train_days + embargo_days + val_window_days:
         return
 
     train_end_idx = initial_train_days
-    while train_end_idx + val_window_days <= n_dates:
+    while train_end_idx + embargo_days + val_window_days <= n_dates:
         train_dates = set(dates[:train_end_idx])
-        val_dates = set(dates[train_end_idx:train_end_idx + val_window_days])
+        # Dates in [train_end_idx, train_end_idx + embargo_days) are excluded
+        # from both sets — this is the embargo gap.
+        val_start_idx = train_end_idx + embargo_days
+        val_dates = set(dates[val_start_idx:val_start_idx + val_window_days])
         yield df[df[date_col].isin(train_dates)], df[df[date_col].isin(val_dates)]
         train_end_idx += step_days
 

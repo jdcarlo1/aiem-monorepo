@@ -21557,13 +21557,18 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                               edge_tight=None, signal_n=None, p_value=None,
                               signal_win_rate=None, baseline_win_rate=None,
                               signal_avg_ret=None, oos_edge=None,
-                              horizon="next_day", notes=""):
+                              horizon="next_day", notes="", hypothesis_id=None):
     """Save a validated signal discovery to the aiem_signal_discoveries table.
     HARD GATES (will block save if not met):
       1. oos_edge must be provided and > 0  → proves mkt_validate_oos was run
-      2. p_value must beat the Bonferroni-corrected threshold from the test ledger
+      2. p_value is REQUIRED (no longer optional) and must beat the Bonferroni-
+         corrected threshold from the test ledger. Omitting p_value is a hard block.
       3. signal_win_rate must be >= 54%     → meaningful bar above coin flip after costs
       4. signal_n must be >= 200            → LAW 6 minimum sample size
+    Optional: hypothesis_id — if provided, links this discovery to a pre-registered
+    entry in hypothesis_registry and records [PRE-REG] in notes. Saves without
+    hypothesis_id are allowed but flagged [NO-PRE-REG] — Bonferroni came from the
+    test ledger only, not from a formally pre-registered hypothesis.
     These gates enforce LAW 3, LAW 6, LAW 47, LAW 49. No workarounds."""
     import psycopg2, json as _j
 
@@ -21623,27 +21628,52 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
         }
 
     # ── GATE 4: Bonferroni-corrected p-value (LAW 3) ─────────────────────────
-    if p_value is not None:
-        try:
-            _bonf = _mkt_tool_required_pvalue(lookback_days=30)
-            _required_p = _bonf.get("required_p_value", 0.05)
-            _n_tests     = _bonf.get("tests_in_window", 1)
-            if float(p_value) > _required_p:
-                return {
-                    "status": "blocked",
-                    "gate": "bonferroni_correction",
-                    "error": (
-                        f"BLOCKED: p_value={p_value:.5f} does not meet the Bonferroni-corrected "
-                        f"threshold of {_required_p:.5f} (0.05 ÷ {_n_tests} tests run in the "
-                        f"past 30 days). With {_n_tests} tests, you expect {_n_tests * 0.05:.1f} "
-                        f"false positives by pure chance at p<0.05. This signal may be one of them."
-                    ),
-                    "your_p_value":    p_value,
-                    "required_p_value": _required_p,
-                    "tests_in_window":  _n_tests,
-                }
-        except Exception:
-            pass  # non-fatal: if ledger unavailable, don't block — log a warning instead
+    # p_value is now mandatory. Omitting it bypasses the multiple-comparisons
+    # gate silently — a statistical integrity hole worse than a failed save.
+    if p_value is None:
+        return {
+            "status": "blocked",
+            "gate": "bonferroni_correction",
+            "error": (
+                "BLOCKED: p_value is required. Saving without a p_value bypasses the "
+                "Bonferroni correction gate entirely — the gate can only fire when it "
+                "can compare your p-value against the test-ledger threshold. "
+                "Run mkt_test_signal first and pass its returned p_value here."
+            ),
+            "action": "Call mkt_test_signal(conditions=...) and pass its p_value here.",
+        }
+    try:
+        _bonf = _mkt_tool_required_pvalue(lookback_days=30)
+        _required_p = _bonf.get("required_p_value", 0.05)
+        _n_tests     = _bonf.get("tests_in_window", 1)
+        if float(p_value) > _required_p:
+            return {
+                "status": "blocked",
+                "gate": "bonferroni_correction",
+                "error": (
+                    f"BLOCKED: p_value={p_value:.5f} does not meet the Bonferroni-corrected "
+                    f"threshold of {_required_p:.5f} (0.05 ÷ {_n_tests} tests run in the "
+                    f"past 30 days). With {_n_tests} tests, you expect {_n_tests * 0.05:.1f} "
+                    f"false positives by pure chance at p<0.05. This signal may be one of them."
+                ),
+                "your_p_value":    p_value,
+                "required_p_value": _required_p,
+                "tests_in_window":  _n_tests,
+            }
+    except Exception as _bonf_err:
+        # Gate failure is NOT silent. A statistical integrity gate failing open
+        # is worse than the save failing entirely — log and block.
+        print(f"[bonferroni_gate] ledger unavailable — blocking save: {_bonf_err}")
+        return {
+            "status": "blocked",
+            "gate": "bonferroni_correction",
+            "error": (
+                f"BLOCKED: Bonferroni correction gate is unavailable (ledger query failed: "
+                f"{_bonf_err}). Cannot verify multiple-comparisons correction. "
+                f"Resolve the DB issue and retry — a failing gate is not a free pass."
+            ),
+            "action": "Resolve the aiem_test_ledger DB issue and retry.",
+        }
 
     # ── Redundancy gate ───────────────────────────────────────────────────────
     try:
@@ -21659,6 +21689,38 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
             }
     except Exception as _exc:
         print(f"[silent_except:L19891] {type(_exc).__name__}: {_exc}")
+
+    # ── Pre-registration visibility (Option B — LAW 3 supplement) ────────────
+    # hypothesis_id links this discovery to a formally pre-registered hypothesis.
+    # Without it, the Bonferroni correction came from the test ledger only —
+    # allowed, but flagged [NO-PRE-REG] in notes so audits can always distinguish
+    # "registry-corrected" from "ledger-only". Never silent.
+    if hypothesis_id is None:
+        _prereg_flag = (
+            "[NO-PRE-REG: no hypothesis_id — Bonferroni correction from aiem_test_ledger "
+            "(auto-tracked test count) only. For registry-level correction call "
+            "register_hypothesis() first and pass the returned id as hypothesis_id.]"
+        )
+        print(f"[save_discovery] noting no pre-registered hypothesis — {_prereg_flag}")
+        notes = (notes + " " + _prereg_flag).strip() if notes else _prereg_flag
+    else:
+        try:
+            from hypothesis_registry import list_all_hypotheses as _hr_list
+            _valid_ids = {h["id"] for h in _hr_list(limit=500)}
+            if hypothesis_id not in _valid_ids:
+                return {
+                    "status": "blocked",
+                    "gate": "hypothesis_registry",
+                    "error": (
+                        f"BLOCKED: hypothesis_id={hypothesis_id} not found in hypothesis_registry. "
+                        f"Use register_hypothesis() to register and get a valid id."
+                    ),
+                }
+            notes = (notes + f" [PRE-REG: hypothesis_id={hypothesis_id}]").strip() if notes \
+                    else f"[PRE-REG: hypothesis_id={hypothesis_id}]"
+        except Exception as _hr_err:
+            print(f"[save_discovery] hypothesis_registry lookup failed: {_hr_err}")
+            notes = (notes + f" [PRE-REG-UNVERIFIED: hypothesis_id={hypothesis_id}]").strip()
 
     # ── All gates passed — save ───────────────────────────────────────────────
     try:
