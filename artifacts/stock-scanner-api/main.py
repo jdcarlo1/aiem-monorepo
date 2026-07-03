@@ -43003,8 +43003,9 @@ def _build_ai_stock_picks():
             except Exception as _exc:
                 print(f"[silent_except:L39321] {type(_exc).__name__}: {_exc}")
 
-            # Skip very low Layer 9 quality when we have enough picks
-            if len(picks) >= 5 and l9_scores and l9_score < 38:
+            # Skip very low Layer 9 quality when we have enough picks.
+            # Threshold anchored to spec: stat9<40="statistical edge unclear" (line 39657).
+            if len(picks) >= 5 and l9_scores and l9_score < 40:
                 continue
 
             # ── Determine hold_days based on dominant signal character ────────

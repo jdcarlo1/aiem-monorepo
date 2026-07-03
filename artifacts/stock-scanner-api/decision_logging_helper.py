@@ -17,11 +17,11 @@ def log_stat_edge_decision(ticker: str, stat9_score: float, regime: str,
                            vpin: float, jump_detected: bool, source: str):
     """Log a Layer 9 Statistical Edge computation to agent_decisions.
 
-    Confidence tiers are anchored to the semantic thresholds in the AI prompt spec
-    (line 39657 of main.py) — no invented coefficient:
-      stat9>=70 -> 0.85  ("strong statistical alignment")
-      stat9>=50 -> 0.72  (above neutral midpoint of 0-100 scale)
-      stat9< 50 -> 0.60  (below neutral; computed and relevant)
+    Confidence tiers are anchored to the two thresholds stated in the AI prompt
+    spec (line 39657 of main.py) — no invented coefficient:
+      stat9>=70 -> 0.85  ("strong statistical alignment" per spec)
+      stat9>=40 -> 0.72  (above spec "unclear" floor: stat9<40=edge unclear per spec)
+      stat9< 40 -> 0.60  (at or below spec "unclear" floor)
 
     Statistical basis note: the 6 component weights in _WEIGHTS (hurst 0.20,
     vpin 0.20, illiquidity 0.20, tail_risk 0.15, entropy 0.15, jump 0.10) are
@@ -29,7 +29,7 @@ def log_stat_edge_decision(ticker: str, stat9_score: float, regime: str,
     backtest. Flagged as design choices, not validated coefficients.
     """
     try:
-        confidence = 0.85 if stat9_score >= 70 else 0.72 if stat9_score >= 50 else 0.60
+        confidence = 0.85 if stat9_score >= 70 else 0.72 if stat9_score >= 40 else 0.60
         reasoning = (
             f"Layer 9 Statistical Edge score for {ticker}: {stat9_score:.1f}/100 "
             f"(source: {source}). "

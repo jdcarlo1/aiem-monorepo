@@ -1,0 +1,44 @@
+# L9 Follow-Up — Three Items Before This Is Actually Closed
+
+The L9 verification you just completed proved the logging is structurally gate-safe at both live call sites. That part is solid. But three things in your own trace report don't add up, and none of them were resolved before marking L9 VERIFIED A–E.
+
+## 1. L9 is not wired into the main conviction function — is that intentional?
+
+Your own trace report states:
+
+> `_run_five_layer_conviction()` → L1–L8 only. L9 is NOT wired into this function.
+
+That function is presumably what generates the conviction score shown on the dashboard / sent in alerts / used for the primary product experience.
+
+**Answer directly:**
+- Which function actually produces the conviction score a subscriber sees — `_run_five_layer_conviction()`, or one of the two side paths (`_ai_trades_worker` / `_bg_aisc`)?
+- If it's `_run_five_layer_conviction()`, then the live product is currently an 8-layer score, not 9, regardless of what L9's internal logic does. State this plainly — don't let "L9 is verified" imply it's included in the number a customer sees if it isn't.
+- If L9 is only meant to feed paper trading and the AI short-calls gate (not the primary conviction score), confirm that's the intended design, not an oversight. If it's an oversight, wire it in and re-verify with the same trace-report format used for L1–L8.
+
+## 2. Reconcile the three different confidence thresholds — pick one and cite it
+
+Three different boundary values exist for what should be a single stat9 threshold concept, and none of them agree:
+
+| Source | Threshold | Meaning |
+|---|---|---|
+| System prompt / spec | `stat9 ≥ 70` | "strong statistical alignment" |
+| System prompt / spec | `stat9 < 40` | "statistical edge unclear → reduce conviction" |
+| Hard skip gate (`_bg_aisc`) | `stat9 < 38` | pick rejected |
+| Confidence ladder (what you just built) | `stat9 < 50` | confidence drops to 0.60 |
+
+The `50` boundary in the confidence ladder doesn't come from the spec — it was invented as "above neutral midpoint" with no citation. That's the same category of problem as the original unvalidated `fir*0.08` coefficient: a number that looks intentional but isn't traceable to a source.
+
+**Fix:**
+- Either derive the confidence ladder tiers directly from the two spec-given thresholds (70 and 40), or
+- If a third tier is genuinely needed, state explicitly why 50 was chosen and where that number comes from — don't label an invented number as "per spec" or imply it's derived when it isn't.
+- Confirm the `38` hard-gate value is intentionally different from the spec's `40`, or fix the mismatch. If `38` has a separate rationale (e.g. calibrated buffer below the spec's 40), say what that rationale is.
+
+## 3. Row-count parity does not prove selection correctness — check the population, not just the write path
+
+"BEFORE: 0, AFTER: 9, matches batch size exactly" proves nothing got silently dropped or duplicated during the write. It does not prove the *right* 9 tickers were selected for scoring in the first place.
+
+**Verify separately:**
+- Pull the full candidate list that entered the L9 scoring loop (before any filtering) and confirm the 9 scored tickers are the correct subset per the upstream SQL filters (`prem >= 5000`, `len(df) >= 30`, etc.) — not just that 9 rows happened to come out the other end.
+- Show at least one example of a ticker that was correctly *excluded* (didn't meet `len(df) >= 30` or the premium filter) and confirm it does not appear in `stat_edge_signal`.
+
+**Do not consider L9 fully closed until items 1–3 are answered with the same evidence bar used throughout this audit — raw output, not restated conclusions.**
