@@ -1,0 +1,60 @@
+# Layer 4 (Short Interest) — Logging Fix Instructions
+
+## Finding
+
+Layer 4 is a different bug than L1–L3. Those layers had a logging function
+that existed but silently swallowed exceptions (`except Exception: pass`).
+Layer 4 has **no logging function at all**. The Finviz short interest
+scrape/score runs and produces a result, but nothing ever calls into
+`decision_logging_helper.py` for it. No row is ever written to
+`agent_decisions` for `signal_name='short_interest'` (or equivalent).
+
+Confirmed via:
+- `grep -rn "def log_short_interest" .` → 0 matches, function does not exist anywhere in the codebase
+- `grep -rn "short_interest" decision_logging_helper.py` → 0 matches
+
+Unlike L2 (`log_gamma_decision()`) and L3 (`log_charm_decision()`), which are
+wired into `decision_logging_helper.py`, L4 was simply never connected.
+
+## Instructions
+
+1. **Confirm the scoring path exists but the logging call is absent.**
+   Find the function that runs the Finviz short interest scrape/score — the
+   L4 equivalent of `_get_charm_cascade_signals()`. Show the function and
+   confirm it computes a score/decision but never calls anything in
+   `decision_logging_helper.py`.
+
+2. **Build `log_short_interest_decision()` following the exact pattern of
+   `log_charm_decision()`.** Same signature style, same call into
+   `dl.log_decision(signal_name="short_interest", ...)`, same target table
+   (`agent_decisions`). Do not invent a new table or new path — match
+   L1–L3's structure exactly so downstream scoring/backtesting logic doesn't
+   need to special-case L4.
+
+3. **Wire the new function into the L4 scoring path**, at the point where
+   the score is finalized — the same place L3 calls `log_charm_decision()`
+   after computing conviction.
+
+4. **No bare `except Exception: pass`.** This is new code — write it
+   correctly from the start. No excuse to reintroduce the pattern you just
+   removed from L1–L3.
+
+5. **Verify with the same before/after test used for L3:**
+   - Row count for `signal_name='short_interest'` in `agent_decisions`
+     before and after a fixed batch (e.g. 20 scored tickers)
+   - Confirm the delta equals the batch size exactly
+   - Pull the 3–5 newest rows with real timestamps as proof
+   - Confirm zero exceptions during the test run
+     (`grep -n "except Exception:" decision_logging_helper.py` → 0 matches)
+
+## Reporting requirement
+
+Report back with:
+- The full call trace of the fix, in the format:
+  `function → function → INSERT INTO agent_decisions`
+- The raw verification numbers (row counts before/after, delta, sample rows
+  with timestamps, exception grep output)
+
+Do **not** mark L4 verified on code review alone. Code-level confirmation
+that the function was written is not sufficient — it needs the same live,
+raw-output proof that L1–L3 required.

@@ -14283,6 +14283,11 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
 
     # ── Layer 4: Short Interest ────────────────────────────────────────────────
     si_data = _get_short_interest(active)
+    try:
+        import decision_logging_helper as _dlh_si
+    except Exception as _dlh_si_exc:
+        print(f"[L4] decision_logging_helper import failed: {_dlh_si_exc}")
+        _dlh_si = None
     for ticker, si in si_data.items():
         if ticker not in scores:
             continue
@@ -14292,6 +14297,10 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
         scores[ticker]["pts"]["short_int"] = pts
         scores[ticker]["meta"]["si_pct"]   = si_pct
         scores[ticker]["meta"]["dtc"]      = dtc
+        if _dlh_si and pts > 0:
+            _dlh_si.log_short_interest_decision(
+                ticker=ticker, si_pct=si_pct, dtc=dtc, pts=pts,
+            )
 
     # ── Layer 5: Dark Pool Convergence ────────────────────────────────────────
     dp_data = _get_dark_pool_convergence(active)

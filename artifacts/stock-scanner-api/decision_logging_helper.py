@@ -123,3 +123,35 @@ def log_unusual_calls_decision(ticker: str, call_volume: int, oi: int,
         )
     except Exception as _exc:
         print(f"[log_unusual_calls_decision] {type(_exc).__name__}: {_exc}")
+
+
+def log_short_interest_decision(ticker: str, si_pct: float, dtc: float, pts: float):
+    """Log a short interest overlay signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec (line 14291
+    of main.py) — no invented coefficient:
+      pts=2.0 (si_pct>=20%) -> 0.85
+      pts=1.5 (si_pct>=15%) -> 0.72
+      pts=1.0 (si_pct>=8%)  -> 0.60
+    """
+    try:
+        _CONFIDENCE_MAP = {2.0: 0.85, 1.5: 0.72, 1.0: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.50)
+        reasoning = (
+            f"Short interest overlay flagged {ticker}: {si_pct:.1f}% of float is short "
+            f"({dtc:.1f} days-to-cover, FINRA data via Finviz). "
+            f"Significant short interest creates forced-covering pressure on any "
+            f"sustained upward price move — dealer and short-seller buying amplifies "
+            f"directional moves beyond what fundamental demand alone would produce. "
+            f"Layer 4 conviction tier: {pts:.1f} pts."
+        )
+        dl.log_decision(
+            signal_name="short_interest",
+            decision_type="trade",
+            reasoning=reasoning,
+            ticker=ticker,
+            direction="long",
+            confidence=confidence,
+        )
+    except Exception as _exc:
+        print(f"[log_short_interest_decision] {type(_exc).__name__}: {_exc}")
