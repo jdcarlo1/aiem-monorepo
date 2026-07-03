@@ -84,3 +84,4 @@ packages = ["arrow-cpp", "cairo", "ffmpeg-full", "freetype", "ghostscript", "gob
 [userenv.shared]
 TELEGRAM_CHAT_ID = "8609255707"
 AIEM_HMAC_SECRET = "5c23f047cf614f00cb7c56c53c506f4b3de60fb04f4577259a9743cb1df5e869"
+ACCOUNT_VALUE_BASELINE = "20000"
