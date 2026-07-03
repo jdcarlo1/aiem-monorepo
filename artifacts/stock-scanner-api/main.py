@@ -5216,7 +5216,7 @@ try:
                             "SELECT 1 FROM unusual_calls_log "
                             "WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') "
                             "AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC' "
-                            "AND vol_oi >= 5 AND prem >= 500000 AND days_out BETWEEN 1 AND 30 "
+                            "AND vol_oi >= 5 AND prem >= 250000 AND days_out BETWEEN 1 AND 30 "
                             "LIMIT 1"
                         )
                         if _cur.fetchone():
@@ -15346,7 +15346,7 @@ def _get_far_otm_sweeps(days_back: int = 3) -> list:
                 FROM unusual_calls_log
                 WHERE last_seen >= %s
                   AND vol_oi >= 5.0
-                  AND prem >= 500000
+                  AND prem >= 250000
                   AND ticker != ALL(%s)
                 ORDER BY vol_oi * prem DESC
                 LIMIT 30
@@ -40569,7 +40569,7 @@ def _ai_trades_worker():
                 FROM unusual_calls_log
                 WHERE ticker IN ('XLK','XLF','XLV','XLE','XLI','XLY','XLC','XLB','XLP','XLU','XLRE','QQQ','IWM')
                   AND last_seen >= NOW() - INTERVAL '28 hours'
-                  AND prem >= 500000
+                  AND prem >= 250000
             """)
             for (_se_etf,) in _se_cur.fetchall():
                 _sector_etf_bullish.add(_se_etf)
@@ -42281,7 +42281,7 @@ def unusual_calls():
                     WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                       AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                       AND vol_oi >= 1.5
-                      AND prem >= 500000
+                      AND prem >= 250000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 _co_rows = _co_cur.fetchall()
@@ -42312,7 +42312,7 @@ def unusual_calls():
                     FROM unusual_calls_log
                     WHERE last_seen >= now() - INTERVAL '5 days'
                       AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
-                      AND vol_oi >= 1.5 AND prem >= 500000
+                      AND vol_oi >= 1.5 AND prem >= 250000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 _nh_rows = _nh_cur.fetchall()
@@ -42479,7 +42479,7 @@ def unusual_calls():
                     WHERE last_seen >= (date_trunc('day', now() AT TIME ZONE 'America/New_York') AT TIME ZONE 'America/New_York') AT TIME ZONE 'UTC'
                       AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                       AND vol_oi >= 1.5
-                      AND prem >= 500000
+                      AND prem >= 250000
                     ORDER BY last_seen DESC, vol_oi DESC LIMIT 80
                 """)
                 _today_rows = _pre_cur.fetchall()
@@ -42771,7 +42771,7 @@ def unusual_calls_log():
                            last_seen  AT TIME ZONE 'UTC' AS last_seen
                     FROM unusual_calls_log
                     WHERE ticker = %s
-                      AND prem >= 500000
+                      AND prem >= 250000
                     ORDER BY first_seen DESC
                     LIMIT 500
                 """, (ticker,))
@@ -42783,7 +42783,7 @@ def unusual_calls_log():
                            first_seen AT TIME ZONE 'UTC' AS first_seen,
                            last_seen  AT TIME ZONE 'UTC' AS last_seen
                     FROM unusual_calls_log
-                    WHERE prem >= 500000
+                    WHERE prem >= 250000
                     ORDER BY first_seen DESC
                     LIMIT 500
                 """)
