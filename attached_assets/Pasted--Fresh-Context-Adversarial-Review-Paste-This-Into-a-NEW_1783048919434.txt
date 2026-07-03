@@ -1,0 +1,68 @@
+# Fresh-Context Adversarial Review — Paste This Into a NEW Session
+
+INSTRUCTIONS BEFORE YOU START:
+- Open a session with NO memory of this task (new chat / new Replit Agent tab).
+- Do NOT tell it Steps 1 and 3 already passed. Do NOT mention "VERIFIED."
+  If it knows there's an existing verdict, it will anchor on agreeing with it.
+- Paste the two diffs below into the marked spots, then send the whole thing.
+
+To get the diffs, run these in your terminal and copy the full raw output:
+```bash
+git show 1adbc2bf
+git show 9de7aa26
+```
+
+---
+
+## PROMPT TO PASTE (fill in the two diff blocks first)
+
+```
+You are reviewing a code diff for correctness. Do not assume it is correct.
+Your job is to find every plausible way this change could fail, behave
+unexpectedly, or not do what it claims.
+
+Context: This is a stock-scanning tool (AIEM/StockScanner AI). The commit
+below claims to fix six issues in a single audit pass:
+1. Conviction-weighting logic
+2. A `message_sent` UPDATE statement
+3. A UNIQUE constraint (date, sector_ticker) added via migration
+4. A bare `except` clause
+5. A `.bak` file audit/cleanup
+6. A `bucket_id` no-op
+
+Diff 1 — commit 1adbc2bf (code changes):
+[PASTE FULL OUTPUT OF: git show 1adbc2bf]
+
+Diff 2 — commit 9de7aa26 (migration file):
+[PASTE FULL OUTPUT OF: git show 9de7aa26]
+
+Answer, for EACH of the six claimed fixes separately:
+1. What could make this fix fail silently or not actually solve the
+   problem it claims to solve?
+2. What edge cases are not handled?
+3. Does the code actually do what the stated intent claims, line by line?
+4. What would you test to prove this specific fix works, that isn't
+   already covered by the diff itself?
+
+Then answer overall:
+5. Are there any of the six fixes where the diff doesn't match the
+   claim at all — i.e. the described fix isn't actually present in
+   the code?
+6. Is there anything in either diff that looks unrelated to the six
+   claimed fixes — an unexplained or undocumented change?
+
+Be skeptical. List concrete scenarios, not general reassurance. If a fix
+looks solid, say so briefly — but don't pad the answer with reassurance
+where you haven't actually found anything to check.
+```
+
+---
+
+## After you get the response
+
+Look specifically for:
+- Any fix where it says "the diff doesn't actually do X" — that's a real gap, not nitpicking.
+- Question 6 (unexplained changes) — this is the one self-review is worst at catching, since the same agent wrote both the fix and its own description of the fix.
+- If it flags something in the UNIQUE constraint or conviction-weighting logic, cross-check it against the raw Postgres error/behavioral test output from Step 3 — a fresh-eyes concern that contradicts a behavioral pass is worth resolving before you trust either one.
+
+Paste the raw response back here if you want a second read on whether any of its concerns are serious or just theoretical.
