@@ -12177,6 +12177,22 @@ function QuantAgentTab() {
   const [byokSaving,   setByokSaving]   = useState(false);
   const [byokMsg,      setByokMsg]      = useState<{ok: boolean; text: string} | null>(null);
   const [byokStatus,   setByokStatus]   = useState<{openai_key_set: boolean} | null>(null);
+  const [settingsTab,  setSettingsTab]  = useState<"keys"|"prefs"|"watchlist"|"stats">("keys");
+  const [prefSaving,   setPrefSaving]   = useState(false);
+  const [prefMsg,      setPrefMsg]      = useState<{ok: boolean; text: string} | null>(null);
+  const [prefStyle,    setPrefStyle]    = useState("momentum");
+  const [prefHolding,  setPrefHolding]  = useState("1-3d");
+  const [prefRisk,     setPrefRisk]     = useState("moderate");
+  const [prefMinScore, setPrefMinScore] = useState(70);
+  const [prefOnlyWl,   setPrefOnlyWl]   = useState(false);
+  const [prefTimeFilter, setPrefTimeFilter] = useState("all");
+  const [prefMaxAlerts,  setPrefMaxAlerts]  = useState(10);
+  const [watchlistText,  setWatchlistText]  = useState("");
+  const [wlSaving,     setWlSaving]     = useState(false);
+  const [wlMsg,        setWlMsg]        = useState<{ok: boolean; text: string} | null>(null);
+  type WeightDetail = { weight: number; wins: number; losses: number; total: number; win_rate: number | null };
+  const [statsData,    setStatsData]    = useState<{ signal_weights: Record<string, WeightDetail> } | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -12560,19 +12576,36 @@ function QuantAgentTab() {
         >
           Send
         </button>
-        {/* BYOK settings gear */}
+        {/* Settings gear */}
         <button
           onClick={async () => {
+            const opening = !showByok;
             setShowByok(v => !v);
-            setByokMsg(null);
-            if (!showByok && byokToken) {
+            setByokMsg(null); setPrefMsg(null); setWlMsg(null);
+            if (opening && byokToken) {
               try {
                 const r = await fetch(`/stock-api/user/keys?subscriber_token=${encodeURIComponent(byokToken)}`);
                 if (r.ok) setByokStatus(await r.json());
               } catch { /* non-fatal */ }
+              try {
+                const r2 = await fetch(`/stock-api/user/prefs?subscriber_token=${encodeURIComponent(byokToken)}`);
+                if (r2.ok) {
+                  const d = await r2.json();
+                  const p = d.preferences || {};
+                  setPrefStyle(p.preferred_style || "momentum");
+                  setPrefHolding(p.holding_time || "1-3d");
+                  setPrefRisk(p.risk_level || "moderate");
+                  setPrefMinScore(p.min_score_threshold ?? 70);
+                  setPrefOnlyWl(p.only_watchlist ?? false);
+                  setPrefTimeFilter(p.time_filter || "all");
+                  setPrefMaxAlerts(p.max_alerts_per_day ?? 10);
+                  setWatchlistText((d.watchlist || []).join(", "));
+                  setStatsData(d);
+                }
+              } catch { /* non-fatal */ }
             }
           }}
-          title="API Key Settings"
+          title="Settings"
           style={{ width: 44, height: 44, flexShrink: 0, background: byokToken ? "#0d2a1a" : "#0d1726", border: `1px solid ${byokToken ? "#22c55e" : "#1c3350"}`, borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={byokToken ? "#4ade80" : "#7fb3ff"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -12581,86 +12614,209 @@ function QuantAgentTab() {
         </button>
       </div>
 
-      {/* BYOK settings panel */}
+      {/* Settings panel — tabbed */}
       {showByok && (
-        <div style={{ background: "#0a1628", border: "1px solid #1c3350", borderRadius: 10, padding: "16px 18px", marginTop: 4, display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ color: "#7fb3ff", fontSize: 12, fontWeight: 700, letterSpacing: 1 }}>YOUR API KEYS — you pay OpenAI directly, we pay nothing</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ color: "#94a3b8", fontSize: 11 }}>Subscriber Token <span style={{ color: "#475569" }}>(from your welcome email)</span></label>
-            <input
-              type="text"
-              placeholder="paste your subscriber token…"
-              value={byokToken}
-              onChange={e => {
-                setByokToken(e.target.value);
-                localStorage.setItem("aiem_byok_token", e.target.value.trim());
-                setByokStatus(null);
-              }}
-              style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "7px 10px", fontSize: 12 }}
-            />
+        <div style={{ background: "#0a1628", border: "1px solid #1c3350", borderRadius: 10, marginTop: 4, overflow: "hidden" }}>
+          {/* Tab bar */}
+          <div style={{ display: "flex", borderBottom: "1px solid #1c3350" }}>
+            {(["keys","prefs","watchlist","stats"] as const).map(tab => {
+              const labels: Record<string, string> = { keys: "API Keys", prefs: "Preferences", watchlist: "Watchlist", stats: "My Stats" };
+              return (
+                <button key={tab} onClick={() => setSettingsTab(tab)} style={{ flex: 1, padding: "9px 4px", background: settingsTab === tab ? "#0d1f3c" : "transparent", border: "none", borderBottom: settingsTab === tab ? "2px solid #3b82f6" : "2px solid transparent", color: settingsTab === tab ? "#7fb3ff" : "#475569", fontSize: 11, fontWeight: 600, cursor: "pointer", letterSpacing: 0.5 }}>
+                  {labels[tab]}
+                </button>
+              );
+            })}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ color: "#94a3b8", fontSize: 11 }}>
-              OpenAI API Key
-              {byokStatus?.openai_key_set && <span style={{ color: "#4ade80", marginLeft: 8 }}>✓ saved</span>}
-            </label>
-            <input
-              type="password"
-              placeholder="sk-… (leave blank to keep existing)"
-              value={byokOAIKey}
-              onChange={e => setByokOAIKey(e.target.value)}
-              style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "7px 10px", fontSize: 12 }}
-            />
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              disabled={byokSaving || !byokToken}
-              onClick={async () => {
-                if (!byokToken) return;
-                setByokSaving(true); setByokMsg(null);
-                try {
-                  const body: Record<string, string> = { subscriber_token: byokToken };
-                  if (byokOAIKey.trim()) body.openai_key = byokOAIKey.trim();
-                  const r = await fetch("/stock-api/user/keys", {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(body),
-                  });
-                  const d = await r.json();
-                  if (r.ok) {
-                    setByokMsg({ ok: true, text: "Keys saved. AIEM sessions now run on your OpenAI account." });
-                    setByokOAIKey("");
-                    setByokStatus({ openai_key_set: !!byokOAIKey.trim() || !!byokStatus?.openai_key_set });
-                  } else {
-                    setByokMsg({ ok: false, text: d.error || "Save failed" });
-                  }
-                } catch (e: any) {
-                  setByokMsg({ ok: false, text: String(e) });
-                } finally { setByokSaving(false); }
-              }}
-              style={{ background: byokSaving || !byokToken ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 6, padding: "7px 16px", cursor: byokSaving || !byokToken ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}
-            >
-              {byokSaving ? "Saving…" : "Save Keys"}
-            </button>
-            {byokToken && byokStatus?.openai_key_set && (
-              <button
-                onClick={async () => {
-                  if (!confirm("Remove your stored API keys?")) return;
+
+          <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+
+            {/* ── API KEYS TAB ── */}
+            {settingsTab === "keys" && (<>
+              <div style={{ color: "#7fb3ff", fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>YOUR API KEYS — you pay OpenAI directly, we pay nothing</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ color: "#94a3b8", fontSize: 11 }}>Subscriber Token <span style={{ color: "#475569" }}>(from your welcome email)</span></label>
+                <input type="text" placeholder="paste your subscriber token…" value={byokToken}
+                  onChange={e => { setByokToken(e.target.value); localStorage.setItem("aiem_byok_token", e.target.value.trim()); setByokStatus(null); }}
+                  style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "7px 10px", fontSize: 12 }} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ color: "#94a3b8", fontSize: 11 }}>OpenAI API Key {byokStatus?.openai_key_set && <span style={{ color: "#4ade80", marginLeft: 8 }}>✓ saved</span>}</label>
+                <input type="password" placeholder="sk-… (leave blank to keep existing)" value={byokOAIKey}
+                  onChange={e => setByokOAIKey(e.target.value)}
+                  style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "7px 10px", fontSize: 12 }} />
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button disabled={byokSaving || !byokToken} onClick={async () => {
+                  if (!byokToken) return;
+                  setByokSaving(true); setByokMsg(null);
                   try {
-                    await fetch("/stock-api/user/keys", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscriber_token: byokToken }) });
-                    setByokStatus({ openai_key_set: false });
-                    setByokMsg({ ok: true, text: "Keys removed." });
-                  } catch { /* non-fatal */ }
-                }}
-                style={{ background: "transparent", color: "#f87171", border: "1px solid #7f1d1d", borderRadius: 6, padding: "7px 12px", cursor: "pointer", fontSize: 11 }}
-              >
-                Remove Keys
-              </button>
-            )}
-            {byokMsg && <span style={{ fontSize: 11, color: byokMsg.ok ? "#4ade80" : "#f87171" }}>{byokMsg.text}</span>}
-          </div>
-          <div style={{ color: "#475569", fontSize: 10, lineHeight: 1.5 }}>
-            Your key is encrypted before storage. We never log or transmit it in plaintext. Removing your token from this field stops all key lookups immediately.
+                    const body: Record<string, string> = { subscriber_token: byokToken };
+                    if (byokOAIKey.trim()) body.openai_key = byokOAIKey.trim();
+                    const r = await fetch("/stock-api/user/keys", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+                    const d = await r.json();
+                    if (r.ok) { setByokMsg({ ok: true, text: "Keys saved." }); setByokOAIKey(""); setByokStatus({ openai_key_set: !!byokOAIKey.trim() || !!byokStatus?.openai_key_set }); }
+                    else setByokMsg({ ok: false, text: d.error || "Save failed" });
+                  } catch (e: any) { setByokMsg({ ok: false, text: String(e) }); }
+                  finally { setByokSaving(false); }
+                }} style={{ background: byokSaving || !byokToken ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 6, padding: "7px 16px", cursor: byokSaving || !byokToken ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
+                  {byokSaving ? "Saving…" : "Save Keys"}
+                </button>
+                {byokToken && byokStatus?.openai_key_set && (
+                  <button onClick={async () => {
+                    if (!confirm("Remove your stored API keys?")) return;
+                    try { await fetch("/stock-api/user/keys", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscriber_token: byokToken }) }); setByokStatus({ openai_key_set: false }); setByokMsg({ ok: true, text: "Keys removed." }); } catch { /* non-fatal */ }
+                  }} style={{ background: "transparent", color: "#f87171", border: "1px solid #7f1d1d", borderRadius: 6, padding: "7px 12px", cursor: "pointer", fontSize: 11 }}>
+                    Remove Keys
+                  </button>
+                )}
+                {byokMsg && <span style={{ fontSize: 11, color: byokMsg.ok ? "#4ade80" : "#f87171" }}>{byokMsg.text}</span>}
+              </div>
+              <div style={{ color: "#475569", fontSize: 10, lineHeight: 1.5 }}>Your key is encrypted before storage. We never log or transmit it in plaintext.</div>
+            </>)}
+
+            {/* ── PREFERENCES TAB ── */}
+            {settingsTab === "prefs" && (<>
+              {!byokToken && <div style={{ color: "#f87171", fontSize: 11 }}>Enter your subscriber token in the API Keys tab first.</div>}
+              {byokToken && (<>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={{ color: "#94a3b8", fontSize: 11 }}>Trading Style</label>
+                    <select value={prefStyle} onChange={e => setPrefStyle(e.target.value)}
+                      style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>
+                      {["momentum","flow","breakout","reversal","mixed","swing","scalp"].map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={{ color: "#94a3b8", fontSize: 11 }}>Holding Time</label>
+                    <select value={prefHolding} onChange={e => setPrefHolding(e.target.value)}
+                      style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>
+                      {[["intraday","Intraday"],["1d","1 Day"],["1-3d","1–3 Days"],["3-5d","3–5 Days"],["1-2w","1–2 Weeks"],["2-4w","2–4 Weeks"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={{ color: "#94a3b8", fontSize: 11 }}>Risk Level</label>
+                    <select value={prefRisk} onChange={e => setPrefRisk(e.target.value)}
+                      style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>
+                      {[["conservative","Conservative"],["moderate","Moderate"],["aggressive","Aggressive"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={{ color: "#94a3b8", fontSize: 11 }}>Time Filter</label>
+                    <select value={prefTimeFilter} onChange={e => setPrefTimeFilter(e.target.value)}
+                      style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "6px 8px", fontSize: 12 }}>
+                      {[["all","All Hours"],["market_hours_only","Market Hours Only"],["premarket_only","Pre-Market Only"],["after_hours_only","After-Hours Only"]].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={{ color: "#94a3b8", fontSize: 11 }}>Min Score Threshold: <span style={{ color: "#7fb3ff" }}>{prefMinScore}</span></label>
+                    <input type="range" min={0} max={100} step={5} value={prefMinScore} onChange={e => setPrefMinScore(Number(e.target.value))}
+                      style={{ accentColor: "#3b82f6" }} />
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <label style={{ color: "#94a3b8", fontSize: 11 }}>Max Alerts / Day: <span style={{ color: "#7fb3ff" }}>{prefMaxAlerts}</span></label>
+                    <input type="range" min={1} max={50} step={1} value={prefMaxAlerts} onChange={e => setPrefMaxAlerts(Number(e.target.value))}
+                      style={{ accentColor: "#3b82f6" }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input type="checkbox" id="onlyWl" checked={prefOnlyWl} onChange={e => setPrefOnlyWl(e.target.checked)} style={{ accentColor: "#3b82f6", width: 14, height: 14 }} />
+                  <label htmlFor="onlyWl" style={{ color: "#94a3b8", fontSize: 12, cursor: "pointer" }}>Only alert on watchlist tickers</label>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button disabled={prefSaving} onClick={async () => {
+                    setPrefSaving(true); setPrefMsg(null);
+                    try {
+                      const r = await fetch("/stock-api/user/prefs", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscriber_token: byokToken, preferred_style: prefStyle, holding_time: prefHolding, risk_level: prefRisk, min_score_threshold: prefMinScore, only_watchlist: prefOnlyWl, time_filter: prefTimeFilter, max_alerts_per_day: prefMaxAlerts }) });
+                      const d = await r.json();
+                      if (r.ok) setPrefMsg({ ok: true, text: "Preferences saved. AIEM will apply them to your next session." });
+                      else setPrefMsg({ ok: false, text: d.error || "Save failed" });
+                    } catch (e: any) { setPrefMsg({ ok: false, text: String(e) }); }
+                    finally { setPrefSaving(false); }
+                  }} style={{ background: prefSaving ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 6, padding: "7px 16px", cursor: prefSaving ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
+                    {prefSaving ? "Saving…" : "Save Preferences"}
+                  </button>
+                  {prefMsg && <span style={{ fontSize: 11, color: prefMsg.ok ? "#4ade80" : "#f87171" }}>{prefMsg.text}</span>}
+                </div>
+                <div style={{ color: "#475569", fontSize: 10, lineHeight: 1.5 }}>AIEM injects these into every session so it knows your style, risk tolerance, and score bar before it answers.</div>
+              </>)}
+            </>)}
+
+            {/* ── WATCHLIST TAB ── */}
+            {settingsTab === "watchlist" && (<>
+              {!byokToken && <div style={{ color: "#f87171", fontSize: 11 }}>Enter your subscriber token in the API Keys tab first.</div>}
+              {byokToken && (<>
+                <div style={{ color: "#7fb3ff", fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>YOUR WATCHLIST</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <label style={{ color: "#94a3b8", fontSize: 11 }}>Tickers (comma-separated, max 100)</label>
+                  <textarea rows={4} placeholder="TSLA, NVDA, AAPL, MSFT…" value={watchlistText}
+                    onChange={e => setWatchlistText(e.target.value)}
+                    style={{ background: "#0d1726", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 6, padding: "8px 10px", fontSize: 12, resize: "vertical", fontFamily: "monospace" }} />
+                </div>
+                <div style={{ color: "#475569", fontSize: 10 }}>
+                  {watchlistText.split(",").map(t => t.trim()).filter(t => t.length > 0).length} tickers entered
+                  {prefOnlyWl && <span style={{ color: "#f59e0b", marginLeft: 8 }}>• Watchlist-only mode is ON — alerts limited to these tickers</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button disabled={wlSaving} onClick={async () => {
+                    setWlSaving(true); setWlMsg(null);
+                    const tickers = watchlistText.split(",").map(t => t.trim().toUpperCase()).filter(t => t.length > 0 && /^[A-Z]+$/.test(t));
+                    try {
+                      const r = await fetch("/stock-api/user/watchlist", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscriber_token: byokToken, tickers }) });
+                      const d = await r.json();
+                      if (r.ok) setWlMsg({ ok: true, text: `Saved ${d.count} tickers.` });
+                      else setWlMsg({ ok: false, text: d.error || "Save failed" });
+                    } catch (e: any) { setWlMsg({ ok: false, text: String(e) }); }
+                    finally { setWlSaving(false); }
+                  }} style={{ background: wlSaving ? "#1c3350" : "#1e64c8", color: "white", border: "none", borderRadius: 6, padding: "7px 16px", cursor: wlSaving ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
+                    {wlSaving ? "Saving…" : "Save Watchlist"}
+                  </button>
+                  {wlMsg && <span style={{ fontSize: 11, color: wlMsg.ok ? "#4ade80" : "#f87171" }}>{wlMsg.text}</span>}
+                </div>
+              </>)}
+            </>)}
+
+            {/* ── MY STATS TAB ── */}
+            {settingsTab === "stats" && (<>
+              {!byokToken && <div style={{ color: "#f87171", fontSize: 11 }}>Enter your subscriber token in the API Keys tab first.</div>}
+              {byokToken && (<>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ color: "#7fb3ff", fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>ADAPTIVE SIGNAL WEIGHTS</div>
+                  <button disabled={statsLoading} onClick={async () => {
+                    setStatsLoading(true);
+                    try {
+                      const r = await fetch(`/stock-api/user/prefs?subscriber_token=${encodeURIComponent(byokToken)}`);
+                      if (r.ok) setStatsData(await r.json());
+                    } catch { /* non-fatal */ }
+                    finally { setStatsLoading(false); }
+                  }} style={{ background: "transparent", border: "1px solid #1c3350", color: "#7fb3ff", borderRadius: 5, padding: "4px 10px", fontSize: 10, cursor: "pointer" }}>
+                    {statsLoading ? "Loading…" : "Refresh"}
+                  </button>
+                </div>
+                <div style={{ color: "#475569", fontSize: 10, lineHeight: 1.5 }}>Weights update automatically as you record trade outcomes. AIEM uses them to up-rank signal types that work for your style.</div>
+                {statsData?.signal_weights && Object.entries(statsData.signal_weights).map(([st, w]) => {
+                  const pct = Math.round(((w.weight - 0.3) / (2.0 - 0.3)) * 100);
+                  const col = w.weight > 1.1 ? "#4ade80" : w.weight < 0.9 ? "#f87171" : "#7fb3ff";
+                  return (
+                    <div key={st} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "#94a3b8", fontSize: 11, textTransform: "capitalize" }}>{st}</span>
+                        <span style={{ color: col, fontSize: 11, fontWeight: 700 }}>
+                          {w.weight.toFixed(2)}
+                          {w.total > 0 && <span style={{ color: "#475569", fontWeight: 400, marginLeft: 6 }}>{w.wins}W/{w.losses}L{w.win_rate !== null ? ` · ${Math.round(w.win_rate * 100)}%` : ""}</span>}
+                        </span>
+                      </div>
+                      <div style={{ background: "#0d1726", borderRadius: 3, height: 4, overflow: "hidden" }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: col, borderRadius: 3, transition: "width 0.3s" }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {!statsData?.signal_weights && <div style={{ color: "#475569", fontSize: 11 }}>No outcome data yet. Record your first win or loss to start the learning loop.</div>}
+                <div style={{ color: "#475569", fontSize: 10, marginTop: 4 }}>Weight range: 0.3 (avoided) → 1.0 (neutral) → 2.0 (preferred). EMA α=0.15 per outcome.</div>
+              </>)}
+            </>)}
+
           </div>
         </div>
       )}

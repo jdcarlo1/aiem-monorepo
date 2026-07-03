@@ -53445,6 +53445,282 @@ def byok_delete_keys():
         return jsonify({"error": f"DB error: {_e}"}), 500
     return jsonify({"ok": True})
 # ─────────────────────────────────────────────────────────────────────────────
+# PUT  /stock-api/user/prefs     — save subscriber preferences
+# GET  /stock-api/user/prefs     — fetch prefs + watchlist + adaptive weights
+# PUT  /stock-api/user/watchlist — replace watchlist tickers (max 100)
+# POST /stock-api/user/outcome   — record signal outcome, update adaptive weights
+# POST /stock-api/user/signal    — score + filter signals per subscriber profile
+
+@app.route("/stock-api/user/prefs", methods=["PUT"])
+def user_prefs_save():
+    import psycopg2 as _bpg
+    body  = request.get_json(silent=True) or {}
+    token = (body.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            if not cur.fetchone():
+                return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    _style      = (body.get("preferred_style") or "momentum").strip()[:40]
+    _holding    = (body.get("holding_time") or "1-3d").strip()[:20]
+    _risk       = (body.get("risk_level") or "moderate").strip()[:20]
+    _min_score  = max(0, min(100, int(body.get("min_score_threshold", 70))))
+    _only_wl    = bool(body.get("only_watchlist", False))
+    _time_filt  = (body.get("time_filter") or "all").strip()[:30]
+    _max_alerts = max(1, min(50, int(body.get("max_alerts_per_day", 10))))
+
+    _valid_styles  = {"momentum","flow","breakout","reversal","mixed","swing","scalp"}
+    _valid_risks   = {"conservative","moderate","aggressive"}
+    _valid_filters = {"all","market_hours_only","premarket_only","after_hours_only"}
+    if _style not in _valid_styles:    _style    = "momentum"
+    if _risk  not in _valid_risks:     _risk     = "moderate"
+    if _time_filt not in _valid_filters: _time_filt = "all"
+
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO subscriber_preferences
+                    (token, preferred_style, holding_time, risk_level,
+                     min_score_threshold, only_watchlist, time_filter, max_alerts_per_day, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                ON CONFLICT (token) DO UPDATE SET
+                    preferred_style     = EXCLUDED.preferred_style,
+                    holding_time        = EXCLUDED.holding_time,
+                    risk_level          = EXCLUDED.risk_level,
+                    min_score_threshold = EXCLUDED.min_score_threshold,
+                    only_watchlist      = EXCLUDED.only_watchlist,
+                    time_filter         = EXCLUDED.time_filter,
+                    max_alerts_per_day  = EXCLUDED.max_alerts_per_day,
+                    updated_at          = NOW()
+            """, (token, _style, _holding, _risk, _min_score, _only_wl, _time_filt, _max_alerts))
+            conn.commit()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/stock-api/user/prefs", methods=["GET"])
+def user_prefs_get():
+    token = (request.args.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    import psycopg2 as _bpg
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            if not cur.fetchone():
+                return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    prefs   = _sub_get_prefs(token)
+    wl      = _sub_get_watchlist(token)
+    weights = _sub_get_weights(token)
+
+    # Augment weights with win/loss stats
+    weight_detail = {}
+    try:
+        import psycopg2 as _bpg2
+        with _bpg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT signal_type, weight, wins, losses FROM subscriber_signal_weights WHERE token=%s",
+                (token,)
+            )
+            for row in cur.fetchall():
+                weight_detail[row[0]] = {
+                    "weight": round(float(row[1]), 3),
+                    "wins": row[2], "losses": row[3],
+                    "total": row[2] + row[3],
+                    "win_rate": round(row[2] / (row[2] + row[3]), 3) if (row[2] + row[3]) > 0 else None,
+                }
+    except Exception:
+        pass
+    # Fill defaults for signal types with no recorded outcomes
+    for st in _SUB_SIGNAL_TYPES:
+        if st not in weight_detail:
+            weight_detail[st] = {"weight": _SUB_DEFAULT_WEIGHT, "wins": 0, "losses": 0, "total": 0, "win_rate": None}
+
+    return jsonify({
+        "preferences": prefs,
+        "watchlist":   wl,
+        "signal_weights": weight_detail,
+    })
+
+
+@app.route("/stock-api/user/watchlist", methods=["PUT"])
+def user_watchlist_save():
+    import psycopg2 as _bpg
+    body  = request.get_json(silent=True) or {}
+    token = (body.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    tickers_raw = body.get("tickers") or []
+    if not isinstance(tickers_raw, list):
+        return jsonify({"error": "tickers must be a list"}), 400
+
+    # Sanitize — uppercase, alpha-only, max 10 chars, max 100 tickers
+    tickers = list({t.upper().strip()[:10] for t in tickers_raw
+                    if isinstance(t, str) and t.strip().isalpha()})[:100]
+
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            if not cur.fetchone():
+                return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+            # Full replace: delete then re-insert
+            cur.execute("DELETE FROM subscriber_watchlist WHERE token=%s", (token,))
+            if tickers:
+                from psycopg2.extras import execute_values as _ev
+                _ev(cur, "INSERT INTO subscriber_watchlist (token, ticker) VALUES %s",
+                    [(token, t) for t in tickers])
+            conn.commit()
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+    return jsonify({"ok": True, "count": len(tickers)})
+
+
+@app.route("/stock-api/user/outcome", methods=["POST"])
+def user_record_outcome():
+    body = request.get_json(silent=True) or {}
+    token       = (body.get("subscriber_token") or "").strip()
+    signal_type = (body.get("signal_type") or "").strip().lower()
+    won_raw     = body.get("won")
+
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+    if signal_type not in _SUB_SIGNAL_TYPES:
+        return jsonify({"error": f"signal_type must be one of: {', '.join(_SUB_SIGNAL_TYPES)}"}), 400
+    if won_raw is None:
+        return jsonify({"error": "won (boolean) required"}), 400
+
+    import psycopg2 as _bpg
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            if not cur.fetchone():
+                return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    _sub_record_outcome(token, signal_type, bool(won_raw))
+    new_weights = _sub_get_weights(token)
+    return jsonify({
+        "ok": True,
+        "signal_type": signal_type,
+        "won": bool(won_raw),
+        "new_weight": round(new_weights.get(signal_type, _SUB_DEFAULT_WEIGHT), 3),
+    })
+
+
+@app.route("/stock-api/user/signal", methods=["POST"])
+def user_score_signals():
+    """
+    Score and filter a list of signals against a subscriber's saved profile.
+    Applies: watchlist gate, min_score gate, regime multiplier, risk multiplier,
+    strategy multiplier, and per-subscriber adaptive signal weights.
+    Body: { subscriber_token, tickers: [...], signals: [{ticker, signal_type, raw_score, momentum, flow, volatility}] }
+    Returns filtered + scored signals with probability and regime label.
+    """
+    import random as _rnd
+    body  = request.get_json(silent=True) or {}
+    token = (body.get("subscriber_token") or "").strip()
+    if not token:
+        return jsonify({"error": "subscriber_token required"}), 400
+
+    import psycopg2 as _bpg
+    try:
+        with _bpg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM sm_subscribers WHERE token=%s AND active=true LIMIT 1", (token,))
+            if not cur.fetchone():
+                return jsonify({"error": "Invalid or inactive subscriber token"}), 403
+    except Exception as _e:
+        return jsonify({"error": f"DB error: {_e}"}), 500
+
+    prefs   = _sub_get_prefs(token)
+    wl      = set(_sub_get_watchlist(token))
+    weights = _sub_get_weights(token)
+
+    raw_signals = body.get("signals") or []
+    if not isinstance(raw_signals, list):
+        return jsonify({"error": "signals must be a list"}), 400
+
+    _RISK_MULT   = {"conservative": 0.90, "moderate": 1.0, "aggressive": 1.05}
+    _STRAT_MULT  = {"momentum": 1.10, "flow": 1.05, "breakout": 1.08,
+                    "reversal": 1.05, "mixed": 1.0, "swing": 1.0, "scalp": 1.0}
+
+    results = []
+    for sig in raw_signals[:200]:
+        ticker = (sig.get("ticker") or "").upper().strip()
+        if not ticker:
+            continue
+        # Watchlist gate
+        if prefs["only_watchlist"] and wl and ticker not in wl:
+            continue
+
+        # Regime detection from provided momentum/flow/volatility fields
+        momentum   = float(sig.get("momentum", 60))
+        flow       = float(sig.get("flow", 60))
+        volatility = float(sig.get("volatility", 60))
+        avg        = (momentum + flow + volatility) / 3.0
+        regime     = "trend" if avg > 70 else ("neutral" if avg > 50 else "chop")
+
+        # Base score from provided raw_score or computed from components
+        base = float(sig.get("raw_score") or (momentum * 0.4 + flow * 0.4 + volatility * 0.2))
+
+        # Strategy multiplier
+        strat_mult = _STRAT_MULT.get(prefs["preferred_style"], 1.0)
+        base *= strat_mult
+
+        # Risk multiplier
+        risk_mult = _RISK_MULT.get(prefs["risk_level"], 1.0)
+        base *= risk_mult
+
+        # Regime multiplier
+        if regime == "trend":
+            base *= 1.10
+        elif regime == "chop":
+            base *= 0.85
+
+        # Adaptive signal weight from subscriber's own win history
+        signal_type = (sig.get("signal_type") or "momentum").lower()
+        base *= weights.get(signal_type, _SUB_DEFAULT_WEIGHT)
+
+        score = min(100, max(0, round(base / 1.2)))
+
+        # Min score gate
+        if score < prefs["min_score_threshold"]:
+            continue
+
+        results.append({
+            "ticker":       ticker,
+            "score":        score,
+            "regime":       regime,
+            "signal_type":  signal_type,
+            "strategy":     prefs["preferred_style"],
+            "risk_level":   prefs["risk_level"],
+            "probability":  round(score / 100.0, 2),
+            "signal":       "bullish" if score > 70 else "neutral",
+            "weight_used":  round(weights.get(signal_type, _SUB_DEFAULT_WEIGHT), 3),
+            "in_watchlist": ticker in wl,
+        })
+
+    # Sort by score desc, cap at max_alerts_per_day
+    results.sort(key=lambda x: -x["score"])
+    cap     = prefs["max_alerts_per_day"]
+    capped  = results[:cap]
+
+    return jsonify({
+        "total_matched": len(results),
+        "total_returned": len(capped),
+        "capped_at": cap,
+        "signals": capped,
+    })
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":
