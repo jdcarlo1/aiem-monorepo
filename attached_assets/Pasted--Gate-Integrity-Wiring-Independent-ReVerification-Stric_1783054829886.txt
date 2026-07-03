@@ -1,0 +1,84 @@
+# Gate-Integrity Wiring — Independent ReVerification (Strict)
+
+**Purpose:** items 4, 6, and part of 7 had raw evidence shown (HTTP codes, adversarial review, startup logs). Items 1, 2, 3, and 5 were marked complete but we never saw the actual proof for those specific ones. This file re-verifies all 7 independently, with raw evidence required for each — no summaries, no "trust the checkmark."
+
+Run each item's verification prompt separately. Do not let the agent batch them into one summary response — request raw output per item.
+
+---
+
+## Item 1 — resolve_prediction() wired into grading pipeline [BEHAVIORAL]
+
+**Prompt:**
+Show me the exact current code where resolve_prediction() is called — file and line number, and the surrounding function that calls it.
+Then run a real behavioral test: insert a test row into aiem_ml_predictions with outcome IS NULL. Manually trigger the grading job that's supposed to call resolve_prediction(). Query the test row back. Show raw output. Clean up the test row after.
+
+**Pass condition:** raw output shows the call site with file/line, AND the test row's outcome gets populated after the job runs — not NULL.
+
+---
+
+## Item 2 — Regime multipliers actually applied in premarket_open_trader.py [BEHAVIORAL]
+
+**Prompt:**
+Show me the exact current code in premarket_open_trader.py where position_size_multiplier and confidence_multiplier are read from the regime result AND used in the sizing calculation — file and line number.
+Then run a behavioral test: simulate two different regime states (e.g. multiplier=1.0 vs multiplier=0.5) and run the sizing calculation for the same base trade under each. Print raw position sizes for both.
+
+**Pass condition:** code shows the multiplier variable actually used downstream (not just captured and dropped), AND raw output shows position sizes differ proportionally between the two regime states.
+
+---
+
+## Item 3 — regime_monitor_flags wired into combine_regime_votes() + 4:55 PM scheduler job [BEHAVIORAL]
+
+**Prompt:**
+Show me:
+1. The exact scheduler registration for the new 4:55 PM job — file/line, and confirm it's actually registered (not just defined).
+2. The exact call site where combine_regime_votes() is called and confirm regime_monitor_flags is passed as an argument — file/line, showing the actual function call with the parameter present.
+
+Then run a behavioral test: manually trigger the 4:55 PM job. Query regime_flags table raw output — confirm a new row was inserted with a fresh timestamp. Then call combine_regime_votes() and print raw output showing regime_monitor_flags was non-empty and factored into the vote.
+
+**Pass condition:** scheduler registration confirmed, regime_flags gets a real new row when triggered, and the vote output demonstrably includes the flags (not silently ignored despite being passed).
+
+---
+
+## Item 4 — RE-CONFIRM: _run_five_layer_conviction uses adj_total [RAW CHECK — quick re-check only]
+
+This one already had a full adversarial review. Just re-confirm it's still true: grep for adj_total usage in _run_five_layer_conviction right now. Show raw line(s). Confirm it's still being used for label/sort as previously verified — no regressions since the July 3 session.
+
+---
+
+## Item 5 — Shadow learning cycle: 30-sample gate, promote=False hardcoded [BEHAVIORAL + RAW CHECK]
+
+**Prompt:**
+Show me the exact current code for the shadow learning job:
+1. Where is the 30-sample threshold enforced — file/line, exact conditional logic.
+2. Where is propose_update() called, and confirm promote=False is hardcoded (not a variable that could be flipped) — file/line, exact call.
+3. Confirm the Sunday 8:30 PM scheduler registration exists and is active.
+
+Then: query aiem_conviction_eval_log graded row count right now. If it's under 30, confirm (by reading the code, since we can't trigger a real run yet) that the gate would correctly skip and log an "insufficient data" entry rather than silently doing nothing or erroring.
+
+**Pass condition:** 30-sample gate confirmed in code with exact line reference, promote=False confirmed hardcoded not variable, scheduler confirmed registered, and the skip-path behavior confirmed correct even though it can't fire live yet.
+
+---
+
+## Item 6 — RE-CONFIRM: Admin endpoints behind ADMIN_TOKEN [RAW CHECK — quick re-check only]
+
+Already had raw HTTP evidence (200/403/404). Just re-confirm still true: Hit GET /stock-api/admin/learning-proposals with valid and invalid tokens again, right now. Show raw codes. Confirm still 200/403 as before.
+
+---
+
+## Item 7 — Broader eval log: daily 4:35 PM job, 100 tickers, no 8-point floor [BEHAVIORAL]
+
+Show me:
+1. The exact scheduler registration for the 4:35 PM job — file/line.
+2. The exact code confirming no minimum-score floor is applied before a ticker gets logged (i.e. show where the old 8-point gate would have been, and confirm it's absent from this path) — file/line.
+
+Then: query aiem_conviction_eval_log right now for today's date. Show raw row count and a sample of 5 raw rows, including their scores — confirm low-scoring tickers (under 8 points) are actually present, not filtered out.
+
+**Pass condition:** scheduler confirmed registered, code confirms no floor, AND raw data shows at least some sub-8 scores actually logged (not just claimed).
+
+---
+
+## After running all seven
+
+Build a table: Item | Pass/Fail | What raw evidence confirmed it. Any item that comes back without real raw evidence — a description instead of actual query/HTTP output — should be treated as NOT verified, and re-run more specifically until real evidence is produced.
+
+If any item fails, that item goes back to "needs fixing," not "needs a better description of why it's actually fine."
