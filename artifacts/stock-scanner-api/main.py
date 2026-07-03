@@ -14107,7 +14107,7 @@ def _get_dark_pool_convergence(tickers: list) -> dict:
                         "off_exchange_pct": round(d2["sv"] / tv * 100, 1),
                         "volume": tv,
                     }
-                    if result[ticker]["off_exchange_pct"] >= 45:
+                    if result[ticker]["off_exchange_pct"] >= 40:
                         try:
                             import decision_logging_helper as _dlh_dp
                             _dlh_dp.log_dark_pool_decision(

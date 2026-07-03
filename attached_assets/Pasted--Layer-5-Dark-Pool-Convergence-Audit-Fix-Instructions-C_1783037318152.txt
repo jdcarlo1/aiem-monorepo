@@ -1,0 +1,70 @@
+# Layer 5 (Dark Pool Convergence) — Audit & Fix Instructions
+
+## Context
+
+L4 (Short Interest) is now VERIFIED A–E: logging function built, wired in,
+confidence mapped from existing `pts` tiers (no invented coefficient),
+verified with exact row-count delta and zero exceptions.
+
+L5 is next. Unlike L4 — which had no logging function at all — L5 already
+has a confidence formula on record: `off_exchange_pct * 0.006`. That
+formula was flagged earlier as part of the same class of issue as L4's
+rejected "Option B": an ad hoc coefficient with no validation source. Before
+writing any code, find out whether it's actually live or dead.
+
+## Instructions
+
+1. **Trace the L5 scoring path end to end.** Find `_get_dark_pool_signals()`
+   (or the actual L5 equivalent function name) and trace it exactly like the
+   L3/L4 traces:
+   ```
+   function → function → INSERT INTO table
+   ```
+   Confirm whether it already calls into `decision_logging_helper.py`, or
+   whether — like L4 before the fix — it scores silently with no logging
+   wired in at all.
+
+2. **Determine whether `off_exchange_pct * 0.006` is real or dead code.**
+   - Where does this formula currently live in the codebase?
+   - Is it wired into any logging/persistence path, or does it just exist
+     in scoring logic with nowhere to go?
+   - Is it referenced anywhere downstream (grep the codebase), or is it in
+     the same position `aiem_trade_decisions` was during the L3
+     misdiagnosis — present but disconnected, doing nothing?
+
+3. **If a new `log_dark_pool_decision()` function is needed**, build it
+   following the exact pattern of `log_short_interest_decision()`:
+   - No bare `except Exception: pass` — log the exception properly
+   - Writes through `dl.log_decision(signal_name="dark_pool_convergence", ...)`
+   - Target table: `agent_decisions` (same as L1–L4, no new table)
+
+4. **Do not port `off_exchange_pct * 0.006` over as-is.** Check whether
+   there's an existing tier/threshold structure for dark pool convergence
+   the same way L4 had `pts` tiers already spec'd in code.
+   - If a tier structure already exists → map confidence from that
+     (same approach as L4's Option A: no invented coefficient).
+   - If nothing exists → do not invent a new coefficient. Bring back the
+     same two-option choice given for L4 (a spec-traceable option vs. a
+     stylistic-convention option with an unvalidated number) and wait for
+     a decision before implementing.
+
+5. **Verify with the same before/after test used for L4:**
+   - Row count for the L5 signal name in `agent_decisions`, before and
+     after a fixed batch
+   - Confirm the delta matches the batch size exactly
+   - Confirm zero exceptions during the test run
+     (`grep -n "except Exception:" decision_logging_helper.py` → 0 matches)
+   - Pull the 5 newest rows with real timestamps as proof
+
+## Reporting requirement
+
+Report back with:
+- The full call trace (`function → function → INSERT INTO agent_decisions`)
+- The finding on `off_exchange_pct * 0.006` — real/live or dead code, and
+  where it lives
+- If applicable, the two-option confidence choice (do not decide this
+  unilaterally — same as L4)
+
+Do not implement anything until the trace and confidence-formula finding
+are reported back. Do not mark L5 verified on code review alone — needs the
+same raw, live-output proof required for L1–L4.

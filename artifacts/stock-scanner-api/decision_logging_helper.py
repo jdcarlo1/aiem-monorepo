@@ -68,15 +68,25 @@ def log_charm_decision(ticker: str, strike: float, expiry: str,
 
 
 def log_dark_pool_decision(ticker: str, off_exchange_pct: float, volume: int):
-    """Log a dark pool convergence signal fire to agent_decisions."""
+    """Log a dark pool convergence signal fire to agent_decisions.
+
+    Confidence is mapped directly from the existing pts tier spec in main.py —
+    no invented coefficient:
+      dp_pct>=60% (pts=2.0) -> 0.85
+      dp_pct>=50% (pts=1.5) -> 0.72
+      dp_pct>=40% (pts=1.0) -> 0.60
+    """
     try:
+        pts = 2.0 if off_exchange_pct >= 60 else 1.5 if off_exchange_pct >= 50 else 1.0
+        _CONFIDENCE_MAP = {2.0: 0.85, 1.5: 0.72, 1.0: 0.60}
+        confidence = _CONFIDENCE_MAP.get(pts, 0.60)
         reasoning = (
             f"Dark pool scanner flagged {ticker}: {off_exchange_pct:.1f}% of "
-            f"{volume:,} shares traded were routed off-exchange (FINRA Reg SHO data), "
-            f"above the 45% institutional accumulation threshold. "
+            f"{volume:,} shares traded were routed off-exchange (FINRA Reg SHO data). "
             f"Institutions routing block orders through dark pools to avoid market "
             f"impact on lit exchanges — consistent with stealth accumulation "
-            f"ahead of a directional move."
+            f"ahead of a directional move. "
+            f"Layer 5 conviction tier: {pts:.1f} pts."
         )
         dl.log_decision(
             signal_name="dark_pool_scanner",
@@ -84,7 +94,7 @@ def log_dark_pool_decision(ticker: str, off_exchange_pct: float, volume: int):
             reasoning=reasoning,
             ticker=ticker,
             direction="long",
-            confidence=round(min(0.85, 0.40 + off_exchange_pct * 0.006), 2),
+            confidence=confidence,
         )
     except Exception as _exc:
         print(f"[log_dark_pool_decision] {type(_exc).__name__}: {_exc}")
