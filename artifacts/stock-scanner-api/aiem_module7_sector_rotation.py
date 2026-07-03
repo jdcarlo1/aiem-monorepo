@@ -310,7 +310,8 @@ def _compute_60d_stdev(rows: list) -> dict:
     for tkr, vals in series.items():
         try:
             stdev[tkr] = statistics.stdev(vals) if len(vals) >= 5 else None
-        except Exception:
+        except Exception as _stdev_exc:
+            print(f"[silent_except:stdev] {type(_stdev_exc).__name__}: {_stdev_exc}")
             stdev[tkr] = None
     return stdev
 

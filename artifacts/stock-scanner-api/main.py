@@ -2784,6 +2784,18 @@ try:
                         )
                 try:
                     _tg_send("\n".join(lines))
+                    try:
+                        import psycopg2 as _pg_m7s2
+                        with _pg_m7s2.connect(os.environ["DATABASE_URL"]) as _c2, \
+                             _c2.cursor() as _cur2:
+                            _cur2.execute("""
+                                UPDATE aiem_sector_alerts_log
+                                SET message_sent = TRUE
+                                WHERE date = %s AND tier >= 2
+                            """, (result.get("run_date"),))
+                            _c2.commit()
+                    except Exception as _ms_exc:
+                        print(f"[module7] message_sent update error: {_ms_exc}")
                 except Exception as _exc:
                     print(f'[silent_except:L2787] {type(_exc).__name__}: {_exc}')
         except Exception as _e:
@@ -14455,6 +14467,40 @@ def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> lis
                     pts=pts,
                 )
 
+    # ── Module 7: Tier-3 Sector Rotation Bonus/Penalty ────────────────────────
+    # When _m7's daily scan has confirmed a Tier-3 heating/cooling sector, apply
+    # a +0.5/-0.5 pt modifier to any ticker already in scores that belongs to
+    # a themed category mapped to that sector via _M7_SECTOR_NAME_TO_THEMES.
+    # Reads only from aiem_sector_rotation (stored by the 5 PM scheduler job).
+    # No live API calls. Design-choice bonus size: ±0.5 pts, flagged for audit.
+    try:
+        if _m7 is not None:
+            import psycopg2 as _pg_m7c
+            with _pg_m7c.connect(os.environ["DATABASE_URL"]) as _m7_conn:
+                _t3_sectors = _m7.get_all_tier3_sectors(_m7_conn)
+            print(f"[L8-m7] Tier-3 sectors fetched: "
+                  f"{[(s['sector_ticker'], s['direction']) for s in _t3_sectors]}")
+        else:
+            _t3_sectors = []
+            print("[L8-m7] _m7 not loaded, skipping Tier-3 weighting")
+    except Exception as _m7_exc:
+        print(f"[L8-m7] get_all_tier3_sectors error: {_m7_exc}")
+        _t3_sectors = []
+    for _t3s in _t3_sectors:
+        _sec_name  = _t3s.get("sector_name", "")
+        _direction = _t3s.get("direction", "")
+        _themes    = _M7_SECTOR_NAME_TO_THEMES.get(_sec_name, [])
+        for _theme in _themes:
+            for _tk in SECTOR_MAP.get(_theme, []):
+                if _tk in scores:
+                    _m7_bonus = 0.5 if _direction == "heating" else -0.5
+                    scores[_tk]["pts"]["m7_sector_rotation"] = max(
+                        -0.5, min(0.5,
+                            scores[_tk]["pts"].get("m7_sector_rotation", 0) + _m7_bonus)
+                    )
+                    scores[_tk]["meta"]["m7_sector"]    = _sec_name
+                    scores[_tk]["meta"]["m7_direction"] = _direction
+
     # ── Layer 10: Fragility & Crowding Index ──────────────────────────────────
     try:
         import decision_logging_helper as _dlh_l10
@@ -14534,6 +14580,24 @@ _TICKER_TO_SECTORS: dict = {}
 for _sec, _tks in SECTOR_MAP.items():
     for _tk in _tks:
         _TICKER_TO_SECTORS.setdefault(_tk, []).append(_sec)
+
+# Module 7 ETF-sector name → SECTOR_MAP theme key(s).
+# Maps GICS-style sector names from aiem_module7_sector_rotation (e.g. "Financials")
+# to the themed scanner categories in SECTOR_MAP above.
+# Only sectors with a clear, non-forced overlap are mapped; international ETFs and
+# sectors with no meaningful stock-universe overlap are left empty.
+# Design choice — not empirically validated, same audit-record flag as L9/L10 thresholds.
+_M7_SECTOR_NAME_TO_THEMES: dict = {
+    "Technology":             ["ai_infrastructure"],
+    "Semiconductors":         ["ai_infrastructure"],
+    "Financials":             ["fintech_crypto"],
+    "Healthcare":             ["gene_editing", "biotech_catalyst"],
+    "Consumer Discretionary": ["meme_squeeze"],
+    "Communication Services": ["ai_infrastructure"],
+    "Energy":                 ["clean_energy"],
+    # Real Estate, Materials, Utilities, Industrials, Consumer Staples,
+    # and international ETFs have no reliable SECTOR_MAP counterpart.
+}
 
 
 def _get_float_pressure_signals(tickers: list) -> dict:

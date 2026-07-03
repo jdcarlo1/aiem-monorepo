@@ -1,0 +1,106 @@
+# Module7 / AIEM — Open Fixes & Verification Requirements
+
+Fix the six items below. For each one, do not mark it complete until you provide
+the raw evidence specified — terminal output, diffs, or query results. **No
+summaries in place of evidence.**
+
+---
+
+## 1. Conviction-weighting integration (CRITICAL — do this first)
+
+Build the missing wiring: `_run_five_layer_conviction()` must call
+`get_all_tier3_sectors()` and use the result to up-weight tickers in heating
+Tier 3 sectors and down-weight tickers in cooling Tier 3 sectors, per the call
+trace already spec'd out (L8 sector heat layer).
+
+**Verification required:**
+- Full diff of the changed function(s)
+- A live run showing `get_all_tier3_sectors()` actually being called (add a
+  print/log line if needed, show it firing)
+- A before/after conviction score for at least one ticker in a confirmed Tier
+  3 heating sector (XLF/Financials, since it's live in the data now), proving
+  the score changed because of the sector signal
+- Confirm no other scoring path bypasses this new wiring
+
+---
+
+## 2. `message_sent` never updates
+
+Add the `UPDATE aiem_sector_alerts_log SET message_sent=TRUE WHERE ...` call
+immediately after a successful `_tg_send()`.
+
+**Verification required:**
+- Diff of the change
+- A live run that sends a real alert, followed by a raw SQL query
+  (`SELECT * FROM aiem_sector_alerts_log ORDER BY id DESC LIMIT 5`) showing
+  `message_sent=TRUE` on the new row
+
+---
+
+## 3. No UNIQUE constraint → duplicate alert rows
+
+Add a UNIQUE constraint on `(date, sector_ticker)` in
+`aiem_sector_alerts_log`, then make sure `ON CONFLICT DO NOTHING` actually
+has something to conflict on.
+
+**Verification required:**
+- The migration/DDL statement run
+- Raw output of `\d aiem_sector_alerts_log` (or equivalent) showing the
+  constraint exists
+- Run the module twice in a row and show via query that no duplicate
+  `(date, sector_ticker)` rows were created the second time
+
+---
+
+## 4. Bare `except Exception` at line 313
+
+Add a `print()` statement inside the handler, matching the house rule already
+enforced elsewhere in the codebase (see the line 2787 pattern with
+`[silent_except:...]` prefix).
+
+**Verification required:**
+- Diff of the change
+- Confirm no other bare `except Exception:` blocks without a print exist —
+  full grep of the file for `except Exception:` and `except:` with the
+  handling code shown for each match
+
+---
+
+## 5. Item 8 — Audit the `.bak_silent_except` files
+
+Requires:
+- (a) Confirm what `main.py.bak_silent_except` files are and when they were
+  created (file timestamps, `git log` if tracked)
+- (b) Full diff between each `.bak_silent_except` file and current `main.py`
+- (c) Live grep of current `main.py` for every `except:` /
+  `except Exception: pass` block, with the surrounding handling code shown
+  for each hit — not just a count
+
+**Verification required:** raw grep output and raw diff output, not a
+paraphrase of what they found.
+
+---
+
+## 6. Item 12 — `bucket_id` no-op bug
+
+Confirm `(rn-1)/1` is a no-op (yes/no, with the reasoning). Then:
+- Remove "non-overlapping" language from every location it appears — code
+  comments, docstrings, any user-facing docs or marketing copy
+- Decide and implement one of:
+  - (a) fix to a real H>1 non-overlapping window and re-run the backtest, or
+  - (b) relabel permanently as "plain per-row backtest"
+
+**Verification required:**
+- Grep across the whole repo for "non-overlapping" showing all locations
+  found and confirming each was either fixed or removed
+- If option (a): diff of the new bucketing logic, plus the new backtest
+  results with n= sample size
+- If option (b): confirm every relabeled location, listed explicitly
+
+---
+
+## Closing instruction
+
+Do not report any of these as done until the verification artifact is
+attached. If a verification step can't be produced, say so explicitly rather
+than asserting completion.
