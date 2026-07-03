@@ -1109,6 +1109,111 @@ import threading as _thr_bso
 _thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
 _DEFERRED_INITS.append(lambda: init_sms_log_table())
 
+# ── Microcap/small-cap call outcome tracking ─────────────────────────────────
+# Stores price_1d/3d/5d and ret_1d/3d/5d on unusual_calls_microcap_log so we
+# can backtest parameter changes months from now. No new tab — DB only.
+
+def _init_microcap_outcome_columns():
+    """Add outcome columns to unusual_calls_microcap_log (idempotent)."""
+    import psycopg2 as _mco_pg2
+    try:
+        with _mco_pg2.connect(_DB_URL) as _mco_conn, _mco_conn.cursor() as _mco_cur:
+            for _col_def in [
+                "price_1d DOUBLE PRECISION",
+                "price_3d DOUBLE PRECISION",
+                "price_5d DOUBLE PRECISION",
+                "ret_1d DOUBLE PRECISION",
+                "ret_3d DOUBLE PRECISION",
+                "ret_5d DOUBLE PRECISION",
+                "outcome_graded_at TIMESTAMPTZ",
+            ]:
+                _mco_cur.execute(
+                    f"ALTER TABLE unusual_calls_microcap_log "
+                    f"ADD COLUMN IF NOT EXISTS {_col_def}"
+                )
+            _mco_conn.commit()
+        print("[microcap_outcomes] outcome columns ready")
+    except Exception as _mco_e:
+        print(f"[microcap_outcomes] init error: {_mco_e}")
+
+_DEFERRED_INITS.append(_init_microcap_outcome_columns)
+
+
+def _grade_microcap_outcomes():
+    """
+    For every row in unusual_calls_microcap_log fill in the closing price
+    1, 3, and 5 TRADING days after first_seen using polygon_market_daily.
+    Only touches NULL columns whose day has already passed.
+    Runs at startup (backfill) and daily at 4:45 PM ET.
+    """
+    import psycopg2 as _mco_pg2
+    import datetime as _mco_dt
+    try:
+        with _mco_pg2.connect(_DB_URL) as _mco_conn, _mco_conn.cursor() as _mco_cur:
+            _mco_cur.execute("""
+                SELECT id, ticker,
+                       price::float,
+                       (first_seen AT TIME ZONE 'UTC'
+                                   AT TIME ZONE 'America/New_York')::date
+                FROM unusual_calls_microcap_log
+                WHERE price IS NOT NULL
+                  AND (price_1d IS NULL OR price_3d IS NULL OR price_5d IS NULL)
+                ORDER BY first_seen ASC
+            """)
+            _pending = _mco_cur.fetchall()
+            if not _pending:
+                print("[microcap_outcomes] nothing to grade")
+                return
+            _graded = 0
+            for _row_id, _ticker, _entry, _sig_date in _pending:
+                # Fetch up to 10 trading days after the signal date for this ticker
+                _mco_cur.execute("""
+                    SELECT scan_date, close_price
+                    FROM polygon_market_daily
+                    WHERE ticker = %s AND scan_date > %s
+                    ORDER BY scan_date ASC
+                    LIMIT 10
+                """, (_ticker, _sig_date))
+                _tdays = _mco_cur.fetchall()
+                if not _tdays:
+                    continue
+
+                def _nth(_n):
+                    return float(_tdays[_n - 1][1]) if len(_tdays) >= _n else None
+
+                def _ret(_close):
+                    if _close is not None and _entry and _entry > 0:
+                        return round((_close - _entry) / _entry * 100, 4)
+                    return None
+
+                _c1, _c3, _c5 = _nth(1), _nth(3), _nth(5)
+                _mco_cur.execute("""
+                    UPDATE unusual_calls_microcap_log SET
+                        price_1d = COALESCE(price_1d, %s),
+                        price_3d = COALESCE(price_3d, %s),
+                        price_5d = COALESCE(price_5d, %s),
+                        ret_1d   = COALESCE(ret_1d,   %s),
+                        ret_3d   = COALESCE(ret_3d,   %s),
+                        ret_5d   = COALESCE(ret_5d,   %s),
+                        outcome_graded_at = NOW()
+                    WHERE id = %s
+                """, (_c1, _c3, _c5, _ret(_c1), _ret(_c3), _ret(_c5), _row_id))
+                if _c1 is not None or _c3 is not None or _c5 is not None:
+                    _graded += 1
+            _mco_conn.commit()
+            print(f"[microcap_outcomes] graded {_graded} rows")
+    except Exception as _mco_e:
+        print(f"[microcap_outcomes] grade error: {_mco_e}")
+
+
+def _run_microcap_outcome_backfill():
+    import time as _mco_time
+    _mco_time.sleep(15)  # let deferred inits (ALTER TABLE) finish first
+    _grade_microcap_outcomes()
+
+import threading as _mco_thr
+_mco_thr.Thread(target=_run_microcap_outcome_backfill, daemon=True).start()
+
 # ── BYOK (Bring Your Own Key) — subscribers supply their own OpenAI key ──────
 # Platform owner pays $0 for subscriber research compute.
 # Keys are encrypted at rest with AES-128-CBC (Fernet) using BYOK_MASTER_KEY.
@@ -3027,6 +3132,18 @@ try:
         _run_outcomes_update,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=_ET),
         id="outcomes_update",
+        replace_existing=True,
+    )
+    # Microcap outcome grader: Mon-Fri 4:45 PM ET - fill price_1d/3d/5d on microcap call log
+    def _run_microcap_grade():
+        try:
+            _grade_microcap_outcomes()
+        except Exception as _e:
+            print(f"[scheduler] microcap_outcomes error: {_e}")
+    _scheduler.add_job(
+        _run_microcap_grade,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=_ET),
+        id="microcap_outcomes_grade",
         replace_existing=True,
     )
     # Signal snapshot: Mon-Fri 4:00 PM ET - snapshot today's signals for multi-day persistence tracking
