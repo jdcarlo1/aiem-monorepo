@@ -1,0 +1,64 @@
+# StockScanner AI / AIEM — Lookahead & Point-in-Time Audit
+**Date of audit:** 2026-07-03
+**Source reviewed:** `stockscanner-allcode.txt` (uploaded 2026-07-03 — a snapshot, may predate recent changes)
+**Status: NEEDS RE-VERIFICATION AGAINST CURRENT REPLIT CODE.** Joel has made changes in the last week that this snapshot may not reflect. Nothing below should be treated as still-broken until confirmed against the live repo. Treat this as "as of the file I was given," not "as of today's actual system."
+
+---
+
+## ✅ CONFIRMED WORKING (verified against this snapshot)
+
+1. **`point_in_time_guard.py` is genuinely wired in, not orphaned.**
+   - Imported in `main.py` at the module load block (`import point_in_time_guard as _pit_guard`), inside the "AIEM specialist modules" try block, logged as one of the 9 specialist modules on successful load.
+   - `snapshot_daily_fundamentals()` is called from a real scheduled job (`_run_daily_fundamentals_snapshot`, runs 4:45 PM ET) that pulls tickers from `conviction_stack_watchlist` and `aiem_paper_trades`, and writes to `daily_fundamentals_snapshot`.
+   - **Re-verify:** confirm this job still fires on schedule and the table is actually accumulating rows (`SELECT COUNT(*), MAX(snapshot_date) FROM daily_fundamentals_snapshot;`).
+
+2. **Split/dividend adjustment leak is NOT present in the backtest suite.**
+   - Every `backtest_*.py` file checked calls `yf.download(..., auto_adjust=False)` consistently. This is the specific leak `point_in_time_guard.py`'s docstring warns about, and it's independently avoided in every backtest script even without importing the guard module.
+   - **Re-verify:** spot check any *new* backtest files added in the last week for the same pattern — this is an easy thing for a new script to regress on.
+
+3. **Gap-signal timing avoids same-bar lookahead.**
+   - `backtest_quant_vs_v2.py` stores `open[t]` alongside `close[t-1]` with an explicit comment: "signal fires at market open — no lookahead into same-day close." Correct pattern.
+
+---
+
+## ❌ CONFIRMED ISSUE (needs your verification — may already be fixed)
+
+### Survivorship / selection bias in universe construction — 9 backtest files
+
+**The problem:** These files call `fetch_finviz_universe()`, which hits Finviz's screener **live, right now**, to build the ticker universe — then backtest that universe against a **historical** date range (e.g. `start="2026-04-01", end="2026-06-21"`). This means the backtest only ever tests tickers that *currently* pass today's nano-cap/float/price/volume filters. Any ticker that got delisted, reverse-split, or moved outside that filter range during the test window is silently excluded. This inflates win rate/Sharpe by an unknown amount — the classic "backtest looks great, live account doesn't" failure mode.
+
+**Files affected (as of this snapshot):**
+- `backtest_combo60.py`
+- `backtest_deeper.py`
+- `backtest_falsenegatives.py`
+- `backtest_highfactor.py`
+- `backtest_losers.py`
+- `backtest_newrates.py`
+- `backtest_quant_vs_v2.py`
+- `backtest_rescued.py`
+- `backtest_tiers.py`
+
+**What "fixed" looks like:** universe is reconstructed *as of each historical date* using point-in-time float/price/volume (ideally via `point_in_time_guard.py` / the new `daily_fundamentals_snapshot` table now that it's accumulating history), not today's Finviz snapshot applied backward.
+
+**How to re-verify with Replit Agent — ask for raw output, not a summary:**
+```bash
+grep -rn "fetch_finviz_universe" *.py
+```
+For each hit, confirm the universe-building call is scoped to a historical `as_of_date` (or reads from `daily_fundamentals_snapshot` filtered to dates <= the backtest window), not a live `requests.get("https://finviz.com/screener.ashx...")` call applied to a past date range. If Agent claims it's fixed, ask it to paste the actual current function body — not a description of the fix.
+
+---
+
+## ⚠️ NOT YET AUDITED (separate passes needed)
+
+These weren't touched in this session — don't assume they're clean just because the lookahead thread came back mostly good:
+- HMAC-SHA256 provenance signature verification (does a recomputed signature actually match what's stored, or is signing decorative?)
+- Whether the 9-layer conviction stack's individual layer scores are computed from real inputs at scoring time vs. ever hand-set/defaulted
+- Bonferroni correction enforcement in `hypothesis_registry.py` — is it actually applied before a hypothesis is promoted, or just tracked?
+- Live paper-trading fill reconciliation against real market data/timestamps
+- Exit logic / slippage model realism (`execution_simulator.py`, `slippage_model.py`)
+- `smart_money.py`, `layer9_statistical_edge.py`, and the conviction-stack aggregation code specifically for lookahead (same audit type as today, different files)
+
+---
+
+## Bottom line
+Before this backs a paid subscription: confirm the 9-file universe-selection fix with raw grep/query output (not Agent's word), then run the same lookahead audit on the not-yet-audited list above. A clean lookahead audit is necessary but not sufficient — you still need a forward, out-of-sample paper/live track record over a real sample size before anyone pays for signals off this.
