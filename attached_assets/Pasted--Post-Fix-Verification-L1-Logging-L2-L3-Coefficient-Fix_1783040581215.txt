@@ -1,0 +1,63 @@
+# Post-Fix Verification — L1 Logging + L2/L3 Coefficient Fix
+
+The four simultaneous changes (L1 logging function, L1 wiring, L2 fix, L3 fix) are done. Before this is marked closed, prove all of the following with raw terminal output — no summaries, no "should work."
+
+## 1. Confirm the OLD formulas are dead everywhere, not just in the scoring loop
+
+Both `fir*0.08` and `min(charm_score,200)*0.002` were introduced in commit `68df0bd` with no spec doc. Before trusting the new Option A tiers are the only path, grep the entire codebase for every place the old formulas could still be alive:
+
+```bash
+grep -rn "fir\*0.08\|fir \* 0.08" --include="*.py" .
+grep -rn "min(charm_score" --include="*.py" .
+grep -rn "min(cs," --include="*.py" .
+```
+
+Report exact match count and file:line for each. If anything beyond the two files you just edited still references the old formulas (paper-trading module, cached scoring functions, any duplicate/legacy scoring path, the AIEM engine, precomputed confidence used in alerts/Telegram), list it explicitly — do not assume the fix is isolated to one call site.
+
+## 2. Confirm new Option A tiers are wired correctly, boundary by boundary
+
+For L2 (`fir`) and L3 (`charm_score`), print the new tier logic exactly as it appears in the file (not paraphrased) and confirm each boundary value against the table already agreed:
+
+**L2 fir tiers:** 5.0→2.0/0.85, 3.0→1.5/0.72, 1.2→1.0/0.60 (or whatever the final Option A boundaries are — state them explicitly, don't assume they match L7's numbers since fir has a different scale).
+
+**L3 charm_score tiers:** must NOT contain a `min(x, 200)` cap. Confirm the cap is gone from the new code (paste the exact line).
+
+## 3. Live before/after proof at every tier boundary
+
+Same format as the L7 verification: run the scoring function against real or synthetic rows sitting exactly at each boundary and one point below/above it. Show:
+
+```
+[ticker/row]  input_value=X.X  pts=X.X  conf=X.XX  ← boundary
+```
+
+for every tier edge in both L2 and L3 — top, middle, and floor.
+
+## 4. Stale data check — this is the part most likely to get skipped
+
+The old formulas were live in production before this fix. Any confidence values written to `agent_decisions` (or wherever L2/L3 scores are persisted) *before* this fix are now wrong relative to the new formula — including the flattened-to-0.80 L3 bug.
+
+```sql
+SELECT COUNT(*) FROM agent_decisions
+WHERE signal_name IN ('gamma_fir', 'charm')  -- adjust to actual signal_name values
+AND created_at < '<timestamp of this fix>';
+```
+
+Report the row count. State explicitly whether these stale rows will be:
+- left as-is (historical record, not reused for future decisions), or
+- backfilled/recomputed, or
+- flagged/excluded from any downstream conviction aggregation, backtest, or paper-trading logic that reads historical confidence.
+
+Do not silently leave this undecided — pick one and confirm which.
+
+## 5. L1 logging — same evidence bar as L2–L7
+
+- Row count before/after (must match batch size exactly, like the L7 report: `far_otm_sweep rows BEFORE / AFTER`)
+- Clean exception grep (0 matches)
+- 5 newest rows from `agent_decisions` with `signal_name='oi_build'`
+- Confirm the log call sits inside the same `for row in oi_sigs` loop as the scoring — paste the exact code block showing scoring and logging in the same iteration, not a separate pass
+
+## 6. Final status table
+
+Update the same Layer/Status/Notes table format used throughout this audit, with L1 now showing VERIFIED A–E (or whatever's actually true) and L2/L3 notes updated to reflect the coefficient fix + stale data disposition.
+
+**Do not mark this closed until items 1 and 4 are answered explicitly — those are the two most likely to be glossed over, and item 4 is a data-integrity question, not a code question.**
