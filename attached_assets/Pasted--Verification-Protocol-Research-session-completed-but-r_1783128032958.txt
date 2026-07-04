@@ -1,0 +1,98 @@
+# Verification Protocol: "Research session completed but returned no findings"
+
+**Purpose:** Determine whether the empty-findings answer from the polling-fallback
+test is expected behavior for that test question, or a second bug masked by the
+polling fix. This is a checklist of commands to run against your own system —
+it has not been run yet. Do not accept a summary; require the raw output for
+every step before closing this out.
+
+**Do not treat any step as passed based on agent narration alone. Paste the raw
+terminal/SQL output for each step.**
+
+---
+
+## Step 1 — Is "no findings" a hardcoded fallback string, or a real LLM output?
+
+```bash
+grep -n "no findings" artifacts/stock-scanner-api/main.py
+```
+
+Record every line number and the surrounding ~10 lines of code for each hit.
+You're checking: is this string returned unconditionally on some code path
+(e.g. an except block, a timeout branch, an empty-tool-results branch), or does
+it only appear when the model itself is asked to answer and genuinely has
+nothing?
+
+- If it's inside an `except` or fallback branch → the empty answer may be
+  swallowing a real error. Go to Step 2.
+- If it's part of a prompt template the LLM fills in → go to Step 3.
+
+## Step 2 — Did the research tools actually get called for this job_id?
+
+Pull the tool-call log / trace for the exact `job_id` from the test
+(`c54fa2aa-3772-4f6e-b4ed-34588ad15e18` in the screenshots, or whatever job_id
+your next run produces):
+
+```sql
+SELECT tool_name, called_at, status, error, result_summary
+FROM <your tool_call / agent_tool_log table>
+WHERE job_id = '<job_id>'
+ORDER BY called_at;
+```
+
+(Substitute your actual table name — likely something tracking AIEM tool
+invocations. If you don't have such a table, that's itself a finding: you have
+no way to verify what the agent actually did during a research session.)
+
+Record the full row set. You're checking whether tools were invoked at all,
+whether they errored silently, and whether they returned empty results
+legitimately (e.g. "What is the current market regime?" during closed market
+hours with no active signals could legitimately return little).
+
+## Step 3 — Reproduce the exact same question outside the kill/poll test
+
+Run the identical question ("What is the current market regime?" or whatever
+you used) through the normal, non-interrupted chat path — no curl timeout, no
+polling fallback involved:
+
+```bash
+curl -N -X POST https://<your-app>/stock-api/aiem/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "<exact same question>"}'
+```
+
+Paste the full raw streamed response. If the uninterrupted path also returns
+"no findings" for the same question, the empty answer is very likely a
+legitimate outcome of the question/data state at that moment — not something
+caused by the polling fallback. If the uninterrupted path returns real
+findings, the polling-fallback code path itself is dropping or truncating
+something the streaming path preserves — that's a distinct bug from the one
+already fixed.
+
+## Step 4 — Check what data was actually available at test time
+
+If Step 2/3 point to "tools ran, found nothing" being genuine, confirm there
+was actually nothing to find — e.g. query whatever table AIEM's research tools
+pull from (options flow, signals, etc.) for the relevant timestamp:
+
+```sql
+SELECT COUNT(*) FROM <relevant signals/flow table>
+WHERE created_at BETWEEN '<test start>' AND '<test end>';
+```
+
+If that count is 0, "no findings" was correct. If it's nonzero, the research
+tools aren't finding data that exists — that's the bug.
+
+---
+
+## Verdict template (fill in after running the above)
+
+- [ ] Step 1 result:
+- [ ] Step 2 result:
+- [ ] Step 3 result:
+- [ ] Step 4 result:
+- **Conclusion:** Expected behavior / Masked bug / Inconclusive — needs more data
+
+Do not mark this resolved without pasting the raw output for at least Steps 1
+and 3, since those two alone will usually tell you whether this is a real
+finding or an artifact of the fallback path.

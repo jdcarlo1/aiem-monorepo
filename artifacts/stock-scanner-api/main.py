@@ -29438,6 +29438,52 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 "content": result_str,
             })
 
+    # Forced final text-generation pass when max_iterations was exhausted without text.
+    # Happens when the LLM calls tools on every iteration without taking a text turn.
+    if not _last_text and messages and messages[-1].get("role") == "tool":
+        print(f"[aiem_24h:{session_name}] forcing final text pass (loop exhausted without text)")
+        for _fp_attempt in range(2):
+            try:
+                if on_token is not None:
+                    _fp_stm = _oai.chat.completions.create(
+                        model=_model_tier,
+                        messages=messages,
+                        tools=_fs_schema,
+                        tool_choice="none",
+                        max_completion_tokens=2000,
+                        stream=True,
+                    )
+                    _fp_content = ""
+                    for _fp_ck in _fp_stm:
+                        if not _fp_ck.choices:
+                            continue
+                        _fp_cd = _fp_ck.choices[0].delta
+                        if _fp_cd.content:
+                            _fp_content += _fp_cd.content
+                            try:
+                                on_token(_fp_cd.content)
+                            except Exception:
+                                pass
+                    if _fp_content:
+                        _last_text = _fp_content
+                else:
+                    _fp_resp = _oai.chat.completions.create(
+                        model=_model_tier,
+                        messages=messages,
+                        tools=_fs_schema,
+                        tool_choice="none",
+                        max_completion_tokens=2000,
+                    )
+                    _fp_content = (_fp_resp.choices[0].message.content or "")
+                    if _fp_content:
+                        _last_text = _fp_content
+                break
+            except Exception as _fp_e:
+                print(f"[aiem_24h:{session_name}] forced final pass error: {_fp_e}")
+                if _fp_attempt == 1:
+                    break
+                _fst.sleep(1.0)
+
     print(f"[aiem_24h:{session_name}] complete ({_i+1} iters, {len(trace)} tool calls, {round(_fst.time()-_t_session_start,1)}s total)")
     return _last_text, trace, None, _last_openai_id
 
