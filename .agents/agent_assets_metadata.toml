@@ -204,3 +204,9 @@ id = "d7ZvDYY5I17yP0LN6qIOH"
 uri = "file://stockscanner_backend.zip"
 type = "unspecified"
 title = "Backend — Python API, AIEM engine, Telegram bot"
+
+[[outputs]]
+id = "A8hZXV-uHNGFYBgvat2-o"
+uri = "file://stockscanner_full_export.zip"
+type = "unspecified"
+title = "StockScanner AI + AIEM — Full Source Export"
