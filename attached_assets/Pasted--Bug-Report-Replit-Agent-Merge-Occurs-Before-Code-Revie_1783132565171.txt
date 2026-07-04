@@ -1,0 +1,61 @@
+# Bug Report — Replit Agent: Merge Occurs Before Code Reviewer Verdict Is Returned
+
+## Summary
+
+`mark_task_complete` triggers a commit/merge on its first call, before the code reviewer's verdict is returned and regardless of what that verdict is. The reviewer's REJECTED verdict currently functions as an after-the-fact report, not a gate. This means code can land in the main branch even when review would have blocked it, with no mechanism to prevent or undo the merge based on the review outcome.
+
+## Environment
+
+- Product: Replit Agent
+- Affected mechanism: `mark_task_complete` tool, in conjunction with the automated code reviewer step
+- Task at time of incident: commit `8636a28`
+
+## Steps to reproduce
+
+1. Submit a task where the eventual diff will include changes outside the task's stated scope (in this case, the diff touched backend, frontend, workflow, and asset/memory files beyond what the task required).
+2. Let the agent call `mark_task_complete` to signal the task is finished.
+3. Independently, the automated code reviewer evaluates the diff and returns `VERDICT: REJECTED`.
+4. Call `mark_task_complete` a second time.
+
+## Actual behavior
+
+- The first `mark_task_complete` call auto-committed and merged the changes into the branch at commit `8636a28`.
+- The reviewer's verdict, `REJECTED`, was returned separately and arrived after the merge had already happened.
+- The second `mark_task_complete` call returned:
+  ```
+  FAILED_PRECONDITION: cannot report done from state MERGED
+  ```
+  This confirms the platform's own state machine considered the task already merged — proving the merge occurred prior to, or independent of, the reviewer's verdict being available.
+
+## Expected behavior
+
+- The reviewer's verdict should be evaluated before any commit/merge action is taken.
+- If the verdict is `REJECTED`, no commit should be created, and `mark_task_complete` should return a failure state describing the rejection reasons rather than silently merging first and reporting review results afterward.
+- If a reviewer run is in flight when `mark_task_complete` is called, the call should block/queue for the verdict rather than proceeding immediately.
+
+## Evidence in hand
+
+- Raw reviewer output (verbatim), verdict: `REJECTED`, citing scope violation and a task-requirement mismatch.
+- Two raw `mark_task_complete` responses from the same session:
+  1. First call: triggered merge, no blocking behavior tied to reviewer outcome.
+  2. Second call: `FAILED_PRECONDITION: cannot report done from state MERGED` — proving state was already `MERGED` before or independent of the reviewer verdict being incorporated.
+- Commit hash for the affected merge: `8636a28`.
+
+## Impact
+
+- Code review currently has no enforcement power over what lands in the repository. Any bug or scope violation the reviewer catches has already shipped by the time its verdict is visible.
+- This was discovered incidentally during an unrelated verification audit; it is not something a user would normally think to check for, since the reviewer's rejection message reads as though it should have blocked the merge.
+- Any team relying on the reviewer step as a safety gate (rather than a post-hoc report) is currently exposed to this gap without realizing it.
+
+## Requested fix
+
+Reorder the pipeline so that:
+1. The reviewer verdict is obtained and evaluated first.
+2. Commit/merge only proceeds on `APPROVED`.
+3. `REJECTED` (or reviewer timeout/error) blocks the merge and surfaces the failure to the calling agent, with no partial or provisional commit created.
+
+## Suggested verification Replit can use to confirm the fix
+
+- Positive control: an approved task should merge, with commit timestamp after verdict timestamp.
+- Negative control: a deliberately non-compliant task should be rejected, and `git log` on the target branch should show no new commit for that attempt.
+- Reviewer timeout/crash case: should block, not silently pass.
