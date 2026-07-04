@@ -1,0 +1,99 @@
+# Verification Task: Complexity-6 Path + Concurrent Key Scoping
+
+Context: A prior test proved the BYOK subscriber key is used correctly when a question
+hits `_classify_question_complexity() == 4` (e.g. "What is the VIX level today?").
+That test is NOT sufficient — it only covers one branch. This task closes the two
+remaining gaps using the SAME proof method already used (file-write, not print/log).
+
+Do not summarize or describe results in prose only. Every claim below must be backed
+by raw terminal output, SQL output, or file contents pasted verbatim.
+
+---
+
+## Part A — Prove the complexity-6 path uses the subscriber's BYOK key
+
+### Step 1: Find a question that returns 6, not 4
+Run this exact command and paste the raw output:
+```
+grep -n "_classify_question_complexity\|_ANALYTICAL\|return 6\|return 4" artifacts/stock-scanner-api/main.py | head -60
+```
+From the actual source (not memory), pick a real question string that:
+- Does NOT match the `simple` keyword list ("what is", "define", "explain", "how does")
+- Is 15+ words OR contains a ticker OR contains an analytical keyword outside the simple patterns
+- Confirm your chosen question returns 6 by adding a temporary one-line print/file-write
+  directly in `_classify_question_complexity()` and calling it standalone, OR by tracing
+  the exact logic branch-by-branch against the real source and quoting the line numbers
+  that force `return 6` for this specific string.
+
+State the exact question string you're using and paste the source lines that prove it
+returns 6, not 4 or another value.
+
+### Step 2: Repeat the exact proof-file test from the prior verification
+Using the SAME method as before (do not use print/log — Replit's log capture does not
+relay daemon thread stdout after startup):
+
+1. Confirm no `byok_debug` lines currently exist:
+   `grep -c "byok_debug" artifacts/stock-scanner-api/main.py`
+2. Add the same debug write used before (same file, `/tmp/byok_daemon_proof.txt`,
+   same suffix-capture logic) at the equivalent point in the code path this new
+   question will take.
+3. Confirm via SQL that subscriber id=2 (or whichever test subscriber) has
+   `key_set = t` before firing:
+   `psql ... -c "SELECT id, openai_key_enc IS NOT NULL AS key_set FROM sm_subscribers WHERE id=2;"`
+4. Send the complexity-6 question via POST to the actual chat endpoint.
+5. Paste the raw proof file contents:
+   `cat /tmp/byok_daemon_proof.txt`
+6. Paste the raw OpenAI error/response polled from the DB (job status), showing
+   the key prefix/suffix OpenAI actually received.
+7. Confirm cleanup: wipe test key, re-run `grep -c "byok_debug"` to confirm 0,
+   confirm `SYNTAX OK`.
+
+Do not tell me it "should behave the same as the complexity-4 path because it shares code."
+Prove it independently, with a fresh file write and a fresh OpenAI response, exactly like
+the first test.
+
+---
+
+## Part B — Prove key scoping under concurrent requests
+
+Question: is `_byok_openai_key` resolved fresh per-request (safe), or could it be shared
+/cached across concurrent requests from different subscribers (unsafe — key leakage risk)?
+
+### Step 1: Show where the variable is declared
+Paste the exact source lines where `_byok_openai_key` is first assigned, and state whether
+it is:
+- a local variable inside the request-handling function scope, or
+- a module-level / global / class-level variable, or
+- stored in any shared cache, thread pool state, or connection pool keyed by something
+  other than the request/subscriber
+
+### Step 2: Concurrent proof test
+1. Store two different test keys for two different subscriber ids (e.g. id=2 and id=3),
+   using suffixes that are easy to distinguish (e.g. ending in `1111` and `2222`).
+2. Fire both requests as close to simultaneously as possible (e.g. two background
+   curl/requests calls launched within the same second, or explicitly concurrent via
+   a small script).
+3. Use the same proof-file method, but have each daemon thread write its own suffix
+   AND its subscriber id to the proof file, e.g.:
+   `[byok_debug] sub_id={subscriber_id} suffix=...{suffix} UTC={timestamp}`
+4. Paste the raw proof file contents showing both entries.
+5. Confirm subscriber 2's request only ever shows suffix `1111` and subscriber 3's
+   request only ever shows suffix `2222` — no cross-contamination.
+6. Paste both raw OpenAI error/responses (polled from DB) confirming each request's
+   error message contains the correct subscriber-specific key prefix.
+
+If concurrent testing isn't feasible in this environment, say so explicitly and explain
+why — do not substitute two sequential requests and call it a concurrency test.
+
+---
+
+## Reporting format
+For both Part A and Part B, structure the response as:
+1. Raw command run
+2. Raw output (verbatim, unedited)
+3. One-sentence conclusion per step, directly tied to the output above it
+
+Do not include summary language like "this confirms the system works correctly" without
+the raw evidence directly above it. If any step fails or produces unexpected results,
+report the failure exactly as it occurred — do not retry silently and only report the
+passing attempt.
