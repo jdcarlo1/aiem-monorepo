@@ -765,6 +765,10 @@ export default function Landing() {
                 { name: "GARCH(1,1) Volatility Clustering", full: "Sell-side vol desk standard", note: "What sell-side vol desks use to forecast vol persistence. Not standard deviation — actual vol memory." },
                 { name: "PCA Factor Decomposition + Absorption Ratio", full: "Kritzman's systemic risk measure", note: "Measures how tightly correlated the market's risk factors are — high absorption = fragile market prone to cascade." },
                 { name: "Statistical Arbitrage Engine", full: "Engle-Granger cointegration + z-score ±2.0σ", note: "Pairs like NVDA/AMD and SPY/QQQ tested for cointegration daily. Divergences elevate conviction tier automatically." },
+                { name: "GEX — Gamma Exposure", full: "Dealer gamma positioning from live options chains", note: "Measures how much dealers must buy or sell to stay hedged as price moves. High negative GEX = dealers amplify moves. The volatility trigger retail never sees." },
+                { name: "Put/Call Skew", full: "Tail-risk pricing asymmetry across strikes", note: "When institutions are buying crash protection, skew spikes before the move. The options market's fear gauge — more precise than VIX for individual tickers." },
+                { name: "Options Term Structure", full: "Volatility curve shape across expiries", note: "Contango vs backwardation in vol tells you whether the market is pricing a near-term event or chronic uncertainty. Used by vol arb desks daily." },
+                { name: "CTA Trigger Levels", full: "Commodity Trading Advisor systematic flow thresholds", note: "CTAs manage $350B+ and trade mechanically off price thresholds. When price crosses their trigger, billions in forced buying or selling follows. Now mapped in real-time." },
               ].map(f => (
                 <div key={f.name} style={{ background: "rgba(6,12,20,0.9)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", padding: "16px 18px" }}>
                   <div style={{ color: "#4ade80", fontWeight: 800, fontSize: "13px", marginBottom: "4px" }}>{f.name}</div>
