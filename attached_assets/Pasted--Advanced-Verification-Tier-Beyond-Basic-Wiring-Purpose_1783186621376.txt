@@ -1,0 +1,233 @@
+# Advanced Verification Tier — Beyond Basic Wiring
+
+**Purpose:** The prior two files verify that individual gates work and survive losing one dependency at a time. This file goes further — concurrency, adversarial inputs, partial-failure states, statistical soundness of the signals themselves, extended real-world observation, and security.
+
+**Standard throughout: raw output, query results, or reproducible test scripts only. No summary claims accepted without the underlying evidence.**
+
+---
+
+## 1. Concurrency & Race Conditions
+
+**Ask:** Simulate multiple tickers hitting `evaluate_ticker()` at the same time (as would happen at the real 9:52 AM scheduled run with a full watchlist), and check for race conditions:
+
+- Does `daily_loss_limit` read a consistent account value if two threads/processes are evaluating different tickers simultaneously, one of which just triggered a trade?
+- Is there a race window between `order_dedup.should_place_order()` returning `True` and `mark_order_placed()` actually writing the row? Could two near-simultaneous calls for the same `decision_id` both pass the check before either writes?
+- Does `position_reconciler` or `portfolio_correlation_risk` see a consistent snapshot of `ai_stock_picks` across concurrent evaluations, or can it read mid-write state?
+
+**Proof required:** A test script that fires N concurrent ticker evaluations and shows either (a) no double-writes / no stale reads, with query results proving it, or (b) the race condition reproduced, with a fix and a re-run showing it's closed.
+
+---
+
+## 2. Adversarial & Edge-Case Inputs
+
+**Ask:** Beyond the one clean bad-input test per gate, run each gate against edge cases:
+
+- NULL or missing values in conviction score, win rate, or n_trades
+- Negative equity or negative peak_equity in `kill_switch`
+- A ticker present in two `CORRELATION_GROUPS` simultaneously
+- A duplicate `decision_id` collision (two different tickers somehow generating the same id)
+- A timestamp in the future (clock skew) on any gate that does date/time comparison
+- Empty string vs. missing env var for `LIVE_TRADING_ENABLED` and similar flags (confirm both are treated as "not true," not just one)
+
+**Proof required:** One test run per edge case per relevant gate, raw output, showing the gate either handles it explicitly (documented fallback) or fails closed — not that it silently passes through or throws an unhandled exception into the live path.
+
+---
+
+## 3. Partial-Failure / Mid-Transaction Chaos Testing
+
+**Ask:** Kill the database connection or process mid-write, not just before the call starts. Specifically:
+
+- Interrupt a multi-table write (e.g., pick written to `ai_stock_picks` but the process dies before `risk_gate_decisions` gets its corresponding row) — what state does this leave the system in, and is there anything that detects/reconciles orphaned rows?
+- Interrupt `position_reconciler` mid-comparison — does a partial reconciliation ever get treated as a completed one?
+- Restart the whole process mid-cycle — does anything double-run or skip a ticker it was partway through evaluating?
+
+**Proof required:** Reproduction of at least one mid-transaction interruption, the resulting DB state (query results), and whether a detection/cleanup mechanism exists or needs to be built.
+
+---
+
+## 4. Statistical & Methodological Soundness (Separate From Wiring)
+
+**Ask:** This entire audit so far checks whether gates fire. It does not check whether the underlying signal generation is statistically sound. Request separately:
+
+- Confirm the Bonferroni correction (or equivalent multiple-comparison adjustment) mentioned in the backtesting infrastructure is actually applied in the live scoring path — show the code, not just the claim.
+- Confirm out-of-sample validation is genuinely out-of-sample — i.e., the validation set was never touched during any parameter tuning of the 9-layer conviction stack.
+- Check for lookahead bias across all 9–10 layers individually — does any layer's feature calculation use data that wouldn't have been available at decision time in a live scenario? (Point-in-time correctness.)
+- Request a walk-forward test (train on period A, test on period B, roll forward) rather than a single static backtest, to check for overfitting on the conviction stack.
+
+**Proof required:** Code walkthroughs or query results showing the actual data windows used for training vs. validation, plus walk-forward results if available. This is a different kind of audit than wiring — flag it as such and treat it as a separate deliverable if it hasn't been done yet.
+
+---
+
+## 5. Extended Soak Test Under Real Conditions
+
+**Ask:** No isolated test replaces watching the system run for an extended real period. Request:
+
+- 4–6 weeks of continuous real paper trading (not simulated)
+- Daily cross-check of gate logs (`risk_gate_decisions`, `kill_switch_events`, `daily_loss_breach_log`, `reconciliation_log`) against actual trading outcomes
+- A running log of any gate that fired unexpectedly, any gate that should have fired and didn't, and any manual intervention required
+
+**Proof required:** This isn't a one-time deliverable — it's an ongoing log. Ask for weekly summaries during the soak period rather than a single final report.
+
+---
+
+## 6. Security Review (Required Before Any Real Capital)
+
+**Ask, if this system will ever touch live funds:**
+
+- SQL injection surface on any query built from ticker symbols, agent-generated text, or other less-trusted inputs — parameterized queries only, no string formatting into SQL
+- Confirm API keys and DB credentials are not logged anywhere (including in `simulation_lock_audit.jsonl` or other audit logs)
+- Confirm the Replit hosting environment's secrets management is actually being used correctly, not just env vars visible in a way that could leak
+- Confirm `LIVE_TRADING_ENABLED` and related flags can't be flipped by anything other than deliberate, authenticated action — check who/what can set that env var
+
+**Proof required:** Code review confirming parameterized queries throughout, a grep for credential strings in any log file, and an explicit statement of what controls access to the live-trading flags.
+
+---
+
+## 7. Broker & Data Feed Failure Modes
+
+**Ask:**
+
+- Order rejection, partial fill, and timeout handling with the broker (Alpaca/Tradier) — is a rejected order retried, silently dropped, or logged as a failure requiring attention?
+- Stale or missing price data from Polygon/Massive — does the system detect a gap in the feed, or does it trade on last-known-good price without flagging it as stale?
+- Rate limit exhaustion on any external API mid-cycle — does the scan halt safely, skip the affected ticker, or proceed with partial/incomplete data silently?
+- Broker connectivity loss mid-session — does the system know it has lost its connection to the broker, or does it assume orders went through?
+
+**Proof required:** Simulated failure of each dependency (broker timeout, stale feed, rate limit hit) with logs/output showing the system's actual behavior, not its intended behavior.
+
+---
+
+## 8. Deployment & State Integrity
+
+**Ask:**
+
+- Does a redeploy or process restart lose any in-memory state that isn't persisted to the database — open positions, cooldown timers, today's running loss counter, dedup cache?
+- Is the deployed/running code verifiably pinned to the exact git SHA that was audited, or could a stale cached build be live?
+- If config or env vars are changed while the process is running, does the change take effect immediately, on next cycle, or not until restart — and is that behavior documented anywhere?
+
+**Proof required:** A restart test showing before/after state for each stateful component, and a version check confirming the running process matches the audited commit.
+
+---
+
+## 9. HMAC Provenance — Verification, Not Just Signing
+
+**Ask:**
+
+- Confirm signatures are actually checked on read, not only written at creation. Is there any code path where a tampered or unsigned record would still be accepted/trusted downstream?
+- Where are the signing keys stored, and what can access them? Could a compromised process forge a valid signature?
+- Does signature verification failure fail closed (reject the record) or fail open (log a warning and proceed)?
+
+**Proof required:** A test that tampers with a signed record after the fact and shows the read path rejecting it, plus a code walkthrough of key storage and access control.
+
+---
+
+## 10. Kill Switch — Downstream Effect
+
+**Ask:**
+
+- When the kill switch triggers, does it cancel existing open orders and/or flatten open positions, or does it only block the placement of new trades?
+- Is there a confirmed, logged distinction between "no new trades" and "fully de-risked"? Which one does the kill switch actually deliver?
+- Once triggered, what is required to reset it — can it reset itself, or does it require deliberate authenticated action?
+
+**Proof required:** A triggered kill-switch test showing exactly what happens to any open orders/positions at the moment of trigger, with query/log evidence.
+
+---
+
+## 11. Market Calendar Edge Cases
+
+**Ask:**
+
+- Half-trading days, market holidays, and DST transitions — does the 9:52 AM scheduled run correctly skip closed days and adjust for early closes?
+- What happens if the scheduler fires but the market is unexpectedly closed (emergency closure) or data feeds report a holiday inconsistently?
+- Is the market calendar source itself kept up to date, or hardcoded/static and at risk of going stale?
+
+**Proof required:** Test runs against a mocked holiday, a mocked half-day, and a DST transition date, showing the scheduler's actual behavior in each case.
+
+---
+
+## Summary — What to Send Back
+
+> "Before I'd consider this system verified to the highest standard — not just wired, but stress-proven — I need:
+>
+> 1. **Concurrency test:** multiple tickers evaluated simultaneously, no races in loss limits, dedup, or reconciliation.
+> 2. **Edge-case/adversarial input tests** for every gate — nulls, negatives, collisions, clock skew.
+> 3. **Mid-transaction failure test** — kill the process mid-write, show what state it leaves and whether anything detects it.
+> 4. **Separate statistical audit** of the conviction scoring — Bonferroni correction, true out-of-sample validation, point-in-time correctness, walk-forward testing.
+> 5. A **4–6 week real paper-trading soak test** with weekly cross-checked logs, not a one-time snapshot.
+> 6. **Security review** — SQL injection surface, credential handling, and who can flip the live-trading flag — before any real capital touches this.
+>
+> 7. **Broker & data feed failure modes** — order rejection/timeout handling, stale feed detection, rate limit behavior, connectivity loss detection.
+>
+> 8. **Deployment & state integrity** — restart/redeploy behavior for in-memory state, code version pinning, config change propagation.
+>
+> 9. **HMAC verification on read** — not just signing, but active rejection of tampered/unsigned records, plus key storage/access control.
+>
+> 10. **Kill switch downstream effect** — confirm it cancels/flattens existing exposure, not just blocks new trades.
+>
+> 11. **Market calendar edge cases** — holidays, half-days, DST transitions, unexpected closures."
+
+**Note on scope:** Items 1–3 are the natural next tier after the cross-module communication checks already sent. Item 4 is arguably the highest-value one long-term — gates only matter if the signals underneath them are sound, and nothing verified so far touches that. Item 5 is the one nothing else substitutes for. Item 6 only matters once/if real money is involved. Items 7–11 close gaps around broker/data dependencies, deployment state, provenance integrity, kill-switch completeness, and calendar handling that the wiring/dependency checks alone don't reach.
+
+**On "final" verification:** This is the most complete pre-capital checklist reasonably assembled — concurrency, adversarial inputs, partial failures, statistical soundness, an extended soak test, security, broker/data resilience, deployment integrity, provenance, kill-switch completeness, and calendar handling. If every item here passes with raw evidence, that is a very high bar few retail systems meet. It is not, however, a guarantee that nothing else could ever surface — new edge cases show up once a system runs in live markets over time in ways no static list fully anticipates. Treat this as the last major structured sweep before capital, and treat the soak test (#5) and ongoing monitoring as the safety net for whatever this list didn't think to ask.
+
+---
+
+## REMEDIATION DIRECTIVE — Confirmed Findings From Audit Run
+
+The audit above has already been executed once against AIEM. The findings below are **confirmed**, not hypothetical. Fix each one and prove the fix with the same standard as the rest of this document: raw output, query results, or a reproducible test script. A summary claim that something is "fixed" is not accepted — show the before/after evidence.
+
+### Fix 1 — Credential logging (Item 6, CONFIRMED FAIL)
+`aiem_security.py:187` prints `new_token` (the rotated `AIEM_INTERNAL_TOKEN`) directly to stdout, which lands in Replit workflow console logs in plaintext.
+**Required fix:** Remove the token value from the print/log statement entirely. If a rotation notification is needed, log only that rotation occurred (timestamp, event) — never the token value itself. The token should reach the operator only through a channel that isn't logged (e.g. a one-time secure display, or requiring the operator to generate/set it directly in Replit Secrets rather than having the code print it).
+**Proof required:** Updated code diff, plus a fresh rotation test showing the log output no longer contains the token value anywhere (grep the log for the token pattern and confirm zero matches).
+
+### Fix 2 — Kill switch does not de-risk existing exposure (Item 10, CONFIRMED GAP)
+`check_kill_switch()` blocks new trades only. There is no broker API call in `kill_switch.py` or its callers to cancel open orders or flatten existing positions.
+
+**Decision made:** Keep current behavior — block new trades only, do not auto-flatten existing positions or cancel open orders on kill-switch trigger. Reasoning: the kill switch fires based on account/system metrics (loss limit breach, consecutive losses), not market conditions. Forcing an exit at the exact moment the system just flagged itself as unreliable risks locking in a bad price on a decision made under compromised conditions. Existing positions were opened with their own pre-set exit logic (stop loss/target) decided under normal conditions, which is more trustworthy than a reactive flatten decided in the same moment as the failure.
+
+**Required action (documentation, not a behavior change):** This is not a code fix — the current behavior is intentional. Add explicit documentation directly in `kill_switch.py` (docstring or comment on `check_kill_switch()` and `_halt()`) stating that the kill switch blocks new trades only and does NOT cancel orders or flatten positions, so this is never again mistaken for an undocumented gap.
+
+**Condition to revisit:** Confirm every position AIEM opens always has a stop loss or defined exit already in place before the position is opened. If any position can be opened without a bounded exit, that's a separate, real problem — with or without the kill switch — and should be fixed independently of this decision.
+
+**Proof required:** 
+1. Diff showing the documentation added to `kill_switch.py`.
+2. Confirmation (code review or query) that every order-placement path enforces a stop loss/defined exit at entry, with no path that can open an unbounded position.
+
+### Fix 3 — Live conviction scoring has no multiple-comparison correction (Item 4, CONFIRMED GAP)
+Bonferroni/FDR correction exists only in the discovery pipeline (`hypothesis_registry.py`, `aiem_module5_discovery.py`, `aiem_module6_rediscovery.py`, `niche_segment_finder.py`, `self_coding_orchestrator.py`). It is never imported or called inside `_run_five_layer_conviction()`, the live scoring path.
+
+**STATUS: DEFERRED — do not implement yet.** AIEM has zero live signal history as of this writing (wiring was only just completed). Adding or tuning a correction against live scoring now would mean setting a filter with no data to calibrate it against. This is not a decision to skip — it's a decision to wait for evidence.
+
+**Revisit when:** You have enough live signal history to look at real outcome data — specifically, once the self-improving hypothesis loop (Modules 1–6) has enough signal-age/decay data to answer:
+- Are signals that have been live longer showing meaningfully worse win rates than newly registered ones?
+- How much time/drawdown elapses on average between a signal going live and decay analysis catching and removing it if it's bad?
+
+If that data shows false positives are slipping through and doing real damage before decay-based pruning catches them, that's the evidence to implement ongoing correction. If decay-pruning alone is catching problems fast enough with acceptable cost, discovery-only correction may remain sufficient.
+
+**Do not implement based on this checklist alone** — implement based on what the live data actually shows once there's enough of it to look at.
+
+### Fix 4 — HMAC live tamper test not yet run (Item 9, CODE PASSES / LIVE UNVERIFIED)
+`verify_payload()` is fail-closed in code review across all three paths (no signature, mismatch, stale), but no live test has confirmed this in practice.
+**Required test (not a fix — this may already work, just needs proof):** Write a signed record, modify the payload directly in the DB, call `verify_payload()`, confirm rejection. Repeat for a stale timestamp and a stripped signature.
+**Proof required:** Raw output of all three tamper scenarios showing rejection with the correct reason string.
+
+### Fix 5 — Positions opened with no stop loss or target price at entry (NEW, CONFIRMED GAP)
+Surfaced while verifying Fix 2's stop-loss-coverage condition. `write_paper_pick()`'s INSERT into `ai_stock_picks` has no `stop_loss` or `target_price` column set at entry. A grep for `stop_loss`/`target_price` in the insert path returned zero results. Positions opened by `premarket_open_trader` have no bounded exit defined when they're opened.
+
+**Why this matters beyond being a standalone bug:** Fix 2's decision to keep the kill switch as "block new trades only" was justified partly on the assumption that existing open positions are running a pre-set exit plan decided under normal conditions, which is more trustworthy than a reactive flatten. That assumption does not hold for positions opened with no stop loss or target at all — those aren't running a defined plan, they're unbounded, with or without the kill switch. This gap undercuts part of the reasoning behind Fix 2 and should be treated as a priority, not just a nice-to-have.
+
+**Required fix:** Every position opened via `write_paper_pick()` (and any other insert path into `ai_stock_picks`, including `premarket_open_trader`) must set a `stop_loss` and/or `target_price` at entry, not after the fact. No position should be allowed to open without a bounded exit already attached.
+
+**Proof required:**
+1. Code diff showing `stop_loss`/`target_price` (or equivalent bounded-exit fields) are set at insert time across every code path that opens a position, not only `write_paper_pick()`.
+2. A grep across the full codebase for every `INSERT INTO ai_stock_picks` (and equivalent tables) confirming each one sets a bounded exit — not just the one path already checked.
+3. A live test: open a position through each insert path, query the row immediately after insert, and confirm the stop-loss/target fields are populated and non-null.
+
+### Sequencing
+Fix 1 (credential logging) is a pure bug — fix it immediately, no decision required.
+Fix 2's decision has been made (keep block-new-only, add documentation, verify stop-loss coverage) — implemented and verified.
+Fix 3 is deferred — do not implement until sufficient live signal history exists (see revisit trigger above).
+Fix 4 is a test, not a code change — implemented and verified live.
+Fix 5 is a pure bug, surfaced by Fix 2's verification step — fix it next, before anything else on the open items list. It directly affects whether Fix 2's decision is actually safe in practice.
+
+Do not mark any of these closed without the proof artifact specified. "All fixed" as a summary sentence, without the underlying evidence, is not accepted.

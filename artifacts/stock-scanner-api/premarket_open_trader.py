@@ -50,6 +50,14 @@ import kill_switch as ks
 BASE_PAPER_POSITION_USD = 1_000
 _CONFIDENCE_SCORE_MAP   = {"high": 0.85, "medium": 0.60, "low": 0.40}
 
+# Bounded-exit parameters — every paper pick must have a stop and target at entry.
+# stop_pct is confidence-independent (-5% hard stop).
+# target_pct is confidence-tiered (high = 3:1 R:R, medium/low = 2:1 R:R).
+# hold_days caps the position regardless of stop/target (matches table default of 3).
+_PAPER_STOP_PCT    = -5.0
+_PAPER_TARGET_PCTS = {"high": 15.0, "medium": 10.0, "low": 8.0}
+_PAPER_HOLD_DAYS   = 3
+
 _DECISION_TYPE_MAP = {
     "enter_now":      "trade",
     "wait_until_945": "no_trade",
@@ -472,6 +480,12 @@ def write_paper_pick(db_url: str, ticker: str, opening_pattern: Dict[str, Any],
         f"confluence={synthesis['confluence_count']}/4, "
         f"regime={regime_rec}, pos_size=${pos_size_usd:.0f}"
     )
+    import datetime as _dt
+    stop_pct   = _PAPER_STOP_PCT
+    target_pct = _PAPER_TARGET_PCTS.get(opening_pattern.get("confidence", "medium"), 10.0)
+    hold_days  = _PAPER_HOLD_DAYS
+    exit_date  = _dt.date.today() + _dt.timedelta(days=hold_days)
+
     signals_json = {
         "position_size_usd":        pos_size_usd,
         "position_size_multiplier": pos_mult,
@@ -479,17 +493,22 @@ def write_paper_pick(db_url: str, ticker: str, opening_pattern: Dict[str, Any],
         "regime_recommendation":    regime_rec,
         "base_confidence":          base_conf,
         "adjusted_confidence":      adj_conf,
+        "stop_pct":                 stop_pct,
+        "target_pct":               target_pct,
+        "hold_days":                hold_days,
     }
     conn = psycopg2.connect(db_url)
     try:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO ai_stock_picks
-                    (ticker, status, pick_date, entry_note, confidence, score, signals)
-                VALUES (%s, 'open', CURRENT_DATE, %s, %s, %s, %s)
+                    (ticker, status, pick_date, entry_note, confidence, score, signals,
+                     stop_pct, target_pct, hold_days, exit_date)
+                VALUES (%s, 'open', CURRENT_DATE, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (pick_date, ticker) DO NOTHING
             """, (ticker, note, opening_pattern["confidence"],
-                  adj_conf, _json.dumps(signals_json)))
+                  adj_conf, _json.dumps(signals_json),
+                  stop_pct, target_pct, hold_days, exit_date))
         conn.commit()
     finally:
         conn.close()
