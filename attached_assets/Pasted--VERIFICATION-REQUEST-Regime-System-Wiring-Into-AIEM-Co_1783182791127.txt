@@ -1,0 +1,55 @@
+# VERIFICATION REQUEST — Regime System Wiring Into AIEM
+
+**Context:** Discovery found THREE separate regime-related modules:
+1. `regime.py` → `detect_regime(df)` — standalone MA-crossover classifier
+2. `regime_detector.py` → `get_current_regime()` — confirmed wired into `_run_five_layer_conviction` (conviction stack), applies BULL/BEAR/NEUTRAL multiplier to `regime_adjusted_pts`
+3. `regime_monitor.py` → `check_volatility_regime()`, `check_correlation_decay()`, `check_trend_regime()`, `run_all_regime_checks()` — runs on 4:55 PM ET scheduler, writes flags to `regime_flags` DB table
+4. `market_regime_overlay.py` → vote-based system (`trend_structure_indicator`, `breadth_indicator`, `put_call_ratio_indicator`, `drawdown_indicator`, `vix_indicator`, `combine_regime_votes`) — entry point `get_weekly_regime_check()`, runs on Sunday schedule
+
+**Do not summarize or explain — run the commands and paste raw output only.**
+
+---
+
+## Check 1 — Is `regime.py` (`detect_regime`) dead code?
+
+```
+grep -rn "detect_regime\|from regime import\|import regime\b" --include="*.py" . | grep -v "regime_detector\|regime_monitor\|regime_overlay"
+```
+
+State explicitly: is `detect_regime(df)` called anywhere outside `regime.py` itself? If no call sites exist anywhere in the codebase, confirm this is unused/dead code.
+
+---
+
+## Check 2 — Does AIEM (chat tool functions) actually call any regime function directly?
+
+```
+grep -n "get_current_regime\|detect_regime\|run_all_regime_checks\|get_weekly_regime_check\|combine_regime_votes" main.py
+```
+
+For every match found, identify: is the calling context an AIEM `_tool_*` function, the conviction stack (`_run_five_layer_conviction`), a scheduler job, or something else? Name the exact enclosing function for each call site.
+
+---
+
+## Check 3 — Do the three regime systems ever disagree, and if so, which one wins?
+
+```
+grep -n "def get_current_regime\|def get_weekly_regime_check\|def run_all_regime_checks" regime_detector.py market_regime_overlay.py regime_monitor.py
+```
+
+Then answer directly: does `regime_detector.py`'s live classification feed into, override, get overridden by, or operate completely independently of `market_regime_overlay.py`'s weekly vote-based classification? Is there any code anywhere that compares or reconciles the two? If they run completely independently with no cross-check, state that explicitly — do not assume they agree.
+
+---
+
+## Check 4 — Is AIEM aware of `regime_flags` (the monitoring/alert output)?
+
+```
+grep -n "regime_flags\|get_open_flags\|acknowledge_flag" main.py
+```
+
+Confirm: does any AIEM tool function read from `regime_flags`, surface open flags to the user in chat, or is this table write-only (populated by the scheduler, never read by anything in the live system)?
+
+---
+
+## Result required
+
+State explicitly for each check: PASS (confirmed working as intended), FAIL (broken/disconnected), or OPEN (dead code / unused / no reconciliation logic exists). Do not round up an OPEN finding to a PASS — if two systems operate independently with no cross-check, that is OPEN, not PASS, even if neither one is technically "broken."
