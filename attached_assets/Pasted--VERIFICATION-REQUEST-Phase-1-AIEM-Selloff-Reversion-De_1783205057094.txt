@@ -1,0 +1,114 @@
+# VERIFICATION REQUEST — Phase 1 AIEM Selloff/Reversion Deliverable
+
+**To:** Replit Agent
+**Re:** Your "Phase 1 AIEM Selloff/Reversion — fully wired" completion report
+**Standard:** Same as the Master Verification Protocol already provided —
+every item below requires raw evidence attached. A confident-sounding
+explanation with no evidence attached is not acceptable for any item.
+
+---
+
+## 1. The Failed Validation Must Be Investigated, Not Explained Away
+
+Your own session log shows:
+
+> "Validation failed · 1 failed"
+
+followed immediately by your own explanation that this was a
+"validation/task-context mismatch, not a code defect," and then a
+declaration that "My work is correct and complete."
+
+**This is not accepted as resolved.** Explaining why a failure occurred is
+not the same as proving the failure doesn't matter. Before this
+deliverable is considered done:
+
+- [ ] Show the actual, full contents of "Show details" for the failed
+  validation — the raw output, not a paraphrase.
+- [ ] Explain specifically what acceptance criteria the validator checked
+  and why you believe those criteria belong to a different task (#17,
+  "Revert stray uncommitted main.py deletion, Workstream D") rather than
+  this one.
+- [ ] Independent of your explanation: re-run whatever the validator was
+  actually checking against the current state of `main.py` and
+  `aiem_selloff_reversion.py`, and show the raw result. If the validator
+  was genuinely checking the wrong thing, this re-run should pass cleanly
+  and you can show that. If it does not pass cleanly, the original
+  failure was real and must be fixed, not dismissed.
+- [ ] Confirm there is no stray/uncommitted `main.py` deletion issue
+  actually present as a side effect of this session's work, since that is
+  specifically what the conflicting validation was checking for — even if
+  it was the wrong task's criteria, confirm that specific condition is
+  not accidentally true anyway.
+
+---
+
+## 2. Telegram Alert Timing — Confirm Market-Hours-Only, No Exceptions
+
+Requirement: **Telegram alerts must only be sent during regular market
+hours (9:30 AM–4:00 PM ET).** No alerts before 9:30 AM or after 4:00 PM,
+including the overnight re-evaluation job.
+
+- [ ] Show the actual code path that gates Telegram send calls to this
+  window — grep/line reference, not a description.
+- [ ] Your report states the overnight re-eval job (`aiem_bounce_
+  overnight_reeval`) runs at **9:36 AM ET**. Confirm 9:36 AM is inside
+  the 9:30 AM–4:00 PM window (it is, by 6 minutes) — state this
+  explicitly rather than assuming it's obviously fine, since a job
+  scheduled close to the boundary is exactly the kind of thing worth
+  double-checking rather than assuming.
+- [ ] Confirm no other scheduled job (`aiem_bounce_scan_1000`,
+  `aiem_bounce_scan_1400`, `aiem_bounce_backtest_weekly`) can trigger a
+  Telegram send outside the 9:30–4:00 window under any condition,
+  including retries or delayed execution — if a job runs late and
+  crosses outside the window, confirm the send is still blocked, not
+  fired late.
+- [ ] Confirm the weekly backtest job (Sunday 11:00 PM ET) does **not**
+  send any Telegram alert on completion, since Sunday night is outside
+  market hours entirely — logging/storage only, no notification.
+
+---
+
+## 3. Telegram Cooldown Value — Confirm It's Not an Invented Default
+
+Your report states a **24hr per-ticker cooldown** for Telegram alerts.
+The original spec said to reuse whatever cooldown convention already
+exists elsewhere in AIEM's Telegram alerting, not to introduce a new
+value.
+
+- [ ] Show where the 24hr value came from — grep/code reference to an
+  existing cooldown constant/convention already used by other AIEM
+  alerts, proving this matches rather than was invented fresh for this
+  signal.
+- [ ] If no existing convention exists to match against, state that
+  explicitly and confirm 24hr was a reasonable new default chosen for a
+  stated reason — not silently presented as "the existing convention"
+  if it isn't.
+
+---
+
+## 4. Standard Phase 1 Proof (from the Master Verification Protocol, Parts 1–2)
+
+- [ ] Raw SQL + output showing the `Oversold_Bounce_Uptrend` signal firing
+  on real historical data, minimum 5 real ticker/date examples, all
+  fields populated.
+- [ ] Raw SQL + output showing Module A (Capitulation Volume) and Module F
+  (pre-earnings/falling-knife guard) firing/suppressing on real data,
+  same standard.
+- [ ] Git diff of all changes in this session, scoped to
+  `aiem_selloff_reversion.py` and the `main.py` edits described.
+- [ ] Grep/import trace confirming zero references from customer-facing
+  scanner code into `aiem_selloff_reversion.py` or any new table.
+- [ ] Screenshot or raw payload log of one actual Telegram message sent
+  from a real or staging firing — not a description of the format.
+- [ ] Confirm registration in BH-FDR correction and Signal Decay Module
+  with actual grep/code reference, not a verbal claim.
+
+---
+
+## Final Sign-Off Format
+
+For each of Sections 1–4 above: ✅ VERIFIED (with evidence attached),
+❌ NOT VERIFIED (state exactly why), or ⚠️ PARTIAL (state precisely what
+passed and what didn't). A general "everything is complete and live"
+summary without this breakdown, especially given the dismissed validation
+failure above, is not an acceptable response to this request.
