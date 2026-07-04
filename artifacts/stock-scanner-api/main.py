@@ -13111,6 +13111,19 @@ try:
 except Exception as _e_ap_sched:
     print(f"[aiem_paper] scheduler error: {_e_ap_sched}")
 
+# ── Layer9 24/7 background scan — every 2 hours, no external API cost ────────
+try:
+    _scheduler.add_job(
+        lambda: _run_layer9_bg_scan(),
+        "interval",
+        hours=2,
+        id="layer9_bg_scan",
+        replace_existing=True,
+    )
+    print("[layer9_bg] 2-hour background scan scheduled (AI Short Calls + paper trades only)")
+except Exception as _e_l9_sched:
+    print(f"[layer9_bg] scheduler error: {_e_l9_sched}")
+
 
 def _init_daily_fundamentals_snapshot_table():
     """Create the daily_fundamentals_snapshot table if it doesn't exist."""
@@ -36086,6 +36099,28 @@ def _aiem_paper_pick_candidates() -> list:
                 _wi_cur_status = _wi_status_row[0] if _wi_status_row else "not found"
                 print(f"[aiem_paper] washout_ignition SKIPPED: discovery id=9 status='{_wi_cur_status}' (not validated)")
 
+            # ── 9. Layer9 Statistical Edge (24/7 background scores) ──────────
+            # Reads pre-computed scores written by _run_layer9_bg_scan() every 2h.
+            # Scope: AI Short Calls + paper trades ONLY. No other tabs touched.
+            try:
+                _cu.execute("""
+                    SELECT ticker, statistical_score, regime
+                    FROM layer9_scores
+                    WHERE computed_at >= NOW() - INTERVAL '6 hours'
+                      AND statistical_score >= 65
+                      AND (error IS NULL OR error = '')
+                    ORDER BY statistical_score DESC LIMIT 20
+                """)
+                _l9_rows = _cu.fetchall()
+                for _l9t, _l9s, _l9r in _l9_rows:
+                    _l9_score = float(_l9s or 50) / 5.0  # 65→13, 80→16, 100→20
+                    _add(_l9t, _l9_score, "STOCK", "layer9_stat",
+                         f"stat9={float(_l9s or 0):.0f} regime={_l9r or 'unknown'}")
+                if _l9_rows:
+                    print(f"[aiem_paper] layer9 source: {len(_l9_rows)} tickers scored >= 65")
+            except Exception as _l9e:
+                print(f"[aiem_paper] layer9 source skipped: {_l9e}")
+
     except Exception as _e:
         print(f"[aiem_paper] pick error: {_e}")
 
@@ -44787,36 +44822,76 @@ def _build_ai_stock_picks():
         ranked = sorted(candidates.items(), key=lambda x: x[1]["score"], reverse=True)
 
         # ── Layer 9 enrichment on top 20 candidates ───────────────────────────
+        # Cache-first: read from layer9_scores table (written by the 2-hour
+        # background scan). Fall back to live computation only for misses.
+        # This avoids redundant Tradier fetches and is faster for the user.
         l9_scores = {}
         try:
             import decision_logging_helper as _dlh_l9b
         except Exception:
             _dlh_l9b = None
+        _top20_tickers = [t for t, _ in ranked[:20]]
+        # Step 1: load any cached scores written in the last 4 hours
         try:
-            from layer9_statistical_edge import compute_layer9_score
-            from advanced_quant_indicators import hurst_exponent, vpin
-            import pandas as _l9pd
-            for _l9t, _ in ranked[:20]:
+            with _psycopg2.connect(_DB_URL, connect_timeout=3,
+                                   options="-c statement_timeout=3000") as _l9c, \
+                 _l9c.cursor() as _l9cu:
+                _l9cu.execute("""
+                    SELECT ticker, statistical_score, regime,
+                           hurst_raw, vpin_raw, jump_detected,
+                           entropy_score, tail_score
+                    FROM layer9_scores
+                    WHERE ticker = ANY(%s)
+                      AND computed_at >= NOW() - INTERVAL '4 hours'
+                      AND (error IS NULL OR error = '')
+                """, (_top20_tickers,))
+                for (_ct, _cs, _cr, _ch, _cv, _cj, _ce, _ctl) in _l9cu.fetchall():
+                    l9_scores[_ct] = {
+                        "statistical_score": float(_cs or 50),
+                        "regime": _cr or "random_walk",
+                        "components": {
+                            "hurst_regime":    {"raw": float(_ch or 0.5), "score": 50.0},
+                            "vpin_toxicity":   {"raw": float(_cv or 0.3), "score": 50.0},
+                            "entropy_clarity": {"score": float(_ce or 50)},
+                            "tail_risk":       {"score": float(_ctl or 50)},
+                        },
+                        "flags": {"jump_detected": bool(_cj)},
+                    }
+        except Exception as _l9cache_exc:
+            print(f"[ai_stock_picks] layer9 cache read skipped: {_l9cache_exc}")
+        # Step 2: live compute only for tickers not in cache
+        _l9_misses = [t for t in _top20_tickers if t not in l9_scores]
+        if _l9_misses:
+            try:
+                from layer9_statistical_edge import compute_layer9_score
+                for _l9t in _l9_misses:
+                    try:
+                        _l9df = _td_history(_l9t, days=90)
+                        if _l9df is not None and not _l9df.empty and len(_l9df) >= 30:
+                            res = compute_layer9_score(_l9t, _l9df)
+                            l9_scores[_l9t] = res
+                    except Exception as _exc:
+                        print(f"[silent_except:L39298] {type(_exc).__name__}: {_exc}")
+            except Exception as _exc:
+                print(f"[silent_except:L39300] {type(_exc).__name__}: {_exc}")
+        print(f"[ai_stock_picks] layer9: {len(l9_scores)}/{len(_top20_tickers)} scored "
+              f"({len(_top20_tickers)-len(_l9_misses)} cached, {len(_l9_misses)-max(0,len(_l9_misses)-len([t for t in _l9_misses if t in l9_scores]))} live)")
+        # Log decisions
+        for _l9t, _l9res in l9_scores.items():
+            if _dlh_l9b and not _l9res.get("error"):
+                _comps_l9 = _l9res.get("components", {})
+                _flags_l9 = _l9res.get("flags", {})
                 try:
-                    _l9df = _td_history(_l9t, days=90)
-                    if _l9df is not None and not _l9df.empty and len(_l9df) >= 30:
-                        res = compute_layer9_score(_l9t, _l9df)
-                        l9_scores[_l9t] = res
-                        if _dlh_l9b and not res.get("error"):
-                            _comps_l9 = res.get("components", {})
-                            _flags_l9 = res.get("flags", {})
-                            _dlh_l9b.log_stat_edge_decision(
-                                ticker=_l9t,
-                                stat9_score=float(res.get("statistical_score", 50.0)),
-                                regime=res.get("regime", ""),
-                                vpin=round(float(_comps_l9.get("vpin_toxicity", {}).get("raw", 0)), 3),
-                                jump_detected=bool(_flags_l9.get("jump_detected", False)),
-                                source="ai_short_calls_enrichment",
-                            )
-                except Exception as _exc:
-                    print(f"[silent_except:L39298] {type(_exc).__name__}: {_exc}")
-        except Exception as _exc:
-            print(f"[silent_except:L39300] {type(_exc).__name__}: {_exc}")
+                    _dlh_l9b.log_stat_edge_decision(
+                        ticker=_l9t,
+                        stat9_score=float(_l9res.get("statistical_score", 50.0)),
+                        regime=_l9res.get("regime", ""),
+                        vpin=round(float(_comps_l9.get("vpin_toxicity", {}).get("raw", 0)), 3),
+                        jump_detected=bool(_flags_l9.get("jump_detected", False)),
+                        source="ai_short_calls_enrichment",
+                    )
+                except Exception:
+                    pass
 
         # ── Build final picks ─────────────────────────────────────────────────
         today = _spdate.today()
@@ -45815,6 +45890,223 @@ def _init_ai_early_movers_table():
 
 _DEFERRED_INITS.append(lambda: _init_ai_early_movers_table())
 _DEFERRED_INITS.append(lambda: __import__("stat_arb_engine")._init_tables())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAYER9 24/7 BACKGROUND SCANNER
+# Runs every 2 hours around the clock. Computes Hurst/Bipower/Amihud/VRP/VPIN
+# for the combined active ticker universe and persists to layer9_scores table.
+# SCOPE: feeds AI Short Calls tab + daily paper trades ONLY.
+# No external API cost — uses Tradier history (already in use) + local math.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _init_layer9_scores_table():
+    """Create the layer9_scores table if it doesn't exist."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS layer9_scores (
+                    id                BIGSERIAL PRIMARY KEY,
+                    ticker            TEXT        NOT NULL,
+                    computed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    scan_date         DATE        NOT NULL DEFAULT CURRENT_DATE,
+                    statistical_score FLOAT,
+                    regime            TEXT,
+                    hurst_raw         FLOAT,
+                    vpin_raw          FLOAT,
+                    jump_detected     BOOLEAN,
+                    entropy_score     FLOAT,
+                    tail_score        FLOAT,
+                    vrp_score         FLOAT,
+                    amihud_score      FLOAT,
+                    error             TEXT,
+                    UNIQUE (ticker, scan_date)
+                )
+            """)
+            _cu.execute("""
+                CREATE INDEX IF NOT EXISTS layer9_scores_computed_at_idx
+                ON layer9_scores (computed_at DESC)
+            """)
+            _c.commit()
+        print("[layer9_bg] table ready")
+    except Exception as _e:
+        print(f"[layer9_bg] table init error: {_e}")
+
+_DEFERRED_INITS.append(lambda: _init_layer9_scores_table())
+
+
+def _run_layer9_bg_scan():
+    """
+    Build the combined active ticker universe, compute Layer9 Statistical Edge
+    scores for each, and upsert into layer9_scores.
+
+    Universe sources (read-only, already in DB — no extra API cost):
+      - polygon_rvol_scan   : gap/volume runners from today's Polygon sweep
+      - unusual_calls_log   : options flow tickers (last 3 days)
+      - conviction_stack_watchlist : conviction stack tickers (last 3 days)
+      - ai_short_calls_log  : recent AI short call picks (last 2 days)
+      - aiem_paper_trades   : active paper trade tickers (OPEN status)
+
+    History fetched via _td_history (Tradier, already rate-limited by
+    _TD_BREAKER). 4-thread parallel compute via batch_layer9_scores().
+    """
+    import datetime as _l9dt
+    _l9_start = _l9dt.datetime.now(_ET)
+    print(f"[layer9_bg] scan started at {_l9_start.strftime('%H:%M ET')}")
+
+    # ── 1. Build universe ──────────────────────────────────────────────────
+    _universe = set()
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                               options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
+
+            # Top gap/volume tickers from today's Polygon scan
+            _cu.execute("""
+                SELECT ticker FROM polygon_rvol_scan
+                WHERE scan_date >= CURRENT_DATE - INTERVAL '2 days'
+                ORDER BY (rvol * ABS(gap_pct)) DESC LIMIT 60
+            """)
+            for (_t,) in _cu.fetchall(): _universe.add(_t)
+
+            # Unusual calls flow (most active by premium, last 3 days)
+            _cu.execute("""
+                SELECT DISTINCT ticker FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '3 days'
+                  AND prem >= 100000
+                ORDER BY ticker LIMIT 60
+            """)
+            for (_t,) in _cu.fetchall(): _universe.add(_t)
+
+            # Conviction stack
+            _cu.execute("""
+                SELECT DISTINCT ticker FROM conviction_stack_watchlist
+                WHERE snap_date >= CURRENT_DATE - INTERVAL '3 days'
+                  AND total_pts >= 5
+            """)
+            for (_t,) in _cu.fetchall(): _universe.add(_t)
+
+            # Recent AI short call picks
+            _cu.execute("""
+                SELECT DISTINCT ticker FROM ai_short_calls_log
+                WHERE trade_date >= CURRENT_DATE - INTERVAL '2 days'
+            """)
+            for (_t,) in _cu.fetchall(): _universe.add(_t)
+
+            # Open paper trades (want fresh scores for live positions)
+            _cu.execute("""
+                SELECT DISTINCT ticker FROM aiem_paper_trades
+                WHERE status = 'OPEN'
+            """)
+            for (_t,) in _cu.fetchall(): _universe.add(_t)
+
+    except Exception as _ue:
+        print(f"[layer9_bg] universe build error: {_ue}")
+
+    # Sanitise: letters only, 1-6 chars
+    _universe = {t for t in _universe if t and t.isalpha() and len(t) <= 6}
+    if not _universe:
+        print("[layer9_bg] empty universe — skipping")
+        return
+
+    print(f"[layer9_bg] universe = {len(_universe)} tickers")
+
+    # ── 2. Fetch price histories (Tradier, already rate-limited) ──────────
+    _histories = {}
+    _tickers_list = sorted(_universe)
+    for _t in _tickers_list:
+        try:
+            if _yf_breaker_open():   # respect the global circuit breaker
+                print("[layer9_bg] circuit breaker open — pausing")
+                import time as _l9time; _l9time.sleep(30)
+                if _yf_breaker_open(): break
+            _df = _td_history(_t, days=120)
+            if _df is not None and not _df.empty and len(_df) >= 30:
+                _histories[_t] = _df
+        except Exception as _he:
+            print(f"[layer9_bg] history fetch skipped for {_t}: {_he}")
+
+    if not _histories:
+        print("[layer9_bg] no histories fetched — aborting")
+        return
+
+    print(f"[layer9_bg] fetched {len(_histories)} histories")
+
+    # ── 3. Batch compute Layer9 scores ────────────────────────────────────
+    try:
+        from layer9_statistical_edge import batch_layer9_scores
+    except ImportError as _imp_e:
+        print(f"[layer9_bg] layer9 module unavailable: {_imp_e}")
+        return
+
+    _scores = batch_layer9_scores(_histories, timeout_per=5.0)
+
+    # ── 4. Upsert into layer9_scores table ────────────────────────────────
+    _today = _l9dt.datetime.now(_ET).date()
+    _upserted = 0
+    _errors   = 0
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            for _t, _res in _scores.items():
+                _err_val = _res.get("error")
+                _comps   = _res.get("components", {})
+                _flags   = _res.get("flags", {})
+                _vrp_c   = _comps.get("vrp", {})
+                _amihud_c= _comps.get("illiquidity_penalty", {})
+                try:
+                    _cu.execute("""
+                        INSERT INTO layer9_scores
+                            (ticker, computed_at, scan_date,
+                             statistical_score, regime,
+                             hurst_raw, vpin_raw, jump_detected,
+                             entropy_score, tail_score, vrp_score, amihud_score, error)
+                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (ticker, scan_date) DO UPDATE SET
+                            computed_at       = EXCLUDED.computed_at,
+                            statistical_score = EXCLUDED.statistical_score,
+                            regime            = EXCLUDED.regime,
+                            hurst_raw         = EXCLUDED.hurst_raw,
+                            vpin_raw          = EXCLUDED.vpin_raw,
+                            jump_detected     = EXCLUDED.jump_detected,
+                            entropy_score     = EXCLUDED.entropy_score,
+                            tail_score        = EXCLUDED.tail_score,
+                            vrp_score         = EXCLUDED.vrp_score,
+                            amihud_score      = EXCLUDED.amihud_score,
+                            error             = EXCLUDED.error
+                    """, (
+                        _t, _today,
+                        float(_res.get("statistical_score", 50.0)) if not _err_val else None,
+                        _res.get("regime"),
+                        float(_comps.get("hurst_regime",       {}).get("raw", 0.5)),
+                        float(_comps.get("vpin_toxicity",      {}).get("raw", 0.3)),
+                        bool(_flags.get("jump_detected", False)),
+                        float(_comps.get("entropy_clarity",    {}).get("score", 50.0)),
+                        float(_comps.get("tail_risk",          {}).get("score", 50.0)),
+                        float(_vrp_c.get("score", 50.0))    if _vrp_c    else None,
+                        float(_amihud_c.get("score", 50.0)) if _amihud_c else None,
+                        _err_val,
+                    ))
+                    if _err_val:
+                        _errors += 1
+                    else:
+                        _upserted += 1
+                except Exception as _ue2:
+                    print(f"[layer9_bg] upsert error for {_t}: {_ue2}")
+            _c.commit()
+    except Exception as _dbe:
+        print(f"[layer9_bg] DB write error: {_dbe}")
+
+    _elapsed = (_l9dt.datetime.now(_ET) - _l9_start).total_seconds()
+    print(f"[layer9_bg] done — {_upserted} scored, {_errors} errors, {_elapsed:.0f}s elapsed")
+
+
+# Kick off one scan 3 minutes after startup (let preload settle first)
+def _layer9_startup_kick():
+    import time as _l9sk_time
+    _l9sk_time.sleep(180)
+    _run_layer9_bg_scan()
+
+import threading as _l9_startup_thr
+_l9_startup_thr.Thread(target=_layer9_startup_kick, daemon=True).start()
 
 
 def _save_ai_early_movers_to_log(picks, trade_date):
