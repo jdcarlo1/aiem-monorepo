@@ -1,0 +1,258 @@
+# AIEM Signal Expansion Verification Protocol
+**Claim under audit:** 50 new signals added (46 on July 3, 4 on July 4), all isolated to AIEM reasoning / paper trades only, zero influence on Conviction Stack, Unusual Calls, High Conviction, Net Flow, Nano, Microcap, Behavioral, or Catalyst modules.
+
+**Standard:** No prose confirmations accepted. Every item below requires raw terminal output (grep, git diff, file listing, or SQL query result) pasted verbatim. "Confirmed" or "verified" with no attached output = failed check.
+
+---
+
+## 1. Signal Count Verification
+Prove 50 distinct signal-producing functions/methods actually exist across the claimed files, not just named in a chat summary.
+
+```bash
+grep -n "^def \|^    def " advanced_quant_indicators.py aiem_options_structure.py aiem_cta_triggers.py
+```
+- Paste full output.
+- Count and label which functions map to which claimed group (A: 22 technical indicators, B: 10 quant methods, C: 9 AI systems + 5 statistical rigor, D: 4 dealer positioning).
+- Flag any named signal in the summary that has no matching function definition.
+
+## 2. Isolation Claim — Conviction Stack
+Prove none of the new modules are imported or called anywhere in the Conviction Stack scoring path.
+
+```bash
+grep -rn "mkt_layer9_score\|mkt_gex_scan\|mkt_options_skew\|mkt_term_structure\|mkt_cta_triggers\|advanced_quant_indicators\|aiem_options_structure\|aiem_cta_triggers" --include="*.py" | grep -iv "aiem"
+```
+- Paste full output.
+- For every hit outside an AIEM-labeled file, explain why it does NOT feed the conviction score. If it can't be explained, isolation claim fails.
+
+## 3. Isolation Claim — Other Named Tabs
+Repeat the same grep scoped specifically against files for: Unusual Calls, High Conviction, Net Flow, Nano, Microcap, Behavioral, Catalyst.
+
+```bash
+grep -rln "mkt_layer9_score\|mkt_gex_scan\|mkt_options_skew\|mkt_term_structure\|mkt_cta_triggers" --include="*.py" .
+```
+- Paste the full file list returned.
+- Cross-check each returned file against the isolation claim. Any file outside AIEM/paper-trades/AI-Short-Calls scope = claim fails.
+
+## 4. Paper Trades / AI Short Calls Boundary
+Prove the new signals only reach the two tabs claimed (Paper Trades = Layer 9 + AI systems; AI Short Calls = Layer 9 + XGBoost) and not the live execution path.
+
+```bash
+grep -rn "mkt_layer9_score\|xgboost\|XGBoost" --include="*.py" . | grep -v "test_\|paper_trade\|ai_short_call"
+```
+- Paste output. Any hit in a live order-placement or live-execution file fails this check.
+
+## 5. Database-Level Confirmation
+If any of these signals write to the DB, confirm via SQL that the tables/columns they populate are not joined into conviction-score queries.
+
+```sql
+SELECT table_name, column_name FROM information_schema.columns
+WHERE column_name ILIKE '%layer9%' OR column_name ILIKE '%gex%' OR column_name ILIKE '%skew%' OR column_name ILIKE '%cta_trigger%';
+```
+Then for each table returned:
+```sql
+SELECT * FROM pg_constraint WHERE conrelid = '<table_name>'::regclass;
+```
+- Paste both outputs. Confirm no foreign key / join relationship into the conviction_scores (or equivalent) table.
+
+## 6. Schedule Claim
+Prove the stated run times (10:05 AM ET for GEX/Skew/Term, 8:38 AM ET for CTA) match the actual scheduler config, not just the chat summary.
+
+```bash
+grep -rn "10:05\|08:38\|8:38" --include="*.py" .
+```
+Also pull the actual cron/job scheduler registration:
+```bash
+grep -rn "add_job\|schedule.every\|cron" --include="*.py" . | grep -i "gex\|skew\|term\|cta"
+```
+- Paste both outputs. Times must match exactly, including timezone handling (ET vs UTC conversion).
+
+## 7. Git Diff Sanity Check
+Confirm the commits claimed for July 3–4 actually contain the changes described.
+
+```bash
+git log --oneline --since="2026-07-03" --until="2026-07-05"
+git diff <first_commit_hash>~1 <last_commit_hash> --stat
+```
+- Paste output. File change list should match the files named in the summary (advanced_quant_indicators.py, aiem_options_structure.py, aiem_cta_triggers.py). Any unexplained file in the diff (e.g. a conviction scoring file) is a red flag requiring explanation.
+
+---
+
+## Pass/Fail Rule
+Every section (1–7) must have raw output attached with no gaps. If the agent responds with any of the following, treat it as a failed check and re-request raw output:
+- "This has been verified"
+- "The isolation is confirmed by design"
+- "I've reviewed the code and it's isolated"
+- Any summary without an attached command + output pair
+
+## 8. Tool-Specific Isolation Check (added after agent's "Live" status report)
+The agent has claimed the following tools/modules are "Live" and working. A green checkmark and the word "Live" is not evidence — it is a claim. Each of these must be checked individually for where it is called from, confirming it ONLY reaches AIEM reasoning, the Paper Trades tab, and the AI Short Calls tab, and nowhere else (specifically not Conviction Stack, Unusual Calls, High Conviction, Net Flow, Nano, Microcap, Behavioral, Catalyst, or any live/real-money execution path).
+
+**Tools/modules to check** (from agent's self-report):
+- `mkt_layer9_score` (covers VPIN, Bipower Variation, Hurst Exponent, Amihud Illiquidity, Corwin-Schultz, Variance Risk Premium, Risk-Neutral Density, GARCH(1,1), PCA Factor Decomposition)
+- `jump_detection_bipower()` in `advanced_quant_indicators.py`
+- `stat_arb_check`
+- `get_meta_learning_weights`
+- `deep_rl_get_paper_action`
+- `causal_discover`
+- `ml_gp_signal_search`
+- XGBoost + TreeSHAP attribution path (agent claims this runs only on AI Short Calls / AI Early Movers picks — verify this boundary specifically, see 8b below)
+- `model_version_history`
+- FRED Macro Regime Overlay (claimed to "run on every pick" — pin down what "every pick" means: every AIEM pick, or every pick system-wide including Conviction Stack)
+- `get_bh_fdr_status`
+- `point_in_time_guard.py`
+- `get_m2_decay_status`
+- `get_m6_rediscovery_status`
+- `walk_forward_validate`
+- `polygon_market_daily` table (11,000+ ticker universe claim)
+
+**Command — run once for the full list:**
+```bash
+grep -rln "mkt_layer9_score\|jump_detection_bipower\|stat_arb_check\|get_meta_learning_weights\|deep_rl_get_paper_action\|causal_discover\|ml_gp_signal_search\|model_version_history\|get_bh_fdr_status\|point_in_time_guard\|get_m2_decay_status\|get_m6_rediscovery_status\|walk_forward_validate" --include="*.py" .
+```
+- Paste the full file list. For every file NOT clearly under an AIEM/paper-trades/AI-short-calls namespace, the agent must explain the call site and why it doesn't feed conviction scoring or live execution. No explanation without the actual line of code shown = fails.
+
+### 8a. "Runs on every pick" claim (FRED Macro Regime Overlay)
+This phrase is ambiguous and needs to be pinned down exactly, since "every pick" could mean AIEM-only or system-wide.
+```bash
+grep -rn "fred_macro\|macro_regime" --include="*.py" .
+```
+- Paste output. Confirm the call sites are limited to AIEM/paper-trades/AI-short-calls, and get the agent to state explicitly which pick-generation functions call it, by name.
+
+### 8b. XGBoost + TreeSHAP scope claim
+The agent claims "every AI Short Calls and AI Early Movers pick gets XGBoost scored with full SHAP attribution written to the database" but that AIEM cannot run XGBoost on an arbitrary ticker mid-chat. Verify both halves:
+```bash
+grep -rn "xgboost\|shap\|TreeSHAP" --include="*.py" . | grep -i "short_call\|early_mover"
+```
+- Paste output confirming XGBoost/SHAP is actually invoked in the AI Short Calls and AI Early Movers pick-generation code paths (not just referenced in a docstring or comment).
+```sql
+SELECT COUNT(*) FROM <shap_attribution_table> WHERE created_at > NOW() - INTERVAL '7 days';
+```
+- Paste row count to confirm SHAP values are actually being written, not just capable of being written.
+
+### 8c. Ticker universe claim
+```sql
+SELECT COUNT(DISTINCT ticker) FROM polygon_market_daily;
+SELECT COUNT(*) FROM polygon_market_daily;
+```
+- Paste both results. Confirm ticker count is actually 11,000+ and row count is actually 427K+, not rounded or estimated.
+
+---
+
+## 8. Tool-Specific Isolation Check (added after agent's "Live" status report)
+The agent has claimed the following tools/modules are "Live" and working. A green checkmark and the word "Live" is not evidence — it is a claim. Each of these must be checked individually for where it is called from, confirming it ONLY reaches AIEM reasoning, the Paper Trades tab, and the AI Short Calls tab, and nowhere else (specifically not Conviction Stack, Unusual Calls, High Conviction, Net Flow, Nano, Microcap, Behavioral, Catalyst, or any live/real-money execution path).
+
+**Tools/modules to check** (from agent's self-report):
+- `mkt_layer9_score` (covers VPIN, Bipower Variation, Hurst Exponent, Amihud Illiquidity, Corwin-Schultz, Variance Risk Premium, Risk-Neutral Density, GARCH(1,1), PCA Factor Decomposition)
+- `jump_detection_bipower()` in `advanced_quant_indicators.py`
+- `stat_arb_check`
+- `get_meta_learning_weights`
+- `deep_rl_get_paper_action`
+- `causal_discover`
+- `ml_gp_signal_search`
+- XGBoost + TreeSHAP attribution path (agent claims this runs only on AI Short Calls / AI Early Movers picks — verify this boundary specifically, see 8b below)
+- `model_version_history`
+- FRED Macro Regime Overlay (claimed to "run on every pick" — pin down whether "every pick" means every AIEM pick, or every pick system-wide including Conviction Stack)
+- `get_bh_fdr_status`
+- `point_in_time_guard.py`
+- `get_m2_decay_status`
+- `get_m6_rediscovery_status`
+- `walk_forward_validate`
+- `polygon_market_daily` table (11,000+ ticker universe claim)
+
+**Command — run once for the full list:**
+```bash
+grep -rln "mkt_layer9_score\|jump_detection_bipower\|stat_arb_check\|get_meta_learning_weights\|deep_rl_get_paper_action\|causal_discover\|ml_gp_signal_search\|model_version_history\|get_bh_fdr_status\|point_in_time_guard\|get_m2_decay_status\|get_m6_rediscovery_status\|walk_forward_validate" --include="*.py" .
+```
+- Paste the full file list. For every file NOT clearly under an AIEM/paper-trades/AI-short-calls namespace, the agent must explain the call site and why it doesn't feed conviction scoring or live execution. No explanation without the actual line of code shown = fails.
+
+### 8a. "Runs on every pick" claim (FRED Macro Regime Overlay)
+```bash
+grep -rn "fred_macro\|macro_regime" --include="*.py" .
+```
+- Paste output. Confirm the call sites are limited to AIEM/paper-trades/AI-short-calls, and get the agent to state explicitly which pick-generation functions call it, by name.
+
+### 8b. XGBoost + TreeSHAP scope claim
+The agent claims "every AI Short Calls and AI Early Movers pick gets XGBoost scored with full SHAP attribution written to the database" but that AIEM cannot run XGBoost on an arbitrary ticker mid-chat. Verify both halves:
+```bash
+grep -rn "xgboost\|shap\|TreeSHAP" --include="*.py" . | grep -i "short_call\|early_mover"
+```
+- Paste output confirming XGBoost/SHAP is actually invoked in the AI Short Calls and AI Early Movers pick-generation code paths (not just referenced in a docstring or comment).
+```sql
+SELECT COUNT(*) FROM <shap_attribution_table> WHERE created_at > NOW() - INTERVAL '7 days';
+```
+- Paste row count to confirm SHAP values are actually being written, not just capable of being written.
+
+### 8c. Ticker universe claim
+```sql
+SELECT COUNT(DISTINCT ticker) FROM polygon_market_daily;
+SELECT COUNT(*) FROM polygon_market_daily;
+```
+- Paste both results. Confirm ticker count is actually 11,000+ and row count is actually 427K+, not rounded or estimated.
+
+---
+
+## 9. Full System Wiring Verification (end-to-end communication audit)
+This is the final, comprehensive pass. The goal is not to check any one module in isolation but to prove how every piece — all 50 new signals, the 10 quant methods, the 8 AI systems, the 6 statistical rigor items, and the 4 dealer positioning signals — actually connects to AIEM, to each other, and to the rest of the platform. The agent must produce a real call graph, not a description of one.
+
+### 9a. Master call graph
+```bash
+grep -rln "def aiem_\|class AIEM\|aiem_decide\|aiem_reasoning\|aiem_orchestrat" --include="*.py" .
+```
+- Identify the actual AIEM entrypoint/orchestrator file(s). Paste output.
+
+For the identified orchestrator file(s):
+```bash
+grep -n "import \|from .* import" <orchestrator_file.py>
+```
+- Paste the full import list. Every one of the 50 signals, 10 quant methods, 8 AI systems, and 6 statistical rigor tools claimed as "wired into AIEM" must appear here, either directly or through an intermediate module that itself imports them. If any claimed tool is missing from this import chain, it is not actually wired in — flag it.
+
+### 9b. Trace every claimed tool to its caller
+For each tool name from Sections 1–8 (all 50+ signals), run:
+```bash
+grep -rn "<tool_name>(" --include="*.py" . | grep -v "^.*def <tool_name>"
+```
+- This finds every call site (not the definition) for each tool. Build a table: tool name → calling function(s) → file(s). Any tool with zero call sites outside its own definition is dead code, not "wired in," regardless of what the agent claimed.
+
+### 9c. Data flow: input → scoring → output
+Pick 3 representative signals, one from each category (e.g. one Layer 9 quant method, one AI system, one statistical rigor item), and trace the full path end to end:
+```bash
+grep -rn "<signal_function_name>" --include="*.py" .
+```
+- For each of the 3, produce: (1) where raw data enters (API call, DB read), (2) where the signal is computed, (3) where the output is stored (DB write or return value), (4) where that output is consumed (which pick-generation or reasoning function reads it). All four steps must have a matching line of code — not a description.
+
+### 9d. Cross-module communication check
+Confirm the modules that are supposed to talk to each other actually do, via shared function calls or a shared DB table, not just proximity in the same file.
+```bash
+grep -rn "get_meta_learning_weights\|get_m2_decay_status\|get_m6_rediscovery_status\|get_bh_fdr_status" --include="*.py" . | grep -v "^.*def "
+```
+- Paste output. Confirm these status/decay/correction tools are actually called by the reasoning/orchestrator layer described in 9a, not just standalone functions that exist but are never invoked.
+
+### 9e. End-to-end live test
+Request the agent run one full live AIEM reasoning pass on a real ticker and capture:
+```bash
+# Example — adapt to actual AIEM invocation method
+python3 -c "from <aiem_module> import <aiem_entrypoint>; print(<aiem_entrypoint>('AAPL'))"
+```
+- Paste the full raw output/log. Every one of the 50 signals should appear somewhere in the trace (log line, intermediate value, or JSON key) if it is genuinely wired into the live reasoning path. Any claimed signal absent from a real live run is not verified — it's aspirational.
+
+### 9f. Final consolidated wiring table
+Agent must produce one single table covering all ~50+ items across every category, with these exact columns:
+| Signal/Tool Name | Defined In (file) | Called From (file:function) | Confirmed in Live Run (Y/N) | Isolated from Conviction Stack (Y/N) |
+
+No row may say "Y" without the corresponding grep/log evidence pasted above it. Any row with a "N" or "unknown" in the last two columns is an open item, not a completed one.
+
+---
+
+## Final Sign-Off Line (agent must fill in with real data, not template text)
+```
+Signals counted: __ / 50
+Isolation violations found: __ (list files)
+Schedule mismatches found: __ (list)
+Commits reviewed: __ (hashes)
+Section 8 tools verified with call-site evidence: __ / 15
+XGBoost/SHAP live DB writes confirmed (last 7 days): __ rows
+Ticker universe confirmed: __ distinct tickers / __ total rows
+Section 9 wiring table completed: __ / ~50+ rows with full evidence
+Signals confirmed present in live end-to-end run: __ / 50
+Dead code / unwired tools found: __ (list)
+```
