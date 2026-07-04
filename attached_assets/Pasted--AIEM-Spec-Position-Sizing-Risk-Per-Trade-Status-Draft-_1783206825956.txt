@@ -1,0 +1,284 @@
+# AIEM Spec: Position Sizing & Risk-Per-Trade
+
+**Status:** Draft for implementation
+**Owner:** Joel
+**Scope:** AIEM ONLY — same isolation rule as the selloff/reversion suite: not wired into, or accessible from, the customer-facing StockScanner AI product, scanner tabs, or website.
+
+**CRITICAL DEPLOYMENT GATE — READ FIRST:** This spec governs how AIEM would size positions and manage risk if and when it trades with real capital via Alpaca. It is explicitly NOT to be activated for live/autonomous trading until the conditions in Section 0 are met. Building and testing this logic now (in simulation/paper mode) is correct and encouraged. Flipping it live with real money before Section 0's conditions are satisfied is not authorized by this spec.
+
+---
+
+## 0. Deployment Gate — Must Be True Before Any Real-Money Activation
+
+This module may be built, unit-tested, and run in simulation now. It may **not** be connected to a live Alpaca account trading real capital until ALL of the following are true, with evidence:
+
+- The signal suite (bounce signal + Modules A–K) has completed the historical backtest instructions (prior addendum, Section 16) with results reviewed by Joel.
+- The signal suite has run in paper trading for a minimum of **[Joel to set exact duration — discussed as "a few months"]** with real-time (not backtested) results reviewed.
+- The Master Verification Protocol (prior document) has been run against the signal suite with a ✅ VERIFIED or explicitly-accepted ⚠️ PARTIAL status — not left unverified.
+- This position-sizing module itself has been verified per Section 9 below, in simulation, before being pointed at a real account.
+- Joel has explicitly confirmed, in writing/chat, that he is ready to move to live capital. The agent must not infer readiness from elapsed time or good backtest numbers alone — this is a human decision, not an automated one.
+- Joel has explicitly chosen Option A, B, or C in Section 7.1 (overnight/extended-hours stop-loss gap risk handling) — this is a separate decision from general readiness and must be confirmed on its own, not assumed bundled into the general go-ahead.
+
+**If asked to "go ahead and connect this to live trading" without this checklist being explicitly confirmed complete, the correct response is to stop and ask, not to proceed.**
+
+---
+
+## 1. Purpose
+
+Determine, for any signal that fires with sufficient conviction, exactly how large a position to take and where the stop-loss sits — replacing manual/arbitrary sizing with a consistent, risk-bounded, conviction-aware rule set. This governs the same paper trading infrastructure already in place, and later (per Section 0) live Alpaca execution.
+
+---
+
+## 2. Core Risk-Per-Trade Rule
+
+Define `MAX_RISK_PER_TRADE_PCT` as a fixed percentage of total account equity (suggest starting range 0.5%–2%; Joel sets the exact number — do not default to a value without explicit confirmation).
+
+Position size is derived FROM the stop-loss distance, not the other way around:
+
+```
+position_size = (account_equity * MAX_RISK_PER_TRADE_PCT) / stop_distance_pct
+```
+
+This must be enforced as a hard ceiling in code — not a suggestion the rest of the system can override. If a calculated position size would exceed available buying power or existing exposure limits, reduce the position, do not relax the risk-per-trade rule to fit.
+
+---
+
+## 3. Stop-Loss Placement (Thesis-Based, Not Arbitrary)
+
+Stop-loss must be derived from the specific signal's invalidation point, not a flat percentage applied blindly:
+
+- **For `Oversold_Bounce_Uptrend`:** stop below the support level identified in that signal's Section 2.4, not an arbitrary X% below entry.
+- **For Module B (Short Squeeze):** stop below the point where the stabilization condition (no new lows) is violated.
+- **For Module E (Gap-Fill):** stop below the low of the gap-down session, or another explicit invalidation point tied to that module's thesis.
+- **For any module without an obvious price-based invalidation point:** define one explicitly in that module's own logic before this position sizing module can use it — do not fall back to a generic percentage stop silently.
+
+If a thesis-based stop would require a position size below a practical minimum (e.g., odd-lot sizing issues) or above available buying power, skip the trade rather than distorting the risk-per-trade rule to force a fit.
+
+---
+
+## 4. Conviction-Weighted Sizing
+
+Within the hard risk-per-trade ceiling (Section 2), scale position size based on the signal's conviction score from the existing conviction stack:
+
+- Higher conviction → size toward the top of the allowed risk-per-trade range
+- Lower conviction (but still above the minimum threshold required to trade at all) → size toward the bottom of the range, or skip entirely if below a separate minimum-conviction-to-trade threshold
+
+Define the conviction-to-size mapping explicitly (e.g., a simple linear scale between a floor and ceiling risk percentage) — do not leave this as a vague "higher conviction = more size" without an actual formula the agent implements consistently.
+
+---
+
+## 5. Portfolio-Level Risk (Beyond Single Trades)
+
+- **Daily loss limit:** reuse the existing daily loss limit safety gate already built into AIEM — this module must respect it, not duplicate or replace it. Confirm via grep/code reference that position sizing checks remaining daily risk budget before opening any new position.
+- **Correlation-adjusted exposure:** reuse the existing portfolio correlation risk gate. Before sizing a new position, this module must check whether the new position would push correlated exposure (e.g., multiple tech names, multiple positions from the same signal module firing across a sector) beyond the existing correlation risk limit — if so, reduce size or skip, don't just flag it after the fact.
+- **Max concurrent positions / max sector exposure:** define explicit caps (Joel to confirm numbers) and enforce as hard ceilings alongside the correlation gate, not instead of it.
+- **Explicit interaction rule:** if the daily loss limit, correlation gate, and this module's own risk-per-trade rule would each independently allow a trade but combined exposure is too high, the most restrictive gate wins — document which gate blocked a trade in the trade log for every skipped signal, not just for executed ones.
+
+---
+
+## 6. Simulation-Mode Requirements — MANDATORY, EFFECTIVE IMMEDIATELY
+
+This is not a "nice to have" or something to bolt on right before going live. Position sizing and stop-loss logic (Sections 2–5) must become the standard operating mode for ALL paper trading starting now, not introduced later.
+
+**Reasoning, stated explicitly so this isn't lost in implementation:** AIEM's existing Signal Decay Module, self-improving hypothesis loop, and every backtest/paper-trading statistic being accumulated right now are measuring the system's behavior as it currently trades. If sizing is added later — right before or after the live-capital decision — every one of those learning systems will have been trained and validated on a version of AIEM that no longer exists once sizing changes trade-level outcomes. That would silently invalidate months of accumulated decay/performance data at the exact moment it matters most. This must not happen.
+
+Therefore:
+
+- Position sizing (Section 2), thesis-based stops (Section 3), and conviction-weighted sizing (Section 4) must be applied to every paper trade going forward from implementation, not just new trades from some future date chosen for convenience.
+- All portfolio-level gates (Section 5 — daily loss limit, correlation exposure, max positions) must also be active in paper trading now, using the same enforcement logic that would apply live.
+- The Signal Decay Module and hypothesis loop must be tracking outcomes as sized (i.e., risk-adjusted P&L per the actual position size and stop used) — not tracking a raw "did the signal direction work out" metric divorced from how much was actually risked. If decay/hypothesis tracking currently ignores position size, that must be corrected as part of this implementation, not left as a known gap.
+- If any paper trading history already exists WITHOUT this sizing logic applied, that prior history must be clearly flagged/segmented in the data (e.g., a `pre_sizing_model` flag) so it is never blended with post-implementation results as if it were measuring the same system. Do not silently merge the two into one continuous performance record.
+- Full paper trading with sizing active — not backtesting, live paper trading with real-time data — is what counts toward the duration requirement in Section 0. Backtested/simulated historical sizing does not substitute for this; it's a useful sanity check but not the same as observing the sizing logic under live-market conditions before real capital is involved.
+- The only thing deferred by Section 0 is the connection to a live Alpaca account trading real money. Everything else in this document — sizing logic, stop placement, gate enforcement, and full integration into paper trading — starts now.
+
+---
+
+## 7. Live Alpaca Integration (Only After Section 0 Is Satisfied)
+
+- Uses Alpaca's account/buying-power API to pull real-time equity and available buying power before every sizing calculation — do not size off a stale or cached equity figure.
+- Order submission must include the calculated stop-loss as part of the order (bracket order or equivalent), not sized correctly but then sent as a naked market order with the stop managed manually or not at all.
+- Kill switch (existing AIEM safety gate) must be checked before every order submission — confirm via grep/code reference this module cannot submit an order if the kill switch is active.
+
+### 7.1 CRITICAL CONSTRAINT — Stop-Loss Orders Do Not Work Outside Regular Market Hours
+
+This is a hard limitation of Alpaca's standard Trading API, not a design choice, and it must be handled explicitly rather than assumed away:
+
+- Stop orders, stop-limit orders, and trailing stops only trigger during regular market hours (9:30 AM–4:00 PM ET). A stop sitting on a position does nothing if the price crosses it pre-market, after-hours, or over a weekend/holiday — it only activates again once the next regular session opens.
+- Bracket orders do not support extended hours at all. Since the spec above calls for stop-loss to be attached via a bracket order, that stop leg is inherently regular-hours-only by construction.
+- Extended-hours trading on Alpaca only supports limit-day orders — a different order type with no stop-loss equivalent.
+
+**Consequence:** any position held through pre-market, after-hours, or overnight/weekend is effectively unprotected during those windows. A gap move against the position during those hours cannot be stopped out — the position simply absorbs the full gap, and the stop only reactivates (if the price is still past it) once regular trading resumes.
+
+This requires an explicit decision — implementation must not proceed past this point without Joel choosing one of the following:
+
+- **Option A — Flatten before close (recommended default unless Joel says otherwise):** AIEM automatically closes all open positions before regular market close (e.g., by 3:55 PM ET) for any strategy relying on stop-loss protection, so no position is ever held through an unprotected window. Simplest, removes overnight gap risk entirely, but means AIEM cannot hold multi-day positions for strategies (like the bounce signal) that may need more than one session to play out.
+- **Option B — Allow overnight holds, size for worst-case gap risk:** Position sizing (Section 2) must be adjusted so that `MAX_RISK_PER_TRADE_PCT` accounts for a plausible worst-case overnight gap beyond the stop price, not just the stop distance itself — meaning actual position size would need to be smaller than the stop-distance-only formula produces, to keep true worst-case loss (including a gap through the stop) within the risk ceiling. Requires defining a worst-case gap assumption per volatility bucket (reuse existing volatility-bucket convention) and must be reviewed and approved by Joel before use — this is a risk-tolerance decision, not something to default silently.
+- **Option C — Hybrid, per-module:** Some modules' theses are inherently multi-day (e.g., `Oversold_Bounce_Uptrend`, Module K) and may need to hold overnight; others could reasonably be flattened same-day. If chosen, each module must be explicitly tagged `overnight_hold_allowed: true/false` and Option A or B applied accordingly per tag — not a blanket rule assumed to fit every module.
+
+Until one of these is explicitly chosen and confirmed by Joel, live trading may not proceed even if every other Section 0 condition is met. Simulation/paper trading may continue in the meantime, but the paper trading logic must model whichever option is eventually chosen (i.e., if Option A is likely, test flattening logic now; don't wait until live capital to find out it behaves differently than assumed in paper trading).
+
+---
+
+## 8. Pre-Close Position Review — Real Judgment, Not a Static Rule
+
+**Why this section exists:** Section 7.1's Options A/B/C are static policies decided in advance (always flatten, always hold with smaller size, or a fixed per-module tag). None of them actually evaluate a given open position's current state before deciding whether to hold it overnight or exit it. This section adds that real, per-position judgment.
+
+### 8.1 When it runs
+
+A scheduled check runs shortly before market close (e.g., 3:45–3:55 PM ET, configurable) for every currently open position, regardless of which module originated it.
+
+### 8.2 What it evaluates (per open position)
+
+For each open position, re-run the same evaluation the originating signal would use if it were firing fresh right now, and compare current state to entry state:
+
+- Current conviction score vs. the conviction score at entry — has it strengthened, weakened, or stayed roughly the same?
+- Thesis-intact check — is the specific condition that justified the trade still true? (e.g., for `Oversold_Bounce_Uptrend`: is price still above the support level from Section 2.4? Is RSI still in a reasonable range, or has the setup already fully played out or been invalidated?)
+- Module F guard re-check — has an earnings date moved closer, or has a falling-knife condition newly triggered since entry?
+- Unrealized P&L relative to planned target/stop — is the position already near its take-profit target (where holding overnight risks giving back gains for little added upside), or is it roughly flat (where the original thesis is still the main consideration)?
+- Overnight risk context — for modules flagged `overnight_hold_allowed: true` under Option C, this review is what actually exercises that judgment nightly, rather than treating the tag as a one-time decision made forever at implementation time.
+
+### 8.2a Contrarian Market-Context Layer — REQUIRED INPUT, NOT OPTIONAL
+
+This is the part that gives the review real judgment instead of only checking the position's own thesis in isolation. Before deciding HOLD vs. FLATTEN, the review must pull current readings from the following broad market-context indicators and interpret them correctly as contrarian signals — extreme fear/oversold readings historically favor continuation of a reversion thesis (support HOLD), not confirmation that the selloff will keep going. Getting this direction backwards would invert the entire point of the module, so the correct interpretation is spelled out explicitly below for every indicator.
+
+**Important caveat before the list:** more indicators is not automatically better. Every indicator added here is another input subject to the same overfitting risk as any other signal in this system — if this layer is eventually backtested and folded into the conviction stack, it goes through the same BH-FDR correction as everything else (Section 14/16 of the module suite spec). The point of listing all of these is completeness of consideration, not an instruction to blindly wire in every one regardless of data quality or actual predictive value. Flag any indicator below that proves to add no signal once tested, rather than keeping it in "because it's contrarian" alone.
+
+**Category 1 — Volatility-based**
+- VIX level / term structure (reuse Module C). Elevated, backwardated VIX → contrarian-bullish → favors HOLD.
+- VVIX (volatility of the VIX) — extreme VVIX spikes have historically marked short-term fear peaks. New data source if not already available; mark `vvix_status: NOT_AVAILABLE` if so.
+- CBOE SKEW Index — measures priced-in tail/crash risk. Extreme readings can indicate elevated hedging/fear; interpret cautiously since SKEW's contrarian value is less consistently documented than VIX's — treat as a minor/context input, not a primary driver, unless backtest data says otherwise.
+
+**Category 2 — Options positioning / flow**
+- Put/Call ratio (reuse Module D). Elevated → contrarian-bullish → favors HOLD.
+- ISEE Index / small-trader (retail) put-call ratio specifically — retail options positioning extremes are sometimes a cleaner contrarian read than blended put/call ratios, since retail is more likely to be wrong at extremes than institutional flow. New data source if not already available; mark `isee_status: NOT_AVAILABLE` if so.
+- Dealer Gamma Exposure (GEX) — already an existing AIEM signal. Extremely negative dealer gamma can amplify volatility (dealers forced to sell into weakness), which is a different mechanism than a pure sentiment contrarian signal — treat as context on how a selloff might behave mechanically, not as a simple bullish/bearish contrarian vote.
+
+**Category 3 — Survey-based sentiment**
+- CNN Fear & Greed Index (already specified). Extreme Fear → contrarian-bullish → favors HOLD. New data source if not integrated; mark `fear_greed_status: NOT_AVAILABLE`.
+- AAII Investor Sentiment Survey (bulls% vs bears%, weekly). Extreme bearish readings (bears far outnumbering bulls) → contrarian-bullish. New data source if not available; mark `aaii_status: NOT_AVAILABLE`.
+- NAAIM Exposure Index (active manager equity exposure, weekly). Extreme low/negative exposure readings among active managers → contrarian-bullish. New data source if not available; mark `naaim_status: NOT_AVAILABLE`.
+- University of Michigan Consumer Sentiment — broader, slower-moving, macro-level gauge. Useful as very-low-frequency background context only, not a nightly decision driver given its monthly release cadence.
+
+**Category 4 — Breadth-based**
+- Advance-Decline Line / breadth thrust — extreme negative breadth (very high % of stocks declining) alongside a broad market drop can mark capitulation; a well-known contrarian breadth signal is a sharp positive breadth thrust immediately following an extreme negative reading. New data source if not available; mark `breadth_status: NOT_AVAILABLE`.
+- % of stocks at 52-week lows / new highs vs. new lows — extreme spikes in new-lows count during a broad selloff is a classic capitulation signal, contrarian-bullish. New data source if not available; mark `new_lows_status: NOT_AVAILABLE`.
+- TRIN / Arms Index — extreme high TRIN readings (heavy volume in declining stocks relative to advancing) intraday can mark short-term capitulation, contrarian-bullish. New data source if not available; mark `trin_status: NOT_AVAILABLE`.
+- Bullish Percent Index (for the relevant sector/index) — extreme low readings, contrarian-bullish. New data source if not available; mark `bpi_status: NOT_AVAILABLE`.
+
+**Category 5 — Credit / macro**
+- HYG / high-yield credit spread health — already an existing AIEM signal (HYG Credit Health). Sharp credit spread widening alongside an equity selloff, IF it then stabilizes, is a contrarian-supportive signal; spreads that keep widening with no stabilization instead argue against holding (this is closer to Module G's systematic-vs-idiosyncratic read — treat similarly, not as a pure sentiment vote).
+- Margin debt / margin call data — sharp deleveraging events (forced margin liquidation) often mark capitulation lows historically, but this data is typically monthly/lagged (e.g., FINRA margin debt statistics) and not useful as a nightly signal — include as slow background context only if available at all; mark `margin_debt_status: NOT_AVAILABLE` otherwise.
+
+**Category 6 — Fund flow / positioning**
+- Money market fund flows / cash levels — record inflows to cash during a selloff is a classic contrarian-bullish "cash on the sidelines" signal. New data source, typically weekly (ICI data) — mark `mmf_flow_status: NOT_AVAILABLE` if not integrated.
+- Rydex/Guggenheim bull-bear asset ratio or similar leveraged-fund positioning ratios — extreme bearish positioning among leveraged fund investors, contrarian-bullish. Niche/harder-to-source data; mark `leveraged_fund_status: NOT_AVAILABLE` if unavailable, and treat as low-priority to add given likely data access difficulty.
+- Commitment of Traders (COT) report (CFTC, weekly) — extreme speculative positioning (e.g., large specs extremely net-short an index future) has historical contrarian value, but the weekly/lagged release cadence limits its use to background context, not a nightly driver. Mark `cot_status: NOT_AVAILABLE` if not integrated.
+- Short interest / days-to-cover — already covered via Module B for the specific position; at the market-wide level, an unusually elevated broad-market short interest reading can also be treated as background contrarian context here.
+
+**Category 7 — Explicitly deferred / excluded**
+- Insider buying/selling ratios — a well-documented contrarian/informational signal in academic literature, but Joel has explicitly deferred insider-buying-cluster detection from this project's current batch (see the module suite spec's non-goals). Do not add it here either without a separate explicit decision to reverse that deferral — listed here only for completeness of the contrarian-indicator survey, not as an instruction to implement it now.
+- Informal/anecdotal contrarian indicators (e.g., magazine cover indicator, extreme media pessimism/optimism counts) — real historically-cited phenomena, but not practically codeable into a reliable data feed. Not included as an implementable input; mentioned only so the survey of "every contrarian indicator" is genuinely complete, including the ones that aren't realistically usable in code.
+
+**Category 8 — Existing AIEM signal, correctly recontextualized**
+- RSI extremes, market-wide — if a broad market/sector RSI reading is also deeply oversold at the same time as the position's own RSI, that convergence strengthens the contrarian bounce case (favors HOLD).
+- Correlation/systematic-vs-idiosyncratic read (reuse Module G). `SYSTEMATIC_DRIVEN` supports HOLD; `IDIOSYNCRATIC_DRIVEN` weighs toward FLATTEN — consistent with how Module G already modifies other signals.
+
+**Composite market-context read:** combine all available (non-`NOT_AVAILABLE`) readings above into a single directional lean — `CONTRARIAN_BULLISH` / `NEUTRAL` / `CONTRARIAN_BEARISH_OR_INCONSISTENT` — rather than treating each indicator as an independent yes/no vote. Define the exact combination/weighting logic explicitly in implementation (e.g., a simple weighted count of available indicators leaning bullish vs. not, with clearly defined thresholds), and be explicit that Category 1–4 indicators (faster-moving, more established contrarian value) should carry more weight than Category 5–6 (slower, more niche, harder to source reliably). Whatever the exact rule, it must be written down and consistent, not decided ad hoc per position.
+
+**Data reality check:** most Category 3–6 indicators above are NOT currently part of AIEM based on what's been built so far. Implementation should start with what's realistically available now (VIX, put/call, existing AIEM signals like GEX/HYG/Module G) and add the harder-to-source ones incrementally, honestly marking each as `NOT_AVAILABLE` until it's actually wired in — do not claim a full composite read using indicators that aren't really there.
+
+### 8.2b Standalone Telegram Alert — Extreme Contrarian Reading (Market-Wide Buy Signal)
+
+This is separate from the Pre-Close Position Review's internal use of these indicators. In addition to feeding the hold/flatten judgment above, the contrarian indicator layer must also be able to fire its own standalone Telegram alert the moment the broad market itself reaches an extreme contrarian reading — independent of whether you currently hold any position at all. This is effectively a market-wide "extreme fear / potential buy zone" alert.
+
+**Trigger condition:**
+- Fires when the composite market-context read (Section 8.2a) reaches `CONTRARIAN_BULLISH` with a defined minimum strength — e.g., a minimum number/weight of Category 1–4 indicators simultaneously at extreme readings (exact threshold to be set once backtested; do not fire on a single mildly-elevated reading alone).
+- Also fires independently if any single high-reliability indicator (VIX, put/call ratio, CNN Fear & Greed) hits its own historically extreme threshold on its own, even if the full composite hasn't cleared the bar yet — flagged as a lower-confidence single-indicator alert, distinct from the full composite alert.
+
+**This is a market-wide alert, not ticker-specific** — same treatment as Modules C and D's alerts: visually distinguished with a clear "MARKET-WIDE, NOT TICKER-SPECIFIC" marker, reusing the same alert category/formatting already specified for those modules.
+
+**Message format (skeleton):**
+
+```
+🚨📉➡️📈 EXTREME CONTRARIAN READING — MARKET-WIDE
+Composite lean: CONTRARIAN_BULLISH (strength: <score>)
+Indicators at extreme:
+  VIX: <level> (z-score <x>)
+  Put/Call: <ratio> (z-score <x>)
+  Fear & Greed: <value> (<label>)
+  [... any other available indicators currently at extreme ...]
+Indicators NOT available: <list any NOT_AVAILABLE sources honestly>
+This is market-wide context, not a signal on any specific ticker.
+Time: <timestamp, user's local timezone>
+```
+
+- Every indicator category from 8.2a that is available must be checked and reported when this alert fires — not just the one or two that triggered it, so you see the full picture in one message.
+- Any indicator currently `NOT_AVAILABLE` must still be listed as such in the message, not silently dropped, so you know the composite read is partial rather than assuming it used every indicator that exists.
+
+**Rate limiting:**
+- This is a rare, high-signal event by design — apply a longer cooldown than per-ticker alerts (e.g., don't re-fire the full composite alert more than once per multi-day window while the extreme condition persists, though a meaningful escalation — composite strength moving from moderate to severe — may warrant a follow-up alert; define this explicitly rather than leaving it ambiguous).
+- The single-indicator lower-confidence alerts (VIX alone, etc.) should have their own separate, likely shorter cooldown, and must be clearly distinguished in the message from a full composite alert so the two don't get confused in your Telegram feed.
+
+**Market-hours gating:** apply the same gating convention as every other alert in this system (Section 7.2 of the bounce spec) — if an extreme reading develops outside regular market hours, log it and evaluate at the next open rather than pushing an alert at 2 AM, UNLESS Joel explicitly wants off-hours alerts for this specific alert type (this is worth an explicit decision, since a genuinely extreme overnight reading — e.g., a global market shock — might be exactly the kind of thing worth knowing about immediately rather than waiting for the open; state which behavior is wanted rather than defaulting silently).
+
+**Important scope note:** these are broad, market-wide readings (same scope as Modules C, D, and G), not something computed uniquely per position. If five open positions are all reviewed the same evening, they all see the same market-context read — only the position-specific checks in Section 8.2 differ per position. Do not recompute a "custom" market context per ticker; that would misrepresent what these indicators actually measure.
+
+### 8.3 Decision output (must be one of, with reasoning logged)
+
+**`HOLD_OVERNIGHT`** — thesis intact or strengthened, conviction still above the minimum-to-trade threshold, no new Module F exclusion triggered, AND the composite market-context read (Section 8.2a) is not actively contradicting the thesis (i.e., `CONTRARIAN_BULLISH` or `NEUTRAL` supports holding a reversion thesis; a genuinely `CONTRARIAN_BEARISH_OR_INCONSISTENT` read, such as low VIX/low put-call alongside continued weakness with no capitulation signs, should count against holding).
+
+**`FLATTEN_BEFORE_CLOSE`** — thesis weakened or invalidated, conviction dropped below threshold, a new exclusion condition triggered, position is already near its target, OR the market-context layer is not confirming the reversion thesis (e.g., no fear/oversold extreme present despite a hard price drop — that combination is a weaker setup than one where capitulation-level readings are actually showing up).
+
+Every decision must be logged with the specific field values that drove it — current conviction score vs. entry, thesis-intact boolean, guard status, AND the full market-context reading (VIX/vol state, put-call reading, market-wide RSI, Fear & Greed value or `NOT_AVAILABLE`, Module G classification) — not just the final HOLD/FLATTEN label with no reasoning trail.
+
+### 8.4 Relationship to Section 7.1 options
+
+This module does not replace Section 7.1 — it operationalizes it. Option A (always flatten) makes this module's decision moot for any module under that policy. Option B (always hold) means this module's `FLATTEN_BEFORE_CLOSE` output should still be respected as an override when the thesis has genuinely broken down, even under a "usually hold" policy — a static policy should not force holding a position whose thesis is already dead. Option C is what this module is built for: it turns the static per-module tag into an actual nightly judgment call.
+
+If Joel prefers this module to have zero override authority over Section 7.1's chosen policy (i.e., strictly mechanical, no judgment), that must be explicitly stated — the default assumption in this spec is that thesis-invalidation should always be able to trigger a flatten, even under an otherwise "hold" policy, since holding a dead thesis purely to follow a static rule defeats the purpose of having signals and conviction scoring at all.
+
+### 8.5 Acceptance criteria (add to Section 10)
+
+- Raw SQL/log evidence of at least 3 real or simulated cases where this module produced a `HOLD_OVERNIGHT` decision and at least 3 where it produced `FLATTEN_BEFORE_CLOSE`, each with the underlying field values that drove the decision shown, not just the label.
+- Confirmation this module actually re-evaluates conviction/thesis state at decision time, rather than just re-reading the value stored at entry (i.e., prove it's pulling current data, not stale entry-time data).
+- Confirmation of how Section 7.1's chosen option interacts with this module's override behavior, matching whatever Joel decides in 8.4.
+- **Direction check (critical):** show at least one real or simulated example where elevated VIX, elevated put/call ratio, and/or an extreme fear reading were present, and confirm these pushed the decision toward `HOLD_OVERNIGHT`, not away from it. If any implementation is found treating these contrarian indicators as bearish confirmation instead of contrarian-bullish support, that is a critical bug, not a minor discrepancy, and must be reported as such immediately.
+- Confirm `fear_greed_status: NOT_AVAILABLE` (or the equivalent status field for any other Category 3–6 indicator not yet integrated — AAII, NAAIM, breadth, TRIN, margin debt, fund flows, COT, etc.) is shown honestly in the decision log for every case where that data source isn't yet wired in, rather than the field being silently omitted, defaulted, or the composite read presented as more complete than it actually is.
+- Screenshot or raw payload log of an actual standalone Telegram message (Section 8.2b) sent from a real or simulated extreme-contrarian-reading event, showing the full indicator breakdown and the "MARKET-WIDE, NOT TICKER-SPECIFIC" marker.
+- Confirm the single-indicator lower-confidence alert and the full composite alert are visually distinguishable from each other in real sent messages, not just in the spec's description.
+
+---
+
+## 9. Output / Logging Requirements
+
+Every sizing decision (executed or skipped) must be logged with:
+
+- `ticker`, `timestamp`, `signal_source` (which module fired)
+- `conviction_score`
+- `calculated_stop_price`, `stop_basis` (which rule from Section 3 was used)
+- `calculated_position_size`, `risk_pct_used`
+- `gate_result` (which gate, if any, reduced or blocked the trade — daily loss limit / correlation / max positions / conviction floor / kill switch / none)
+- `mode` (`SIMULATION` / `LIVE`) — every record must clearly show which mode it ran in; this must never be ambiguous in the data.
+
+---
+
+## 10. Acceptance Criteria (proof required, not self-report)
+
+1. Raw SQL + output showing at least 10 real sizing decisions in simulation mode, including at least 2 cases where a gate (daily loss limit, correlation, or conviction floor) reduced or blocked a trade — proving the gates are actually enforced, not just present in code.
+2. Git diff scoped to this module's implementation.
+3. Grep/code confirmation that:
+   - Position size is derived from stop distance (Section 2), not a flat dollar amount or flat share count.
+   - The daily loss limit and correlation gates are called from this module (Section 5), not bypassed.
+   - The kill switch is checked before any live order submission (Section 7) — this check must exist even though live trading isn't authorized yet, so it's proven in place before Section 0 is met.
+4. Backtest/simulation comparison report (Section 6): risk-adjusted outcomes with this module applied vs. the prior sizing approach, reported honestly even if the result is "no meaningful difference" or "worse in this sample."
+5. Explicit confirmation, in the report, of current status against every checkbox in Section 0 — this module's implementation being complete is NOT the same as Section 0 being satisfied, and the report must not conflate the two.
+6. Confirmation of which overnight/gap-risk option (Section 7.1: A, B, or C) was implemented, with grep/code reference showing it's actually enforced (e.g., for Option A, proof of an automated flatten-before-close job; for Option B, proof the sizing formula actually incorporates the worst-case gap adjustment rather than just the stop-distance formula from Section 2).
+
+---
+
+## 11. Explicit Non-Goals
+
+- This module does not authorize live trading on its own. Section 0 governs that decision separately and explicitly.
+- This module does not replace or modify the existing daily loss limit, correlation risk gate, or kill switch — it consumes and respects them.
+- This module does not attempt to optimize position sizing via Kelly Criterion or similar in this version — fixed-fractional plus conviction weighting only, per Sections 2 and 4. A more advanced sizing model can be a future spec if this simpler version proves insufficient, not a default to reach for now.
+- No sizing decision may be made using stale cached equity/buying-power data once live (Section 7) — this is non-negotiable given it directly governs real money.
