@@ -1,0 +1,24 @@
+# Streaming Verification Request
+
+The terminal log with token timestamps (5–40ms intervals) is good evidence for one specific claim: *something* is emitting tokens at streaming cadence during that job. It does not prove the other claims made alongside it. Before I accept this as done, I need the following:
+
+## 1. Prove the tokens are real OpenAI output, not simulated
+- Show the exact code path that receives the OpenAI streaming response and forwards each chunk (file + line numbers).
+- Show a raw `curl` or equivalent request made directly against the OpenAI-facing endpoint, captured independently (not printed by the agent), with the same token-by-token timestamps.
+- Confirm: is there any mock/simulated delay or fixture in this code path? Point to where that logic lives (or doesn't).
+
+## 2. Prove the frontend actually renders it live
+- A screen recording (not a description) of the website showing:
+  - the pulsing dot / tool-name state while AIEM is working
+  - text appearing word-by-word as it streams
+  - the cursor disappearing on completion
+- Alternatively: browser DevTools Network tab screenshot showing the SSE/streaming response arriving in chunks over time, matched against the recording.
+
+## 3. Prove the external API (SSE) actually works for a real client
+- A raw `curl -N` (or Postman/fetch) request against the live public API endpoint, run by someone independent of the agent, showing the response arriving as a stream of chunks over multiple seconds — not printed by the agent's own logs.
+- Timestamps on that independent capture should roughly match the `[00:52:xx]` timestamps in the original log, confirming it's the same underlying job.
+
+## 4. Reconcile the two claims
+- The doc says: subscribers see live typing on the website AND API clients get the raw SSE stream. These are two separate code paths (WebSocket/SSE to browser vs. HTTP streaming response to API clients). Confirm both paths are wired to the same underlying token stream, and show the code for each.
+
+**Standard of proof:** raw terminal/network output, timestamps captured independently of the agent, or a screen recording. Not a written summary of what "happens now."
