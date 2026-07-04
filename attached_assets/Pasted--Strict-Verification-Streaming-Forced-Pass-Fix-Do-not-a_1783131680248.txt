@@ -1,0 +1,31 @@
+# Strict Verification — Streaming/Forced-Pass Fix
+
+Do not accept narrative summaries. Every answer below must be backed by raw terminal output, DB query results, or file diffs — not agent self-report.
+
+## 1. Mis-scoped code reviewer claim
+- [ ] Show the actual reviewer invocation/config that proves it was scoped to task #17 ("Revert stray deletion") instead of this task.
+- [ ] Show the corrected reviewer run against the actual diff for this task, with its full output (not a summary of it).
+- [ ] Did the corrected reviewer pass, fail, or flag anything? Paste the raw result.
+
+## 2. Bug #1 — status overwrite (`error` → `running`)
+- [ ] Show the exact code diff for the fix (file, function, line numbers).
+- [ ] Show a raw DB query (before fix) where a session's status flips from `error` back to `running` after timeout.
+- [ ] Show the same query (after fix) proving status now holds at `error` and does not get overwritten by the background/daemon thread.
+- [ ] What was actually causing the overwrite — a race condition, a stale write, a missing lock? Name the root cause, not just the symptom.
+
+## 3. Bug #2 — 120s deadline too short
+- [ ] Show raw session duration data (DB rows or logs) for sessions that use all 6 iterations, confirming the 180–350s range claimed.
+- [ ] Show the exact diff implementing the `max_iters >= 5` → 360s logic.
+- [ ] Show the new "late-completion self-report" mechanism's code, and a raw log/DB row of it actually firing for a session that exceeded 360s.
+- [ ] What happens to a session that exceeds 360s AND fails to self-report — is there still a failure mode, or is this now unbounded?
+
+## 4. The 10 trials
+- [ ] Provide raw terminal/log output for all 10 trials — not the summary table. Timestamps, tool calls, and final status per trial.
+- [ ] Explain the timing variance: 40.2s (Trial 7) vs 196.0s (Trial 6) vs 171.3s (Trial 5). If these are the same code path, why the 5x spread? Is this expected variance in market/API response times, or does it indicate inconsistent behavior?
+- [ ] For each trial, confirm "0 no findings" was verified by checking actual output content length/substance, not just a non-empty response.
+- [ ] Were these 10 trials run sequentially or in parallel? If parallel, could that have masked or caused the two bugs found?
+
+## 5. General
+- [ ] Is there an HMAC-signed evidence bundle for this work, per your existing provenance standard? If not, why not, and can one be generated retroactively from logs?
+- [ ] Was this merged before or after the 10 trials passed? If before, what was actually verified prior to merge?
+- [ ] What is the current failure rate in production/live paper trading since this fix, if any sessions have run since?
