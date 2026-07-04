@@ -1,0 +1,214 @@
+# AIEM Signal Spec: Oversold_Bounce_Uptrend
+
+**Status:** Draft for implementation
+**Owner:** Joel
+**Target:** AIEM conviction stack (new signal, not a standalone alert)
+
+---
+
+## 1. Purpose
+
+Detect stocks in a confirmed uptrend that have sold off sharply over a short
+window (2-3 sessions) and show signs the selling pressure is exhausting,
+flagging them as elevated-probability mean-reversion / bounce candidates.
+
+This is **not** a standalone buy signal. It feeds into the existing
+conviction-stack scoring like every other AIEM signal, and is subject to the
+same BH-FDR correction, decay tracking, and walk-forward OOS validation as
+the rest of the stack.
+
+---
+
+## 2. Signal Logic (all conditions must pass — AND, not OR)
+
+### 2.1 Trend Filter (proves uptrend, not a broken stock)
+- `close > SMA(close, 50)`
+- `close > SMA(close, 200)`
+- `SMA(close, 50) > SMA(close, 50)[20 bars ago]` (50-day SMA itself rising,
+  confirms trend isn't flattening)
+
+### 2.2 Short-Term Oversold Trigger
+- `pct_change(close, 3 bars) <= -DROP_THRESHOLD`
+  - `DROP_THRESHOLD` configurable per volatility bucket (suggest starting
+    at -8% for low-vol large caps, -15% for high-vol / small caps — derive
+    actual thresholds from each ticker's trailing 60-day ATR%, not a fixed
+    number across all tickers)
+- `RSI(close, 2) < 10` **OR** `RSI(close, 14) < 30`
+
+### 2.3 Selling Exhaustion Filter
+- Either:
+  - `volume` declining on each of the last 2-3 red days
+    (`volume[t] < volume[t-1] < volume[t-2]`), OR
+  - A volume climax pattern: the largest red-day volume of the drop occurred
+    2+ days ago, and the most recent red day's volume is below that peak
+- Optional booster (not required, adds conviction weight only):
+  `Smart_Money_vs_Retail_Divergence` signal reading net-bullish during the
+  drop window
+
+### 2.4 Support Filter
+- Current price within `X%` (suggest 2%) of `SMA(close, 20)` or `SMA(close,
+  50)`, **or** within `X%` of a prior consolidation zone identified by
+  existing support/resistance logic if already in the codebase
+- Must NOT have closed below that support level intraday on above-average
+  volume (that would indicate a breakdown, not a pullback)
+
+### 2.5 Fundamental Exclusion Filter
+- Exclude any ticker with, in the trailing 5 sessions:
+  - An earnings report with negative guidance revision
+  - A negative analyst rating change of 2+ notches
+  - Any headline flagged by the existing news/event feed as
+    "negative-material" (reuse whatever classification AIEM's news layer
+    already produces — do not build a new NLP classifier for this spec)
+- If no reliable negative-news classification exists yet in the codebase,
+  mark this filter as `NOT_IMPLEMENTED` in the output and flag the signal
+  confidence accordingly rather than silently skipping the check.
+
+### 2.6 Optional Confirmation Layer (delay entry, reduce false positives)
+- Configurable toggle: require first green daily close after the red streak,
+  OR require intraday VWAP reclaim, before the signal is considered
+  "confirmed" vs. "watching"
+- Output should carry a `state` field: `WATCHING` vs `CONFIRMED`
+
+---
+
+## 3. Output Schema
+
+Signal must emit a structured record consistent with existing signal schema
+conventions in the codebase (match field names/types already used by other
+L1-L10 signals — do not introduce a divergent schema). Minimum required
+fields:
+
+- `ticker`
+- `timestamp`
+- `state` (`WATCHING` / `CONFIRMED`)
+- `drop_pct_3d`
+- `rsi_2`, `rsi_14`
+- `volume_pattern` (`DECLINING` / `CLIMAX` / `NONE`)
+- `distance_to_support_pct`
+- `fundamental_exclusion_triggered` (bool)
+- `fundamental_check_status` (`CHECKED` / `NOT_IMPLEMENTED`)
+- `smart_money_divergence_reading` (nullable, only if booster available)
+
+---
+
+## 4. Integration Requirements
+
+- Signal must be registered in the existing conviction-stack pipeline
+  alongside current L1-L10 / 8-layer signals — not bolted on as a separate
+  parallel system.
+- Must be subject to the existing Signal Decay Module (auto-retirement if
+  the signal's live performance degrades below the existing threshold used
+  for other signals).
+- Must be included in the next BH-FDR correction pass across all signal
+  tests — do not exempt it from multiple-testing correction because it's new.
+- Must respect existing point-in-time data guards (no lookahead bias) —
+  particularly for the support/resistance and news-exclusion checks, which
+  are common places lookahead bugs get introduced.
+
+---
+
+## 5. Backtest & Validation Requirements
+
+- Walk-forward out-of-sample split consistent with existing methodology
+  used elsewhere in AIEM (same train/test split convention, not a new one).
+- Minimum sample size before the signal is allowed to affect live
+  conviction scoring: **state explicitly what N was used and why** — do not
+  ship with an arbitrarily small backtest sample.
+- Report separately:
+  - Win rate and average return for `CONFIRMED` state
+  - Win rate and average return for `WATCHING` state (should underperform
+    `CONFIRMED` — if it doesn't, the confirmation layer isn't adding value
+    and that should be reported, not hidden)
+- Report performance broken out by the volatility bucket used in 2.2 — do
+  not report a single blended win rate across all tickers if thresholds are
+  volatility-adjusted.
+
+---
+
+## 6. Acceptance Criteria (proof required, not self-report)
+
+Do not report this signal as "done" or "working" without providing:
+
+1. **Raw SQL query + output** showing the signal firing on real historical
+   data, including at least 5 real ticker/date examples with all output
+   fields populated.
+2. **Git diff** of the exact code changes made, scoped to this signal only.
+3. **Backtest results file** (not a verbal summary) showing win rate,
+   sample size, and date range for both `WATCHING` and `CONFIRMED` states.
+4. **Grep/code confirmation** that the signal is wired into the existing
+   BH-FDR correction pass and Signal Decay Module — quote the actual code
+   location, not a description of it.
+5. Explicit confirmation of the `fundamental_check_status` — if it's
+   `NOT_IMPLEMENTED` across the backtest sample, say so plainly rather than
+   letting it pass silently as `CHECKED`.
+
+If any of the above cannot be produced, the signal is not considered
+verified — report exactly which piece is missing and why, rather than
+rounding up to "mostly working."
+
+---
+
+## 7. Telegram Alert Delivery
+
+Reuse the existing Telegram alert infrastructure already wired into AIEM —
+do not stand up a separate bot, channel, or credential set for this signal.
+
+### 7.1 Trigger Condition
+- Send an alert only when `state == CONFIRMED` **and** the signal's
+  conviction score (after it's been merged into the existing stack per
+  Section 4) clears whatever minimum conviction threshold is already used
+  to gate other Telegram alerts. Do not ship a lower bar just for this
+  signal — if it needs its own threshold, that decision must be explicit
+  and justified, not a default.
+- `WATCHING` state should NOT trigger a Telegram push — it's for internal
+  dashboard/log visibility only, to avoid alert fatigue on unconfirmed
+  setups.
+
+### 7.2 Message Format
+Match the existing alert template style already used for other signals
+(same header/footer conventions, same HMAC provenance signing if that's
+already applied to alert payloads). Minimum content:
+
+```
+🔻➡️📈 OVERSOLD BOUNCE — <TICKER>
+Drop: -<drop_pct_3d>% over 3 sessions
+RSI(2): <rsi_2>  |  RSI(14): <rsi_14>
+Volume pattern: <volume_pattern>
+Distance to support: <distance_to_support_pct>%
+Fundamental check: <fundamental_check_status>
+Conviction score: <score>/<max_score>
+State: CONFIRMED
+Time: <timestamp, user's local timezone>
+```
+
+- If `fundamental_check_status == NOT_IMPLEMENTED`, the message must say so
+  explicitly (e.g. "⚠️ Fundamental news check not available for this
+  signal") rather than omitting the line — the alert should never imply a
+  check happened when it didn't.
+
+### 7.3 Rate Limiting / Noise Control
+- Cap alerts per ticker to one `CONFIRMED` push per cooldown window
+  (reuse whatever cooldown convention already exists for other AIEM
+  Telegram alerts — do not invent a new interval without checking first).
+- If multiple tickers fire in the same scan cycle, batch them into a single
+  message where the existing alert system already supports batching,
+  rather than sending a flood of separate messages.
+
+### 7.4 Acceptance Criteria (add to Section 6 proof requirements)
+- Screenshot or raw payload log of an actual Telegram message sent from a
+  test/staging firing of this signal — not a description of what the
+  message would look like.
+- Confirmation (grep/code reference) that the alert path reuses the
+  existing Telegram credentials and HMAC signing rather than introducing a
+  parallel delivery path.
+
+---
+
+## 8. Explicit Non-Goals
+
+- This spec does not cover automated trade execution — output is a signal/
+  alert only, to be consumed by existing paper trading or Telegram alert
+  infrastructure as-is.
+- This spec does not include building a new fundamental/news classifier
+  from scratch — reuse what exists, and flag honestly if nothing suitable
+  exists yet (see 2.5).

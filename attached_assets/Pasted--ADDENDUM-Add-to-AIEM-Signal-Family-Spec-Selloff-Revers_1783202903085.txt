@@ -1,0 +1,78 @@
+# ADDENDUM — Add to: AIEM Signal Family Spec (Selloff/Reversion Module Suite)
+
+**This is an addition only.** Insert as Section 16 of the existing spec
+document, before "Explicit Non-Goals" (which should be renumbered to
+Section 17 if it isn't already). Do not re-implement or re-verify anything
+from the rest of that spec — this section stands on its own on top of it.
+
+---
+
+## 16. Historical Backtest Instructions — Run Now, Not in Six Months
+
+**Purpose:** Establish a real historical baseline for every module in the
+suite (Modules A through K, plus the existing `Oversold_Bounce_Uptrend`
+signal) using the maximum available history, so there's actual performance
+data now instead of waiting on six months of live results — and so live
+firings going forward can be compared against a documented historical
+pattern set instead of being judged in isolation.
+
+### 16.1 Use maximum available history, per data source
+- Each module must be backtested using the **full history available for
+  each of its underlying data sources**, not a fixed lookback window
+  (e.g., not just "test the last year").
+- Different data sources have different actual histories. Price/volume
+  data may go back decades; options flow, dark pool prints, short
+  interest, and put/call ratio data typically only go back to when that
+  specific data feed/provider started. For each module, state the actual
+  earliest available date for every data source it depends on — do not
+  assume all inputs share the same history length.
+- If a module depends on multiple data sources with different start dates
+  (e.g., Module B needs both price data and short-interest data), the
+  usable backtest window is bounded by whichever source has the shortest
+  history. State that bounding date explicitly and explain which source
+  caused the limit.
+
+### 16.2 Build a permanent historical firing log
+- For every module, produce a stored table (not a one-time report) logging
+  every historical date/ticker where that module's conditions would have
+  fired, using point-in-time data only (no lookahead).
+- For each historical firing, record forward outcomes at multiple
+  horizons: 1-day, 3-day, 5-day, 10-day forward return from the firing
+  date, plus max drawdown and max favorable excursion within that window.
+- This table is permanent infrastructure, not a throwaway report — it is
+  the reference set that future live firings get compared against (e.g.,
+  "this setup looks like the 40 historical cases in the log — those
+  averaged X% over 5 days with a Y% hit rate").
+
+### 16.3 Break results out by market regime, not just overall
+- Segment the historical firing log by broad market regime periods (at
+  minimum: identify multi-month stretches of trending-up, trending-down,
+  and choppy/sideways broad market conditions across the available
+  history) and report each module's win rate/return separately per regime.
+- A module that performs well overall but only because one regime carried
+  it must be reported as such — do not present a single blended number
+  that hides regime dependency.
+
+### 16.4 Required summary report per module
+For each module (A through K, plus the existing bounce signal), produce:
+- Total historical firing count
+- Date range actually analyzed, and which data source bounded that range
+- Win rate and average forward return at each horizon (1/3/5/10-day)
+- Same breakdown segmented by market regime (16.3)
+- Same breakdown segmented by volatility bucket where applicable (reuse
+  the volatility-bucket convention from the bounce spec)
+- Explicit `INSUFFICIENT_SAMPLE` flag if the historical firing count is too
+  low in a given regime/bucket to draw a real conclusion — state the
+  count, don't just omit the segment
+
+### 16.5 Acceptance criteria for this section
+- Raw SQL query + full output of the historical firing log table for at
+  least 3 modules, spot-checked against manually verifiable real examples.
+- A written statement of the actual earliest usable date for every data
+  source used across all modules, with the limiting source named for each
+  module.
+- The regime-segmented summary report (16.4) as an actual file/table, not
+  a verbal summary, for every module.
+- Confirmation the historical firing log is stored as persistent
+  infrastructure (queryable going forward) rather than generated once and
+  discarded.

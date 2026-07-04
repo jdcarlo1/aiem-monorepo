@@ -161,6 +161,12 @@ from aiem_provenance import (
     sign_payload as _aiem_sign_payload,
     verify_payload as _aiem_verify_payload,
 )
+try:
+    import aiem_selloff_reversion as _bounce_mod
+    print("[startup] aiem_selloff_reversion loaded")
+except Exception as _bounce_import_err:
+    _bounce_mod = None
+    print(f"[startup] aiem_selloff_reversion load warning: {_bounce_import_err}")
 _init_security(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
@@ -5154,6 +5160,38 @@ try:
             lambda: _mkt_refresh_ticker_lifecycle_bg(),
             _CT_aiem(day_of_week="sun", hour=20, minute=0, timezone=_ET),
             id="aiem_ticker_lifecycle_weekly", replace_existing=True,
+        )
+        # Oversold Bounce scan: 10:00 AM and 2:00 PM ET Mon-Fri (AIEM-internal only)
+        def _run_bounce_scan():
+            if _bounce_mod is None:
+                return
+            import threading as _bt
+            _bt.Thread(target=_bounce_mod.run_scan, daemon=True).start()
+        for _bh, _bm in [(10, 0), (14, 0)]:
+            _scheduler.add_job(
+                _run_bounce_scan,
+                _CT_aiem(day_of_week="mon-fri", hour=_bh, minute=_bm, timezone=_ET),
+                id=f"aiem_bounce_scan_{_bh:02d}{_bm:02d}",
+                replace_existing=True,
+            )
+        # Overnight bounce signal re-evaluation: 9:36 AM ET (re-check overnight CONFIRMED signals)
+        _scheduler.add_job(
+            lambda: _bounce_mod.refire_overnight_signals() if _bounce_mod else None,
+            _CT_aiem(day_of_week="mon-fri", hour=9, minute=36, timezone=_ET),
+            id="aiem_bounce_overnight_reeval",
+            replace_existing=True,
+        )
+        # Bounce historical backtest: Sunday 11 PM ET (runs once, skips if already populated)
+        def _run_bounce_backtest():
+            if _bounce_mod is None:
+                return
+            import threading as _bbt
+            _bbt.Thread(target=_bounce_mod.run_historical_backtest, daemon=True).start()
+        _scheduler.add_job(
+            _run_bounce_backtest,
+            _CT_aiem(day_of_week="sun", hour=23, minute=0, timezone=_ET),
+            id="aiem_bounce_backtest_weekly",
+            replace_existing=True,
         )
         # Model retrain: every Sunday 7 PM ET (before Loop A at 8 PM)
         # Will skip silently if fewer than 200 graded outcomes exist
@@ -46198,6 +46236,8 @@ def _init_layer9_scores_table():
         print(f"[layer9_bg] table init error: {_e}")
 
 _DEFERRED_INITS.append(lambda: _init_layer9_scores_table())
+_DEFERRED_INITS.append(lambda: _bounce_mod.init_tables() if _bounce_mod else None)
+_DEFERRED_INITS.append(lambda: _bounce_mod.register_signal() if _bounce_mod else None)
 
 
 def _run_layer9_bg_scan():

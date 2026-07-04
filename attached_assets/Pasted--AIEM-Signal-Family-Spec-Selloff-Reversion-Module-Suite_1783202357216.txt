@@ -1,0 +1,487 @@
+# AIEM Signal Family Spec: Selloff/Reversion Module Suite
+
+**Status:** Draft for implementation
+**Owner:** Joel
+**Scope:** AIEM ONLY. These modules must not be wired into, exposed through,
+or share pipelines with the customer-facing StockScanner AI scanner tabs or
+public website. This is a hard architectural boundary, not a preference —
+see Section 1.
+
+---
+
+## 1. Architecture & Wiring — Read This First
+
+### 1.1 Isolation from the customer-facing product
+- AIEM already runs its own pipeline, separate from the scanner tabs used by
+  paying customers (per existing architecture: "the scanner tabs run their
+  own pipelines, AIEM runs its own — nothing bleeds into anything else").
+  **Every module in this document extends AIEM's internal pipeline only.**
+- None of these modules may be added to the customer-facing signal list, the
+  public scanner tabs, the website, or any customer-visible dashboard.
+- If any shared utility code (data fetchers, indicator math libraries) is
+  reused between AIEM and the customer product, that reuse must be
+  read-only/one-directional — AIEM can import shared utilities, but nothing
+  written for AIEM gets wired backward into customer-facing pipelines
+  without a separate, explicit decision outside this spec.
+- Acceptance proof required: a grep/import trace showing zero references
+  from customer-facing scanner code into any module defined in this
+  document.
+
+### 1.2 Where these modules live in the conviction stack
+- Each module below registers as its own named signal in AIEM's existing
+  conviction-stack pipeline (same registration pattern as the existing
+  L1-L10 / 8-layer signals and the previously-specified
+  `Oversold_Bounce_Uptrend`).
+- Modules are NOT standalone alert scripts running outside the stack. They
+  must be subject to the same:
+  - BH-FDR multiple-testing correction (recomputed across ALL signals,
+    old and new, every time a new module is added — not run once and
+    forgotten)
+  - Signal Decay Module (auto-retirement on live degradation)
+  - Point-in-time / no-lookahead data guards
+  - Walk-forward OOS validation before going live
+
+### 1.3 Module relationships (avoid duplicate/conflicting signals)
+- Module F (Pre-Earnings Exclusion Guard) is a **filter**, not a scoring
+  signal — it must be implemented as a gate that can suppress or down-weight
+  other modules' output, not as its own conviction-stack entry with a score.
+- Module H (Dark Pool Absorption During Selloff) is a **selloff-conditioned
+  variant** of the existing Dark Pool Block Prints signal. It must reuse
+  the existing dark pool data feed and detection logic, adding only the
+  "during active selloff" condition — do not reimplement dark pool
+  detection from scratch.
+- Module J (Forced/Mechanical Selling) is a **selloff-conditioned variant**
+  of the existing CTA Trigger Levels signal, same rule: reuse, don't
+  duplicate.
+- Module I (Realized Vol Contraction) is related to but distinct from the
+  existing GARCH volatility regime signal — it must reuse the same
+  volatility data pipeline, but is a separate signal because it targets a
+  narrower, faster-firing condition (post-spike compression) than the
+  broader regime classification.
+- If implementation reveals any other module below overlaps materially
+  with an existing signal, stop and flag it rather than shipping a
+  near-duplicate that dilutes the conviction stack and inflates the
+  multiple-testing correction burden for no added value.
+
+---
+
+## 2. Module A — Capitulation Volume
+
+**Purpose:** Detect the panic/climax moment itself — a single-day extreme
+volume + price-drop event — as an early flag that a stock may be entering
+an oversold-bounce setup, independent of the multi-day `Oversold_Bounce_Uptrend`
+signal.
+
+**Logic:**
+- `volume >= N * SMA(volume, 20)` (suggest N=3 as a starting point, tune
+  per volatility bucket, do not hardcode one N across all tickers)
+- `daily_return <= -X%` on the same session (volatility-adjusted threshold,
+  same convention as Section 2.2 of the bounce spec)
+- Intraday reversal check (optional booster): price closes off session
+  lows, e.g. in the top 50% of the day's range — suggests buyers stepped
+  in during the panic
+
+**Output fields:** `ticker`, `timestamp`, `volume_multiple`, `daily_return`,
+`close_vs_range_pct`, `state` (`DETECTED` only — this module doesn't have a
+confirmed/watching split, it's a single-event flag)
+
+**Relationship to Oversold_Bounce_Uptrend:** feeds in as a booster signal —
+if Capitulation Volume fires on day 1 of a drop that later qualifies as
+`Oversold_Bounce_Uptrend`, that should raise conviction score on the bounce
+signal. Implementation must wire this as an actual scoring input, not just
+a coincidental correlation left unused.
+
+---
+
+## 3. Module B — Short Squeeze Post-Selloff
+
+**Purpose:** Flag stocks where a selloff occurred alongside elevated short
+interest and rising borrow cost, where subsequent stabilization could
+trigger covering-driven (not fundamentals-driven) upside.
+
+**Logic:**
+- Selloff condition: reuse the same 3-day drop / oversold trigger as
+  `Oversold_Bounce_Uptrend` (Section 2.2 of that spec) — do not redefine
+  a separate drop threshold here.
+- `short_interest_pct_float >= threshold` (define threshold from data
+  availability; if short interest data updates biweekly/lagged per
+  standard reporting, note that lag explicitly in the output — do not
+  present stale short-interest data as current)
+- `cost_to_borrow` rising over the trailing period, if that data feed
+  exists; if it doesn't exist yet, mark `borrow_cost_status: NOT_AVAILABLE`
+  rather than skipping silently (same honesty convention as the
+  fundamental-check field in the bounce spec)
+- Stabilization filter: price no longer making new lows intraday for at
+  least 1 session
+
+**Output fields:** `ticker`, `timestamp`, `short_interest_pct_float`,
+`short_interest_data_age_days`, `cost_to_borrow_trend`, `borrow_cost_status`,
+`state` (`WATCHING`/`CONFIRMED`, same convention as bounce signal)
+
+**Risk note for the spec itself:** squeeze dynamics are higher-variance
+than a standard mean-reversion bounce — the backtest report (Section 14)
+must report this module's results separately, not blended with the
+lower-variance modules, since averaging them together would misrepresent
+both.
+
+---
+
+## 4. Module C — VIX/Vol Crush Fade
+
+**Purpose:** Distinct asset class of signal — not a directional stock
+bounce, but a flag that implied volatility has spiked broadly and is
+statistically likely to mean-revert, relevant for options-selling setups
+rather than long/short equity.
+
+**Logic:**
+- `VIX (or relevant name/sector vol proxy) >= N * trailing_60d_average`
+- Term structure check: front-month IV elevated relative to further-dated
+  IV (backwardation), which is the classic setup preceding vol crush
+- Optional: reuse existing Options Term Structure signal's data feed for
+  this rather than building a new IV term-structure fetch
+
+**Output fields:** `underlying_or_index`, `timestamp`, `vix_or_proxy_level`,
+`vix_zscore_60d`, `term_structure_state` (`BACKWARDATED`/`NORMAL`), `state`
+
+**Explicit note:** this module's output is fundamentally different in kind
+from the equity bounce signals — it should be tagged in the schema as
+`signal_class: VOLATILITY` so downstream consumers (including you, reading
+Telegram alerts) don't confuse it with a stock-direction call.
+
+---
+
+## 5. Module D — Sentiment Extreme / Put-Call Ratio Spike
+
+**Purpose:** Contrarian macro overlay — flags broad market fear extremes
+that historically precede market-wide (not single-stock) reversion, usable
+as a filter that raises confidence in other modules rather than only as a
+standalone alert.
+
+**Logic:**
+- `put_call_ratio >= N * trailing_average` (define N from available
+  historical data; if data feed for put/call ratio doesn't already exist
+  in the codebase, this is a new data source and must be flagged as such
+  before implementation, not silently proxied with something else)
+- Optional secondary sentiment inputs if available (AAII survey, similar) —
+  do not require these; if unavailable, mark `secondary_sentiment_status:
+  NOT_AVAILABLE`
+
+**Output fields:** `timestamp`, `put_call_ratio`, `put_call_zscore`,
+`secondary_sentiment_status`, `market_scope` (this is index-level/broad,
+not per-ticker — output schema must reflect that it applies market-wide,
+not to a specific symbol)
+
+**Integration note:** this module's primary value is as a **conviction
+booster/filter** for the other modules (e.g., "only alert on Module A/B
+firings when Module D also shows a sentiment extreme") — implementation
+must wire this relationship explicitly if you want that behavior; it will
+not happen automatically just because both modules exist.
+
+---
+
+## 6. Module E — Gap-Fill Signal
+
+**Purpose:** Distinct from the multi-day bounce signal — targets a
+single-session gap down statistically likely to "fill" back toward the
+pre-gap close, with different expected holding period and mechanics.
+
+**Logic:**
+- `gap_pct = (today_open - yesterday_close) / yesterday_close <= -X%`
+- Classify gap cause if a news/event feed is available:
+  `NEWS_DRIVEN` vs `NO_IDENTIFIED_CATALYST` vs `BROAD_MARKET` — gaps with
+  no identifiable single-stock catalyst or driven by broad-market moves
+  historically fill at a different rate than genuine negative-news gaps;
+  do not treat all gaps identically
+- Historical gap-fill rate for this specific ticker (if enough history
+  exists) as a contextual field, not a hard filter
+
+**Output fields:** `ticker`, `timestamp`, `gap_pct`, `gap_classification`,
+`ticker_historical_fill_rate` (nullable if insufficient history), `state`
+
+**Relationship to Module A/Oversold_Bounce_Uptrend:** a gap-down event may
+also trigger Capitulation Volume or feed into the multi-day bounce signal
+if the drop continues — these are related but not identical setups with
+different time horizons; keep them as separate modules with cross-references
+in the output, not merged into one.
+
+---
+
+## 7. Module F — Pre-Earnings Exclusion / Falling Knife Guard
+
+**Purpose:** Protective filter, not a trade signal — suppress or down-weight
+any bounce/reversion signal (from any module in this document, plus the
+existing `Oversold_Bounce_Uptrend`) when the underlying is approaching
+earnings or already inside a confirmed breakdown.
+
+**Logic:**
+- `days_to_next_earnings <= N` (suggest N=5, configurable) → suppress or
+  flag all reversion-family signals for that ticker
+- Falling-knife check: if price has broken below the support level defined
+  in the bounce spec's Section 2.4 with above-average volume and has NOT
+  reclaimed it, apply a `FALLING_KNIFE` flag that suppresses all reversion
+  signals for that ticker until the condition clears
+
+**Output fields:** `ticker`, `timestamp`, `days_to_next_earnings`,
+`earnings_exclusion_active` (bool), `falling_knife_active` (bool)
+
+**Implementation requirement:** this must run as a gate that every other
+module in this document (and the existing bounce signal) checks before
+firing — not as an independent signal sitting alongside them unused. Proof
+of wiring (Section 15) must show this gate actually suppressing at least
+one real historical case, not just existing in code unreferenced.
+
+---
+
+## 8. Module G — Correlation Breakdown/Convergence
+
+**Purpose:** Distinguish systematic (index/sector-driven) selloffs from
+idiosyncratic (stock-specific) ones — systematic selloffs historically
+carry better reversion odds.
+
+**Logic:**
+- `rolling_correlation(ticker_returns, sector_or_index_returns, window)`
+  computed over the selloff window vs. the ticker's own trailing baseline
+  correlation
+- `correlation_spike = current_window_corr - baseline_corr >= threshold`
+  → flag as `SYSTEMATIC_DRIVEN`
+- Low/falling correlation during the drop → flag as `IDIOSYNCRATIC_DRIVEN`,
+  which should reduce (not increase) conviction on other reversion modules
+  for that ticker
+
+**Output fields:** `ticker`, `timestamp`, `rolling_correlation`,
+`baseline_correlation`, `correlation_delta`, `classification`
+(`SYSTEMATIC_DRIVEN`/`IDIOSYNCRATIC_DRIVEN`/`INCONCLUSIVE`)
+
+**Integration note:** wires as a conviction modifier on other modules, same
+pattern as Module D — must be explicitly connected, not assumed automatic.
+
+---
+
+## 9. Module H — Dark Pool Absorption During Selloff
+
+**Purpose:** Selloff-conditioned variant of the existing Dark Pool Block
+Prints signal — flags large block buying prints occurring specifically
+while price is actively falling, suggesting size absorption rather than
+participation in the drop.
+
+**Logic:**
+- Reuse existing dark pool block print detection/data feed as-is.
+- New condition layered on top: block buy prints occurring on a session
+  where `daily_return <= -X%` (reuse the same drop threshold convention as
+  other modules in this document)
+- Must NOT duplicate the underlying dark pool detection logic — this is a
+  conditional filter/tag applied to existing detections, implemented as
+  such in code (a wrapper/condition, not a parallel reimplementation)
+
+**Output fields:** reuse existing Dark Pool Block Prints schema, add
+`during_active_selloff` (bool) and `same_session_return_pct`
+
+---
+
+## 10. Module I — Realized Volatility Contraction
+
+**Purpose:** Narrower and faster-firing than the existing GARCH regime
+signal — flags the specific moment realized volatility starts compressing
+right after a selloff spike, as an earlier stabilization read than price
+action alone provides.
+
+**Logic:**
+- Reuse existing volatility data pipeline (same source as GARCH signal).
+- `realized_vol(short_window) declining for N consecutive sessions`
+  immediately following a volatility spike (define "spike" using the same
+  or a compatible threshold to the GARCH regime signal's existing spike
+  detection, do not redefine independently without cause)
+
+**Output fields:** `ticker`, `timestamp`, `realized_vol_short_window`,
+`vol_trend` (`COMPRESSING`/`FLAT`/`EXPANDING`), `sessions_since_spike`
+
+**Relationship to GARCH signal:** must be implemented as a companion
+signal reusing GARCH's regime classification as an input where useful, not
+a competing/duplicate volatility model. If backtest results show this
+signal adds no information beyond the existing GARCH signal, that must be
+reported plainly (Section 14), not hidden.
+
+---
+
+## 11. Module J — Forced/Mechanical Selling Detection
+
+**Purpose:** Selloff-conditioned extension of the existing CTA Trigger
+Levels signal, specifically identifying drops likely caused by mechanical/
+non-fundamental selling (index rebalancing, ETF outflows, systematic CTA
+deleveraging) rather than information-driven selling — these historically
+reverse faster once the mechanical pressure clears.
+
+**Logic:**
+- Reuse existing CTA Trigger Levels detection/data feed.
+- Add detection for: proximity to known index rebalance dates, unusually
+  high ETF-related volume as a share of total volume (if ETF flow data is
+  available; if not, mark `etf_flow_data_status: NOT_AVAILABLE`)
+- Classify selloff as `MECHANICAL_LIKELY` vs `INFORMATION_DRIVEN` vs
+  `INCONCLUSIVE`
+
+**Output fields:** `ticker`, `timestamp`, `etf_flow_data_status`,
+`near_rebalance_date` (bool), `classification`
+
+---
+
+## 12. Module K — Historical Drawdown Analog Matching
+
+**Purpose:** Instead of applying universal thresholds to every ticker,
+pattern-match the current selloff's shape (magnitude, duration, volume
+profile) against that specific stock's own historical selloffs to produce
+a data-driven expected recovery time/magnitude, where enough history exists.
+
+**Logic:**
+- Identify prior selloff episodes for the same ticker matching a similar
+  shape (define similarity metric — e.g., normalized magnitude + duration
+  + volume profile correlation to the current episode)
+- Report historical outcomes (recovery time, recovery magnitude, whether
+  it recovered at all) across matched episodes
+- Minimum sample size required before this module outputs anything —
+  state explicitly what that minimum is and refuse to output a
+  "confident" analog match below it (return `INSUFFICIENT_HISTORY` instead)
+
+**Output fields:** `ticker`, `timestamp`, `matched_episode_count`,
+`median_recovery_days`, `median_recovery_magnitude_pct`,
+`pct_of_episodes_recovered`, `confidence` (`INSUFFICIENT_HISTORY` if below
+minimum sample)
+
+**Explicit caution:** this module is descriptive/contextual, not a
+standalone trade trigger — a ticker with a strong historical bounce record
+can still fail to repeat it. Must be presented in output and in Telegram
+alerts as context, not as a probability guarantee.
+
+---
+
+## 13. Telegram Alert Delivery — All Modules
+
+### 13.1 Shared infrastructure
+- All modules reuse the existing Telegram bot/credentials/HMAC signing
+  already wired for `Oversold_Bounce_Uptrend` — no new bot, no new channel,
+  no parallel credential set for any module in this document.
+- All modules reuse the existing market-hours gating logic already
+  specified for `Oversold_Bounce_Uptrend` (Section 7.2 of that spec):
+  no alerts outside 9:30 AM–4:00 PM ET; overnight/pre-market qualifying
+  signals are logged and re-evaluated at the open rather than dumped as a
+  backlog.
+
+### 13.2 Per-module trigger conditions
+- Modules A, B, E, H, J (ticker-specific, directional-adjacent): alert
+  only at `CONFIRMED`/`DETECTED` state per each module's own definition,
+  gated by Module F (earnings/falling-knife guard) — if Module F's
+  exclusion is active for that ticker, suppress the alert regardless of
+  the firing module's own state.
+- Module C (vol crush) and Module D (sentiment extreme): these are
+  market/index-level, not ticker-level — route to a **separate alert
+  category** so they're visually distinct from single-stock alerts (see
+  13.3 message format), since conflating a market-wide vol signal with a
+  single-stock buy signal would be misleading.
+- Modules G, I, K: these are context/modifier signals, not primary
+  triggers. Default behavior: do NOT send a standalone Telegram alert for
+  these — instead, their output should be embedded as additional context
+  fields inside the alert message of whichever primary signal (bounce, A,
+  B, etc.) they modified. If you want standalone alerts for these anyway,
+  that must be an explicit configurable toggle, off by default.
+
+### 13.3 Message format
+Each module's alert reuses the same template structure as the existing
+`Oversold_Bounce_Uptrend` alert (Section 7.3 of that spec), with a module-
+specific header and only the fields relevant to that module. Example
+skeleton:
+
+```
+<EMOJI> <MODULE NAME> — <TICKER or "MARKET-WIDE">
+<2-3 key metric lines specific to this module>
+Conviction score: <score>/<max_score>   [omit for context-only modules]
+Guards: Earnings exclusion: <bool>  |  Falling knife: <bool>
+State: <state>
+Time: <timestamp, user's local timezone>
+```
+
+- Any field with a `NOT_AVAILABLE` / `NOT_IMPLEMENTED` / `INSUFFICIENT_HISTORY`
+  status must be shown explicitly in the message, never silently omitted.
+- Market-wide alerts (Module C, D) must be visually distinguished, e.g. a
+  distinct emoji/prefix and explicit "MARKET-WIDE, NOT TICKER-SPECIFIC"
+  line, so they're never mistaken for a single-stock call.
+
+### 13.4 Rate limiting
+- Reuse the same per-ticker cooldown window convention as the existing
+  bounce alert. For market-wide modules (C, D), apply a separate
+  market-level cooldown (these should fire far less often than per-ticker
+  signals — if implementation finds them firing frequently, that's a
+  signal the thresholds need tuning, not that the cooldown should be
+  loosened).
+- If multiple ticker-specific modules fire for the same ticker in the same
+  scan cycle (e.g., Module A and the existing bounce signal both fire),
+  batch them into a single combined message per ticker per cycle rather
+  than sending separate messages — reuse existing batching logic if
+  present.
+
+---
+
+## 14. Backtest & Validation Requirements (all modules)
+
+- Each module gets its own walk-forward OOS backtest, reported separately —
+  do not blend results across modules into a single aggregate win rate.
+- Every module's tests are included in the BH-FDR multiple-testing
+  correction pass across the full signal set (existing + all new modules
+  in this document) — adding 10 new signals substantially raises the
+  multiple-testing burden; this must be re-run in full, not incrementally
+  patched.
+- State the actual out-of-sample sample size (N) for each module. Any
+  module with insufficient sample size to draw a reliable conclusion must
+  be marked `INSUFFICIENT_SAMPLE` and excluded from live conviction
+  scoring until enough data accumulates — do not ship an unvalidated
+  module live "to start collecting data" without flagging that's what's
+  happening.
+- Report Module F's effect explicitly: how many historical reversion-signal
+  firings would have been suppressed by the earnings/falling-knife guard,
+  and what those suppressed cases' actual outcomes were (i.e., did the
+  guard correctly avoid bad trades, or did it also filter out good ones —
+  report both honestly).
+
+---
+
+## 15. Acceptance Criteria (proof required, not self-report) — all modules
+
+For each module, before it is considered "done":
+
+1. Raw SQL query + output showing the module firing on real historical
+   data, minimum 5 real ticker/date examples with all output fields
+   populated (including any `NOT_AVAILABLE`/`NOT_IMPLEMENTED` statuses
+   shown honestly, not hidden).
+2. Git diff scoped to that module's code changes.
+3. Backtest results file (not verbal summary): win rate/outcome stats,
+   sample size, date range, reported separately per module.
+4. Grep/code confirmation the module is wired into BH-FDR correction and
+   Signal Decay Module.
+5. For ticker-specific modules: proof (log/SQL) that Module F's guard
+   actually suppressed at least one real case where it should have.
+6. Screenshot or raw payload log of an actual Telegram message sent per
+   module from a test/staging firing.
+7. For Modules C/D (market-wide): confirmation the alert message is
+   visually distinguished from ticker-specific alerts as specified in
+   13.3, with a real example message shown, not described.
+
+If any of the above cannot be produced for a given module, that module is
+not considered verified — report exactly which piece is missing and for
+which module, rather than giving a blended "mostly working" status across
+the whole suite.
+
+---
+
+## 16. Explicit Non-Goals
+
+- No module in this document is wired into, or accessible from, the
+  customer-facing StockScanner AI product, scanner tabs, or website. This
+  is restated here because it is the single most important constraint in
+  this spec.
+- No automated trade execution — every module produces a signal/alert only.
+- No new fundamental/news classifier, ETF-flow feed, short-interest feed,
+  or put/call data source is to be built from scratch under this spec if
+  it doesn't already exist — where a required data source is missing, the
+  relevant module must report `NOT_AVAILABLE` honestly rather than
+  substituting a proxy silently or blocking the entire suite on acquiring
+  new data.
+- Insider buying cluster detection is explicitly excluded from this batch
+  (deferred, not forgotten).
