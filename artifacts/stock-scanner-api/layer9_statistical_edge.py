@@ -314,7 +314,8 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
         return {**_SAFE_DEFAULT, "ticker": ticker, "error": str(exc)}
 
 
-def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0) -> dict:
+def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
+                        chain_df_map: dict = None) -> dict:
     """
     Compute Layer 9 scores for a batch of tickers in parallel.
 
@@ -322,16 +323,21 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0) -> di
         tickers_histories: {ticker: history_df} mapping.
         timeout_per: per-ticker CPU timeout (threads only; does not kill
                      numpy — set to a generous value like 3.0s).
+        chain_df_map: optional {ticker: chain_df} mapping. chain_df must
+                      have 'strike' and 'call_price' columns (call mid-price).
+                      Tickers missing from this map get chain_df=None (RND
+                      component will be skipped for them — not an error).
 
     Returns:
         {ticker: result_dict} mapping.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _TE
 
+    _chain_map = chain_df_map or {}
     results = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
-            pool.submit(compute_layer9_score, t, df): t
+            pool.submit(compute_layer9_score, t, df, _chain_map.get(t)): t
             for t, df in tickers_histories.items()
             if df is not None and not df.empty
         }

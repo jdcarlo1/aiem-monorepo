@@ -140,11 +140,11 @@ def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> Optional[p
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 # NOTE: use (%s * INTERVAL '1 day') — cannot parameterize inside INTERVAL '...'
                 cur.execute("""
-                    SELECT date::date AS date, close_price AS close
+                    SELECT scan_date::date AS date, close_price AS close
                     FROM polygon_market_daily
                     WHERE ticker = %s
-                      AND date >= NOW() - (%s * INTERVAL '1 day')
-                    ORDER BY date ASC
+                      AND scan_date >= NOW() - (%s * INTERVAL '1 day')
+                    ORDER BY scan_date ASC
                 """, (ticker, lookback_days + 30))
                 rows = cur.fetchall()
 

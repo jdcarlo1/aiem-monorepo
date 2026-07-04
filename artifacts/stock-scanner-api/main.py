@@ -43758,6 +43758,40 @@ def admin_run_aiem_grader():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/stock-api/admin/run-conviction-eval-log", methods=["POST"])
+def admin_run_conviction_eval_log():
+    """Admin: trigger the conviction eval-log job immediately.
+    Runs _run_five_layer_conviction(max_tickers=100) and writes scored tickers
+    to aiem_conviction_eval_log — the training corpus for shadow learning."""
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        import threading as _celthr
+        _celthr.Thread(target=_run_conviction_eval_log_job, daemon=True).start()
+        return jsonify({"status": "started",
+                        "note": "Eval-log job running in background. "
+                                "Check SELECT COUNT(*) FROM aiem_conviction_eval_log in ~30s."})
+    except Exception as _cele:
+        return jsonify({"error": str(_cele)}), 500
+
+@app.route("/stock-api/admin/run-shadow-learning", methods=["POST"])
+def admin_run_shadow_learning():
+    """Admin: trigger the shadow-learning cycle immediately.
+    Calls propose_update(promote=False) and logs to aiem_learning_proposals.
+    Requires >=30 graded rows in aiem_conviction_eval_log — run eval-log first."""
+    tok = request.headers.get("X-Admin-Token", "")
+    if tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        import threading as _slthr
+        _slthr.Thread(target=_run_shadow_learning_cycle, daemon=True).start()
+        return jsonify({"status": "started",
+                        "note": "Shadow-learning cycle running. "
+                                "Check SELECT * FROM aiem_learning_proposals in ~30s."})
+    except Exception as _sle:
+        return jsonify({"error": str(_sle)}), 500
+
 @app.route("/stock-api/admin/test-emails", methods=["POST"])
 def admin_test_emails():
     """Admin: fire all six daily emails right now using today's cached/DB data."""
@@ -46038,7 +46072,69 @@ def _run_layer9_bg_scan():
         print(f"[layer9_bg] layer9 module unavailable: {_imp_e}")
         return
 
-    _scores = batch_layer9_scores(_histories, timeout_per=5.0)
+    # ── 3b. Fetch Tradier options chains for RND component ────────────────
+    # Top-30 tickers by unusual-calls premium get a real options chain so
+    # compute_rnd_component() can derive the risk-neutral density.
+    # Others score fine — they just skip the RND sub-component (not an error).
+    _chain_df_map = {}
+    try:
+        _optionable = sorted(
+            [t for t in _tickers_list if t in _histories],
+            key=lambda _t: 0,   # stable order; real priority via unusual_calls below
+        )
+        with _psycopg2.connect(_DB_URL, connect_timeout=3,
+                               options="-c statement_timeout=3000") as _occ, \
+             _occ.cursor() as _occu:
+            _occu.execute("""
+                SELECT ticker, SUM(prem) AS total_prem
+                FROM unusual_calls_log
+                WHERE last_seen >= NOW() - INTERVAL '3 days'
+                GROUP BY ticker
+                ORDER BY total_prem DESC
+                LIMIT 30
+            """)
+            _chain_priority = [r[0] for r in _occu.fetchall() if r[0] in _histories]
+        _remaining = [t for t in _tickers_list if t in _histories and t not in _chain_priority]
+        _chain_targets = (_chain_priority + _remaining)[:30]
+    except Exception as _cte:
+        print(f"[layer9_bg] chain priority error: {_cte}")
+        _chain_targets = list(_histories.keys())[:30]
+
+    import pandas as _l9pd
+    for _ct in _chain_targets:
+        try:
+            _expiries = _td_expiries(_ct, max_days=45)
+            if not _expiries:
+                continue
+            _near_exp = _expiries[0]
+            _chain_obj = _td_chain(_ct, _near_exp)
+            _df_calls = getattr(_chain_obj, "calls", _l9pd.DataFrame())
+            if _df_calls.empty or "strike" not in _df_calls.columns:
+                continue
+            _call_price_col = None
+            for _candidate in ("lastPrice", "mid", "call_price"):
+                if _candidate in _df_calls.columns:
+                    _call_price_col = _candidate
+                    break
+            if _call_price_col is None:
+                if "bid" in _df_calls.columns and "ask" in _df_calls.columns:
+                    _df_calls = _df_calls.copy()
+                    _df_calls["call_price"] = (_df_calls["bid"] + _df_calls["ask"]) / 2
+                    _call_price_col = "call_price"
+                else:
+                    continue
+            _rnd_df = _df_calls[["strike", _call_price_col]].rename(
+                columns={_call_price_col: "call_price"}
+            ).dropna().sort_values("strike")
+            if len(_rnd_df) >= 5:
+                _chain_df_map[_ct] = _rnd_df
+        except Exception as _cfe:
+            pass   # silent — RND is optional per ticker
+
+    if _chain_df_map:
+        print(f"[layer9_bg] options chains fetched for {len(_chain_df_map)} tickers (RND enabled)")
+
+    _scores = batch_layer9_scores(_histories, timeout_per=5.0, chain_df_map=_chain_df_map)
 
     # ── 4. Upsert into layer9_scores table ────────────────────────────────
     _today = _l9dt.datetime.now(_ET).date()
@@ -46107,6 +46203,56 @@ def _layer9_startup_kick():
 
 import threading as _l9_startup_thr
 _l9_startup_thr.Thread(target=_layer9_startup_kick, daemon=True).start()
+
+# ── T001: Stat-arb pair bootstrap ─────────────────────────────────────────
+# If stat_arb_pairs has 0 active rows (first boot or reset), run the full
+# Engle-Granger cointegration test on DEFAULT_PAIRS immediately (T+4 min).
+# Normally this runs Sunday 3 PM ET; this one-time kick ensures pairs are
+# never empty after a fresh deploy.
+def _stat_arb_bootstrap_kick():
+    import time as _sabk_time, psycopg2 as _sabk_pg
+    _sabk_time.sleep(240)   # wait 4 min — let layer9 startup settle first
+    try:
+        with _sabk_pg.connect(_DB_URL, connect_timeout=4) as _sabk_c, \
+             _sabk_c.cursor() as _sabk_cu:
+            _sabk_cu.execute("SELECT COUNT(*) FROM stat_arb_pairs WHERE is_active=TRUE")
+            _active = _sabk_cu.fetchone()[0]
+        if _active > 0:
+            print(f"[stat_arb_boot] {_active} active pairs already in DB — skipping bootstrap")
+            return
+        print("[stat_arb_boot] 0 active pairs — running cointegration test on DEFAULT_PAIRS")
+        import stat_arb_engine as _sae
+        _sae.stat_arb_daily_scan(retest_pairs=True)
+        print("[stat_arb_boot] bootstrap complete")
+    except Exception as _sabk_e:
+        print(f"[stat_arb_boot] error: {_sabk_e}")
+
+import threading as _sabk_thr
+_sabk_thr.Thread(target=_stat_arb_bootstrap_kick, daemon=True).start()
+
+# ── T002: Conviction eval-log bootstrap ───────────────────────────────────
+# aiem_conviction_eval_log feeds the weekly shadow-learning cycle.
+# If the table is empty (first boot or fresh deploy), run the eval-log job
+# immediately at T+5 min so the learning pipeline has initial data.
+def _eval_log_bootstrap_kick():
+    import time as _elbk_time, psycopg2 as _elbk_pg
+    _elbk_time.sleep(300)   # wait 5 min — after stat_arb bootstrap
+    try:
+        with _elbk_pg.connect(_DB_URL, connect_timeout=4) as _elbk_c, \
+             _elbk_c.cursor() as _elbk_cu:
+            _elbk_cu.execute("SELECT COUNT(*) FROM aiem_conviction_eval_log")
+            _rows = _elbk_cu.fetchone()[0]
+        if _rows > 0:
+            print(f"[eval_log_boot] {_rows} rows already in eval log — skipping bootstrap")
+            return
+        print("[eval_log_boot] eval log empty — running conviction eval log job now")
+        result = _run_conviction_eval_log_job()
+        print(f"[eval_log_boot] bootstrap result: {result}")
+    except Exception as _elbk_e:
+        print(f"[eval_log_boot] error: {_elbk_e}")
+
+import threading as _elbk_thr
+_elbk_thr.Thread(target=_eval_log_bootstrap_kick, daemon=True).start()
 
 
 def _save_ai_early_movers_to_log(picks, trade_date):
