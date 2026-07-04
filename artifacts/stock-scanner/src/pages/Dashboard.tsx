@@ -12314,7 +12314,7 @@ function GasBoardTab({ byokToken }: { byokToken: string }) {
 
 // ---- Quant Agent Chat Tab ------------------------------------------------
 
-const POLL_INTERVAL_MS = 3000;
+const POLL_INTERVAL_MS = 1000;
 const MAX_WAIT_MS = 6 * 60 * 1000;
 const ACTIVE_JOB_KEY = "quantAgent.activeJobId";
 
@@ -12348,8 +12348,67 @@ interface QASession {
   image_data_url?: string;  // ephemeral: only set on the active session, not stored in DB
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  query_market_regime:          "Checking market regime",
+  query_independent_picks:      "Retrieving AIEM picks",
+  analyze_independent_performance: "Analyzing pick performance",
+  query_signal_discoveries:     "Scanning signal discoveries",
+  query_conviction_stack:       "Reading conviction scores",
+  query_unusual_calls:          "Checking unusual options flow",
+  query_paper_trades:           "Reviewing paper trades",
+  query_behavioral_matches:     "Matching behavioral patterns",
+  backtest_signal:              "Running backtest",
+  run_fisher_test:              "Running statistical test",
+  run_correlation_analysis:     "Computing correlations",
+  run_multivariate_regression:  "Running regression model",
+  query_pick_outcomes:          "Fetching outcome data",
+  analyze_missed_movers:        "Analyzing missed movers",
+  scan_market:                  "Scanning market universe",
+  query_oi_buildup:             "Checking OI buildup signals",
+  query_short_squeeze:          "Scanning squeeze candidates",
+  query_polygon_rvol:           "Fetching relative volume data",
+  get_sector_heat:              "Reading sector momentum",
+  mkt_compute_indicators:       "Computing technical indicators",
+  mkt_screen_by_indicator:      "Screening by indicator",
+  list_signal_dimensions:       "Listing signal dimensions",
+  test_new_signal:              "Testing new signal hypothesis",
+  query_stat_arb_pairs:         "Checking stat-arb pairs",
+  query_meta_learning_weights:  "Checking model trust weights",
+  query_aiem_history:           "Pulling AIEM session history",
+  save_signal_discovery:        "Saving signal discovery",
+  query_model_performance:      "Evaluating model performance",
+  review_own_accuracy:          "Reviewing prediction accuracy",
+  mkt_options_predicts_price:   "Analyzing options price signals",
+  mkt_explore_dimensions:       "Exploring market dimensions",
+  mkt_test_signal:              "Testing signal hypothesis",
+  mkt_compute_market_regime:    "Computing market regime",
+  mkt_layer9_score:             "Computing statistical edge score",
+  mkt_screen_by_indicator:      "Screening indicators",
+  mkt_get_ticker_detail:        "Fetching ticker detail",
+  query_aiem_paper_trades:      "Reviewing paper trades",
+  query_aiem_picks:             "Retrieving AIEM picks",
+  analyze_pick_outcomes:        "Analyzing pick outcomes",
+  run_bootstrap_test:           "Running bootstrap analysis",
+  check_evaluation_window:      "Checking evaluation window",
+  query_watchlist:              "Reading watchlist",
+  query_flow_streak:            "Checking flow streak signals",
+  query_nano_picks:             "Reviewing nano-cap picks",
+  query_grinder_scan:           "Scanning grinder setups",
+  mkt_scan_universe:            "Scanning full market universe",
+  query_stat_arb_positions:     "Checking stat-arb positions",
+  run_stat_arb_zscore:          "Computing z-score spread",
+  query_sector_rotation:        "Analyzing sector rotation",
+  query_regime_history:         "Reading regime history",
+};
+
+function formatToolLabel(raw: string | null | undefined): string {
+  if (!raw) return "Researching";
+  return TOOL_LABELS[raw] ?? raw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: number }) {
   const [showTrace, setShowTrace] = useState(false);
+  const realTrace = (session.tool_trace ?? []).filter(t => t.tool !== "_timing");
   return (
     <div style={{ background: "#0d1726", border: "1px solid #1c3350", borderRadius: 10, padding: 14 }}>
       <div style={{ color: "#7fb3ff", fontSize: 13, marginBottom: session.image_data_url || session.has_image ? 6 : 8 }}>
@@ -12371,8 +12430,10 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
         <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#5ea0ff" }}>
           <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#5ea0ff", animation: "pulse 1.2s infinite" }} />
           <span style={{ fontSize: 13 }}>
-            {session.current_tool ? `Calling ${session.current_tool}…` : "Researching…"}
-            {typeof elapsed === "number" && ` (${elapsed}s)`}
+            {formatToolLabel(session.current_tool)}…
+            {typeof elapsed === "number" && (
+              <span style={{ color: "#3d6080", marginLeft: 6 }}>{elapsed}s</span>
+            )}
           </span>
         </div>
       )}
@@ -12383,21 +12444,21 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
       )}
       {session.status === "error" && (
         <div style={{ color: "#ff6b6b", fontSize: 13 }}>
-          Something went wrong: {session.error || "unknown error"}
+          Session failed — please try again.
         </div>
       )}
-      {session.tool_trace && session.tool_trace.length > 0 && (
+      {realTrace.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <button
             onClick={() => setShowTrace(v => !v)}
-            style={{ background: "none", border: "none", color: "#5ea0ff", fontSize: 11, cursor: "pointer", padding: 0 }}
+            style={{ background: "none", border: "none", color: "#3d6080", fontSize: 11, cursor: "pointer", padding: 0 }}
           >
-            {showTrace ? "Hide" : "Show"} tool trace ({session.tool_trace.length} calls)
+            {showTrace ? "Hide" : "Show"} analysis trace ({realTrace.length} steps)
           </button>
           {showTrace && (
             <ul style={{ marginTop: 6, fontSize: 11, color: "#8fa3bf", paddingLeft: 16 }}>
-              {session.tool_trace.map((t, i) => (
-                <li key={i}>{t.tool} {t.ok ? "" : "⚠️ failed"}</li>
+              {realTrace.map((t, i) => (
+                <li key={i}>{formatToolLabel(t.tool)} {t.ok ? "" : "⚠️"}</li>
               ))}
             </ul>
           )}
@@ -12728,7 +12789,7 @@ function QuantAgentTab() {
 
       {/* ── Chat history ─────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12 }}>
-        {history.filter(s => s.job_id !== activeJob?.job_id).slice().reverse().map(s => (
+        {history.filter(s => s.job_id !== activeJob?.job_id && s.status !== "error").slice().reverse().map(s => (
           <SessionBubble key={s.job_id} session={s} />
         ))}
         {activeJob && <SessionBubble session={activeJob} elapsed={isBusy ? elapsed : undefined} />}

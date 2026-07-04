@@ -29335,6 +29335,16 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
         _workers = min(_n_tools, 5)   # cap at 5 to avoid overwhelming downstream APIs
         _tool_results: dict = {}       # tc.id → (fn, args, result)
 
+        # Fix #8: pre-dispatch progress notification — fires BEFORE tools run so
+        # the frontend sees the tool name during the full execution window
+        # (~0.03–15s) rather than in the tiny window after completion.
+        if on_step and msg.tool_calls:
+            try:
+                on_step({"tool": msg.tool_calls[0].function.name,
+                         "pre_dispatch": True, "n_tools": _n_tools})
+            except Exception:
+                pass
+
         with _TPE(max_workers=_workers) as _pool:
             _futs = {_pool.submit(_exec_one_tool, tc): tc for tc in msg.tool_calls}
             for _fut in _ac(_futs):
