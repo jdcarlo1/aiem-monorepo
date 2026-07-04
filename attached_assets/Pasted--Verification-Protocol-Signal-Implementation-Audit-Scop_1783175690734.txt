@@ -1,0 +1,93 @@
+# Verification Protocol: Signal Implementation Audit
+
+**Scope:** GEX (Gamma Exposure), Put/Call Skew, Options Term Structure, CTA Trigger Levels
+**Excluded from this audit:** Insider Clustering (verified separately)
+
+**Standard:** No self-reports. No "it's working" or "I've implemented X." Every claim below must be answered with raw terminal output, SQL query results, or a git diff. If you cannot produce the evidence, say so explicitly — do not rationalize, do not substitute a description of what the code *should* do for proof of what it *does* do.
+
+---
+
+## 1. GEX (Gamma Exposure)
+
+**Claim to verify:** GEX is calculated from Tradier options chain data and stored/used correctly.
+
+- [ ] Run `grep -rn "gamma_exposure\|GEX\|gamma_exp" --include="*.py" .` and paste full output showing every file/line where this is implemented.
+- [ ] Paste the actual function that computes GEX. Confirm it uses real gamma values from the Tradier chain response (not a placeholder, not a hardcoded multiplier).
+- [ ] Run a SQL query against the live table storing GEX values for one real symbol, e.g.:
+  ```sql
+  SELECT symbol, timestamp, gex_value, strike_range, data_source
+  FROM <table_name>
+  WHERE symbol = '<TEST_SYMBOL>'
+  ORDER BY timestamp DESC
+  LIMIT 5;
+  ```
+  Paste the raw result set — not a summary.
+- [ ] Confirm the sign convention (positive = dealers long gamma / negative = short gamma) is documented and correctly applied. Show the line of code that applies the sign.
+- [ ] Confirm this pulls current open interest, not stale/cached OI. Show the timestamp field and the OI field in the same query result.
+
+---
+
+## 2. Put/Call Skew
+
+**Claim to verify:** Skew is calculated from OTM put vs. OTM call premium using real Tradier chain data.
+
+- [ ] Run `grep -rn "put_call_skew\|skew" --include="*.py" .` and paste output.
+- [ ] Paste the function. Confirm how "OTM" is defined (delta threshold? fixed strike distance from spot?) and show that threshold in code, not in prose.
+- [ ] SQL pull of skew values for one symbol across at least 3 recent timestamps:
+  ```sql
+  SELECT symbol, timestamp, otm_put_iv, otm_call_iv, skew_value
+  FROM <table_name>
+  WHERE symbol = '<TEST_SYMBOL>'
+  ORDER BY timestamp DESC
+  LIMIT 5;
+  ```
+- [ ] Confirm the IV values in that table are not identical across rows (a common failure mode = stale price/IV substitution). If any duplicate IV values appear across different timestamps, flag and explain.
+
+---
+
+## 3. Options Term Structure
+
+**Claim to verify:** Front-month vs. back-month implied vol comparison is real and correctly flags inversion.
+
+- [ ] Run `grep -rn "term_structure\|front_month\|back_month" --include="*.py" .` and paste output.
+- [ ] Paste the function that selects which expirations count as "front" and "back" month. Confirm this logic handles weekly vs. monthly expirations correctly (a known edge case).
+- [ ] SQL pull:
+  ```sql
+  SELECT symbol, timestamp, front_month_iv, back_month_iv, front_expiry, back_expiry, is_inverted
+  FROM <table_name>
+  WHERE symbol = '<TEST_SYMBOL>'
+  ORDER BY timestamp DESC
+  LIMIT 5;
+  ```
+- [ ] Confirm `front_expiry` and `back_expiry` are actual dates pulled from the live Tradier chain, not fixed offsets (e.g. "always +30 days").
+
+---
+
+## 4. CTA Trigger Levels
+
+**Claim to verify:** Trigger levels are computed from your own `polygon_market_daily` MA data, not an external source or placeholder.
+
+- [ ] Run `grep -rn "cta_trigger\|trigger_level" --include="*.py" .` and paste output.
+- [ ] Paste the function. Confirm which moving averages (e.g. 50/100/200 day) are used and that they're read from `polygon_market_daily`, not recomputed from a different/inconsistent source.
+- [ ] SQL pull showing the MA values feeding the trigger alongside the trigger level itself:
+  ```sql
+  SELECT symbol, date, ma_50, ma_100, ma_200, trigger_price, trigger_type
+  FROM <table_name>
+  WHERE symbol = '<TEST_SYMBOL>'
+  ORDER BY date DESC
+  LIMIT 5;
+  ```
+- [ ] Confirm the trigger price values are plausible relative to the MA values (not off by orders of magnitude, not null-defaulting to 0).
+
+---
+
+## General Evidence Requirements (apply to all 4 items above)
+
+1. **Git diff**: `git log --oneline -10 -- <relevant files>` then `git diff <commit_hash>` for the commit(s) that added each feature.
+2. **No agent narration substitutes for evidence.** If the response to any checkbox is a paragraph explaining intent rather than pasted terminal/SQL output, the item is **not verified** — resubmit with actual output.
+3. **Timestamps must be current**, not from initial testing/seed data. Confirm the latest row in each SQL query is from today's session or the most recent market day.
+4. If any of the four cannot produce real data (e.g., because Tradier chain access failed silently), that must be reported explicitly — a fail-closed report is acceptable; a fabricated pass is not.
+
+---
+
+*Prepared for verification against Replit agent claims dated 2026-07-04. Insider Clustering (SEC Form 4) intentionally excluded — separate audit in progress.*

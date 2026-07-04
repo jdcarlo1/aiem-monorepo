@@ -1,0 +1,78 @@
+# Verification Protocol: AIEM Integration & 24/7 Continuous Operation
+
+**Scope:** Confirm GEX, Put/Call Skew, Options Term Structure, and CTA Trigger Levels are actually wired into AIEM's decision pipeline (not standalone/orphaned scripts) and are scheduled to run continuously, 24 hours a day.
+
+**Standard:** No self-reports. Every claim below requires raw terminal output, SQL evidence, config file contents, or scheduler/job logs. "It's integrated" or "it's running" is not evidence — show me the wiring.
+
+---
+
+## 1. Confirm These Signals Actually Feed Into AIEM (Not Standalone)
+
+A script that computes GEX and writes to a table nobody reads from is NOT integrated. Prove downstream consumption.
+
+- [ ] Run `grep -rn "gex_value\|skew_value\|front_month_iv\|trigger_price" --include="*.py" .` — paste **every** file this appears in, not just where it's computed. I want to see it read somewhere else too (scoring engine, conviction stack, decision logic).
+- [ ] For each of the 4 signals, identify the specific conviction scoring layer (L1–L10) or module that consumes it. Paste the exact function/code block where that layer pulls the value in.
+- [ ] Run a SQL join showing a signal value and the conviction score it fed into for the same symbol/timestamp:
+  ```sql
+  SELECT s.symbol, s.timestamp, s.gex_value, s.skew_value,
+         c.layer_name, c.score_value, c.timestamp AS score_timestamp
+  FROM <signals_table> s
+  JOIN <conviction_scores_table> c
+    ON s.symbol = c.symbol
+   AND s.timestamp = c.timestamp
+  WHERE s.symbol = '<TEST_SYMBOL>'
+  ORDER BY s.timestamp DESC
+  LIMIT 5;
+  ```
+  If timestamps don't align or the join returns nothing, that's a red flag — the signal exists but isn't actually feeding the decision engine.
+- [ ] Confirm there is no fail-open behavior: if one of these 4 signals is missing/null for a symbol, show what AIEM does — does it skip the symbol, use a default/neutral value, or silently proceed as if the signal was favorable? Paste the exact conditional logic.
+
+---
+
+## 2. Confirm Continuous 24-Hour Scheduling
+
+Claim: these signals run continuously around the clock since the underlying data (Tradier chains, Polygon MA data, SEC Form 4) has no per-call cost and there's no reason to limit collection to market hours.
+
+- [ ] Run `grep -rn "schedule\|cron\|interval\|APScheduler\|scheduled_job" --include="*.py" .` for each of the 4 signal modules — paste output showing the actual job registration (function name, interval, start/end conditions).
+- [ ] For each job, paste the exact scheduling config (e.g. `IntervalTrigger`, cron string, or equivalent) and confirm it is NOT gated to market hours only (9:30–4:00 ET) unless that's intentional and confirmed by you. If it's currently market-hours-only, flag it explicitly rather than silently leaving it.
+- [ ] Pull the job scheduler's live registered jobs list (however your system exposes it — job table, APScheduler `get_jobs()`, etc.) and paste the raw output showing all 4 signal jobs are present, enabled, and their next/last run times.
+- [ ] SQL evidence of actual round-the-clock execution — pull timestamps across a full 24-hour window for one signal table:
+  ```sql
+  SELECT symbol, timestamp
+  FROM <table_name>
+  WHERE timestamp >= NOW() - INTERVAL '24 hours'
+  ORDER BY timestamp ASC;
+  ```
+  I want to see rows spread across the full day/night, not just clustered during market hours — if data collection stops overnight, say so, don't hide the gap.
+- [ ] Confirm rate limits on Tradier/Polygon/SEC endpoints are respected at whatever frequency you've set the jobs to run. Paste the rate limit numbers from each provider's docs alongside your configured call frequency, and show the math that you're under the limit.
+- [ ] Confirm total system resource cost of running this continuously (Replit compute, not data cost) — is the always-on process actually staying up 24/7, or does it restart/sleep? Paste uptime/process logs, not an assumption.
+
+---
+
+## 3. Failure Mode Check
+
+- [ ] If the job scheduler crashes or a job silently stops (e.g. after an API error), is there alerting? Paste the error-handling code for each of the 4 jobs — show what happens on an exception, not just the happy path.
+- [ ] Confirm there's no duplicate/overlapping job execution (e.g. same job double-scheduled, writing duplicate rows). Run:
+  ```sql
+  SELECT symbol, timestamp, COUNT(*)
+  FROM <table_name>
+  GROUP BY symbol, timestamp
+  HAVING COUNT(*) > 1
+  LIMIT 20;
+  ```
+  Paste result — should be empty. If not empty, that's a bug to fix, not to explain away.
+
+---
+
+## What "Verified" Means Here
+
+This is only verified if you can show, with raw output:
+1. Each signal is computed AND consumed by a named downstream AIEM component (not orphaned).
+2. Each signal's collection job is registered, enabled, and actually firing on a 24-hour schedule (not market-hours-only, unless intentional).
+3. There are no silent gaps, duplicate writes, or fail-open defaults hiding a broken job.
+
+If any of these can't be shown, report the gap directly — don't reframe a partial/broken pipeline as "connected and running."
+
+---
+
+*Prepared for verification against Replit agent claims dated 2026-07-04. Companion to the signal-implementation verification protocol (GEX, Put/Call Skew, Term Structure, CTA Triggers).*
