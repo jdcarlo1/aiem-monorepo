@@ -25451,6 +25451,11 @@ def _send_aiem_daily_digest() -> None:
         print(f"[aiem_digest] sent — {today_sig} findings today, {delta_str} vs yesterday")
     except Exception as _se:
         print(f"[aiem_digest] send error: {_se}")
+    try:
+        _tg_dig = [f"🤖 AIEM Digest · {today_et.strftime('%b %d')} — {today_sig} findings ({delta_str} vs yesterday)"]
+        _tg_send("\n".join(_tg_dig))
+    except Exception as _tge:
+        print(f"[silent_except:aiem_digest_tg] {type(_tge).__name__}: {_tge}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -45849,6 +45854,20 @@ Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT cr
             out = {"picks": picks, "generated_at": _dt.now().isoformat(), "signals_evaluated": len(hits)}
             app._aisc_cache    = out
             app._aisc_cache_ts = _dt.now()
+            try:
+                if picks:
+                    _aisc_tg = [f"🎯 AI Short Calls · {len(picks)} pick(s):"]
+                    for _ap in picks[:6]:
+                        _tk   = _ap.get("ticker", "?")
+                        _str  = _ap.get("strike", "?")
+                        _exp  = str(_ap.get("expiry", "?"))[:7]
+                        _prem = _ap.get("prem", 0) or 0
+                        _ps   = f"${float(_prem)/1e6:.1f}M" if float(_prem) >= 1_000_000 else f"${float(_prem)/1e3:.0f}K"
+                        _voi  = _ap.get("vol_oi", 0) or 0
+                        _aisc_tg.append(f"  {_tk}  ${float(_str):.0f}c  {_exp}  {float(_voi):.0f}×  {_ps}")
+                    _tg_send("\n".join(_aisc_tg))
+            except Exception as _aisc_tge:
+                print(f"[silent_except:aisc_tg] {type(_aisc_tge).__name__}: {_aisc_tge}", file=_sys.stderr)
             try:
                 import threading as _scl_thr
                 _scl_thr.Thread(target=_save_ai_short_calls_to_log,
