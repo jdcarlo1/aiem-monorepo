@@ -55082,6 +55082,240 @@ def user_gas_board():
         "signals":       results[:cap],
     })
 # ─────────────────────────────────────────────────────────────────────────────
+# Signal Intelligence — live status of all 24 AIEM signals
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/stock-api/signal-intelligence", methods=["GET"])
+def signal_intelligence_endpoint():
+    """Return live health + readings for all 24 AIEM signals."""
+    import math as _sim
+    import pytz as _sipy
+    from datetime import datetime as _sidt, timedelta as _sitd
+
+    _et = _sipy.timezone("America/New_York")
+    _now_et = _sidt.now(_et)
+    _today = _now_et.date()
+
+    def _safe(v):
+        if isinstance(v, float) and (_sim.isnan(v) or _sim.isinf(v)):
+            return None
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return v
+
+    def _ago(dt):
+        """Return human-readable elapsed time string."""
+        if dt is None:
+            return None
+        if hasattr(dt, "date"):
+            if dt.date() == _today:
+                return dt.strftime("Today %H:%M ET") if dt.tzinfo else "Today"
+            delta = (_today - dt.date()).days
+            return f"{delta}d ago" if delta < 30 else dt.strftime("%b %d")
+        delta = (_today - dt).days
+        if delta == 0: return "Today"
+        if delta == 1: return "Yesterday"
+        return f"{delta}d ago"
+
+    out = {
+        "generated_at": _now_et.isoformat(),
+        "groups": {}
+    }
+
+    try:
+        import psycopg2 as _si_pg
+        _sic = _si_pg.connect(os.environ["DATABASE_URL"])
+        _sic.autocommit = True
+        _sicu = _sic.cursor()
+
+        # ── paper trades summary ─────────────────────────────────────────────
+        try:
+            _sicu.execute("SELECT COUNT(*) FILTER(WHERE status='OPEN'), COUNT(*) FROM aiem_paper_trades")
+            _pt = _sicu.fetchone()
+            out["paper_trades"] = {"open": _pt[0], "total": _pt[1]}
+        except Exception:
+            out["paper_trades"] = {"open": 0, "total": 0}
+
+        # ── layer9 summary ───────────────────────────────────────────────────
+        try:
+            _sicu.execute("""SELECT COUNT(*),
+                COUNT(CASE WHEN vrp_score IS NOT NULL THEN 1 END),
+                COUNT(CASE WHEN regime IS NOT NULL THEN 1 END),
+                ROUND(AVG(statistical_score)::numeric,1)
+                FROM layer9_scores WHERE scan_date=CURRENT_DATE""")
+            _l9 = _sicu.fetchone()
+            out["layer9"] = {
+                "tickers": _l9[0], "vrp_covered": _l9[1],
+                "regime_covered": _l9[2], "avg_score": _safe(_l9[3])
+            }
+        except Exception:
+            out["layer9"] = {"tickers": 0, "vrp_covered": 0, "regime_covered": 0, "avg_score": None}
+
+        # ── stat arb ─────────────────────────────────────────────────────────
+        try:
+            _sicu.execute("""SELECT ticker_a, ticker_b, coint_pvalue, hedge_ratio,
+                spread_mean, spread_std, last_tested
+                FROM stat_arb_pairs WHERE is_active=TRUE ORDER BY coint_pvalue""")
+            _sa_rows = _sicu.fetchall()
+            _sa_pairs = []
+            for _r in _sa_rows:
+                _sa_pairs.append({
+                    "ticker_a": _r[0], "ticker_b": _r[1],
+                    "coint_p": _safe(_r[2]),
+                    "hedge_ratio": _safe(_r[3]),
+                    "spread_mean": _safe(_r[4]), "spread_std": _safe(_r[5]),
+                    "last_tested": _ago(_r[6]) if _r[6] else None,
+                })
+            _sa_status = "active" if _sa_pairs else "pending"
+            out["groups"]["stat_arb"] = {"pairs": _sa_pairs, "status": _sa_status,
+                                          "pair_count": len(_sa_pairs)}
+        except Exception as _e:
+            _sic.rollback()
+            out["groups"]["stat_arb"] = {"pairs": [], "status": "pending", "pair_count": 0}
+
+        # ── behavioral engine ─────────────────────────────────────────────────
+        try:
+            _sicu.execute("""SELECT COUNT(*), MAX(scan_time)
+                FROM behavioral_pattern_matches
+                WHERE scan_time > NOW() - INTERVAL '48 hours'""")
+            _beh = _sicu.fetchone()
+            out["groups"]["behavioral"] = {
+                "matches_48h": _beh[0],
+                "last_scan": _ago(_beh[1]) if _beh[1] else None,
+                "status": "active" if _beh[0] > 0 else "stale"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["behavioral"] = {"matches_48h": 0, "last_scan": None, "status": "pending"}
+
+        # ── signal discoveries ────────────────────────────────────────────────
+        try:
+            _sicu.execute("SELECT status, COUNT(*) FROM aiem_signal_discoveries GROUP BY status")
+            _disc = dict(_sicu.fetchall())
+            _sicu.execute("SELECT MAX(discovered_at) FROM aiem_signal_discoveries")
+            _disc_last = _sicu.fetchone()[0]
+            out["groups"]["signal_discovery"] = {
+                "hypotheses": _disc.get("hypothesis", 0),
+                "validated": _disc.get("validated", 0),
+                "retired": _disc.get("retired", 0),
+                "total": sum(_disc.values()),
+                "last_run": _ago(_disc_last),
+                "status": "active"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["signal_discovery"] = {"hypotheses": 0, "validated": 0, "retired": 0, "total": 0, "last_run": None, "status": "pending"}
+
+        # ── eval log + shadow learning ────────────────────────────────────────
+        try:
+            _sicu.execute("SELECT COUNT(*), MAX(eval_date) FROM aiem_conviction_eval_log")
+            _el = _sicu.fetchone()
+            out["groups"]["eval_log"] = {
+                "training_rows": _el[0],
+                "last_date": _ago(_el[1]),
+                "status": "active" if _el[0] > 0 else "pending"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["eval_log"] = {"training_rows": 0, "last_date": None, "status": "pending"}
+
+        try:
+            _sicu.execute("SELECT COUNT(*), MAX(proposed_at) FROM aiem_learning_proposals")
+            _lp = _sicu.fetchone()
+            out["groups"]["shadow_learning"] = {
+                "proposals": _lp[0],
+                "last_run": _ago(_lp[1]),
+                "status": "active" if _lp[0] > 0 else "pending"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["shadow_learning"] = {"proposals": 0, "last_run": None, "status": "pending"}
+
+        # ── polygon rvol ──────────────────────────────────────────────────────
+        try:
+            _sicu.execute("""SELECT MAX(scan_date), COUNT(DISTINCT ticker)
+                FROM polygon_rvol_scan WHERE scan_date=(SELECT MAX(scan_date) FROM polygon_rvol_scan)""")
+            _pv = _sicu.fetchone()
+            _pv_stale = (_pv[0] and (_today - _pv[0]).days > 1)
+            out["groups"]["polygon_rvol"] = {
+                "last_scan_date": str(_pv[0]) if _pv[0] else None,
+                "tickers_scanned": _pv[1],
+                "status": "holiday" if _pv_stale else "active"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["polygon_rvol"] = {"last_scan_date": None, "tickers_scanned": 0, "status": "pending"}
+
+        # ── OI buildup ────────────────────────────────────────────────────────
+        try:
+            _sicu.execute("SELECT MAX(snapshot_date), COUNT(DISTINCT ticker) FROM oi_daily_snapshot WHERE snapshot_date=(SELECT MAX(snapshot_date) FROM oi_daily_snapshot)")
+            _oi = _sicu.fetchone()
+            out["groups"]["oi_buildup"] = {
+                "last_snapshot": str(_oi[0]) if _oi[0] else None,
+                "tickers": _oi[1],
+                "status": "active" if _oi[0] else "pending"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["oi_buildup"] = {"last_snapshot": None, "tickers": 0, "status": "pending"}
+
+        # ── washout + flow streak from paper trades ───────────────────────────
+        try:
+            _sicu.execute("""SELECT signal_source, COUNT(*) FROM aiem_paper_trades
+                WHERE created_at > NOW() - INTERVAL '30 days'
+                GROUP BY signal_source""")
+            _src = dict(_sicu.fetchall())
+            out["groups"]["washout_ignition"] = {
+                "paper_trades_30d": _src.get("washout_ignition", 0),
+                "status": "active"
+            }
+            out["groups"]["flow_streak"] = {
+                "paper_trades_30d": _src.get("flow_streak_ignition", 0),
+                "status": "active"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["washout_ignition"] = {"paper_trades_30d": 0, "status": "active"}
+            out["groups"]["flow_streak"] = {"paper_trades_30d": 0, "status": "active"}
+
+        # ── VRP status ────────────────────────────────────────────────────────
+        _vrp_covered = out["layer9"].get("vrp_covered", 0)
+        out["groups"]["vrp"] = {
+            "tickers_covered": _vrp_covered,
+            "status": "active" if _vrp_covered > 0 else "pending",
+            "note": "Needs live Tradier chains — activates Mon–Fri during market hours"
+        }
+
+        # ── GARCH + GP status (feed into layer9 statistical_score) ───────────
+        _l9t = out["layer9"].get("tickers", 0)
+        out["groups"]["garch"] = {
+            "tickers_analyzed": _l9t,
+            "regime_covered": out["layer9"].get("regime_covered", 0),
+            "status": "active" if _l9t > 0 else "pending"
+        }
+        out["groups"]["gp"] = {
+            "tickers_fitted": _l9t,
+            "status": "active" if _l9t > 0 else "pending"
+        }
+
+        # ── job heartbeats ────────────────────────────────────────────────────
+        try:
+            _sicu.execute("SELECT job_name, last_success, consecutive_failures FROM job_heartbeats")
+            out["jobs"] = [
+                {"job": r[0], "last_success": _ago(r[1]), "failures": r[2]}
+                for r in _sicu.fetchall()
+            ]
+        except Exception:
+            out["jobs"] = []
+
+        _sic.close()
+    except Exception as _sie:
+        out["error"] = str(_sie)
+
+    return jsonify(out)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":

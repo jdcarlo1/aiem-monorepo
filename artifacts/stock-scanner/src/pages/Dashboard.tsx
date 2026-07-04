@@ -12079,6 +12079,374 @@ function ScoreBar({ value, color }: { value: number; color: string }) {
   );
 }
 
+function SignalIntelTab() {
+  const BG   = "#060c14";
+  const CARD = "#0d1726";
+  const BORD = "#1c3350";
+  const FONT = "JetBrains Mono, monospace";
+
+  const [data, setData]       = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLR]  = useState<Date | null>(null);
+
+  const refresh = () => {
+    fetch("/stock-api/signal-intelligence")
+      .then(r => r.json())
+      .then(d => { setData(d); setLR(new Date()); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => { refresh(); const t = setInterval(refresh, 60_000); return () => clearInterval(t); }, []);
+
+  const fmtLast = (s: string | null | undefined) => s ?? "—";
+
+  const Badge = ({ status }: { status: string }) => {
+    const cfg: Record<string, [string,string]> = {
+      active:  ["#00e676","#0a2010"],
+      pending: ["#fbbf24","#1a1000"],
+      holiday: ["#818cf8","#10103a"],
+      stale:   ["#f87171","#1a0a0a"],
+    };
+    const [fg, bg] = cfg[status] ?? ["#6b7280","#111"];
+    return <span style={{ color: fg, background: bg, fontSize: 9, fontWeight: 800,
+                          padding: "2px 7px", borderRadius: 3, letterSpacing: "0.08em",
+                          fontFamily: FONT }}>{status.toUpperCase()}</span>;
+  };
+
+  const SigCard = ({ icon, name, desc, status, reading, last }:
+    { icon:string; name:string; desc:string; status:string; reading?:string; last?:string }) => (
+    <div style={{ background: CARD, border: `1px solid ${BORD}`, borderRadius: 8,
+                  padding: "13px 14px", display: "flex", flexDirection: "column", gap: 7 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#cbd5e1", fontFamily: FONT,
+                       lineHeight: 1.3 }}>{icon} {name}</span>
+        <Badge status={status} />
+      </div>
+      <div style={{ fontSize: 10, color: "#475569", lineHeight: 1.5, fontFamily: FONT }}>{desc}</div>
+      {reading && (
+        <div style={{ fontSize: 10, color: "#94a3b8", fontFamily: FONT,
+                      background: "#050d1a", borderRadius: 4, padding: "5px 8px",
+                      borderLeft: "2px solid #1e3a5f" }}>{reading}</div>
+      )}
+      {last && <div style={{ fontSize: 9, color: "#334155", fontFamily: FONT }}>Last activity: {last}</div>}
+    </div>
+  );
+
+  const SecHeader = ({ title, count, sub }: { title:string; count:number; sub:string }) => (
+    <div style={{ marginBottom: 12, marginTop: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <span style={{ fontSize: 12, fontWeight: 800, color: "#e2e8f0", fontFamily: FONT,
+                       letterSpacing: "0.05em" }}>{title}</span>
+        <span style={{ fontSize: 10, color: "#1e3a5f", background: "#0d1726",
+                       padding: "1px 7px", borderRadius: 10, fontFamily: FONT,
+                       border: "1px solid #1c3350" }}>{count} signals</span>
+      </div>
+      <div style={{ fontSize: 10, color: "#334155", fontFamily: FONT }}>{sub}</div>
+    </div>
+  );
+
+  if (loading) return (
+    <div style={{ background: BG, minHeight: "100%", display: "flex", alignItems: "center",
+                  justifyContent: "center", color: "#334155", fontFamily: FONT, fontSize: 12 }}>
+      Loading signal intelligence…
+    </div>
+  );
+
+  const g  = data?.groups   ?? {};
+  const l9 = data?.layer9   ?? {};
+  const pt = data?.paper_trades ?? {};
+  const sa = g.stat_arb     ?? {};
+  const bh = g.behavioral   ?? {};
+  const sd = g.signal_discovery ?? {};
+  const el = g.eval_log     ?? {};
+  const sl = g.shadow_learning  ?? {};
+  const pv = g.polygon_rvol ?? {};
+  const oi = g.oi_buildup   ?? {};
+  const wi = g.washout_ignition ?? {};
+  const fs = g.flow_streak  ?? {};
+  const vr = g.vrp          ?? {};
+  const gc = g.garch         ?? {};
+  const gp = g.gp            ?? {};
+
+  const refreshStr = lastRefresh
+    ? lastRefresh.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" })
+    : "—";
+
+  return (
+    <div style={{ background: BG, minHeight: "100%", padding: "20px 20px 40px", fontFamily: FONT }}>
+
+      {/* ── Header ── */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: "#f1f5f9", letterSpacing: "0.03em",
+                      marginBottom: 6 }}>🔬 SIGNAL INTELLIGENCE CENTER</div>
+        <div style={{ fontSize: 11, color: "#334155" }}>
+          24 autonomous signals &nbsp;·&nbsp; {pt.open ?? 0} paper trades open
+          &nbsp;·&nbsp; {l9.tickers ?? 0} tickers scored today
+          &nbsp;·&nbsp; refreshed {refreshStr} ET
+          &nbsp;&nbsp;
+          <span onClick={refresh}
+            style={{ color: "#3b82f6", cursor: "pointer", textDecoration: "underline" }}>↻ refresh</span>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          GROUP 1 — STATISTICAL / ML ENGINE  (8 signals)
+      ══════════════════════════════════════════════════════ */}
+      <SecHeader
+        title="⚗️ STATISTICAL / ML ENGINE"
+        count={8}
+        sub="Hidden background signals — quietly feed AIEM's reasoning and paper trade decisions" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
+                    gap: 10, marginBottom: 32 }}>
+
+        <SigCard
+          icon="📊" name="GARCH Volatility Clustering"
+          desc="Fits a GARCH(1,1) model to each ticker's daily returns to detect whether it is entering a high-volatility regime (explosive moves likely) or a calm regime. Votes into the Layer 9 statistical score."
+          status={gc.tickers_analyzed > 0 ? "active" : "pending"}
+          reading={gc.tickers_analyzed > 0
+            ? `${gc.tickers_analyzed} tickers analyzed · ${gc.regime_covered} with regime computed · feeds Layer 9 vote`
+            : "Awaiting scan"}
+          last="Today (Layer 9 scan)" />
+
+        <SigCard
+          icon="🔮" name="Gaussian Process Signal Search"
+          desc="Fits a Gaussian Process regression to each ticker to learn which features (RVOL, gap, range, close-strength) best predict its forward move. Builds a per-ticker 'best signal' map."
+          status={gp.tickers_fitted > 0 ? "active" : "pending"}
+          reading={gp.tickers_fitted > 0
+            ? `${gp.tickers_fitted} tickers fitted · feature rankings learned per ticker · feeds Layer 9`
+            : "Awaiting scan"}
+          last="Today (Layer 9 scan)" />
+
+        <SigCard
+          icon="⚡" name="RND / Volatility Risk Premium"
+          desc="Uses live Tradier options chains to compute the Risk-Neutral Density (implied probability distribution) and compares it to realized volatility. A high VRP signals expensive options — often a precursor to a big move."
+          status={vr.tickers_covered > 0 ? "active" : "pending"}
+          reading={vr.tickers_covered > 0
+            ? `${vr.tickers_covered} tickers with live VRP · feeds Layer 9 vrp_score`
+            : (vr.note ?? "Activates Mon–Fri during market hours with live Tradier chains")}
+          last={vr.tickers_covered > 0 ? "Today" : "Last trading day"} />
+
+        <SigCard
+          icon="↔️" name="Statistical Arbitrage Engine"
+          desc="Tracks cointegrated stock pairs (currently JPM/BAC and META/GOOGL). When the spread z-score goes extreme (>2σ), it signals a mean-reversion trade. Pairs are re-tested every Sunday."
+          status={sa.pair_count > 0 ? "active" : "pending"}
+          reading={sa.pairs?.map((p: any) =>
+            `${p.ticker_a}/${p.ticker_b} hedge=${p.hedge_ratio?.toFixed(3)} spread_mean=${p.spread_mean?.toFixed(1)}`
+          ).join(" · ") ?? "No pairs registered"}
+          last={sa.pair_count > 0 ? "Today" : "—"} />
+
+        <SigCard
+          icon="🧬" name="Behavioral Fingerprint Engine"
+          desc="Compares each ticker's current 14-dimension price/volume fingerprint against 2,946 historical pre-move templates. If similarity ≥ 80%, it flags the ticker as pattern-matching a past big mover."
+          status={bh.status ?? "pending"}
+          reading={bh.matches_48h > 0
+            ? `${bh.matches_48h} pattern matches in last 48h · similarity ≥ 80% threshold · 24/7 engine`
+            : "No recent matches"}
+          last={fmtLast(bh.last_scan)} />
+
+        <SigCard
+          icon="🌊" name="Washout Ignition Signal"
+          desc="Detects the capitulation-to-accumulation reversal: multi-day sell-off ending with high-volume reversal candle + OI buildup beginning. Statistically validated. Triggers paper trade candidates."
+          status="active"
+          reading={wi.paper_trades_30d > 0
+            ? `${wi.paper_trades_30d} paper trades sourced from this signal in last 30d`
+            : "Monitoring daily — fires on next confirmed washout pattern"}
+          last="Daily scan" />
+
+        <SigCard
+          icon="🔥" name="Flow Streak Ignition"
+          desc="Triggers when a stock has RVOL ≥ 1.5× AND closes >3% up AND finishes above VWAP on the same streak day. Derived from the ASTE/AMLX backtest (71/851 stocks flagged on first scan)."
+          status="active"
+          reading={fs.paper_trades_30d > 0
+            ? `${fs.paper_trades_30d} paper trades sourced in last 30d · fires at 9:36 AM scan`
+            : "Monitoring at 9:36 AM scan each trading day"}
+          last="Market-open scan" />
+
+        <SigCard
+          icon="📦" name="OI Buildup + Shakeout"
+          desc="Tracks multi-day open interest accumulation in options. A stock quietly building OI over 3+ days signals institutional positioning before a move. Feeds the conviction stack and paper trade engine."
+          status={oi.last_snapshot ? "active" : "pending"}
+          reading={oi.last_snapshot
+            ? `Last OI snapshot: ${oi.last_snapshot} · ${oi.tickers} tickers · feeds conviction stack`
+            : "Awaiting OI snapshot"}
+          last={fmtLast(oi.last_snapshot)} />
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          GROUP 2 — SCANNER SIGNALS  (10 signals)
+      ══════════════════════════════════════════════════════ */}
+      <SecHeader
+        title="📡 SCANNER SIGNALS"
+        count={10}
+        sub="These appear in your app tabs — AIEM's primary data sources for daily picks" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
+                    gap: 10, marginBottom: 32 }}>
+
+        <SigCard icon="📞" name="Unusual Calls Scanner"
+          desc="Scans for option call sweeps with VOI 1.5–5× and premium ≥$1M. The core institutional flow signal. Fires at 9:36 AM, midday, and EOD. Powers the Unusual Calls tab."
+          status="active" reading="Tab: Unusual Calls · runs every trading day" last="Runs 9:36 AM ET" />
+
+        <SigCard icon="🔻" name="AI Short Calls"
+          desc="AI-scored bearish options flow. Filters for high-conviction put sweeps and directional short-term calls using VOI + premium + OTM filters. AIEM paper-trades these too."
+          status="active" reading={`${pt.open ?? 0} open positions across all paper trades · Tab: AI Short Calls`}
+          last="Continuous" />
+
+        <SigCard icon="🌇" name="EOD Sweeps"
+          desc="End-of-day sweep detection: options flow in the last 30 minutes of trading often signals next-day positioning by institutions. Fires at 4:00 PM ET."
+          status="active" reading="Tab: EOD Sweeps · fires 4:00 PM every trading day"
+          last="4:00 PM ET daily" />
+
+        <SigCard icon="🏆" name="High Conviction Stack"
+          desc="5-layer conviction scoring engine: Layer 1 (sweep volume), Layer 2 (dark pool), Layer 3 (short squeeze risk), Layer 4 (sector heat), Layer 5 (insider activity). Only shows HIGH conviction names."
+          status="active" reading="Tab: High Conviction · scored daily · 91% WR on HIGH tier (backtest Jun 1–13)"
+          last="Daily" />
+
+        <SigCard icon="🚀" name="Nano Morning Picks"
+          desc="5-factor cross-sectional z-score across low-float nano-caps (<$300M). Fires at 8:30 AM. Ranks the universe and surfaces the top 15% as STRONG candidates for the open."
+          status="active" reading="Tab: Nano Morning · 8:30 AM email · Quant z-score replaces V2 (48% WR +3.0%/capital)"
+          last="8:30 AM ET daily" />
+
+        <SigCard icon="📈" name="Small Cap Morning"
+          desc="Twin of nano for $300M–$2B optionable names. Adds an options-score layer (stored sweep logs) and a double-signal tag when a name appears on both yesterday's EOD accumulation AND today's sweep."
+          status="active" reading="Tab: Small Cap Morning · fires at open alongside nano system"
+          last="Market open daily" />
+
+        <SigCard icon="💰" name="Net Flow"
+          desc="Tracks net institutional dollar flow into tickers segmented by cap bucket (nano/micro/small/mid). Positive flow with rising RVOL = smart money accumulation in progress."
+          status="active" reading="Tab: Net Flow · tier sections never render empty when positive rows exist"
+          last="Continuous" />
+
+        <SigCard icon="🔬" name="Microcap Calls"
+          desc="Unusual call scanner focused on the $2B-and-under universe (~2,200 tickers). Uses lower thresholds (leverage plays) and a rotating shard sweep to cover the full microcap space."
+          status="active" reading="Tab: Microcap Calls · $2B market cap ceiling · deliberate low thresholds for leverage"
+          last="Daily scan" />
+
+        <SigCard icon="⚡" name="Gap+Volume Signal (S2)"
+          desc="Statistically validated signal: gap ≥ 1% AND RVOL ≥ 2× on same day. Survived OOS tight-baseline test (+2.5pp, p=0.002). Sourced from the 11,000-ticker Polygon RVOL scan."
+          status={pv.last_scan_date ? (pv.status === "holiday" ? "holiday" : "active") : "pending"}
+          reading={pv.last_scan_date
+            ? `${pv.tickers_scanned?.toLocaleString() ?? "11,000"}+ tickers scanned · last: ${pv.last_scan_date} · Tab: Gap+Vol Signal`
+            : "Awaiting Polygon scan"}
+          last={fmtLast(pv.last_scan_date)} />
+
+        <SigCard icon="🦁" name="Accumulation Leaders"
+          desc="Scans for stocks showing 3–7 day institutional accumulation patterns: close strength >70%, RVOL trend up, and range tightening. Cross-confirmed with sweep activity for highest-conviction names."
+          status="active" reading="Tab: Steady Grinders · sweep cross-confirm raises WR 49%→76%"
+          last="EOD daily" />
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          GROUP 3 — EMAIL ALERT SIGNALS  (3 signals)
+      ══════════════════════════════════════════════════════ */}
+      <SecHeader
+        title="📧 EMAIL ALERT SIGNALS"
+        count={3}
+        sub="Delivered to your inbox before the market opens — no app needed" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
+                    gap: 10, marginBottom: 32 }}>
+
+        <SigCard icon="🧮" name="Nano Quant Z-Score"
+          desc="5-factor cross-sectional z-score (RVOL, gap, range, close-strength, net-flow) normalized against the full nano-cap universe at 8:25 AM. STRONG = top 15% or z ≥ 0.75. Replaces the V2 filter."
+          status="active" reading="8:30 AM ET email · 48% WR +3.0%/capital vs V2's 35% WR -0.5% · STRONG = top 15%"
+          last="8:30 AM ET" />
+
+        <SigCard icon="💡" name="Smart Money Morning Ideas"
+          desc="Three cap-bucket owner emails at 9:05 AM: nano, small, and mid-cap setups built from overnight sweep activity, accumulation signals, and conviction stack scoring. ONE unified engine, three audience segments."
+          status="active" reading="9:05 AM ET · 3 emails (nano / small / mid) · morning gate ≥4 conviction pts"
+          last="9:05 AM ET" />
+
+        <SigCard icon="📰" name="Daily Market Brief"
+          desc="8:00 AM ET overview email: VIX level, key market indices, sector rotation signals, what AIEM is watching today, and any pre-registered hypotheses being tracked."
+          status="active" reading="8:00 AM ET · always-send (never silent when empty) · macro + watchlist summary"
+          last="8:00 AM ET" />
+      </div>
+
+      {/* ══════════════════════════════════════════════════════
+          GROUP 4 — LEARNING & RESEARCH  (3 signals)
+      ══════════════════════════════════════════════════════ */}
+      <SecHeader
+        title="🧠 LEARNING & RESEARCH ENGINE"
+        count={3}
+        sub="AIEM continuously studies its own performance and invents new signals — zero manual input" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))",
+                    gap: 10, marginBottom: 32 }}>
+
+        <SigCard icon="🔭" name="Signal Discovery Engine"
+          desc="Every day at 6 PM AIEM queries its own database, generates hypotheses ('does gap+RVOL on Mondays outperform?'), runs a backtest with a statistical gate (Bonferroni-corrected p<0.05), and registers validated edges."
+          status={sd.status ?? "active"}
+          reading={sd.total > 0
+            ? `${sd.hypotheses} hypotheses queued · ${sd.validated} validated · ${sd.retired} retired/superseded`
+            : "Research loop runs daily at 6 PM ET"}
+          last={fmtLast(sd.last_run)} />
+
+        <SigCard icon="🎓" name="Shadow Learning Cycle"
+          desc="Every Sunday at 8:30 PM AIEM compares its conviction stack predictions against real outcomes, identifies which signal weights were off, and proposes weight updates. Promotes to model retrain when confidence is high enough."
+          status={sl.status ?? "pending"}
+          reading={sl.proposals > 0
+            ? `${sl.proposals} weight-update proposals generated · Sunday 8:30 PM ET cycle`
+            : "Runs Sunday 8:30 PM ET · needs ≥30 graded rows in training corpus first"}
+          last={fmtLast(sl.last_run)} />
+
+        <SigCard icon="📚" name="Online Learning / Eval Log"
+          desc="Every trading day at 4:35 PM the full conviction engine scores the universe and logs results to the training corpus. After 4–6 weeks these graded outcomes feed the shadow learning cycle and Sunday model retrain."
+          status={el.status ?? "pending"}
+          reading={el.training_rows > 0
+            ? `${el.training_rows} graded training rows · feeds shadow learning + Sunday XGBoost retrain`
+            : "Accumulates from first trading day · 0 rows today (July 4 holiday)"}
+          last={fmtLast(el.last_date)} />
+      </div>
+
+      {/* ── Layer 9 Summary Bar ── */}
+      <div style={{ background: CARD, border: `1px solid ${BORD}`, borderRadius: 8,
+                    padding: "14px 18px", marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 10,
+                      letterSpacing: "0.06em" }}>LAYER 9 STATISTICAL EDGE — TODAY'S SCAN</div>
+        <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
+          {[
+            ["Tickers Scored",     l9.tickers     ?? 0],
+            ["GARCH Regime",       l9.regime_covered ?? 0],
+            ["VRP Covered",        l9.vrp_covered ?? 0],
+            ["Avg Score",          l9.avg_score   ?? "—"],
+            ["Paper Trades Open",  pt.open        ?? 0],
+            ["Total Paper Trades", pt.total       ?? 0],
+          ].map(([label, val]) => (
+            <div key={String(label)}>
+              <div style={{ fontSize: 9, color: "#334155", fontFamily: FONT,
+                             letterSpacing: "0.05em", marginBottom: 3 }}>{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#e2e8f0",
+                             fontFamily: FONT }}>{String(val)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Scheduler Job Health ── */}
+      {data?.jobs && data.jobs.length > 0 && (
+        <div style={{ background: CARD, border: `1px solid ${BORD}`, borderRadius: 8, padding: "14px 18px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 10,
+                        letterSpacing: "0.06em" }}>SCHEDULER JOB HEALTH</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {data.jobs.map((j: any) => (
+              <div key={j.job} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 9, color: j.failures > 0 ? "#f87171" : "#00e676" }}>
+                  {j.failures > 0 ? "⚠" : "●"}
+                </span>
+                <span style={{ fontSize: 10, color: "#64748b", fontFamily: FONT, minWidth: 240 }}>
+                  {j.job}
+                </span>
+                <span style={{ fontSize: 10, color: "#334155", fontFamily: FONT }}>
+                  {j.last_success ?? "never"}
+                  {j.failures > 0 && <span style={{ color: "#f87171" }}> · {j.failures} failures</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GasBoardTab({ byokToken }: { byokToken: string }) {
   const BB_CARD  = "#0d1726";
   const BB_BORD  = "#1c3350";
@@ -15442,7 +15810,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -15627,6 +15995,7 @@ export default function Dashboard() {
     { id: "gapvolume",      label: "⚡ GAP+VOL SIGNAL" },
     { id: "quantagent",     label: "🤖 QUANT AGENT" },
     { id: "gasboard",       label: "⚡ GAS BOARD" },
+    { id: "signalintel",    label: "🔬 SIGNAL INTEL" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -17693,8 +18062,9 @@ export default function Dashboard() {
           return <GapVolumeTab onSelectTicker={selectTicker} />;
         })()}
 
-        {tab === "quantagent" && <QuantAgentTab />}
-        {tab === "gasboard"   && <GasBoardTab byokToken={byokToken} />}
+        {tab === "quantagent"  && <QuantAgentTab />}
+        {tab === "gasboard"    && <GasBoardTab byokToken={byokToken} />}
+        {tab === "signalintel" && <SignalIntelTab />}
 
       </div>
       </main>
