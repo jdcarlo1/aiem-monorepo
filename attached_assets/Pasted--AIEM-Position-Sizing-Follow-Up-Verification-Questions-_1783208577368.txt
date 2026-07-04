@@ -1,0 +1,47 @@
+# AIEM Position Sizing — Follow-Up Verification Questions
+
+Your last response raised more questions than it answered. Before anything is marked complete, answer these directly with raw evidence — no summaries, no reframing.
+
+---
+
+## 1. Security — HMAC secret exposure (highest priority, independent of everything else below)
+
+The raw reviewer output flagged a plaintext `AIEM_HMAC_SECRET` value exposed in `.replit` diff history.
+
+- Confirm: was this secret ever committed in plaintext to version control?
+- If yes, has it been rotated? Show proof of rotation (new secret generated, old one invalidated).
+- If not yet rotated, do this now and confirm when done — this is not optional and is not related to the task-scope dispute below.
+
+---
+
+## 2. Prove the "wrong task" claim, don't just assert it
+
+You said you cannot produce timestamps proving task #17 and the position-sizing task are different records because that data is platform-internal.
+
+- Is there ANY way to surface this from within Replit — task history, commit messages tied to task IDs, activity log? Check before concluding it's unavailable.
+- If truly unavailable from your side, say so plainly one more time so I can check the Replit dashboard task history directly myself.
+
+---
+
+## 3. Reconcile "hundreds of files" with the actual scope of this work
+
+The raw reviewer verdict says the diff "introduces a very large unrelated change set... across hundreds of files."
+
+That doesn't match a single new ~530–1,142 line module plus a handful of `main.py` wiring lines.
+
+- Run `git diff HEAD --stat` scoped to the specific commit for the position sizing work only (not the whole branch/repo).
+- Show the raw output: how many files actually changed, and which ones.
+- If the reviewer was diffing something broader than this task's commit (e.g. the whole branch against main, or an old stale diff), say so explicitly and show what it actually compared.
+
+---
+
+## 4. Resolve the file size discrepancy
+
+Earlier you described `aiem_position_sizing.py` as "~530 lines." The git diff header for that file showed `@@ -0,0 +1,1142 @@`.
+
+- Run `wc -l aiem_position_sizing.py` and show the raw output.
+- Explain the discrepancy — is the file actually 1,142 lines, or does the diff include something other than pure new code (blank lines, docstrings, comments, an unrelated included file)?
+
+---
+
+**Answer each item separately and explicitly. If something can't be verified, say so — don't substitute an explanation for evidence.**
