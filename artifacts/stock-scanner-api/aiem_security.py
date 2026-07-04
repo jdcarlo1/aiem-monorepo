@@ -184,7 +184,7 @@ def rotate_token_if_due():
     if now - last < TOKEN_ROTATION_DAYS * 86400:
         return
     new_token = secrets.token_hex(32)
-    print(f"TOKEN ROTATION DUE | new_token={new_token}")
+    print(f"TOKEN ROTATION DUE | token rotation event logged — value sent via email alert only, never to stdout")
     alert_async("Token Rotation Due",
                 f"New AIEM_INTERNAL_TOKEN:\n\n  {new_token}\n\n"
                 f"Update this value in Replit Secrets → AIEM_INTERNAL_TOKEN\n"

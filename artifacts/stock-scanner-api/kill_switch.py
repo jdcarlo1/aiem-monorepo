@@ -85,6 +85,20 @@ def _is_currently_halted() -> Optional[str]:
 
 
 def _halt(reason: str, metrics_snapshot: Dict[str, Any]):
+    # INTENTIONAL BEHAVIOR (documented 2026-07-04):
+    # _halt() writes the DB halt flag and blocks all new paper trades.
+    # It does NOT cancel any open broker orders, does NOT call any broker API,
+    # and does NOT flatten existing open positions.
+    # Rationale: the kill switch fires on system-level metrics (loss limit,
+    # consecutive losses), not on market conditions. Forcing an exit at the
+    # exact moment the system flagged itself as unreliable risks locking in
+    # a bad price on a decision made under compromised conditions. Existing
+    # positions were opened with exit logic decided under normal conditions,
+    # which is more trustworthy than a reactive flatten at halt time.
+    # SEPARATE KNOWN GAP: write_paper_pick() does not set a stop_loss or
+    # target_price at entry — positions opened by premarket_open_trader have
+    # no bounded exit defined at open. This is a separate issue from the kill
+    # switch behavior and must be addressed independently.
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -135,6 +149,17 @@ def check_kill_switch(
     """Call this BEFORE every new paper-trading decision. If 'halted' is
     True in the response, the agent must NOT place the trade it was about
     to place — full stop, regardless of how confident it is in the signal.
+
+    WHAT THIS DELIVERS: "no new trades" — new paper-trade placement is blocked.
+    WHAT THIS DOES NOT DELIVER: "fully de-risked" — this function does NOT
+    cancel any open orders, does NOT call any broker or paper-trading API to
+    close positions, and does NOT flatten existing open exposure. Positions
+    already open continue to run under whatever exit logic was set at entry.
+
+    This behavior is intentional. See _halt() for the full rationale.
+
+    RESET: once halted, the agent cannot un-halt itself. A halt persists in
+    the DB until clear_halt() is called explicitly by a human operator.
     """
     limits = limits or KillSwitchLimits()
 
