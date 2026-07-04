@@ -1,0 +1,65 @@
+# BYOK Verification Test Specs — Open Items
+
+Two gaps identified in the prior audit that were flagged "NOT VERIFIED" — code exists and reads correctly in source, but neither has been exercised in a live run with real evidence. Both specs below require raw output (logs, tracebacks, HTTP responses, SQL results) pasted verbatim. "The code looks correct" is not an acceptable pass condition for either test.
+
+---
+
+## TEST SPEC 1 — Fernet fallback stub (BYOK_MASTER_KEY missing)
+
+**Objective:** confirm the `RuntimeError("BYOK_MASTER_KEY not configured")` fallback path actually fires when the key is absent, not just that it exists in source.
+
+### Steps
+
+1. Confirm current state:
+   ```
+   printenv | grep -i BYOK_MASTER_KEY
+   ```
+   Paste raw output (baseline — should show key is currently set).
+
+2. In a throwaway Python shell (NOT the running app), reproduce the init block with `BYOK_MASTER_KEY` unset:
+   ```bash
+   BYOK_MASTER_KEY= python3 -c "
+   import os
+   from cryptography.fernet import Fernet
+   try:
+       f = Fernet(os.environ.get('BYOK_MASTER_KEY','').encode())
+       def _byok_encrypt(pt): return f.encrypt(pt.encode()).decode()
+   except Exception as e:
+       def _byok_encrypt(pt): raise RuntimeError('BYOK_MASTER_KEY not configured')
+   _byok_encrypt('test')
+   "
+   ```
+
+3. Paste the raw traceback/exception output. Must show `RuntimeError: BYOK_MASTER_KEY not configured` actually raised — not just a printed log line.
+
+4. Confirm behavior at the API layer if this fires mid-request: does a `PUT /user/keys` return a clean error to the client, or does it leak a stack trace? Paste the actual HTTP response body from a request made against a temporarily-unset key in a non-prod environment. If this can't be tested safely (e.g. shared prod DB, no staging env), explain why and propose an alternative.
+
+### Pass condition
+Raw exception text showing the fallback fires, plus confirmation of what the API returns to the caller when it does.
+
+---
+
+## TEST SPEC 2 — Async worker BYOK path (L53187) end-to-end
+
+**Objective:** confirm a subscriber's own OpenAI key is actually used on the async loop path, and zero platform-key usage is billed for that call.
+
+### Steps
+
+1. Store a real (but low-limit/test) OpenAI key via `PUT /user/keys` for a test subscriber token. Paste the `{"ok":true,"saved":1}` response, then confirm via SQL that `openai_key_enc IS NOT NULL` for that row.
+
+2. Trigger the async loop path specifically — the caller that reaches line 53187, not the sync web chat path (L53136) or streaming path (L53359). Paste the exact trigger mechanism used (cron kick, manual invocation, etc.).
+
+3. Add a temporary debug line immediately before line 53187 that logs the last 4 characters of `byok_openai_key` as it's passed into the OpenAI client. Paste that log line from the actual run. This proves the subscriber's key — not `None`, not the platform key — reached client instantiation.
+
+4. Check the OpenAI platform-level usage dashboard (or the platform key's own request log) for a timestamp-correlated request. Paste a screenshot or usage log entry showing no request was billed to the platform key during this run.
+
+5. Revert the debug line. Confirm via `git diff` that no logging of key material remains in committed code.
+
+### Pass condition
+A log line proving the subscriber's key reached the client, plus evidence (usage dashboard or platform-key request log) that the platform key was not billed for that call.
+
+---
+
+## Optional follow-up — Negative control for Test 2
+
+To fully close the fail-open/fail-closed question on the async path: with the BYOK key **cleared** for a test subscriber, confirm the async path correctly falls back to the platform key rather than silently failing or throwing an unhandled error. This is the inverse case of Test 2 and matches the standard used elsewhere in this audit (e.g. the DELETE-validation negative control).
