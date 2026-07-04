@@ -52990,6 +52990,14 @@ def aiem_chat_start():
         if _byok_keys:
             _byok_openai_key = _byok_keys.get("openai_key")
 
+    # Hard gate: subscribers MUST supply their own OpenAI key.
+    # Platform key is reserved for owner/admin use only (no subscriber_token).
+    if subscriber_token and not _byok_openai_key:
+        return jsonify({
+            "error": "byok_required",
+            "message": "Add your OpenAI API key in Settings → API Keys to use the Quant Agent."
+        }), 402
+
     # Personalization: build subscriber context block for AIEM system prompt
     _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
 

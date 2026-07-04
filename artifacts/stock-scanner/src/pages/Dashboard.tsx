@@ -12442,7 +12442,16 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.answer}</ReactMarkdown>
         </div>
       )}
-      {session.status === "error" && (
+      {session.status === "error" && session.error === "__byok_required__" && (
+        <div style={{ background: "#1a1000", border: "1px solid #7c5a00", borderRadius: 8, padding: "12px 14px" }}>
+          <div style={{ color: "#fbbf24", fontWeight: 600, fontSize: 13, marginBottom: 6 }}>🔑 OpenAI API key required</div>
+          <div style={{ color: "#d6b96a", fontSize: 12, lineHeight: 1.6 }}>
+            The Quant Agent runs on your own OpenAI account — the platform never covers this cost.
+            <br />Open <strong>Settings</strong> (⚙️ icon above) → <strong>API Keys</strong> and paste your <code style={{ background: "#2a1a00", padding: "1px 5px", borderRadius: 3 }}>sk-…</code> key to activate it.
+          </div>
+        </div>
+      )}
+      {session.status === "error" && session.error !== "__byok_required__" && (
         <div style={{ color: "#ff6b6b", fontSize: 13 }}>
           Session failed — please try again.
         </div>
@@ -12680,6 +12689,10 @@ function QuantAgentTab() {
       if (res.status === 429) {
         const data = await res.json();
         setActiveJob({ job_id: "", question: q, status: "error", error: data.error || "A session is already running — please wait for it to finish." });
+        return;
+      }
+      if (res.status === 402) {
+        setActiveJob({ job_id: "", question: q, status: "error", error: "__byok_required__" });
         return;
       }
       if (!res.ok) {
