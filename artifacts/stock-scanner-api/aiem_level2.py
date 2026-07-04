@@ -139,16 +139,78 @@ class SignalEngine:
     Generates a 0-1 signal score for each row based on:
       momentum (weight 0.4) + volume_z (weight 0.3) + low-volatility (weight 0.3)
     Mirrors the Level 2 master architecture.
+
+    Thresholds are calibrated via train() using training-window statistics
+    so that walk-forward validation refits the model between windows rather
+    than applying fixed thresholds to every out-of-sample period.
     """
+
+    def __init__(self):
+        # Default thresholds (overwritten by train())
+        self._momentum_threshold  = 0.0    # signal fires when momentum > this
+        self._volume_z_threshold  = 1.0    # signal fires when volume_z > this
+        self._volatility_threshold = 0.02  # signal fires when volatility < this
+        self._is_trained          = False
+
+    def train(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Calibrate signal thresholds from a training window.
+
+        Sets:
+          momentum_threshold  = 40th-percentile momentum (bias toward
+                                above-average momentum picks)
+          volume_z_threshold  = 60th-percentile volume_z (above-average flow)
+          volatility_threshold = 55th-percentile volatility (below-average
+                                  vol preferred, but not extremes only)
+
+        Using percentiles anchored to the training window means thresholds
+        adapt to each window's volatility/volume regime rather than being
+        fixed constants across the full time series.
+
+        Returns a dict with the calibrated thresholds for inspection.
+        """
+        if df is None or df.empty or len(df) < 5:
+            return {"trained": False, "reason": "insufficient_training_rows"}
+
+        try:
+            mom_col  = "momentum"  if "momentum"  in df.columns else None
+            volz_col = "volume_z"  if "volume_z"  in df.columns else None
+            vola_col = "volatility" if "volatility" in df.columns else None
+
+            if mom_col:
+                self._momentum_threshold = float(
+                    df[mom_col].dropna().quantile(0.40)
+                    if not df[mom_col].dropna().empty else 0.0
+                )
+            if volz_col:
+                self._volume_z_threshold = float(
+                    df[volz_col].dropna().quantile(0.60)
+                    if not df[volz_col].dropna().empty else 1.0
+                )
+            if vola_col:
+                self._volatility_threshold = float(
+                    df[vola_col].dropna().quantile(0.55)
+                    if not df[vola_col].dropna().empty else 0.02
+                )
+            self._is_trained = True
+            return {
+                "trained":              True,
+                "n_train_rows":         len(df),
+                "momentum_threshold":   round(self._momentum_threshold, 6),
+                "volume_z_threshold":   round(self._volume_z_threshold, 6),
+                "volatility_threshold": round(self._volatility_threshold, 6),
+            }
+        except Exception as exc:
+            return {"trained": False, "reason": str(exc)}
 
     def generate_signal(self, row: pd.Series) -> float:
         score = 0.0
         try:
-            if pd.notna(row.get("momentum")) and row["momentum"] > 0:
+            if pd.notna(row.get("momentum")) and row["momentum"] > self._momentum_threshold:
                 score += 0.4
-            if pd.notna(row.get("volume_z")) and row["volume_z"] > 1:
+            if pd.notna(row.get("volume_z")) and row["volume_z"] > self._volume_z_threshold:
                 score += 0.3
-            if pd.notna(row.get("volatility")) and row["volatility"] < 0.02:
+            if pd.notna(row.get("volatility")) and row["volatility"] < self._volatility_threshold:
                 score += 0.3
         except Exception:
             pass
@@ -322,18 +384,46 @@ class ValidationEngine:
         step: int = 30,
     ) -> Dict[str, Any]:
         """
-        Rolling-window walk-forward: train on expanding window, score next
-        `step` bars.  Returns mean signal score across all out-of-sample windows.
+        Rolling-window walk-forward with expanding training window.
+
+        For each test window [i : i+step]:
+          1. Train signal_engine on the EXPANDING window df.iloc[:i] — all
+             data available BEFORE the test window starts.  This recalibrates
+             the signal thresholds to the regime seen in training data only,
+             respecting the point-in-time constraint.
+          2. Score each bar in the test window with the freshly-trained model.
+          3. Record the per-window threshold params alongside scores so the
+             caller can verify that parameters genuinely changed between windows
+             (proof that a refit occurred, not just that scores differ).
+
+        Returns mean signal score across all out-of-sample windows plus a
+        per-window breakdown with calibrated thresholds.
         """
-        scores: List[float] = []
+        scores: List[float]              = []
+        per_window: List[Dict[str, Any]] = []
         n = len(df)
+
         for i in range(step * 2, n, step):
-            window = df.iloc[i:i + step]
-            if window.empty:
+            train_window = df.iloc[:i]          # expanding: all data before test window
+            test_window  = df.iloc[i:i + step]  # out-of-sample test window
+            if test_window.empty:
                 break
-            window_scores = [signal_engine.generate_signal(window.iloc[j])
-                             for j in range(len(window))]
-            scores.append(float(np.mean(window_scores)))
+
+            train_info = signal_engine.train(train_window)
+
+            window_scores = [signal_engine.generate_signal(test_window.iloc[j])
+                             for j in range(len(test_window))]
+            mean_score = float(np.mean(window_scores))
+            scores.append(mean_score)
+            per_window.append({
+                "test_window_start": str(test_window.index[0])  if hasattr(test_window.index[0], '__str__') else i,
+                "test_window_end":   str(test_window.index[-1]) if hasattr(test_window.index[-1], '__str__') else i + step - 1,
+                "n_train_rows":      train_info.get("n_train_rows", len(train_window)),
+                "momentum_threshold":   train_info.get("momentum_threshold"),
+                "volume_z_threshold":   train_info.get("volume_z_threshold"),
+                "volatility_threshold": train_info.get("volatility_threshold"),
+                "mean_oos_score":    round(mean_score, 4),
+            })
 
         if not scores:
             return {"error": "insufficient_data_for_walk_forward"}
@@ -345,6 +435,7 @@ class ValidationEngine:
             "min_signal":      round(float(min(scores)), 4),
             "max_signal":      round(float(max(scores)), 4),
             "consistency_pct": round(float(np.mean([s > 0.3 for s in scores])) * 100, 1),
+            "per_window":      per_window,
         }
 
 

@@ -22,11 +22,17 @@ import pandas as pd
 
 def hurst_exponent(price_series: pd.Series, min_lag: int = 2, max_lag: int = 20) -> float:
     """
-    Hurst exponent via R/S analysis.
+    Hurst exponent via R/S analysis applied to log-returns.
 
     H < 0.5: mean-reverting (anti-persistent)
     H ≈ 0.5: random walk (no edge)
     H > 0.5: trending (momentum persistent)
+
+    NOTE: R/S analysis must be applied to log-returns, not raw price levels.
+    Raw prices are non-stationary (trending by construction) and produce
+    H > 1.0 for virtually every stock, which the np.clip then collapses to
+    an identical 1.0 for all tickers. Log-returns are stationary and yield
+    meaningful, ticker-specific H estimates in the [0, 1] range.
 
     Args:
         price_series: pandas Series of prices (not returns), chronological.
@@ -35,7 +41,11 @@ def hurst_exponent(price_series: pd.Series, min_lag: int = 2, max_lag: int = 20)
     Returns:
         float, Hurst exponent in [0, 1].
     """
-    series = np.array(price_series.dropna(), dtype=float)
+    price_arr = np.array(price_series.dropna(), dtype=float)
+    if len(price_arr) < max_lag * 2 + 1:
+        return 0.5
+    price_arr = np.maximum(price_arr, 1e-10)
+    series = np.diff(np.log(price_arr))
     if len(series) < max_lag * 2:
         return 0.5
 
@@ -218,12 +228,20 @@ def jump_detection_bipower(returns: pd.Series, threshold: float = 3.0) -> pd.Ser
 
     Returns:
         pandas Series of booleans — True = jump detected on that period.
+
+    NOTE: The z-score normalization uses rolling(252, min_periods=30).
+    Callers should pass at least 60 bars; the more history the better.
+    With fewer than 30 valid ratio values, the function falls back to a
+    direct ratio threshold (ratio > 0.5) rather than returning all-False.
     """
     abs_ret = returns.abs()
-    bpv = (abs_ret * abs_ret.shift(1)).rolling(21).mean() * np.pi / 2
-    rv = (returns ** 2).rolling(21).mean()
+    bpv = (abs_ret * abs_ret.shift(1)).rolling(21, min_periods=10).mean() * np.pi / 2
+    rv = (returns ** 2).rolling(21, min_periods=10).mean()
     ratio = (rv - bpv) / (bpv + 1e-10)
-    z = (ratio - ratio.rolling(252).mean()) / (ratio.rolling(252).std() + 1e-10)
+    n_valid = int(ratio.notna().sum())
+    if n_valid < 30:
+        return ratio > 0.5
+    z = (ratio - ratio.rolling(252, min_periods=30).mean()) / (ratio.rolling(252, min_periods=30).std(ddof=1) + 1e-10)
     return z.abs() > threshold
 
 

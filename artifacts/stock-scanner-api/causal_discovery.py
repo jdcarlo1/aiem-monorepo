@@ -140,44 +140,138 @@ def orient_edges(
     return {"directed_edges": directed, "undirected_edges": undirected}
 
 
+def _build_lagged_df(
+    df: pd.DataFrame,
+    variables: List[str],
+    max_lag: int,
+) -> Tuple[pd.DataFrame, List[str], Set[str]]:
+    """
+    Expand a DataFrame with lagged copies of each variable.
+
+    For each variable X and each lag k in 1..max_lag, adds a column
+    named 'X_lag{k}' containing X shifted by k periods.
+
+    Returns:
+        expanded_df:    DataFrame with original + lagged columns (NaN rows dropped).
+        all_variables:  Full variable list (originals + lag names).
+        lag_var_names:  Set of lag column names (used for auto-orientation).
+    """
+    expanded = df[variables].copy()
+    lag_var_names: Set[str] = set()
+    for var in variables:
+        for k in range(1, max_lag + 1):
+            col_name = f"{var}_lag{k}"
+            expanded[col_name] = expanded[var].shift(k)
+            lag_var_names.add(col_name)
+    expanded = expanded.dropna()
+    all_variables = variables + [v for v in expanded.columns if v not in variables]
+    return expanded, all_variables, lag_var_names
+
+
+def _orient_lagged_edges(
+    directed: List[Tuple[str, str, str]],
+    undirected: List[Tuple[str, str]],
+    lag_var_names: Set[str],
+) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
+    """
+    Promote lag→present edges to directed automatically.
+
+    An edge between X_lag{k} (past) and Y (present) is always directed
+    X_lag{k} → Y by temporal ordering — time cannot run backward.
+    This is the key advantage of including lagged variables: temporal
+    ordering supplies direction without needing a collider test.
+    """
+    newly_directed = []
+    remaining_undirected = []
+    for x, y in undirected:
+        x_is_lag = x in lag_var_names
+        y_is_lag = y in lag_var_names
+        if x_is_lag and not y_is_lag:
+            newly_directed.append((x, y, "->"))
+        elif y_is_lag and not x_is_lag:
+            newly_directed.append((y, x, "->"))
+        else:
+            remaining_undirected.append((x, y))
+    return directed + newly_directed, remaining_undirected
+
+
 def discover_causal_structure(
     df: pd.DataFrame,
     variables: List[str],
     max_conditioning_set_size: int = 2,
     alpha: float = 0.05,
+    max_lag: int = 3,
 ) -> Dict[str, Any]:
     """Full pipeline entry point. Pass a DataFrame with columns matching
     `variables` — typically your signal scores, market factors (VIX,
-    sector ETF returns), and forward_return, all as numeric series."""
+    sector ETF returns), and forward_return, all as numeric series.
+
+    Args:
+        df:                       DataFrame with numeric columns.
+        variables:                Which columns to include in the causal graph.
+        max_conditioning_set_size: Max conditioning set size for CI tests.
+        alpha:                    Significance level for independence tests.
+        max_lag:                  Number of lagged copies to add per variable
+                                  (e.g. max_lag=3 adds X_lag1, X_lag2, X_lag3).
+                                  Set to 0 to use contemporaneous-only (legacy).
+                                  Default is 3, which enables discovery of
+                                  lagged causal relationships like X_{t-1} → Y_t.
+    """
     if len(df) < 50:
         return {"error": "insufficient_data", "n_rows": len(df), "min_recommended": 50}
 
-    edges, removal_reasons = pc_skeleton(df, variables, max_conditioning_set_size, alpha)
-    orientation            = orient_edges(edges, removal_reasons, variables)
+    if max_lag > 0:
+        expanded_df, all_variables, lag_var_names = _build_lagged_df(df, variables, max_lag)
+        if len(expanded_df) < 30:
+            return {"error": "insufficient_data_after_lagging",
+                    "n_rows": len(expanded_df), "min_recommended": 30}
+    else:
+        expanded_df = df[variables].dropna()
+        all_variables = variables
+        lag_var_names = set()
+
+    edges, removal_reasons = pc_skeleton(
+        expanded_df, all_variables, max_conditioning_set_size, alpha
+    )
+    orientation = orient_edges(edges, removal_reasons, all_variables)
+
+    directed   = orientation["directed_edges"]
+    undirected = orientation["undirected_edges"]
+
+    if lag_var_names:
+        directed, undirected = _orient_lagged_edges(directed, undirected, lag_var_names)
 
     remaining = [list(pair) for pair, present in edges.items() if present]
     removed   = [{"pair": list(pair), "explained_by": cond}
                  for pair, cond in removal_reasons.items()]
 
+    directed_clean = [
+        {"from": a, "to": b, "direction": d,
+         "lag_directed": a in lag_var_names or b in lag_var_names}
+        for a, b, d in directed
+    ]
+
     return {
-        "variables":       variables,
-        "n_observations":  len(df),
-        "remaining_edges": remaining,
-        "removed_edges":   removed,
-        "directed_edges":  orientation["directed_edges"],
-        "undirected_edges": [list(p) for p in orientation["undirected_edges"]],
+        "variables":        variables,
+        "variables_with_lags": all_variables,
+        "max_lag_used":     max_lag,
+        "n_observations":   len(expanded_df),
+        "remaining_edges":  remaining,
+        "removed_edges":    removed,
+        "directed_edges":   directed_clean,
+        "undirected_edges": [list(p) for p in undirected],
         "interpretation": (
-            "Directed edges (A -> B) suggest A may causally influence B via collider "
-            "detection — but this rests on the assumption of no unmeasured common cause. "
-            "Undirected edges mean a relationship exists but direction is indeterminate — "
-            "this is common and NOT a failure, it's an honest gap in what observational "
-            "data alone can tell you. Removed edges indicate likely confounding by the "
-            "variable(s) in 'explained_by'."
+            "Directed edges (A -> B) suggest A may causally influence B. "
+            "Edges labelled lag_directed=true were oriented by temporal ordering "
+            "(a lagged variable cannot be caused by a present one). "
+            "Undirected edges mean a relationship exists but direction is "
+            "indeterminate from the data — this is common and NOT a failure. "
+            "Removed edges indicate conditional independence given 'explained_by'."
         ),
         "next_step": (
-            "Any edge pointing INTO a signal you trade on should be cross-checked with "
-            "causal_inference.py's confound-control test, and any hypothesis derived from "
-            "this graph should go through hypothesis_registry before being trusted."
+            "Any lag-directed edge X_lagK → Y should be cross-checked with "
+            "causal_inference.py's confound-control test. Any hypothesis derived "
+            "from this graph should go through hypothesis_registry."
         ),
     }
 
