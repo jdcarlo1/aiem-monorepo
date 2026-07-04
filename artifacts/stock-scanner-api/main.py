@@ -17,6 +17,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import math
 import threading
+try:
+    import aiem_options_structure as _aos
+    import aiem_cta_triggers as _acta
+except ImportError as _aos_e:
+    print(f"[startup] options-structure/CTA modules not loaded: {_aos_e}")
+    _aos = None
+    _acta = None
 
 def _thread_excepthook(args):
     """Global safety net: log unhandled background thread exceptions instead of
@@ -1245,6 +1252,19 @@ def _init_byok_columns():
         print(f"[byok] _init_byok_columns error: {_e}")
 _DEFERRED_INITS.append(_init_byok_columns)
 
+def _init_options_structure_db():
+    import psycopg2 as _aos_pg
+    try:
+        with _aos_pg.connect(os.environ["DATABASE_URL"]) as _c:
+            if _aos:
+                _aos.init_db(_c)
+            if _acta:
+                _acta.init_db(_c)
+        print("[startup] options_structure_scan + cta_trigger_scan tables ready")
+    except Exception as _e:
+        print(f"[startup] options/CTA DB init error: {_e}")
+_DEFERRED_INITS.append(_init_options_structure_db)
+
 def _byok_get_subscriber_keys(token: str):
     """Return decrypted keys for a subscriber token, or None if not found/inactive."""
     import psycopg2 as _byok_pg2
@@ -1758,6 +1778,8 @@ _OWNER_EMAIL_SCHEDULE = {
     "polygon_rvol":    [(8, 35)],
     "accum_leaders":   [(8, 40)],
     "washout_ignition":[(8, 45)],
+    "cta_triggers":    [(8, 38)],
+    "gex_options":     [(10, 5)],
     "aiem_digest":     [(18, 55)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
@@ -11217,6 +11239,8 @@ _TG_KIND_LABEL = {
     "smart_money":       "🧠 Smart-money EOD",
     "accumulation":      "📦 Accumulation digest",
     "aiem_digest":       "🤖 AIEM evening digest",
+    "cta_triggers":      "📐 CTA trigger levels scan",
+    "gex_options":       "⚡ GEX + Skew + Term Structure scan",
 }
 
 def _owner_send_now(kind: str) -> None:
@@ -11295,6 +11319,12 @@ def _owner_send_now(kind: str) -> None:
     elif kind == "aiem_digest":
         # 6:55 PM ET Mon–Fri - end-of-day AIEM research summary email.
         _send_aiem_daily_digest()
+    elif kind == "cta_triggers":
+        # 8:38 AM ET Mon–Fri - CTA trigger level scan from polygon_market_daily MAs.
+        _send_cta_triggers_alert()
+    elif kind == "gex_options":
+        # 10:05 AM ET Mon–Fri - GEX + Put/Call Skew + Term Structure from Tradier chains.
+        _send_gex_options_alert()
 
 
 def _owner_run_due_emails() -> dict:
@@ -28939,6 +28969,111 @@ def _aiem_tool_stat_arb_check_wrapper(ticker: str):
                 "conviction_boost": "NONE", "summary": f"stat_arb unavailable: {_e}"}
 
 
+# ── GEX / Skew / Term Structure AIEM tools ────────────────────────────────────
+
+def _mkt_tool_gex_scan(min_abs_gex_m: float = 0.0, regime: str = "ALL",
+                       days_back: int = 1) -> dict:
+    """Query options_structure_scan for GEX readings.
+    regime: ALL | LONG_GAMMA | SHORT_GAMMA | NEAR_FLIP
+    Returns tickers sorted by abs(gex_m) desc."""
+    import psycopg2 as _gex_pg
+    try:
+        with _gex_pg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            clauses = [f"scan_date >= CURRENT_DATE - INTERVAL '{days_back} days'",
+                       f"gex_m IS NOT NULL"]
+            if regime != "ALL":
+                clauses.append(f"gex_regime = '{regime}'")
+            if min_abs_gex_m > 0:
+                clauses.append(f"ABS(gex_m) >= {min_abs_gex_m}")
+            cur.execute(f"""
+                SELECT ticker, scan_date, spot, gex_m, gex_regime, gamma_flip_price,
+                       pc_skew_pp, pc_skew_tag, term_ratio, term_tag
+                FROM options_structure_scan
+                WHERE {' AND '.join(clauses)}
+                ORDER BY ABS(gex_m) DESC LIMIT 50
+            """)
+            cols = ["ticker","scan_date","spot","gex_m","gex_regime","gamma_flip_price",
+                    "pc_skew_pp","pc_skew_tag","term_ratio","term_tag"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            return {"count": len(rows), "results": rows,
+                    "interpretation": "LONG_GAMMA=price-suppressive/mean-revert; SHORT_GAMMA=amplifying/momentum; NEAR_FLIP=watch for volatility expansion"}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _mkt_tool_options_skew(min_skew_pp: float = 5.0, days_back: int = 1) -> dict:
+    """Find tickers with significant Put/Call skew (fear premium or call skew).
+    min_skew_pp: minimum absolute skew in percentage points (default 5pp)."""
+    import psycopg2 as _sk_pg
+    try:
+        with _sk_pg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT ticker, scan_date, spot, pc_skew_pp, pc_skew_tag,
+                       gex_regime, term_tag
+                FROM options_structure_scan
+                WHERE scan_date >= CURRENT_DATE - INTERVAL '{days_back} days'
+                  AND pc_skew_pp IS NOT NULL
+                  AND ABS(pc_skew_pp) >= %s
+                ORDER BY ABS(pc_skew_pp) DESC LIMIT 30
+            """, (min_skew_pp,))
+            cols = ["ticker","scan_date","spot","pc_skew_pp","pc_skew_tag","gex_regime","term_tag"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            return {"count": len(rows), "results": rows,
+                    "interpretation": "FEAR_PREMIUM(>8pp)=market buying puts=bearish fear; CALL_SKEW(<-3pp)=market buying calls=bullish positioning"}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _mkt_tool_term_structure(inverted_only: bool = False, days_back: int = 1) -> dict:
+    """Find tickers with unusual options term structure (front/back month IV ratio).
+    INVERTED(>1.10): front month IV > back month — near-term stress event expected.
+    CONTANGO(<0.88): back month IV > front — market calm, complacent."""
+    import psycopg2 as _ts_pg
+    try:
+        with _ts_pg.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            where = f"scan_date >= CURRENT_DATE - INTERVAL '{days_back} days' AND term_ratio IS NOT NULL"
+            if inverted_only:
+                where += " AND term_tag = 'INVERTED'"
+            cur.execute(f"""
+                SELECT ticker, scan_date, spot, term_ratio, term_tag, front_iv, back_iv,
+                       gex_regime, pc_skew_tag
+                FROM options_structure_scan
+                WHERE {where}
+                ORDER BY term_ratio DESC NULLS LAST LIMIT 30
+            """)
+            cols = ["ticker","scan_date","spot","term_ratio","term_tag","front_iv","back_iv",
+                    "gex_regime","pc_skew_tag"]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            return {"count": len(rows), "results": rows,
+                    "interpretation": "INVERTED(>1.10)=front>back IV=near-term stress; CONTANGO(<0.88)=back>front=complacency; NORMAL=healthy vol structure"}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _mkt_tool_cta_triggers(cta_score: int | None = None, cross_only: bool = False,
+                            near_trigger_pct: float = 3.0, limit: int = 30) -> dict:
+    """Query CTA trigger level scan. Find stocks near MA crossover points.
+    cta_score: 0=MAX_SHORT, 1=MOSTLY_SHORT, 2=MOSTLY_LONG, 3=MAX_LONG (or None for all)
+    cross_only: only return recent Golden/Death cross tickers
+    near_trigger_pct: only return tickers within this % of a MA flip (default 3%)"""
+    import psycopg2 as _cta_pg
+    try:
+        with _cta_pg.connect(os.environ["DATABASE_URL"]) as conn:
+            rows = _acta.query_cta_triggers(conn, cta_score_filter=cta_score,
+                                            cross_only=cross_only,
+                                            near_trigger_pct=near_trigger_pct,
+                                            limit=limit) if _acta else []
+            return {"count": len(rows), "results": rows,
+                    "interpretation": (
+                        "CTA trigger = price level where systematic trend-following funds flip position. "
+                        "GOLDEN_CROSS=50d crosses above 200d=massive CTA buy signal; "
+                        "DEATH_CROSS=50d crosses below 200d=massive CTA sell signal. "
+                        "Tickers near a trigger (trigger_pct_away<2%) = potential CTA-driven price move imminent."
+                    )}
+    except Exception as _e:
+        return {"error": str(_e)} if _acta else {"error": "CTA module not loaded"}
+
+
 def _build_aiem_tool_map():
     """Build full merged tool map — all tools available to both focused sessions and chat tab.
     Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
@@ -29038,6 +29173,11 @@ def _build_aiem_tool_map():
         "mkt_candlestick_patterns": _mkt_candlestick_patterns,
         "mkt_screen_by_indicator": _mkt_screen_by_indicator,
         "mkt_historical_study":   _mkt_historical_study,
+        # ── Dealer Positioning: GEX / Skew / Term Structure / CTA ─────────────
+        "mkt_gex_scan":           _mkt_tool_gex_scan,
+        "mkt_options_skew":       _mkt_tool_options_skew,
+        "mkt_term_structure":     _mkt_tool_term_structure,
+        "mkt_cta_triggers":       _mkt_tool_cta_triggers,
         # ── AIEM Research Integrity / hypothesis tracking ─────────────────────
         "register_hypothesis":    _aiem_tool_register_hypothesis,
         "list_hypotheses":        _aiem_tool_list_hypotheses,
@@ -29524,6 +29664,64 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
 
 
 _AIEM_AGENT_TOOLS = [
+    {"type": "function", "function": {
+        "name": "mkt_gex_scan",
+        "description": (
+            "Query GEX (Gamma Exposure) scan — net dealer gamma in $M from options chains. "
+            "LONG_GAMMA = dealers long gamma = price-suppressive = mean-reversion setups. "
+            "SHORT_GAMMA = dealers short gamma = price-amplifying = momentum/directional setups. "
+            "NEAR_FLIP = near the gamma flip price = volatility expansion watch. "
+            "Also returns gamma_flip_price (the strike where GEX crosses zero = mechanical support/resistance)."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_abs_gex_m": {"type": "number", "description": "Minimum abs(GEX) in $M (default 0)"},
+            "regime": {"type": "string", "enum": ["ALL","LONG_GAMMA","SHORT_GAMMA","NEAR_FLIP"]},
+            "days_back": {"type": "integer", "description": "Days to look back (default 1)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_options_skew",
+        "description": (
+            "Find tickers with significant Put/Call IV skew (25-delta put IV minus call IV). "
+            "FEAR_PREMIUM (>8pp): institutions paying up for put protection — bearish institutional positioning. "
+            "CALL_SKEW (<-3pp): call IV > put IV — bullish institutional positioning. "
+            "Use alongside GEX and term structure to confirm directional bias."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_skew_pp": {"type": "number", "description": "Minimum absolute skew in pp (default 5)"},
+            "days_back": {"type": "integer", "description": "Days to look back (default 1)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_term_structure",
+        "description": (
+            "Find tickers with unusual options term structure (front-month ATM IV / back-month ATM IV ratio). "
+            "INVERTED (ratio > 1.10): front month IV elevated vs back month — near-term stress, catalyst, or event expected. "
+            "CONTANGO (ratio < 0.88): back month IV elevated — market complacent short-term, worried long-term. "
+            "NORMAL (0.88-1.10): healthy vol structure."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "inverted_only": {"type": "boolean", "description": "Only return INVERTED (stress) tickers"},
+            "days_back": {"type": "integer", "description": "Days to look back (default 1)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_cta_triggers",
+        "description": (
+            "CTA (Commodity Trading Advisor) trigger level scan. Shows where systematic trend-following "
+            "funds are positioned and at what price levels they would flip long/short. "
+            "cta_score=3 (MAX_LONG) = all 3 MAs above = max CTA buying pressure already deployed. "
+            "cta_score=0 (MAX_SHORT) = all 3 MAs below = max CTA selling already deployed. "
+            "trigger_pct_away = % to nearest MA flip. GOLDEN_CROSS/DEATH_CROSS = 50d/200d crossover. "
+            "Near-trigger tickers (< 2% away) may experience mechanical CTA-driven flows."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "cta_score": {"type": "integer", "description": "Filter by CTA score 0-3 (0=MAX_SHORT, 3=MAX_LONG)"},
+            "cross_only": {"type": "boolean", "description": "Only recent Golden/Death cross tickers"},
+            "near_trigger_pct": {"type": "number", "description": "Only tickers within N% of a trigger (default 3.0)"},
+            "limit": {"type": "integer", "description": "Max rows (default 30)"}
+        }, "required": []}
+    }},
     {"type": "function", "function": {
         "name": "query_independent_picks",
         "description": (
@@ -31390,6 +31588,15 @@ Use these in every research cycle:
   - mkt_ticker_options_history: when you find any breakout/accumulation candidate, check its options history (min_premium_k=0 to see everything)
   - mkt_options_flow_scan: scan the universe for unusual call activity (set min_premium_k=10 for $10K+ calls — catches REITs, banks, biotech)
   - mkt_options_predicts_price: validate whether options signals are predictive in your data before weighting them heavily
+
+INSTITUTIONAL DEALER POSITIONING SIGNALS (NEW):
+Four hedge-fund-grade signals derived from live Tradier options chains and polygon_market_daily.
+Always use these together — they cross-validate each other.
+  - mkt_gex_scan: GEX (Gamma Exposure) in $M. LONG_GAMMA = dealer long gamma = price SUPPRESSIVE (mean-revert setups). SHORT_GAMMA = dealer short gamma = price AMPLIFYING (momentum setups). The gamma_flip_price is a mechanical support/resistance level where dealer hedging reverses. At market open, check GEX regime before sizing directional trades.
+  - mkt_options_skew: Put/Call IV skew at 25-delta. FEAR_PREMIUM (>8pp) = institutions buying downside protection = bearish institutional hedge. CALL_SKEW (<-3pp) = institutions buying upside = bullish institutional positioning. HIGH CONVICTION when skew + GEX agree directionally.
+  - mkt_term_structure: Front/back month IV ratio. INVERTED (>1.10) = near-term stress = catalyst or event expected within days. CONTANGO (<0.88) = complacency = good for selling premium. Cross-reference with earnings dates.
+  - mkt_cta_triggers: CTA trigger levels from 50/100/200-day MAs. Tickers with trigger_pct_away < 2% face imminent CTA mechanical flows (could be large, sudden, uninformative). GOLDEN_CROSS / DEATH_CROSS tickers (last 5 days) = peak CTA positioning change. MAX_LONG (cta_score=3) = CTAs fully deployed = less future buying available. MAX_SHORT (cta_score=0) = CTAs fully short = forced buy candidate.
+  WORKFLOW: mkt_gex_scan → filter to SHORT_GAMMA (momentum), then mkt_options_skew to confirm CALL_SKEW or FEAR_PREMIUM, then mkt_cta_triggers to check if CTAs have room to add. A SHORT_GAMMA + CALL_SKEW + low cta_score (room for CTA buying) = high-conviction breakout candidate.
 
 TOOLS AVAILABLE (use in this order):
 1.  evaluate_previous_model      - ALWAYS start here. Was last week's model good or bad?
@@ -35196,6 +35403,11 @@ def _run_aiem_research_agent(max_iterations=None):
         "mkt_candlestick_patterns":    _mkt_candlestick_patterns,
         "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
         "mkt_historical_study":        _mkt_historical_study,
+        # ── Dealer Positioning: GEX / Skew / Term Structure / CTA ─────────────
+        "mkt_gex_scan":                _mkt_tool_gex_scan,
+        "mkt_options_skew":            _mkt_tool_options_skew,
+        "mkt_term_structure":          _mkt_tool_term_structure,
+        "mkt_cta_triggers":            _mkt_tool_cta_triggers,
         # ── AIEM Research Integrity Tools ─────────────────────────────────────
         "register_hypothesis":         _aiem_tool_register_hypothesis,
         "list_hypotheses":             _aiem_tool_list_hypotheses,
@@ -52699,6 +52911,137 @@ def admin_run_washout_ignition():
         return jsonify({"error": str(e)}), 500
 
 
+# ── CTA Trigger Alert ─────────────────────────────────────────────────────────
+
+def _send_cta_triggers_alert() -> None:
+    """8:38 AM ET Mon-Fri: scan CTA trigger levels from polygon_market_daily, save to DB, send Telegram."""
+    if not _acta:
+        print("[cta_triggers] module not loaded — skipping")
+        return
+    import psycopg2 as _cta_pg2
+    try:
+        with _cta_pg2.connect(os.environ["DATABASE_URL"]) as _cc:
+            _results = _acta.compute_cta_triggers_bulk(_cc)
+            if _results:
+                _acta.save_to_db(_results, _cc)
+            print(f"[cta_triggers] computed {len(_results)} tickers")
+        # Telegram: crosses first, then near-trigger names
+        _tg_lines = [f"📐 CTA Trigger Scan · {len(_results)} tickers"]
+        _crosses = [r for r in _results if r.get("cross_50_200") and (r.get("days_since_cross") or 99) <= 5]
+        if _crosses:
+            _tg_lines.append("🔀 Recent crosses (≤5 days):")
+            for _r in _crosses[:5]:
+                _c = _r.get("cross_50_200", "")
+                _emoji = "🟢" if _c == "GOLDEN_CROSS" else "🔴"
+                _tg_lines.append(f"  {_emoji} {_r['ticker']}  {_c}  (Day {_r.get('days_since_cross', '?')})")
+        _near = [r for r in _results if (r.get("trigger_pct_away") or 99) <= 1.5]
+        if _near:
+            _tg_lines.append("⚡ Near trigger (≤1.5% away):")
+            for _r in _near[:8]:
+                _tg_lines.append(
+                    f"  {_r['ticker']}  {_r.get('cta_label','')}  "
+                    f"→{_r.get('trigger_ma','')}@${_r.get('trigger_price',0):.2f}  "
+                    f"({_r.get('trigger_pct_away',0):.1f}% away)"
+                )
+        if len(_tg_lines) > 1:
+            _tg_send("\n".join(_tg_lines))
+    except Exception as _e:
+        print(f"[cta_triggers] error: {_e}")
+
+
+# ── GEX / Skew / Term Structure Alert ────────────────────────────────────────
+
+def _send_gex_options_alert() -> None:
+    """10:05 AM ET Mon-Fri: compute GEX + skew + term structure for active names, save to DB, send Telegram."""
+    if not _aos:
+        print("[gex_options] module not loaded — skipping")
+        return
+    import psycopg2 as _gex_pg2
+    try:
+        # Universe: recent unusual calls + conviction stack tickers (most optionable)
+        with _gex_pg2.connect(os.environ["DATABASE_URL"]) as _gc:
+            with _gc.cursor() as _gcu:
+                _gcu.execute("""
+                    SELECT DISTINCT ticker FROM unusual_calls_log
+                    WHERE created_at >= NOW() - INTERVAL '5 days'
+                    UNION
+                    SELECT DISTINCT ticker FROM conviction_stack_watchlist
+                    WHERE snap_date >= CURRENT_DATE - 3
+                    LIMIT 80
+                """)
+                _universe = [r[0] for r in _gcu.fetchall()]
+        if not _universe:
+            print("[gex_options] empty universe — skipping")
+            return
+
+        _results = _aos.scan_options_structure(_universe, max_workers=6)
+        if _results:
+            with _gex_pg2.connect(os.environ["DATABASE_URL"]) as _gc2:
+                _saved = _aos.save_to_db(_results, _gc2)
+            print(f"[gex_options] scanned {len(_universe)} tickers → {len(_results)} results, {_saved} saved")
+        else:
+            print("[gex_options] no results from chain scan")
+            return
+
+        # Build Telegram summary
+        _tg_lines = [f"⚡ GEX + Skew + Term Structure · {len(_results)} names scanned"]
+
+        _short_gamma = [r for r in _results if r.get("gex_regime") == "SHORT_GAMMA"]
+        if _short_gamma:
+            _tg_lines.append("🔴 SHORT_GAMMA (amplifying — momentum plays):")
+            for _r in sorted(_short_gamma, key=lambda x: abs(x.get("gex_m") or 0), reverse=True)[:5]:
+                _tg_lines.append(
+                    f"  {_r['ticker']}  GEX=${_r.get('gex_m',0):.2f}M"
+                    + (f"  flip@${_r['gamma_flip_price']:.2f}" if _r.get("gamma_flip_price") else "")
+                )
+
+        _fear = [r for r in _results if r.get("pc_skew_tag") == "FEAR_PREMIUM"]
+        if _fear:
+            _tg_lines.append("😱 FEAR PREMIUM puts (bearish institutional hedge):")
+            for _r in sorted(_fear, key=lambda x: abs(x.get("pc_skew_pp") or 0), reverse=True)[:4]:
+                _tg_lines.append(f"  {_r['ticker']}  skew={_r.get('pc_skew_pp',0):+.1f}pp")
+
+        _inverted = [r for r in _results if r.get("term_tag") == "INVERTED"]
+        if _inverted:
+            _tg_lines.append("📈 INVERTED term structure (near-term stress):")
+            for _r in sorted(_inverted, key=lambda x: x.get("term_ratio") or 0, reverse=True)[:4]:
+                _tg_lines.append(
+                    f"  {_r['ticker']}  ratio={_r.get('term_ratio',0):.2f}  "
+                    f"F={_r.get('front_iv',0):.1f}% B={_r.get('back_iv',0):.1f}%"
+                )
+
+        if len(_tg_lines) > 1:
+            _tg_send("\n".join(_tg_lines))
+        else:
+            _tg_send("⚡ GEX scan complete — no extreme readings today")
+
+    except Exception as _e:
+        import traceback
+        print(f"[gex_options] error: {_e}\n{traceback.format_exc()}")
+
+
+@app.route("/stock-api/admin/run-gex-options", methods=["POST"])
+def admin_run_gex_options():
+    """Admin: trigger GEX + Skew + Term Structure scan immediately."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import threading as _gex_thr
+    _gex_thr.Thread(target=_send_gex_options_alert, daemon=True).start()
+    return jsonify({"status": "ok", "message": "GEX options scan triggered"})
+
+
+@app.route("/stock-api/admin/run-cta-triggers", methods=["POST"])
+def admin_run_cta_triggers():
+    """Admin: trigger CTA trigger level scan immediately."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import threading as _cta_thr
+    _cta_thr.Thread(target=_send_cta_triggers_alert, daemon=True).start()
+    return jsonify({"status": "ok", "message": "CTA trigger scan triggered"})
+
+
 @app.route("/stock-api/admin/run-module2-decay", methods=["POST"])
 def admin_run_module2_decay():
     """Admin: run Module 2 Decay & Failure Analyzer over all signals."""
@@ -55296,6 +55639,55 @@ def signal_intelligence_endpoint():
             _sic.rollback()
             out["groups"]["washout_ignition"] = {"paper_trades_30d": 0, "status": "active"}
             out["groups"]["flow_streak"] = {"paper_trades_30d": 0, "status": "active"}
+
+        # ── GEX / Skew / Term Structure ───────────────────────────────────────
+        try:
+            _sicu.execute("""SELECT MAX(scan_date), COUNT(*),
+                COUNT(CASE WHEN gex_regime='SHORT_GAMMA' THEN 1 END),
+                COUNT(CASE WHEN pc_skew_tag='FEAR_PREMIUM' THEN 1 END),
+                COUNT(CASE WHEN term_tag='INVERTED' THEN 1 END)
+                FROM options_structure_scan WHERE scan_date >= CURRENT_DATE - 1""")
+            _ost = _sicu.fetchone()
+            out["groups"]["gex"] = {
+                "last_scan_date": str(_ost[0]) if _ost[0] else None,
+                "tickers_scanned": _ost[1] or 0,
+                "short_gamma_count": _ost[2] or 0,
+                "fear_premium_count": _ost[3] or 0,
+                "inverted_term_count": _ost[4] or 0,
+                "status": "active" if (_ost[1] or 0) > 0 else "pending",
+                "schedule": "10:05 AM ET Mon-Fri"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["gex"] = {"tickers_scanned": 0, "status": "pending", "schedule": "10:05 AM ET"}
+
+        out["groups"]["options_skew"] = {
+            "note": "Put/Call skew derived from GEX scan",
+            "status": "active" if out["groups"]["gex"].get("fear_premium_count", 0) > 0 else out["groups"]["gex"]["status"]
+        }
+        out["groups"]["term_structure"] = {
+            "note": "IV term structure (front/back ratio) derived from GEX scan",
+            "status": "active" if out["groups"]["gex"].get("inverted_term_count", 0) > 0 else out["groups"]["gex"]["status"]
+        }
+
+        # ── CTA Triggers ──────────────────────────────────────────────────────
+        try:
+            _sicu.execute("""SELECT MAX(scan_date), COUNT(*),
+                COUNT(CASE WHEN cross_50_200 IS NOT NULL THEN 1 END),
+                COUNT(CASE WHEN trigger_pct_away <= 2.0 THEN 1 END)
+                FROM cta_trigger_scan WHERE scan_date >= CURRENT_DATE - 1""")
+            _cta = _sicu.fetchone()
+            out["groups"]["cta_triggers"] = {
+                "last_scan_date": str(_cta[0]) if _cta[0] else None,
+                "tickers_covered": _cta[1] or 0,
+                "recent_crosses": _cta[2] or 0,
+                "near_trigger_count": _cta[3] or 0,
+                "status": "active" if (_cta[1] or 0) > 0 else "pending",
+                "schedule": "8:38 AM ET Mon-Fri"
+            }
+        except Exception:
+            _sic.rollback()
+            out["groups"]["cta_triggers"] = {"tickers_covered": 0, "status": "pending", "schedule": "8:38 AM ET"}
 
         # ── VRP status ────────────────────────────────────────────────────────
         _vrp_covered = out["layer9"].get("vrp_covered", 0)
