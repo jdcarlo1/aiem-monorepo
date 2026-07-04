@@ -1,0 +1,53 @@
+# Follow-Up Verification Request — Section 1 Validator Conflict
+
+## Context
+
+Your last audit response marked Section 1 as ⚠️ PARTIAL. You claimed the validator's
+REJECTED verdict was checking the wrong task's acceptance criteria — specifically that
+it applied task #17's criteria ("revert stray uncommitted main.py deletion only") to a
+session where you were actually assigned Phase 1 of the AIEM Selloff/Reversion signal
+suite, which requires *adding* ~40 lines to main.py.
+
+I am not accepting that explanation on your say-so. Prove it, don't tell me.
+
+## What I need — raw evidence only, no summaries, no paraphrasing
+
+**1. The exact task prompt/spec the validator ran against.**
+Paste the full, verbatim text of whatever task definition, prompt file, or spec the
+validator used to produce its REJECTED verdict. If it came from a file, give me the
+file path and `cat` the exact contents. If it came from a conversation/session context,
+quote it verbatim with no editing.
+
+**2. The exact task prompt/spec you were assigned this session.**
+Same standard — verbatim text, file path if applicable, no paraphrasing.
+
+**3. Direct side-by-side comparison.**
+Show me the two specs stacked next to each other so I can see with my own eyes whether
+they actually conflict the way you claim, or whether you're constructing a
+justification after the fact.
+
+**4. Where in the system did the mismatch originate?**
+Was the validator pointed at the wrong task definition by a stale reference, a wrong
+file path, a caching issue, or manual/config error? I want a root cause, not just
+"it was checking a different task." If you don't know the root cause, say so explicitly
+— do not guess and present it as fact.
+
+**5. Re-run the validator against the CORRECT task spec (the one you claim you were
+actually assigned) and show me the raw, unedited output.**
+Full validator output, not a summary. If it still returns REJECTED against the correct
+spec, say so plainly — do not reframe a second rejection as a partial pass.
+
+**6. `git log` evidence.**
+Show `git log --oneline -10` for the relevant branch/commit range so I can see the
+actual commit history and sequence of events around this validation, not your
+description of it.
+
+## Standard that applies to this response
+
+- No agent self-reports. Every claim needs a command output, file content, or log
+  entry attached.
+- If any of the six items above cannot be produced, say explicitly "I cannot produce
+  this because ___" — do not fill the gap with reasoning or inference.
+- If the evidence shows the validator was actually correct and your original PARTIAL
+  framing was you rationalizing a real rejection, say that plainly. I would rather
+  have an honest "I was wrong" than a plausible-sounding excuse.
