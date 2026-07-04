@@ -1,0 +1,47 @@
+# Follow-Up Verification Questions — Round 2
+Based on review of raw output submitted for Checks 2, 3, 4, 5, 6, 7, and 8. Two items did not hold up to scrutiny and need to be re-run with tighter commands. Everything else (Checks 2, 3, 5, 7, 8, 8a, 8c) passed with real evidence attached and does not need to be re-asked.
+
+Standard remains the same: raw output only, no prose confirmation, no "trust me" explanations that aren't backed by a command and its result.
+
+---
+
+## Open Item 1 — Check 6 (Schedule Claim) — explanation doesn't match the evidence
+
+**What happened:** The grep for `add_job` combined with "gex" or "cta" returned empty. The agent explained this by saying the scheduler registers jobs "by object reference, not a string like gex or cta." But the actual function names — `_send_cta_triggers_alert` and `_send_gex_options_alert` — literally contain the substrings "cta" and "gex". If the `add_job()` call references either function by name anywhere on that line, a grep for "gex" or "cta" should have matched it. The explanation given does not logically account for the empty result.
+
+**Ask the agent to run:**
+```bash
+grep -n "add_job" main.py | grep -i "cta_triggers_alert\|gex_options_alert"
+```
+If that also returns empty, then also run:
+```bash
+grep -n "_send_cta_triggers_alert\|_send_gex_options_alert" main.py
+```
+- Paste full output of both commands.
+- For every line returned, state which one is the actual scheduler registration call (not just the function definition or a docstring reference).
+- Confirm the exact scheduled time on that specific registration line matches the claimed 10:05 AM ET / 8:38 AM ET, and explain in plain terms why the original grep missed it (e.g. registered via a config dict, a decorator, a separate scheduler file, etc.) — with the actual line of code shown, not just a restated theory.
+
+---
+
+## Open Item 2 — Check 4 (Paper Trades / AI Short Calls Boundary) — answered the wrong question
+
+**What happened:** The check was supposed to confirm that XGBoost/Layer9 scoring does NOT reach anywhere outside the Paper Trades and AI Short Calls tabs. The output only showed that `model_training.py` is not a live order-placement file. That rules out one wrong destination (live execution) but never positively confirms that AI Short Calls / Paper Trades are the only actual consumers of the scoring output.
+
+**Ask the agent to run:**
+```bash
+grep -rn "_mkt_layer9_score\|model.predict(\|model_training" --include="*.py" . | grep -v "def _mkt_layer9_score\|def train_model"
+```
+- Paste full output — every call site, not just definitions.
+- For each call site returned, state explicitly which UI tab or feature it feeds (Paper Trades, AI Short Calls, or something else). If it feeds something else, name it and flag it as a new isolation question.
+- Produce a simple table:
+
+| Call site (file:line) | Calling function | Tab/feature it feeds |
+|---|---|---|
+| | | |
+
+No row may be filled in without the corresponding grep line shown above it.
+
+---
+
+## Reminder for the agent
+Do not restate the original explanation with more confidence. If the first explanation doesn't hold up to a follow-up grep, that's a sign the original PASS was premature — re-run the check and report exactly what the new command returns, even if it changes the verdict.
