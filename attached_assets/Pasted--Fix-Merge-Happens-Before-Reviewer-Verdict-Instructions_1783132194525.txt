@@ -1,0 +1,41 @@
+# Fix: Merge Happens Before Reviewer Verdict — Instructions + Verification
+
+## The problem (confirmed, not theoretical)
+
+`mark_task_complete` triggers an auto-commit/merge on its **first call**, before the code reviewer's verdict is returned. The reviewer's REJECTED verdict is currently advisory only — it arrives too late to block anything. Proof already in hand: a second `mark_task_complete` call returned `FAILED_PRECONDITION: cannot report done from state MERGED`, confirming the merge had already happened by the time the (rejected) review came back.
+
+This means: any task's code can land in main regardless of what the reviewer finds, unless a human happens to notice and run manual verification after the fact — which is exactly how bugs #1 and #2 slipped through undetected until a 10-trial audit surfaced them.
+
+## Fix instructions to give the agent
+
+Paste this to the Replit agent as the task:
+
+---
+
+> Task: Make code review a hard gate before merge, not a post-merge report.
+>
+> Requirements:
+> 1. Locate the code path behind `mark_task_complete`. Identify exactly where the commit/merge is triggered relative to where the reviewer is invoked and where its verdict is read.
+> 2. Change the sequence so the reviewer runs and returns a verdict **before** any commit/merge action occurs. The commit must not be issued at all if the verdict is `REJECTED`.
+> 3. If `mark_task_complete` is called while a reviewer run is in flight, it must block or queue until the verdict returns — not merge immediately and treat the review as advisory.
+> 4. On `REJECTED`, the call must return a failure state to the caller (agent) with the rejection reasons, and no commit should exist in git history for that attempt.
+> 5. On `APPROVED`, proceed with commit/merge as before.
+> 6. Do not silently swallow reviewer errors/timeouts — if the reviewer itself fails to return a verdict (crash, timeout, mis-scoped like this incident), treat that as a blocking condition, not an implicit pass.
+> 7. Add a log line at the moment of merge decision showing: verdict received, verdict value, and merge action taken (or blocked), so this is auditable after the fact without needing a 10-trial reconstruction.
+
+---
+
+## Strict verification — do not accept "done" without this evidence
+
+- [ ] **Code diff**: paste the actual diff showing the reordering — reviewer call now precedes commit call, with line numbers.
+- [ ] **Positive control (should merge)**: run a trivial task designed to pass review. Paste the raw reviewer verdict (`APPROVED`) and the git commit hash/timestamp, showing the commit timestamp is *after* the verdict timestamp.
+- [ ] **Negative control (should NOT merge)**: run a task deliberately designed to fail review (e.g., touch an unrelated file). Paste the raw `REJECTED` verdict, and then run `git log` on the target branch to prove **no new commit exists** for that attempt.
+- [ ] **Race condition check**: call `mark_task_complete` twice in quick succession on the same rejected task. Confirm both calls fail/block rather than one slipping through before the block takes effect. Paste both raw responses.
+- [ ] **Timeout/crash case**: simulate the reviewer failing to respond (timeout or forced error). Confirm the task is blocked, not silently merged. Paste the raw error/blocked state.
+- [ ] **Log line audit**: paste an actual log excerpt showing the new merge-decision log line for at least one approved and one rejected case.
+- [ ] **Retroactive scope check**: query git history (or task records) for any commits merged under the OLD behavior (pre-fix) where the reviewer verdict was REJECTED or never returned. This tells you whether anything already in main needs a second look. Paste that query and its results — don't accept "nothing else was affected" as a bare claim.
+- [ ] **No regression on normal approved-fast-path timing**: confirm the added blocking step doesn't introduce a meaningful delay for the common case (approved on first try) — paste before/after timing for a normal task completion.
+
+## Acceptance bar
+
+This is only "fixed" when you have, in hand, raw evidence for both the positive control (approved work merges) and the negative control (rejected work does not merge, verifiably, via git log) — not a narrative description of the new code path.
