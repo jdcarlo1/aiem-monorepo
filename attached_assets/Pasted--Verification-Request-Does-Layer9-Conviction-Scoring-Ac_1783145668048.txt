@@ -1,0 +1,43 @@
+# Verification Request — Does Layer9 Conviction Scoring Actually Reach Daily Trade Selection?
+
+## Context
+
+The daily automated trading loop is anchored at a CronTrigger firing Mon-Fri 9:42 AM ET, calling `_aiem_paper_execute_today()` → `_aiem_paper_pick_candidates()`. This is the actual function that decides what AIEM trades each day.
+
+Evidence so far shows `_aiem_paper_pick_candidates()` calls `_fred_macro.get_fred_macro_votes()` — so FRED regime persistence is confirmed genuinely wired into daily trade selection.
+
+**No evidence so far shows `_aiem_paper_pick_candidates()` calling `compute_layer9_score()` anywhere in its internals.** The four fixed indicators (Hurst, bipower, Amihud, VRP) were shown reaching production only through three *other* paths: an HTTP-triggered endpoint (`/ai/short-calls`), an on-demand AIEM tool the LLM agent may or may not invoke, and the probability engine's independently-scheduled workflow. None of those three is the 9:42 AM cron job.
+
+This needs to be settled definitively, with raw evidence — not inference, not "it should be in there somewhere."
+
+---
+
+## Required Evidence (raw output only)
+
+### 1. Full internals of `_aiem_paper_pick_candidates()`
+- Paste the complete raw source of `_aiem_paper_pick_candidates()` from `main.py` — the whole function body, not a summary or excerpt chosen by the agent.
+- Do not paraphrase what it does. Show the literal code.
+
+### 2. Grep for `compute_layer9_score` inside that function's call tree
+- Run `grep -n "compute_layer9_score"` across `main.py` and any files `_aiem_paper_pick_candidates()` imports from or calls into.
+- Paste the raw grep output.
+- For each hit, state explicitly: is this call site inside `_aiem_paper_pick_candidates()`'s execution path, or is it one of the three previously-identified separate paths (HTTP endpoint, AIEM tool, probability engine)?
+
+### 3. If layer9 scoring is absent from daily selection — confirm what candidate selection actually uses instead
+- If the grep in #2 shows zero call sites inside the daily selection path, state that explicitly: "Layer9 conviction scoring (Hurst, bipower, Amihud, VRP) does not factor into `_aiem_paper_pick_candidates()`."
+- Then show what *does* drive candidate selection in that function — what filters, scores, or thresholds actually determine which tickers get picked for the day's paper trades. Raw code, not description.
+
+### 4. If layer9 scoring IS present — show the exact call site and confirm it's not dead
+- If a call site to `compute_layer9_score()` does exist inside the daily selection path, paste the exact line(s) and surrounding context (10 lines before/after).
+- Confirm the return value is actually used downstream (e.g., assigned to a variable that affects the picks list, a filter condition, a sort key) — not computed and discarded.
+- Show the raw variable usage to prove the score affects which candidates are selected, not just that the function is called.
+
+### 5. Cross-check with today's / most recent live run
+- Query `aiem_paper_trades` for the most recent trade_date's rows (raw SQL, as before).
+- For at least one ticker in that result set, show whether a layer9 score exists anywhere in the system for that ticker/date, or whether the selection can be fully explained without it.
+
+---
+
+## Standard reminder
+
+Raw code, raw grep, raw SQL only. If the answer is "layer9 scoring does not currently influence daily trade selection," say that plainly — that is a valid and useful answer. Do not paper over a genuine gap with a description of a different path that doesn't actually address whether the daily picks are influenced by the conviction stack.
