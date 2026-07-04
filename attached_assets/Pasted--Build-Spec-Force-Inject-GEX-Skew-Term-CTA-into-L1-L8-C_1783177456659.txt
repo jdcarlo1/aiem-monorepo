@@ -1,0 +1,51 @@
+# Build Spec: Force-Inject GEX/Skew/Term/CTA into L1–L8 Conviction Stack
+
+**Goal:** Currently GEX, Put/Call Skew, Options Term Structure, and CTA Trigger Levels exist as AIEM tools the model calls at its own discretion. This spec is for making them automatic, mandatory inputs to every L1–L8 conviction score run — not optional tool calls.
+
+**Standard:** Before writing implementation code, answer every question below with raw evidence (grep, SQL, code). Do not proceed to build until the ownership question in Section 0 is answered definitively, since it determines whether this change has any website-facing blast radius.
+
+---
+
+## Section 0 — Critical Question: Whose Conviction Score Is This?
+
+**Answer this before anything else, with evidence, not assertion:**
+
+Is the L1–L8 conviction score that AIEM computes (`_run_five_layer_conviction` / `conviction_stack_watchlist`) the **same** conviction score/rank displayed in the website's tabs to users, or a **separate, independent** score that the website computes on its own?
+
+- [ ] Run `grep -rn "conviction_score\|conviction_stack" --include="*.py" . ` and identify every table this writes to.
+- [ ] Run `grep -rn "rank\|score" artifacts/stock-scanner*/src/lib/api.ts` (or equivalent frontend file) and trace what field name(s) populate the tabs on the website.
+- [ ] Cross-reference: does the website's tab-rendering route (`/stock-api/...` or equivalent) query the **same table** that `_run_five_layer_conviction` writes to, or a **different** table (e.g., `aiem_probability_engine_daily_picks`, which was confirmed separately)?
+- [ ] State plainly which of these is true:
+  - **A)** AIEM's L1–L8 conviction score and the website's tab conviction score are the same value, same table — a change to L1–L8 changes what's shown in tabs.
+  - **B)** They are separate systems — AIEM's L1–L8 is used internally by AIEM only (or feeds `aiem_probability_engine`), and the website's tabs are populated by an entirely separate scoring/ranking process with no shared table or function.
+  - **C)** Partial overlap — some fields shared, some not. Name exactly which fields cross over.
+
+**Do not round B up to A or vice versa. If the honest answer is "partially, in this specific way," say that.**
+
+Note: a related but distinct finding is already confirmed — `/stock-api/aiem-probability-engine/daily-picks` is a public, unauthenticated route that serves `rank` and `score` from `aiem_probability_engine_daily_picks`, ordered by `rank ASC`. Before answering Section 0, also confirm:
+- [ ] Is `rank` in that table derived from `score` (i.e., `ORDER BY score` at write-time) or set independently? If derived, injecting into L1–L8 (if it feeds this pipeline) would reorder what appears at the top of that public feed, even if it doesn't change which stocks are eligible to appear at all.
+
+---
+
+## Section 1 — Null and Staleness Handling (must be defined before coding)
+
+GEX/Skew/Term/CTA currently run once daily (10:05 AM / 8:38 AM ET, Mon–Fri). If these become mandatory inputs to a scoring layer that may run more frequently or at different times, define exact behavior:
+
+- [ ] What happens if `gex_m`, `pc_skew_pp`, `term_ratio`, or `trigger_pct_away` is `None` for a given ticker at scoring time? Specify per-signal: does the layer (a) skip and reweight remaining layers, (b) fail the whole conviction score for that ticker, or (c) substitute a neutral default? Reject any option that silently substitutes a *favorable* default — that recreates the fail-open pattern already fixed elsewhere.
+- [ ] What counts as "stale" for each signal? (e.g., `scan_date < CURRENT_DATE` given once-daily collection). Define the exact staleness check and what happens when data is stale — same three options as above.
+- [ ] Confirm this staleness logic is testable: provide the SQL query that would surface how many tickers in the most recent scoring run had null or stale signal values, so this can be audited after launch, not just at build time.
+
+## Section 2 — Implementation
+
+- [ ] Show the exact code change to `_run_five_layer_conviction` (or wherever the injection point is) — a diff, not a description.
+- [ ] Confirm whether this is a new layer (e.g., "L9") or modifies the weighting of an existing layer. State which, and why.
+- [ ] Confirm backtest versioning: if this changes what L1–L8 (or L9) means, is there a version tag (e.g., `model_version` bump) so historical backtests aren't silently compared apples-to-oranges against post-injection scores?
+
+## Section 3 — Post-Build Verification
+
+- [ ] SQL proof that injected values actually appear in a conviction score calculation for a real ticker, joined against the signal source tables, post-deploy — not just that the code was written.
+- [ ] Confirm no change occurred to whatever determines which stocks are eligible for tab placement (separate from score/rank), per Section 0's answer.
+
+---
+
+*Prepared as a pre-build spec for the GEX/Skew/Term/CTA → L1–L8 injection change, dated 2026-07-04. Section 0 must be answered and shared back before implementation begins.*
