@@ -1,0 +1,124 @@
+# Signal Isolation Verification Protocol
+## Target: Confirm the 4 GEX/CTA signals are AIEM-only and only touch paper trades
+
+**Rule: paste raw terminal/SQL output for every command below. No summaries, no "confirmed," no prose substitutes. If a command returns nothing, paste the empty result — don't describe it as empty.**
+
+Signals in scope (all spellings/aliases):
+`options_structure_scan`, `cta_trigger_scan`, `mkt_gex_scan`, `mkt_options_skew`,
+`mkt_term_structure`, `mkt_cta_triggers`, `gex_m`, `gex_`, `pc_skew`, `term_ratio`,
+`mkt_gex`, `mkt_cta`, `cta_score`, `l9_inst_struct`
+
+---
+
+### 1. Full-repo grep, not just frontend
+
+Don't let the agent scope this to `.ts/.tsx` only — that's where it already claimed clean. Force it across the whole backend too.
+
+```bash
+grep -rn -E "options_structure_scan|cta_trigger_scan|mkt_gex_scan|mkt_options_skew|mkt_term_structure|mkt_cta_triggers|gex_m|pc_skew|term_ratio|mkt_gex|mkt_cta|cta_score|l9_inst_struct" \
+  --include="*.ts" --include="*.tsx" --include="*.py" --include="*.js" \
+  --exclude-dir=node_modules --exclude-dir=.git \
+  . > /tmp/signal_grep_full.txt
+
+wc -l /tmp/signal_grep_full.txt
+cat /tmp/signal_grep_full.txt
+```
+
+Then have it categorize every single line into one of three buckets — no line gets dropped or waved off:
+- AIEM tool maps / conviction reasoning (expected)
+- Scheduler write jobs (expected)
+- Anything else (**should be zero — if not zero, that's the finding, not something to explain away**)
+
+---
+
+### 2. Confirm which functions actually call the AIEM tool maps
+
+```bash
+grep -rn "mkt_gex_scan\|mkt_options_skew\|mkt_term_structure\|mkt_cta_triggers" --include="*.py" . -A 3 -B 3 > /tmp/aiem_tool_context.txt
+cat /tmp/aiem_tool_context.txt
+```
+
+You want to see with your own eyes what function each reference lives inside — not trust a table that says "AIEM tool maps."
+
+---
+
+### 3. Trace the actual write path into the two scan tables
+
+```bash
+grep -rn "INSERT INTO options_structure_scan\|INSERT INTO cta_trigger_scan\|options_structure_scan\.insert\|cta_trigger_scan\.insert" --include="*.py" . > /tmp/write_path.txt
+cat /tmp/write_path.txt
+```
+
+This confirms only the scheduler jobs (8:38 AM / 10:05 AM ET) write to these tables — not some other job or endpoint.
+
+---
+
+### 4. Trace every READ from these two tables (this is the one that actually proves isolation)
+
+```bash
+grep -rn "FROM options_structure_scan\|FROM cta_trigger_scan\|SELECT.*options_structure_scan\|SELECT.*cta_trigger_scan" --include="*.py" . > /tmp/read_path.txt
+cat /tmp/read_path.txt
+```
+
+Every result here should trace back to an AIEM tool function. If literally anything else reads these tables (a route handler, a different scoring module, a websocket push), that's a leak — full stop, not a caveat.
+
+---
+
+### 5. Confirm the paper trades table's write path only originates from AIEM decisions
+
+```bash
+grep -rn "INSERT INTO paper_trades\|paper_trades\.insert" --include="*.py" . -B 5 > /tmp/paper_trades_writes.txt
+cat /tmp/paper_trades_writes.txt
+```
+
+Check each write site — does it sit inside the AIEM decision/order-placement flow, or could paper trades be written from anywhere else?
+
+---
+
+### 6. Live DB check — actually query it, don't take code review as sufficient
+
+```sql
+-- Do any non-AIEM-tagged paper trades reference these signals in their reasoning/metadata?
+SELECT id, symbol, reasoning, created_at
+FROM paper_trades
+WHERE reasoning ILIKE '%gex%' OR reasoning ILIKE '%cta%' OR reasoning ILIKE '%skew%'
+ORDER BY created_at DESC
+LIMIT 20;
+
+-- Confirm row counts / freshness of the two scan tables match the two scheduled job times only
+SELECT DATE_TRUNC('minute', created_at) AS ts, COUNT(*)
+FROM options_structure_scan
+GROUP BY 1
+ORDER BY 1 DESC
+LIMIT 20;
+
+SELECT DATE_TRUNC('minute', created_at) AS ts, COUNT(*)
+FROM cta_trigger_scan
+GROUP BY 1
+ORDER BY 1 DESC
+LIMIT 20;
+```
+
+If any scan-table row has a `created_at` outside the two scheduled windows, that's evidence of an unauthorized write path — flag it.
+
+---
+
+### 7. Frontend network check (belt-and-suspenders)
+
+```bash
+grep -rn "signal-intelligence\|/stock-api/signal" --include="*.ts" --include="*.tsx" .
+```
+
+Confirms no subscriber-facing component is even calling the admin monitoring endpoint.
+
+---
+
+## Acceptance criteria — all must be true from raw output, not narrative:
+1. Step 1 grep: every hit falls into AIEM/scheduler buckets, zero unexplained hits
+2. Step 3 write path: only scheduler jobs write to the two scan tables
+3. Step 4 read path: only AIEM tool functions read from the two scan tables
+4. Step 5: paper_trades writes trace only to AIEM decision flow
+5. Step 6 SQL: no off-schedule rows, no non-AIEM paper trades referencing these signals
+6. Step 7: zero frontend references to the admin endpoint
+
+**If the agent responds with anything like "all checks passed" without the corresponding raw output block for each numbered step, reject the response and re-request the actual output.**
