@@ -53211,7 +53211,20 @@ def aiem_chat_stream():
 
     _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
     job_id = str(_uuid.uuid4())
-    _qa_db_update(job_id, "running")
+
+    # INSERT the row so the poll endpoint can serve it if the stream drops mid-session.
+    # _qa_db_update is UPDATE-only; without this INSERT, polling fallback returns 404.
+    import psycopg2 as _stpg
+    try:
+        with _stpg.connect(_DB_URL, connect_timeout=4) as _stc, _stc.cursor() as _stcu:
+            _stcu.execute(
+                "INSERT INTO quant_agent_sessions (job_id, question, status, has_image) "
+                "VALUES (%s, %s, 'running', %s)",
+                (job_id, question, bool(image_data_urls))
+            )
+            _stc.commit()
+    except Exception as _ste:
+        print(f"[stream] initial DB insert error (non-fatal): {_ste}")
 
     event_q: "queue.Queue" = _ssq.Queue()
 
