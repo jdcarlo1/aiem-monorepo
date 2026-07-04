@@ -1,0 +1,75 @@
+# AIEM Landing Page Claim Verification Protocol
+**Purpose:** Independently verify all 24 landing-page claims before public subscriptions open. No claim is accepted on the agent's word — only on raw, pasted, falsifiable output.
+
+---
+
+## GROUND RULES FOR THE AGENT (paste this section to it verbatim)
+
+1. For every item below, run the exact commands specified (or reasonable equivalents if a filename/tool differs) and **paste the raw terminal output, SQL result set, or API response** into your reply. Do not summarize, paraphrase, or describe what the output "would show."
+2. Do not mark anything ✅ **Live** yourself. Instead label each item **EVIDENCE ATTACHED** or **COULD NOT PRODUCE EVIDENCE**. Joel will make the pass/fail call from the raw output.
+3. If a function exists but is not called anywhere in the live pick-generation path, that is a **FAIL**, not a "Live — see below." Dead code that merely exists is not a shipped feature.
+4. If a value is identical across multiple tickers, multiple time periods, or multiple runs, treat that as a red flag and say so — do not explain it away.
+5. Anything marked "just wired today" gets **extra scrutiny** (see flagged items below) — brand-new code has zero track record and is the most likely place for a stub, placeholder, or silently-failing call.
+6. No interpretive language like "this confirms," "this proves," "working as intended." State only what the output literally shows.
+
+---
+
+## CATEGORY 1 — 10 Quant Methods (all routed through `mkt_layer9_score`)
+
+For **each** of the 10 items below, produce all four proofs:
+- **(A) Source proof:** `grep -n "def <function_name>" -A 30` on the relevant file — paste the actual function body.
+- **(B) Call-site proof:** `grep -rn "<function_name>(" .` across the codebase, excluding the definition itself — confirm it is invoked from the live pick pipeline, not only from a test file.
+- **(C) Live output proof:** Call `mkt_layer9_score` (or the specific sub-tool) for 3 different, unrelated tickers (e.g. AAPL, GME, a thinly-traded small cap) and paste the raw JSON/values returned for each. Values must differ meaningfully across tickers.
+- **(D) Persistence proof:** SQL query pulling the last 20 rows from whatever table stores this value, ordered by timestamp DESC — paste the raw rows, confirm non-null and non-repeating.
+
+| # | Claim |
+|---|---|
+| 1 | VPIN (`vpin_raw`) |
+| 2 | Bipower Variation Jump Detection (`jump_detection_bipower()` in `advanced_quant_indicators.py`) |
+| 3 | Hurst Exponent (`hurst_raw`) |
+| 4 | Amihud Illiquidity Ratio |
+| 5 | Corwin-Schultz Spread Estimator |
+| 6 | Variance Risk Premium — **additional proof required:** confirm the implied-vol leg is pulled from real options data (grep the options data source call), not a hardcoded IV constant |
+| 7 | Risk-Neutral Density |
+| 8 | GARCH(1,1) Volatility Clustering — **additional proof required:** paste the fitted parameters (omega, alpha, beta) for 2 different tickers; identical params across tickers = FAIL |
+| 9 | PCA Factor Decomposition + Absorption Ratio |
+| 10 | Statistical Arbitrage Engine (`stat_arb_check`) |
+
+---
+
+## CATEGORY 2 — 8 Autonomous AI Systems
+
+| # | Claim | Required proof beyond standard A–D above |
+|---|---|---|
+| 1 | Specialist Council + Thompson Sampling | Paste the SQL table of specialist weights for the last 10 picks. Confirm 9 **distinct** specialist outputs per pick (not 1 function called 9x returning the same number). Grep the Thompson Sampling update logic — confirm it's an actual beta-distribution posterior update, not a static weighted average. |
+| 2 | Meta-Learning Signal Trust (`get_meta_learning_weights`) — **⚠️ wired today** | Show that changing an input weight actually changes the final conviction score output. Run the same ticker before and after a deliberate weight change and paste both outputs — if identical, this is decorative, not functional. |
+| 3 | Deep RL Position Sizing (`deep_rl_get_paper_action`) | Confirm a trained model file exists (`ls -la` with file size and last-modified date, not a fresh/empty checkpoint). Paste 3 different account/position states fed to it and confirm the position size output varies with state — a constant output regardless of state is a FAIL. |
+| 4 | Causal Discovery Engine (`causal_discover`) | Run it against a synthetic dataset with a known causal structure you construct (e.g., X causes Y with a 1-day lag). Paste whether it correctly recovers that structure. |
+| 5 | Gaussian Process Signal Discovery (`ml_gp_signal_search`) | Paste the fitted kernel hyperparameters for 2 different tickers — identical hyperparameters = FAIL (means it isn't actually fitting). |
+| 6 | XGBoost + Native TreeSHAP Attribution — **⚠️ flagged, highest scrutiny** | The agent already offered a self-serving explanation of a wording gap here ("prediction" vs "any ticker mid-chat"). Do not accept that explanation — verify independently: SQL query the last 20 signed picks, confirm each row has a non-null SHAP values field AND a valid HMAC signature that verifies against the payload using your own verification script (paste the script and its pass/fail output, not a description of it). |
+| 7 | Online Learning + Version Control + Rollback (`model_version_history`) | Paste the actual version history rows (version number, timestamp, trigger reason) for a real model. Then trigger one real rollback and paste the before/after state proving the model pointer actually changed. |
+| 8 | FRED Macro Regime Overlay | Grep the FRED API call, paste a live raw API response (not cached), and confirm the regime label has changed at least once historically (SQL: distinct regime values over time) — a label that's been static since launch suggests it's never actually being recomputed. |
+
+---
+
+## CATEGORY 3 — 6 Statistical Rigor Items
+
+| # | Claim | Required proof |
+|---|---|---|
+| 1 | BH-FDR Correction (`get_bh_fdr_status`) — **⚠️ wired today** | Paste the raw p-values going in and the adjusted q-values coming out for a real batch of signals. Confirm the BH formula was applied correctly (rank, multiply by m/rank, monotonicity enforced) — show the actual math, not just a pass/fail flag. |
+| 2 | Point-in-Time Data Guard (`point_in_time_guard.py`) | **This is the one that matters most** — you already caught a lookahead-bias bug once. Feed the guard a row deliberately dated in the future relative to the query time and paste proof it was rejected. If it lets future data through, this is a critical FAIL regardless of what the module claims to do. |
+| 3 | Signal Decay Module M2 (`get_m2_decay_status`) — **⚠️ wired today** | Paste decay scores for a signal at two different ages (e.g., a signal from today vs. one from 30 days ago) and confirm the decay function actually produces different values. |
+| 4 | Rediscovery Engine M6 (`get_m6_rediscovery_status`) — **⚠️ wired today** | Paste an actual rediscovery event log entry (a signal that decayed and was later re-promoted), with timestamps. If no such event has ever occurred, say so explicitly rather than describing the mechanism in the abstract. |
+| 5 | Walk-Forward + Out-of-Sample Splits (`walk_forward_validate`) | **Critical check:** paste the actual date ranges used for train/test splits. Confirm splits are strictly chronological (train always precedes test in time) — a random shuffle split on time-series data is a lookahead-bias bug identical in kind to ones already found. |
+| 6 | 11,000+ Ticker Universe via Polygon (`polygon_market_daily`, 427K+ rows) | Run `SELECT COUNT(DISTINCT ticker), MAX(date), MIN(date) FROM polygon_market_daily` and paste the raw result. Confirm ticker count matches the claim and `MAX(date)` is recent (not stale data from months ago). |
+
+---
+
+## REPORTING FORMAT REQUIRED BACK
+
+For all 24 items, agent must return a table:
+
+| # | Item | Evidence Attached? | Raw Output (or "could not produce") |
+|---|---|---|---|
+
+Anything without pasted raw evidence defaults to **FAIL** for launch-readiness purposes — silence or a vague description is not evidence.
