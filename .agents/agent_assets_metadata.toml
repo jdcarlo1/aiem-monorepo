@@ -186,3 +186,9 @@ id = "ARHV5MnLikRuoPsZpyRC-"
 uri = "file://attached_assets/verification_screenshots/papermoney_trackrecord_verify.jpeg"
 type = "image"
 title = "Live screenshot: PAPER MONEY tab track-record card"
+
+[[outputs]]
+id = "sZe0Cu2lS3oz3p9rQjVVs"
+uri = "file://stockscanner_aiem_export.zip"
+type = "unspecified"
+title = "StockScanner AI + AIEM Code Export"
