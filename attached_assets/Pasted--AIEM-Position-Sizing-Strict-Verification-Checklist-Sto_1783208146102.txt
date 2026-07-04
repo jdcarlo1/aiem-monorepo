@@ -1,0 +1,72 @@
+# AIEM Position Sizing — Strict Verification Checklist
+
+**Stop. Before this task is accepted as done, every claim below must be proven with raw output — no summaries, no "all checks pass," no self-reports.**
+
+---
+
+## 1. The validation failure — show, don't explain
+
+Paste the actual verbatim reviewer output from the failed validation (not your interpretation of it). I want to see:
+
+- The exact task ID/description the reviewer says it evaluated against
+- The exact task ID/description of the position sizing work
+- Confirm these are genuinely different task records, with timestamps, not just your say-so
+
+If you can't produce the raw reviewer output, say so explicitly — don't reframe it as resolved.
+
+---
+
+## 2. Wiring point 1 — Import guard
+
+`grep -n "_pos_sizer" main.py` — show the actual line 173 and confirm `_pos_sizer = None` on import failure, and show a case (or explain how to force one) where startup does NOT block.
+
+---
+
+## 3. Wiring point 2 — Deferred init
+
+`grep -n "init_tables" main.py` — show line ~46304 and the surrounding code proving it runs post-server-start, not blocking.
+
+---
+
+## 4. Wiring point 3 — Scheduler
+
+Show the actual scheduler job registration for `aiem_pre_close_review` (raw code, not description) with the 3:45 PM ET Mon–Fri cron/schedule config visible.
+
+---
+
+## 5. Wiring point 4 — Kill switch gate
+
+`grep -n "_is_currently_halted" kill_switch.py` and the calling code in `_aiem_paper_execute_today()` — show both, and show the call happens BEFORE the quotes fetch, not after.
+
+---
+
+## 6. Wiring point 5 — Per-pick sizing + logging
+
+Raw SQL:
+
+```sql
+SELECT * FROM aiem_position_sizing_log ORDER BY timestamp DESC LIMIT 10;
+```
+
+I need to see actual rows with:
+
+- The 4 new sizing columns populated
+- `pre_sizing_model=FALSE` on new rows
+- `PARAMS_NOT_CONFIRMED` status showing on trades since Q1–Q5 aren't answered yet
+- Confirm existing $1,000 fixed notional is still what's actually being used (not the new sizing math) until I confirm params
+
+---
+
+## 7. Isolation check
+
+Show the actual grep command and full output for "zero customer-facing tab references" — not the conclusion, the command and result.
+
+---
+
+## 8. Git diff
+
+`git diff` scoped to this module's commit — show the actual diff, not a description of what changed.
+
+---
+
+**If any of these can't be produced, tell me directly which one and why — don't mark the task complete anyway.**
