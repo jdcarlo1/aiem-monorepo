@@ -1,0 +1,87 @@
+# BYOK Daemon Path Verification Protocol (L53187)
+
+## Context
+
+Previous verification confirmed BYOK key routing works correctly on the **synchronous fast-path** (L53136, triggered when `max_iters=1`). The OpenAI 401 error explicitly echoed back the subscriber's test key prefix (`sk-test-*****0000`), proving the subscriber's key — not the platform key — was used.
+
+However, the **daemon/async path** (L53187, inside `_sess_run()`) was never actually exercised. The debug line placed there was never observed in the logs, because `max_iters=1` routes around the daemon thread entirely. This is **not a failure** — it means the daemon path is untested, not broken. The code shares the same `_byok_openai_key` variable sourced from the same lookup (L53109–53113), which suggests the routing logic is *probably* identical, but that is an inference, not a verified fact.
+
+**Goal of this protocol:** actually exercise the daemon path and produce raw evidence — not a rationalized explanation — that BYOK routing does or does not work there too.
+
+---
+
+## Step 1 — Find the actual daemon trigger condition
+
+Run both of these and paste the raw output:
+
+```
+grep -n "max_iters" artifacts/stock-scanner/api/main.py | head -50
+```
+
+```
+grep -n "_sess_run\|Thread(\|threading\|async def\|daemon=True" artifacts/stock-scanner/api/main.py | head -50
+```
+
+We need to see the actual conditional that decides sync (L53136) vs. daemon (L53187) — e.g. `if max_iters <= 1: <sync> else: <spawn daemon>`. **Do not guess the threshold. Read it from the code.**
+
+## Step 2 — Confirm the threshold explicitly
+
+State the trigger condition in plain English (e.g. "daemon path fires when `max_iters > 1`, or when a `background=true` flag is passed"). Quote the exact line number and code snippet that proves it.
+
+## Step 3 — Re-insert the debug line and confirm placement
+
+```
+sed -n '53180,53195p' artifacts/stock-scanner/api/main.py
+```
+
+Confirm the debug print is inside the daemon closure (after the branch point found in Step 1), not the sync path.
+
+## Step 4 — Restart server, confirm clean starting state
+
+```
+grep -c "byok_debug" artifacts/stock-scanner/api/main.py
+```
+
+Confirm the count is exactly 1 (debug line present, not duplicated) before triggering. Restart the server process and confirm the restart timestamp appears in the logs.
+
+## Step 5 — Trigger using the parameter that actually forces the daemon path
+
+Using the value found in Steps 1–2 (NOT `max_iters=1`), first store the known-invalid test key, then fire the request:
+
+```
+curl -X PUT .../stock-api/user/keys \
+  -d '{"subscriber_token":"<token>","openai_key":"sk-test-<marker>0000000000000000000000000000000"}'
+```
+
+```
+curl -X POST .../stock-api/aiem/chat \
+  -d '{"subscriber_token":"<token>", "max_iters": <value from Step 2>}'
+```
+
+## Step 6 — Watch the log live, not after the fact
+
+Start this **before** firing the Step 5 trigger, in a separate terminal:
+
+```
+tail -f <server log file> | grep --line-buffered "byok_debug"
+```
+
+Watching live avoids any risk of log buffering or a race condition hiding the line from a post-hoc grep.
+
+## Step 7 — Report raw evidence only
+
+Provide, without summarizing or rephrasing:
+
+1. Raw `tail -f` output showing the `byok_debug` line firing (or the absence of it, if it doesn't fire).
+2. Raw OpenAI error response from the triggered session (should again show the `sk-test-...0000` prefix if BYOK routing worked).
+3. Raw SQL confirming the test key was stored and can be wiped afterward.
+4. A `grep -c "byok_debug"` result confirming the debug line was fully removed after the test.
+
+## Additional questions to answer alongside the test
+
+- Does the daemon path construct its own OpenAI client instance, or reuse the same client-construction code as the sync path? (If separate, the "shared variable" argument doesn't fully transfer, and this test matters more, not less.)
+- Is the daemon path actually reachable by real BYOK subscriber traffic in production, or is it a rarely-used/dead branch? This affects how urgently it needs to be verified.
+
+---
+
+**Standard to hold this to:** "not verified" and "not working" are different claims. Do not let this get labeled "verified" based on inference from the shared variable name — only raw log output showing the debug line actually fire counts as verification.
