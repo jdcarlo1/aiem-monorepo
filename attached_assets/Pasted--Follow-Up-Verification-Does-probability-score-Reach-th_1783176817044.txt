@@ -1,0 +1,43 @@
+# Follow-Up Verification: Does `probability_score` Reach the Website?
+
+**Context:** Prior audit confirmed `probability_score` is computed and stored entirely within `aiem_probability_engine/` (3 hits, all internal — `live_query.py` and `config.py`). This closes the "is it isolated at the source" question. What's NOT yet confirmed is the consumption side: does anything read this value back out and serve it to a page a website user actually sees?
+
+**Standard:** No self-reports. Raw grep output and route/endpoint tracing only. If the answer is "no, it doesn't reach the website," prove that with an absence-of-hits grep plus a list of what tables/functions the public-facing routes actually query — not just an assertion that it's isolated.
+
+---
+
+## 1. Trace All Readers of `probability_score`
+
+- [ ] Run `grep -rn "probability_score" --include="*.py" .` across the **entire** codebase (not just `aiem_probability_engine/`). Paste every hit, including file and line number.
+- [ ] For each hit found *outside* `aiem_probability_engine/`, identify what function/module it's in and what that function does with the value (stores it, returns it via API, renders it, discards it, etc.).
+- [ ] Specifically check: does `probability_score` get written into any table that a website route also reads from? Cross-reference the table name from `aiem_probability_engine`'s storage against tables used by:
+  ```
+  grep -rn "render_template\|@app.route\|jsonify" --include="*.py" . | grep -i "stock\|pick\|tab\|watchlist"
+  ```
+  Paste output.
+
+## 2. Trace What the Website's Public Routes Actually Query
+
+- [ ] List every Flask/FastAPI route (or equivalent) that serves stock data to the website front end. For each one, paste the exact SQL query or ORM call it uses.
+- [ ] Confirm none of those queries reference the table(s) that `aiem_probability_engine` writes `probability_score` into. If any do, paste the exact query showing the join/column reference — don't just say "it doesn't."
+
+## 3. Direct Absence Test
+
+- [ ] If no website route reads `probability_score`, prove the negative with something concrete:
+  ```
+  grep -rln "probability_score" --include="*.py" . | grep -v "aiem_probability_engine"
+  ```
+  If this returns empty, that's the strongest evidence of isolation — paste the empty result explicitly (don't just say "no results," show the command and its blank output).
+
+## 4. Report Format
+
+State plainly which of these is true:
+- **A)** `probability_score` is fully contained in `aiem_probability_engine/` with zero consumers elsewhere — isolation confirmed end-to-end.
+- **B)** `probability_score` is read elsewhere, but that consumer is internal (e.g., Telegram alert, admin dashboard, your own eyes-only endpoint) — not public-facing.
+- **C)** `probability_score` (or a value derived from it) is rendered on a route a subscriber/website user can see — isolation claim is false, and this needs to be flagged explicitly, not minimized.
+
+Do not round B or C up to A. If there's any consumer outside the module, name it and let me decide whether it matters — don't decide that for me.
+
+---
+
+*Prepared as a direct follow-up to the AIEM signal-integration audit, dated 2026-07-04.*
