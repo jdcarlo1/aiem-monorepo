@@ -1,0 +1,54 @@
+# VERIFICATION REQUEST — Where Does `prop_signal.py`'s Regime Output Go?
+
+**Context:** Confirmed in prior audit: `regime.py`'s `detect_regime(df)` (a simple MA-crossover BULL/BEAR/NEUTRAL classifier) is NOT dead code. It's called by `prop_signal.py` at line 16, which is imported into `main.py` at line 82 and called at line 37913, inside an AIEM tool function. This is a fourth regime-related code path, separate from the main pipeline already verified (regime_monitor → market_regime_overlay → regime_detector → conviction stack multiplier).
+
+**Open question:** does `prop_signal`'s regime classification ever feed conviction scoring, position sizing, or a subscriber-facing tab — independently of and unreconciled with the main regime_detector pipeline?
+
+**Do not summarize or explain — run the commands and paste raw output only.**
+
+---
+
+## Check 1 — What does `prop_signal()` actually return and where does the caller use it?
+
+```
+grep -n "def prop_signal" prop_signal.py
+```
+
+Paste the full function body of `prop_signal()` — confirm what it returns (just the regime string, a dict, a score, etc.).
+
+Then:
+
+```
+sed -n '37900,37940p' main.py
+```
+
+Paste this raw. Identify: what does the calling AIEM tool function do with `sig` (the return value from `prop_signal(df)`) — is it returned directly to the user in chat, written to a database table, used in a scoring calculation, or something else?
+
+---
+
+## Check 2 — Is `prop_signal`'s output used anywhere outside this one AIEM tool function?
+
+```
+grep -n "prop_signal\|import prop_signal" main.py
+```
+
+For every match, name the enclosing function and confirm whether it's the same single call site already identified (main.py:37913) or a separate usage. State explicitly if there is more than one call site.
+
+---
+
+## Check 3 — Does `prop_signal`'s regime ever get compared against or combined with `regime_detector.get_current_regime()`?
+
+```
+grep -n "prop_signal\|get_current_regime" main.py | sort -n
+```
+
+Look at the surrounding context for both. State explicitly: is there any code that compares, combines, or reconciles the two regime outputs, or do they operate as fully separate, unrelated signals with no cross-check?
+
+---
+
+## Result required
+
+State explicitly:
+- What `prop_signal`'s regime output actually feeds (chat response only / DB write / scoring input / subscriber tab / other) — name it precisely, not generically.
+- Whether it is used anywhere besides the one confirmed call site.
+- Whether it is reconciled with the main regime_detector pipeline (yes/no) — if no, state that plainly as an open item, not as a PASS.
