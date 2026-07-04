@@ -55729,6 +55729,16 @@ def signal_intelligence_endpoint():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+@app.route("/stock-api/get-source-export", methods=["GET"])
+def get_source_export():
+    _zip = os.path.join(os.path.dirname(__file__), "stockscanner_full_export.zip")
+    if not os.path.exists(_zip):
+        return jsonify({"error": "export not found — ask agent to rebuild"}), 404
+    from flask import send_file as _sf
+    return _sf(_zip, as_attachment=True, download_name="stockscanner_full_export.zip",
+               mimetype="application/zip")
+
+
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
     # Join it to keep the main thread alive. SIGTERM/SIGKILL will terminate the process.
