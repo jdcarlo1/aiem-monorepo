@@ -1,0 +1,49 @@
+# VERIFICATION REQUEST — Admin Manual-Trigger Endpoints (gex_options / cta_triggers)
+
+**Context:** Prior audit confirmed the scheduled dispatch path for `_send_gex_options_alert()` and `_send_cta_triggers_alert()` via `_owner_send_now(kind=...)` at main.py:11324/11327. This audit found a **second, separate trigger path** at main.py:53030 and 53041 — admin endpoints `/stock-api/admin/run-gex-scan` and `/stock-api/admin/run-cta-triggers` that spawn `Thread(target=_send_gex_options_alert)` / `Thread(target=_send_cta_triggers_alert)` directly. This path has not yet been verified.
+
+**Do not summarize or explain — run the commands and paste raw output only.**
+
+---
+
+## Check 1 — Auth/access control on both admin routes
+
+```
+grep -n "run-gex-scan\|run-cta-triggers" main.py
+```
+
+Then paste the full route definition for each (decorator lines through function signature — roughly 15 lines above line 53030 and 53041) showing any auth check, `@require_admin`, API key check, IP allowlist, or session check. If no such route file section, run:
+
+```
+sed -n '52990,53045p' main.py
+```
+
+State explicitly: is there an authentication/authorization check on these two routes, yes or no, and quote the exact decorator/check line if yes.
+
+---
+
+## Check 2 — Does the admin path bypass `_owner_send_now`?
+
+```
+grep -n "_send_gex_options_alert\|_send_cta_triggers_alert" main.py
+```
+
+Confirm from raw output: does the admin endpoint call the alert function directly (bypassing `_owner_send_now`'s kind-string router), or does it also route through `_owner_send_now`? If direct call confirmed, state whether `_owner_send_now` contains any gating logic (rate limiting, duplicate-send suppression, market-hours check) that the admin path therefore skips. Grep for the full body of `_owner_send_now` and paste it raw.
+
+---
+
+## Check 3 — Is this endpoint exposed publicly or internal-only?
+
+```
+grep -n "app.route\|@bp.route\|blueprint" main.py | grep -i "admin"
+```
+
+Confirm whether `/stock-api/admin/*` routes sit behind a separate admin blueprint/prefix with its own middleware, or are registered on the same public app instance as subscriber-facing routes.
+
+---
+
+## Result required
+
+**PASS** only if both endpoints have an explicit auth check confirmed in raw code, and any gating logic bypassed by the direct-call path is explicitly named (not assumed absent).
+
+**FAIL/OPEN** if no auth check is found or if gating logic cannot be confirmed either way.
