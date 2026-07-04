@@ -1,0 +1,57 @@
+# Strict Verification — BYOK / Dashboard / Subscriber Flow
+
+No claim below is accepted from agent narration. Every checkbox requires raw terminal output, raw HTTP request/response, raw SQL query result, or a file diff — not a summary of one.
+
+## 1. Encryption init (Fernet / BYOK_MASTER_KEY)
+- Paste the actual secrets list output confirming `BYOK_MASTER_KEY` exists (not "confirmed in the available secrets list" — the real listing).
+- Paste the actual startup log line, with timestamp, showing `[byok] subscriber key columns ready` and confirm there is no Fernet init error anywhere in that boot log — show the full boot log, not the one grepped line.
+- Show the code path for the "fallback stub" that raises `RuntimeError` when the key is missing. Has this actually been triggered and observed in a test, or only read in source?
+
+## 2. DB schema (`sm_subscribers`)
+- Run `\d sm_subscribers` (or equivalent) and paste raw output confirming `openai_key_enc`, `polygon_key_enc`, `anthropic_key_enc` exist and are nullable.
+- Paste the raw SQL query and result for "0 rows with `openai_key_enc` set" — run it fresh, don't reuse the agent's claimed number.
+
+## 3. API routes — PUT / GET / DELETE `/user/keys`
+- For each of the three endpoints, paste the raw curl/HTTP request and response for: valid token, invalid token, no token. (Image 5/6 show status codes only — get the actual response bodies too.)
+- Confirm independently that GET never returns decrypted key material — paste the actual JSON body returned, not just "*_set: true/false" summarized.
+- For the DELETE bug fix (was returning 200 ok for fake tokens, now 403) — paste the diff that added the missing validation check, and re-run the exploit request (fake token) to confirm current behavior yourself.
+- Confirm DELETE actually NULLs all 3 columns — paste a DB row before and after calling DELETE on a real test subscriber.
+
+## 4. Key retrieval function (`_byok_get_subscriber_keys`, `_safe_dec`)
+- Paste the actual function source for `_byok_get_subscriber_keys` and `_safe_dec`.
+- Show a test where a corrupted/invalid encrypted value is passed to `_safe_dec` and confirm it fails individually without crashing the whole call — paste the actual test output, not a description of the behavior.
+
+## 5. Injection into AIEM chat (sync + async paths)
+- Paste the actual code at line ~53000 and ~53047 showing `byok_openai_key=_byok_openai_key` passed in both places — line numbers drift, confirm current line numbers match current file.
+- Is there a test that actually exercises the async worker path with a BYOK key set, end to end? If yes, paste its output. If no, this is an untested code path, not a verified one.
+
+## 6. `_run_aiem_focused_session` behavior
+- Confirm via actual test: when `byok_openai_key` is set, does the OpenAI client actually get instantiated with that key, and does zero platform-key usage get logged for that session? Paste API usage/billing logs for one BYOK test session showing $0 platform cost.
+- Confirm the fallback to Replit AI integrations proxy with a live test call where no BYOK key is set — paste that request/response too.
+- The docstring/4-tuple mismatch was called "cosmetic" — confirm every caller of this function was actually checked (grep all call sites), not just the two mentioned, and paste that grep output.
+
+## 7. Test 1 — AIEM answers questions, no BYOK key (Image 1)
+- Paste the raw tool call log for `query_market_regime`, including the actual SQL it ran and the raw row(s) returned from the DB.
+- Confirm the "19.7% win rate" and "-2.98% T+3 return" figures against a fresh independent query of the same underlying data — don't trust the agent's restated numbers.
+
+## 8. Test 2 — BYOK routing real subscriber key test (Images 1, 3, 4)
+- Paste the raw PUT request body (with the fake key redacted only at the last 4 chars) and raw response for storing the key.
+- Paste the raw outbound request Replit's backend made to OpenAI (headers + Authorization value, redacted) proving the subscriber's key — not the platform key — was used.
+- Paste the exact raw error response from OpenAI, not the agent's paraphrase of it.
+- Confirm test subscriber cleanup: paste the DB query result showing the row is actually gone after DELETE, not just "removed from DB ✅."
+
+## 9. Frontend dashboard UI claims (Image 6)
+- Settings gear icon color logic — show the actual component code condition that turns it green/blue, and a screenshot (not agent description) of both states.
+- Confirm `aiem_byok_token` is stored in localStorage by inspecting it directly in browser devtools — paste that inspection, not the code's intent.
+- Confirm the panel's `GET /user/keys` fires automatically on open — paste a network tab capture showing the request firing without manual action.
+
+## 10. API button / Sign In button / Open App button (Image 2)
+- For the Sign In → Stripe billing portal flow: paste the raw `POST /api/stock-scanner/manage` request and full response body (not just the truncated URL shown).
+- Click through the actual generated Stripe URL in a real/test session and confirm it loads a valid billing portal — screenshot the loaded page, not just the 200 status.
+- For "Open App" → confirm `GET /stock-scanner/app` returns 200 AND actually renders the subscriber dashboard — paste a screenshot of the rendered page, not just the status code.
+- For the fixed "View Endpoints →" bug — paste the diff, and confirm by clicking it that it now scrolls to the code examples panel rather than 404ing or blanking.
+
+## 11. Cross-cutting
+- Were any of these 6 test-stage tables (Images 4–6) generated from a single actual test script run, or are they the agent's manual reconstruction of what it believes should happen? Request the script/output that produced them.
+- Is there an HMAC-signed evidence bundle for this BYOK work, consistent with your existing provenance standard? If not, generate one from the raw logs before treating this as verified.
+- Was any of this merged/deployed before these checks were run, or after? If before, what was the actual pre-merge verification?
