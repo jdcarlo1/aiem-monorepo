@@ -1,0 +1,54 @@
+# Outstanding Items — Section 1 Follow-Up
+
+The re-run PASS against the correct Phase 1 spec is accepted (commit 003e3c5). Before
+I consider this fully closed, I need the following.
+
+## 1. Missing: Item 6 (git log)
+
+I never received this. Run it now:
+
+```
+git log --oneline -10
+```
+
+Paste the raw output for the branch/commit range relevant to this work. I want to see
+the actual commit sequence and confirm it lines up with the PASS verdict and the
+timeline you've described.
+
+## 2. Late-scan edge case — decision needed
+
+You flagged that `in_market` is evaluated once at scan start, not per-ticker, so a scan
+starting near 16:00 and running long could alert slightly after close. You said this is
+a trivial 2-line fix.
+
+**Question: do you recommend making this fix now, or is the current low-risk exposure
+(1–5 min typical runtime) acceptable to leave as-is?** Give me your actual
+recommendation, not just the option — if it's a 2-line fix with no downside, say so
+plainly.
+
+## 3. Cooldown memory loss on restart — decision needed
+
+`_TG_COOLDOWN` is in-memory and resets on process restart. The DB `tg_sent` flag plus
+the `(ticker, signal_date)` unique constraint limits duplicate-alert exposure but
+doesn't fully close the gap — a ticker alerted at 10 AM could alert again at 2 PM if the
+process restarts in between.
+
+**Question: how likely is a mid-day restart in practice, and what would a DB-backed
+cooldown check cost to add?** I want your assessment of actual risk given how this
+process is deployed, not just a restatement of the theoretical gap.
+
+## 4. 24hr cooldown default — explicit sign-off needed
+
+This was disclosed as a new default you introduced, not a pre-existing convention, and
+it still needs my explicit ratification.
+
+**Question: restate in one paragraph why 24 hours specifically, and what would change
+functionally if I asked for a shorter window (e.g. 4 hours matching the scan cadence)
+or a longer one (e.g. 48 hours).** I want to understand the tradeoff before signing off,
+not just re-approve a number I haven't fully reasoned through.
+
+## Standard
+
+Same as before: raw command output for item 1, no exceptions. For items 2–4, give me
+your actual professional recommendation with reasoning — don't just present neutral
+options and push the decision back to me without a stated opinion.

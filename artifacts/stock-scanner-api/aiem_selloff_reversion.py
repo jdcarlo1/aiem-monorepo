@@ -581,11 +581,29 @@ def run_scan() -> dict:
                     continue
 
                 last_sent = _TG_COOLDOWN.get(ticker)
-                cooldown_ok = (
+                mem_ok = (
                     last_sent is None or
                     (_et_now() - last_sent).total_seconds() > _COOLDOWN_HRS * 3600
                 )
-                send_now = sig["state"] == "CONFIRMED" and in_market and cooldown_ok
+                # DB-backed cooldown: survive process restarts (same protection, persistent)
+                db_ok = True
+                try:
+                    cur.execute(
+                        "SELECT tg_sent_at FROM aiem_bounce_signals "
+                        "WHERE ticker=%s AND tg_sent=TRUE "
+                        "ORDER BY tg_sent_at DESC LIMIT 1",
+                        (ticker,),
+                    )
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        age_s = (_et_now() - row[0].astimezone(_et_now().tzinfo)).total_seconds()
+                        db_ok = age_s > _COOLDOWN_HRS * 3600
+                except Exception:
+                    pass  # fail-open: if DB check fails, fall back to in-memory
+                cooldown_ok = mem_ok and db_ok
+                # Re-check market-open per-alert, not once at scan start, so a long
+                # scan that crosses 16:00 ET does not fire alerts after close.
+                send_now = sig["state"] == "CONFIRMED" and _market_open() and cooldown_ok
 
                 _save_signal(sig, tg_sent=send_now)
 
