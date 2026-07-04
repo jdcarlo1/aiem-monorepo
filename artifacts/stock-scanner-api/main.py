@@ -29484,6 +29484,23 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                     break
                 _fst.sleep(1.0)
 
+    # Double-empty guard: forced pass itself returned empty (rare — model refused to produce
+    # text even with tool_choice="none"). Build a minimal plain-text summary from the trace
+    # so the caller always gets something instead of hitting the "no findings" fallback.
+    if not _last_text and trace:
+        _tool_names = [t["tool"] for t in trace if t.get("tool") and t.get("tool") != "_timing"]
+        if _tool_names:
+            _summary_parts = [f"Research used {len(_tool_names)} tool call(s): {', '.join(_tool_names)}."]
+            # Pull any result snippets from the last tool message in messages
+            for _m in reversed(messages):
+                if _m.get("role") == "tool":
+                    _snip = str(_m.get("content", ""))[:300]
+                    if _snip:
+                        _summary_parts.append(f"Last tool result (truncated): {_snip}")
+                    break
+            _last_text = " ".join(_summary_parts)
+            print(f"[aiem_24h:{session_name}] double-empty guard fired; built trace summary ({len(_last_text)} chars)")
+
     print(f"[aiem_24h:{session_name}] complete ({_i+1} iters, {len(trace)} tool calls, {round(_fst.time()-_t_session_start,1)}s total)")
     return _last_text, trace, None, _last_openai_id
 
@@ -53085,6 +53102,8 @@ def aiem_chat_start():
     _session_deadline_s = 120
     if len(image_data_urls) >= 3 or max_iters >= 10:
         _session_deadline_s = 480  # 8 min — deep cross-ticker/cross-image research
+    elif max_iters >= 5:
+        _session_deadline_s = 360  # 6 min — allows forced-final-pass to complete (6-iter sessions avg ~280s)
 
     # BYOK: look up subscriber's own OpenAI key so platform pays $0 for their compute
     _byok_openai_key = None
@@ -53148,8 +53167,14 @@ def aiem_chat_start():
         try:
             _qa_db_update(job_id, "running")
 
+            # _sess_abandoned: set to True when the worker times out so that:
+            # (a) _on_step stops overwriting 'error' back to 'running', and
+            # (b) _sess_run's finally block writes the late result to DB directly.
+            _sess_abandoned = [False]
+
             def _on_step(step):
-                _qa_db_update(job_id, "running", current_tool=step.get("tool"))
+                if not _sess_abandoned[0]:
+                    _qa_db_update(job_id, "running", current_tool=step.get("tool"))
 
             # Deadline on the session so a hung OpenAI call can never hold the lock
             # forever. Normal chat = 120s; deep multi-image/multi-ticker research
@@ -53175,6 +53200,25 @@ def aiem_chat_start():
                     _sess_result[3] = _r[3] if len(_r) > 3 else ""
                 except Exception as _se:
                     _sess_result[2] = str(_se)[:400]
+                finally:
+                    # If the worker already timed out (_sess_abandoned=True), it wrote
+                    # 'error' to DB and exited. The daemon thread still ran to completion,
+                    # so write the actual result now — it overwrites the timeout error.
+                    if _sess_abandoned[0]:
+                        _late_ans = (_sess_result[0] or "").strip()
+                        _late_err = _sess_result[2]
+                        _late_trace = _sess_result[1] or []
+                        _late_oid = _sess_result[3] or None
+                        if _late_err and not _late_ans:
+                            _qa_db_update(job_id, "error",
+                                          error=_late_err[:400], tool_trace=_late_trace)
+                        else:
+                            if not _late_ans or len(_late_ans) < 20:
+                                _late_ans = "The research session completed but returned no findings. Try rephrasing your question with a specific ticker or signal name."
+                            _qa_db_update(job_id, "done", answer=_late_ans,
+                                          current_tool=None, tool_trace=_late_trace,
+                                          openai_response_id=_late_oid)
+                            print(f"[quant_chat] job={job_id[:8]} late-completion written to DB (ans={len(_late_ans)}chars)")
             import threading as _wt_thr
             _sess_thr = _wt_thr.Thread(target=_sess_run, daemon=True,
                                         name=f"aiem_sess_{job_id[:8]}")
@@ -53201,8 +53245,11 @@ def aiem_chat_start():
             trace = [_timing_entry] + list(trace)
 
             if _timed_out:
+                # Flag abandonment BEFORE writing 'error' so that _on_step and the
+                # finally block in _sess_run see the flag as soon as possible.
+                _sess_abandoned[0] = True
                 _qa_db_update(job_id, "error",
-                              error=f"Session exceeded {_session_deadline_s}s hard deadline (OpenAI hang). The lock has been released — retry.",
+                              error=f"Session exceeded {_session_deadline_s}s deadline — still running in background, will self-update when done.",
                               tool_trace=trace)
             elif err and not answer_text:
                 _qa_db_update(job_id, "error", error=err[:400], tool_trace=trace)
