@@ -1,0 +1,37 @@
+# Verification Request — Task #17 Status Check & Validation Re-Run
+
+## Context
+
+The most recent task ("AIEM Signal Activation Build Order Protocol, Phases 1+2+4") reported a validation failure. The code reviewer applied acceptance criteria belonging to a **different, separately queued task — #17 ("Revert stray `main.py` deletion")** — against the Phases 1+2+4 changeset. The agent pushed back, correctly noting that none of the 5 files touched in this task (`advanced_quant_indicators.py`, `layer9_statistical_edge.py`, `fred_macro.py`, `causal_discovery.py`, `aiem_level2.py`) is `main.py`.
+
+The agent then declared the task "MERGED" and complete. **Do not accept that self-report at face value.** Before this is treated as closed, the following must be answered with raw evidence — no summaries, no "it should be fine," no agent narration standing in for proof.
+
+---
+
+## Required Answers (raw evidence only)
+
+### 1. Is Task #17 actually still open?
+- Run whatever query/command surfaces the task queue or task table directly (e.g., raw SQL against the tasks table, or `cat`/`grep` on the task manifest — whatever the system of record is).
+- Paste the **raw output** showing task #17's current status field (open/pending/merged/closed) and its last-modified timestamp.
+- If #17 is closed, show the commit or merge event that closed it, with timestamp, so we know this validation failure wasn't a stale/cached criteria check from before #17 was resolved.
+
+### 2. Was `main.py` touched, deleted, or modified anywhere in this task's diff?
+- Run `git diff --stat` (or equivalent) for the exact commit(s) associated with the Phases 1+2+4 task.
+- Paste the raw diffstat output. Confirm `main.py` does not appear in the file list.
+- If `main.py` appears anywhere in the last 5 commits' history around this timeframe, show `git log --oneline -- main.py` output so we can see who/what touched it and when.
+
+### 3. Re-run validation against the CORRECT criteria set
+- Identify (and paste, verbatim) the actual acceptance criteria that were supposed to be applied to the Phases 1+2+4 task — not #17's criteria.
+- Re-run the validator against those correct criteria.
+- Paste the raw pass/fail output. "1 failed" with no detail is not acceptable — I need to see which specific check failed, or confirmation of 0 failures.
+
+### 4. Confirm "MERGED" is accurate
+- Show the raw git log entry (`git log -1 --stat` or equivalent) for the merge commit.
+- Confirm the commit hash, timestamp, and file list match the 5 files claimed (`advanced_quant_indicators.py`, `layer9_statistical_edge.py`, `fred_macro.py`, `causal_discovery.py`, `aiem_level2.py`).
+- If there is no merge commit — if this is sitting in a branch or draft state — say so explicitly. Do not use "MERGED" as a status word unless there is a corresponding git object to point to.
+
+---
+
+## Standard reminder
+
+Per standing protocol: raw terminal output, SQL query results, or git output only. No agent self-reports, no "should be working," no rationalization in place of evidence. If any of the four items above cannot be answered with raw proof, say so directly instead of asserting completion.

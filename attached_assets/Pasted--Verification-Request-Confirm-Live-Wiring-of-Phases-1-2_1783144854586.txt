@@ -1,0 +1,46 @@
+# Verification Request — Confirm Live Wiring of Phases 1+2+4 Fixes Into AIEM Signal Generation
+
+## Context
+
+The last task fixed 7 audit-failure items across 5 files (Hurst exponent, bipower jump detection, Amihud liquidity, VRP, RND, FRED regime persistence, causal discovery/walk-forward refit). All 7 have passing evidence at the **component/unit level** — synthetic tests, isolated function calls, raw SQL row counts.
+
+**None of that proves these components are actually called by AIEM's live daily signal-generation path.** A function can be fixed, tested, and still be dead code if nothing in the production pipeline invokes it. Before this is considered "done," I need proof — not agent narration — that each fixed component is on the path that runs when AIEM generates a daily signal, and that AIEM is actually producing output using them.
+
+Do not accept "it's wired in" as an answer. Show the call graph.
+
+---
+
+## Required Evidence (raw output only)
+
+### 1. Trace each component from the daily signal entry point
+For each of the 7 items below, show the actual call chain from AIEM's daily run entry point (whatever function/script kicks off the daily signal cycle) down to the fixed function. Use `grep -n` for call sites and paste the raw matches — not a description of them.
+
+- Hurst exponent (`advanced_quant_indicators.py`)
+- Bipower jump detection (`advanced_quant_indicators.py` / `layer9_statistical_edge.py`)
+- Amihud liquidity (`layer9_statistical_edge.py`)
+- VRP (`layer9_statistical_edge.py`)
+- RND (`layer9_statistical_edge.py`)
+- FRED regime persistence (`fred_macro.py`)
+- Causal discovery + walk-forward refit (`causal_discovery.py`, `aiem_level2.py`)
+
+For each: paste the grep output showing the call site(s), and identify which file/function is the immediate caller. If a component's only call site is a test file or a manual/CLI invocation, say so explicitly — that means it is NOT wired into production.
+
+### 2. Confirm the daily run actually executes end-to-end today
+- Show the raw log output (or run it now if it hasn't run today) of a full daily signal-generation cycle.
+- Paste the raw stdout/log lines showing each of the 7 components being invoked during that run — timestamps, function names, or log statements that prove execution, not just "no errors."
+- If any component is silently skipped (e.g., wrapped in a try/except that swallows failures, or gated behind a flag that's off), show that gate/flag and its current value.
+
+### 3. Confirm signals are actually being produced
+- Query the signals table (or wherever AIEM writes output) for rows generated in the most recent run.
+- Paste the raw SQL query and result set: row count, timestamps, tickers, and signal scores.
+- If the count is 0, say so plainly and show the raw query used to check — don't reword a null result as "the pipeline ran successfully."
+
+### 4. If anything is NOT wired, say so and scope the fix
+- For any of the 7 components found to be disconnected from the live path, state that explicitly.
+- Do not silently wire it in and report success in the same pass — first confirm disconnection with evidence, then propose the specific integration point (file + function + line) before making changes, so the wiring itself can be reviewed rather than merged blind.
+
+---
+
+## Standard reminder
+
+Raw terminal output, SQL results, and grep matches only. No summaries standing in for evidence, no "should be working now," no marking anything MERGED or COMPLETE without a corresponding git commit and a live run that produced actual signal rows.
