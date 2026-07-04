@@ -12447,7 +12447,8 @@ function SignalIntelTab() {
   );
 }
 
-function GasBoardTab({ byokToken }: { byokToken: string }) {
+function GasBoardTab() {
+  const byokToken = localStorage.getItem("aiem_byok_token") || "";
   const BB_CARD  = "#0d1726";
   const BB_BORD  = "#1c3350";
 
@@ -18063,7 +18064,7 @@ export default function Dashboard() {
         })()}
 
         {tab === "quantagent"  && <QuantAgentTab />}
-        {tab === "gasboard"    && <GasBoardTab byokToken={byokToken} />}
+        {tab === "gasboard"    && <GasBoardTab />}
         {tab === "signalintel" && <SignalIntelTab />}
 
       </div>
