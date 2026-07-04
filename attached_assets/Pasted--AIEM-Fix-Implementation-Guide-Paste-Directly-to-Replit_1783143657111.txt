@@ -1,0 +1,105 @@
+# AIEM Fix Implementation Guide — Paste Directly to Replit Agent
+
+I don't have access to your actual source files — everything below is built from the exact file names, line numbers, and function signatures your own audit already surfaced. Where I can give an exact code pattern, I have. Where the underlying bug could be one of a few things, I've given the agent a diagnostic sequence so it can't just guess and claim success — it has to show which cause it actually was.
+
+---
+
+## PHASE 1 — WIRING FIXES
+
+### 1a/1b — Variance Risk Premium & Risk-Neutral Density
+
+Paste this to the agent:
+
+> Run `grep -rn "def.*variance_risk_premium\|def.*risk_neutral_density"` across the codebase to find where these two functions are defined. Then run `grep -rn "variance_risk_premium(\|risk_neutral_density("` to confirm they are ONLY referenced inside their own definition file (this confirms dead code). Then find the function `mkt_layer9_score` (or whatever function currently computes VPIN/Hurst/Amihud/etc. for a given ticker) and add calls to both functions inside it, storing the results in the same output dict alongside the other Layer 9 fields, e.g.:
+> ```python
+> vrp_result = variance_risk_premium(ticker, ...)
+> rnd_result = risk_neutral_density(ticker, ...)
+> # add to the return dict:
+> "vrp_raw": vrp_result,
+> "rnd_raw": rnd_result,
+> ```
+> After wiring, paste: (1) the diff, (2) a fresh `grep -rn` showing a NEW call site outside the definition file, (3) live output for 3 different tickers showing the new fields populated with differing values.
+
+### 1c — FRED Macro Regime Persistence
+
+You already know the exact file (`fred_macro.py`, `market_regime_overlay.py`). Paste this:
+
+> In `market_regime_overlay.py`, after the line that builds the `votes` list (around line 196, `votes.append({"indicator": "garch_vol", **_garch_indicator(price_history)})`), add a persistence step. First create the table:
+> ```sql
+> CREATE TABLE IF NOT EXISTS regime_history (
+>     id SERIAL PRIMARY KEY,
+>     recorded_at TIMESTAMPTZ DEFAULT now(),
+>     series_id TEXT,
+>     raw_value FLOAT,
+>     vote INTEGER,
+>     regime_label TEXT
+> );
+> ```
+> Then after each vote is computed, insert a row per indicator:
+> ```python
+> conn.execute(
+>     "INSERT INTO regime_history (series_id, raw_value, vote, regime_label) VALUES (%s, %s, %s, %s)",
+>     (indicator_name, raw_value, vote, regime_label)
+> )
+> ```
+> After wiring, paste: `SELECT COUNT(*), MIN(recorded_at), MAX(recorded_at) FROM regime_history;` run twice, several minutes apart, showing the count growing.
+
+---
+
+## PHASE 2 — BUG FIXES (diagnostic sequence, since root cause isn't confirmed yet)
+
+### 2a — Hurst Exponent (all tickers return 1.0)
+
+Paste this to the agent:
+
+> The Hurst exponent calculation is returning a clipped 1.0 for every ticker tested (AAPL, GME, KOSS). This is almost certainly one of these three causes — check them in order and report which one it is, don't just patch blindly:
+> 1. **Clipping bound too aggressive** — search for `np.clip` or `min(...,  1.0)` near the Hurst calculation. If the raw computed value is already >1.0 or NaN before clipping, the clip is masking a deeper bug, not fixing scale.
+> 2. **Insufficient data window** — Hurst estimation via R/S analysis or DFA needs a reasonably long series (100+ points minimum). Print the raw length of the input series being passed in for each of the 3 test tickers — if it's short or identical across tickers, that's the bug.
+> 3. **Log-log regression bug** — if using the R/S method, check the slope calculation between `log(lag)` and `log(R/S)`. A bug here commonly returns exactly 1.0 or 0.5 as a degenerate fallback value.
+> After identifying and fixing, paste: (1) which of the 3 causes it was, (2) the diff, (3) live output for 5 tickers with genuinely different Hurst values (not all pinned to 1.0 or any single constant).
+
+### 2b — Amihud Illiquidity Ratio (floors near 0)
+
+> The Amihud ratio (|return| / dollar volume) is returning ~0 for AAPL and GME. Check:
+> 1. Whether dollar volume is being computed in the wrong units (e.g., shares × price in dollars vs. millions) — an off-by-a-large-constant-factor bug would make illiquid stocks look artificially liquid.
+> 2. Whether the daily average is being taken over too large a window such that high-volume days dilute the ratio toward zero.
+> After fixing, paste live output comparing a genuinely illiquid ticker (e.g. a sub-$1 microcap with low volume) against AAPL — there should be a clear, multi-order-of-magnitude difference, not both near zero.
+
+### 2c — Bipower Variation Jump Detection (identical across tickers)
+
+> All 3 test tickers returned the exact same jump detection result. Check:
+> 1. Whether the function is receiving the same cached/default price series for every ticker call (a common bug: a `ticker` parameter that's accepted but never actually used to pull ticker-specific data).
+> 2. Whether the jump threshold constant is hardcoded so extreme that no realistic ticker could ever trip it (check what the actual computed jump statistic is vs. the threshold, even when jump=false).
+> After fixing, paste live output for 5 tickers including one with a known recent >10% single-day move, confirming the flag fires for that one specifically.
+
+---
+
+## PHASE 3 — BOOTSTRAP RUNS (operational, not a code patch)
+
+### 3a — Deep RL Position Sizing
+
+> No trained model file exists (`find` returned nothing for `.pt`/`.h5`/`deep_rl*.pkl`). Before training: confirm what state/reward/action space the RL policy in `deep_rl_policy.py` expects, and what historical data source will be used for training (paper trading history? backtested price data?). Run the training job. Report: training data size (rows/date range), training duration, and — critically — held-out validation performance (do NOT just report training-set performance, that's meaningless for judging whether the policy generalizes). Save the resulting model file and confirm `get_live_policy()` loads it and returns non-null actions that vary across at least 3 different test states.
+
+### 3b — Statistical Arbitrage Engine
+
+> `stat_arb_pairs` has 0 active rows. Run the pair-discovery/cointegration scan (`run_rediscovery_batch`-style scan, or whatever the stat arb equivalent is) against the current ticker universe. Report the cointegration test parameters being used (p-value threshold, lookback window) — if the threshold is too strict, relax it to a standard 0.05 and re-run before concluding "no pairs exist." Paste the resulting rows in `stat_arb_pairs` with their p-values.
+
+---
+
+## PHASE 4 — CAUSAL DISCOVERY REDESIGN (the important one)
+
+> The current `causal_discover` function (main.py:33915, causal_discovery.py:186) implements a PC algorithm that only tests contemporaneous conditional independence. It correctly found nothing on the audit's synthetic test where Y_t = 0.8·X_(t-1) + noise — because it never tests lagged relationships at all. This needs a structural change, not a parameter tweak:
+> 1. Before running the independence tests, construct lagged copies of each variable (X_t, X_t-1, X_t-2 up to some max lag, e.g. 3) as additional columns.
+> 2. Run the PC algorithm's conditional independence tests across this expanded lagged variable set instead of only contemporaneous variables.
+> 3. When reporting `directed_edges`, an edge like `X_(t-1) -> Y_t` should now be discoverable.
+> After the change, re-run the EXACT test from the audit:
+> ```python
+> # Y_t = 0.8 * X_{t-1} + 0.2*noise, n=200, seed=42
+> ```
+> and paste the raw output. The `directed_edges` field must now show the X→Y relationship. This is the single test that matters — if it doesn't pass this, the fix isn't done regardless of what else changed.
+
+---
+
+## WHAT TO DO WITH THE AGENT'S RESPONSES
+
+Paste everything the agent sends back to me, exactly as it comes — including any parts where it says something can't be done or needs more information. I'll go through the raw evidence the same way as the original audit: no self-graded "done," no accepting a description of what should have happened in place of pasted output.

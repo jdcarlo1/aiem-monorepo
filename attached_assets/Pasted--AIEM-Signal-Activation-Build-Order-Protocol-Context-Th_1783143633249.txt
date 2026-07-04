@@ -1,0 +1,106 @@
+# AIEM Signal Activation — Build Order Protocol
+
+**Context:** The verification audit found 16 of 24 landing-page claims are either dead code, broken math, missing infrastructure, or gated by a track record that hasn't accumulated yet. This document sequences the fixes by dependency and cost, cheapest/fastest first. Every fix must be closed out with the same raw-evidence standard as the verification audit — no self-graded "done," paste actual command output.
+
+**Ground rule for the agent (same as before):** After each fix, paste the raw diff, the raw call-site grep, and a live test run showing the new behavior. No narrative claims of completion without evidence attached.
+
+---
+
+## PHASE 1 — Wiring-only fixes (no new code logic, just connect existing functions)
+**Est. effort: hours, not days. Do these first — free wins.**
+
+### 1a. Variance Risk Premium
+- Function exists but has zero call sites in the live pipeline.
+- Task: add a call to the VRP function inside `mkt_layer9_score` (or wherever the other 9 quant methods are invoked), store the result alongside the other Layer 9 outputs.
+- Evidence required: `grep -rn "variance_risk_premium("` showing a new call site outside the definition file, plus live output for 3 tickers with differing values.
+
+### 1b. Risk-Neutral Density
+- Same pattern as 1a. Wire into the same scoring path.
+- Evidence required: same as above.
+
+### 1c. FRED Macro Regime — persistence
+- The live FRED calls already work; nothing writes results to history.
+- Task: create a `regime_history` table (timestamp, series_id, value, regime_label) and add an INSERT after every FRED fetch in `market_regime_overlay.py`.
+- Evidence required: `SELECT COUNT(*), MIN(recorded_at), MAX(recorded_at) FROM regime_history` after letting it run for at least a few cycles — must show growing row count and distinct timestamps.
+
+---
+
+## PHASE 2 — Bug fixes (existing code runs, but output is broken/degenerate)
+**Est. effort: 1-2 days. Must fix before Phase 3, since broken math running 24/7 just produces more garbage.**
+
+### 2a. Hurst Exponent
+- Currently returns identical clipped value (1.0) for every ticker.
+- Task: agent must locate the calculation, identify why the estimate saturates (likely an insufficient lookback window, a log-log regression bug, or a clipping bound set too aggressively), and fix the underlying math.
+- Evidence required: live output for 5+ tickers showing genuinely different Hurst values (not all pinned to the same bound), plus the diff that fixed it.
+
+### 2b. Amihud Illiquidity Ratio
+- Currently floors to ~0 for multiple tickers.
+- Task: check the denominator (dollar volume) for divide-by-near-zero issues, check units/scaling.
+- Evidence required: live output across a liquid ticker (AAPL) and an illiquid one, showing a meaningful, non-degenerate spread.
+
+### 2c. Bipower Variation Jump Detection
+- Currently returns identical output across all tested tickers.
+- Task: verify the function is actually receiving per-ticker intraday data rather than a shared/cached input; check if a threshold constant is hardcoded such that no ticker can ever trip a "jump" flag.
+- Evidence required: live output across 5 tickers including at least one with a known recent large price move, showing the jump flag actually fires for that one and not the others.
+
+---
+
+## PHASE 3 — One-time bootstrap required (missing model/data, not just a wiring issue)
+**Est. effort: days. These need an actual training/discovery run before activation, not just a code change.**
+
+### 3a. Deep RL Position Sizing
+- No `.pt`/`.h5` model file exists anywhere. `get_live_policy()` always returns None.
+- Task: agent must run an actual training job for the deep RL policy against historical paper-trading data, save the resulting model file, and confirm `get_live_policy()` returns a real object.
+- Evidence required: `ls -la` on the model file showing a real file size and creation timestamp; live test showing 3 different state inputs producing 3 different actions (not constant `"no_position"`).
+- **Caution:** this is a real training run, not a config flip. Have the agent report training data size, training duration, and validation/held-out performance before calling it live — a model trained badly is worse than no model, since it will confidently produce wrong position sizes.
+
+### 3b. Statistical Arbitrage Engine
+- Wired correctly, but 0 active pairs — the cointegration scan has never found any qualifying pair.
+- Task: agent must run the pair-discovery scan against the full ticker universe, confirm the cointegration test thresholds are reasonable (not so strict that nothing ever passes), and populate `stat_arb_pairs`.
+- Evidence required: `SELECT COUNT(*) FROM stat_arb_pairs WHERE is_active=TRUE` showing a non-zero count, plus the specific pairs found and their cointegration p-values.
+
+---
+
+## PHASE 4 — Algorithm redesign required (the current approach is structurally wrong)
+**Est. effort: this is the most involved fix — treat as its own mini-project.**
+
+### 4a. Causal Discovery Engine
+- The PC algorithm as implemented only tests contemporaneous (same-day) relationships. It correctly found nothing on a synthetic dataset with a known lag-1 relationship — because it isn't looking for lagged relationships at all.
+- Task: agent must extend the causal discovery to include lagged versions of each variable (e.g., test X_t-1 → Y_t, not just X_t vs Y_t) — this is effectively moving toward a lagged/Granger-style causal structure rather than a purely contemporaneous PC algorithm.
+- Evidence required: re-run the exact same synthetic test (X→Y with lag=1) that failed in the audit, and confirm it now correctly recovers the directed edge. This is the single most important re-test — it's the one that proved the current implementation doesn't work at all for this use case.
+
+---
+
+## PHASE 5 — Requires calendar time (cannot be sped up by running more compute)
+**No code fix here — just get Phase 1-4 done fast so the clock starts sooner.**
+
+### 5a. Meta-Learning Signal Trust
+- Gate requires `n_outcomes_observed >= 15` before trust weights leave neutral (1.0). Currently all signals have n=1.
+- Nothing to fix in code — this accumulates naturally once signals are live and generating outcomes. Confirm the counting logic itself is correct (it appeared to be, per the audit), then let it run.
+
+### 5b. Signal Decay Module (M2)
+- Requires a minimum signal age/sample count before it can produce a verdict. No signal has been old enough yet.
+- Same as above — code is correct, just needs time.
+
+### 5c. Rediscovery Engine (M6)
+- Requires a signal to first decay, then be re-evaluated and promoted again. This loop has never completed once.
+- Depends on 5b happening first (a signal has to decay before it can be rediscovered).
+
+### 5d. Walk-Forward Validation — training step
+- Audit found: despite the docstring, the function never actually retrains a model between windows — it just scores with a static model across all windows.
+- **This one is NOT a calendar-time issue — it's a real bug.** Move this to Phase 2 priority: the agent needs to add an actual model-refit step inside the loop between windows, using only data available up to that window's start (respecting the point-in-time guard). Evidence required: re-run the walk-forward test and show that model parameters/coefficients actually differ between consecutive windows (proof that a refit occurred), not just that scores differ.
+
+---
+
+## REPORTING FORMAT
+
+For each item above, the agent must return:
+
+| Phase | Item | Status (Not Started / In Progress / Fixed — Evidence Attached) | Raw Evidence |
+|---|---|---|---|
+
+Same rule as the original audit: no item is marked Fixed without pasted raw output. If an item can't be fixed as described, the agent must say so explicitly rather than reframe the requirement.
+
+## SEQUENCING RECOMMENDATION
+
+Do Phase 1 and Phase 2 in parallel this week — they're independent of each other and cheap. Start Phase 4 (causal discovery redesign) in parallel too, since it's the longest pole. Do Phase 3 (RL training, stat-arb pair discovery) once Phase 2's math fixes are confirmed, since a bootstrap run on top of broken math wastes the run. Phase 5 needs no action beyond finishing everything else fast — the sooner these go live, the sooner the 15-outcome and decay clocks start, and the more of your one-year track record is real.
