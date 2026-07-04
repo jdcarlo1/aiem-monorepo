@@ -167,6 +167,12 @@ try:
 except Exception as _bounce_import_err:
     _bounce_mod = None
     print(f"[startup] aiem_selloff_reversion load warning: {_bounce_import_err}")
+try:
+    import aiem_position_sizing as _pos_sizer
+    print("[startup] aiem_position_sizing loaded")
+except Exception as _pos_sizer_err:
+    _pos_sizer = None
+    print(f"[startup] aiem_position_sizing load warning: {_pos_sizer_err}")
 _init_security(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
@@ -5191,6 +5197,16 @@ try:
             _run_bounce_backtest,
             _CT_aiem(day_of_week="sun", hour=23, minute=0, timezone=_ET),
             id="aiem_bounce_backtest_weekly",
+            replace_existing=True,
+        )
+        # Pre-close position review: 3:45 PM ET Mon-Fri (Section 8, aiem_position_sizing spec)
+        _scheduler.add_job(
+            lambda: __import__("threading").Thread(
+                target=lambda: _pos_sizer.run_pre_close_reviews() if _pos_sizer else None,
+                daemon=True,
+            ).start(),
+            _CT_aiem(day_of_week="mon-fri", hour=15, minute=45, timezone=_ET),
+            id="aiem_pre_close_review",
             replace_existing=True,
         )
         # Model retrain: every Sunday 7 PM ET (before Loop A at 8 PM)
@@ -36506,6 +36522,19 @@ def _aiem_paper_execute_today():
             print("[aiem_paper] no candidates found today")
             return
 
+        # ── Kill-switch gate (spec §7, aiem_position_sizing) ─────────────────
+        # Checked BEFORE fetching quotes or placing any position.
+        if _pos_sizer:
+            try:
+                from kill_switch import _is_currently_halted as _ks_halted
+                _ks_reason = _ks_halted()
+                if _ks_reason:
+                    print(f"[aiem_paper] KILL SWITCH HALTED — no trades today: {_ks_reason}")
+                    _log_finish("SKIPPED", _trades=0, _err=f"kill_switch: {_ks_reason}")
+                    return
+            except Exception as _kse:
+                print(f"[aiem_paper] kill_switch check warning (proceeding): {_kse}")
+
         tickers = [p["ticker"] for p in picks]
         quotes  = _td_quotes(tickers)
 
@@ -36571,6 +36600,35 @@ def _aiem_paper_execute_today():
                 _notional  = 1000.0
                 _trade_type = pick["trade_type"]
 
+                # ── Position sizing (spec §2-5, aiem_position_sizing) ─────────
+                # compute_position_size() is a safe no-op (returns PARAMS_NOT_CONFIRMED)
+                # until Joel confirms Q1-Q5. When active, overrides _notional with the
+                # risk-per-trade formula and logs the sizing decision.
+                _sizing_stop       = None
+                _sizing_stop_basis = None
+                _sizing_risk_pct   = None
+                _sizing_gate       = "PARAMS_NOT_CONFIRMED"
+                if _pos_sizer:
+                    try:
+                        _sz = _pos_sizer.compute_position_size(
+                            ticker=_t,
+                            signal_source=pick["source"],
+                            conviction_score=float(pick.get("score") or 0),
+                            entry_price=_fill_price,
+                            signal_row=pick,
+                        )
+                        _sizing_gate = _sz.get("gate_result", "UNKNOWN")
+                        if _sizing_gate == "APPROVED":
+                            _notional = _sz["calculated_notional"]
+                        elif _sizing_gate not in ("PARAMS_NOT_CONFIRMED",):
+                            print(f"[aiem_paper] sizing gate {_sizing_gate} for {_t}: "
+                                  f"{_sz.get('gate_detail','')}")
+                        _sizing_stop       = _sz.get("calculated_stop_price")
+                        _sizing_stop_basis = _sz.get("stop_basis")
+                        _sizing_risk_pct   = _sz.get("risk_pct_used")
+                    except Exception as _se:
+                        print(f"[aiem_paper] sizing error for {_t} (using $1000 default): {_se}")
+
                 if _trade_type == "CALL_OPTION":
                     # Paper options: record $1000 notional as premium spent,
                     # 1 contract for tracking purposes
@@ -36588,15 +36646,20 @@ def _aiem_paper_execute_today():
                         (trade_date, ticker, trade_type, entry_price, quantity,
                          notional, signal_source, signal_detail, hold_days_max,
                          last_price, status, strike, expiry,
-                         mid_price, fill_price, spread_pct_used)
+                         mid_price, fill_price, spread_pct_used,
+                         sizing_stop_price, sizing_stop_basis,
+                         sizing_risk_pct, sizing_gate_result,
+                         pre_sizing_model)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
-                            %s,%s,%s)
+                            %s,%s,%s,%s,%s,%s,%s,FALSE)
                     ON CONFLICT DO NOTHING
                 """, (_today, _t, _trade_type, _fill_price, _qty,
                       _notional, pick["source"], pick.get("detail",""),
                       _hold_days, _fill_price,
                       pick.get("strike"), pick.get("expiry"),
-                      _mid_price, _fill_price, _spread_pct_used))
+                      _mid_price, _fill_price, _spread_pct_used,
+                      _sizing_stop, _sizing_stop_basis,
+                      _sizing_risk_pct, _sizing_gate))
                 rows_inserted += 1
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
@@ -46238,6 +46301,7 @@ def _init_layer9_scores_table():
 _DEFERRED_INITS.append(lambda: _init_layer9_scores_table())
 _DEFERRED_INITS.append(lambda: _bounce_mod.init_tables() if _bounce_mod else None)
 _DEFERRED_INITS.append(lambda: _bounce_mod.register_signal() if _bounce_mod else None)
+_DEFERRED_INITS.append(lambda: _pos_sizer.init_tables() if _pos_sizer else None)
 
 
 def _run_layer9_bg_scan():
