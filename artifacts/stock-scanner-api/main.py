@@ -29183,7 +29183,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                                image_data_url: str | None = None,
                                image_data_urls: list | None = None,
                                byok_openai_key: str | None = None,
-                               subscriber_context: str | None = None):
+                               subscriber_context: str | None = None,
+                               on_token=None):
     """
     Parameterized research session. Returns (final_text, trace, error_str).
 
@@ -29266,53 +29267,111 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
 
     _t_session_start = _fst.time()
     for _i in range(max_iterations):
-        # Fix #4: retry with backoff on transient OpenAI errors
-        _t_llm_start = _fst.time()
-        resp = None
-        for _attempt in range(3):
-            try:
-                resp = _oai.chat.completions.create(
-                    model=_model_tier,
-                    messages=messages,
-                    tools=_fs_schema,
-                    # Fast-path: 1-iter casual questions skip tool use entirely
-                    tool_choice="none" if max_iterations == 1 else "auto",
-                    max_completion_tokens=2000,
-                )
-                break
-            except Exception as _oe2:
-                if _attempt == 2:
-                    print(f"[aiem_24h:{session_name}] OpenAI failed after retries: {_oe2}")
-                    return _last_text, trace, f"OpenAI call failed: {_oe2}", None
-                _fst.sleep(1.5 * (_attempt + 1))
+        # ── LLM call: streaming (on_token set) or non-streaming ──────────────
+        _t_llm_start     = _fst.time()
+        _resp_content    = ""
+        _resp_tool_calls = None   # list of attribute-compatible objects or None
+        _resp_openai_id  = ""
 
-        _t_llm_elapsed = round(_fst.time() - _t_llm_start, 2)
-        _last_openai_id = getattr(resp, "id", "") or ""
-        msg = resp.choices[0].message
-        if msg.content:
-            _last_text = msg.content
+        if on_token is not None:
+            # Streaming path — real token-by-token generation.
+            # on_token fires only when the model emits content (final text response).
+            # During tool-calling iterations the model emits no content, so
+            # on_token is naturally silent until the last iteration.
+            for _attempt in range(3):
+                try:
+                    _stm = _oai.chat.completions.create(
+                        model=_model_tier,
+                        messages=messages,
+                        tools=_fs_schema,
+                        tool_choice="none" if max_iterations == 1 else "auto",
+                        max_completion_tokens=2000,
+                        stream=True,
+                    )
+                    _stc_raw: dict = {}   # chunk index → {id, name, args}
+                    for _ck in _stm:
+                        if not _ck.choices:
+                            continue
+                        _cd = _ck.choices[0].delta
+                        _resp_openai_id = _ck.id or _resp_openai_id
+                        if _cd.content:
+                            _resp_content += _cd.content
+                            try:
+                                on_token(_cd.content)
+                            except Exception:
+                                pass
+                        if _cd.tool_calls:
+                            for _stc in _cd.tool_calls:
+                                _ix = _stc.index
+                                if _ix not in _stc_raw:
+                                    _stc_raw[_ix] = {"id": "", "name": "", "args": ""}
+                                if _stc.id:
+                                    _stc_raw[_ix]["id"] = _stc.id
+                                if _stc.function:
+                                    if _stc.function.name:
+                                        _stc_raw[_ix]["name"] += _stc.function.name
+                                    if _stc.function.arguments:
+                                        _stc_raw[_ix]["args"] += _stc.function.arguments
+                    if _stc_raw:
+                        class _SF:
+                            def __init__(s, n, a): s.name = n; s.arguments = a
+                        class _STC:
+                            def __init__(s, i, n, a):
+                                s.id = i; s.type = "function"; s.function = _SF(n, a)
+                        _resp_tool_calls = [
+                            _STC(_stc_raw[_xi]["id"], _stc_raw[_xi]["name"], _stc_raw[_xi]["args"])
+                            for _xi in sorted(_stc_raw)
+                        ]
+                    break
+                except Exception as _oe2:
+                    if _attempt == 2:
+                        print(f"[aiem_24h:{session_name}] OpenAI stream failed: {_oe2}")
+                        return _last_text, trace, f"OpenAI call failed: {_oe2}", None
+                    _fst.sleep(1.5 * (_attempt + 1))
+        else:
+            # Non-streaming path (original behaviour, unchanged)
+            resp = None
+            for _attempt in range(3):
+                try:
+                    resp = _oai.chat.completions.create(
+                        model=_model_tier,
+                        messages=messages,
+                        tools=_fs_schema,
+                        tool_choice="none" if max_iterations == 1 else "auto",
+                        max_completion_tokens=2000,
+                    )
+                    break
+                except Exception as _oe2:
+                    if _attempt == 2:
+                        print(f"[aiem_24h:{session_name}] OpenAI failed after retries: {_oe2}")
+                        return _last_text, trace, f"OpenAI call failed: {_oe2}", None
+                    _fst.sleep(1.5 * (_attempt + 1))
+            _resp_openai_id  = getattr(resp, "id", "") or ""
+            _resp_content    = resp.choices[0].message.content or ""
+            _resp_tool_calls = resp.choices[0].message.tool_calls or None
 
-        # Fix #1: convert SDK object -> plain dict before appending
-        msg_dict = {"role": "assistant", "content": msg.content or None}
-        if msg.tool_calls:
+        _t_llm_elapsed  = round(_fst.time() - _t_llm_start, 2)
+        _last_openai_id = _resp_openai_id
+        if _resp_content:
+            _last_text = _resp_content
+
+        # Fix #1: convert to plain dict before appending
+        msg_dict = {"role": "assistant", "content": _resp_content or None}
+        if _resp_tool_calls:
             msg_dict["tool_calls"] = [
                 {
                     "id": tc.id,
                     "type": "function",
                     "function": {"name": tc.function.name, "arguments": tc.function.arguments},
                 }
-                for tc in msg.tool_calls
+                for tc in _resp_tool_calls
             ]
         messages.append(msg_dict)
 
-        if not msg.tool_calls:
+        if not _resp_tool_calls:
             break
 
         # Fix #7: run all tool calls in this step concurrently.
-        # When the model fans out (e.g. check AAPL + MSFT + NVDA in one step),
-        # parallel execution cuts wall-clock time by ~N× vs sequential.
-        # Results are merged back in the ORIGINAL tool_calls order so the
-        # OpenAI message list stays valid.
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
 
         def _exec_one_tool(_tc):
@@ -29331,28 +29390,26 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
             except Exception as _te:
                 return _tc, _fn, _args, {"error": f"{_fn} raised {type(_te).__name__}: {_te}"}, round(_fst.time() - _t0_tool, 2)
 
-        _n_tools = len(msg.tool_calls)
-        _workers = min(_n_tools, 5)   # cap at 5 to avoid overwhelming downstream APIs
-        _tool_results: dict = {}       # tc.id → (fn, args, result)
+        _n_tools = len(_resp_tool_calls)
+        _workers = min(_n_tools, 5)
+        _tool_results: dict = {}
 
-        # Fix #8: pre-dispatch progress notification — fires BEFORE tools run so
-        # the frontend sees the tool name during the full execution window
-        # (~0.03–15s) rather than in the tiny window after completion.
-        if on_step and msg.tool_calls:
+        # Fix #8: pre-dispatch progress notification
+        if on_step and _resp_tool_calls:
             try:
-                on_step({"tool": msg.tool_calls[0].function.name,
+                on_step({"tool": _resp_tool_calls[0].function.name,
                          "pre_dispatch": True, "n_tools": _n_tools})
             except Exception:
                 pass
 
         with _TPE(max_workers=_workers) as _pool:
-            _futs = {_pool.submit(_exec_one_tool, tc): tc for tc in msg.tool_calls}
+            _futs = {_pool.submit(_exec_one_tool, tc): tc for tc in _resp_tool_calls}
             for _fut in _ac(_futs):
                 _tc_r, _fn_r, _args_r, _res_r, _t_tool_r = _fut.result()
                 _tool_results[_tc_r.id] = (_fn_r, _args_r, _res_r, _t_tool_r)
 
         # Merge in original order — OpenAI requires tool messages to match tool_calls order
-        for tc in msg.tool_calls:
+        for tc in _resp_tool_calls:
             fn, args, result, _t_tool_s = _tool_results[tc.id]
 
             result_str = _fsj.dumps(result, default=str)
@@ -53116,6 +53173,122 @@ def aiem_chat_start():
 
     _qa_thr.Thread(target=_worker, daemon=True, name=f"quant_chat_{job_id[:8]}").start()
     return jsonify({"job_id": job_id, "status": "pending", "has_image": _has_image})
+
+
+@app.route("/stock-api/aiem/chat/stream", methods=["POST"])
+def aiem_chat_stream():
+    """Streaming AIEM chat — SSE endpoint.  Tokens appear as the model writes them.
+
+    SSE event shapes:
+      {"type":"started",   "job_id":"..."}
+      {"type":"tool",      "tool":"query_market_regime", "pre":true}
+      {"type":"token",     "token":"The "}
+      {"type":"done",      "answer":"...", "tool_count":N, "session_s":X}
+      {"type":"error",     "error":"..."}
+      {"type":"heartbeat"}
+    """
+    import uuid as _uuid, threading as _sst, queue as _ssq, json as _ssj
+
+    body             = request.get_json(silent=True) or {}
+    question         = (body.get("question") or body.get("prompt") or "").strip()
+    if not question:
+        return jsonify({"error": "question is required"}), 400
+
+    subscriber_token = (body.get("subscriber_token") or "").strip()
+    image_data_url   = (body.get("image_data_url") or "").strip() or None
+    image_data_urls  = body.get("image_data_urls") or ([image_data_url] if image_data_url else [])
+    max_iters        = min(int(body.get("max_iterations", 0) or 0) or _classify_question_complexity(question), 12)
+
+    # BYOK gate — same rule as the polling endpoint
+    _byok_openai_key = None
+    if subscriber_token:
+        _byok_keys = _byok_get_subscriber_keys(subscriber_token)
+        if _byok_keys:
+            _byok_openai_key = _byok_keys.get("openai_key")
+    if subscriber_token and not _byok_openai_key:
+        return jsonify({"error": "byok_required",
+                        "message": "Add your OpenAI API key in Settings \u2192 API Keys to use the Quant Agent."}), 402
+
+    _subscriber_context = _sub_build_context(subscriber_token) if subscriber_token else None
+    job_id = str(_uuid.uuid4())
+    _qa_db_update(job_id, "running")
+
+    event_q: "queue.Queue" = _ssq.Queue()
+
+    def _on_step(step):
+        event_q.put({"type": "tool", "tool": step.get("tool"),
+                     "pre": step.get("pre_dispatch", False)})
+
+    def _on_token(tok):
+        event_q.put({"type": "token", "token": tok})
+
+    def _run():
+        try:
+            _img_note = ""
+            if image_data_urls:
+                _n = len(image_data_urls)
+                _img_note = (
+                    f"NOTE: The user has attached {_n} image(s). "
+                    "Look at each one carefully before answering.\n\n"
+                    if _n > 1 else
+                    "NOTE: The user has attached an image. Look at it carefully before answering.\n\n"
+                )
+            prompt = (
+                f"SESSION_ID: {job_id}\n\n"
+                f"The user asks: '{question}'\n\n"
+                f"{_img_note}"
+                "Research this thoroughly using your tools. "
+                "If they mention tickers, use mkt_retrospective_backtest and mkt_find_behavioral_matches. "
+                "If they ask why stocks moved, use mkt_analyze_top_movers + mkt_retrospective_backtest. "
+                "If they ask about a signal or pattern, use mkt_test_signal to validate with real data. "
+                "End with a clear, direct answer — 3-5 paragraphs max, bullet points for lists."
+            )
+            text, trace, err, oid = _run_aiem_focused_session(
+                session_name=f"stream_{job_id[:8]}",
+                focus_prompt=prompt,
+                max_iterations=max_iters,
+                on_step=_on_step,
+                on_token=_on_token,
+                image_data_urls=image_data_urls or None,
+                byok_openai_key=_byok_openai_key,
+                subscriber_context=_subscriber_context,
+            )
+            _timing_entry = {"iteration": 0, "tool": "_timing",
+                             "session_run_s": 0, "timed_out": False}
+            full_trace = [_timing_entry] + list(trace or [])
+            if err and not text:
+                _qa_db_update(job_id, "error", error=err[:400], tool_trace=full_trace)
+                event_q.put({"type": "error", "error": err[:300]})
+            else:
+                answer = (text or "").strip() or \
+                    "The research session completed but returned no findings. Try rephrasing your question."
+                _qa_db_update(job_id, "done", answer=answer, current_tool=None,
+                              tool_trace=full_trace, openai_response_id=oid or None)
+                _tc = len([t for t in (trace or []) if t.get("tool") != "_timing"])
+                event_q.put({"type": "done", "answer": answer, "tool_count": _tc})
+        except Exception as _e:
+            _qa_db_update(job_id, "error", error=str(_e)[:300])
+            event_q.put({"type": "error", "error": str(_e)[:300]})
+
+    _sst.Thread(target=_run, daemon=True, name=f"stream_{job_id[:8]}").start()
+
+    def generate():
+        yield f"data: {_ssj.dumps({'type': 'started', 'job_id': job_id})}\n\n"
+        while True:
+            try:
+                ev = event_q.get(timeout=90)
+                yield f"data: {_ssj.dumps(ev, ensure_ascii=False)}\n\n"
+                if ev.get("type") in ("done", "error"):
+                    break
+            except _ssq.Empty:
+                yield f"data: {_ssj.dumps({'type': 'heartbeat'})}\n\n"
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache",
+                 "Connection": "keep-alive"},
+    )
 
 
 @app.route("/stock-api/aiem/chat/<job_id>", methods=["GET"])

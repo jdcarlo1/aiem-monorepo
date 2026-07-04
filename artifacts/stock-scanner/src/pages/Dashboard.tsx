@@ -12346,6 +12346,7 @@ interface QASession {
   created_at?: string;
   has_image?: boolean;
   image_data_url?: string;  // ephemeral: only set on the active session, not stored in DB
+  streaming_text?: string;  // accumulates real tokens during a live stream
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -12427,15 +12428,28 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
         <div style={{ marginBottom: 8, fontSize: 11, color: "#5ea0ff" }}>📷 Chart analyzed</div>
       )}
       {(session.status === "pending" || session.status === "running") && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#5ea0ff" }}>
-          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#5ea0ff", animation: "pulse 1.2s infinite" }} />
-          <span style={{ fontSize: 13 }}>
-            {formatToolLabel(session.current_tool)}…
-            {typeof elapsed === "number" && (
-              <span style={{ color: "#3d6080", marginLeft: 6 }}>{elapsed}s</span>
-            )}
-          </span>
-        </div>
+        session.streaming_text ? (
+          <div>
+            <div style={{ fontSize: 14, lineHeight: 1.6, color: "#d6e2f0" }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{session.streaming_text}</ReactMarkdown>
+            </div>
+            <span style={{
+              display: "inline-block", width: 2, height: "1.1em",
+              background: "#5ea0ff", verticalAlign: "text-bottom",
+              marginLeft: 1, animation: "pulse 0.8s step-end infinite",
+            }} />
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#5ea0ff" }}>
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#5ea0ff", animation: "pulse 1.2s infinite" }} />
+            <span style={{ fontSize: 13 }}>
+              {formatToolLabel(session.current_tool)}…
+              {typeof elapsed === "number" && (
+                <span style={{ color: "#3d6080", marginLeft: 6 }}>{elapsed}s</span>
+              )}
+            </span>
+          </div>
+        )
       )}
       {session.status === "done" && session.answer && (
         <div style={{ fontSize: 14, lineHeight: 1.6, color: "#d6e2f0" }}>
@@ -12661,57 +12675,113 @@ function QuantAgentTab() {
     setInput("");
     const capturedImage = imageDataUrl;
     setImageDataUrl(null);
+
+    // Optimistic UI — show the bubble immediately
+    setActiveJob({ job_id: "", question: q, status: "running",
+                   has_image: !!capturedImage, image_data_url: capturedImage ?? undefined });
+    clearTimers();
+    startTimeRef.current = Date.now();
+    setElapsed(0);
+    elapsedTimerRef.current = setInterval(() => {
+      if (!mountedRef.current) return;
+      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+    }, 1000);
+
+    const body: Record<string, unknown> = { question: q || "Analyze this chart/screenshot." };
+    if (capturedImage) body.image_data_url = capturedImage;
+    const _tok = localStorage.getItem("aiem_byok_token") || "";
+    if (_tok) body.subscriber_token = _tok;
+
     try {
-      const body: Record<string, string> = { question: q || "Analyze this chart/screenshot." };
-      if (capturedImage) body.image_data_url = capturedImage;
-      const _tok = localStorage.getItem("aiem_byok_token") || "";
-      if (_tok) body.subscriber_token = _tok;
-      const _submitCtrl = new AbortController();
-      const _submitTimeout = setTimeout(() => _submitCtrl.abort(), 20000);
-      let res: Response;
-      try {
-        res = await fetch(`${API_BASE_QA}stock-api/aiem/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: _submitCtrl.signal,
-        });
-      } catch (fetchErr) {
-        clearTimeout(_submitTimeout);
-        if ((fetchErr as Error).name === "AbortError") {
-          setActiveJob({ job_id: "", question: q, status: "error", error: "Server took too long to respond — it may be busy. Please try again in a moment." });
-        } else {
-          setActiveJob({ job_id: "", question: q, status: "error", error: "Failed to start session — check your connection." });
-        }
-        return;
-      }
-      clearTimeout(_submitTimeout);
-      if (res.status === 429) {
-        const data = await res.json();
-        setActiveJob({ job_id: "", question: q, status: "error", error: data.error || "A session is already running — please wait for it to finish." });
-        return;
-      }
+      const res = await fetch(`${API_BASE_QA}stock-api/aiem/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
       if (res.status === 402) {
+        clearTimers();
         setActiveJob({ job_id: "", question: q, status: "error", error: "__byok_required__" });
         return;
       }
       if (!res.ok) {
         const data: { error?: string } = await res.json().catch(() => ({}));
-        setActiveJob({ job_id: "", question: q, status: "error", error: data.error || `Server error (${res.status}). Please try again.` });
+        clearTimers();
+        setActiveJob({ job_id: "", question: q, status: "error",
+                       error: data.error || `Server error (${res.status}). Please try again.` });
         return;
       }
-      const data = await res.json();
-      if (data.job_id) {
-        startPolling(data.job_id);
-        setActiveJob(prev => prev
-          ? { ...prev, question: q, has_image: !!capturedImage, image_data_url: capturedImage ?? undefined }
-          : { job_id: data.job_id, question: q, status: "pending", has_image: !!capturedImage, image_data_url: capturedImage ?? undefined }
-        );
-      } else {
-        setActiveJob({ job_id: "", question: q, status: "error", error: data.error || "Something went wrong — please try again." });
+
+      // Stream the SSE response token by token
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let jobId  = "";
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let ev: Record<string, unknown>;
+          try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (ev.type === "started") {
+            jobId = ev.job_id as string;
+            localStorage.setItem(ACTIVE_JOB_KEY, jobId);
+            setActiveJob(prev => prev ? { ...prev, job_id: jobId } : null);
+
+          } else if (ev.type === "tool") {
+            setActiveJob(prev => prev
+              ? { ...prev, current_tool: ev.tool as string }
+              : null);
+
+          } else if (ev.type === "token") {
+            setActiveJob(prev => prev
+              ? { ...prev, streaming_text: (prev.streaming_text ?? "") + (ev.token as string) }
+              : null);
+
+          } else if (ev.type === "done") {
+            clearTimers();
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+            const finalSession: QASession = {
+              job_id:  jobId,
+              question: q,
+              status:  "done",
+              answer:  ev.answer as string,
+              has_image: !!capturedImage,
+              image_data_url: capturedImage ?? undefined,
+              streaming_text: undefined,
+              current_tool: null,
+            };
+            setActiveJob(finalSession);
+            loadHistory();
+            break outer;
+
+          } else if (ev.type === "error") {
+            clearTimers();
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+            setActiveJob(prev => prev
+              ? { ...prev, status: "error", error: (ev.error as string) || "Session failed.", streaming_text: undefined }
+              : null);
+            break outer;
+          }
+        }
       }
-    } catch {
-      setActiveJob({ job_id: "", question: q, status: "error", error: "Failed to start session — check your connection." });
+    } catch (err) {
+      clearTimers();
+      // If stream failed but we have a job_id already, fall back to polling
+      const savedId = localStorage.getItem(ACTIVE_JOB_KEY);
+      if (savedId) {
+        startPolling(savedId);
+      } else {
+        setActiveJob({ job_id: "", question: q, status: "error",
+                       error: "Connection dropped — please try again." });
+      }
     } finally {
       setSubmitting(false);
     }
