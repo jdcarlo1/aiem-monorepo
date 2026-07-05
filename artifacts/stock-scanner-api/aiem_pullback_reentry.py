@@ -2208,3 +2208,296 @@ def run_gspc_full_history_backtest(
         "aiem_computed":    True,
         "hand_computed_by_agent": False,
     }
+
+
+# ── Regime-Filtered Backtest ───────────────────────────────────────────────────
+
+def run_regime_filtered_backtest() -> dict:
+    """
+    Test three regime filters on the ^GSPC full-history signal (448 trades, 1927-2026)
+    and the SPY panic-exhaustion signal (4 bear periods).
+
+    Filters tested:
+      A. skip_after_loss     — skip any signal if the immediately preceding signal
+                               in the same calendar run was a loser (return_pct <= 0).
+                               Hypothesis: bear markets cluster losses; corrections misfire once then recover.
+      B. skip_after_2_losses — skip if the two most recent signals were BOTH losers.
+                               More lenient version of A.
+      C. vix_below_35        — only take signals where the VIX on the signal date < 35.
+                               Available for post-2000 signals only (vix_daily coverage).
+                               Hypothesis: extreme fear (VIX >= 35) signals structural panic, not exhaustion.
+      D. combined_A_and_C    — apply both A and C for post-2000 signals only.
+
+    For each filter, compares:
+      - Overall (all periods/all history)
+      - Pre-1993 vs post-1993 (data quality split)
+      - The 4 worst bear periods vs the correction periods
+      - Net trades removed (how many signals filtered out)
+
+    The ^GSPC trade stream is re-derived live from gspc_daily so results are
+    deterministic and auditable.  No hand-computation.
+    """
+    import psycopg2
+
+    if not _DB_URL:
+        return {"error": "no DB connection"}
+
+    # ── Re-derive the full ^GSPC trade stream (same logic as run_gspc_full_history_backtest) ──
+    with psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT scan_date, close_price, has_intraday_data
+            FROM gspc_daily ORDER BY scan_date
+        """)
+        raw = cur.fetchall()
+
+    if not raw:
+        return {"error": "gspc_daily empty — run backfill_gspc_history first"}
+
+    dates     = [r[0] for r in raw]
+    closes    = [r[1] for r in raw]
+    has_intra = [r[2] for r in raw]
+
+    WINDOW       = 20
+    SPY_THR      = -5.0
+    HOLD_DAYS    = 11
+    STOP_PCT     = -8.0
+
+    ret20 = [None] * len(dates)
+    for i in range(WINDOW, len(dates)):
+        if closes[i - WINDOW] > 0:
+            ret20[i] = (closes[i] / closes[i - WINDOW] - 1.0) * 100.0
+
+    # Generate the full unfiltered trade list
+    all_trades = []
+    for i in range(WINDOW + 1, len(dates)):
+        if ret20[i] is None or ret20[i - 1] is None:
+            continue
+        if ret20[i - 1] >= SPY_THR and ret20[i] < SPY_THR:
+            entry = closes[i]
+            stop  = entry * (1.0 + STOP_PCT / 100.0)
+            future = list(range(i + 1, min(i + 1 + HOLD_DAYS, len(dates))))
+            if not future:
+                continue
+            exit_i  = future[-1]
+            exit_p  = closes[exit_i]
+            stopped = False
+            for fi in future:
+                if closes[fi] <= stop:
+                    exit_i = fi; exit_p = closes[fi]; stopped = True; break
+            ret_pct = round((exit_p - entry) / entry * 100.0, 4)
+            all_trades.append({
+                "signal_date":       dates[i],
+                "exit_date":         dates[exit_i],
+                "entry_price":       round(entry, 4),
+                "exit_price":        round(exit_p, 4),
+                "return_pct":        ret_pct,
+                "stopped_out":       stopped,
+                "has_intraday_data": bool(has_intra[i]),
+                "year":              dates[i].year,
+            })
+
+    # ── Load VIX for post-2000 filter ─────────────────────────────────────────
+    vix_map = {}
+    with psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+        cur.execute("SELECT scan_date, vix_close FROM vix_daily ORDER BY scan_date")
+        for row in cur.fetchall():
+            vix_map[row[0]] = row[1]
+
+    # Tag each trade with VIX on signal date (None if pre-2000)
+    for t in all_trades:
+        t["vix_on_signal"] = vix_map.get(t["signal_date"])
+
+    # ── Summary helper ────────────────────────────────────────────────────────
+    def _summ(trades):
+        n = len(trades)
+        if n == 0:
+            return {"n": 0, "win_rate": None, "avg_return_pct": None,
+                    "cumulative_return_pct": None, "num_stop_outs": 0,
+                    "max_consecutive_losses": 0}
+        wins = sum(1 for t in trades if t["return_pct"] > 0)
+        avg  = round(sum(t["return_pct"] for t in trades) / n, 4)
+        cum  = 1.0
+        for t in trades:
+            cum *= (1.0 + t["return_pct"] / 100.0)
+        cum_ret = round((cum - 1.0) * 100.0, 4)
+        n_stop  = sum(1 for t in trades if t["stopped_out"])
+        max_c = cur_c = 0
+        for t in trades:
+            if t["return_pct"] <= 0:
+                cur_c += 1; max_c = max(max_c, cur_c)
+            else:
+                cur_c = 0
+        return {"n": n, "win_rate": round(wins / n, 4), "avg_return_pct": avg,
+                "cumulative_return_pct": cum_ret, "num_stop_outs": n_stop,
+                "max_consecutive_losses": max_c}
+
+    # ── Apply filters ─────────────────────────────────────────────────────────
+
+    def _apply_skip_after_n_losses(trades, n_losses):
+        """Skip signal if the last n_losses signals were ALL losers."""
+        result   = []
+        history  = []   # rolling return history
+        skipped  = 0
+        for t in trades:
+            if len(history) >= n_losses and all(h <= 0 for h in history[-n_losses:]):
+                skipped += 1
+                # Still record the outcome so history stays correct
+                history.append(t["return_pct"])
+            else:
+                result.append(t)
+                history.append(t["return_pct"])
+        return result, skipped
+
+    def _apply_vix_below(trades, vix_threshold):
+        """Only take signals where VIX on signal date < vix_threshold.
+        Signals with no VIX data (pre-2000) are always included."""
+        result  = []
+        skipped = 0
+        for t in trades:
+            vix = t.get("vix_on_signal")
+            if vix is not None and vix >= vix_threshold:
+                skipped += 1
+            else:
+                result.append(t)
+        return result, skipped
+
+    # Run all 4 filters
+    trades_A, skip_A = _apply_skip_after_n_losses(all_trades, 1)
+    trades_B, skip_B = _apply_skip_after_n_losses(all_trades, 2)
+    trades_C, skip_C = _apply_vix_below(all_trades, 35.0)
+
+    # Combined A+C: apply A first then C
+    trades_AC_step1, _ = _apply_skip_after_n_losses(all_trades, 1)
+    trades_D, skip_D   = _apply_vix_below(trades_AC_step1, 35.0)
+
+    # ── Named period breakdown for each filter ────────────────────────────────
+    bad_bears = [
+        ("1929-1932 Great Depression", "1929-01-01", "1932-12-31"),
+        ("1973-1974 Oil crisis",        "1973-01-01", "1974-12-31"),
+        ("1998 LTCM / Russia",          "1998-01-01", "1998-12-31"),
+        ("2007-2009 Financial crisis",  "2007-01-01", "2009-06-30"),
+        ("2022 Inflation bear",         "2022-01-01", "2022-12-31"),
+    ]
+    good_corrections = [
+        ("1937-1938 Recession",      "1937-01-01", "1938-12-31"),
+        ("1946 Post-war correction", "1946-01-01", "1947-06-30"),
+        ("1990 Gulf War",            "1990-01-01", "1991-03-31"),
+        ("2011 Eurozone crisis",     "2011-01-01", "2011-12-31"),
+        ("2020 COVID crash",         "2020-01-01", "2020-12-31"),
+    ]
+
+    def _period_breakdown(trades, periods):
+        out = {}
+        for label, s, e in periods:
+            subset = [t for t in trades
+                      if str(s) <= str(t["signal_date"]) <= str(e)]
+            out[label] = _summ(subset)
+        return out
+
+    def _build_filter_result(label, filtered_trades, n_skipped, description):
+        pre93  = [t for t in filtered_trades if t["year"] < 1993]
+        post93 = [t for t in filtered_trades if t["year"] >= 1993]
+        return {
+            "filter":         label,
+            "description":    description,
+            "n_signals_kept": len(filtered_trades),
+            "n_signals_skipped": n_skipped,
+            "overall":        _summ(filtered_trades),
+            "pre_1993":       _summ(pre93),
+            "post_1993":      _summ(post93),
+            "bad_bear_periods":     _period_breakdown(filtered_trades, bad_bears),
+            "correction_periods":   _period_breakdown(filtered_trades, good_corrections),
+        }
+
+    # Baseline (no filter)
+    pre93_base  = [t for t in all_trades if t["year"] < 1993]
+    post93_base = [t for t in all_trades if t["year"] >= 1993]
+    baseline = {
+        "filter":          "none (baseline)",
+        "description":     "All 448 trades, no filter applied",
+        "n_signals_kept":  len(all_trades),
+        "n_signals_skipped": 0,
+        "overall":         _summ(all_trades),
+        "pre_1993":        _summ(pre93_base),
+        "post_1993":       _summ(post93_base),
+        "bad_bear_periods":   _period_breakdown(all_trades, bad_bears),
+        "correction_periods": _period_breakdown(all_trades, good_corrections),
+    }
+
+    results = {
+        "baseline": baseline,
+        "filter_A": _build_filter_result(
+            "skip_after_loss",
+            trades_A, skip_A,
+            "Skip signal if the immediately preceding signal was a loser. "
+            "Tests whether bear markets cluster losses while corrections misfire at most once.",
+        ),
+        "filter_B": _build_filter_result(
+            "skip_after_2_consecutive_losses",
+            trades_B, skip_B,
+            "Skip signal only if the two most recent signals were BOTH losers. "
+            "More lenient — allows one loss before pausing.",
+        ),
+        "filter_C": _build_filter_result(
+            "vix_below_35",
+            trades_C, skip_C,
+            "Skip signal when VIX on signal date >= 35. Pre-2000 signals always kept "
+            "(no VIX data available). "
+            "Tests whether extreme fear = structural panic, not exhaustion.",
+        ),
+        "filter_D": _build_filter_result(
+            "combined_skip_after_loss_AND_vix_below_35",
+            trades_D, skip_D,
+            "Apply both filter A (skip after loss) and filter C (VIX < 35). "
+            "Most restrictive. Post-2000 only where both rules can operate.",
+        ),
+    }
+
+    # ── Key comparison table (AIEM computed) ─────────────────────────────────
+    def _delta(filtered_val, base_val, key):
+        f = filtered_val.get(key)
+        b = base_val.get(key)
+        if f is None or b is None:
+            return None
+        return round(f - b, 4)
+
+    comparison_table = []
+    for fname, fdata in results.items():
+        row = {
+            "filter": fname,
+            "n_kept":  fdata["n_signals_kept"],
+            "n_skipped": fdata["n_signals_skipped"],
+            "overall_wr":  fdata["overall"].get("win_rate"),
+            "overall_cum": fdata["overall"].get("cumulative_return_pct"),
+            "overall_avg": fdata["overall"].get("avg_return_pct"),
+        }
+        # bad bear aggregate
+        bb_trades = []
+        for label, s, e in bad_bears:
+            bb_trades += [t for t in (
+                all_trades if fname == "baseline" else
+                trades_A   if fname == "filter_A" else
+                trades_B   if fname == "filter_B" else
+                trades_C   if fname == "filter_C" else
+                trades_D
+            ) if str(s) <= str(t["signal_date"]) <= str(e)]
+        bb = _summ(bb_trades)
+        row["bad_bears_wr"]  = bb.get("win_rate")
+        row["bad_bears_cum"] = bb.get("cumulative_return_pct")
+        row["bad_bears_n"]   = bb.get("n")
+        comparison_table.append(row)
+
+    return {
+        "question":  "Does a regime filter improve the ^GSPC 20-day-crossing signal?",
+        "signal":    "^GSPC 20-day-return crossing below -5% (1927-2026)",
+        "filters_tested": [
+            "A: skip_after_loss",
+            "B: skip_after_2_consecutive_losses",
+            "C: vix_below_35 (post-2000 only)",
+            "D: combined A+C",
+        ],
+        "comparison_table": comparison_table,
+        "detailed_results": results,
+        "aiem_computed":        True,
+        "hand_computed_by_agent": False,
+    }

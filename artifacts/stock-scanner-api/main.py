@@ -13774,6 +13774,22 @@ def admin_backfill_gspc_history():
 
 
 @app.route("/stock-api/admin/run-vix-spike-reversal-grid", methods=["POST"])
+
+@app.route("/stock-api/admin/run-regime-filtered-backtest", methods=["POST"])
+def admin_run_regime_filtered_backtest():
+    """
+    Test 4 regime filters on the ^GSPC full-history signal.
+    No body required.  ~10-30s.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        from aiem_pullback_reentry import run_regime_filtered_backtest as _fn
+        result = _fn()
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
 def admin_run_vix_spike_reversal_grid():
     """
     Run all 27 VIX spike-reversal combinations across 5 periods.
@@ -29725,6 +29741,7 @@ def _build_aiem_tool_map():
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
         "run_panic_exhaustion_backtest": _aiem_tool_run_panic_exhaustion_backtest,
         "check_signal_data_availability": _aiem_tool_check_signal_data_availability,
+        "run_regime_filtered_backtest": _aiem_tool_run_regime_filtered_backtest,
         "run_vix_spike_reversal_grid":    _aiem_tool_run_vix_spike_reversal_grid,
         "run_gspc_full_history_backtest": _aiem_tool_run_gspc_full_history_backtest,
         "backfill_vix_daily":             _aiem_tool_backfill_vix_daily,
@@ -31885,6 +31902,24 @@ _AIEM_AGENT_TOOLS = [
             "symbol":    {"type": "string",  "description": "Ticker symbol (e.g. AAPL)"},
             "days_back": {"type": "integer", "description": "Days of polygon_market_daily history (default 200)"},
         }, "required": ["symbol"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_regime_filtered_backtest",
+        "description": (
+            "Test four regime filters on the ^GSPC full-history signal (448 trades, 1927-2026) "
+            "to determine whether the 20-day-drawdown crossing signal can distinguish "
+            "bear markets from corrections. "
+            "Filters: "
+            "A=skip_after_loss (skip if previous signal was a loser), "
+            "B=skip_after_2_losses, "
+            "C=vix_below_35 (skip when VIX >= 35 on signal date, post-2000 only), "
+            "D=combined A+C. "
+            "Returns: comparison table across all 4 filters vs unfiltered baseline, "
+            "broken out by overall / pre-1993 / post-1993 / 5 worst bear periods / "
+            "5 good correction periods. "
+            "Requires gspc_daily and vix_daily tables to be populated."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
     }},
     {"type": "function", "function": {
         "name": "run_vix_spike_reversal_grid",
@@ -34560,6 +34595,15 @@ def _aiem_tool_run_panic_exhaustion_backtest(
             stop_loss_pct=float(stop_loss_pct),
             period_label=str(period_label),
         )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_run_regime_filtered_backtest() -> dict:
+    """AIEM tool: test regime filters on the ^GSPC full-history signal."""
+    try:
+        from aiem_pullback_reentry import run_regime_filtered_backtest as _fn
+        return _fn()
     except Exception as _e:
         return {"error": str(_e)}
 
