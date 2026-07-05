@@ -53128,8 +53128,9 @@ def admin_learning_proposals():
     """Item 6 — List shadow learning proposals awaiting human approval.
     Shows all proposals (accepted + rejected) sorted newest-first.
     Accepted proposals with promoted=FALSE are ready for approval."""
-    _tok = request.headers.get("X-Admin-Token", "")
-    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+    _tok  = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok.encode("utf-8"), _want.encode("utf-8")):
         return jsonify({"error": "unauthorized"}), 403
     import psycopg2 as _pg2
     try:
@@ -53160,8 +53161,9 @@ def admin_approve_learning_proposal(proposal_id):
     Calls rollback_to_version() on the saved model_versions entry.
     This is the ONLY promotion path — weights are NEVER auto-promoted.
     Gate: proposal must be accepted=TRUE and promoted=FALSE."""
-    _tok = request.headers.get("X-Admin-Token", "")
-    if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
+    _tok  = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok.encode("utf-8"), _want.encode("utf-8")):
         return jsonify({"error": "unauthorized"}), 403
     import psycopg2 as _pg2
     try:
