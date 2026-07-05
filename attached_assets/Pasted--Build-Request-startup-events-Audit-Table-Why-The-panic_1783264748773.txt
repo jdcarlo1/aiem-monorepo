@@ -1,0 +1,43 @@
+# Build Request: startup_events Audit Table
+
+## Why
+The panic exhaustion scheduler registration currently only proves itself via a print() to a log file. That log has already caused two unverifiable/retracted claims this session because it doesn't survive process restarts or log rotation. This table replaces that with a permanent, queryable record.
+
+## What to build
+
+1. Create the table (if not exists):
+
+```sql
+CREATE TABLE IF NOT EXISTS startup_events (
+    id          BIGSERIAL PRIMARY KEY,
+    event_time  TIMESTAMPTZ DEFAULT NOW(),
+    pid         INTEGER,
+    git_sha     TEXT,
+    event_key   TEXT,   -- e.g. 'panic_exhaustion_scheduled'
+    detail      TEXT
+);
+```
+
+Wire this creation into the same deferred-init pattern used for `aiem_panic_exhaustion_log` (i.e. add it to `_DEFERRED_INITS`, don't just define it and hope something calls it).
+
+2. At the exact point where `print("[panic_exhaustion] daily 4:30 PM ET check scheduled")` currently fires, insert one row into `startup_events` with:
+   - `pid` = current process ID
+   - `git_sha` = current git SHA at boot (same value already used in the STALENESS-GUARD log line)
+   - `event_key` = `'panic_exhaustion_scheduled'`
+   - `detail` = whatever context is useful (e.g. the CronTrigger schedule string)
+
+3. Do the same for the scheduler error path (the `except Exception as _e_pe_sched` branch) — insert a row with `event_key = 'panic_exhaustion_scheduler_error'` and the exception text in `detail`, so failures are just as durable as successes.
+
+## Verification required (raw output only — same standard as before)
+
+1. Paste the verbatim diff/lines showing the CREATE TABLE addition and its `_DEFERRED_INITS.append(...)` registration.
+2. Paste the verbatim diff/lines showing the INSERT added at the scheduled-successfully point and the scheduler-error point.
+3. Restart or trigger the relevant code path for real (not simulated), then run:
+   ```sql
+   SELECT * FROM startup_events ORDER BY event_time DESC LIMIT 20;
+   ```
+   Paste the actual raw query output showing at least one real row landed, with a real timestamp, real pid, real git_sha.
+4. Run `\d startup_events` (or equivalent information_schema query) and paste the actual live schema — don't just paste the CREATE TABLE statement from source, confirm it matches what's actually in the database.
+5. Confirm: does this insert happen inside the same try/except that already wraps the scheduler registration, or does it need its own error handling so a DB hiccup here can't take down the scheduler registration itself? Show the actual code structure.
+
+Do not summarize this as "done" without pasting the outputs above. If any step can't be completed right now (e.g. no live restart is possible this turn), say so explicitly rather than describing what it would show.

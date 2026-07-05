@@ -13485,6 +13485,45 @@ def _init_panic_exhaustion_log():
 _DEFERRED_INITS.append(_init_panic_exhaustion_log)
 
 
+def _init_startup_events_table():
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS startup_events (
+                    id         BIGSERIAL PRIMARY KEY,
+                    event_time TIMESTAMPTZ DEFAULT NOW(),
+                    pid        INTEGER,
+                    git_sha    TEXT,
+                    event_key  TEXT,
+                    detail     TEXT
+                )
+            """)
+            _c.commit()
+    except Exception as _e:
+        print(f"[startup_events] schema init error: {_e}")
+_DEFERRED_INITS.append(_init_startup_events_table)
+
+
+def _log_startup_event(event_key: str, detail: str) -> None:
+    try:
+        import os as _os, subprocess as _sp
+        try:
+            _git_sha = _sp.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                stderr=_sp.DEVNULL, timeout=2
+            ).decode().strip()
+        except Exception:
+            _git_sha = "unknown"
+        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                INSERT INTO startup_events (pid, git_sha, event_key, detail)
+                VALUES (%s, %s, %s, %s)
+            """, (_os.getpid(), _git_sha, event_key, detail))
+            _c.commit()
+    except Exception as _e:
+        print(f"[startup_events] insert failed ({event_key}): {_e}")
+
+
 def _check_panic_exhaustion() -> None:
     """
     Runs daily at 4:30 PM ET. Computes SPY 20d/5d/1d returns from polygon_market_daily,
@@ -13639,8 +13678,16 @@ try:
         replace_existing=True,
     )
     print("[panic_exhaustion] daily 4:30 PM ET check scheduled")
+    _log_startup_event(
+        "panic_exhaustion_scheduled",
+        "CronTrigger(mon-fri, hour=16, minute=30, ET) id=panic_exhaustion_check"
+    )
 except Exception as _e_pe_sched:
     print(f"[panic_exhaustion] scheduler error: {_e_pe_sched}")
+    _log_startup_event(
+        "panic_exhaustion_scheduler_error",
+        str(_e_pe_sched)
+    )
 
 
 @app.route("/stock-api/admin/check-panic-exhaustion", methods=["POST"])
