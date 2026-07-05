@@ -1,0 +1,63 @@
+# Panic Exhaustion Module — Verification Request
+
+Your last report claimed several PASS results. I am not accepting narrative summaries or self-graded checkmarks. For each item below, respond with RAW OUTPUT ONLY — actual terminal output, actual file contents, actual SQL results. No paraphrasing, no "this confirms," no summary sentences. If you cannot produce the raw artifact, say so explicitly instead of restating the claim.
+
+## 1. RSI thresholds are fully removed
+Run and paste the raw output of:
+```
+grep -rn "RSI_WATCHING_THRESHOLD\|RSI_CONFIRMED_THRESHOLD" .
+```
+If this returns zero matches, paste the empty result plus the exit code. If it returns matches, show every line.
+
+## 2. The line 731–782 block is a non-gating calibration reporter
+Paste the full, unedited contents of lines 700–800 of the file in question (not a summary, the literal code). I need to see with my own eyes that this block only prints/logs and does not `continue`, `return`, `raise`, or otherwise affect control flow for row insertion.
+
+## 3. The actual gate at line 790
+Paste lines 785–800 verbatim, plus the 10 lines immediately before the function containing this gate begins, so I can see what function it's inside of and what calls it.
+
+## 4. compute_signal() at line 446 uses the identical check
+Paste lines 435–460 verbatim (raw file content, not description).
+
+## 5. _check_panic_exhaustion() wiring
+- Paste lines 13480–13500 verbatim (function definition).
+- Paste the exact line(s) showing registration to `_DEFERRED_INITS`.
+- Run `grep -n "_DEFERRED_INITS" .` across the relevant file(s) and paste all matches — I want to see every place this list is built and consumed, not just the one line you're citing.
+
+## 6. Scheduler registration
+Paste lines 13630–13645 verbatim, showing the CronTrigger call and the id assignment.
+
+## 7. Admin endpoint
+Paste lines 13640–13655 verbatim showing the route definition, method, and handler function signature.
+
+## 8. DB table
+Run and paste raw output of:
+```sql
+\d aiem_panic_exhaustion_log
+```
+or equivalent (`SELECT * FROM information_schema.columns WHERE table_name = 'aiem_panic_exhaustion_log';`). I want the actual schema, not a claim that "CREATE TABLE IF NOT EXISTS" exists somewhere. Also paste the CREATE TABLE statement itself verbatim from the source file.
+
+## 9. tg_sent dedup logic
+Paste the actual code block that checks/sets `tg_sent`, not a description of it.
+
+## 10. All three alert blocks (ENTERING / ACTIVE / EXITING)
+Paste lines 13565–13615 verbatim in one continuous block so I can see all three in sequence with no gaps or omissions.
+
+## 11. 11-day hold and SPY 20d return appear in every block
+Paste the exact five line numbers cited (13582, 13588, 13601, 13602, 13613) with 2 lines of surrounding context each, verbatim.
+
+## 12. Live server confirmation
+Paste the raw, unedited log file excerpt (with timestamps) showing both instances of:
+```
+[panic_exhaustion] daily 4:30 PM ET check scheduled
+```
+Include the surrounding 5 lines before and after each occurrence so I can see they're from two genuinely separate process starts (e.g. different PIDs, different boot timestamps) and not the same line duplicated by a logging bug.
+
+## 13. Git diff
+Run `git diff` (or `git log -p -1` if already committed) for every file touched in this work and paste the full raw diff. If there is no corresponding commit, say so explicitly — do not describe what the diff "would show."
+
+---
+
+**Rules:**
+- Every answer must be copy-pasted raw output. No "as shown above," no summarizing, no "this confirms X."
+- If any item cannot be verified with real output right now, say "UNVERIFIED — cannot produce" rather than restating the original claim.
+- Do not mark anything as PASS yourself. Just provide the raw evidence; I will determine pass/fail.
