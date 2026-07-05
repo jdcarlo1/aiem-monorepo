@@ -31142,19 +31142,25 @@ _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "alpha_score_ticker",
         "description": (
-            "alpha_leaders_scan — scores any ticker on probability of beating SPY by >=2% "
-            "over the next 10 trading days. "
-            "Trained on 2 years of real market history (NOT paper trades) — "
-            "AIEM learned which early signals preceded actual S&P outperformance across thousands of stocks. "
-            "Features: sector relative strength, 5d/20d momentum, gap_pct, RVOL, "
-            "proximity to 52-week high, volume trend vs 20-day average, and SPY relative strength. "
-            "Returns alpha_prob (0-1), signal (STRONG/MODERATE/WEAK), and all feature values. "
-            "Use when choosing between picks, or to explain WHY a stock has statistical edge vs "
-            "just riding the market. STRONG = high probability of alpha. "
-            "Call for any pick where you want to know: 'will this beat the index, not just go up?'"
+            "alpha_leaders_scan — scores any ticker on probability of beating SPY. "
+            "Two horizons available:\n"
+            "  horizon='10d' (default): beats SPY by >=2% over next 2 weeks — short-term momentum bursts.\n"
+            "  horizon='60d': beats SPY by >=5% over next 3 months — catches early-stage LONG-TERM "
+            "uptrend starters like MU at $86 before a multi-month run. Use this for 'is this stock "
+            "beginning a real 3-month uptrend?' questions.\n"
+            "Trained on 2 years of real market history (NOT paper trades) across 7,416 tickers — "
+            "AIEM learned which early signals preceded actual S&P outperformance. "
+            "Features (10d): sector RS, 5d/20d momentum, gap_pct, RVOL, 52w-high proximity, volume trend. "
+            "Extra features (60d): also 60d momentum, 20d sector RS, 20d SPY RS. "
+            "Returns alpha_prob (0-1), signal (STRONG/MODERATE/WEAK), all feature values, and horizon. "
+            "STRONG = high probability of alpha. "
+            "Call for any pick where you want: 'will this beat the index, not just go up?'"
         ),
         "parameters": {"type": "object", "properties": {
             "ticker":      {"type": "string",  "description": "Ticker symbol, e.g. 'NVDA'."},
+            "horizon":     {"type": "string",  "enum": ["10d", "60d"],
+                            "description": "Prediction window. '10d'=2-week alpha (default). "
+                                           "'60d'=3-month alpha, best for finding long-term uptrend starters."},
             "total_pts":   {"type": "number",  "description": "Conviction stack total points score if known."},
             "rvol":        {"type": "number",  "description": "Relative volume if known."},
             "gap_pct":     {"type": "number",  "description": "Gap % from prior close if known."},
@@ -56352,8 +56358,9 @@ def get_source_export():
 
 
 # ── Alpha Leaders: AIEM tool wrapper ─────────────────────────────────────────
-def _aiem_alpha_score_ticker(ticker, total_pts=None, rvol=None, gap_pct=None, conviction=None):
-    """AIEM tool: alpha_leaders_scan — scores a ticker on probability of beating SPY."""
+def _aiem_alpha_score_ticker(ticker, total_pts=None, rvol=None, gap_pct=None,
+                             conviction=None, horizon="10d"):
+    """AIEM tool: alpha_leaders_scan — scores a ticker vs SPY. horizon='10d' or '60d'."""
     try:
         from alpha_historical_trainer import alpha_leaders_score as _als
         pick = {}
@@ -56361,7 +56368,8 @@ def _aiem_alpha_score_ticker(ticker, total_pts=None, rvol=None, gap_pct=None, co
         if rvol       is not None: pick["rvol"]        = rvol
         if gap_pct    is not None: pick["gap_pct"]     = gap_pct
         if conviction is not None: pick["conviction"]  = conviction
-        return _als(ticker, pick or None)
+        fwd_days = 60 if str(horizon).strip().lower() in ("60d", "60", "long", "longterm") else 10
+        return _als(ticker, pick or None, fwd_days=fwd_days)
     except Exception as _e:
         return {"error": str(_e), "ticker": ticker}
 
@@ -56460,22 +56468,27 @@ def admin_run_historical_alpha_train():
         return jsonify({"error": "unauthorized"}), 401
 
     start_date = "2024-07-01"
+    fwd_days   = 10
     if request.is_json and request.json:
         start_date = request.json.get("start_date", start_date)
+        fwd_days   = int(request.json.get("fwd_days", fwd_days))
+
+    _horizon_label = "60-DAY LONG-TERM RUNNER" if fwd_days >= 60 else "10-DAY MOMENTUM"
 
     def _progress(msg):
-        print(f"[alpha-train] {msg}")
+        print(f"[alpha-train-{fwd_days}d] {msg}")
 
     def _bg():
         try:
             from alpha_historical_trainer import run_historical_alpha_train as _rhat
-            result = _rhat(start_date=start_date, progress_cb=_progress)
+            result = _rhat(start_date=start_date, fwd_days=fwd_days, progress_cb=_progress)
             _auc = (result.get("walk_forward") or {}).get("avg_auc", "n/a")
             _n   = (result.get("data") or {}).get("total_rows", "n/a")
-            print(f"[alpha-train] DONE — AUC={_auc}  n={_n} labeled rows  status={result.get('status')}")
+            print(f"[alpha-train-{fwd_days}d] DONE — AUC={_auc}  n={_n} labeled rows  "
+                  f"horizon={fwd_days}d  status={result.get('status')}")
         except Exception as _e:
             import traceback
-            print(f"[alpha-train] ERROR: {_e}\n{traceback.format_exc()}")
+            print(f"[alpha-train-{fwd_days}d] ERROR: {_e}\n{traceback.format_exc()}")
 
     import threading as _thr_hat
     _thr_hat.Thread(target=_bg, daemon=True).start()
@@ -56483,17 +56496,20 @@ def admin_run_historical_alpha_train():
     return jsonify({
         "status":     "started",
         "start_date": start_date,
+        "fwd_days":   fwd_days,
+        "horizon":    _horizon_label,
         "message": (
-            "Historical alpha leaders training running in background. "
-            "Watch server logs for progress — will print AUC + labeled row count when done. "
+            f"Alpha leaders [{_horizon_label}] training running in background. "
+            "Watch server logs for progress. "
             "Check model status at GET /stock-api/admin/alpha-model-status"
         ),
         "what_it_does": (
-            "Pulls ~2 years of polygon_market_daily data, finds which stocks actually beat "
-            "SPY by >=2% over 10-day windows, extracts early warning signals from those stocks "
-            "(momentum, RVOL, sector RS, 52w proximity, volume trend), "
-            "walk-forward validates across 4 time splits, trains XGBoost on all data, saves model. "
-            "AIEM will then use this to score any ticker with alpha_leaders_scan."
+            f"Pulls ~2 years of polygon_market_daily data, labels each stock-day by whether "
+            f"it beat SPY by >={'5' if fwd_days >= 60 else '2'}% over the next {fwd_days} trading days, "
+            "extracts early signals (momentum, RVOL, sector RS, 52w proximity, volume trend"
+            + (", 60d momentum, 20d sector RS" if fwd_days >= 60 else "") + "), "
+            "walk-forward validates, trains XGBoost, saves model. "
+            "AIEM scores any ticker via alpha_leaders_scan."
         ),
     })
 
@@ -56503,10 +56519,11 @@ def admin_alpha_score_ticker():
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
-    ticker = request.args.get("ticker", "").upper().strip()
+    ticker  = request.args.get("ticker",  "").upper().strip()
+    horizon = request.args.get("horizon", "10d").strip()
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
-    return jsonify(_aiem_alpha_score_ticker(ticker))
+    return jsonify(_aiem_alpha_score_ticker(ticker, horizon=horizon))
 
 
 if __name__ == "__main__":

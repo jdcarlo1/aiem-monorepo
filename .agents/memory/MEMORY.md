@@ -1,3 +1,4 @@
+- [Alpha Leaders models](alpha-leaders-models.md) — 10d AUC=0.51 (real edge); 60d AUC=0.47 (mean-reversion finding, not failure); horizon param in tool + endpoints; NO paper trades
 - [Module L Panic Exhaustion](module-l-panic-exhaustion.md) — RSI removed; SPY 20d < -5% is the only gate (28 calendar days); state=PANIC_EXHAUSTION; 11-day hold; Telegram 4:30 PM ET; one historical instance (Apr 2026)
 - [AIEM signal isolation rule](aiem-signal-isolation-rule.md) — AIEM signals feed paper trades tab ONLY; never inject into _run_five_layer_conviction or any other website tab without explicit user approval + validated data
 - [AIEM Quant Agent token streaming](aiem-quant-agent-streaming.md) — on_token param on _run_aiem_focused_session; SSE /aiem/chat/stream endpoint; tool-call delta reconstruction; _classify_question_complexity (NOT _decide_max_iters)

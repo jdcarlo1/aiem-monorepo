@@ -1,0 +1,51 @@
+{
+  "status": "trained",
+  "horizon": "60d",
+  "model_path": "/home/runner/workspace/artifacts/stock-scanner-api/aiem_alpha_leaders_60d.pkl",
+  "trained_at": "2026-07-05T19:32:50.813465",
+  "data": {
+    "total_rows": 898478,
+    "outperformers": 376383,
+    "underperformers": 522095,
+    "pct_outperform": 41.9,
+    "date_range": "2024-10-07 \u2192 2026-01-02",
+    "unique_tickers": 5085,
+    "fwd_days": 60,
+    "alpha_threshold": 0.05
+  },
+  "walk_forward": {
+    "n_folds": 4,
+    "avg_auc": 0.4737,
+    "avg_precision": 0.3399,
+    "avg_recall": 0.0592,
+    "fold_aucs": [
+      0.4834,
+      0.4319,
+      0.5452,
+      0.4344
+    ]
+  },
+  "feature_importance": {
+    "spy_rs_20d": 0.1682,
+    "range_pct": 0.125,
+    "momentum_20d": 0.1198,
+    "sector_rs_20d": 0.1195,
+    "momentum_60d": 0.0929,
+    "price_vs_52wh": 0.0778,
+    "spy_rs_5d": 0.0765,
+    "sector_rs_10d": 0.0619,
+    "momentum_5d": 0.0562,
+    "gap_pct": 0.0317,
+    "vol_vs_20d_avg": 0.0254,
+    "rvol": 0.023,
+    "close_strength": 0.0223
+  },
+  "top_signals": [
+    "spy_rs_20d",
+    "range_pct",
+    "momentum_20d"
+  ],
+  "threshold_strong": 0.65,
+  "threshold_moderate": 0.5,
+  "interpretation": "AUC > 0.55 = genuine edge. 60d model catches early-stage multi-month runners (MU/SNDK type). Precision = % of STRONG signals that actually outperformed SPY."
+}
