@@ -151,3 +151,4 @@
 - [Layer9 24/7 background scanner](layer9-bg-scanner.md) — layer9_scores table; 2-hour APScheduler job; feeds paper trades (source #9, score≥65) + AI Short Calls (cache-first); no other tabs; startup kick at T+3min
 - [Module B Short Squeeze Reversion](module-b-short-squeeze.md) — backtest WR_3d=40.6% below baseline; status=hypothesis; paper-trading gated on 'validated' (same as washout_ignition); NOT_IMPLEMENTED: SI%/borrow/DTC; Module F suppressed 113/251 rows (all falling_knife, 0 earnings)
 - [Polygon SI data wiring for Module B](polygon-si-module-b.md) — real FINRA data from /stocks/v1/short-interest; DTC filter does NOT improve WR; borrow_cost NOT_IMPLEMENTED; coverage frozen at 2026-03-31 for most small-caps
+- [Module L Pullback ReEntry + Module M Momentum Exhaustion](module-lm-pullback-exhaustion.md) — 6 DB tables, 8 API endpoints, backtest data-window fix (2024-10-01 for 200-bar lookback), register_signal filter must cover all states not just CONFIRMED

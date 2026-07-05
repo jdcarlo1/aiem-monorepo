@@ -174,6 +174,18 @@ except Exception as _squeeze_import_err:
     _squeeze_mod = None
     print(f"[startup] aiem_short_squeeze load warning: {_squeeze_import_err}")
 try:
+    import aiem_pullback_reentry as _pullback_mod
+    print("[startup] aiem_pullback_reentry loaded")
+except Exception as _pullback_import_err:
+    _pullback_mod = None
+    print(f"[startup] aiem_pullback_reentry load warning: {_pullback_import_err}")
+try:
+    import aiem_momentum_exhaustion as _exhaust_mod
+    print("[startup] aiem_momentum_exhaustion loaded")
+except Exception as _exhaust_import_err:
+    _exhaust_mod = None
+    print(f"[startup] aiem_momentum_exhaustion load warning: {_exhaust_import_err}")
+try:
     import aiem_position_sizing as _pos_sizer
     print("[startup] aiem_position_sizing loaded")
 except Exception as _pos_sizer_err:
@@ -1966,6 +1978,25 @@ def _init_paper_trader_schema():
         print(f"[deferred_init] paper_trader_schema failed: {_exc}")
 
 _DEFERRED_INITS.append(lambda: _init_paper_trader_schema())
+
+def _init_pullback_reentry_schema():
+    try:
+        if _pullback_mod:
+            _pullback_mod.init_schema()
+    except Exception as _exc:
+        print(f"[deferred_init] pullback_reentry schema failed: {_exc}")
+_DEFERRED_INITS.append(_init_pullback_reentry_schema)
+
+def _init_momentum_exhaustion_schema():
+    try:
+        if _exhaust_mod:
+            _exhaust_mod.init_schema()
+    except Exception as _exc:
+        print(f"[deferred_init] momentum_exhaustion schema failed: {_exc}")
+_DEFERRED_INITS.append(_init_momentum_exhaustion_schema)
+
+_DEFERRED_INITS.append(lambda: _pullback_mod.register_signal() if _pullback_mod else None)
+_DEFERRED_INITS.append(lambda: _exhaust_mod.register_signal() if _exhaust_mod else None)
 
 
 def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTION_STACK_MAX,
@@ -5247,6 +5278,53 @@ try:
             ).start(),
             _CT_aiem(day_of_week="sun", hour=23, minute=30, timezone=_ET),
             id="aiem_squeeze_backtest_weekly",
+            replace_existing=True,
+        )
+        # Module L (Pullback Re-Entry) scan: 10:30 AM and 2:30 PM ET Mon-Fri
+        def _run_pullback_scan():
+            if _pullback_mod is None:
+                return
+            import threading as _plt
+            _plt.Thread(target=_pullback_mod.run_scan, daemon=True).start()
+        for _plh, _plm in [(10, 30), (14, 30)]:
+            _scheduler.add_job(
+                _run_pullback_scan,
+                _CT_aiem(day_of_week="mon-fri", hour=_plh, minute=_plm, timezone=_ET),
+                id=f"aiem_pullback_scan_{_plh:02d}{_plm:02d}",
+                replace_existing=True,
+            )
+        # Module L historical backtest: Sunday 11:45 PM ET
+        _scheduler.add_job(
+            lambda: __import__("threading").Thread(
+                target=lambda: _pullback_mod.run_historical_backtest() if _pullback_mod else None,
+                daemon=True,
+            ).start(),
+            _CT_aiem(day_of_week="sun", hour=23, minute=45, timezone=_ET),
+            id="aiem_pullback_backtest_weekly",
+            replace_existing=True,
+        )
+        # Module M (Momentum Exhaustion) scan: 10:45 AM and 2:45 PM ET Mon-Fri
+        # Runs AFTER Module L so the conflict-check table is populated first
+        def _run_exhaust_scan():
+            if _exhaust_mod is None:
+                return
+            import threading as _ext
+            _ext.Thread(target=_exhaust_mod.run_scan, daemon=True).start()
+        for _exh, _exm in [(10, 45), (14, 45)]:
+            _scheduler.add_job(
+                _run_exhaust_scan,
+                _CT_aiem(day_of_week="mon-fri", hour=_exh, minute=_exm, timezone=_ET),
+                id=f"aiem_exhaust_scan_{_exh:02d}{_exm:02d}",
+                replace_existing=True,
+            )
+        # Module M historical backtest: Monday 12:05 AM ET (after Sunday L backtest completes)
+        _scheduler.add_job(
+            lambda: __import__("threading").Thread(
+                target=lambda: _exhaust_mod.run_historical_backtest() if _exhaust_mod else None,
+                daemon=True,
+            ).start(),
+            _CT_aiem(day_of_week="mon", hour=0, minute=5, timezone=_ET),
+            id="aiem_exhaust_backtest_weekly",
             replace_existing=True,
         )
         # Pre-close position review: 3:45 PM ET Mon-Fri (Section 8, aiem_position_sizing spec)
@@ -52575,6 +52653,188 @@ def admin_run_washout_ignition():
                         "tickers": [f["ticker"] for f in fires]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Module L — Pullback Re-Entry endpoints ────────────────────────────────────
+
+@app.route("/stock-api/pullback-reentry", methods=["GET"])
+def pullback_reentry_endpoint():
+    """
+    Module L (Pullback Re-Entry) — recent signals from aiem_pullback_signals.
+    Returns up to 60 most recent rows, newest first.
+    """
+    try:
+        import psycopg2 as _pr_pg
+        with _pr_pg.connect(os.environ["DATABASE_URL"], connect_timeout=2,
+                             options="-c statement_timeout=3000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT ticker, signal_date::text, state, higher_low_intact,
+                       support_level_type, distance_to_support_pct, rsi_reset_level,
+                       volume_pattern, relative_strength_vs_spy_status, rs_vs_spy_pp,
+                       conviction_score, earnings_excl, falling_knife,
+                       routed_to_m, detected_at::text
+                FROM aiem_pullback_signals
+                WHERE signal_date >= CURRENT_DATE - 14
+                ORDER BY signal_date DESC, conviction_score DESC
+                LIMIT 60
+            """)
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+        return jsonify({"signals": rows, "count": len(rows),
+                        "module": "L_Pullback_ReEntry",
+                        "rsi_threshold_watching": 50,
+                        "rsi_threshold_confirmed": 45})
+    except Exception as _e:
+        app.logger.error(f"[pullback-reentry] {_e}")
+        return jsonify({"signals": [], "count": 0, "stale": True}), 200
+
+
+@app.route("/stock-api/pullback-reentry/routing-log", methods=["GET"])
+def pullback_routing_log_endpoint():
+    """L→M routing log: tickers where higher-low failed and were routed to Module M."""
+    try:
+        import psycopg2 as _pr_pg
+        with _pr_pg.connect(os.environ["DATABASE_URL"], connect_timeout=2,
+                             options="-c statement_timeout=3000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT ticker, event_date::text, reason, detail, logged_at::text
+                FROM aiem_lm_routing_log
+                WHERE event_date >= CURRENT_DATE - 14
+                ORDER BY logged_at DESC LIMIT 100
+            """)
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+        return jsonify({"routing_events": rows, "count": len(rows)})
+    except Exception as _e:
+        return jsonify({"routing_events": [], "count": 0, "error": str(_e)}), 200
+
+
+@app.route("/stock-api/lm-conflict-log", methods=["GET"])
+def lm_conflict_log_endpoint():
+    """L/M conflict log: tickers where both modules evaluated simultaneously."""
+    try:
+        import psycopg2 as _lm_pg
+        with _lm_pg.connect(os.environ["DATABASE_URL"], connect_timeout=2,
+                             options="-c statement_timeout=3000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT ticker, conflict_date::text, l_state, m_signals_count,
+                       winner, reason, logged_at::text
+                FROM aiem_lm_conflict_log
+                WHERE conflict_date >= CURRENT_DATE - 14
+                ORDER BY logged_at DESC LIMIT 100
+            """)
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+        return jsonify({"conflicts": rows, "count": len(rows)})
+    except Exception as _e:
+        return jsonify({"conflicts": [], "count": 0, "error": str(_e)}), 200
+
+
+@app.route("/stock-api/admin/run-pullback-reentry", methods=["POST"])
+def admin_run_pullback_reentry():
+    """Admin: trigger Module L scan immediately."""
+    import hmac as _hmac_pr
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _want or not _hmac_pr.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    if _pullback_mod is None:
+        return jsonify({"error": "module not loaded"}), 503
+    import threading as _plt2
+    _plt2.Thread(target=_pullback_mod.run_scan, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/stock-api/admin/run-pullback-backtest", methods=["POST"])
+def admin_run_pullback_backtest():
+    """Admin: trigger Module L historical backtest (force=False by default)."""
+    import hmac as _hmac_pb
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _want or not _hmac_pb.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    if _pullback_mod is None:
+        return jsonify({"error": "module not loaded"}), 503
+    force = request.json.get("force", False) if request.is_json else False
+    import threading as _pbt
+    _pbt.Thread(target=lambda: _pullback_mod.run_historical_backtest(force=force), daemon=True).start()
+    return jsonify({"status": "started", "force": force})
+
+
+# ── Module M — Momentum Exhaustion endpoints ──────────────────────────────────
+
+@app.route("/stock-api/momentum-exhaustion", methods=["GET"])
+def momentum_exhaustion_endpoint():
+    """
+    Module M (Momentum Exhaustion) — recent signals from aiem_exhaustion_signals.
+    Returns up to 60 most recent rows, newest first.
+    """
+    try:
+        import psycopg2 as _me_pg
+        with _me_pg.connect(os.environ["DATABASE_URL"], connect_timeout=2,
+                             options="-c statement_timeout=3000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT ticker, signal_date::text, state, signals_triggered_count,
+                       signals_triggered_list, structure_break_confirmed,
+                       distribution_days_count, relative_strength_status, rs_bounce_pp,
+                       ema21_status, breadth_status, earnings_revision_status,
+                       concentration_extreme_status, concentration_pct,
+                       cross_market_speculative_rollover_count,
+                       conviction_score, position_action, l_active_override_applied,
+                       detected_at::text
+                FROM aiem_exhaustion_signals
+                WHERE signal_date >= CURRENT_DATE - 14
+                ORDER BY signal_date DESC, signals_triggered_count DESC
+                LIMIT 60
+            """)
+            cols = [d[0] for d in _cur.description]
+            rows = [dict(zip(cols, r)) for r in _cur.fetchall()]
+        return jsonify({
+            "signals": rows, "count": len(rows),
+            "module": "M_Momentum_Exhaustion",
+            "min_signals_to_fire": 3,
+            "min_signals_override_when_L_active": 5,
+            "position_action_map": {
+                "3-4": "PARTIAL_DE_RISK (25-50%)",
+                "5-6": "REDUCE (50-75%)",
+                "7-8": "FULL_EXIT",
+            },
+            "s8_status": "NOT_IMPLEMENTED",
+        })
+    except Exception as _e:
+        app.logger.error(f"[momentum-exhaustion] {_e}")
+        return jsonify({"signals": [], "count": 0, "stale": True}), 200
+
+
+@app.route("/stock-api/admin/run-momentum-exhaustion", methods=["POST"])
+def admin_run_momentum_exhaustion():
+    """Admin: trigger Module M scan immediately."""
+    import hmac as _hmac_me
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _want or not _hmac_me.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    if _exhaust_mod is None:
+        return jsonify({"error": "module not loaded"}), 503
+    import threading as _ext2
+    _ext2.Thread(target=_exhaust_mod.run_scan, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/stock-api/admin/run-exhaustion-backtest", methods=["POST"])
+def admin_run_exhaustion_backtest():
+    """Admin: trigger Module M historical backtest."""
+    import hmac as _hmac_eb
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _want or not _hmac_eb.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    if _exhaust_mod is None:
+        return jsonify({"error": "module not loaded"}), 503
+    force = request.json.get("force", False) if request.is_json else False
+    import threading as _ebt
+    _ebt.Thread(target=lambda: _exhaust_mod.run_historical_backtest(force=force), daemon=True).start()
+    return jsonify({"status": "started", "force": force})
 
 
 # ── CTA Trigger Alert ─────────────────────────────────────────────────────────
