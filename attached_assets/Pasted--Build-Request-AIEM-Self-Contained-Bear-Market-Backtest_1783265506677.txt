@@ -1,0 +1,36 @@
+# Build Request: AIEM Self-Contained Bear Market Backtest Module
+
+## Directive
+Do not run this backtest manually yourself and report the numbers to me. Instead, build a permanent, reusable backtest function directly into AIEM's own codebase. AIEM itself must execute the analysis and generate the output. Your job is to build the capability once, trigger it, and relay AIEM's own generated results back to me — not to do the calculation work in an ad hoc script outside AIEM.
+
+This needs to be a standing capability inside AIEM (e.g. `run_backtest(start_date, end_date, signal_params)` or similar), not a one-off query, so it can be re-run in the future without rebuilding it.
+
+## What the function must do
+Given a date range and signal parameters, AIEM must independently:
+1. Pull SPY daily price history for that range from `polygon_market_daily`
+2. Apply the panic exhaustion entry logic: `spy_20d_ret < -5.0` (crossing below)
+3. Simulate every signal instance in that range with:
+   - 11 trading day hold period
+   - -8% stop-loss from entry (specify intraday or close-based)
+4. Compute and return: n (signal count), win rate, average return (including stopped-out trades, not excluding them), worst single trade, number of stop-outs, max consecutive losing signals, and total cumulative return if every signal were taken sequentially with equal sizing
+
+## Test it against these periods once built
+- 2000-2002 dot-com bear market
+- 2007-2009 financial crisis
+- 2022 grinding bear market
+- 2020 COVID crash (secondary comparison — flag that this recovered unusually fast)
+
+If `polygon_market_daily` doesn't have SPY data that far back, AIEM's own output must state that explicitly (earliest available date), not substitute another ticker or estimate.
+
+## Verification required — strict, no exceptions
+1. Paste the actual code you added implementing `run_backtest()` (or equivalent) inside AIEM — verbatim, with line numbers, showing it's part of AIEM's codebase and not a standalone script you ran separately.
+2. Show the actual function call/trigger you used to invoke it (e.g. via admin endpoint, CLI, or scheduled job) — I want to see AIEM being invoked, not you computing the numbers directly.
+3. Paste AIEM's raw output for each of the four test periods — this must be the literal output AIEM generated (terminal output, DB rows, or API response), not your own summary or restatement of numbers.
+4. If AIEM writes these results anywhere persistent (a DB table, a log), show the actual row/record AIEM created, the same way we verified `startup_events` earlier — a real row, real timestamp, queryable independently.
+5. Confirm explicitly: did AIEM compute these numbers, or did you compute them and AIEM just echoed them? I need a straight answer. If you had to compute anything by hand or in a side script because AIEM's function didn't actually run, say so — do not present hand-computed numbers as AIEM's output.
+
+## Rules
+- No blended/averaged numbers across periods — report each bear market separately.
+- Do not exclude stopped-out trades from win rate or average return.
+- Do not estimate or backfill missing data — state "no data available" if a period isn't covered.
+- This module should be reusable going forward — I don't want to pay for this analysis to be redone manually every time I have a new question. That's the entire point of building it into AIEM instead of running it as a one-off.

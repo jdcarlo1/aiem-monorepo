@@ -892,6 +892,284 @@ def _backtest_summary(cur) -> dict:
         f"Primary gate: SPY 20d < {SPY_20D_PANIC_THRESHOLD}% (panic exhaustion regime)"
     )}
 
+# ── SPY Bear-Market Macro Backtest ────────────────────────────────────────────
+
+def run_panic_exhaustion_backtest(
+    start_date: str,
+    end_date: str,
+    spy_threshold: float = SPY_20D_PANIC_THRESHOLD,
+    hold_days: int = 11,
+    stop_loss_pct: float = -8.0,
+    period_label: str = "",
+) -> dict:
+    """
+    Self-contained SPY panic-exhaustion macro backtest.
+
+    Entry: SPY 20-trading-day return CROSSES BELOW spy_threshold
+           (ret[t-1] >= threshold AND ret[t] < threshold — each crossing
+           is an independent trade regardless of whether a prior trade
+           is still open).
+    Exit:  Close-based stop at entry*(1 + stop_loss_pct/100)
+           OR close of the hold_days-th bar (whichever fires first).
+    Data:  polygon_market_daily, ticker='SPY'.  If the period is not
+           covered, returns data_available=False and an explicit note.
+
+    Persists one row to panic_exhaustion_backtest_runs per call.
+    """
+    if not _DB_URL:
+        return {"error": "no DB_URL", "period_label": period_label}
+
+    import datetime as _dt
+    try:
+        _start = _dt.date.fromisoformat(start_date)
+        _end   = _dt.date.fromisoformat(end_date)
+    except Exception as _e:
+        return {"error": f"bad date: {_e}"}
+
+    _warmup = _start - _dt.timedelta(days=60)  # ~30 trading-day warmup
+
+    try:
+        with psycopg2.connect(_DB_URL, options="-c statement_timeout=30000") as conn, \
+             conn.cursor() as cur:
+
+            # ── ensure results table exists ────────────────────────────────
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS panic_exhaustion_backtest_runs (
+                    id                     BIGSERIAL PRIMARY KEY,
+                    run_time               TIMESTAMPTZ DEFAULT NOW(),
+                    period_label           TEXT,
+                    start_date             DATE,
+                    end_date               DATE,
+                    spy_threshold_pct      FLOAT,
+                    hold_days              INTEGER,
+                    stop_loss_pct          FLOAT,
+                    data_available         BOOLEAN,
+                    earliest_spy_in_range  DATE,
+                    latest_spy_in_range    DATE,
+                    n                      INTEGER,
+                    win_rate               FLOAT,
+                    avg_return_pct         FLOAT,
+                    worst_trade_pct        FLOAT,
+                    num_stop_outs          INTEGER,
+                    max_consecutive_losses INTEGER,
+                    cumulative_return_pct  FLOAT,
+                    trades_json            TEXT
+                )
+            """)
+            conn.commit()
+
+            # ── fetch SPY closes (warmup + test window) ────────────────────
+            cur.execute("""
+                SELECT scan_date, close_price
+                FROM polygon_market_daily
+                WHERE ticker = 'SPY'
+                  AND scan_date >= %s AND scan_date <= %s
+                ORDER BY scan_date
+            """, (_warmup, _end))
+            rows = cur.fetchall()
+
+            label = period_label or f"{start_date} to {end_date}"
+
+            def _persist_no_data(note_txt):
+                cur.execute("""
+                    INSERT INTO panic_exhaustion_backtest_runs
+                        (period_label, start_date, end_date,
+                         spy_threshold_pct, hold_days, stop_loss_pct,
+                         data_available, n, win_rate, avg_return_pct,
+                         worst_trade_pct, num_stop_outs,
+                         max_consecutive_losses, cumulative_return_pct,
+                         trades_json)
+                    VALUES (%s,%s,%s,%s,%s,%s,FALSE,0,
+                            NULL,NULL,NULL,0,0,NULL,%s)
+                """, (label, _start, _end,
+                      spy_threshold, hold_days, stop_loss_pct,
+                      json.dumps([])))
+                conn.commit()
+                return {
+                    "period_label": label,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "data_available": False,
+                    "spy_threshold_pct": spy_threshold,
+                    "hold_days": hold_days,
+                    "stop_loss_pct": stop_loss_pct,
+                    "note": note_txt,
+                }
+
+            # No SPY data at all in the warmup window
+            if not rows:
+                return _persist_no_data(
+                    f"No SPY data in polygon_market_daily for the period "
+                    f"{start_date} to {end_date}. "
+                    f"polygon_market_daily SPY coverage: 2024-07-08 to 2026-07-02."
+                )
+
+            all_dates  = [r[0] for r in rows]
+            all_closes = [float(r[1]) for r in rows]
+
+            # Find bars that fall within the actual test window
+            in_range_idx = [k for k, d in enumerate(all_dates) if d >= _start]
+            if not in_range_idx:
+                return _persist_no_data(
+                    f"No SPY data in polygon_market_daily for the test window "
+                    f"{start_date} to {end_date}. "
+                    f"polygon_market_daily SPY coverage: 2024-07-08 to 2026-07-02."
+                )
+
+            earliest_in_range = all_dates[in_range_idx[0]]
+            latest_in_range   = all_dates[in_range_idx[-1]]
+            n_all = len(all_dates)
+
+            # ── detect crossing-below signals ──────────────────────────────
+            stop_mult = 1.0 + stop_loss_pct / 100.0
+            trades = []
+
+            for i in range(21, n_all):
+                d = all_dates[i]
+                if d < _start:
+                    continue
+                if d > _end:
+                    break
+                if all_closes[i - 20] <= 0 or all_closes[i - 21] <= 0:
+                    continue
+
+                ret_t   = (all_closes[i]   - all_closes[i - 20]) / all_closes[i - 20] * 100.0
+                ret_tm1 = (all_closes[i-1] - all_closes[i - 21]) / all_closes[i - 21] * 100.0
+
+                # CROSSING BELOW only
+                if not (ret_tm1 >= spy_threshold and ret_t < spy_threshold):
+                    continue
+
+                entry_px  = all_closes[i]
+                stop_px   = entry_px * stop_mult
+                fwd_slice = list(zip(
+                    all_dates [i + 1 : i + 1 + hold_days],
+                    all_closes[i + 1 : i + 1 + hold_days],
+                ))
+                if not fwd_slice:
+                    continue  # no forward data
+
+                exit_px     = None
+                exit_date   = None
+                stopped_out = False
+                for k, (d_j, c_j) in enumerate(fwd_slice):
+                    if c_j <= stop_px:
+                        exit_px     = c_j
+                        exit_date   = d_j
+                        stopped_out = True
+                        break
+                    if k == len(fwd_slice) - 1:
+                        exit_px   = c_j
+                        exit_date = d_j
+
+                if exit_px is None or entry_px <= 0:
+                    continue
+
+                ret_pct = (exit_px - entry_px) / entry_px * 100.0
+                trades.append({
+                    "signal_date": str(d),
+                    "entry_price": round(entry_px, 4),
+                    "exit_date":   str(exit_date),
+                    "exit_price":  round(exit_px, 4),
+                    "stopped_out": stopped_out,
+                    "return_pct":  round(ret_pct, 4),
+                    "spy_20d_ret": round(ret_t, 4),
+                })
+
+            # ── compute aggregate stats ────────────────────────────────────
+            n = len(trades)
+            if n == 0:
+                stats: dict = {
+                    "period_label": label,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "data_available": True,
+                    "earliest_spy_in_range": str(earliest_in_range),
+                    "latest_spy_in_range":   str(latest_in_range),
+                    "spy_threshold_pct": spy_threshold,
+                    "hold_days": hold_days,
+                    "stop_loss_pct": stop_loss_pct,
+                    "n": 0,
+                    "note": (
+                        "Data is available but SPY 20d return never crossed "
+                        f"below {spy_threshold}% in this period."
+                    ),
+                }
+            else:
+                returns = [t["return_pct"] for t in trades]
+                wins    = sum(1 for r in returns if r > 0)
+                win_rate = wins / n
+                avg_ret  = sum(returns) / n
+                worst    = min(returns)
+                n_stops  = sum(1 for t in trades if t["stopped_out"])
+
+                max_cl = cur_cl = 0
+                for r in returns:
+                    if r <= 0:
+                        cur_cl += 1
+                        max_cl  = max(max_cl, cur_cl)
+                    else:
+                        cur_cl = 0
+
+                cum = 1.0
+                for r in returns:
+                    cum *= 1.0 + r / 100.0
+                cum_ret = (cum - 1.0) * 100.0
+
+                stats = {
+                    "period_label": label,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "data_available": True,
+                    "earliest_spy_in_range": str(earliest_in_range),
+                    "latest_spy_in_range":   str(latest_in_range),
+                    "spy_threshold_pct": spy_threshold,
+                    "hold_days": hold_days,
+                    "stop_loss_pct": stop_loss_pct,
+                    "n": n,
+                    "win_rate": round(win_rate, 4),
+                    "avg_return_pct": round(avg_ret, 4),
+                    "worst_trade_pct": round(worst, 4),
+                    "num_stop_outs": n_stops,
+                    "max_consecutive_losses": max_cl,
+                    "cumulative_return_pct": round(cum_ret, 4),
+                    "trades": trades,
+                }
+
+            # ── persist ────────────────────────────────────────────────────
+            cur.execute("""
+                INSERT INTO panic_exhaustion_backtest_runs
+                    (period_label, start_date, end_date,
+                     spy_threshold_pct, hold_days, stop_loss_pct,
+                     data_available,
+                     earliest_spy_in_range, latest_spy_in_range,
+                     n, win_rate, avg_return_pct, worst_trade_pct,
+                     num_stop_outs, max_consecutive_losses,
+                     cumulative_return_pct, trades_json)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                stats["period_label"],
+                _start, _end,
+                spy_threshold, hold_days, stop_loss_pct,
+                stats.get("data_available", True),
+                stats.get("earliest_spy_in_range"),
+                stats.get("latest_spy_in_range"),
+                stats.get("n", 0),
+                stats.get("win_rate"),
+                stats.get("avg_return_pct"),
+                stats.get("worst_trade_pct"),
+                stats.get("num_stop_outs", 0),
+                stats.get("max_consecutive_losses", 0),
+                stats.get("cumulative_return_pct"),
+                json.dumps(trades),
+            ))
+            conn.commit()
+            return stats
+
+    except Exception as e:
+        return {"error": str(e), "period_label": period_label}
+
+
 # ── BH-FDR registration ────────────────────────────────────────────────────────
 
 def register_signal() -> None:

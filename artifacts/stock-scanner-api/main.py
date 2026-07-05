@@ -13699,6 +13699,51 @@ def admin_check_panic_exhaustion():
     return jsonify({"status": "triggered"})
 
 
+@app.route("/stock-api/admin/run-panic-exhaustion-backtest", methods=["POST"])
+def admin_run_panic_exhaustion_backtest():
+    """
+    Trigger the Module L SPY panic-exhaustion bear-market backtest for one period.
+
+    POST body (JSON):
+        start_date    — YYYY-MM-DD (required)
+        end_date      — YYYY-MM-DD (required)
+        spy_threshold — float, default -5.0
+        hold_days     — int, default 11
+        stop_loss_pct — float, default -8.0
+        period_label  — string label (optional)
+
+    Returns AIEM's own output dict verbatim.
+    Each call persists one row to panic_exhaustion_backtest_runs.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    body = request.get_json(silent=True) or {}
+    start_date    = body.get("start_date")
+    end_date      = body.get("end_date")
+    if not start_date or not end_date:
+        return jsonify({"error": "start_date and end_date required"}), 400
+    spy_threshold = float(body.get("spy_threshold", -5.0))
+    hold_days     = int(body.get("hold_days", 11))
+    stop_loss_pct = float(body.get("stop_loss_pct", -8.0))
+    period_label  = str(body.get("period_label", ""))
+    try:
+        from aiem_pullback_reentry import run_panic_exhaustion_backtest as _rpeb
+        result = _rpeb(
+            start_date=start_date,
+            end_date=end_date,
+            spy_threshold=spy_threshold,
+            hold_days=hold_days,
+            stop_loss_pct=stop_loss_pct,
+            period_label=period_label,
+        )
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(
+        __import__("json").dumps(result, default=str),
+        mimetype="application/json",
+    )
+
+
 def _init_daily_fundamentals_snapshot_table():
     """Create the daily_fundamentals_snapshot table if it doesn't exist."""
     try:
@@ -29593,6 +29638,7 @@ def _build_aiem_tool_map():
         "get_current_regime":       _aiem_tool_get_current_regime,
         "build_features":           _aiem_tool_build_features,
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
+        "run_panic_exhaustion_backtest": _aiem_tool_run_panic_exhaustion_backtest,
         "run_level2":               _aiem_tool_run_level2,
         "run_backtest":             _aiem_tool_run_backtest,
         "analyze_metrics":          _aiem_tool_analyze_metrics,
@@ -31749,6 +31795,27 @@ _AIEM_AGENT_TOOLS = [
             "symbol":    {"type": "string",  "description": "Ticker symbol (e.g. AAPL)"},
             "days_back": {"type": "integer", "description": "Days of polygon_market_daily history (default 200)"},
         }, "required": ["symbol"]},
+    }},
+    {"type": "function", "function": {
+        "name": "run_panic_exhaustion_backtest",
+        "description": (
+            "Run the Module L SPY panic-exhaustion bear-market backtest over any date range. "
+            "Entry = SPY 20-trading-day return crosses below spy_threshold (default -5%). "
+            "Exit = close-based stop at -8% from entry OR close on hold_days trading days (default 11). "
+            "Returns: n, win_rate, avg_return_pct, worst_trade_pct, num_stop_outs, "
+            "max_consecutive_losses, cumulative_return_pct, individual trades. "
+            "If polygon_market_daily has no SPY data for the period, returns data_available=False "
+            "with an explicit note (coverage starts 2024-07-08). "
+            "Each call persists one row to panic_exhaustion_backtest_runs."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "start_date":    {"type": "string",  "description": "Test period start YYYY-MM-DD"},
+            "end_date":      {"type": "string",  "description": "Test period end YYYY-MM-DD"},
+            "spy_threshold": {"type": "number",  "description": "20d return crossing gate (default -5.0)"},
+            "hold_days":     {"type": "integer", "description": "Trading-day hold period (default 11)"},
+            "stop_loss_pct": {"type": "number",  "description": "Close-based stop-loss % (default -8.0)"},
+            "period_label":  {"type": "string",  "description": "Human label for the period (e.g. '2022 bear market')"},
+        }, "required": ["start_date", "end_date"]},
     }},
     {"type": "function", "function": {
         "name": "run_backtest",
@@ -34318,6 +34385,34 @@ def _aiem_tool_run_level2(symbol: str = "AAPL", days_back: int = 200) -> dict:
         return _L2().run(symbol.upper().strip(), days_back=int(days_back))
     except Exception as _e:
         return {"error": str(_e)}
+
+def _aiem_tool_run_panic_exhaustion_backtest(
+    start_date: str = "2024-07-08",
+    end_date: str = "2026-07-02",
+    spy_threshold: float = -5.0,
+    hold_days: int = 11,
+    stop_loss_pct: float = -8.0,
+    period_label: str = "",
+) -> dict:
+    """
+    Run the Module L SPY panic-exhaustion bear-market backtest.
+    Queries polygon_market_daily for SPY closes, detects crossing-below signals,
+    simulates close-based stop-loss and fixed hold, returns full stats + persists
+    one row to panic_exhaustion_backtest_runs.
+    """
+    try:
+        from aiem_pullback_reentry import run_panic_exhaustion_backtest as _rpeb
+        return _rpeb(
+            start_date=str(start_date),
+            end_date=str(end_date),
+            spy_threshold=float(spy_threshold),
+            hold_days=int(hold_days),
+            stop_loss_pct=float(stop_loss_pct),
+            period_label=str(period_label),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
 
 def _aiem_tool_run_backtest(symbol: str = "AAPL",
                             days_back: int = 252,
