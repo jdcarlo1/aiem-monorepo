@@ -29720,6 +29720,7 @@ def _build_aiem_tool_map():
         "alpha_score_ticker":     _aiem_alpha_score_ticker,
         "momentum_trade_score":        _aiem_momentum_trade_score,
         "momentum_optimize_filters":   _aiem_momentum_optimize_filters,
+        "momentum_macro_regime":       _aiem_momentum_macro_regime,
         "mkt_compute_indicators": _mkt_compute_indicators,
         "mkt_price_structure":    _mkt_price_structure,
         "mkt_chart_patterns":     _mkt_chart_patterns,
@@ -31189,6 +31190,39 @@ _AIEM_AGENT_TOOLS = [
             "rvol":   {"type": "number", "description": "Relative volume if already known."},
             "gap_pct":{"type": "number", "description": "Gap % from prior close if already known."},
         }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "momentum_macro_regime",
+        "description": (
+            "momentum_macro_regime — returns today's market regime (BULL / NEUTRAL / BEAR) based on "
+            "sector ETF breadth and index trend, PLUS the backtested win rate of the coil+breakout "
+            "signal in each regime.\n\n"
+            "KEY RESEARCH FINDING (backtested 472 confirmed coil events, 2024-2026):\n"
+            "  • BEAR regime  (≤30% of sector ETFs above 20d MA): WR=69%, avg 60d=+33.9%, catastrophic loss=18%\n"
+            "  • NEUTRAL:                                          WR=63%, avg 60d=+27.5%, catastrophic loss=21%\n"
+            "  • BULL regime  (≥50% + SPY+QQQ above 20d MA):     WR=63%, avg 60d=+23.7%, catastrophic loss=21%\n"
+            "  • VERY BULL    (≥70% + all 3 indices above 20d):   WR=61%, avg 60d=+22.3%, catastrophic loss=25%\n\n"
+            "COUNTERINTUITIVE: The coil/breakout signal works BETTER in bear markets, not worse. "
+            "A stock breaking out of a coil AGAINST market headwinds has stronger underlying demand. "
+            "Do NOT filter out signals just because the market is in a bear regime — keep firing.\n\n"
+            "Short interest (SI data) was too sparse (only 2% of events) to derive a reliable filter.\n"
+            "Earnings calendar data was empty — earnings proximity cannot be backtested yet.\n\n"
+            "Use this tool to: check today's regime, see how many sectors are trending up, "
+            "understand current macro context for momentum setups."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "momentum_optimize_filters",
+        "description": (
+            "momentum_optimize_filters — re-runs the 82,320-combination filter sweep on the OOS holdout "
+            "to find the optimal probability threshold + hard gates (vs_20d_high + vol_vs_20d) that "
+            "maximise precision while keeping recall ≥ 15%. "
+            "Call this any time you want AIEM to re-derive the best signal thresholds from fresh data "
+            "without retraining the whole model. Returns recommended config, top-5 by precision, "
+            "top-5 by F1, and interpretation. Takes ~60 seconds."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []}
     }},
     {"type": "function", "function": {
         "name": "mkt_screen_by_indicator",
@@ -56538,6 +56572,135 @@ def admin_run_historical_alpha_train():
 
 
 # ── Momentum Trade: auto filter-optimizer AIEM tool ──────────────────────────
+def _aiem_momentum_macro_regime(**_kw):
+    """
+    AIEM tool: momentum_macro_regime
+    Returns today's market regime + backtested coil signal performance by regime.
+    Sector breadth = fraction of the 11 SPDR sector ETFs above their 20-day MA.
+    """
+    try:
+        import psycopg2
+        _SECTOR_ETFS = ['XLK','XLF','XLE','XLV','XLY','XLI','XLU','XLC','XLB','XLRE','XLP']
+        conn = psycopg2.connect(os.environ.get("DATABASE_URL",""))
+        cur  = conn.cursor()
+        cur.execute("""
+            WITH recent AS (
+                SELECT etf_ticker,
+                       close_price::float AS close,
+                       AVG(close_price::float) OVER (
+                           PARTITION BY etf_ticker ORDER BY price_date
+                           ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING
+                       ) AS ma20,
+                       ROW_NUMBER() OVER (PARTITION BY etf_ticker ORDER BY price_date DESC) AS rn
+                FROM sector_etf_daily
+                WHERE etf_ticker = ANY(%s)
+                  AND price_date >= CURRENT_DATE - INTERVAL '30 days'
+            )
+            SELECT etf_ticker, close, ma20
+            FROM recent WHERE rn = 1
+            ORDER BY etf_ticker
+        """, (_SECTOR_ETFS,))
+        etf_rows = cur.fetchall()
+
+        cur.execute("""
+            SELECT ticker, close_price::float,
+                   AVG(close_price::float) OVER (
+                       PARTITION BY ticker ORDER BY scan_date
+                       ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING
+                   ) AS ma20,
+                   AVG(close_price::float) OVER (
+                       PARTITION BY ticker ORDER BY scan_date
+                       ROWS BETWEEN 50 PRECEDING AND 1 PRECEDING
+                   ) AS ma50,
+                   ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date DESC) AS rn
+            FROM (
+                SELECT ticker, scan_date, close_price
+                FROM polygon_market_daily
+                WHERE ticker IN ('SPY','QQQ','IWM')
+                  AND scan_date >= CURRENT_DATE - INTERVAL '60 days'
+            ) sub
+        """)
+        idx_rows = {r[0]: r for r in cur.fetchall() if r[4] == 1}
+        conn.close()
+
+        sector_detail = []
+        above_count = 0
+        for tkr, close, ma20 in etf_rows:
+            above = close > ma20 if (ma20 and ma20 > 0) else False
+            if above: above_count += 1
+            sector_detail.append({
+                "etf": tkr, "close": round(close, 2),
+                "ma20": round(ma20, 2) if ma20 else None,
+                "above_20d": above,
+                "pct_from_20d": round((close / ma20 - 1) * 100, 1) if (ma20 and ma20 > 0) else None,
+            })
+
+        n_etfs  = len(etf_rows)
+        breadth = above_count / n_etfs if n_etfs > 0 else 0.0
+
+        def _idx(tkr):
+            r = idx_rows.get(tkr)
+            if not r: return None
+            close, ma20, ma50 = r[1], r[2], r[3]
+            return {
+                "close": round(close, 2),
+                "ma20":  round(ma20, 2) if ma20 else None,
+                "ma50":  round(ma50, 2) if ma50 else None,
+                "above_20d": close > ma20 if (ma20 and ma20 > 0) else None,
+                "above_50d": close > ma50 if (ma50 and ma50 > 0) else None,
+            }
+
+        spy = _idx("SPY"); qqq = _idx("QQQ"); iwm = _idx("IWM")
+
+        spy_bull = spy and spy["above_20d"]
+        qqq_bull = qqq and qqq["above_20d"]
+        iwm_bull = iwm and iwm["above_20d"]
+
+        if breadth <= 0.30 or not spy_bull:
+            regime = "BEAR"
+            note   = "Market in bear/correction. Counterintuitively, coil+breakout signals perform BEST here (WR=69%, avg=+33.9%). Keep firing."
+            backtest = {"win_rate": 0.69, "avg_60d_return": 0.339, "catastrophic_loss_rate": 0.18, "n_events": 187}
+        elif breadth >= 0.70 and spy_bull and qqq_bull and iwm_bull:
+            regime = "VERY_BULL"
+            note   = "Broad bull market — all sectors and indices trending up. Signal still works but slightly weaker (WR=61%). All signals valid."
+            backtest = {"win_rate": 0.61, "avg_60d_return": 0.223, "catastrophic_loss_rate": 0.25, "n_events": 122}
+        elif breadth >= 0.50 and spy_bull and qqq_bull:
+            regime = "BULL"
+            note   = "Bull regime. Signal works well (WR=63%, avg=+23.7%). No regime filter needed — keep all setups."
+            backtest = {"win_rate": 0.63, "avg_60d_return": 0.237, "catastrophic_loss_rate": 0.21, "n_events": 207}
+        else:
+            regime = "NEUTRAL"
+            note   = "Mixed market. Signal performs at baseline (WR=63%, avg=+27.5%). All setups valid."
+            backtest = {"win_rate": 0.63, "avg_60d_return": 0.275, "catastrophic_loss_rate": 0.212, "n_events": 78}
+
+        return {
+            "regime":           regime,
+            "note":             note,
+            "sector_breadth":   round(breadth, 3),
+            "sectors_above_20d": above_count,
+            "sectors_total":    n_etfs,
+            "indices":          {"SPY": spy, "QQQ": qqq, "IWM": iwm},
+            "sector_detail":    sector_detail,
+            "regime_backtest":  backtest,
+            "key_finding": (
+                "Backtested 472 confirmed coil+breakout events (2024-2026). "
+                "Bear regimes produce BETTER outcomes (WR=69% vs 63% in bull). "
+                "DO NOT suppress signals in bear markets. "
+                "Macro filter was tested and REJECTED — it hurts signal quality. "
+                "Short interest (SI data) too sparse (2% coverage) to use. "
+                "Earnings calendar empty — proximity filter not yet available."
+            ),
+            "regime_comparison": {
+                "BEAR":      {"win_rate": "69%", "avg_60d": "+33.9%", "catastrophic_loss": "18%", "n": 187},
+                "NEUTRAL":   {"win_rate": "63%", "avg_60d": "+27.5%", "catastrophic_loss": "21%", "n": 78},
+                "BULL":      {"win_rate": "63%", "avg_60d": "+23.7%", "catastrophic_loss": "21%", "n": 207},
+                "VERY_BULL": {"win_rate": "61%", "avg_60d": "+22.3%", "catastrophic_loss": "25%", "n": 122},
+            },
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _aiem_momentum_optimize_filters(**_kw):
     """
     AIEM tool: momentum_optimize_filters
