@@ -1,0 +1,16 @@
+# Before I Approve — Two Quick Confirmations
+
+yfinance is approved as the data source. Before you run the actual backfill, confirm these two things:
+
+## 1. Close price spot-check (not just Open/High)
+Your spot-check table showed Open and High for 2001-01-02, 2008-09-02, and 2022-01-03. The panic exhaustion signal uses **Close** (`spy_20d_ret` is calculated from close prices), not Open or High. Paste the actual **Close** value for those same three dates from the yfinance pull, so I can sanity-check them against any independent source before trusting them in the backtest.
+
+## 2. Seam continuity check at the 2024-07-08 boundary
+Existing rows from 2024-07-08 forward came from Polygon. New rows before that date will come from yfinance. Two different sources can have small discrepancies (different close-price conventions, timing of end-of-day snapshot, etc.) even when both claim "unadjusted close."
+
+Confirm: pull the yfinance Close for 2024-07-05 (or the closest trading day before the existing Polygon coverage starts) and compare it directly against the Polygon-sourced close_price for 2024-07-08 (the first existing row) or the nearest overlapping date if there's any overlap. If there's no overlapping date, pull yfinance's value for a date that IS already in polygon_market_daily (any date in the existing 2024-07-08 to 2026-07-02 range) and compare it directly to the existing Polygon value for that same date. If they match closely (sub-1% difference, ideally sub-0.1%), the seam is clean. If they diverge meaningfully, flag it before proceeding — a discontinuity right at the boundary would corrupt any 20-day return calculation that spans both data sources.
+
+## 3. SPY split history
+Confirm SPY has had no stock splits in its history (I believe this is true, but confirm rather than assume) that would make yfinance's raw Close inconsistent with itself across the full 2000-2026 range.
+
+Once these three checks come back clean, proceed with the actual backfill using the plan already described (yfinance → polygon_market_daily, ON CONFLICT DO NOTHING, NULL for Polygon-only fields). Then follow the full verification checklist from the original backfill request (before/after row counts, spot-check rows, re-run of the three historical backtests).
