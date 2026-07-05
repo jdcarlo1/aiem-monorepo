@@ -1,42 +1,44 @@
 ---
-name: AIEM paper-trading exit now uses full technical stack
-description: 4PM mark-to-market exit judgment wired to same indicator/specialist stack as entry; token-budget gotcha for per-item JSON array LLM calls
+name: AIEM paper-trading exit — rules-based, no OpenAI
+description: 4PM MTM exit judgment is now a pure indicator rules engine; no LLM call; architectural decision that AIEM owns all exit decisions itself
 ---
 
-## What changed
-`_aiem_paper_mark_to_market()` (4PM hold/exit decision) previously reasoned from
-raw OHLCV/vwap/rvol/gap_pct/close_strength only. It now also computes, per open
-position, the same stack already used at entry: `_mkt_compute_indicators()`
-(RSI-14, Stoch %K, CMF-20 + signal, MACD hist, ADX-14, overall buy/sell/neutral),
-`_social_sentiment` bullish %, `_fred_macro` risk-on/off bias, and a
-`_specialist_council` weighted verdict (-1 exit-leaning to +1 hold-leaning).
-These are added to each position's JSON block and the GPT exit prompt explains
-how to weigh them alongside price action.
+## Current state
+`_aiem_paper_mark_to_market()` (4PM hold/exit decision) collects the full
+indicator stack per position — RSI-14, MACD hist, CMF-20 + signal,
+close_strength, specialist_council_score, macro_bias (FRED), social sentiment
+bullish % — then runs each position through `_rules_mtm_decision()`, a local
+pure-Python rules function. **No OpenAI call.** AIEM decides from its own data.
 
-Field names from `_mkt_compute_indicators()` return value: the indicator values
-live under `result["snapshot"]` (e.g. `snapshot["rsi_14"]`, NOT `rsi14`), and
-`signal_summary` is nested *inside* `snapshot`, not a top-level key of the
-return dict. Easy to get wrong — always re-check field names against the
-function source, don't assume.
+## Rules engine logic (`_rules_mtm_decision`)
+Exit evidence (any count, exit wins if ≥2 and exit_ev > hold_ev):
+- RSI ≥ 72 → overbought
+- MACD hist < 0 → momentum fading
+- CMF signal "distribution" or cmf_20 < -0.10 → money flowing out
+- close_strength ≤ 0.35 → closed near lows
+- specialist_council_score ≤ -0.30 → council bearish
+- overall_signal == "sell" → full suite says sell
+- RISK-OFF macro + pnl > 3% → lock in gains
+- rvol < 0.75 after 5+ days → volume fading
 
-## Token-budget gotcha (generalizable lesson)
-Any GPT call that returns **one JSON array with one object per input item**
-(e.g. "decide HOLD/EXIT for each of N positions") needs its
-`max_completion_tokens` to scale with N, or larger cohorts silently get a
-mid-array truncated/invalid JSON response — the code falls back to
-"decision call failed, held on price-only fallback" for every single item,
-silently defeating the feature for that cycle with no crash, just a
-misleading blanket fallback.
+Hold evidence mirrors the above with bullish thresholds.
+Verdict: EXIT if ≥2 exit signals AND exit_ev > hold_ev; else HOLD.
 
-**Why:** a hardcoded `max_completion_tokens=2000` had worked fine when the
-open-position count was low, but broke 100% of decisions (`Unterminated
-string` JSON error) the moment the book grew to 44 positions, especially
-after adding more context fields per position (longer prompt does NOT bound
-output, but richer context does tend to make the model write longer per-item
-reasoning, compounding the problem).
+## Intraday (9:35–16:00, every 30 min)
+`aiem_exit_engine.review_open_positions()` runs separately — already
+pure-rules (RSI/MACD/SMA20/lower-lows), never used OpenAI.
 
-**How to apply:** for any "N-items-in, N-decisions-out JSON array" LLM call,
-compute the token budget from the item count, e.g.
-`max(min_floor, n_items * per_item_estimate + fixed_overhead)`, and instruct
-the model to keep any free-text per-item field short (e.g. "<= 12 words") so
-the per-item cost estimate stays valid as the cohort grows.
+## Why
+User explicitly stated AIEM should make exit decisions from its own data
+and tools, not by outsourcing reasoning to an LLM. All the needed
+information (RSI, MACD, CMF, close_strength, council, macro) is already
+fetched; routing it through GPT added latency, cost, and dependency on an
+external service for what is a deterministic judgment call.
+
+## Field-name gotcha
+`_mkt_compute_indicators()` returns `result["snapshot"]["rsi_14"]` etc.
+`signal_summary` is nested inside `snapshot`, not top-level. Easy to get wrong.
+
+## Token-budget gotcha (archived, now moot)
+The old LLM path needed `max(4000, n * 120 + 1000)` tokens or JSON was
+truncated mid-array at large position counts. No longer relevant.

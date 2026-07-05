@@ -37058,68 +37058,79 @@ def _aiem_paper_mark_to_market():
 
             _positions_for_ai.append(_pos_entry)
 
-        # ── 4. Ask AIEM: hold or exit each position? ───────────────────────
-        _ai_decisions = {}
-        _ai_call_ok = True
+        # ── 4. Rules-based exit judgment — no external calls ──────────────
+        # All data was already gathered in steps 2/2b above. The rules below
+        # read those numbers directly. AIEM decides; nothing phones home.
+        def _rules_mtm_decision(pos: dict) -> dict:
+            tech    = pos.get("technicals") or {}
+            rsi     = tech.get("rsi_14")
+            macd_h  = tech.get("macd_hist")
+            cmf     = tech.get("cmf_20")
+            cmf_s   = (tech.get("cmf_signal") or "").lower()
+            overall = (tech.get("overall_signal") or "").lower()
+            council = float(pos.get("specialist_council_score") or 0.0)
+            macro   = (pos.get("macro_bias") or "NEUTRAL").upper()
+            days    = pos.get("days_held", 0)
+
+            pnl = (pos.get("pnl_pct") if pos.get("pnl_pct") is not None
+                   else pos.get("synthetic_option_proxy_pct") or 0.0)
+
+            sessions  = pos.get("recent_sessions") or []
+            close_str = float(sessions[0].get("close_strength", 0.5)) if sessions else 0.5
+            prev_rvol = float(sessions[0].get("rvol", 1.0))           if sessions else 1.0
+
+            exit_ev, hold_ev = [], []
+
+            # ── bearish evidence ───────────────────────────────────────────
+            if rsi is not None and rsi >= 72:
+                exit_ev.append(f"RSI {rsi:.1f} overbought")
+            if macd_h is not None and macd_h < 0:
+                exit_ev.append("MACD momentum fading")
+            if cmf_s == "distribution" or (cmf is not None and cmf < -0.10):
+                exit_ev.append(f"CMF {cmf:.2f} distribution" if cmf is not None
+                                else "CMF distribution")
+            if close_str <= 0.35:
+                exit_ev.append(f"closed near lows (cs={close_str:.2f})")
+            if council <= -0.30:
+                exit_ev.append(f"specialist council bearish ({council:+.2f})")
+            if overall == "sell":
+                exit_ev.append("indicator suite: sell")
+            if macro == "RISK-OFF" and pnl > 3.0:
+                exit_ev.append(f"RISK-OFF macro; +{pnl:.1f}% gain to lock")
+            if prev_rvol < 0.75 and days >= 5:
+                exit_ev.append(f"volume fading rvol={prev_rvol:.2f}x after {days}d")
+
+            # ── bullish evidence ───────────────────────────────────────────
+            if rsi is not None and 40 <= rsi < 68:
+                hold_ev.append(f"RSI {rsi:.1f} healthy")
+            if macd_h is not None and macd_h > 0:
+                hold_ev.append("MACD intact")
+            if cmf_s == "accumulation" or (cmf is not None and cmf > 0.10):
+                hold_ev.append(f"CMF {cmf:.2f} accumulation" if cmf is not None
+                                else "CMF accumulation")
+            if close_str >= 0.65:
+                hold_ev.append(f"strong close (cs={close_str:.2f})")
+            if council >= 0.30:
+                hold_ev.append(f"specialist council bullish ({council:+.2f})")
+            if overall == "buy":
+                hold_ev.append("indicator suite: buy")
+
+            # ── verdict: need 2+ exit signals AND more exit than hold ──────
+            if len(exit_ev) >= 2 and len(exit_ev) > len(hold_ev):
+                return {"decision": "EXIT",
+                        "reason": "; ".join(exit_ev[:3])}
+            return {"decision": "HOLD",
+                    "reason": ("; ".join(hold_ev[:3])
+                               if hold_ev else "No clear exit signal.")}
+
+        _ai_decisions  = {}
+        _ai_call_ok    = True   # no external call — always succeeds
         _ai_call_error = None
-        try:
-            _oai = _OpenAI(
-                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-            )
-            _ai_prompt = (
-                f"You are AIEM, an autonomous paper trading AI. Today is {_today}.\n"
-                f"You have {len(_positions_for_ai)} open paper positions. Analyze each one "
-                f"using price action, momentum, technical indicators, and your own judgment. "
-                f"There are NO fixed hold periods or fixed targets — you decide when to exit "
-                f"based on what you see.\n\n"
-                f"For each position decide: HOLD or EXIT.\n"
-                f"Consider: Is momentum fading or accelerating? Did it close strong or weak? "
-                f"Has the original signal played out? For calls: time decay — if the move is "
-                f"done, exit. For stocks: ride it if momentum supports it.\n\n"
-                f"Each position also includes a 'technicals' block (RSI-14, Stochastic %K, "
-                f"CMF-20 + accumulation/distribution signal, MACD histogram, ADX-14, and an "
-                f"overall buy/sell/neutral signal from the full indicator suite), a "
-                f"'social_sentiment_bullish_pct' read (StockTwits, when available), a "
-                f"'macro_bias' (RISK-ON/RISK-OFF/NEUTRAL from FRED yield curve + credit "
-                f"spreads), and a 'specialist_council_score' from -1 (council leans EXIT) to "
-                f"+1 (council leans HOLD). Weigh these the same way you would at entry — e.g. "
-                f"RSI>70 with fading CMF/MACD after a big run is exhaustion (lean EXIT); RSI "
-                f"still climbing with rising CMF and a bullish overall signal is trend intact "
-                f"(lean HOLD); RISK-OFF macro should make you quicker to lock in gains. These "
-                f"are inputs to your judgment, not fixed rules — use them alongside price "
-                f"action and the original signal_source/signal_detail context.\n\n"
-                f"Note: CALL_OPTION positions report 'synthetic_option_proxy_pct' (a 2x "
-                f"underlying-move proxy), not 'pnl_pct' — this is NOT real options pricing "
-                f"(no strike/IV/theta modeled), so treat it only as a directional-move signal.\n\n"
-                f"Return ONLY a JSON array, no other text. Keep 'reason' to <= 12 words so "
-                f"the full array always fits regardless of how many positions there are:\n"
-                f'[{{"id":<int>,"ticker":"<str>","decision":"HOLD or EXIT","reason":"<short phrase>"}},...]\n\n'
-                f"Positions:\n{_mtmjson.dumps(_positions_for_ai, indent=2)}"
-            )
-            _mtm_max_tokens = max(4000, len(_positions_for_ai) * 120 + 1000)
-            _ai_resp = _oai.chat.completions.create(
-                model="gpt-5.4",
-                messages=[{"role": "user", "content": _ai_prompt}],
-                max_completion_tokens=_mtm_max_tokens,
-            )
-            _raw = (_ai_resp.choices[0].message.content or "").strip()
-            if _raw.startswith("```"):
-                _raw = "\n".join(_raw.split("\n")[1:])
-            if _raw.endswith("```"):
-                _raw = "\n".join(_raw.split("\n")[:-1])
-            for _dec in _mtmjson.loads(_raw.strip()):
-                _ai_decisions[int(_dec["id"])] = {
-                    "decision": _dec.get("decision", "HOLD"),
-                    "reason":   _dec.get("reason", ""),
-                }
-            _exit_ct = sum(1 for v in _ai_decisions.values() if v["decision"] == "EXIT")
-            print(f"[aiem_paper] AIEM decisions: {len(_ai_decisions)} positions — "
-                  f"{_exit_ct} EXIT, {len(_ai_decisions)-_exit_ct} HOLD")
-        except Exception as _ae:
-            _ai_call_ok = False
-            _ai_call_error = str(_ae)
-            print(f"[aiem_paper] AIEM decision call failed (price-only fallback): {_ae}")
+        for _pos in _positions_for_ai:
+            _ai_decisions[int(_pos["id"])] = _rules_mtm_decision(_pos)
+        _exit_ct = sum(1 for v in _ai_decisions.values() if v["decision"] == "EXIT")
+        print(f"[aiem_paper] rules decisions: {len(_ai_decisions)} positions — "
+              f"{_exit_ct} EXIT, {len(_ai_decisions)-_exit_ct} HOLD")
 
         # ── 5. Apply decisions ─────────────────────────────────────────────
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
