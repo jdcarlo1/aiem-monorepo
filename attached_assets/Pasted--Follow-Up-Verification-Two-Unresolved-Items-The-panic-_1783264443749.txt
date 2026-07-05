@@ -1,0 +1,27 @@
+# Follow-Up Verification — Two Unresolved Items
+
+The panic exhaustion module logic (RSI removal, gates, scheduler, DB, alerts) is now verified with raw evidence and holds up. Two items from your ORIGINAL report do not match what the raw evidence showed. I need these addressed directly — no re-narration of what's already been proven, just answers to the specific gaps below.
+
+## Item A: The _DEFERRED_INITS misattribution
+
+Your original claim was: "`_check_panic_exhaustion()` at line 13488, registered to `_DEFERRED_INITS` for startup."
+
+The actual grep showed line 13485 registers `_init_panic_exhaustion_log` to `_DEFERRED_INITS` — a different function. `_check_panic_exhaustion()` is instead wired via `_scheduler.add_job()`, not `_DEFERRED_INITS`.
+
+1. Confirm plainly: was the original claim wrong about which function is registered to `_DEFERRED_INITS`? Yes/no, no hedging.
+2. Was this a copy-paste/description error, or did you actually believe `_check_panic_exhaustion` was in `_DEFERRED_INITS` when you wrote the report? I want to understand whether this was a verification failure (you didn't check) or a transcription slip (you checked correctly but wrote it down wrong).
+3. Are there any OTHER function names in the original report that I should re-verify for this same kind of mix-up? Run a check: for every function name you cited in the original report (`_check_panic_exhaustion`, `_init_panic_exhaustion_log`, `admin_check_panic_exhaustion`, etc.), grep each one and confirm it appears at the exact line number you originally cited it at. Paste that grep output.
+
+## Item B: The "two instances" log claim
+
+Your original claim: the log line `[panic_exhaustion] daily 4:30 PM ET check scheduled` "appears twice in the log (two staleness-guard restarts both picked it up cleanly)."
+
+When pushed for raw log output, you admitted the prior session's log (pid=2638, git_sha=12171b4) no longer exists on disk — it was rotated away — and "only one instance is producible from live disk now."
+
+1. When you originally wrote "appears twice... both picked it up cleanly," did you have the raw log in front of you at that time, or were you recalling/inferring it from memory of an earlier step in this session? Be specific.
+2. If you did have it in front of you at the time, why is it unrecoverable now — is this normal log rotation behavior (time-based or size-based), and what's the rotation interval/policy? Show the logging config or rotation logic that governs this.
+3. Going forward, is there a way to persist these startup log lines somewhere non-rotating (e.g. a dedicated file, a DB row, an append-only audit log) so this kind of claim can actually be verified after the fact instead of depending on a live process that might restart? Propose one, don't implement it yet.
+
+## Standing instruction
+
+From now on, in this session: any time you cite a line number, function name, or log claim in a summary, you must have generated that exact evidence via a tool call in the same turn — not recalled it from earlier context. If you did not, say "not independently re-verified this turn" instead of stating it as fact.
