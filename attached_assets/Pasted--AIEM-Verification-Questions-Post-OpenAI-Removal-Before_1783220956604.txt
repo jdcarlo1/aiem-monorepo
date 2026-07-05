@@ -1,0 +1,28 @@
+# AIEM Verification Questions — Post OpenAI Removal
+
+Before I decide on the scheduled sessions, two things need verification first.
+
+## 1. Complete call-site audit for `_run_aiem_focused_session`
+
+You told me this function is called from `_FOCUSED_SESSIONS` (14 scheduled sessions) — but earlier in this same session you labeled it "the interactive AIEM chat" and implied it was user/click-triggered. That was wrong. Before I trust the call-site list, run this and paste the raw output:
+
+```
+grep -n "_run_aiem_focused_session(" main.py
+```
+
+For every single line returned, tell me:
+- (a) what calls it — a route handler, the scheduler, a retry/backfill script, a webhook, anything else
+- (b) whether that call path requires a user click or fires automatically
+
+I want the full list, not a summary. Don't tell me it's "just those 14 plus the 5 routes" — show me the grep and let me count them myself.
+
+## 2. Full independence audit now that OpenAI has been stripped out
+
+Now that `bull_bear_debate.py`, `specialist_council.py`, and the scheduled sessions have had their OpenAI calls replaced with deterministic logic, I need proof — not a summary — that AIEM can still run 100% autonomously and for free using only Polygon and the site's own infrastructure. Specifically:
+
+- Does every data path AIEM needs (price data, options flow, fundamentals, whatever else feeds the conviction scoring stack) still resolve correctly to Polygon/Massive/Tradier with no dangling calls to the removed OpenAI functions?
+- Are there any remaining code paths that silently depend on the now-deleted LLM outputs (e.g., a downstream function expecting a field that `bull_bear_debate.py` used to populate via GPT and now gets from the deterministic replacement) — and if so, is that field actually populated correctly, or could it be null/stale?
+- Run the full scheduled pipeline end-to-end (or the closest thing to a dry run you can do) and show me the actual terminal/log output confirming each stage completes and produces real values — not just "no errors thrown."
+- Confirm there's no remaining network dependency other than Polygon/Tradier/your own DB — i.e., zero external API cost anywhere in the autonomous path, going forward, permanently, not just for the sessions we already patched.
+
+Give me raw log/terminal output for the end-to-end run, not a narrative description of what should happen.
