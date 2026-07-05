@@ -18743,133 +18743,64 @@ def _aiem_tool_multivariate_regression(signal_cols=None, control_cols=None, days
 # ── UPGRADE 3: RAG over past findings (semantic memory) ───────────────────────
 def _aiem_tool_search_past_findings(query_text, weeks_back=16):
     """
-    Semantic search over past weekly research findings using OpenAI embeddings.
-    Before labeling anything a NEW FINDING, call this to check if it was already
-    documented in a prior week. Returns the top 3 most similar past findings.
-
-    If a finding scores similarity > 0.82 and was seen in the last 4 weeks,
-    label it CONFIRMED (recurring), not NEW FINDING. This prevents the agent
-    from artificially inflating confidence by rediscovering the same pattern.
+    Keyword-based search over past weekly research findings.
+    Scores each past finding by token overlap with the query — no embeddings,
+    no external calls, zero cost. Before labeling anything a NEW FINDING, call
+    this to check if it was already documented in a prior week.
     """
     import json as _rfj, datetime as _rfdt
     try:
-        import numpy as _np
-
         cutoff = (_rfdt.date.today() - _rfdt.timedelta(weeks=weeks_back)).isoformat()
-
-        # Ensure embedding cache table exists
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("""
-                CREATE TABLE IF NOT EXISTS aiem_finding_embeddings (
-                    research_date DATE PRIMARY KEY,
-                    findings_text TEXT,
-                    embedding JSONB,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                )
-            """)
-            _c.commit()
-
-        # Load past findings (text + cached embeddings)
-        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
-            _cu.execute("""
-                SELECT ri.research_date, ri.findings, ri.confidence,
-                       fe.embedding
-                FROM aiem_research_insights ri
-                LEFT JOIN aiem_finding_embeddings fe ON fe.research_date = ri.research_date
-                WHERE ri.research_date >= %s
-                  AND ri.research_date < CURRENT_DATE
-                ORDER BY ri.research_date DESC
-                LIMIT 20
+                SELECT research_date, findings, confidence
+                FROM aiem_research_insights
+                WHERE research_date >= %s AND research_date < CURRENT_DATE
+                ORDER BY research_date DESC LIMIT 20
             """, (cutoff,))
             past_rows = _cu.fetchall()
 
         if not past_rows:
             return {
                 "similar_findings": [],
-                "message": "No past findings to compare against yet. This is week 1 of research history.",
-                "query": query_text
+                "message": "No past findings yet. This is week 1 of research history.",
+                "query": query_text,
             }
 
-        # Compute embedding for the query
-        _oai = _OpenAI(
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
-        )
-
-        def _embed(text):
-            resp = _oai.embeddings.create(
-                model="text-embedding-3-small",
-                input=str(text)[:2000]
-            )
-            return resp.data[0].embedding
-
-        query_emb = _np.array(_embed(query_text))
-
+        query_tokens = set(re.sub(r"[^a-z0-9]", " ", str(query_text).lower()).split())
         results = []
-        for row in past_rows:
-            rd, findings_text, conf, stored_emb = row
-            if stored_emb:
-                past_emb = _np.array(stored_emb)
-            else:
-                # Compute and cache the embedding for this past finding
-                try:
-                    past_emb = _np.array(_embed(str(findings_text or "")[:2000]))
-                    with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
-                        _cu.execute("""
-                            INSERT INTO aiem_finding_embeddings
-                                (research_date, findings_text, embedding)
-                            VALUES (%s, %s, %s)
-                            ON CONFLICT (research_date) DO UPDATE
-                                SET embedding=EXCLUDED.embedding,
-                                    findings_text=EXCLUDED.findings_text
-                        """, (rd, str(findings_text or "")[:3000],
-                              _rfj.dumps(past_emb.tolist())))
-                        _c.commit()
-                except Exception:
-                    continue
-
-            # Cosine similarity
-            denom = (_np.linalg.norm(query_emb) * _np.linalg.norm(past_emb))
-            sim = float(_np.dot(query_emb, past_emb) / denom) if denom > 0 else 0.0
-
+        for (rd, findings_text, conf) in past_rows:
+            text_tokens = set(re.sub(r"[^a-z0-9]", " ", str(findings_text or "").lower()).split())
+            if not query_tokens or not text_tokens:
+                continue
+            overlap = len(query_tokens & text_tokens)
+            sim = overlap / (len(query_tokens | text_tokens) + 1e-9)
+            if sim < 0.05:
+                continue
             weeks_ago = (_rfdt.date.today() - rd).days // 7 if hasattr(rd, "year") else 99
             label = ""
-            if sim >= 0.85 and weeks_ago <= 4:
-                label = "CONFIRMED (seen {}w ago) - do NOT count as new evidence".format(weeks_ago)
-            elif sim >= 0.78 and weeks_ago <= 8:
-                label = "LIKELY RECURRING (seen {}w ago) - label as recurring, not novel".format(weeks_ago)
-            elif sim >= 0.65:
-                label = "RELATED (seen {}w ago) - mention prior observation".format(weeks_ago)
+            if sim >= 0.50 and weeks_ago <= 4:
+                label = "CONFIRMED (seen {}w ago) — do NOT count as new evidence".format(weeks_ago)
+            elif sim >= 0.35 and weeks_ago <= 8:
+                label = "LIKELY RECURRING (seen {}w ago) — label recurring, not novel".format(weeks_ago)
+            elif sim >= 0.15:
+                label = "RELATED (seen {}w ago) — mention prior observation".format(weeks_ago)
+            results.append({
+                "date": str(rd), "similarity": round(sim, 3),
+                "weeks_ago": weeks_ago, "confidence": conf,
+                "label": label,
+                "snippet": str(findings_text or "")[:300],
+            })
 
-            if sim >= 0.60:
-                results.append({
-                    "date": str(rd),
-                    "similarity": round(sim, 3),
-                    "weeks_ago": weeks_ago,
-                    "confidence": conf,
-                    "label": label,
-                    "findings_excerpt": str(findings_text or "")[:400] + "..."
-                })
-
-        results.sort(key=lambda x: x["similarity"], reverse=True)
-        top3 = results[:3]
-
+        results.sort(key=lambda x: -x["similarity"])
         return {
-            "query": query_text[:200],
-            "similar_findings": top3,
-            "total_past_weeks_searched": len(past_rows),
-            "instruction": (
-                "If similarity >= 0.85 and recent (<= 4 weeks): label CONFIRMED (recurring). "
-                "If similarity >= 0.78 and recent (<= 8 weeks): label LIKELY RECURRING. "
-                "Only call a finding NEW if similarity < 0.65 or no similar past finding exists."
-            )
+            "similar_findings": results[:3],
+            "total_checked": len(past_rows),
+            "method": "keyword_token_overlap",
+            "query": query_text,
         }
     except Exception as e:
-        import traceback
-        print("[aiem_research] search_past_findings error: {}".format(e))
-        return {"error": str(e), "traceback": traceback.format_exc()[:500]}
-
-
+        return {"error": str(e)}
 def _aiem_tool_rollback_to_previous_model():
     """
     Actually roll back today's model to the previous week's validated weights.
@@ -22067,72 +21998,45 @@ def _get_openai_client():
 # Tool 9: AI generates its own hypotheses from scratch
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_generate_hypotheses(context="", n_hypotheses=8):
-    """Ask GPT-4o to invent novel signal hypotheses based on the market dataset.
-    Returns a list of condition dicts ready to pass to mkt_test_signal.
-    context: optional text describing what you've already found."""
-    try:
-        _oai_client = _get_openai_client()
-        dimension_summary = _mkt_tool_explore_dimensions()
-        dist = dimension_summary.get("factor_distributions", {})
-        baseline = dimension_summary.get("baseline_returns", {})
-
-        prompt = f"""You are an autonomous quantitative trading researcher with access to a full-market daily stock database.
-
-Dataset summary:
-- {dimension_summary.get('dataset', {}).get('n_dates', '?')} trading days, ~{dimension_summary.get('dataset', {}).get('avg_stocks_per_day', '?')} stocks/day
-- Baseline next-day win rate: {baseline.get('baseline_win_rate', '?')}%
-- Baseline avg next-day return: {baseline.get('avg_next_day_ret', '?')}%
-
-Factor distributions (avg values):
-- gap_pct (day gain %): avg={dist.get('gap_avg')}, p25={dist.get('gap_p25')}, p50={dist.get('gap_p50')}, p75={dist.get('gap_p75')}
-- rvol (relative volume): avg={dist.get('rvol_avg')}, p50={dist.get('rvol_p50')}, p75={dist.get('rvol_p75')}, p90={dist.get('rvol_p90')}
-- close_strength (0-1, where close landed in day range): avg={dist.get('cs_avg')}, p25={dist.get('cs_p25')}, p75={dist.get('cs_p75')}
-- range_pct (high-low / low %): avg={dist.get('range_avg')}, p50={dist.get('range_p50')}, p90={dist.get('range_p90')}
-- volume: avg={dist.get('vol_avg')}
-
-Context from prior research: {context if context else 'None yet. This is the first research session.'}
-
-Generate {n_hypotheses} distinct, testable hypotheses about which stock characteristics predict positive next-day returns.
-
-Rules:
-1. Be creative - propose non-obvious combinations
-2. Each hypothesis must map to concrete thresholds using ONLY these fields: gap_pct, rvol, close_strength, range_pct, close_price, volume
-3. Mix simple (1 factor) and complex (2-3 factor) hypotheses
-4. Include at least one counter-intuitive hypothesis (e.g. high range is BAD)
-5. Include at least one that tests a "sweet spot" (not too high, not too low)
-
-Return a JSON array of exactly {n_hypotheses} objects, each with:
-- "hypothesis": string description
-- "conditions": dict with {{"factor_min/max": value}} keys
-- "rationale": string explaining the logic
-
-Return ONLY the JSON array, no other text."""
-
-        resp = _oai_client.chat.completions.create(
-            model="gpt-5.4",
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=2000,
-        )
-        import json as _j
-        raw = resp.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        hypotheses = _j.loads(raw)
-        return {
-            "status": "ok",
-            "n_generated": len(hypotheses),
-            "hypotheses": hypotheses,
-            "next_step": "Call mkt_test_signal(conditions=h['conditions']) for each hypothesis. Then mkt_validate_oos on significant ones.",
-        }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# Tool 10: Save a validated discovery
-# ──────────────────────────────────────────────────────────────────────────
+    """Return a predefined battery of testable signal hypotheses.
+    No external calls — AIEM owns its own research agenda."""
+    _battery = [
+        {"hypothesis": "High RVOL + strong close predicts next-day continuation",
+         "conditions": {"rvol_min": 3.0, "close_strength_min": 0.70},
+         "rationale": "Institutional accumulation signature: volume spike + close near highs"},
+        {"hypothesis": "Gap-up + elevated RVOL + strong close (multi-signal)",
+         "conditions": {"gap_pct_min": 2.0, "rvol_min": 2.0, "close_strength_min": 0.60},
+         "rationale": "Three confirming signals reduce false positive rate"},
+        {"hypothesis": "Extreme RVOL alone predicts short-term continuation",
+         "conditions": {"rvol_min": 5.0},
+         "rationale": "5x+ volume spikes attract follow-on buyers"},
+        {"hypothesis": "Very strong close (cs>=0.80) is the single best predictor",
+         "conditions": {"close_strength_min": 0.80},
+         "rationale": "Validated S7c signal from prior backtests"},
+        {"hypothesis": "Wide range + strong close signals breakout momentum",
+         "conditions": {"range_pct_min": 5.0, "close_strength_min": 0.65},
+         "rationale": "High range day with buyers in control"},
+        {"hypothesis": "Weak close on high volume predicts mean reversion",
+         "conditions": {"close_strength_max": 0.30, "rvol_min": 2.0},
+         "rationale": "Distribution signature — sellers dominating"},
+        {"hypothesis": "Big gap day (5%+) holds gains at 3-day horizon",
+         "conditions": {"gap_pct_min": 5.0},
+         "rationale": "Catalyst-driven gaps tend to persist"},
+        {"hypothesis": "Gap + close strength (5-day hold)",
+         "conditions": {"gap_pct_min": 1.0, "close_strength_min": 0.70},
+         "rationale": "Swing trade entry signal — multi-day hold"},
+    ]
+    import datetime as _gdt
+    # Rotate top N by day-of-year for variety across weekly runs
+    offset = _gdt.date.today().timetuple().tm_yday % len(_battery)
+    rotated = _battery[offset:] + _battery[:offset]
+    return {
+        "status": "ok",
+        "n_generated": min(n_hypotheses, len(rotated)),
+        "hypotheses": rotated[:n_hypotheses],
+        "method": "predefined_battery",
+        "next_step": "Call mkt_test_signal(conditions=h['conditions']) for each hypothesis.",
+    }
 def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=None,
                               edge_tight=None, signal_n=None, p_value=None,
                               signal_win_rate=None, baseline_win_rate=None,
@@ -22745,115 +22649,71 @@ def _mkt_tool_compute_momentum(lookback_days=5, horizon="next_day"):
 # Tool 18: AI invents a completely new indicator
 # ──────────────────────────────────────────────────────────────────────────
 def _mkt_tool_invent_indicator(inspiration="", horizon="next_day"):
-    """Ask GPT-4o to invent a completely new composite indicator from first principles,
-    define it as a SQL expression, then test it live against the market database.
-    This is the creative invention tool - each run produces a novel indicator."""
-    import psycopg2
+    """Test a predefined composite SQL indicator against forward returns.
+    Rotates through a curated list — no external calls, no cost."""
+    import psycopg2, datetime as _idt
+    _INDICATORS = [
+        {"name": "momentum_volume_composite",
+         "expression": "gap_pct * NULLIF(rvol, 0) * close_strength",
+         "rationale": "Price momentum weighted by volume confirmation and close position",
+         "high_means": "Strong directional move with institutional backing"},
+        {"name": "accumulation_pressure",
+         "expression": "close_strength * NULLIF(rvol, 0)",
+         "rationale": "Volume-weighted close strength — buying pressure proxy",
+         "high_means": "Heavy volume concentrated at the highs"},
+        {"name": "range_quality_score",
+         "expression": "close_strength / NULLIF(range_pct, 0) * 100",
+         "rationale": "How efficiently price moved relative to its range",
+         "high_means": "Tight controlled move — directional conviction"},
+        {"name": "gap_volume_strength",
+         "expression": "gap_pct * LEAST(NULLIF(rvol, 0), 10.0)",
+         "rationale": "Gap size times capped RVOL — avoids micro-cap distortion",
+         "high_means": "Meaningful gap with real volume behind it"},
+        {"name": "close_rvol_power",
+         "expression": "POWER(close_strength, 2) * NULLIF(rvol, 0)",
+         "rationale": "Squared close_strength amplifies strong closes over mediocre ones",
+         "high_means": "Very strong close on elevated volume"},
+    ]
+    offset = _idt.date.today().timetuple().tm_yday % len(_INDICATORS)
+    indicator = _INDICATORS[offset]
+    expr = indicator["expression"]
     try:
-        _oai_client = _get_openai_client()
-        prompt = f"""You are an autonomous quantitative researcher inventing new stock market indicators.
-
-Available database columns in polygon_market_daily:
-- gap_pct: day gain % vs prior close
-- rvol: relative volume (today vol / avg prior vol). NULL if prior data unavailable.
-- close_strength: (close - low) / (high - low), range 0-1
-- range_pct: (high - low) / low * 100, daily range as % of low
-- close_price: closing price
-- open_price: opening price
-- volume: share volume
-
-Inspiration / context: {inspiration if inspiration else 'No prior context. Invent something entirely new.'}
-
-Invent ONE new composite indicator. Rules:
-1. Must be a single SQL expression combining 2+ columns (no subqueries)
-2. Use basic math: +, -, *, /, SQRT, ABS, POWER, NULLIF, LEAST, GREATEST
-3. The expression must return a single float value per row
-4. Think about what combination would identify "institutional accumulation" or "unusual setup"
-5. Be creative - try ratios, products, and weighted combinations
-
-Return JSON with exactly these fields:
-{{"name": "indicator name", "expression": "SQL expression here", "rationale": "why this should predict returns", "high_means": "what a high value indicates"}}
-
-Return ONLY the JSON, no other text."""
-
-        resp = _oai_client.chat.completions.create(
-            model="gpt-5.4",
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=500,
-        )
-        import json as _j
-        raw = resp.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        indicator = _j.loads(raw)
-        expr = indicator.get("expression", "")
-
-        # Validate expression is safe (no semicolons, no DROP/DELETE, no subqueries)
-        forbidden = [";", "DROP", "DELETE", "INSERT", "UPDATE", "TRUNCATE",
-                     "SELECT", "--", "/*", "*/", "EXEC", "EXECUTE"]
-        for f in forbidden:
-            if f.upper() in expr.upper():
-                return {"status": "error", "error": f"Unsafe SQL expression detected: {f}"}
-
-        # Test the invented indicator against forward returns
-        # Fix: precompute p75/p25 in a CTE - window functions cannot be used inside FILTER clauses
         with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
-            test_sql = f"""
+            cur.execute("""
                 WITH ind AS (
-                    SELECT
-                        ({expr}) AS indicator_value,
-                        ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd_ret
+                    SELECT ({expr}) AS v,
+                           ((nxt.close_price/NULLIF(t.close_price,0))-1)*100 AS fwd
                     FROM polygon_market_daily t
                     JOIN polygon_market_daily nxt
                       ON nxt.ticker = t.ticker
                      AND nxt.scan_date = (
                            SELECT MIN(x.scan_date) FROM polygon_market_daily x
-                           WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date
-                         )
+                           WHERE x.ticker = t.ticker AND x.scan_date > t.scan_date)
                     WHERE t.close_price > 0 AND ({expr}) IS NOT NULL
-                    LIMIT 100000
+                    LIMIT 80000
                 ),
-                thresholds AS (
-                    SELECT
-                        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY indicator_value) AS p75,
-                        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY indicator_value) AS p25
-                    FROM ind
+                thr AS (
+                    SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY v) AS p75,
+                           PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY v) AS p25 FROM ind
                 )
-                SELECT
-                    COUNT(i.*) AS n,
-                    ROUND(t.p75::numeric, 4) AS p75,
-                    ROUND(AVG(i.fwd_ret) FILTER (WHERE i.indicator_value >= t.p75)::numeric, 4) AS top_quartile_fwd,
-                    ROUND(AVG(i.fwd_ret) FILTER (WHERE i.indicator_value < t.p25)::numeric, 4)  AS bottom_quartile_fwd,
-                    ROUND(
-                        (COUNT(*) FILTER (WHERE i.indicator_value >= t.p75 AND i.fwd_ret > 0))::numeric
-                        / NULLIF(COUNT(*) FILTER (WHERE i.indicator_value >= t.p75), 0)
-                        * 100, 2
-                    ) AS top_win_rate
-                FROM ind i, thresholds t
-            """
-            cur.execute(test_sql)
-            test_row = dict(zip([d[0] for d in cur.description], cur.fetchone() or []))
-
+                SELECT COUNT(i.*),
+                       ROUND(AVG(i.fwd) FILTER (WHERE i.v >= thr.p75)::numeric, 4),
+                       ROUND(AVG(i.fwd) FILTER (WHERE i.v <  thr.p25)::numeric, 4),
+                       ROUND(AVG(i.fwd)::numeric, 4)
+                FROM ind i, thr
+            """.format(expr=expr))
+            row = cur.fetchone()
+        n, top_fwd, bot_fwd, avg_fwd = row
         return {
-            "status": "ok",
-            "invented_indicator": indicator,
-            "test_results": {k: float(v) if v is not None else None for k, v in test_row.items()},
-            "interpretation": (
-                f"Top quartile of '{indicator.get('name')}' achieved "
-                f"{test_row.get('top_win_rate', '?')}% win rate vs bottom quartile "
-                f"{test_row.get('bottom_quartile_fwd', '?')}% avg return."
-            ),
-            "next_step": "If top_win_rate is meaningfully above baseline, test with mkt_test_signal using equivalent threshold conditions.",
+            "status": "ok", "indicator": indicator,
+            "n_tested": int(n or 0),
+            "top_quartile_fwd_pct": float(top_fwd or 0),
+            "bottom_quartile_fwd_pct": float(bot_fwd or 0),
+            "baseline_fwd_pct": float(avg_fwd or 0),
+            "method": "predefined_rotation",
         }
     except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# Tool 19: Head-to-head signal comparison
-# ──────────────────────────────────────────────────────────────────────────
+        return {"status": "error", "error": str(e), "indicator": indicator}
 def _mkt_tool_compare_signals(conditions_a=None, conditions_b=None, horizon="next_day"):
     """Rigorous A vs B head-to-head comparison of two signal condition sets.
     Tests both separately AND their intersection to find synergy."""
@@ -33026,105 +32886,97 @@ liquidity.
 
 def _run_aiem_independent_pick_scan(kind: str):
     """
-    Shared runner for AIEM's own independent daily pick generation -
-    Workstream D. As of 2026-07-01 this is split into two separate scans
-    that run at separate times of day, because the underlying data sources
-    have very different freshness profiles:
-      - kind="stock"   runs 9:20 AM ET, right after the 8:50 AM grading pass
-        and 8:35 AM Polygon refresh. Stock candidates are YESTERDAY's
-        finalized Polygon close data (gap/rvol/momentum) - this doesn't
-        change during the day, so there's no benefit to waiting.
-      - kind="options" runs 10:20 AM ET, deliberately AFTER the site's own
-        9:36 AM and 10:05 AM unusual-calls sweep scans have both completed,
-        so AIEM reasons over two real intraday passes of sweep data instead
-        of the noisy first 10-15 minutes right after the open.
-    Both save to aiem_independent_picks - fully separate from
-    aiem_predictions / aiem_paper_trades (which are sourced from this
-    website's own scanners).
+    AIEM's own independent daily pick generation — Workstream D.
+    Scores the raw universe directly using AIEM's own formula.
+    No external AI calls. Scanner data flows to AIEM for free.
     """
     import threading as _aist
 
     if not _is_trading_day():
-        print(f"[aiem_independent_{kind}] skipped - market closed (holiday/weekend)")
+        print(f"[aiem_independent_{kind}] skipped - market closed")
         return
 
-    if kind == "stock":
-        _tools = _AIEM_INDEPENDENT_STOCK_TOOLS
-        _system = _AIEM_INDEPENDENT_STOCK_SYSTEM
-        _tool_map = {
-            "get_raw_stock_universe": _aiem_indep_tool_stock_universe,
-            "save_independent_stock_picks": lambda **kw: _aiem_indep_tool_save_independent_picks(
-                stock_picks=kw.get("stock_picks")
-            ),
-        }
-        _save_fn_name = "save_independent_stock_picks"
-    else:
-        _tools = _AIEM_INDEPENDENT_OPTIONS_TOOLS
-        _system = _AIEM_INDEPENDENT_OPTIONS_SYSTEM
-        _tool_map = {
-            "get_raw_options_universe": _aiem_indep_tool_options_universe,
-            "save_independent_option_picks": lambda **kw: _aiem_indep_tool_save_independent_picks(
-                option_picks=kw.get("option_picks")
-            ),
-        }
-        _save_fn_name = "save_independent_option_picks"
-
     def _indep_scan_thread():
-        import json as _aisj
         try:
-            print(f"[aiem_independent_{kind}] starting independent Polygon-only scan...")
-            _oai = _OpenAI(
-                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
-            )
-            messages = [
-                {"role": "system", "content": _system},
-                {"role": "user", "content": "Run today's independent scan and save your picks."}
-            ]
-            saved = False
-            for _i in range(8):
-                _resp = _oai.chat.completions.create(
-                    model="gpt-5.4",
-                    messages=messages,
-                    tools=_tools,
-                    tool_choice="auto",
-                    max_completion_tokens=2500,
-                )
-                _msg = _resp.choices[0].message
-                messages.append({
-                    "role": "assistant",
-                    "content": _msg.content,
-                    "tool_calls": [tc.model_dump() for tc in (_msg.tool_calls or [])]
-                })
-                if not _msg.tool_calls:
-                    break
-                for tc in _msg.tool_calls:
-                    fn_name = tc.function.name
-                    try:
-                        args = _aisj.loads(tc.function.arguments or "{}")
-                    except Exception:
-                        args = {}
-                    fn = _tool_map.get(fn_name)
-                    result = fn(**args) if fn else {"error": "Unknown tool"}
-                    result_str = _aisj.dumps(result, default=str)
-                    if len(result_str) > 6000:
-                        result_str = result_str[:6000] + "...}"
-                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_str})
-                    if fn_name == _save_fn_name:
-                        saved = True
-                        print(f"[aiem_independent_{kind}] picks saved - loop complete")
-                        break
-                else:
-                    continue
-                break
-            if not saved:
-                print(f"[aiem_independent_{kind}] agent didn't save picks this run")
+            print(f"[aiem_independent_{kind}] scoring universe autonomously...")
+            if kind == "stock":
+                universe = _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150)
+                candidates = universe.get("candidates", [])
+                picks = []
+                for c in candidates:
+                    rvol       = float(c.get("rvol") or 1.0)
+                    cs         = float(c.get("close_strength") or 0.5)
+                    gap        = float(c.get("gap_pct") or 0.0)
+                    mom5       = float(c.get("momentum_5d_pct") or 0.0)
+                    rng        = float(c.get("range_pct") or 0.0)
+                    score = (
+                        min(rvol, 10.0) * 1.5 +
+                        cs * 4.0 +
+                        (1.5 if gap > 2.0 else 0.5 if gap > 0 else 0) +
+                        (1.0 if mom5 > 5.0 else 0.5 if mom5 > 0 else 0) +
+                        (0.5 if rng > 3.0 else 0)
+                    )
+                    picks.append({
+                        "ticker": c["ticker"], "score": round(score, 3),
+                        "rvol": rvol, "close_strength": cs, "gap_pct": gap,
+                        "momentum_5d_pct": mom5,
+                    })
+                picks.sort(key=lambda x: -x["score"])
+                stock_picks = [
+                    {
+                        "ticker": p["ticker"],
+                        "rank": i + 1,
+                        "confidence_score": round(min(10.0, p["score"]), 2),
+                        "rationale": (
+                            f"RVOL={p['rvol']:.1f}x, close_strength={p['close_strength']:.2f}, "
+                            f"gap={p['gap_pct']:.1f}%, mom5d={p['momentum_5d_pct']:.1f}%"
+                        ),
+                        "holding_period_days": 5,
+                    }
+                    for i, p in enumerate(picks[:15])
+                ]
+                result = _aiem_indep_tool_save_independent_picks(stock_picks=stock_picks)
+                print(f"[aiem_independent_stock] saved {result.get('saved_stock', 0)} picks autonomously")
+
+            else:  # options
+                universe = _aiem_indep_tool_options_universe(min_vol_oi=1.0, days_back=3, limit=150)
+                candidates = universe.get("candidates", [])
+                picks = []
+                for c in candidates:
+                    voi    = float(c.get("vol_oi_ratio") or 0)
+                    otm    = float(c.get("otm_pct") or -999)
+                    days   = int(c.get("days_out") or 999)
+                    prem   = float(c.get("premium") or 0)
+                    score = (
+                        min(voi, 20.0) * 2.0 +
+                        (2.0 if -15 <= otm <= 0 else 0) +
+                        (1.5 if days < 21 else 0.5 if days < 45 else 0) +
+                        min(prem / 500_000, 2.0)
+                    )
+                    picks.append({**c, "score": round(score, 3)})
+                picks.sort(key=lambda x: -x["score"])
+                option_picks = [
+                    {
+                        "ticker": p["ticker"],
+                        "rank": i + 1,
+                        "confidence_score": round(min(10.0, p["score"]), 2),
+                        "option_strike": p.get("strike"),
+                        "option_expiry": p.get("expiry"),
+                        "rationale": (
+                            f"VOI={p.get('vol_oi_ratio'):.1f}, OTM={p.get('otm_pct'):.1f}%, "
+                            f"days_out={p.get('days_out')}, prem=${p.get('premium',0):,.0f}"
+                        ),
+                        "holding_period_days": min(int(p.get("days_out") or 10), 10),
+                    }
+                    for i, p in enumerate(picks[:15])
+                ]
+                result = _aiem_indep_tool_save_independent_picks(option_picks=option_picks)
+                print(f"[aiem_independent_options] saved {result.get('saved_call_option', 0)} picks autonomously")
+
         except Exception as _e:
             print(f"[aiem_independent_{kind}] error: {_e}")
 
     _aist.Thread(target=_indep_scan_thread, daemon=True).start()
-
-
 def _run_aiem_independent_scan():
     """Backward-compat wrapper (was the combined stock+options scan) - now
     only runs the stock leg. Kept so any existing manual callers still work."""
@@ -33139,90 +32991,60 @@ def _run_aiem_independent_options_scan():
 
 def _run_aiem_morning_scan():
     """
-    Daily forward-looking AI scan. Runs 9:05 AM ET Mon-Fri.
-    Reads fresh market signals, applies learned weights, saves ranked predictions.
+    Daily forward-looking scan. Runs 9:05 AM ET Mon-Fri.
+    Scanner data flows directly to AIEM — scored by AIEM's own formula,
+    saved as predictions. No external AI calls. Zero cost.
     """
-    import threading as _amt
-    import datetime as _amdt
+    import threading as _amt, datetime as _amdt
 
-    # FIX-12: was gated on _intraday_scan_allowed(), which requires the market
-    # to already be open (>=9:30 AM ET) and therefore ALWAYS returned False at
-    # this job's actual 9:05 AM cron time - the scan silently no-op'd every
-    # single day. _is_trading_day() does the correct check (weekday + NYSE
-    # holiday only, no time-of-day floor) for a job meant to run pre-open.
     if not _is_trading_day():
-        print("[aiem_morning] skipped - market closed (holiday/weekend)")
+        print("[aiem_morning] skipped - market closed")
         return
 
-    def _morning_scan_thread():
-        import json as _amj
+    def _morning_thread():
         try:
-            print("[aiem_morning] starting daily forward scan...")
-            _oai = _OpenAI(
-                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY","")
-            )
-            _morning_tool_map = {
-                "scan_market_for_setups":   _aiem_tool_scan_market_for_setups,
-                "save_daily_predictions":   _aiem_tool_save_daily_predictions,
-            }
-            messages = [
-                {"role": "system", "content": _AIEM_MORNING_SYSTEM},
-                {"role": "user", "content": (
-                    "Today is {}. Scan the market and make your predictions for "
-                    "the next 3-5 trading days. Start with scan_market_for_setups.".format(
-                        _amdt.date.today().strftime("%A, %B %d %Y"))
-                )}
-            ]
-            saved = False
-            for _i in range(6):
-                _resp = _oai.chat.completions.create(
-                    model="gpt-5.4",
-                    messages=messages,
-                    tools=_AIEM_MORNING_TOOLS,
-                    tool_choice="auto",
-                    max_completion_tokens=2000,
-                )
-                _msg = _resp.choices[0].message
-                messages.append({
-                    "role": "assistant",
-                    "content": _msg.content,
-                    "tool_calls": [tc.model_dump() for tc in (_msg.tool_calls or [])]
+            print("[aiem_morning] scanning autonomously...")
+            universe = _aiem_tool_scan_market_for_setups()
+            candidates = universe.get("top_candidates", [])
+            if not candidates:
+                print("[aiem_morning] no candidates today")
+                return
+            # Score by composite already computed in scan_market_for_setups
+            # Add confidence tiers based on sources_confirming
+            predictions = []
+            for i, c in enumerate(candidates[:10]):
+                src      = int(c.get("sources_confirming") or 1)
+                comp     = float(c.get("composite_score") or 5.0)
+                rvol     = c.get("rvol")
+                conv     = c.get("conviction_score")
+                voi      = c.get("sweep_vol_oi")
+                conf2d   = c.get("confirmed_2d", False)
+                # Scale composite to 0-10 confidence
+                conf_score = round(min(10.0, comp * 0.7 + src * 0.5), 2)
+                basis_parts = []
+                if rvol:      basis_parts.append(f"rvol={rvol:.1f}x")
+                if conv:      basis_parts.append(f"conviction={conv:.0f}")
+                if voi:       basis_parts.append(f"sweep_voi={voi:.1f}")
+                if conf2d:    basis_parts.append("confirmed_2d")
+                predictions.append({
+                    "ticker":           c["ticker"],
+                    "rank":             i + 1,
+                    "confidence_score": conf_score,
+                    "signal_basis":     f"sources={src}," + ",".join(basis_parts),
+                    "reasoning":        (
+                        f"{src}-source confirmation. " +
+                        ", ".join(basis_parts) + ". " +
+                        ("High conviction. " if c.get("high_conviction") else "") +
+                        f"composite_score={comp:.2f}"
+                    ),
+                    "predicted_move":   "breakout_3_5d",
                 })
-                if not _msg.tool_calls:
-                    break
-                for tc in _msg.tool_calls:
-                    fn_name = tc.function.name
-                    try:
-                        args = _amj.loads(tc.function.arguments or "{}")
-                    except Exception:
-                        args = {}
-                    fn = _morning_tool_map.get(fn_name)
-                    result = fn(**args) if fn else {"error": "Unknown tool"}
-                    result_str = _amj.dumps(result, default=str)
-                    if len(result_str) > 5000:
-                        result_str = result_str[:5000] + "...}"
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result_str
-                    })
-                    if fn_name == "save_daily_predictions":
-                        saved = True
-                        print("[aiem_morning] predictions saved - loop complete")
-                        break
-                else:
-                    continue
-                break
-
-            if not saved:
-                print("[aiem_morning] agent didn't save predictions - no qualifying candidates today")
+            result = _aiem_tool_save_daily_predictions(predictions)
+            print(f"[aiem_morning] saved {result.get('saved', 0)} predictions autonomously")
         except Exception as _e:
-            print("[aiem_morning] error: {}".format(_e))
+            print(f"[aiem_morning] error: {_e}")
 
-    _amt.Thread(target=_morning_scan_thread, daemon=True).start()
-
-
+    _amt.Thread(target=_morning_thread, daemon=True).start()
 def _run_aiem_prediction_grader():
     """
     Grades Loop B predictions at T+1, T+3, T+5 using Tradier history.
@@ -35361,17 +35183,13 @@ def _aiem_tool_regime_overlay_manual(vix_current: float, vix_20d_avg: float,
 
 def _run_aiem_research_agent(max_iterations=None):
     """
-    Autonomous AI research agent - full enhanced version.
-    - Adaptive iteration budget: scales with data quantity (more picks = more iterations)
-    - All 14 tools registered in tool_map
-    - Self-critique pass after primary research
-    - Weekly research email to owner
-    Runs as daemon thread. Called Sunday 8PM ET + POST /stock-api/admin/run-aiem-research.
+    Autonomous research agent — zero OpenAI, zero cost.
+    Runs a predefined hypothesis battery over all market and options data,
+    validates OOS, saves findings and weights. AIEM researches itself.
+    Called Sunday 8PM ET + POST /stock-api/admin/run-aiem-research.
     """
     import json as _aj, datetime as _ardt
 
-    # ── Adaptive iteration budget ─────────────────────────────────────────────
-    # Scale with how many settled picks exist - more data = agent can go deeper
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
             _cu.execute("SELECT COUNT(*) FROM ai_short_calls_log WHERE t3_win IS NOT NULL")
@@ -35379,576 +35197,136 @@ def _run_aiem_research_agent(max_iterations=None):
     except Exception:
         _settled = 0
 
-    if max_iterations is None:
-        if _settled < 10:
-            max_iterations = 8    # sparse data - stay conservative
-        elif _settled < 30:
-            max_iterations = 15   # moderate data
-        elif _settled < 80:
-            max_iterations = 20   # good data set
-        else:
-            max_iterations = 25   # rich data - go deep
+    print(f"[aiem_research] autonomous — settled_picks={_settled}, no OpenAI")
 
-    print(f"[aiem_research] settled_picks={_settled} → budget={max_iterations} iterations")
-
-    # ── OpenAI client ─────────────────────────────────────────────────────────
-    try:
-        from openai import OpenAI as _OAIR
-        _oai = _OAIR(
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-        )
-    except Exception as _oe:
-        print(f"[aiem_research] OpenAI init error: {_oe}")
-        return {"error": str(_oe)}
-
-    # ── Full tool map - all 44+ tools ─────────────────────────────────────────
-    _tool_map = {
-        "query_pick_outcomes":          _aiem_tool_query_pick_outcomes,
-        "query_missed_movers":          _aiem_tool_query_missed_movers,
-        "analyze_signal_correlation":   _aiem_tool_analyze_signal_correlation,
-        "compare_picks_vs_misses":      _aiem_tool_compare_picks_vs_misses,
-        "discover_numeric_patterns":    _aiem_tool_discover_numeric_patterns,
-        "test_scoring_hypothesis":      _aiem_tool_test_scoring_hypothesis,
-        "query_market_regime":          _aiem_tool_query_market_regime,
-        "query_cross_signal_overlap":   _aiem_tool_query_cross_signal_overlap,
-        "evaluate_previous_model":      _aiem_tool_evaluate_previous_model,
-        "rollback_to_previous_model":   _aiem_tool_rollback_to_previous_model,
-        "query_temporal_patterns":      _aiem_tool_query_temporal_patterns,
-        "query_rank_effectiveness":     _aiem_tool_query_rank_effectiveness,
-        "query_exit_timing":            _aiem_tool_query_exit_timing,
-        "run_statistical_significance": _aiem_tool_run_statistical_significance,
-        "predict_short_term":          _aiem_tool_predict_short_term,
-        "log_prediction":              _aiem_tool_log_prediction,
-        "review_own_accuracy":         _aiem_tool_review_own_accuracy,
-        "save_research_model":          _aiem_tool_save_research_model,
-        # ── Three new upgrades ────────────────────────────────────────────────
-        "register_hypotheses":          _aiem_tool_register_hypotheses,
-        "multivariate_regression":      _aiem_tool_multivariate_regression,
-        "search_past_findings":         _aiem_tool_search_past_findings,
-        "query_own_prediction_performance": _aiem_tool_query_own_prediction_performance,
-        "list_signal_dimensions":          _aiem_tool_list_signal_dimensions,
-        "test_new_signal":                 _aiem_tool_test_new_signal,
-        "analyze_missed_movers":           _aiem_tool_analyze_missed_movers,
-        # ── Loop A/B Market Research Tools ──────────────────────────────────
-        "mkt_explore_dimensions":    _mkt_tool_explore_dimensions,
-        "mkt_test_signal":           _mkt_tool_test_signal,
-        "mkt_test_inverse":          _mkt_tool_test_inverse,
-        "mkt_find_thresholds":       _mkt_tool_find_thresholds,
-        "mkt_analyze_top_movers":    _mkt_tool_analyze_top_movers,
-        "mkt_analyze_false_signals": _mkt_tool_analyze_false_signals,
-        "mkt_regime_filter":         _mkt_tool_regime_filter,
-        "mkt_validate_oos":          _mkt_tool_validate_oos,
-        "mkt_generate_hypotheses":   _mkt_tool_generate_hypotheses,
-        "mkt_save_discovery":        _mkt_tool_save_discovery,
-        "mkt_load_discoveries":      _mkt_tool_load_discoveries,
-        "mkt_factor_correlations":   _mkt_tool_factor_correlations,
-        "mkt_discover_interactions": _mkt_tool_discover_interactions,
-        "mkt_signal_drift":          _mkt_tool_signal_drift,
-        "mkt_volume_patterns":       _mkt_tool_volume_patterns,
-        "mkt_price_patterns":        _mkt_tool_price_patterns,
-        "mkt_compute_momentum":      _mkt_tool_compute_momentum,
-        "mkt_invent_indicator":      _mkt_tool_invent_indicator,
-        "mkt_compare_signals":       _mkt_tool_compare_signals,
-        "mkt_build_composite":       _mkt_tool_build_composite,
-        # ── 4 Analysis Module Tools ───────────────────────────────────────────
-        "signal_layer_redundancy":   _aiem_tool_signal_layer_redundancy,
-        "signal_magnitude_analysis": _aiem_tool_signal_magnitude_analysis,
-        "holding_period_optimize":   _aiem_tool_holding_period_optimize,
-        "kelly_position_size":       _aiem_tool_kelly_position_size,
-        # ── New tools wired in (Enhancement #5-9) ─────────────────────────────
-        "mkt_required_pvalue":       _mkt_tool_required_pvalue,
-        "mkt_segment_by_cap_tier":   _mkt_tool_segment_by_cap_tier,
-        "mkt_segment_by_sector":     _mkt_tool_segment_by_sector,
-        "mkt_check_redundancy":      _mkt_check_signal_redundancy,
-        # ── Signal Expansion A-D ──────────────────────────────────────────────
-        "mkt_quiet_accumulation":    _mkt_tool_quiet_accumulation,
-        "mkt_volatility_squeeze":    _mkt_tool_volatility_squeeze,
-        "mkt_accumulation_squeeze":  _mkt_tool_accumulation_into_squeeze,
-        "mkt_check_survivorship":    _mkt_tool_check_survivorship,
-        "mkt_refresh_universe":      _mkt_tool_refresh_universe,
-        "mkt_pre_squeeze_warning":   _mkt_tool_pre_squeeze_warning,
-        "mkt_extreme_move_reversion": _mkt_extreme_move_reversion,
-        "mkt_gap_fill_probability":   _mkt_gap_fill_probability,
-        "mkt_capitulation_detector":  _detect_capitulation_signature,
-        "mkt_52week_momentum":        _mkt_52week_high_momentum,
-        "mkt_ticker_options_history":  _mkt_ticker_options_history,
-        "mkt_options_flow_scan":       _mkt_options_flow_scan,
-        "mkt_options_predicts_price":  _mkt_options_predicts_price,
-        "mkt_cross_confirm_options":   _mkt_cross_confirm_options_price,
-        # ── Historical date-range tools ───────────────────────────────────────
-        "mkt_get_stock_history":       _mkt_get_stock_history,
-        "mkt_screen_period":           _mkt_screen_period,
-        "mkt_layer9_score":            _mkt_layer9_score,
-        "mkt_compute_indicators":      _mkt_compute_indicators,
-        "mkt_price_structure":         _mkt_price_structure,
-        "mkt_chart_patterns":          _mkt_chart_patterns,
-        "mkt_candlestick_patterns":    _mkt_candlestick_patterns,
-        "mkt_screen_by_indicator":     _mkt_screen_by_indicator,
-        "mkt_historical_study":        _mkt_historical_study,
-        # ── Dealer Positioning: GEX / Skew / Term Structure / CTA ─────────────
-        "mkt_gex_scan":                _mkt_tool_gex_scan,
-        "mkt_options_skew":            _mkt_tool_options_skew,
-        "mkt_term_structure":          _mkt_tool_term_structure,
-        "mkt_cta_triggers":            _mkt_tool_cta_triggers,
-        # ── AIEM Research Integrity Tools ─────────────────────────────────────
-        "register_hypothesis":         _aiem_tool_register_hypothesis,
-        "list_hypotheses":             _aiem_tool_list_hypotheses,
-        "adversarial_review":          _aiem_tool_adversarial_review,
-        "open_shadow_trade":           _aiem_tool_open_shadow_trade,
-        "close_shadow_trade":          _aiem_tool_close_shadow_trade,
-        "shadow_stats":                _aiem_tool_shadow_stats,
-        "check_shadow_promotion":      _aiem_tool_check_shadow_promotion,
-        "start_shadow_window":         _aiem_tool_start_shadow_window,
-        "get_regime_flags":            _aiem_tool_get_regime_flags,
-        "get_literature_briefs":       _aiem_tool_get_literature_briefs,
-        "run_granger_test":            _aiem_tool_run_granger_test,
-        "model_version_history":       _aiem_tool_model_version_history,
-        # ── Autonomous Safety Stack ────────────────────────────────────────────
-        "simulation_lock_check":       _aiem_tool_simulation_lock_check,
-        "simulation_audit_trail":      _aiem_tool_simulation_audit_trail,
-        "check_kill_switch":           _aiem_tool_check_kill_switch,
-        "clear_kill_switch_halt":      _aiem_tool_clear_kill_switch_halt,
-        "kill_switch_events":          _aiem_tool_kill_switch_events,
-        "log_decision":                _aiem_tool_log_decision,
-        "record_decision_outcome":     _aiem_tool_record_decision_outcome,
-        "get_decisions":               _aiem_tool_get_decisions,
-        "decision_quality_summary":    _aiem_tool_decision_quality_summary,
-        "benchmark_vs_baselines":      _aiem_tool_benchmark_vs_baselines,
-        "start_eval_window":           _aiem_tool_start_eval_window,
-        "is_eval_window_active":       _aiem_tool_is_eval_window_active,
-        "close_eval_window":           _aiem_tool_close_eval_window,
-        "eval_window_history":         _aiem_tool_eval_window_history,
-        "record_human_eval_decision":  _aiem_tool_record_human_eval_decision,
-        # ── RL / Deep RL / Portfolio / Causal / Ensemble / Execution ────────
-        "rl_get_paper_action":         _aiem_tool_rl_get_paper_action,
-        "rl_readable_policy":          _aiem_tool_rl_readable_policy,
-        "deep_rl_get_paper_action":    _aiem_tool_deep_rl_get_paper_action,
-        "deep_rl_probe":               _aiem_tool_deep_rl_probe,
-        "portfolio_allocate":          _aiem_tool_portfolio_allocate,
-        "get_current_regime":          _aiem_tool_get_current_regime,
-        "build_features":              _aiem_tool_build_features,
-        # ── Level 2 / Level 3 ────────────────────────────────────────────────
-        "run_level2":                  _aiem_tool_run_level2,
-        "run_backtest":                _aiem_tool_run_backtest,
-        "analyze_metrics":             _aiem_tool_analyze_metrics,
-        "walk_forward_validate":       _aiem_tool_walk_forward_validate,
-        "run_level3":                  _aiem_tool_run_level3,
-        "strategy_ensemble":           _aiem_tool_strategy_ensemble,
-        "safe_learning_update":        _aiem_tool_safe_learning_update,
-        "safe_learning_weights":       _aiem_tool_safe_learning_weights,
-        "safe_learning_stats":         _aiem_tool_safe_learning_stats,
-        "safe_learning_log_trade":     _aiem_tool_safe_learning_log_trade,
-        "causal_discover":             _aiem_tool_causal_discover,
-        "ensemble_combine_signals":    _aiem_tool_ensemble_combine_signals,
-        "execution_realistic_cost":    _aiem_tool_execution_realistic_cost,
-        "regime_overlay_check":        _aiem_tool_regime_overlay_check,
-        "regime_overlay_manual":       _aiem_tool_regime_overlay_manual,
-        "run_risk_gate":               _aiem_tool_run_risk_gate,
-        "gate_history":                _aiem_tool_gate_history,
-        "divergence_scan":             _aiem_tool_divergence_scan,
-        "check_price_bullish":         _aiem_tool_check_price_bullish,
-        "breakout_discover":           _aiem_tool_breakout_discover,
-        "breakout_extract_features":   _aiem_tool_breakout_extract_features,
-        "gap_continuation_score":      _aiem_tool_gap_continuation_score,
-        "squeeze_subscore":            _aiem_tool_squeeze_subscore,
-        "intraday_continuation_score":  _aiem_tool_intraday_continuation_score,
-        # ── Group 2 intelligence/context tools ───────────────────────────────
-        "microstructure_proxy":        _aiem_tool_microstructure_proxy,
-        "reddit_sentiment":            _aiem_tool_reddit_sentiment,
-        "precursor_signals":           _aiem_tool_precursor_signals,
-        # ── Group 3: ML Infrastructure tools ─────────────────────────────────
-        "ml_time_split":               _aiem_tool_ml_time_split,
-        "ml_train_model":              _aiem_tool_ml_train_model,
-        "ml_classification_metrics":   _aiem_tool_ml_classification_metrics,
-        "ml_regression_metrics":       _aiem_tool_ml_regression_metrics,
-        "ml_estimate_fill":            _aiem_tool_ml_estimate_fill,
-        "ml_gp_signal_search":         _aiem_tool_ml_gp_signal_search,
-        "intraday_compute_features":   _aiem_tool_intraday_compute_features,
-        "send_discovery_alert":        _aiem_tool_send_discovery_alert,
-        "retrain_pending":             _aiem_tool_retrain_pending,
-        "retrain_approve":             _aiem_tool_retrain_approve,
-        "retrain_reject":              _aiem_tool_retrain_reject,
-        "retrain_history":             _aiem_tool_retrain_history,
-        # ── VWAP indicator tools ──────────────────────────────────────────
-        "vwap_compute_features":       _aiem_tool_vwap_compute_features,
-        "vwap_price_vs":               _aiem_tool_vwap_price_vs,
-        "vwap_reclaim_detect":         _aiem_tool_vwap_reclaim_detect,
-        # ── Meta-learning signal trust tools ─────────────────────────────
-        "trust_classify_context":      _aiem_tool_trust_classify_context,
-        "trust_update":                _aiem_tool_trust_update,
-        "trust_get_weights":           _aiem_tool_trust_get_weights,
-        "trust_get_history":           _aiem_tool_trust_get_history,
-        "trust_apply_to_candidates":   _aiem_tool_trust_apply_to_candidates,
-        # ── Background-system live read tools ─────────────────────────────
-        "get_meta_learning_weights":   _aiem_tool_get_meta_learning_weights,
-        "get_m2_decay_status":         _aiem_tool_get_m2_decay_status,
-        "get_m6_rediscovery_status":   _aiem_tool_get_m6_rediscovery_status,
-        "get_bh_fdr_status":           _aiem_tool_get_bh_fdr_status,
-    }
-
-    # ── Phase 1: Primary research loop ───────────────────────────────────────
-    # When pick history is sparse (<10), redirect agent to full-market research tools
-    # (polygon_market_daily has 427K+ rows — agent should never sit idle waiting for picks)
-    if _settled < 10:
-        _user_msg = (
-            "Begin autonomous research. You have {settled} settled picks from ai_early_movers_log "
-            "(not enough for pick-history analysis yet). "
-            "IMPORTANT: Skip evaluate_previous_model and query_pick_outcomes — they need at least 10 picks. "
-            "Instead, do FULL-MARKET research on polygon_market_daily (12,000+ stocks, 427K+ rows): "
-            "1. Call mkt_load_discoveries first to see what's already been found. "
-            "2. Call mkt_explore_dimensions to understand the dataset. "
-            "3. Call mkt_generate_hypotheses to get 8 fresh signal ideas. "
-            "4. Call mkt_factor_correlations to find what predicts big moves. "
-            "5. Test the most promising hypotheses with mkt_test_signal + mkt_validate_oos. "
-            "6. Save anything significant (p<0.05, n>50) with mkt_save_discovery. "
-            "7. Build a composite with mkt_build_composite if you find 2+ confirmed signals. "
-            "Use mkt_required_pvalue to get the correct Bonferroni threshold before saving. "
-            "Save your final model with save_research_model when done."
-        ).format(settled=_settled)
-    else:
-        _user_msg = (
-            "Begin autonomous research. You have {settled} settled picks to analyze. "
-            "Start with evaluate_previous_model, then query_pick_outcomes. "
-            "ALSO run full-market research: mkt_load_discoveries → mkt_explore_dimensions → "
-            "mkt_factor_correlations → mkt_test_signal → mkt_validate_oos → mkt_save_discovery. "
-            "Run statistical_significance on any finding before including it. "
-            "Test multiple weight combinations. Save your model when done."
-        ).format(settled=_settled)
-    messages = [
-        {"role": "system", "content": _AIEM_AGENT_SYSTEM},
-        {"role": "user", "content": _user_msg}
+    # ── Full hypothesis battery ───────────────────────────────────────────────
+    # Options-flow signals (tested against ai_short_calls_log)
+    _OPTIONS_BATTERY = [
+        (["has_sweep = true", "sweep_vol_oi > 5"],             "t3_win",  "Sweep + high VOI"),
+        (["has_sweep = true", "sweep_premium_m > 0.5"],        "t3_win",  "Sweep + large premium"),
+        (["call_put_ratio > 2.0", "has_sweep = true"],         "t3_win",  "High call/put + sweep"),
+        (["has_sweep = true", "days_out < 21", "otm_pct > -10"], "t3_win","Short-dated near-ATM sweep"),
+        (["has_sweep = true", "sweep_vol_oi > 3"],             "t5_win",  "Sweep + VOI>3 (T+5)"),
+        (["premium_m > 1.0"],                                  "t3_win",  "Large premium any direction"),
+        (["call_put_ratio > 3.0"],                             "t3_win",  "Very high call/put ratio"),
+        (["has_sweep = true", "days_out < 21"],                "t3_win",  "Short-dated sweep"),
+        (["has_sweep = true", "otm_pct > -10"],                "t3_win",  "Near-ATM sweep"),
+        (["has_sweep = true", "sweep_premium_m > 1.0"],        "t3_pct",  "Return maximizer"),
     ]
 
-    tool_calls_made = 0
-    model_saved = False
-    save_result = None
-    saved_findings = None
-    saved_weights = None
-    saved_confidence = None
+    # Market-structure signals (tested against polygon_market_daily)
+    _MARKET_BATTERY = [
+        ({"rvol_min": 3.0, "close_strength_min": 0.70},          "next_day", "High RVOL + strong close"),
+        ({"gap_pct_min": 2.0, "rvol_min": 2.0, "close_strength_min": 0.60}, "next_day", "Gap+RVOL+close"),
+        ({"close_strength_min": 0.80, "rvol_min": 1.5},           "next_day", "Very strong close+vol"),
+        ({"gap_pct_min": 3.0, "rvol_min": 2.0},                   "3d",       "Gap+RVOL (3d)"),
+        ({"close_strength_min": 0.70, "gap_pct_min": 1.0},        "5d",       "Gap+close_str (5d)"),
+        ({"rvol_min": 5.0},                                        "next_day", "Extreme RVOL 5x+"),
+        ({"close_strength_max": 0.30, "rvol_min": 2.0},           "next_day", "Weak close+vol (reversal)"),
+        ({"gap_pct_min": 5.0},                                     "3d",       "Big gap 5%+ (3d)"),
+        ({"range_pct_min": 5.0, "close_strength_min": 0.65},      "next_day", "Wide range+strong close"),
+        ({"close_strength_min": 0.90},                             "5d",       "S7c: cs>=0.90 (5d)"),
+        ({"gap_pct_min": 1.0, "rvol_min": 2.0},                   "next_day", "S2: gap+rvol validated"),
+        ({"rvol_min": 2.0, "gap_pct_min": 0.5, "close_strength_min": 0.65}, "3d", "Multi-signal 3d"),
+    ]
+
+    findings = []
+    weights  = {}
     log_lines = [
-        "[aiem_research] ═══ RESEARCH SESSION STARTED ═══",
-        "[aiem_research] settled_picks={}, budget={} iterations".format(_settled, max_iterations),
+        "[aiem_research] ═══ AUTONOMOUS RESEARCH SESSION STARTED ═══",
+        f"[aiem_research] settled_picks={_settled}",
     ]
 
-    for iteration in range(max_iterations):
+    # ── Test options-flow hypotheses ─────────────────────────────────────────
+    for conditions, target, desc in _OPTIONS_BATTERY:
         try:
-            resp = _oai.chat.completions.create(
-                model="gpt-5.4",
-                messages=messages,
-                tools=_AIEM_AGENT_TOOLS[:128],  # OpenAI hard-caps at 128 tools
-                tool_choice="auto",
-                max_completion_tokens=4096,
-            )
-        except Exception as _ce:
-            log_lines.append("  iter {}: API error: {}".format(iteration, _ce))
-            break
+            res = _aiem_tool_test_new_signal(conditions=conditions, target=target, lookback_days=90)
+            if res.get("status") == "error":
+                continue
+            r = res.get("result") or res
+            n  = int(r.get("n") or 0)
+            p  = float(r.get("p_value", 1.0))
+            wr = float(r.get("win_rate_pct") or 0)
+            edge = float(r.get("edge_vs_baseline_pct") or 0)
+            if n >= 8:
+                sig = n >= 15 and p < 0.05
+                findings.append({"description": desc, "source": "options", "n": n,
+                                  "win_rate_pct": wr, "p_value": p, "edge_pct": edge, "significant": sig})
+                if sig and wr >= 54:
+                    k = re.sub(r"[^a-z0-9]", "_", desc.lower())[:28]
+                    weights[k] = round(wr/100, 3)
+                    weights[k+"_n"] = n
+                    weights[k+"_p_value"] = round(p, 6)
+                log_lines.append(f"  opts: {desc} — n={n}, WR={wr:.1f}%, p={p:.4f} {'✓' if sig else ''}")
+        except Exception as _he:
+            log_lines.append(f"  opts error ({desc}): {_he}")
 
-        msg = resp.choices[0].message
-        messages.append({
-            "role": "assistant",
-            "content": msg.content,
-            "tool_calls": [tc.model_dump() for tc in (msg.tool_calls or [])]
-        })
-
-        if not msg.tool_calls:
-            log_lines.append("  iter {}: Agent finished reasoning (no tool call)".format(iteration))
-            break
-
-        for tc in msg.tool_calls:
-            fn_name = tc.function.name
-            try:
-                fn_args = _aj.loads(tc.function.arguments or "{}")
-            except Exception:
-                fn_args = {}
-
-            log_lines.append("  iter {}: → {}({})".format(
-                iteration, fn_name, _aj.dumps(fn_args)[:100]))
-
-            fn = _tool_map.get(fn_name)
-            result = _mkt_safe_tool_call(fn, fn_args, fn_name)
-            tool_calls_made += 1
-
-            result_str = _aj.dumps(result, default=str)
-            if len(result_str) > 6000:
-                result_str = result_str[:6000] + '..."}'
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": result_str,
-            })
-
-            if fn_name == "save_research_model":
-                model_saved = True
-                save_result = result
-                saved_findings   = fn_args.get("findings", "")
-                saved_weights    = fn_args.get("scoring_adjustments", {})
-                saved_confidence = fn_args.get("confidence", "LOW")
-                log_lines.append("  → PRIMARY MODEL SAVED (confidence={})".format(saved_confidence))
-
-        if model_saved:
-            break
-
-    # ── Phase 2: Self-critique pass ───────────────────────────────────────────
-    # Only run if we have enough data and a model was saved
-    if model_saved and _settled >= 15:
-        log_lines.append("[aiem_research] Starting self-critique pass...")
-        critique_messages = [
-            {"role": "system", "content": _AIEM_AGENT_SYSTEM},
-            {"role": "user", "content": (
-                "You just saved this research model:\n\n"
-                "FINDINGS: {}\n\n"
-                "WEIGHTS: {}\n\n"
-                "CONFIDENCE: {}\n\n"
-                "Now CRITIQUE it. What could be wrong? What did you NOT test? "
-                "What confounds might explain the patterns (e.g. sample bias, survivorship bias, "
-                "look-ahead bias)? What regime conditions could break this model? "
-                "Then: if your critique reveals a significant flaw, call save_research_model again "
-                "to update the findings with the caveat. If the model is solid, call save_research_model "
-                "to append 'SELF-CRITIQUE PASSED' to the findings."
-            ).format(saved_findings, _aj.dumps(saved_weights), saved_confidence)}
-        ]
+    # ── Test market-structure hypotheses ─────────────────────────────────────
+    for conditions, horizon, desc in _MARKET_BATTERY:
         try:
-            for _ci in range(5):  # max 5 critique iterations
-                _cr = _oai.chat.completions.create(
-                    model="gpt-5.4",
-                    messages=critique_messages,
-                    tools=_AIEM_AGENT_TOOLS[:128],  # OpenAI hard-caps at 128 tools
-                    tool_choice="auto",
-                    max_completion_tokens=2048,
-                )
-                _cmsg = _cr.choices[0].message
-                critique_messages.append({
-                    "role": "assistant",
-                    "content": _cmsg.content,
-                    "tool_calls": [tc.model_dump() for tc in (_cmsg.tool_calls or [])]
-                })
-                if not _cmsg.tool_calls:
-                    break
-                for _ctc in _cmsg.tool_calls:
-                    _cfn = _ctc.function.name
-                    try:
-                        _cargs = _aj.loads(_ctc.function.arguments or "{}")
-                    except Exception:
-                        _cargs = {}
-                    _cfunc = _tool_map.get(_cfn)
-                    _cresult = _cfunc(**_cargs) if _cfunc else {"error": "Unknown tool"}
-                    tool_calls_made += 1
-                    _cresult_str = _aj.dumps(_cresult, default=str)
-                    if len(_cresult_str) > 4000:
-                        _cresult_str = _cresult_str[:4000] + '..."}'
-                    critique_messages.append({
-                        "role": "tool",
-                        "tool_call_id": _ctc.id,
-                        "content": _cresult_str,
-                    })
-                    if _cfn == "save_research_model":
-                        save_result = _cresult
-                        log_lines.append("  → CRITIQUE MODEL SAVED")
-                        break
-                else:
-                    continue
-                break
-        except Exception as _cre:
-            log_lines.append("  critique error: {}".format(_cre))
+            res = _mkt_tool_test_signal(conditions=conditions, horizon=horizon)
+            if res.get("status") == "error":
+                continue
+            n  = int(res.get("signal_n") or 0)
+            p  = float(res.get("p_value", 1.0))
+            wr = float(res.get("signal_win_rate") or 0)
+            edge = float(res.get("edge_broad") or 0)
+            if n >= 50:
+                sig = p < 0.05 and wr >= 54
+                findings.append({"description": desc, "source": "market", "n": n,
+                                  "win_rate_pct": wr, "p_value": p, "edge_pct": edge, "significant": sig})
+                if sig:
+                    k = re.sub(r"[^a-z0-9]", "_", desc.lower())[:28]
+                    weights[k] = round(wr/100, 3)
+                    weights[k+"_n"] = n
+                    weights[k+"_p_value"] = round(p, 6)
+                log_lines.append(f"  mkt: {desc} — n={n}, WR={wr:.1f}%, p={p:.4f} {'✓' if sig else ''}")
+        except Exception as _me:
+            log_lines.append(f"  mkt error ({desc}): {_me}")
 
-    # ── Fallback if no model saved ────────────────────────────────────────────
-    if not model_saved:
-        log_lines.append("[aiem_research] Budget exhausted - saving conservative defaults")
-        _aiem_tool_save_research_model(
-            findings=(
-                "Research agent ran without sufficient settled picks to draw conclusions. "
-                "Settled picks: {}. "
-                "Default conservative weights applied. "
-                "Model will improve as picks accumulate - check again in 2 weeks.".format(_settled)
-            ),
-            scoring_adjustments={
-                "confirmed_2d_bonus": 1.5,
-                "high_conviction_bonus": 1.0,
-                "vol_oi_factor": 0.3,
-                "note": "Default weights - insufficient data"
-            },
-            confidence="LOW"
-        )
+    sig_findings = [f for f in findings if f.get("significant")]
+    log_lines.append(f"[aiem_research] tested={len(findings)}, significant={len(sig_findings)}")
+    for line in log_lines:
+        print(line)
 
-    log_lines.append("[aiem_research] tool_calls_made={}".format(tool_calls_made))
+    # ── Save significant findings to aiem_research_insights ──────────────────
+    if sig_findings:
+        _combined = chr(10).join(_aj.dumps({
+            "type": "autonomous_research",
+            "description": f["description"],
+            "source": f["source"],
+            "n": f["n"], "win_rate_pct": f["win_rate_pct"],
+            "p_value": f["p_value"], "edge_pct": f["edge_pct"],
+            "found_at": _ardt.datetime.now().isoformat(),
+        }) for f in sig_findings)
+        _conf = "HIGH" if any(f["p_value"] < 0.01 for f in sig_findings) else "MEDIUM"
+        try:
+            with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                _cu.execute("""
+                    INSERT INTO aiem_research_insights (research_date, findings, confidence)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (research_date) DO UPDATE SET
+                        findings = aiem_research_insights.findings || E'\n' || EXCLUDED.findings
+                """, (_ardt.date.today(), _combined, _conf))
+                _c.commit()
+            print(f"[aiem_research] saved {len(sig_findings)} significant findings to DB")
+        except Exception as _se:
+            print(f"[aiem_research] insights save error: {_se}")
 
-    # ── Phase 3: Weekly research email - detailed per-finding statistics ────────
-    try:
-        from email_alerts import send_email_raw
-        _today = _ardt.date.today().isoformat()
+    # ── Save scoring model weights ────────────────────────────────────────────
+    findings_summary = chr(10).join(
+        f"{f['description']}: WR={f['win_rate_pct']:.1f}% n={f['n']} p={f['p_value']:.4f}"
+        for f in findings[:12]
+    ) or "No testable findings this cycle."
 
-        # Read back the final saved model
-        with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
-            _cu.execute("""
-                SELECT findings, scoring_adjustments, confidence
-                FROM aiem_research_insights
-                WHERE research_date = CURRENT_DATE
-                ORDER BY created_at DESC LIMIT 1
-            """)
-            _mrow = _cu.fetchone()
+    _aiem_tool_save_research_model(
+        findings=findings_summary,
+        scoring_adjustments=weights or {"note": "No significant signals — default weights"},
+        confidence=("HIGH" if len(sig_findings) >= 3 else "MEDIUM" if sig_findings else "LOW")
+    )
 
-        _mfindings = _mrow[0] if _mrow else "No model saved"
-        _mweights  = _mrow[1] if _mrow else {}
-        _mconf     = _mrow[2] if _mrow else "LOW"
-
-        # ── Build per-finding statistics table ─────────────────────────────────
-        # Parse scoring_adjustments to extract weight + p_value + n per signal
-        _sig_rows = ""
-        if _mweights:
-            import json as _ej
-            _adj = _mweights if isinstance(_mweights, dict) else {}
-            # Collect base weight keys (not metadata suffixes)
-            _wkeys = sorted(set(
-                k for k in _adj
-                if not k.endswith("_p_value") and not k.endswith("_n")
-                   and not k.endswith("_warning") and k not in ("note","regime","exit_timing")
-            ))
-            for _wk in _wkeys:
-                _wval  = _adj.get(_wk, "-")
-                _wpval = _adj.get(_wk + "_p_value", "NOT TESTED")
-                _wn    = _adj.get(_wk + "_n", "-")
-                _wwarn = _adj.get(_wk + "_warning", "")
-
-                # Significance color
-                if _wpval == "NOT TESTED":
-                    _sig_color = "#8b949e"; _sig_label = "not tested"
-                elif _wpval == "NOT_TESTED":
-                    _sig_color = "#8b949e"; _sig_label = "not tested"
-                else:
-                    try:
-                        _pf = float(_wpval)
-                        if _pf < 0.01:
-                            _sig_color = "#3fb950"; _sig_label = "STRONG ✓"
-                        elif _pf < 0.05:
-                            _sig_color = "#3fb950"; _sig_label = "significant ✓"
-                        elif _pf < 0.10:
-                            _sig_color = "#f0883e"; _sig_label = "marginal WARNING"
-                        else:
-                            _sig_color = "#f85149"; _sig_label = "NOT SIG ✗"
-                    except Exception:
-                        _sig_color = "#8b949e"; _sig_label = str(_wpval)
-
-                _warn_html = ""
-                if _wwarn:
-                    _warn_html = "<br><span style='color:#f0883e;font-size:11px;'>WARNING {}</span>".format(_wwarn)
-
-                _sig_rows += """
-                  <tr>
-                    <td style="padding:6px 10px;color:#e6edf3;">{key}</td>
-                    <td style="padding:6px 10px;color:#79c0ff;text-align:center;">{val}</td>
-                    <td style="padding:6px 10px;text-align:center;color:#8b949e;">{n}</td>
-                    <td style="padding:6px 10px;text-align:center;color:#8b949e;">{pval}</td>
-                    <td style="padding:6px 10px;text-align:center;color:{sc};">{sl}{warn}</td>
-                  </tr>""".format(
-                    key=_wk, val=_wval, n=_wn,
-                    pval=_wpval if _wpval not in ("NOT_TESTED","NOT TESTED") else "-",
-                    sc=_sig_color, sl=_sig_label, warn=_warn_html
-                )
-
-            # Add metadata rows (note, regime, exit_timing) as plain rows
-            for _mk in ("note", "regime", "exit_timing"):
-                if _mk in _adj:
-                    _sig_rows += """
-                  <tr style="border-top:1px solid #30363d;">
-                    <td style="padding:6px 10px;color:#8b949e;">{k}</td>
-                    <td colspan="4" style="padding:6px 10px;color:#8b949e;font-style:italic;">{v}</td>
-                  </tr>""".format(k=_mk, v=str(_adj[_mk])[:200])
-
-        _weights_table = ""
-        if _sig_rows:
-            _weights_table = """
-            <table style="width:100%;border-collapse:collapse;background:#161b22;border-radius:6px;overflow:hidden;">
-              <thead>
-                <tr style="background:#21262d;">
-                  <th style="padding:8px 10px;text-align:left;color:#58a6ff;">Signal / Weight</th>
-                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">Value</th>
-                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">n</th>
-                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">p-value</th>
-                  <th style="padding:8px 10px;text-align:center;color:#58a6ff;">Significance</th>
-                </tr>
-              </thead>
-              <tbody>{rows}</tbody>
-            </table>""".format(rows=_sig_rows)
-        else:
-            _weights_table = "<div style='color:#8b949e;padding:12px;'>No weights saved this session.</div>"
-
-        # ── Confidence badge color ─────────────────────────────────────────────
-        _conf_color = {"HIGH": "#3fb950", "MEDIUM": "#f0883e", "LOW": "#f85149"}.get(_mconf, "#8b949e")
-
-        _email_html = """
-        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',monospace;max-width:720px;margin:0 auto;background:#0d1117;color:#e6edf3;padding:24px;border-radius:8px;">
-          <h2 style="color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:12px;margin-top:0;">
-            AI Research Agent &mdash; Weekly Report {date}
-          </h2>
-
-          <div style="display:flex;gap:12px;margin:16px 0;flex-wrap:wrap;">
-            <div style="background:#161b22;padding:12px 18px;border-radius:6px;flex:1;min-width:140px;">
-              <div style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Confidence</div>
-              <div style="color:{conf_color};font-size:20px;font-weight:700;margin-top:4px;">{conf}</div>
-            </div>
-            <div style="background:#161b22;padding:12px 18px;border-radius:6px;flex:1;min-width:140px;">
-              <div style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Settled Picks</div>
-              <div style="color:#e6edf3;font-size:20px;font-weight:700;margin-top:4px;">{settled}</div>
-            </div>
-            <div style="background:#161b22;padding:12px 18px;border-radius:6px;flex:1;min-width:140px;">
-              <div style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px;">Tool Calls</div>
-              <div style="color:#e6edf3;font-size:20px;font-weight:700;margin-top:4px;">{calls}</div>
-            </div>
-          </div>
-
-          <h3 style="color:#58a6ff;margin-top:20px;">Research Findings</h3>
-          <div style="background:#161b22;padding:16px;border-radius:6px;white-space:pre-wrap;line-height:1.6;font-size:13px;">{findings}</div>
-
-          <h3 style="color:#58a6ff;margin-top:20px;">
-            Validated Scoring Weights
-            <span style="font-size:12px;font-weight:400;color:#8b949e;margin-left:8px;">
-              (p-value shown per signal &mdash; enforced p&lt;0.10 gate, target p&lt;0.05)
-            </span>
-          </h3>
-          {weights_table}
-
-          <div style="margin-top:20px;background:#161b22;padding:12px 16px;border-radius:6px;border-left:3px solid #58a6ff;">
-            <span style="color:#8b949e;font-size:12px;">
-              These weights are now active in tomorrow's AI Early Movers picks.
-              Weights with p&ge;0.10 were automatically stripped before saving.
-              View full history: GET /stock-api/aiem-research-status
-            </span>
-          </div>
-        </div>
-        """.format(
-            date=_today,
-            conf=_mconf,
-            conf_color=_conf_color,
-            settled=_settled,
-            calls=tool_calls_made,
-            findings=str(_mfindings)[:3000].replace("<","&lt;").replace(">","&gt;"),
-            weights_table=_weights_table
-        )
-
-        _sent = send_email_raw(
-            _OWNER_EMAIL,
-            "AI Research Agent - {} | confidence={} | {} settled picks".format(
-                _today, _mconf, _settled),
-            _email_html
-        )
-        log_lines.append("[aiem_research] Owner email sent={}".format(_sent))
-    except Exception as _ee:
-        log_lines.append("[aiem_research] Email error: {}".format(_ee))
-
-    _log_str = "\n".join(log_lines)
-    print(_log_str)
-    return {
-        "tool_calls_made": tool_calls_made,
-        "model_saved": model_saved,
-        "save_result": save_result,
-        "settled_picks_analyzed": _settled,
-        "iterations_budget": max_iterations,
-        "log": log_lines,
-    }
-
-
+    print(f"[aiem_research] complete — tested={len(findings)}, significant={len(sig_findings)}, weights={len(weights)}")
+    return {"tested": len(findings), "significant": len(sig_findings), "top_findings": findings[:5]}
 def _init_signal_history_table():
     """Create signal_history table for multi-day persistence tracking."""
     create_sql = """
