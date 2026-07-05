@@ -1,0 +1,36 @@
+# Build Request: VIX Spike-Reversal Signal
+
+## Directive — AIEM must do this work, not you
+Same standing instruction as before: build this as a reusable function inside AIEM (e.g. `run_vix_spike_reversal_backtest()`), trigger AIEM to execute it, and relay AIEM's actual output. Do not compute results yourself in a side script. If any part had to be hand-computed rather than produced by AIEM's own function, say so explicitly.
+
+## Signal definition
+Using spot VIX (`^VIX`, confirmed available 2000-2026 with no gaps):
+- **Entry trigger**: VIX spikes above a threshold, THEN turns down from its peak by N% within M trading days.
+- Test multiple threshold/parameter combinations, but cap this deliberately — see guardrail below.
+- Suggested starting parameters to test: threshold ∈ {30, 40, 50}, peak-decline trigger N ∈ {10%, 15%, 20%}, within M ∈ {3, 5, 10} trading days. This is 3×3×3 = 27 combinations — treat this as the FULL set to test, not a starting point to expand from.
+
+## Exit rule
+Use the same 11-day hold / -8% stop-loss framework as the original SPY-20d signal, applied to SPY price (enter SPY when the VIX condition fires, since VIX itself isn't tradable). State clearly if you think a different exit makes more sense for a vol-based signal, but implement the standard framework first for comparability, and only add an alternative as a labeled secondary test.
+
+## Test periods
+Same four: 2000-2002, 2007-2009, 2022, 2020. Also test against the full 2000-2026 range as a fifth "all periods combined" view, but report it alongside — not instead of — the four individual periods.
+
+## Mandatory overfitting guardrail
+With 27 parameter combinations and only 4 historical bear periods, this is exactly the multiple-comparisons risk flagged before. Required safeguards:
+1. Report ALL 27 combinations tested, ranked by performance — not just the best one.
+2. For the top-performing combination(s), explicitly check and report: does it perform well in 3+ of the 4 individual periods, or does its aggregate number get carried by one period while failing in others? A combination that only "wins" because of one lucky period is not a real finding — flag this explicitly if it's the case.
+3. Report how many of the 27 combinations would have looked "good" (e.g. >60% win rate) purely by chance if there were truly no edge — a rough sanity check on how much signal vs. noise to expect at this sample size.
+
+## Comparison to existing results
+Report how the best VIX spike-reversal combination compares, period-by-period, to:
+- The original SPY-20d-return signal (34.6%-51.4% WR range, severe failure in 2007-2009)
+- Each other, so I can see if this signal fails in the same periods the price-based signal failed in, or different ones (different failure patterns would be informative either way)
+
+## Verification required — same standard as this entire session
+1. Paste the actual code implementing the signal and backtest function, verbatim with line numbers.
+2. Paste the raw, full 27-combination results table — every combination, not a curated subset.
+3. Paste per-period breakdown (win rate, avg return, cumulative return, stop-outs, max consecutive losses) for the best combination(s), same format as previous backtests.
+4. Confirm explicitly whether AIEM computed all of this or whether any part was hand-computed by you.
+5. If VIX data has any gaps or quality issues in any of the 4 periods, disclose them before presenting results.
+
+Do not present any single "best" number without the full comparison table it came from.

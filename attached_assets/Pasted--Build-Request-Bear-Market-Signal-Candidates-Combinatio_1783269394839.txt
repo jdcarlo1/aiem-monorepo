@@ -1,0 +1,55 @@
+# Build Request: Bear-Market Signal Candidates + Combination Testing
+
+## Directive — AIEM must do this work, not you
+Do not check data availability, fetch data, or run backtests yourself in an ad hoc script. Your job is to build this capability directly into AIEM's own codebase as reusable functions (e.g. `check_data_availability()`, `run_signal_backtest()`, `run_combination_backtest()`), then trigger AIEM to execute them. AIEM must independently query the database, compute the results, and generate the output. You are relaying and verifying what AIEM produced — not producing it yourself in a separate script outside AIEM.
+
+If at any point you find yourself computing something by hand or in a standalone script because it was faster than building it into AIEM, stop and say so explicitly rather than presenting your own hand-computed numbers as AIEM's output. This must be a standing, reusable capability inside AIEM going forward, not a one-time favor.
+
+## Step 0: Extend price-based signal history back to 1928 using S&P 500 index data
+Before testing the 3 new candidates, extend the historical range for the EXISTING price-based signal (the SPY-20d-return crossing-below-threshold logic) as far back as real data allows — ideally to 1928.
+
+- SPY the ETF only exists from 1993 forward, so it cannot supply this. Use the underlying **S&P 500 index** (ticker `^GSPC` or equivalent) instead, which has daily data back to 1928 (and a predecessor index back to 1926) via yfinance or another free source.
+- Fetch full daily S&P 500 index history from the earliest available date through today. Report the actual earliest date returned — don't assume 1928 is achievable until you've confirmed it with a real data pull.
+- Re-run the exact same signal logic (20-day return crosses below -5%, 11-day hold, -8% stop) against this full ~95+ year history. This will sweep in periods not in the original 4-period test: 1929-1932 crash, 1937-1938, 1973-1974, 1987 crash, 1990, 2000-2002, 2007-2009, 2020, 2022 — a genuinely larger independent sample.
+- Report results broken out BY DECADE or by identifiable historical period (not just one blended number for 95 years) — same as the per-period requirement below for the new candidates. A blended 95-year number would hide exactly the kind of period-to-period variation that matters most.
+- Flag clearly: index-level data lacks intraday highs/lows in some older sources, and the -8% stop-loss logic may need to use close-to-close approximation for eras where intraday data isn't available. State explicitly which eras use which method, and don't silently mix methodologies without disclosing it.
+
+## Scope discipline for the 3 new candidates (breadth, VIX term structure, volume thrust)
+These candidates should NOT be forced back to 1928 — their honest data availability is much shorter (breadth and volume-by-universe data reliably available from roughly the 1960s-70s forward at best; VIX only from 1990 forward, 1993 for the real index). Use whatever their real, honestly-available range is. Do not approximate, backfill, or proxy data for eras where it doesn't exist — report the true earliest available date for each candidate separately.
+
+## Context
+The existing SPY-20d-return panic exhaustion signal failed against real bear markets (34.6% WR / -57.8% cumulative in 2007-2009, 9-signal losing streak of -45.9%). Before building anything, we want to test whether different signal types — ones that measure market internals rather than just price level — perform better.
+
+## Step 1: Data availability check — do this FIRST, don't build anything yet
+For each of the three candidate signals below, report whether the required data exists in the current database, or what would need to be sourced:
+
+1. **Breadth divergence** (fewer new 52-week lows on subsequent price lows) — requires new-highs/new-lows data across a broad universe (e.g. NYSE or S&P 500 constituents), not just SPY. Does `polygon_market_daily` have data for enough individual tickers to compute this, or does this require a new data source?
+2. **VIX term structure inversion** (front-month VIX futures above back-month) — requires VIX futures data (not just spot VIX). Confirm whether this is available via existing Polygon/yfinance access or requires a new source (e.g. CBOE).
+3. **90% up-volume day following 90% down-volume day** (Lowry-style) — requires total market volume broken into advancing vs. declining volume across a broad universe. Same universe-breadth requirement as #1.
+
+Report back: which of these 3 are buildable now with existing/free data, which need new sourcing, and what that sourcing would cost/require (same format as the SPY backfill cost comparison). Do not proceed to Step 2 until this is confirmed.
+
+## Step 2: Build each viable candidate as an independent, isolated signal
+For whichever candidates are feasible, implement each as its own standalone function that can be backtested exactly like the existing panic exhaustion signal — same historical periods (2000-2002, 2007-2009, 2022, 2020), same 11-day hold / -8% stop framework for consistency, unless the signal's nature requires a different exit rule (state clearly if so and why).
+
+## Step 3: Test each signal in isolation first
+Before combining anything, report win rate, avg return, cumulative return, stop-out count, and max consecutive losses for EACH signal individually, across all 4 bear periods — same format as the original panic exhaustion backtest table.
+
+## Step 4: Test combinations — with an overfitting guardrail
+Only after Step 3, test combinations (any 2 together, all 3 together, combined with the existing SPY-20d signal as a confirming filter).
+
+**Guardrail — this is mandatory, not optional:** With only 4 historical bear periods and multiple candidate signals, testing many combinations risks finding one that looks good purely by chance (multiple comparisons problem). To guard against this:
+- Report the TOTAL number of combinations tested.
+- For any combination that appears to outperform, explicitly check: does it hold up in 3 of the 4 periods individually, or does its overall number get carried by one period while failing in the others? A combination that only "works" because it got lucky in one period is not a real finding.
+- Do not cherry-pick or report only the best-looking combination — report ALL combinations tested, ranked, so I can see the full picture including the failures.
+
+## Verification required — same standard as this entire session
+1. Paste the actual data availability findings from Step 1, with real API/DB check output, not assumptions.
+2. Paste the actual code implementing each new signal function, verbatim with line numbers.
+3. Paste raw backtest output (not summarized) for every individual signal test in Step 3.
+4. Paste the FULL combination results table from Step 4 — every combination tested, not just the winner.
+5. Confirm explicitly: for the best-performing combination (if any), does it beat the original SPY-20d-only signal in ALL 4 periods, or just some? State this plainly.
+6. If none of the 3 candidates are buildable due to data limitations, say so clearly and stop — do not substitute a proxy or approximation without flagging it as such.
+7. Confirm explicitly, in writing: did AIEM compute every number in this report by executing its own functions, or did you compute any of it yourself outside AIEM? If any part was hand-computed by you rather than by AIEM, identify exactly which part.
+
+Do not present any single number as "the answer" without showing the full combination table it came from.

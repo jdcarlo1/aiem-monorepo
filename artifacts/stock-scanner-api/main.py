@@ -13746,6 +13746,69 @@ def admin_run_panic_exhaustion_backtest():
 
 
 @app.route("/stock-api/admin/check-signal-data-availability", methods=["POST"])
+
+@app.route("/stock-api/admin/backfill-vix-daily", methods=["POST"])
+def admin_backfill_vix_daily():
+    """Backfill vix_daily from yfinance ^VIX (2000-2026). No body required."""
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        from aiem_pullback_reentry import _backfill_vix_daily as _fn
+        result = _fn()
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
+
+@app.route("/stock-api/admin/backfill-gspc-history", methods=["POST"])
+def admin_backfill_gspc_history():
+    """Backfill gspc_daily from yfinance ^GSPC (1927-2026). No body required."""
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        from aiem_pullback_reentry import backfill_gspc_history as _fn
+        result = _fn()
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
+
+@app.route("/stock-api/admin/run-vix-spike-reversal-grid", methods=["POST"])
+def admin_run_vix_spike_reversal_grid():
+    """
+    Run all 27 VIX spike-reversal combinations across 5 periods.
+    No body required.  Takes ~60-120s (27 x 5 backtests + yfinance calls).
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        from aiem_pullback_reentry import run_vix_spike_reversal_grid_all_periods as _fn
+        result = _fn()
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
+
+@app.route("/stock-api/admin/run-gspc-full-history-backtest", methods=["POST"])
+def admin_run_gspc_full_history_backtest():
+    """
+    Run ^GSPC full-history backtest (~1928-2026) by decade + named bear period.
+    Optional body: {"spy_threshold": -5.0, "hold_days": 11, "stop_loss_pct": -8.0}
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    body          = request.get_json(silent=True) or {}
+    spy_threshold = float(body.get("spy_threshold", -5.0))
+    hold_days     = int(body.get("hold_days", 11))
+    stop_loss_pct = float(body.get("stop_loss_pct", -8.0))
+    try:
+        from aiem_pullback_reentry import run_gspc_full_history_backtest as _fn
+        result = _fn(spy_threshold, hold_days, stop_loss_pct)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
+
 def admin_check_signal_data_availability():
     """
     Step 1 of the bear-market signal candidate build process.
@@ -29662,6 +29725,10 @@ def _build_aiem_tool_map():
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
         "run_panic_exhaustion_backtest": _aiem_tool_run_panic_exhaustion_backtest,
         "check_signal_data_availability": _aiem_tool_check_signal_data_availability,
+        "run_vix_spike_reversal_grid":    _aiem_tool_run_vix_spike_reversal_grid,
+        "run_gspc_full_history_backtest": _aiem_tool_run_gspc_full_history_backtest,
+        "backfill_vix_daily":             _aiem_tool_backfill_vix_daily,
+        "backfill_gspc_history":          _aiem_tool_backfill_gspc_history,
         "run_level2":               _aiem_tool_run_level2,
         "run_backtest":             _aiem_tool_run_backtest,
         "analyze_metrics":          _aiem_tool_analyze_metrics,
@@ -31819,7 +31886,52 @@ _AIEM_AGENT_TOOLS = [
             "days_back": {"type": "integer", "description": "Days of polygon_market_daily history (default 200)"},
         }, "required": ["symbol"]},
     }},
-    {{"type": "function", "function": {{
+    {"type": "function", "function": {
+        "name": "run_vix_spike_reversal_grid",
+        "description": (
+            "Run all 27 VIX spike-reversal parameter combinations across 5 periods "
+            "(2000-2002, 2007-2009, 2022, 2020, 2000-2026 combined). "
+            "Signal: VIX spikes above threshold, then drops peak_decline_pct% from "
+            "its peak within peak_lookback_days trading days → enter SPY. "
+            "Exit: same 11-day hold / -8% close-based stop as panic exhaustion signal. "
+            "Returns full ranked grid of all 27 combos, per-period breakdown for top 3, "
+            "multiple-comparisons sanity check, and comparison to the SPY-20d signal. "
+            "Automatically backfills vix_daily if empty. "
+            "DISCLOSURE: Uses spot ^VIX only — NOT VIX futures term structure."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "run_gspc_full_history_backtest",
+        "description": (
+            "Run the same 20-day-return crossing-below signal on S&P 500 index (^GSPC) "
+            "full history from 1927-12-30 through 2026. "
+            "Results broken out by decade (1920s through 2020s) AND by 14 named "
+            "historical bear periods (1929-32, 1937-38, 1973-74, 1987, 2000-02, "
+            "2007-09, 2020, 2022, and more). "
+            "Same parameters as run_panic_exhaustion_backtest: spy_threshold=-5%, "
+            "hold_days=11, stop_loss_pct=-8%, close-based stop throughout. "
+            "METHODOLOGY: Pre-1993 data has O=H=L=C (no intraday range) — "
+            "stop-loss triggers at daily close only, gap-through losses not avoidable. "
+            "Automatically backfills gspc_daily table from yfinance if needed."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "spy_threshold": {"type": "number",  "description": "20d return threshold (default -5.0)"},
+            "hold_days":     {"type": "integer", "description": "Trading-day hold period (default 11)"},
+            "stop_loss_pct": {"type": "number",  "description": "Close-based stop % (default -8.0)"},
+        }, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "backfill_vix_daily",
+        "description": "Fetch ^VIX daily closes from yfinance (2000-01-01 to today) and populate vix_daily table. ON CONFLICT DO NOTHING. Returns inserted/skipped counts.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "backfill_gspc_history",
+        "description": "Fetch full ^GSPC history from yfinance (1927-12-30 to today) and populate gspc_daily table. ON CONFLICT DO NOTHING. Returns inserted/skipped counts and date range.",
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
         "name": "check_signal_data_availability",
         "description": (
             "Step 1 of the bear-market signal candidate build process. "
@@ -31832,8 +31944,8 @@ _AIEM_AGENT_TOOLS = [
             "Must be called before Step 2 (building signal functions). "
             "Does NOT run any backtest or fetch prices beyond availability probes."
         ),
-        "parameters": {{"type": "object", "properties": {{}}, "required": []}},
-    }}}},
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
     {"type": "function", "function": {
         "name": "run_panic_exhaustion_backtest",
         "description": (
@@ -34448,6 +34560,46 @@ def _aiem_tool_run_panic_exhaustion_backtest(
             stop_loss_pct=float(stop_loss_pct),
             period_label=str(period_label),
         )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_run_vix_spike_reversal_grid() -> dict:
+    """AIEM tool: run all 27 VIX spike-reversal combos across 5 periods."""
+    try:
+        from aiem_pullback_reentry import run_vix_spike_reversal_grid_all_periods as _fn
+        return _fn()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_run_gspc_full_history_backtest(
+    spy_threshold: float = -5.0,
+    hold_days: int = 11,
+    stop_loss_pct: float = -8.0,
+) -> dict:
+    """AIEM tool: run ^GSPC full-history backtest (~1928-2026) by decade + named period."""
+    try:
+        from aiem_pullback_reentry import run_gspc_full_history_backtest as _fn
+        return _fn(float(spy_threshold), int(hold_days), float(stop_loss_pct))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_backfill_vix_daily() -> dict:
+    """AIEM tool: backfill vix_daily table from yfinance ^VIX."""
+    try:
+        from aiem_pullback_reentry import _backfill_vix_daily as _fn
+        return _fn()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_backfill_gspc_history() -> dict:
+    """AIEM tool: backfill gspc_daily table from yfinance ^GSPC."""
+    try:
+        from aiem_pullback_reentry import backfill_gspc_history as _fn
+        return _fn()
     except Exception as _e:
         return {"error": str(_e)}
 
