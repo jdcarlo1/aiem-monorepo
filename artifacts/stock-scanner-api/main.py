@@ -53203,9 +53203,10 @@ def admin_register_ask_key():
     POST body JSON: {"token": "<sm_subscribers.token>", "openai_key": "sk-...", "daily_limit": 10}
     Header: X-Admin-Token required.
     """
-    import hashlib as _rhl, psycopg2 as _rpg
-    _tok = request.headers.get("X-Admin-Token", "")
-    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+    import hashlib as _rhl, psycopg2 as _rpg, hmac as _rhmac
+    _tok  = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not _rhmac.compare_digest(_tok.encode("utf-8"), _want.encode("utf-8")):
         return jsonify({"error": "unauthorized"}), 403
 
     body = request.get_json(silent=True) or {}

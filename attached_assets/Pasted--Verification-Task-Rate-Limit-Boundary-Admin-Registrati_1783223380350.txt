@@ -1,0 +1,29 @@
+# Verification Task: Rate-Limit Boundary + Admin Registration Auth + NULL Limit Handling
+
+Prove all three of the following with raw grep/SQL/curl output. No summaries, no "should work" — actual terminal output only. If a check reveals a bug, do not fix and self-report — show the diff and a passing live test after the fix.
+
+---
+
+## 1. Rate limit boundary — exact count semantics
+
+- Run `grep -n "ask_daily_limit\|ask_count" <file>` and paste every line where `ask_count` is compared against `ask_daily_limit`.
+- State explicitly: with `ask_daily_limit=5`, does a subscriber get exactly 5 successful asks before rejection, or 4? Show the exact comparison operator (`>`, `>=`, etc.) and the increment order (is `ask_count` incremented before or after the check?).
+- Live test: set `ask_count=4`, `ask_daily_limit=5`, send an ASK, confirm it succeeds and `ask_count` becomes 5. Then send a 6th, confirm rejection. Paste the SQL row before and after each call.
+
+## 2. Admin registration endpoint auth — same protection as SMS path?
+
+- Run `grep -n "X-Admin-Token\|register-as-key" <file>` and paste the full auth check block for `POST /stock-api/admin/subscriber/register-as-key`.
+- Confirm whether it uses `hmac.compare_digest` (like the two SMS-path checks at lines 11781/11820) or a plain `==` comparison.
+- If it's `==`, flip it to `compare_digest` and show the diff.
+- Live curl test: correct token → 200/success; wrong token (differing by one char, same length, to test timing-safety intent) → rejected.
+
+## 3. NULL `ask_daily_limit` — fail open or fail closed?
+
+- Run `grep -n "ask_daily_limit" <file>` and identify the WHERE clause(s) that reference it.
+- State explicitly: if `ask_daily_limit IS NULL` for a subscriber row (e.g., never set, migration gap, manual insert), does the WHERE clause evaluate to reject the ask (fail closed) or allow it through (fail open)? SQL `NULL` comparisons (`ask_count+1 > NULL`) evaluate to `NULL`, which is falsy in a `WHERE ... AND` context — confirm whether this causes silent bypass of the rate limit entirely.
+- Live test: insert or update a subscriber row with `ask_daily_limit = NULL`, `paid = true`, `active = true`. Send an ASK. Paste the SQL row and the `[ask_auth]` log line showing accept or reject.
+- If it fails open, add an explicit `AND ask_daily_limit IS NOT NULL` guard (or a `COALESCE` default) and show the diff plus a passing re-test.
+
+---
+
+Return raw terminal/SQL output only for each of the three sections above.
