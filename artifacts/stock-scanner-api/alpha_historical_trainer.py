@@ -181,7 +181,9 @@ def _build_training_dataset(conn, start_date="2024-07-01", end_date=None, progre
     cur.execute(spy_sql, {"fwd": FWD_DAYS})
     spy_rows = cur.fetchall()
     spy_df = pd.DataFrame(spy_rows, columns=["price_date", "spy_close", "spy_fwd_10d", "spy_ret_5d"])
-    spy_df["price_date"] = pd.to_datetime(spy_df["price_date"]).dt.date
+    spy_df["price_date"]  = pd.to_datetime(spy_df["price_date"]).dt.date
+    spy_df["spy_fwd_10d"] = spy_df["spy_fwd_10d"].astype(float)
+    spy_df["spy_ret_5d"]  = spy_df["spy_ret_5d"].astype(float)
 
     # Step 3: Pull per-sector ETF forward return for sector_rs
     sector_sql = """
@@ -196,7 +198,8 @@ def _build_training_dataset(conn, start_date="2024-07-01", end_date=None, progre
     cur.execute(sector_sql)
     sector_rows = cur.fetchall()
     sector_df = pd.DataFrame(sector_rows, columns=["etf_ticker", "price_date", "etf_ret_10d"])
-    sector_df["price_date"] = pd.to_datetime(sector_df["price_date"]).dt.date
+    sector_df["price_date"]  = pd.to_datetime(sector_df["price_date"]).dt.date
+    sector_df["etf_ret_10d"] = sector_df["etf_ret_10d"].astype(float)
 
     # Step 4: Join everything
     df["scan_date"] = pd.to_datetime(df["scan_date"]).dt.date
@@ -216,10 +219,19 @@ def _build_training_dataset(conn, start_date="2024-07-01", end_date=None, progre
     if "price_date" in df.columns:
         df.drop(columns=["price_date"], inplace=True)
 
-    # sector_rs_10d = how much did the stock beat its sector ETF (using close_strength proxy)
-    # since we don't have individual stock 10d history easily, use stock fwd vs ETF fwd
-    df["sector_rs_10d"] = df["fwd_ret_10d"] - df["etf_ret_10d"].fillna(df["spy_fwd_10d"])
-    df["spy_rs_5d"]     = df["momentum_5d"] - df["spy_ret_5d"].fillna(0)
+    # Cast ALL numeric columns to float immediately after merge.
+    # psycopg2 returns NUMERIC as Decimal — arithmetic fails unless we cast first.
+    for _col in ["fwd_ret_10d", "spy_fwd_10d", "spy_ret_5d", "etf_ret_10d",
+                 "gap_pct", "rvol", "close_strength", "range_pct",
+                 "momentum_5d", "momentum_20d", "vol_vs_20d_avg", "price_vs_52wh"]:
+        if _col in df.columns:
+            df[_col] = pd.to_numeric(df[_col], errors="coerce").astype(float)
+
+    # sector_rs_10d = trailing stock return vs trailing sector ETF return.
+    # MUST use only past data here — fwd_ret_10d is future and would leak the label.
+    # Use momentum_5d (trailing 5d stock return) vs etf_ret_10d (trailing 10d ETF return).
+    df["sector_rs_10d"] = df["momentum_5d"] - df["etf_ret_10d"].fillna(df["spy_ret_5d"])
+    df["spy_rs_5d"]     = df["momentum_5d"] - df["spy_ret_5d"].fillna(0.0)
 
     # Step 5: Compute alpha label
     df["alpha_10d"] = df["fwd_ret_10d"] - df["spy_fwd_10d"]
@@ -278,10 +290,10 @@ def _walk_forward_validate(df, n_splits=4):
         if len(train_df) < MIN_TRAIN_ROWS or len(test_df) < 100:
             continue
 
-        X_tr = train_df[FEATURE_COLUMNS].values
-        y_tr = train_df["label"].values
-        X_te = test_df[FEATURE_COLUMNS].values
-        y_te = test_df["label"].values
+        X_tr = train_df[FEATURE_COLUMNS].values.astype(np.float32).copy()
+        y_tr = train_df["label"].values.copy()
+        X_te = test_df[FEATURE_COLUMNS].values.astype(np.float32).copy()
+        y_te = test_df["label"].values.copy()
 
         # Fill NaN with column medians from training set
         medians = np.nanmedian(X_tr, axis=0)

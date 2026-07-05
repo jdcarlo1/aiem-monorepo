@@ -1,0 +1,45 @@
+{
+  "status": "trained",
+  "model_path": "/home/runner/workspace/artifacts/stock-scanner-api/aiem_alpha_leaders.pkl",
+  "trained_at": "2026-07-05T19:11:15.982510",
+  "data": {
+    "total_rows": 1434216,
+    "outperformers": 652004,
+    "underperformers": 782212,
+    "pct_outperform": 45.5,
+    "date_range": "2024-08-06 \u2192 2026-06-04",
+    "unique_tickers": 7416
+  },
+  "walk_forward": {
+    "n_folds": 4,
+    "avg_auc": 0.5108,
+    "avg_precision": 0.4257,
+    "avg_recall": 0.0117,
+    "fold_aucs": [
+      0.5107,
+      0.5066,
+      0.4847,
+      0.5411
+    ]
+  },
+  "feature_importance": {
+    "range_pct": 0.1519,
+    "spy_rs_5d": 0.1398,
+    "momentum_20d": 0.1337,
+    "momentum_5d": 0.1258,
+    "sector_rs_10d": 0.1254,
+    "price_vs_52wh": 0.0875,
+    "vol_vs_20d_avg": 0.0807,
+    "rvol": 0.0674,
+    "gap_pct": 0.0534,
+    "close_strength": 0.0343
+  },
+  "top_signals": [
+    "range_pct",
+    "spy_rs_5d",
+    "momentum_20d"
+  ],
+  "threshold_strong": 0.65,
+  "threshold_moderate": 0.5,
+  "note": "Walk-forward AUC > 0.55 = model has edge. Precision = % of STRONG signals that actually outperformed SPY. Model retrained every Sunday 9 PM ET as new paper trades settle."
+}
