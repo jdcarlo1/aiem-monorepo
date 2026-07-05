@@ -13568,43 +13568,54 @@ def _check_panic_exhaustion() -> None:
 
             # ── 5. Build and send Telegram alert ───────────────────────────
             if in_panic and not was_panic:
-                # ENTERING panic exhaustion mode
                 msg = (
-                    "🚨 PANIC EXHAUSTION MODE — ENTERING\n"
+                    "🚨 PANIC EXHAUSTION — ENTERING\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"SPY 20d return: {ret_20d:+.1f}% (threshold: -5.0%)\n"
-                    f"SPY  5d return: {ret_5d:+.1f}%\n"
-                    f"SPY  1d return: {ret_1d:+.1f}%\n"
-                    f"Signals firing today: {sig_count}\n"
+                    f"SPY 20-trading-day return: {ret_20d:+.1f}%  (≈28 calendar days)\n"
+                    f"SPY  5-day return:          {ret_5d:+.1f}%\n"
+                    f"SPY  1-day return:          {ret_1d:+.1f}%\n"
+                    f"Signals firing today:       {sig_count}\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "Backtest: 1,762 rows avg 85% WR (5d)\n"
-                    "Best days: 88-91% WR — PRIOR_BREAKOUT support + EXPANDING vol\n"
-                    "Action: scan aiem_pullback_signals for today's setups"
+                    "BACKTEST STATS (n=1,763, Apr 2026 tariff selloff):\n"
+                    "   5-day hold:  85% WR  avg return +5.7%\n"
+                    "  10-day hold:  88% WR  avg return +11.1%\n"
+                    "  11-day hold:  hold through full 2-week recovery\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "INSTRUCTIONS:\n"
+                    "1. Check aiem_pullback_signals for today's setups\n"
+                    "2. Prioritize: PRIOR_BREAKOUT support + EXPANDING volume\n"
+                    "3. Enter at close or next-day open\n"
+                    "4. Hold exactly 11 trading days (target exit)\n"
+                    "5. Stop: -8% from entry\n"
+                    "Mode exits when SPY 20d recovers above -3.0%"
                 )
             elif in_panic and was_panic:
-                # Continuing in panic exhaustion mode
                 msg = (
-                    "⚡ PANIC EXHAUSTION — DAY CONTINUES\n"
+                    "⚡ PANIC EXHAUSTION — ACTIVE\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"SPY 20d return: {ret_20d:+.1f}%\n"
-                    f"SPY  5d return: {ret_5d:+.1f}%\n"
-                    f"SPY  1d return: {ret_1d:+.1f}%\n"
-                    f"Signals today: {sig_count}\n"
+                    f"SPY 20-trading-day return: {ret_20d:+.1f}%\n"
+                    f"SPY  5-day return:          {ret_5d:+.1f}%\n"
+                    f"SPY  1-day return:          {ret_1d:+.1f}%\n"
+                    f"New signals today:          {sig_count}\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "REMINDER — hold 11 trading days from each entry\n"
+                    "Backtest: 88% WR at 10d, avg +11.1% — peak around day 11\n"
+                    "Prioritize: PRIOR_BREAKOUT + EXPANDING volume setups\n"
                     "Mode exits when SPY 20d recovers above -3.0%"
                 )
             elif not in_panic and was_panic:
-                # EXITING panic exhaustion mode
                 msg = (
-                    "✅ PANIC EXHAUSTION MODE — EXITING\n"
+                    "✅ PANIC EXHAUSTION — MODE EXITING\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"SPY 20d return: {ret_20d:+.1f}% (recovered above -5%)\n"
-                    f"SPY  5d return: {ret_5d:+.1f}%\n"
-                    "Module L signals paused until next panic window.\n"
-                    "Review open positions for exit timing."
+                    f"SPY 20-trading-day return: {ret_20d:+.1f}%  (recovered above -5%)\n"
+                    f"SPY  5-day return:          {ret_5d:+.1f}%\n"
+                    "No new Module L signals until next panic window.\n"
+                    "Existing positions: hold to your 11-day target exit date.\n"
+                    "Do not chase new entries — edge only exists during panic regime."
                 )
             else:
-                # Not in panic, was not in panic — no alert needed
-                print(f"[panic_exhaustion] not in panic mode (SPY 20d={ret_20d:+.1f}%)")
+                # Normal market — no alert
+                print(f"[panic_exhaustion] normal market (SPY 20d={ret_20d:+.1f}%)")
                 return
 
             ok = _tg_send(msg)
