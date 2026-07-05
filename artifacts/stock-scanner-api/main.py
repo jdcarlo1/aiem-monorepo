@@ -29718,6 +29718,7 @@ def _build_aiem_tool_map():
         "mkt_screen_period":      _mkt_screen_period,
         "mkt_layer9_score":       _mkt_layer9_score,
         "alpha_score_ticker":     _aiem_alpha_score_ticker,
+        "momentum_trade_score":   _aiem_momentum_trade_score,
         "mkt_compute_indicators": _mkt_compute_indicators,
         "mkt_price_structure":    _mkt_price_structure,
         "mkt_chart_patterns":     _mkt_chart_patterns,
@@ -31165,6 +31166,27 @@ _AIEM_AGENT_TOOLS = [
             "rvol":        {"type": "number",  "description": "Relative volume if known."},
             "gap_pct":     {"type": "number",  "description": "Gap % from prior close if known."},
             "conviction":  {"type": "string",  "description": "Conviction level: HIGH / MEDIUM / LOW."},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "momentum_trade_score",
+        "description": (
+            "momentum_trade_score — detects the pre-move coil/flush pattern that ALL major momentum trades "
+            "showed BEFORE their 50%+ runs, based on an event study of 4,046 real momentum trades (2024-2026).\n\n"
+            "WHAT IT FOUND (the 5 universal pre-move signals):\n"
+            "  1. Volume dried up — stock was trading below its 20-day average volume (vol_vs_20d ~0.87-0.94x)\n"
+            "  2. Range contracted (coiling) — 5-day avg range shrank vs 20-day avg (range_trend < 1.0)\n"
+            "  3. Pulled back below 20-day high — at T-10, stocks sat ~9% below their recent high\n"
+            "  4. Slight negative momentum right before onset — 5d momentum ~-2%, 20d ~-3.5% (the shakeout flush)\n"
+            "  5. Inherently gappy/active stock — gap activity 2x market average\n\n"
+            "Returns setup_prob (0-1), signal (SETUP/WATCHING/NO_SETUP), and all feature values.\n"
+            "SETUP = stock is currently showing the coil/flush pattern that preceded every major run.\n"
+            "Use for: 'is this stock coiling for a big move?' or 'what setup pattern is forming here?'"
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol, e.g. 'NVDA'."},
+            "rvol":   {"type": "number", "description": "Relative volume if already known."},
+            "gap_pct":{"type": "number", "description": "Gap % from prior close if already known."},
         }, "required": ["ticker"]}
     }},
     {"type": "function", "function": {
@@ -56512,6 +56534,95 @@ def admin_run_historical_alpha_train():
             "AIEM scores any ticker via alpha_leaders_scan."
         ),
     })
+
+
+# ── Momentum Trade Pre-Move Detector: AIEM tool wrapper ──────────────────────
+def _aiem_momentum_trade_score(ticker, rvol=None, gap_pct=None, **_kw):
+    """AIEM tool: momentum_trade_score — detects pre-move coil/flush pattern."""
+    try:
+        from momentum_trade_trainer import momentum_trade_score as _mts
+        pick = {}
+        if rvol    is not None: pick["rvol"]    = rvol
+        if gap_pct is not None: pick["gap_pct"] = gap_pct
+        return _mts(str(ticker).upper().strip(), pick or None)
+    except Exception as _e:
+        return {"error": str(_e), "ticker": ticker}
+
+
+# ── Admin: momentum trade model train ────────────────────────────────────────
+@app.route("/stock-api/admin/run-momentum-trade-train", methods=["POST"])
+def admin_run_momentum_trade_train():
+    """
+    Trains AIEM's pre-move momentum trade detector.
+    Labels 4,000+ real momentum trade onset events (50%+ gain in 60 days from quiet setup).
+    Extracts the 5 universal pre-move signals found in the event study:
+      volume dryup, range contraction, pullback from 20d high, shakeout momentum, gap activity.
+    Walk-forward validates, trains XGBoost, saves to aiem_momentum_trade.pkl.
+    Body (optional): { "start_date": "2024-07-01" }
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+
+    start_date = "2024-07-01"
+    if request.is_json and request.json:
+        start_date = request.json.get("start_date", start_date)
+
+    def _progress(msg):
+        print(f"[momentum-trade-train] {msg}")
+
+    def _bg():
+        try:
+            from momentum_trade_trainer import run_momentum_trade_train as _rmt
+            result = _rmt(start_date=start_date, progress_cb=_progress)
+            _auc  = (result.get("walk_forward") or {}).get("avg_auc", "n/a")
+            _prec = (result.get("walk_forward") or {}).get("avg_precision", "n/a")
+            _n    = (result.get("data") or {}).get("pre_move_setups", "n/a")
+            print(f"[momentum-trade-train] DONE — AUC={_auc}  Precision={_prec}  "
+                  f"pre_move_setups={_n}  status={result.get('status')}")
+        except Exception as _e:
+            import traceback
+            print(f"[momentum-trade-train] ERROR: {_e}\n{traceback.format_exc()}")
+
+    import threading as _thr_mtt
+    _thr_mtt.Thread(target=_bg, daemon=True).start()
+    return jsonify({
+        "status":     "started",
+        "start_date": start_date,
+        "message": (
+            "Momentum trade pre-move detector training in background. Watch server logs. "
+            "Check status at GET /stock-api/admin/momentum-trade-model-status"
+        ),
+        "what_it_learns": (
+            "Scans polygon_market_daily for all stocks that gained 50%+ in 60 days from a quiet/flat "
+            "starting position. Labels those stock-days as pre-move setups. Trains on the 5 signals "
+            "found in event study: volume dryup, range contraction, pullback from 20d high, "
+            "shakeout momentum (-2% to -3.5%), and gap activity."
+        ),
+    })
+
+
+@app.route("/stock-api/admin/momentum-trade-model-status", methods=["GET"])
+def admin_momentum_trade_model_status():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from momentum_trade_trainer import get_status as _gmt_status
+        return jsonify(_gmt_status())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/momentum-trade-score", methods=["GET"])
+def admin_momentum_trade_score_ticker():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    ticker = request.args.get("ticker", "").upper().strip()
+    if not ticker:
+        return jsonify({"error": "ticker required"}), 400
+    return jsonify(_aiem_momentum_trade_score(ticker))
 
 
 @app.route("/stock-api/admin/alpha-score-ticker", methods=["GET"])

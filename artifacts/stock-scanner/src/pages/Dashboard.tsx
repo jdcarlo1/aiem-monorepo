@@ -12739,7 +12739,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_polygon_rvol:           "Fetching relative volume data",
   get_sector_heat:              "Reading sector momentum",
   mkt_compute_indicators:       "Computing technical indicators",
-  mkt_screen_by_indicator:      "Screening by indicator",
+  mkt_screen_by_indicator:      "Screening by indicator (all stocks)",
   list_signal_dimensions:       "Listing signal dimensions",
   test_new_signal:              "Testing new signal hypothesis",
   query_stat_arb_pairs:         "Checking stat-arb pairs",

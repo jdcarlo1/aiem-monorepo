@@ -1,0 +1,45 @@
+{
+  "status": "trained",
+  "trained_at": "2026-07-05T20:03:37.602715",
+  "data": {
+    "total_rows": 1107463,
+    "pre_move_setups": 30050,
+    "non_setups": 1077413,
+    "imbalance_ratio": 35.9,
+    "date_range": "2024-08-20 \u2192 2026-01-05",
+    "unique_tickers": 4406,
+    "move_threshold": "50%"
+  },
+  "walk_forward": {
+    "n_folds": 4,
+    "avg_auc": 0.8363,
+    "avg_precision": 0.0845,
+    "avg_recall": 0.7282,
+    "fold_aucs": [
+      0.8596,
+      0.8514,
+      0.8416,
+      0.7927
+    ]
+  },
+  "feature_importance": {
+    "vs_20d_high": 0.2951,
+    "price_vs_52wh": 0.2407,
+    "range_pct": 0.2112,
+    "mom_20d": 0.0686,
+    "vs_20d_low": 0.0545,
+    "vol_vs_20d": 0.0312,
+    "mom_5d": 0.029,
+    "gap_pct": 0.0253,
+    "vol_trend": 0.0163,
+    "range_trend": 0.0152,
+    "close_strength": 0.0128,
+    "rvol": 0.0
+  },
+  "top_signals": [
+    "vs_20d_high",
+    "price_vs_52wh",
+    "range_pct"
+  ],
+  "what_this_predicts": "Probability that a stock is currently in the pre-move coil/flush setup that preceded 50%+ gains in 60 days, based on volume dryup, range contraction, pullback from 20d high, and slight negative momentum (shakeout)."
+}
