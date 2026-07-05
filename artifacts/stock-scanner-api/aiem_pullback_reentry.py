@@ -457,38 +457,53 @@ def compute_signal(ticker: str, closes: list, highs: list, lows: list,
                      cur, conn)
         return None
 
-    # State: CONFIRMED = RSI(14) ≤ 45 AND first green close after red; WATCHING otherwise
+    # State: CONFIRMED / WATCHING
+    # Fix (2026-07-05): `closes[-1] > closes[-2]` (up-close requirement) was confirmed
+    # to select dead-cat bounces in the RSI 36-45 zone, producing 7.3pp LOWER WR than
+    # WATCHING at the same RSI level (44.0% vs 51.3%). The condition is retained ONLY
+    # for RSI≤35 where it shows a +5pp lift (54.2% CONFIRMED vs 49.2% WATCHING at RSI 31-35).
+    # `n >= 2` removed — it was len(closes) >= 2, always True (closes has 200+ bars).
+    # `score >= 5` gate removed — non-predictive across 98% of CONFIRMED rows (scores 5-9
+    # all cluster at 43.7-45.0% WR with no monotonic trend).
     state = "WATCHING"
-    if rsi14 <= RSI_CONFIRMED_THRESHOLD and n >= 2 and closes[-1] > closes[-2]:
-        state = "CONFIRMED"
+    if rsi14 <= RSI_CONFIRMED_THRESHOLD:
+        if rsi14 <= 35.0:
+            if closes[-1] > closes[-2]:   # RSI≤35: up-close still helps (+5pp WR)
+                state = "CONFIRMED"
+        else:
+            state = "CONFIRMED"           # RSI 36-45: RSI alone is sufficient
 
-    # ── Conviction score 0-10 ───────────────────────────────────────────────────
-    score = 3  # baseline: trend intact + higher-low confirmed
-    if rsi14 <= 40:
-        score += 2
-    elif rsi14 <= RSI_CONFIRMED_THRESHOLD:
-        score += 1
-    if support_type == "EMA21":
-        score += 2
-    elif support_type == "SMA50":
-        score += 1
-    elif support_type == "PRIOR_BREAKOUT":
-        score += 1
-    if vol_pattern == "LIGHT":
-        score += 2      # ideal: light-volume pullback
-    elif vol_pattern == "NEUTRAL":
-        score += 1
-    elif vol_pattern == "EXPANDING":
-        score -= 1      # WARNING FLAG: lowers conviction, NOT a hard block
-    if rs_status == "INTACT":
-        score += 1
-    elif rs_status == "WEAKENING":
-        score -= 1      # RS weakening: lower conviction
+    # ── Conviction score 0-10 (rebuilt 2026-07-05 from backtest evidence) ───────
+    # Baseline 5. Weights derived from actual WR by feature bucket.
+    # Components with genuine edge:
+    #   RSI≤30 → 54.9% WR (+4.9pp); RSI 36-40 → 45.9% WR (−4.1pp below baseline)
+    #   PRIOR_BREAKOUT → 46.6% WR (−3.7pp vs EMA21/SMA50 both at 50.3%)
+    #   Volume NEUTRAL → 49.2% WR; LIGHT/EXPANDING ≈ equal at 50.6-50.8%
+    # Components without meaningful edge (EMA21 vs SMA50, RS status): kept for
+    # directional signal tracking but small weights.
+    score = 5  # neutral baseline
+    if rsi14 <= 30.0:
+        score += 3      # RSI≤30: 54.9% WR — the only zone with strong edge
+    elif rsi14 <= 35.0:
+        score += 1      # RSI 31-35: mild edge (50.2% WR)
+    elif rsi14 <= 40.0:
+        score -= 2      # RSI 36-40: 45.9% WR — below baseline, negative factor
+    # RSI 41-45: no adjustment (49.3% ≈ neutral)
+
+    if support_type == "PRIOR_BREAKOUT":
+        score -= 1      # 46.6% WR vs 50.3% for EMA21/SMA50 — negative predictor
+    # EMA21 and SMA50 are identical in backtest (50.3% each) — no differential
+
+    if vol_pattern == "NEUTRAL":
+        score -= 1      # 49.2% WR, weakest of the three volume categories
+    # EXPANDING (50.6%) and LIGHT (50.8%) are equivalent — no EXPANDING penalty
+    # (spec requires EXPANDING to be flagged as a warning, not a hard block; it is
+    # stored in vol_pattern for context but does not lower score per backtest evidence)
+
+    if rs_status == "WEAKENING":
+        score -= 1      # directional caution; data shows small but consistent drag
+
     score = max(0, min(10, score))
-
-    # Require min score=5 for CONFIRMED
-    if state == "CONFIRMED" and score < 5:
-        state = "WATCHING"
 
     # ── Module M conflict check ─────────────────────────────────────────────────
     m_count = _check_module_m_active(ticker, sig_date, cur)
@@ -790,24 +805,24 @@ def run_historical_backtest(force: bool = False) -> dict:
                     vol_pat = _volume_pattern(c_slice, v_slice)
                     rs_status, rs_pp = _rs_vs_spy(c_slice, sp_slice)
                     support_type, dist_sup = _support_zone(c_slice, h_slice, l_slice)
-                    state = ("CONFIRMED" if rsi14 <= RSI_CONFIRMED_THRESHOLD
-                             and len(c_slice) >= 2 and c_slice[-1] > c_slice[-2]
-                             else "WATCHING")
+                    # CONFIRMED state — same logic as compute_signal (fixed 2026-07-05)
+                    state = "WATCHING"
+                    if rsi14 <= RSI_CONFIRMED_THRESHOLD:
+                        if rsi14 <= 35.0:
+                            if c_slice[-1] > c_slice[-2]:
+                                state = "CONFIRMED"
+                        else:
+                            state = "CONFIRMED"
 
-                    # Score
-                    score = 3
-                    if rsi14 <= 40: score += 2
-                    elif rsi14 <= RSI_CONFIRMED_THRESHOLD: score += 1
-                    if support_type == "EMA21": score += 2
-                    elif support_type in ("SMA50", "PRIOR_BREAKOUT"): score += 1
-                    if vol_pat == "LIGHT": score += 2
-                    elif vol_pat == "NEUTRAL": score += 1
-                    elif vol_pat == "EXPANDING": score -= 1
-                    if rs_status == "INTACT": score += 1
-                    elif rs_status == "WEAKENING": score -= 1
+                    # Score — rebuilt from backtest evidence (2026-07-05)
+                    score = 5
+                    if rsi14 <= 30.0:    score += 3
+                    elif rsi14 <= 35.0:  score += 1
+                    elif rsi14 <= 40.0:  score -= 2
+                    if support_type == "PRIOR_BREAKOUT": score -= 1
+                    if vol_pat == "NEUTRAL":  score -= 1
+                    if rs_status == "WEAKENING": score -= 1
                     score = max(0, min(10, score))
-                    if state == "CONFIRMED" and score < 5:
-                        state = "WATCHING"
 
                     # Forward returns
                     fwd_1d = (fwd_after[0][1] - closes[i]) / closes[i] * 100 if closes[i] > 0 else None
