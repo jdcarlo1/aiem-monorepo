@@ -1,0 +1,63 @@
+# Outstanding Items — Post Tier 1/2 Remediation
+## To be actioned starting Monday market open
+
+**Context:** Tier 1 (infrastructure) and Tier 2 (position sizing evidence) are complete and verified with real evidence, per the prior remediation session. The items below are what's left. Several are blocked specifically on live market activity that can only be produced once the market is open — this is not a code problem, it's a "needs a live trading session to occur" problem. Same evidence standard as always applies: raw SQL, logs, or screenshots required, not verbal confirmation.
+
+---
+
+## PART A — Items That Unblock Once the Market Opens (no new code needed first)
+
+### A.1 — Get the scanner producing real live signals
+- [ ] Confirm the scanner actually runs during Monday's session.
+- [ ] Show SQL confirming `aiem_bounce_signals` has moved from 0 rows to real (non-backtest) firings, if any qualifying condition occurs.
+- [ ] If it still shows 0 rows by end of day Monday, state explicitly why: were conditions never met, or is there a scheduling/execution problem preventing the scanner from running at all? Distinguish "scanner ran, nothing qualified" from "scanner didn't run." Show the scan log either way.
+
+### A.2 — Real Telegram alert evidence
+- [ ] If a signal fires live Monday, capture a screenshot or raw payload log of the actual sent Telegram message.
+- [ ] Confirm the message format matches spec, including the `NOT_IMPLEMENTED` / `NOT_AVAILABLE` line where applicable.
+
+### A.3 — Real gate-blocking evidence
+- [ ] If a live trade attempt occurs, confirm whether any position-sizing gate (max positions, daily loss, sector cap) actually triggers on a real (not synthetic) case.
+- [ ] If none trigger Monday, that's fine — just confirm the gates are still active and log that no real trigger occurred yet, rather than reporting "PASS" with nothing behind it.
+
+### A.4 — Real Pre-Close Review with a live open position
+- [ ] If a real paper trade is open going into the 3:45 PM ET pre-close window, run the Pre-Close Review against it and capture the real decision output (not synthetic AAPL/NVDA/TSLA test data from before).
+- [ ] Re-verify the contrarian-direction check (Section 8, critical item) against this real case specifically — confirm elevated VIX/oversold/fear readings still correctly support HOLD_OVERNIGHT rather than FLATTEN, using live data this time.
+
+### A.5 — Cooldown real second-event proof
+- [ ] If two qualifying contrarian-alert conditions occur within the same 3-day (composite) or 24-hour (single-indicator) window, confirm the second one was correctly suppressed — show the actual log entries for both events and the cooldown check that skipped the second.
+
+**Note:** None of Part A can be forced — it depends on what the market actually does Monday. If several items still show 0 real cases by end of week, that's useful information itself (e.g., scanner conditions may be too rare/tight) and should be reported honestly rather than left open indefinitely.
+
+---
+
+## PART B — Can Start Immediately, No Market Dependency
+
+### B.1 — Wire in the remaining composite contrarian indicators
+The composite alert currently only uses 3 of the intended indicators (VIX, market RSI breadth, HYG credit). Still `NOT_AVAILABLE`:
+- [ ] Put/call ratio
+- [ ] Fear/Greed index
+- [ ] AAII sentiment survey
+- [ ] NAAIM exposure index
+
+For each: either wire in a real data source and confirm with output showing real values, or confirm no viable free/affordable data source exists and document that decision explicitly rather than leaving it silently unavailable indefinitely.
+
+### B.2 — Begin Module B (Short Squeeze Reversion)
+Per the dependency order in the remediation protocol, Modules B-K should be built one at a time against the now-working backtest/decay/BH-FDR pipeline, rather than all at once. Start with Module B:
+- [ ] Implement Module B with the exact output schema from the original module spec (including `borrow_cost_status` honestly marked `NOT_IMPLEMENTED`/`NOT_AVAILABLE` where real borrow-cost data isn't wired in).
+- [ ] Raw SQL + output: module firing on real historical data, minimum 5 real examples.
+- [ ] Git diff scoped to Module B only.
+- [ ] Grep/code confirmation Module B is registered in the conviction stack, Signal Decay Module, and BH-FDR pass — and confirm this wiring is actually functional this time (re-check with a grep after implementation, not just a claim).
+- [ ] Confirm Module F (guard) is called and gates Module B's alerts before they fire.
+- [ ] Backtest results file specific to Module B, not blended with anything else.
+
+Do not start Module C until Module B is fully verified end-to-end.
+
+---
+
+## Reporting Standard (unchanged)
+- ✅ VERIFIED — evidence attached
+- ❌ NOT VERIFIED — state exactly why
+- ⚠️ PARTIAL — list what passed / what didn't
+
+**If Part A items remain unactionable because the market simply didn't produce a qualifying case, say so plainly — that is an acceptable and correct answer, not a gap to paper over.**

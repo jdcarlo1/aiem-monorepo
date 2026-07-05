@@ -149,3 +149,4 @@
 - [LAG-aware Fisher harness for multi-day signals](lag-harness-multiday-signals.md) — run_fisher_test_lag() in aiem_stat_tests; prev_close_strength/prev_move_pct/prev_rvol/prev_gap_pct/prev_range_pct; no pm. prefix; id=3 first to survive (n=261, WR=61.69%, p=0.0037)
 - [Key rotation pattern](key-rotation-pattern.md) — signing_key_events table; rotate_signing_key() updates in-process global; NO grace period; Replit Secrets must be changed OOB
 - [Layer9 24/7 background scanner](layer9-bg-scanner.md) — layer9_scores table; 2-hour APScheduler job; feeds paper trades (source #9, score≥65) + AI Short Calls (cache-first); no other tabs; startup kick at T+3min
+- [Module B Short Squeeze Reversion](module-b-short-squeeze.md) — backtest WR_3d=40.6% below baseline; status=hypothesis; paper-trading gated on 'validated' (same as washout_ignition); NOT_IMPLEMENTED: SI%/borrow/DTC; Module F suppressed 113/251 rows (all falling_knife, 0 earnings)

@@ -652,8 +652,22 @@ def _get_contrarian_context() -> dict:
 
     Available now:
       Category 1 — VIX level + z-score (vix_daily table)
-      Category 2 — market-wide RSI (polygon_market_daily pct stocks oversold)
+      Category 2 — market-wide bearish-breadth proxy (polygon_market_daily:
+                    pct of stocks with close_strength < 0.20, i.e. closing in
+                    the bottom 20% of their intraday range; reported under the
+                    market_rsi_status/market_rsi_pct_oversold keys for schema
+                    compatibility; the underlying metric is close_strength, not
+                    RSI — polygon_market_daily does NOT have an rsi_14 column)
       Category 5 — HYG price change (credit health proxy via Tradier)
+
+    NOT_AVAILABLE data sources (investigated; access blocked):
+      put_call_status   — CBOE CSV returns HTTP 403; HTML page requires JS
+                          rendering; no viable free API
+      fear_greed_status — CNN dataviz endpoint returns HTTP 418 (bot-detect)
+      aaii_status       — AAII weekly survey requires authenticated membership
+      naaim_status      — NAAIM xlsx URL returns HTTP 404 (file moved); page
+                          requires scraping; not reliably automatable
+
     Everything else: NOT_AVAILABLE — documented honestly.
     """
     ctx = {
@@ -700,19 +714,23 @@ def _get_contrarian_context() -> dict:
                 ctx["vix_zscore"] = round(zscore, 2)
                 ctx["vix_status"] = "AVAILABLE"
 
-            # Market-wide RSI — Category 1 / breadth proxy
-            # % of stocks with RSI14 < 30 from polygon_market_daily (most recent day)
+            # Market-wide bearish breadth — Category 2 proxy
+            # polygon_market_daily does NOT have an rsi_14 column (confirmed
+            # via information_schema). Using close_strength < 0.20 as proxy:
+            # stocks closing in the bottom 20% of their intraday range indicate
+            # the same "persistent selling pressure" that a low RSI captures.
+            # Metric is labelled market_rsi_pct_oversold for schema compatibility.
             cur.execute("""
                 WITH latest AS (
                     SELECT scan_date FROM polygon_market_daily
                     ORDER BY scan_date DESC LIMIT 1
                 )
                 SELECT
-                    COUNT(*) FILTER (WHERE rsi_14 < 30) AS oversold,
+                    COUNT(*) FILTER (WHERE close_strength < 0.20) AS bearish_breadth,
                     COUNT(*) AS total
                 FROM polygon_market_daily, latest
                 WHERE polygon_market_daily.scan_date = latest.scan_date
-                  AND rsi_14 IS NOT NULL
+                  AND close_strength IS NOT NULL
             """)
             rsi_row = cur.fetchone()
             if rsi_row and rsi_row[1] and rsi_row[1] > 100:

@@ -168,6 +168,12 @@ except Exception as _bounce_import_err:
     _bounce_mod = None
     print(f"[startup] aiem_selloff_reversion load warning: {_bounce_import_err}")
 try:
+    import aiem_short_squeeze as _squeeze_mod
+    print("[startup] aiem_short_squeeze loaded")
+except Exception as _squeeze_import_err:
+    _squeeze_mod = None
+    print(f"[startup] aiem_short_squeeze load warning: {_squeeze_import_err}")
+try:
     import aiem_position_sizing as _pos_sizer
     print("[startup] aiem_position_sizing loaded")
 except Exception as _pos_sizer_err:
@@ -5197,6 +5203,29 @@ try:
             _run_bounce_backtest,
             _CT_aiem(day_of_week="sun", hour=23, minute=0, timezone=_ET),
             id="aiem_bounce_backtest_weekly",
+            replace_existing=True,
+        )
+        # Short Squeeze scan: 10:15 AM and 2:15 PM ET Mon-Fri
+        def _run_squeeze_scan():
+            if _squeeze_mod is None:
+                return
+            import threading as _sqt
+            _sqt.Thread(target=_squeeze_mod.run_scan, daemon=True).start()
+        for _sqh, _sqm in [(10, 15), (14, 15)]:
+            _scheduler.add_job(
+                _run_squeeze_scan,
+                _CT_aiem(day_of_week="mon-fri", hour=_sqh, minute=_sqm, timezone=_ET),
+                id=f"aiem_squeeze_scan_{_sqh:02d}{_sqm:02d}",
+                replace_existing=True,
+            )
+        # Short Squeeze historical backtest: Sunday 11:30 PM ET (force=False; skips if populated)
+        _scheduler.add_job(
+            lambda: __import__("threading").Thread(
+                target=lambda: _squeeze_mod.run_historical_backtest() if _squeeze_mod else None,
+                daemon=True,
+            ).start(),
+            _CT_aiem(day_of_week="sun", hour=23, minute=30, timezone=_ET),
+            id="aiem_squeeze_backtest_weekly",
             replace_existing=True,
         )
         # Pre-close position review: 3:45 PM ET Mon-Fri (Section 8, aiem_position_sizing spec)
@@ -36392,6 +36421,35 @@ def _aiem_paper_pick_candidates() -> list:
             except Exception as _l9e:
                 print(f"[aiem_paper] layer9 source skipped: {_l9e}")
 
+            # ── 10. Short Squeeze Reversion (Module B) ──────────────────────
+            # Gate: only use squeeze signals if discovery status is 'validated'
+            # (same pattern as washout_ignition — hypothesis status means WR
+            # not yet sufficient; p_value=0.9999 at n=138 WR=40.6% correctly
+            # keeps this signal OUT of live paper trading until validated).
+            try:
+                _cu.execute(
+                    "SELECT status FROM aiem_signal_discoveries WHERE hypothesis_text='Short_Squeeze_Reversion'"
+                )
+                _sq_disc = _cu.fetchone()
+                _sq_status = _sq_disc[0] if _sq_disc else "not_found"
+                if _sq_status == "validated":
+                    _cu.execute("""
+                        SELECT ticker, conviction_score, rvol, close_strength,
+                               range_pct, si_pct, si_pct_status
+                        FROM aiem_squeeze_signals
+                        WHERE signal_date >= CURRENT_DATE - INTERVAL '1 day'
+                          AND NOT module_f_suppressed
+                        ORDER BY conviction_score DESC LIMIT 8
+                    """)
+                    for _sqt, _sqc, _sqr, _sqcs, _sqrng, _sqsi, _sqsis in _cu.fetchall():
+                        _si_txt = f" SI%={_sqsi:.1f}" if _sqsi and _sqsis == "AVAILABLE" else ""
+                        _add(_sqt, float(_sqc or 5), "STOCK", "squeeze_reversion",
+                             f"rvol={float(_sqr or 0):.1f}x cs={float(_sqcs or 0):.2f}{_si_txt}")
+                else:
+                    print(f"[aiem_paper] squeeze_reversion SKIPPED: status='{_sq_status}' (not validated)")
+            except Exception as _sqe:
+                print(f"[aiem_paper] squeeze source skipped: {_sqe}")
+
     except Exception as _e:
         print(f"[aiem_paper] pick error: {_e}")
 
@@ -46301,6 +46359,8 @@ def _init_layer9_scores_table():
 _DEFERRED_INITS.append(lambda: _init_layer9_scores_table())
 _DEFERRED_INITS.append(lambda: _bounce_mod.init_tables() if _bounce_mod else None)
 _DEFERRED_INITS.append(lambda: _bounce_mod.register_signal() if _bounce_mod else None)
+_DEFERRED_INITS.append(lambda: _squeeze_mod.init_schema() if _squeeze_mod else None)
+_DEFERRED_INITS.append(lambda: _squeeze_mod.register_signal() if _squeeze_mod else None)
 _DEFERRED_INITS.append(lambda: _pos_sizer.init_tables() if _pos_sizer else None)
 
 
