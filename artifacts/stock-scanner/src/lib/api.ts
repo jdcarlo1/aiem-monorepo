@@ -2485,6 +2485,13 @@ export function forceAiemProbabilityEngineRun(): Promise<{ status: string; messa
   return fetchJson<{ status: string; message: string }>("/aiem-probability-engine/force-run", { method: "POST" });
 }
 
+export interface WashoutCompleteQualityFilters {
+  price_min: number;
+  bad_months_str: string;
+  trend_max10d: number;
+  description?: string;
+}
+
 export interface WashoutCompleteSignal {
   ticker: string;
   alert_date: string;
@@ -2498,21 +2505,24 @@ export interface WashoutCompleteSignal {
   close_strength: number;
   range_ratio: number;
   days_in_washout: number | null;
+  prior_ret10d: number | null;
 }
 
 export interface WashoutCompleteResult {
   signals: WashoutCompleteSignal[];
   watching_count: number;
   scan_date: string | null;
+  quality_filters?: WashoutCompleteQualityFilters;
   backtest: {
-    wr_10pct: number;
-    wr_20pct: number;
-    wr_50pct: number;
-    wr_100pct: number;
-    avg_return: number;
-    median_return: number;
+    filtered_wr_1m?: number;
+    filtered_wr_3m?: number;
+    unfiltered_wr_1m?: number;
+    lose_gt_20pct?: number;
     avg_entry_discount: number;
-    total_signals: number;
+    note?: string;
+    wr_20pct?: number;
+    wr_50pct?: number;
+    avg_return?: number;
   };
   stale: boolean;
 }
