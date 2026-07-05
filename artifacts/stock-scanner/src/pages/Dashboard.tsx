@@ -18118,7 +18118,7 @@ export default function Dashboard() {
                         ✓ Price ≥ $5
                       </span>
                       <span className="bg-emerald-900/30 border border-emerald-700/40 text-emerald-400 text-xs px-2.5 py-1 rounded-full">
-                        ✓ Avoid Jan / Feb / Mar / Oct
+                        ✓ Avoid Jan / Feb / Mar / Nov
                       </span>
                       <span className="bg-emerald-900/30 border border-emerald-700/40 text-emerald-400 text-xs px-2.5 py-1 rounded-full">
                         ✓ Prior 10-day return ≤ −5%
