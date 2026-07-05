@@ -29718,7 +29718,8 @@ def _build_aiem_tool_map():
         "mkt_screen_period":      _mkt_screen_period,
         "mkt_layer9_score":       _mkt_layer9_score,
         "alpha_score_ticker":     _aiem_alpha_score_ticker,
-        "momentum_trade_score":   _aiem_momentum_trade_score,
+        "momentum_trade_score":        _aiem_momentum_trade_score,
+        "momentum_optimize_filters":   _aiem_momentum_optimize_filters,
         "mkt_compute_indicators": _mkt_compute_indicators,
         "mkt_price_structure":    _mkt_price_structure,
         "mkt_chart_patterns":     _mkt_chart_patterns,
@@ -56534,6 +56535,56 @@ def admin_run_historical_alpha_train():
             "AIEM scores any ticker via alpha_leaders_scan."
         ),
     })
+
+
+# ── Momentum Trade: auto filter-optimizer AIEM tool ──────────────────────────
+def _aiem_momentum_optimize_filters(**_kw):
+    """
+    AIEM tool: momentum_optimize_filters
+    Tests 82,320 threshold × hard-filter combinations on a live OOS holdout
+    and returns the configuration that maximises precision while keeping
+    recall ≥ 15% (so you still catch roughly 1-in-6 big movers).
+    Call this any time you want AIEM to re-derive the best signal thresholds
+    from fresh data without retraining the whole model.
+    """
+    try:
+        import pickle, numpy as np, psycopg2
+        from momentum_trade_trainer import run_filter_sweep, FEATURE_COLUMNS, MIN_PRICE, MIN_VOLUME
+        mp = os.path.join(os.path.dirname(__file__), "aiem_momentum_trade.pkl")
+        if not os.path.exists(mp):
+            return {"error": "Model not trained yet. Run momentum_trade_train first."}
+        with open(mp, "rb") as f:
+            art = pickle.load(f)
+        model = art["model"]
+        meds  = np.array(art["medians"], dtype=np.float32)
+        conn  = psycopg2.connect(os.environ.get("DATABASE_URL", ""))
+        try:
+            result = run_filter_sweep(conn, model, FEATURE_COLUMNS, meds)
+        finally:
+            conn.close()
+        if not result:
+            return {"status": "no_holdout_data", "note": "Need at least 4 months of data with resolved forward returns."}
+        rec = result.get("recommended", {})
+        return {
+            "status": "sweep_complete",
+            "combinations_tested": result.get("n_combinations_tested"),
+            "holdout_rows":        result.get("holdout_rows"),
+            "holdout_winners":     result.get("holdout_winners"),
+            "recommended_config":  rec,
+            "best_precision":      result.get("best_precision"),
+            "best_f1":             result.get("best_f1"),
+            "best_prec_recall15":  result.get("best_prec_recall15"),
+            "top5_by_precision":   result.get("top5_by_precision"),
+            "top5_by_f1":          result.get("top5_by_f1"),
+            "interpretation": (
+                f"Recommended threshold={rec.get('threshold')} "
+                f"with hard gates vs_20d_high≤{rec.get('v2h_max')} + vol_vs_20d≤{rec.get('vol_max')} "
+                f"gives {rec.get('precision',0)*100:.1f}% precision ({round(1/max(rec.get('precision',0.01),0.001))}-in-1), "
+                f"{rec.get('recall',0)*100:.1f}% recall, F1={rec.get('f1',0):.3f}."
+            ) if rec else "No viable config found.",
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
 
 
 # ── Momentum Trade Pre-Move Detector: AIEM tool wrapper ──────────────────────

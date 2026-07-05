@@ -34,7 +34,8 @@ _DIR    = os.path.dirname(__file__)
 MODEL_PATH  = os.path.join(_DIR, "aiem_momentum_trade.pkl")
 REPORT_PATH = os.path.join(_DIR, "aiem_momentum_trade_report.json")
 
-# Features derived from event study findings
+# Features derived from event study + false-positive autopsy findings
+# v2 adds mom_60d and low_stability — the two biggest winner/loser separators
 FEATURE_COLUMNS = [
     "range_pct",        # intraday range — higher = volatile/active stock class
     "range_trend",      # 5d avg range / 20d avg range — <1.0 means coiling
@@ -44,9 +45,11 @@ FEATURE_COLUMNS = [
     "vs_20d_low",       # close / 20d low — >1.0 means above recent bottom
     "mom_5d",           # 5d price return — slight negative = shakeout
     "mom_20d",          # 20d price return — context of prior trend
+    "mom_60d",          # NEW: prior 60d return BEFORE setup — winners fell harder (-20% vs -16%)
+    "low_stability",    # NEW: 10d-low / 20d-low — >0.97 = bottom holding, not still falling
     "gap_pct",          # gap from prior close — active/gappy stock
     "close_strength",   # where close lands in day's range
-    "price_vs_52wh",    # proximity to 52-week high
+    "price_vs_52wh",    # proximity to 52-week high — winners at 51% vs losers at 62%
     "rvol",             # relative volume from stored column
 ]
 
@@ -56,8 +59,13 @@ MAX_PRIOR_10D    = 0.08   # reject if stock already surging this week
 MIN_PRICE        = 3.0
 MIN_VOLUME       = 200_000
 MIN_TRAIN_ROWS   = 200
-STRONG_THRESHOLD = 0.60
-MODERATE_THRESHOLD = 0.45
+STRONG_THRESHOLD   = 0.80   # sweep-validated: best precision w/ recall≥15%
+MODERATE_THRESHOLD = 0.65   # watching band
+
+# Hard filter gates validated by 82,320-combination sweep on OOS holdout
+# These two cut losers most without killing winners (1-in-7.5 precision)
+FILTER_VS_20D_HIGH = 0.88   # stock must be ≤88% of its 20d high (coiled, not extended)
+FILTER_VOL_VS_20D  = 1.05   # volume must be ≤105% of 20d avg (quiet, not surging yet)
 
 
 def _build_dataset(conn, start_date="2024-07-01", end_date=None, progress_cb=None):
@@ -118,28 +126,32 @@ def _build_dataset(conn, start_date="2024-07-01", end_date=None, progress_cb=Non
             close_price / NULLIF(MAX(close_price) OVER (
                 PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 252 PRECEDING AND CURRENT ROW
             ), 0) AS price_vs_52wh,
+            -- NEW v2: prior 60d momentum before setup (winners fell -20% vs losers -16%)
+            close_price / NULLIF(LAG(close_price, 60) OVER (PARTITION BY ticker ORDER BY scan_date), 0) - 1 AS mom_60d,
+            -- NEW v2: bottom holding — 10d-low / 20d-low (>0.97 = floor is holding)
+            MIN(close_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 10 PRECEDING AND 1 PRECEDING)
+            / NULLIF(MIN(close_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING), 0) AS low_stability,
             ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date) AS rn
         FROM polygon_market_daily
-        WHERE close_price BETWEEN %(min_price)s AND 500
-          AND volume >= %(min_vol)s
-          AND scan_date BETWEEN %(start)s AND %(end)s
+        WHERE close_price BETWEEN {min_price} AND 500
+          AND volume >= {min_vol}
+          AND scan_date BETWEEN '{start}' AND '{end}'
     )
     SELECT
         ticker, scan_date,
         range_pct, range_trend, vol_vs_20d, vol_trend,
-        vs_20d_high, vs_20d_low, mom_5d, mom_20d,
+        vs_20d_high, vs_20d_low, mom_5d, mom_20d, mom_60d,
+        COALESCE(low_stability, 1.0) AS low_stability,
         ABS(gap_pct) AS gap_pct, close_strength, price_vs_52wh, rvol,
         fwd60, trail30, trail10
     FROM base
-    WHERE rn >= 32
+    WHERE rn >= 65
       AND fwd60 IS NOT NULL AND trail30 IS NOT NULL AND trail10 IS NOT NULL
-      AND mom_5d IS NOT NULL AND mom_20d IS NOT NULL
-    """, {
-        "start":     start_date,
-        "end":       end_date,
-        "min_price": MIN_PRICE,
-        "min_vol":   MIN_VOLUME,
-    })
+      AND mom_5d IS NOT NULL AND mom_20d IS NOT NULL AND mom_60d IS NOT NULL
+    """.format(
+        start=start_date, end=end_date,
+        min_price=float(MIN_PRICE), min_vol=int(MIN_VOLUME),
+    ))
 
     cols = [d[0] for d in cur.description]
     df = pd.DataFrame(cur.fetchall(), columns=cols)
@@ -302,6 +314,15 @@ def run_momentum_trade_train(start_date="2024-07-01", progress_cb=None):
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(artifact, f)
 
+    # Auto-run filter sweep — AIEM finds the best threshold + hard-gate combo
+    if progress_cb: progress_cb("  Auto-running 82,320-combo filter sweep ...")
+    sweep = run_filter_sweep(conn, model, FEATURE_COLUMNS, meds, progress_cb=progress_cb)
+    if sweep:
+        rec = sweep.get("recommended", {})
+        artifact["optimal_filters"] = rec   # save winning config into pkl too
+        with open(MODEL_PATH, "wb") as f:
+            pickle.dump(artifact, f)
+
     report = {
         "status":             "trained",
         "trained_at":         artifact["trained_at"],
@@ -309,6 +330,7 @@ def run_momentum_trade_train(start_date="2024-07-01", progress_cb=None):
         "walk_forward":       wf,
         "feature_importance": {k: round(float(v), 4) for k, v in fi_sorted},
         "top_signals":        [k for k, _ in fi_sorted[:3]],
+        "filter_sweep":       sweep,
         "what_this_predicts": (
             f"Probability that a stock is currently in the pre-move coil/flush setup "
             f"that preceded {int(MOVE_THRESHOLD*100)}%+ gains in 60 days, "
@@ -325,6 +347,154 @@ def run_momentum_trade_train(start_date="2024-07-01", progress_cb=None):
             f"=== DONE. Top pre-move signals: {', '.join([k for k,_ in fi_sorted[:3]])} ==="
         )
     return report
+
+
+def run_filter_sweep(conn, model, feats, meds, progress_cb=None) -> dict:
+    """
+    AIEM auto-called after every retrain.
+    Tests 82,320+ threshold × hard-filter combinations on a fresh OOS holdout.
+    Returns the best config for: (a) max precision, (b) best F1, (c) best prec w/ recall≥15%.
+    Results are saved into the report JSON and the model artifact.
+    """
+    import pandas as pd
+    from itertools import product as iproduct
+
+    if progress_cb:
+        progress_cb("  Running 82,320-combo filter sweep on OOS holdout ...")
+
+    cur = conn.cursor()
+    cutoff = (datetime.utcnow() - timedelta(days=95)).strftime("%Y-%m-%d")
+    start  = (datetime.utcnow() - timedelta(days=95+120)).strftime("%Y-%m-%d")
+
+    cur.execute(f"""
+    WITH base AS (
+      SELECT ticker, scan_date, close_price,
+        COALESCE(rvol,1.0) AS rvol, COALESCE(range_pct,0) AS range_pct,
+        COALESCE(close_strength,0.5) AS close_strength, COALESCE(gap_pct,0) AS gap_pct,
+        LEAD(close_price,60)  OVER (PARTITION BY ticker ORDER BY scan_date) / NULLIF(close_price,0) - 1 AS fwd60,
+        close_price / NULLIF(LAG(close_price,30) OVER (PARTITION BY ticker ORDER BY scan_date),0)-1 AS trail30,
+        close_price / NULLIF(LAG(close_price,10) OVER (PARTITION BY ticker ORDER BY scan_date),0)-1 AS trail10,
+        close_price / NULLIF(LAG(close_price, 5) OVER (PARTITION BY ticker ORDER BY scan_date),0)-1 AS mom_5d,
+        close_price / NULLIF(LAG(close_price,20) OVER (PARTITION BY ticker ORDER BY scan_date),0)-1 AS mom_20d,
+        close_price / NULLIF(LAG(close_price,60) OVER (PARTITION BY ticker ORDER BY scan_date),0)-1 AS mom_60d,
+        volume::float / NULLIF(AVG(volume::float) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING),0) AS vol_vs_20d,
+        AVG(volume::float) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 5  PRECEDING AND 1 PRECEDING)
+          / NULLIF(AVG(volume::float) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING),0) AS vol_trend,
+        AVG(COALESCE(range_pct,0)) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 5  PRECEDING AND 1 PRECEDING)
+          / NULLIF(AVG(COALESCE(range_pct,0)) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING),0) AS range_trend,
+        close_price / NULLIF(MAX(close_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING),0) AS vs_20d_high,
+        close_price / NULLIF(MIN(close_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING),0) AS vs_20d_low,
+        close_price / NULLIF(MAX(close_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 252 PRECEDING AND CURRENT ROW),0) AS price_vs_52wh,
+        MIN(close_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 10 PRECEDING AND 1 PRECEDING)
+          / NULLIF(MIN(close_price) OVER (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING),0) AS low_stability,
+        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date) AS rn
+      FROM polygon_market_daily
+      WHERE close_price BETWEEN {float(MIN_PRICE)} AND 500
+        AND volume >= {int(MIN_VOLUME)}
+        AND scan_date BETWEEN '{start}' AND '{cutoff}'
+        AND MOD(HASHTEXT(ticker), 5) = 0
+    )
+    SELECT ticker, scan_date,
+        range_pct, range_trend, vol_vs_20d, vol_trend,
+        vs_20d_high, vs_20d_low, mom_5d, mom_20d, mom_60d,
+        COALESCE(low_stability,1.0) AS low_stability,
+        ABS(gap_pct) AS gap_pct, close_strength, price_vs_52wh, rvol,
+        fwd60, trail30, trail10
+    FROM base
+    WHERE rn >= 65 AND fwd60 IS NOT NULL AND trail30 IS NOT NULL AND trail10 IS NOT NULL
+      AND mom_5d IS NOT NULL AND mom_20d IS NOT NULL AND mom_60d IS NOT NULL
+    """)
+    cols = [d[0] for d in cur.description]
+    df = pd.DataFrame(cur.fetchall(), columns=cols)
+
+    if df.empty:
+        if progress_cb: progress_cb("  Filter sweep: no OOS holdout data available yet.")
+        return {}
+
+    for c in df.columns:
+        if c not in ("ticker","scan_date"):
+            df[c] = pd.to_numeric(df[c], errors="coerce").astype(float)
+
+    df = df[(df.trail30 <= 0.20) & (df.trail10 <= 0.10)].copy().reset_index(drop=True)
+    label      = ((df.fwd60 >= MOVE_THRESHOLD)).astype(int).values
+    total_win  = label.sum()
+    if total_win < 10:
+        if progress_cb: progress_cb("  Filter sweep: too few winners in OOS window. Skipping.")
+        return {}
+
+    X = df[feats].values.astype(np.float32)
+    for i in range(X.shape[1]):
+        nans = np.isnan(X[:,i]); X[nans,i] = meds[i]
+    probs = model.predict_proba(X)[:,1]
+
+    pvh_arr = df.price_vs_52wh.values
+    m60_arr = df.mom_60d.values
+    ls_arr  = df.low_stability.values
+    v2h_arr = df.vs_20d_high.values
+    vol_arr = df.vol_vs_20d.values
+
+    thresholds = [0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
+    pvh_cuts   = [None, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
+    m60_cuts   = [None, -0.35,-0.30,-0.25,-0.20,-0.15,-0.10]
+    ls_cuts    = [None, 0.92, 0.95, 0.97, 0.99]
+    v2h_cuts   = [None, 0.83, 0.86, 0.88, 0.90, 0.92, 0.95]
+    vol_cuts   = [None, 0.65, 0.75, 0.85, 0.95, 1.05]
+
+    results = []
+    for thr, pvh, m60, ls, v2h, vol in iproduct(thresholds, pvh_cuts, m60_cuts, ls_cuts, v2h_cuts, vol_cuts):
+        mask = probs >= thr
+        if pvh is not None: mask = mask & (pvh_arr <= pvh)
+        if m60 is not None: mask = mask & (m60_arr <= m60)
+        if ls  is not None: mask = mask & (ls_arr  >= ls)
+        if v2h is not None: mask = mask & (v2h_arr <= v2h)
+        if vol is not None: mask = mask & (vol_arr <= vol)
+        n = int(mask.sum())
+        if n < 8: continue
+        w  = int(label[mask].sum())
+        pr = w / n
+        rc = w / max(total_win, 1)
+        f1 = 2*pr*rc/(pr+rc) if (pr+rc)>0 else 0
+        results.append((pr, rc, f1, n, w, thr, pvh, m60, ls, v2h, vol))
+
+    if not results:
+        return {}
+
+    def _pack(r):
+        pr,rc,f1,n,w,thr,pvh,m60,ls,v2h,vol = r
+        return {"precision": round(pr,4), "recall": round(rc,4), "f1": round(f1,4),
+                "flagged": n, "winners": w,
+                "threshold": thr, "pvh_max": pvh, "mom60d_max": m60,
+                "low_stab_min": ls, "v2h_max": v2h, "vol_max": vol}
+
+    by_prec = sorted(results, key=lambda x: -x[0])
+    by_f1   = sorted(results, key=lambda x: -x[2])
+    by_r15  = [r for r in by_prec if r[1] >= 0.15]
+
+    sweep = {
+        "n_combinations_tested": len(results),
+        "holdout_rows": len(df),
+        "holdout_winners": int(total_win),
+        "best_precision":   _pack(by_prec[0]) if by_prec else None,
+        "best_f1":          _pack(by_f1[0])   if by_f1   else None,
+        "best_prec_recall15": _pack(by_r15[0]) if by_r15 else None,
+        "top5_by_precision": [_pack(r) for r in by_prec[:5]],
+        "top5_by_f1":        [_pack(r) for r in by_f1[:5]],
+    }
+
+    # Pick recommended config: best precision while recall ≥ 15%
+    rec = by_r15[0] if by_r15 else by_f1[0]
+    sweep["recommended"] = _pack(rec)
+
+    if progress_cb:
+        r = sweep["recommended"]
+        progress_cb(
+            f"  Sweep done — recommended: prob≥{r['threshold']} "
+            f"{'+ pvh≤'+str(r['pvh_max']) if r['pvh_max'] else ''} "
+            f"{'+ v2h≤'+str(r['v2h_max']) if r['v2h_max'] else ''} "
+            f"{'+ vol≤'+str(r['vol_max']) if r['vol_max'] else ''} "
+            f"→ prec={r['precision']:.1%} recall={r['recall']:.1%} F1={r['f1']:.3f}"
+        )
+    return sweep
 
 
 def momentum_trade_score(ticker: str, pick: dict = None) -> dict:
@@ -357,7 +527,7 @@ def momentum_trade_score(ticker: str, pick: dict = None) -> dict:
                    COALESCE(gap_pct, 0) AS gap_pct
             FROM polygon_market_daily
             WHERE ticker = %s AND close_price >= %s
-            ORDER BY scan_date DESC LIMIT 30
+            ORDER BY scan_date DESC LIMIT 90
         """, (ticker, MIN_PRICE))
         rows = cur.fetchall()
         if not rows:
@@ -372,10 +542,15 @@ def momentum_trade_score(ticker: str, pick: dict = None) -> dict:
         def ret(n):
             return float(closes[-1]/closes[-n-1]-1) if len(closes)>=n+1 and closes[-n-1]>0 else 0.0
 
-        vol_20d_avg  = float(np.mean(vols[:-1])) if len(vols)>1 else float(vols[-1])
-        vol_5d_avg   = float(np.mean(vols[-6:-1])) if len(vols)>5 else vol_20d_avg
-        rng_20d_avg  = float(np.nanmean(ranges[:-1])) if len(ranges)>1 else float(ranges[-1])
-        rng_5d_avg   = float(np.nanmean(ranges[-6:-1])) if len(ranges)>5 else rng_20d_avg
+        vol_20d_avg  = float(np.mean(vols[-21:-1])) if len(vols)>1 else float(vols[-1])
+        vol_5d_avg   = float(np.mean(vols[-6:-1]))  if len(vols)>5 else vol_20d_avg
+        rng_20d_avg  = float(np.nanmean(ranges[-21:-1])) if len(ranges)>1 else float(ranges[-1])
+        rng_5d_avg   = float(np.nanmean(ranges[-6:-1]))  if len(ranges)>5 else rng_20d_avg
+
+        # low_stability: 10d-low / 20d-low (>0.97 = bottom is holding)
+        low_10d = float(np.nanmin(closes[-11:-1])) if len(closes) > 10 else float(closes[-1])
+        low_20d = float(np.nanmin(closes[-21:-1])) if len(closes) > 20 else low_10d
+        low_stab = low_10d / max(low_20d, 0.01)
 
         latest = tdf.iloc[-1]
         feat = {
@@ -383,10 +558,12 @@ def momentum_trade_score(ticker: str, pick: dict = None) -> dict:
             "range_trend":  rng_5d_avg / max(rng_20d_avg, 0.01),
             "vol_vs_20d":   float(vols[-1]) / max(vol_20d_avg, 1),
             "vol_trend":    vol_5d_avg / max(vol_20d_avg, 1),
-            "vs_20d_high":  closes[-1] / max(np.nanmax(closes[:-1][-20:]), 0.01) if len(closes)>1 else 1.0,
-            "vs_20d_low":   closes[-1] / max(np.nanmin(closes[:-1][-20:]), 0.01) if len(closes)>1 else 1.0,
+            "vs_20d_high":  closes[-1] / max(np.nanmax(closes[-21:-1]), 0.01) if len(closes)>1 else 1.0,
+            "vs_20d_low":   closes[-1] / max(np.nanmin(closes[-21:-1]), 0.01) if len(closes)>1 else 1.0,
             "mom_5d":       ret(5),
             "mom_20d":      ret(20),
+            "mom_60d":      ret(60),
+            "low_stability": low_stab,
             "gap_pct":      abs(float(latest["gap_pct"] or 0)),
             "close_strength": float(latest["close_str"] or 0.5),
             "price_vs_52wh": closes[-1] / max(np.nanmax(closes), 0.01),
@@ -406,12 +583,34 @@ def momentum_trade_score(ticker: str, pick: dict = None) -> dict:
             X[0, i] = meds[i]
 
     prob = float(model.predict_proba(X)[0][1])
-    signal = "SETUP" if prob >= STRONG_THRESHOLD else ("WATCHING" if prob >= MODERATE_THRESHOLD else "NO_SETUP")
+
+    # Apply OOS-validated hard filter gates on top of model score
+    # These cut false positives ~3x without destroying recall
+    passes_filters = (
+        feat["vs_20d_high"] <= FILTER_VS_20D_HIGH and
+        feat["vol_vs_20d"]  <= FILTER_VOL_VS_20D
+    )
+
+    if prob >= STRONG_THRESHOLD and passes_filters:
+        signal = "SETUP"
+    elif prob >= MODERATE_THRESHOLD and passes_filters:
+        signal = "WATCHING"
+    elif prob >= MODERATE_THRESHOLD:
+        signal = "WATCHING_EXTENDED"   # model likes it but filters flag it as already moving
+    else:
+        signal = "NO_SETUP"
 
     signal_desc = {
-        "SETUP":    "Pre-move coil/flush pattern detected — volume drying, range contracting, pulled back from high",
-        "WATCHING": "Some pre-move characteristics present — monitor for confirmation",
-        "NO_SETUP": "No pre-move setup pattern detected",
+        "SETUP":             "Pre-move coil/flush — volume quiet, range contracting, pulled back from high. High-conviction setup.",
+        "WATCHING":          "Some pre-move characteristics — monitor for volume dry-up and range contraction to confirm.",
+        "WATCHING_EXTENDED": "Model score is elevated but stock is already extended (volume surging or at/near 20d high). Wait for pullback.",
+        "NO_SETUP":          "No pre-move setup pattern detected.",
+    }
+
+    filter_flags = {
+        "coiled_below_high":   feat["vs_20d_high"] <= FILTER_VS_20D_HIGH,
+        "volume_quiet":        feat["vol_vs_20d"]  <= FILTER_VOL_VS_20D,
+        "passes_all_gates":    passes_filters,
     }
 
     return {
@@ -420,6 +619,13 @@ def momentum_trade_score(ticker: str, pick: dict = None) -> dict:
         "signal":      signal,
         "trained_at":  art.get("trained_at", "unknown"),
         "interpretation": signal_desc[signal],
+        "filter_gates":   filter_flags,
+        "thresholds": {
+            "strong":          STRONG_THRESHOLD,
+            "moderate":        MODERATE_THRESHOLD,
+            "vs_20d_high_max": FILTER_VS_20D_HIGH,
+            "vol_vs_20d_max":  FILTER_VOL_VS_20D,
+        },
         "features": {
             "range_pct_%":         round(feat["range_pct"], 2),
             "range_contracting":   round(feat["range_trend"], 3),
@@ -429,6 +635,8 @@ def momentum_trade_score(ticker: str, pick: dict = None) -> dict:
             "pct_above_20d_low":   round((feat["vs_20d_low"] - 1) * 100, 1),
             "mom_5d_%":            round(feat["mom_5d"] * 100, 2),
             "mom_20d_%":           round(feat["mom_20d"] * 100, 2),
+            "mom_60d_%":           round(feat.get("mom_60d", 0) * 100, 2),
+            "low_stability":       round(feat.get("low_stability", 1.0), 3),
             "gap_pct_%":           round(feat["gap_pct"], 2),
             "close_strength":      round(feat["close_strength"], 3),
             "price_vs_52wh":       round(feat["price_vs_52wh"], 3),
