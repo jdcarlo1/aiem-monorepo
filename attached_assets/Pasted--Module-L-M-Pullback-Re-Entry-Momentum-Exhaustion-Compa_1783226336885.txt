@@ -1,0 +1,162 @@
+# Module L & M — Pullback Re-Entry & Momentum Exhaustion
+### Companion Module Pair for Momentum/Trend Trades (e.g., SOXX-style names)
+*Full Spec — merged, includes 8-signal Module M and historical calibration research (v2)*
+
+> **Design principle:** These two modules are intentionally asymmetric in how easily they fire. Module L (buy the dip) should fire readily — pullbacks within a healthy uptrend are common and the cost of a false positive is small. Module M (exit before rollover) should require multiple corroborating signals before firing, since the cost of a false positive is exiting a position that then runs without you.
+
+> **Critical constraint:** Neither module is designed to predict the future. Both are reactive — they respond to structural evidence already present in price/volume, not to predictions of what will happen next. Do not let backtest tuning create the illusion of predictive power; a signal that "would have worked" on this year's exact SOXX path is likely overfit to it.
+
+---
+
+## MODULE L — Pullback Re-Entry (Momentum-Intact Dip Buy)
+
+**Purpose:** Detect a pullback within an established uptrend that is structurally still intact — i.e., a buyable dip, not the start of a reversal.
+
+### Trigger conditions (all must be true)
+- Prior established uptrend: price has made a clear higher-high, higher-low structure over the lookback window (define window, e.g. 60-90 trading days).
+- Current pullback holds above the prior pullback's low (higher-low structure preserved) — this is the single most important gate. If this fails, route to Module M instead, do not fire L.
+- Price has pulled back to (not through) a defined support zone: rising 21-day EMA, rising 50-day SMA, or prior breakout level — specify which, in that priority order.
+- RSI(14) has reset to a defined oversold-for-this-trend threshold (higher than a standard mean-reversion signal, since momentum names rarely get truly oversold by classic standards during a real uptrend — needs backtest-derived calibration, not a generic 30 threshold).
+- Volume on the down-move is not expanding versus the trailing average (light-volume pullback, not distribution). If volume is expanding, this is a warning flag — do not auto-block, but flag it and lower conviction score.
+- Relative strength vs. the broader market (SPY) during the pullback is roughly in line — if relative strength is breaking down sharply during the pullback, this argues against firing L and toward M instead.
+
+### Required output fields
+```
+state : WATCHING / CONFIRMED
+higher_low_intact : TRUE/FALSE
+support_level_type : EMA21 / SMA50 / PRIOR_BREAKOUT
+distance_to_support_pct
+rsi_reset_level
+volume_pattern : LIGHT / NEUTRAL / EXPANDING
+relative_strength_vs_spy_status : INTACT / WEAKENING / BROKEN
+conviction_score
+```
+
+### Wiring requirements (same standard as Modules A–K)
+- Registered in conviction stack, Signal Decay Module, BH-FDR pass.
+- Gated by Module F (earnings/falling-knife guard) exactly like other reversion-family modules.
+- Must check with Module M before firing: if M's exit signal is currently active on the same ticker, L should not fire simultaneously — log this conflict explicitly rather than silently favoring one.
+
+### Backtest requirement
+- Backtest specifically against 2026 YTD SOXX-style momentum names with multiple pullbacks (this is the calibration target you have in mind).
+- Report win rate/return separately for CONFIRMED vs WATCHING, and report false-positive rate (i.e., how often L fired but the "higher-low intact" pullback later broke down anyway) — this must be disclosed honestly, not omitted because it's the awkward number.
+
+---
+
+## MODULE M — Momentum Exhaustion / Trend Rollover
+
+**Purpose:** Detect early structural evidence that a momentum trend is ending, distinct from a normal pullback within an intact trend. Designed to require multiple corroborating signals before firing, since a false positive here means exiting a trade that then continues higher.
+
+### Trigger conditions
+Require a minimum count of the following to stack, not any single one — specify the minimum count during calibration, start with **3-of-8** as a working default.
+
+1. **Structure break:** current pullback low breaks below the prior pullback's low (lower-low, breaking the higher-low sequence Module L depends on).
+2. **Distribution signature:** volume expansion on down days during the decline (define threshold, e.g. 3+ above-average-volume down days within a 3-4 week window).
+3. **Relative strength failure:** ticker/ETF underperforms the broader market on the bounce attempt after the initial drop (weak, unconvincing recovery vs. SPY).
+4. **Moving average structure break:** first sustained close below the rising 21-day EMA after an extended period of not touching it, especially if the 21-day EMA itself flattens or rolls over.
+5. **Breadth narrowing** (sector/ETF trades only): fewer underlying constituent names making new highs even as the index/ETF itself is still near highs.
+6. **Earnings revision stall** (where fundamental data is available): analyst estimate revisions that were trending up have flattened or reversed — this is the fundamentals-adjacent signal that matters for momentum names, NOT absolute valuation level. An elevated P/E alone must never be a trigger condition here — see guardrail below.
+7. **Sector/Leadership Concentration Extreme** (from historical research, see Appendix): for sector ETF or basket trades specifically, the share of the trade's market cap held by the top 3 constituents, relative to its own historical range. A reading at or near a multi-year/all-time extreme counts as a contributing signal.
+8. **Cross-Market Speculative Synchronization** (from historical research — highest-priority finding, see Appendix): track a basket of unrelated high-beta/speculative/momentum tickers or ETFs and monitor whether multiple are showing early rollover signals (1-7) at the same time, even in unrelated sectors. This is the earliest possible warning found in the historical record — it can appear before the specific ticker being evaluated shows any of its own individual breakdown signals.
+
+> **Explicit non-trigger (guardrail):** Absolute valuation metrics (P/E, P/S, EV/EBITDA levels) must NOT be wired as trigger conditions in this module. They can be logged as context fields for reference only. A high P/E in an intact momentum trend is not evidence of rollover — treating it as such was the exact design mistake this module is meant to avoid repeating.
+
+### Required output fields
+```
+state : WATCHING / CONFIRMED
+signals_triggered_count (out of 8)
+signals_triggered_list (which specific ones)
+structure_break_confirmed : TRUE/FALSE
+distribution_days_count
+relative_strength_status
+ema21_status : INTACT / BROKEN / ROLLING_OVER
+breadth_status : NOT_AVAILABLE if not wired for this ticker type
+earnings_revision_status : NOT_AVAILABLE if not wired
+concentration_extreme_status : NORMAL / ELEVATED / EXTREME, with actual percentage and lookback comparison shown, not just the label
+cross_market_speculative_rollover_count : number of tracked unrelated speculative baskets simultaneously showing 2+ of signals 1-7 active
+conviction_score (this should scale with signals_triggered_count, not be binary)
+```
+
+### Wiring requirements
+- Registered in conviction stack, Signal Decay Module, BH-FDR pass.
+- Confirm this does NOT fire simultaneously with Module L on the same ticker without an explicit conflict-resolution rule (e.g., M requires a higher signal count to override an already-active L state).
+- Position sizing interaction: this module should feed the existing conviction-weighted sizing logic (Section 4 of the Position Sizing spec) to reduce size as signal count increases, rather than being wired as a binary full-exit trigger. Full exit only at a specified high threshold (e.g., 6-7 of 8), partial de-risking at lower thresholds (e.g., 3-4 of 8).
+- Signal 8 (cross-market sync) requires tracking a basket of unrelated tickers, not just the ticker under evaluation — this is architecturally different from signals 1-7 and will take more build effort. If not feasible in the first build pass, mark `cross_market_speculative_rollover_count` as `NOT_IMPLEMENTED` honestly rather than skipping the field entirely.
+
+### Backtest requirement
+- Same 2026 YTD SOXX-style momentum dataset.
+- Report separately: how many real rollovers (identifiable in hindsight, e.g. multi-week trend breaks) did this module catch before the bulk of the decline, vs. how many false positives fired during pullbacks that were actually still Module L material.
+- This head-to-head false-positive-rate comparison between L and M is the single most important backtest output for this module pair — report it explicitly, don't bury it in a blended accuracy number.
+
+---
+
+## Reporting Standard (same as Master Verification Protocol)
+- ✅ **VERIFIED** — evidence attached
+- ❌ **NOT VERIFIED** — state exactly why
+- ⚠️ **PARTIAL** — list what passed / what didn't
+
+> **Note on realistic expectations:** No configuration of these two modules will achieve zero false positives in either direction. The backtest goal is a favorable trade-off — catching real rollovers without exiting so aggressively that ordinary pullbacks get treated as trend-ending events. Report the trade-off honestly rather than tuning to a specific historical path (like this year's exact SOXX chart) in a way that would not generalize.
+
+---
+
+## APPENDIX — Historical Calibration Research
+
+**Purpose:** This section documents the real historical case studies that justify Module M's design, specifically the addition of Signals 7 and 8 above. This is not a backtest — it's a cross-case pattern check across independent, unrelated momentum trades from different eras, used to justify why Module M is built the way it is.
+
+*Method note: This is a representative sample (6 cases), not an exhaustive 15-year sweep of every momentum trade in every sector. It deliberately picked cases with nothing in common (different sectors, different eras, different countries) specifically to find what recurs despite that difference.*
+
+### CASE 1 — Dot-Com / Internet Stocks (1995–2000)
+- NASDAQ rose ~600% from 1995 to a peak of 5,048.62 on March 10, 2000; fell 78% by October 2002.
+- Breadth was already deteriorating before the top — more stocks were falling than rising even as the index kept making new highs in 1999, as gains concentrated into fewer names.
+- The final leg was parabolic: NASDAQ rose 86% in 1999 alone, its fastest single year.
+- Trigger: rising interest rates through 1999-2000, plus a March 2000 Japan recession headline.
+
+### CASE 2 — Biotech (XBI), Two Cycles
+- 2014-2016: XBI peaked in 2015 after a speculative, M&A-thesis-driven run; fell 49% while the S&P 500 fell only 14% over the same window. Trigger: Fed rate-hike signaling plus a September 2015 political tweet on drug pricing.
+- 2021-2023: A quantified breadth ratio (rising vs. falling biotech stocks) fell from 0.63 in January 2022 to 0.29 by November 2023 — a concrete, trackable number confirming breadth deterioration is a persistent read throughout a rollover, not just a top-day signal. 36 of the first 45 weeks of 2023 saw net fund outflows.
+
+### CASE 3 — Speculative Growth / Innovation Stocks (ARKK)
+- Peaked February 2021 at ~$28B in assets; later fell over 50%, assets collapsing to ~$6B.
+- Coincided with national margin debt peaking at $935B in 2021 — the most stretched retail-leverage ratio recorded up to that point.
+- Trigger: rising interest rate expectations, hitting the longest-duration growth names hardest.
+
+### CASE 4 — Solar (TAN)
+- TAN gained 66.5% in 2019 and 234% in 2020 — a parabolic two-year run.
+- Peaked early 2021, then declined 25.1% in 2021 and continued sliding, with ~$300M in net outflows by 2023. Decline was compounded by industry-specific oversupply — a useful control case showing rollovers often have their own fundamental logic layered on top of the technical pattern.
+
+### CASE 5 — Electric Vehicles (NIO and the EV basket)
+- NIO IPO'd in 2018 at $6.28, ran to an all-time high of $62.84 in February 2021 — a ~10x move.
+- In H2 2021, Lucid and Rivian briefly reached market caps higher than Ford and GM despite minimal production — explicitly described as bubble pricing at the time.
+- NIO has since declined roughly 90-95% from its February 2021 peak.
+
+### KEY CROSS-CASE FINDING: Simultaneous Peak Timing (basis for Signal 8)
+The strongest pattern found in this research, only visible once enough cases were compared.
+
+Three completely unrelated speculative sectors — no shared fundamentals, industries, customers, or supply chains — all peaked within the same several-week window in February 2021:
+- ARKK (innovation/growth): peaked February 2021, ~$28B in assets
+- NIO (EV/China): peaked February 2021, $62.84
+- TAN (solar): peaked "early 2021"
+
+This cannot be explained by anything sector-specific — solar oversupply, EV competition, and growth-stock valuations are unrelated stories. What they shared was being the most speculative, longest-duration, highest-multiple "story" trades in the market at the same time, repriced together when rate expectations shifted (a move which disproportionately hits the discounted value of far-future profits — hardest for exactly these kinds of names).
+
+**This is why Signal 8 exists. The earliest tell in the historical record was not visible on any single ticker's own chart — it was multiple unrelated speculative baskets rolling over together. A system watching only its own ticker's chart could miss this entirely.**
+
+### CASE 6 — Semiconductors, Current Cycle (2025-2026, live example)
+- As of mid-2026, the sector was described as the most overextended relative to its 200-day moving average since the dot-com top in 2000.
+- Concentration warning already present: the top 3 chip stocks account for roughly 80% of the combined market cap of the top 10 global chip companies — the same narrow-leadership pattern as Cases 1-3, showing up live. This is the basis for Signal 7.
+- Parabolic finish signature also present: a 17-day stretch added over $3 trillion in combined chip-stock market value.
+- SOXX has already gone through multiple pullbacks within this run; analysts flag VIX >25 and rising 10-year Treasury yields as the trigger to watch — a rate-sensitive trigger layered on top of a structurally fragile setup, consistent with every prior case.
+
+### Cross-Case Summary Table
+
+| Pattern | Dot-Com 2000 | Biotech 2015/22-23 | ARKK 2021 | Solar 2021 | EV/NIO 2021 | Semis 2026 (live) |
+|---|---|---|---|---|---|---|
+| Narrowing breadth/leadership | Yes | Yes (quantified) | Implied | N/A | N/A | Yes (80% in top 3) |
+| Parabolic final leg | Yes | No | No | Yes | Yes | Yes |
+| Leverage/positioning extreme | Not quantified | N/A | Yes (margin debt record) | N/A | Yes (bubble pricing) | Not yet quantified |
+| Rate-driven trigger | Yes | Yes (x2) | Yes | Partial | Partial | Flagged as watch-item |
+| Peaked in sync with unrelated sectors | N/A | N/A | Feb 2021 | Early 2021 | Feb 2021 | TBD |
+
+**Conclusion supporting the spec above:** no single indicator is present and cleanly quantifiable in every case. But (a) narrowing breadth/leadership recurs most often when measurable, and (b) unrelated speculative trades topping in the same window recurs strongly enough across 3 independent 2021 cases to justify building it as its own signal. This directly supports keeping Module M as a multi-signal, stacked-count design rather than any single trigger — and specifically justifies Signals 7 and 8 as real, evidence-backed additions rather than speculative extras.
+
+*Caveat: this sample does not cover 2007-2008 financials, 2017/2021 crypto-adjacent equities, or other cycles that could be added for a fuller picture. Treat this appendix as directional support for the module design, not a statistically validated model — the real validation is the backtest requirement specified in Module M's own section above.*

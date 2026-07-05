@@ -1,0 +1,78 @@
+# Module L & M — Verification Checklist Package
+
+**Standard for every item:** ✅ VERIFIED requires raw terminal output/grep/SQL/runtime probe. ❌ NOT VERIFIED = state exactly why. ⚠️ PARTIAL = list what passed/failed. A narrative claim ("this is done") is NOT evidence — default to NOT VERIFIED without pasted proof. "It's in the code" ≠ "it's wired into the live execution path" — confirm the function is actually called from the live signal loop.
+
+---
+## MODULE L — Pullback Re-Entry
+
+### A. Trigger Conditions
+**A1. Uptrend detection** — lookback window (60-90 days) actually defined and used in a higher-high/higher-low function. `grep -n` both.
+**A2. Higher-low gate** — failed check actually routes to Module M (not just a comment). Evidence: routing code + test case.
+**A3. Support zone priority** (EMA21→SMA50→breakout) — enforced in that order in code, not just all three existing. Real example showing which was selected.
+**A4. RSI oversold threshold** — actual value ≠ generic 30, backtest-derived (show calibration evidence).
+**A5. Volume pattern** — expanding volume is a WARNING FLAG lowering conviction, NOT a hard block. Test case proving no auto-block.
+**A6. RS vs SPY** — sharp breakdown actually influences L/M decision, not just logged.
+
+### B. Output Fields — confirm exist, populated with real varying values, correct enum:
+`state`, `higher_low_intact`, `support_level_type`, `distance_to_support_pct`, `rsi_reset_level`, `volume_pattern`, `relative_strength_vs_spy_status`, `conviction_score`
+→ SQL pull of 5+ real rows required.
+
+### C. Wiring
+**C1.** Registered in conviction stack (grep + module count increased).
+**C2.** Registered in Signal Decay Module (grep + decay probe).
+**C3.** Included in BH-FDR pass (grep + evidence corrected value ≠ raw value).
+**C4.** Gated by Module F (grep + test: F active blocks L).
+**C5.** Conflict-checks with M before firing, conflict LOGGED explicitly (grep + real logged row).
+
+---
+## MODULE M — Momentum Exhaustion
+
+### A. The 8 Signals (min-count stack, default 3-of-8)
+**Global:** threshold is a real `>=` check, not an OR chain. What's the actual current threshold?
+**M1 Structure break** — shares same underlying pullback-low calc as L's higher-low check (not independently computed).
+**M2 Distribution signature** — actual threshold values in code; `distribution_days_count` varies across tickers.
+**M3 RS failure** — measures the BOUNCE specifically, not general RS.
+**M4 EMA21 break** — "sustained close below" after "extended period not touching," AND `ema21_status` actually reaches all 3 states (INTACT/BROKEN/ROLLING_OVER) in real data.
+**M5 Breadth narrowing** — correctly gated to sector/ETF only; `NOT_AVAILABLE` for single stocks.
+**M6 Earnings revision stall** — tracks DIRECTION of revisions, not absolute level; `NOT_AVAILABLE` when unwired.
+**M7 Concentration extreme** — relative to own historical range; output includes actual % AND lookback comparison, not just label.
+**M8 Cross-market sync (highest-priority per Appendix)** — real basket of unrelated tickers tracked, OR honestly marked `NOT_IMPLEMENTED` (not silently defaulting to 0 — that's a spec violation).
+
+### B. Guardrail — CRITICAL
+P/E, P/S, EV/EBITDA must NOT appear inside any trigger/firing conditional in Module M. `grep -n` entire module for these variables; confirm every occurrence is context-only.
+
+### C. Output Fields:
+`state`, `signals_triggered_count`, `signals_triggered_list`, `structure_break_confirmed`, `distribution_days_count`, `relative_strength_status`, `ema21_status`, `breadth_status`, `earnings_revision_status`, `concentration_extreme_status`, `cross_market_speculative_rollover_count`, `conviction_score`
+→ Confirm `conviction_score` actually scales with `signals_triggered_count` (pull rows at count=2,4,6 — scores must differ).
+
+### D. Wiring
+**D1.** Conviction stack + Signal Decay + BH-FDR (same as L).
+**D2.** Override rule: M needs a HIGHER signal count than baseline to override an active L state — is this a real distinct threshold?
+**D3.** Position sizing: partial de-risk at 3-4/8, full exit only at 6-7/8 — two distinct triggered behaviors, not one binary flag.
+
+---
+## CROSS-MODULE CONFLICT VERIFICATION (most likely spot for a skipped corner)
+
+1. **Shared source of truth** — do L's higher-low and M's structure-break read the same underlying calc, or could they disagree?
+2. **L→M routing** — force a higher-low failure; confirm L suppressed AND M actually evaluated.
+3. **L suppressed while M active** — test case, same ticker.
+4. **Conflict logged explicitly** — pull a real logged conflict row (ticker/timestamp/which module won/why).
+5. **M override threshold** — distinct numeric value from M's baseline firing threshold?
+6. **No double-counting** — if both L and M fire same cycle, confirm only the "winning" score reaches the conviction stack aggregator (not both summed).
+
+---
+## BACKTEST VERIFICATION
+
+1. **Dataset** — real 2026 YTD SOXX data (source: Polygon/Tradier/other), multiple pullback episodes confirmed.
+2. **L: CONFIRMED vs WATCHING** reported as separate numbers, not blended.
+3. **L: false-positive rate** — actual number disclosed (not omitted as "the awkward number").
+4. **M: real rollovers caught vs. false positives** — reported SEPARATELY, not blended into one accuracy figure.
+5. **Head-to-head L vs M false-positive comparison** — exists as its own explicit section, not left for the reader to infer.
+6. **Overfitting check** — was any out-of-sample/walk-forward validation done, or is this pure in-sample fit to this year's SOXX path?
+
+---
+## SIGNAL 8 SPECIAL FLAG
+Record actual state: ⬜ Fully implemented / ⬜ Honestly marked NOT_IMPLEMENTED (acceptable) / ⬜ Silently defaulting to 0 with no flag (spec violation — flag this).
+
+## OVERALL VERDICT
+⬜ GREEN (fully wired, no gaps) / ⬜ YELLOW (core logic verified, tracked gaps) / ⬜ RED (material gaps, not production-ready)
