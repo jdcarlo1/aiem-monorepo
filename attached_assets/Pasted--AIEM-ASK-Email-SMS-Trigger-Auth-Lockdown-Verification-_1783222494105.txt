@@ -1,0 +1,118 @@
+# AIEM "ASK" Email/SMS Trigger — Auth Lockdown Verification Spec
+
+## Background (what's broken today)
+
+The email poller's `data2` IMAP search (`SUBJECT "ASK"`) has no `FROM` filter and is
+unioned into `all_uids` with the sender-filtered `data1` search. Any email landing in
+the inbox with "ASK" anywhere in the subject — from any sender — reaches
+`_run_and_reply` → `_run_aiem_focused_session`, which always uses
+`AI_INTEGRATIONS_OPENAI_API_KEY` (billed to the owner's Replit account). There is no
+sender check, no token check, and no BYOK lookup before the session fires.
+
+## Target design: two-tier access
+
+**Tier 1 — Administrator (Joel).** Identified by a static admin secret. Runs on the
+platform's Replit-billed key. No subscriber record needed. This is the only path that
+should ever touch `AI_INTEGRATIONS_OPENAI_API_KEY`.
+
+**Tier 2 — Sub-subscribers.** Anyone else who wants to use the ASK trigger must (a)
+be a subscriber on record in the DB, and (b) supply their own valid API key
+(BYOK) in the message. Their request runs on *their* key via the existing
+`byok_openai_key` branch — never on the platform's key. If their key is missing,
+invalid, revoked, or they aren't a subscriber, the message is dropped silently: no
+session, no reply, no compute spend, no error email that reveals whether the
+account exists.
+
+Message format (works over SMS-to-email gateway):
+
+```
+ASK <credential> <question text>
+```
+
+Where `<credential>` is either:
+- the admin token (Tier 1), or
+- `sub_<subscriber_id>_<api_key_fragment_or_full_key>` (Tier 2) — exact encoding
+  is up to the agent, but it must be parseable without ambiguity and must not
+  require lookup-by-guessing.
+
+## Required behavior, line by line
+
+1. **Replace the two-search union with a single filtered search**, or keep two
+   searches but require both a FROM match on the gateway domain AND a token/credential
+   match before any session fires. The unfiltered subject-only path must not exist
+   after the fix — verify by grep, not by agent claim.
+
+2. **Admin path (Tier 1):**
+   - `AIEM_ADMIN_TOKEN` read from `os.environ`, never hardcoded.
+   - Compared with `hmac.compare_digest`, not `==`.
+   - On match: proceed exactly as today, using `AI_INTEGRATIONS_OPENAI_API_KEY`.
+   - On non-match: fall through to Tier 2 check, do NOT reject outright yet
+     (a sub-subscriber's token won't match the admin token, that's expected).
+
+3. **Sub-subscriber path (Tier 2):**
+   - Extract subscriber ID + key from the credential.
+   - Look up subscriber ID in the DB (`subscribers` table or equivalent). Must
+     be an active, non-revoked record.
+   - Validate the API key against what's stored for that subscriber
+     (hashed comparison preferred — do not store or compare plaintext keys).
+   - Rate-limit per subscriber (e.g. max N asks/day) — enforced in DB, not just
+     in-memory, so it survives restarts.
+   - On success: call `_run_aiem_focused_session` with
+     `byok_openai_key=<their_key>` so the call is billed to them, never to the
+     platform.
+   - On any failure (unknown subscriber, bad key, revoked, rate-limited):
+     `continue` — no session, no reply, no log line containing the raw key.
+
+4. **No match on either tier:** `continue`. No exception raised in a way that
+   emails the sender an error (that would confirm the inbox is listening for
+   this pattern).
+
+5. **Logging:** log attempt outcome (admin / subscriber-id / rejected) but never
+   log the raw admin token or raw subscriber API key. Log a hash or last-4 only.
+
+## Verification checklist — raw evidence required, no agent self-report
+
+For each item below, the deliverable is raw terminal/SQL output pasted into the
+response, not a description of what "should" happen.
+
+- [ ] `grep -n "SUBJECT \"ASK\""` across the file — confirm the unfiltered
+      subject-only search no longer exists standalone.
+- [ ] `grep -n "AIEM_ADMIN_TOKEN"` — confirm it's read via `os.environ.get`,
+      not a literal string anywhere in source.
+- [ ] `grep -n "compare_digest"` — confirm both admin token and subscriber key
+      comparisons use it.
+- [ ] `grep -rn "api_key" <subscriber-auth-file>` — confirm no plaintext key
+      storage or comparison; hashed only.
+- [ ] Live test 1 — email with correct admin token in subject → session fires.
+      Paste the terminal log showing `_run_aiem_focused_session` invoked with
+      no `byok_openai_key` (i.e. platform key used).
+- [ ] Live test 2 — email with a valid subscriber ID + correct key → session
+      fires. Paste the terminal log showing `_run_aiem_focused_session` invoked
+      WITH `byok_openai_key` set, and confirm via log that it is NOT the
+      platform's `AI_INTEGRATIONS_OPENAI_API_KEY`.
+- [ ] Live test 3 — email with a valid subscriber ID + wrong key → `continue`
+      hit, no session call in the trace. Paste terminal output showing this.
+- [ ] Live test 4 — email with random/unknown sender, no credential at all,
+      "ASK" in subject → `continue` hit, no session call, no reply sent. Paste
+      terminal output.
+- [ ] Live test 5 — subscriber whose rate limit is already hit for the day →
+      `continue` hit even with valid key. Paste SQL query showing the rate-limit
+      row and the terminal log showing rejection.
+- [ ] SQL query against the subscribers table showing the schema used for
+      credential validation (subscriber id, key hash column, active flag,
+      rate-limit tracking columns).
+- [ ] Confirm no code path can reach `_run_aiem_focused_session` without first
+      passing through either the admin-token check or the subscriber-validation
+      function — trace this with a `git diff` of the full modified block, not a
+      summary.
+
+## Explicit non-goals / things not to let the agent rationalize around
+
+- Do not accept "it's unlikely anyone would guess the subject line" as a
+  mitigation — the fix must be a hard credential check, not obscurity.
+- Do not accept a fix that keeps the platform key as a fallback if the
+  subscriber's BYOK key fails for any reason (e.g. their OpenAI account is out
+  of credit) — that must `continue`/fail closed, not silently downgrade to
+  platform billing.
+- Do not accept "tested manually and it seemed to work" without the raw
+  terminal/SQL evidence listed above attached.

@@ -1270,6 +1270,27 @@ def _init_byok_columns():
         print(f"[byok] _init_byok_columns error: {_e}")
 _DEFERRED_INITS.append(_init_byok_columns)
 
+def _init_ask_auth_tables():
+    """Add ask_openai_key_hash + ask_daily_limit to sm_subscribers; create ask_rate_limits."""
+    import psycopg2 as _aapg
+    try:
+        with _aapg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cu:
+            _cu.execute("ALTER TABLE sm_subscribers ADD COLUMN IF NOT EXISTS ask_openai_key_hash TEXT")
+            _cu.execute("ALTER TABLE sm_subscribers ADD COLUMN IF NOT EXISTS ask_daily_limit INT NOT NULL DEFAULT 10")
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS ask_rate_limits (
+                    token     VARCHAR(64) NOT NULL,
+                    ask_date  DATE        NOT NULL,
+                    ask_count INT         NOT NULL DEFAULT 0,
+                    PRIMARY KEY (token, ask_date)
+                )
+            """)
+            _c.commit()
+        print("[ask_auth] tables ready")
+    except Exception as _e:
+        print(f"[ask_auth] init error: {_e}")
+_DEFERRED_INITS.append(_init_ask_auth_tables)
+
 def _init_options_structure_db():
     import psycopg2 as _aos_pg
     try:
@@ -11722,6 +11743,108 @@ def _send_sms(message: str, to: str = None) -> None:
         print(f"[sms] send error: {e}")
 
 
+# ── ASK email two-tier authentication ─────────────────────────────────────────
+def _ask_authenticate(raw_text: str):
+    """
+    Parse and authenticate an ASK trigger message.
+
+    Message format (SMS or email body/subject):
+        ASK <credential> <question text>
+
+    Tier 1 (admin): credential matches ADMIN_TOKEN via hmac.compare_digest.
+        Returns ('admin', None, question, None). Session runs on platform key.
+
+    Tier 2 (subscriber): credential is sub_<token>:<sk-openai_key>.
+        Validates: token active+paid in sm_subscribers, SHA-256(key)==ask_openai_key_hash,
+        daily ask_count <= ask_daily_limit (DB-backed, survives restarts).
+        Returns ('subscriber', api_key, question, token). Session runs on their key ONLY —
+        never falls back to platform billing.
+
+    Returns None on any failure — silent reject, no session, no reply.
+    Never logs raw credential or raw API key; logs last-8 of SHA-256 hash only.
+    """
+    import re as _ar, hmac as _hmac, hashlib as _hl, psycopg2 as _apg
+    from datetime import date as _adate
+
+    # Strip any residual leading "ASK" / "ASK:" prefix not removed upstream
+    text = _ar.sub(r'(?i)^ask[\s:]+', '', raw_text.strip()).strip()
+
+    # Split: first whitespace-delimited token = credential, rest = question
+    _parts = text.split(None, 1)
+    if not _parts:
+        return None
+    credential = _parts[0]
+    question   = _parts[1].strip() if len(_parts) > 1 else ""
+
+    # ── Tier 1: admin ────────────────────────────────────────────────────────
+    _adm = os.environ.get("ADMIN_TOKEN", "")
+    if _adm and _hmac.compare_digest(credential.encode("utf-8"), _adm.encode("utf-8")):
+        _cred_hash_sfx = _hl.sha256(credential.encode()).hexdigest()[-8:]
+        print(f"[ask_auth] ADMIN authenticated — cred_hash_sfx={_cred_hash_sfx}")
+        return ("admin", None, question, None)
+
+    # ── Tier 2: subscriber (sub_<token>:<sk-api_key>) ─────────────────────────
+    if not credential.startswith("sub_"):
+        print(f"[ask_auth] REJECT — not admin, missing sub_ prefix (pfx={credential[:8]}...)")
+        return None
+
+    rest = credential[4:]          # drop "sub_"
+    if ":" not in rest:
+        print("[ask_auth] REJECT — subscriber credential missing ':' separator")
+        return None
+
+    sub_token, api_key = rest.split(":", 1)
+    if not sub_token or not api_key.startswith("sk-"):
+        print("[ask_auth] REJECT — malformed sub credential (blank token or key not sk-)")
+        return None
+
+    supplied_hash = _hl.sha256(api_key.encode("utf-8")).hexdigest()
+    key_sfx = supplied_hash[-8:]
+    tok_sfx = sub_token[-4:]
+
+    try:
+        with _apg.connect(os.environ["DATABASE_URL"], connect_timeout=3) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                "SELECT ask_openai_key_hash, ask_daily_limit "
+                "FROM sm_subscribers WHERE token=%s AND active=true AND paid=true LIMIT 1",
+                (sub_token,)
+            )
+            _row = _cu.fetchone()
+            if not _row or not _row[0]:
+                print(f"[ask_auth] REJECT — no active/paid/registered sub (tok_sfx=...{tok_sfx})")
+                return None
+
+            stored_hash  = _row[0]
+            daily_limit  = int(_row[1] or 10)
+
+            if not _hmac.compare_digest(supplied_hash, stored_hash):
+                print(f"[ask_auth] REJECT — key hash mismatch (tok_sfx=...{tok_sfx} key_sfx={key_sfx})")
+                return None
+
+            # Rate-limit: DB-backed per-subscriber daily counter, survives restarts
+            _today = _adate.today().isoformat()
+            _cu.execute(
+                "INSERT INTO ask_rate_limits (token, ask_date, ask_count) VALUES (%s, %s, 1) "
+                "ON CONFLICT (token, ask_date) DO UPDATE "
+                "  SET ask_count = ask_rate_limits.ask_count + 1 "
+                "RETURNING ask_count",
+                (sub_token, _today)
+            )
+            _cnt = _cu.fetchone()[0]
+            _c.commit()
+
+            if _cnt > daily_limit:
+                print(f"[ask_auth] REJECT — rate limit {_cnt}/{daily_limit} (tok_sfx=...{tok_sfx})")
+                return None
+
+            print(f"[ask_auth] SUBSCRIBER ok — tok_sfx=...{tok_sfx} key_sfx={key_sfx} cnt={_cnt}/{daily_limit}")
+            return ("subscriber", api_key, question, sub_token)
+
+    except Exception as _ae:
+        print(f"[ask_auth] DB error during subscriber check: {_ae}")
+        return None
+
+
 def _poll_ask_sms() -> None:
     """
     Poll Gmail INBOX for UNSEEN ASK emails from the owner.
@@ -11763,9 +11886,15 @@ def _poll_ask_sms() -> None:
         # Use ALL (not UNSEEN) — Gmail marks self-sent emails as "read" internally
         # but doesn't set the IMAP \Seen flag, so UNSEEN search misses them.
         # We use our own processed-UID file to avoid reprocessing.
+        #
+        # SECURITY: Both searches are sender-constrained. There is NO unfiltered
+        # SUBJECT "ASK" search — every matched email must also pass _ask_authenticate()
+        # (credential check) before any session fires. An unauthenticated email
+        # matching the subject pattern is silently dropped via `continue`.
         gateway_domain = "tmomail.net"
         _, data1 = mail.search(None, f'FROM "{gateway_domain}" SINCE {_since}')
-        _, data2 = mail.search(None, f'SUBJECT "ASK" SINCE {_since}')
+        # Sender-constrained: only self-sent ASK emails (owner → own inbox)
+        _, data2 = mail.search(None, f'FROM "{user}" SUBJECT "ASK" SINCE {_since}')
         all_uids = list(set(data1[0].split() + data2[0].split()))
 
         # Skip UIDs already processed (persisted across restarts)
@@ -11846,12 +11975,23 @@ def _poll_ask_sms() -> None:
                 ).strip()
                 question = question[:500].split("\n>")[0].strip()
 
-                # Must be a real question (not just "Hey", "ASK", blank test, etc.)
-                if len(question) < 20:
-                    print(f"[poll_ask_sms] skipped — too short: '{question[:40]}'")
+                # ── TWO-TIER AUTH: every email must carry a valid credential ────────
+                # Admin:      ASK <ADMIN_TOKEN> <question>
+                # Subscriber: ASK sub_<token>:<sk-api_key> <question>
+                # No credential or bad credential → silent continue, no session, no reply.
+                _auth = _ask_authenticate(question)
+                if _auth is None:
+                    print(f"[poll_ask_sms] auth REJECTED — uid {uid_str} dropped silently")
+                    continue
+                _ask_tier, _ask_byok_key, question, _ask_sub_token = _auth
+                # ── END AUTH ────────────────────────────────────────────────────────
+
+                # Must be a real question (not just a credential with no body)
+                if len(question) < 10:
+                    print(f"[poll_ask_sms] skipped — too short after auth: '{question[:40]}'")
                     continue
 
-                print(f"[poll_ask_sms] question: {question[:100]}")
+                print(f"[poll_ask_sms] question ({_ask_tier}): {question[:100]}")
 
                 # Send receipt confirmation
                 if via_gateway:
@@ -11877,7 +12017,8 @@ def _poll_ask_sms() -> None:
                     f"Be concise but complete — 2-4 paragraphs max."
                 )
 
-                def _run_and_reply(q=question, p=prompt, _vg=via_gateway, _uid=uid_str):
+                def _run_and_reply(q=question, p=prompt, _vg=via_gateway, _uid=uid_str,
+                                    _tier=_ask_tier, _byok=_ask_byok_key):
                     # Only 1 AIEM Q&A session at a time
                     if not app._aiem_qa_lock.acquire(blocking=False):
                         # UID stays in processed set — confirmation was already sent.
@@ -11887,10 +12028,15 @@ def _poll_ask_sms() -> None:
                         print(f"[poll_ask_sms] AIEM busy — will retry answer next poll (no duplicate confirmation)")
                         return
                     try:
+                        # Admin → platform key (byok_openai_key=None → uses AI_INTEGRATIONS key)
+                        # Subscriber → their BYOK key ONLY; never falls back to platform
+                        #              billing if their key fails (fail-closed per spec)
+                        _byok_arg = None if _tier == "admin" else _byok
                         answer_text, _qa_trace, _qa_err, *_ = _run_aiem_focused_session(
                             session_name=f"sms_ask_{q[:20].replace(' ','_')}",
                             focus_prompt=p,
-                            max_iterations=3
+                            max_iterations=3,
+                            byok_openai_key=_byok_arg,
                         )
                         summary = (answer_text.strip()
                                    if answer_text and len(answer_text.strip()) > 20
@@ -53046,6 +53192,53 @@ def admin_approve_learning_proposal(proposal_id):
                         "version": version_saved, "detail": result})
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/subscriber/register-ask-key", methods=["POST"])
+def admin_register_ask_key():
+    """Admin: register (or rotate) a subscriber's BYOK OpenAI key for the ASK email trigger.
+    Stores SHA-256(key) — never the plaintext key. The subscriber supplies their key in the
+    ASK message; this hash is what the server validates against.
+
+    POST body JSON: {"token": "<sm_subscribers.token>", "openai_key": "sk-...", "daily_limit": 10}
+    Header: X-Admin-Token required.
+    """
+    import hashlib as _rhl, psycopg2 as _rpg
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+
+    body = request.get_json(silent=True) or {}
+    sub_token   = (body.get("token") or "").strip()
+    openai_key  = (body.get("openai_key") or "").strip()
+    daily_limit = int(body.get("daily_limit") or 10)
+
+    if not sub_token or not openai_key.startswith("sk-"):
+        return jsonify({"error": "token and openai_key (sk-...) required"}), 400
+
+    key_hash = _rhl.sha256(openai_key.encode("utf-8")).hexdigest()
+
+    try:
+        with _rpg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cu:
+            _cu.execute(
+                "UPDATE sm_subscribers SET ask_openai_key_hash=%s, ask_daily_limit=%s "
+                "WHERE token=%s AND active=true RETURNING id, email",
+                (key_hash, daily_limit, sub_token)
+            )
+            row = _cu.fetchone()
+            if not row:
+                return jsonify({"error": "subscriber not found or not active"}), 404
+            _c.commit()
+        return jsonify({
+            "ok": True,
+            "subscriber_id": row[0],
+            "email": row[1],
+            "key_hash_suffix": key_hash[-8:],
+            "daily_limit": daily_limit,
+            "note": "Plaintext key never stored. Subscriber must include full key in ASK messages."
+        })
+    except Exception as _re:
+        return jsonify({"error": str(_re)}), 500
 
 
 @app.route("/stock-api/admin/backfill-iv", methods=["POST"])
