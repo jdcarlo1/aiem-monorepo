@@ -1969,6 +1969,69 @@ def _init_washout_ignition_table():
 _DEFERRED_INITS.append(lambda: _init_washout_ignition_table())
 
 
+def _init_momentum_coil_tables():
+    """
+    Three isolated tables for the two-stage washout-complete system.
+    momentum_coil_watchlist   — silent daily saves of pre-coil setups
+    momentum_breakout_log     — 20d high breakout events (AIEM data, no alert)
+    momentum_washout_complete — confirmed washout-complete alerts (the only user-facing signal)
+    """
+    try:
+        import psycopg2 as _mct_pg
+        with _mct_pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS momentum_coil_watchlist (
+                    id              SERIAL PRIMARY KEY,
+                    save_date       DATE NOT NULL,
+                    ticker          VARCHAR(10) NOT NULL,
+                    coil_price      FLOAT NOT NULL,
+                    vs20h_ratio     FLOAT,
+                    vol_ratio       FLOAT,
+                    status          VARCHAR(20) DEFAULT 'WATCHING',
+                    washout_low     FLOAT,
+                    washout_low_date DATE,
+                    created_at      TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(save_date, ticker)
+                )
+            """)
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS momentum_breakout_log (
+                    id           SERIAL PRIMARY KEY,
+                    scan_date    DATE NOT NULL,
+                    ticker       VARCHAR(10) NOT NULL,
+                    close_price  FLOAT NOT NULL,
+                    vol_ratio    FLOAT,
+                    vs20h_pct    FLOAT,
+                    created_at   TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(scan_date, ticker)
+                )
+            """)
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS momentum_washout_complete (
+                    id                  SERIAL PRIMARY KEY,
+                    alert_date          DATE NOT NULL,
+                    ticker              VARCHAR(10) NOT NULL,
+                    coil_date           DATE NOT NULL,
+                    coil_price          FLOAT NOT NULL,
+                    washout_low         FLOAT,
+                    washout_low_date    DATE,
+                    alert_price         FLOAT NOT NULL,
+                    entry_discount_pct  FLOAT,
+                    vol_ratio           FLOAT,
+                    close_strength      FLOAT,
+                    range_ratio         FLOAT,
+                    days_in_washout     INT,
+                    created_at          TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(alert_date, ticker)
+                )
+            """)
+            _c.commit()
+        print("[momentum_coil_tables] 3 tables ready")
+    except Exception as _e:
+        print(f"[momentum_coil_tables] init error: {_e}")
+_DEFERRED_INITS.append(lambda: _init_momentum_coil_tables())
+
+
 def _init_paper_trader_schema():
     """Creates safety-gate tables for premarket_open_trader Group-1 gates."""
     try:
@@ -3539,6 +3602,22 @@ try:
         _run_multiday_outcomes,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=_ET),
         id="multiday_outcomes_update",
+        replace_existing=True,
+    )
+    # Momentum Two-Stage System: 8:42 AM ET daily (after Polygon scan at 8:35 AM)
+    # Runs 3 isolated functions: coil saver, breakout logger, washout-complete checker
+    def _run_momentum_two_stage():
+        try:
+            import threading as _thr_mts
+            _thr_mts.Thread(target=_scan_momentum_coil_daily,     daemon=True).start()
+            _thr_mts.Thread(target=_scan_momentum_breakout_daily, daemon=True).start()
+            _thr_mts.Thread(target=_check_momentum_washout_complete, daemon=True).start()
+        except Exception as _e:
+            print(f"[scheduler] momentum two-stage error: {_e}")
+    _scheduler.add_job(
+        _run_momentum_two_stage,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=42, timezone=_ET),
+        id="momentum_two_stage_daily",
         replace_existing=True,
     )
     # SPY cache refresh: Mon-Fri 9:05 AM ET - pre-warm SPY 1y cache before market opens
@@ -52448,6 +52527,291 @@ def gap_volume_signal_endpoint():
         app.logger.error(f"[gap-volume-signal] {_e}")
         return jsonify({"signals": [], "count": 0, "scan_date": None,
                         "total_scanned": 0, "edge_note": "", "stale": True}), 200
+
+
+# ── Momentum Two-Stage Washout-Complete System ────────────────────────────────
+# Isolated from all existing tabs and scanners. Three new DB tables only.
+# Stage 1 (8:42 AM): silently detect pre-coil → momentum_coil_watchlist
+# Stage 2 (8:42 AM): check WATCHING stocks for washout complete → alert
+# AIEM data: 20d breakouts → momentum_breakout_log (no user alert)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _scan_momentum_coil_daily():
+    """Stage 1 morning scan: find pre-coil setups and save silently. No alert sent."""
+    try:
+        import psycopg2 as _mcs_pg
+        with _mcs_pg.connect(os.environ["DATABASE_URL"], connect_timeout=5,
+                              options="-c statement_timeout=15000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                WITH ranked AS (
+                    SELECT
+                        scan_date, ticker, close_price, volume,
+                        EXTRACT(MONTH FROM scan_date)::int AS mo,
+                        MAX(close_price) OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS h20d,
+                        AVG(volume::float) OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS avol20,
+                        COUNT(*) OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 21 PRECEDING AND CURRENT ROW) AS hist,
+                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date DESC) AS rn
+                    FROM polygon_market_daily
+                    WHERE scan_date >= CURRENT_DATE - 35
+                      AND close_price BETWEEN 1 AND 25
+                      AND volume > 100000
+                )
+                INSERT INTO momentum_coil_watchlist (save_date, ticker, coil_price, vs20h_ratio, vol_ratio)
+                SELECT
+                    scan_date, ticker, close_price,
+                    ROUND((close_price / NULLIF(h20d, 0))::numeric, 4),
+                    ROUND((volume      / NULLIF(avol20, 0))::numeric, 4)
+                FROM ranked
+                WHERE rn = 1
+                  AND hist >= 22 AND avol20 > 0 AND h20d > 0
+                  AND close_price / h20d    <= 0.88
+                  AND volume      / avol20  <= 1.05
+                  AND mo NOT IN (1, 2, 11, 12)
+                ON CONFLICT (save_date, ticker) DO NOTHING
+            """)
+            n = _cur.rowcount
+            _c.commit()
+        print(f"[momentum_coil] saved {n} new coil setups silently")
+    except Exception as _e:
+        print(f"[momentum_coil] scan error: {_e}")
+
+
+def _scan_momentum_breakout_daily():
+    """AIEM data only: log 20d high breakouts to momentum_breakout_log. No user alert."""
+    try:
+        import psycopg2 as _mbs_pg
+        with _mbs_pg.connect(os.environ["DATABASE_URL"], connect_timeout=5,
+                              options="-c statement_timeout=15000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                WITH ranked AS (
+                    SELECT
+                        scan_date, ticker, close_price, volume,
+                        MAX(close_price) OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS h20d,
+                        AVG(volume::float) OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS avol20,
+                        COUNT(*) OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 21 PRECEDING AND CURRENT ROW) AS hist,
+                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date DESC) AS rn
+                    FROM polygon_market_daily
+                    WHERE scan_date >= CURRENT_DATE - 35
+                      AND close_price BETWEEN 1 AND 25
+                      AND volume > 100000
+                )
+                INSERT INTO momentum_breakout_log (scan_date, ticker, close_price, vol_ratio, vs20h_pct)
+                SELECT
+                    scan_date, ticker, close_price,
+                    ROUND((volume      / NULLIF(avol20, 0))::numeric, 3),
+                    ROUND(((close_price / NULLIF(h20d, 0)) - 1) * 100, 2)
+                FROM ranked
+                WHERE rn = 1
+                  AND hist >= 22 AND avol20 > 0 AND h20d > 0
+                  AND close_price > h20d
+                  AND volume / NULLIF(avol20, 0) >= 1.3
+                ON CONFLICT (scan_date, ticker) DO NOTHING
+            """)
+            n = _cur.rowcount
+            _c.commit()
+        print(f"[momentum_breakout] saved {n} breakouts to AIEM log")
+    except Exception as _e:
+        print(f"[momentum_breakout] scan error: {_e}")
+
+
+def _check_momentum_washout_complete():
+    """
+    Stage 2: Check all WATCHING stocks for the 3 washout-complete conditions.
+    Fires Telegram alert + saves to momentum_washout_complete when confirmed.
+    Also tracks the washout low and expires stale entries. Isolated — touches
+    only the 3 momentum_* tables, nothing else.
+    """
+    try:
+        import psycopg2 as _mwc_pg
+        with _mwc_pg.connect(os.environ["DATABASE_URL"], connect_timeout=5,
+                              options="-c statement_timeout=20000") as _c, _c.cursor() as _cur:
+
+            _cur.execute("""
+                SELECT ticker, save_date, coil_price, washout_low, washout_low_date
+                FROM momentum_coil_watchlist
+                WHERE status = 'WATCHING' AND save_date >= CURRENT_DATE - 65
+            """)
+            watching = _cur.fetchall()
+            if not watching:
+                print("[momentum_washout] no WATCHING stocks to check")
+                return
+
+            tickers       = [r[0] for r in watching]
+            watching_map  = {r[0]: r for r in watching}
+
+            _cur.execute("""
+                WITH daily_wind AS (
+                    SELECT
+                        ticker, scan_date, close_price, volume,
+                        close_strength, range_pct,
+                        AVG(volume::float) OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS avol20,
+                        AVG(range_pct)     OVER (PARTITION BY ticker ORDER BY scan_date
+                            ROWS BETWEEN 5  PRECEDING AND 1 PRECEDING) AS arng5,
+                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY scan_date DESC) AS rn
+                    FROM polygon_market_daily
+                    WHERE ticker = ANY(%s)
+                      AND scan_date >= CURRENT_DATE - 90
+                      AND volume > 0
+                )
+                SELECT ticker, scan_date, close_price, volume,
+                       close_strength, range_pct, avol20, arng5
+                FROM daily_wind
+                WHERE rn = 1 AND avol20 > 0 AND arng5 > 0
+            """, (tickers,))
+            latest = {r[0]: r for r in _cur.fetchall()}
+
+            alerts_fired = 0
+            for ticker, (_, save_date, coil_price, washout_low, washout_low_date) in watching_map.items():
+                row = latest.get(ticker)
+                if not row:
+                    continue
+                _, scan_date, close_price, volume, close_strength, range_pct, avol20, arng5 = row
+                vol_ratio   = (volume / avol20)   if avol20 > 0 else 1.0
+                range_ratio = (range_pct / arng5) if arng5  > 0 else 1.0
+
+                # Expire: moved up >10% above coil without washing out (missed it)
+                if close_price > coil_price * 1.10:
+                    _cur.execute(
+                        "UPDATE momentum_coil_watchlist SET status='EXPIRED'"
+                        " WHERE ticker=%s AND save_date=%s", (ticker, save_date))
+                    continue
+
+                # Expire: watchlist entry older than 60 days
+                if hasattr(scan_date, 'toordinal') and hasattr(save_date, 'toordinal'):
+                    age = (scan_date.toordinal() - save_date.toordinal())
+                else:
+                    import datetime as _dt_mwc
+                    age = (_dt_mwc.date.today() - save_date).days if save_date else 999
+                if age > 60:
+                    _cur.execute(
+                        "UPDATE momentum_coil_watchlist SET status='EXPIRED'"
+                        " WHERE ticker=%s AND save_date=%s", (ticker, save_date))
+                    continue
+
+                # Track washout low
+                new_low      = washout_low
+                new_low_date = washout_low_date
+                if close_price < coil_price * 0.95:
+                    if washout_low is None or close_price < washout_low:
+                        new_low      = close_price
+                        new_low_date = scan_date
+                        _cur.execute("""
+                            UPDATE momentum_coil_watchlist
+                               SET washout_low=%s, washout_low_date=%s
+                             WHERE ticker=%s AND save_date=%s
+                        """, (new_low, new_low_date, ticker, save_date))
+
+                # Washout-complete: must be >5% below coil AND all 3 conditions met
+                in_washout = close_price < coil_price * 0.95
+                vol_ok     = vol_ratio   < 1.0
+                cs_ok      = (close_strength or 0) > 0.55
+                rng_ok     = range_ratio  < 0.80
+
+                if in_washout and vol_ok and cs_ok and rng_ok:
+                    discount_pct = (close_price / coil_price - 1) * 100
+                    days_in      = age
+                    try:
+                        _cur.execute("""
+                            INSERT INTO momentum_washout_complete
+                              (alert_date, ticker, coil_date, coil_price, washout_low,
+                               washout_low_date, alert_price, entry_discount_pct,
+                               vol_ratio, close_strength, range_ratio, days_in_washout)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (alert_date, ticker) DO NOTHING
+                        """, (scan_date, ticker, save_date, coil_price,
+                              new_low, new_low_date, close_price,
+                              round(discount_pct, 2), round(vol_ratio, 3),
+                              round(close_strength or 0, 3), round(range_ratio, 3),
+                              days_in))
+                        if _cur.rowcount > 0:
+                            _cur.execute(
+                                "UPDATE momentum_coil_watchlist SET status='ALERTED'"
+                                " WHERE ticker=%s AND save_date=%s", (ticker, save_date))
+                            alerts_fired += 1
+                            low_str = f"${new_low:.2f}" if new_low else "n/a"
+                            _tg_send(
+                                f"🎯 WASHOUT COMPLETE — {ticker}\n"
+                                f"Coil {save_date}: ${coil_price:.2f}  →  Low: {low_str}  →  Now: ${close_price:.2f}\n"
+                                f"Entry {discount_pct:.1f}% below coil price\n"
+                                f"Vol {vol_ratio:.2f}x avg | Close strength {(close_strength or 0):.0%} | Range {range_ratio:.2f}x avg\n"
+                                f"📊 Backtest: 59% hit +20% | 32% hit +50% | Avg +55% (90 days)"
+                            )
+                    except Exception as _ie:
+                        print(f"[momentum_washout] insert error {ticker}: {_ie}")
+
+            _c.commit()
+        print(f"[momentum_washout] complete — {alerts_fired} new alerts fired")
+    except Exception as _e:
+        print(f"[momentum_washout] check error: {_e}")
+
+
+@app.route("/stock-api/momentum-washout-complete", methods=["GET"])
+def momentum_washout_complete_endpoint():
+    """
+    Returns recent washout-complete alerts + watching count + backtest stats.
+    The ONLY user-facing signal from the two-stage momentum system.
+    Pre-coil and 20d-breakout data are saved to DB for AIEM use only.
+    """
+    try:
+        import psycopg2 as _mwe_pg
+        with _mwe_pg.connect(os.environ["DATABASE_URL"], connect_timeout=3,
+                              options="-c statement_timeout=5000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT alert_date::text, ticker, coil_date::text, coil_price,
+                       washout_low, washout_low_date::text, alert_price,
+                       entry_discount_pct, vol_ratio, close_strength,
+                       range_ratio, days_in_washout
+                FROM momentum_washout_complete
+                WHERE alert_date >= CURRENT_DATE - 14
+                ORDER BY alert_date DESC, entry_discount_pct ASC
+                LIMIT 50
+            """)
+            cols    = [d[0] for d in _cur.description]
+            signals = [dict(zip(cols, r)) for r in _cur.fetchall()]
+
+            _cur.execute("""
+                SELECT COUNT(*) FROM momentum_coil_watchlist
+                WHERE status = 'WATCHING' AND save_date >= CURRENT_DATE - 65
+            """)
+            watching_count = (_cur.fetchone() or [0])[0]
+
+        scan_date = signals[0]["alert_date"] if signals else None
+        return jsonify({
+            "signals":       signals,
+            "count":         len(signals),
+            "watching_count": watching_count,
+            "scan_date":     scan_date,
+            "stale":         len(signals) == 0,
+            "backtest": {
+                "wr_10pct":          73.7,
+                "wr_20pct":          58.8,
+                "wr_50pct":          31.7,
+                "wr_100pct":         14.3,
+                "avg_return":        55.5,
+                "median_return":     27.5,
+                "avg_entry_discount": -14.7,
+                "total_signals":     66099,
+                "note": (
+                    "2yr backtest · 66K signals · measures max close "
+                    "in 90 calendar days from alert date"
+                ),
+            },
+        })
+    except Exception as _e:
+        app.logger.error(f"[momentum-washout-complete] {_e}")
+        return jsonify({
+            "signals": [], "count": 0, "watching_count": 0,
+            "scan_date": None, "stale": True,
+            "backtest": {"wr_20pct": 58.8, "wr_50pct": 31.7,
+                         "avg_return": 55.5, "avg_entry_discount": -14.7},
+        }), 200
 
 @app.route("/stock-api/sms/incoming", methods=["POST"])
 def sms_incoming_webhook():

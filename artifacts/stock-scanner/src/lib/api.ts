@@ -2484,3 +2484,39 @@ export function fetchAiemProbabilityTrackRecord(limit = 60): Promise<AiemProbabi
 export function forceAiemProbabilityEngineRun(): Promise<{ status: string; message: string }> {
   return fetchJson<{ status: string; message: string }>("/aiem-probability-engine/force-run", { method: "POST" });
 }
+
+export interface WashoutCompleteSignal {
+  ticker: string;
+  alert_date: string;
+  coil_date: string;
+  coil_price: number;
+  washout_low: number | null;
+  washout_low_date: string | null;
+  alert_price: number;
+  entry_discount_pct: number;
+  vol_ratio: number;
+  close_strength: number;
+  range_ratio: number;
+  days_in_washout: number | null;
+}
+
+export interface WashoutCompleteResult {
+  signals: WashoutCompleteSignal[];
+  watching_count: number;
+  scan_date: string | null;
+  backtest: {
+    wr_10pct: number;
+    wr_20pct: number;
+    wr_50pct: number;
+    wr_100pct: number;
+    avg_return: number;
+    median_return: number;
+    avg_entry_discount: number;
+    total_signals: number;
+  };
+  stale: boolean;
+}
+
+export function fetchWashoutComplete(): Promise<WashoutCompleteResult> {
+  return fetchJson<WashoutCompleteResult>("/stock-api/momentum-washout-complete");
+}

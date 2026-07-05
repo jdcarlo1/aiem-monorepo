@@ -63,6 +63,7 @@ import {
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
+  fetchWashoutComplete, WashoutCompleteSignal, WashoutCompleteResult,
   fetchFlowScores, fetchCallWinRates, fetchHistoricalSimilarity,
   HistSimEntry, HistSimRequest,
   fetchAiemPaperPortfolio, AiemPaperPortfolio, AiemPaperTrade,
@@ -15811,7 +15812,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -15994,6 +15995,7 @@ export default function Dashboard() {
     { id: "runneroutcomes", label: "📊 RUNNER OUTCOMES" },
     { id: "steadygrinder",  label: "🔄 STEADY GRINDERS" },
     { id: "gapvolume",      label: "⚡ GAP+VOL SIGNAL" },
+    { id: "washout-complete", label: "🎯 WASHOUT COMPLETE" },
     { id: "quantagent",     label: "🤖 QUANT AGENT" },
     { id: "gasboard",       label: "⚡ GAS BOARD" },
     { id: "signalintel",    label: "🔬 SIGNAL INTEL" },
@@ -18061,6 +18063,183 @@ export default function Dashboard() {
             );
           }
           return <GapVolumeTab onSelectTicker={selectTicker} />;
+        })()}
+
+        {/* ── Washout Complete Tab ── */}
+        {tab === "washout-complete" && (() => {
+          function WashoutCompleteTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading } = useQuery({
+              queryKey: ["momentum-washout-complete"],
+              queryFn: fetchWashoutComplete,
+              refetchInterval: 300_000,
+            });
+            const signals      = data?.signals ?? [];
+            const bt           = data?.backtest;
+            const watchingCount = data?.watching_count ?? 0;
+            const stale        = data?.stale ?? false;
+            const scanDate     = data?.scan_date ?? null;
+
+            const discountColor = (d: number) =>
+              d <= -20 ? "#f87171" : d <= -12 ? "#fb923c" : "#facc15";
+
+            const indicatorDot = (ok: boolean) =>
+              ok ? <span style={{ color: "#10b981", fontSize: 11 }}>✔</span>
+                 : <span style={{ color: "#ef4444", fontSize: 11 }}>✘</span>;
+
+            return (
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                    <div>
+                      <div className="text-slate-100 text-base font-bold tracking-wide">
+                        🎯 Washout Complete Alerts
+                      </div>
+                      <div className="text-slate-500 text-xs mt-0.5">
+                        Two-stage system: pre-coil detected silently → alert fires only after washout exhausts
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="bg-blue-900/40 border border-blue-700/40 text-blue-300 text-xs px-3 py-1 rounded-full">
+                        👁 {watchingCount} stocks being tracked silently
+                      </span>
+                      {scanDate && (
+                        <span className="text-slate-500 text-xs">
+                          {stale ? "⚠ no recent alerts · " : ""}Last alert: {scanDate}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Backtest stats bar */}
+                  {bt && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: "Win Rate 20%+", value: `${bt.wr_20pct}%`, color: "#10b981" },
+                        { label: "Win Rate 50%+", value: `${bt.wr_50pct}%`, color: "#10b981" },
+                        { label: "Avg Return (90d)", value: `+${bt.avg_return}%`, color: "#38bdf8" },
+                        { label: "Avg Entry vs Coil", value: `${bt.avg_entry_discount}%`, color: "#facc15" },
+                      ].map(s => (
+                        <div key={s.label} className="bg-slate-800/60 rounded-lg p-3 text-center">
+                          <div style={{ color: s.color }} className="text-lg font-bold">{s.value}</div>
+                          <div className="text-slate-500 text-xs mt-0.5">{s.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* How it works */}
+                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-xs text-slate-400 space-y-1">
+                  <div className="text-slate-300 font-semibold mb-1">How the signal works:</div>
+                  <div>① AIEM silently saves stocks coiling below their 20-day high with quiet volume each morning</div>
+                  <div>② Those stocks are monitored daily through their washout/flush phase (tracked in background)</div>
+                  <div>③ Alert fires when all 3 exhaustion signals confirm simultaneously:</div>
+                  <div className="pl-3 space-y-0.5">
+                    <div>• <span className="text-emerald-400">Volume &lt;1.0× avg</span> — sellers backing off</div>
+                    <div>• <span className="text-emerald-400">Close strength &gt;55%</span> — closing near top of day's range</div>
+                    <div>• <span className="text-emerald-400">Range &lt;80% of 5d avg</span> — daily candles shrinking</div>
+                  </div>
+                  <div className="text-slate-500 pt-1">
+                    Backtest: {bt?.total_signals?.toLocaleString()} signals · 2yr · {bt?.note}
+                  </div>
+                </div>
+
+                {/* Signal cards */}
+                {isLoading ? (
+                  <div className="text-slate-500 text-sm text-center py-8">Loading alerts…</div>
+                ) : signals.length === 0 ? (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
+                    <div className="text-slate-400 text-sm">No washout-complete alerts in the last 14 days</div>
+                    <div className="text-slate-600 text-xs mt-2">
+                      {watchingCount > 0
+                        ? `${watchingCount} stocks currently being monitored — alert fires when exhaustion confirms`
+                        : "Scan runs at 8:42 AM ET each trading day"}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {signals.map((s: WashoutCompleteSignal) => {
+                      const discount   = s.entry_discount_pct ?? 0;
+                      const volOk      = s.vol_ratio < 1.0;
+                      const csOk       = s.close_strength > 0.55;
+                      const rngOk      = s.range_ratio < 0.80;
+
+                      return (
+                        <div
+                          key={`${s.ticker}-${s.alert_date}`}
+                          className="bg-slate-900 border border-slate-700/60 rounded-xl p-4 hover:border-slate-500 transition-colors cursor-pointer"
+                          onClick={() => onSelectTicker(s.ticker)}
+                        >
+                          {/* Ticker + date */}
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <div className="text-slate-100 text-lg font-bold">{s.ticker}</div>
+                              <div className="text-slate-500 text-xs">Alert: {s.alert_date}</div>
+                            </div>
+                            <div
+                              className="text-sm font-bold px-2 py-1 rounded"
+                              style={{ color: discountColor(discount), background: "rgba(0,0,0,0.3)" }}
+                            >
+                              {discount.toFixed(1)}%
+                            </div>
+                          </div>
+
+                          {/* Price journey */}
+                          <div className="bg-slate-800/50 rounded-lg p-3 mb-3 text-xs">
+                            <div className="text-slate-500 mb-1 font-medium">Price Journey</div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div className="text-center">
+                                <div className="text-slate-300 font-semibold">${s.coil_price?.toFixed(2)}</div>
+                                <div className="text-slate-600" style={{ fontSize: 10 }}>Coil ({s.coil_date})</div>
+                              </div>
+                              <div className="text-slate-600">→</div>
+                              {s.washout_low != null && (
+                                <>
+                                  <div className="text-center">
+                                    <div className="text-red-400 font-semibold">${s.washout_low?.toFixed(2)}</div>
+                                    <div className="text-slate-600" style={{ fontSize: 10 }}>Washout Low</div>
+                                  </div>
+                                  <div className="text-slate-600">→</div>
+                                </>
+                              )}
+                              <div className="text-center">
+                                <div className="text-emerald-400 font-semibold">${s.alert_price?.toFixed(2)}</div>
+                                <div className="text-slate-600" style={{ fontSize: 10 }}>Alert Price</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 3 conditions */}
+                          <div className="grid grid-cols-3 gap-1 text-center" style={{ fontSize: 11 }}>
+                            <div className="bg-slate-800/40 rounded p-1.5">
+                              <div className="mb-0.5">{indicatorDot(volOk)}</div>
+                              <div className="text-slate-400">Vol {s.vol_ratio?.toFixed(2)}×</div>
+                            </div>
+                            <div className="bg-slate-800/40 rounded p-1.5">
+                              <div className="mb-0.5">{indicatorDot(csOk)}</div>
+                              <div className="text-slate-400">CS {((s.close_strength ?? 0) * 100).toFixed(0)}%</div>
+                            </div>
+                            <div className="bg-slate-800/40 rounded p-1.5">
+                              <div className="mb-0.5">{indicatorDot(rngOk)}</div>
+                              <div className="text-slate-400">Rng {s.range_ratio?.toFixed(2)}×</div>
+                            </div>
+                          </div>
+
+                          {s.days_in_washout != null && (
+                            <div className="text-slate-600 text-center mt-2" style={{ fontSize: 10 }}>
+                              {s.days_in_washout}d since coil detected
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return <WashoutCompleteTab onSelectTicker={selectTicker} />;
         })()}
 
         {tab === "quantagent"  && <QuantAgentTab />}
