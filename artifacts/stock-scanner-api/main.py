@@ -5375,13 +5375,17 @@ try:
             _CT_aiem(day_of_week="sun", hour=20, minute=30, timezone=_ET),
             id="shadow_learning_weekly", replace_existing=True,
         )
-        # Alpha model retrain: every Sunday 9 PM ET (after research agent at 8 PM)
+        # Alpha leaders model retrain: every Sunday 9 PM ET
+        # Uses historical polygon_market_daily data (NOT paper trades) as ground truth.
+        # Trains on stocks that actually outperformed SPY — real labeled market data.
         def _run_alpha_retrain_job():
             try:
-                from alpha_train_pipeline import run_alpha_retrain_cycle as _arc
-                _result = _arc()
+                from alpha_historical_trainer import run_historical_alpha_train as _rhat
+                _result = _rhat()
                 record_job_success("alpha_model_retrain")
-                print(f"[scheduler] alpha retrain: promoted={_result.get('promoted')} n={_result.get('n_samples')}")
+                _auc = (_result.get("walk_forward") or {}).get("avg_auc", "n/a")
+                _n   = (_result.get("data") or {}).get("total_rows", "n/a")
+                print(f"[scheduler] alpha leaders retrain: AUC={_auc} n={_n} rows")
             except Exception as _e:
                 record_job_failure("alpha_model_retrain", str(_e))
                 print(f"[scheduler] alpha retrain error: {_e}")
@@ -31138,13 +31142,16 @@ _AIEM_AGENT_TOOLS = [
     {"type": "function", "function": {
         "name": "alpha_score_ticker",
         "description": (
-            "Score any ticker on the AIEM alpha model — predicts probability that this stock "
-            "will generate excess return vs SPY (alpha > 2%) over the next holding period. "
-            "Uses sector relative strength, momentum, proximity to 52-week high, conviction score, "
-            "float/short interest, and options flow. "
+            "alpha_leaders_scan — scores any ticker on probability of beating SPY by >=2% "
+            "over the next 10 trading days. "
+            "Trained on 2 years of real market history (NOT paper trades) — "
+            "AIEM learned which early signals preceded actual S&P outperformance across thousands of stocks. "
+            "Features: sector relative strength, 5d/20d momentum, gap_pct, RVOL, "
+            "proximity to 52-week high, volume trend vs 20-day average, and SPY relative strength. "
             "Returns alpha_prob (0-1), signal (STRONG/MODERATE/WEAK), and all feature values. "
-            "Use when evaluating which pick from a shortlist is most likely to outperform the market, "
-            "or to explain why AIEM thinks a stock has edge vs just riding the index."
+            "Use when choosing between picks, or to explain WHY a stock has statistical edge vs "
+            "just riding the market. STRONG = high probability of alpha. "
+            "Call for any pick where you want to know: 'will this beat the index, not just go up?'"
         ),
         "parameters": {"type": "object", "properties": {
             "ticker":      {"type": "string",  "description": "Ticker symbol, e.g. 'NVDA'."},
@@ -56344,16 +56351,17 @@ def get_source_export():
                mimetype="application/zip")
 
 
-# ── Alpha Model: AIEM tool wrapper ───────────────────────────────────────────
+# ── Alpha Leaders: AIEM tool wrapper ─────────────────────────────────────────
 def _aiem_alpha_score_ticker(ticker, total_pts=None, rvol=None, gap_pct=None, conviction=None):
+    """AIEM tool: alpha_leaders_scan — scores a ticker on probability of beating SPY."""
     try:
-        from alpha_train_pipeline import score_ticker_now as _stn
-        pick = {"ticker": ticker}
+        from alpha_historical_trainer import alpha_leaders_score as _als
+        pick = {}
         if total_pts  is not None: pick["total_pts"]  = total_pts
         if rvol       is not None: pick["rvol"]        = rvol
         if gap_pct    is not None: pick["gap_pct"]     = gap_pct
         if conviction is not None: pick["conviction"]  = conviction
-        return _stn(ticker, pick)
+        return _als(ticker, pick or None)
     except Exception as _e:
         return {"error": str(_e), "ticker": ticker}
 
@@ -56426,10 +56434,68 @@ def admin_alpha_model_status():
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 401
     try:
-        from alpha_train_pipeline import get_alpha_model_status as _gams
-        return jsonify(_gams())
+        from alpha_historical_trainer import get_alpha_leaders_status as _gals
+        return jsonify(_gals())
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
+
+
+# ── Admin: historical alpha train (ground-truth market data, NOT paper trades) ─
+@app.route("/stock-api/admin/run-historical-alpha-train", methods=["POST"])
+def admin_run_historical_alpha_train():
+    """
+    Triggers the full historical alpha leaders training cycle.
+    Scans ~2 years of polygon_market_daily (real market data), computes which stocks
+    beat SPY by >=2% over 10-day windows, extracts early signals, walk-forward validates,
+    then trains + saves the alpha leaders XGBoost model.
+
+    Progress logs stream to server console. Check status at:
+      GET /stock-api/admin/alpha-model-status
+
+    Body (optional JSON):
+      { "start_date": "2024-07-01" }   — how far back to pull training data (default 2 years)
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+
+    start_date = "2024-07-01"
+    if request.is_json and request.json:
+        start_date = request.json.get("start_date", start_date)
+
+    def _progress(msg):
+        print(f"[alpha-train] {msg}")
+
+    def _bg():
+        try:
+            from alpha_historical_trainer import run_historical_alpha_train as _rhat
+            result = _rhat(start_date=start_date, progress_cb=_progress)
+            _auc = (result.get("walk_forward") or {}).get("avg_auc", "n/a")
+            _n   = (result.get("data") or {}).get("total_rows", "n/a")
+            print(f"[alpha-train] DONE — AUC={_auc}  n={_n} labeled rows  status={result.get('status')}")
+        except Exception as _e:
+            import traceback
+            print(f"[alpha-train] ERROR: {_e}\n{traceback.format_exc()}")
+
+    import threading as _thr_hat
+    _thr_hat.Thread(target=_bg, daemon=True).start()
+
+    return jsonify({
+        "status":     "started",
+        "start_date": start_date,
+        "message": (
+            "Historical alpha leaders training running in background. "
+            "Watch server logs for progress — will print AUC + labeled row count when done. "
+            "Check model status at GET /stock-api/admin/alpha-model-status"
+        ),
+        "what_it_does": (
+            "Pulls ~2 years of polygon_market_daily data, finds which stocks actually beat "
+            "SPY by >=2% over 10-day windows, extracts early warning signals from those stocks "
+            "(momentum, RVOL, sector RS, 52w proximity, volume trend), "
+            "walk-forward validates across 4 time splits, trains XGBoost on all data, saves model. "
+            "AIEM will then use this to score any ticker with alpha_leaders_scan."
+        ),
+    })
 
 
 @app.route("/stock-api/admin/alpha-score-ticker", methods=["GET"])
