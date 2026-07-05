@@ -1,0 +1,63 @@
+# Module B Remediation — Wire Real Short Interest Data (Polygon)
+
+**Context:** Module B (Short Squeeze Reversion) was built and backtested using proxy conditions
+(RVOL + close_strength + range_pct) because real short-interest data was marked
+`NOT_IMPLEMENTED`. The honest backtest result was WR=40.6%, avg_ret_3d=-1.86%, p=0.9999 —
+below baseline, correctly logged as `status='hypothesis'` and excluded from live paper trading.
+
+**Confirmed:** the existing Polygon plan ($29/month Stocks Starter) includes the Short Interest
+API. No new account, API key, or vendor integration is needed — this uses the existing Polygon
+credentials already wired into the system.
+
+**What the Polygon Short Interest API provides:**
+- Total shares sold short but not yet covered
+- Average daily trading volume
+- Calculated days-to-cover (DTC) ratio
+- Data on a bi-monthly cadence (FINRA settlement-date reporting schedule), with historical
+  records back to December 29, 2017
+
+**Known limitation to carry forward honestly:** this is bi-monthly data, not real-time or daily.
+It won't capture intraday short-interest shifts, but it is a real, verifiable number replacing
+a proxy guess — a meaningful upgrade even with the reporting-lag limitation. This limitation
+should be logged in the module's output, not hidden.
+
+---
+
+## Tasks for the agent
+
+- [ ] Confirm Polygon Short Interest endpoint is reachable with the existing API key — show a
+  real raw API response for at least one ticker as proof of access (not just "endpoint exists").
+- [ ] Replace the proxy-based squeeze detection in `aiem_short_squeeze.py` with real fields:
+  - `short_interest_pct` (or shares short, if percent must be derived — show the derivation)
+  - `days_to_cover`
+  - Borrow cost/utilization is NOT part of this API — confirm explicitly whether this remains
+    `NOT_IMPLEMENTED` after this change, or whether it's out of scope entirely. Don't imply it's
+    covered when it isn't.
+- [ ] Update the module's output schema: `short_interest_status` should now read `AVAILABLE`
+  where Polygon data exists, and `NOT_AVAILABLE` only for tickers/dates genuinely outside
+  Polygon's coverage — not blanket-labeled the old way.
+- [ ] Because this data is bi-monthly, explicitly define and document how the module handles
+  the gap between reporting dates (e.g., does it use the most recent prior reading, and if so,
+  how stale can that reading be before the module flags it as too old to trust?).
+- [ ] Re-run the full historical backtest with real short-interest/DTC data replacing the old
+  proxy conditions. Report the new WR_3d, avg_ret_3d, and p-value using the same format as the
+  original honest result, over the same or an extended date range.
+- [ ] Compare directly: old proxy-only result (40.6% WR, p=0.9999) vs. new real-data result.
+  State plainly whether this fixes the signal, improves it partially, or doesn't help — report
+  the number, don't spin it.
+- [ ] If the new backtest clears baseline (e.g., WR > 50% with a defensible p-value under
+  BH-FDR), only then update `aiem_signal_discoveries` status from `hypothesis` toward
+  `validated`. If it doesn't clear baseline, leave it at `hypothesis` and say so — do not move
+  status based on a marginal or ambiguous improvement.
+- [ ] Confirm Module B is still gated by Module F, still excluded from live paper trading if
+  it remains at `hypothesis` status, and still tracked by Signal Decay / BH-FDR regardless of
+  outcome.
+
+## Reporting standard (same as always)
+- ✅ VERIFIED — evidence attached (raw API response, real backtest output, actual WR/p-value)
+- ❌ NOT VERIFIED — state exactly why
+- ⚠️ PARTIAL — list what passed and what didn't
+
+**Do not report this as "fixed" without the new backtest number attached.** Wiring in real
+data is necessary but not sufficient — the signal only counts as improved if the backtest
+actually shows it, and if it doesn't, that's the correct and useful thing to report.
