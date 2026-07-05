@@ -1,0 +1,161 @@
+# MASTER VERIFICATION PROTOCOL
+### Selloff/Reversion Signal Suite — AIEM Only
+
+**Covers:** All four prior documents combined —
+1. Oversold_Bounce_Uptrend signal spec
+2. AIEM Signal Family Spec: Selloff/Reversion Module Suite (Modules A–K)
+3. Addendum: Historical Backtest Instructions (Section 16)
+4. Position Sizing & Risk-Per-Trade Spec (including the Section 7.1 overnight/extended-hours gap-risk decision and Section 8 Pre-Close Position Review)
+
+**Purpose:** A single audit pass to confirm everything specified across those four documents was actually built, wired correctly, and is doing what it claims — not self-reported as done.
+
+**Rule for this entire audit:** every checkbox below requires raw evidence (SQL output, grep/code reference, git diff, log file, or an actual sent Telegram message) attached next to it. "It's working" or "yes this is done" with no evidence attached means that item is **NOT VERIFIED**, regardless of how confident the report sounds. If evidence can't be produced for an item, the correct answer is to say so explicitly — not to skip it silently.
+
+---
+
+## PART 1 — Isolation & Architecture (does NOT touch the customer product)
+
+- Grep/import trace showing zero references from any customer-facing StockScanner AI scanner code into any AIEM module covered by these three documents.
+- Confirmation that none of these modules appear in the customer-facing signal list, public scanner tabs, website, or any customer-visible dashboard. Show the actual customer-facing signal list/config file and confirm none of the new module names appear in it.
+- If any shared utility code is reused between AIEM and the customer product, confirm the reuse is one-directional (AIEM imports from shared code; nothing written for AIEM was wired backward into customer-facing pipelines). Show the actual import statements as proof, not a description of the intent.
+
+---
+
+## PART 2 — Oversold_Bounce_Uptrend (Original Spec)
+
+- Raw SQL + output showing the signal firing on real historical data, minimum 5 real ticker/date examples, all output fields populated (`state`, `drop_pct_3d`, `rsi_2`, `rsi_14`, `volume_pattern`, `distance_to_support_pct`, `fundamental_exclusion_triggered`, `fundamental_check_status`, `smart_money_divergence_reading`).
+- `fundamental_check_status` — confirm it is honestly marked `NOT_IMPLEMENTED` wherever the fundamental/news exclusion check wasn't actually available, rather than silently defaulting to `CHECKED`. Show at least one real example of each status value.
+- Git diff of the signal's implementation, scoped to this signal only.
+- Confirmation (grep/code reference) the signal is registered in the existing conviction-stack pipeline alongside L1–L10 / 8-layer signals — not running as a separate parallel script.
+- Confirmation (grep/code reference) it is included in the Signal Decay Module and the BH-FDR multiple-testing correction pass.
+- Backtest results file (not verbal summary): win rate + average return reported separately for WATCHING vs CONFIRMED state, with sample size and date range stated.
+- Confirm CONFIRMED state outperforms WATCHING state in the backtest. If it does not, confirm this was reported honestly rather than hidden or explained away.
+- Results reported broken out by volatility bucket (per Section 2.2's volatility-adjusted threshold design) — not a single blended number across all tickers.
+
+**Telegram delivery (bounce signal)**
+- Confirm alerts fire only on CONFIRMED state, never WATCHING.
+- Screenshot or raw payload log of an actual Telegram message sent from a real/staging firing, matching the specified message format, including an explicit line when `fundamental_check_status` is `NOT_IMPLEMENTED`.
+- Confirm the alert path reuses existing Telegram credentials/HMAC signing — grep/code reference showing no new parallel bot/channel was created.
+- Confirm rate limiting/cooldown reuses the existing convention — show the actual cooldown value and where it's defined in code.
+
+**Market-hours gating (bounce signal)**
+- Raw log/SQL evidence of at least one real case where the signal qualified outside market hours and the Telegram push was correctly withheld.
+- Evidence that the withheld overnight case was correctly either re-fired as "confirmed live at open" or marked `EXPIRED_OVERNIGHT` — show the actual record, not a description of the logic.
+- Confirm no backlog flood occurred at market open (i.e., multiple overnight-qualifying signals were re-evaluated individually, not mass-fired the moment the market opened).
+
+---
+
+## PART 3 — Module Suite (A through K)
+
+For each module (A – Capitulation Volume, B – Short Squeeze, C – Vol Crush Fade, D – Sentiment Extreme, E – Gap-Fill, F – Earnings/Falling Knife Guard, G – Correlation Breakdown, H – Dark Pool Absorption, I – Realized Vol Contraction, J – Forced/Mechanical Selling, K – Historical Drawdown Analog), confirm the following individually — **do not accept one blended status for the whole suite:**
+
+- Raw SQL + output: module firing on real historical data, min. 5 real examples, all output fields populated for that specific module (field lists are in the spec doc — verify actual output matches the specified schema exactly, not a similar-but-different set of fields).
+- Any `NOT_AVAILABLE` / `NOT_IMPLEMENTED` / `INSUFFICIENT_HISTORY` status fields are shown honestly in real output where applicable (e.g., Module B's `borrow_cost_status`, Module D's `secondary_sentiment_status`, Module J's `etf_flow_data_status`, Module K's `INSUFFICIENT_HISTORY` confidence flag).
+- Git diff scoped to that module's code only.
+- Grep/code confirmation the module is registered in the conviction stack, included in Signal Decay Module tracking, and included in the full-suite BH-FDR correction pass (re-run across old + all new signals together, not patched incrementally).
+- Backtest results file for that module specifically — sample size, date range, win rate/outcome stats. Confirm it is not blended with any other module's results.
+
+**Module-specific reuse checks (confirm no duplicate logic was built)**
+- Module H (Dark Pool Absorption): confirm it wraps/conditions the existing Dark Pool Block Prints detection — grep showing it calls the existing function/feed rather than reimplementing dark pool detection from scratch.
+- Module J (Forced/Mechanical Selling): confirm it wraps/conditions the existing CTA Trigger Levels detection — same reuse check.
+- Module I (Realized Vol Contraction): confirm it reuses the existing volatility data pipeline used by the GARCH regime signal, and confirm the backtest explicitly reports whether this module adds information beyond GARCH alone (not just assumed).
+- Confirm no other unintended duplicate/near-duplicate signal was created during implementation. If one was found, confirm it was flagged rather than shipped silently.
+
+**Module F (guard) — wiring verification**
+- Grep/code confirmation that Module F is called as a gate by every other reversion-family module (A, B, E, H, J) and by the original Oversold_Bounce_Uptrend signal — not sitting unused alongside them.
+- Raw log/SQL evidence of at least one real historical case where Module F's earnings exclusion or falling-knife flag actually suppressed a signal that would otherwise have fired.
+- Backtest report showing what those suppressed cases' actual outcomes were (did suppression correctly avoid bad trades, did it also filter out some good ones — both must be reported).
+
+**Modules D & G (modifier/context signals) — wiring verification**
+- Grep/code confirmation Module D (sentiment extreme) is actually wired as a conviction booster/filter on other modules, if that behavior was implemented — do not accept "the module exists" as proof it's connected to anything.
+- Same check for Module G (correlation breakdown) as a conviction modifier.
+- If either was implemented as a standalone signal only, with no actual connection to other modules' scoring, confirm that gap is reported explicitly, since the spec's intent was for these to modify other signals, not fire in isolation.
+
+---
+
+## PART 4 — Telegram Delivery (Full Suite)
+
+- Confirm all modules use the same existing Telegram bot/credentials/HMAC signing as the original bounce signal — grep showing no new bot or parallel credential set anywhere in the suite.
+- Confirm market-hours gating (same logic as Part 2) applies to every ticker-specific module in the suite, not just the original bounce signal.
+- Ticker-specific modules (A, B, E, H, J): confirm alerts respect Module F's guard — show a real case where a module's alert was correctly suppressed because Module F's exclusion was active.
+- Market-wide modules (C, D): confirm their alerts are visually distinguished from ticker-specific alerts (distinct emoji/prefix, explicit "MARKET-WIDE, NOT TICKER-SPECIFIC" line) — show a real example message, not a description.
+- Context-only modules (G, I, K): confirm these do not send standalone Telegram alerts by default, and instead appear as embedded fields inside whichever primary signal's alert they modified. If a standalone-alert toggle was added, confirm it defaults to off.
+- Confirm batching: if multiple modules fire for the same ticker in the same scan cycle, confirm they were combined into a single message rather than sent as a flood — show a real example if one occurred, or confirm the batching code path exists if it hasn't been triggered yet in testing.
+- Confirm rate limiting/cooldown for market-wide modules (C, D) is separate from and looser-firing than per-ticker cooldowns — show the actual configured values.
+
+---
+
+## PART 5 — Historical Backtest & Recognition Log (Addendum, Section 16)
+
+- For every module (bounce signal + A–K): written statement of the actual earliest usable date for each underlying data source, and which source bounded the overall backtest window for that module.
+- Raw SQL + full output of the historical firing log table for at least 3 modules, spot-checked manually against real, independently verifiable examples (i.e., pick a firing from the log and confirm the underlying price/volume/data actually matches what's claimed).
+- Confirm the historical firing log records forward outcomes at 1, 3, 5, and 10-day horizons, plus max drawdown and max favorable excursion, for each historical firing — not just a single outcome metric.
+- Regime-segmented summary report (per module): confirm it actually breaks out win rate/return by identified market regime periods, and that regime-dependent performance is reported honestly rather than blended into one number.
+- Volatility-bucket segmentation present where applicable, consistent with the convention used elsewhere in the suite.
+- Confirm any regime/bucket with insufficient sample size is marked `INSUFFICIENT_SAMPLE` with the actual count shown, not silently omitted from the report.
+- Confirm the historical firing log is implemented as persistent, queryable infrastructure (a real stored table), not a one-time script output — show the schema/table definition as proof.
+- Confirm there is an actual mechanism (even a manual one for now) by which a new live firing can be compared against this historical log going forward — or, if that comparison isn't wired up yet, confirm that gap is stated plainly rather than implied to exist.
+
+---
+
+## PART 6 — Cross-Cutting Statistical Integrity
+
+- Confirm the BH-FDR multiple-testing correction was re-run in full across the entire signal set (existing signals + bounce signal + all 11 new modules together) — not incrementally patched per module. Show the actual correction output/report.
+- Confirm every module's backtest used walk-forward out-of-sample splits consistent with AIEM's existing methodology — not a new, inconsistent split convention introduced for this batch.
+- Confirm point-in-time data guards (no lookahead bias) were checked specifically for the new modules' data dependencies — support/resistance levels, news/earnings exclusion timing, and correlation windows are common places lookahead bugs get introduced. Ask for specific confirmation on these three, not a generic "no lookahead" claim.
+- Confirm every module with `INSUFFICIENT_SAMPLE` status is actually excluded from live conviction scoring until more data accumulates — grep/code confirmation, not a verbal assurance.
+
+---
+
+## PART 7 — Position Sizing & Risk-Per-Trade Spec
+
+**Deployment gate (Section 0)**
+- Confirm every checkbox in Section 0 is tracked with actual status (not all silently assumed "yes") — including the separate gap-risk option confirmation (Section 7.1 decision) as its own explicit item, not bundled into a general "ready for live" answer.
+- Confirm no live Alpaca connection exists yet unless Joel has explicitly confirmed readiness in writing — grep/code check that live order submission is either disabled or gated behind a config flag that is currently off.
+
+**Core sizing logic (Sections 2–5)**
+- Raw SQL/log evidence of at least 10 real sizing decisions in simulation, confirming position size is derived from stop distance (Section 2 formula), not a flat share count or flat dollar amount.
+- Confirm at least one real case where a stop-loss was placed at a thesis-based level (Section 3) specific to the originating signal module — not a generic flat percentage — with the actual stop price and its basis shown.
+- Confirm conviction-weighted sizing (Section 4) actually varies position size across different conviction scores — show at least two real examples at different conviction levels with different resulting sizes, proving the scaling formula is applied, not a flat size regardless of conviction.
+- Confirm the daily loss limit and correlation-risk gates (Section 5) are called from this module — grep/code reference, plus at least one real case where a gate reduced or blocked a trade.
+- Confirm the "most restrictive gate wins" rule (Section 5) with a real or simulated example where multiple gates could have applied and the correct (most restrictive) one governed the outcome.
+
+**Mandatory paper-trading integration (Section 6)**
+- Confirm sizing/stop/gate logic is active on ALL paper trades from implementation forward — not deferred to a later date.
+- Confirm any pre-existing paper trading history without this sizing logic is flagged (e.g., `pre_sizing_model`) and NOT blended with post-implementation results in decay/hypothesis-loop tracking.
+- Confirm the Signal Decay Module and hypothesis loop are tracking risk-adjusted, as-sized outcomes, not raw directional accuracy divorced from position size — grep/code reference showing this was actually corrected, not left as a known gap.
+
+**Overnight / extended-hours gap risk (Section 7.1)**
+- Confirm Joel's chosen option (A, B, or C) is documented and actually implemented — not left as an open question in the code.
+- For Option A: grep/code proof of an automated flatten-before-close job, plus at least one real log entry showing it executed.
+- For Option B: confirm the sizing formula incorporates a worst-case gap adjustment beyond the stop distance, not just Section 2's base formula — show the actual adjusted-vs-unadjusted size for a real example.
+- For Option C: confirm each module carries an explicit `overnight_hold_allowed` tag and that Option A/B logic applies correctly per tag.
+
+**Pre-Close Position Review (Section 8)**
+- Raw SQL/log evidence of at least 3 real or simulated `HOLD_OVERNIGHT` decisions and 3 `FLATTEN_BEFORE_CLOSE` decisions, each with the underlying field values (conviction delta, thesis-intact status, guard status, full market-context reading) shown — not just the final label.
+- Confirm this module pulls current data at decision time, not stale entry-time values — show the actual data timestamp used vs. the position's entry timestamp to prove they differ.
+- Confirm the override behavior between this module and Section 7.1's chosen policy matches what Joel decided in Section 8.4 (i.e., does thesis-invalidation override a "hold" policy, or not) — show a real or simulated case exercising that interaction.
+- **Contrarian-direction check (critical, do not skip):** confirm elevated VIX, elevated put/call ratio, market-wide oversold RSI, and extreme-fear readings are being treated as support FOR holding a reversion thesis, not as bearish confirmation to flatten. Show a real/simulated example where these were elevated and the decision leaned `HOLD_OVERNIGHT` as a direct result. **If the implementation has this backwards anywhere, flag it as a critical bug immediately — this is the single most important correctness check in this entire module, since getting it backwards would make the module actively harmful rather than just unhelpful.**
+- Confirm `fear_greed_status: NOT_AVAILABLE` (or equivalent) appears honestly in logs wherever that data source isn't yet wired in.
+
+**Standalone extreme-contrarian-reading alert (Section 8.2b)**
+- Screenshot or raw payload log of a real/simulated standalone Telegram alert firing on an extreme composite contrarian reading, showing the full indicator breakdown and honest `NOT_AVAILABLE` flags for any missing data sources.
+- Confirm this alert is visually marked "MARKET-WIDE, NOT TICKER-SPECIFIC" and is distinguishable from per-ticker alerts.
+- Confirm the full-composite alert and the single-indicator lower-confidence alert use different, clearly labeled formats — show one real example of each.
+- Confirm rate limiting/cooldown values match what was decided (not left at an arbitrary default) and show evidence the cooldown is actually enforced (i.e., a second qualifying event within the cooldown window did not re-fire).
+- Confirm market-hours gating behavior for this specific alert type matches whatever Joel decided (gated to market hours, or explicit off-hours exception) — this was flagged in the spec as requiring an explicit choice, so confirm that choice was actually made, not left as the spec's default assumption without sign-off.
+
+**Logging (Section 9)**
+- Confirm every sizing decision (executed or skipped) is logged with all required fields, including `mode` (`SIMULATION` / `LIVE`) clearly set and never ambiguous — spot-check real log entries.
+
+---
+
+## Reporting Standard
+
+For each of **Parts 1–7** above, the response must be one of:
+
+- ✅ **VERIFIED** — evidence attached inline, meeting the standard above
+- ❌ **NOT VERIFIED** — evidence could not be produced; state exactly why
+- ⚠️ **PARTIAL** — some but not all sub-items verified; list precisely which passed and which didn't
+
+**A summary claim like "everything is working" or "all wired correctly" without this item-by-item breakdown is not an acceptable final report for this audit.**
