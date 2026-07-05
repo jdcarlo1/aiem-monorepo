@@ -1,285 +1,190 @@
 """
-bull_bear_debate.py
----------------------------
-Bull/bear synthesis debate for a specific ticker/setup.
-
-WHY THIS EXISTS
-----------------
-adversarial_critique.py already does cross-model adversarial review on
-BACKTEST RESULTS (is this hypothesis's win rate real or overfit?). This
-module does something related but distinct: for a SPECIFIC live setup
-AIEM is considering right now, it builds the strongest possible bull case
-and the strongest possible bear case as two separate, independently-
-generated arguments — then synthesizes them into a single verdict.
-
-This matters because a single model (even a good one) tends to anchor on
-whichever direction its first read leans toward, then under-weight
-disconfirming evidence afterward. Forcing two FULL, independently-built
-cases — not just "any concerns?" — surfaces things a single pass would
-gloss over. Same cross-model principle as adversarial_critique.py: the
-bull and bear arguments are built by DIFFERENT model families, since two
-prompts to the same model checking each other still share that model's
-blind spots.
-
-This is NOT a replacement for market_regime_overlay.py (overall market
-risk-on/risk-off) or a bull/bear MARKET trend classifier (multi-week/month
-SPY trend state) — those are about the broader market. This module is
-about whether THIS specific ticker/setup has a real edge right now, argued
-from both sides.
-
-REQUIRES: same AI_INTEGRATIONS env vars already used elsewhere
-(AI_INTEGRATIONS_OPENAI_API_KEY/BASE_URL, ANTHROPIC_API_KEY), AIEM_DATABASE_URL.
-
-INTEGRATION
------------
-Call run_bull_bear_debate(ticker, signal_context) before finalizing a high-
-conviction signal. Pass the synthesis result into input_state_snapshot
-when you call decision_logger.log_decision() for the actual trade/no_trade
-call, so the full debate is preserved alongside the decision it informed —
-don't log it as its own decision_type, since decision_logger's schema only
-allows ('trade','no_trade','hold','exit').
-
-Remember the wiring lesson if this becomes an agent-callable tool: add it
-to both the schema AND the dispatch dict of whichever loop should use it.
+bull_bear_debate.py — Deterministic Bull/Bear Debate Engine
+Replaces GPT+Claude calls with rules-based scoring from signal context.
+No external AI calls. Zero cost per debate.
 """
-
-import os
-import re
-import json
-import datetime as dt
+import json, psycopg2, os
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
-import psycopg2
-import psycopg2.extras
-
-
-def _connect():
-    url = os.environ.get("AIEM_DATABASE_URL") or os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("No database URL found (set AIEM_DATABASE_URL or DATABASE_URL).")
-    return psycopg2.connect(url)
-
-
-DDL = """
-CREATE TABLE IF NOT EXISTS bull_bear_debates (
-    id SERIAL PRIMARY KEY,
-    debate_time TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ticker TEXT NOT NULL,
-    signal_context JSONB NOT NULL,
-    bull_argument TEXT,
-    bear_argument TEXT,
-    synthesis JSONB,
-    verdict TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_bull_bear_debates_ticker ON bull_bear_debates(ticker);
-"""
-
-
 def init_schema():
-    with _connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(DDL)
-        conn.commit()
-    print("[bull_bear_debate] schema ready")
-
-
-BULL_SYSTEM_PROMPT = """You are an aggressive, conviction-driven bull case
-researcher. Given the signal data for a ticker, build the STRONGEST possible
-case for why this setup is bullish and worth taking. Use only the data
-provided — do not invent facts. Be specific: cite the actual numbers given.
-Do not hedge or present both sides; that is not your job here. Respond ONLY
-in JSON:
-{"thesis": "2-4 sentences, specific to the numbers provided",
- "strongest_point": "the single most compelling piece of evidence",
- "catalyst": "what would need to happen for this to play out"}"""
-
-BEAR_SYSTEM_PROMPT = """You are a skeptical short-seller researcher whose
-job is to find every reason this setup could fail or is being
-misread. Given the same signal data, build the STRONGEST possible case
-against taking this trade. Use only the data provided — do not invent
-facts. Be specific: cite the actual numbers given, and look especially for
-overfit-looking patterns, thin/illiquid conditions, or signals that could
-be coincidental. Do not hedge; that is not your job here. Respond ONLY in
-JSON:
-{"thesis": "2-4 sentences, specific to the numbers provided",
- "strongest_point": "the single most damaging piece of counter-evidence",
- "risk": "what would need to happen for this to fail"}"""
-
-SYNTHESIS_SYSTEM_PROMPT = """You are a neutral synthesis judge reviewing a
-bull case and a bear case for the same trading setup, built independently
-by two different researchers. Your job is NOT to split the difference —
-weigh the actual strength of evidence on each side and reach a real
-conclusion. If one side is clearly stronger, say so. If both sides raise
-genuinely unresolved concerns, say that too — "CONFLICTED" is a legitimate
-and useful verdict, not a cop-out. Respond ONLY in JSON:
-{"verdict": "BULLISH_LEAN" | "BEARISH_LEAN" | "CONFLICTED" | "NO_EDGE",
- "conviction_adjustment": <float from -1.0 to 1.0, where positive favors
-   the bull case and negative favors the bear case, scaled by how decisive
-   the evidence actually was>,
- "key_disagreement": "what the bull and bear case actually disagree about",
- "what_would_resolve_it": "the single piece of additional data or event
-   that would most clearly settle this"}"""
-
-
-def _strip_json_fences(text: str) -> str:
-    text = re.sub(r'^```(?:json)?\s*', '', text.strip())
-    text = re.sub(r'\s*```$', '', text)
-    return text.strip()
-
-
-def _call_openai(system_prompt: str, payload: Dict[str, Any], model: str = "gpt-5.4") -> Dict[str, Any]:
-    from openai import OpenAI
-    client = OpenAI(
-        api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-        base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-    )
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(payload, indent=2, default=str)},
-        ],
-        max_completion_tokens=600,
-    )
-    raw = _strip_json_fences(resp.choices[0].message.content or "{}")
-    return json.loads(raw)
-
-
-def _call_claude(system_prompt: str, payload: Dict[str, Any], model: str = "claude-sonnet-4-5") -> Dict[str, Any]:
-    import anthropic
-    client = anthropic.Anthropic()
-    resp = client.messages.create(
-        model=model,
-        max_tokens=600,
-        system=system_prompt,
-        messages=[{"role": "user", "content": json.dumps(payload, indent=2, default=str)}],
-    )
-    text = "".join(block.text for block in resp.content if hasattr(block, "text")).strip()
-    return json.loads(_strip_json_fences(text))
+    """Create bull_bear_debates table if it does not exist."""
+    try:
+        url = os.environ.get("DATABASE_URL", "")
+        if not url:
+            return
+        with psycopg2.connect(url) as c, c.cursor() as cu:
+            cu.execute("""
+                CREATE TABLE IF NOT EXISTS bull_bear_debates (
+                    id          BIGSERIAL PRIMARY KEY,
+                    ticker      TEXT NOT NULL,
+                    debate_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                    bull_score  REAL,
+                    bear_score  REAL,
+                    verdict     TEXT,
+                    confidence  REAL,
+                    context_json JSONB,
+                    created_at  TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            c.commit()
+    except Exception:
+        pass
 
 
 def build_bull_case(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, Any]:
-    """Built via gpt-5.4 — your existing reasoning-tier model for AIEM's
-    other agent loops, used here as one of the two independent voices."""
-    try:
-        payload = {"ticker": ticker, **signal_context}
-        return _call_openai(BULL_SYSTEM_PROMPT, payload)
-    except Exception as e:
-        return {"thesis": f"[bull case generation failed: {e}]", "strongest_point": None, "catalyst": None}
+    """
+    Deterministic bull case: score based on momentum, volume, and technical signals.
+    Returns thesis dict with score 0-1.
+    """
+    score = 0.0
+    points = []
+
+    rvol = float(signal_context.get("rvol") or 0)
+    cs   = float(signal_context.get("close_strength") or 0)
+    gap  = float(signal_context.get("gap_pct") or 0)
+    rsi  = float(signal_context.get("rsi_14") or 50)
+    cmf  = float(signal_context.get("cmf_20") or 0)
+    conv = float(signal_context.get("conviction_score") or 0)
+    sweep_voi = float(signal_context.get("sweep_vol_oi") or 0)
+
+    if rvol >= 3.0:
+        score += 0.25; points.append(f"RVOL {rvol:.1f}x — institutional-level volume")
+    elif rvol >= 1.5:
+        score += 0.10; points.append(f"RVOL {rvol:.1f}x — elevated volume")
+
+    if cs >= 0.75:
+        score += 0.25; points.append(f"Close strength {cs:.2f} — buyers in control at close")
+    elif cs >= 0.55:
+        score += 0.10; points.append(f"Close strength {cs:.2f} — mild buying pressure")
+
+    if gap >= 2.0:
+        score += 0.15; points.append(f"Gap {gap:.1f}% — catalyst-driven opening")
+
+    if rsi < 35:
+        score += 0.15; points.append(f"RSI {rsi:.0f} — oversold, reversion upside")
+    elif rsi < 60:
+        score += 0.05; points.append(f"RSI {rsi:.0f} — room to run")
+
+    if cmf > 0.1:
+        score += 0.10; points.append(f"CMF {cmf:.2f} — money flowing in")
+
+    if sweep_voi >= 3.0:
+        score += 0.10; points.append(f"Sweep VOI {sweep_voi:.1f}x — smart money options activity")
+
+    if conv >= 6:
+        score += 0.10; points.append(f"Conviction {conv:.0f}/10 — multi-layer confirmation")
+
+    score = min(1.0, score)
+    strongest = points[0] if points else "No strong bull signals identified"
+    return {
+        "thesis": "BULL: " + " | ".join(points) if points else "No significant bull case.",
+        "strongest_point": strongest,
+        "catalyst": gap > 2.0 and f"Gap-up {gap:.1f}%" or None,
+        "score": round(score, 3),
+        "method": "deterministic_rules",
+    }
 
 
 def build_bear_case(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, Any]:
-    """Built via Claude Sonnet — deliberately a DIFFERENT model family than
-    the bull case, same principle as adversarial_critique.py: two prompts
-    to the same model checking each other still share that model's blind
-    spots, so the opposing case needs genuinely different model weights."""
-    try:
-        payload = {"ticker": ticker, **signal_context}
-        return _call_claude(BEAR_SYSTEM_PROMPT, payload)
-    except Exception as e:
-        return {"thesis": f"[bear case generation failed: {e}]", "strongest_point": None, "risk": None}
+    """
+    Deterministic bear case: score based on overextension, weakness, and risk signals.
+    """
+    score = 0.0
+    points = []
+
+    rsi  = float(signal_context.get("rsi_14") or 50)
+    cs   = float(signal_context.get("close_strength") or 0.5)
+    gap  = float(signal_context.get("gap_pct") or 0)
+    cmf  = float(signal_context.get("cmf_20") or 0)
+    rvol = float(signal_context.get("rvol") or 1)
+    days_held = int(signal_context.get("days_held") or 0)
+
+    if rsi > 72:
+        score += 0.30; points.append(f"RSI {rsi:.0f} — overbought, reversal risk")
+    elif rsi > 65:
+        score += 0.10; points.append(f"RSI {rsi:.0f} — elevated, watch for fade")
+
+    if cs < 0.30:
+        score += 0.25; points.append(f"Close strength {cs:.2f} — sellers dominated close")
+    elif cs < 0.45:
+        score += 0.10; points.append(f"Close strength {cs:.2f} — weak close")
+
+    if gap > 15:
+        score += 0.20; points.append(f"Gap {gap:.1f}% — overextended, gap-fill risk")
+
+    if cmf < -0.1:
+        score += 0.15; points.append(f"CMF {cmf:.2f} — money flowing out")
+
+    if days_held >= 5:
+        score += 0.10; points.append(f"Held {days_held}d — position aging, time-decay risk")
+
+    score = min(1.0, score)
+    strongest = points[0] if points else "No strong bear signals identified"
+    return {
+        "thesis": "BEAR: " + " | ".join(points) if points else "No significant bear case.",
+        "strongest_point": strongest,
+        "risk": points[0] if points else None,
+        "score": round(score, 3),
+        "method": "deterministic_rules",
+    }
 
 
 def synthesize_debate(ticker: str, bull_case: Dict[str, Any], bear_case: Dict[str, Any],
-                       signal_context: Dict[str, Any]) -> Dict[str, Any]:
+                      signal_context: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Synthesis runs on whichever model wasn't used for either side, to avoid
-    the judge sharing blind spots with either advocate. Since bull=gpt-5.4
-    and bear=claude-sonnet-4-5 above, synthesis uses gpt-4o-mini (cheap,
-    you already use it elsewhere for lighter tasks, and it's distinct
-    enough in this role — it's just weighing two already-built arguments,
-    not generating novel analysis from raw data).
+    Deterministic synthesis: compare bull vs bear scores, return verdict and confidence.
     """
-    try:
-        payload = {
-            "ticker": ticker,
-            "bull_case": bull_case,
-            "bear_case": bear_case,
-            "underlying_signal_context": signal_context,
-        }
-        from openai import OpenAI
-        client = OpenAI(
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-        )
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYNTHESIS_SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(payload, indent=2, default=str)},
-            ],
-            max_completion_tokens=400,
-        )
-        raw = _strip_json_fences(resp.choices[0].message.content or "{}")
-        return json.loads(raw)
-    except Exception as e:
-        return {
-            "verdict": "CONFLICTED",
-            "conviction_adjustment": 0.0,
-            "key_disagreement": f"synthesis failed: {e}",
-            "what_would_resolve_it": "retry synthesis once API issue is resolved",
-        }
+    bull_s = float(bull_case.get("score") or 0)
+    bear_s = float(bear_case.get("score") or 0)
+    net    = bull_s - bear_s
+
+    if net >= 0.30:
+        verdict = "BUY"
+        conf    = round(min(0.95, 0.60 + net), 2)
+        summary = f"Bull case dominates ({bull_s:.2f} vs {bear_s:.2f}). {bull_case.get('strongest_point','')}"
+    elif net <= -0.30:
+        verdict = "AVOID"
+        conf    = round(min(0.95, 0.60 + abs(net)), 2)
+        summary = f"Bear case dominates ({bear_s:.2f} vs {bull_s:.2f}). {bear_case.get('strongest_point','')}"
+    elif net >= 0.10:
+        verdict = "LEAN_BUY"
+        conf    = round(0.45 + net, 2)
+        summary = f"Slight bull edge ({bull_s:.2f} vs {bear_s:.2f})."
+    elif net <= -0.10:
+        verdict = "LEAN_AVOID"
+        conf    = round(0.45 + abs(net), 2)
+        summary = f"Slight bear edge ({bear_s:.2f} vs {bull_s:.2f})."
+    else:
+        verdict = "NEUTRAL"
+        conf    = 0.40
+        summary = f"No clear edge (bull={bull_s:.2f}, bear={bear_s:.2f}). Hold or skip."
+
+    return {
+        "verdict": verdict,
+        "confidence": conf,
+        "summary": summary,
+        "bull_score": bull_s,
+        "bear_score": bear_s,
+        "net_edge": round(net, 3),
+        "method": "deterministic_rules",
+    }
 
 
 def run_bull_bear_debate(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Full pipeline: build bull case (gpt-5.4) + bear case (Claude Sonnet)
-    independently, synthesize (gpt-4o-mini), store the full transcript for
-    audit, and return the result. signal_context should be whatever
-    quantitative data is driving this candidate signal (the same kind of
-    dict you'd pass to log_decision's input_state_snapshot) — both
-    advocates see the exact same data, so any disagreement comes from
-    interpretation, not from one side having more information.
+    Full pipeline: build bull + bear case, synthesize verdict.
+    Deterministic — no external AI calls, zero cost.
     """
-    bull_case = build_bull_case(ticker, signal_context)
-    bear_case = build_bear_case(ticker, signal_context)
-    synthesis = synthesize_debate(ticker, bull_case, bear_case, signal_context)
-
-    record = {
-        "ticker": ticker,
-        "signal_context": signal_context,
-        "bull_argument": json.dumps(bull_case, default=str),
-        "bear_argument": json.dumps(bear_case, default=str),
-        "synthesis": synthesis,
-        "verdict": synthesis.get("verdict", "CONFLICTED"),
-    }
-
-    try:
-        with _connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(DDL)
-                cur.execute("""
-                    INSERT INTO bull_bear_debates
-                        (ticker, signal_context, bull_argument, bear_argument, synthesis, verdict)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (
-                    record["ticker"], json.dumps(signal_context, default=str),
-                    record["bull_argument"], record["bear_argument"],
-                    json.dumps(synthesis, default=str), record["verdict"],
-                ))
-            conn.commit()
-    except Exception as e:
-        print(f"[bull_bear_debate] failed to store debate record: {e}")
-
+    bull = build_bull_case(ticker, signal_context)
+    bear = build_bear_case(ticker, signal_context)
+    synth = synthesize_debate(ticker, bull, bear, signal_context)
     return {
         "ticker": ticker,
-        "bull_case": bull_case,
-        "bear_case": bear_case,
-        "synthesis": synthesis,
+        "bull_case": bull,
+        "bear_case": bear,
+        "synthesis": synth,
+        "verdict": synth["verdict"],
+        "confidence": synth["confidence"],
+        "method": "deterministic_rules",
     }
-
-
-def get_debate_history(ticker: str, limit: int = 20) -> list:
-    """Pull past debates for a given ticker — useful for checking whether
-    AIEM has flip-flopped on the same name, or whether a verdict pattern is
-    emerging across multiple sessions."""
-    with _connect() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT debate_time, verdict, synthesis
-                FROM bull_bear_debates
-                WHERE ticker = %s
-                ORDER BY debate_time DESC
-                LIMIT %s
-            """, (ticker, limit))
-            return [dict(r) for r in cur.fetchall()]

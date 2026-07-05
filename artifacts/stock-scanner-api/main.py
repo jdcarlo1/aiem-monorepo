@@ -17633,40 +17633,7 @@ def _aiem_tool_save_research_model(findings, scoring_adjustments, confidence="ME
         msg = "[aiem_research] saved model {} (confidence={}{})".format(today, confidence, strip_note)
         print(msg)
 
-        # Store embeddings so search_past_findings has data from this session onward
-        try:
-            _oai_emb = _OpenAI(
-                base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-                api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
-            )
-            _emb_resp = _oai_emb.embeddings.create(
-                model="text-embedding-3-small",
-                input=str(findings)[:2000]
-            )
-            _emb_vec = _emb_resp.data[0].embedding
-            import json as _ej2
-            with _psycopg2.connect(_DB_URL) as _ce, _ce.cursor() as _cue:
-                _cue.execute("""
-                    CREATE TABLE IF NOT EXISTS aiem_finding_embeddings (
-                        research_date DATE PRIMARY KEY,
-                        findings_text TEXT,
-                        embedding JSONB,
-                        created_at TIMESTAMPTZ DEFAULT NOW()
-                    )
-                """)
-                _cue.execute("""
-                    INSERT INTO aiem_finding_embeddings
-                        (research_date, findings_text, embedding)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (research_date) DO UPDATE
-                        SET embedding=EXCLUDED.embedding,
-                            findings_text=EXCLUDED.findings_text,
-                            created_at=NOW()
-                """, (today, str(findings)[:3000], _ej2.dumps(_emb_vec)))
-                _ce.commit()
-            print("[aiem_research] findings embedding stored for RAG")
-        except Exception as _emb_err:
-            print("[aiem_research] embedding store skipped: {}".format(_emb_err))
+        # search_past_findings now uses keyword token-overlap — no embeddings needed
 
         return {
             "saved": True,

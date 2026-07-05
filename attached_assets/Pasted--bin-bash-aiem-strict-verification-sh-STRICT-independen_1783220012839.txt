@@ -1,0 +1,210 @@
+#!/bin/bash
+# aiem_strict_verification.sh
+# STRICT independent audit of "AIEM removed from OpenAI" claims.
+# Standard: raw terminal output + SQL evidence only. No agent summaries accepted.
+# Run this yourself. Paste the FULL raw output back unedited.
+
+OUTFILE="aiem_verification_raw_$(date +%Y%m%d_%H%M%S).log"
+echo "Logging everything to $OUTFILE as well as stdout"
+exec > >(tee "$OUTFILE") 2>&1
+
+echo "=================================================================="
+echo "SECTION 0: THE VALIDATION FAILURE THE AGENT GLOSSED OVER"
+echo "Find the failed validation run referenced right after the 'entirely"
+echo "on its own' claim and print its FULL error, not a summary."
+echo "=================================================================="
+find . -iname "*.log" -newer scripts/verify_aiem_no_openai.sh 2>/dev/null -exec echo "--- {} ---" \; -exec tail -100 {} \;
+echo ""
+echo "If AIEM logs to a DB table, dump the most recent failed run row(s) directly:"
+echo "(edit table/column names below to match your actual schema, then re-run)"
+cat <<'SQL'
+-- Example -- adjust to your real schema:
+-- SELECT * FROM validation_runs ORDER BY created_at DESC LIMIT 5;
+-- SELECT * FROM aiem_execution_log WHERE status = 'failed' ORDER BY created_at DESC LIMIT 5;
+SQL
+
+echo ""
+echo "=================================================================="
+echo "SECTION 1: EXISTING VERIFY SCRIPT -- read what it ACTUALLY checks"
+echo "=================================================================="
+if [ -f "scripts/verify_aiem_no_openai.sh" ]; then
+  echo "--- FULL SOURCE ---"
+  cat scripts/verify_aiem_no_openai.sh
+  echo ""
+  echo "--- Does it actually exit non-zero on failure, or always print success? ---"
+  grep -n "exit\|return\|PASS\|FAIL" scripts/verify_aiem_no_openai.sh
+else
+  echo "MISSING: scripts/verify_aiem_no_openai.sh does not exist."
+fi
+
+echo ""
+echo "=================================================================="
+echo "SECTION 2: FUNCTION-LEVEL SOURCE AUDIT + CRYPTOGRAPHIC HASHING"
+echo "Every function claimed to be OpenAI-free gets: (a) grep'd for GPT"
+echo "calls, (b) SHA-256 hashed so you have a tamper-evident fingerprint"
+echo "of the exact code you verified today. Save this hash. If it ever"
+echo "changes without you knowing, that's your signal something was"
+echo "silently reverted."
+echo "=================================================================="
+FUNCS_SHOULD_BE_CLEAN=(
+  "_run_aiem_morning_scan"
+  "_run_aiem_independent_pick_scan"
+  "_run_aiem_research_agent"
+  "_mkt_tool_generate_hypotheses"
+  "_mkt_tool_invent_indicator"
+  "_aiem_tool_search_past_findings"
+  "_rules_mtm_decision"
+)
+
+HASH_MANIFEST="aiem_function_hashes_$(date +%Y%m%d_%H%M%S).sha256"
+
+for fn in "${FUNCS_SHOULD_BE_CLEAN[@]}"; do
+  echo ""
+  echo "----- Function: $fn -----"
+  FILE=$(grep -rl "def $fn" --include="*.py" . 2>/dev/null | head -1)
+  if [ -z "$FILE" ]; then
+    echo "*** COULD NOT LOCATE. This function may not exist where claimed. ***"
+    continue
+  fi
+  echo "Defined in: $FILE"
+
+  BODY=$(awk "/def $fn\(/,/^def |^class /" "$FILE")
+  echo "$BODY" | grep -niE "openai|gpt-|chat\.completions|embeddings\.create|client\.chat" \
+    && echo "*** FAIL: OpenAI/GPT reference still present in $fn ***" \
+    || echo "CLEAN: no openai/gpt references in function body."
+
+  echo "Checking it's actually wired into a caller (not orphaned dead code):"
+  grep -rn "$fn(" --include="*.py" . 2>/dev/null | grep -v "def $fn"
+
+  HASH=$(echo "$BODY" | sha256sum | awk '{print $1}')
+  echo "SHA-256 of function body: $HASH"
+  echo "$HASH  $fn  ($FILE)" >> "$HASH_MANIFEST"
+done
+
+echo ""
+echo "Hash manifest written to: $HASH_MANIFEST"
+echo "Keep this file. Re-run this script later and diff the manifests to"
+echo "prove nothing silently reverted to calling OpenAI again."
+
+echo ""
+echo "=================================================================="
+echo "SECTION 3: SCHEDULER/CRON -- confirm nothing still auto-triggers these"
+echo "=================================================================="
+grep -rn "morning_scan\|independent_pick_scan\|research_agent\|generate_hypotheses\|mtm_decision" \
+  --include="*.py" . 2>/dev/null | grep -iE "cron|schedule|APScheduler|add_job|every\("
+
+echo ""
+echo "=================================================================="
+echo "SECTION 4: ENVIRONMENT / KEY USAGE -- is OPENAI_API_KEY even loaded"
+echo "in the modules that own these 'clean' functions?"
+echo "=================================================================="
+for fn in "${FUNCS_SHOULD_BE_CLEAN[@]}"; do
+  FILE=$(grep -rl "def $fn" --include="*.py" . 2>/dev/null | head -1)
+  [ -z "$FILE" ] && continue
+  echo "--- $FILE ---"
+  grep -n "OPENAI_API_KEY\|import openai\|from openai" "$FILE"
+done
+
+echo ""
+echo "=================================================================="
+echo "SECTION 5: RUNTIME PROOF -- actually execute a dry run and prove"
+echo "zero outbound calls to OpenAI happened, from the code layer,"
+echo "not from a log message the agent could fabricate."
+echo "=================================================================="
+cat <<'PYEOF' > /tmp/aiem_runtime_probe.py
+"""
+Monkey-patches the openai client so ANY instantiation raises immediately.
+Run your normal AIEM scan/research/exit functions through this and if
+nothing raises, that's real proof, not a self-report.
+"""
+
+class OpenAICallDetected(Exception):
+    pass
+
+try:
+    import openai
+    if hasattr(openai, "OpenAI"):
+        def _blocked_init(self, *a, **k):
+            raise OpenAICallDetected("openai.OpenAI() client was instantiated during this run")
+        openai.OpenAI.__init__ = _blocked_init
+    print("Probe installed. Now import/run your AIEM scan/research/exit "
+          "entrypoints in this same process and confirm no exception fires.")
+except ImportError:
+    print("openai package not importable in this env -- check your venv.")
+PYEOF
+echo "Probe script written to /tmp/aiem_runtime_probe.py"
+echo "Run it like: python3 -i /tmp/aiem_runtime_probe.py, then call your"
+echo "actual AIEM entrypoints in the same interpreter session and confirm"
+echo "no OpenAICallDetected exception fires."
+
+echo ""
+echo "=================================================================="
+echo "SECTION 6: GIT PROVENANCE -- when did this actually change, and does"
+echo "the diff match the claim? (closest git-native equivalent to your"
+echo "HMAC provenance signing -- signed, timestamped commit history)"
+echo "=================================================================="
+for fn in "${FUNCS_SHOULD_BE_CLEAN[@]}"; do
+  FILE=$(grep -rl "def $fn" --include="*.py" . 2>/dev/null | head -1)
+  [ -z "$FILE" ] && continue
+  echo "--- git log for $FILE ---"
+  git log --oneline -5 -- "$FILE" 2>/dev/null
+done
+echo ""
+echo "Full diff of the last commit touching each file (paste all of this back):"
+for fn in "${FUNCS_SHOULD_BE_CLEAN[@]}"; do
+  FILE=$(grep -rl "def $fn" --include="*.py" . 2>/dev/null | head -1)
+  [ -z "$FILE" ] && continue
+  echo "--- diff for $FILE ---"
+  git log -p -1 -- "$FILE" 2>/dev/null | head -200
+done
+
+echo ""
+echo "=================================================================="
+echo "SECTION 7: GLOBAL SANITY CHECK -- every remaining OpenAI call site"
+echo "in the entire repo, with file:line, so nothing hides in a helper"
+echo "=================================================================="
+grep -rn "openai\." --include="*.py" . 2>/dev/null
+
+echo ""
+echo "=================================================================="
+echo "SECTION 8: CLICK-GATED FEATURES -- confirm OpenAI calls exist ONLY"
+echo "inside route handlers requiring a manual click, never on a scheduler"
+echo "=================================================================="
+FUNCS_SHOULD_BE_CLICK_ONLY=(
+  "flow_streak"
+  "net_flow"
+  "squeeze_setup"
+  "individual_ticker"
+)
+for fn in "${FUNCS_SHOULD_BE_CLICK_ONLY[@]}"; do
+  echo "--- Feature: $fn ---"
+  grep -rn "$fn" --include="*.py" . 2>/dev/null | grep -iE "route|@app\.|POST|button"
+done
+
+echo ""
+echo "=================================================================="
+echo "DONE. Checklist of what you must see before calling this VERIFIED:"
+echo "=================================================================="
+cat <<'CHECKLIST'
+[ ] Section 0: the "Validation failed" run's actual error is understood
+    and resolved -- not just scrolled past.
+[ ] Section 1: verify_aiem_no_openai.sh actually exits non-zero on
+    failure (not a script that always prints success text regardless).
+[ ] Section 2: every function in FUNCS_SHOULD_BE_CLEAN shows "CLEAN" --
+    zero FAIL lines. Hash manifest saved for future tamper detection.
+[ ] Section 2: each function is confirmed CALLED somewhere (not dead
+    code sitting unused while an old GPT path still runs elsewhere).
+[ ] Section 3: no cron/scheduler entry still points at a GPT-calling
+    version of these functions.
+[ ] Section 4: no OPENAI_API_KEY / openai import present in the modules
+    housing the "clean" functions.
+[ ] Section 5: runtime probe ran with actual AIEM entrypoints executed
+    and raised zero OpenAICallDetected exceptions.
+[ ] Section 6: git diff for each function matches the claimed change --
+    you can see the GPT call literally removed and replaced, with a
+    real commit hash and timestamp, not just agent narrative.
+[ ] Section 7: total remaining openai. call count matches your
+    expectation exactly (only the click-gated features + AIEM chat).
+[ ] Section 8: click-gated features' OpenAI calls sit inside a route
+    handler decorated with a POST/click trigger, not a background job.
+CHECKLIST

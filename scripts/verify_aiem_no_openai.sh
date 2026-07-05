@@ -256,3 +256,6 @@ else
   echo "  ⚠️   $FAIL checks failed — see ❌ lines above"
 fi
 echo "════════════════════════════════════════════════════════════════════════"
+
+# Exit non-zero if any check failed (required by strict audit)
+[ "$FAIL" -eq 0 ] && exit 0 || exit 1

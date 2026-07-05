@@ -106,64 +106,43 @@ def compute_weighted_verdict(opinions: List[SpecialistOpinion]) -> Dict[str, Any
 
 
 def _llm_coordinate(ticker: str, opinions: List[SpecialistOpinion],
-                     weighted_result: Dict[str, Any]) -> Dict[str, Any]:
+                    context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Only called when specialists disagree enough to be worth an actual
-    negotiation pass (see negotiate() below for the threshold). Reads
-    every specialist's full reasoning — not just their vote number — and
-    produces a final call with an explanation of what actually tipped it.
+    Deterministic tie-breaker when specialist opinions diverge.
+    Uses weighted mean of votes — no external AI calls, zero cost.
     """
-    system_prompt = """You are coordinating several specialist opinions on
-the same trading setup. Each specialist has a different area of focus and
-has cast a vote from -1 (bearish) to +1 (bullish) along with their
-reasoning. The specialists disagree meaningfully (high variance) — your
-job is to actually read their reasoning and decide which concerns are more
-load-bearing, not just average the numbers again (that's already been
-done and didn't resolve it). Respond ONLY in JSON:
-{"final_vote": <float -1.0 to 1.0>,
- "confidence": <float 0.0 to 1.0 - how confident you are in THIS call,
-   which should usually be lower than any single specialist's confidence
-   since they disagreed>,
- "deciding_factor": "which specialist's reasoning was most load-bearing
-   and why",
- "unresolved_risk": "what remains genuinely uncertain even after this call"}"""
-
-    payload = {
-        "ticker": ticker,
-        "specialist_opinions": [
-            {"specialist": op.specialist_name, "vote": op.vote,
-             "confidence": op.confidence, "reasoning": op.reasoning,
-             "category": op.category}
-            for op in opinions
-        ],
-        "simple_weighted_average": weighted_result["weighted_vote"],
-        "disagreement_variance": weighted_result["variance"],
+    if not opinions:
+        return {"weighted_vote": 0.0, "verdict": "NEUTRAL", "method": "deterministic"}
+    
+    total_weight = sum(o.confidence for o in opinions)
+    if total_weight == 0:
+        return {"weighted_vote": 0.0, "verdict": "NEUTRAL", "method": "deterministic"}
+    
+    weighted_vote = sum(o.vote * o.confidence for o in opinions) / total_weight
+    
+    # Determine verdict from weighted mean
+    if weighted_vote >= 0.4:
+        verdict = "BUY"
+    elif weighted_vote >= 0.1:
+        verdict = "LEAN_BUY"
+    elif weighted_vote <= -0.4:
+        verdict = "SELL"
+    elif weighted_vote <= -0.1:
+        verdict = "LEAN_SELL"
+    else:
+        verdict = "NEUTRAL"
+    
+    rationale = " | ".join(
+        f"{o.specialist_name}({'+' if o.vote > 0 else ''}{o.vote:.1f}): {o.reasoning or ''}"
+        for o in opinions[:3]
+    )
+    return {
+        "weighted_vote": round(weighted_vote, 4),
+        "verdict": verdict,
+        "rationale": rationale,
+        "n_specialists": len(opinions),
+        "method": "deterministic_weighted_mean",
     }
-
-    try:
-        from openai import OpenAI
-        client = OpenAI(
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", ""),
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai-integrations.replit.com/openai"),
-        )
-        resp = client.chat.completions.create(
-            model="gpt-5.4",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(payload, indent=2, default=str)},
-            ],
-            max_completion_tokens=500,
-        )
-        raw = _strip_json_fences(resp.choices[0].message.content or "{}")
-        return json.loads(raw)
-    except Exception as e:
-        return {
-            "final_vote": weighted_result["weighted_vote"],
-            "confidence": 0.2,
-            "deciding_factor": f"LLM coordination failed ({e}) — fell back to weighted average",
-            "unresolved_risk": "coordinator unavailable, this call is less reliable than usual",
-        }
-
 
 def negotiate(ticker: str, opinions: List[SpecialistOpinion],
                disagreement_threshold: float = 0.35) -> Dict[str, Any]:
