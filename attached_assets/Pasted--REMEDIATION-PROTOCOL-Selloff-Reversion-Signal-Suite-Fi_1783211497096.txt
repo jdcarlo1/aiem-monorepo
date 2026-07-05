@@ -1,0 +1,103 @@
+# REMEDIATION PROTOCOL — Selloff/Reversion Signal Suite
+## Fix List Derived from Master Verification Protocol Audit Results
+
+**Purpose:** The verification audit correctly identified gaps rather than papering over them. This document is the fix list. Same rule applies as the audit: every item below requires raw evidence (SQL output, grep/code reference, git diff, log output) attached when claiming completion. "Fixed" or "done" with no evidence attached means the item is **NOT VERIFIED**, exactly as before.
+
+**Ordering principle:** Items are sequenced so that cheap, high-leverage fixes go first — several of them unblock downstream evidence that was previously impossible to produce. Do not skip ahead to Module B–K construction before completing Tier 1 and Tier 2, since backtest infrastructure and wiring need to be sound before more modules are added on top of them.
+
+---
+
+## TIER 1 — Unblock Existing Infrastructure (do these first)
+
+### 1.1 — Run the historical backtest
+- [ ] Execute `run_historical_backtest()` for the Oversold_Bounce_Uptrend signal.
+- [ ] Confirm via raw SQL that `aiem_bounce_backtest_log` now has >0 rows.
+- [ ] Show row count and a sample of 5 real rows (ticker, date, all fields populated).
+- [ ] If the function errors or produces 0 rows after execution, show the actual error/output — do not report success without proof.
+
+**This single fix is expected to unlock evidence for:** Part 2 backtest results, WATCHING vs CONFIRMED comparison, volatility-bucket breakout, Part 5 (regime segmentation, volatility buckets, INSUFFICIENT_SAMPLE flags), and part of Part 6 (walk-forward splits, point-in-time guard confirmation).
+
+### 1.2 — Wire the bounce signal into Signal Decay Module tracking
+- [ ] Add the actual call/reference so `Oversold_Bounce_Uptrend` / `aiem_selloff_reversion` appears in `aiem_module2_decay.py`.
+- [ ] Grep `aiem_module2_decay.py` after the fix and show it now returns non-zero hits for the signal name.
+- [ ] Confirm this was a real wiring fix (show the diff), not a renamed variable or comment that makes the grep pass without functional inclusion.
+
+### 1.3 — Wire the bounce signal into the BH-FDR correction pass
+- [ ] Confirm `register_signal()`'s write to `aiem_signal_discoveries` is actually consumed by `aiem_module5_discovery.py` / `aiem_module6_rediscovery.py`, not just sitting in a table those modules don't read from.
+- [ ] Re-run the full BH-FDR correction pass across the entire existing signal set + bounce signal together.
+- [ ] Show the actual correction output/report confirming the bounce signal was included, with its corrected p-value/threshold shown explicitly.
+
+### 1.4 — Get the scanner producing live signals
+- [ ] Confirm the scanner has run at least one live/staging session since deployment.
+- [ ] Show SQL confirming `aiem_bounce_signals` has >0 rows from real (not backtest) firings.
+- [ ] If it still shows 0 rows after a full trading day of running, state why explicitly (scanner not scheduled? conditions never met? error in the firing path?) rather than leaving it unexplained.
+
+**This unlocks:** Telegram delivery screenshot evidence, market-hours gating live-case evidence, and the 5-example raw SQL requirement from Part 2.
+
+---
+
+## TIER 2 — Position Sizing Evidence Gaps (Part 7)
+
+### 2.1 — Generate real gate-blocking evidence
+- [ ] Produce at least one real case where the daily loss limit or correlation-risk gate actually blocked or reduced a trade in simulation.
+- [ ] Show the "most restrictive gate wins" rule with a real or simulated example where multiple gates could apply.
+
+### 2.2 — Generate real Pre-Close Review evidence (Section 8)
+- [ ] Produce at least 3 real/simulated `HOLD_OVERNIGHT` and 3 `FLATTEN_BEFORE_CLOSE` decisions with full field values (conviction delta, thesis-intact status, guard status, market-context reading) — not just the label.
+- [ ] This requires at least one open paper position to exist going into the 3:45 PM ET review window. Confirm a paper trade is open, or note explicitly that this remains blocked until one is.
+
+### 2.3 — Verify the contrarian-direction check with a real case — CRITICAL, DO NOT SKIP
+- [ ] Find or construct a real/simulated case where VIX, put/call ratio, market-wide RSI, or fear/greed readings were elevated at pre-close.
+- [ ] Show the actual decision output and confirm it leaned `HOLD_OVERNIGHT` as a direct result of those readings, not `FLATTEN_BEFORE_CLOSE`.
+- [ ] **If the logic is backwards anywhere** (treating extreme fear as a reason to flatten rather than hold), **flag this as a critical bug immediately** and stop to report it before continuing — do not fix it silently and move on. This is the single highest-priority correctness check in the entire protocol.
+
+### 2.4 — Standalone extreme-contrarian alert (Section 8.2b)
+- [ ] Produce a real/simulated firing of this alert with full indicator breakdown.
+- [ ] Confirm cooldown enforcement with a real second-event-within-window test showing no re-fire.
+
+---
+
+## TIER 3 — Build Modules B Through K
+
+Do not start this tier until Tier 1 is complete, since these modules should be built against a working backtest/decay/BH-FDR pipeline rather than bolted on before it, which would just recreate the same wiring gap found in the bounce signal.
+
+For **each** module (B – Short Squeeze, C – Vol Crush Fade, D – Sentiment Extreme, E – Gap-Fill, G – Correlation Breakdown, H – Dark Pool Absorption, I – Realized Vol Contraction, J – Forced/Mechanical Selling, K – Historical Drawdown Analog), require individually:
+
+- [ ] Implementation exists with the exact output schema specified in the original module spec doc (not a similar-but-different field set).
+- [ ] Raw SQL + output: module firing on real historical data, minimum 5 real examples.
+- [ ] Any `NOT_AVAILABLE` / `NOT_IMPLEMENTED` / `INSUFFICIENT_HISTORY` status fields shown honestly in real output.
+- [ ] Git diff scoped to that module only.
+- [ ] Registered in the conviction stack, Signal Decay Module, and BH-FDR pass — grep confirmation, and confirm the same wiring gap found in 1.2/1.3 does not recur.
+- [ ] Backtest results file specific to that module (not blended with others).
+
+### Reuse checks (build these correctly the first time, don't reimplement from scratch)
+- [ ] Module H: wraps/conditions existing Dark Pool Block Prints detection.
+- [ ] Module J: wraps/conditions existing CTA Trigger Levels detection.
+- [ ] Module I: reuses existing GARCH regime volatility pipeline; backtest explicitly reports whether it adds information beyond GARCH alone.
+
+### Module F gate wiring (F already exists — confirm it's actually called by the new modules as they're built)
+- [ ] As each of A, B, E, H, J is built/completed, confirm Module F is called as a gate before that module's alert fires — grep/code reference per module, not one blanket claim.
+
+### Modules D & G as modifiers (not standalone)
+- [ ] Confirm D (sentiment) and G (correlation) are wired as conviction boosters/filters on other modules' scores, per original spec intent.
+- [ ] If either ends up standalone-only with no actual connection to other modules, report that gap explicitly rather than shipping it silently.
+
+---
+
+## TIER 4 — Telegram & Cross-Cutting Re-Verification (after Tier 3)
+
+- [ ] Re-run all Part 4 checks (market-wide vs ticker-specific formatting, batching, context-only modules not sending standalone alerts, cooldown separation) now that B–K exist.
+- [ ] Re-run the full-suite BH-FDR correction pass again across everything (existing signals + bounce + all 11 modules together) — this is a full re-run, not an incremental patch per module.
+- [ ] Re-confirm point-in-time data guards specifically for each new module's data dependencies (support/resistance levels, news/earnings timing, correlation windows).
+- [ ] Confirm any module landing on `INSUFFICIENT_SAMPLE` is excluded from live conviction scoring — grep/code confirmation.
+
+---
+
+## Reporting Standard (same as original audit)
+
+For each numbered item above:
+- ✅ **FIXED & VERIFIED** — evidence attached inline, meeting the standard above
+- ❌ **NOT FIXED** — state exactly what's blocking it
+- ⚠️ **PARTIAL** — list precisely what passed and what didn't
+
+**A summary claim like "everything is fixed now" without item-by-item evidence is not an acceptable report.** If evidence can't be produced for an item, say so explicitly — that is a correct answer, not a failure.

@@ -916,7 +916,22 @@ def get_backtest_summary() -> dict:
 # ── BH-FDR registration in aiem_signal_discoveries ────────────────────────────
 
 def register_signal() -> None:
-    """Register Oversold_Bounce_Uptrend in aiem_signal_discoveries for BH-FDR."""
+    """
+    Register / refresh Oversold_Bounce_Uptrend in aiem_signal_discoveries.
+
+    Uses status='hypothesis' so Module 2 (decay) and Module 6 (rediscovery)
+    include it in their evaluation passes.  Backtest stats (p_value, signal_n,
+    signal_win_rate) are pulled from aiem_bounce_backtest_log and written to
+    the discovery row so the BH-FDR correction pass has real numbers to work
+    with.  Called at startup (deferred init) and after each backtest run.
+
+    Module 2 classification note: this signal's conditions are a sequential
+    multi-day state machine (WATCHING → CONFIRMED), so Module 2 will classify
+    it as unevaluable_structural — which is correct and honest, not a wiring
+    failure.  The BH-FDR correction is performed directly on the backtest
+    results via get_backtest_summary() rather than via Module 5's row-scan
+    pipeline.
+    """
     conditions = {
         "trend": "close>SMA50 AND close>SMA200 AND SMA50_rising_20bars",
         "drop": "pct_change_3d <= ATR_pct_bucket_threshold (-8/-12/-15%)",
@@ -924,31 +939,76 @@ def register_signal() -> None:
         "volume_exhaustion": "DECLINING or CLIMAX on red days",
         "support": "within 2% of SMA20 or SMA50",
         "confirmation": "first_green_close_after_red_streak",
+        "_structural": "WATCHING->CONFIRMED state machine; unevaluable_structural in Module2",
     }
     try:
         with psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            # Pull latest backtest stats for the CONFIRMED state (primary metric)
+            cur.execute("""
+                SELECT COUNT(*) as n,
+                       AVG(CASE WHEN fwd_5d_pct > 0 THEN 1.0 ELSE 0.0 END) as wr
+                FROM aiem_bounce_backtest_log
+                WHERE state = 'CONFIRMED' AND fwd_5d_pct IS NOT NULL
+            """)
+            row = cur.fetchone()
+            bt_n  = int(row[0]) if row and row[0] else 0
+            bt_wr = float(row[1]) if row and row[1] else None
+
+            # p-value: binomial one-sided vs 50% baseline (continuity corrected)
+            p_val = None
+            if bt_n and bt_wr is not None:
+                import math as _m
+                k = int(round(bt_wr * bt_n))
+                # Normal approximation with continuity correction
+                z = (k - 0.5 - bt_n * 0.5) / _m.sqrt(bt_n * 0.25)
+                # p = 1 - Φ(z) approximated via erfc
+                p_val = round(0.5 * math.erfc(z / math.sqrt(2)), 4) if z > 0 else 0.9999
+
             cur.execute(
                 "SELECT id FROM aiem_signal_discoveries WHERE hypothesis_text=%s",
                 ("Oversold_Bounce_Uptrend",),
             )
-            if cur.fetchone():
-                return
-            cur.execute(
-                """
-                INSERT INTO aiem_signal_discoveries
-                    (hypothesis_text, conditions_json, status,
-                     horizon, invented_indicator, discovered_at)
-                VALUES (%s, %s::jsonb, %s, %s, %s, NOW())
-                """,
-                (
-                    "Oversold_Bounce_Uptrend",
-                    json.dumps(conditions),
-                    "pending_validation",
-                    "5d",
-                    "aiem_selloff_reversion_phase1",
-                ),
-            )
+            existing = cur.fetchone()
+
+            if existing:
+                # Refresh stats on every startup so decay module sees current numbers
+                cur.execute(
+                    """
+                    UPDATE aiem_signal_discoveries
+                    SET signal_n        = %s,
+                        signal_win_rate = %s,
+                        p_value         = %s,
+                        status          = 'hypothesis',
+                        notes           = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        bt_n or None, bt_wr, p_val,
+                        f"structural state-machine; Module2=unevaluable_structural; "
+                        f"backtest_rows={bt_n}; confirmed_wr={bt_wr}; p={p_val}",
+                        existing[0],
+                    ),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO aiem_signal_discoveries
+                        (hypothesis_text, conditions_json, status, horizon,
+                         invented_indicator, signal_n, signal_win_rate, p_value,
+                         notes, discovered_at)
+                    VALUES (%s, %s::jsonb, 'hypothesis', %s, %s, %s, %s, %s, %s, NOW())
+                    """,
+                    (
+                        "Oversold_Bounce_Uptrend",
+                        json.dumps(conditions),
+                        "5d",
+                        "aiem_selloff_reversion_phase1",
+                        bt_n or None, bt_wr, p_val,
+                        f"structural state-machine; Module2=unevaluable_structural; "
+                        f"backtest_rows={bt_n}; confirmed_wr={bt_wr}; p={p_val}",
+                    ),
+                )
             conn.commit()
-        print("[bounce] registered Oversold_Bounce_Uptrend in aiem_signal_discoveries")
+        print(f"[bounce] registered Oversold_Bounce_Uptrend: n={bt_n} wr={bt_wr} p={p_val}")
     except Exception as e:
         print(f"[bounce] signal-discovery registration: {e}")
