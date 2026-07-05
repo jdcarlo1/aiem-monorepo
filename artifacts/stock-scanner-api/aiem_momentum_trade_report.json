@@ -1,6 +1,6 @@
 {
   "status": "trained",
-  "trained_at": "2026-07-05T20:20:34.184978",
+  "trained_at": "2026-07-05T21:47:29.562805",
   "data": {
     "total_rows": 967479,
     "pre_move_setups": 24903,
@@ -12,36 +12,47 @@
   },
   "walk_forward": {
     "n_folds": 4,
-    "avg_auc": 0.836,
-    "avg_precision": 0.0995,
-    "avg_recall": 0.6458,
+    "avg_auc": 0.856,
+    "avg_precision": 0.1717,
+    "avg_recall": 0.3508,
     "fold_aucs": [
-      0.8419,
-      0.8608,
-      0.8468,
-      0.7943
+      0.853,
+      0.8693,
+      0.8765,
+      0.8251
     ]
   },
   "feature_importance": {
-    "vs_20d_high": 0.3142,
-    "price_vs_52wh": 0.2388,
-    "range_pct": 0.1968,
-    "mom_20d": 0.0508,
-    "vs_20d_low": 0.047,
-    "mom_60d": 0.0415,
-    "vol_vs_20d": 0.025,
-    "low_stability": 0.0177,
-    "mom_5d": 0.017,
-    "vol_trend": 0.0136,
-    "range_trend": 0.0135,
-    "close_strength": 0.0124,
-    "gap_pct": 0.0116,
+    "atr_pct": 0.2581,
+    "vs_20d_high": 0.1672,
+    "price_vs_52wh": 0.1014,
+    "range_pct": 0.096,
+    "vs_ma50": 0.0745,
+    "bb_pct": 0.0454,
+    "stoch_k": 0.0377,
+    "price_vs_52wl": 0.0361,
+    "vs_20d_low": 0.0262,
+    "obv_trend": 0.0162,
+    "vs_ma200": 0.0157,
+    "mom_20d": 0.0151,
+    "mom_60d": 0.015,
+    "rsi_14": 0.0143,
+    "range_trend": 0.0137,
+    "low_stability": 0.0132,
+    "cmf_20": 0.0104,
+    "vwap_dev": 0.0095,
+    "vol_trend": 0.0093,
+    "mom_5d": 0.0081,
+    "gap_pct": 0.0059,
+    "close_strength": 0.0056,
+    "vol_vs_20d": 0.0055,
     "rvol": 0.0
   },
   "top_signals": [
+    "atr_pct",
     "vs_20d_high",
-    "price_vs_52wh",
-    "range_pct"
+    "price_vs_52wh"
   ],
+  "filter_sweep": {},
   "what_this_predicts": "Probability that a stock is currently in the pre-move coil/flush setup that preceded 50%+ gains in 60 days, based on volume dryup, range contraction, pullback from 20d high, and slight negative momentum (shakeout)."
 }
