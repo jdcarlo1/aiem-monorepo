@@ -1,0 +1,66 @@
+# Module L & M — Follow-Up Strict Verification
+
+These are NOT new checklist items — they're targeted follow-ups on things the agent's own evidence surfaced that don't add up. Paste these individually and require raw SQL/grep output, not a narrative explanation.
+
+---
+
+## 1. THE CONFIRMED-VS-WATCHING PARADOX (highest priority — investigate first)
+
+**The anomaly:** RSI calibration data shows a clean, monotonic relationship — tighter RSI cutoff, better win rate:
+- RSI≤35 → 60% WR
+- RSI≤40 → 57% WR
+- RSI≤50 → 54% WR (this is the WATCHING threshold)
+
+CONFIRMED uses RSI≤45 — tighter than WATCHING's ≤50. By the pattern above, CONFIRMED should land around 55-56% WR, comfortably beating WATCHING's 54%.
+
+Instead, actual backtest results are:
+- CONFIRMED: n=4,384, WR=44.6%, FP=88.5%
+- WATCHING: n=29,194, WR=50.8%, FP=74.0%
+
+CONFIRMED is worse than WATCHING on BOTH win rate and false-positive rate — a 10-point WR gap in the wrong direction from what the RSI relationship alone predicts.
+
+**Questions to ask:**
+- "List every single condition that differs between CONFIRMED state and WATCHING state — not just the RSI threshold. What else changes?"
+- "For each of those other conditions individually, run a query showing win rate broken down by that condition alone, holding RSI constant. Which one is dragging CONFIRMED's win rate down?"
+- "Is it possible CONFIRMED is requiring EXPANDING volume or a specific support_level_type that's a worse predictor, and that's riding along inside the CONFIRMED label without being isolated?"
+- "Pull 20 real CONFIRMED rows and 20 real WATCHING rows side by side, all columns, and show me where they actually differ beyond the RSI cutoff."
+
+**Do not accept:** "CONFIRMED is stricter so it should be better" as an answer — that's the assumption being violated. Require the actual breakdown.
+
+---
+
+## 2. CONVICTION SCORE FLATNESS
+
+**The anomaly:** Sample backtest rows showed `rsi (37-44)` and `fwd_5d (7-21%)` as ranges, but `conviction (10)` as a single flat value — while every other numeric field varied across the sample.
+
+**Questions to ask:**
+- "Pull conviction_score across 20 rows with different signals_triggered_count values (Module M) or different rsi_reset_level / volume_pattern / relative_strength_vs_spy_status combinations (Module L). Does conviction_score actually vary, or is 10 a hardcoded default that most rows happen to share?"
+- "What is the minimum and maximum conviction_score value that has ever actually been written to the table? If the range is narrow (e.g. 8-10) despite wide variation in the underlying signal count/RSI/volume inputs, explain why."
+
+---
+
+## 3. THE 6-7/8 → 7+ THRESHOLD DEVIATION (Module M full-exit tier)
+
+**Confirmed deviation (already flagged by the agent, but not yet justified):** Spec's example says full exit triggers at "e.g., 6-7 of 8." Implementation sets FULL_EXIT at 7+ specifically — one signal higher, and narrower (only one tier: 7 or 8, not 6 or 7).
+
+**Questions to ask:**
+- "Was 7+ backtested against the spec's 6-7 example, or was this parameter picked without a comparative test? Show the backtest run (if any) that specifically compares FULL_EXIT@6 vs FULL_EXIT@7 outcomes."
+- "If no comparative backtest was run, say so explicitly rather than defending 7+ as 'more conservative' after the fact."
+
+---
+
+## 4. SAMPLE SIZE BEHIND THE 0.0% FALSE POSITIVE RATE AT 4-SIGNAL THRESHOLD
+
+**The anomaly:** M reports FP=0.0% at the 4-signal threshold. Zero is a suspicious number when the underlying event (real rollovers) is rare.
+
+**Questions to ask:**
+- "What is the RAW COUNT (not percentage) of rows that reached 4+ signals in this backtest? If it's a single-digit number, say so — a 0.0% FP rate computed from 3 or 4 total fires is not the same claim as 0.0% computed from hundreds."
+- "Show the actual row-level data for every instance where the signal count reached 4+."
+
+---
+
+## 5. GENERAL INTEGRITY CHECK ON THIS VERIFICATION PASS ITSELF
+
+- "This entire checklist was filled out in one continuous pass by the same agent that built the code. Pick 3 items you marked ✅ VERIFIED at random and re-run the underlying query fresh, right now, and paste the output again. Confirm it matches what was reported the first time."
+
+---
