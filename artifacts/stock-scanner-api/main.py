@@ -13744,6 +13744,28 @@ def admin_run_panic_exhaustion_backtest():
     )
 
 
+
+@app.route("/stock-api/admin/check-signal-data-availability", methods=["POST"])
+def admin_check_signal_data_availability():
+    """
+    Step 1 of the bear-market signal candidate build process.
+    Triggers check_signal_data_availability() in aiem_pullback_reentry and returns
+    the full structured verdict for all three candidate signals across all four
+    bear-market periods. No body parameters required.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        from aiem_pullback_reentry import check_signal_data_availability as _csda
+        result = _csda()
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(
+        __import__("json").dumps(result, default=str),
+        mimetype="application/json",
+    )
+
+
 def _init_daily_fundamentals_snapshot_table():
     """Create the daily_fundamentals_snapshot table if it doesn't exist."""
     try:
@@ -29639,6 +29661,7 @@ def _build_aiem_tool_map():
         "build_features":           _aiem_tool_build_features,
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
         "run_panic_exhaustion_backtest": _aiem_tool_run_panic_exhaustion_backtest,
+        "check_signal_data_availability": _aiem_tool_check_signal_data_availability,
         "run_level2":               _aiem_tool_run_level2,
         "run_backtest":             _aiem_tool_run_backtest,
         "analyze_metrics":          _aiem_tool_analyze_metrics,
@@ -31796,6 +31819,21 @@ _AIEM_AGENT_TOOLS = [
             "days_back": {"type": "integer", "description": "Days of polygon_market_daily history (default 200)"},
         }, "required": ["symbol"]},
     }},
+    {{"type": "function", "function": {{
+        "name": "check_signal_data_availability",
+        "description": (
+            "Step 1 of the bear-market signal candidate build process. "
+            "For each of 3 candidate signals (breadth divergence, VIX term structure inversion, "
+            "Lowry 90% up/down volume day), checks whether the required data exists in the current "
+            "database or via free yfinance access across all four historical bear periods "
+            "(2000-2002, 2007-2009, 2022, 2020). "
+            "Returns per-signal, per-period verdicts with explicit buildable/not_buildable "
+            "determination and sourcing requirements for any gaps. "
+            "Must be called before Step 2 (building signal functions). "
+            "Does NOT run any backtest or fetch prices beyond availability probes."
+        ),
+        "parameters": {{"type": "object", "properties": {{}}, "required": []}},
+    }}}},
     {"type": "function", "function": {
         "name": "run_panic_exhaustion_backtest",
         "description": (
@@ -34410,6 +34448,20 @@ def _aiem_tool_run_panic_exhaustion_backtest(
             stop_loss_pct=float(stop_loss_pct),
             period_label=str(period_label),
         )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_check_signal_data_availability() -> dict:
+    """
+    AIEM tool: Step 1 data availability check for 3 bear-market signal candidates.
+    Checks polygon_market_daily multi-ticker coverage, VIX spot/3m/futures via yfinance,
+    and NYSE breadth volume availability for all four historical bear periods.
+    Returns structured per-signal, per-period verdicts before any code is built.
+    """
+    try:
+        from aiem_pullback_reentry import check_signal_data_availability as _csda
+        return _csda()
     except Exception as _e:
         return {"error": str(_e)}
 

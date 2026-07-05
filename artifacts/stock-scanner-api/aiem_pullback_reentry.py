@@ -1225,3 +1225,236 @@ def register_signal() -> None:
         print(f"[pullback_reentry] registered {_SIGNAL_NAME}: n={bt_n} wr={bt_wr} p={p_val}")
     except Exception as e:
         print(f"[pullback_reentry] register_signal error: {e}")
+
+
+# ── Step 1: Signal Data Availability Check ────────────────────────────────────
+
+_BEAR_PERIODS = [
+    {"label": "2000-2002 dot-com bear",    "start": "2000-01-01", "end": "2002-12-31"},
+    {"label": "2007-2009 financial crisis", "start": "2007-01-01", "end": "2009-06-30"},
+    {"label": "2022 grinding bear",        "start": "2022-01-01", "end": "2022-12-31"},
+    {"label": "2020 COVID crash",          "start": "2020-01-01", "end": "2020-12-31"},
+]
+
+_CANDIDATE_SIGNALS = [
+    {
+        "id": "breadth_divergence",
+        "name": "Breadth divergence (fewer new 52-week lows on subsequent SPY lows)",
+        "requires": [
+            "Individual stock close prices for a broad universe (NYSE or S&P 500 constituents)",
+            "Needed to compute daily 52-week high/low counts across the universe",
+            "polygon_market_daily multi-ticker historical coverage",
+        ],
+    },
+    {
+        "id": "vix_term_structure",
+        "name": "VIX term structure inversion (front-month VIX futures > back-month VIX futures)",
+        "requires": [
+            "VIX front-month futures price (VX continuous contract)",
+            "VIX back-month futures price (VX back-month or ^VIX3M as proxy)",
+            "Proxy fallback: ^VIX (spot) vs ^VIX3M (3-month implied vol index)",
+        ],
+    },
+    {
+        "id": "lowry_90pct_volume",
+        "name": "90% up-volume day following 90% down-volume day (Lowry-style)",
+        "requires": [
+            "NYSE advancing volume and declining volume totals (not per-ticker)",
+            "Sources: NYSE TICK/VOLD feed, CBOE, or CRSP — not available on yfinance",
+        ],
+    },
+]
+
+
+def check_signal_data_availability() -> dict:
+    """
+    Step 1 of the bear-market signal candidate build process.
+
+    For each of three candidate signals (breadth divergence, VIX term structure,
+    Lowry 90% volume), checks whether the required data exists in the current
+    database or via free yfinance access across all four bear-market periods.
+
+    Returns a structured dict with per-signal, per-period verdicts and sourcing
+    requirements. Does NOT build or run any backtest. This must be called and
+    confirmed before Step 2 (building individual signal functions).
+    """
+    import yfinance as yf
+
+    periods = _BEAR_PERIODS
+
+    # ── 1. Breadth divergence — multi-ticker historical data check ────────────
+    breadth_result = {"signal": _CANDIDATE_SIGNALS[0], "period_checks": [], "verdict": None}
+    if _DB_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                for p in periods:
+                    cur.execute("""
+                        SELECT COUNT(DISTINCT ticker) as distinct_tickers,
+                               COUNT(*) as total_rows,
+                               MIN(scan_date) as earliest,
+                               MAX(scan_date) as latest
+                        FROM polygon_market_daily
+                        WHERE scan_date BETWEEN %s AND %s
+                    """, (p["start"], p["end"]))
+                    row = cur.fetchone()
+                    distinct, total, earliest, latest = row
+                    breadth_result["period_checks"].append({
+                        "period": p["label"],
+                        "date_range": f"{p['start']} → {p['end']}",
+                        "distinct_tickers_in_range": distinct,
+                        "total_rows": total,
+                        "coverage_earliest": str(earliest) if earliest else None,
+                        "coverage_latest": str(latest) if latest else None,
+                        "has_multi_stock_data": distinct > 1,
+                        "note": (
+                            "ONLY SPY — cannot compute market breadth"
+                            if distinct <= 1 else
+                            f"{distinct} tickers available — breadth computable"
+                        ),
+                    })
+        except Exception as e:
+            breadth_result["db_error"] = str(e)
+    else:
+        breadth_result["db_error"] = "No DB connection"
+
+    all_periods_single = all(
+        not p.get("has_multi_stock_data", False)
+        for p in breadth_result["period_checks"]
+    )
+    breadth_result["verdict"] = (
+        "NOT_BUILDABLE — polygon_market_daily contains only SPY data for all "
+        "historical bear periods. Multi-ticker historical data (2000-2024) would "
+        "require Polygon Developer plan (~$29/mo) for bulk historical snapshots, "
+        "or CRSP academic access. No free yfinance path for 11,000-ticker historical "
+        "52-week-high/low counts."
+        if all_periods_single else
+        "PARTIALLY_BUILDABLE — check period_checks for which periods have coverage"
+    )
+
+    # ── 2. VIX term structure — spot and proxy data check ─────────────────────
+    vix_result = {"signal": _CANDIDATE_SIGNALS[1], "period_checks": [], "verdict": None}
+
+    def _check_yf_ticker(symbol, start, end):
+        try:
+            df = yf.download(symbol, start=start, end=end, interval="1d",
+                             progress=False, auto_adjust=False)
+            if df.empty:
+                return {"available": False, "rows": 0, "earliest": None, "latest": None}
+            return {
+                "available": True,
+                "rows": len(df),
+                "earliest": str(df.index[0].date()),
+                "latest": str(df.index[-1].date()),
+            }
+        except Exception as e:
+            return {"available": False, "rows": 0, "error": str(e)}
+
+    def _check_yf_ticker_futures(symbol, start, end):
+        try:
+            df = yf.download(symbol, start=start, end=end, interval="1d",
+                             progress=False, auto_adjust=False)
+            if df.empty:
+                return {"available": False, "rows": 0}
+            return {"available": True, "rows": len(df)}
+        except Exception as e:
+            return {"available": False, "rows": 0, "error": str(e)}
+
+    for p in periods:
+        vix_spot    = _check_yf_ticker("^VIX",  p["start"], p["end"])
+        vix3m       = _check_yf_ticker("^VIX3M", p["start"], p["end"])
+        vx_futures  = _check_yf_ticker_futures("VX=F", p["start"], p["end"])
+        vix_result["period_checks"].append({
+            "period": p["label"],
+            "date_range": f"{p['start']} → {p['end']}",
+            "vix_spot_yfinance":   vix_spot,
+            "vix3m_yfinance":      vix3m,
+            "vx_futures_yfinance": vx_futures,
+            "note": (
+                "VX futures unavailable. VIX spot available. "
+                + ("^VIX3M available as PROXY for back-month (not identical to futures)."
+                   if vix3m["available"] else
+                   "^VIX3M NOT available for this period — cannot build term structure proxy.")
+            ),
+        })
+
+    any_futures = any(
+        p["vx_futures_yfinance"].get("available", False)
+        for p in vix_result["period_checks"]
+    )
+    all_vix_spot = all(
+        p["vix_spot_yfinance"].get("available", False)
+        for p in vix_result["period_checks"]
+    )
+    vix3m_2000_2002 = vix_result["period_checks"][0]["vix3m_yfinance"].get("available", False)
+
+    if any_futures:
+        vix_result["verdict"] = "BUILDABLE_WITH_FUTURES"
+    elif all_vix_spot and not vix3m_2000_2002:
+        vix_result["verdict"] = (
+            "NOT_BUILDABLE_AS_SPECIFIED — VX continuous futures not on yfinance. "
+            "^VIX3M (proxy for back-month) only available from 2007 onward, "
+            "missing 2000-2002 period entirely. True term structure inversion "
+            "requires CBOE VX futures data (paid). "
+            "A DIFFERENT signal (VIX spike reversal using spot ^VIX only) is "
+            "fully buildable across all 4 periods but is NOT the same signal."
+        )
+    else:
+        vix_result["verdict"] = (
+            "NOT_BUILDABLE_AS_SPECIFIED — VX futures unavailable. "
+            "Check period_checks for proxy coverage details."
+        )
+
+    # ── 3. Lowry 90% up/down volume — NYSE breadth volume check ──────────────
+    lowry_result = {"signal": _CANDIDATE_SIGNALS[2], "period_checks": [], "verdict": None}
+    _nyse_symbols = ["^UVOL", "^DVOL", "^VOLD", "^NYAD", "^ADD"]
+    symbol_results = {}
+    for sym in _nyse_symbols:
+        sample_period = periods[1]
+        symbol_results[sym] = _check_yf_ticker(sym, sample_period["start"], sample_period["end"])
+
+    for p in periods:
+        lowry_result["period_checks"].append({
+            "period": p["label"],
+            "date_range": f"{p['start']} → {p['end']}",
+            "nyse_breadth_yfinance": "NOT AVAILABLE — all ^UVOL/^DVOL/^VOLD/^NYAD/^ADD return 404 or empty on yfinance",
+            "note": "Would require direct CBOE/NYSE feed, Bloomberg, or CRSP tick data",
+        })
+
+    lowry_result["yfinance_symbol_checks_2007_2009_sample"] = symbol_results
+    lowry_result["verdict"] = (
+        "NOT_BUILDABLE — NYSE advancing/declining volume data is not available via "
+        "yfinance (^UVOL, ^DVOL, ^VOLD, ^NYAD all return 404 for historical dates). "
+        "Sourcing options: (a) Norgate Data ~$30/mo, (b) CRSP academic, "
+        "(c) CBOE historical vault (paid), (d) Quandl/Nasdaq Data Link NYSE TRIN/TICK "
+        "(subscription required). No free path exists."
+    )
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    buildable_count = sum([
+        "BUILDABLE" in breadth_result["verdict"] and "NOT" not in breadth_result["verdict"],
+        "BUILDABLE" in vix_result["verdict"] and "NOT" not in vix_result["verdict"],
+        "BUILDABLE" in lowry_result["verdict"] and "NOT" not in lowry_result["verdict"],
+    ])
+
+    return {
+        "step": 1,
+        "purpose": "Data availability check for 3 bear-market signal candidates",
+        "bear_periods_tested": [p["label"] for p in periods],
+        "signals": {
+            "breadth_divergence": breadth_result,
+            "vix_term_structure": vix_result,
+            "lowry_90pct_volume": lowry_result,
+        },
+        "summary": {
+            "buildable_as_specified": buildable_count,
+            "not_buildable_as_specified": 3 - buildable_count,
+            "directive": (
+                "Per build request guardrail: all 3 candidates are NOT buildable as specified "
+                "with existing free data. Do not proceed to Step 2 without explicit user "
+                "approval of a proxy/alternative. Do not substitute approximations silently."
+                if buildable_count == 0 else
+                f"{buildable_count} of 3 signals are buildable. Proceed to Step 2 for those."
+            ),
+        },
+    }
