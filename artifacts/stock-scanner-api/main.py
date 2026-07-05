@@ -5375,6 +5375,35 @@ try:
             _CT_aiem(day_of_week="sun", hour=20, minute=30, timezone=_ET),
             id="shadow_learning_weekly", replace_existing=True,
         )
+        # Alpha model retrain: every Sunday 9 PM ET (after research agent at 8 PM)
+        def _run_alpha_retrain_job():
+            try:
+                from alpha_train_pipeline import run_alpha_retrain_cycle as _arc
+                _result = _arc()
+                record_job_success("alpha_model_retrain")
+                print(f"[scheduler] alpha retrain: promoted={_result.get('promoted')} n={_result.get('n_samples')}")
+            except Exception as _e:
+                record_job_failure("alpha_model_retrain", str(_e))
+                print(f"[scheduler] alpha retrain error: {_e}")
+        _scheduler.add_job(
+            _run_alpha_retrain_job,
+            _CT_aiem(day_of_week="sun", hour=21, minute=0, timezone=_ET),
+            id="alpha_model_retrain_weekly", replace_existing=True,
+        )
+        # Sector ETF daily update: 4:45 PM Mon-Fri (after market close)
+        def _run_sector_etf_update():
+            try:
+                from sector_etf_data import update_sector_etfs_today as _seu
+                _seu()
+                record_job_success("sector_etf_daily_update")
+            except Exception as _e:
+                record_job_failure("sector_etf_daily_update", str(_e))
+                print(f"[scheduler] sector_etf update error: {_e}")
+        _scheduler.add_job(
+            _run_sector_etf_update,
+            _CT_aiem(day_of_week="mon-fri", hour=16, minute=45, timezone=_ET),
+            id="sector_etf_daily_update", replace_existing=True,
+        )
         # Signal bridge daily jobs: 4:50 PM Mon-Fri
         # Runs pre-squeeze + breakout detectors, logs fires, grades pending
         def _run_signal_bridge_job():
@@ -29684,6 +29713,7 @@ def _build_aiem_tool_map():
         "mkt_get_stock_history":  _mkt_get_stock_history,
         "mkt_screen_period":      _mkt_screen_period,
         "mkt_layer9_score":       _mkt_layer9_score,
+        "alpha_score_ticker":     _aiem_alpha_score_ticker,
         "mkt_compute_indicators": _mkt_compute_indicators,
         "mkt_price_structure":    _mkt_price_structure,
         "mkt_chart_patterns":     _mkt_chart_patterns,
@@ -31103,6 +31133,25 @@ _AIEM_AGENT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "ticker": {"type": "string", "description": "Ticker symbol, e.g. 'NVDA'."},
             "days":   {"type": "integer", "description": "Days of price history to use (default 120, min 60)."},
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "alpha_score_ticker",
+        "description": (
+            "Score any ticker on the AIEM alpha model — predicts probability that this stock "
+            "will generate excess return vs SPY (alpha > 2%) over the next holding period. "
+            "Uses sector relative strength, momentum, proximity to 52-week high, conviction score, "
+            "float/short interest, and options flow. "
+            "Returns alpha_prob (0-1), signal (STRONG/MODERATE/WEAK), and all feature values. "
+            "Use when evaluating which pick from a shortlist is most likely to outperform the market, "
+            "or to explain why AIEM thinks a stock has edge vs just riding the index."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":      {"type": "string",  "description": "Ticker symbol, e.g. 'NVDA'."},
+            "total_pts":   {"type": "number",  "description": "Conviction stack total points score if known."},
+            "rvol":        {"type": "number",  "description": "Relative volume if known."},
+            "gap_pct":     {"type": "number",  "description": "Gap % from prior close if known."},
+            "conviction":  {"type": "string",  "description": "Conviction level: HIGH / MEDIUM / LOW."},
         }, "required": ["ticker"]}
     }},
     {"type": "function", "function": {
@@ -56293,6 +56342,105 @@ def get_source_export():
     from flask import send_file as _sf
     return _sf(_zip, as_attachment=True, download_name="stockscanner_full_export.zip",
                mimetype="application/zip")
+
+
+# ── Alpha Model: AIEM tool wrapper ───────────────────────────────────────────
+def _aiem_alpha_score_ticker(ticker, total_pts=None, rvol=None, gap_pct=None, conviction=None):
+    try:
+        from alpha_train_pipeline import score_ticker_now as _stn
+        pick = {"ticker": ticker}
+        if total_pts  is not None: pick["total_pts"]  = total_pts
+        if rvol       is not None: pick["rvol"]        = rvol
+        if gap_pct    is not None: pick["gap_pct"]     = gap_pct
+        if conviction is not None: pick["conviction"]  = conviction
+        return _stn(ticker, pick)
+    except Exception as _e:
+        return {"error": str(_e), "ticker": ticker}
+
+
+# ── Admin: sector ETF backfill ────────────────────────────────────────────────
+@app.route("/stock-api/admin/backfill-sector-etf", methods=["POST"])
+def admin_backfill_sector_etf():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    years = int(request.json.get("years_back", 3)) if request.is_json else 3
+    def _bg():
+        try:
+            from sector_etf_data import backfill_sector_etfs as _bse
+            result = _bse(years_back=years)
+            print(f"[admin] sector ETF backfill done: {result}")
+        except Exception as _e:
+            print(f"[admin] sector ETF backfill error: {_e}")
+    import threading as _thr_se
+    _thr_se.Thread(target=_bg, daemon=True).start()
+    return jsonify({"status": "started", "years_back": years,
+                    "message": "Backfilling sector ETF data in background. Watch server logs."})
+
+
+@app.route("/stock-api/admin/sector-etf-status", methods=["GET"])
+def admin_sector_etf_status():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    from sector_etf_data import get_status as _gs
+    return jsonify(_gs())
+
+
+# ── Admin: alpha label backfill ───────────────────────────────────────────────
+@app.route("/stock-api/admin/backfill-alpha-labels", methods=["POST"])
+def admin_backfill_alpha_labels():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from alpha_train_pipeline import backfill_alpha_labels as _bal
+        result = _bal()
+        return jsonify(result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+# ── Admin: alpha model retrain ────────────────────────────────────────────────
+@app.route("/stock-api/admin/run-alpha-retrain", methods=["POST"])
+def admin_run_alpha_retrain():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    def _bg():
+        try:
+            from alpha_train_pipeline import run_alpha_retrain_cycle as _arc
+            result = _arc()
+            print(f"[admin] alpha retrain result: {result}")
+        except Exception as _e:
+            print(f"[admin] alpha retrain error: {_e}")
+    import threading as _thr_ar
+    _thr_ar.Thread(target=_bg, daemon=True).start()
+    return jsonify({"status": "started",
+                    "message": "Alpha model retrain running in background. Watch server logs."})
+
+
+@app.route("/stock-api/admin/alpha-model-status", methods=["GET"])
+def admin_alpha_model_status():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        from alpha_train_pipeline import get_alpha_model_status as _gams
+        return jsonify(_gams())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/alpha-score-ticker", methods=["GET"])
+def admin_alpha_score_ticker():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    ticker = request.args.get("ticker", "").upper().strip()
+    if not ticker:
+        return jsonify({"error": "ticker required"}), 400
+    return jsonify(_aiem_alpha_score_ticker(ticker))
 
 
 if __name__ == "__main__":
