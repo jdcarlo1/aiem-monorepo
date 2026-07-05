@@ -8,16 +8,15 @@ SECTION 0 GATE — hard-enforced:
   LIVE_MODE_ENABLED = False
   Do not change without ALL Section 0 conditions confirmed in writing.
 
-PARAMETER STATUS (as of 2026-07-04):
-  _MAX_RISK_PER_TRADE_PCT   — AWAITING Q1  (0.5%–2% range)
-  _SIMULATED_ACCOUNT_EQUITY — CONFIRMED Q2 = $20,000
-  _MAX_CONCURRENT_POSITIONS — CONFIRMED Q3 = 10 open positions (ceiling, not daily limit)
-  _MAX_SECTOR_POSITIONS     — AWAITING Q3 sector sub-limit (Joel suggested 3–4)
-  _MIN_CONVICTION_TO_TRADE  — AWAITING Q5
-  _OVERNIGHT_OPTION         — CONFIRMED Q4 = 'C' (per-module hybrid, Section 7.1)
+PARAMETER STATUS (all confirmed 2026-07-04):
+  _MAX_RISK_PER_TRADE_PCT   = 0.01   Q1 CONFIRMED — 1% of equity
+  _SIMULATED_ACCOUNT_EQUITY = 20000  Q2 CONFIRMED — $20,000
+  _MAX_CONCURRENT_POSITIONS = 10     Q3 CONFIRMED — 10 open positions (ceiling, not daily limit)
+  _MAX_SECTOR_POSITIONS     = 3      Q3 CONFIRMED — 3 per signal-source sector
+  _MIN_CONVICTION_TO_TRADE  = 5.0    Q5 CONFIRMED — floor score
+  _OVERNIGHT_OPTION         = 'C'    Q4 CONFIRMED — per-module hybrid, Section 7.1
 
-Until ALL are set (Q1, Q5, and sector sub-limit), compute_position_size() returns
-gate_result='PARAMS_NOT_CONFIRMED' and every call is logged with $1,000 fixed notional.
+params_confirmed() == True. Sizing math is ACTIVE.
 """
 
 import os
@@ -37,17 +36,17 @@ LIVE_MODE_ENABLED = False   # NEVER change without full written Section 0 sign-o
 # Parameters — confirmed in writing by Joel; None = still awaiting confirmation.
 # compute_position_size() stays a safe no-op while any sentinel remains None.
 # ─────────────────────────────────────────────────────────────────────────────
-_MAX_RISK_PER_TRADE_PCT:   Optional[float] = None      # AWAITING Q1  (0.5%–2%)
-_SIMULATED_ACCOUNT_EQUITY: Optional[float] = 20000.0   # CONFIRMED Q2 — $20,000
-_MAX_CONCURRENT_POSITIONS: Optional[int]   = 10        # CONFIRMED Q3 — 10 open positions max
-_MAX_SECTOR_POSITIONS:     Optional[int]   = None      # AWAITING Q3 sector sub-limit (suggest 3–4)
-_MIN_CONVICTION_TO_TRADE:  Optional[float] = None      # AWAITING Q5
-_OVERNIGHT_OPTION:         Optional[str]   = "C"       # CONFIRMED Q4 — per-module hybrid
+_MAX_RISK_PER_TRADE_PCT:   Optional[float] = 0.01      # Q1 CONFIRMED — 1% of equity per trade
+_SIMULATED_ACCOUNT_EQUITY: Optional[float] = 20000.0   # Q2 CONFIRMED — $20,000
+_MAX_CONCURRENT_POSITIONS: Optional[int]   = 10        # Q3 CONFIRMED — 10 open positions max
+_MAX_SECTOR_POSITIONS:     Optional[int]   = 3         # Q3 CONFIRMED — 3 per signal-source sector
+_MIN_CONVICTION_TO_TRADE:  Optional[float] = 5.0       # Q5 CONFIRMED — floor conviction score
+_OVERNIGHT_OPTION:         Optional[str]   = "C"       # Q4 CONFIRMED — per-module hybrid
 
 # Conviction score at which risk % is at its FLOOR (MIN_RISK * MAX_RISK_PCT).
 # Scores below _MIN_CONVICTION_TO_TRADE are rejected outright.
-# Updated when Q5 is confirmed.
-_CONVICTION_FLOOR_SCORE:   float = 5.0    # placeholder — synced to _MIN_CONVICTION_TO_TRADE at Q5
+# Synced to Q5 = 5.0 (confirmed 2026-07-04).
+_CONVICTION_FLOOR_SCORE:   float = 5.0    # == _MIN_CONVICTION_TO_TRADE (Q5)
 _CONVICTION_CEILING_SCORE: float = 9.0    # score that unlocks full MAX_RISK_PCT
 _CONVICTION_MIN_RISK_MULT: float = 0.50   # at floor: 50% of MAX_RISK_PCT
 # Linear interpolation between these two bounds — see _conviction_risk_mult()
