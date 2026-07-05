@@ -1,0 +1,29 @@
+# Build Request: Backfill Historical SPY Data
+
+## Goal
+`polygon_market_daily` only has SPY data from 2024-07-08 forward. This blocks any real bear-market backtest (2000-2002, 2007-2009, 2022 all came back `data_available: false`). Backfill historical SPY daily bars so the existing backtest module can actually run against those periods.
+
+## First: figure out the cheapest/fastest path — don't just pick one
+Before building anything, check and report back:
+1. What Polygon plan is currently active, and does it include historical daily aggregates via `/v2/aggs/ticker/SPY/range/1/day/{from}/{to}`? How far back does the current plan actually allow (confirm the real limit, don't assume 2003)?
+2. What would it cost (API call volume, rate limits) to pull SPY daily OHLC from as far back as the plan allows through 2024-07-07 (the day before existing coverage starts)?
+3. As an alternative, is a one-time CSV import from a free source (e.g., Stooq, Yahoo Finance historical export) faster/cheaper given the current plan tier? Compare both options with actual numbers (API calls needed, estimated time, any cost) before choosing.
+
+Report back on 1-3 first. Recommend one option with your reasoning, but don't proceed until I confirm which one to use.
+
+## Once approved, build
+1. A one-time backfill script/job that pulls SPY daily OHLC (date, open, high, low, close, volume — matching the existing `polygon_market_daily` schema) for the gap period, and inserts it into `polygon_market_daily` using the same `ON CONFLICT` pattern already used elsewhere in the codebase, so it can't create duplicates if run twice.
+2. Confirm ticker is stored as `'SPY'` consistently with existing rows — don't create a naming mismatch that would silently break the existing backtest queries.
+
+## Verification required — same standard as everything else this session
+1. Paste your answers to questions 1-3 above with real numbers, not estimates.
+2. After backfill runs, paste the actual row count query result:
+   ```sql
+   SELECT MIN(scan_date), MAX(scan_date), COUNT(*) FROM polygon_market_daily WHERE ticker = 'SPY';
+   ```
+   before and after the backfill, so I can see the coverage actually expanded.
+3. Paste a spot-check of at least 3 real historical rows from different eras (e.g., one from 2001, one from 2008, one from 2022) — actual date/OHLC values — so I can sanity-check the data isn't garbled or misaligned.
+4. Re-run the existing `run_panic_exhaustion_backtest` for 2000-2002, 2007-2009, and 2022 and paste AIEM's raw output for each — confirm `data_available` flips to `true` and real stats come back.
+5. Confirm: did this backfill touch or modify any existing rows (2024-07-08 forward)? It should only be inserting new historical rows, not altering current data. Show the row count for the existing coverage window before and after to prove nothing was changed.
+
+Do not summarize this as "done" without pasting all of the above.
