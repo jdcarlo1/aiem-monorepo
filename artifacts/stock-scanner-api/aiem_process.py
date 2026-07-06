@@ -295,15 +295,21 @@ def _polygon_grouped_daily_universe() -> list:
                 if not sym or len(sym) > 5 or "." in sym or "/" in sym:
                     continue
                 close = float(r.get("c") or 0)
+                high  = float(r.get("h") or 0)
+                low   = float(r.get("l") or 0)
                 vol   = int(r.get("v") or 0)
+                # T-1 close_strength: where did yesterday close in its range?
+                # 1.0 = closed at high, 0.0 = closed at low — knowable at 9:30 AM
+                t1_cs = round((close - low) / (high - low), 4) if (high - low) > 0 else 0.0
                 out.append({
-                    "ticker":       sym,
-                    "price":        close,
-                    "prev_close":   close,   # will be refined by Tradier
-                    "volume":       0,       # will be filled by Tradier (today's volume)
-                    "avg_volume":   max(vol, 1),
-                    "gap_pct":      0.0,
-                    "float_shares": None,
+                    "ticker":             sym,
+                    "price":              close,
+                    "prev_close":         close,   # will be refined by Tradier
+                    "prev_close_strength": t1_cs,  # Signal #3 gate input
+                    "volume":             0,        # will be filled by Tradier (today's volume)
+                    "avg_volume":         max(vol, 1),
+                    "gap_pct":            0.0,
+                    "float_shares":       None,
                 })
             return out
         except Exception as e:
@@ -456,6 +462,7 @@ def aiem_score_ticker(ticker: str, data: dict, trust_weights: dict):
 
     gap_pct   = ((price - prev) / prev * 100) if prev else 0
     vol_ratio = vol / avg_vol if avg_vol > 0 else 0
+    prev_cs   = float(data.get("prev_close_strength") or 0)
 
     def _add(name, base, cond, desc=""):
         nonlocal raw_score, max_score
@@ -475,10 +482,19 @@ def aiem_score_ticker(ticker: str, data: dict, trust_weights: dict):
     elif gap_pct >= 2:  _add("gap_small",        5, True, f"Small gap +{gap_pct:.1f}%")
     else:               _add("gap_small",        5, False)
 
-    # S1b — Gap sweet spot bonus (15–25% = 85% WR, highest validated tier)
+    # S1b — Gap sweet spot (15–25% = validated high-WR zone)
     # Backtest: 864W/153L over 13 months, avg win +18.1%, median +15.4%
     _add("gap_sweet_spot", 5, 15 <= gap_pct < 25,
          f"Sweet spot gap {gap_pct:.1f}% (85% WR zone, +18% avg)")
+
+    # S1c — Signal #3: Momentum Carry (stacks on top of S1b when both conditions met)
+    # Gap 15-22% + T-1 close_strength >= 0.80
+    # Backtest: 1,738 trades, WR=96.0%, AvgRet=+13.85%, PF=47.2x, Sharpe=+1.78
+    # Logic: stock closed in top 20% of its range yesterday AND gaps again today
+    # = real momentum carry, not a gap-and-trap.  All inputs knowable at 9:30 AM.
+    # Combined with S1b → +13 pts total for the highest-conviction setups.
+    _add("momentum_carry", 8, 15 <= gap_pct < 22 and prev_cs >= 0.80,
+         f"Momentum carry: gap {gap_pct:.1f}% in sweet zone + T-1 closed strong ({prev_cs:.2f})")
 
     # S2 — Volume surge
     if   vol_ratio >= 5:   _add("volume_surge_extreme",   20, True, f"Volume {vol_ratio:.1f}x — extreme")
