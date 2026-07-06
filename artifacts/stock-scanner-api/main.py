@@ -1572,7 +1572,7 @@ def _dc_module3_sgd_update(results: list, run_id: str) -> None:
         print(f"[discovery_cycle] Module3 SGD error (non-fatal): {_m3e}")
 
 
-def _dc_module4_adversarial_critique(results: list, run_id: str) -> None:
+def _dc_module4_adversarial_critique(results: list, run_id: str) -> int:
     """
     Module 4 — Adversarial critique of proposed candidates.
 
@@ -1584,16 +1584,21 @@ def _dc_module4_adversarial_critique(results: list, run_id: str) -> None:
     'likely_real' or 'inconclusive' candidates remain pending (human sign-off
     required before shadow trading).
 
+    Returns the number of candidates auto-rejected as likely_overfit so the
+    Module 8 Telegram count reflects post-critique reality (not the raw
+    pre-critique proposed count).
+
     Always non-fatal.  LLM check gracefully downgrades to rule-based-only
     when ANTHROPIC_API_KEY is not set.
     """
+    _auto_rejected = 0
     try:
         import adversarial_critique as _ac4
         import psycopg2 as _ac4_pg
 
         _to_review = [r for r in results if r.get("status") == "pending"]
         if not _to_review:
-            return
+            return 0
 
         print(f"[discovery_cycle] Module4 adversarial critique: "
               f"{len(_to_review)} candidate(s)")
@@ -1627,14 +1632,16 @@ def _dc_module4_adversarial_critique(results: list, run_id: str) -> None:
                         WHERE candidate_id=%s AND status='pending'
                     """, (_reason, _r.get("candidate_id", "")))
                     _conn4.commit()
+                _auto_rejected += 1
                 print(f"[discovery_cycle] Module4 {_r.get('template_id')}: "
                       f"auto-rejected (likely_overfit)")
         _conn4.close()
     except Exception as _m4e:
         print(f"[discovery_cycle] Module4 critique error (non-fatal): {_m4e}")
+    return _auto_rejected
 
 
-def _dc_module5_promotion_check() -> None:
+def _dc_module5_promotion_check() -> list:
     """
     Module 5 — Promotion/retirement evaluation of live hypothesis signals.
 
@@ -1646,8 +1653,13 @@ def _dc_module5_promotion_check() -> None:
     Results are upserted into aiem_module3_evaluations and a summary is
     printed so the log shows the current pipeline health on every cycle.
 
-    Always non-fatal.
+    Returns a list of dicts for signals with actionable verdicts
+    (promote_ready or hypothesis_failing) so Module 8 can fire Telegram
+    alerts on those events rather than letting them sit silently in the DB.
+
+    Always non-fatal — returns [] on error.
     """
+    _notable = []
     try:
         import psycopg2 as _m5_pg
         import aiem_module3_promotion as _m5_prom
@@ -1659,15 +1671,21 @@ def _dc_module5_promotion_check() -> None:
 
         if not _m5_results:
             print("[discovery_cycle] Module5 promotion: 0 hypothesis signals to evaluate")
-            return
+            return []
 
         from collections import Counter as _Ctr5
         _buckets = _Ctr5(r.get("promotion_status") for r in _m5_results)
         _summary = " | ".join(f"{k}={v}" for k, v in sorted(_buckets.items()))
         print(f"[discovery_cycle] Module5 promotion: "
               f"{len(_m5_results)} signals — {_summary}")
+
+        _notable = [
+            r for r in _m5_results
+            if r.get("promotion_status") in ("promote_ready", "hypothesis_failing")
+        ]
     except Exception as _m5e:
         print(f"[discovery_cycle] Module5 promotion error (non-fatal): {_m5e}")
+    return _notable
 
 
 def _dc_module7_feedback_loop() -> None:
@@ -1948,11 +1966,14 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
         _dc_module3_sgd_update(result.get("results", []), run_id)
 
     # Module 4: Adversarial critique on any proposed candidates
+    # Returns count auto-rejected as likely_overfit so M8 shows post-critique reality
+    _m4_auto_rejected = 0
     if result and not error_msg and result.get("proposed", 0) > 0:
-        _dc_module4_adversarial_critique(result.get("results", []), run_id)
+        _m4_auto_rejected = _dc_module4_adversarial_critique(result.get("results", []), run_id)
 
     # Module 5: Promotion/retirement evaluation on all active hypothesis signals
-    _dc_module5_promotion_check()
+    # Returns list of promote_ready / hypothesis_failing signals for M8 Telegram alerts
+    _m5_notable = _dc_module5_promotion_check()
 
     # Module 7: Feedback loop — write Module 5 verdicts into dc_template_feedback
     #           so Module 2's Thompson sampler accumulates real OOS evidence per category
@@ -1992,10 +2013,12 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
 
     # ── Module 8 — Notifications ─────────────────────────────────────────────
     try:
-        _proposed_n = result.get("proposed", 0)
-        _rejected_n = result.get("rejected", 0)
-        _total_n    = result.get("total_templates", 0)
-        _results_r  = result.get("results", [])
+        # Use post-M4 pending count: subtract any candidates auto-rejected as likely_overfit
+        _proposed_raw = result.get("proposed", 0)
+        _proposed_n   = max(0, _proposed_raw - _m4_auto_rejected)
+        _rejected_n   = result.get("rejected", 0)
+        _total_n      = result.get("total_templates", 0)
+        _results_r    = result.get("results", [])
 
         if error_msg:
             # Always alert on engine errors
@@ -2006,11 +2029,11 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
                 f"error: {str(error_msg)[:300]}"
             )
         elif _proposed_n > 0:
-            # New candidates — send detailed breakdown
+            # New candidates that survived M4 adversarial critique — need human review
             _lines = [
-                f"\U0001f52c [Discovery Cycle] {_proposed_n} new signal candidate(s) proposed!",
+                f"\U0001f52c [Discovery Cycle] {_proposed_n} candidate(s) need human review!",
                 f"run_id: {run_id[:8]}\u2026 | {started_at.strftime('%Y-%m-%d %H:%M %Z')}",
-                f"proposed={_proposed_n} | rejected={_rejected_n} | total={_total_n}",
+                f"pending={_proposed_n} | m4_auto_rejected={_m4_auto_rejected} | total={_total_n}",
                 "",
             ]
             for _r in _results_r:
@@ -2027,18 +2050,46 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
                     _hyp = (_r.get("hypothesis_text") or "")[:80]
                     if _hyp:
                         _lines.append(f"     {_hyp}")
-            _lines += ["", "\u2192 Review in AIEM \u2192 discovered_candidates table"]
+            _lines += ["", "\u2192 APPROVE or REJECT in discovered_candidates table"]
             _tg_send("\n".join(_lines))
-            print(f"[discovery_cycle] Telegram notification sent — {_proposed_n} candidate(s)")
+            print(f"[discovery_cycle] Telegram: {_proposed_n} pending candidate(s) need review")
         elif triggered_by == "scheduler":
             # Real daily CronTrigger only — silent summary (no noise on admin/test fires)
             _tg_send(
                 f"\U0001f50d [Discovery Cycle] Daily run complete\n"
                 f"{started_at.strftime('%Y-%m-%d %H:%M %Z')} | {duration_s}s\n"
-                f"proposed={_proposed_n} | rejected={_rejected_n} | total={_total_n}\n"
+                f"pending={_proposed_n} | rejected={_rejected_n} | total={_total_n}\n"
                 f"All {_total_n} templates below edge threshold — no new candidates."
             )
             print("[discovery_cycle] Telegram daily summary sent")
+
+        # Module 5 notable verdicts — always alert regardless of trigger source
+        # These are the most actionable events: a signal proven real or failing
+        for _v in (_m5_notable or []):
+            _status = _v.get("promotion_status", "")
+            _disc_id = _v.get("discovery_id", "?")
+            _hyp_txt = (_v.get("hypothesis_text") or "")[:100]
+            _rec     = (_v.get("recommendation") or "")[:120]
+            if _status == "promote_ready":
+                _tg_send(
+                    f"\U0001f7e2 [Hypothesis PROMOTE READY] disc_id={_disc_id}\n"
+                    f"{_hyp_txt}\n"
+                    f"OOS WR={_v.get('realized_win_rate','?')}% "
+                    f"n={_v.get('realized_n','?')} "
+                    f"p={_v.get('realized_p_value','?')}\n"
+                    f"\u2192 {_rec}"
+                )
+                print(f"[discovery_cycle] Telegram: promote_ready alert disc_id={_disc_id}")
+            elif _status == "hypothesis_failing":
+                _tg_send(
+                    f"\U0001f534 [Hypothesis FAILING] disc_id={_disc_id}\n"
+                    f"{_hyp_txt}\n"
+                    f"OOS WR={_v.get('realized_win_rate','?')}% "
+                    f"n={_v.get('realized_n','?')} "
+                    f"p={_v.get('realized_p_value','?')}\n"
+                    f"\u2192 {_rec}"
+                )
+                print(f"[discovery_cycle] Telegram: hypothesis_failing alert disc_id={_disc_id}")
     except Exception as _n_e:
         print(f"[discovery_cycle] notification error (non-fatal): {_n_e}")
 

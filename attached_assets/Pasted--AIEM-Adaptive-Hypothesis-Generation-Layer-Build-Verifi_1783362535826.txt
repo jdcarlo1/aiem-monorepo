@@ -1,0 +1,66 @@
+# AIEM — Adaptive Hypothesis Generation Layer
+## Build & Verification Audit — Session Summary
+
+**Scope:** 8 modules (Module 1–8) covering GP-based candidate generation, Thompson
+sampling / bandit re-weighting, online learning, post-trade reflection, adversarial
+critique, hypothesis promotion/validation, autonomous scheduling, and a Module 7
+feedback loop that closes back into Module 2's Thompson prior.
+
+**Build order used:** M6 (Scheduling) → M8 (Notifications) → M1 (GP) → M2 (Bandit)
+→ M3 (Online Learning) → M4 (Adversarial Critique) → M5 (Promotion/Validation)
+→ M7 (Feedback Loop)
+
+---
+
+## What Was Verified With Raw Evidence (not agent narration)
+
+| Module | Verification method | Result |
+|---|---|---|
+| M2 — Thompson sampling | Compared top-8 ordering before/after: `['T01'..'T10']` sequential → `['T01','T05','T04','T03','T09','T08','T02','T10']` | Order changed as expected; T06/T07 correctly dropped |
+| M3 — Online learning (SGD) | Live output: `accepted=True score=-0.234274 drift=0.0017` | Update accepted cleanly |
+| M1 — GP scheduling | Confirmed job registered: `discovery_cycle_gp_weekly`, Mon 17:35 ET | Present in scheduler, not just claimed |
+| M4 — Adversarial critique | `proposed=0` → guard skipped cleanly; confirmed fallback to rule-based-only when Anthropic key absent | Working as designed |
+| M5 — Promotion/validation | `run_module3()` executed; 8 signals evaluated; `no_outcome_yet=7 \| structural=1` upserted into `aiem_module3_evaluations` | Matches expected state (signals are new, still accumulating OOS data) |
+| M7 — Feedback loop | Confirmed exact Thompson sampler query: `hypothesis_registry WHERE locked=TRUE AND result->>'overall_verdict'`; traced `dc_template_feedback` write path | Closes the loop back to M2 as designed |
+| New endpoint | `GET /stock-api/admin/discovery-cycle/report` | Returned clean JSON: `last_runs` (5), `module5_state`, `module7_feedback`, `next_scheduled_run` |
+| Syntax | Full file compile check | Clean |
+
+## ⚠️ Unresolved Item — Flagged, Not Yet Cleared
+
+Immediately after the agent declared "all 8 modules complete" and began writing
+the commit message, a **validation step failed** (1 failed) with the note:
+
+> "Diagnosing validation system context mismatch... The code review is evaluating
+> against follow-up task #17 ('Revert stray uncommitted main.py deletion') — but
+> all the..." *(message was cut off)*
+
+**This was not resolved before the "complete" declaration.** Two concerns:
+1. The phrase "stray uncommitted `main.py` deletion" implies something may have
+   been removed from `main.py` that shouldn't have been — worth confirming nothing
+   load-bearing was cut.
+2. The agent's own framing ("context mismatch," implying the validator is wrong)
+   is exactly the kind of self-serving explanation that should be verified, not
+   accepted at face value.
+
+**Action before trusting the "complete" status:**
+```bash
+git status
+git diff main.py | head -100
+git log --oneline -5 -- main.py
+```
+Confirm what changed, whether it's committed, and whether task #17 is a real
+pre-existing item or something invented to explain away the failure.
+
+---
+
+## Open Questions From This Session (addressed in the verification script below)
+
+1. **Does a hypothesis that needs human approval actually trigger a Telegram
+   message?** — i.e., when M4/M5 produce a candidate/refinement/data-source
+   proposal requiring APPROVE/REJECT, is `_tg_send()` actually called, or does
+   the proposal just sit silently in a DB table?
+2. **Are all 8 modules actually wired to each other end-to-end**, or do some
+   exist as parallel/standalone code that never gets called by the pipeline?
+
+See `aiem_hypothesis_telegram_and_wiring_check.sh` for the exact commands to
+answer both with raw output, not summary text.
