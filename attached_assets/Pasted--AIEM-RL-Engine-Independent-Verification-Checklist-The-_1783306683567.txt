@@ -1,0 +1,95 @@
+# AIEM RL Engine — Independent Verification Checklist
+
+The agent's summary is a self-report, not proof. Before accepting the claims about
+`aiem_rl_engine.py` and the 5 "wire points" in `main.py`, run the following and
+paste back **raw, unedited output** — no narrative summaries, no reformatting.
+
+---
+
+## 1. Confirm the wire points actually exist in code (not just claimed)
+
+Run in the shell:
+
+```bash
+grep -n "run_full_rl_pipeline" main.py
+grep -n "_aiem_paper_mark_to_market" main.py
+grep -n "_aiem_paper_flag_fills" main.py
+grep -n "def rl_status\|def rl_strategy_weights\|def rl_ppo_policy\|def rl_counterfactuals" main.py
+grep -n "_build_aiem_tool_map" main.py
+grep -n "_AIEM_AGENT_TOOLS" main.py
+grep -n "_DEFERRED_INITS" main.py
+```
+
+- [ ] Confirms `run_full_rl_pipeline()` is actually called inside `_aiem_paper_mark_to_market()`, not just defined somewhere unreferenced.
+- [ ] Confirms the 4 tool functions exist at (or near) the claimed line numbers 35224–35255.
+- [ ] Confirms `_build_aiem_tool_map()` actually registers all 4 tools (open the function body, don't just check the grep hit count).
+- [ ] Confirms `_AIEM_AGENT_TOOLS` schema entries have real descriptions, not empty stubs.
+
+## 2. Confirm the call is not dead code or feature-flagged off
+
+```bash
+grep -n "run_full_rl_pipeline" -A 5 -B 15 main.py
+```
+
+- [ ] Check whether the call site is inside an `if` block gated by a flag/env var that could be `False`/unset in production.
+- [ ] Check whether `_aiem_paper_flag_fills()` actually runs before it in the same code path, or whether that ordering is just asserted.
+
+## 3. Confirm the 6 database tables actually exist — run this yourself, not through the agent
+
+```sql
+SELECT tablename FROM pg_tables WHERE tablename LIKE 'rl_%' ORDER BY tablename;
+```
+
+- [ ] Confirms exactly which 6 tables exist (name them — don't accept "6 tables confirmed" as sufficient).
+- [ ] Cross-check table names against what the modules claim to write to: `rl_experience_buffer`, `rl_ppo_policy`, `rl_market_memory`, plus the others.
+
+```sql
+SELECT COUNT(*) FROM rl_experience_buffer;
+SELECT COUNT(*) FROM rl_ppo_policy;
+```
+
+- [ ] Confirms rows are actually present (not empty tables that just exist as schema).
+
+## 4. Reproduce the pipeline test independently
+
+Ask the agent to re-run the NVDA test in a **fresh terminal session**, and paste raw stdout:
+
+```bash
+python3 -c "from aiem_rl_engine import run_full_rl_pipeline; print(run_full_rl_pipeline(<test_args>))"
+```
+
+- [ ] Does `reward = +7.36` reproduce exactly, or does it drift between runs (would indicate non-determinism or hardcoded output)?
+- [ ] Does `mistakes = []` hold up on a *losing* trade test case too (not just the clean winner)? Ask for a second test with a losing trade and confirm mistake labels populate correctly.
+- [ ] Does `layer9 weight: 1.0 → 1.1675` change again on a second consecutive run (confirms EMA update is live, not a one-time hardcoded delta)?
+
+## 5. Confirm no LLM / OpenAI dependency snuck into the "no LLM in the pipeline" claim
+
+```bash
+grep -n "openai\|OpenAI\|gpt-" aiem_rl_engine.py
+```
+
+- [ ] Confirms `SelfCritiqueAgent` truly has zero OpenAI calls, matching the claim it's DB-driven only.
+
+## 6. Confirm server restart claim with raw log, not summary
+
+```bash
+tail -100 <server log file>
+```
+
+- [ ] Confirms the literal log line `[rl_engine] schema ready — 6 tables initialised` appears, with a timestamp matching the actual restart, not an old cached log.
+
+## 7. Git diff sanity check
+
+```bash
+git diff --stat HEAD~1 HEAD
+git show HEAD --stat
+```
+
+- [ ] Confirms `aiem_rl_engine.py` is a new file of substantial size (should roughly match "all 12 modules fully implemented, not stubs" — check the actual line count, e.g. `wc -l aiem_rl_engine.py`).
+- [ ] Spot-check 2–3 of the 12 module classes (e.g. `AdaptiveRiskManager`, `CounterfactualEngine`) for real logic vs. stub `pass`/`return None` bodies.
+
+---
+
+**Bottom line:** don't accept "✅ verified" checkmarks from the agent's own chat output as
+evidence. Everything above should be run independently (by you, or by asking the agent
+to paste raw command output you can inspect) before trusting this is genuinely wired end-to-end.
