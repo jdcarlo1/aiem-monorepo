@@ -30314,6 +30314,9 @@ def _build_aiem_tool_map():
         "rl_strategy_weights":     _aiem_tool_rl_strategy_weights,
         "rl_ppo_policy":           _aiem_tool_rl_ppo_policy,
         "rl_counterfactuals":      _aiem_tool_rl_counterfactuals,
+        # ── Edge Filter (pre-fire gate) ───────────────────────────────────────
+        "edge_filter_status":      _aiem_tool_edge_filter_status,
+        "edge_filter_evaluate":    _aiem_tool_edge_filter_evaluate,
         # ── Background-system live read tools ─────────────────────────────────
         "get_meta_learning_weights":   _aiem_tool_get_meta_learning_weights,
         "get_m2_decay_status":         _aiem_tool_get_m2_decay_status,
@@ -32447,6 +32450,20 @@ _AIEM_AGENT_TOOLS = [
             "ticker": {"type": "string", "description": "Filter to a specific ticker (optional)"},
             "limit":  {"type": "integer", "description": "Max rows to return (default 10)"},
         }},
+    }},
+    {"type": "function", "function": {
+        "name": "edge_filter_status",
+        "description": "Full edge-filter status across all signal sources: formal EV (expected value), regime performance table (how each signal performs in BULL/BEAR/NEUTRAL), strategy lifecycle maturity (infant/developing/mature/veteran), and overfit detection (live win rate vs OOS backtest baseline). Use this to understand which signals have real edge and which are degrading.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "edge_filter_evaluate",
+        "description": "Pre-fire gate decision for a specific signal in the current market regime. Returns approved (bool), reason if blocked, EV, edge class (positive/neutral/negative), maturity level, position-size multiplier, and overfit warning. Call this before committing to any trade to check if the signal passes all 5 filters.",
+        "parameters": {"type": "object", "properties": {
+            "signal_source":    {"type": "string",  "description": "Signal source name, e.g. 'layer9', 'washout_ignition', 'unusual_calls'"},
+            "regime":           {"type": "string",  "description": "Current market regime: BULL, BEAR, or NEUTRAL"},
+            "conviction_score": {"type": "number",  "description": "Conviction score 0.0-1.0 from the signal (default 0.5)"},
+        }, "required": ["signal_source"]},
     }},
     {"type": "function", "function": {
         "name": "ensemble_combine_signals",
@@ -35278,6 +35295,37 @@ def _aiem_tool_rl_counterfactuals(ticker: str = None, limit: int = 10) -> dict:
                 ]}
     except Exception as _e:
         return {"error": str(_e)}
+
+# ── Edge Filter tools ────────────────────────────────────────────────────────
+
+def _aiem_tool_edge_filter_status() -> dict:
+    """Return full edge-filter status: EV per signal, regime table, lifecycle, overfit checks."""
+    try:
+        import aiem_edge_filter as _ef
+        return _ef.get_orchestrator().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_edge_filter_evaluate(
+    signal_source: str,
+    regime: str = "NEUTRAL",
+    conviction_score: float = 0.5,
+) -> dict:
+    """
+    Pre-fire gate decision for a signal.
+    Returns approved (bool), reason, EV, edge class, maturity, size_multiplier, overfit flag.
+    """
+    try:
+        import aiem_edge_filter as _ef
+        return _ef.get_orchestrator().evaluate(
+            signal_source=signal_source,
+            regime=regime,
+            conviction_score=float(conviction_score),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
 
 # ── Portfolio Allocator tools ─────────────────────────────────────────────────
 def _aiem_tool_portfolio_allocate(signal_stats_json: str,
@@ -38279,6 +38327,45 @@ def _aiem_paper_mark_to_market():
                             "hold_days":    int(_tr[10] or 1),
                         })
                     print(f"[rl_engine] pipeline done for {len(_closed)} closed trades")
+
+                    # ── Edge-filter feedback logging ──────────────────────
+                    try:
+                        import aiem_edge_filter as _ef
+                        _ef_orc = _ef.get_orchestrator()
+                        for _tr in _closed:
+                            _spy_ret = 0.0
+                            try:
+                                with _psycopg2.connect(_DB_URL, connect_timeout=3) as _sc:
+                                    with _sc.cursor() as _scu:
+                                        _scu.execute("""
+                                            SELECT close_price
+                                            FROM polygon_market_daily
+                                            WHERE ticker='SPY' AND scan_date=%s
+                                        """, (_tr[9],))
+                                        _sr = _scu.fetchone()
+                                        if _sr:
+                                            _prev = None
+                                            _scu.execute("""
+                                                SELECT close_price
+                                                FROM polygon_market_daily
+                                                WHERE ticker='SPY' AND scan_date < %s
+                                                ORDER BY scan_date DESC LIMIT 1
+                                            """, (_tr[9],))
+                                            _pr = _scu.fetchone()
+                                            if _pr and _pr[0]:
+                                                _spy_ret = (float(_sr[0]) - float(_pr[0])) / float(_pr[0]) * 100
+                            except Exception:
+                                pass
+                            _ef_orc.log_closed_trade(
+                                signal_source=str(_tr[8] or "unknown"),
+                                pnl_pct=float(_tr[5] or 0),
+                                trade_date=str(_tr[9]),
+                                spy_return_pct=_spy_ret,
+                            )
+                        print(f"[edge_filter] logged {len(_closed)} trades for regime/feature tracking")
+                    except Exception as _ef_e:
+                        print(f"[edge_filter] logging error: {_ef_e}")
+
                 except Exception as _rle_e:
                     print(f"[rl_engine] bg pipeline error: {_rle_e}")
             _rl_thr.Thread(target=_rl_pipeline_bg, daemon=True).start()
@@ -47428,6 +47515,13 @@ try:
     print("[rl_engine] deferred schema init registered")
 except Exception as _rle_import_e:
     print(f"[rl_engine] import failed at registration time: {_rle_import_e}")
+
+try:
+    import aiem_edge_filter as _aiem_ef_mod
+    _DEFERRED_INITS.append(lambda: _aiem_ef_mod.init_schema())
+    print("[edge_filter] deferred schema init registered")
+except Exception as _ef_import_e:
+    print(f"[edge_filter] import failed at registration time: {_ef_import_e}")
 
 
 def _run_layer9_bg_scan():

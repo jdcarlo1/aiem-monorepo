@@ -1,0 +1,292 @@
+from dataclasses import dataclass
+from typing import Dict, Any, List
+from collections import defaultdict
+import numpy as np
+
+
+# =========================================================
+# DATA MODELS
+# =========================================================
+
+@dataclass
+class Signal:
+    id: str
+    signal_type: str
+    regime: str
+    features: Dict[str, float]
+    predicted_probability: float
+
+
+@dataclass
+class Outcome:
+    signal_id: str
+    pnl: float
+    win: bool
+    regime: str
+
+
+# =========================================================
+# 1. EXPECTANCY ENGINE (EDGE CORE)
+# =========================================================
+
+class ExpectancyEngine:
+    def __init__(self):
+        self.data = defaultdict(list)
+
+    def update(self, signal_type, outcome: Outcome):
+        self.data[signal_type].append(outcome)
+
+    def expectancy(self, signal_type):
+        d = self.data[signal_type]
+        if len(d) < 20:
+            return 0
+
+        wins = [x.pnl for x in d if x.win]
+        losses = [x.pnl for x in d if not x.win]
+
+        wr = len(wins) / len(d)
+        aw = np.mean(wins) if wins else 0
+        al = np.mean(losses) if losses else 0
+
+        return (wr * aw) + ((1 - wr) * al)
+
+    def edge(self, signal_type):
+        ev = self.expectancy(signal_type)
+        if ev > 0.5:
+            return "positive"
+        if ev > 0:
+            return "neutral"
+        return "negative"
+
+
+# =========================================================
+# 2. REGIME INTELLIGENCE LAYER
+# =========================================================
+
+class RegimeEngine:
+    def __init__(self):
+        self.regime_perf = defaultdict(lambda: defaultdict(list))
+
+    def update(self, signal_type, regime, outcome: Outcome):
+        self.regime_perf[signal_type][regime].append(outcome)
+
+    def score(self, signal_type, regime):
+        d = self.regime_perf[signal_type][regime]
+        if len(d) < 10:
+            return 0
+        return np.mean([x.pnl for x in d])
+
+    def allowed(self, signal_type, regime):
+        return self.score(signal_type, regime) > 0
+
+
+# =========================================================
+# 3. META LEARNER (SIGNAL WEIGHTING BRAIN)
+# =========================================================
+
+class MetaLearner:
+    def __init__(self):
+        self.weights = defaultdict(lambda: 1.0)
+
+    def update(self, signal_type, performance):
+        self.weights[signal_type] = (
+            0.9 * self.weights[signal_type] + 0.1 * performance
+        )
+
+    def weight(self, signal_type):
+        return self.weights[signal_type]
+
+
+# =========================================================
+# 4. OVERFITTING DETECTOR
+# =========================================================
+
+class OverfitDetector:
+    def __init__(self):
+        self.train = defaultdict(list)
+        self.test = defaultdict(list)
+
+    def update(self, signal_type, train_score, test_score):
+        self.train[signal_type].append(train_score)
+        self.test[signal_type].append(test_score)
+
+    def overfit(self, signal_type):
+        t = self.train[signal_type]
+        v = self.test[signal_type]
+
+        if len(t) < 10:
+            return False
+
+        return (np.mean(t) - np.mean(v)) > 0.2
+
+
+# =========================================================
+# 5. EDGE DECAY (LIFESPAN MODEL)
+# =========================================================
+
+class EdgeDecay:
+    def __init__(self):
+        self.history = defaultdict(list)
+
+    def update(self, signal_type, pnl):
+        self.history[signal_type].append(pnl)
+
+    def decay_score(self, signal_type):
+        d = self.history[signal_type]
+        if len(d) < 30:
+            return 1.0
+
+        trend = np.polyfit(range(len(d)), d, 1)[0]
+        return float(trend)
+
+
+# =========================================================
+# 6. SAMPLE GATE (ANTI-HALLUCINATION FILTER)
+# =========================================================
+
+class SampleGate:
+    def __init__(self, min_samples=200):
+        self.counts = defaultdict(int)
+        self.min_samples = min_samples
+
+    def update(self, signal_type):
+        self.counts[signal_type] += 1
+
+    def ok(self, signal_type):
+        return self.counts[signal_type] >= self.min_samples
+
+
+# =========================================================
+# 7. STRATEGY LIFESPAN MODEL
+# =========================================================
+
+class StrategyLifecycle:
+    def __init__(self):
+        self.age = defaultdict(int)
+
+    def update(self, signal_type):
+        self.age[signal_type] += 1
+
+    def alive(self, signal_type):
+        return self.age[signal_type] < 10000
+
+    def maturity(self, signal_type):
+        return self.age[signal_type]
+
+
+# =========================================================
+# 8. CAPITAL ALLOCATION ENGINE
+# =========================================================
+
+class AllocationEngine:
+    def __init__(self):
+        self.base = defaultdict(lambda: 1.0)
+
+    def update(self, signal_type, confidence, regime_stability):
+        self.base[signal_type] = confidence * regime_stability
+
+    def size(self, signal_type):
+        return max(0.1, min(2.0, self.base[signal_type]))
+
+
+# =========================================================
+# 9. SELF-CRITIQUE LOOP (LEARNING FROM FAILURE)
+# =========================================================
+
+class SelfCritic:
+    def analyze(self, signal: Signal, outcome: Outcome):
+        if outcome.pnl < 0:
+            return {
+                "signal_type": signal.signal_type,
+                "issue": "loss_detected",
+                "hypothesis": "feature_noise_or_regime_mismatch"
+            }
+        return {
+            "signal_type": signal.signal_type,
+            "issue": "none",
+            "hypothesis": "valid_edge"
+        }
+
+
+# =========================================================
+# 10. ADVERSARIAL MARKET SIMULATOR (SIMPLIFIED)
+# =========================================================
+
+class AdversarialSimulator:
+    def stress_test(self, signal_type, base_score):
+        # fake adversarial pressure simulation
+        noise = np.random.normal(0, 0.1)
+        return base_score + noise
+
+
+# =========================================================
+# 11. FULL INTELLIGENCE ORCHESTRATOR
+# =========================================================
+
+class AEIMIntelligenceCore:
+    def __init__(self):
+        self.expectancy = ExpectancyEngine()
+        self.regime = RegimeEngine()
+        self.meta = MetaLearner()
+        self.overfit = OverfitDetector()
+        self.decay = EdgeDecay()
+        self.gate = SampleGate()
+        self.life = StrategyLifecycle()
+        self.alloc = AllocationEngine()
+        self.critic = SelfCritic()
+        self.adversary = AdversarialSimulator()
+
+    def evaluate(self, signal: Signal):
+
+        s = signal.signal_type
+        r = signal.regime
+
+        # sample gate
+        self.gate.update(s)
+        if not self.gate.ok(s):
+            return {"approved": False, "reason": "low_samples"}
+
+        # regime filter
+        if not self.regime.allowed(s, r):
+            return {"approved": False, "reason": "regime_edge_negative"}
+
+        # expectancy
+        edge = self.expectancy.edge(s)
+        if edge == "negative":
+            return {"approved": False, "reason": "negative_edge"}
+
+        # meta weight
+        weight = self.meta.weight(s)
+
+        # adversarial stress test
+        score = self.adversary.stress_test(s, signal.predicted_probability)
+
+        # allocation sizing
+        size = self.alloc.size(s)
+
+        return {
+            "approved": True,
+            "signal_type": s,
+            "edge": edge,
+            "weight": weight,
+            "adjusted_probability": score * weight,
+            "position_size_multiplier": size
+        }
+
+
+# =========================================================
+# EXAMPLE
+# =========================================================
+
+if __name__ == "__main__":
+    engine = AEIMIntelligenceCore()
+
+    sig = Signal(
+        id="1",
+        signal_type="momentum_breakout",
+        regime="trend",
+        features={"rsi": 60},
+        predicted_probability=0.65
+    )
+
+    print(engine.evaluate(sig))
