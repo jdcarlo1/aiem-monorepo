@@ -1,0 +1,46 @@
+# Follow-Up Verification — Baseline-Edge Gate: Stress Testing & Long-Term Monitoring
+
+**Context:** The baseline-edge gate implementation and initial calibration have both checked out. Historical windows show baseline in a reasonable 50.1%–52.55% range, and a sensitivity sweep (0/1/2/3pp) confirmed the threshold isn't currently cutting off any candidate — the real bottleneck this cycle was sample size (`insufficient_is_data`), not the edge gate. The empty-pending-queue concern was also resolved: the "pending" string flagged earlier was an unrelated health-check fallback, not a real signal.
+
+**What's still open:** No candidate has ever actually landed near the 0–3pp boundary. The sensitivity sweep proved the threshold isn't *currently* biting anything — it did not prove 2.0pp is the *right* number, since nothing has tested that edge. This file asks the questions needed to close that gap.
+
+**Standard for all answers:** raw terminal/SQL output only. No paraphrasing a result as "looks fine" without pasting the output that led to that conclusion.
+
+---
+
+## Q1. Find or generate a candidate near the threshold boundary
+
+Search historical or synthetic run data for any template whose `edge_pp` falls between -1.0pp and +1.0pp (i.e., close enough to the 2.0pp cutoff that a small change in the threshold would flip its outcome). If none exists in real historical data:
+
+- State that explicitly — don't imply one was found if it wasn't.
+- If possible, construct one synthetic/backtested example specifically to exercise the boundary (clearly labeled as synthetic, not a real discovered candidate) so the gate's edge-case behavior can be observed directly rather than inferred.
+
+---
+
+## Q2. Widen the historical window search
+
+The windows checked so far span a limited multi-month period. Pull baseline win rate (`baseline_wr`) from the widest historical range the data supports — ideally including at least one sharp trend reversal or high-volatility regime, not just steady-state periods. Report:
+
+```
+window: <start> → <end>
+baseline_wr: <value>
+market regime notes (if determinable): <e.g. sustained uptrend, chop, reversal>
+```
+
+If `baseline_wr` ever exceeds ~55–58% in a real historical window, flag it explicitly — this is the condition the agent itself previously said would justify revisiting the threshold.
+
+---
+
+## Q3. Confirm the sample-size gate isn't masking a deeper edge-gate problem
+
+Since the only edge-positive candidate (T02, +9.95pp) was rejected on `insufficient_is_data` rather than the edge gate, check: if `_MIN_IS_TRADES` were lowered (hypothetically, not as a proposed change) would T02 or similar candidates actually clear the edge gate too, or would they still fail on win-rate/overfit checks? This clarifies whether the edge gate has ever meaningfully been tested end-to-end on a candidate that reaches it.
+
+---
+
+## Q4. Set a monitoring tripwire, not just a one-time check
+
+Rather than manually re-checking baseline drift after the fact, propose (do not implement yet) a lightweight logging line or metric that records `baseline_wr` on every run cycle going forward, so a future drift toward 58%+ is caught automatically rather than requiring another manual audit like this one. State where in the code this logging would go and what it would output.
+
+---
+
+*Reminder: raw evidence only — terminal output, SQL results, historical data pulls. No summarized "confirmed calibrated" claims without the receipt attached. If real data cannot answer a question (e.g., no boundary case exists), say so plainly rather than substituting a synthetic result without labeling it as such.*
