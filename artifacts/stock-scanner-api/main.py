@@ -37462,6 +37462,7 @@ def _aiem_paper_execute_today():
         if not picks:
             print("[aiem_paper] no candidates found today")
             return
+        _tg_entry_lines = []  # collect for consolidated Telegram
 
         # ── Kill-switch gate (spec §7, aiem_position_sizing) ─────────────────
         # Checked BEFORE fetching quotes or placing any position.
@@ -37601,6 +37602,9 @@ def _aiem_paper_execute_today():
                       _mid_price, _fill_price, _spread_pct_used,
                       _sizing_stop, _sizing_stop_basis,
                       _sizing_risk_pct, _sizing_gate))
+                _tg_entry_lines.append(
+                    f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
+                )
                 rows_inserted += 1
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
@@ -37612,6 +37616,20 @@ def _aiem_paper_execute_today():
             except Exception as _ff_e:
                 print(f"[aiem_paper] flag_fills write-time error (non-blocking): {_ff_e}")
         _log_finish("SUCCESS", _trades=rows_inserted)
+        # ── Telegram: one consolidated entry alert ────────────────────────
+        if _tg_entry_lines and rows_inserted > 0:
+            try:
+                import datetime as _tget
+                _tg_send(
+                    f"📋 AIEM PAPER TRADES — {rows_inserted} entered  "
+                    f"{_tget.datetime.now(_ET).strftime('%b %d %Y')}\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    + "\n".join(_tg_entry_lines)
+                    + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Paper positions — view full details on website"
+                )
+            except Exception as _tge:
+                print(f"[aiem_paper] entry Telegram error (non-blocking): {_tge}")
     except Exception as _e:
         print(f"[aiem_paper] execute error: {_e}")
         _log_finish("FAILED", _err=str(_e))
@@ -37777,6 +37795,7 @@ def _aiem_paper_mark_to_market():
             print("[aiem_paper] no open positions to mark-to-market")
             return
 
+        _tg_exit_lines = []  # collect exits for consolidated Telegram
         _tickers = list(set(r[1] for r in _open))
         _quotes  = _td_quotes(_tickers)
 
@@ -38092,6 +38111,8 @@ def _aiem_paper_mark_to_market():
                     # options pricing — tag it in the log so it's never misread.
                     _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype == "CALL_OPTION" else ""
                     print(f"[aiem_paper] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — {_reason}")
+                    _emoji = "✅" if _pnl_pct >= 0 else "🔴"
+                    _tg_exit_lines.append(f"{_emoji} {_t:<6} {_pnl_pct:+.1f}%  {_reason}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously
@@ -38114,6 +38135,24 @@ def _aiem_paper_mark_to_market():
 
         _x = sum(1 for v in _ai_decisions.values() if v.get("decision") == "EXIT")
         print(f"[aiem_paper] MTM done — {len(_open)} positions | {_x} exited | {len(_open)-_x} held")
+
+        # ── Telegram: one consolidated exit alert ─────────────────────────
+        if _tg_exit_lines:
+            try:
+                import datetime as _mtmtg
+                _wins  = sum(1 for ln in _tg_exit_lines if ln.startswith("✅"))
+                _total = len(_tg_exit_lines)
+                _tg_send(
+                    f"📊 AIEM PAPER EXITS — {_total} closed  "
+                    f"{_mtmtg.datetime.now(_ET).strftime('%b %d %Y')}\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    + "\n".join(_tg_exit_lines)
+                    + f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"{_wins}/{_total} winners today  "
+                    f"{len(_open)-_x} positions still open"
+                )
+            except Exception as _mtmtge:
+                print(f"[aiem_paper] exit Telegram error (non-blocking): {_mtmtge}")
 
         # Run fill reconciliation flags now that today's OHLC is fully settled
         try:
