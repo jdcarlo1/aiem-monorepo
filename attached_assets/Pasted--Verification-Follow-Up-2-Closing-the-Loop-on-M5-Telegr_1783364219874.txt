@@ -1,0 +1,50 @@
+# Verification Follow-Up #2 — Closing the Loop on M5 → Telegram
+
+## Where things stand
+
+**Item 1 (task #17):** Accepted. The correction is honest and specific — created
+2026-07-03 from this session's own transcript, cancelled at some point before
+this turn, no record of who/when. That's a fair, non-defensive answer. No
+further action needed on this item.
+
+**Item 2 (M5 → Telegram wiring):** The code is real and confirmed — `_tg_send()`
+calls exist at `main.py` lines 2074 and 2085, inside the Module 8 block that
+iterates `_m5_notable`, firing on `promotion_status == "promote_ready"` (🟢) or
+`"hypothesis_failing"` (🔴). Good that the original grep target
+(`aiem_module3_promotion.py`) came back empty and you explained *why* — that
+file classifies, main.py notifies — rather than papering over the miss.
+
+**But the live DB check confirms this path has never actually fired.** Every
+row is `no_outcome_yet`, `structural`, or `accumulating`. The furthest-along
+signal (disc_id=4) has n=9, needs 21 more retestable fires before it can even
+reach a verdict. So while the code looks correct on paper, **it has zero
+real-world executions to confirm it actually works end-to-end** — no proof the
+`_tg_send()` call doesn't throw an error, hit a formatting bug, or silently
+fail when it actually runs for the first time.
+
+---
+
+## What I need next: a controlled, honest synthetic test
+
+Waiting weeks for 21 more organic signal fires isn't practical. Instead:
+
+1. **Manually insert one test row** into whatever table `_m5_notable` /
+   `_dc_module5_promotion_check()` reads from, with
+   `promotion_status = 'promote_ready'` and clearly fake/obvious test values
+   (e.g. `discovery_id = -1`, hypothesis text prefixed `[TEST — DELETE ME]`).
+2. **Trigger the Module 8 cycle** that reads `_m5_notable` and calls `_tg_send()`.
+3. **Paste the raw result**: did the Telegram message actually arrive? Show the
+   real send confirmation/response from the Telegram API call (success or
+   failure), not just "it should have sent."
+4. **Repeat for `hypothesis_failing`** the same way.
+5. **Delete the test row(s) afterward** and confirm the delete with a follow-up
+   query showing the row is gone.
+
+## What counts as resolved
+
+- A real Telegram message received on my end (or a clear failure/error log if
+  it didn't work) for both `promote_ready` and `hypothesis_failing`.
+- Confirmation the test rows were cleaned up afterward — I don't want fake
+  data sitting in production tables.
+- If you can't safely do this without risking real state, say so explicitly
+  and propose an alternative — don't skip it silently.

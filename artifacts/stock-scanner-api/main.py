@@ -46982,6 +46982,80 @@ def admin_discovery_cycle_trigger():
     return jsonify({"status": "triggered", "note": "running in background — poll /status"})
 
 
+@app.route("/stock-api/admin/discovery-cycle/test-notify", methods=["POST"])
+def admin_discovery_cycle_test_notify():
+    """
+    Synthetic end-to-end test for the Module 8 → Telegram notification path.
+
+    Directly invokes _tg_send() with a fake _m5_notable payload so the caller
+    can confirm the Telegram delivery chain works before any real promote_ready
+    or hypothesis_failing verdict exists in production.
+
+    Body (JSON):
+      status  — "promote_ready" or "hypothesis_failing" (required)
+
+    Returns the raw outcome of the _tg_send() call (success or error).
+    Test rows are never written to any DB table.
+    """
+    if not _dc_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    import json as _tn_json
+    try:
+        _body   = request.get_json(silent=True) or {}
+        _status = _body.get("status", "promote_ready")
+        if _status not in ("promote_ready", "hypothesis_failing"):
+            return jsonify({"error": "status must be promote_ready or hypothesis_failing"}), 400
+
+        _fake_v = {
+            "promotion_status":  _status,
+            "discovery_id":      -1,
+            "hypothesis_text":   "[TEST — DELETE ME] gap_pct>=2.0 AND rvol>=2.0 on polygon_market_daily",
+            "realized_win_rate": 66.7,
+            "realized_n":        30,
+            "realized_p_value":  0.0312,
+            "recommendation":    "SYNTHETIC TEST — no action required",
+        }
+
+        _disc_id = _fake_v["discovery_id"]
+        _hyp_txt = _fake_v["hypothesis_text"][:100]
+        _rec     = _fake_v["recommendation"][:120]
+
+        if _status == "promote_ready":
+            _msg = (
+                f"\U0001f7e2 [Hypothesis PROMOTE READY] disc_id={_disc_id}\n"
+                f"{_hyp_txt}\n"
+                f"OOS WR={_fake_v['realized_win_rate']}% "
+                f"n={_fake_v['realized_n']} "
+                f"p={_fake_v['realized_p_value']}\n"
+                f"\u2192 {_rec}"
+            )
+        else:
+            _msg = (
+                f"\U0001f534 [Hypothesis FAILING] disc_id={_disc_id}\n"
+                f"{_hyp_txt}\n"
+                f"OOS WR={_fake_v['realized_win_rate']}% "
+                f"n={_fake_v['realized_n']} "
+                f"p={_fake_v['realized_p_value']}\n"
+                f"\u2192 {_rec}"
+            )
+
+        print(f"[discovery_cycle/test-notify] sending {_status} test Telegram…")
+        _tg_api_ok = _tg_send(_msg)
+        print(f"[discovery_cycle/test-notify] _tg_send() returned tg_api_ok={_tg_api_ok}")
+
+        return jsonify({
+            "status":     "sent" if _tg_api_ok else "tg_send_returned_false",
+            "tg_api_ok":  _tg_api_ok,
+            "verdict":    _status,
+            "message":    _msg,
+            "note":       "no DB rows written — this is a synthetic test only",
+        })
+    except Exception as _te:
+        import traceback as _tb
+        print(f"[discovery_cycle/test-notify] ERROR: {_te}")
+        return jsonify({"error": str(_te), "traceback": _tb.format_exc()[:800]}), 500
+
+
 @app.route("/stock-api/admin/discovery-cycle/remove-test-trigger", methods=["POST"])
 def admin_discovery_cycle_remove_test():
     """Remove the 2-min test trigger after Step 1 verification is done.
