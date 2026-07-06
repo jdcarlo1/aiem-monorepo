@@ -780,6 +780,7 @@ class PPOPolicyOptimizer:
         params = self._get_params()
         logits = dict(params.get("logits", {a: 0.0 for a in _PPO_ACTIONS}))
         if action not in logits:
+            print(f"[rl_engine] update_policy: unknown action '{action}' — valid: {list(logits.keys())}; skipping update")
             return
         grad  = reward * 0.01
         ratio = math.exp(grad)
