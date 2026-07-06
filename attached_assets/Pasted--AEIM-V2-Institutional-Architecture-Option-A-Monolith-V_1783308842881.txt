@@ -1,0 +1,299 @@
+"""
+AEIM V2 - Institutional Architecture (Option A Monolith View)
+
+This file represents the full system structure in one place.
+Each class simulates a module that would normally live in its own file.
+
+Purpose:
+- Visualize full hedge-fund architecture
+- Provide Replit with build map
+- Define data flow across all 5 layers
+"""
+
+from dataclasses import dataclass
+from typing import Dict, Any, List
+from collections import defaultdict
+import numpy as np
+import random
+
+
+# =========================================================
+# CORE TYPES
+# =========================================================
+
+@dataclass
+class Signal:
+    id: str
+    signal_type: str
+    regime: str
+    features: Dict[str, float]
+    predicted_probability: float
+
+
+@dataclass
+class Outcome:
+    signal_id: str
+    pnl: float
+    win: bool
+    regime: str
+
+
+# =========================================================
+# LAYER 1 - SIGNAL FACTORY (ALPHA GENERATION)
+# =========================================================
+
+class SignalFactory:
+    def generate(self):
+        return Signal(
+            id=str(random.randint(1000, 9999)),
+            signal_type=random.choice([
+                "momentum",
+                "mean_reversion",
+                "options_flow",
+                "sentiment"
+            ]),
+            regime=random.choice(["trend", "chop", "high_vol"]),
+            features={"rsi": random.uniform(20, 80)},
+            predicted_probability=random.uniform(0.4, 0.8)
+        )
+
+
+# =========================================================
+# LAYER 2 - FEATURE STORE (MARKET MEMORY)
+# =========================================================
+
+class FeatureStore:
+    def __init__(self):
+        self.memory = []
+
+    def log(self, signal: Signal):
+        self.memory.append(signal)
+
+
+# =========================================================
+# LAYER 3 - MULTI-MODEL ALPHA SYSTEM
+# =========================================================
+
+class MomentumModel:
+    def predict(self, signal): return signal.features["rsi"] / 100
+
+
+class MeanReversionModel:
+    def predict(self, signal): return 1 - (signal.features["rsi"] / 100)
+
+
+class OptionsFlowModel:
+    def predict(self, signal): return random.uniform(0.4, 0.7)
+
+
+class SentimentModel:
+    def predict(self, signal): return random.uniform(0.3, 0.8)
+
+
+# =========================================================
+# LAYER 4 - META MODEL (WHO IS RIGHT?)
+# =========================================================
+
+class MetaModel:
+    def __init__(self):
+        self.weights = defaultdict(lambda: 1.0)
+
+    def score_models(self, predictions: Dict[str, float]):
+        scored = {
+            k: v * self.weights[k]
+            for k, v in predictions.items()
+        }
+        return max(scored, key=scored.get), scored
+
+    def update(self, model, performance):
+        self.weights[model] = 0.9 * self.weights[model] + 0.1 * performance
+
+
+# =========================================================
+# LAYER 5 - REGIME SYSTEM
+# =========================================================
+
+class RegimeEngine:
+    def allowed(self, signal_type, regime):
+        # simplified regime logic
+        if regime == "chop" and signal_type == "momentum":
+            return False
+        return True
+
+
+# =========================================================
+# RISK ENGINE (POSITION SIZING)
+# =========================================================
+
+class RiskEngine:
+    def size(self, confidence, stability):
+        return max(0.1, min(2.0, confidence * stability))
+
+
+# =========================================================
+# EXECUTION ENGINE (SIMULATED)
+# =========================================================
+
+class ExecutionEngine:
+    def execute(self, signal, score, size):
+        return {
+            "executed": True,
+            "signal": signal.signal_type,
+            "score": score,
+            "size": size
+        }
+
+
+# =========================================================
+# WALK-FORWARD / LEARNING LOOP (SIMPLIFIED)
+# =========================================================
+
+class LearningLoop:
+    def update(self, signal, outcome):
+        return {
+            "signal": signal.signal_type,
+            "pnl": outcome.pnl,
+            "adjustment": "increase_weight" if outcome.pnl > 0 else "decrease_weight"
+        }
+
+
+# =========================================================
+# ADVERSARIAL STRESS TEST
+# =========================================================
+
+class AdversarialEngine:
+    def stress(self, score):
+        noise = np.random.normal(0, 0.1)
+        return score + noise
+
+
+# =========================================================
+# COUNTERFACTUAL ENGINE
+# =========================================================
+
+class CounterfactualEngine:
+    def analyze(self, pnl):
+        return {
+            "actual": pnl,
+            "no_trade": 0,
+            "opposite": -pnl
+        }
+
+
+# =========================================================
+# STRATEGY LIFECYCLE
+# =========================================================
+
+class StrategyLifecycle:
+    def __init__(self):
+        self.age = defaultdict(int)
+
+    def update(self, signal_type):
+        self.age[signal_type] += 1
+
+    def state(self, signal_type):
+        a = self.age[signal_type]
+        if a < 100:
+            return "candidate"
+        elif a < 500:
+            return "live"
+        elif a < 1000:
+            return "decaying"
+        return "retired"
+
+
+# =========================================================
+# META COGNITION (SYSTEM MONITORING)
+# =========================================================
+
+class MetaCognition:
+    def evaluate(self, signals):
+        return {
+            "overload": len(signals) > 50,
+            "drift_risk": random.random(),
+            "correlation_risk": random.random()
+        }
+
+
+# =========================================================
+# FULL ORCHESTRATOR (5-LAYER FLOW)
+# =========================================================
+
+class AEIMV2System:
+    def __init__(self):
+        self.factory = SignalFactory()
+        self.store = FeatureStore()
+
+        self.models = {
+            "momentum": MomentumModel(),
+            "mean_reversion": MeanReversionModel(),
+            "options_flow": OptionsFlowModel(),
+            "sentiment": SentimentModel()
+        }
+
+        self.meta = MetaModel()
+        self.regime = RegimeEngine()
+        self.risk = RiskEngine()
+        self.exec = ExecutionEngine()
+        self.adversary = AdversarialEngine()
+        self.counterfactual = CounterfactualEngine()
+        self.lifecycle = StrategyLifecycle()
+        self.cognition = MetaCognition()
+        self.learn = LearningLoop()
+
+    def run_cycle(self):
+
+        # 1. generate signal
+        signal = self.factory.generate()
+
+        # 2. store memory
+        self.store.log(signal)
+
+        # 3. lifecycle update
+        self.lifecycle.update(signal.signal_type)
+
+        # 4. regime check
+        if not self.regime.allowed(signal.signal_type, signal.regime):
+            return {"approved": False, "reason": "regime_filter"}
+
+        # 5. model predictions
+        preds = {k: m.predict(signal) for k, m in self.models.items()}
+
+        # 6. meta selection
+        best_model, scored = self.meta.score_models(preds)
+        score = scored[best_model]
+
+        # 7. adversarial stress
+        score = self.adversary.stress(score)
+
+        # 8. risk sizing
+        size = self.risk.size(score, stability=0.8)
+
+        # 9. execution
+        trade = self.exec.execute(signal, score, size)
+
+        # 10. counterfactual analysis
+        cf = self.counterfactual.analyze(score)
+
+        return {
+            "signal": signal.signal_type,
+            "regime": signal.regime,
+            "best_model": best_model,
+            "score": score,
+            "size": size,
+            "trade": trade,
+            "counterfactual": cf,
+            "strategy_state": self.lifecycle.state(signal.signal_type)
+        }
+
+
+# =========================================================
+# RUN EXAMPLE
+# =========================================================
+
+if __name__ == "__main__":
+    system = AEIMV2System()
+
+    for _ in range(3):
+        result = system.run_cycle()
+        print(result)
