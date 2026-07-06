@@ -97,6 +97,14 @@ from sms_alerts import (init_sms_log_table, init_exit_log_table,
                         send_sms)
 from options_sweep import init_call_sweep_log_table, run_call_sweep_scan
 from news_catalyst import init_news_catalyst_log, run_news_catalyst_scan
+from economic_calendar import is_high_impact_day as _econ_is_high_impact_day, create_calendar_table_sql as _econ_table_sql
+from news_catalyst_monitor import check_recent_headlines as _ncm_check_headlines
+from slippage_model import estimate_slippage as _slippage_estimate
+from portfolio_correlation_risk import check_current_portfolio_risk as _portfolio_corr_risk
+from historical_analog_search import find_historical_analogs as _find_historical_analogs
+from niche_segment_finder import run_segment_search_on_settled_picks as _niche_segment_search
+from daily_loss_limit import check_daily_loss_limit as _daily_loss_check
+from self_coding_orchestrator import execute_registered_hypothesis as _sco_execute
 import execution
 import pnl
 import composite_scan
@@ -6188,6 +6196,50 @@ try:
             _run_alpha_retrain_job,
             _CT_aiem(day_of_week="sun", hour=21, minute=0, timezone=_ET),
             id="alpha_model_retrain_weekly", replace_existing=True,
+        )
+        # Niche segment search: every Sunday 9:30 PM ET (after alpha retrain)
+        # Finds sector/context-specific edges with BH-FDR correction.
+        # Saves significant findings to aiem_segment_findings table.
+        def _run_niche_segment_job():
+            try:
+                import threading as _nsj_thr
+                def _do_segment_search():
+                    try:
+                        import psycopg2 as _nsj_pg
+                        import pandas as _nsj_pd
+                        with _nsj_pg.connect(_DB_URL) as _nsj_c, _nsj_c.cursor() as _nsj_cu:
+                            _nsj_cu.execute("""
+                                SELECT ticker, score::float AS score,
+                                       EXTRACT(DOW FROM trade_date)::int AS day_of_week,
+                                       source, trade_type,
+                                       (exit_price IS NOT NULL AND exit_price > entry_price)::int AS outcome
+                                FROM aiem_paper_trades
+                                WHERE exit_price IS NOT NULL
+                                  AND entry_price IS NOT NULL
+                                  AND entry_price > 0
+                                ORDER BY trade_date DESC LIMIT 2000
+                            """)
+                            rows = _nsj_cu.fetchall()
+                        if len(rows) < 80:
+                            print(f"[niche_segment] only {len(rows)} settled trades — need 80 minimum, skipping")
+                            return
+                        _nsj_df = _nsj_pd.DataFrame(rows, columns=["ticker","score","day_of_week","source","trade_type","outcome"])
+                        _nsj_df["t3_win"] = _nsj_df["outcome"]
+                        results = _niche_segment_search(_nsj_df)
+                        if not results.empty:
+                            sig = results["significant_after_correction"].sum()
+                            print(f"[niche_segment] search complete — {sig} significant segments found")
+                        record_job_success("niche_segment_weekly")
+                    except Exception as _nse:
+                        record_job_failure("niche_segment_weekly", str(_nse))
+                        print(f"[niche_segment] search error: {_nse}")
+                _nsj_thr.Thread(target=_do_segment_search, daemon=True).start()
+            except Exception as _nsje:
+                print(f"[scheduler] niche_segment job error: {_nsje}")
+        _scheduler.add_job(
+            _run_niche_segment_job,
+            _CT_aiem(day_of_week="sun", hour=21, minute=30, timezone=_ET),
+            id="niche_segment_weekly", replace_existing=True,
         )
         # Sector ETF daily update: 4:45 PM Mon-Fri (after market close)
         def _run_sector_etf_update():
@@ -29772,6 +29824,34 @@ try:
 except Exception as _e:
     print(f"[signal_trust] schema init error: {_e}")
 try:
+    import psycopg2 as _econ_pg_init
+    with _econ_pg_init.connect(os.environ["DATABASE_URL"]) as _econ_init_conn:
+        with _econ_init_conn.cursor() as _econ_init_cur:
+            _econ_init_cur.execute(_econ_table_sql())
+        _econ_init_conn.commit()
+    print("[economic_calendar] table ready")
+except Exception as _e:
+    print(f"[economic_calendar] table init error: {_e}")
+try:
+    import psycopg2 as _dll_pg_init
+    with _dll_pg_init.connect(os.environ["DATABASE_URL"]) as _dll_init_conn:
+        with _dll_init_conn.cursor() as _dll_init_cur:
+            _dll_init_cur.execute("""
+                CREATE TABLE IF NOT EXISTS daily_loss_breach_log (
+                    id SERIAL PRIMARY KEY,
+                    checked_at TIMESTAMPTZ NOT NULL,
+                    account_value DOUBLE PRECISION,
+                    realized_pnl DOUBLE PRECISION,
+                    loss_pct DOUBLE PRECISION,
+                    loss_limit_pct DOUBLE PRECISION,
+                    resolved BOOLEAN DEFAULT FALSE
+                )
+            """)
+        _dll_init_conn.commit()
+    print("[daily_loss_limit] breach_log table ready")
+except Exception as _e:
+    print(f"[daily_loss_limit] table init error: {_e}")
+try:
     if _m4 is not None:
         import psycopg2 as _pg_m4_init
         with _pg_m4_init.connect(os.environ["DATABASE_URL"]) as _m4_init_conn:
@@ -30900,6 +30980,64 @@ def _mkt_tool_cta_triggers(cta_score: int | None = None, cross_only: bool = Fals
         return {"error": str(_e)} if _acta else {"error": "CTA module not loaded"}
 
 
+# ── Dormant module tool wrappers (activated 2026-07-06) ───────────────────────
+
+def _aiem_tool_econ_is_high_impact_day() -> dict:
+    """Check if today has FOMC, CPI, NFP, PCE, or GDP events that warrant pausing new entries."""
+    try:
+        return _econ_is_high_impact_day(_DB_URL)
+    except Exception as _e:
+        return {"error": str(_e), "high_impact_day": False}
+
+def _aiem_tool_check_news_catalyst_risk(ticker: str, lookback_hours: int = 24) -> dict:
+    """Check if a ticker has recent high-risk headlines (FDA rejection, lawsuit, SEC investigation, etc.)."""
+    try:
+        return _ncm_check_headlines(_DB_URL, ticker.upper(), lookback_hours=lookback_hours)
+    except Exception as _e:
+        return {"error": str(_e), "high_risk_flag": False}
+
+def _aiem_tool_estimate_options_slippage(bid: float, ask: float, contract_volume: int, order_size: int = 10) -> dict:
+    """Estimate bid-ask slippage cost for an options order before placing it. No broker needed."""
+    try:
+        return _slippage_estimate(bid=bid, ask=ask, contract_volume=contract_volume, order_size=order_size)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_check_portfolio_concentration() -> dict:
+    """Check whether open paper trade positions are secretly concentrated in correlated names (mega_tech, semis, etc.)."""
+    try:
+        return _portfolio_corr_risk(_DB_URL)
+    except Exception as _e:
+        return {"error": str(_e), "concentration_risk_flag": False}
+
+def _aiem_tool_find_historical_analogs(ticker: str, top_k: int = 5) -> dict:
+    """Find historical dates whose 10-feature price/volume fingerprint most closely matches today's setup for a ticker. Returns top-k analogs with their forward returns."""
+    try:
+        results = _find_historical_analogs(ticker.upper(), top_k=top_k)
+        return {"ticker": ticker.upper(), "analogs": results, "count": len(results)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_check_daily_loss_limit() -> dict:
+    """Check today's realized P&L against the daily loss limit. Returns halt_trading=True if breached. Requires ACCOUNT_VALUE_BASELINE env var to compute a real percentage."""
+    try:
+        return _daily_loss_check(_DB_URL)
+    except Exception as _e:
+        return {"error": str(_e), "halt_trading": False}
+
+def _aiem_tool_run_self_backtest(hypothesis_id: int, self_written_code: str, input_data_path: str, universe_description: str = "") -> dict:
+    """Let AIEM execute its own self-written backtest code in a sandboxed subprocess with hypothesis pre-registration and adversarial critique. Code must print JSON result to stdout."""
+    try:
+        return _sco_execute(
+            hypothesis_id=hypothesis_id,
+            self_written_code=self_written_code,
+            input_data_path=input_data_path,
+            universe_description=universe_description,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _build_aiem_tool_map():
     """Build full merged tool map — all tools available to both focused sessions and chat tab.
     Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
@@ -31108,6 +31246,14 @@ def _build_aiem_tool_map():
         "gate_history":          _aiem_tool_gate_history,
         "divergence_scan":       _aiem_tool_divergence_scan,
         "check_price_bullish":   _aiem_tool_check_price_bullish,
+        # ── Dormant modules — now wired ───────────────────────────────────────
+        "econ_is_high_impact_day":       _aiem_tool_econ_is_high_impact_day,
+        "check_news_catalyst_risk":      _aiem_tool_check_news_catalyst_risk,
+        "estimate_options_slippage":     _aiem_tool_estimate_options_slippage,
+        "check_portfolio_concentration": _aiem_tool_check_portfolio_concentration,
+        "mkt_find_historical_analogs":   _aiem_tool_find_historical_analogs,
+        "check_daily_loss_limit":        _aiem_tool_check_daily_loss_limit,
+        "run_aiem_self_backtest":        _aiem_tool_run_self_backtest,
         # ── ML retraining pipeline ────────────────────────────────────────────
         "retrain_pending":  _aiem_tool_retrain_pending,
         "retrain_approve":  _aiem_tool_retrain_approve,
@@ -38369,6 +38515,16 @@ def _aiem_paper_pick_candidates() -> list:
     except Exception as _pcb_e:
         print(f"[circuit_breaker] check error (pass-through): {_pcb_e}")
 
+    # ── 0b. Economic calendar gate — pause new picks on FOMC/CPI/NFP days ─
+    try:
+        _econ_result = _econ_is_high_impact_day(_DB_URL)
+        if _econ_result.get("high_impact_day"):
+            _econ_events = [e["event_type"] for e in _econ_result.get("events_today", [])]
+            print(f"[aiem_paper] HIGH-IMPACT DAY — {_econ_events} — skipping new picks to avoid volatility")
+            return []
+    except Exception as _econ_e:
+        print(f"[aiem_paper] economic_calendar check skipped: {_econ_e}")
+
     # ── 0. FRED macro bias — yield curve + credit spreads ─────────────────
     _macro_bias = 0  # -1 = risk-off, 0 = neutral, 1 = risk-on
     if _fred_macro:
@@ -38619,6 +38775,21 @@ def _aiem_paper_pick_candidates() -> list:
                 _sp["score"] *= max(0.50, min(1.40, _mult))
             except Exception:
                 pass  # council is additive; never block a pick
+
+    # ── News catalyst gate — remove tickers with recent high-risk headlines ─
+    _ncm_blocked = set()
+    for _nc_ticker in list(_candidates.keys()):
+        try:
+            _ncm_result = _ncm_check_headlines(_DB_URL, _nc_ticker, lookback_hours=24)
+            if _ncm_result.get("high_risk_flag"):
+                _kw = _ncm_result["flagged_headlines"][0]["matched_keyword"] if _ncm_result.get("flagged_headlines") else "unknown"
+                print(f"[news_catalyst_gate] BLOCKED {_nc_ticker} — high-risk headline: '{_kw}'")
+                _ncm_blocked.add(_nc_ticker)
+                del _candidates[_nc_ticker]
+        except Exception:
+            pass  # gate is fail-open: if we can't check, don't block
+    if _ncm_blocked:
+        print(f"[news_catalyst_gate] removed {len(_ncm_blocked)} ticker(s): {sorted(_ncm_blocked)}")
 
     # Apply macro risk-off: cap at 10 picks and downweight options
     _final = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)
@@ -59694,6 +59865,35 @@ def admin_alpha_score_ticker():
     if not ticker:
         return jsonify({"error": "ticker required"}), 400
     return jsonify(_aiem_alpha_score_ticker(ticker, horizon=horizon))
+
+
+@app.route("/stock-api/historical-analog/<ticker>", methods=["GET"])
+def historical_analog_endpoint(ticker):
+    """
+    GET /stock-api/historical-analog/NVDA?top_k=5
+    Finds historical dates whose 10-feature fingerprint (gap, rvol, range,
+    close_position, 5d/20d trend, vol_trend, true_range, ATR, gap_fill_rate)
+    most closely matches the last 5 days of the given ticker.
+    Returns each analog's date, similarity score, and 5-day forward return.
+    """
+    top_k = min(int(request.args.get("top_k", 5)), 10)
+    sym = ticker.upper().strip()
+    if not sym:
+        return jsonify({"error": "ticker required"}), 400
+    try:
+        results = _find_historical_analogs(sym, top_k=top_k)
+        avg_fwd = None
+        returns = [r["fwd_return_5d"] for r in results if r.get("fwd_return_5d") is not None]
+        if returns:
+            avg_fwd = round(sum(returns) / len(returns), 2)
+        return jsonify({
+            "ticker": sym,
+            "top_k": top_k,
+            "avg_forward_5d_return": avg_fwd,
+            "analogs": results,
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 if __name__ == "__main__":
