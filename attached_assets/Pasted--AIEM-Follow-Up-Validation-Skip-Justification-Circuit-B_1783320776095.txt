@@ -1,0 +1,38 @@
+# AIEM — Follow-Up: Validation Skip Justification & Circuit Breaker Proximity
+
+Two items from the last session need direct confirmation before being accepted as resolved.
+
+---
+
+## 1. Validation skip — show the actual comparison, don't just restate the conclusion
+
+The automated validator failed the build with "1 failed," and the response was to mark it resolved on the grounds that the validator was checking a stale, already-cancelled task (#17 — "revert stray uncommitted main.py deletion") that doesn't match the actual work (four new risk guard modules).
+
+This may be entirely correct, but "I decided the failure doesn't count" is exactly the kind of self-assessment that needs independent verification, not acceptance at face value.
+
+**Questions:**
+
+1. Paste the literal, full text of what the validator flagged as failing — not a paraphrase of it.
+2. Paste the literal, full text of task #17's original spec.
+3. Confirm task #17's cancellation: when was it cancelled, and by what/whom? Show the actual state change (timestamp, cancellation reason) — not just "it's already cancelled."
+4. If task #17 is genuinely stale and irrelevant, explain concretely why the validator was still running against it — is this a validator bug (checking cancelled tasks it shouldn't), and if so, does that mean other completed work in this session could have been validated against the wrong spec too without anyone noticing?
+5. Independent of the stale-task question: do the four new modules (`PortfolioCircuitBreaker`, `CorrelationGuard`, `LiquidityFilter`, `EventRiskFilter`) have their own passing validation, run against a spec that actually describes them? If not, run that validation now — don't rely on the absence of a valid failure as proof of success.
+
+---
+
+## 2. PortfolioCircuitBreaker — current proximity to trip
+
+Live status reported: `avg_5d = -3.24%`, `n=73 trades`, `threshold = -5.0%` — 1.77 percentage points from tripping.
+
+**Questions:**
+
+1. What is driving the current -3.24% average — is this concentrated in a few large losing trades, or broadly distributed across many small losses? Show the actual trade-level breakdown for the current 5-day window.
+2. If the breaker trips: confirm exactly what happens next. Does it block only new entries (per the original spec), or does it affect existing open positions too? Show the actual code path that executes on trip, not a description of intended behavior.
+3. Is there any alerting when the breaker gets close to tripping (e.g., within 2 points) versus only when it actually trips? If not, this is worth adding — you want to know you're approaching the line before you cross it, not just after.
+4. Show `portfolio_circuit_breaker_status` output right now, live, so the numbers in this document can be checked against the current real state rather than what was reported earlier today.
+
+---
+
+## Reporting format
+
+Answer each question directly and in order. For item 1, if the validator skip turns out to be legitimate, say so plainly — this isn't about assuming something's wrong, it's about confirming it independently rather than taking the self-assessment at face value.

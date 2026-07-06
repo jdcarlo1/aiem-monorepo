@@ -1,0 +1,57 @@
+# AIEM — DiscoveryEngine Module Spec
+
+**Purpose:** Autonomously generate *new* candidate signal hypotheses — patterns AIEM doesn't currently trade — and propose them for evaluation, rather than only tuning/filtering signals that already exist. This is the one genuinely missing piece identified after comparing AIEM's existing stack against "continuous discovery" concepts like AQAA.
+
+**What this is NOT:** This is not a self-optimization module (you already have that — `StrategyLifecycle`, `ContinualLearner`). This is not another filter (you have 18+ of those). This module's only job is proposing brand-new candidate patterns for the existing pipeline to evaluate.
+
+---
+
+## Core loop
+
+1. **Hypothesis generation** — propose a candidate signal definition (e.g., "unusual options volume + declining short interest + sector momentum divergence").
+2. **Historical backtest** — run the candidate against historical data the system already has access to (same data `ExpectancyEngine` and `MarketMemory` use).
+3. **Statistical validation gate** — before a candidate is ever surfaced to you or the live pipeline, it must pass out-of-sample testing, not just in-sample curve-fit performance.
+4. **Human/agent review queue** — validated candidates get proposed, not auto-deployed. Nothing this module generates should be allowed to trade live without a review step.
+
+---
+
+## Module: `DiscoveryEngine`
+
+**File:** new file, `aiem_discovery_engine.py`
+
+### 1. Hypothesis generator
+- Combines existing feature primitives already in `FeatureStore` in new ways (e.g., cross-referencing features that individual models like `MomentumModel`/`OptionsFlowModel` use separately, but nothing currently combines).
+- Can use an LLM call to propose a plain-language hypothesis + the corresponding feature combination, but the hypothesis must be translated into a concrete, testable rule — not left as vague natural language.
+- Output: a structured candidate object (feature combination, entry/exit logic, expected holding period).
+
+### 2. Out-of-sample backtester
+- Split historical data into train/test windows — training window used to discover the pattern, held-out test window used to validate it. This is non-negotiable; a candidate that only performs well in-sample gets rejected automatically, not surfaced.
+- Reuse the existing lookahead-bias protections already fixed in the system's backtest infrastructure (from prior audits) — do not write a second, separate backtest path that could reintroduce that bug.
+- Minimum sample size requirement before a candidate can be proposed (same spirit as `ExpectancyEngine`'s 20-trade minimum) — a candidate with 4 historical occurrences is not evidence of anything.
+
+### 3. Overfitting check
+- Before proposing, run the candidate through the existing `OverfitDetector` — a new discovery method doesn't get to skip the check every other signal has to pass.
+- Reject/flag candidates with suspiciously high in-sample performance relative to typical out-of-sample decay for similar signal types.
+
+### 4. Proposal queue (not auto-deploy)
+- Validated candidates go into a review table (e.g., `discovered_candidates`) with: hypothesis description, backtest stats (in-sample vs out-of-sample), feature definition, and overfit-check result.
+- Nothing in this table is wired to live/paper execution automatically. A human (you) or a separate explicit approval step must promote a candidate into `SignalFactory` before it can ever generate a real signal.
+- Log every candidate generated, including rejected ones, so you can see the discovery rate and rejection reasons over time — not just the survivors.
+
+---
+
+## Required verification (same standard as everything else)
+
+1. Show one real candidate hypothesis it generated, in plain language and as the structured rule.
+2. Show the actual in-sample vs. out-of-sample performance numbers for that candidate — real computed values, not placeholders.
+3. Show a case where a candidate was rejected by the overfitting check, with the numbers that triggered the rejection.
+4. Confirm explicitly: is there any code path by which a discovered candidate could reach live/paper execution without passing through the review queue? If yes, this is a critical bug — fix it before anything else ships.
+5. Show the `discovered_candidates` table with at least one real row (not seeded/fake data).
+
+---
+
+## Why this design and not a "smarter" version
+
+- No auto-deployment, on purpose — the point of discovery is generating ideas for you to evaluate, not adding a second autonomous trading path that bypasses the filter stack you've spent multiple rounds hardening.
+- Reuses `OverfitDetector` and the fixed backtest infrastructure rather than building parallel logic, since duplicate implementations are exactly how the lookahead-bias bug happened the first time.
+- Deliberately scoped to *only* generation + validation + proposal — resist any temptation from the agent to fold in self-optimization or multi-agent "deliberation" framing on top of this. Keep it to one job.

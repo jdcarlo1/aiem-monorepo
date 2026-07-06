@@ -232,31 +232,48 @@ class PortfolioCircuitBreaker:
                 "reset_in_hours": float(_PCB_COOLING_HOURS),
             }
 
+        # ── Proximity warning: within 2pp of the trip threshold ─────────────
+        _PCB_PROXIMITY_PP = 2.0
+        proximity = (
+            n >= _PCB_TRIP_MIN_TRADES
+            and avg < _PCB_TRIP_AVG_PCT + _PCB_PROXIMITY_PP
+        )
         return {
-            "tripped":        False,
-            "status":         "open",
-            "reason":         "",
-            "avg_pnl_pct_5d": avg,
-            "n_trades_5d":    n,
-            "reset_at":       None,
+            "tripped":           False,
+            "status":            "open",
+            "reason":            "",
+            "avg_pnl_pct_5d":    avg,
+            "n_trades_5d":       n,
+            "reset_at":          None,
+            "proximity_warning": proximity,
+            "proximity_gap_pp":  round(avg - _PCB_TRIP_AVG_PCT, 2) if n >= _PCB_TRIP_MIN_TRADES else None,
         }
 
     def status(self) -> Dict[str, Any]:
         """Full status for the AIEM tool — includes both DB state and live metrics."""
         state = self._load_state()
         stats = self._compute_rolling_stats()
+        avg   = stats["avg_pnl_pct"]
+        n     = stats["n_trades"]
+        _PCB_PROXIMITY_PP = 2.0
+        proximity = (
+            n >= _PCB_TRIP_MIN_TRADES
+            and avg < _PCB_TRIP_AVG_PCT + _PCB_PROXIMITY_PP
+        )
         return {
-            "db_status":      state.get("status", "unknown"),
-            "tripped_at":     str(state.get("tripped_at") or ""),
-            "reset_at":       str(state.get("reset_at") or ""),
-            "db_reason":      state.get("reason", ""),
-            "avg_pnl_pct_5d": stats["avg_pnl_pct"],
-            "n_trades_5d":    stats["n_trades"],
-            "worst_trade_5d": stats["worst_trade"],
+            "db_status":           state.get("status", "unknown"),
+            "tripped_at":          str(state.get("tripped_at") or ""),
+            "reset_at":            str(state.get("reset_at") or ""),
+            "db_reason":           state.get("reason", ""),
+            "avg_pnl_pct_5d":      avg,
+            "n_trades_5d":         n,
+            "worst_trade_5d":      stats["worst_trade"],
             "trip_threshold_pct":  _PCB_TRIP_AVG_PCT,
             "min_trades_to_trip":  _PCB_TRIP_MIN_TRADES,
             "lookback_days":       _PCB_LOOKBACK_DAYS,
             "cooling_hours":       _PCB_COOLING_HOURS,
+            "proximity_warning":   proximity,
+            "proximity_gap_pp":    round(avg - _PCB_TRIP_AVG_PCT, 2) if n >= _PCB_TRIP_MIN_TRADES else None,
         }
 
 

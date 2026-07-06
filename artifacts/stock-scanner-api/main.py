@@ -30337,6 +30337,12 @@ def _build_aiem_tool_map():
         "liquidity_filter_status":          _aiem_tool_liquidity_filter_status,
         "event_risk_filter_status":         _aiem_tool_event_risk_filter_status,
         "event_risk_check":                 _aiem_tool_event_risk_check,
+        "discovery_status":                 _aiem_tool_discovery_status,
+        "discovery_run_cycle":              _aiem_tool_discovery_run_cycle,
+        "discovery_list_candidates":        _aiem_tool_discovery_list_candidates,
+        "discovery_get_candidate":          _aiem_tool_discovery_get_candidate,
+        "discovery_reject_candidate":       _aiem_tool_discovery_reject_candidate,
+        "discovery_promote_candidate":      _aiem_tool_discovery_promote_candidate,
         "get_current_regime":       _aiem_tool_get_current_regime,
         "build_features":           _aiem_tool_build_features,
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
@@ -32688,6 +32694,47 @@ _AIEM_AGENT_TOOLS = [
             "ticker":        {"type": "string",  "description": "Ticker symbol"},
             "hold_days_max": {"type": "integer", "description": "Expected hold window in days (default 11)"},
         }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "discovery_status",
+        "description": "Return a summary of the DiscoveryEngine review queue: pending/rejected/promoted candidate counts, last run time, and backtest window dates.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "discovery_run_cycle",
+        "description": "Run a full hypothesis discovery cycle: evaluate all templates against the in-sample training window, validate OOS on the held-out test window, apply the 20pp overfitting check, and save results to discovered_candidates. Returns summary counts (proposed/rejected). SAFETY: writes only to discovered_candidates — no live or paper execution path.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "discovery_list_candidates",
+        "description": "List discovered signal candidates from the review queue, optionally filtered by status (pending/rejected/promoted).",
+        "parameters": {"type": "object", "properties": {
+            "status": {"type": "string", "description": "Filter by status: 'pending', 'rejected', 'promoted', or '' for all"},
+            "limit":  {"type": "integer", "description": "Max rows to return (default 20)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "discovery_get_candidate",
+        "description": "Get full details for a single discovered candidate by its candidate_id, including IS/OOS win rates, avg return, overfit gap, feature rule, and status.",
+        "parameters": {"type": "object", "properties": {
+            "candidate_id": {"type": "string", "description": "The candidate_id (e.g. cand_abc123def456)"},
+        }, "required": ["candidate_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "discovery_reject_candidate",
+        "description": "Explicitly reject a pending discovered candidate with a reason. Changes status to 'rejected'.",
+        "parameters": {"type": "object", "properties": {
+            "candidate_id": {"type": "string", "description": "The candidate_id to reject"},
+            "reason":       {"type": "string", "description": "Human-readable rejection reason"},
+        }, "required": ["candidate_id", "reason"]},
+    }},
+    {"type": "function", "function": {
+        "name": "discovery_promote_candidate",
+        "description": "Mark a pending candidate as promoted and return its integration spec (feature rule, IS/OOS stats, manual integration steps). SAFETY: does NOT wire the candidate into live or paper execution — integration requires a separate manual step.",
+        "parameters": {"type": "object", "properties": {
+            "candidate_id": {"type": "string", "description": "The candidate_id to promote"},
+            "notes":        {"type": "string", "description": "Optional notes about promotion rationale"},
+        }, "required": ["candidate_id"]},
     }},
     {"type": "function", "function": {
         "name": "get_current_regime",
@@ -35559,6 +35606,77 @@ def _aiem_tool_event_risk_check(ticker: str, hold_days_max: int = 11) -> dict:
     try:
         import aiem_risk_guards as _rg
         return _rg.get_event_risk_filter().check(str(ticker), int(hold_days_max))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+# ── Discovery Engine tools ─────────────────────────────────────────────────────
+def _aiem_tool_discovery_status() -> dict:
+    """Return a summary of the discovery queue: pending/rejected/promoted counts and last run time."""
+    try:
+        import aiem_discovery_engine as _de
+        return _de.get_discovery_engine().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_discovery_run_cycle() -> dict:
+    """
+    Run a full discovery cycle: evaluate all hypothesis templates against
+    the historical training window (IS) and held-out test window (OOS),
+    apply the overfitting check, and save results to discovered_candidates.
+    Returns summary counts; use discovery_list_candidates to see individual results.
+    SAFETY: writes ONLY to discovered_candidates — no live/paper execution path.
+    """
+    try:
+        import aiem_discovery_engine as _de
+        result = _de.get_discovery_engine().run_cycle()
+        result.pop("results", None)
+        return result
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_discovery_list_candidates(status: str = "", limit: int = 20) -> dict:
+    """
+    List discovered candidates from the review queue.
+    status filter: 'pending' | 'rejected' | 'promoted' | '' (all)
+    """
+    try:
+        import aiem_discovery_engine as _de
+        rows = _de.get_discovery_engine().list_candidates(
+            status=status or None, limit=int(limit)
+        )
+        return {"candidates": rows, "count": len(rows)}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_discovery_get_candidate(candidate_id: str) -> dict:
+    """Get full details for a single discovered candidate by its candidate_id."""
+    try:
+        import aiem_discovery_engine as _de
+        cand = _de.get_discovery_engine().get_candidate(str(candidate_id))
+        if cand is None:
+            return {"error": f"candidate {candidate_id} not found"}
+        return cand
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_discovery_reject_candidate(candidate_id: str, reason: str) -> dict:
+    """Reject a pending discovered candidate with an explicit reason."""
+    try:
+        import aiem_discovery_engine as _de
+        return _de.get_discovery_engine().reject_candidate(str(candidate_id), str(reason))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_discovery_promote_candidate(candidate_id: str, notes: str = "") -> dict:
+    """
+    Mark a pending candidate as promoted and return its integration spec.
+    SAFETY: does NOT wire the candidate into any live or paper execution path.
+    Integration into SignalFactory requires a separate manual step per the spec output.
+    """
+    try:
+        import aiem_discovery_engine as _de
+        return _de.get_discovery_engine().promote_candidate(str(candidate_id), str(notes))
     except Exception as _e:
         return {"error": str(_e)}
 
@@ -47907,6 +48025,13 @@ try:
     print("[risk_guards] deferred schema init registered")
 except Exception as _rg_import_e:
     print(f"[risk_guards] import failed at registration time: {_rg_import_e}")
+
+try:
+    import aiem_discovery_engine as _aiem_de_mod
+    _DEFERRED_INITS.append(lambda: _aiem_de_mod.init_schema())
+    print("[discovery_engine] deferred schema init registered")
+except Exception as _de_import_e:
+    print(f"[discovery_engine] import failed at registration time: {_de_import_e}")
 
 
 def _run_layer9_bg_scan():
