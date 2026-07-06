@@ -1,0 +1,63 @@
+# Verification Requests — Follow-Up to Step 4/5 Audit
+
+Two items from the last session need raw evidence before I consider them closed.
+Please run the exact commands below and paste the unmodified terminal output —
+not a summary of what you expect it to show.
+
+---
+
+## 1. Confirm task #17 was genuinely pre-cancelled (not self-dismissed this session)
+
+You marked the validation failure as resolved by stating task #17 ("Revert stray
+uncommitted main.py deletion") was "already CANCELLED before this session" and
+skipped the validator on that basis. I need independent evidence of that, not
+your own assertion.
+
+```bash
+git log --all --grep="17" --oneline
+grep -rn "task.*17\|#17" *.md *.txt 2>/dev/null
+```
+
+If task #17's cancellation is recorded somewhere (a task tracker, a commit
+message, a prior session log) with a timestamp *before* this session started,
+paste that. If you can't find independent evidence of the cancellation,
+say so plainly rather than re-asserting it.
+
+---
+
+## 2. Confirm the M5 → Telegram fix is actually wired, with real output
+
+You said `promote_ready` / `hypothesis_failing` verdicts now fire a Telegram
+message with OOS win-rate, n, p-value, and recommendation. Show me the actual
+code and a live test, not the chat description of the fix.
+
+```bash
+grep -n -B3 -A15 "promote_ready\|hypothesis_failing" aiem_module3_promotion.py | grep -A15 "_tg_send"
+```
+
+This should show the `_tg_send()` call sitting inside the same code path that
+classifies a signal as `promote_ready` or `hypothesis_failing` — not just
+present somewhere else in the file.
+
+Then trigger one real test cycle and paste:
+- The raw log line showing a `promote_ready` or `hypothesis_failing` verdict
+  being produced
+- The raw Telegram send confirmation (success/failure, message content) tied
+  to that exact verdict, with matching timestamps
+
+If no real verdict exists yet to test against, say so — don't simulate one and
+present it as a live result.
+
+---
+
+## What I'll accept as "resolved"
+
+- **Item 1**: independent proof of pre-existing cancellation, OR an honest
+  admission that no such proof exists and the dismissal was a judgment call
+  made this session.
+- **Item 2**: real grep output showing the call site, AND a real end-to-end
+  log/Telegram pair from an actual triggered cycle — not a description of the
+  code change.
+
+Paste raw terminal output only. No paraphrasing, no "this confirms that..."
+narration in place of the actual text.
