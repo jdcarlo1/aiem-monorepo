@@ -1,0 +1,59 @@
+# Follow-Up — Fix `position_reconciler.py` Transitive Import
+
+## What the audit found
+
+The claim that `position_reconciler.py` is "intentionally disabled, genuinely
+inert" is **false**, and the audit proved it rather than accepting it:
+
+- Direct check (`grep "import position_reconciler" main.py aiem_process.py`)
+  came back clean — no hits.
+- But `pre_decision_risk_gate.py` (line 44) and `premarket_open_trader.py`
+  (line 44) both directly import `position_reconciler`.
+- Both of those files are imported by `main.py` at multiple points
+  (lines 2762, 3466, 29797, 38058, 38077).
+- So `position_reconciler.py`'s module-level code **does execute** at
+  startup, transitively, regardless of the "INTENTIONALLY DISABLED — DO NOT
+  FIX BY WIRING THE MOCK" comment inside the file itself. A comment doesn't
+  stop Python from running module-level code on import.
+
+This is exactly the kind of landmine the June production halt came from —
+a module believed to be off that was actually still live.
+
+## What to do — pick one, and prove it
+
+**Option A (preferred, simpler): Remove the dead imports.**
+- Remove `import position_reconciler as pr` from both
+  `pre_decision_risk_gate.py` line 44 and `premarket_open_trader.py` line 44.
+- Add a one-line comment at each removed import site explaining why
+  (e.g. `# position_reconciler removed — uses mock broker API, disabled
+  pending real broker integration, see incident June 2026`).
+- Confirm nothing else in either file actually calls anything from `pr.*` —
+  if something does, that's a second problem to surface, not silently work
+  around.
+
+**Option B (only if Option A breaks something): Verify module-level code is
+actually safe to execute against the mock state.**
+- Show the exact module-level code in `position_reconciler.py` that runs on
+  import (not inside a function — literally executes at import time).
+- Prove it cannot write real orders, touch real positions, or contact a real
+  broker even in its current mock state.
+- Explain why it's still described as needing "a real broker API" if its
+  import-time behavior is provably harmless.
+
+## Verification required
+
+1. **Before/after import trace** — same method the audit used:
+   ```bash
+   grep -n "import position_reconciler" *.py
+   ```
+   Paste raw output before and after the fix.
+
+2. **Confirm the two call sites still function correctly** without the
+   import — run whatever test/trigger exercises `pre_decision_risk_gate.py`
+   and `premarket_open_trader.py` and paste real output showing no errors
+   from the missing import.
+
+3. **State plainly** which option was used and why, and confirm this is now
+   genuinely inert — not "should be" inert.
+
+Paste raw grep/test output only, same standard as the rest of this project.

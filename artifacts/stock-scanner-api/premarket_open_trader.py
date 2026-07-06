@@ -41,7 +41,9 @@ import earnings_calendar as ec
 import regime_detector as rd
 import regime_macro_patch as rmp
 import news_catalyst_monitor as ncm
-import position_reconciler as pr
+# position_reconciler removed — reconcile_positions() is never scheduled
+# (mock broker only, no real account/positions API exists yet). Re-enable
+# when a real get_broker_positions() is wired in. See incident 2026-06-28.
 import daily_loss_limit as dll
 import order_dedup as od
 import portfolio_correlation_risk as pcr
@@ -232,12 +234,10 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
         hard_blockers.append(f"earnings calendar check failed (fail closed): {_exc}")
         earnings = {}
 
-    # ── HARD GATE 2: unresolved broker/DB position mismatch ──────────
-    try:
-        if pr.has_unresolved_mismatch(db_url):
-            hard_blockers.append("unresolved position mismatch between broker and DB")
-    except Exception as _exc:
-        hard_blockers.append(f"position reconciler check failed (fail closed): {_exc}")
+    # ── HARD GATE 2: unresolved broker/DB position mismatch (disabled) ──
+    # position_reconciler not imported — reconcile_positions() is never scheduled
+    # (mock broker only). Re-enable when a real get_broker_positions() exists.
+    # See incident 2026-06-28 for why the mock must never run in production.
 
     # ── HARD GATE 3: daily loss limit ────────────────────────────────
     try:

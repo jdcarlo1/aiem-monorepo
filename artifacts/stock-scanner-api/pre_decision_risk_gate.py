@@ -41,7 +41,9 @@ import decision_logger    as dl
 import kill_switch        as ks
 import market_regime_overlay as mro
 import adversarial_critique  as ac
-import position_reconciler as pr
+# position_reconciler removed — reconcile_positions() is never scheduled
+# (mock broker only, no real account/positions API exists yet). Re-enable
+# when a real get_broker_positions() is wired in. See incident 2026-06-28.
 import daily_loss_limit    as dll
 import order_dedup         as od
 
@@ -200,11 +202,11 @@ def run_risk_gate(
             "until DB configuration is fixed."
         )
     else:
-        # 0a. Position reconciliation — unresolved broker/DB mismatch blocks all new orders
-        if pr.has_unresolved_mismatch(_db_url):
-            blocking_reasons.append(
-                "Unresolved position mismatch between broker and DB — trading blocked until resolved."
-            )
+        # 0a. Position reconciliation — disabled until real broker API is wired in.
+        # reconcile_positions() is never scheduled (mock source only); the check
+        # always returns False in the current state. Re-enable by importing
+        # position_reconciler and restoring: if pr.has_unresolved_mismatch(_db_url).
+        # See incident 2026-06-28 for why the mock must never run in production.
 
         # 0b. Daily loss limit circuit breaker — pure math, no broker dependency
         _dll_result = dll.check_daily_loss_limit(_db_url)
