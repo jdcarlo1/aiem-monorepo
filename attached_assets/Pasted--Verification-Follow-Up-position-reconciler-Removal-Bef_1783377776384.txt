@@ -1,0 +1,38 @@
+# Verification Follow-Up — position_reconciler Removal
+
+Before this is marked closed, prove the following. "It imports cleanly" is not sufficient — I need a **live, executed run** with raw output, same as premarket_open_trader.evaluate_ticker.
+
+## 1. Live execution of pre_decision_risk_gate.py
+
+Your own output states: *"run_risk_gate errored on AIEM_DATABASE_URL — pre-existing env requirement at line 72, unrelated to this change."*
+
+That means `run_risk_gate` has never actually been executed post-edit. Only the import succeeded.
+
+**Required:**
+- Set `AIEM_DATABASE_URL` (or the correct env var) and run `run_risk_gate` end-to-end.
+- Paste the raw terminal output of that run — not a summary, not "OK", the actual return value / dict / stack trace.
+- Confirm: does it complete without error now? If it still errors, is the error identical in nature to before, or does it now differ because of the removed gate?
+
+## 2. Blocker-list integrity after removal
+
+The removed gate used to `append()` to `hard_blockers`. Confirm the surrounding function body is intact.
+
+**Required:**
+- Paste the full current body of the function containing HARD GATE 2 (or line range ~190-230) as it exists on disk right now, via `cat` or `sed -n`, not a paraphrase.
+- Confirm the remaining gates (soft blockers, other hard blockers) still append/execute in the same order with no indentation or control-flow damage from the deletion.
+- Run `run_risk_gate` (or equivalent) against a ticker/scenario that should trigger at least one *other* hard blocker, and confirm that blocker still fires. Paste that output.
+
+## 3. Scheduler / caller confirmation
+
+**Required:**
+- Confirm via grep or equivalent that nothing else in the codebase (cron jobs, schedulers, other modules) still references `reconcile_positions()` or expects it to run.
+- Paste that grep output.
+
+## 4. Full diff review
+
+**Required:**
+- Paste `git diff` (not a description of the diff) for every file touched in this change, so it can be reviewed in full rather than via selective before/after snippets.
+
+---
+
+**Standard for "done":** raw terminal output, raw SQL/query results, or raw git diff for each item above. Summaries, "OK", or "should work" are not acceptable evidence.
