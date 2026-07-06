@@ -1,0 +1,266 @@
+"""
+AIEM RL ENGINE — INTER-MODULE COMMUNICATION VERIFICATION HARNESS
+==================================================================
+
+PURPOSE
+-------
+This script does NOT ask the agent whether modules are wired together.
+It calls each module directly with synthetic data, prints RAW output,
+then feeds module A's real output into module B and checks the DB
+in between — so you can see with your own eyes whether data actually
+flows, or whether each module is an island that never talks to the
+others.
+
+HOW TO USE
+----------
+1. Give this file to the Replit agent and ask it to fill in the
+   TODOs with the REAL method names/signatures from aiem_rl_engine.py
+   (do not let it rewrite the test logic — only the plumbing to call
+   its own functions).
+2. Run it yourself: `python3 aiem_comm_test.py`
+3. Read the raw printed output — don't ask the agent to summarize it.
+4. Anywhere you see "MANUAL CHECK", that's a place where you decide
+   pass/fail by eyeballing the printed values, not trusting a
+   printed "PASS" from the script itself.
+
+WHY THIS CATCHES FAKE WIRING
+-----------------------------
+- If TradeOutcomeAnalyzer's output doesn't change when you feed it a
+  different synthetic trade, its logic isn't real.
+- If RewardEngine's reward score doesn't actually end up as an input
+  to PPOPolicyOptimizer's next weight update, they're not connected —
+  no matter what the agent claims.
+- If MarketMemory doesn't return the pattern you just wrote into it,
+  the DB round-trip is fake or misconfigured.
+- If ContinualLearner's consolidation doesn't nudge weights when you
+  intentionally push StrategyWeightOptimizer to an extreme, EWC-style
+  consolidation isn't running.
+"""
+
+import json
+import sys
+import traceback
+from datetime import datetime, timedelta
+
+# TODO: point this at the real module file
+# from aiem_rl_engine import (
+#     TradeOutcomeAnalyzer, MistakeClassifier, ExperienceReplayBuffer,
+#     RewardEngine, ConfidenceCalibration, CounterfactualEngine,
+#     StrategyWeightOptimizer, SelfCritiqueAgent, ContinualLearner,
+#     PPOPolicyOptimizer, AdaptiveRiskManager, MarketMemory,
+# )
+
+# TODO: point this at the real DB connection helper used elsewhere in main.py
+# from main import get_db_connection
+
+
+def hr(title):
+    print("\n" + "=" * 70)
+    print(title)
+    print("=" * 70)
+
+
+def make_synthetic_trade(symbol="TEST", pct_move=5.0, held_minutes=45, r_multiple=1.8):
+    """A fabricated trade record — deliberately NOT a real historical trade,
+    so we can prove modules react to the actual data passed in, not to
+    something hardcoded or cached."""
+    now = datetime.utcnow()
+    return {
+        "symbol": symbol,
+        "entry_price": 100.0,
+        "exit_price": 100.0 * (1 + pct_move / 100),
+        "entry_time": (now - timedelta(minutes=held_minutes)).isoformat(),
+        "exit_time": now.isoformat(),
+        "size_usd": 1000.0,
+        "r_multiple": r_multiple,
+        "pct_move": pct_move,
+        "held_minutes": held_minutes,
+    }
+
+
+# ---------------------------------------------------------------------
+# STAGE 1 — Call each module in isolation with synthetic input
+# ---------------------------------------------------------------------
+
+def stage_1_isolated_calls():
+    hr("STAGE 1: Isolated module calls (does each module DO something?)")
+
+    trade_a = make_synthetic_trade(pct_move=5.0, r_multiple=2.0)   # clean winner
+    trade_b = make_synthetic_trade(pct_move=-3.0, r_multiple=-1.5, held_minutes=180)  # bad loser, held too long
+
+    results = {}
+
+    # --- TradeOutcomeAnalyzer ---
+    print("\n[TradeOutcomeAnalyzer] Feeding winner vs loser trade...")
+    # TODO: replace with real call, e.g.:
+    # out_a = TradeOutcomeAnalyzer().analyze(trade_a)
+    # out_b = TradeOutcomeAnalyzer().analyze(trade_b)
+    out_a, out_b = "TODO_CALL_REAL_METHOD", "TODO_CALL_REAL_METHOD"
+    print("  Winner trade output:", out_a)
+    print("  Loser trade output :", out_b)
+    print("  MANUAL CHECK: outputs must differ meaningfully (SPY comparison, "
+          "peak-in-hold) — if identical, the module ignores its input.")
+    results["trade_outcome"] = (out_a, out_b)
+
+    # --- MistakeClassifier ---
+    print("\n[MistakeClassifier] Feeding the held-too-long loser...")
+    # TODO: mistakes = MistakeClassifier().classify(trade_b)
+    mistakes = "TODO_CALL_REAL_METHOD"
+    print("  Mistakes returned:", mistakes)
+    print("  MANUAL CHECK: should include something like HELD_TOO_LONG given "
+          "held_minutes=180 and a losing outcome. If mistakes=[] on a bad "
+          "trade, the classifier isn't reading the fields it claims to.")
+    results["mistakes"] = mistakes
+
+    # --- RewardEngine ---
+    print("\n[RewardEngine] Scoring winner vs loser...")
+    # TODO: reward_a = RewardEngine().score(trade_a)
+    # TODO: reward_b = RewardEngine().score(trade_b)
+    reward_a, reward_b = "TODO_CALL_REAL_METHOD", "TODO_CALL_REAL_METHOD"
+    print("  Winner reward:", reward_a)
+    print("  Loser reward :", reward_b)
+    print("  MANUAL CHECK: reward_a must be clearly positive and greater "
+          "than reward_b; reward_b should reflect the 2x drawdown penalty.")
+    results["reward"] = (reward_a, reward_b)
+
+    # --- MarketMemory ---
+    print("\n[MarketMemory] Writing a synthetic 'squeeze' pattern, then reading it back...")
+    # TODO: MarketMemory().store_pattern(symbol="TEST", pattern_type="squeeze", data={...})
+    # TODO: fetched = MarketMemory().get_patterns(symbol="TEST")
+    fetched = "TODO_CALL_REAL_METHOD"
+    print("  Retrieved:", fetched)
+    print("  MANUAL CHECK: the pattern you just wrote must come back. If it "
+          "doesn't, the DB round-trip for this module is broken or it's "
+          "reading/writing different tables than it claims.")
+    results["market_memory"] = fetched
+
+    return results
+
+
+# ---------------------------------------------------------------------
+# STAGE 2 — Chain modules together and trace the handoff
+# ---------------------------------------------------------------------
+
+def stage_2_chained_pipeline():
+    hr("STAGE 2: Chained pipeline (does module A's output reach module B?)")
+
+    trade = make_synthetic_trade(pct_move=-4.0, r_multiple=-2.0, held_minutes=200)
+
+    # Step 1: TradeOutcomeAnalyzer -> MistakeClassifier
+    print("\n[1] TradeOutcomeAnalyzer analyzes trade...")
+    # TODO: analysis = TradeOutcomeAnalyzer().analyze(trade)
+    analysis = "TODO_CALL_REAL_METHOD"
+    print("  analysis =", analysis)
+
+    print("\n[2] Feeding THAT SAME analysis object into MistakeClassifier...")
+    # TODO: mistakes = MistakeClassifier().classify(trade, analysis=analysis)
+    mistakes = "TODO_CALL_REAL_METHOD"
+    print("  mistakes =", mistakes)
+    print("  MANUAL CHECK: if MistakeClassifier's real signature doesn't even "
+          "accept `analysis` as an argument, it never actually consumes "
+          "TradeOutcomeAnalyzer's output — they're not wired, regardless of "
+          "what the agent's diagram says.")
+
+    # Step 3: RewardEngine -> ExperienceReplayBuffer -> PPOPolicyOptimizer
+    print("\n[3] RewardEngine scores the trade...")
+    # TODO: reward = RewardEngine().score(trade, mistakes=mistakes)
+    reward = "TODO_CALL_REAL_METHOD"
+    print("  reward =", reward)
+
+    print("\n[4] Writing (trade, reward, mistakes) into ExperienceReplayBuffer...")
+    # TODO: ExperienceReplayBuffer().store(trade=trade, reward=reward, mistakes=mistakes)
+    print("  MANUAL CHECK (run SQL yourself):")
+    print("    SELECT * FROM rl_experience_buffer ORDER BY id DESC LIMIT 1;")
+    print("  The row's reward column must equal the `reward` printed above, "
+          "not some default/placeholder value.")
+
+    print("\n[5] Triggering PPOPolicyOptimizer update from the buffer...")
+    # TODO: before_weights = PPOPolicyOptimizer().get_current_weights()
+    # TODO: PPOPolicyOptimizer().update_from_buffer()
+    # TODO: after_weights = PPOPolicyOptimizer().get_current_weights()
+    before_weights, after_weights = "TODO", "TODO"
+    print("  before:", before_weights)
+    print("  after :", after_weights)
+    print("  MANUAL CHECK: weights must change after a large negative-reward "
+          "trade is added. If before == after, the optimizer isn't actually "
+          "consuming what ExperienceReplayBuffer wrote.")
+
+    # Step 6: StrategyWeightOptimizer -> ContinualLearner
+    print("\n[6] Forcing StrategyWeightOptimizer to an extreme weight, then "
+          "running ContinualLearner consolidation...")
+    # TODO: StrategyWeightOptimizer().force_weight(layer="layer9", value=5.0)  # deliberately extreme
+    # TODO: before_consolidation = StrategyWeightOptimizer().get_weight("layer9")
+    # TODO: ContinualLearner().consolidate()
+    # TODO: after_consolidation = StrategyWeightOptimizer().get_weight("layer9")
+    print("  MANUAL CHECK: after_consolidation should be pulled back toward "
+          "the mean (EWC alpha=0.08) relative to the forced 5.0 value. If "
+          "it's still 5.0, ContinualLearner isn't actually touching "
+          "StrategyWeightOptimizer's stored weights.")
+
+    # Step 7: CounterfactualEngine cross-check against real price data
+    print("\n[7] CounterfactualEngine — 'what if held longer' on the same trade...")
+    # TODO: cf = CounterfactualEngine().what_if(trade, scenario="held_longer")
+    cf = "TODO_CALL_REAL_METHOD"
+    print("  counterfactual result:", cf)
+    print("  MANUAL CHECK: this requires a REAL polygon_market_daily price "
+          "lookup for the symbol/date range. If you use a symbol/date with "
+          "no data in that table, this should fail loudly, not silently "
+          "return a made-up number.")
+
+    # Step 8: ConfidenceCalibration cross-check
+    print("\n[8] ConfidenceCalibration — record predicted vs actual outcome...")
+    # TODO: ConfidenceCalibration().record(signal="layer9", predicted_conf=0.8, actual_outcome=False)
+    print("  MANUAL CHECK (run SQL yourself):")
+    print("    SELECT * FROM rl_confidence_calibration ORDER BY id DESC LIMIT 1;")
+    print("  predicted_conf and actual_outcome must match what you just sent.")
+
+
+# ---------------------------------------------------------------------
+# STAGE 3 — "Ask each module a question" via AIEM's own tool interface
+# ---------------------------------------------------------------------
+
+def stage_3_agent_tool_probes():
+    hr("STAGE 3: Probe AIEM's own tool-calling interface directly")
+    print("""
+Instead of trusting the agent's description of what its 4 tools do,
+call them the SAME way AIEM itself would — through _build_aiem_tool_map()
+— and read the raw JSON back.
+
+TODO: adapt to however _build_aiem_tool_map() actually exposes tools, e.g.:
+
+    tool_map = _build_aiem_tool_map()
+
+    print(tool_map["rl_status"]())
+    print(tool_map["rl_strategy_weights"]())
+    print(tool_map["rl_ppo_policy"]())
+    print(tool_map["rl_counterfactuals"](symbol="TEST", scenario="held_longer"))
+
+MANUAL CHECK for each:
+  - rl_status: numbers should match what you just wrote in Stage 1/2
+    (e.g. n_updates should have incremented after Stage 2's step 5).
+  - rl_strategy_weights: layer9 weight should reflect the EMA update
+    from Stage 2's step 6, not a stale cached value.
+  - rl_ppo_policy: should reflect the SAME before/after weights you
+    already saw printed in Stage 2 — if these numbers disagree with
+    what you saw directly from PPOPolicyOptimizer, something in the
+    tool wrapper is stubbed or reading from the wrong place.
+  - rl_counterfactuals: should reproduce the same result as calling
+    CounterfactualEngine directly in Stage 2, step 7. If the tool
+    version and the direct-call version disagree, the tool wrapper
+    isn't actually calling the real module.
+""")
+
+
+if __name__ == "__main__":
+    try:
+        stage_1_isolated_calls()
+        stage_2_chained_pipeline()
+        stage_3_agent_tool_probes()
+    except Exception:
+        print("\n\n*** SCRIPT CRASHED — this itself is useful information. ***")
+        traceback.print_exc()
+        sys.exit(1)
+
+    print("\n\nDONE. Now go through every 'MANUAL CHECK' line above and "
+          "verify with your own eyes — don't ask the agent to grade its own "
+          "test results.")

@@ -1,0 +1,56 @@
+# How to Use the AIEM Module Communication Test
+
+## The problem with what you have now
+The screenshots show the agent *describing* wiring. That's a narrative, not a
+test. The way to actually prove modules talk to each other is to force real
+data through them and watch what comes out the other end — not ask the agent
+"are you sure this works?"
+
+## What `aiem_comm_test.py` does
+Three stages, each one harder to fake than the last:
+
+1. **Isolated calls** — feed each of the 12 modules synthetic input directly
+   and print raw output. Checks that each module actually does something
+   with its input (not a stub returning a constant).
+2. **Chained pipeline** — feed module A's real output into module B, and
+   check the database in between. This is the important one: if
+   `PPOPolicyOptimizer`'s weights don't change after you write a bad trade
+   into `ExperienceReplayBuffer`, they are not actually connected, no matter
+   what main.py's comments say.
+3. **Tool-interface probes** — call the same 4 tools (`rl_status`,
+   `rl_strategy_weights`, `rl_ppo_policy`, `rl_counterfactuals`) that AIEM
+   itself would call, and cross-check the numbers against what you saw
+   directly in stage 2. If they disagree, the tool wrapper is disconnected
+   from the real module even if the module itself works.
+
+## What to do with it
+
+1. **Hand the file to the Replit agent** with this instruction, verbatim:
+
+   > "Fill in every TODO in this file with the real method names and
+   > signatures from aiem_rl_engine.py. Do not change the test logic, the
+   > synthetic data, or the manual-check comments. Then run it and paste the
+   > complete raw terminal output."
+
+2. **Read the raw output yourself.** Every `MANUAL CHECK` comment tells you
+   exactly what to look for and what a fake/broken wiring would look like.
+
+3. **Run the SQL checks yourself**, independently of the agent, using
+   whatever DB client you normally use (not through the agent's chat). The
+   script tells you exactly which queries to run and when.
+
+4. **Red flags to watch for:**
+   - Any module's output doesn't change when you feed it clearly different
+     input (winner vs. loser trade).
+   - `before_weights == after_weights` after Stage 2 step 5 — this means
+     `PPOPolicyOptimizer` isn't actually consuming the experience buffer.
+   - Stage 3's tool outputs disagree with Stage 2's direct-call outputs —
+     the tool wrapper is a facade, not a real connection.
+   - The agent modifies the test's assertions or synthetic data "to make it
+     pass" — if it does this, ask it directly why, and don't accept the
+     modified version.
+
+## If you want this to run automatically going forward
+Once this passes manually, ask the agent to wire it in as a real automated
+test (e.g. `pytest`) that runs on every deploy — so "prove it, don't tell me"
+becomes a permanent CI gate instead of a one-time manual audit.
