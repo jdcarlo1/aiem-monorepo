@@ -1,0 +1,99 @@
+# AIEM — 18 New Module Verification Protocol
+
+**Standard: prove it, don't tell me.** No narrative summaries, no "✅ working" checklists without evidence. Every answer below must come with raw terminal output, actual variable values, SQL query results, or a git diff showing the wiring line. If a module cannot produce that evidence, say so explicitly — do not fill the gap with a description of what it *should* do.
+
+For every module below, answer all four questions with real output:
+
+1. **Called from where?** Show the exact file + line number where this module is instantiated and invoked from the live trading pipeline (not from a standalone test script).
+2. **Real input, printed.** Run it once with a live/paper trading signal (not a synthetic ticker) and paste the actual input object passed in.
+3. **Real output, printed.** Paste the actual output object it returned for that input.
+4. **Downstream consumption.** Show the exact line of code where the *next* module in the chain reads this module's output — prove it isn't computed and discarded.
+
+---
+
+## File: aiem_edge_filter.py (7 modules)
+
+### 1. ExpectancyEngine
+- Show the historical trade sample it queried (ticker, count, win rate, avg P&L) with the actual SQL query and returned rows.
+- Trigger a case where expectancy is negative. Show the hard block actually preventing the trade (not just logging a warning).
+
+### 2. RegimeEngine
+- Show its regime classification for the current market state (bull/bear/choppy/etc.) with the underlying indicator values it used to decide.
+- Show one case where a momentum signal was filtered out because the regime didn't support it — include the signal object before and after.
+
+### 3. OverfitDetector
+- Show the specific metric(s) it uses to flag overfitting (e.g., Sharpe decay, in-sample vs out-of-sample gap) and the actual computed values for a real strategy.
+- Show one signal that was flagged, and the exact threshold that triggered the flag.
+
+### 4. StrategyLifecycle
+- Show the current lifecycle state (peak/declining/dead) for at least 2 real strategies in the system, with the underlying performance data that produced that classification.
+- Show what changes in downstream behavior (sizing, filtering) when a strategy is marked "declining" vs "peak" — with before/after output.
+
+### 5. AllocationEngine
+- Show actual dollar/position-size allocations it computed for 2+ different signals, and the inputs (conviction score, account size, risk budget) that produced each number.
+
+### 6. FeatureAblation
+- Show which features it tested removing and the resulting performance delta for each. This must be real computed numbers, not a hardcoded example.
+
+### 7. EdgeFilterOrchestrator
+- Show the full call sequence: which of the 6 modules above it calls, in what order, and paste the intermediate output at each step for one real signal.
+- Show a case where a signal was rejected — identify which specific module in the stack rejected it and why.
+
+---
+
+## File: aiem_v2_system.py (7 modules)
+
+### 8. SignalFactory
+- Show it producing signals from at least 2 different model types (not just one).
+- Show the exact function call where each model is registered/retrieved.
+
+### 9. FeatureStore
+- Show a write followed by an immediate read-back of the same feature set — prove it's a real store, not stateless computation on every call.
+
+### 10. MomentumModel
+- Show its raw signal output (direction, strength/confidence) for a real ticker with real price data, and the calculation that produced it.
+
+### 11. MeanReversionModel
+- Same as above for mean reversion — show it produces a genuinely different signal than MomentumModel on the same input (they should disagree sometimes).
+
+### 12. OptionsFlowModel
+- Show it consuming real options flow data (not placeholder/mock data) — cite the actual data source table/API call and a sample row.
+
+### 13. MetaCognition
+- Show what it's actually monitoring (e.g., model disagreement, confidence drift) and one real instance where it flagged something.
+
+### 14. AEIMV2System
+- Show this orchestrator calling SignalFactory → the 3 models → MetaCognition in sequence, with output at each hop for one real ticker.
+- Confirm: is this the class the live trading pipeline actually imports and calls? Show the import line in the production file.
+
+---
+
+## File: aiem_intelligence_layer.py (4 modules)
+
+### 15. IntuitionEngine
+- Show it taking outputs from multiple upstream modules (name which ones) and producing one of TRADE / REDUCE SIZE / WAIT / NO TRADE.
+- Show 2 real cases with different outcomes and the inputs that drove each decision.
+
+### 16. OptionBBrain
+- What is this actually responsible for? Show its real inputs/outputs — this one is unclear from the summary and needs a plain description plus a live run.
+
+### 17. VolatilityNormalizationLayer
+- Show the current VIX (or vol proxy) it read, and the confidence score before and after rescaling for the same signal at low vs high volatility.
+
+### 18. AdaptiveMarketLayer
+- This is described as the top-level brain that routes to the best-performing strategy. Show it actually switching strategy selection based on live performance — i.e., show it choosing strategy A at one point and strategy B at another, with the data that drove the switch.
+- **Critical question: is this the single entry point the live pipeline calls, or does the pipeline bypass it and call individual modules directly?** Show the actual production call site.
+
+---
+
+## Cross-Cutting Integration Checks (do these last, after all 18 pass individually)
+
+1. **Full chain trace.** Take ONE real signal from entry to trade decision. Show it passing through every module in order (EdgeFilter stack → V2 system → Intelligence layer) with real intermediate output at every single hop, not a summary of the chain.
+
+2. **Silent-failure sweep.** For every module that has a guard/filter (ExpectancyEngine's hard block, RegimeEngine's filter, OverfitDetector's flag, AdaptiveMarketLayer's routing), confirm the guard raises/logs loudly on unexpected input rather than silently no-op'ing — per the `update_policy()` bug found in AIEM's PPO module. Grep for `if X not in Y: return` patterns across all 18 modules and list every hit.
+
+3. **Dead code check.** For each of the 18 modules, confirm it is imported and instantiated somewhere in the actual production entry point (not just defined and never called). List any module that fails this check.
+
+4. **No test-only wiring.** If a module only gets called from a test file and never from the live/paper trading pipeline, flag it explicitly as "not yet wired to production" — do not report it as working.
+
+Report format: one row per module (18 rows) with columns: Module | Wired to production? (Y/N + file:line) | Real output shown? (Y/N) | Downstream consumption proven? (Y/N) | Notes/red flags.

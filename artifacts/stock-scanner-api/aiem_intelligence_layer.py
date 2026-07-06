@@ -441,7 +441,7 @@ class AdaptiveMarketLayer:
         # ── 1. Regime detection (regime_detector.py — real SPY+VIX) ───────
         try:
             from regime_detector import get_current_regime as _gcr
-            _reg = _gcr()
+            _reg = _gcr(db_url=_DB_URL)
             label = _reg.get("regime", "NEUTRAL")
             # Map regime_detector labels → canonical BULL/BEAR/NEUTRAL/HIGH_VOL
             label_map = {
@@ -485,14 +485,26 @@ class AdaptiveMarketLayer:
         result["norm_confidence"] = norm_conf
         result["detail"]["vix_factor"] = vix_factor
 
-        # ── 4. Decay check (aiem_module2_decay) ───────────────────────────
+        # ── 4. Decay check (aiem_signal_discoveries) ──────────────────────
         try:
-            import aiem_module2_decay as _m2
             signal_name = result.get("best_strategy", "")
-            status = _m2.get_signal_status(signal_name) if signal_name else {}
-            decaying = status.get("evaluation_status") in ("decaying", "invalidated")
-            result["decaying"] = bool(decaying)
-            result["detail"]["decay_status"] = status.get("evaluation_status", "unknown")
+            decaying = False
+            decay_status = "unknown"
+            if signal_name:
+                with _connect() as _dc:
+                    with _dc.cursor() as _dcu:
+                        _dcu.execute("""
+                            SELECT status FROM aiem_signal_discoveries
+                            WHERE hypothesis_text ILIKE %s
+                               OR notes ILIKE %s
+                            ORDER BY discovered_at DESC LIMIT 1
+                        """, (f"%{signal_name}%", f"%{signal_name}%"))
+                        _dr = _dcu.fetchone()
+                        if _dr:
+                            decay_status = _dr[0] or "unknown"
+                            decaying = decay_status in ("rejected", "invalid")
+            result["decaying"] = decaying
+            result["detail"]["decay_status"] = decay_status
             if decaying:
                 norm_conf = round(norm_conf * 0.5, 4)
                 result["norm_confidence"] = norm_conf
