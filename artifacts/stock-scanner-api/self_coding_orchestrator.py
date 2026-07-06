@@ -32,7 +32,7 @@ import adversarial_critique as ac
 
 ALLOWED_IMPORTS = {
     "pandas", "numpy", "math", "statistics", "json", "datetime",
-    "itertools", "collections", "scipy", "sklearn",
+    "itertools", "collections", "scipy", "sklearn", "sys",
 }
 
 FORBIDDEN_TOKENS = [
@@ -102,7 +102,11 @@ def run_self_written_backtest(
                 capture_output=True,
                 text=True,
                 preexec_fn=_limit_resources if os.name == "posix" else None,
-                env={"PATH": os.environ.get("PATH", "")},
+                env={
+                    "PATH": os.environ.get("PATH", ""),
+                    "PYTHONPATH": ":".join(sys.path),
+                    "HOME": "/tmp",
+                },
             )
         except subprocess.TimeoutExpired:
             return {"error": "timeout", "detail": f"Exceeded {timeout_seconds}s"}

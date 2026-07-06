@@ -1,0 +1,162 @@
+# Verification Audit — Newly Added Modules (This Session's Batch)
+
+Modules claimed added/wired today:
+
+| # | Module | Claimed function |
+|---|--------|------------------|
+| 1 | `aiem_process.py` | (pre-existing, "done last session" — not new, exclude from this audit) |
+| 2 | `economic_calendar.py` | Hard gate in paper picks — skips all new picks on FOMC/CPI/NFP/PCE/GDP days. Tool: `econ_is_high_impact_day` |
+| 3 | `news_catalyst_monitor.py` | Per-ticker filter in paper picks — removes candidates with FDA rejection/lawsuit/SEC investigation/bankruptcy in last 24h |
+| 4 | `slippage_model.py` | Tool: `estimate_options_slippage` — call before placing any options order |
+| 5 | `portfolio_correlation_risk.py` | Tool: `check_portfolio_concentration` — detects hidden mega_tech/semis/crypto concentration |
+| 6 | `historical_analog_search.py` | Tool: `mkt_find_historical_analogs` + REST endpoint `/stock-api/historical-analog/<ticker>` |
+| 7 | `niche_segment_finder.py` | Sunday 9:30 PM job — BH-FDR corrected segment search on settled paper trades → `aiem_segment_findings` |
+| 8 | `daily_loss_limit.py` | Table created on startup. Tool: `check_daily_loss_limit` |
+| 9 | `self_coding_orchestrator.py` | Tool: `run_aiem_self_backtest` — AIEM writes/executes its own backtest code in a sandboxed subprocess |
+| 10 | `position_reconciler.py` | **Claimed SKIPPED ON PURPOSE** — module's own comments say "INTENTIONALLY DISABLED — DO NOT FIX BY WIRING THE MOCK." Prior production halt in June. Needs real broker API. |
+
+This is a meaningfully higher-risk batch than prior sessions — several of these
+sit directly in the path of real paper-trade order placement (slippage,
+loss limits, econ-day gating) and one (#9) grants AIEM the ability to write
+and execute its own code. Treat this audit accordingly: no partial credit,
+no "should work," raw output only.
+
+---
+
+## Section A — Existence and import checks
+
+```bash
+for f in economic_calendar news_catalyst_monitor slippage_model \
+         portfolio_correlation_risk historical_analog_search \
+         niche_segment_finder daily_loss_limit self_coding_orchestrator \
+         position_reconciler; do
+  echo "=== $f.py ==="
+  ls -la "${f}.py" 2>&1
+  grep -n "^import ${f}\|^from ${f} import" main.py aiem_process.py 2>&1
+  echo ""
+done
+```
+
+For each file: confirm it exists on disk AND is actually imported somewhere
+that runs at startup — a file existing with no import is dead code.
+
+## Section B — AIEM tool registration (schema + tool map both required)
+
+For modules 2, 4, 5, 6, 8, 9 (the ones with named AIEM tools), confirm the
+tool appears in BOTH places — the earlier session already caught 7 tools
+that were in `_tool_map` but missing from the schema list, silently
+uncallable. Don't let that recur.
+
+```bash
+for tool in econ_is_high_impact_day estimate_options_slippage \
+            check_portfolio_concentration mkt_find_historical_analogs \
+            check_daily_loss_limit run_aiem_self_backtest; do
+  echo "=== $tool ==="
+  echo "-- in _tool_map:"
+  grep -n "\"$tool\"" main.py | grep -i tool_map
+  echo "-- in schema list:"
+  grep -n "\"$tool\"" main.py | grep -i schema
+  echo ""
+done
+```
+
+Both greps must return a hit for each tool. Any tool with only one hit is
+half-wired and uncallable by AIEM despite appearing to exist.
+
+## Section C — Actual wiring into the decision path (not just tool existence)
+
+A tool existing and being *callable by AIEM in chat* is different from it
+being *automatically enforced* in the real paper-trade pipeline. Confirm
+both, and be explicit about which is which for each module:
+
+```bash
+# Economic calendar hard gate — must be called INSIDE the paper-pick function,
+# not just available as a standalone AIEM tool
+grep -n -B5 -A15 "def.*paper_pick\|def.*generate_picks" main.py | grep -A15 "econ_is_high_impact_day\|economic_calendar"
+
+# News catalyst filter — must run per-candidate inside paper-pick generation
+grep -n -B5 -A15 "def.*paper_pick\|def.*generate_picks" main.py | grep -A15 "news_catalyst\|fda_rejection\|lawsuit\|sec_investigation"
+
+# Slippage model — must be called before/inside actual order placement
+grep -n -B5 -A15 "def.*place_order\|def.*submit_trade" main.py | grep -A15 "slippage_model\|estimate_options_slippage"
+
+# Daily loss limit — must be checked before allowing new picks/orders
+grep -n -B5 -A15 "def.*paper_pick\|def.*place_order" main.py | grep -A15 "daily_loss_limit\|check_daily_loss_limit"
+```
+
+**For each of the four checks above, report explicitly:**
+- Is it wired automatically into the pipeline (runs without AIEM being asked)?
+- Or is it only available as an AIEM tool AIEM must choose to call?
+These are very different risk profiles and the answer must be stated plainly,
+not implied.
+
+## Section D — DB tables actually exist and are being written to
+
+```sql
+-- Confirm tables exist
+\d aiem_segment_findings
+\d+ information_schema.tables WHERE table_name IN
+  ('aiem_segment_findings','daily_loss_tracking');
+
+-- Confirm they're not empty shells — any rows at all, even test data
+SELECT COUNT(*) FROM aiem_segment_findings;
+SELECT COUNT(*) FROM daily_loss_tracking;  -- or whatever daily_loss_limit.py writes to
+```
+
+## Section E — Sample invocation test for every AIEM-callable tool
+
+For each tool below, actually ask AIEM (in a real chat turn, not a
+description) to call it, and paste the raw tool_use + tool_result blocks —
+not a summary of what it returned.
+
+1. `econ_is_high_impact_day` — ask "is today a high-impact economic day?"
+2. `estimate_options_slippage` — ask it to estimate slippage for a specific
+   real options contract
+3. `check_portfolio_concentration` — ask it to check current paper portfolio
+   concentration
+4. `mkt_find_historical_analogs` — ask it to find historical analogs for a
+   specific real ticker
+5. `check_daily_loss_limit` — ask it to check today's loss limit status
+6. `run_aiem_self_backtest` — **this one needs extra scrutiny.** Ask it to
+   run a trivial, safe self-authored backtest (e.g. "backtest a simple
+   moving-average crossover on AAPL over the last 30 days") and paste:
+   - The actual code it wrote
+   - Confirmation it ran in a sandboxed subprocess (show the subprocess
+     invocation/isolation mechanism, not just "it worked")
+   - The actual output/result
+   - Confirmation the subprocess cannot write outside its sandbox or reach
+     production DB/broker credentials
+
+## Section F — Confirm `position_reconciler.py` is genuinely inert, not silently active
+
+This is the one module claimed skipped on purpose. Don't just trust the
+comment — verify the claim:
+
+```bash
+grep -n "import position_reconciler\|from position_reconciler" main.py aiem_process.py
+```
+Expected: **no hits**, or a hit that is commented out / behind a disabled
+flag. If it IS imported and called anywhere despite the "INTENTIONALLY
+DISABLED" comment, that's the exact kind of silent landmine that caused the
+June production halt in the first place — flag it immediately, don't treat
+it as fine.
+
+---
+
+## What "verified" means for this batch
+
+- Every module: exists, is imported, and (where applicable) is registered
+  in both `_tool_map` and the schema.
+- Every automatic-gate claim (econ day, news catalyst, slippage, loss limit)
+  has an explicit, stated answer: auto-enforced in the pipeline, or
+  AIEM-callable-on-request only. No blending the two.
+- Real DB tables exist and have been written to at least once (test data ok,
+  but state clearly that it's test data).
+- Real sample tool-call output for all six named tools, pasted raw.
+- `self_coding_orchestrator` gets the extra sandbox-isolation scrutiny above —
+  this is the one capability in this batch that could cause real harm if the
+  sandboxing claim is false.
+- `position_reconciler.py` confirmed genuinely uncalled, not just claimed so.
+
+Paste raw output only. No "all tests passed" summaries without the
+underlying evidence attached.
