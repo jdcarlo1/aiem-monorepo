@@ -13921,18 +13921,40 @@ except Exception as _e_pe_sched:
 def _init_stock_pe_alert_log():
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=6) as _c, _c.cursor() as _cu:
+            # Per-ticker dedup table: one row per (date, ticker), no re-alerting same stock same day
             _cu.execute("""
                 CREATE TABLE IF NOT EXISTS stock_pe_alert_log (
                     id          SERIAL PRIMARY KEY,
                     alert_date  DATE        NOT NULL,
-                    config_name TEXT        NOT NULL,
-                    ticker_count INT,
-                    tickers     TEXT,
+                    ticker      TEXT        NOT NULL,
+                    live_price  NUMERIC(12,4),
+                    ret20d      NUMERIC(8,2),
+                    best_config TEXT,
                     tg_sent     BOOLEAN     DEFAULT FALSE,
                     sent_at     TIMESTAMPTZ,
-                    UNIQUE (alert_date, config_name)
+                    UNIQUE (alert_date, ticker)
                 )
             """)
+            # Migrate old schema if it has config_name column instead of ticker
+            _cu.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name='stock_pe_alert_log' AND column_name='ticker'
+            """)
+            if not _cu.fetchone():
+                _cu.execute("DROP TABLE IF EXISTS stock_pe_alert_log")
+                _cu.execute("""
+                    CREATE TABLE stock_pe_alert_log (
+                        id          SERIAL PRIMARY KEY,
+                        alert_date  DATE        NOT NULL,
+                        ticker      TEXT        NOT NULL,
+                        live_price  NUMERIC(12,4),
+                        ret20d      NUMERIC(8,2),
+                        best_config TEXT,
+                        tg_sent     BOOLEAN     DEFAULT FALSE,
+                        sent_at     TIMESTAMPTZ,
+                        UNIQUE (alert_date, ticker)
+                    )
+                """)
             _c.commit()
         print("[stock_pe] alert log table ready")
     except Exception as _e:
@@ -13990,25 +14012,42 @@ def _stock_pe_best_call(ticker: str, price: float):
 
 def _scan_stock_panic_exhaustion() -> None:
     """
-    Runs 4:35 PM ET Mon-Fri. Checks 4 validated Stock Panic Exhaustion configs:
-      Config A — any price,   stock<-20%, SPY<-7%, SPY5d<0, stock5d<0, not Fri  → 83.5% WR
-      Config B — price $15-50, stock<-20%, SPY<-7%, SPY5d<0, stock5d<0, not Fri → 84.9% WR
-      Config C — price $50+,   stock<-20%, SPY<-7%, SPY5d<0, stock5d<0, not Fri → 87.5% WR
-      Config D — stock<-25%,  SPY<-7%,   SPY5d<0, stock5d<0, not Fri           → 81.7% WR
-    Sends Telegram alert per config with strike + expiry for top tickers.
-    Deduped by date+config.
+    Runs every 15 min, 10:00 AM – 3:30 PM ET, Mon-Thu (not Friday per backtest filter).
+    Uses LIVE Tradier quotes so intraday panics are caught in real time — not just EOD.
+
+    4 validated configs (all require SPY 20d < -7% macro regime):
+      Config C — price $50+,   stock<-20%, SPY5d<0, stock5d<0  → 87.5% WR
+      Config B — price $15-50, stock<-20%, SPY5d<0, stock5d<0  → 84.9% WR
+      Config D — stock<-25%,   SPY5d<0, stock5d<0              → 81.7% WR
+      Config A — any price,    stock<-20%, SPY5d<0, stock5d<0  → 83.5% WR
+
+    Deduped per ticker+date — each stock alerts at most once per day.
+    Consolidated into ONE Telegram message so you have time to research & trade.
     """
     import datetime as _dt
-    today = _dt.date.today()
+    now_et = _dt.datetime.now(_ET)
+    today  = now_et.date()
 
+    # ── Time window guard: only 10:00 AM – 3:30 PM ET ──────────────────────
+    t = now_et.time()
+    if t < _dt.time(10, 0) or t > _dt.time(15, 30):
+        return  # silent — fires on interval, no need to log off-hours skips
+
+    # ── Friday filter (backtest loser pattern: 24.7% of losers were Fri) ───
     if today.weekday() == 4:
-        print("[stock_pe] Friday — skipping (filter rule)")
+        print("[stock_pe] Friday — skipping (backtest filter)")
         return
 
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=6) as _c, _c.cursor() as _cu:
 
-            # ── 1. SPY regime check ─────────────────────────────────────────
+            # ── 1. SPY macro gate using LIVE quote vs DB historical closes ──
+            spy_live_q = _td_quotes(["SPY"])
+            spy_live   = spy_live_q.get("SPY", {}).get("last") if spy_live_q else None
+            if not spy_live or spy_live <= 0:
+                print("[stock_pe] could not get live SPY quote — skipping")
+                return
+
             _cu.execute("""
                 SELECT scan_date, close_price
                 FROM polygon_market_daily
@@ -14021,22 +14060,21 @@ def _scan_stock_panic_exhaustion() -> None:
                 print("[stock_pe] not enough SPY data")
                 return
 
-            spy_now   = spy_rows[-1][1]
-            spy_5d    = spy_rows[-6][1]  if len(spy_rows) >= 6  else None
-            spy_20d   = spy_rows[-21][1] if len(spy_rows) >= 21 else None
-            spy_ret20 = (spy_now / spy_20d - 1) * 100 if spy_20d else None
-            spy_ret5  = (spy_now / spy_5d  - 1) * 100 if spy_5d  else None
+            spy_20d_base = spy_rows[-21][1]
+            spy_5d_base  = spy_rows[-6][1]
+            spy_ret20    = (spy_live / spy_20d_base - 1) * 100
+            spy_ret5     = (spy_live / spy_5d_base  - 1) * 100
 
-            if spy_ret20 is None or spy_ret20 >= -7.0:
+            if spy_ret20 >= -7.0:
                 print(f"[stock_pe] SPY 20d={spy_ret20:+.1f}% — macro gate not met (need <-7%)")
                 return
-            if spy_ret5 is None or spy_ret5 >= 0.0:
-                print(f"[stock_pe] SPY 5d={spy_ret5:+.1f}% — recovery filter: SPY recovering, skip")
+            if spy_ret5 >= 0.0:
+                print(f"[stock_pe] SPY 5d={spy_ret5:+.1f}% — SPY recovering, skip")
                 return
 
             print(f"[stock_pe] SPY gate PASSED: 20d={spy_ret20:+.1f}% 5d={spy_ret5:+.1f}%")
 
-            # ── 2. Scan individual stocks ───────────────────────────────────
+            # ── 2. Pre-filter candidates from DB (loosened to -18% to catch live moves) ──
             _cu.execute("""
                 WITH ranked AS (
                     SELECT ticker, scan_date, close_price,
@@ -14048,135 +14086,131 @@ def _scan_stock_panic_exhaustion() -> None:
                     )
                     AND close_price >= 5.0
                 ),
-                latest AS (SELECT ticker, close_price AS price FROM ranked WHERE rn=1),
+                latest AS (SELECT ticker, close_price AS prev_close FROM ranked WHERE rn=1),
                 hist20 AS (SELECT ticker, close_price AS p20 FROM ranked WHERE rn=21),
                 hist5  AS (SELECT ticker, close_price AS p5  FROM ranked WHERE rn=6)
-                SELECT
-                    l.ticker,
-                    l.price,
-                    (l.price / NULLIF(h20.p20,0) - 1)*100 AS ret20d,
-                    (l.price / NULLIF(h5.p5,  0) - 1)*100 AS ret5d
+                SELECT l.ticker, l.prev_close, h20.p20, h5.p5
                 FROM latest l
-                JOIN hist20 h20 ON h20.ticker = l.ticker
-                JOIN hist5  h5  ON h5.ticker  = l.ticker
+                JOIN hist20 h20 ON h20.ticker=l.ticker
+                JOIN hist5  h5  ON h5.ticker=l.ticker
                 WHERE h20.p20 > 0 AND h5.p5 > 0
-                  AND (l.price / NULLIF(h20.p20,0) - 1)*100 < -20.0
-                  AND (l.price / NULLIF(h5.p5,  0) - 1)*100 < 0.0
+                  AND (l.prev_close / h20.p20 - 1)*100 < -18.0
             """)
-            stock_rows = _cu.fetchall()
+            candidates = _cu.fetchall()  # (ticker, prev_close, p20, p5)
 
-            if not stock_rows:
-                print("[stock_pe] no stocks meet base conditions today")
+            if not candidates:
+                print("[stock_pe] no candidate stocks from DB pre-filter")
                 return
 
-            print(f"[stock_pe] {len(stock_rows)} stocks meet base conditions")
+            print(f"[stock_pe] {len(candidates)} candidates → fetching live quotes")
 
-            # ── 3. Bucket into configs ──────────────────────────────────────
-            configs = {
-                "A_any_price_SPY<-7":    [],
-                "B_price_15_50_SPY<-7":  [],
-                "C_price_50plus_SPY<-7": [],
-                "D_stock_-25_SPY<-7":    [],
-            }
-            for ticker, price, ret20d, ret5d in stock_rows:
-                configs["A_any_price_SPY<-7"].append((ticker, price, ret20d))
-                if 15 <= price <= 50:
-                    configs["B_price_15_50_SPY<-7"].append((ticker, price, ret20d))
-                if price > 50:
-                    configs["C_price_50plus_SPY<-7"].append((ticker, price, ret20d))
-                if ret20d < -25.0:
-                    configs["D_stock_-25_SPY<-7"].append((ticker, price, ret20d))
+            # ── 3. Live quotes for candidates (Tradier batch up to 200) ────
+            cand_tickers = [r[0] for r in candidates]
+            live_quotes: dict = {}
+            for _i in range(0, len(cand_tickers), 200):
+                _batch = cand_tickers[_i:_i+200]
+                _q = _td_quotes(_batch)
+                if _q:
+                    live_quotes.update(_q)
 
-            config_meta = {
-                "A_any_price_SPY<-7":    ("Any Price",  "83.5%", "8.64%"),
-                "B_price_15_50_SPY<-7":  ("$15–$50",    "84.9%", "8.45%"),
-                "C_price_50plus_SPY<-7": ("$50+",       "87.5%", "7.33%"),
-                "D_stock_-25_SPY<-7":    ("Stock<-25%", "81.7%", "9.81%"),
-            }
+            # ── 4. Already-alerted today (per-ticker dedup) ─────────────────
+            _cu.execute(
+                "SELECT ticker FROM stock_pe_alert_log WHERE alert_date=%s AND tg_sent=TRUE",
+                (today,)
+            )
+            alerted_today = {r[0] for r in _cu.fetchall()}
 
-            # ── 4. Send alert per config ────────────────────────────────────
-            for cfg_name, tickers in configs.items():
-                if not tickers:
+            # ── 5. Apply live-price thresholds ───────────────────────────────
+            qualifying = []
+            for ticker, prev_close, p20, p5 in candidates:
+                if ticker in alerted_today:
                     continue
-                label, wr, avg = config_meta[cfg_name]
-
-                _cu.execute("""
-                    SELECT tg_sent FROM stock_pe_alert_log
-                    WHERE alert_date=%s AND config_name=%s
-                """, (today, cfg_name))
-                existing = _cu.fetchone()
-                if existing and existing[0]:
-                    print(f"[stock_pe] {cfg_name} already sent today")
+                q = live_quotes.get(ticker, {})
+                live_price = q.get("last") or q.get("prevclose") or prev_close
+                if not live_price or live_price <= 0:
                     continue
+                ret20d = (live_price / p20 - 1) * 100
+                ret5d  = (live_price / p5  - 1) * 100
+                if ret20d >= -20.0 or ret5d >= 0.0:
+                    continue
+                qualifying.append((ticker, live_price, ret20d, ret5d))
 
-                # Sort by deepest decline, take top 10 for display
-                top = sorted(tickers, key=lambda x: x[2])[:10]
+            if not qualifying:
+                print(f"[stock_pe] no new qualifying stocks at {now_et.strftime('%H:%M ET')}")
+                return
 
-                # ── 5. Fetch call options for each top ticker ───────────────
-                ticker_lines = []
-                for t_sym, t_price, t_ret20 in top:
-                    call = _stock_pe_best_call(t_sym, t_price)
-                    if call:
-                        option_str = (
-                            f"  📈 CALL  Strike: ${call['strike']:.2f}  "
-                            f"Exp: {call['expiry']}  "
-                            f"Bid/Ask: ${call['bid']:.2f}/${call['ask']:.2f}  "
-                            f"OI: {call['oi']:,}"
-                        )
-                    else:
-                        option_str = "  📈 CALL  No liquid options found"
-                    ticker_lines.append(
-                        f"▸ {t_sym:<6} ${t_price:.2f}  {t_ret20:+.1f}% (20d)\n{option_str}"
+            print(f"[stock_pe] {len(qualifying)} new tickers at {now_et.strftime('%H:%M ET')} — alerting")
+
+            # ── 6. Classify each ticker into best (highest WR) config ────────
+            def _best_cfg(price, ret20d):
+                if price > 50:               return ("C", "$50+",       "87.5%", "7.33%")
+                if 15 <= price <= 50:        return ("B", "$15–$50",    "84.9%", "8.45%")
+                if ret20d < -25.0:           return ("D", "Stock<-25%", "81.7%", "9.81%")
+                return                              ("A", "Any Price",  "83.5%", "8.64%")
+
+            # Sort by deepest 20d decline first
+            qualifying.sort(key=lambda x: x[2])
+            top = qualifying[:15]
+
+            # ── 7. Build Telegram message ────────────────────────────────────
+            ticker_lines = []
+            for t_sym, t_price, t_ret20, t_ret5 in top:
+                cfg_id, cfg_lbl, cfg_wr, _ = _best_cfg(t_price, t_ret20)
+                call = _stock_pe_best_call(t_sym, t_price)
+                if call:
+                    opt_str = (
+                        f"  CALL ${call['strike']:.0f}  {call['expiry']}  "
+                        f"${call['bid']:.2f}/${call['ask']:.2f}  OI:{call['oi']:,}"
                     )
-
-                more = f"\n...+{len(tickers)-10} more tickers" if len(tickers) > 10 else ""
-
-                msg = (
-                    f"🔥 STOCK PANIC EXHAUSTION — {label}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"Backtest WR: {wr}  Avg 5d return: {avg}\n"
-                    f"SPY 20d: {spy_ret20:+.1f}%  SPY 5d: {spy_ret5:+.1f}%\n"
-                    f"Stocks triggering: {len(tickers)}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    + "\n\n".join(ticker_lines)
-                    + (f"\n{more}" if more else "")
-                    + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "ENTRY: close or next-day open\n"
-                    "HOLD:  5 trading days\n"
-                    "STOP:  -8% from entry\n"
-                    "Signal IDs: 17-20 (aiem_signal_discoveries)"
+                else:
+                    opt_str = "  No liquid calls found"
+                ticker_lines.append(
+                    f"▸ {t_sym:<6} ${t_price:.2f}  {t_ret20:+.1f}% 20d  [{cfg_wr} WR]\n{opt_str}"
                 )
 
-                ok = _tg_send(msg)
-                ticker_str = ",".join(t[0] for t in tickers)
+            more_str = f"\n+{len(qualifying)-15} more" if len(qualifying) > 15 else ""
+            msg = (
+                f"🔥 STOCK PANIC EXHAUSTION  {now_et.strftime('%I:%M %p ET')}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"SPY: {spy_ret20:+.1f}% (20d)  {spy_ret5:+.1f}% (5d)\n"
+                f"{len(qualifying)} stock{'s' if len(qualifying)!=1 else ''} triggered\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                + "\n\n".join(ticker_lines)
+                + more_str
+                + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "HOLD 5 trading days  STOP -8%\n"
+                "WR from SPY<-7% panic regime backtest"
+            )
 
+            ok = _tg_send(msg)
+
+            # ── 8. Log each alerted ticker (per-ticker row) ───────────────────
+            for t_sym, t_price, t_ret20, _ in qualifying:
+                cfg_id, _, _, _ = _best_cfg(t_price, t_ret20)
                 _cu.execute("""
                     INSERT INTO stock_pe_alert_log
-                        (alert_date, config_name, ticker_count, tickers, tg_sent, sent_at)
-                    VALUES (%s,%s,%s,%s,%s, NOW())
-                    ON CONFLICT (alert_date, config_name) DO UPDATE SET
-                        ticker_count = EXCLUDED.ticker_count,
-                        tickers      = EXCLUDED.tickers,
-                        tg_sent      = EXCLUDED.tg_sent,
-                        sent_at      = EXCLUDED.sent_at
-                """, (today, cfg_name, len(tickers), ticker_str, ok))
-                _c.commit()
-                print(f"[stock_pe] {cfg_name}: {len(tickers)} tickers, alert sent={ok}")
+                        (alert_date, ticker, live_price, ret20d, best_config, tg_sent, sent_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (alert_date, ticker) DO NOTHING
+                """, (today, t_sym, round(t_price, 4), round(t_ret20, 2), cfg_id, ok))
+            _c.commit()
+            print(f"[stock_pe] alert sent={ok}, {len(qualifying)} tickers logged")
 
     except Exception as _e:
         print(f"[stock_pe] scan error: {_e}")
 
 
 try:
+    from apscheduler.triggers.interval import IntervalTrigger as _IntervalTrigger
     _scheduler.add_job(
         lambda: _scan_stock_panic_exhaustion(),
-        CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=_ET),
+        _IntervalTrigger(minutes=30, timezone=_ET),
         id="stock_pe_scan",
         replace_existing=True,
     )
-    print("[stock_pe] daily 4:35 PM ET scan scheduled")
+    print("[stock_pe] every-30-min intraday scan scheduled (10:00 AM–3:30 PM ET, Mon-Thu)")
     _log_startup_event("stock_pe_scheduled",
-                       "CronTrigger(mon-fri, hour=16, minute=35, ET) id=stock_pe_scan")
+                       "IntervalTrigger(30min, 10:00-15:30 ET guard) id=stock_pe_scan")
 except Exception as _e_spe:
     print(f"[stock_pe] scheduler error: {_e_spe}")
 
