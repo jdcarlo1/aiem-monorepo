@@ -1,0 +1,56 @@
+# AIEM — 18 Module Presence Checklist
+
+Please go through this list and confirm, for each module, whether it exists in the codebase. For each one, fill in:
+- **Found?** (Y/N)
+- **File + line** where it's defined
+- **Imported/called from production?** (Y/N + file:line, or "not yet wired" if it exists but isn't called anywhere live)
+
+Do not mark anything Y without showing the actual file path and line number. If a module doesn't exist, say so plainly — don't substitute a similarly-named module or a partial implementation as a match.
+
+---
+
+## File: aiem_edge_filter.py (expected: 7 modules)
+
+| # | Module | Found? (Y/N) | File + Line | Wired to production? |
+|---|--------|---------------|-------------|------------------------|
+| 1 | ExpectancyEngine | | | |
+| 2 | RegimeEngine | | | |
+| 3 | OverfitDetector | | | |
+| 4 | StrategyLifecycle | | | |
+| 5 | AllocationEngine | | | |
+| 6 | FeatureAblation | | | |
+| 7 | EdgeFilterOrchestrator | | | |
+
+---
+
+## File: aiem_v2_system.py (expected: 7 modules)
+
+| # | Module | Found? (Y/N) | File + Line | Wired to production? |
+|---|--------|---------------|-------------|------------------------|
+| 8 | SignalFactory | | | |
+| 9 | FeatureStore | | | |
+| 10 | MomentumModel | | | |
+| 11 | MeanReversionModel | | | |
+| 12 | OptionsFlowModel | | | |
+| 13 | MetaCognition | | | |
+| 14 | AEIMV2System | | | |
+
+---
+
+## File: aiem_intelligence_layer.py (expected: 4 modules)
+
+| # | Module | Found? (Y/N) | File + Line | Wired to production? |
+|---|--------|---------------|-------------|------------------------|
+| 15 | IntuitionEngine | | | |
+| 16 | OptionBBrain | | | |
+| 17 | VolatilityNormalizationLayer | | | |
+| 18 | AdaptiveMarketLayer | | | |
+
+---
+
+## Summary required at the end
+
+- Total found: __ / 18
+- Total wired to production: __ / 18
+- Any module found under a different name than listed above — call this out explicitly with old name → actual name.
+- Any module that exists in two places (duplicate definitions) — flag this, it's a red flag for which version is actually running.
