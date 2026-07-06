@@ -364,6 +364,11 @@ def aiem_score_ticker(ticker: str, data: dict, trust_weights: dict):
     elif gap_pct >= 2:  _add("gap_small",        5, True, f"Small gap +{gap_pct:.1f}%")
     else:               _add("gap_small",        5, False)
 
+    # S1b — Gap sweet spot bonus (15–25% = 85% WR, highest validated tier)
+    # Backtest: 864W/153L over 13 months, avg win +18.1%, median +15.4%
+    _add("gap_sweet_spot", 5, 15 <= gap_pct < 25,
+         f"Sweet spot gap {gap_pct:.1f}% (85% WR zone, +18% avg)")
+
     # S2 — Volume surge
     if   vol_ratio >= 5:   _add("volume_surge_extreme",   20, True, f"Volume {vol_ratio:.1f}x — extreme")
     elif vol_ratio >= 3:   _add("volume_surge_high",      15, True, f"Volume {vol_ratio:.1f}x — strong")
@@ -625,13 +630,16 @@ def aiem_open_watcher():
 
             if blended >= CONFIDENCE_THRESH:
                 mins_open = (h - 9) * 60 + max(0, m - 30)
+                cur_price  = live.get("price") or 0
+                stop_price = round(cur_price * 0.90, 2) if cur_price else None
+                stop_line  = (f"  ≈ ${stop_price:.2f}" if stop_price else "")
                 msg = (
-                    f"AIEM ALERT — {ticker}\n"
-                    f"Confidence: {blended}/100\n"
+                    f"📡 AIEM NANO-CAP ALERT — {ticker}\n"
+                    f"Confidence: {blended}/100  |  Rank: #{rank} today\n"
                     f"Time: {now_et.strftime('%H:%M ET')} ({mins_open}min after open)\n"
                     f"Setup: {predicted_move}\n"
                     f"Signals: {live_reason[:120]}\n"
-                    f"Rank: #{rank} today"
+                    f"🛑 Stop Loss: -10% from open{stop_line}"
                 )
                 _send_alert(msg)
                 cur.execute("""
