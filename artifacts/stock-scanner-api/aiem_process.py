@@ -487,7 +487,7 @@ def aiem_score_ticker(ticker: str, data: dict, trust_weights: dict):
     _add("gap_sweet_spot", 5, 15 <= gap_pct < 25,
          f"Sweet spot gap {gap_pct:.1f}% (85% WR zone, +18% avg)")
 
-    # S1c — Signal #3: Momentum Carry (stacks on top of S1b when both conditions met)
+    # S1c — Signal #3: Momentum Carry (full — top 20% of prior range)
     # Gap 15-22% + T-1 close_strength >= 0.80
     # Backtest: 1,738 trades, WR=96.0%, AvgRet=+13.85%, PF=47.2x, Sharpe=+1.78
     # Logic: stock closed in top 20% of its range yesterday AND gaps again today
@@ -495,6 +495,13 @@ def aiem_score_ticker(ticker: str, data: dict, trust_weights: dict):
     # Combined with S1b → +13 pts total for the highest-conviction setups.
     _add("momentum_carry", 8, 15 <= gap_pct < 22 and prev_cs >= 0.80,
          f"Momentum carry: gap {gap_pct:.1f}% in sweet zone + T-1 closed strong ({prev_cs:.2f})")
+
+    # S1d — Soft Carry (upper 40% of prior range — middle tier)
+    # Gap 15-22% + T-1 close_strength 0.60–0.79 (mutually exclusive with S1c)
+    # More picks than S1c alone; still meaningfully better than random gappers.
+    # Combined with S1b → +9 pts total.
+    _add("soft_carry", 4, 15 <= gap_pct < 22 and 0.60 <= prev_cs < 0.80,
+         f"Soft carry: gap {gap_pct:.1f}% in sweet zone + T-1 mid-range close ({prev_cs:.2f})")
 
     # S2 — Volume surge
     if   vol_ratio >= 5:   _add("volume_surge_extreme",   20, True, f"Volume {vol_ratio:.1f}x — extreme")
