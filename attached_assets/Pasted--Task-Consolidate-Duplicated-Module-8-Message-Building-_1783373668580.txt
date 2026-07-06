@@ -1,0 +1,49 @@
+# Task — Consolidate Duplicated Module 8 Message-Building Code
+
+## What to do
+
+Copies B and C are duplicates of each other:
+- **Copy B** — Sunday 3 AM scheduler (`_run_module3_promotion`, line ~4115)
+- **Copy C** — manual admin endpoint (`admin_run_module3_promotion`, line ~56750)
+
+Both build the same "X ready to promote: id=A,B" style message with the same
+logic; C only differs by appending "(manual trigger)" to the text.
+
+**Extract one shared function**, e.g.:
+
+```python
+def _build_module3_tg_message(results: list, triggered_by: str = "scheduler") -> str:
+    ...
+```
+
+- Takes the `results` list from `run_module3()`.
+- Returns the formatted message string.
+- Accepts a `triggered_by` parameter so Copy C can pass `"manual trigger"` and
+  Copy B can pass `"scheduler"` (or whatever distinguishes them today) — same
+  output text as now, just generated from one function instead of two
+  duplicated blocks.
+
+**Copy A (discovery-cycle Module 8, line ~2081) stays separate** — it's a
+legitimately different, richer per-signal format for a different event
+granularity. Do not merge it into this function; leave `_build_m8_notable_tg_message()` as-is.
+
+Update both call sites (B and C) to call the new shared function instead of
+their inline duplicated logic. Delete the now-redundant duplicated code.
+
+## Verification required — same standard as before
+
+1. **Show the diff** for all three locations (new function added, B and C's
+   call sites updated, duplicated blocks removed).
+2. **Run the same manual-trigger test as last time** (real INSERT into
+   `aiem_signal_discoveries` / `aiem_discovery_outcomes` with obvious test
+   markers, trigger via the admin endpoint, paste the raw Telegram response)
+   to confirm the message text is byte-for-byte identical to what Copy C
+   produced before the refactor.
+3. **Confirm Copy B (Sunday scheduler) still produces its expected output** —
+   either by triggering it directly if there's a safe way to do so, or by
+   showing the exact call site passing `triggered_by="scheduler"` and
+   confirming the resulting string matches the pre-refactor format.
+4. **Clean up test rows afterward** and paste a query confirming 0 remain.
+5. **State plainly** if anything about the output changed at all, even
+   cosmetically — don't just say "done," show the before/after string
+   comparison.

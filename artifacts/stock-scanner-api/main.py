@@ -4113,17 +4113,7 @@ try:
                 f"{len(promote_ready)} promote_ready, {len(failing)} hypothesis_failing"
             )
             if promote_ready or failing:
-                _tg_send(
-                    f"🧪 *Module 3 Promotion Evaluator*\n"
-                    f"Evaluated {len(results)} hypothesis signals.\n"
-                    + (f"✅ *{len(promote_ready)} ready to promote:* "
-                       + ", ".join(f"id={r['discovery_id']}" for r in promote_ready) + "\n"
-                       if promote_ready else "")
-                    + (f"⚠️ *{len(failing)} hypothesis failing:* "
-                       + ", ".join(f"id={r['discovery_id']}" for r in failing) + "\n"
-                       if failing else "")
-                    + "Use POST /admin/module4-approve to act on flagged signals."
-                )
+                _tg_send(_build_module3_tg_message(results, triggered_by="scheduler"))
         except Exception as _e:
             print(f"[module3] scheduler error: {_e}")
     _scheduler.add_job(
@@ -56824,6 +56814,28 @@ def aiem_module2_status():
         return jsonify({"error": str(_e)}), 500
 
 
+def _build_module3_tg_message(results: list, triggered_by: str = "scheduler") -> str:
+    """Build the Module 3 Promotion Evaluator Telegram message from run_module3() results.
+    Single source of truth for both the Sunday scheduler job and the manual admin endpoint.
+    triggered_by='scheduler' → no suffix in header.
+    triggered_by='manual trigger' → appends ' (manual trigger)' to header.
+    """
+    promote_ready = [r for r in results if r["promotion_status"] == "promote_ready"]
+    failing       = [r for r in results if r["promotion_status"] == "hypothesis_failing"]
+    suffix = f" ({triggered_by})" if triggered_by != "scheduler" else ""
+    return (
+        f"🧪 *Module 3 Promotion Evaluator*{suffix}\n"
+        f"Evaluated {len(results)} hypothesis signals.\n"
+        + (f"✅ *{len(promote_ready)} ready to promote:* "
+           + ", ".join(f"id={r['discovery_id']}" for r in promote_ready) + "\n"
+           if promote_ready else "")
+        + (f"⚠️ *{len(failing)} hypothesis failing:* "
+           + ", ".join(f"id={r['discovery_id']}" for r in failing) + "\n"
+           if failing else "")
+        + "Use POST /admin/module4-approve to act on flagged signals."
+    )
+
+
 @app.route("/stock-api/admin/run-module3-promotion", methods=["POST"])
 def admin_run_module3_promotion():
     """Admin: trigger Module 3 hypothesis promotion evaluation immediately."""
@@ -56840,17 +56852,7 @@ def admin_run_module3_promotion():
         promote_ready = [r for r in results if r["promotion_status"] == "promote_ready"]
         failing       = [r for r in results if r["promotion_status"] == "hypothesis_failing"]
         if promote_ready or failing:
-            _tg_send(
-                f"🧪 *Module 3 Promotion Evaluator* (manual trigger)\n"
-                f"Evaluated {len(results)} hypothesis signals.\n"
-                + (f"✅ *{len(promote_ready)} ready to promote:* "
-                   + ", ".join(f"id={r['discovery_id']}" for r in promote_ready) + "\n"
-                   if promote_ready else "")
-                + (f"⚠️ *{len(failing)} hypothesis failing:* "
-                   + ", ".join(f"id={r['discovery_id']}" for r in failing) + "\n"
-                   if failing else "")
-                + "Use POST /admin/module4-approve to act on flagged signals."
-            )
+            _tg_send(_build_module3_tg_message(results, triggered_by="manual trigger"))
         return jsonify({
             "ok":                  True,
             "signals_evaluated":   len(results),
