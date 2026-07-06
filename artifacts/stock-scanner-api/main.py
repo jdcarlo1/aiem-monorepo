@@ -33959,6 +33959,103 @@ _AIEM_AGENT_TOOLS = [
             "ticker": {"type": "string", "description": "Ticker symbol to check (e.g. 'NVDA')"},
         }, "required": ["ticker"]},
     }},
+    # ── New wired modules: economic calendar, news risk, slippage, portfolio, analogs, loss-limit, self-backtest ──
+    {"type": "function", "function": {
+        "name": "econ_is_high_impact_day",
+        "description": (
+            "Check if today has a scheduled FOMC, CPI, NFP, PCE, or GDP release. "
+            "Returns high_impact_day=True when one of these events is today. "
+            "Call before entering any new position — high-impact macro days have "
+            "elevated gap-risk and wider spreads. If True, pause new entries unless "
+            "the setup is specifically designed around the catalyst."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "check_news_catalyst_risk",
+        "description": (
+            "Check whether a ticker has recent high-risk headlines (FDA rejection, "
+            "SEC investigation, bankruptcy filing, major lawsuit) in the news_catalyst_log "
+            "table within the last N hours. Returns high_risk_flag=True if found. "
+            "Always call before adding a ticker to paper trades — a headline not caught "
+            "here can gap the position -30% overnight."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":         {"type": "string",  "description": "Ticker symbol, e.g. 'NVDA'"},
+            "lookback_hours": {"type": "integer", "description": "Hours to look back (default 24)"},
+        }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "estimate_options_slippage",
+        "description": (
+            "Estimate the true round-trip cost of an options order before placing it. "
+            "Takes bid, ask, contract_volume (today's volume on that contract), and "
+            "order_size (how many contracts you intend to buy). Returns estimated_slippage_pct "
+            "and fill_price_estimate. Use when a spread is wider than $0.20 — slippage "
+            "can easily consume 10-30% of the theoretical edge on illiquid contracts."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "bid":             {"type": "number",  "description": "Current bid price of the option"},
+            "ask":             {"type": "number",  "description": "Current ask price of the option"},
+            "contract_volume": {"type": "integer", "description": "Today's volume on this specific contract"},
+            "order_size":      {"type": "integer", "description": "Number of contracts to buy (default 10)"},
+        }, "required": ["bid", "ask", "contract_volume"]},
+    }},
+    {"type": "function", "function": {
+        "name": "check_portfolio_concentration",
+        "description": (
+            "Scan all open paper trade positions for hidden sector concentration. "
+            "Groups open positions by correlation bucket (mega_tech, semis, biotech, "
+            "energy, crypto, financials) and flags when >40% of capital is in one bucket. "
+            "Returns concentration_risk_flag=True and the dominant bucket if over-concentrated. "
+            "Call before adding a new position to an already-crowded sector."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_find_historical_analogs",
+        "description": (
+            "Find historical dates whose 10-feature price/volume fingerprint (gap_pct, rvol, "
+            "day_range_pct, close_position, 5d/20d trend, vol_trend, true_range, ATR, "
+            "gap_fill_rate) most closely matches the last 5 trading days for a given ticker. "
+            "Returns the top-k most similar historical episodes with their dates, cosine "
+            "similarity score, and realized 5-day forward return. Use to estimate the base "
+            "rate of the current setup from analogous history."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string",  "description": "Ticker to search analogs for, e.g. 'NVDA'"},
+            "top_k":  {"type": "integer", "description": "Number of analogs to return (default 5, max 10)"},
+        }, "required": ["ticker"]},
+    }},
+    {"type": "function", "function": {
+        "name": "check_daily_loss_limit",
+        "description": (
+            "Check today's realized P&L across all closed paper trades against the daily "
+            "loss limit. Returns halt_trading=True if the day's losses exceed the threshold. "
+            "Requires ACCOUNT_VALUE_BASELINE env var for percentage-based limits; fails closed "
+            "(halt_trading=True) if the baseline is not configured. Call at the start of any "
+            "session where new picks are being evaluated."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "run_aiem_self_backtest",
+        "description": (
+            "Execute AIEM-authored backtest code in a sandboxed subprocess. "
+            "Write the backtest as a self-contained Python script that prints a JSON result "
+            "to stdout (keys: win_rate, n, p_value, edge_pp, notes). The hypothesis must be "
+            "pre-registered via register_hypotheses first (supply its id as hypothesis_id). "
+            "The adversarial critique module will automatically challenge any result "
+            "with WR > 55% or p < 0.05. Supply the path to the input CSV/DB-dump via "
+            "input_data_path. Returns ok=True with stdout JSON on success, or error on failure."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "hypothesis_id":       {"type": "integer", "description": "ID from hypothesis_registry (must pre-register)"},
+            "self_written_code":   {"type": "string",  "description": "Complete Python backtest script; must print JSON to stdout"},
+            "input_data_path":     {"type": "string",  "description": "Path to input CSV or DB dump the script reads"},
+            "universe_description":{"type": "string",  "description": "Plain-text description of the test universe (optional)"},
+        }, "required": ["hypothesis_id", "self_written_code", "input_data_path"]},
+    }},
 ]
 
 

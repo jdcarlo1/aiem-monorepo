@@ -1,0 +1,54 @@
+# Final Verification Pass — Close Out All 8 Modules
+
+Everything else has already been verified with real evidence (module wiring,
+`run_module3()` sharing, real end-to-end Telegram test on the discovery-cycle
+path, cleanup confirmed). This is the last round. Do all of the following in
+one pass and report back once, with raw output for each numbered item —
+no partial updates, no "I'll get to the rest later."
+
+---
+
+## 1. Test the Sunday 3 AM scheduler path (`_run_module3_promotion`, line ~4092)
+
+This path has never been exercised by anything tested so far. It calls
+`_m3.run_module3()` directly and has its **own inline** `_tg_send()`, separate
+from `_dc_module5_promotion_check()` and the test-pipeline route.
+
+- Insert real test rows into whatever table(s) `_run_module3_promotion` reads
+  from, using obvious markers (`discovery_id = -3, -4`, hypothesis text
+  prefixed `[TEST — DELETE ME]`), same pattern as the last successful test.
+- Trigger `_run_module3_promotion` directly (or via whatever manual hook
+  exists — if none exists, add a temporary one and say so).
+- Paste the raw output: the query results, the exact Telegram message
+  content generated, and the real `tg_api_ok` response from Telegram.
+- Delete the test rows afterward and paste a follow-up query confirming
+  `remaining = 0`.
+
+**If this path cannot be safely triggered on demand**, say so explicitly and
+propose a concrete alternative (e.g., a feature-flagged manual endpoint) —
+do not skip this step silently or substitute a synthetic/hand-typed message.
+
+## 2. Report on the duplicated Module 8 message-building logic
+
+The production discovery-cycle Module 8 loop and the test-pipeline route
+each have their own copy of the same message-format code. They match today
+but will silently drift if either is edited independently later.
+
+- State plainly whether the Sunday scheduler path (item 1) uses a *third*
+  copy of this same formatting logic, or something different.
+- Propose a one-paragraph plan to consolidate all message-building into a
+  single shared function all three paths call — do not implement it yet,
+  just describe the plan and the risk of not doing it.
+
+---
+
+## What "done" looks like
+
+A single follow-up message containing:
+- Raw evidence for item 1 (or an honest "cannot test this way" plus a
+  proposed alternative)
+- The plain answer + consolidation plan for item 2
+- No new claims of "all X complete" without the raw evidence to back it,
+  per the standard already established in this project.
+
+Once this comes back, all 8 modules are considered fully verified.
