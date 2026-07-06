@@ -36,6 +36,14 @@ Tested with all 5 other gates locked. Month effect is REAL, not an artifact:
 
 **Oct removed, Nov added** — corrected from original {1,2,3,10} → now {1,2,3,11}
 
+## July Verdict (2026-07-05)
+
+July was absent from the per-month table because the query used `'2025-06-30'` as the ceiling — ALL July signals are from July 2025 (prior Julys had 0 signals: the 20d free-fall gate blocks them because Q2 earnings in June push stocks down >20% in the prior 20 days before a July signal can fire).
+
+July 2025 result with all 6 gates: **n=498, WR=54.8%, avg +3.0%, lose >10%: 18.6%**
+
+**Verdict: NOT added to `_BAD_MONTHS`** — 54.8% is similar to October (53.1%, kept as good). Not a bad month, but only 1 year of data so confidence is low. Revisit after July 2026 data is available.
+
 ## Final 6-Gate Backtest Results (4,879 signals)
 
 - WR at 21d: **68.0%** | WR at 45d: **68.8%** (peak) | WR at 63d: 65.0%
