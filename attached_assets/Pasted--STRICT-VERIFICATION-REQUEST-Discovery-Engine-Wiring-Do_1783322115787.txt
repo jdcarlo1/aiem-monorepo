@@ -1,0 +1,121 @@
+# STRICT VERIFICATION REQUEST — Discovery Engine Wiring
+
+Do not summarize, paraphrase, or describe results. Paste raw, unedited terminal/tool
+output for every item below. If any command fails or returns nothing, show that
+failure exactly — do not silently skip it.
+
+---
+
+## 1. Full read/write map — every reference to `discovered_candidates`
+
+Run and paste raw output:
+
+```
+grep -rn "discovered_candidates" --include="*.py" .
+```
+
+For every single line returned, state: is this a read, a write, or a schema
+definition? Do not omit any line, including "irrelevant" ones like docstrings
+or comments.
+
+---
+
+## 2. Full read/write map — every reference to `aiem_discovery_engine`
+
+```
+grep -rn "aiem_discovery_engine\|from aiem_discovery_engine\|import aiem_discovery_engine" --include="*.py" .
+```
+
+Same requirement: classify every line as read/write/import/comment.
+
+---
+
+## 3. Trace `promote_candidate()` end to end
+
+Paste the full function body of `promote_candidate()`, then paste the full body
+of every function that calls it (use `grep -rn "promote_candidate("` to find
+all call sites first, paste that raw output, then paste each calling function
+in full).
+
+---
+
+## 4. Prove no execution path exists — don't just claim it
+
+Run and paste raw output:
+
+```
+grep -rn "discovered_candidates" --include="*.py" . | grep -iE "SELECT|WHERE.*promoted|paper_trade|execute_trade|place_order"
+```
+
+If this returns nothing, paste the literal empty output (not "nothing found"
+in your own words).
+
+---
+
+## 5. Live DB proof, not code proof
+
+Run a live query against the actual database and paste the raw row output
+(not a description):
+
+```sql
+SELECT id, status, promoted_at, ticker
+FROM discovered_candidates
+WHERE status = 'promoted'
+ORDER BY promoted_at DESC
+LIMIT 20;
+```
+
+Then, for each promoted row, run:
+
+```sql
+SELECT *
+FROM aiem_paper_trades
+WHERE ticker = '<ticker>'
+AND created_at BETWEEN '<promoted_at - 1 hour>' AND '<promoted_at + 1 hour>';
+```
+
+I want to see with my own eyes whether any promoted candidate has a matching
+trade row near its promotion time — not be told there's no correlation.
+
+---
+
+## 6. Git diff since last verified state
+
+```
+git log --oneline -20 -- aiem_discovery_engine.py
+git diff <last_verified_commit_hash> HEAD -- aiem_discovery_engine.py main.py
+```
+
+Paste the full diff. I want to see exactly what changed in the discovery
+engine and main.py since the last time this was verified — not a description
+of the changes.
+
+---
+
+## 7. Restart proof
+
+Paste the exact, unedited startup log output (not reformatted) showing
+`[discovery_engine] schema init OK` and the tool count. If the count changed
+from a previous session, explain why.
+
+---
+
+## Two structural questions — answer in plain language before running anything
+
+**A.** If I manually run `promote_candidate()` on a real pending candidate
+right now, walk me through — in code, not words — literally every line of
+code that executes as a result, all the way to the end. If it terminates at a
+formatted string return with no further calls, say so explicitly.
+
+**B.** Is there any scheduled job, cron, or background loop anywhere in this
+codebase that reads from `discovered_candidates` on any interval? Search all
+`.py` files for scheduler registrations (`schedule.every`, `APScheduler`,
+`add_job`, cron strings) and paste every job definition, then tell me which
+table each one reads from.
+
+---
+
+**Standard for acceptance:** All seven items must come back with raw,
+unedited output — not narration, not a summary, not "confirmed clean."
+Any hedged, paraphrased, or summarized answer to a single item is a signal
+to push again before treating this as verified.

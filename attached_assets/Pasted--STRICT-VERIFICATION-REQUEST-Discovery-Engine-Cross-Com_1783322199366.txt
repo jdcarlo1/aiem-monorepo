@@ -1,0 +1,114 @@
+# STRICT VERIFICATION REQUEST — Discovery Engine Cross-Component Integration
+
+Purpose: The previous verification proved Discovery Engine does NOT leak into
+live/paper execution (isolation confirmed). This verification asks the
+opposite question: is Discovery Engine actually WIRED INTO the rest of AIEM
+in any meaningful way, or is it an island that talks to no one?
+
+Do not summarize, paraphrase, or describe results. Paste raw, unedited
+terminal/tool output for every item below. If a command returns nothing,
+paste the literal empty output — do not describe it as "not found."
+
+---
+
+## PART A — Map every component Discovery Engine talks TO
+
+### A1. Every import inside `aiem_discovery_engine.py`
+```
+grep -n "^import\|^from" aiem_discovery_engine.py
+```
+For each import, state: what module is it, and is that module actually used
+later in the file (grep for the name used) or just imported and unused?
+
+### A2. Every function call OUT of aiem_discovery_engine.py to another module
+```
+grep -n "_rg_\|_aiem_\|risk_guards\|conviction\|SignalFactory\|RLEngine\|rl_engine" aiem_discovery_engine.py
+```
+Paste raw output. For each hit, state which external module/function is
+being called and what it's used for.
+
+### A3. Does Discovery Engine consult risk guards, conviction scoring, or RL
+signals when generating or scoring candidates — or does it operate in total
+isolation using only raw price/volume data?
+Paste the full body of whatever function actually builds a candidate (the
+one that produces the IS/OOS win rate stats) and let me read it end to end.
+
+---
+
+## PART B — Map every component that talks TO Discovery Engine
+
+### B1. Every reference to Discovery Engine's public methods anywhere else in
+the codebase
+```
+grep -rn "discovery_engine\.\|DiscoveryEngine(\|get_discovery_engine" --include="*.py" . | grep -v "aiem_discovery_engine.py"
+```
+Paste raw output. For every hit outside the discovery engine's own file,
+state what calls it and why.
+
+### B2. Is Discovery Engine registered as a scheduled/background job?
+```
+grep -rn "schedule.every\|APScheduler\|add_job\|cron" --include="*.py" . | grep -i discovery
+```
+If it runs on a schedule, paste the exact schedule definition (interval,
+trigger time). If it does NOT appear here, state explicitly: "Discovery
+Engine has no scheduled trigger — it only runs when manually invoked."
+
+### B3. Does the RL engine (or any of the 22 new modules added today) read
+FROM or write TO any Discovery Engine table or output?
+```
+grep -rln "discovered_candidates\|discovery_engine" --include="*.py" . | grep -iE "rl_|reinforcement|reward|policy"
+```
+Paste raw output. If empty, paste the literal empty output.
+
+### B4. Does the conviction scoring system (Layers 1–10) ever ingest a
+Discovery Engine candidate as an input signal?
+```
+grep -rn "discovered_candidates\|discovery_engine" --include="*.py" . | grep -iE "conviction|layer_9|layer_10|scoring"
+```
+Paste raw output.
+
+---
+
+## PART C — End-to-end trace of ONE real candidate through the ENTIRE system
+
+Pick the most recent `pending` row in `discovered_candidates`. For that one
+candidate, answer with evidence (queries, code, or explicit "does not exist"
+— never a guess):
+
+1. What generated it — paste the exact code path that created this row.
+2. Does anything else in AIEM currently know this row exists? (Query any
+   other table that might reference its `id` or `ticker` near its creation
+   timestamp.)
+3. If a human manually flips its status to `promoted` right now, trace every
+   single downstream effect, system by system:
+   - Does it reach paper trading? (yes/no + code path or absence)
+   - Does it reach the RL engine's training data? (yes/no + code path or absence)
+   - Does it reach conviction scoring? (yes/no + code path or absence)
+   - Does it reach Telegram/SMS alerting? (yes/no + code path or absence)
+   - Does it reach the live `portfolio_circuit_breaker_status` or any risk
+     guard? (yes/no + code path or absence)
+4. If the answer to all of the above is "no, it terminates as a formatted
+   string with no downstream effect," state that explicitly in one sentence,
+   with no hedging.
+
+---
+
+## PART D — The honest summary question
+
+Answer this directly, in plain language, no code required:
+
+**"As of right now, is Discovery Engine a fully isolated research tool that
+generates and stores candidate ideas for a human to review manually, with
+zero automatic connection to paper trading, RL, conviction scoring, or
+alerting? Or is there at least one live automatic connection to another
+AIEM component? Name the connection explicitly if one exists, or state
+clearly that none exists."**
+
+---
+
+**Standard for acceptance:** Every grep/query in Parts A–C must show raw
+output, not narration. Part D must be a direct yes/no answer naming the
+specific connection or explicitly stating there is none. If the agent
+answers Part D with hedging language ("it's designed to eventually...",
+"the intention is...", "it could theoretically..."), that is a signal the
+integration does not actually exist yet and should be treated as unverified.
