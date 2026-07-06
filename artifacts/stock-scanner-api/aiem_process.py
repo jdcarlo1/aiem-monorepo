@@ -235,34 +235,145 @@ def _polygon_prev_close_batch(tickers: list) -> dict:
 # HELPERS: TRADIER (fallback for quotes when Polygon incomplete)
 # ─────────────────────────────────────────────────────────────
 def _td_quotes(symbols: list) -> dict:
+    """Fetch live quotes from Tradier for up to 200 symbols. Uses urllib (no requests)."""
     if not TRADIER_TOKEN or not symbols:
         return {}
     try:
-        import requests as _r
-        resp = _r.get(
-            "https://api.tradier.com/v1/markets/quotes",
-            params={"symbols": ",".join(symbols[:200])},
+        batch   = ",".join(symbols[:200])
+        req     = urllib.request.Request(
+            f"https://api.tradier.com/v1/markets/quotes?symbols={batch}",
             headers={"Authorization": f"Bearer {TRADIER_TOKEN}",
                      "Accept": "application/json"},
-            timeout=6,
         )
-        if resp.status_code != 200:
-            return {}
-        raw = resp.json().get("quotes", {}).get("quote", [])
+        with urllib.request.urlopen(req, timeout=10) as r:
+            resp = json.loads(r.read())
+        raw = resp.get("quotes", {}).get("quote", [])
         if isinstance(raw, dict):
             raw = [raw]
         return {
             q["symbol"]: {
-                "price":      float(q.get("last") or 0),
+                "price":      float(q.get("last") or q.get("open") or 0),
                 "prev_close": float(q.get("prevclose") or 0),
+                "open":       float(q.get("open") or 0),
                 "volume":     int(q.get("volume") or 0),
-                "avg_volume": int(q.get("average_volume") or 0),
+                "avg_volume": int(q.get("average_volume") or 1),
             }
             for q in raw if q.get("symbol")
         }
     except Exception as e:
         log.warning(f"td_quotes error: {e}")
         return {}
+
+
+def _polygon_grouped_daily_universe() -> list:
+    """
+    Fetch full market OHLCV from Polygon grouped-daily for the most recent
+    available trading day (goes back up to 7 calendar days).
+    Returns list of dicts with ticker + prev_close for gap calculation.
+    The live gap is computed later via _tradier_live_update().
+    """
+    et_now = datetime.now(ET)
+    for days_back in range(1, 8):
+        check_date = (et_now - timedelta(days=days_back)).date()
+        if check_date.weekday() >= 5:          # skip weekends
+            continue
+        date_str = check_date.strftime("%Y-%m-%d")
+        try:
+            data    = _pg_get(
+                f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+                f"?adjusted=true&include_otc=false",
+                timeout=25,
+            )
+            results = data.get("results") or []
+            if len(results) < 100:
+                log.info(f"grouped_daily {date_str}: only {len(results)} rows — trying earlier date")
+                continue
+            log.info(f"grouped_daily: {date_str} → {len(results):,} stocks")
+            out = []
+            for r in results:
+                sym = (r.get("T") or "").upper()
+                if not sym or len(sym) > 5 or "." in sym or "/" in sym:
+                    continue
+                close = float(r.get("c") or 0)
+                vol   = int(r.get("v") or 0)
+                out.append({
+                    "ticker":       sym,
+                    "price":        close,
+                    "prev_close":   close,   # will be refined by Tradier
+                    "volume":       0,       # will be filled by Tradier (today's volume)
+                    "avg_volume":   max(vol, 1),
+                    "gap_pct":      0.0,
+                    "float_shares": None,
+                })
+            return out
+        except Exception as e:
+            log.warning(f"grouped_daily {date_str}: {e}")
+    log.error("grouped_daily: could not find usable trading day in last 7 days")
+    return []
+
+
+def _tradier_live_update(candidates: list) -> list:
+    """
+    Enrich candidates with Tradier live prices.
+    Calculates today's gap_pct and rvol for each ticker.
+    Calls Tradier in batches of 200 (stays within rate limits).
+    """
+    if not candidates or not TRADIER_TOKEN:
+        return candidates
+    syms = [c["ticker"] for c in candidates]
+    live: dict = {}
+    for i in range(0, len(syms), 200):
+        batch = syms[i:i + 200]
+        try:
+            req = urllib.request.Request(
+                f"https://api.tradier.com/v1/markets/quotes?symbols={','.join(batch)}",
+                headers={"Authorization": f"Bearer {TRADIER_TOKEN}",
+                         "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                resp = json.loads(r.read())
+            raw = resp.get("quotes", {}).get("quote", [])
+            if isinstance(raw, dict):
+                raw = [raw]
+            for q in raw:
+                s = (q.get("symbol") or "").upper()
+                if s:
+                    live[s] = {
+                        "price":      float(q.get("last") or q.get("open") or 0),
+                        "open":       float(q.get("open") or 0),
+                        "volume":     int(q.get("volume") or 0),
+                        "avg_volume": int(q.get("average_volume") or 1),
+                        "prev_close": float(q.get("prevclose") or 0),
+                    }
+        except Exception as e:
+            log.warning(f"tradier live update batch {i//200+1}: {e}")
+
+    enriched = []
+    for c in candidates:
+        sym = c["ticker"]
+        td  = live.get(sym)
+        if not td:
+            enriched.append(c)
+            continue
+        cur_price  = td["price"]
+        prev_close = td["prev_close"] or c["prev_close"] or 1
+        vol        = td["volume"]
+        avg_vol    = td["avg_volume"] or 1
+        gap_pct    = ((cur_price - prev_close) / prev_close * 100) if prev_close else 0
+        # Sanity caps: >200% gap = reverse-split artifact; avg_vol <5K = meaningless RVOL
+        if gap_pct > 200:
+            gap_pct = 0.0
+        rvol = round(vol / avg_vol, 2) if avg_vol >= 5_000 else 0.0
+        enriched.append({
+            **c,
+            "price":      cur_price,
+            "prev_close": prev_close,
+            "volume":     vol,
+            "avg_volume": avg_vol,
+            "gap_pct":    round(gap_pct, 2),
+            "rvol":       rvol,
+        })
+    return enriched
 
 
 # ─────────────────────────────────────────────────────────────
@@ -420,45 +531,30 @@ def aiem_score_ticker(ticker: str, data: dict, trust_weights: dict):
 # ─────────────────────────────────────────────────────────────
 def aiem_warmup():
     """
-    6:55 AM: pull all 8 000+ stocks from Polygon in one call.
-    Apply stages 1-3 of the funnel (price, volume, gap).
-    Cache survivors for stage-4 float check + scoring at 7:00.
+    6:55 AM: Build candidate universe using Polygon grouped-daily (previous
+    trading day) — no live snapshot needed.  Filters by price $1-$20 and
+    avg-volume > 10K to keep the Tradier batch calls manageable (~1 000 tickers).
+    Live gap / RVOL are computed by the 7:00 premarket scan via Tradier.
     """
     if not _market_day():
         return
-    log.info("warmup: fetching Polygon full snapshot…")
-    t0  = time.time()
-    all_tickers = _polygon_all_snapshot()
+    log.info("warmup: fetching Polygon grouped-daily universe…")
+    t0 = time.time()
 
-    # Stage 1: price $1–$20  (market cap < ~$500 M proxy)
+    all_tickers = _polygon_grouped_daily_universe()
+    log.info(f"grouped_daily returned {len(all_tickers):,} stocks")
+
+    # Stage 1: price $1–$20 (using prev-day close as proxy)
     s1 = [t for t in all_tickers if MIN_PRICE <= t["price"] <= MAX_PRICE]
-    log.info(f"stage1 price ${MIN_PRICE}-${MAX_PRICE}: {len(all_tickers)} → {len(s1)}")
+    log.info(f"stage1 price ${MIN_PRICE}-${MAX_PRICE}: {len(all_tickers):,} → {len(s1):,}")
 
-    # Stage 2: premarket volume > 50 K
-    s2 = [t for t in s1 if t["volume"] >= MIN_PM_VOLUME]
-    log.info(f"stage2 volume >{MIN_PM_VOLUME:,}: {len(s1)} → {len(s2)}")
+    # Stage 2: avg volume > 10K (light filter — Tradier will apply tighter RVOL at scan time)
+    s2 = [t for t in s1 if t["avg_volume"] >= 10_000]
+    log.info(f"stage2 avg_vol >10K: {len(s1):,} → {len(s2):,}")
 
-    # Stage 3: gap > 2 %
-    s3 = [t for t in s2 if t["gap_pct"] >= MIN_GAP_PCT]
-    log.info(f"stage3 gap >{MIN_GAP_PCT}%: {len(s2)} → {len(s3)}")
-
-    # Stage 4: float < 20 M  (Polygon reference, parallel)
-    tickers_s3 = [t["ticker"] for t in s3]
-    float_map  = _polygon_ref_batch(tickers_s3) if tickers_s3 else {}
-
-    universe = []
-    for t in s3:
-        fsym = t["ticker"]
-        flt  = float_map.get(fsym)
-        t["float_shares"] = flt
-        if flt is None or flt <= MAX_FLOAT_SHARES:
-            universe.append(t)
-
-    log.info(f"stage4 float <{MAX_FLOAT_SHARES/1e6:.0f}M: {len(s3)} → {len(universe)}")
-    log.info(f"warmup complete in {time.time()-t0:.1f}s — {len(universe)} candidates cached")
-
+    log.info(f"warmup complete in {time.time()-t0:.1f}s — {len(s2):,} candidates cached for premarket scan")
     with _STATE_LOCK:
-        _STATE["universe"] = universe
+        _STATE["universe"] = s2
 
 
 # ─────────────────────────────────────────────────────────────
@@ -468,37 +564,34 @@ def aiem_premarket_scan():
     """
     Score cached universe with trust-weighted AIEM engine.
     Write top 10 to aiem_process_predictions (replaces today's each run).
-    Refresh universe from Polygon on each pass so data stays current.
+    Refreshes live prices via Tradier on each pass (no Polygon snapshot needed).
     """
     if not _market_day():
         return
     now_et = datetime.now(ET)
     log.info(f"premarket_scan at {now_et.strftime('%H:%M ET')}")
 
-    # Refresh universe with latest Polygon data
-    all_tickers = _polygon_all_snapshot()
-    s1 = [t for t in all_tickers if MIN_PRICE <= t["price"] <= MAX_PRICE]
-    s2 = [t for t in s1 if t["volume"] >= MIN_PM_VOLUME]
-    s3 = [t for t in s2 if t["gap_pct"] >= MIN_GAP_PCT]
-
-    # Use cached float data from warmup where available; only fetch new ones
     with _STATE_LOCK:
-        cached = {t["ticker"]: t.get("float_shares") for t in _STATE["universe"]}
+        base_universe = list(_STATE["universe"])
 
-    new_tickers = [t["ticker"] for t in s3 if t["ticker"] not in cached]
-    if new_tickers:
-        new_floats = _polygon_ref_batch(new_tickers)
-        cached.update(new_floats)
+    if not base_universe:
+        log.info("premarket_scan: warmup universe empty — skipping")
+        return
 
-    universe = []
-    for t in s3:
-        flt = cached.get(t["ticker"])
-        t["float_shares"] = flt
-        if flt is None or flt <= MAX_FLOAT_SHARES:
-            universe.append(t)
+    # Refresh all candidates with live Tradier prices → computes gap_pct + rvol
+    log.info(f"premarket_scan: refreshing {len(base_universe):,} candidates via Tradier…")
+    enriched = _tradier_live_update(base_universe)
+
+    # Apply the same funnel with live data
+    s1 = [t for t in enriched if MIN_PRICE    <= (t.get("price") or 0) <= MAX_PRICE]
+    s2 = [t for t in s1       if (t.get("volume") or 0) >= MIN_PM_VOLUME]
+    s3 = [t for t in s2       if (t.get("gap_pct") or 0) >= MIN_GAP_PCT]
+    log.info(f"funnel: {len(enriched):,} → price {len(s1):,} → vol {len(s2):,} → gap {len(s3):,}")
+
+    universe = s3   # float filter skipped (no reliable live float source; scoring handles it)
 
     with _STATE_LOCK:
-        _STATE["universe"] = universe
+        _STATE["universe"] = enriched   # keep full enriched list for next pass
 
     if not universe:
         log.info("premarket_scan: no candidates after funnel")
