@@ -1,10 +1,18 @@
 """
-AIEM Process — standalone, zero dependency on Flask / main.py.
+AIEM Process — standalone nano-cap premarket scanner.
+Zero dependency on Flask / main.py. Completely independent engine.
+
+Watches a DIFFERENT universe than the main scanner:
+  price $1-$20, float <20M, gap >2%, premarket vol >50K
+  — low-float nano caps with explosive premarket moves.
+  These stocks do NOT appear in the main scanner (no options needed).
+
+Alerts delivered via Telegram (TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID).
 
 Daily schedule (all times ET, Mon–Fri):
   6:55 AM   warm-up: one Polygon call → 8 000+ stocks cached
   7:00 AM+  premarket scan every 15 min (7:00–9:15)
-  9:30–10:30 open watcher every 5 min
+  9:30–10:30 open watcher every 5 min — Telegram alert when confidence ≥72
   4:30 PM   grade T1 outcomes
   4:35 PM   grade T3 / T5 outcomes
   4:45 PM   find missed runners
@@ -19,7 +27,7 @@ Data flow:
        ↓  gap > 2 %             (~100)
        ↓  float < 20 M           (~30–50)
        ↓  AIEM scores each
-       →  top 10 picks written to aiem_predictions
+       →  top 10 picks written to aiem_process_predictions
 """
 
 import os
@@ -46,15 +54,8 @@ DB_URL        = os.environ.get("DATABASE_URL", "")
 POLYGON_KEY   = os.environ.get("POLYGON_API_KEY", "")
 TRADIER_TOKEN = (os.environ.get("TRADIER_API_TOKEN_2") or
                  os.environ.get("TRADIER_API_TOKEN", ""))
-TWILIO_SID    = os.environ.get("TWILIO_ACCOUNT_SID", "")
-TWILIO_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM   = os.environ.get("TWILIO_FROM_NUMBER", "")
-TWILIO_TO     = os.environ.get("TWILIO_TO_NUMBER", "")
-SMTP_HOST     = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT     = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER     = os.environ.get("SMTP_USER", "")
-SMTP_PASS     = os.environ.get("SMTP_PASS", "")
-OWNER_EMAIL   = os.environ.get("ALERT_EMAIL", "joeldcarlo@gmail.com")
+TG_TOKEN      = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
+TG_CHAT_ID    = os.environ.get("TELEGRAM_CHAT_ID", "8609255707").strip()
 
 # Funnel thresholds
 MIN_PRICE         = 1.0
@@ -267,34 +268,39 @@ def _td_quotes(symbols: list) -> dict:
 # ─────────────────────────────────────────────────────────────
 # HELPERS: ALERT
 # ─────────────────────────────────────────────────────────────
-def _send_alert(message: str) -> None:
-    if TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and TWILIO_TO:
-        try:
-            from twilio.rest import Client as _TC
-            tc = _TC(TWILIO_SID, TWILIO_TOKEN)
-            for chunk in [message[i:i+1500] for i in range(0, len(message), 1500)]:
-                tc.messages.create(body=chunk, from_=TWILIO_FROM, to=TWILIO_TO)
-            log.info(f"SMS sent: {message[:60]}…")
-            return
-        except Exception as e:
-            log.warning(f"Twilio error: {e} — trying email")
+def _tg_send(message: str) -> bool:
+    """Send a Telegram message. Returns True if API responded ok:true."""
+    if not TG_TOKEN or not TG_CHAT_ID:
+        log.warning("_tg_send: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
+        return False
+    try:
+        payload = json.dumps({
+            "chat_id":    TG_CHAT_ID,
+            "text":       message,
+            "parse_mode": "HTML",
+        }).encode()
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            resp = json.loads(r.read())
+            ok = resp.get("ok", False)
+            if ok:
+                log.info(f"Telegram sent: {message[:60]}…")
+            else:
+                log.warning(f"Telegram API error: {resp}")
+            return ok
+    except Exception as e:
+        log.warning(f"_tg_send error: {e}")
+        return False
 
-    if SMTP_USER and SMTP_PASS:
-        try:
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = "AIEM Alert"
-            msg["From"]    = f"AIEM <{SMTP_USER}>"
-            msg["To"]      = OWNER_EMAIL
-            msg.attach(MIMEText(f"<pre>{message}</pre>", "html"))
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as s:
-                s.starttls(); s.login(SMTP_USER, SMTP_PASS)
-                s.sendmail(SMTP_USER, [OWNER_EMAIL], msg.as_string())
-            log.info(f"Email alert sent: {message[:60]}…")
-        except Exception as e:
-            log.warning(f"SMTP error: {e}")
+
+def _send_alert(message: str) -> None:
+    """Backward-compat wrapper — delegates to Telegram."""
+    _tg_send(message)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -456,7 +462,7 @@ def aiem_warmup():
 def aiem_premarket_scan():
     """
     Score cached universe with trust-weighted AIEM engine.
-    Write top 10 to aiem_predictions (replaces today's each run).
+    Write top 10 to aiem_process_predictions (replaces today's each run).
     Refresh universe from Polygon on each pass so data stays current.
     """
     if not _market_day():
@@ -518,10 +524,10 @@ def aiem_premarket_scan():
         top10 = scored[:10]
 
         today = date.today()
-        cur.execute("DELETE FROM aiem_predictions WHERE prediction_date = %s", (today,))
+        cur.execute("DELETE FROM aiem_process_predictions WHERE prediction_date = %s", (today,))
         for rank, p in enumerate(top10, 1):
             cur.execute("""
-                INSERT INTO aiem_predictions
+                INSERT INTO aiem_process_predictions
                     (prediction_date, ticker, rank, confidence_score,
                      signal_basis, reasoning, predicted_move, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
@@ -571,7 +577,7 @@ def aiem_open_watcher():
 
         cur.execute("""
             SELECT ticker, rank, confidence_score, signal_basis, reasoning, predicted_move
-            FROM aiem_predictions WHERE prediction_date = %s ORDER BY rank
+            FROM aiem_process_predictions WHERE prediction_date = %s ORDER BY rank
         """, (today,))
         picks = cur.fetchall()
         if not picks:
@@ -670,8 +676,8 @@ def aiem_grade_outcomes():
         cur  = conn.cursor()
 
         cur.execute("""
-            SELECT p.ticker FROM aiem_predictions p
-            LEFT JOIN aiem_prediction_outcomes o
+            SELECT p.ticker FROM aiem_process_predictions p
+            LEFT JOIN aiem_process_outcomes o
                 ON p.ticker = o.ticker AND p.prediction_date = o.prediction_date
             WHERE p.prediction_date = %s AND o.id IS NULL
         """, (today,))
@@ -699,7 +705,7 @@ def aiem_grade_outcomes():
                     continue
                 t1_ret = (close_price - open_price) / open_price * 100
                 cur.execute("""
-                    INSERT INTO aiem_prediction_outcomes
+                    INSERT INTO aiem_process_outcomes
                         (prediction_date, ticker, entry_price, t1_price, t1_return, graded_at)
                     VALUES (%s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (prediction_date, ticker) DO UPDATE
@@ -744,7 +750,7 @@ def aiem_grade_t3_t5():
         ]:
             target = today - timedelta(days=n)
             cur.execute(f"""
-                SELECT ticker, entry_price FROM aiem_prediction_outcomes
+                SELECT ticker, entry_price FROM aiem_process_outcomes
                 WHERE prediction_date = %s AND {col_p} IS NULL AND entry_price IS NOT NULL
             """, (target,))
             rows = cur.fetchall()
@@ -757,7 +763,7 @@ def aiem_grade_t3_t5():
                     if price and entry:
                         ret = (price - entry) / entry * 100
                         cur.execute(f"""
-                            UPDATE aiem_prediction_outcomes
+                            UPDATE aiem_process_outcomes
                             SET {col_p}=%s, {col_r}=%s, {col_w}=%s
                             WHERE prediction_date=%s AND ticker=%s
                         """, (price, round(ret, 4), ret > 0, target, ticker))
@@ -814,7 +820,7 @@ def aiem_find_missed_runners():
             conn = _db()
             cur  = conn.cursor()
             cur.execute(
-                "SELECT ticker FROM aiem_predictions WHERE prediction_date = %s",
+                "SELECT ticker FROM aiem_process_predictions WHERE prediction_date = %s",
                 (date.today(),)
             )
             picks_today = {r[0] for r in cur.fetchall()}
@@ -1034,8 +1040,8 @@ def aiem_nightly_learn():
         cur.execute("""
             SELECT p.signal_basis, p.confidence_score,
                    o.t1_return, o.win_t3, o.win_t5, o.t3_return
-            FROM aiem_predictions p
-            JOIN aiem_prediction_outcomes o
+            FROM aiem_process_predictions p
+            JOIN aiem_process_outcomes o
                 ON p.ticker = o.ticker AND p.prediction_date = o.prediction_date
             WHERE p.prediction_date >= %s AND o.t1_return IS NOT NULL
         """, (today - timedelta(days=30),))
@@ -1133,10 +1139,10 @@ def aiem_nightly_learn():
 # ─────────────────────────────────────────────────────────────
 def main():
     log.info("AIEM Process starting…")
-    log.info(f"  DB:      {'OK' if DB_URL        else 'MISSING'}")
-    log.info(f"  Polygon: {'OK' if POLYGON_KEY   else 'MISSING'}")
-    log.info(f"  Tradier: {'OK' if TRADIER_TOKEN else 'MISSING'}")
-    log.info(f"  Twilio:  {'OK' if TWILIO_SID    else 'not set — email fallback'}")
+    log.info(f"  DB:       {'OK' if DB_URL        else 'MISSING'}")
+    log.info(f"  Polygon:  {'OK' if POLYGON_KEY   else 'MISSING'}")
+    log.info(f"  Tradier:  {'OK' if TRADIER_TOKEN else 'MISSING'}")
+    log.info(f"  Telegram: {'OK' if TG_TOKEN      else 'MISSING — alerts will not fire'}")
 
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron        import CronTrigger
@@ -1197,7 +1203,7 @@ def main():
     log.info("Scheduler running — 9 jobs:")
     log.info("  6:55 AM               warm-up (Polygon full snapshot)")
     log.info("  7:00–9:15 every 15m   premarket scan + funnel")
-    log.info("  9:30–10:30 every  5m  open watcher + SMS")
+    log.info("  9:30–10:30 every  5m  open watcher + Telegram alert")
     log.info("  4:30 PM               grade T1 outcomes")
     log.info("  4:35 PM               grade T3/T5 outcomes")
     log.info("  4:45 PM               find missed runners")
