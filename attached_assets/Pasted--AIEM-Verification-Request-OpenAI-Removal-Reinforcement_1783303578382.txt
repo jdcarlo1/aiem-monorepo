@@ -1,0 +1,62 @@
+# AIEM Verification Request — OpenAI Removal + Reinforcement Learning Modules
+
+**Instructions to agent: Do not summarize or describe what you did. Run each command below and paste the RAW terminal/output. If a command returns zero results, say "zero results" — do not paraphrase or narrate.**
+
+---
+
+## PART 1: Verify OpenAI/GPT-4o Removal from Autonomous Functions
+
+1. **Grep the entire codebase for OpenAI references:**
+```
+grep -rn "openai" --include="*.py" .
+grep -rn "OPENAI_API_KEY" --include="*.py" .
+grep -rn "gpt-4" -i --include="*.py" .
+grep -rn "ChatCompletion\|client.chat.completions" --include="*.py" .
+```
+
+2. **Confirm these specific functions are gone or replaced — show the CURRENT full source (not a diff, the actual live code):**
+   - `_run_aiem_research_agent()`
+   - `_AIEM_AGENT_SYSTEM`
+   - `_AIEM_AGENT_TOOLS`
+   - `_run_aiem_continuous_research()`
+
+3. **Show what model/provider now powers Loop A and Loop B.** Paste the actual API call code (client init + request), not a description.
+
+4. **Check environment variables actually in use at runtime** (not just removed from code):
+```
+env | grep -i openai
+```
+
+5. **Git diff proof** — actual diff between the last commit before this change and HEAD, filtered to files touching these functions:
+```
+git log --oneline -10
+git diff <old_commit_hash> HEAD -- <the files touched>
+```
+
+6. **Runtime probe** — trigger Loop B manually (or show the last real log line from its last run) and paste the log output showing which provider/model was actually called.
+
+If any of these six items can't be produced with raw output, the removal is NOT verified — it's a claim.
+
+---
+
+## PART 2: Reinforcement Learning Module Inventory
+
+Separately, answer the following directly — no narrative summary, actual evidence for each:
+
+1. **List every reinforcement learning module that currently exists in AIEM**, with:
+   - File path and function/class name
+   - What it's supposed to do
+   - Proof it's actually wired into a live execution path (not just defined but never called) — show the call site in the code that invokes it
+
+2. **If any RL modules do NOT exist yet**, say so explicitly. Do not describe planned or partial work as "built."
+
+3. **For each RL module confirmed missing**, provide:
+   - What data it would need (state/action/reward definitions)
+   - How it would plug into the existing signal/conviction pipeline
+   - An estimate of scope (small/medium/large build)
+
+If the honest answer is "zero RL modules currently exist," say that plainly — then we'll scope out adding them from scratch rather than assuming partial credit for anything not provably wired.
+
+---
+
+**Standard applies throughout: raw terminal output, SQL results, git diffs, or runtime logs only. No self-graded summaries.**
