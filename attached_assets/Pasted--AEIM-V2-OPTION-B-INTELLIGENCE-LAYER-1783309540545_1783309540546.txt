@@ -1,0 +1,243 @@
+"""
+=========================================================
+AEIM V2 - OPTION B (INTELLIGENCE LAYER)
+=========================================================
+
+ARCHITECTURE CONTRACT (IMPORTANT):
+
+OPTION A = SYSTEM STRUCTURE (ECOSYSTEM LAYOUT)
+---------------------------------------------------------
+- Defines folders, modules, and data flow
+- Example: signal/, models/, risk/, execution/
+- It is the "skeleton of the system"
+- It does NOT contain decision intelligence
+
+OPTION B = INTELLIGENCE LOGIC (THIS FILE)
+---------------------------------------------------------
+- Defines how each module THINKS
+- Contains decision-making rules, learning systems,
+  expectancy, risk logic, and adaptation
+- It is the "brain logic inside the skeleton"
+
+OPTION C (not included here) = SYSTEM EVOLUTION
+---------------------------------------------------------
+- Continuous learning pipelines
+- Drift detection
+- Retraining infrastructure
+- Production scaling + monitoring
+
+=========================================================
+"""
+
+from dataclasses import dataclass
+from typing import Dict, Any
+from collections import defaultdict
+import numpy as np
+import random
+
+
+# =========================================================
+# CORE TYPES (shared with Option A)
+# =========================================================
+
+@dataclass
+class Signal:
+    id: str
+    signal_type: str
+    regime: str
+    features: Dict[str, float]
+    predicted_probability: float
+
+
+@dataclass
+class Outcome:
+    pnl: float
+    win: bool
+    regime: str
+
+
+# =========================================================
+# 1. EXPECTANCY ENGINE (EDGE DETECTION LOGIC)
+# =========================================================
+
+class ExpectancyEngine:
+    def __init__(self):
+        self.trades = defaultdict(list)
+
+    def update(self, signal_type: str, outcome: Outcome):
+        self.trades[signal_type].append(outcome)
+
+    def expectancy(self, signal_type: str):
+        data = self.trades[signal_type]
+        if len(data) < 30:
+            return 0.0
+
+        wins = [x.pnl for x in data if x.win]
+        losses = [x.pnl for x in data if not x.win]
+
+        wr = len(wins) / len(data)
+        aw = np.mean(wins) if wins else 0
+        al = np.mean(losses) if losses else 0
+
+        return (wr * aw) + ((1 - wr) * al)
+
+    def edge_class(self, signal_type: str):
+        ev = self.expectancy(signal_type)
+
+        if ev > 0.5:
+            return "strong_edge"
+        if ev > 0:
+            return "weak_edge"
+        return "negative_edge"
+
+
+# =========================================================
+# 2. REGIME INTELLIGENCE (MARKET CONTEXT LOGIC)
+# =========================================================
+
+class RegimeEngine:
+    def __init__(self):
+        self.history = defaultdict(list)
+
+    def update(self, signal_type, regime, outcome: Outcome):
+        self.history[(signal_type, regime)].append(outcome)
+
+    def regime_score(self, signal_type, regime):
+        d = self.history[(signal_type, regime)]
+        if len(d) < 15:
+            return 0
+        return np.mean([x.pnl for x in d])
+
+    def allowed(self, signal_type, regime):
+        return self.regime_score(signal_type, regime) > 0
+
+
+# =========================================================
+# 3. META MODEL (MODEL SELECTION LOGIC)
+# =========================================================
+
+class MetaModel:
+    def __init__(self):
+        self.weights = defaultdict(lambda: 1.0)
+
+    def update(self, model_name, performance):
+        self.weights[model_name] = (
+            0.9 * self.weights[model_name] + 0.1 * performance
+        )
+
+    def score(self, predictions: Dict[str, float]):
+        scored = {
+            k: v * self.weights[k]
+            for k, v in predictions.items()
+        }
+        best = max(scored, key=scored.get)
+        return best, scored
+
+
+# =========================================================
+# 4. RISK ENGINE (TRADING SAFETY LOGIC)
+# =========================================================
+
+class RiskEngine:
+    def size(self, confidence, regime_stability, volatility=1.0):
+        base = confidence * regime_stability
+        adjusted = base / (1 + volatility)
+        return max(0.1, min(2.0, adjusted))
+
+    def should_trade(self, confidence, edge_class):
+        if edge_class == "negative_edge":
+            return False
+        if confidence < 0.3:
+            return False
+        return True
+
+
+# =========================================================
+# 5. CONFIDENCE CALIBRATION (BIAS CORRECTION LOGIC)
+# =========================================================
+
+class ConfidenceCalibration:
+    def calibrate(self, predicted, error_penalty=0.1):
+        return max(0.0, min(1.0, predicted - error_penalty))
+
+
+# =========================================================
+# 6. INTUITION ENGINE (FINAL DECISION LOGIC LAYER)
+# =========================================================
+
+class IntuitionEngine:
+    def decide(self, edge_class, regime_ok, confidence, risk_ok):
+
+        if not regime_ok:
+            return "NO_TRADE"
+
+        if not risk_ok:
+            return "NO_TRADE"
+
+        if edge_class == "negative_edge":
+            return "NO_TRADE"
+
+        if confidence > 0.7:
+            return "TRADE"
+
+        if confidence > 0.4:
+            return "REDUCE_SIZE"
+
+        return "WAIT"
+
+
+# =========================================================
+# 7. OPTION B BRAIN (INTELLIGENCE ORCHESTRATOR)
+# =========================================================
+
+class OptionBBrain:
+    """
+    THIS IS OPTION B INTELLIGENCE LAYER.
+
+    It does NOT define system structure (Option A).
+    It ONLY defines decision logic that runs INSIDE Option A modules.
+    """
+
+    def __init__(self):
+        self.expectancy = ExpectancyEngine()
+        self.regime = RegimeEngine()
+        self.meta = MetaModel()
+        self.risk = RiskEngine()
+        self.calibration = ConfidenceCalibration()
+        self.intuition = IntuitionEngine()
+
+    def evaluate(self, signal: Signal):
+
+        # 1. edge detection (learning from history)
+        edge_class = self.expectancy.edge_class(signal.signal_type)
+
+        # 2. regime validation (market context filter)
+        regime_ok = self.regime.allowed(signal.signal_type, signal.regime)
+
+        # 3. confidence calibration (bias correction)
+        confidence = self.calibration.calibrate(signal.predicted_probability)
+
+        # 4. risk filter (should we even trade?)
+        risk_ok = self.risk.should_trade(confidence, edge_class)
+
+        # 5. final decision (intuition layer)
+        decision = self.intuition.decide(
+            edge_class=edge_class,
+            regime_ok=regime_ok,
+            confidence=confidence,
+            risk_ok=risk_ok
+        )
+
+        # 6. position sizing logic
+        size = self.risk.size(confidence, regime_stability=0.8)
+
+        return {
+            "OPTION_A_ROLE": "STRUCTURE (not shown here)",
+            "OPTION_B_ROLE": "INTELLIGENCE LOGIC (this file)",
+            "signal_type": signal.signal_type,
+            "edge_class": edge_class,
+            "confidence": confidence,
+            "regime_ok": regime_ok,
+            "decision": decision,
+            "position_size": size
+        }

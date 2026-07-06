@@ -30317,6 +30317,9 @@ def _build_aiem_tool_map():
         # ── Edge Filter (pre-fire gate) ───────────────────────────────────────
         "edge_filter_status":      _aiem_tool_edge_filter_status,
         "edge_filter_evaluate":    _aiem_tool_edge_filter_evaluate,
+        # ── AIEM V2 System (5-layer orchestrator) ─────────────────────────────
+        "v2_run_cycle":            _aiem_tool_v2_run_cycle,
+        "v2_status":               _aiem_tool_v2_status,
         # ── Background-system live read tools ─────────────────────────────────
         "get_meta_learning_weights":   _aiem_tool_get_meta_learning_weights,
         "get_m2_decay_status":         _aiem_tool_get_m2_decay_status,
@@ -32464,6 +32467,18 @@ _AIEM_AGENT_TOOLS = [
             "regime":           {"type": "string",  "description": "Current market regime: BULL, BEAR, or NEUTRAL"},
             "conviction_score": {"type": "number",  "description": "Conviction score 0.0-1.0 from the signal (default 0.5)"},
         }, "required": ["signal_source"]},
+    }},
+    {"type": "function", "function": {
+        "name": "v2_run_cycle",
+        "description": "Execute one full AIEM V2 5-layer institutional pipeline cycle. Generates a live signal from real DB sources (conviction stack, options flow, RVOL scan, washout), scores it with 3 specialist models (MomentumModel, MeanReversionModel, OptionsFlowModel), applies MetaModel weighting, adversarial stress test, AllocationEngine sizing, MetaCognition health check, and EdgeFilter gate. Returns the full decision with audit trail.",
+        "parameters": {"type": "object", "properties": {
+            "regime": {"type": "string", "description": "Current market regime: BULL, BEAR, or NEUTRAL (default NEUTRAL)"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "v2_status",
+        "description": "Full AIEM V2 system snapshot: the 10 most recent signals logged to the FeatureStore (with ticker, type, regime, features), MetaCognition health history (overload/drift/correlation checks), and the current session's signal count.",
+        "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
         "name": "ensemble_combine_signals",
@@ -35323,6 +35338,34 @@ def _aiem_tool_edge_filter_evaluate(
             regime=regime,
             conviction_score=float(conviction_score),
         )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+# ── AIEM V2 System tools ─────────────────────────────────────────────────────
+
+def _aiem_tool_v2_run_cycle(regime: str = "NEUTRAL") -> dict:
+    """
+    Execute one full 5-layer AIEM V2 pipeline cycle.
+    Returns: signal, model_scores, best_model, final_score, stressed_score,
+             size_multiplier, strategy_state, metacognition health, edge_filter
+             gate result, counterfactual baseline, and approved decision.
+    """
+    try:
+        import aiem_v2_system as _v2
+        return _v2.get_system().run_cycle(regime=regime)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_v2_status() -> dict:
+    """
+    Full AIEM V2 system snapshot: recent feature-store entries,
+    MetaCognition health history, and session signal count.
+    """
+    try:
+        import aiem_v2_system as _v2
+        return _v2.get_system().status()
     except Exception as _e:
         return {"error": str(_e)}
 
@@ -47522,6 +47565,13 @@ try:
     print("[edge_filter] deferred schema init registered")
 except Exception as _ef_import_e:
     print(f"[edge_filter] import failed at registration time: {_ef_import_e}")
+
+try:
+    import aiem_v2_system as _aiem_v2_mod
+    _DEFERRED_INITS.append(lambda: _aiem_v2_mod.init_schema())
+    print("[v2_system] deferred schema init registered")
+except Exception as _v2_import_e:
+    print(f"[v2_system] import failed at registration time: {_v2_import_e}")
 
 
 def _run_layer9_bg_scan():
