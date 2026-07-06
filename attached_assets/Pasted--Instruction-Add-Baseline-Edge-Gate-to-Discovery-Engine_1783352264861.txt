@@ -1,0 +1,47 @@
+# Instruction — Add Baseline-Edge Gate to Discovery Engine
+
+**Context:** `_evaluate()` in `aiem_discovery_engine.py` computes `baseline_wr` but never uses it in any conditional. Candidates currently only need to pass the overfit-gap check and the 45% OOS win-rate floor to become `status='pending'`. Add a minimum-edge-over-baseline requirement.
+
+**Where:** In `_evaluate()`, insert the new check after line 530 (`oos_stats = _compute_stats(...)`) and before line 533 (the `_check_overfit(...)` call).
+
+---
+
+## Logic to add
+
+```python
+edge_pp = round(oos_stats["win_rate"] - oos_stats["baseline_wr"], 2)
+if edge_pp < _MIN_EDGE_OVER_BASELINE:
+    return {
+        ...  # same return shape as other rejection paths
+        "status": "rejected",
+        "rejection_reason": f"no_edge: OOS win rate beats baseline by only {edge_pp}pp (need {_MIN_EDGE_OVER_BASELINE}pp)",
+    }
+```
+
+## New constant to define
+
+Near `_OVERFIT_GAP_THRESHOLD` and `_MIN_IS_TRADES`:
+
+```python
+_MIN_EDGE_OVER_BASELINE = <value>  # e.g. 2.0 or 3.0 pp — decide threshold
+```
+
+Pick a threshold and justify it — don't default to an arbitrary round number without reasoning.
+
+## Ordering
+
+Decide whether this check runs before or after `_check_overfit()`. Recommendation: run it **before**, since a candidate that fails on "no edge" doesn't need the more expensive overfit computation. This is a minor efficiency point, not correctness-critical — either order is acceptable as long as it's stated explicitly.
+
+---
+
+## Verification required after implementation (do not skip)
+
+1. Paste the full modified `_evaluate()` body — not a diff summary.
+2. Re-run Q2's SQL query against a fresh run cycle and paste the new rows. Confirm all 7 previously-pending candidates with negative `edge_pp` now show `status='rejected'` with the new rejection reason.
+3. Confirm the +9.95pp candidate (`cand_b7b106d703fa`) still gets rejected only for `insufficient_is_data`, not reclassified — i.e., confirm the new check doesn't change behavior for candidates that already pass edge but fail sample size.
+4. Grep for every place `status='pending'` or `rejection_reason` is read downstream (already done for Q3 — re-run it) and confirm nothing else breaks.
+5. State the exact line number of the new check in the final diff.
+
+---
+
+*Standard reminder: raw evidence only — terminal output, SQL results, git diffs. No summarized "done" claims without the receipt attached.*
