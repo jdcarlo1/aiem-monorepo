@@ -34,6 +34,8 @@ _Describe the high-level user-facing capabilities of this app once they exist._
 
 ## User preferences
 
+- **Backtesting — always delegate to AIEM:** Any time the user asks for a backtest, historical win rate, signal analysis, or data-driven research query against the scanner's DB tables, I must route it to AIEM (via the chat interface or by instructing the user to ask AIEM directly) rather than running it myself. I may only do the work myself if AIEM is explicitly unavailable or broken. The only exception is when a file edit is needed at the end — that part stays with me.
+
 - **On-demand scoring trigger:** when the user types `score TICKER` (one or more
   symbols, e.g. `score ASTS RKLB`), run each through the full 8-layer Smart Money
   Pressure engine via `GET /stock-api/conviction-stack/score/<ticker>` and report
