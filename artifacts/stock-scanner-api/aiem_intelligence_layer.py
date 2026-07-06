@@ -375,21 +375,28 @@ class VolatilityNormalizationLayer:
 
     def vix_based_factor(self) -> float:
         """
-        Returns a VIX-derived normalization factor from the most recent
-        polygon_market_daily row for ^VIX. VIX 20 → factor 1.0.
+        Returns a VIX-derived normalization factor. VIX 20 → 1.0, VIX 40 → 0.5.
+        Sources in order: yfinance ^VIX → regime_detector cached result → 1.0.
         """
         try:
-            with _connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT close_price FROM polygon_market_daily
-                        WHERE ticker = '^VIX'
-                        ORDER BY scan_date DESC LIMIT 1
-                    """)
-                    row = cur.fetchone()
-            if row and row[0]:
-                vix = float(row[0])
-                return round(20.0 / max(vix, 10.0), 4)
+            import yfinance as _yf
+            _raw = _yf.download("^VIX", period="2d", progress=False, auto_adjust=True)
+            if not _raw.empty:
+                _col = "Close"
+                if hasattr(_raw.columns, "get_level_values"):
+                    _raw.columns = _raw.columns.get_level_values(0)
+                _vals = _raw[_col].dropna() if _col in _raw.columns else None
+                if _vals is not None and len(_vals):
+                    vix = float(_vals.iloc[-1])
+                    return round(20.0 / max(vix, 10.0), 4)
+        except Exception:
+            pass
+        try:
+            from regime_detector import get_current_regime as _gcr
+            _reg = _gcr(db_url=_DB_URL)
+            vix = _reg.get("vix") or _reg.get("vix_level")
+            if vix:
+                return round(20.0 / max(float(vix), 10.0), 4)
         except Exception:
             pass
         return 1.0

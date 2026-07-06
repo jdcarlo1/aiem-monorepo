@@ -37665,6 +37665,62 @@ def _aiem_paper_pick_candidates() -> list:
     else:
         _final = _final[:20]
 
+    # ── Intelligence gate: EdgeFilterOrchestrator + OptionBBrain ──────────
+    # Soft gate: only hard-blocks when edge_class='negative' (not 'insufficient_data').
+    # While data accumulates (< MIN_TRADES=20 per signal), candidates pass through
+    # but get their scores scaled by the AllocationEngine multiplier.
+    try:
+        import aiem_edge_filter as _ef_gate
+        import aiem_intelligence_layer as _il_gate
+        _ef_orc_gate   = _ef_gate.get_orchestrator()
+        _ob_brain_gate = _il_gate.get_option_b_brain()
+        _regime_label  = "BULL" if _macro_bias == 1 else ("BEAR" if _macro_bias == -1 else "NEUTRAL")
+        _gated = []
+        for _fp in _final:
+            _sig   = str(_fp.get("source", "unknown"))
+            _score = float(_fp.get("score", 0.5))
+            _clipped_score = min(max(_score / 10.0, 0.05), 1.0)  # scores are ~0-10, normalize to 0-1
+
+            # Step 1: EdgeFilterOrchestrator — hard block only on confirmed 'negative' edge
+            # Keys: approved, edge, size_multiplier, reason, maturity, overfit, regime_allowed
+            try:
+                _ef_res = _ef_orc_gate.evaluate(_sig, _regime_label, _clipped_score)
+                if not _ef_res.get("approved", True) and _ef_res.get("edge") == "negative":
+                    print(f"[gate] {_fp['ticker']} BLOCKED — negative edge (signal={_sig})")
+                    continue
+                # Apply size_multiplier from AllocationEngine to scale score
+                _ef_mult = float(_ef_res.get("size_multiplier", 1.0) or 1.0)
+                if _ef_mult != 1.0:
+                    _fp["score"] = round(_fp["score"] * _ef_mult, 4)
+            except Exception as _ef_e:
+                print(f"[gate] EdgeFilter error for {_fp['ticker']}: {_ef_e}")
+
+            # Step 2: OptionBBrain — decision + calibrated size
+            # Keys: decision, edge_class, confidence, regime_ok, risk_ok, position_size
+            try:
+                _ob_res = _ob_brain_gate.evaluate(_sig, regime=_regime_label,
+                                                   raw_confidence=_clipped_score)
+                _decision = _ob_res.get("decision", "WAIT")
+                if _decision == "NO_TRADE" and _ob_res.get("edge_class") == "negative":
+                    print(f"[gate] {_fp['ticker']} BLOCKED by OptionBBrain — NO_TRADE/negative")
+                    continue
+                elif _decision == "REDUCE_SIZE":
+                    _fp["score"] = round(_fp["score"] * 0.70, 4)
+                    _detail = str(_fp.get("detail", ""))
+                    _fp["detail"] = _detail + f" [REDUCE_SIZE c={_ob_res.get('confidence',0):.2f}]"
+            except Exception as _ob_e:
+                print(f"[gate] OptionBBrain error for {_fp['ticker']}: {_ob_e}")
+
+            _gated.append(_fp)
+
+        _n_blocked = len(_final) - len(_gated)
+        if _n_blocked:
+            print(f"[gate] {_n_blocked} candidates blocked by intelligence gate")
+        _final = sorted(_gated, key=lambda x: x["score"], reverse=True)
+        print(f"[gate] {len(_final)} candidates passed (EdgeFilter+OptionBBrain, regime={_regime_label})")
+    except Exception as _gate_e:
+        print(f"[gate] intelligence gate error (pass-through): {_gate_e}")
+
     return _final
 
 
