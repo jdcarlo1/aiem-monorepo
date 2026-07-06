@@ -580,6 +580,14 @@ class AdaptiveMarketLayer:
 
 _option_b_brain:      Optional[OptionBBrain]      = None
 _adaptive_layer:      Optional[AdaptiveMarketLayer] = None
+_intuition_engine:    Optional[IntuitionEngine]     = None
+
+
+def get_intuition_engine() -> IntuitionEngine:
+    global _intuition_engine
+    if _intuition_engine is None:
+        _intuition_engine = IntuitionEngine()
+    return _intuition_engine
 
 
 def get_option_b_brain() -> OptionBBrain:
