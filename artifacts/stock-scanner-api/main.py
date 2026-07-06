@@ -30331,6 +30331,12 @@ def _build_aiem_tool_map():
         "get_m6_rediscovery_status":   _aiem_tool_get_m6_rediscovery_status,
         "get_bh_fdr_status":           _aiem_tool_get_bh_fdr_status,
         "portfolio_allocate":          _aiem_tool_portfolio_allocate,
+        "portfolio_circuit_breaker_status": _aiem_tool_pcb_status,
+        "portfolio_circuit_breaker_reset":  _aiem_tool_pcb_reset,
+        "correlation_guard_status":         _aiem_tool_correlation_guard_status,
+        "liquidity_filter_status":          _aiem_tool_liquidity_filter_status,
+        "event_risk_filter_status":         _aiem_tool_event_risk_filter_status,
+        "event_risk_check":                 _aiem_tool_event_risk_check,
         "get_current_regime":       _aiem_tool_get_current_regime,
         "build_features":           _aiem_tool_build_features,
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
@@ -32647,6 +32653,41 @@ _AIEM_AGENT_TOOLS = [
             "signal_stats_json": {"type": "string", "description": "JSON list of signal stat dicts (signal_name, win_rate, avg_return, n_trades)"},
             "total_paper_capital": {"type": "number", "description": "Total paper capital to allocate in dollars"},
         }, "required": ["signal_stats_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "portfolio_circuit_breaker_status",
+        "description": "Show the current state of the PortfolioCircuitBreaker: whether it is open or tripped, the rolling 5-day avg pnl_pct, trade count, trip threshold, and cooling-period reset time. Call this before considering real money.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "portfolio_circuit_breaker_reset",
+        "description": "Manually reset the PortfolioCircuitBreaker from tripped → open. Only use this after investigating why the breaker tripped and confirming the underlying issue is resolved.",
+        "parameters": {"type": "object", "properties": {
+            "reason": {"type": "string", "description": "Why the manual reset is warranted"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "correlation_guard_status",
+        "description": "Show the current open position set and source concentration breakdown used by CorrelationGuard. Includes total open count, ticker list, and per-source breakdown.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "liquidity_filter_status",
+        "description": "Show LiquidityFilter cache stats and current thresholds (min VOI, min premium, min RVOL). Useful for diagnosing why a pick was blocked for liquidity.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "event_risk_filter_status",
+        "description": "Show EventRiskFilter config: next FOMC date, next CPI date, whether earnings/FOMC/CPI blocks are hard or soft, and all remaining 2026 FOMC dates.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "event_risk_check",
+        "description": "Check whether a specific ticker has an earnings date, FOMC, or CPI event within a given hold window. Returns event type, event date, and whether it would block the trade.",
+        "parameters": {"type": "object", "properties": {
+            "ticker":        {"type": "string",  "description": "Ticker symbol"},
+            "hold_days_max": {"type": "integer", "description": "Expected hold window in days (default 11)"},
+        }, "required": ["ticker"]},
     }},
     {"type": "function", "function": {
         "name": "get_current_regime",
@@ -35466,6 +35507,62 @@ def _aiem_tool_adaptive_layer_history(limit: int = 10) -> dict:
         return {"error": str(_e)}
 
 
+# ── Risk Guards tools ─────────────────────────────────────────────────────────
+
+def _aiem_tool_pcb_status() -> dict:
+    """PortfolioCircuitBreaker: DB state + live 5-day rolling P&L stats."""
+    try:
+        import aiem_risk_guards as _rg
+        return _rg.get_portfolio_circuit_breaker().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_pcb_reset(reason: str = "manual_admin_reset") -> dict:
+    """Manually reset the PortfolioCircuitBreaker to open."""
+    try:
+        import aiem_risk_guards as _rg
+        return _rg.get_portfolio_circuit_breaker().reset(by=str(reason))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_correlation_guard_status() -> dict:
+    """Current open position set + per-source concentration for CorrelationGuard."""
+    try:
+        import aiem_risk_guards as _rg
+        return _rg.get_correlation_guard().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_liquidity_filter_status() -> dict:
+    """LiquidityFilter cache stats and current thresholds."""
+    try:
+        import aiem_risk_guards as _rg
+        return _rg.get_liquidity_filter().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_event_risk_filter_status() -> dict:
+    """EventRiskFilter config: next FOMC, next CPI, block mode, remaining 2026 dates."""
+    try:
+        import aiem_risk_guards as _rg
+        return _rg.get_event_risk_filter().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_event_risk_check(ticker: str, hold_days_max: int = 11) -> dict:
+    """Check earnings/FOMC/CPI event risk for a ticker within its hold window."""
+    try:
+        import aiem_risk_guards as _rg
+        return _rg.get_event_risk_filter().check(str(ticker), int(hold_days_max))
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 # ── Portfolio Allocator tools ─────────────────────────────────────────────────
 def _aiem_tool_portfolio_allocate(signal_stats_json: str,
                                   total_paper_capital: float = 10000.0) -> dict:
@@ -37403,6 +37500,23 @@ def _aiem_paper_pick_candidates() -> list:
     """
     _candidates = {}
 
+    # ── -1. PortfolioCircuitBreaker — account-level halt ──────────────────
+    # Trips when avg realized pnl_pct over last 5 days < -5% (≥5 trades).
+    # While tripped, no new picks are generated (24h cooling period).
+    try:
+        import aiem_risk_guards as _rg_pcb
+        _pcb_result = _rg_pcb.get_portfolio_circuit_breaker().check()
+        if _pcb_result.get("tripped"):
+            print(f"[CIRCUIT BREAKER] ALL NEW PICKS HALTED — {_pcb_result['reason']} "
+                  f"(resets in {_pcb_result.get('reset_in_hours','?')}h)")
+            return []
+        _pcb_avg = _pcb_result.get("avg_pnl_pct_5d", 0)
+        if _pcb_avg < -3.0:
+            print(f"[circuit_breaker] WARNING — avg_pnl_5d={_pcb_avg:.2f}% "
+                  f"({_pcb_result.get('n_trades_5d', 0)} trades, trips at -5%)")
+    except Exception as _pcb_e:
+        print(f"[circuit_breaker] check error (pass-through): {_pcb_e}")
+
     # ── 0. FRED macro bias — yield curve + credit spreads ─────────────────
     _macro_bias = 0  # -1 = risk-off, 0 = neutral, 1 = risk-on
     if _fred_macro:
@@ -37715,6 +37829,49 @@ def _aiem_paper_pick_candidates() -> list:
                     _fp["detail"] = _detail + f" [REDUCE_SIZE c={_ob_res.get('confidence',0):.2f}]"
             except Exception as _ob_e:
                 print(f"[gate] OptionBBrain error for {_fp['ticker']}: {_ob_e}")
+
+            # Step 3: CorrelationGuard — duplicate ticker + source concentration
+            try:
+                import aiem_risk_guards as _rg_gate
+                _cg_res = _rg_gate.get_correlation_guard().check(
+                    _fp["ticker"], _sig
+                )
+                if not _cg_res.get("approved", True):
+                    print(f"[gate] {_fp['ticker']} BLOCKED — correlation: {_cg_res['reason']}")
+                    continue
+            except Exception as _cg_e:
+                print(f"[gate] CorrelationGuard error for {_fp['ticker']}: {_cg_e}")
+
+            # Step 4: LiquidityFilter — VOI / premium / RVOL check
+            try:
+                import aiem_risk_guards as _rg_gate
+                _lf_res = _rg_gate.get_liquidity_filter().check(
+                    _fp["ticker"], _fp.get("trade_type", "STOCK")
+                )
+                if not _lf_res.get("approved", True):
+                    print(f"[gate] {_fp['ticker']} BLOCKED — liquidity: {_lf_res['reason']}")
+                    continue
+            except Exception as _lf_e:
+                print(f"[gate] LiquidityFilter error for {_fp['ticker']}: {_lf_e}")
+
+            # Step 5: EventRiskFilter — earnings / FOMC / CPI in hold window
+            try:
+                import aiem_risk_guards as _rg_gate
+                _hold = int(_fp.get("hold_days_max") or 11)
+                _erf_res = _rg_gate.get_event_risk_filter().check(
+                    _fp["ticker"], _hold
+                )
+                if not _erf_res.get("approved", True):
+                    print(f"[gate] {_fp['ticker']} BLOCKED — event_risk: {_erf_res['reason']}")
+                    continue
+                elif _erf_res.get("score_mult", 1.0) < 1.0:
+                    _fp["score"] = round(_fp["score"] * _erf_res["score_mult"], 4)
+                    _detail = str(_fp.get("detail", ""))
+                    _fp["detail"] = _detail + (
+                        f" [EVENT:{_erf_res['event_type']}={_erf_res['event_date']}]"
+                    )
+            except Exception as _erf_e:
+                print(f"[gate] EventRiskFilter error for {_fp['ticker']}: {_erf_e}")
 
             _gated.append(_fp)
 
@@ -47743,6 +47900,13 @@ try:
     print("[cold_start_report] deferred startup log registered")
 except Exception as _cs_import_e:
     print(f"[cold_start_report] import failed: {_cs_import_e}")
+
+try:
+    import aiem_risk_guards as _aiem_rg_mod
+    _DEFERRED_INITS.append(lambda: _aiem_rg_mod.init_schema())
+    print("[risk_guards] deferred schema init registered")
+except Exception as _rg_import_e:
+    print(f"[risk_guards] import failed at registration time: {_rg_import_e}")
 
 
 def _run_layer9_bg_scan():
