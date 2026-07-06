@@ -99,6 +99,7 @@ def _classify(disc: dict, outcome: dict | None) -> dict:
     result = {
         "discovery_id":              disc_id,
         "discovery_status":          status,
+        "hypothesis_text":           disc.get("hypothesis_text") or "",
         "promotion_status":          None,
         "recommendation":            None,
         "blocking_reason":           None,
@@ -218,7 +219,7 @@ def run_module3(conn) -> list[dict]:
         # Fetch all hypothesis signals
         cur.execute("""
             SELECT id, status, signal_win_rate, signal_n, horizon,
-                   conditions_json, discovered_at
+                   conditions_json, discovered_at, hypothesis_text
             FROM aiem_signal_discoveries
             WHERE status = 'hypothesis'
             ORDER BY id
