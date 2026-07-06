@@ -47851,7 +47851,8 @@ Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT cr
                     for _ap in picks[:6]:
                         _tk   = _ap.get("ticker", "?")
                         _str  = _ap.get("strike", "?")
-                        _exp  = str(_ap.get("expiry", "?"))[:7]
+                        _exp_raw = str(_ap.get("expiry", "?"))
+                        _exp = f"{_exp_raw[5:7]}/{_exp_raw[8:10]}" if len(_exp_raw) >= 10 else _exp_raw
                         _prem = _ap.get("prem", 0) or 0
                         _ps   = f"${float(_prem)/1e6:.1f}M" if float(_prem) >= 1_000_000 else f"${float(_prem)/1e3:.0f}K"
                         _voi  = _ap.get("vol_oi", 0) or 0
