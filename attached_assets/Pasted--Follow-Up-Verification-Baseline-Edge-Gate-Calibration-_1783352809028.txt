@@ -1,0 +1,63 @@
+# Follow-Up Verification — Baseline-Edge Gate Calibration
+
+**Context:** The `_MIN_EDGE_OVER_BASELINE = 2.0` gate was implemented and mechanically verified (correct line numbers, no downstream side effects, existing rejections unchanged). However, the most recent full run cycle produced `total_templates: 10, proposed: 0, rejected: 10` — every candidate was rejected. That confirms the gate works, but not that 2.0pp is the right threshold. The questions below are about calibration, not correctness of implementation.
+
+**Standard for all answers:** raw terminal/SQL output only. No paraphrasing a result as "reasonable" or "fine" without pasting the output that led to that conclusion.
+
+---
+
+## Q1. Is 2.0pp too strict, or is zero candidates a normal outcome for this cycle?
+
+Run `_evaluate()` against several **historical** run cycles (different time windows, not just the most recent one) using the same `_MIN_EDGE_OVER_BASELINE = 2.0` threshold. Report proposed/rejected counts for each window.
+
+If the result is consistently zero proposed across many windows, that's evidence 2.0pp may be too strict given how `baseline_wr` is computed. If some windows produce candidates and this one was simply quiet, that's fine — but show the data either way.
+
+```
+For each of the last N historical windows:
+  window: <start> → <end>
+  total_templates: <n>
+  proposed: <n>
+  rejected: <n>
+```
+
+---
+
+## Q2. How is `baseline_wr` computed, and could it be structurally inflating the bar?
+
+`baseline_wr` was confirmed to be the same-window win rate across all stocks (52.55% in the last cycle). Confirm:
+
+- Is this "all stocks, same period" baseline appropriate, or should it be a rolling average, a sector-matched baseline, or something else?
+- In a trending/bull-market window, does baseline drift upward, making the +2.0pp bar harder to clear even for a genuinely edge-having signal?
+
+Paste the exact `_compute_stats()` baseline calculation again for reference, and state plainly whether baseline could be elevated in a way that unfairly penalizes candidates in strong-trend periods.
+
+---
+
+## Q3. Sensitivity test — how much does the outcome change with a different threshold?
+
+Rerun the same 10 templates from the last cycle at these thresholds, and report proposed/rejected counts at each:
+
+```
+_MIN_EDGE_OVER_BASELINE = 0.0
+_MIN_EDGE_OVER_BASELINE = 1.0
+_MIN_EDGE_OVER_BASELINE = 2.0   (current)
+_MIN_EDGE_OVER_BASELINE = 3.0
+```
+
+Paste the actual `edge_pp` for each of the 10 candidates in that cycle so it's clear how many are borderline near each cutoff, versus how many are far off (e.g., -10.74pp) regardless of threshold choice.
+
+---
+
+## Q4. What happens downstream when the pending queue is empty?
+
+Confirm nothing that consumes `discovered_candidates` (dashboards, alerts, health checks, other AIEM modules) treats zero `pending` rows as an error state or fires a false "system broken" signal. Grep for any code that checks queue length or absence of pending rows and treats it as anomalous.
+
+```
+grep -rn "pending" <relevant monitoring/dashboard files>
+```
+
+Paste output. If nothing consumes the pending count in a way that could misfire on zero, say so explicitly and show the grep that confirms it.
+
+---
+
+*Reminder: raw evidence only — terminal output, SQL results, historical run data. No summarized "looks calibrated" claims without the receipt attached.*
