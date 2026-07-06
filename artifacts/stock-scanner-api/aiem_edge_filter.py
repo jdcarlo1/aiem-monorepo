@@ -747,3 +747,52 @@ def get_orchestrator() -> EdgeFilterOrchestrator:
     if _orchestrator is None:
         _orchestrator = EdgeFilterOrchestrator()
     return _orchestrator
+
+
+def cold_start_report() -> None:
+    """
+    Logs the ExpectancyEngine cold-start status at startup.
+    Printed to stdout so it appears in workflow logs without requiring a query.
+    Queries ALL rows (not just pnl_pct IS NOT NULL) so cold-start is visible
+    even before any trades are graded.
+    Format: one line per signal type + one summary line flagging inactive blockers.
+    Called from _DEFERRED_INITS so it runs after schema init.
+    """
+    MIN_TRADES = ExpectancyEngine.MIN_TRADES
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                # ALL rows regardless of grading status — edge_class uses COUNT(*), not pnl
+                cur.execute("""
+                    SELECT signal_source, COUNT(*) AS n
+                    FROM   rl_experience_buffer
+                    GROUP  BY signal_source
+                    ORDER  BY n DESC
+                """)
+                rows = [{"signal_source": r[0], "n": int(r[1])} for r in cur.fetchall()]
+    except Exception as _e:
+        print(f"[cold_start] could not query rl_experience_buffer: {_e}")
+        return
+
+    if not rows:
+        print(f"[ExpectancyEngine] cold-start: HARD BLOCK INACTIVE — "
+              f"rl_experience_buffer empty (0 trades for any signal type; need ≥{MIN_TRADES} each). "
+              f"All candidates pass-through until data accumulates.")
+        return
+
+    active   = [r for r in rows if r["n"] >= MIN_TRADES]
+    inactive = [r for r in rows if r["n"] <  MIN_TRADES]
+
+    for r in rows:
+        n      = r["n"]
+        src    = r["signal_source"] or "unknown"
+        needed = max(0, MIN_TRADES - n)
+        status = "ACTIVE" if n >= MIN_TRADES else f"COLD — need {needed} more trades"
+        print(f"[ExpectancyEngine] {src:<25}  trades={n:>3}  {status}")
+
+    n_inactive = len(inactive)
+    n_total    = len(rows)
+    if n_inactive:
+        srcs = ", ".join(r["signal_source"] or "unknown" for r in inactive)
+        print(f"[ExpectancyEngine] ⚠  HARD BLOCK INACTIVE for {n_inactive}/{n_total} signal types "
+              f"(insufficient_data → pass-through): [{srcs}]")

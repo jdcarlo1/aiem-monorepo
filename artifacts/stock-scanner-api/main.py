@@ -37697,12 +37697,17 @@ def _aiem_paper_pick_candidates() -> list:
 
             # Step 2: OptionBBrain — decision + calibrated size
             # Keys: decision, edge_class, confidence, regime_ok, risk_ok, position_size
+            # NO_TRADE is a hard block for any reason (regime, risk gate, or negative edge).
             try:
                 _ob_res = _ob_brain_gate.evaluate(_sig, regime=_regime_label,
                                                    raw_confidence=_clipped_score)
                 _decision = _ob_res.get("decision", "WAIT")
-                if _decision == "NO_TRADE" and _ob_res.get("edge_class") == "negative":
-                    print(f"[gate] {_fp['ticker']} BLOCKED by OptionBBrain — NO_TRADE/negative")
+                if _decision == "NO_TRADE":
+                    _ntrade_why = _ob_res.get("edge_class", "?")
+                    _ntrade_regime = _ob_res.get("regime_ok", True)
+                    _ntrade_risk   = _ob_res.get("risk_ok", True)
+                    print(f"[gate] {_fp['ticker']} BLOCKED — NO_TRADE "
+                          f"(edge={_ntrade_why}, regime_ok={_ntrade_regime}, risk_ok={_ntrade_risk})")
                     continue
                 elif _decision == "REDUCE_SIZE":
                     _fp["score"] = round(_fp["score"] * 0.70, 4)
@@ -47731,6 +47736,13 @@ try:
     print("[intelligence_layer] deferred schema init registered")
 except Exception as _il_import_e:
     print(f"[intelligence_layer] import failed at registration time: {_il_import_e}")
+
+try:
+    import aiem_edge_filter as _aiem_ef_cs
+    _DEFERRED_INITS.append(lambda: _aiem_ef_cs.cold_start_report())
+    print("[cold_start_report] deferred startup log registered")
+except Exception as _cs_import_e:
+    print(f"[cold_start_report] import failed: {_cs_import_e}")
 
 
 def _run_layer9_bg_scan():

@@ -1,0 +1,47 @@
+# AIEM — 18 Module Verification, Round 3 (Cold-Start & Override Behavior)
+
+The last audit confirmed all 18 modules are wired and 4 real bugs were fixed. This round is not about wiring anymore — it's about whether the safety logic actually protects anything *right now*, given the system's current data state. Same standard: raw output, real numbers, no summaries.
+
+---
+
+## 1. Cold-start blind spot on the negative-edge hard block
+
+The last audit stated the hard block "won't fire yet while data accumulates" and that `ExpectancyEngine` needs `rl_experience_buffer` to reach ~20 trades per signal type before it can classify anything as negative.
+
+**Questions — answer with real numbers, not descriptions:**
+
+1. Right now, today, query `rl_experience_buffer` and report the actual trade count **per signal type** (momentum, mean reversion, options flow, unusual_calls, etc. — every type currently live). Paste the raw query and results.
+2. For every signal type currently below the 20-trade threshold, confirm explicitly: is `edge_class` defaulting to something other than `negative` (e.g., `insufficient_data`) for all of them? If so, state plainly: **as of today, does the negative-edge hard block currently have the ability to block anything at all, or is every live signal type still in the cold-start state where blocking is structurally impossible?**
+3. If the answer to #2 is "nothing can be blocked yet," this needs to be surfaced, not buried. Add a startup-time log line or dashboard flag that states outright: "ExpectancyEngine hard block is INACTIVE for [N] of [M] signal types — insufficient trade history." This should be visible without having to know to ask.
+4. Show the actual trade count trajectory needed — at current trade frequency, how many days/weeks until the first signal type crosses the 20-trade threshold and the block becomes live?
+
+---
+
+## 2. NO_TRADE decisions are advisory, not enforced — confirm this is intentional
+
+AAPL received a `NO_TRADE` decision from the intelligence layer but was not blocked — it passed through the gate and was only deprioritized by sort order, because the gate only hard-blocks on `edge_class='negative'`, not on `insufficient_data` or a `NO_TRADE` decision itself.
+
+**Questions:**
+
+1. Show the exact gate logic (file + line) that determines whether a `NO_TRADE` decision from `IntuitionEngine` / `OptionBBrain` results in an actual block versus just a sort-order deprioritization.
+2. Confirm: in the current implementation, is it possible for a signal explicitly marked `NO_TRADE` by the intelligence layer to still execute as a live paper trade if it sorts high enough some other way (e.g., large size multiplier elsewhere in the pipeline)? Construct a real test case that would prove this either way — don't just describe the sort logic, show a case run through it.
+3. Is this the intended design (NO_TRADE = "deprioritize" not "block"), or should NO_TRADE be a hard block equivalent to negative edge? State the intended behavior explicitly, then confirm the code matches whichever answer is correct.
+4. If NO_TRADE should be a hard block and currently isn't, fix it and show a before/after test case (same signal, blocked after the fix, not blocked before).
+
+---
+
+## 3. VIX metric labeling — pin down what's actually being reported
+
+Two different numbers appeared in the same audit for VIX: one instance reported "VIX reads live data — 1.2384," another reported "VIX=16.1 → factor=1.24." These look like the raw VIX index value and the derived normalization factor being labeled inconsistently.
+
+**Questions:**
+
+1. State explicitly, with variable names: what is the actual current raw VIX index value (should be in the 10–40 range under normal conditions), and what is the separately-computed `vix_based_factor()` output derived from it?
+2. Show the exact formula in `VolatilityNormalizationLayer.vix_based_factor()` that turns the raw VIX reading into the factor.
+3. Any summary or dashboard output going forward must label these as two distinct fields (`vix_raw` and `vix_factor`, or similar) — confirm this labeling fix is applied everywhere this value is surfaced, not just in one function.
+
+---
+
+## Reporting format
+
+One table, three rows (one per section above), columns: Question set | Real evidence provided? (Y/N) | Current live status | Action taken if a gap was found. No row should be marked resolved without the raw query output, test case, or code diff that proves it.

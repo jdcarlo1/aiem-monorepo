@@ -373,10 +373,10 @@ class VolatilityNormalizationLayer:
             pass
         return None
 
-    def vix_based_factor(self) -> float:
+    def _fetch_vix_raw(self) -> Optional[float]:
         """
-        Returns a VIX-derived normalization factor. VIX 20 → 1.0, VIX 40 → 0.5.
-        Sources in order: yfinance ^VIX → regime_detector cached result → 1.0.
+        Fetch raw VIX index value (e.g. 16.1) from yfinance → regime_detector → None.
+        Internal helper; callers should use vix_raw_and_factor() or vix_based_factor().
         """
         try:
             import yfinance as _yf
@@ -387,19 +387,40 @@ class VolatilityNormalizationLayer:
                     _raw.columns = _raw.columns.get_level_values(0)
                 _vals = _raw[_col].dropna() if _col in _raw.columns else None
                 if _vals is not None and len(_vals):
-                    vix = float(_vals.iloc[-1])
-                    return round(20.0 / max(vix, 10.0), 4)
+                    return float(_vals.iloc[-1])
         except Exception:
             pass
         try:
             from regime_detector import get_current_regime as _gcr
             _reg = _gcr(db_url=_DB_URL)
-            vix = _reg.get("vix") or _reg.get("vix_level")
-            if vix:
-                return round(20.0 / max(float(vix), 10.0), 4)
+            _v   = _reg.get("vix") or _reg.get("vix_level")
+            if _v:
+                return float(_v)
         except Exception:
             pass
-        return 1.0
+        return None
+
+    def vix_raw_and_factor(self) -> Dict[str, Optional[float]]:
+        """
+        Returns both the raw VIX index value and the derived normalization factor.
+          vix_raw    — actual VIX index reading (e.g. 16.1); None if unavailable
+          vix_factor — 20 / max(vix_raw, 10);  VIX 20 → 1.0, VIX 40 → 0.5, VIX 10 → 2.0
+        Formula: vix_factor = round(20.0 / max(vix_raw, 10.0), 4)
+        """
+        raw = self._fetch_vix_raw()
+        if raw is not None:
+            factor = round(20.0 / max(raw, 10.0), 4)
+        else:
+            factor = 1.0
+        return {"vix_raw": raw, "vix_factor": factor}
+
+    def vix_based_factor(self) -> float:
+        """
+        Convenience wrapper — returns only the normalization factor (float).
+        Use vix_raw_and_factor() when both the raw index value and factor are needed.
+        VIX 20 → 1.0, VIX 40 → 0.5.  Formula: 20 / max(vix, 10).
+        """
+        return self.vix_raw_and_factor()["vix_factor"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -486,10 +507,12 @@ class AdaptiveMarketLayer:
         norm_conf = self.vol_norm.normalize_for_ticker(
             result["raw_confidence"], ticker
         )
-        # Also apply VIX factor
-        vix_factor = self.vol_norm.vix_based_factor()
+        # Also apply VIX factor — store both raw and factor for transparency
+        _vix_data  = self.vol_norm.vix_raw_and_factor()
+        vix_factor = _vix_data["vix_factor"]
         norm_conf  = round(norm_conf * vix_factor, 4)
         result["norm_confidence"] = norm_conf
+        result["detail"]["vix_raw"]    = _vix_data["vix_raw"]
         result["detail"]["vix_factor"] = vix_factor
 
         # ── 4. Decay check (aiem_signal_discoveries) ──────────────────────
