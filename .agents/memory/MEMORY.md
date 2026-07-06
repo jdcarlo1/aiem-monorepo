@@ -1,3 +1,4 @@
+- [Adaptive Hypothesis Generation Layer](adaptive-hypothesis-gen-layer.md) — 8-module discovery cycle in main.py; all modules wired and verified; report endpoint at /admin/discovery-cycle/report
 - [AIEM RL Engine](aiem-rl-engine.md) — 12-module feedback system in aiem_rl_engine.py; 6 DB tables (rl_experience_buffer etc); fires from MTM bg thread; 4 AIEM tools wired; EMA α=0.15/EWC α=0.08; PPO clip ε=0.2 numpy-only
 - [Momentum Trade Model v3](momentum-trade-model-v3.md) — 24-feature XGBoost (atr_pct, vs_20d_high, vs_ma50 top signals); 4 hard gates; 3 bugs fixed (conn close order, filter sweep SQL, X dimension compat); AUC=0.826
 - [Alpha Leaders models](alpha-leaders-models.md) — 10d AUC=0.51 (real edge); 60d AUC=0.47 (mean-reversion finding); horizon param in tool + endpoints; NO paper trades

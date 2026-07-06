@@ -1386,6 +1386,666 @@ def _init_subscriber_prefs():
         print(f"[prefs] _init_subscriber_prefs error: {_e}")
 _DEFERRED_INITS.append(_init_subscriber_prefs)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODULE 6 — AUTONOMOUS DISCOVERY CYCLE SCHEDULER
+# Tables, job function, and admin controls.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _init_discovery_cycle_tables():
+    """Create tables for the autonomous discovery cycle (Module 6)."""
+    try:
+        import psycopg2 as _dc_pg
+        _dc = _dc_pg.connect(os.environ["DATABASE_URL"])
+        with _dc.cursor() as _cur:
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS discovery_cycle_config (
+                    key        TEXT PRIMARY KEY,
+                    value      TEXT NOT NULL DEFAULT '',
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS discovery_cycle_log (
+                    id                   BIGSERIAL PRIMARY KEY,
+                    run_id               TEXT NOT NULL,
+                    started_at           TIMESTAMP WITH TIME ZONE NOT NULL,
+                    completed_at         TIMESTAMP WITH TIME ZONE,
+                    duration_s           NUMERIC(10,2),
+                    total_templates      INTEGER DEFAULT 0,
+                    candidates_pending   INTEGER DEFAULT 0,
+                    candidates_rejected  INTEGER DEFAULT 0,
+                    triggered_by         TEXT NOT NULL DEFAULT 'scheduler',
+                    error_msg            TEXT
+                )
+            """)
+            _cur.execute("""
+                INSERT INTO discovery_cycle_config (key, value) VALUES
+                    ('enabled',       'true'),
+                    ('running',       'false'),
+                    ('running_since', '')
+                ON CONFLICT (key) DO NOTHING
+            """)
+            _dc.commit()
+        _dc.close()
+        print("[discovery_cycle] tables ready")
+    except Exception as _e:
+        print(f"[discovery_cycle] table init error: {_e}")
+
+_DEFERRED_INITS.append(_init_discovery_cycle_tables)
+
+
+def _dc_cfg_get(key: str) -> str:
+    """Read a single key from discovery_cycle_config. Returns '' on miss."""
+    try:
+        import psycopg2 as _dc_pg2
+        _c = _dc_pg2.connect(os.environ["DATABASE_URL"])
+        with _c.cursor() as _cur:
+            _cur.execute("SELECT value FROM discovery_cycle_config WHERE key=%s", (key,))
+            _row = _cur.fetchone()
+        _c.close()
+        return _row[0] if _row else ""
+    except Exception:
+        return ""
+
+
+def _dc_cfg_set(key: str, value: str) -> None:
+    """Upsert a key into discovery_cycle_config."""
+    try:
+        import psycopg2 as _dc_pg2
+        _c = _dc_pg2.connect(os.environ["DATABASE_URL"])
+        with _c.cursor() as _cur:
+            _cur.execute("""
+                INSERT INTO discovery_cycle_config (key, value, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (key) DO UPDATE
+                    SET value = EXCLUDED.value, updated_at = NOW()
+            """, (key, value))
+            _c.commit()
+        _c.close()
+    except Exception as _e:
+        print(f"[discovery_cycle] cfg_set error key={key!r}: {_e}")
+
+
+def _dc_module2_rank_templates(templates: list) -> list:
+    """
+    Module 2 — Thompson sampling for template prioritization.
+
+    Maps each template's primary feature field to a discovery category, then
+    draws a Beta(α, β) sample per category based on its historical track record
+    of validated vs. failed hypotheses.  Templates from categories with stronger
+    track records float to the top; untested categories stay at prior Beta(1,1).
+
+    Returns up to 8 templates ordered by Thompson score (all if < 8).
+    Falls back to the original order on any error so the cycle is never blocked.
+    """
+    _FIELD_TO_CAT = {
+        "gap_pct":        "gap",
+        "rvol":           "volume",
+        "close_strength": "momentum",
+        "range_pct":      "momentum",
+    }
+    try:
+        import active_hypothesis_selection as _ahs2
+        _scored = []
+        for _t in templates:
+            _primary = next(iter(_t.get("feature_rule", {})), "")
+            _cat     = _FIELD_TO_CAT.get(_primary, "uncategorized")
+            _score   = _ahs2.thompson_sample_category_value(_cat)
+            _scored.append((_score, _t))
+        _scored.sort(key=lambda x: x[0], reverse=True)
+        _ranked = [_t for _, _t in _scored]
+        _top    = _ranked[:8]
+        print(f"[discovery_cycle] Module2 Thompson top-{len(_top)}: "
+              f"{[_t['template_id'] for _t in _top]}")
+        return _top
+    except Exception as _m2e:
+        print(f"[discovery_cycle] Module2 ranking error (original order): {_m2e}")
+        return templates
+
+
+def _dc_module3_sgd_update(results: list, run_id: str) -> None:
+    """
+    Module 3 — Online SGD weight update after each discovery cycle.
+
+    Treats each template result as a (category_one_hot, oos_win_rate) sample and
+    calls online_learning.propose_update() to refine a 'discovery_cycle_weights'
+    model.  Accepted updates are persisted via online_learning's model_versions
+    table and used by Module 2 on the next cycle to bias Thompson sampling.
+
+    Always non-fatal — any error is logged and ignored.
+    """
+    _CATEGORIES = ["gap", "volume", "momentum", "uncategorized"]
+    _FIELD_TO_CAT = {
+        "gap_pct":        "gap",
+        "rvol":           "volume",
+        "close_strength": "momentum",
+        "range_pct":      "momentum",
+    }
+    try:
+        import numpy as _np3
+        import pickle as _pk3
+        import online_learning as _ol3
+
+        _X_rows, _y_vals = [], []
+        for _r in results:
+            _wr = _r.get("oos_wr")
+            if _wr is None:
+                continue
+            _primary = next(iter(_r.get("feature_rule", {})), "")
+            _cat     = _FIELD_TO_CAT.get(_primary, "uncategorized")
+            _X_rows.append([1.0 if _c == _cat else 0.0 for _c in _CATEGORIES])
+            _y_vals.append(_wr / 100.0)
+
+        if len(_X_rows) < 2:
+            print(f"[discovery_cycle] Module3 SGD skip — only {len(_X_rows)} row(s)")
+            return
+
+        _X = _np3.array(_X_rows, dtype=float)
+        _y = _np3.array(_y_vals, dtype=float)
+        _split = max(1, int(len(_X) * 0.8))
+        _X_tr, _X_h = _X[:_split], _X[_split:]
+        _y_tr, _y_h = _y[:_split], _y[_split:]
+
+        _live = _ol3.get_live_model("discovery_cycle_signal_weights")
+        if _live and _live.get("weights_blob"):
+            _cur_w = _pk3.loads(bytes(_live["weights_blob"]))
+        else:
+            _cur_w = _np3.ones(len(_CATEGORIES))
+
+        _upd = _ol3.propose_update(
+            model_name="discovery_cycle_signal_weights",
+            current_weights=_cur_w,
+            new_batch_X=_X_tr,
+            new_batch_y=_y_tr,
+            held_out_X=_X_h,
+            held_out_y=_y_h,
+            learning_rate=0.005,
+            max_weight_drift=0.10,
+            promote=True,
+            notes=f"discovery_cycle run_id={run_id}",
+        )
+        print(f"[discovery_cycle] Module3 SGD: accepted={_upd.get('accepted')} "
+              f"score={_upd.get('new_held_out_score','?')} "
+              f"drift={_upd.get('max_drift_observed','?')}")
+    except Exception as _m3e:
+        print(f"[discovery_cycle] Module3 SGD error (non-fatal): {_m3e}")
+
+
+def _dc_module4_adversarial_critique(results: list, run_id: str) -> None:
+    """
+    Module 4 — Adversarial critique of proposed candidates.
+
+    For every result with status='pending' (passed the discovery engine's
+    IS/OOS gates), runs both rule-based and LLM-adversarial checks
+    (adversarial_critique.adversarial_review).  If the verdict is
+    'likely_overfit', the candidate is immediately marked rejected in
+    discovered_candidates so it cannot be promoted without human review.
+    'likely_real' or 'inconclusive' candidates remain pending (human sign-off
+    required before shadow trading).
+
+    Always non-fatal.  LLM check gracefully downgrades to rule-based-only
+    when ANTHROPIC_API_KEY is not set.
+    """
+    try:
+        import adversarial_critique as _ac4
+        import psycopg2 as _ac4_pg
+
+        _to_review = [r for r in results if r.get("status") == "pending"]
+        if not _to_review:
+            return
+
+        print(f"[discovery_cycle] Module4 adversarial critique: "
+              f"{len(_to_review)} candidate(s)")
+        _conn4 = _ac4_pg.connect(os.environ["DATABASE_URL"])
+        for _r in _to_review:
+            _verdict_data = _ac4.adversarial_review(
+                hypothesis_name=_r.get("template_id", "unknown"),
+                parameters=_r.get("feature_rule", {}),
+                n_trades=_r.get("oos_n", 0),
+                win_rate=_r.get("oos_wr", 0.0),
+                test_window=_r.get("test_window", ""),
+                universe_description=(
+                    "polygon_market_daily: all US-listed stocks, "
+                    "price > $2, RVOL < 100, gap_pct/rvol/close_strength/range_pct non-null"
+                ),
+            )
+            _verdict = _verdict_data.get("overall_verdict", "inconclusive")
+            _flags   = _verdict_data.get("rule_based_flags", [])
+            print(f"[discovery_cycle] Module4 {_r.get('template_id')}: "
+                  f"verdict={_verdict} flags={len(_flags)}")
+
+            if _verdict == "likely_overfit":
+                _concerns = "; ".join(
+                    _verdict_data.get("llm_critique", {}).get("top_concerns", [])
+                )
+                _reason = f"adversarial_critique:likely_overfit — {_concerns}"[:500]
+                with _conn4.cursor() as _cur4:
+                    _cur4.execute("""
+                        UPDATE discovered_candidates
+                        SET status='rejected', rejection_reason=%s, reviewed_at=NOW()
+                        WHERE candidate_id=%s AND status='pending'
+                    """, (_reason, _r.get("candidate_id", "")))
+                    _conn4.commit()
+                print(f"[discovery_cycle] Module4 {_r.get('template_id')}: "
+                      f"auto-rejected (likely_overfit)")
+        _conn4.close()
+    except Exception as _m4e:
+        print(f"[discovery_cycle] Module4 critique error (non-fatal): {_m4e}")
+
+
+def _dc_module5_promotion_check() -> None:
+    """
+    Module 5 — Promotion/retirement evaluation of live hypothesis signals.
+
+    Calls aiem_module3_promotion.run_module3() to classify every signal in
+    aiem_signal_discoveries (status='hypothesis') as one of:
+      promote_ready / hypothesis_failing / borderline / accumulating /
+      structural / no_outcome_yet
+
+    Results are upserted into aiem_module3_evaluations and a summary is
+    printed so the log shows the current pipeline health on every cycle.
+
+    Always non-fatal.
+    """
+    try:
+        import psycopg2 as _m5_pg
+        import aiem_module3_promotion as _m5_prom
+
+        _conn5 = _m5_pg.connect(os.environ["DATABASE_URL"])
+        _m5_prom.init_schema(_conn5)
+        _m5_results = _m5_prom.run_module3(_conn5)
+        _conn5.close()
+
+        if not _m5_results:
+            print("[discovery_cycle] Module5 promotion: 0 hypothesis signals to evaluate")
+            return
+
+        from collections import Counter as _Ctr5
+        _buckets = _Ctr5(r.get("promotion_status") for r in _m5_results)
+        _summary = " | ".join(f"{k}={v}" for k, v in sorted(_buckets.items()))
+        print(f"[discovery_cycle] Module5 promotion: "
+              f"{len(_m5_results)} signals — {_summary}")
+    except Exception as _m5e:
+        print(f"[discovery_cycle] Module5 promotion error (non-fatal): {_m5e}")
+
+
+def _dc_module7_feedback_loop() -> None:
+    """
+    Module 7 — Feedback loop: Module 5 promotion verdicts → Thompson prior.
+
+    After Module 5 classifies hypothesis signals as 'promote_ready' or
+    'hypothesis_failing', Module 7 records the outcome in dc_template_feedback
+    keyed by the signal's primary feature category.  Future Module 2 Thompson
+    sampling draws on this accumulated evidence so template categories with
+    real OOS edge naturally get higher sampling weight over time.
+
+    Only records verdicts that arrived in the last 25 hours (avoids double-
+    counting on retries).  Always non-fatal.
+    """
+    try:
+        import psycopg2 as _m7_pg
+        import psycopg2.extras as _m7_ext
+
+        _KEY_TO_CAT = {
+            "gap_pct": "gap", "rvol": "volume", "close_strength": "momentum",
+            "range_pct": "momentum", "vol_oi": "options", "gamma": "gamma",
+            "dark_pool": "dark_pool", "squeeze": "squeeze", "sweep": "sweep",
+        }
+
+        _conn7 = _m7_pg.connect(os.environ["DATABASE_URL"])
+
+        with _conn7.cursor() as _c7:
+            _c7.execute("""
+                CREATE TABLE IF NOT EXISTS dc_template_feedback (
+                    id              BIGSERIAL PRIMARY KEY,
+                    discovery_id    INT NOT NULL,
+                    category        TEXT NOT NULL,
+                    verdict         TEXT NOT NULL,
+                    recorded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_dc_feedback UNIQUE (discovery_id, verdict)
+                )
+            """)
+            _conn7.commit()
+
+        with _conn7.cursor(cursor_factory=_m7_ext.RealDictCursor) as _c7:
+            _c7.execute("""
+                SELECT m3.discovery_id, m3.promotion_status,
+                       d.conditions_json, d.hypothesis_text
+                FROM aiem_module3_evaluations m3
+                JOIN aiem_signal_discoveries d ON d.id = m3.discovery_id
+                WHERE m3.promotion_status IN ('promote_ready','hypothesis_failing')
+                  AND m3.run_at > NOW() - INTERVAL '25 hours'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dc_template_feedback f
+                      WHERE f.discovery_id = m3.discovery_id
+                        AND f.verdict = m3.promotion_status
+                  )
+            """)
+            _decided = _c7.fetchall()
+
+        if not _decided:
+            print("[discovery_cycle] Module7 feedback: 0 new promotion verdicts to record")
+            _conn7.close()
+            return
+
+        _recorded = 0
+        for _row in _decided:
+            _conds = _row.get("conditions_json") or {}
+            _cat = "uncategorized"
+            for _k in _conds:
+                if _k in _KEY_TO_CAT:
+                    _cat = _KEY_TO_CAT[_k]
+                    break
+            with _conn7.cursor() as _c7:
+                _c7.execute("""
+                    INSERT INTO dc_template_feedback
+                        (discovery_id, category, verdict)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (discovery_id, verdict) DO NOTHING
+                """, (_row["discovery_id"], _cat, _row["promotion_status"]))
+                _conn7.commit()
+            _recorded += 1
+            print(f"[discovery_cycle] Module7 feedback: "
+                  f"disc_id={_row['discovery_id']} category={_cat} "
+                  f"verdict={_row['promotion_status']}")
+
+        _conn7.close()
+        print(f"[discovery_cycle] Module7 feedback: "
+              f"{_recorded} new feedback event(s) recorded to dc_template_feedback")
+    except Exception as _m7e:
+        print(f"[discovery_cycle] Module7 feedback error (non-fatal): {_m7e}")
+
+
+def _dc_module1_gp_weekly_job() -> None:
+    """
+    Module 1 — Weekly Genetic Programming signal evolution.
+
+    Fires Monday 17:35 ET (5 min after the daily discovery cycle).
+    Evolves a scoring formula over polygon_market_daily feature columns using
+    symbolic regression (GP), then saves the best formula to
+    gp_discovered_templates for human/agent review.
+
+    GP settings are intentionally conservative (pop=50, gen=15, ~60s runtime)
+    to avoid starving the main process.  Full weekly GP runs can be enabled
+    by increasing these once the pipeline is proven stable.
+
+    Module 5 (promotion) will later promote high-fitness GP formulas into
+    validated discovery templates.
+    """
+    from datetime import datetime as _gp_dt
+    import pytz as _gp_tz
+    _ET_gp   = _gp_tz.timezone("US/Eastern")
+    _started = _gp_dt.now(tz=_ET_gp)
+    print(f"[gp_evolution] weekly job started "
+          f"{_started.strftime('%Y-%m-%d %H:%M %Z')}")
+    try:
+        import pandas as _pd1
+        import psycopg2 as _gp_pg
+        import signal_discovery_gp as _gp1
+
+        _c1 = _gp_pg.connect(os.environ["DATABASE_URL"])
+        with _c1.cursor() as _cur1:
+            _cur1.execute("""
+                WITH w AS (
+                    SELECT ticker, scan_date,
+                           gap_pct, rvol, close_strength, range_pct, close_price,
+                           LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date)
+                               AS next_close,
+                           LEAD(scan_date)   OVER (PARTITION BY ticker ORDER BY scan_date)
+                               AS next_date
+                    FROM polygon_market_daily
+                    WHERE scan_date BETWEEN (CURRENT_DATE - INTERVAL '180 days')
+                                       AND  (CURRENT_DATE - INTERVAL '30 days')
+                      AND gap_pct IS NOT NULL AND rvol IS NOT NULL
+                      AND close_strength IS NOT NULL AND range_pct IS NOT NULL
+                      AND close_price > 2.0 AND rvol < 100.0
+                )
+                SELECT ticker, scan_date, gap_pct, rvol, close_strength, range_pct,
+                       (next_close / NULLIF(close_price, 0) - 1.0) AS next_day_return
+                FROM w
+                WHERE next_close IS NOT NULL
+                  AND next_date <= scan_date + 5
+                LIMIT 50000
+            """)
+            _gp_rows = _cur1.fetchall()
+            _gp_cols = [d[0] for d in _cur1.description]
+        _c1.close()
+
+        if len(_gp_rows) < 500:
+            print(f"[gp_evolution] insufficient data ({len(_gp_rows)} rows) — skipping")
+            return
+
+        _gp_df = _pd1.DataFrame(_gp_rows, columns=_gp_cols).dropna()
+        print(f"[gp_evolution] loaded {len(_gp_df)} rows")
+
+        _best_node, _gp_log = _gp1.evolve_signal(
+            train_df=_gp_df,
+            forward_return_col="next_day_return",
+            feature_names=["gap_pct", "rvol", "close_strength", "range_pct"],
+            population_size=50,
+            generations=15,
+            seed=int(_started.strftime("%Y%m%d")) % (2**31),
+        )
+        _best_fit    = _gp_log[-1].best_fitness if _gp_log else 0.0
+        _best_str    = _best_node.to_string() if _best_node else ""
+        _best_cmplx  = _best_node.complexity() if _best_node else 0
+        print(f"[gp_evolution] best: {_best_str} "
+              f"fitness={_best_fit:.5f} complexity={_best_cmplx}")
+
+        _c2 = _gp_pg.connect(os.environ["DATABASE_URL"])
+        with _c2.cursor() as _cur2:
+            _cur2.execute("""
+                CREATE TABLE IF NOT EXISTS gp_discovered_templates (
+                    id          BIGSERIAL PRIMARY KEY,
+                    evolved_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    formula     TEXT NOT NULL,
+                    fitness     NUMERIC(10,6),
+                    complexity  INT,
+                    training_n  INT,
+                    status      TEXT NOT NULL DEFAULT 'pending_review'
+                )
+            """)
+            _cur2.execute("""
+                INSERT INTO gp_discovered_templates
+                    (formula, fitness, complexity, training_n)
+                VALUES (%s, %s, %s, %s)
+            """, (_best_str, _best_fit, _best_cmplx, len(_gp_df)))
+            _c2.commit()
+        _c2.close()
+
+        _dur = round((_gp_dt.now(tz=_ET_gp) - _started).total_seconds(), 1)
+        print(f"[gp_evolution] done {_dur}s — saved to gp_discovered_templates")
+    except Exception as _gp_e:
+        print(f"[gp_evolution] error (non-fatal): {_gp_e}")
+
+
+def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
+    """
+    Module 6 — Autonomous Discovery Cycle job.
+
+    Cadence (real): Mon–Fri 17:30 ET — after EOD signal-discovery write (17:15).
+    Reasoning: new polygon_market_daily rows arrive during the trading day;
+    running at 17:30 gives the full day's data. Weekly cadence for compute-heavy
+    GP generation will be layered on top in Module 1.
+
+    Kill switch: UPDATE discovery_cycle_config SET value='false' WHERE key='enabled'
+    Concurrency guard: DB-level 'running' flag survives process restarts;
+    stale locks (> 2 h) are auto-cleared so a crash cannot permanently block.
+    """
+    import uuid as _uuid
+    import pytz as _dc_pytz
+    from datetime import datetime as _dc_dt, timezone as _tz
+    _dc_ET     = _dc_pytz.timezone("US/Eastern")
+    run_id     = _uuid.uuid4().hex[:12]
+    started_at = _dc_dt.now(tz=_dc_ET)
+    print(f"[discovery_cycle] triggered_by={triggered_by} run_id={run_id} "
+          f"started={started_at.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+
+    # ── Kill switch ──────────────────────────────────────────────────────────
+    enabled = _dc_cfg_get("enabled")
+    if enabled != "true":
+        print(f"[discovery_cycle] SKIPPED — kill switch active (enabled={enabled!r})")
+        return
+
+    # ── Concurrency guard ────────────────────────────────────────────────────
+    running       = _dc_cfg_get("running")
+    running_since = _dc_cfg_get("running_since")
+    if running == "true" and running_since:
+        try:
+            _rs = _dc_dt.fromisoformat(running_since)
+            if _rs.tzinfo is None:
+                _rs = _rs.replace(tzinfo=_tz.utc)
+            _age_h = (_dc_dt.now(tz=_tz.utc) - _rs).total_seconds() / 3600
+            if _age_h < 2.0:
+                print(f"[discovery_cycle] SKIPPED — already running "
+                      f"(lock held {_age_h:.2f}h, stale threshold=2h)")
+                return
+            print(f"[discovery_cycle] stale lock ({_age_h:.2f}h) — clearing")
+        except Exception:
+            pass
+
+    # ── Claim lock ───────────────────────────────────────────────────────────
+    _dc_cfg_set("running",       "true")
+    _dc_cfg_set("running_since", started_at.isoformat())
+
+    # ── Insert log row ───────────────────────────────────────────────────────
+    log_id = None
+    try:
+        import psycopg2 as _dc_pg2
+        _c = _dc_pg2.connect(os.environ["DATABASE_URL"])
+        with _c.cursor() as _cur:
+            _cur.execute("""
+                INSERT INTO discovery_cycle_log
+                    (run_id, started_at, triggered_by)
+                VALUES (%s, %s, %s) RETURNING id
+            """, (run_id, started_at, triggered_by))
+            log_id = _cur.fetchone()[0]
+            _c.commit()
+        _c.close()
+    except Exception as _e:
+        print(f"[discovery_cycle] log insert error: {_e}")
+
+    # ── Run the discovery engine (with Module 2 template ranking) ───────────
+    result    = {}
+    error_msg = None
+    try:
+        import aiem_discovery_engine as _de
+        # Module 2: Thompson-rank the template pool before handing to run_cycle
+        _dc_all_templates = list(_de._HYPOTHESIS_TEMPLATES)
+        _dc_ranked        = _dc_module2_rank_templates(_dc_all_templates)
+        result = _de.get_discovery_engine().run_cycle(templates=_dc_ranked)
+        print(f"[discovery_cycle] run_id={run_id} done — "
+              f"proposed={result.get('proposed',0)} "
+              f"rejected={result.get('rejected',0)} "
+              f"total={result.get('total_templates',0)}")
+    except Exception as _e:
+        error_msg = str(_e)
+        print(f"[discovery_cycle] run_id={run_id} engine error: {_e}")
+
+    # Module 3: SGD weight update from this cycle's OOS results
+    if result and not error_msg:
+        _dc_module3_sgd_update(result.get("results", []), run_id)
+
+    # Module 4: Adversarial critique on any proposed candidates
+    if result and not error_msg and result.get("proposed", 0) > 0:
+        _dc_module4_adversarial_critique(result.get("results", []), run_id)
+
+    # Module 5: Promotion/retirement evaluation on all active hypothesis signals
+    _dc_module5_promotion_check()
+
+    # Module 7: Feedback loop — write Module 5 verdicts into dc_template_feedback
+    #           so Module 2's Thompson sampler accumulates real OOS evidence per category
+    _dc_module7_feedback_loop()
+
+    # ── Release lock + complete log ──────────────────────────────────────────
+    completed_at = _dc_dt.now(tz=_dc_ET)
+    duration_s   = round((completed_at - started_at).total_seconds(), 2)
+    try:
+        import psycopg2 as _dc_pg2
+        _c = _dc_pg2.connect(os.environ["DATABASE_URL"])
+        with _c.cursor() as _cur:
+            if log_id is not None:
+                _cur.execute("""
+                    UPDATE discovery_cycle_log SET
+                        completed_at       = %s,
+                        duration_s         = %s,
+                        total_templates    = %s,
+                        candidates_pending = %s,
+                        candidates_rejected= %s,
+                        error_msg          = %s
+                    WHERE id = %s
+                """, (
+                    completed_at, duration_s,
+                    result.get("total_templates", 0),
+                    result.get("proposed", 0),
+                    result.get("rejected", 0),
+                    error_msg, log_id,
+                ))
+            _c.commit()
+        _c.close()
+    except Exception as _e:
+        print(f"[discovery_cycle] log update error: {_e}")
+    finally:
+        _dc_cfg_set("running",       "false")
+        _dc_cfg_set("running_since", "")
+
+    # ── Module 8 — Notifications ─────────────────────────────────────────────
+    try:
+        _proposed_n = result.get("proposed", 0)
+        _rejected_n = result.get("rejected", 0)
+        _total_n    = result.get("total_templates", 0)
+        _results_r  = result.get("results", [])
+
+        if error_msg:
+            # Always alert on engine errors
+            _tg_send(
+                f"\U0001f6a8 [Discovery Cycle] Engine Error\n"
+                f"run_id: {run_id}\n"
+                f"triggered_by: {triggered_by}\n"
+                f"error: {str(error_msg)[:300]}"
+            )
+        elif _proposed_n > 0:
+            # New candidates — send detailed breakdown
+            _lines = [
+                f"\U0001f52c [Discovery Cycle] {_proposed_n} new signal candidate(s) proposed!",
+                f"run_id: {run_id[:8]}\u2026 | {started_at.strftime('%Y-%m-%d %H:%M %Z')}",
+                f"proposed={_proposed_n} | rejected={_rejected_n} | total={_total_n}",
+                "",
+            ]
+            for _r in _results_r:
+                if _r.get("status") == "pending":
+                    _oos_wr  = _r.get("oos_wr") or 0
+                    _base_wr = _r.get("baseline_wr") or 0
+                    _edge    = round(_oos_wr - _base_wr, 2)
+                    _lines.append(
+                        f"  \u2705 {_r.get('template_id','?')}: "
+                        f"OOS WR={_oos_wr:.1f}% "
+                        f"(+{_edge:.2f}pp vs {_base_wr:.1f}% base) "
+                        f"n={_r.get('oos_n', 0)}"
+                    )
+                    _hyp = (_r.get("hypothesis_text") or "")[:80]
+                    if _hyp:
+                        _lines.append(f"     {_hyp}")
+            _lines += ["", "\u2192 Review in AIEM \u2192 discovered_candidates table"]
+            _tg_send("\n".join(_lines))
+            print(f"[discovery_cycle] Telegram notification sent — {_proposed_n} candidate(s)")
+        elif triggered_by == "scheduler":
+            # Real daily CronTrigger only — silent summary (no noise on admin/test fires)
+            _tg_send(
+                f"\U0001f50d [Discovery Cycle] Daily run complete\n"
+                f"{started_at.strftime('%Y-%m-%d %H:%M %Z')} | {duration_s}s\n"
+                f"proposed={_proposed_n} | rejected={_rejected_n} | total={_total_n}\n"
+                f"All {_total_n} templates below edge threshold — no new candidates."
+            )
+            print("[discovery_cycle] Telegram daily summary sent")
+    except Exception as _n_e:
+        print(f"[discovery_cycle] notification error (non-fatal): {_n_e}")
+
+    print(f"[discovery_cycle] run_id={run_id} duration={duration_s}s "
+          f"completed={completed_at.strftime('%H:%M:%S %Z')}")
+
+
 _SUB_SIGNAL_TYPES   = ["breakout", "flow", "gap", "reversal", "momentum", "squeeze", "accumulation"]
 _SUB_DEFAULT_WEIGHT = 1.0
 
@@ -5712,6 +6372,29 @@ try:
     # Catch-up: run at startup after a 45s delay (after preload finishes)
     import threading as _ec_boot_thr
     _ec_boot_thr.Timer(120.0, _populate_earnings_calendar).start()
+
+    # ── MODULE 6: Autonomous Discovery Cycle ─────────────────────────────────
+    # Real cadence: Mon–Fri 17:30 ET — 15 min after aiem_write_signal_discoveries
+    # (17:15), giving the full trading day's polygon_market_daily data.
+    # Faster is not better: the IS/OOS split logic is batch-compute; running
+    # more often than daily on the same data adds noise without new signal.
+    # GP generation (Module 1, added later) will run weekly on Sunday only.
+    from apscheduler.triggers.interval import IntervalTrigger as _IVTrigger
+    _scheduler.add_job(
+        _discovery_cycle_job,
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=30, timezone=_ET),
+        id="discovery_cycle_daily",
+        replace_existing=True,
+        kwargs={"triggered_by": "scheduler_daily"},
+    )
+    # Module 1 — GP evolution weekly (Monday 17:35 ET, 5 min after the daily cycle)
+    _scheduler.add_job(
+        _dc_module1_gp_weekly_job,
+        CronTrigger(day_of_week="mon", hour=17, minute=35, timezone=_ET),
+        id="discovery_cycle_gp_weekly",
+        replace_existing=True,
+    )
+    print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET")
 
     _scheduler.start()
     # reconcile_orphaned_sessions is defined later in the file; defer so the
@@ -46166,6 +46849,193 @@ def admin_news_catchup():
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
         return jsonify({"error": "unauthorized"}), 403
     return jsonify(_news_run_due_scan())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODULE 6 ADMIN ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _dc_admin_ok() -> bool:
+    """True if X-Admin-Token header matches ADMIN_TOKEN env var."""
+    tok   = request.headers.get("X-Admin-Token", "") or \
+            (request.get_json(silent=True) or {}).get("token", "")
+    want  = os.environ.get("ADMIN_TOKEN", "")
+    return bool(tok and want and hmac.compare_digest(tok, want))
+
+
+@app.route("/stock-api/admin/discovery-cycle/status", methods=["GET"])
+def admin_discovery_cycle_status():
+    """Module 6 kill-switch status, last runs, and next scheduled fire times."""
+    if not _dc_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import psycopg2 as _dc_pg
+        _c = _dc_pg.connect(os.environ["DATABASE_URL"])
+        with _c.cursor() as _cur:
+            _cur.execute("SELECT key, value, updated_at FROM discovery_cycle_config ORDER BY key")
+            cfg = {r[0]: {"value": r[1], "updated_at": str(r[2])} for r in _cur.fetchall()}
+            _cur.execute("""
+                SELECT id, run_id, started_at, completed_at, duration_s,
+                       total_templates, candidates_pending, candidates_rejected,
+                       triggered_by, error_msg
+                FROM discovery_cycle_log ORDER BY id DESC LIMIT 10
+            """)
+            cols = [d[0] for d in _cur.description]
+            logs = [dict(zip(cols, r)) for r in _cur.fetchall()]
+        _c.close()
+        # APScheduler next-run info
+        next_runs = {}
+        try:
+            for _job_id in ("discovery_cycle_daily", "discovery_cycle_test"):
+                _j = _scheduler.get_job(_job_id)
+                if _j:
+                    next_runs[_job_id] = str(getattr(_j, "next_run_time", None))
+        except Exception:
+            pass
+        return jsonify({"config": cfg, "recent_runs": logs, "next_runs": next_runs})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/discovery-cycle/enable", methods=["POST"])
+def admin_discovery_cycle_enable():
+    """Re-enable the discovery cycle (sets kill switch to 'true')."""
+    if not _dc_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    _dc_cfg_set("enabled", "true")
+    return jsonify({"status": "ok", "enabled": True})
+
+
+@app.route("/stock-api/admin/discovery-cycle/disable", methods=["POST"])
+def admin_discovery_cycle_disable():
+    """Pause the discovery cycle (sets kill switch to 'false')."""
+    if not _dc_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    _dc_cfg_set("enabled", "false")
+    return jsonify({"status": "ok", "enabled": False})
+
+
+@app.route("/stock-api/admin/discovery-cycle/trigger", methods=["POST"])
+def admin_discovery_cycle_trigger():
+    """Manually fire the discovery cycle immediately (in a background thread).
+    The DB-level concurrency guard still applies — if a run is in progress
+    it will be skipped as usual. Returns immediately; check /status for result."""
+    if not _dc_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    import threading as _dc_thr
+    _dc_thr.Thread(
+        target=_discovery_cycle_job,
+        kwargs={"triggered_by": "admin_trigger"},
+        daemon=True,
+    ).start()
+    return jsonify({"status": "triggered", "note": "running in background — poll /status"})
+
+
+@app.route("/stock-api/admin/discovery-cycle/remove-test-trigger", methods=["POST"])
+def admin_discovery_cycle_remove_test():
+    """Remove the 2-min test trigger after Step 1 verification is done.
+    The daily CronTrigger (Mon-Fri 17:30 ET) stays in place."""
+    if not _dc_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _scheduler.remove_job("discovery_cycle_test")
+        return jsonify({"status": "ok", "removed": "discovery_cycle_test"})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/discovery-cycle/report", methods=["GET"])
+def admin_discovery_cycle_report():
+    """
+    Module 7 consolidated report: recent cycle runs + Module 5 promotion
+    state + Module 7 feedback tally per template category.
+
+    Returns the full pipeline health at a glance:
+      - last_runs: last 5 discovery cycle runs (from discovery_cycle_log)
+      - module5_state: current promotion/retirement classifications
+      - module7_feedback: category-level success/failure tallies from
+        dc_template_feedback (feeds back into Module 2 Thompson priors)
+      - next_run: next scheduled fire time from APScheduler
+    """
+    if not _dc_admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import psycopg2 as _rpt_pg
+        import psycopg2.extras as _rpt_ext
+        _conn_r = _rpt_pg.connect(os.environ["DATABASE_URL"])
+
+        # ── Last 5 discovery cycle runs ──────────────────────────────────────
+        with _conn_r.cursor(cursor_factory=_rpt_ext.RealDictCursor) as _cr:
+            _cr.execute("""
+                SELECT run_id, triggered_by, started_at, completed_at,
+                       duration_s, total_templates, candidates_pending,
+                       candidates_rejected, error_msg
+                FROM discovery_cycle_log
+                ORDER BY id DESC LIMIT 5
+            """)
+            _last_runs = [dict(r) for r in _cr.fetchall()]
+            for _r in _last_runs:
+                for _k in ("started_at", "completed_at"):
+                    if _r.get(_k):
+                        _r[_k] = str(_r[_k])
+
+        # ── Module 5 current promotion state ─────────────────────────────────
+        with _conn_r.cursor(cursor_factory=_rpt_ext.RealDictCursor) as _cr:
+            try:
+                _cr.execute("""
+                    SELECT m3.discovery_id, m3.promotion_status,
+                           m3.recommendation, m3.blocking_reason,
+                           m3.realized_n, m3.realized_win_rate,
+                           m3.delta_vs_discovery_pp,
+                           m3.forward_days_since_discovery, m3.run_at,
+                           d.hypothesis_text
+                    FROM aiem_module3_evaluations m3
+                    JOIN aiem_signal_discoveries d ON d.id = m3.discovery_id
+                    ORDER BY m3.run_at DESC
+                """)
+                _m5 = []
+                for _r in _cr.fetchall():
+                    _row = dict(_r)
+                    if _row.get("run_at"):
+                        _row["run_at"] = str(_row["run_at"])
+                    _m5.append(_row)
+            except Exception:
+                _m5 = []
+
+        # ── Module 7 feedback tally per category ─────────────────────────────
+        with _conn_r.cursor(cursor_factory=_rpt_ext.RealDictCursor) as _cr:
+            try:
+                _cr.execute("""
+                    SELECT category,
+                           COUNT(*) FILTER (WHERE verdict='promote_ready')   AS successes,
+                           COUNT(*) FILTER (WHERE verdict='hypothesis_failing') AS failures
+                    FROM dc_template_feedback
+                    GROUP BY category
+                    ORDER BY successes DESC, failures ASC
+                """)
+                _m7 = [dict(r) for r in _cr.fetchall()]
+            except Exception:
+                _m7 = []
+
+        _conn_r.close()
+
+        # ── Next scheduled run ────────────────────────────────────────────────
+        _next_run = None
+        try:
+            _j = _scheduler.get_job("discovery_cycle_daily")
+            if _j and _j.next_run_time:
+                _next_run = str(_j.next_run_time)
+        except Exception:
+            pass
+
+        return jsonify({
+            "last_runs":         _last_runs,
+            "module5_state":     _m5,
+            "module7_feedback":  _m7,
+            "next_scheduled_run": _next_run,
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 @app.route("/stock-api/eod-sweep-track-record", methods=["GET"])
