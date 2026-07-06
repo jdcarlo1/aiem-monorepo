@@ -1,0 +1,86 @@
+# Follow-Up Verification — Discovery Engine Baseline Comparison
+
+**Standard for all answers:** raw terminal/SQL output only. No paraphrasing a result as "confirmed" or "clean" without pasting the output that led to that conclusion. If a grep returns empty, say "empty — exit code 1," not "nothing found."
+
+---
+
+## Q1. Does any code path compare a candidate's OOS performance against baseline before setting `status='pending'`?
+
+Paste the full body of `_evaluate()` and `_check_overfit()` again, but this time annotate every line that touches `baseline_wr` or `baseline_n`. If neither variable is read anywhere except being stored in the return dict, say so explicitly.
+
+Confirm with:
+
+```
+grep -n "baseline_wr\|baseline_n" aiem_discovery_engine.py
+```
+
+For every hit, state whether it's:
+- (a) computed
+- (b) stored
+- (c) actually used in a conditional that affects `status` or `reject_reason`
+
+If it's never used in a conditional, say that plainly — don't reword it as "informational."
+
+---
+
+## Q2. Show every candidate from the most recent run cycle with `baseline_wr` and OOS `win_rate` side by side.
+
+Raw SQL query, not narrative:
+
+```sql
+SELECT candidate_id, template_id, status, oos_win_rate, baseline_wr,
+       (oos_win_rate - baseline_wr) AS edge_pp
+FROM discovered_candidates
+ORDER BY proposed_at DESC
+LIMIT 20;
+```
+
+Paste the actual rows. Looking for how many `pending` candidates have `edge_pp` near zero or negative.
+
+---
+
+## Q3. If Q1 confirms no baseline gate exists — where would the fix go?
+
+Do not implement it yet. Just:
+
+1. Point to the exact line number in `_evaluate()` where a minimum-edge-over-baseline check would need to be inserted.
+2. Confirm no other function currently depends on `pending` meaning "beats baseline" by running:
+
+```
+grep -rn "status == \"pending\"\|status='pending'\|status=\"pending\"" .
+```
+
+Paste full results so we know what else might break if the definition of `pending` changes.
+
+---
+
+## Q4. Re-verify the `OVERFIT_GAP_THRESHOLD` sync claim.
+
+Previous claim: `_OVERFIT_GAP_THRESHOLD` in `aiem_discovery_engine.py` is "kept in sync" with `OverfitDetector.GAP_THRESHOLD` in `aiem_edge_filter.py`.
+
+Run and paste both:
+
+```
+grep -n "_OVERFIT_GAP_THRESHOLD\s*=" aiem_discovery_engine.py
+grep -n "GAP_THRESHOLD\s*=" aiem_edge_filter.py
+```
+
+Confirm:
+- The actual numeric values are identical right now.
+- Whether either constant is imported from a shared location, or just manually duplicated in both files. If manually duplicated, that is a drift risk — say so, don't minimize it.
+
+---
+
+## Q5. Scheduled job search — widen the grep.
+
+Previous "no scheduled job" claim searched only for the literal word "discovery." Re-run against the actual job/scheduler registry file(s), searching for the function names directly:
+
+```
+grep -rn "run_cycle\|DiscoveryEngine\|get_discovery_engine" <scheduler/job registry file(s)>
+```
+
+State which file(s) were searched and paste full output, including empty results.
+
+---
+
+*Reminder: raw evidence only — terminal output, SQL results, git diffs. No summarized "verified" claims without the receipt attached.*
