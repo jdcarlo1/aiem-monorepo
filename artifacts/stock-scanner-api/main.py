@@ -13966,6 +13966,46 @@ def admin_run_panic_exhaustion_backtest():
 
 
 
+@app.route("/stock-api/admin/run-stock-panic-exhaustion-backtest", methods=["POST"])
+def admin_run_stock_panic_exhaustion_backtest():
+    """
+    Run the individual-stock panic exhaustion backtest directly — no LLM.
+
+    POST body (JSON, all optional):
+        threshold_pct       — float, default -10.0
+        hold_days           — int,   default 11
+        stop_loss_pct       — float, default -8.0
+        min_price           — float, default 5.0
+        start_date          — YYYY-MM-DD, default 2024-07-08
+        end_date            — YYYY-MM-DD, default 2026-07-02
+        require_spy_panic   — bool,  default false
+        spy_panic_threshold — float, default -5.0
+        period_label        — string label (optional)
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        from aiem_pullback_reentry import test_stock_panic_exhaustion as _fn
+        result = _fn(
+            threshold_pct      = float(body.get("threshold_pct",       -10.0)),
+            hold_days          = int(  body.get("hold_days",            11)),
+            stop_loss_pct      = float(body.get("stop_loss_pct",        -8.0)),
+            min_price          = float(body.get("min_price",            5.0)),
+            start_date         = str(  body.get("start_date",           "2024-07-08")),
+            end_date           = str(  body.get("end_date",             "2026-07-02")),
+            require_spy_panic  = bool( body.get("require_spy_panic",    False)),
+            spy_panic_threshold= float(body.get("spy_panic_threshold",  -5.0)),
+            period_label       = str(  body.get("period_label",         "")),
+        )
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(
+        __import__("json").dumps(result, default=str),
+        mimetype="application/json",
+    )
+
+
 @app.route("/stock-api/admin/check-signal-data-availability", methods=["POST"])
 
 @app.route("/stock-api/admin/backfill-vix-daily", methods=["POST"])
@@ -29964,7 +30004,8 @@ def _build_aiem_tool_map():
         "get_current_regime":       _aiem_tool_get_current_regime,
         "build_features":           _aiem_tool_build_features,
         # ── Level 2 / Level 3 ────────────────────────────────────────────────
-        "run_panic_exhaustion_backtest": _aiem_tool_run_panic_exhaustion_backtest,
+        "run_panic_exhaustion_backtest":   _aiem_tool_run_panic_exhaustion_backtest,
+        "test_stock_panic_exhaustion":     _aiem_tool_test_stock_panic_exhaustion,
         "check_signal_data_availability": _aiem_tool_check_signal_data_availability,
         "run_regime_filtered_backtest": _aiem_tool_run_regime_filtered_backtest,
         "run_vix_spike_reversal_grid":    _aiem_tool_run_vix_spike_reversal_grid,
@@ -32320,6 +32361,32 @@ _AIEM_AGENT_TOOLS = [
             "stop_loss_pct": {"type": "number",  "description": "Close-based stop-loss % (default -8.0)"},
             "period_label":  {"type": "string",  "description": "Human label for the period (e.g. '2022 bear market')"},
         }, "required": ["start_date", "end_date"]},
+    }},
+    {"type": "function", "function": {
+        "name": "test_stock_panic_exhaustion",
+        "description": (
+            "Individual-stock panic exhaustion backtest on the full polygon_market_daily universe. "
+            "Finds all days where a stock's own 20-day return drops below threshold_pct (e.g. -10%, -15%, -20%), "
+            "then measures forward performance at 5d / hold_days / 20d with a close-based stop-loss. "
+            "Compare to SPY panic exhaustion: for SPY the threshold is -5% (index is less volatile); "
+            "for individual stocks experiment with -10%, -15%, -20%. "
+            "require_spy_panic=True: only count stock signals when SPY's own 20d return is also below "
+            "spy_panic_threshold — tests whether the macro regime adds predictive power for single names. "
+            "Run at least 3 threshold levels (e.g. -10, -15, -20) and both require_spy_panic=True/False. "
+            "Results persisted to stock_panic_exhaustion_results table. "
+            "NOTE: query runs over the full universe (~11K tickers × 2 years) — allow 30-60s per call."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "threshold_pct":      {"type": "number",  "description": "Stock 20d return gate, e.g. -10.0 (default). Try -10, -15, -20."},
+            "hold_days":          {"type": "integer", "description": "Trading-day hold period (default 11, same as SPY version)"},
+            "stop_loss_pct":      {"type": "number",  "description": "Close-based stop-loss % (default -8.0)"},
+            "min_price":          {"type": "number",  "description": "Min stock price filter (default 5.0, filters penny stocks)"},
+            "start_date":         {"type": "string",  "description": "Test period start YYYY-MM-DD (default 2024-07-08)"},
+            "end_date":           {"type": "string",  "description": "Test period end YYYY-MM-DD (default 2026-07-02)"},
+            "require_spy_panic":  {"type": "boolean", "description": "If true, only count signals when SPY 20d < spy_panic_threshold"},
+            "spy_panic_threshold":{"type": "number",  "description": "SPY 20d threshold for macro filter (default -5.0)"},
+            "period_label":       {"type": "string",  "description": "Human label for this run"},
+        }, "required": []},
     }},
     {"type": "function", "function": {
         "name": "run_backtest",
@@ -34912,6 +34979,40 @@ def _aiem_tool_run_panic_exhaustion_backtest(
             spy_threshold=float(spy_threshold),
             hold_days=int(hold_days),
             stop_loss_pct=float(stop_loss_pct),
+            period_label=str(period_label),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_test_stock_panic_exhaustion(
+    threshold_pct: float = -10.0,
+    hold_days: int = 11,
+    stop_loss_pct: float = -8.0,
+    min_price: float = 5.0,
+    start_date: str = "2024-07-08",
+    end_date: str = "2026-07-02",
+    require_spy_panic: bool = False,
+    spy_panic_threshold: float = -5.0,
+    period_label: str = "",
+) -> dict:
+    """
+    AIEM tool: run the individual-stock panic exhaustion backtest.
+    Scans full polygon_market_daily universe (excl. ETFs/SPY) for stocks
+    whose 20-day return drops below threshold_pct, then measures forward
+    performance at 5d / hold_days / 20d with a close-based stop-loss.
+    """
+    try:
+        from aiem_pullback_reentry import test_stock_panic_exhaustion as _fn
+        return _fn(
+            threshold_pct=float(threshold_pct),
+            hold_days=int(hold_days),
+            stop_loss_pct=float(stop_loss_pct),
+            min_price=float(min_price),
+            start_date=str(start_date),
+            end_date=str(end_date),
+            require_spy_panic=bool(require_spy_panic),
+            spy_panic_threshold=float(spy_panic_threshold),
             period_label=str(period_label),
         )
     except Exception as _e:

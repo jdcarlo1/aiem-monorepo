@@ -2501,3 +2501,217 @@ def run_regime_filtered_backtest() -> dict:
         "aiem_computed":        True,
         "hand_computed_by_agent": False,
     }
+
+
+# ── Individual-stock panic exhaustion backtest ─────────────────────────────
+def test_stock_panic_exhaustion(
+    threshold_pct: float = -10.0,
+    hold_days: int = 11,
+    stop_loss_pct: float = -8.0,
+    min_price: float = 5.0,
+    start_date: str = "2024-07-08",
+    end_date: str = "2026-07-02",
+    require_spy_panic: bool = False,
+    spy_panic_threshold: float = -5.0,
+    period_label: str = "",
+) -> dict:
+    """
+    Individual-stock panic exhaustion backtest on polygon_market_daily.
+
+    For each stock in the universe (excl. SPY/ETFs), detects days when the
+    stock's own 20-day return drops below threshold_pct, then measures
+    forward performance at 5d, hold_days, and 20d horizons with a
+    close-based stop-loss.
+
+    require_spy_panic=True: only counts stock signals on days when SPY's own
+    20d return is also below spy_panic_threshold — tests whether the macro
+    regime matters for individual stocks (compare vs False to see if the
+    macro condition adds anything for single names).
+
+    Persists one row per call to stock_panic_exhaustion_results.
+    """
+    import datetime as _dt
+
+    if not _DB_URL:
+        return {"error": "no DB_URL"}
+
+    hold_days = max(1, min(int(hold_days), 60))
+    threshold_pct = float(threshold_pct)
+    stop_loss_pct = float(stop_loss_pct)
+    min_price = float(min_price)
+    require_spy_panic = bool(require_spy_panic)
+    spy_panic_threshold = float(spy_panic_threshold)
+
+    label = period_label or (
+        f"stock_panic thr={threshold_pct}% hold={hold_days}d "
+        f"spy_panic={'yes' if require_spy_panic else 'no'} "
+        f"{start_date}:{end_date}"
+    )
+
+    warmup = str(_dt.date.fromisoformat(start_date) - _dt.timedelta(days=45))
+    spy_filter_sql = (
+        f"AND spy_ret20d < {spy_panic_threshold}" if require_spy_panic else ""
+    )
+
+    sql = f"""
+        WITH spy_regime AS (
+            SELECT scan_date,
+                   (close_price /
+                    NULLIF(LAG(close_price, 20) OVER (ORDER BY scan_date), 0)
+                    - 1.0) * 100 AS spy_ret20d
+            FROM polygon_market_daily
+            WHERE ticker = 'SPY'
+        ),
+        base AS (
+            SELECT p.ticker,
+                   p.scan_date,
+                   p.close_price                                                                      AS entry,
+                   LAG(p.close_price, 20) OVER (PARTITION BY p.ticker ORDER BY p.scan_date)          AS p20,
+                   MIN(p.close_price) OVER (PARTITION BY p.ticker ORDER BY p.scan_date
+                                            ROWS BETWEEN 1 FOLLOWING AND {hold_days} FOLLOWING)      AS min_hold,
+                   LEAD(p.close_price, 5)          OVER (PARTITION BY p.ticker ORDER BY p.scan_date) AS c5d,
+                   LEAD(p.close_price, {hold_days}) OVER (PARTITION BY p.ticker ORDER BY p.scan_date) AS c_hold,
+                   LEAD(p.close_price, 20)         OVER (PARTITION BY p.ticker ORDER BY p.scan_date) AS c20d,
+                   sr.spy_ret20d
+            FROM polygon_market_daily p
+            LEFT JOIN spy_regime sr ON sr.scan_date = p.scan_date
+            WHERE p.ticker NOT IN (
+                      'SPY','QQQ','IWM','DIA','MDY','VXX','UVXY',
+                      'SQQQ','SPXU','TZA','LABD','TLT','GLD','SLV',
+                      'AGG','HYG','LQD','USO','UNG')
+              AND p.close_price >= %s
+              AND p.volume > 0
+              AND p.scan_date BETWEEN %s AND %s
+        ),
+        signals AS (
+            SELECT ticker, scan_date, entry, p20, min_hold,
+                   c5d, c_hold, c20d, spy_ret20d,
+                   (entry / NULLIF(p20, 0) - 1.0) * 100 AS ret20d
+            FROM base
+            WHERE p20 > 0
+              AND (entry / NULLIF(p20, 0) - 1.0) * 100 < %s
+              AND scan_date >= %s
+              {spy_filter_sql}
+        ),
+        outcomes AS (
+            SELECT ticker, scan_date, entry, ret20d,
+                   CASE
+                       WHEN c_hold IS NULL                                      THEN NULL
+                       WHEN min_hold < entry * (1.0 + %s / 100.0)              THEN %s
+                       ELSE (c_hold / entry - 1.0) * 100
+                   END                                                          AS ret_with_stop,
+                   CASE WHEN c_hold IS NOT NULL
+                        THEN (c_hold / entry - 1.0) * 100 END                  AS ret_no_stop,
+                   CASE WHEN c5d   IS NOT NULL
+                        THEN (c5d   / entry - 1.0) * 100 END                   AS ret_5d,
+                   CASE WHEN c20d  IS NOT NULL
+                        THEN (c20d  / entry - 1.0) * 100 END                   AS ret_20d_v,
+                   CASE WHEN min_hold < entry * (1.0 + %s / 100.0)
+                        THEN TRUE ELSE FALSE END                                AS stopped_out
+            FROM signals
+        )
+        SELECT
+            COUNT(CASE WHEN ret_with_stop IS NOT NULL THEN 1 END)                            AS n,
+            ROUND((AVG(CASE WHEN ret_with_stop IS NOT NULL AND ret_with_stop > 0 THEN 1.0
+                            WHEN ret_with_stop IS NOT NULL THEN 0.0 END) * 100)::numeric, 1) AS wr_hold_with_stop,
+            ROUND((AVG(CASE WHEN ret_no_stop  IS NOT NULL AND ret_no_stop  > 0 THEN 1.0
+                            WHEN ret_no_stop  IS NOT NULL THEN 0.0 END) * 100)::numeric, 1)  AS wr_hold_no_stop,
+            ROUND((AVG(CASE WHEN ret_5d IS NOT NULL AND ret_5d > 0 THEN 1.0
+                            WHEN ret_5d IS NOT NULL THEN 0.0 END) * 100)::numeric, 1)        AS wr_5d,
+            ROUND((AVG(CASE WHEN ret_20d_v IS NOT NULL AND ret_20d_v > 0 THEN 1.0
+                            WHEN ret_20d_v IS NOT NULL THEN 0.0 END) * 100)::numeric, 1)     AS wr_20d,
+            ROUND(AVG(CASE WHEN ret_with_stop IS NOT NULL THEN ret_with_stop END)::numeric, 2) AS avg_ret_hold,
+            ROUND(MIN(CASE WHEN ret_with_stop IS NOT NULL THEN ret_with_stop END)::numeric, 2) AS worst_trade,
+            ROUND(MAX(CASE WHEN ret_with_stop IS NOT NULL THEN ret_with_stop END)::numeric, 2) AS best_trade,
+            COUNT(CASE WHEN stopped_out = TRUE THEN 1 END)                                     AS num_stop_outs,
+            ROUND(AVG(CASE WHEN ret_with_stop IS NOT NULL THEN ret20d END)::numeric, 1)        AS avg_signal_depth_20d,
+            COUNT(DISTINCT CASE WHEN ret_with_stop IS NOT NULL THEN ticker END)                AS distinct_tickers
+        FROM outcomes
+    """
+
+    try:
+        with psycopg2.connect(_DB_URL, options="-c statement_timeout=90000") as conn, \
+             conn.cursor() as cur:
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS stock_panic_exhaustion_results (
+                    id                   BIGSERIAL PRIMARY KEY,
+                    run_time             TIMESTAMPTZ DEFAULT NOW(),
+                    period_label         TEXT,
+                    threshold_pct        FLOAT,
+                    hold_days            INTEGER,
+                    stop_loss_pct        FLOAT,
+                    min_price            FLOAT,
+                    start_date           DATE,
+                    end_date             DATE,
+                    require_spy_panic    BOOLEAN,
+                    spy_panic_threshold  FLOAT,
+                    n                    INTEGER,
+                    wr_hold_with_stop    FLOAT,
+                    wr_hold_no_stop      FLOAT,
+                    wr_5d                FLOAT,
+                    wr_20d               FLOAT,
+                    avg_ret_hold         FLOAT,
+                    worst_trade          FLOAT,
+                    best_trade           FLOAT,
+                    num_stop_outs        INTEGER,
+                    avg_signal_depth_20d FLOAT,
+                    distinct_tickers     INTEGER
+                )
+            """)
+            conn.commit()
+
+            cur.execute(sql, (
+                min_price, warmup, end_date,
+                threshold_pct, start_date,
+                stop_loss_pct, stop_loss_pct,
+                stop_loss_pct,
+            ))
+            row = cur.fetchone()
+            if not row:
+                return {"error": "no rows returned", "period_label": label}
+
+            cols = [
+                "n", "wr_hold_with_stop", "wr_hold_no_stop",
+                "wr_5d", "wr_20d", "avg_ret_hold",
+                "worst_trade", "best_trade", "num_stop_outs",
+                "avg_signal_depth_20d", "distinct_tickers",
+            ]
+            result = dict(zip(cols, row))
+
+            cur.execute("""
+                INSERT INTO stock_panic_exhaustion_results
+                    (period_label, threshold_pct, hold_days, stop_loss_pct, min_price,
+                     start_date, end_date, require_spy_panic, spy_panic_threshold,
+                     n, wr_hold_with_stop, wr_hold_no_stop, wr_5d, wr_20d,
+                     avg_ret_hold, worst_trade, best_trade, num_stop_outs,
+                     avg_signal_depth_20d, distinct_tickers)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                label, threshold_pct, hold_days, stop_loss_pct, min_price,
+                start_date, end_date, require_spy_panic, spy_panic_threshold,
+                result.get("n"), result.get("wr_hold_with_stop"),
+                result.get("wr_hold_no_stop"), result.get("wr_5d"),
+                result.get("wr_20d"), result.get("avg_ret_hold"),
+                result.get("worst_trade"), result.get("best_trade"),
+                result.get("num_stop_outs"), result.get("avg_signal_depth_20d"),
+                result.get("distinct_tickers"),
+            ))
+            conn.commit()
+
+            result.update({
+                "period_label":         label,
+                "threshold_pct":        threshold_pct,
+                "hold_days":            hold_days,
+                "stop_loss_pct":        stop_loss_pct,
+                "min_price":            min_price,
+                "start_date":           start_date,
+                "end_date":             end_date,
+                "require_spy_panic":    require_spy_panic,
+                "spy_panic_threshold":  spy_panic_threshold,
+                "aiem_computed":        True,
+            })
+            return result
+
+    except Exception as _e:
+        return {"error": str(_e), "period_label": label}
