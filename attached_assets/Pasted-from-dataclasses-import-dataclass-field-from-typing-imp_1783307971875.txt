@@ -1,0 +1,302 @@
+from dataclasses import dataclass, field
+from typing import List, Dict, Any, Optional
+import numpy as np
+from collections import defaultdict, deque
+import statistics
+import math
+
+
+# =========================
+# DATA STRUCTURES
+# =========================
+
+@dataclass
+class TradeSignal:
+    id: str
+    signal_type: str
+    timestamp: str
+    regime: str
+    features: Dict[str, float]
+    predicted_probability: float
+
+
+@dataclass
+class TradeOutcome:
+    signal_id: str
+    pnl: float
+    win: bool
+    regime: str
+    slippage: float
+    fees: float
+
+
+# =========================
+# 1. EXPECTANCY ENGINE
+# =========================
+
+class ExpectancyEngine:
+    def __init__(self):
+        self.history = defaultdict(list)  # signal_type -> outcomes
+
+    def update(self, signal_type: str, outcome: TradeOutcome):
+        self.history[signal_type].append(outcome)
+
+    def expectancy(self, signal_type: str) -> float:
+        data = self.history.get(signal_type, [])
+        if len(data) < 20:
+            return 0.0
+
+        wins = [x.pnl for x in data if x.win]
+        losses = [x.pnl for x in data if not x.win]
+
+        avg_win = np.mean(wins) if wins else 0
+        avg_loss = np.mean(losses) if losses else 0
+        win_rate = len(wins) / len(data)
+
+        ev = (win_rate * avg_win) + ((1 - win_rate) * avg_loss)
+        return ev
+
+    def classification(self, signal_type: str) -> str:
+        ev = self.expectancy(signal_type)
+
+        if ev > 0.5:
+            return "positive_edge"
+        elif ev > 0:
+            return "neutral_edge"
+        return "negative_edge"
+
+
+# =========================
+# 2. REGIME FILTER
+# =========================
+
+class RegimeFilter:
+    def __init__(self):
+        self.regime_performance = defaultdict(lambda: defaultdict(list))
+
+    def update(self, signal_type: str, regime: str, outcome: TradeOutcome):
+        self.regime_performance[signal_type][regime].append(outcome)
+
+    def regime_score(self, signal_type: str, regime: str) -> float:
+        data = self.regime_performance[signal_type][regime]
+        if len(data) < 10:
+            return 0
+
+        return np.mean([x.pnl for x in data])
+
+    def is_valid(self, signal_type: str, regime: str) -> bool:
+        return self.regime_score(signal_type, regime) > 0
+
+
+# =========================
+# 3. FEATURE ABLATION CHECK
+# =========================
+
+class FeatureAblation:
+    def __init__(self):
+        self.feature_importance = defaultdict(lambda: defaultdict(list))
+
+    def log(self, signal_type: str, feature: str, impact: float):
+        self.feature_importance[signal_type][feature].append(impact)
+
+    def is_feature_useful(self, signal_type: str, feature: str) -> bool:
+        impacts = self.feature_importance[signal_type][feature]
+        if len(impacts) < 20:
+            return True
+
+        avg_impact = np.mean(impacts)
+        return abs(avg_impact) > 0.01  # threshold
+
+
+# =========================
+# 4. OVERFITTING DETECTOR
+# =========================
+
+class OverfitDetector:
+    def __init__(self):
+        self.train_perf = defaultdict(list)
+        self.test_perf = defaultdict(list)
+
+    def update(self, signal_type: str, train: float, test: float):
+        self.train_perf[signal_type].append(train)
+        self.test_perf[signal_type].append(test)
+
+    def is_overfitted(self, signal_type: str) -> bool:
+        train = self.train_perf[signal_type]
+        test = self.test_perf[signal_type]
+
+        if len(train) < 10:
+            return False
+
+        gap = np.mean(train) - np.mean(test)
+        return gap > 0.2
+
+
+# =========================
+# 5. REDUNDANCY PRUNER
+# =========================
+
+class RedundancyPruner:
+    def __init__(self):
+        self.signal_vectors = defaultdict(list)
+
+    def add_vector(self, signal_type: str, vector: List[float]):
+        self.signal_vectors[signal_type].append(vector)
+
+    def correlation(self, a, b):
+        return np.corrcoef(a, b)[0, 1]
+
+    def is_redundant(self, sig_a: str, sig_b: str) -> bool:
+        a = np.mean(self.signal_vectors[sig_a], axis=0)
+        b = np.mean(self.signal_vectors[sig_b], axis=0)
+
+        if len(a) != len(b):
+            return False
+
+        return abs(self.correlation(a, b)) > 0.85
+
+
+# =========================
+# 6. CONFIDENCE CALIBRATION
+# =========================
+
+class CalibrationLayer:
+    def __init__(self):
+        self.predictions = []
+        self.outcomes = []
+
+    def log(self, predicted: float, actual: int):
+        self.predictions.append(predicted)
+        self.outcomes.append(actual)
+
+    def calibration_error(self) -> float:
+        if len(self.predictions) < 20:
+            return 0
+
+        preds = np.array(self.predictions)
+        actual = np.array(self.outcomes)
+
+        return np.mean(np.abs(preds - actual))
+
+
+# =========================
+# 7. EDGE DECAY TRACKER
+# =========================
+
+class EdgeDecayTracker:
+    def __init__(self):
+        self.performance_history = defaultdict(list)
+
+    def update(self, signal_type: str, pnl: float):
+        self.performance_history[signal_type].append(pnl)
+
+    def half_life(self, signal_type: str) -> float:
+        data = self.performance_history[signal_type]
+        if len(data) < 30:
+            return 999
+
+        peaks = np.cumsum(data)
+        return np.std(peaks)
+
+
+# =========================
+# 8. MIN SAMPLE GATE
+# =========================
+
+class SampleGate:
+    def __init__(self, min_samples=200):
+        self.min_samples = min_samples
+        self.counts = defaultdict(int)
+
+    def update(self, signal_type: str):
+        self.counts[signal_type] += 1
+
+    def is_valid(self, signal_type: str) -> bool:
+        return self.counts[signal_type] >= self.min_samples
+
+
+# =========================
+# 9. META LEARNER (WEIGHTING)
+# =========================
+
+class MetaLearner:
+    def __init__(self):
+        self.weights = defaultdict(lambda: 1.0)
+
+    def update(self, signal_type: str, performance: float):
+        # exponential smoothing
+        self.weights[signal_type] = (
+            0.9 * self.weights[signal_type] + 0.1 * performance
+        )
+
+    def weight(self, signal_type: str) -> float:
+        return self.weights[signal_type]
+
+
+# =========================
+# 10. EDGE FILTER ORCHESTRATOR
+# =========================
+
+class EdgeFilterEngine:
+    def __init__(self):
+        self.expectancy = ExpectancyEngine()
+        self.regime = RegimeFilter()
+        self.ablation = FeatureAblation()
+        self.overfit = OverfitDetector()
+        self.redundancy = RedundancyPruner()
+        self.calibration = CalibrationLayer()
+        self.decay = EdgeDecayTracker()
+        self.gate = SampleGate()
+        self.meta = MetaLearner()
+
+    def evaluate(self, signal: TradeSignal) -> Dict[str, Any]:
+
+        signal_type = signal.signal_type
+        regime = signal.regime
+
+        # update counters
+        self.gate.update(signal_type)
+
+        # basic gating
+        if not self.gate.is_valid(signal_type):
+            return {"approved": False, "reason": "insufficient_samples"}
+
+        # regime check
+        if not self.regime.is_valid(signal_type, regime):
+            return {"approved": False, "reason": "regime_edge_negative"}
+
+        # expectancy check
+        edge_class = self.expectancy.classification(signal_type)
+        if edge_class == "negative_edge":
+            return {"approved": False, "reason": "negative_expectancy"}
+
+        # meta weight
+        weight = self.meta.weight(signal_type)
+
+        return {
+            "approved": True,
+            "signal_type": signal_type,
+            "edge_class": edge_class,
+            "weight": weight,
+            "adjusted_probability": signal.predicted_probability * weight
+        }
+
+
+# =========================
+# EXAMPLE USAGE
+# =========================
+
+if __name__ == "__main__":
+    engine = EdgeFilterEngine()
+
+    signal = TradeSignal(
+        id="123",
+        signal_type="macd_cross",
+        timestamp="2026-07-05",
+        regime="trend",
+        features={"rsi": 55, "volume": 1200000},
+        predicted_probability=0.62
+    )
+
+    result = engine.evaluate(signal)
+    print(result)
