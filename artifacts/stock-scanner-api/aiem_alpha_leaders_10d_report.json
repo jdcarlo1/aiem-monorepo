@@ -2,7 +2,7 @@
   "status": "trained",
   "horizon": "10d",
   "model_path": "/home/runner/workspace/artifacts/stock-scanner-api/aiem_alpha_leaders_10d.pkl",
-  "trained_at": "2026-07-05T19:31:16.816997",
+  "trained_at": "2026-07-06T01:01:53.290640",
   "data": {
     "total_rows": 1434216,
     "outperformers": 652004,
