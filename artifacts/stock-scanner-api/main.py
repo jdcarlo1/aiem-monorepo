@@ -30309,6 +30309,11 @@ def _build_aiem_tool_map():
         "rl_readable_policy":       _aiem_tool_rl_readable_policy,
         "deep_rl_get_paper_action":    _aiem_tool_deep_rl_get_paper_action,
         "deep_rl_probe":               _aiem_tool_deep_rl_probe,
+        # ── 12-module RL feedback engine ──────────────────────────────────────
+        "rl_status":               _aiem_tool_rl_status,
+        "rl_strategy_weights":     _aiem_tool_rl_strategy_weights,
+        "rl_ppo_policy":           _aiem_tool_rl_ppo_policy,
+        "rl_counterfactuals":      _aiem_tool_rl_counterfactuals,
         # ── Background-system live read tools ─────────────────────────────────
         "get_meta_learning_weights":   _aiem_tool_get_meta_learning_weights,
         "get_m2_decay_status":         _aiem_tool_get_m2_decay_status,
@@ -32419,6 +32424,29 @@ _AIEM_AGENT_TOOLS = [
             "vix_front_month_json": {"type": "string", "description": "JSON VIX front-month time series"},
             "vix_back_month_json": {"type": "string", "description": "JSON VIX back-month time series"},
         }, "required": ["price_history_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "rl_status",
+        "description": "Full RL engine status: experience buffer size, per-signal win rate + avg reward, current strategy weights, PPO update count, and pattern win rates. Use to understand how the RL feedback loop is performing.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "rl_strategy_weights",
+        "description": "Current live strategy weights per signal source. Weights are EMA-updated (α=0.15) after every paper trade closes. >1.0 = outperforming, <1.0 = underperforming. Range [0.1, 3.0].",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "rl_ppo_policy",
+        "description": "PPO policy state: total update count, raw action logits, and a grid of action probabilities across typical (pnl_pct, hold_days, conviction) states. Use to inspect what action the policy recommends in each situation.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "rl_counterfactuals",
+        "description": "What-if simulations for closed paper trades: held_longer, exited_earlier, smaller_size, no_trade (SPY baseline). Each row includes lessons extracted from the comparison.",
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Filter to a specific ticker (optional)"},
+            "limit":  {"type": "integer", "description": "Max rows to return (default 10)"},
+        }},
     }},
     {"type": "function", "function": {
         "name": "ensemble_combine_signals",
@@ -35188,6 +35216,66 @@ def _aiem_tool_deep_rl_probe(policy_name: str) -> dict:
         return {"policy_name": policy_name, "status": "live",
                 "probe_report": report,
                 "note": "Read chosen_action for each state. Counterintuitive actions = suspect policy."}
+    except Exception as _e:
+        return {"error": str(_e)}
+
+# ── AIEM RL Engine tools (12-module feedback system) ─────────────────────────
+
+def _aiem_tool_rl_status() -> dict:
+    """Return full RL engine status: buffer stats, weights, PPO, pattern win rates."""
+    try:
+        import aiem_rl_engine as _rle
+        return _rle.get_rl_status_summary()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_rl_strategy_weights() -> dict:
+    """Return current live strategy weights per signal source (EMA-updated after each trade)."""
+    try:
+        import aiem_rl_engine as _rle
+        return {
+            "weights": _rle._weights_opt.get_live_weights(),
+            "note": "EMA α=0.15. Range [0.1, 3.0]. 1.0 = neutral, >1.0 = outperforming, <1.0 = underperforming."
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_rl_ppo_policy() -> dict:
+    """Return PPO policy state: n_updates, raw logits, and action-probability grid over typical states."""
+    try:
+        import aiem_rl_engine as _rle
+        return _rle._ppo.readable_policy()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _aiem_tool_rl_counterfactuals(ticker: str = None, limit: int = 10) -> dict:
+    """Return counterfactual simulations: what-if held longer, exited earlier, smaller size, no trade."""
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c:
+            with _c.cursor() as _cu:
+                if ticker:
+                    _cu.execute(
+                        "SELECT trade_id, actual_pnl_pct, held_longer_pnl_pct, "
+                        "exited_earlier_pnl_pct, smaller_size_pnl_pct, "
+                        "no_trade_baseline_pct, lessons, created_at "
+                        "FROM rl_counterfactuals WHERE trade_id LIKE %s "
+                        "ORDER BY created_at DESC LIMIT %s",
+                        (f"{ticker}%", int(limit))
+                    )
+                else:
+                    _cu.execute(
+                        "SELECT trade_id, actual_pnl_pct, held_longer_pnl_pct, "
+                        "exited_earlier_pnl_pct, smaller_size_pnl_pct, "
+                        "no_trade_baseline_pct, lessons, created_at "
+                        "FROM rl_counterfactuals ORDER BY created_at DESC LIMIT %s",
+                        (int(limit),)
+                    )
+                _cols = ["trade_id","actual_pnl_pct","held_longer_pnl_pct",
+                         "exited_earlier_pnl_pct","smaller_size_pnl_pct",
+                         "no_trade_baseline_pct","lessons","created_at"]
+                return {"counterfactuals": [
+                    dict(zip(_cols, r)) for r in _cu.fetchall()
+                ]}
     except Exception as _e:
         return {"error": str(_e)}
 
@@ -38159,6 +38247,43 @@ def _aiem_paper_mark_to_market():
             _aiem_paper_flag_fills(trade_date_from=_today)
         except Exception as _ff_e:
             print(f"[aiem_paper] flag_fills error (non-blocking): {_ff_e}")
+
+        # ── RL pipeline: process every trade closed today in background ────
+        try:
+            import threading as _rl_thr
+            def _rl_pipeline_bg(_close_date=_today):
+                try:
+                    import aiem_rl_engine as _rle
+                    with _psycopg2.connect(_DB_URL, connect_timeout=5) as _rc:
+                        with _rc.cursor() as _rcu:
+                            _rcu.execute("""
+                                SELECT id, ticker, trade_type, entry_price, exit_price,
+                                       pnl_pct, pnl, notional, signal_source, trade_date,
+                                       (exit_date - trade_date) AS hold_days
+                                FROM aiem_paper_trades
+                                WHERE exit_date = %s AND status != 'OPEN'
+                            """, (_close_date,))
+                            _closed = _rcu.fetchall()
+                    for _tr in _closed:
+                        _rle.run_full_rl_pipeline({
+                            "id":           _tr[0],
+                            "ticker":       _tr[1],
+                            "trade_type":   _tr[2],
+                            "entry_price":  float(_tr[3] or 0),
+                            "exit_price":   float(_tr[4] or 0),
+                            "pnl_pct":      float(_tr[5] or 0),
+                            "pnl":          float(_tr[6] or 0),
+                            "notional":     float(_tr[7] or 1000),
+                            "signal_source": _tr[8],
+                            "trade_date":   str(_tr[9]),
+                            "hold_days":    int(_tr[10] or 1),
+                        })
+                    print(f"[rl_engine] pipeline done for {len(_closed)} closed trades")
+                except Exception as _rle_e:
+                    print(f"[rl_engine] bg pipeline error: {_rle_e}")
+            _rl_thr.Thread(target=_rl_pipeline_bg, daemon=True).start()
+        except Exception as _rl_start_e:
+            print(f"[rl_engine] failed to start bg thread: {_rl_start_e}")
 
     except Exception as _e:
         print(f"[aiem_paper] mark-to-market error: {_e}")
@@ -47295,6 +47420,14 @@ _DEFERRED_INITS.append(lambda: _bounce_mod.register_signal() if _bounce_mod else
 _DEFERRED_INITS.append(lambda: _squeeze_mod.init_schema() if _squeeze_mod else None)
 _DEFERRED_INITS.append(lambda: _squeeze_mod.register_signal() if _squeeze_mod else None)
 _DEFERRED_INITS.append(lambda: _pos_sizer.init_tables() if _pos_sizer else None)
+
+# ── RL engine: create 6 DB tables on startup ──────────────────────────────────
+try:
+    import aiem_rl_engine as _aiem_rle_mod
+    _DEFERRED_INITS.append(lambda: _aiem_rle_mod.init_schema())
+    print("[rl_engine] deferred schema init registered")
+except Exception as _rle_import_e:
+    print(f"[rl_engine] import failed at registration time: {_rle_import_e}")
 
 
 def _run_layer9_bg_scan():

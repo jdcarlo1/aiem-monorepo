@@ -1,0 +1,282 @@
+# AEMI Autonomous Learning Modules (Paper Trading RL System)
+
+This document defines the core reinforcement-learning-style feedback modules for AEMI.
+These modules form a closed-loop system:
+
+Observe → Trade → Evaluate → Diagnose → Learn → Update Strategy
+
+------------------------------------------------------------
+## 1. TRADE OUTCOME ANALYZER
+------------------------------------------------------------
+
+Purpose:
+Evaluates every completed paper trade.
+
+class TradeOutcomeAnalyzer:
+
+    def evaluate_trade(self, trade):
+        """
+        Input: trade object (entry, exit, pnl, size, timestamp)
+        Output: structured performance report
+        """
+
+        return {
+            "profit": trade.pnl,
+            "roi": trade.roi,
+            "held_too_long": self._check_hold_time(trade),
+            "exited_too_early": self._check_exit_quality(trade),
+            "risk_adjusted_return": self._risk_adjusted(trade),
+            "market_beating": self._benchmark(trade)
+        }
+
+
+------------------------------------------------------------
+## 2. MISTAKE CLASSIFICATION ENGINE
+------------------------------------------------------------
+
+Purpose:
+Turns losses into structured learning labels.
+
+class MistakeClassifier:
+
+    def classify(self, trade, analysis):
+
+        mistakes = []
+
+        if analysis["bought_resistance"]:
+            mistakes.append("BUYING_RESISTANCE")
+
+        if analysis["late_entry"]:
+            mistakes.append("CHASING_MOMENTUM")
+
+        if analysis["ignored_volume"]:
+            mistakes.append("VOLUME_IGNORE")
+
+        if analysis["bad_risk_reward"]:
+            mistakes.append("POOR_RISK_REWARD")
+
+        if analysis["earnings_event"]:
+            mistakes.append("EARNINGS_RISK")
+
+        return mistakes
+
+
+------------------------------------------------------------
+## 3. EXPERIENCE REPLAY BUFFER
+------------------------------------------------------------
+
+Purpose:
+Stores trades and replays them for retraining.
+
+class ExperienceReplayBuffer:
+
+    def __init__(self):
+        self.memory = []
+
+    def store(self, trade, outcome, mistakes):
+        self.memory.append({
+            "trade": trade,
+            "outcome": outcome,
+            "mistakes": mistakes
+        })
+
+    def sample_batch(self, size=32):
+        return random.sample(self.memory, size)
+
+
+------------------------------------------------------------
+## 4. REWARD ENGINE (RISK-AWARE)
+------------------------------------------------------------
+
+Purpose:
+Replaces simple profit-based reward.
+
+class RewardEngine:
+
+    def calculate_reward(self, trade, outcome):
+
+        reward = 0
+
+        reward += outcome["profit"] * 1.0
+        reward -= trade.max_drawdown * 2.0
+
+        if outcome["market_beating"]:
+            reward += 1.5
+
+        if outcome["bad_risk_reward"]:
+            reward -= 2.0
+
+        return reward
+
+
+------------------------------------------------------------
+## 5. CONFIDENCE CALIBRATION SYSTEM
+------------------------------------------------------------
+
+Purpose:
+Corrects probability estimates over time.
+
+class ConfidenceCalibration:
+
+    def update(self, predicted_prob, actual_outcome):
+
+        self.history.append((predicted_prob, actual_outcome))
+
+    def calibrate(self):
+
+        # compares predicted vs actual success rate
+        # adjusts future confidence scaling
+        pass
+
+
+------------------------------------------------------------
+## 6. COUNTERFACTUAL LEARNING ENGINE
+------------------------------------------------------------
+
+Purpose:
+Learns from "what would have happened if..."
+
+class CounterfactualEngine:
+
+    def simulate_alternatives(self, trade, market_data):
+
+        scenarios = {
+            "held_longer": None,
+            "exited_earlier": None,
+            "smaller_size": None,
+            "no_trade": None
+        }
+
+        return scenarios
+
+
+------------------------------------------------------------
+## 7. STRATEGY WEIGHT OPTIMIZER
+------------------------------------------------------------
+
+Purpose:
+Adjusts signal importance automatically.
+
+class StrategyWeightOptimizer:
+
+    def __init__(self):
+        self.weights = {
+            "momentum": 1.0,
+            "options_flow": 1.0,
+            "news": 1.0,
+            "volume": 1.0,
+            "technical": 1.0
+        }
+
+    def update_weights(self, performance_data):
+
+        for signal, score in performance_data.items():
+            self.weights[signal] *= (1 + score)
+
+
+------------------------------------------------------------
+## 8. SELF-CRITIQUE AGENT
+------------------------------------------------------------
+
+Purpose:
+AI reviews its own reasoning.
+
+class SelfCritiqueAgent:
+
+    def critique(self, trade_decision):
+
+        return {
+            "weak_assumptions": [],
+            "missing_data": [],
+            "overweighted_signals": [],
+            "alternative_view": "bearish/bullish counter argument"
+        }
+
+
+------------------------------------------------------------
+## 9. CONTINUAL LEARNING ENGINE
+------------------------------------------------------------
+
+Purpose:
+Continuously updates model without full retraining.
+
+class ContinualLearner:
+
+    def update_model(self, new_data):
+
+        # incremental learning step
+        # avoids forgetting previous knowledge
+        pass
+
+
+------------------------------------------------------------
+## 10. POLICY OPTIMIZATION (PPO STYLE)
+------------------------------------------------------------
+
+Purpose:
+Learns optimal trading actions.
+
+class PPOPolicyOptimizer:
+
+    def update_policy(self, state, action, reward, next_state):
+
+        # clipped policy update logic
+        pass
+
+
+------------------------------------------------------------
+## 11. ADAPTIVE RISK MANAGER
+------------------------------------------------------------
+
+Purpose:
+Learns position sizing + risk control.
+
+class AdaptiveRiskManager:
+
+    def adjust_position_size(self, volatility, confidence):
+
+        base = 1.0
+
+        return base * confidence / (volatility + 1e-5)
+
+
+------------------------------------------------------------
+## 12. LONG-TERM MEMORY SYSTEM
+------------------------------------------------------------
+
+Purpose:
+Stores recurring market patterns.
+
+class MarketMemory:
+
+    def __init__(self):
+        self.patterns = {
+            "breakouts": [],
+            "failures": [],
+            "earnings_moves": [],
+            "squeezes": []
+        }
+
+    def store_pattern(self, pattern_type, data):
+        self.patterns[pattern_type].append(data)
+
+
+------------------------------------------------------------
+## SYSTEM FLOW (HOW EVERYTHING CONNECTS)
+------------------------------------------------------------
+
+Trade Happens →
+    TradeOutcomeAnalyzer →
+        MistakeClassifier →
+            RewardEngine →
+                ExperienceReplayBuffer →
+                    StrategyWeightOptimizer →
+                        SelfCritiqueAgent →
+                            MarketMemory Update →
+                                PPOPolicyOptimizer Update →
+                                    ContinualLearner Update →
+                                        AdaptiveRiskManager Adjustment
+
+------------------------------------------------------------
+
+END OF FILE
