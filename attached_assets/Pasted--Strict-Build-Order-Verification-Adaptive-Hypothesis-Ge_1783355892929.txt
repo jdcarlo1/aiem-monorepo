@@ -1,0 +1,104 @@
+# Strict Build Order & Verification — Adaptive Hypothesis Generation Layer (Modules 1–8)
+
+**Purpose of this document:** the full spec (`adaptive-hypothesis-generation-spec.md`) already contains a verification checklist inside each module. This document sets the **order** modules must be built and verified in, and adds one new requirement up front: a sample Telegram message mockup, so you can see and approve the message format before any real module logic is built behind it.
+
+**Non-negotiable rule for every step below:** no module is marked "done" without its own verification checklist (from the main spec) being satisfied first, with raw evidence pasted — not a summary, not "this works," not a claim without the receipt. If a claim can't be backed by pasted terminal output, SQL results, or a real message screenshot, treat it as not done.
+
+---
+
+## Step 0 — Sample Telegram message mockup (before writing any module code)
+
+Before building Module 6, 8, or any of the research logic (1–5, 7), produce a **mockup** of what a real approval-request message would look like for each message category defined in Module 8. This is not a real proposal yet — it's a template/example so the message format can be approved before anything is built behind it.
+
+**Required: one example message per category, using realistic placeholder data:**
+
+1. **New candidate reaches `pending`** — example: a mock rule with realistic feature conditions and backtest numbers (win rate, OOS n, edge_pp), formatted the way a real one would be sent.
+2. **Refinement proposal (Module 4/5 output)** — example: a mock "here's what I think went wrong and here's my proposed fix" message, including the hypothesis, the confound-check result, and what approval is being requested.
+3. **External data source proposal (Module 7b)** — example: a mock proposal for a new data feed, with cost/licensing notes and an explicit approve/decline request.
+4. **Daily digest** — example: a mock end-of-day summary bundling routine stats.
+5. **Informational/no-action-needed message** — example: something the system found worth mentioning but isn't asking permission for.
+
+**Verification required:**
+- Paste the actual message text for all five, exactly as they would appear in Telegram (not a description of what they'd contain).
+- Confirm explicitly how you would reply to approve vs. reject each one (e.g., "reply YES/NO," a button, a specific keyword) and how that reply gets matched to the specific pending item.
+- **Do not proceed to Step 1 until these five mockups are reviewed and approved.** If the format needs changes, iterate on the mockup only — do not build any backend logic yet.
+
+---
+
+## Step 1 — Module 6 (Scheduling) — build and verify in isolation first
+
+Build only the scheduling/trigger layer. It can call the *existing* `run_cycle()` (unchanged, still just the T01–T10 static templates) — do not wait for Modules 1–5 to exist first.
+
+**Verification required (from main spec, Module 6, restated here for sequencing):**
+1. Grep for existing scheduler/job registry — paste result.
+2. Paste actual scheduler registration code and cadence.
+3. Show two consecutive real autonomous runs with timestamps.
+4. Demonstrate the concurrency guard blocking a real overlapping run attempt.
+5. Demonstrate the kill switch actually stopping the next scheduled run, then re-enabling it.
+
+**Do not proceed to Step 2 until all five are satisfied with pasted evidence.**
+
+---
+
+## Step 2 — Module 8 (Notification Layer) — build against the existing static system
+
+Wire real Telegram sending using the approved mockup format from Step 0, connected to the *existing* system (Discovery Engine as it is today, running on the new Module 6 schedule) — not waiting for Modules 1–5, 7.
+
+**Verification required (from main spec, Module 8, restated here for sequencing):**
+1. Grep confirming the existing Telegram notifier was reused, not duplicated.
+2. One real message sent for each of the five categories from Step 0 — actual delivered message, not a draft.
+3. One real end-to-end approve/reject cycle: real message → your real reply → system correctly proceeds or stands down → DB state shown before and after.
+4. Code trace confirming nothing can act without a matched, explicit approval reply.
+5. A test with two pending items at once, confirming your reply gets matched to the correct one.
+
+**Do not proceed to Step 3 until all five are satisfied with pasted evidence, including your own real reply in the transcript.**
+
+---
+
+## Step 3 — Modules 1, 2, 3 together (core research loop: generate, weight, adapt)
+
+These three are interdependent enough to build and verify as one unit — Module 1 generates candidates, Module 2 weights them, Module 3 keeps stats current. All output must route through Module 8 (already working) and run on Module 6's schedule (already working).
+
+**Verification required (combined from main spec):**
+1. Module 1: full generation loop pasted, one real generation's population/fitness/survivors, confirmation surviving candidates hit the real `_evaluate()`, one genuinely novel rule example.
+2. Module 2: reward function pasted in full tied to real settled trades, arm-weight history over a real period, confirmation bandit output still requires human-gated promotion.
+3. Module 3: exact incremental computation pasted, comparison against batch recomputation with real matching numbers, demonstration of a bad-data-row test case.
+4. **Integration check:** one real cycle showing all three working together — a new candidate generated, evaluated, weighted, and a real Telegram message sent about it per Step 2's working pipeline.
+
+**Do not proceed to Step 4 until this integrated cycle is demonstrated end-to-end with real data and a real message.**
+
+---
+
+## Step 4 — Modules 4 and 5 together (memory, reflection, validation)
+
+Post-trade reflection and its statistical validation are tightly coupled — build and verify together.
+
+**Verification required (combined from main spec):**
+1. Module 4: `trade_postmortems` schema pasted, one real row after a real trade closure, exact prompt template with prior-postmortem retrieval shown, one full real example (losing trade → hypothesis → proposed refinement → backtest result), confirmation no refinement applies without approval, demonstration of a bad/unhelpful hypothesis not being silently trusted.
+2. Module 5: exact confound-check computation with one real example (real numbers both sides), one real example where the confound check failed to support a hypothesis (and this was recorded, not dropped), self-critique prompt with one real hypothesis+counterargument pair, confirmation `hypothesis_supported` status travels with any refinement into Module 1's pool.
+3. **Integration check:** one real proposed refinement, generated by Module 4, validated (or not) by Module 5, sent via Module 8's working Telegram pipeline, with your real response processed.
+
+**Do not proceed to Step 5 until this is demonstrated end-to-end.**
+
+---
+
+## Step 5 — Module 7 (Data Source Discovery) — last, lowest priority
+
+**Verification required (from main spec):**
+1. 7a: grep results for unused internal columns, confirmation they're actually fed into Module 1 (already working by this point), not just listed.
+2. 7b: one real external-source proposal in full, sent via the working Telegram pipeline, with cost/compliance notes.
+3. Grep confirming the human-approval gate blocks any external call/credential/spend.
+4. Explicit confirmation: has anything external actually been contacted during testing? If yes, explain under what authorization. If no, show the grep evidence proving it.
+
+---
+
+## Final Step — Full system verification (all 8 modules integrated)
+
+Once all five steps above are individually verified, run one complete real cycle and produce:
+
+1. Timestamped proof Module 6 triggered it autonomously.
+2. The full chain: candidate generated (1) → weighted (2) → stats current (3) → if applicable, a related post-trade reflection (4) → validated (5) → a real external or internal data proposal if one arose (7) → a real Telegram message sent and a real reply processed (8).
+3. Grep confirming trade execution authorization is untouched and separate from all of the above — this system can propose and message you about research findings, but the trading authorization gate is a distinct, unrelated approval step that nothing here bypasses.
+4. A plain-language summary: what runs with zero manual input now, and the exact two things that still require your explicit action every time — (a) approving any change via Telegram, and (b) authorizing any actual trade.
+
+*No step in this document is complete on the agent's say-so alone. Every checkbox above requires pasted, real, checkable evidence — terminal output, SQL rows, actual message text, actual timestamps. If evidence can't be produced, the honest answer is "not done yet," not "should be working."*

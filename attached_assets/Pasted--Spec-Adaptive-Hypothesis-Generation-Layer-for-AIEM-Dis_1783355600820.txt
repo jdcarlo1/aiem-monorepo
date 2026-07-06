@@ -1,0 +1,246 @@
+# Spec: Adaptive Hypothesis Generation Layer for AIEM Discovery Engine
+
+## Before building anything — verification required first
+
+Before writing any new code, confirm none of the following already exist anywhere in the codebase. Do not assume based on naming — actually search.
+
+```
+grep -rln "genetic\|GeneticProgramming\|gplearn\|DEAP\|symbolic_regression" .
+grep -rln "contextual_bandit\|ContextualBandit\|epsilon_greedy\|UCB1\|Thompson" .
+grep -rln "online_learning\|incremental_learning\|partial_fit\|river\b" .
+grep -rln "trade_postmortems\|postmortem\|llm_hypothesis\|proposed_refinement" .
+grep -rln "confound\|hypothesis_supported\|llm_counterargument\|two_proportion\|z_test" .
+grep -rln "add_job\|CronTrigger\|schedule\.every\|scheduler\.register" .
+grep -rln "external_data_proposal\|data_source_discovery\|new_data_source" .
+grep -rln "aiem_telegram_notifier\|_tg_send\|send_sms" .
+```
+
+Paste the raw output of each. If any hits are found, paste the full context (file, function, what it does) before proceeding — do not build a duplicate or parallel system. If genuinely nothing exists, state that explicitly with the empty grep results as evidence, then proceed.
+
+---
+
+## Context
+
+The current Discovery Engine (`aiem_discovery_engine.py`) tests a fixed, human-written set of hypothesis templates (T01–T10) through an IS/OOS backtest, overfit check, sample-size gate, and baseline-edge gate. This works well but requires a person to write every new template by hand.
+
+This spec adds eight modules that sit **on top of** the existing evaluation pipeline — `_evaluate()`, `_compute_stats()`, `_check_overfit()`, and the baseline-edge gate must be reused as the fitness function, not rebuilt. The goal is a system that generates its own hypotheses and adapts over time, not one that replaces the verification discipline already in place.
+
+**Explicit non-goal:** none of this authorizes live trading autonomously. Human approval for live/paper execution remains unchanged. These modules only affect what gets *proposed* for review, not what gets *acted on*.
+
+---
+
+## Module 1 — Genetic Programming / Symbolic Regression (hypothesis generation)
+
+**Purpose:** Generate new candidate feature-rule templates automatically instead of requiring a person to write `{"rvol": ("gte", 3.0), ...}` by hand.
+
+**Requirements:**
+- Population of candidate rules, each expressed in the same feature-rule dict format the existing templates use (`gap_pct`, `rvol`, `close_strength`, `range_pct`, etc.), so they're compatible with `_evaluate()` unchanged.
+- Each generation's candidates must be run through the existing `_evaluate()` pipeline (IS/OOS split, overfit check, sample-size gate, baseline-edge gate) — do not build a separate/simplified scoring function.
+- Selection, crossover, and mutation operators clearly defined and logged per generation.
+- Hard cap on population size and generations per cycle to bound compute cost — state the proposed caps and the reasoning.
+- Suggested library: `gplearn` or `DEAP`. State which was chosen and why.
+
+**Verification required after implementation:**
+1. Paste the full generation loop, not a summary.
+2. Show one full generation's raw output: population before, fitness scores after, which candidates survived.
+3. Confirm every surviving candidate actually passed through the *real* `_evaluate()` function — grep for the call site, not a reimplementation.
+4. Show at least one example of a genuinely novel rule combination that a human likely wouldn't have written by hand.
+
+---
+
+## Module 2 — Contextual Bandit / RL Layer (adaptive real-time weighting)
+
+**Purpose:** Continuously re-weight which surviving rules get attention as new trade outcomes settle, rather than waiting for the next full retrain cycle.
+
+**Requirements:**
+- Each surviving rule (from Module 1 or the existing static templates) is treated as an arm.
+- Reward signal must be defined explicitly and tied to real settled outcomes (e.g., next-day return), not a proxy that can be gamed by the bandit itself.
+- Specify exploration strategy (epsilon-greedy, UCB1, Thompson sampling — pick one and justify) and how it's bounded so exploration doesn't dominate capital allocation.
+- Integration point with the RL engine expansion already underway in AIEM — state explicitly whether this becomes a new action space for that engine or a standalone layer, and why.
+- Explicit safeguard against reward hacking: state what would prevent the bandit from converging on a rule that scores well against the reward function but has no real economic edge (e.g., periodic re-validation against the baseline-edge gate, not just the bandit's internal reward).
+
+**Verification required after implementation:**
+1. Paste the reward function definition in full and confirm it's computed from real settled trade data, not a placeholder.
+2. Show the arm-weight history over at least one real time period — which rules gained/lost weight and why.
+3. Confirm (via grep or direct trace) that bandit output still passes through human-gated promotion — it does not get to skip `promote_candidate()`'s human-approval requirement.
+
+---
+
+## Module 3 — Online/Incremental Learning (continuous data adaptation)
+
+**Purpose:** Allow feature statistics (win rates, overfit gaps, baseline comparisons) to update incrementally as new `polygon_market_daily` rows arrive, rather than requiring a full batch retrain to reflect recent data.
+
+**Requirements:**
+- Specify what updates incrementally (e.g., rolling baseline_wr) versus what still requires a full batch recompute (e.g., IS/OOS split logic) — not everything can or should be made incremental.
+- Suggested library: `river` (Python) for incremental statistics, if applicable.
+- Explicit data-quality guard: incremental updates must not silently absorb a bad data row (e.g., a bad print, missing volume) into a moving statistic without some sanity check. State what that check is.
+
+**Verification required after implementation:**
+1. Show the exact rolling/incremental computation in full.
+2. Compare incremental output against a batch recomputation over the same window — confirm they match within acceptable tolerance, and show the actual numbers, not a claim that they match.
+3. Confirm what happens on a bad/missing data row — does it get filtered, flagged, or does it silently corrupt the running statistic? Demonstrate with a real or synthetic bad row.
+
+---
+
+## Module 4 — Post-Trade Reflection Layer (persistent case memory + LLM-generated hypotheses)
+
+**Purpose:** Give the system something closer to "what did I do wrong, and what will I do differently" — a persistent record of past trades and outcomes, paired with an LLM-generated hypothesis about failure causes, feeding back into new candidate rules.
+
+**Important framing, to be preserved in any documentation this produces:** this module does not achieve genuine understanding of *why* a trade failed. It generates a plausible, readable hypothesis based on pattern completion over trade context — the hypothesis is a suggestion to test, not a verified fact. The explanation itself must never be trusted directly; only the backtested result of any rule change it proposes may be trusted, and only after passing the same `_evaluate()` pipeline as every other candidate.
+
+**Requirements:**
+
+**4a. Persistent case memory (the "remembering" part)**
+- New table, e.g. `trade_postmortems`, storing one row per closed trade:
+  - `trade_id`, `candidate_id`/`template_id` that triggered it, entry/exit price, entry/exit date, realized return, the exact feature values at entry (gap_pct, rvol, close_strength, etc.)
+  - `llm_hypothesis` (text) — the generated explanation, described below
+  - `proposed_refinement` (jsonb, nullable) — a candidate rule adjustment, if the LLM suggests one
+  - `refinement_tested` (bool), `refinement_result` (jsonb, nullable) — whether the proposed refinement was actually run through `_evaluate()` and what happened
+- This table must be genuinely read on subsequent runs — not just written and ignored. Specify exactly where/how past postmortems are pulled back in before generating new hypotheses (e.g., "have we seen this failure pattern on this template before?").
+
+**4b. LLM hypothesis generation (the "reasoning" part)**
+- After each trade closes, construct a prompt containing: the rule that triggered the trade, the feature values at entry, price/volume context around entry and exit, and — critically — the last N postmortems for this same template_id, so the model can reference prior instances rather than reasoning from a blank slate each time.
+- Model output must be structured: a plain-language hypothesis for the failure, a confidence/uncertainty statement, and (optionally) a specific proposed rule refinement in the same feature-rule dict format as existing templates.
+- Explicitly prompt the model to distinguish "this looks like a systematic pattern across multiple past losses" from "this looks like an isolated/unlucky instance" — and require it to say so plainly rather than always producing a confident-sounding story.
+
+**4c. Feedback loop into hypothesis generation**
+- Any `proposed_refinement` from 4b becomes a new candidate template fed into Module 1's genetic search — it does not get adopted directly. It competes and is scored exactly like any other candidate, through the real `_evaluate()` pipeline, baseline-edge gate included.
+- If a refinement fails backtesting, that failure itself should be logged back into `trade_postmortems` (or a linked table) so the system doesn't re-propose the same disproven refinement repeatedly.
+
+**Verification required after implementation:**
+1. Paste the full `trade_postmortems` schema and confirm it's actually written to after real trade closures — show a real row, not a mocked one.
+2. Paste the exact prompt template used for hypothesis generation, including how prior postmortems for the same template are retrieved and inserted into context.
+3. Show one real example end-to-end: a losing trade → the generated hypothesis and confidence statement → the proposed refinement (if any) → the refinement's actual backtested result via `_evaluate()`.
+4. Confirm explicitly that no `proposed_refinement` is ever applied to live/paper trading without passing through the full existing verification pipeline and human approval — grep for the code path and show it.
+5. Show what happens when the LLM's hypothesis is wrong or unhelpful (e.g., a vague or contradicted-by-data explanation) — confirm the system doesn't silently treat a bad hypothesis as ground truth just because it sounds plausible.
+
+---
+
+## Module 5 — Hypothesis Validation Layer (causal confound checking + self-critique)
+
+**Purpose:** Add two specific checks that improve the trustworthiness of Module 4's LLM-generated hypotheses — not by making the LLM "reason better," but by forcing its guesses to earn statistical support or survive an adversarial challenge before being treated as anything more than a guess.
+
+**5a. Causal/confound checking (highest priority — real evidence, not narrative)**
+
+When Module 4's LLM hypothesis names a specific proposed cause (e.g., "this rule tends to fail on earnings-adjacent dates"), that claim must be checked against the full historical sample before being trusted or acted on — not just the handful of trades the LLM happened to see in its prompt context.
+
+- For any named factor in a hypothesis (earnings proximity, day-of-week, sector, volatility regime, etc.), run an actual statistical comparison: win rate / average return for trades matching that factor vs. trades not matching it, across the entire historical dataset for that template — not just recent losses.
+- Report the comparison with real numbers and a significance check (e.g., sample sizes on both sides, a basic test such as a two-proportion z-test or equivalent) — not just "yes this seems to be a pattern."
+- Store the result alongside the hypothesis in `trade_postmortems` (or a linked table) as `hypothesis_supported` (bool/null), `supporting_stats` (jsonb) — null if the named factor can't be checked against structured data (e.g., a vague qualitative claim with no matching column).
+- If the confound check does *not* support the LLM's stated cause, that must be recorded and surfaced — the hypothesis is not deleted, but it is explicitly marked as unconfirmed narrative rather than treated as validated insight in any downstream summary or refinement decision.
+
+**5b. Self-critique / adversarial pass (cheap, catches overreach)**
+
+- After Module 4 generates a hypothesis, run a second pass — either a separate call to the same model or a distinctly prompted follow-up — explicitly instructed to argue *against* the hypothesis: what's the strongest reason this explanation could be wrong, coincidental, or unsupported by the data shown.
+- Both the original hypothesis and the counter-argument must be stored together (`llm_hypothesis`, `llm_counterargument`) — never surface only the original confident-sounding version in any summary or dashboard.
+- If the counter-argument identifies a specific factual error or contradiction (e.g., "the hypothesis claims high volume, but the data shown shows below-average volume"), that should be flagged distinctly from a case where the counter-argument is just generic skepticism with no specific objection.
+
+**Explicit framing to preserve downstream:** 5a produces real evidence (a statistical comparison against history) and should be weighted accordingly. 5b produces a second piece of generated text and should be weighted as what it is — a useful sanity check, not independent verification. Do not let 5b's presence create false confidence; only 5a constitutes actual confirmation or refutation.
+
+**Verification required after implementation:**
+1. Paste the exact statistical comparison logic used in 5a (the actual query/computation, not a description of it) and show one real example with real numbers on both sides of the comparison.
+2. Show one real example where the confound check *failed* to support the LLM's hypothesis — confirm this gets recorded and surfaced rather than silently dropped.
+3. Paste the self-critique prompt used in 5b and show one real example of a hypothesis paired with its counter-argument.
+4. Confirm that any `proposed_refinement` fed into the genetic search (Module 1) carries its `hypothesis_supported` status along with it, so refinements backed by real statistical support can eventually be distinguished from those backed only by an untested LLM guess.
+
+---
+
+## Module 6 — Autonomous Scheduling / Trigger Layer
+
+**Purpose:** Without this, none of Modules 1–5 run on their own. Confirmed in earlier verification: Discovery Engine currently has no scheduled trigger and only runs when manually invoked via AIEM's tool-call bridge. This module closes that gap so the full research cycle (generate → test → adapt → remember → self-critique → refine) runs continuously without a person or AIEM manually calling it each time.
+
+**Requirements:**
+- A real scheduler (cron-style job, or a registered recurring task in whatever job system AIEM already uses — check first, do not build a second parallel scheduler if one exists) that calls `run_cycle()` (and the new Module 1–5 logic) on a defined cadence.
+- Explicit, configurable interval — state the proposed default (e.g., every N hours, once daily after market close) and the reasoning. Faster is not automatically better: running the genetic search too frequently on the same data wastes compute and risks overfitting to noise between real data updates.
+- A concurrency guard: if a cycle is still running when the next scheduled trigger fires, the new trigger must not start a second overlapping run. Specify how this is enforced (lock file, DB flag, job-queue semantics).
+- A kill switch: a simple, obvious way to pause the autonomous cycle entirely (e.g., a status flag checked at the start of each run) without needing a code deploy — you should be able to turn this off in seconds if something looks wrong.
+- Logging every autonomous run start/end, with cycle duration and a summary of what happened (candidates generated, promoted, rejected) — written somewhere you can review without digging through raw logs.
+
+**Verification required after implementation:**
+1. Grep for any existing scheduler/job registry before adding a new one — paste the result.
+2. Paste the actual scheduler registration code (not a description) and confirm the exact cadence configured.
+3. Show two consecutive real autonomous runs (timestamps, not simulated) proving it actually fired on its own without manual invocation.
+4. Demonstrate the concurrency guard actually prevents an overlapping run — trigger a test case and show it being blocked/skipped, not just describe the logic.
+5. Demonstrate the kill switch actually stops the next scheduled run — flip it, show the next cycle does not execute, then flip it back.
+
+---
+
+## Module 7 — Data Source Discovery Layer (propose, never auto-connect)
+
+**Purpose:** Let the system notice when additional data — either already in your own database and unused, or available externally — could improve signal quality, and propose it. This module explicitly does **not** grant authority to spend money, request new credentials, or connect to any new external service without human approval. That approval gate is treated with the same seriousness as the live-trading approval gate elsewhere in AIEM — new data sources carry real cost, licensing, and security surface area (new API keys, new attack surface, new compliance obligations) and must never be added silently.
+
+**7a. Internal data discovery (low risk — can run with lighter oversight)**
+- Scan the existing database schema for columns/tables not currently referenced by any Discovery Engine template or feature computation (similar in spirit to the earlier isolation-verification greps already run against `aiem_discovery_engine.py`).
+- Propose these as candidate features for Module 1's genetic search to try — same as any other feature, no special treatment.
+- This part can run autonomously since it only uses data you already have and pay for.
+
+**7b. External data source discovery (must require explicit human approval before any connection or spend)**
+- The system may research and propose external data categories that could plausibly improve signal quality (e.g., "options flow data," "earnings calendar," "insider transaction filings," "sentiment/news feeds") based on what's missing from current features and what similar systems commonly use.
+- The system must produce a written proposal — what data, why it might help, estimated cost if known, and any licensing/compliance flags it can identify — and stop there.
+- **Hard requirement:** no API key is requested, no account is created, no external service is called, and no cost is incurred without an explicit human approval step, gated the same way live trading is gated. Grep for and confirm this gate exists before any external call is made.
+- If BYOK/OpenAI-isolation architecture (already established elsewhere in AIEM) is relevant to how a new external source would authenticate, that must be respected — no new external credential path bypasses the existing security model.
+
+**Verification required after implementation:**
+1. Paste the grep results for unused internal columns/tables (7a) and confirm they're actually fed into Module 1, not just listed and ignored.
+2. Paste one real example of a 7b external-source proposal in full — what it recommends, why, and its cost/compliance notes.
+3. Grep for the human-approval gate on external data connections and confirm no code path calls an external API, creates a credential, or incurs cost without it.
+4. Confirm explicitly: has any external service actually been contacted or any credential actually been created during testing? If yes, stop and explain under what authorization; if no, state that plainly with the grep evidence.
+
+---
+
+## Module 8 — Notification Layer (Telegram-first, human-in-the-loop on every proposal)
+
+**Purpose:** Nothing in Modules 1–7 currently notifies you of anything — it all writes silently to database tables. This module ensures that any time the system wants to make a change, proposes a refinement, finds a new pattern, or has a recommendation, it sends you a Telegram message first and waits for your response before proceeding. This is the "how does it let me know" piece — closing the loop between autonomous discovery and your review.
+
+**Before building — verification required first:**
+```
+grep -rn "aiem_telegram_notifier\|_tg_send\|send_sms" .
+```
+`aiem_telegram_notifier.py` and `_tg_send` were already confirmed to exist elsewhere in the codebase during earlier isolation verification (Discovery Engine was confirmed to *not* currently call it). Reuse this existing notifier — do not build a second, parallel Telegram integration. Paste the grep output and the relevant existing function signatures before writing any new notification code.
+
+**Requirements:**
+
+**8a. What triggers a message**
+Every one of the following must produce a Telegram message, not just a silent DB write:
+- A new candidate rule reaches `status='pending'` (Module 1/2/3 output) — i.e., something passed all gates and is awaiting your review.
+- A post-trade reflection (Module 4) produces a `proposed_refinement`.
+- A confound check (Module 5a) either supports or fails to support a hypothesis in a way that's actionable — surfaced either way, labeled clearly which it is.
+- Module 7a surfaces a new internal data column worth trying, or Module 7b produces an external data source proposal.
+- Any change to weighting, thresholds, or configuration that the system itself would make on its own (e.g., the bandit shifting significant weight away from a previously-trusted rule) — summarized, not necessarily every micro-update.
+
+**8b. Message format**
+- Plain language, not raw JSON dumps. State: what was found/proposed, why (one or two sentences), and what action is being requested ("approve this refinement?" / "connect this data source?" / "FYI, no action needed").
+- Every message must be clearly labeled with which category it is (new candidate / refinement proposal / data proposal / informational finding) so you can triage quickly.
+- Include enough specifics to actually evaluate it — the rule's feature conditions, the backtest numbers, the confound-check result — not just "found something interesting."
+
+**8c. Human response loop — this is the core requirement**
+- **No proposed refinement, new data source connection, or configuration change is applied until you explicitly approve it.** The message goes out; the system then waits. It does not proceed on a timeout, a default, or silence.
+- Specify exactly how your response is captured — reply in the Telegram thread, a web dashboard action, a specific reply keyword — and how that response is matched back to the specific proposal it refers to (don't let ambiguous replies get misattributed to the wrong proposal if multiple are pending at once).
+- If you reject a proposal, that must be logged (in `trade_postmortems` or a linked table) so the system doesn't propose the same rejected thing again without a real reason to revisit it.
+
+**8d. Tiering, so you're not spammed**
+- **Immediate/individual message:** anything requiring your approval to proceed (refinements, new data source proposals).
+- **Digest (e.g., once daily):** routine cycle summaries — how many candidates generated, how many rejected and why, aggregate stats — bundled into one message rather than one per cycle.
+- **Log-only, no message:** routine rejections that don't need your attention (e.g., a candidate that failed the sample-size gate the same way ten others already have).
+- State the proposed tiering explicitly and let it be adjustable — you should be able to turn any tier up or down without a code change if it turns out to be too noisy or too quiet.
+
+**Verification required after implementation:**
+1. Paste the grep output confirming the existing Telegram notifier was reused, not duplicated.
+2. Show one real message sent for each trigger type in 8a — actual message text, not a template description.
+3. Show one real example of the full approve/reject loop: message sent → your response → the system either proceeding or standing down, with the DB state before and after.
+4. Confirm explicitly (via code trace, not description) that nothing in Modules 1–7 can apply a refinement, connect a data source, or change configuration without a matched, explicit approval response first. Show the exact code path that blocks on this.
+5. Show what happens if two proposals are pending at once and you reply to one — confirm the system correctly matches your response to the right proposal and doesn't get confused.
+
+---
+
+## Cross-cutting verification requirement
+
+After all eight modules are built and integrated, run a full cycle end-to-end and produce:
+- Raw output of one full **autonomously triggered** run (Module 6 firing on its own, not manually invoked) → generation → bandit re-weighting → incremental stat update → a real post-trade reflection cycle → its confound check and self-critique pass → any internal/external data proposals surfaced → **a real Telegram message sent and a real approve/reject response processed** (Module 8), in sequence, with actual data and actual message text at each step.
+- Confirmation that live/paper trading authorization is still gated on explicit human approval — grep for the authorization check and confirm none of the eight new modules bypass it, including Module 4's `proposed_refinement` path, Module 5's validation status, Module 7's external-data-connection gate, and Module 8's approval-response gate.
+- Confirmation that Module 6's kill switch actually works, demonstrated live, not described.
+- Confirmation that Module 8's approval loop actually blocks action until a real response is received — no proposal is ever auto-applied on a timeout or default.
+- A plain-language summary of what changed operationally: what previously required a human to do by hand (writing templates, reasoning about why a trade failed, sanity-checking that reasoning, manually triggering each cycle, noticing what data might help, checking for updates manually) that the system now does itself, and what still requires human review (which should be everything downstream of hypothesis generation up through trade authorization, everything around connecting or paying for any new external data source, and every refinement or configuration change — all gated on an explicit Telegram approval, not a default).
+- An explicit, honest statement of what this system does and does not achieve: it can autonomously generate hypotheses, test them, adapt its weighting, remember its history, form and statistically check its own explanations, run on a schedule without manual invocation, propose new data sources, and message you proactively about anything it finds or wants to change — a genuinely autonomous research loop with a real human-in-the-loop approval gate. It does not autonomously execute trades, does not autonomously spend money or create credentials for new data sources, and does not apply any refinement or configuration change without your explicit approval — all by design, not by current limitation. Only Module 5a's statistical comparison constitutes actual evidence about hypothesis correctness; the LLM-generated text in Modules 4 and 5b should always be treated as a hypothesis or sanity check, never as a conclusion. This distinction should be stated plainly in any user-facing summary of the system, not glossed over.
+
+*Standard reminder: raw evidence only — terminal output, generation logs, reward histories, git diffs. No summarized "working as intended" claims without the receipt attached.*

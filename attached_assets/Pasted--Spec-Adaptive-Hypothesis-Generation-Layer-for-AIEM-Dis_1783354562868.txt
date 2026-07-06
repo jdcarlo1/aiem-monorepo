@@ -1,0 +1,123 @@
+# Spec: Adaptive Hypothesis Generation Layer for AIEM Discovery Engine
+
+## Before building anything — verification required first
+
+Before writing any new code, confirm none of the following already exist anywhere in the codebase. Do not assume based on naming — actually search.
+
+```
+grep -rln "genetic\|GeneticProgramming\|gplearn\|DEAP\|symbolic_regression" .
+grep -rln "contextual_bandit\|ContextualBandit\|epsilon_greedy\|UCB1\|Thompson" .
+grep -rln "online_learning\|incremental_learning\|partial_fit\|river\b" .
+grep -rln "trade_postmortems\|postmortem\|llm_hypothesis\|proposed_refinement" .
+```
+
+Paste the raw output of each. If any hits are found, paste the full context (file, function, what it does) before proceeding — do not build a duplicate or parallel system. If genuinely nothing exists, state that explicitly with the empty grep results as evidence, then proceed.
+
+---
+
+## Context
+
+The current Discovery Engine (`aiem_discovery_engine.py`) tests a fixed, human-written set of hypothesis templates (T01–T10) through an IS/OOS backtest, overfit check, sample-size gate, and baseline-edge gate. This works well but requires a person to write every new template by hand.
+
+This spec adds three modules that sit **on top of** the existing evaluation pipeline — `_evaluate()`, `_compute_stats()`, `_check_overfit()`, and the baseline-edge gate must be reused as the fitness function, not rebuilt. The goal is a system that generates its own hypotheses and adapts over time, not one that replaces the verification discipline already in place.
+
+**Explicit non-goal:** none of this authorizes live trading autonomously. Human approval for live/paper execution remains unchanged. These modules only affect what gets *proposed* for review, not what gets *acted on*.
+
+---
+
+## Module 1 — Genetic Programming / Symbolic Regression (hypothesis generation)
+
+**Purpose:** Generate new candidate feature-rule templates automatically instead of requiring a person to write `{"rvol": ("gte", 3.0), ...}` by hand.
+
+**Requirements:**
+- Population of candidate rules, each expressed in the same feature-rule dict format the existing templates use (`gap_pct`, `rvol`, `close_strength`, `range_pct`, etc.), so they're compatible with `_evaluate()` unchanged.
+- Each generation's candidates must be run through the existing `_evaluate()` pipeline (IS/OOS split, overfit check, sample-size gate, baseline-edge gate) — do not build a separate/simplified scoring function.
+- Selection, crossover, and mutation operators clearly defined and logged per generation.
+- Hard cap on population size and generations per cycle to bound compute cost — state the proposed caps and the reasoning.
+- Suggested library: `gplearn` or `DEAP`. State which was chosen and why.
+
+**Verification required after implementation:**
+1. Paste the full generation loop, not a summary.
+2. Show one full generation's raw output: population before, fitness scores after, which candidates survived.
+3. Confirm every surviving candidate actually passed through the *real* `_evaluate()` function — grep for the call site, not a reimplementation.
+4. Show at least one example of a genuinely novel rule combination that a human likely wouldn't have written by hand.
+
+---
+
+## Module 2 — Contextual Bandit / RL Layer (adaptive real-time weighting)
+
+**Purpose:** Continuously re-weight which surviving rules get attention as new trade outcomes settle, rather than waiting for the next full retrain cycle.
+
+**Requirements:**
+- Each surviving rule (from Module 1 or the existing static templates) is treated as an arm.
+- Reward signal must be defined explicitly and tied to real settled outcomes (e.g., next-day return), not a proxy that can be gamed by the bandit itself.
+- Specify exploration strategy (epsilon-greedy, UCB1, Thompson sampling — pick one and justify) and how it's bounded so exploration doesn't dominate capital allocation.
+- Integration point with the RL engine expansion already underway in AIEM — state explicitly whether this becomes a new action space for that engine or a standalone layer, and why.
+- Explicit safeguard against reward hacking: state what would prevent the bandit from converging on a rule that scores well against the reward function but has no real economic edge (e.g., periodic re-validation against the baseline-edge gate, not just the bandit's internal reward).
+
+**Verification required after implementation:**
+1. Paste the reward function definition in full and confirm it's computed from real settled trade data, not a placeholder.
+2. Show the arm-weight history over at least one real time period — which rules gained/lost weight and why.
+3. Confirm (via grep or direct trace) that bandit output still passes through human-gated promotion — it does not get to skip `promote_candidate()`'s human-approval requirement.
+
+---
+
+## Module 3 — Online/Incremental Learning (continuous data adaptation)
+
+**Purpose:** Allow feature statistics (win rates, overfit gaps, baseline comparisons) to update incrementally as new `polygon_market_daily` rows arrive, rather than requiring a full batch retrain to reflect recent data.
+
+**Requirements:**
+- Specify what updates incrementally (e.g., rolling baseline_wr) versus what still requires a full batch recompute (e.g., IS/OOS split logic) — not everything can or should be made incremental.
+- Suggested library: `river` (Python) for incremental statistics, if applicable.
+- Explicit data-quality guard: incremental updates must not silently absorb a bad data row (e.g., a bad print, missing volume) into a moving statistic without some sanity check. State what that check is.
+
+**Verification required after implementation:**
+1. Show the exact rolling/incremental computation in full.
+2. Compare incremental output against a batch recomputation over the same window — confirm they match within acceptable tolerance, and show the actual numbers, not a claim that they match.
+3. Confirm what happens on a bad/missing data row — does it get filtered, flagged, or does it silently corrupt the running statistic? Demonstrate with a real or synthetic bad row.
+
+---
+
+## Module 4 — Post-Trade Reflection Layer (persistent case memory + LLM-generated hypotheses)
+
+**Purpose:** Give the system something closer to "what did I do wrong, and what will I do differently" — a persistent record of past trades and outcomes, paired with an LLM-generated hypothesis about failure causes, feeding back into new candidate rules.
+
+**Important framing, to be preserved in any documentation this produces:** this module does not achieve genuine understanding of *why* a trade failed. It generates a plausible, readable hypothesis based on pattern completion over trade context — the hypothesis is a suggestion to test, not a verified fact. The explanation itself must never be trusted directly; only the backtested result of any rule change it proposes may be trusted, and only after passing the same `_evaluate()` pipeline as every other candidate.
+
+**Requirements:**
+
+**4a. Persistent case memory (the "remembering" part)**
+- New table, e.g. `trade_postmortems`, storing one row per closed trade:
+  - `trade_id`, `candidate_id`/`template_id` that triggered it, entry/exit price, entry/exit date, realized return, the exact feature values at entry (gap_pct, rvol, close_strength, etc.)
+  - `llm_hypothesis` (text) — the generated explanation, described below
+  - `proposed_refinement` (jsonb, nullable) — a candidate rule adjustment, if the LLM suggests one
+  - `refinement_tested` (bool), `refinement_result` (jsonb, nullable) — whether the proposed refinement was actually run through `_evaluate()` and what happened
+- This table must be genuinely read on subsequent runs — not just written and ignored. Specify exactly where/how past postmortems are pulled back in before generating new hypotheses (e.g., "have we seen this failure pattern on this template before?").
+
+**4b. LLM hypothesis generation (the "reasoning" part)**
+- After each trade closes, construct a prompt containing: the rule that triggered the trade, the feature values at entry, price/volume context around entry and exit, and — critically — the last N postmortems for this same template_id, so the model can reference prior instances rather than reasoning from a blank slate each time.
+- Model output must be structured: a plain-language hypothesis for the failure, a confidence/uncertainty statement, and (optionally) a specific proposed rule refinement in the same feature-rule dict format as existing templates.
+- Explicitly prompt the model to distinguish "this looks like a systematic pattern across multiple past losses" from "this looks like an isolated/unlucky instance" — and require it to say so plainly rather than always producing a confident-sounding story.
+
+**4c. Feedback loop into hypothesis generation**
+- Any `proposed_refinement` from 4b becomes a new candidate template fed into Module 1's genetic search — it does not get adopted directly. It competes and is scored exactly like any other candidate, through the real `_evaluate()` pipeline, baseline-edge gate included.
+- If a refinement fails backtesting, that failure itself should be logged back into `trade_postmortems` (or a linked table) so the system doesn't re-propose the same disproven refinement repeatedly.
+
+**Verification required after implementation:**
+1. Paste the full `trade_postmortems` schema and confirm it's actually written to after real trade closures — show a real row, not a mocked one.
+2. Paste the exact prompt template used for hypothesis generation, including how prior postmortems for the same template are retrieved and inserted into context.
+3. Show one real example end-to-end: a losing trade → the generated hypothesis and confidence statement → the proposed refinement (if any) → the refinement's actual backtested result via `_evaluate()`.
+4. Confirm explicitly that no `proposed_refinement` is ever applied to live/paper trading without passing through the full existing verification pipeline and human approval — grep for the code path and show it.
+5. Show what happens when the LLM's hypothesis is wrong or unhelpful (e.g., a vague or contradicted-by-data explanation) — confirm the system doesn't silently treat a bad hypothesis as ground truth just because it sounds plausible.
+
+---
+
+## Cross-cutting verification requirement
+
+After all four modules are built and integrated, run a full cycle end-to-end and produce:
+- Raw output of one full generation → bandit re-weighting → incremental stat update → a real post-trade reflection cycle, in sequence, with actual data at each step.
+- Confirmation that live/paper trading authorization is still gated on explicit human approval — grep for the authorization check and confirm none of the four new modules bypass it, including Module 4's `proposed_refinement` path.
+- A plain-language summary of what changed operationally: what previously required a human to do by hand (writing templates, reasoning about why a trade failed) that the system now does itself, and what still requires human review (which should be everything downstream of hypothesis generation up through trade authorization).
+- An explicit, honest statement of what Module 4 does and does not achieve: it generates readable hypotheses and persists trade history, which is a real improvement over silent reweighting — but it does not constitute verified causal understanding of why any individual trade failed. This distinction should be stated plainly in any user-facing summary of the system, not glossed over.
+
+*Standard reminder: raw evidence only — terminal output, generation logs, reward histories, git diffs. No summarized "working as intended" claims without the receipt attached.*
