@@ -30320,6 +30320,11 @@ def _build_aiem_tool_map():
         # ── AIEM V2 System (5-layer orchestrator) ─────────────────────────────
         "v2_run_cycle":            _aiem_tool_v2_run_cycle,
         "v2_status":               _aiem_tool_v2_status,
+        # ── Intelligence Layer (Option B + Adaptive Market) ────────────────────
+        "option_b_evaluate":       _aiem_tool_option_b_evaluate,
+        "option_b_status":         _aiem_tool_option_b_status,
+        "adaptive_layer_evaluate": _aiem_tool_adaptive_layer_evaluate,
+        "adaptive_layer_history":  _aiem_tool_adaptive_layer_history,
         # ── Background-system live read tools ─────────────────────────────────
         "get_meta_learning_weights":   _aiem_tool_get_meta_learning_weights,
         "get_m2_decay_status":         _aiem_tool_get_m2_decay_status,
@@ -32479,6 +32484,35 @@ _AIEM_AGENT_TOOLS = [
         "name": "v2_status",
         "description": "Full AIEM V2 system snapshot: the 10 most recent signals logged to the FeatureStore (with ticker, type, regime, features), MetaCognition health history (overload/drift/correlation checks), and the current session's signal count.",
         "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "option_b_evaluate",
+        "description": "Run the full Option B intelligence pipeline for a signal: ExpectancyEngine edge class → RegimeEngine gate → ConfidenceCalibration → risk filter → IntuitionEngine decision (TRADE / REDUCE_SIZE / WAIT / NO_TRADE) → AllocationEngine position size. Every decision is persisted to the intuition_decisions audit log.",
+        "parameters": {"type": "object", "properties": {
+            "signal_type":    {"type": "string", "description": "Signal type, e.g. 'momentum', 'options_flow', 'layer9', 'washout_ignition'"},
+            "regime":         {"type": "string", "description": "Market regime: BULL, BEAR, or NEUTRAL"},
+            "raw_confidence": {"type": "number", "description": "Raw confidence score 0.0-1.0 from the upstream model (default 0.5)"},
+        }, "required": ["signal_type"]},
+    }},
+    {"type": "function", "function": {
+        "name": "option_b_status",
+        "description": "Option B Brain status: 30-day decision breakdown showing counts and average confidence for each decision type (TRADE/REDUCE_SIZE/WAIT/NO_TRADE), plus the 10 most recent individual IntuitionEngine decisions with their rationale.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "adaptive_layer_evaluate",
+        "description": "Run the full AdaptiveMarketLayer pipeline: real regime detection (SPY+VIX) → MetaModel strategy weighting → ATR+VIX volatility normalization → decay check (aiem_module2_decay) → dynamic risk sizing. Pass strategy_scores_json as a JSON dict mapping strategy names to raw scores.",
+        "parameters": {"type": "object", "properties": {
+            "strategy_scores_json": {"type": "string", "description": "JSON dict of strategy_name → score (0-1), e.g. '{\"momentum\": 0.7, \"options_flow\": 0.55}'"},
+            "ticker":               {"type": "string", "description": "Ticker for ATR-based vol normalization (default SPY)"},
+        }, "required": ["strategy_scores_json"]},
+    }},
+    {"type": "function", "function": {
+        "name": "adaptive_layer_history",
+        "description": "Recent AdaptiveMarketLayer evaluation log: regime, best strategy selected, raw vs volatility-normalized confidence, position size, and decay flag for each run.",
+        "parameters": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "Number of rows to return (default 10)"},
+        }},
     }},
     {"type": "function", "function": {
         "name": "ensemble_combine_signals",
@@ -35366,6 +35400,68 @@ def _aiem_tool_v2_status() -> dict:
     try:
         import aiem_v2_system as _v2
         return _v2.get_system().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+# ── Intelligence Layer tools (Option B + Adaptive Market) ─────────────────────
+
+def _aiem_tool_option_b_evaluate(
+    signal_type:    str,
+    regime:         str   = "NEUTRAL",
+    raw_confidence: float = 0.5,
+) -> dict:
+    """
+    Run the full Option B intelligence pipeline for one signal.
+    Returns: edge_class, regime_ok, calibrated confidence, risk_ok,
+             IntuitionEngine decision (TRADE/REDUCE_SIZE/WAIT/NO_TRADE),
+             and position_size multiplier.
+    """
+    try:
+        import aiem_intelligence_layer as _il
+        return _il.get_option_b_brain().evaluate(
+            signal_type=signal_type,
+            regime=regime,
+            raw_confidence=float(raw_confidence),
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_option_b_status() -> dict:
+    """
+    Option B Brain status: 30-day decision breakdown (TRADE/REDUCE_SIZE/WAIT/NO_TRADE
+    counts + avg confidence) and the 10 most recent individual decisions.
+    """
+    try:
+        import aiem_intelligence_layer as _il
+        return _il.get_option_b_brain().status()
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_adaptive_layer_evaluate(
+    strategy_scores_json: str,
+    ticker: str = "SPY",
+) -> dict:
+    """
+    Run the AdaptiveMarketLayer: regime detection → meta-weighted strategy
+    selection → volatility normalization → decay check → risk sizing.
+    strategy_scores_json: JSON dict mapping strategy_name → score (0-1).
+    """
+    try:
+        import json as _j, aiem_intelligence_layer as _il
+        scores = _j.loads(strategy_scores_json) if isinstance(strategy_scores_json, str) else strategy_scores_json
+        return _il.get_adaptive_layer().evaluate(scores, ticker=ticker)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_tool_adaptive_layer_history(limit: int = 10) -> dict:
+    """Recent AdaptiveMarketLayer evaluations: regime, strategy, confidence, size, decay flag."""
+    try:
+        import aiem_intelligence_layer as _il
+        return {"history": _il.get_adaptive_layer().history(int(limit))}
     except Exception as _e:
         return {"error": str(_e)}
 
@@ -47572,6 +47668,13 @@ try:
     print("[v2_system] deferred schema init registered")
 except Exception as _v2_import_e:
     print(f"[v2_system] import failed at registration time: {_v2_import_e}")
+
+try:
+    import aiem_intelligence_layer as _aiem_il_mod
+    _DEFERRED_INITS.append(lambda: _aiem_il_mod.init_schema())
+    print("[intelligence_layer] deferred schema init registered")
+except Exception as _il_import_e:
+    print(f"[intelligence_layer] import failed at registration time: {_il_import_e}")
 
 
 def _run_layer9_bg_scan():

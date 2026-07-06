@@ -1,0 +1,235 @@
+"""
+=========================================================
+AEIM V2 - ADAPTIVE MARKET INTELLIGENCE LAYER
+=========================================================
+
+PURPOSE:
+This layer allows the system to adapt behavior across
+different market regimes using 6 core modules.
+
+IMPORTANT:
+- This does NOT guarantee profitability
+- This does NOT predict markets perfectly
+- This ONLY improves adaptability, risk control,
+  and strategy selection over time
+
+This layer sits ON TOP of Option B (intelligence logic)
+and works WITH Option C (learning system).
+"""
+
+from dataclasses import dataclass
+from typing import Dict, Any
+from collections import defaultdict
+import numpy as np
+import random
+
+
+# =========================================================
+# SHARED TYPES
+# =========================================================
+
+@dataclass
+class MarketState:
+    volatility: float
+    trend_strength: float
+    liquidity: float
+    regime: str
+
+
+@dataclass
+class StrategyPerformance:
+    pnl: float
+    win: bool
+
+
+# =========================================================
+# 1. REGIME DETECTION MODULE
+# =========================================================
+
+class RegimeDetectionModule:
+    """
+    Identifies market environment:
+    trend / chop / high_vol / low_liquidity
+    """
+
+    def detect(self, market: MarketState):
+
+        if market.volatility > 0.7:
+            return "high_vol"
+
+        if market.trend_strength > 0.6:
+            return "trend"
+
+        if market.liquidity < 0.3:
+            return "low_liquidity"
+
+        return "chop"
+
+
+# =========================================================
+# 2. META STRATEGY SELECTOR (MOE SYSTEM)
+# =========================================================
+
+class MetaStrategySelector:
+    """
+    Chooses which strategy is currently performing best
+    """
+
+    def __init__(self):
+        self.weights = defaultdict(lambda: 1.0)
+
+    def update(self, strategy: str, perf: StrategyPerformance):
+        score = perf.pnl
+        self.weights[strategy] = (
+            0.9 * self.weights[strategy] + 0.1 * score
+        )
+
+    def select(self, scores: Dict[str, float]):
+        weighted = {
+            k: v * self.weights[k]
+            for k, v in scores.items()
+        }
+        return max(weighted, key=weighted.get), weighted
+
+
+# =========================================================
+# 3. PERFORMANCE DECAY DETECTOR
+# =========================================================
+
+class PerformanceDecayDetector:
+    """
+    Detects when a strategy is losing edge
+    """
+
+    def __init__(self):
+        self.history = defaultdict(list)
+
+    def log(self, strategy: str, perf: StrategyPerformance):
+        self.history[strategy].append(perf)
+
+    def is_decaying(self, strategy: str):
+        data = self.history[strategy]
+
+        if len(data) < 20:
+            return False
+
+        recent = np.mean([x.pnl for x in data[-10:]])
+        past = np.mean([x.pnl for x in data[-30:-10]])
+
+        return recent < past
+
+
+# =========================================================
+# 4. ONLINE LEARNING WEIGHT SYSTEM
+# =========================================================
+
+class OnlineLearningModule:
+    """
+    Adjusts system weights based on recent outcomes
+    """
+
+    def __init__(self):
+        self.weights = defaultdict(lambda: 1.0)
+
+    def update(self, key: str, perf: StrategyPerformance):
+        reward = perf.pnl
+
+        self.weights[key] = (
+            0.95 * self.weights[key] + 0.05 * reward
+        )
+
+    def get_weight(self, key: str):
+        return self.weights[key]
+
+
+# =========================================================
+# 5. RISK ADAPTATION ENGINE
+# =========================================================
+
+class RiskAdaptationEngine:
+    """
+    Dynamically adjusts risk based on market conditions
+    """
+
+    def size(self, confidence, volatility, regime):
+
+        base = confidence
+
+        # volatility penalty
+        adjusted = base / (1 + volatility)
+
+        # regime adjustment
+        if regime == "high_vol":
+            adjusted *= 0.5
+
+        if regime == "chop":
+            adjusted *= 0.7
+
+        return max(0.1, min(2.0, adjusted))
+
+
+# =========================================================
+# 6. VOLATILITY NORMALIZATION LAYER
+# =========================================================
+
+class VolatilityNormalizationLayer:
+    """
+    Normalizes inputs across different market conditions
+    """
+
+    def normalize(self, value, volatility):
+
+        if volatility == 0:
+            return value
+
+        return value / (1 + volatility)
+
+
+# =========================================================
+# FULL ADAPTIVE ORCHESTRATOR
+# =========================================================
+
+class AdaptiveMarketLayer:
+
+    def __init__(self):
+        self.regime_detector = RegimeDetectionModule()
+        self.strategy_selector = MetaStrategySelector()
+        self.decay_detector = PerformanceDecayDetector()
+        self.online_learning = OnlineLearningModule()
+        self.risk_engine = RiskAdaptationEngine()
+        self.vol_norm = VolatilityNormalizationLayer()
+
+    def evaluate(self, market: MarketState, strategy_scores: Dict[str, float]):
+
+        # 1. detect regime
+        regime = self.regime_detector.detect(market)
+
+        # 2. choose best strategy
+        best_strategy, weighted_scores = self.strategy_selector.select(strategy_scores)
+
+        # 3. normalize volatility effect
+        adjusted_confidence = self.vol_norm.normalize(
+            weighted_scores[best_strategy],
+            market.volatility
+        )
+
+        # 4. check decay risk
+        decaying = self.decay_detector.is_decaying(best_strategy)
+
+        if decaying:
+            adjusted_confidence *= 0.5
+
+        # 5. compute risk sizing
+        size = self.risk_engine.size(
+            confidence=adjusted_confidence,
+            volatility=market.volatility,
+            regime=regime
+        )
+
+        return {
+            "regime": regime,
+            "best_strategy": best_strategy,
+            "confidence": adjusted_confidence,
+            "position_size": size,
+            "decaying": decaying
+        }
