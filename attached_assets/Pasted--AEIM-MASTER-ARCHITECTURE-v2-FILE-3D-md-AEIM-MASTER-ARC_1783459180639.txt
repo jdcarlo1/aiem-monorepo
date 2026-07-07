@@ -1,0 +1,666 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_3D.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 3D
+### Risk Intelligence Engine
+### Portfolio Risk Manager
+### Capital Preservation Engine
+### Adaptive Exposure Control
+### Final Learning Integration
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+The objective of AEIM is NOT simply to maximize returns.
+
+The objective is to maximize
+risk-adjusted returns
+while protecting capital.
+
+Capital preservation is mandatory.
+
+Every dollar preserved today
+can be deployed tomorrow.
+
+---
+
+# PRIMARY RULE
+
+Never allow one trade
+to significantly damage
+the portfolio.
+
+One great trade
+should never require
+one catastrophic loss.
+
+---
+
+# RISK INTELLIGENCE ENGINE
+
+Every trade must receive
+its own Risk Score.
+
+Inputs
+
+Macro
+
+Trend Integrity
+
+Leadership
+
+Sector
+
+Liquidity
+
+Volatility
+
+ATR
+
+Position Size
+
+Portfolio Correlation
+
+Expected Drawdown
+
+Expected Reward
+
+Historical Similarity
+
+---
+
+# RISK SCORE
+
+100
+
+Extremely Low Risk
+
+90
+
+Very Low Risk
+
+80
+
+Low Risk
+
+70
+
+Controlled
+
+60
+
+Moderate
+
+50
+
+Average
+
+40
+
+Elevated
+
+30
+
+High
+
+20
+
+Extreme
+
+10
+
+Reject
+
+---
+
+# RISK / REWARD ENGINE
+
+Every trade should estimate
+
+Expected Reward
+
+Expected Risk
+
+Reward / Risk Ratio
+
+Examples
+
+1.5 : 1
+
+2 : 1
+
+3 : 1
+
+4 : 1
+
+5 : 1
+
+Higher quality opportunities generally
+provide better reward relative to risk.
+
+---
+
+# POSITION RISK
+
+Calculate
+
+Maximum Dollar Risk
+
+Maximum Percentage Risk
+
+Expected Drawdown
+
+Expected Volatility
+
+Gap Risk
+
+Liquidity Risk
+
+Execution Risk
+
+Every position should have
+defined downside expectations.
+
+---
+
+# VOLATILITY ENGINE
+
+Monitor
+
+ATR
+
+Historical Volatility
+
+Realized Volatility
+
+Implied Volatility (if available)
+
+Intraday Volatility
+
+Gap Frequency
+
+Large volatility requires
+smaller position sizes.
+
+---
+
+# PORTFOLIO RISK MANAGER
+
+Evaluate entire portfolio
+
+Questions
+
+Is total exposure too high?
+
+Is technology overweight?
+
+Is semiconductor exposure excessive?
+
+Is macro risk concentrated?
+
+Is correlation increasing?
+
+---
+
+# PORTFOLIO HEAT SCORE
+
+100
+
+Very Safe
+
+90
+
+Controlled
+
+80
+
+Healthy
+
+70
+
+Constructive
+
+60
+
+Moderate
+
+50
+
+Elevated
+
+40
+
+High
+
+30
+
+Danger
+
+20
+
+Extreme
+
+10
+
+Reduce Exposure
+
+---
+
+# CORRELATION ENGINE
+
+Estimate
+
+Correlation
+
+between all open positions.
+
+Examples
+
+Technology
+
+Technology
+
+High Correlation
+
+Technology
+
+Healthcare
+
+Lower Correlation
+
+Semiconductors
+
+AI Infrastructure
+
+Often highly correlated
+
+Correlation reduces diversification.
+
+---
+
+# EXPOSURE CONTROL
+
+Monitor
+
+Sector Exposure
+
+Industry Exposure
+
+Market Exposure
+
+Theme Exposure
+
+Strategy Exposure
+
+Capital Concentration
+
+Maximum drawdown exposure
+
+---
+
+# ADAPTIVE POSITION SIZING
+
+Position Size depends upon
+
+Macro Score
+
+Trend Integrity
+
+Leadership
+
+Risk Score
+
+Opportunity Score
+
+Liquidity
+
+Portfolio Heat
+
+Current Drawdown
+
+Confidence
+
+Higher confidence does NOT
+override excessive risk.
+
+---
+
+# DRAWDOWN ENGINE
+
+Track
+
+Daily Drawdown
+
+Weekly Drawdown
+
+Monthly Drawdown
+
+Rolling Drawdown
+
+Maximum Historical Drawdown
+
+Drawdown controls
+future position sizing.
+
+---
+
+# CAPITAL PRESERVATION ENGINE
+
+Highest Priority
+
+Protect Capital
+
+Second Priority
+
+Grow Capital
+
+Never reverse this order.
+
+---
+
+# LOSS CONTROL
+
+Questions
+
+Was stop appropriate?
+
+Was position too large?
+
+Was volatility underestimated?
+
+Was liquidity sufficient?
+
+Did macro change suddenly?
+
+Should exposure have been reduced?
+
+---
+
+# WIN MANAGEMENT
+
+Questions
+
+Was profit target realistic?
+
+Was exit too early?
+
+Was exit too late?
+
+Should winners have been held longer?
+
+Did trend remain healthy?
+
+Store answers.
+
+---
+
+# PORTFOLIO LEARNING
+
+Portfolio should learn
+
+Best sector allocation
+
+Best market regimes
+
+Best position sizing
+
+Best diversification
+
+Best exposure limits
+
+Worst correlations
+
+Largest historical mistakes
+
+---
+
+# DYNAMIC EXPOSURE
+
+Examples
+
+Strong Bull
+
+Increase exposure gradually.
+
+Correction
+
+Moderate exposure.
+
+Risk-Off
+
+Reduce exposure.
+
+Panic
+
+Exceptional opportunities only.
+
+Recovery
+
+Increase exposure carefully
+after confirmation.
+
+---
+
+# CAPITAL ALLOCATION PRIORITY
+
+Allocate capital first to
+
+Highest Opportunity Score
+
+Highest Trend Integrity
+
+Highest Leadership Score
+
+Strong Macro Alignment
+
+Healthy Liquidity
+
+Healthy Risk Score
+
+Strong Technical Confidence
+
+---
+
+# DAILY PORTFOLIO REVIEW
+
+Every market close ask
+
+Should exposure increase?
+
+Should exposure decrease?
+
+Should sectors rotate?
+
+Should leaders change?
+
+Should cash increase?
+
+Should concentration decrease?
+
+---
+
+# LEARNING MEMORY
+
+Store
+
+Portfolio Heat
+
+Risk Score
+
+Exposure
+
+Drawdown
+
+Correlation
+
+Sector Allocation
+
+Capital Allocation
+
+Position Size
+
+Risk Attribution
+
+Portfolio Outcome
+
+These improve future portfolio decisions.
+
+---
+
+# MASTER LEARNING INTEGRATION
+
+Every completed trade updates
+
+Macro Memory
+
+Trend Memory
+
+Leadership Memory
+
+Technical Memory
+
+Execution Memory
+
+Risk Memory
+
+Portfolio Memory
+
+Strategy Memory
+
+Counterfactual Memory
+
+Nothing is discarded.
+
+Every trade contributes
+to long-term intelligence.
+
+---
+
+# WEEKLY SELF REVIEW
+
+Every week AEIM asks
+
+Am I protecting capital?
+
+Am I improving?
+
+Am I overtrading?
+
+Am I taking unnecessary risk?
+
+Am I missing high-quality opportunities?
+
+Should confidence calibration change?
+
+Should risk limits change?
+
+---
+
+# MONTHLY SYSTEM REVIEW
+
+Review
+
+Win Rate
+
+Profit Factor
+
+Sharpe Ratio
+
+Maximum Drawdown
+
+Average Position Size
+
+Average Holding Time
+
+Sector Performance
+
+Macro Performance
+
+Leadership Performance
+
+Strategy Performance
+
+Learning Accuracy
+
+Confidence Calibration
+
+---
+
+# FINAL FILE 3 VERIFICATION
+
+Before Learning Memory is permanently updated
+
+verify
+
+✓ Performance Auditor completed
+
+✓ Attribution completed
+
+✓ Counterfactual completed
+
+✓ Strategy review completed
+
+✓ Risk review completed
+
+✓ Portfolio review completed
+
+✓ Capital allocation reviewed
+
+✓ Exposure reviewed
+
+✓ Learning memory updated
+
+✓ Confidence recalibrated
+
+✓ Portfolio memory stored
+
+✓ Strategy memory stored
+
+✓ Audit log completed
+
+If ANY verification fails
+
+Learning Update = BLOCKED
+
+Generate engineering log.
+
+---
+
+# FILE 3 COMPLETE
+
+Completed Learning Architecture
+
+✓ File 3A
+
+✓ File 3B
+
+✓ File 3C
+
+✓ File 3D
+
+------------------------------------------------------------
+
+NEXT FILE
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_4A.md
+
+Topics
+
+• Enterprise Decision Engine
+
+• Explainable Decision Framework
+
+• Autonomous Supervisor Layer
+
+• Strategy Council
+
+• Evidence Arbitration Engine
+
+• Decision Governance
+
+• AI Safety Layer
+
+• Final Trade Authorization System

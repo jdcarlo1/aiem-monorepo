@@ -1,0 +1,498 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_4A.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 4A
+### Enterprise Decision Engine
+### Explainable Decision Framework
+### Autonomous Supervisor Layer
+### Evidence Arbitration Engine
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+Every previous engine has one purpose:
+
+Collect evidence.
+
+This layer has one purpose:
+
+Make the final intelligent decision.
+
+This is the executive layer of AEIM.
+
+Nothing bypasses this layer.
+
+---
+
+# PRIMARY OBJECTIVE
+
+AEIM should think exactly like an experienced
+Chief Investment Officer.
+
+Every trade must answer:
+
+Why this stock?
+
+Why today?
+
+Why now?
+
+Why not another stock?
+
+Why this position size?
+
+Why this level of confidence?
+
+Every answer must be explainable.
+
+---
+
+# AUTONOMOUS SUPERVISOR
+
+The Autonomous Supervisor sits above every engine.
+
+Its responsibility is NOT technical analysis.
+
+Its responsibility is decision quality.
+
+Think of it as the "quality control officer."
+
+---
+
+# SUPERVISOR RESPONSIBILITIES
+
+Verify every engine executed.
+
+Verify evidence consistency.
+
+Resolve conflicting evidence.
+
+Reject incomplete decisions.
+
+Reduce overconfidence.
+
+Increase transparency.
+
+Protect capital.
+
+Improve decision quality.
+
+---
+
+# MASTER DECISION PIPELINE
+
+Signal Generated
+
+↓
+
+Macro Engine
+
+↓
+
+Market Survival
+
+↓
+
+Trend Integrity
+
+↓
+
+Leadership
+
+↓
+
+Sector Rotation
+
+↓
+
+Technical Intelligence
+
+↓
+
+Risk Intelligence
+
+↓
+
+Portfolio Intelligence
+
+↓
+
+Learning Memory
+
+↓
+
+Evidence Arbitration
+
+↓
+
+Autonomous Supervisor
+
+↓
+
+Master Decision
+
+↓
+
+Trade Authorization
+
+---
+
+# EVIDENCE ARBITRATION ENGINE
+
+Purpose
+
+Every engine produces evidence.
+
+Sometimes engines disagree.
+
+Example
+
+Macro
+
+Negative
+
+Trend
+
+Very Strong
+
+Leadership
+
+Strong
+
+Sector
+
+Strong
+
+Risk
+
+Moderate
+
+Question
+
+Should AEIM buy?
+
+The Arbitration Engine decides.
+
+---
+
+# ARBITRATION PRINCIPLES
+
+Evidence is not majority vote.
+
+Evidence is weighted.
+
+Some evidence matters more.
+
+Weights change with market regime.
+
+---
+
+# EXAMPLE
+
+Strong Bull Market
+
+Trend receives larger influence.
+
+Correction
+
+Macro receives larger influence.
+
+Bear Market
+
+Risk receives larger influence.
+
+High Volatility
+
+Execution receives larger influence.
+
+---
+
+# CONFLICT RESOLUTION
+
+Example
+
+Trend
+
+95
+
+Macro
+
+42
+
+Leadership
+
+91
+
+Risk
+
+80
+
+Result
+
+Trade may still qualify.
+
+Position size reduced.
+
+Confidence reduced.
+
+Reason documented.
+
+---
+
+# DECISION EXPLAINABILITY
+
+Every trade must generate
+
+Human-readable explanation.
+
+Example
+
+Trade Approved
+
+Because
+
+Trend Integrity remained strong.
+
+Leadership remained intact.
+
+Sector continued outperforming.
+
+Macro was weak.
+
+Position size reduced.
+
+Confidence adjusted.
+
+Decision remains favorable.
+
+---
+
+# NO BLACK BOX
+
+AEIM must NEVER output
+
+BUY
+
+without explanation.
+
+Every recommendation requires
+
+Evidence Summary
+
+Confidence
+
+Risk
+
+Position Size
+
+Major Risks
+
+Major Strengths
+
+Expected Scenario
+
+Alternative Scenario
+
+---
+
+# DECISION CONFIDENCE
+
+Every trade receives
+
+Final Confidence
+
+0–100
+
+100
+
+Exceptional
+
+90
+
+Elite
+
+80
+
+High
+
+70
+
+Constructive
+
+60
+
+Moderate
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Speculative
+
+20
+
+Avoid
+
+10
+
+Reject
+
+---
+
+# CONFIDENCE BREAKDOWN
+
+Store
+
+Macro Contribution
+
+Trend Contribution
+
+Leadership Contribution
+
+Sector Contribution
+
+Technical Contribution
+
+Risk Contribution
+
+Learning Contribution
+
+Pattern Contribution
+
+Portfolio Contribution
+
+These remain permanently available.
+
+---
+
+# DECISION HISTORY
+
+Every decision stores
+
+Why approved
+
+Why rejected
+
+Evidence used
+
+Evidence ignored
+
+Risk adjustments
+
+Position adjustments
+
+Macro adjustments
+
+Learning adjustments
+
+Nothing should be hidden.
+
+---
+
+# SELF-CONSISTENCY CHECK
+
+Questions
+
+Would AEIM make this decision again?
+
+Would identical evidence
+produce identical reasoning?
+
+If not
+
+Why?
+
+Consistency improves trust.
+
+---
+
+# QUALITY CONTROL
+
+Reject decisions if
+
+Evidence incomplete
+
+Macro missing
+
+Trend missing
+
+Leadership missing
+
+Risk missing
+
+Learning unavailable
+
+Confidence invalid
+
+Portfolio limits exceeded
+
+---
+
+# DECISION GOVERNANCE
+
+No engine has authority
+to execute trades.
+
+Only the Master Decision Engine
+may authorize execution.
+
+---
+
+# STRICT VERIFICATION
+
+Verify
+
+✓ Macro complete
+
+✓ Trend complete
+
+✓ Leadership complete
+
+✓ Sector complete
+
+✓ Technical complete
+
+✓ Risk complete
+
+✓ Portfolio complete
+
+✓ Learning complete
+
+✓ Evidence Arbitration complete
+
+✓ Supervisor approval complete
+
+✓ Decision explanation generated
+
+✓ Audit log stored
+
+Failure
+
+Trade Authorization = FALSE
+
+Generate engineering log.
+
+---
+
+# END OF FILE 4A
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_4B.md
+
+Topics
+
+• Strategy Council
+• Multi-Agent Debate Framework
+• Consensus Intelligence
+• Adaptive Decision Governance
+• Confidence Arbitration

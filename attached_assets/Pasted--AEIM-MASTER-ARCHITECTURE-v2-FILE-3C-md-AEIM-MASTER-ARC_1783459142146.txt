@@ -1,0 +1,608 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_3C.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 3C
+### Autonomous Discovery Engine
+### Opportunity Ranking Engine
+### Strategy Selection Engine
+### Dynamic Position Sizing Engine
+### Portfolio Intelligence Engine
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+This engine determines
+
+NOT
+
+"What stocks exist?"
+
+Instead
+
+"Which opportunities deserve capital FIRST?"
+
+AEIM should rank every opportunity.
+
+Capital is limited.
+
+Therefore every trade competes against every
+other trade.
+
+The highest-quality opportunities receive capital.
+
+---
+
+# AUTONOMOUS DISCOVERY ENGINE
+
+Purpose
+
+Search continuously for opportunity.
+
+Inputs
+
+Technical Signals
+
+Macro
+
+Sector Rotation
+
+Leadership
+
+Options Flow
+
+Relative Strength
+
+Institutional Footprint
+
+Momentum
+
+Volatility
+
+Liquidity
+
+Historical Similarity
+
+Pattern Recognition
+
+News
+
+Catalysts
+
+---
+
+# DISCOVERY QUESTIONS
+
+Why is this stock interesting?
+
+Why today?
+
+Why now?
+
+What changed?
+
+Has probability increased?
+
+Has risk decreased?
+
+Is this better than yesterday?
+
+---
+
+# OPPORTUNITY RANKING ENGINE
+
+Every stock receives
+
+Opportunity Score
+
+0–100
+
+100
+
+Exceptional Opportunity
+
+90
+
+Elite
+
+80
+
+High Probability
+
+70
+
+Strong
+
+60
+
+Constructive
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Very Poor
+
+10
+
+Reject
+
+---
+
+# OPPORTUNITY SCORE
+
+Inputs
+
+Macro
+
+Trend Integrity
+
+Leadership
+
+Sector
+
+Momentum
+
+Relative Strength
+
+Technical Confidence
+
+Institutional Footprint
+
+Liquidity
+
+Risk
+
+Expected Reward
+
+Historical Similarity
+
+Counterfactual Confidence
+
+Pattern Recognition
+
+---
+
+# CAPITAL COMPETITION
+
+Example
+
+Stock A
+
+92
+
+Stock B
+
+89
+
+Stock C
+
+76
+
+Stock D
+
+61
+
+Capital should flow first
+
+to
+
+Stock A.
+
+Not every valid setup deserves capital.
+
+---
+
+# STRATEGY SELECTION ENGINE
+
+AEIM should determine
+
+which strategy fits
+
+today's market.
+
+Examples
+
+Momentum
+
+Pullback
+
+Breakout
+
+Gap Continuation
+
+Mean Reversion
+
+Oversold Bounce
+
+Sector Rotation
+
+Defensive Rotation
+
+Trend Following
+
+High Volatility
+
+Recovery
+
+---
+
+# STRATEGY MATCHING
+
+Example
+
+Macro
+
+Strong Bull
+
+Preferred Strategies
+
+Momentum
+
+Breakouts
+
+Trend Following
+
+---
+
+Example
+
+Correction
+
+Preferred Strategies
+
+Oversold Bounce
+
+Reduced Position Size
+
+Support Reversal
+
+Selective Momentum
+
+---
+
+Example
+
+Bear Market
+
+Preferred Strategies
+
+Capital Preservation
+
+Highest Quality Only
+
+Reduced Exposure
+
+Confirmation Required
+
+---
+
+# STRATEGY CONFIDENCE
+
+Each strategy receives
+
+Current Confidence
+
+100
+
+Ideal Environment
+
+80
+
+Very Good
+
+60
+
+Acceptable
+
+40
+
+Weak
+
+20
+
+Avoid
+
+---
+
+# MULTIPLE STRATEGIES
+
+One stock may qualify for more than one strategy.
+
+Example
+
+Momentum
+
+Strong
+
+Oversold Bounce
+
+Strong
+
+Trend
+
+Healthy
+
+Leadership
+
+Healthy
+
+This increases confidence.
+
+---
+
+# DYNAMIC POSITION SIZING
+
+Position size should never be fixed.
+
+Inputs
+
+Macro
+
+Trend
+
+Volatility
+
+Liquidity
+
+Leadership
+
+Confidence
+
+Portfolio Exposure
+
+Correlation
+
+Drawdown
+
+Risk
+
+---
+
+# POSITION SIZE SCALE
+
+Exceptional Setup
+
+100%
+
+Strong
+
+75%
+
+Constructive
+
+50%
+
+Speculative
+
+25%
+
+High Risk
+
+10%
+
+No Trade
+
+0%
+
+---
+
+# PORTFOLIO INTELLIGENCE
+
+AEIM should monitor
+
+Entire Portfolio
+
+Not just individual trades.
+
+Questions
+
+Too much technology?
+
+Too much AI?
+
+Too much semiconductor exposure?
+
+Too much macro risk?
+
+Too much correlation?
+
+---
+
+# CORRELATION ENGINE
+
+Estimate
+
+Correlation
+
+Between
+
+Every Position
+
+Avoid concentrating risk.
+
+---
+
+# PORTFOLIO HEAT
+
+Calculate
+
+Total Portfolio Risk
+
+Sector Concentration
+
+Industry Concentration
+
+Macro Exposure
+
+Market Beta
+
+Average Confidence
+
+Average Liquidity
+
+Maximum Drawdown
+
+---
+
+# PORTFOLIO LIMITS
+
+Suggested Rules
+
+Maximum Sector Exposure
+
+Maximum Industry Exposure
+
+Maximum Position Size
+
+Maximum Daily Risk
+
+Maximum Weekly Risk
+
+Maximum Portfolio Drawdown
+
+These should be configurable.
+
+---
+
+# CAPITAL ALLOCATION
+
+Capital flows first toward
+
+Highest Opportunity Score
+
+Highest Confidence
+
+Lowest Risk
+
+Healthy Liquidity
+
+Strong Leadership
+
+Healthy Trend
+
+Supportive Macro
+
+---
+
+# DIVERSIFICATION
+
+Diversification should be intelligent.
+
+Avoid simply buying many stocks.
+
+Instead diversify by
+
+Sector
+
+Industry
+
+Market Theme
+
+Risk Factor
+
+Strategy Type
+
+Holding Period
+
+---
+
+# DAILY PORTFOLIO REVIEW
+
+Questions
+
+Should capital rotate?
+
+Should winners be reduced?
+
+Should laggards be removed?
+
+Has leadership changed?
+
+Has macro changed?
+
+Has opportunity ranking changed?
+
+---
+
+# OPPORTUNITY MEMORY
+
+Store
+
+Opportunity Score
+
+Strategy Selected
+
+Position Size
+
+Reason
+
+Outcome
+
+Learning Attribution
+
+These improve future rankings.
+
+---
+
+# STRICT VERIFICATION
+
+Before execution verify
+
+✓ Opportunity Score calculated
+
+✓ Strategy selected
+
+✓ Position size determined
+
+✓ Portfolio exposure checked
+
+✓ Correlation evaluated
+
+✓ Liquidity acceptable
+
+✓ Risk limits respected
+
+✓ Capital allocation approved
+
+✓ Portfolio memory updated
+
+Failure of any verification
+
+Execution Status = BLOCKED
+
+Reason logged.
+
+---
+
+# END OF FILE 3C
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_3D.md
+
+Topics
+
+• Risk Intelligence Engine
+
+• Portfolio Risk Manager
+
+• Capital Preservation Engine
+
+• Adaptive Exposure Control
+
+• Final Learning Integration
+
+• File 3 Completion

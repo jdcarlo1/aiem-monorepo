@@ -1,0 +1,527 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_4B.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 4B
+### Strategy Council
+### Multi-Agent Debate Framework
+### Consensus Intelligence
+### Confidence Arbitration Engine
+### Adaptive Decision Governance
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+The purpose of the Strategy Council is to prevent
+AEIM from becoming biased toward a single way of thinking.
+
+Instead of allowing one strategy to dominate,
+multiple independent strategy specialists evaluate
+the opportunity from different perspectives.
+
+The Master Decision Engine listens to every specialist.
+
+No specialist has final authority.
+
+---
+
+# STRATEGY COUNCIL
+
+Each specialist represents a different
+investment philosophy.
+
+Examples
+
+Trend Following Specialist
+
+Momentum Specialist
+
+Oversold Bounce Specialist
+
+Breakout Specialist
+
+Mean Reversion Specialist
+
+Sector Rotation Specialist
+
+Risk Management Specialist
+
+Macro Specialist
+
+Leadership Specialist
+
+Portfolio Manager
+
+Execution Specialist
+
+Performance Auditor
+
+---
+
+# IMPORTANT RULE
+
+These are logical reasoning modules.
+
+They are NOT independent LLMs.
+
+They are deterministic evaluation engines
+operating from the same market data.
+
+---
+
+# RESPONSIBILITY
+
+Each specialist answers only one question.
+
+Example
+
+Trend Specialist
+
+"Is the long-term trend healthy?"
+
+Momentum Specialist
+
+"Is momentum improving?"
+
+Macro Specialist
+
+"Is today's environment supportive?"
+
+Risk Specialist
+
+"Is the risk acceptable?"
+
+Execution Specialist
+
+"Can this trade be executed efficiently?"
+
+---
+
+# SPECIALIST OUTPUT
+
+Each specialist returns
+
+Confidence
+
+Evidence
+
+Major Risks
+
+Recommendation
+
+Reason
+
+No specialist executes trades.
+
+---
+
+# EXAMPLE
+
+Trend Specialist
+
+Confidence
+
+92
+
+Recommendation
+
+Bullish
+
+Reason
+
+Higher highs intact
+
+Above major moving averages
+
+Leadership maintained
+
+---
+
+Macro Specialist
+
+Confidence
+
+58
+
+Recommendation
+
+Neutral
+
+Reason
+
+Broad market weak
+
+Volatility elevated
+
+Reduce size
+
+---
+
+Risk Specialist
+
+Confidence
+
+80
+
+Recommendation
+
+Acceptable
+
+Reason
+
+Reward exceeds risk
+
+Liquidity healthy
+
+---
+
+# CONSENSUS ENGINE
+
+The Consensus Engine collects every opinion.
+
+Questions
+
+Do specialists agree?
+
+Do specialists disagree?
+
+Which disagreements matter?
+
+Can disagreement be explained?
+
+---
+
+# HEALTHY DISAGREEMENT
+
+Disagreement is NOT bad.
+
+Example
+
+Macro
+
+Weak
+
+Trend
+
+Very Strong
+
+Oversold Bounce
+
+Excellent
+
+Risk
+
+Moderate
+
+Consensus
+
+Trade allowed
+
+Reduced size
+
+Explanation required
+
+---
+
+# CONFIDENCE ARBITRATION
+
+Final confidence equals
+
+Weighted evidence
+
+NOT
+
+Average confidence.
+
+Different market regimes
+change weighting.
+
+---
+
+# CONSENSUS SCORE
+
+100
+
+Complete Agreement
+
+90
+
+Very Strong Agreement
+
+80
+
+Strong Agreement
+
+70
+
+Healthy Agreement
+
+60
+
+Mixed
+
+50
+
+Neutral
+
+40
+
+Weak Consensus
+
+30
+
+Major Conflict
+
+20
+
+Unresolved Conflict
+
+10
+
+Reject
+
+---
+
+# DECISION GOVERNANCE
+
+No trade executes until
+
+Consensus complete
+
+Supervisor approval complete
+
+Portfolio approval complete
+
+Risk approval complete
+
+Learning review complete
+
+---
+
+# CONFLICT DETECTION
+
+Questions
+
+Does Macro disagree with Trend?
+
+Does Leadership disagree with Sector?
+
+Does Momentum disagree with Structure?
+
+Does Risk disagree with Opportunity?
+
+If yes
+
+Generate explanation.
+
+---
+
+# DECISION QUALITY
+
+Every decision receives
+
+Decision Quality Score
+
+Evidence Quality Score
+
+Explanation Quality Score
+
+Transparency Score
+
+Consistency Score
+
+---
+
+# CONSISTENCY ENGINE
+
+If identical evidence appears
+next month
+
+Would AEIM make the same decision?
+
+If no
+
+Why?
+
+Document the reason.
+
+---
+
+# EXPLAINABILITY REPORT
+
+Every approved trade generates
+
+Executive Summary
+
+Macro Summary
+
+Trend Summary
+
+Leadership Summary
+
+Risk Summary
+
+Portfolio Summary
+
+Confidence
+
+Position Size
+
+Primary Risks
+
+Primary Strengths
+
+Alternative Scenario
+
+Expected Outcome
+
+---
+
+# ALTERNATIVE SCENARIOS
+
+AEIM should always consider
+
+Bull Case
+
+Base Case
+
+Bear Case
+
+Unexpected Case
+
+This prevents tunnel vision.
+
+---
+
+# SELF-EVALUATION
+
+Every day ask
+
+Were today's decisions consistent?
+
+Did specialists disagree correctly?
+
+Did consensus improve quality?
+
+Did any specialist consistently outperform?
+
+Should weighting change?
+
+---
+
+# MONTHLY SPECIALIST REVIEW
+
+Review every specialist
+
+Accuracy
+
+Contribution
+
+False Positives
+
+False Negatives
+
+Calibration
+
+Reliability
+
+Consistency
+
+Poorly performing specialists
+should receive reduced influence.
+
+---
+
+# ADAPTIVE GOVERNANCE
+
+Governance should evolve
+
+Only after
+
+Verified evidence
+
+Repeated observations
+
+Sufficient sample size
+
+Never after isolated trades.
+
+---
+
+# FINAL DECISION
+
+Only after
+
+Macro
+
+Trend
+
+Leadership
+
+Sector
+
+Technical
+
+Risk
+
+Portfolio
+
+Consensus
+
+Supervisor
+
+all complete
+
+may
+
+Master Decision Engine
+
+authorize execution.
+
+---
+
+# STRICT VERIFICATION
+
+Verify
+
+✓ Strategy Council completed
+
+✓ Consensus calculated
+
+✓ Conflict analysis completed
+
+✓ Arbitration completed
+
+✓ Supervisor approval completed
+
+✓ Explainability report generated
+
+✓ Confidence validated
+
+✓ Decision Quality Score assigned
+
+✓ Audit log updated
+
+Failure of any verification
+
+Trade Authorization = BLOCKED
+
+Engineering log required.
+
+---
+
+# END OF FILE 4B
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_4C.md
+
+Topics
+
+• Autonomous Supervisor v2
+• Meta-Reasoning Engine
+• Decision Integrity Engine
+• Hallucination & Data Validation Layer
+• Final Enterprise Governance
