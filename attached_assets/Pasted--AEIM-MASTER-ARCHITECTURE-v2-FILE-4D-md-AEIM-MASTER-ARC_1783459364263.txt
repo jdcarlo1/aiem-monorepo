@@ -1,0 +1,713 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_4D.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 4D
+### Enterprise Audit Engine
+### Production Monitoring
+### Autonomous Health Monitoring
+### Explainability Dashboard
+### Final Enterprise Verification
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+This completes the Enterprise Governance Layer.
+
+Once AEIM reaches production, it should not only
+monitor the market.
+
+It should continuously monitor itself.
+
+Every subsystem becomes observable.
+
+Every decision becomes explainable.
+
+Every failure becomes traceable.
+
+---
+
+# ENTERPRISE AUDIT ENGINE
+
+Purpose
+
+Produce a complete audit trail for every decision.
+
+Every trade should answer
+
+What data was used?
+
+What evidence was collected?
+
+What engines executed?
+
+What confidence was assigned?
+
+What risks were identified?
+
+Why was the trade approved?
+
+Why was position size selected?
+
+---
+
+# AUDIT RECORD
+
+Every trade permanently stores
+
+Trade ID
+
+Timestamp
+
+Ticker
+
+Strategy
+
+Macro Score
+
+Trend Integrity Score
+
+Leadership Score
+
+Sector Score
+
+Momentum Score
+
+Technical Score
+
+Risk Score
+
+Portfolio Score
+
+Final Confidence
+
+Decision Quality
+
+Position Size
+
+Outcome
+
+Learning Attribution
+
+Counterfactual Result
+
+Verification Status
+
+---
+
+# EXECUTION TIMELINE
+
+Store execution timeline
+
+Signal Generated
+
+↓
+
+Macro Complete
+
+↓
+
+Trend Complete
+
+↓
+
+Leadership Complete
+
+↓
+
+Risk Complete
+
+↓
+
+Portfolio Complete
+
+↓
+
+Supervisor Complete
+
+↓
+
+Trade Approved
+
+↓
+
+Trade Executed
+
+↓
+
+Performance Reviewed
+
+↓
+
+Learning Updated
+
+Nothing should ever be missing.
+
+---
+
+# PRODUCTION HEALTH ENGINE
+
+Every minute monitor
+
+Database
+
+API Connectivity
+
+Market Data
+
+Polygon
+
+Tradier
+
+Yahoo Backup
+
+Scheduler
+
+Telegram
+
+Email
+
+Logging
+
+Background Workers
+
+Memory Usage
+
+CPU
+
+Disk
+
+Latency
+
+---
+
+# ENGINE HEALTH SCORE
+
+Every subsystem receives
+
+Health Score
+
+100
+
+Excellent
+
+90
+
+Healthy
+
+80
+
+Normal
+
+70
+
+Minor Warning
+
+60
+
+Attention
+
+50
+
+Degraded
+
+40
+
+Poor
+
+30
+
+Critical
+
+20
+
+Emergency
+
+10
+
+Offline
+
+---
+
+# DATA LATENCY
+
+Measure
+
+Market Data Delay
+
+Indicator Delay
+
+Scheduler Delay
+
+Execution Delay
+
+Database Delay
+
+Notification Delay
+
+Learning Delay
+
+Large latency lowers confidence.
+
+---
+
+# FAILSAFE ENGINE
+
+If critical services fail
+
+Examples
+
+Market Data Offline
+
+Database Offline
+
+Scheduler Offline
+
+Portfolio Data Missing
+
+Then
+
+Suspend new trade approvals.
+
+Never trade blindly.
+
+---
+
+# OBSERVABILITY DASHBOARD
+
+Dashboard Sections
+
+System Health
+
+Market Health
+
+Macro
+
+Leadership
+
+Trend
+
+Risk
+
+Portfolio
+
+Learning
+
+Scheduler
+
+API Status
+
+Database
+
+Notifications
+
+Background Jobs
+
+---
+
+# DAILY ENGINEERING REPORT
+
+Generate automatically
+
+System Uptime
+
+Trade Count
+
+Approval Rate
+
+Rejection Rate
+
+Average Confidence
+
+Average Position Size
+
+Verification Failures
+
+Data Failures
+
+API Failures
+
+Scheduler Failures
+
+Learning Updates
+
+Engine Health
+
+---
+
+# WEEKLY ENGINEERING REVIEW
+
+Review
+
+API Stability
+
+Data Quality
+
+Execution Speed
+
+Database Performance
+
+Learning Growth
+
+Decision Accuracy
+
+Confidence Calibration
+
+System Reliability
+
+---
+
+# MONTHLY ENTERPRISE REVIEW
+
+Evaluate
+
+Overall Accuracy
+
+Overall Profitability
+
+Sharpe Ratio
+
+Profit Factor
+
+Maximum Drawdown
+
+Strategy Performance
+
+Sector Performance
+
+Macro Performance
+
+Leadership Performance
+
+Learning Improvement
+
+System Reliability
+
+---
+
+# EXPLAINABILITY DASHBOARD
+
+Every recommendation displays
+
+Ticker
+
+Opportunity Score
+
+Macro Score
+
+Trend Score
+
+Leadership Score
+
+Momentum Score
+
+Risk Score
+
+Technical Confidence
+
+Portfolio Impact
+
+Position Size
+
+Decision Confidence
+
+Primary Strengths
+
+Primary Risks
+
+Reason for Approval
+
+Reason for Rejection (if applicable)
+
+Expected Scenarios
+
+---
+
+# EXECUTIVE SUMMARY
+
+Every trade should be understandable
+within 30 seconds by a human reviewer.
+
+No hidden logic.
+
+No unexplained weighting.
+
+No black-box approval.
+
+---
+
+# FINAL ENTERPRISE CHECKLIST
+
+Before production verify
+
+✓ Macro Engine
+
+✓ Market Survival Engine
+
+✓ Broad Index Engine
+
+✓ Breadth Engine
+
+✓ Sector Rotation Engine
+
+✓ Trend Integrity Engine
+
+✓ Leadership Rotation Engine
+
+✓ Technical Intelligence Engine
+
+✓ Pattern Recognition Engine
+
+✓ Historical Similarity Engine
+
+✓ Counterfactual Engine
+
+✓ Performance Auditor
+
+✓ Reinforcement Learning Engine
+
+✓ Portfolio Manager
+
+✓ Risk Manager
+
+✓ Strategy Council
+
+✓ Consensus Engine
+
+✓ Autonomous Supervisor
+
+✓ Decision Integrity Engine
+
+✓ Enterprise Audit Engine
+
+✓ Explainability Engine
+
+✓ Learning Memory
+
+✓ Monitoring
+
+✓ Health Monitoring
+
+✓ Logging
+
+✓ Verification
+
+Every component must pass.
+
+---
+
+# MASTER EXECUTION ORDER
+
+Signal Generated
+
+↓
+
+Macro Context Engine
+
+↓
+
+Market Survival Engine
+
+↓
+
+Broad Index Analysis
+
+↓
+
+Market Breadth
+
+↓
+
+Sector Rotation
+
+↓
+
+Industry Rotation
+
+↓
+
+Trend Integrity
+
+↓
+
+Leadership Rotation
+
+↓
+
+Technical Intelligence
+
+↓
+
+Pattern Recognition
+
+↓
+
+Historical Similarity
+
+↓
+
+Counterfactual Analysis
+
+↓
+
+Risk Intelligence
+
+↓
+
+Portfolio Intelligence
+
+↓
+
+Strategy Council
+
+↓
+
+Consensus Engine
+
+↓
+
+Evidence Arbitration
+
+↓
+
+Autonomous Supervisor
+
+↓
+
+Master Decision Engine
+
+↓
+
+Trade Authorization
+
+↓
+
+Trade Execution
+
+↓
+
+Performance Auditor
+
+↓
+
+Trade Attribution
+
+↓
+
+Learning Engine
+
+↓
+
+Confidence Calibration
+
+↓
+
+Learning Memory Update
+
+↓
+
+Enterprise Audit
+
+↓
+
+Production Monitoring
+
+↓
+
+Continuous Improvement
+
+---
+
+# FINAL STRICT VERIFICATION
+
+No trade may execute unless ALL of the following are TRUE:
+
+✓ Market data verified
+
+✓ Macro verified
+
+✓ Trend verified
+
+✓ Leadership verified
+
+✓ Sector verified
+
+✓ Technical verified
+
+✓ Pattern verified
+
+✓ Historical similarity verified
+
+✓ Counterfactual completed
+
+✓ Risk approved
+
+✓ Portfolio approved
+
+✓ Strategy Council completed
+
+✓ Consensus achieved
+
+✓ Supervisor approved
+
+✓ Master Decision approved
+
+✓ Audit created
+
+✓ Decision explanation created
+
+✓ Learning ready
+
+✓ Logging complete
+
+If ANY item fails
+
+Execution Status = DENIED
+
+Reason logged
+
+Engineering alert generated
+
+No exceptions.
+
+---
+
+# FILE 4 COMPLETE
+
+Completed Enterprise Decision Architecture
+
+✓ File 4A
+
+✓ File 4B
+
+✓ File 4C
+
+✓ File 4D
+
+------------------------------------------------------------
+
+NEXT FILE
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_5A.md
+
+Topics
+
+• Production Deployment
+
+• Database Architecture
+
+• API Integration
+
+• Scheduler Integration
+
+• Enterprise Logging
+
+• Final Replit Integration Guide
+
+• Complete System Validation
+
+• Production Readiness Checklist
+
+END OF FILE 4
