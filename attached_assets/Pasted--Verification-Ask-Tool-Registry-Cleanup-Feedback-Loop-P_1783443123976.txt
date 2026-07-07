@@ -1,0 +1,97 @@
+# Verification Ask — Tool Registry Cleanup + Feedback Loop Proof
+
+## Context (confirmed by independent audit)
+`_validate_tool_registry_consistency` (main.py line 31500) is a legitimate check.
+It computes:
+- `missing_from_map = schema_names - map_names`
+- `missing_from_schema = (map_names - schema_names) - exclusions`
+
+Both are currently empty:
+- map = 221 (`_build_aiem_tool_map()`, line 31219)
+- schema = 211 (`_AIEM_AGENT_TOOLS`, line 31856)
+- declared exclusions = 10 (`_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS`, line 35337)
+- 221 - 211 - 10 = 0 both directions — no unexplained residual.
+
+**Conclusion:** tool wiring is consistent. This is a real, narrow proof — it only means no "unknown tool" runtime errors. It does NOT prove the 9-step loop or feedback mechanism functionally works.
+
+## Problem found
+Line 35358 hardcodes: `f"[tool map check] {len(_m)} tools wired (should be 137)"`.
+137 is a stale literal from an earlier codebase state (docstring at line 31219 shows lineage: 135 research-agent entries + focused-session tools, merged before more tools were added). It is:
+- Never compared against anything
+- Never gates anything
+- Never triggers a warning if wrong
+
+## Task 1 — Fix the stale annotation
+Replace the hardcoded "137" with a dynamically computed expected count:
+```python
+expected = len(_AIEM_AGENT_TOOLS) + len(_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS)
+print(f"[tool map check] {len(_m)} tools wired (expected {expected})")
+```
+**Proof required (raw, not self-report):**
+- Git diff of the change
+- Full terminal output of a fresh boot showing the new log line
+- Confirm `len(_m) == expected` in that output
+
+## Task 2 — Feedback mechanism verification (separate from tool wiring)
+Tool registry consistency says nothing about whether the feedback loop (outcome tracking → decay analysis → variant generation → promotion → RL update) actually executes end-to-end and updates the right state.
+
+Provide, with raw evidence for each:
+1. **A single traced example**: one hypothesis/decision that entered the loop, with timestamps/IDs, showing it moving through each of the 9 steps.
+2. **SQL query results** (not descriptions) showing the row(s) in the outcome/decay/variant tables before and after one full loop cycle.
+3. **Git diff or logs** showing the RL engine actually received and applied an update from that cycle (not just that the function was called).
+4. Explicit confirmation of what would happen (raw output) if a step in the loop fails silently — i.e., is there a check that would catch a broken feedback step the way `_validate_tool_registry_consistency` catches a wiring mismatch? If not, that's the next gap to close.
+
+**Standard:** raw terminal output, SQL results, and git diffs only. No "this is now working" summaries without the underlying evidence attached.
+
+## Task 3 — Full 9-step loop, live, today, on a real stock, in order
+I want proof the entire autonomous machine runs correctly end-to-end, step by step, on an actual symbol — not a description of the architecture, not "it's wired," the actual run.
+
+Pick one real stock ticker and, for that single run, produce raw evidence for **every step in order**, with nothing skipped:
+
+1. **Signal ingestion** — raw data pulled in (OI Build, Gamma, Charm, Squeeze Fuel, Dark Pool, Float OD, Sweep, Sector Heat, Layer 9, Layer 10) for that ticker. Show the actual values returned, not just "signals collected."
+2. **Conviction scoring** — the 9-layer stack's inputs and the final conviction score it produced for that ticker, with the intermediate layer outputs, not just the final number.
+3. **Hypothesis generation / discovery engine** — the specific hypothesis or pattern it generated from that ticker's data.
+4. **Multi-agent debate** — the actual bull/bear exchange (or transcript/log) for that ticker's hypothesis, and what it concluded.
+5. **Risk gates** — which gates ran (kill switch, daily loss limit, position reconciler, order dedup, portfolio correlation, simulation lock) and their pass/fail result for this specific trade candidate.
+6. **Decision + logging** — the actual decision recorded (`log_decision` / `record_decision_outcome`), with the row from the database, not a description.
+7. **Paper trade execution** — the actual order placed in the paper/shadow trading system (Alpaca-style), with the order ID/confirmation.
+8. **RL / learning update** — proof the outcome of this trade or decision fed back into the RL engine (row in the outcome table, diff showing the model/weights update, or equivalent).
+9. **Notification** — the actual alert that went out (Telegram message log or equivalent) for this decision.
+
+**For each of the 9 steps, I want:**
+- The step number and name
+- Raw output (terminal log, SQL row, or file diff) — timestamped
+- Confirmation it ran in the correct order relative to the step before and after it (timestamps should be sequential)
+
+**What I do NOT want:** a summary paragraph saying "the loop executed successfully." I want the actual artifacts from one real, traceable run on one real stock, in the order the steps are supposed to happen, so I can verify each handoff myself.
+
+If any step cannot produce this evidence, say explicitly which step is missing proof rather than filling the gap with a description of what it's supposed to do.
+
+## Task 4 — Proof of the 3-layer oversight stack (Observability → Supervisor → Performance Auditor)
+This is separate from Task 3. Task 3 proves one run of the 9-step loop executed in order. This task proves the system that watches the system is actually working — not just described, run.
+
+### Layer 1 — Observability
+Claimed to record every tool call, every reasoning step, every discovery, every confidence score, every decision, every timestamp, every audit trace ID, producing a complete trace of the decision process.
+
+**Proof required:**
+- Pull the actual trace for one real decision made today (same run used in Task 3 if possible) — the raw stored record, not a description of the schema.
+- Confirm every one of the listed fields (tool call, reasoning step, discovery, confidence score, decision, timestamp, audit trace ID) is actually populated in that record — show the row, not a claim that "all fields are captured."
+- If any field is empty, null, or a placeholder, say so explicitly.
+
+### Layer 2 — Supervisor
+Claimed to read Observability data and check: were all stages executed, was anything skipped, were discoveries saved, were rules violated, did the scanner make decisions, was the pipeline complete, were tools executed in order.
+
+**Proof required:**
+- The actual daily report card / pass-fail output it generated today, in full, unedited.
+- For each of the 7 checks listed above, show what specific data it inspected to answer that check (e.g., what query or comparison produced the "were tools executed in order" verdict) — not just the final verdict.
+- Confirm this ran automatically (not manually triggered) and show the trigger/schedule mechanism (cron entry, timestamp of invocation, etc.).
+
+### Layer 3 — Performance Auditor
+Claimed to evaluate long-term performance: was the prediction correct, how much money was made/lost, was confidence calibrated, which market regime succeeded, which strategies failed, what should AEIM learn, did tomorrow's decisions improve because of today's learning.
+
+**Proof required:**
+- Actual historical data it's evaluating against — show the stored outcome records for past decisions (win/loss, $ P&L, predicted confidence vs actual outcome), not a summary.
+- Show one concrete instance where a past outcome changed a downstream decision — the specific parameter, weight, or rule that changed, with a before/after diff, and the decision that referenced the change.
+- If "did tomorrow's decisions improve because of today's learning" cannot yet be demonstrated (e.g., not enough elapsed time or trades), say so explicitly rather than asserting it works.
+
+**What I do NOT want for Task 4:** confirmation that these three layers exist in code, or that they are "wired." I want to see them actually operating on real data from a real run, with the raw output at each layer, so it's clear the oversight stack is functioning and not just present.

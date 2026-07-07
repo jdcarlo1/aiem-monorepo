@@ -35354,8 +35354,9 @@ def _startup_validate_tool_registry():
     tool schema and the focused-session tool map have drifted apart."""
     try:
         _m = _build_aiem_tool_map()
-        # Check 1 from the reviewer's standalone verification file:
-        print(f"[tool map check] {len(_m)} tools wired (should be 137)")
+        _expected = len(_AIEM_AGENT_TOOLS) + len(_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS)
+        _match = "✅" if len(_m) == _expected else f"⚠️ MISMATCH expected={_expected}"
+        print(f"[tool map check] {len(_m)} tools wired (expected {_expected}) {_match}")
         _validate_tool_registry_consistency(
             _AIEM_AGENT_TOOLS, _m, label="focused_session",
             intentional_exclusions=_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS,

@@ -1,0 +1,44 @@
+# Verification Ask — Tool Registry Cleanup + Feedback Loop Proof
+
+## Context (confirmed by independent audit)
+`_validate_tool_registry_consistency` (main.py line 31500) is a legitimate check.
+It computes:
+- `missing_from_map = schema_names - map_names`
+- `missing_from_schema = (map_names - schema_names) - exclusions`
+
+Both are currently empty:
+- map = 221 (`_build_aiem_tool_map()`, line 31219)
+- schema = 211 (`_AIEM_AGENT_TOOLS`, line 31856)
+- declared exclusions = 10 (`_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS`, line 35337)
+- 221 - 211 - 10 = 0 both directions — no unexplained residual.
+
+**Conclusion:** tool wiring is consistent. This is a real, narrow proof — it only means no "unknown tool" runtime errors. It does NOT prove the 9-step loop or feedback mechanism functionally works.
+
+## Problem found
+Line 35358 hardcodes: `f"[tool map check] {len(_m)} tools wired (should be 137)"`.
+137 is a stale literal from an earlier codebase state (docstring at line 31219 shows lineage: 135 research-agent entries + focused-session tools, merged before more tools were added). It is:
+- Never compared against anything
+- Never gates anything
+- Never triggers a warning if wrong
+
+## Task 1 — Fix the stale annotation
+Replace the hardcoded "137" with a dynamically computed expected count:
+```python
+expected = len(_AIEM_AGENT_TOOLS) + len(_TOOL_REGISTRY_INTENTIONAL_EXCLUSIONS)
+print(f"[tool map check] {len(_m)} tools wired (expected {expected})")
+```
+**Proof required (raw, not self-report):**
+- Git diff of the change
+- Full terminal output of a fresh boot showing the new log line
+- Confirm `len(_m) == expected` in that output
+
+## Task 2 — Feedback mechanism verification (separate from tool wiring)
+Tool registry consistency says nothing about whether the feedback loop (outcome tracking → decay analysis → variant generation → promotion → RL update) actually executes end-to-end and updates the right state.
+
+Provide, with raw evidence for each:
+1. **A single traced example**: one hypothesis/decision that entered the loop, with timestamps/IDs, showing it moving through each of the 9 steps.
+2. **SQL query results** (not descriptions) showing the row(s) in the outcome/decay/variant tables before and after one full loop cycle.
+3. **Git diff or logs** showing the RL engine actually received and applied an update from that cycle (not just that the function was called).
+4. Explicit confirmation of what would happen (raw output) if a step in the loop fails silently — i.e., is there a check that would catch a broken feedback step the way `_validate_tool_registry_consistency` catches a wiring mismatch? If not, that's the next gap to close.
+
+**Standard:** raw terminal output, SQL results, and git diffs only. No "this is now working" summaries without the underlying evidence attached.
