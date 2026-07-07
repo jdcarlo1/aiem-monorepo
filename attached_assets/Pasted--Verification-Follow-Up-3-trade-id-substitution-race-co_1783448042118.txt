@@ -1,0 +1,38 @@
+# Verification Follow-Up #3 — trade_id substitution, race-condition proof, new items
+
+## ASK A — Explain the trade_id=173 → 160 substitution
+
+Ask 3 in the prior round specifically pinned trade_id=173 and required that any substitution be explained before switching. The full end-to-end trace was instead run on trade_id=160 with no stated reason.
+
+**Required:**
+1. State plainly why 173 was not used — e.g., not yet closed, wrong signal type, doesn't exist, or some other concrete reason.
+2. If 173 is now usable, run the exact same 9-step trace on it and post the results alongside the 160 trace for comparison.
+3. If 173 genuinely cannot be used, confirm that in the future, deviations from a pinned trade_id are called out explicitly in the same message, not left for me to notice.
+
+---
+
+## ASK B — Independent proof for the 113ms timestamp-inversion claim
+
+The explanation that Step 13 (14:09:37.953) appearing to fire after Step 16's trade row (14:09:37.840) is "sub-commit visibility due to connection scheduling" is a plausible narrative but currently unverified by anything beyond the row-insert timestamps themselves.
+
+**Required:**
+1. Pull the actual Postgres transaction commit timestamps (not just row `created_at` values) for both writes — e.g., via `pg_stat_activity`, transaction logs, or an equivalent mechanism that shows real commit order.
+2. If commit order confirms the application-level sequencing (scanner fires before INSERT) was correct and the row timestamps are just a visibility artifact, show that proof directly.
+3. If you cannot obtain independent commit-order proof, say so plainly rather than resting on the narrative explanation alone.
+
+---
+
+## ASK C — Formally track the two new coverage gaps as numbered items
+
+Two real gaps were found this session that aren't yet tracked as their own items:
+
+**Item 13 — `signal_source=NULL` in `aiem_supervisor_loop_audit`:**
+The `_upsert_loop_audit` call doesn't thread `signal_source` from the pick context, separate from the Item 12 fix (which only covered `aiem_decision_log`). Confirm whether Item 12's fix also covers this table, or whether a separate fix is needed here.
+
+**Item 14 — `candidate_ranking_seen=FALSE` coverage gap:**
+The audit flag is only set from `_aiem_paper_execute_today`, never from `_aiem_paper_pick_candidates`, so the audit incorrectly reports a step didn't happen when it did. This is a coverage/instrumentation bug, not a data-loss bug, but it means the audit trail itself can't be fully trusted where this flag is read.
+
+**Required for both:**
+1. Confirm the fix scope (does the earlier fix already cover it, or is a new change needed).
+2. If a new fix is needed, make it and show a re-verification row/log proving the flag now reflects reality.
+3. Assign these formal item numbers (13, 14) in all future status summaries so they don't get lost as narrative asides.
