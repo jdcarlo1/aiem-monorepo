@@ -1,3 +1,4 @@
+- [AIEM Process alert system](aiem-process-alert-system.md) — threshold=50; S1b/S1c/S1d score 54-61%; gap_large tops out 48% (blocked); dedup via signal_fire_log DAILY_SUMMARY; Polygon snapshot 403s → Tradier fallback
 - [AIEM Process gap sweet spot](aiem-process-gap-sweetspot.md) — aiem_process.py isolated nano-cap scanner; S1b = 15-25% gap bonus (85% WR, picked from 4-tier backtest); own table aiem_process_predictions
 - [Adaptive Hypothesis Generation Layer](adaptive-hypothesis-gen-layer.md) — 8-module discovery cycle in main.py; all modules wired and verified; report endpoint at /admin/discovery-cycle/report
 - [AIEM RL Engine](aiem-rl-engine.md) — 12-module feedback system in aiem_rl_engine.py; 6 DB tables (rl_experience_buffer etc); fires from MTM bg thread; 4 AIEM tools wired; EMA α=0.15/EWC α=0.08; PPO clip ε=0.2 numpy-only
