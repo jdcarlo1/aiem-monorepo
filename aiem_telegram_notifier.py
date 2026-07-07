@@ -141,11 +141,24 @@ def _tg_send(text: str) -> bool:
 # DB READ — SELECT ONLY. This process must never INSERT/UPDATE/DELETE
 # aiem_predictions; main.py is the single canonical writer.
 # ─────────────────────────────────────────────────────────────
+def _tier_label(sig_basis: str) -> str:
+    """Map aiem_process_predictions signal_basis to a human-readable tier."""
+    sigs = [s.strip() for s in (sig_basis or "").split(",")]
+    if "momentum_carry" in sigs: return "S1c ✅ Full Carry"
+    if "soft_carry"     in sigs: return "S1d 🔵 Soft Carry"
+    if "gap_sweet_spot" in sigs: return "S1b 🟡 Gap Zone"
+    return "Gap"
+
+
 def _fetch_todays_picks(pick_type: str):
     """Read-only: AIEM's own independent picks (Workstream D) for today,
     filtered to ONE pick_type ('stock' or 'call_option'), ordered by AIEM's
     own confidence score so the message shows its highest-conviction ideas
-    first."""
+    first.
+
+    Fallback for 'stock' type: if aiem_independent_picks is empty today
+    (Workstream D scan did not run), reads aiem_process_predictions instead
+    — these are the S1b/S1c/S1d gap+momentum picks generated at 3 AM ET."""
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
@@ -158,7 +171,29 @@ def _fetch_todays_picks(pick_type: str):
             ORDER BY confidence_score DESC NULLS LAST
             LIMIT 20
         """, (date.today(), pick_type))
-        return cur.fetchall()
+        rows = cur.fetchall()
+        if rows:
+            return rows
+
+        # Fallback for stocks: use today's AIEM Process predictions (S1b/S1c/S1d)
+        if pick_type == "stock":
+            log.info("aiem_independent_picks empty today — falling back to aiem_process_predictions (S1b/S1c/S1d)")
+            cur.execute("""
+                SELECT ticker, confidence_score, signal_basis
+                FROM aiem_process_predictions
+                WHERE prediction_date = %s
+                ORDER BY rank ASC
+                LIMIT 10
+            """, (date.today(),))
+            proc_rows = cur.fetchall()
+            if proc_rows:
+                enriched = []
+                for ticker, conf, sig_basis in proc_rows:
+                    tier = _tier_label(sig_basis or "")
+                    enriched.append(("stock", ticker, conf, tier, None, None, 5))
+                return enriched
+
+        return []
     finally:
         if conn:
             conn.close()
@@ -475,6 +510,48 @@ def main():
             conn.close()
 
     _start_health_server()
+
+    # ── Startup catch-up ────────────────────────────────────────────────────
+    # If this process restarts after the scheduled send time (e.g. due to a
+    # redeploy during the auditor or any other restart), fire missed briefs
+    # immediately rather than waiting until tomorrow.
+    #   Stock brief  → catch up if now is 9:30 AM – 4:00 PM ET on a weekday
+    #   Options brief → catch up if now is 10:30 AM – 4:00 PM ET on a weekday
+    def _catchup():
+        import time as _time
+        _time.sleep(5)  # let health server bind first
+        now_et = datetime.now(ET)
+        if now_et.weekday() >= 5:
+            return
+        now_mins = now_et.hour * 60 + now_et.minute
+        close_mins = 16 * 60  # 4:00 PM ET
+
+        def _already_sent(brief_type):
+            try:
+                conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT status FROM aiem_notifier_log WHERE send_date=%s AND brief_type=%s",
+                    (date.today(), brief_type)
+                )
+                row = cur.fetchone()
+                conn.close()
+                return row and ("sent_ok=True" in (row[0] or "") or "sent_empty ok=True" in (row[0] or ""))
+            except Exception:
+                return False
+
+        # Stock brief: window 9:30 AM (570 min) → 4:00 PM (960 min)
+        if 570 <= now_mins < close_mins and not _already_sent("stock"):
+            log.info(f"[catchup] Missed 9:30 AM stock brief (now {now_et.strftime('%H:%M')} ET) — sending now")
+            send_independent_stock_picks_brief()
+
+        # Options brief: window 10:30 AM (630 min) → 4:00 PM (960 min)
+        if 630 <= now_mins < close_mins and not _already_sent("options"):
+            log.info(f"[catchup] Missed 10:30 AM options brief (now {now_et.strftime('%H:%M')} ET) — sending now")
+            send_independent_options_picks_brief()
+
+    threading.Thread(target=_catchup, daemon=True, name="startup-catchup").start()
+    # ────────────────────────────────────────────────────────────────────────
 
     scheduler = BlockingScheduler(timezone=ET)
     _scheduler_ref = scheduler
