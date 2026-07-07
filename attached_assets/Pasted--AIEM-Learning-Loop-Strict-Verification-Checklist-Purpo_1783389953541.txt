@@ -1,0 +1,109 @@
+# AIEM Learning Loop — Strict Verification Checklist
+
+**Purpose:** Confirm that every alert AIEM sends actually flows back through the pipeline, gets re-evaluated daily, and produces a real, measurable change in future decisions — not just a claim that it does.
+
+**Standard for every answer below:** raw SQL output, raw terminal output, or a git diff. No summaries. No "✅ done." No percentages without the query that produced them. If the agent can't produce the raw artifact, the item is INCOMPLETE — not "mostly done."
+
+---
+
+## The Design This Is Verifying
+
+This is the exact closed loop AIEM is supposed to run, end to end, with no manual intervention:
+
+1. **Makes a prediction or trading decision.**
+2. **Tracks the real outcome** (Outcome Tracker).
+3. **Measures what was right and wrong** (Outcome Tracker + Feedback Loop).
+4. **Detects when a pattern has stopped working** (Decay & Failure Analyzer).
+5. **Discovers new candidate patterns** (Pattern Discovery Engine).
+6. **Generates variations of those patterns** (Rediscovery / Variation Generator).
+7. **Tests and challenges them** (Adversarial Critique).
+8. **Promotes only the ones that consistently perform well** (Hypothesis Promotion Evaluator).
+9. **Uses the promoted patterns in future decisions.**
+
+If all 9 steps are actually wired together, the system is adapting — incorporating evidence from past performance into future decisions. If any step is missing, faked, or logged-but-never-read, the loop is broken at that point and everything downstream of it is decorative, not functional.
+
+## Required Trace Format — Module-by-Module
+
+Have the agent trace the complete execution path starting from signal creation through final decision. For **every module/function in the chain**, demand:
+
+1. The function name.
+2. The Python file it lives in.
+3. Who calls it.
+4. Who it calls next.
+5. Whether it runs automatically or only when manually triggered.
+6. Whether it is currently active, dormant, or disconnected.
+
+**Then require a flowchart of the actual (not intended) execution path:**
+
+```
+Signal Generated
+  ↓
+Module 1 (name it)
+  ↓
+Module 2 (name it)
+  ↓
+Module 3 (name it)
+  ↓
+...
+  ↓
+Final Trading Decision
+```
+
+**Immediately after the flowchart, require the agent to flag:**
+- Any modules that are **bypassed** (exist in code but never sit in the live call path)
+- Any modules that are **duplicated** (same job done twice by two different functions)
+- Any modules that are **never executed** (dead code, or only reachable in a code path that never runs)
+
+If the agent gives vague answers instead of specific file names, function names, and call relationships, that's a sign it's guessing rather than reading the actual codebase — push it to open the files and quote back the real definitions.
+
+## The Master Follow-Up Question
+
+Ask this directly, and don't accept a narrative answer — demand it be answered against steps 1–9 above, one at a time:
+
+> **Does my AEIM complete a closed learning loop? After a trade outcome is known, does the system automatically feed that result back into the Outcome Tracker, Decay Analyzer, Pattern Discovery Engine, Promotion Evaluator, and ultimately influence future trading decisions — without manual intervention? If not, identify exactly where the loop breaks.**
+
+The answer is only acceptable if it names the exact step number (1–9) where the loop breaks, or confirms all 9 with file/function proof for each.
+
+---
+
+## Stage 1 — Every Alert Gets Tracked
+
+1. Show me the SQL row for the last 5 alerts sent to me. Does each one have a `trace_id` (or equivalent) that is non-null?
+2. Pick one alert from yesterday. Walk me through the actual DB rows it created, in order, from signal detection through final decision. Not the code that's supposed to do this — the rows it actually produced.
+3. Is there a single table (or view) where I can look up any alert by ticker/date and see its full lifecycle end to end? Show me that query running against a real alert.
+
+## Stage 2 — Daily Re-Evaluation ("Recycling")
+
+4. Show me the exact job/function that re-pulls a previously-alerted stock and re-scores it the next day. What's it called, where does it live, and what time does it run?
+5. Pick a stock that was alerted 3+ days ago. Show me the SQL rows proving it was re-evaluated on each subsequent day — not just alerted once and forgotten.
+6. If a stock is still open (no exit yet), does it get re-scored every day until it closes? Show me a specific ticker with multiple daily re-scoring rows.
+7. What happens if a stock alerted a week ago is never re-evaluated again? Is there a query I can run to find "orphaned" alerts — ones that went silent with no re-evaluation? Run it now and show me the count.
+
+## Stage 3 — Outcome Grading (Did It Win or Lose)
+
+8. Show me the row for a trade that closed. Does it have a final PnL, and is that PnL linked back (via trace_id or trade_id) to the original alert's reasoning?
+9. Of the 81 "graded" trades mentioned, show me the actual query and the actual rows — not the count, the rows. How many were wins vs. losses?
+
+## Stage 4 — The Learning Step (This Is the Part Most Likely to Be Faked)
+
+10. When a trade closes as a loss, what specific table or field records *why* it's believed to have failed? Show me one real row.
+11. Show me a before/after: a conviction score, weight, or parameter that existed before a losing trade, and the same parameter's value after the system supposedly "learned" from it. If it's identical, the learning loop is not wired — it's decorative.
+12. Is the "learning update" applied to the model/scoring BEFORE the next pick is generated, or does it just get logged and never actually touch the next decision? Show me the code path where a learning-update value is *read* by the next scoring cycle — not just where it's written.
+13. Give me two picks on the same ticker (or same setup type) several days apart, one before and one after a related loss. Did the score, sizing, or reasoning actually change? Show me both rows side by side.
+
+## Stage 5 — Proving the Loop Isn't a No-Op
+
+14. Deliberately force a bad/failing signal through the pipeline (a test case, not a real trade). Show me that the pipeline logs it as a FAIL somewhere — not just that good trades pass. If everything always shows PASS, the checker isn't checking anything.
+15. Are Thompson sampler / trust weights / RL buffer (previously flagged as empty) now populated? Show me row counts with the actual query, not a status label.
+16. If I ask you right now "what did AIEM learn this week and what will it do differently," can you point to a specific DB row or diff that proves that answer — not generate a plausible-sounding narrative?
+
+## Stage 6 — End-to-End Proof
+
+17. Give me one single ticker where I can trace, with real timestamps: alert sent → re-evaluated daily → closed → graded → learning update recorded → that update reflected in a later, different pick. One unbroken chain, all real rows, all timestamps.
+
+---
+
+### Rule for grading the answers
+- Any answer that's a description of code instead of an execution result = **not verified**.
+- Any "it will do X on the next cycle" = **not verified yet** — come back after that cycle runs and re-ask.
+- Silence or a vague non-null table ≠ a working loop. The loop only counts once you've seen a parameter change and then seen that changed parameter used in a subsequent decision.

@@ -1,0 +1,50 @@
+---
+
+## Roadmap — What Would Move This From "Functioning" to "9/10 Institutional-Grade"
+
+**Important distinction:** everything above this line is about verifying what you've already been told is built. Everything below is a **future build list**, not a verification target. Do not let this section substitute for finishing the verification above — a system with more features bolted onto an unproven learning loop is not more trustworthy, it's just more surface area to eventually verify.
+
+### 1. Reinforcement learning that actually changes behavior over time (biggest gap)
+Confirmed empty as of the last audit: Thompson sampler / trust weights / RL buffer = INCOMPLETE. Infrastructure existing is not the same as the adaptive logic being operational. A working version would show:
+- Confidence scores changing over time
+- Strategy weights adapting
+- Modules gaining or losing influence based on performance
+- Measurable improvement after learning cycles — not just claimed, shown
+
+### 2. Position sizing as a first-class decision
+A hedge-fund-quality system doesn't just decide *what* to trade — it decides:
+- How much capital to allocate
+- Maximum position size
+- Risk budget per trade
+- Correlation limits across open positions
+- Slippage and execution modeling
+
+### 3. Automatic strategy retirement and promotion
+Weak signals should lose influence or get retired automatically; strong discoveries should get promoted — with a retained history of how each signal's quality changed over time, without manual intervention.
+
+### 4. Portfolio-level optimization
+Beyond single-trade decisions: how positions interact, combined risk exposure, and capital allocation across the whole book — not just ticker-by-ticker.
+
+### 5. Walk-forward validation (stronger than current out-of-sample testing)
+You already have out-of-sample testing, which is good. A stronger setup repeatedly retrains and re-tests across many rolling time windows instead of relying on a single train/test split.
+
+### 6. Long-term adaptive monitoring
+You already have drift checks. A more mature version would also:
+- Automatically retire weak signals
+- Reduce their influence gradually rather than binary on/off
+- Promote stronger discoveries
+- Keep a running history of how signal quality changes over time
+- All without manual intervention
+
+### 7. Better uncertainty calibration
+Instead of a bare directional call ("Buy"), a more mature output includes:
+- A confidence percentage (e.g. 62% confidence)
+- Expected return
+- Downside risk
+- Confidence interval
+- Historical reliability of this setup under similar past conditions
+
+This gives you conviction, not just direction — useful for sizing and for deciding whether to act on a signal at all.
+
+### How to use this section
+Treat items 1–7 as a backlog, prioritized in the order listed — RL/learning-loop first, since everything else (sizing, retirement, calibration) is more valuable once you know the system is actually learning rather than just logging. Before starting on any of these, get a hard yes/no with raw proof on whether the RL/Thompson-sampling loop is wired at all — that answer determines whether items 2–7 are worth building yet or would just be more unverified surface area on top of an unproven core.

@@ -1,0 +1,178 @@
+# AIEM Learning Loop — Strict Verification Checklist
+
+**Purpose:** Confirm that every alert AIEM sends actually flows back through the pipeline, gets re-evaluated daily, and produces a real, measurable change in future decisions — not just a claim that it does.
+
+**The standard this entire file enforces: WIRED ≠ WORKING.**
+
+A function being called, a row being written, an endpoint returning 200 — that only proves *connectivity*. It proves data moved from A to B. It proves nothing about whether B actually does anything meaningful with what it received. A Thompson sampler that runs on every cycle but always returns the same weight is "wired." A learning-update function that logs a value but never gets read by the next scoring pass is "wired." A promotion evaluator that promotes everything regardless of performance is "wired." All three would pass a pure connectivity check and still be systems that don't learn.
+
+So for every item below, there are two separate bars, and both must be cleared:
+- **WIRED:** data flows from step to step — the call happens, the row gets written.
+- **FUNCTIONAL:** the data that moved actually *changed a downstream decision* in a way that would not have happened otherwise. Same input, different history → different output. That's the only real proof of function.
+
+**An answer that only clears WIRED is not a pass. It's a specific, more useful kind of fail** — it tells you the plumbing exists but the thing at the end of the pipe may be doing nothing.
+
+**Standard for every answer below:** raw SQL output, raw terminal output, or a git diff. No summaries. No "✅ done." No percentages without the query that produced them. If the agent can't produce the raw artifact, the item is INCOMPLETE — not "mostly done."
+
+---
+
+## The Design This Is Verifying
+
+This is the exact closed loop AIEM is supposed to run, end to end, with no manual intervention:
+
+1. **Makes a prediction or trading decision.**
+2. **Tracks the real outcome** (Outcome Tracker).
+3. **Measures what was right and wrong** (Outcome Tracker + Feedback Loop).
+4. **Detects when a pattern has stopped working** (Decay & Failure Analyzer).
+5. **Discovers new candidate patterns** (Pattern Discovery Engine).
+6. **Generates variations of those patterns** (Rediscovery / Variation Generator).
+7. **Tests and challenges them** (Adversarial Critique).
+8. **Promotes only the ones that consistently perform well** (Hypothesis Promotion Evaluator).
+9. **Uses the promoted patterns in future decisions.**
+
+Being "wired together" means steps 1–9 call each other in the right order. That is the floor, not the goal. The goal is that step 9 produces a *different, better* decision than it would have produced if steps 2–8 had never run. If you can swap in a version of the system where steps 2–8 are no-ops and step 9's output doesn't change, the wiring is meaningless — you've built a very elaborate way of doing nothing.
+
+## Required Trace Format — Module-by-Module
+
+Have the agent trace the complete execution path starting from signal creation through final decision. For **every module/function in the chain**, demand:
+
+1. The function name.
+2. The Python file it lives in.
+3. Who calls it.
+4. Who it calls next.
+5. Whether it runs automatically or only when manually triggered.
+6. **Whether its output actually influences the next module's behavior, or whether the next module would produce the identical result if this module's output were deleted.** (This is the functional check — connectivity alone doesn't answer it.)
+7. Whether it is currently active, dormant, or disconnected.
+
+**Then require a flowchart of the actual (not intended) execution path:**
+
+```
+Signal Generated
+  ↓
+Module 1 (name it) — wired: Y/N — functional: Y/N
+  ↓
+Module 2 (name it) — wired: Y/N — functional: Y/N
+  ↓
+Module 3 (name it) — wired: Y/N — functional: Y/N
+  ↓
+...
+  ↓
+Final Trading Decision
+```
+
+**Immediately after the flowchart, require the agent to flag, separately:**
+- Any modules that are **bypassed** (exist in code but never sit in the live call path) — a wiring failure
+- Any modules that are **duplicated** (same job done twice by two different functions) — a wiring failure
+- Any modules that are **never executed** (dead code) — a wiring failure
+- Any modules that **execute and get called correctly, but whose output has no measurable effect on anything downstream** — a *functional* failure, and the more dangerous one, because it looks like progress in every log and dashboard
+
+If the agent gives vague answers instead of specific file names, function names, and call relationships, that's a sign it's guessing rather than reading the actual codebase — push it to open the files and quote back the real definitions.
+
+## The Master Follow-Up Question
+
+Ask this directly, and don't accept a narrative answer — demand it be answered against steps 1–9 above, one at a time, with the wired/functional distinction applied to each:
+
+> **Does my AEIM complete a closed learning loop? For each of the 9 steps: is it wired (does it get called with the right inputs)? And is it functional (does its output measurably change what happens downstream, versus a version where that step did nothing)? After a trade outcome is known, does the system automatically feed that result back into the Outcome Tracker, Decay Analyzer, Pattern Discovery Engine, Promotion Evaluator, and ultimately produce a demonstrably different future trading decision than it would have without that feedback? If any step is wired but not functional, say so explicitly and name the step number.**
+
+The answer is only acceptable if it names, for each of the 9 steps, both a wired status and a functional status with evidence — not a single blended "yes it works."
+
+---
+
+## Stage 1 — Every Alert Gets Tracked *(wiring check)*
+
+1. Show me the SQL row for the last 5 alerts sent to me. Does each one have a `trace_id` (or equivalent) that is non-null?
+2. Pick one alert from yesterday. Walk me through the actual DB rows it created, in order, from signal detection through final decision. Not the code that's supposed to do this — the rows it actually produced.
+3. Is there a single table (or view) where I can look up any alert by ticker/date and see its full lifecycle end to end? Show me that query running against a real alert.
+
+*Note: passing Stage 1 only proves data is flowing. It says nothing about function — that's Stage 4 and 5.*
+
+## Stage 2 — Daily Re-Evaluation ("Recycling") *(wiring check)*
+
+4. Show me the exact job/function that re-pulls a previously-alerted stock and re-scores it the next day. What's it called, where does it live, and what time does it run?
+5. Pick a stock that was alerted 3+ days ago. Show me the SQL rows proving it was re-evaluated on each subsequent day — not just alerted once and forgotten.
+6. If a stock is still open (no exit yet), does it get re-scored every day until it closes? Show me a specific ticker with multiple daily re-scoring rows.
+7. What happens if a stock alerted a week ago is never re-evaluated again? Is there a query I can run to find "orphaned" alerts — ones that went silent with no re-evaluation? Run it now and show me the count.
+8. **Functional check:** Pick a ticker re-scored on three different days. Are the three scores actually different from each other, or identical every time? If they're always identical, re-scoring is running but not functioning — it's re-running the same math on the same assumptions and calling it "re-evaluation."
+
+## Stage 3 — Outcome Grading (Did It Win or Lose) *(wiring check)*
+
+9. Show me the row for a trade that closed. Does it have a final PnL, and is that PnL linked back (via trace_id or trade_id) to the original alert's reasoning?
+10. Of the 81 "graded" trades mentioned, show me the actual query and the actual rows — not the count, the rows. How many were wins vs. losses?
+
+## Stage 4 — The Learning Step *(this is where WIRED vs. FUNCTIONAL matters most — the part most likely to be faked)*
+
+11. When a trade closes as a loss, what specific table or field records *why* it's believed to have failed? Show me one real row. *(Wiring: does the record exist? Functional: is anything downstream ever going to read it?)*
+12. Show me a before/after: a conviction score, weight, or parameter that existed before a losing trade, and the same parameter's value after the system supposedly "learned" from it. **If it's identical, this is not a functional failure disguised as a wiring success — it's proof the learning loop is decorative**, full stop, regardless of how many rows got written.
+13. Is the "learning update" applied to the model/scoring BEFORE the next pick is generated, or does it just get logged and never actually touch the next decision? Show me the code path where a learning-update value is *read* by the next scoring cycle — not just where it's written. **Writing without a corresponding read is the single most common way a system looks wired while being functionally inert.**
+14. Give me two picks on the same ticker (or same setup type) several days apart, one before and one after a related loss. Did the score, sizing, or reasoning actually change? Show me both rows side by side. **Same or negligibly different values = fail, even if both rows exist and both are "wired."**
+15. For the Thompson sampler / trust weights specifically: show me the weight value for the same strategy at two different points in time, separated by at least one graded outcome in between. If the weight is unchanged, the sampler is not sampling — it's a static number with a fancy name.
+
+## Stage 5 — Proving the Loop Isn't a No-Op *(direct functional tests)*
+
+16. Deliberately force a bad/failing signal through the pipeline (a test case, not a real trade). Show me that the pipeline logs it as a FAIL somewhere — not just that good trades pass. If everything always shows PASS, the checker isn't checking anything; it's wired to run but not functioning as a filter.
+17. Are Thompson sampler / trust weights / RL buffer (previously flagged as empty) now populated? Show me row counts with the actual query. **Then go one step further: show that a populated row actually gets pulled into a live scoring calculation** — a populated table that nothing reads is wiring without function.
+18. If I ask you right now "what did AIEM learn this week and what will it do differently," can you point to a specific DB row or diff that proves that answer — not generate a plausible-sounding narrative?
+19. **The swap test:** if you hypothetically deleted the outputs of the Decay Analyzer, Pattern Discovery Engine, and Promotion Evaluator (steps 4, 5, 8) for the last week, would today's picks be any different? If the honest answer is "no, they'd be identical," those modules are wired but not functional, no matter what their logs say.
+
+## Stage 6 — End-to-End Proof *(the only test that confirms both wiring AND function together)*
+
+20. Give me one single ticker where I can trace, with real timestamps: alert sent → re-evaluated daily with a **changing** score → closed → graded → learning update recorded → that update **read by the model** → reflected in a **different, later** pick. One unbroken chain, all real rows, all timestamps, with at least two points where a value visibly changed and that change demonstrably affected what came next.
+
+---
+
+### Rule for grading the answers
+- Any answer that's a description of code instead of an execution result = **not verified**.
+- Any answer that proves a row was written but not that it was ever read again = **wired, not functional** — log it as a distinct, named gap, not as partial credit toward "done."
+- Any "it will do X on the next cycle" = **not verified yet** — come back after that cycle runs and re-ask.
+- Silence or a vague non-null table ≠ a working loop. The loop only counts once you've seen a parameter change **and** seen that changed parameter used in a subsequent decision. Proving only the first half is the most common way this gets misreported as complete.
+
+---
+
+## Roadmap — What Would Move This From "Functioning" to "9/10 Institutional-Grade"
+
+**Important distinction:** everything above this line is about verifying what you've already been told is built — and specifically, verifying it actually functions, not just that it's wired. Everything below is a **future build list**, not a verification target. Do not let this section substitute for finishing the verification above — a system with more features bolted onto an unproven learning loop is not more trustworthy, it's just more surface area to eventually verify.
+
+### 1. Reinforcement learning that actually changes behavior over time (biggest gap)
+Confirmed empty as of the last audit: Thompson sampler / trust weights / RL buffer = INCOMPLETE. Infrastructure existing is not the same as the adaptive logic being operational. A working version would show:
+- Confidence scores changing over time
+- Strategy weights adapting
+- Modules gaining or losing influence based on performance
+- Measurable improvement after learning cycles — not just claimed, shown
+
+### 2. Position sizing as a first-class decision
+A hedge-fund-quality system doesn't just decide *what* to trade — it decides:
+- How much capital to allocate
+- Maximum position size
+- Risk budget per trade
+- Correlation limits across open positions
+- Slippage and execution modeling
+
+### 3. Automatic strategy retirement and promotion
+Weak signals should lose influence or get retired automatically; strong discoveries should get promoted — with a retained history of how each signal's quality changed over time, without manual intervention.
+
+### 4. Portfolio-level optimization
+Beyond single-trade decisions: how positions interact, combined risk exposure, and capital allocation across the whole book — not just ticker-by-ticker.
+
+### 5. Walk-forward validation (stronger than current out-of-sample testing)
+You already have out-of-sample testing, which is good. A stronger setup repeatedly retrains and re-tests across many rolling time windows instead of relying on a single train/test split.
+
+### 6. Long-term adaptive monitoring
+You already have drift checks. A more mature version would also:
+- Automatically retire weak signals
+- Reduce their influence gradually rather than binary on/off
+- Promote stronger discoveries
+- Keep a running history of how signal quality changes over time
+- All without manual intervention
+
+### 7. Better uncertainty calibration
+Instead of a bare directional call ("Buy"), a more mature output includes:
+- A confidence percentage (e.g. 62% confidence)
+- Expected return
+- Downside risk
+- Confidence interval
+- Historical reliability of this setup under similar past conditions
+
+This gives you conviction, not just direction — useful for sizing and for deciding whether to act on a signal at all.
+
+### How to use this section
+Treat items 1–7 as a backlog, prioritized in the order listed — RL/learning-loop first, since everything else (sizing, retirement, calibration) is more valuable once you know the system is actually learning rather than just logging. Before starting on any of these, get a hard yes/no with raw proof on whether the RL/Thompson-sampling loop is wired **and functional** — that answer determines whether items 2–7 are worth building yet or would just be more unverified surface area on top of an unproven core.
