@@ -878,13 +878,16 @@ def aiem_grade_outcomes():
             log.info("grade_outcomes: nothing to grade")
             return
 
-        # Polygon snapshot for closing prices
-        snaps = _polygon_snapshot_tickers(tickers)
+        # Primary: Tradier quotes — returns both "price" (last/close) and
+        # "open" (day open). Use Tradier first; Polygon snapshot 403s permanently
+        # on the current plan for live/snapshot endpoints.
+        td    = _td_quotes(tickers)
+        snaps = {s: {"price": d["price"], "open": d["open"], "prev_close": d["prev_close"]}
+                 for s, d in td.items() if d.get("price")}
+
+        # Fallback: Polygon snapshot (may 403 on current plan, kept for future)
         if not snaps:
-            # Fallback: Tradier
-            td = _td_quotes(tickers)
-            snaps = {s: {"price": d["price"], "open": 0, "prev_close": d["prev_close"]}
-                     for s, d in td.items()}
+            snaps = _polygon_snapshot_tickers(tickers)
 
         graded = 0
         for ticker in tickers:
@@ -947,10 +950,38 @@ def aiem_grade_t3_t5():
             rows = cur.fetchall()
             if not rows:
                 continue
-            snaps = _polygon_snapshot_tickers([r[0] for r in rows])
+
+            # Use polygon_market_daily for T3/T5 closes — it's already populated
+            # daily and is not subject to the Polygon live-snapshot 403.
+            # Find the closest available scan_date at or after the target date.
+            tickers_needed = [r[0] for r in rows]
+            cur.execute("""
+                SELECT DISTINCT scan_date FROM polygon_market_daily
+                WHERE scan_date >= %s
+                ORDER BY scan_date ASC LIMIT 1
+            """, (target,))
+            nearest = cur.fetchone()
+            price_map = {}
+            if nearest:
+                snap_date = nearest[0]
+                cur.execute("""
+                    SELECT ticker, close_price FROM polygon_market_daily
+                    WHERE scan_date = %s AND ticker = ANY(%s)
+                """, (snap_date, tickers_needed))
+                price_map = {r[0]: float(r[1]) for r in cur.fetchall()}
+                log.info(f"T{n}: using polygon_market_daily scan_date={snap_date} for {len(price_map)} tickers")
+
+            # Tradier fallback for any tickers not in polygon_market_daily
+            missing = [t for t in tickers_needed if t not in price_map]
+            if missing:
+                td_fb = _td_quotes(missing)
+                for sym, d in td_fb.items():
+                    if d.get("price"):
+                        price_map[sym] = d["price"]
+
             for ticker, entry in rows:
                 try:
-                    price = (snaps.get(ticker) or {}).get("price")
+                    price = price_map.get(ticker)
                     if price and entry:
                         ret = (price - entry) / entry * 100
                         cur.execute(f"""
@@ -1432,11 +1463,23 @@ def main():
         from http.server import HTTPServer, BaseHTTPRequestHandler
         import threading as _t2
 
+        def _run_manual_grade():
+            log.info("admin: manual grade triggered")
+            try:
+                aiem_grade_outcomes()
+                aiem_grade_t3_t5()
+                log.info("admin: manual grade complete")
+            except Exception as _e:
+                log.error(f"admin: manual grade error: {_e}")
+
         class _H(BaseHTTPRequestHandler):
             def do_POST(self):
                 if self.path == "/run-scan":
                     _t2.Thread(target=_run_manual_scan, daemon=True).start()
                     body = b'{"status":"triggered"}'
+                elif self.path == "/run-grade":
+                    _t2.Thread(target=_run_manual_grade, daemon=True).start()
+                    body = b'{"status":"grade_triggered"}'
                 else:
                     self.send_response(404); self.end_headers(); return
                 self.send_response(200)
