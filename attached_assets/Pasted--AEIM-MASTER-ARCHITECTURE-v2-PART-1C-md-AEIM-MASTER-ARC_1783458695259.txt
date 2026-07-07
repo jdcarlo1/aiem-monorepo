@@ -1,0 +1,550 @@
+# AEIM_MASTER_ARCHITECTURE_v2_PART_1C.md
+
+# AEIM MASTER ARCHITECTURE
+## PART 1C
+### Trend Integrity Engine
+### Market Structure Engine
+### Institutional Trend Validation
+
+Version: 2.0
+
+---
+
+# PURPOSE
+
+The Trend Integrity Engine determines whether a stock is:
+
+• Still in a healthy long-term uptrend
+
+• Experiencing a normal correction
+
+• Entering a weakening trend
+
+• Beginning a structural breakdown
+
+• Becoming a high-quality tactical dip-buy opportunity
+
+This engine is one of the most important components inside AEIM.
+
+A stock can decline sharply without losing its long-term trend.
+
+AEIM must understand that difference.
+
+---
+
+# PRIMARY RULE
+
+NEVER classify a stock as "broken"
+because of one indicator.
+
+A single moving average
+
+A single RSI reading
+
+One red candle
+
+One bad day
+
+None of these alone are sufficient.
+
+Trend changes require MULTIPLE independent confirmations.
+
+---
+
+# TREND INTEGRITY PIPELINE
+
+Stock Selected
+        │
+        ▼
+Price Structure Analysis
+        │
+        ▼
+Moving Average Analysis
+        │
+        ▼
+Trend Slope Analysis
+        │
+        ▼
+Relative Strength Analysis
+        │
+        ▼
+Volume Analysis
+        │
+        ▼
+Institutional Participation
+        │
+        ▼
+Leadership Analysis
+        │
+        ▼
+Trend Integrity Score
+
+---
+
+# MOVING AVERAGES
+
+Every stock should evaluate:
+
+20 EMA
+
+50 EMA
+
+100 EMA
+
+150 EMA
+
+200 EMA
+
+These represent:
+
+Short-term trend
+
+Intermediate trend
+
+Long-term trend
+
+Institutional trend
+
+Primary market trend
+
+---
+
+# PRICE LOCATION
+
+AEIM should always know:
+
+Current Price
+
+Above 20 EMA?
+
+Above 50 EMA?
+
+Above 100 EMA?
+
+Above 150 EMA?
+
+Above 200 EMA?
+
+Percent above each moving average.
+
+---
+
+# WHY THIS MATTERS
+
+Being above the 200-day moving average
+generally indicates that the long-term trend is still intact.
+
+Being above the 50-day moving average
+suggests the intermediate trend remains healthy.
+
+A short-term pullback while these longer-term conditions remain favorable
+does not automatically imply the stock has entered a bear trend.
+
+Instead, it may simply represent a correction within an existing uptrend.
+
+AEIM must evaluate this using multiple pieces of evidence rather than
+drawing conclusions from one measurement alone.
+
+---
+
+# MOVING AVERAGE SLOPES
+
+Not only position.
+
+Slope matters.
+
+Examples
+
+50 EMA Rising
+
+Bullish
+
+50 EMA Flat
+
+Neutral
+
+50 EMA Falling
+
+Weakening
+
+200 EMA Rising
+
+Long-term strength
+
+200 EMA Falling
+
+Long-term deterioration
+
+---
+
+# TREND STRUCTURE
+
+AEIM evaluates:
+
+Higher Highs
+
+Higher Lows
+
+Lower Highs
+
+Lower Lows
+
+Support
+
+Resistance
+
+Trendlines
+
+Swing Structure
+
+This tells AEIM whether
+buyers remain in control.
+
+---
+
+# HIGHER LOWS
+
+One of the most important rules.
+
+As long as higher lows remain intact,
+
+the trend is usually still healthy.
+
+When higher lows begin failing,
+
+trend quality deteriorates.
+
+---
+
+# STRUCTURAL BREAKDOWN
+
+A structural breakdown usually requires
+multiple independent warning signs.
+
+Examples include:
+
+Price loses important support.
+
+Higher lows fail repeatedly.
+
+Intermediate moving averages weaken.
+
+Long-term trend measures flatten or decline.
+
+Relative strength deteriorates.
+
+Heavy distribution appears.
+
+Sector leadership weakens.
+
+Institutional participation declines.
+
+Only when several conditions align
+should AEIM classify the trend as
+STRUCTURAL_BREAKDOWN.
+
+---
+
+# RELATIVE STRENGTH
+
+Compare stock against:
+
+SPY
+
+Sector ETF
+
+Industry Group
+
+Questions:
+
+Is this stock outperforming?
+
+Underperforming?
+
+Leading?
+
+Lagging?
+
+This provides context beyond price alone.
+
+---
+
+# LEADERSHIP
+
+Some industries lead entire bull markets.
+
+Others become laggards.
+
+AEIM must monitor leadership continuously.
+
+Leadership today
+does not guarantee leadership tomorrow.
+
+---
+
+# EXAMPLE LOGIC
+
+If a stock experiences a sharp short-term decline
+yet still satisfies objective trend criteria such as:
+
+• Long-term moving average remains supportive
+
+• Intermediate trend remains constructive
+
+• Relative strength remains favorable
+
+• Price structure remains healthy
+
+then AEIM should evaluate it as a possible
+healthy correction rather than automatically
+classifying it as a failed trend.
+
+Conversely, if multiple deterioration signals
+appear simultaneously, confidence should decrease.
+
+---
+
+# TREND INTEGRITY SCORE
+
+100
+
+Exceptional Trend
+
+90
+
+Institutional Leader
+
+80
+
+Strong Uptrend
+
+70
+
+Healthy Uptrend
+
+60
+
+Constructive
+
+50
+
+Neutral
+
+40
+
+Weakening
+
+30
+
+Broken Structure
+
+20
+
+Major Breakdown
+
+10
+
+Collapse
+
+0
+
+Avoid
+
+---
+
+# TREND LABELS
+
+90+
+
+ELITE_LEADER
+
+80+
+
+STRONG_UPTREND
+
+70+
+
+VALID_UPTREND
+
+60+
+
+NORMAL_PULLBACK
+
+50+
+
+TRANSITION
+
+40+
+
+TREND_WEAKENING
+
+30+
+
+STRUCTURAL_BREAKDOWN
+
+20+
+
+AVOID
+
+---
+
+# TREND QUESTIONS
+
+Every stock must answer:
+
+Is trend rising?
+
+Is trend weakening?
+
+Is trend accelerating?
+
+Is trend flattening?
+
+Are institutions accumulating?
+
+Are institutions distributing?
+
+Has support held?
+
+Has resistance broken?
+
+Is this normal?
+
+Is this unusual?
+
+---
+
+# DISTRIBUTION ANALYSIS
+
+Monitor:
+
+Down-volume
+
+Up-volume
+
+Volume spikes
+
+Accumulation / Distribution Line
+
+On Balance Volume
+
+Chaikin Money Flow
+
+Distribution Days
+
+Institutional Selling
+
+Heavy distribution without recovery
+reduces Trend Integrity.
+
+---
+
+# INSTITUTIONAL CONFIRMATION
+
+AEIM should estimate:
+
+Are institutions likely buying?
+
+Likely selling?
+
+Neutral?
+
+Strong accumulation?
+
+Strong distribution?
+
+The objective is not certainty,
+but an evidence-based assessment.
+
+---
+
+# TREND MEMORY
+
+Store for every trade:
+
+Trend Score
+
+Trend Label
+
+Relative Strength
+
+Moving Average Position
+
+Moving Average Slopes
+
+Distribution Status
+
+Support Status
+
+Leadership Status
+
+These become part of Learning Memory.
+
+---
+
+# TREND DOES NOT EQUAL BUY
+
+A healthy trend alone
+
+does NOT approve a trade.
+
+It only increases evidence.
+
+Later engines still evaluate:
+
+Leadership
+
+Macro
+
+Oversold Bounce
+
+Risk
+
+Position Size
+
+Execution
+
+---
+
+# STRICT VERIFICATION
+
+Before approving a trade
+Replit must verify:
+
+✓ 20 EMA evaluated
+
+✓ 50 EMA evaluated
+
+✓ 100 EMA evaluated
+
+✓ 150 EMA evaluated
+
+✓ 200 EMA evaluated
+
+✓ Moving-average slopes calculated
+
+✓ Higher highs checked
+
+✓ Higher lows checked
+
+✓ Relative strength computed
+
+✓ Volume evaluated
+
+✓ Distribution analyzed
+
+✓ Trend Integrity Score stored
+
+✓ Trend Label assigned
+
+✓ Results passed to Master Decision Orchestrator
+
+No trade may bypass the Trend Integrity Engine.
+
+---
+
+# END OF PART 1C
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_PART_1D.md
