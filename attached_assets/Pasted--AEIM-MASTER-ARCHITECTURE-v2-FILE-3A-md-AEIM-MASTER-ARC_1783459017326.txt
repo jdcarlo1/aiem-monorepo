@@ -1,0 +1,645 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_3A.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 3A
+### Performance Auditor
+### Trade Attribution Engine
+### Autonomous Learning Engine
+### Decision Explainability Framework
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+The Performance Auditor is the most important
+learning component inside AEIM.
+
+Finding stocks is only half the job.
+
+Learning WHY trades succeeded or failed
+is what makes AEIM improve over time.
+
+Every completed trade becomes training data.
+
+No trade is ever wasted.
+
+Every trade teaches something.
+
+---
+
+# PRIMARY OBJECTIVE
+
+AEIM should NEVER simply ask
+
+"Did I win?"
+
+Instead ask
+
+Why?
+
+Why did I win?
+
+Why did I lose?
+
+What evidence helped?
+
+What evidence hurt?
+
+Could I have improved?
+
+Should I repeat this setup?
+
+---
+
+# PERFORMANCE AUDITOR PIPELINE
+
+Trade Closed
+        │
+        ▼
+Collect Trade Statistics
+        │
+        ▼
+Collect Market Statistics
+        │
+        ▼
+Collect Macro Statistics
+        │
+        ▼
+Collect Sector Statistics
+        │
+        ▼
+Collect Leadership Statistics
+        │
+        ▼
+Evaluate Technical Evidence
+        │
+        ▼
+Run Attribution Engine
+        │
+        ▼
+Counterfactual Analysis
+        │
+        ▼
+Learning Engine
+        │
+        ▼
+Memory Update
+
+---
+
+# TRADE RECORD
+
+Every completed trade stores
+
+Ticker
+
+Entry Date
+
+Exit Date
+
+Entry Price
+
+Exit Price
+
+Holding Time
+
+Position Size
+
+Risk
+
+Reward
+
+Profit/Loss
+
+Maximum Drawdown
+
+Maximum Gain
+
+Execution Delay
+
+Slippage
+
+Commission
+
+---
+
+# CONTEXT RECORD
+
+Store
+
+Macro Score
+
+Market Regime
+
+SPY Performance
+
+QQQ Performance
+
+DIA Performance
+
+IWM Performance
+
+VIX
+
+Sector Score
+
+Leadership Score
+
+Trend Integrity Score
+
+Momentum Score
+
+Technical Confidence
+
+Bounce Score
+
+Institutional Score
+
+Liquidity Score
+
+Pattern Score
+
+Similarity Score
+
+---
+
+# FIRST QUESTION
+
+The Performance Auditor asks
+
+Was the trade profitable?
+
+YES
+
+or
+
+NO
+
+That is NOT enough.
+
+---
+
+# SECOND QUESTION
+
+Was the IDEA correct?
+
+Examples
+
+Trade lost
+
+because
+
+Macro collapsed.
+
+The idea may still have been correct.
+
+---
+
+Trade lost
+
+because
+
+Execution was poor.
+
+The signal should NOT be punished.
+
+---
+
+Trade lost
+
+because
+
+Trend actually failed.
+
+The signal should learn.
+
+---
+
+# TRADE ATTRIBUTION ENGINE
+
+Every loss receives attribution.
+
+Example
+
+Macro
+
+35%
+
+Sector
+
+20%
+
+Timing
+
+15%
+
+Execution
+
+10%
+
+Risk
+
+10%
+
+Signal Quality
+
+10%
+
+Now AEIM knows
+
+WHAT failed.
+
+---
+
+# WIN ATTRIBUTION
+
+Winning trades also receive attribution.
+
+Example
+
+Macro
+
+20%
+
+Leadership
+
+20%
+
+Trend
+
+20%
+
+Momentum
+
+15%
+
+Execution
+
+10%
+
+Sector
+
+10%
+
+Timing
+
+5%
+
+Winning evidence becomes reinforced.
+
+---
+
+# LEARNING RULE
+
+DO NOT reinforce outcomes.
+
+Reinforce decisions.
+
+Example
+
+Good decision
+
+Bad outcome
+
+may still deserve positive reinforcement.
+
+Poor decision
+
+Good outcome
+
+may deserve negative reinforcement.
+
+---
+
+# EXPLANATION ENGINE
+
+Every trade receives a written explanation.
+
+Example
+
+Trade Approved Because
+
+Macro healthy
+
+Trend strong
+
+Leadership healthy
+
+Momentum improving
+
+Support nearby
+
+Institutional buying
+
+Trade Failed Because
+
+Broad market liquidation
+
+Sector weakness
+
+Execution delay
+
+NOT because signal quality failed.
+
+Everything must be explainable.
+
+---
+
+# CONFIDENCE CALIBRATION
+
+Every prediction includes confidence.
+
+After trade closes
+
+compare
+
+Expected Probability
+
+vs
+
+Actual Outcome.
+
+Example
+
+Expected
+
+82%
+
+Outcome
+
+Win
+
+Confidence calibrated correctly.
+
+---
+
+Expected
+
+90%
+
+Outcome
+
+Large Loss
+
+Confidence too high.
+
+Reduce future confidence.
+
+---
+
+Expected
+
+40%
+
+Outcome
+
+Large Win
+
+Confidence too low.
+
+Increase future confidence.
+
+---
+
+# CONFIDENCE HISTORY
+
+Store
+
+Predicted Confidence
+
+Actual Outcome
+
+Difference
+
+Calibration Error
+
+Over time
+
+AEIM learns realistic confidence.
+
+---
+
+# DECISION QUALITY SCORE
+
+Separate
+
+Decision Quality
+
+from
+
+Trade Outcome.
+
+Categories
+
+Excellent Decision
+
+Good Decision
+
+Average Decision
+
+Poor Decision
+
+Very Poor Decision
+
+Decision quality becomes more important
+than raw profit.
+
+---
+
+# EXECUTION REVIEW
+
+Questions
+
+Entered too early?
+
+Entered too late?
+
+Exited too early?
+
+Exited too late?
+
+Ignored confirmation?
+
+Position too large?
+
+Position too small?
+
+Execution quality receives its own score.
+
+---
+
+# POSITION SIZE REVIEW
+
+Did correct position size improve outcome?
+
+Should future size increase?
+
+Should future size decrease?
+
+Did Macro justify reduced size?
+
+Store answer.
+
+---
+
+# TRADE TIMING ENGINE
+
+Evaluate
+
+Entry Timing
+
+Exit Timing
+
+Confirmation Timing
+
+Holding Duration
+
+Market Timing
+
+Timing becomes independent evidence.
+
+---
+
+# PERFORMANCE DASHBOARD
+
+For every strategy
+
+Display
+
+Win Rate
+
+Average Gain
+
+Average Loss
+
+Sharpe Ratio
+
+Expectancy
+
+Maximum Drawdown
+
+Profit Factor
+
+Average Holding Time
+
+Macro Performance
+
+Bull Market Performance
+
+Bear Market Performance
+
+Correction Performance
+
+---
+
+# STRATEGY SCORE
+
+Every strategy receives
+
+Strategy Quality Score
+
+100
+
+Elite
+
+90
+
+Excellent
+
+80
+
+Strong
+
+70
+
+Healthy
+
+60
+
+Average
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Retire
+
+---
+
+# RETIREMENT RULE
+
+Strategies should NOT remain active forever.
+
+If performance consistently deteriorates
+after sufficient evidence accumulates,
+flag them for review or retirement.
+
+Do not retire based on one losing trade.
+
+---
+
+# STRICT VERIFICATION
+
+Before Learning begins verify
+
+✓ Trade completely recorded
+
+✓ Macro stored
+
+✓ Sector stored
+
+✓ Leadership stored
+
+✓ Trend stored
+
+✓ Technical scores stored
+
+✓ Attribution completed
+
+✓ Explanation generated
+
+✓ Confidence calibration completed
+
+✓ Position sizing reviewed
+
+✓ Timing reviewed
+
+✓ Strategy score updated
+
+✓ Learning memory ready
+
+Failure of any verification
+
+Learning Status = FAILED
+
+Log error
+
+Do NOT update permanent memory.
+
+---
+
+# END OF FILE 3A
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_3B.md
+
+Topics
+
+• Reinforcement Learning Framework
+• Continuous Improvement Engine
+• Adaptive Strategy Evolution
+• Market Memory Engine
+• Autonomous Self-Optimization
