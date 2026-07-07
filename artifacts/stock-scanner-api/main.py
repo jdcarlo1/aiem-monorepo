@@ -38720,6 +38720,7 @@ def _save_signal_snapshot():
         print(f"[signal_history] save error: {e}")
 
 
+@app.route("/stock-api/top-score", methods=["GET"])
 @app.route("/stock-api/daily-top10", methods=["GET"])
 def daily_top10_route():
     """Return today's top 10 highest-scoring stocks. DB-backed, survives restarts."""
@@ -40732,6 +40733,7 @@ def _aiem_paper_mark_to_market():
         print(f"[aiem_paper] mark-to-market error: {_e}")
 
 
+@app.route("/stock-api/paper-trades", methods=["GET"])
 @app.route("/stock-api/aiem-paper-portfolio", methods=["GET"])
 def aiem_paper_portfolio():
     """AIEM autonomous paper trading — full portfolio state."""
@@ -42423,7 +42425,7 @@ def bull_flow_history():
 
 # ── Net Equity Flow ──────────────────────────────────────────────────────────
 
-@app.route("/stock-api/net-flow", methods=["POST"])
+@app.route("/stock-api/net-flow", methods=["POST", "GET"])
 def net_flow_scan():
     """
     Scan tickers for today's net equity flow using intraday 1-min bars.
