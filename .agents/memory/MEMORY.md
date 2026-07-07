@@ -1,3 +1,4 @@
+- [AIEM feedback loop bug fixes session July 2026](aiem-feedback-loop-bugs.md) — 7 fixed (supervisor cols, retry, failure-gate, exec_ms, decision_log, bull_bear, candidate_count); items 6/7/11 proven at 4PM MTM
 - [AIEM Process alert system](aiem-process-alert-system.md) — threshold=50; S1b/S1c/S1d score 54-61%; gap_large tops out 48% (blocked); dedup via signal_fire_log DAILY_SUMMARY; Polygon snapshot 403s → Tradier fallback
 - [AIEM Process gap sweet spot](aiem-process-gap-sweetspot.md) — aiem_process.py isolated nano-cap scanner; S1b = 15-25% gap bonus (85% WR, picked from 4-tier backtest); own table aiem_process_predictions
 - [AIEM learning loop closure](aiem-learning-loop-closure.md) — drift gate (×0.35) + trust weights wired into picks; MTM writes EMA back; LRCX blocked July 7; verify_aiem_loop.py = verification script; steps 5-6 PARTIAL (correct — correction market)

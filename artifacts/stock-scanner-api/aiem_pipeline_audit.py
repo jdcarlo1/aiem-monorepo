@@ -89,13 +89,15 @@ class PipelineTrace:
     """
 
     def __init__(self, ticker: str, trace_id: str = None):
+        import time as _time_pa
         _today = datetime.date.today().strftime("%Y_%m_%d")
         _t = ticker.upper().strip()
-        self.ticker   = _t
-        self.trace_id = trace_id or (
+        self.ticker      = _t
+        self.trace_id    = trace_id or (
             f"aiem_{_today}_{_t}_{uuid.uuid4().hex[:6]}"
         )
-        self.steps: list = []
+        self.steps: list  = []
+        self._step_clock  = _time_pa.monotonic()
 
     def log_step(
         self,
@@ -113,6 +115,11 @@ class PipelineTrace:
         failure_reason: str     = None,
         exec_ms: float          = None,
     ) -> dict:
+        import time as _time_pa
+        _now = _time_pa.monotonic()
+        if exec_ms is None:
+            exec_ms = round((_now - self._step_clock) * 1000, 2)
+        self._step_clock = _now
         idx = (_MODULE_ORDER.index(module_name) + 1
                if module_name in _MODULE_ORDER else None)
         step = {

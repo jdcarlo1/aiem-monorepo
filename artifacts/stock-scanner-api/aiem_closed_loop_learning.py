@@ -117,6 +117,18 @@ CREATE TABLE IF NOT EXISTS rl_training_runs (
   reward_std              NUMERIC(10,4),
   notes                   TEXT
 );
+
+CREATE TABLE IF NOT EXISTS feedback_failure_log (
+  id             BIGSERIAL PRIMARY KEY,
+  occurred_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  step_name      TEXT,
+  ticker         TEXT,
+  trace_id       TEXT,
+  signal_source  TEXT,
+  error_message  TEXT,
+  escalated      BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS ffl_step_idx ON feedback_failure_log(step_name, occurred_at DESC);
 """
 
 _SEEDED = False
@@ -576,7 +588,18 @@ def log_learning_update_step(
         )
         trace.flush()
     except Exception as e:
-        print(f"[closed_loop] log_learning_update_step error (non-fatal): {e}")
+        _msg = f"[closed_loop] log_learning_update_step error: {e}"
+        print(_msg)
+        try:
+            with _conn(timeout=2) as _fc, _fc.cursor() as _fcu:
+                _fcu.execute(
+                    "INSERT INTO feedback_failure_log"
+                    " (step_name, ticker, trace_id, error_message, escalated)"
+                    " VALUES (%s, %s, %s, %s, TRUE)",
+                    ("learning_update_applied", ticker, trace_id, str(e)[:500]),
+                )
+        except Exception:
+            pass
 
 
 def log_future_decision_step(
@@ -615,7 +638,18 @@ def log_future_decision_step(
         )
         trace.flush()
     except Exception as e:
-        print(f"[closed_loop] log_future_decision_step error (non-fatal): {e}")
+        _msg = f"[closed_loop] log_future_decision_step error: {e}"
+        print(_msg)
+        try:
+            with _conn(timeout=2) as _fc, _fc.cursor() as _fcu:
+                _fcu.execute(
+                    "INSERT INTO feedback_failure_log"
+                    " (step_name, ticker, trace_id, error_message, escalated)"
+                    " VALUES (%s, %s, %s, %s, TRUE)",
+                    ("future_decision_effect_checked", ticker, trace_id, str(e)[:500]),
+                )
+        except Exception:
+            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

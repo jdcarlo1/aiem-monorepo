@@ -299,7 +299,7 @@ def supervisor_on_candidate_ranking(audit_trace_id, run_id=None, candidates=None
     Reads the table and verifies required scoring columns exist.
     """
     required_cols = [
-        "raw_score", "trust_mult", "drift_mult",
+        "raw_score", "trust_multiplier", "drift_multiplier",
         "rl_weight", "final_adjusted_score",
     ]
     try:
@@ -391,6 +391,29 @@ def supervisor_on_final_decision(audit_trace_id, ticker, trade_id=None,
         _upsert_loop_audit(audit_trace_id, ticker=ticker, trade_id=trade_id,
                            final_decision_seen=True)
 
+        # Wire aiem_decision_log write
+        try:
+            import datetime as _dt_dec
+            with psycopg2.connect(_DB_URL, connect_timeout=3) as _dc, _dc.cursor() as _dcu:
+                _dcu.execute("""
+                    INSERT INTO aiem_decision_log
+                        (ticker, trade_date, decision_type, decision_rationale,
+                         signal_source, confidence_score, final_decision,
+                         audit_trace_id, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                """, (
+                    ticker,
+                    _dt_dec.date.today(),
+                    "EXECUTE" if decision == "EXECUTE" else "SKIP",
+                    str(decision_reason or "")[:500],
+                    None,
+                    confidence_score,
+                    decision,
+                    audit_trace_id,
+                ))
+        except Exception as _dec_e:
+            print(f"[supervisor] decision_log write skipped: {_dec_e}")
+
         return {
             "verdict": verdict,
             "decision_authority": "AIEM",
@@ -414,23 +437,29 @@ def supervisor_on_paper_trade_opened(audit_trace_id, trade_id, ticker,
     """
     issues = []
     try:
-        with psycopg2.connect(_DB_URL, connect_timeout=3) as c, c.cursor() as cu:
-            cu.execute("""
-                SELECT audit_trace_id, signal_source, entry_price, status
-                FROM aiem_paper_trades WHERE id=%s
-            """, (trade_id,))
-            row = cu.fetchone()
-            if not row:
-                issues.append("TRADE_NOT_FOUND")
-            else:
-                if not row[0]:
-                    issues.append("MISSING_AUDIT_TRACE_ID")
-                elif row[0] != audit_trace_id:
-                    issues.append(f"TRACE_MISMATCH:expected={audit_trace_id},got={row[0]}")
-                if not row[1]:
-                    issues.append("MISSING_SIGNAL_SOURCE")
-                if row[3] != "OPEN":
-                    issues.append(f"UNEXPECTED_STATUS:{row[3]}")
+        row = None
+        for _attempt in range(3):
+            with psycopg2.connect(_DB_URL, connect_timeout=3) as c, c.cursor() as cu:
+                cu.execute("""
+                    SELECT audit_trace_id, signal_source, entry_price, status
+                    FROM aiem_paper_trades WHERE id=%s
+                """, (trade_id,))
+                row = cu.fetchone()
+            if row:
+                break
+            import time as _time_sup
+            _time_sup.sleep(0.6)
+        if not row:
+            issues.append("TRADE_NOT_FOUND")
+        else:
+            if not row[0]:
+                issues.append("MISSING_AUDIT_TRACE_ID")
+            elif row[0] != audit_trace_id:
+                issues.append(f"TRACE_MISMATCH:expected={audit_trace_id},got={row[0]}")
+            if not row[1]:
+                issues.append("MISSING_SIGNAL_SOURCE")
+            if row[3] != "OPEN":
+                issues.append(f"UNEXPECTED_STATUS:{row[3]}")
 
         verdict = "ALLOW_MONITOR_ONLY" if not issues else "FLAG_MONITOR_ONLY"
 

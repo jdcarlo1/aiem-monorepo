@@ -1,0 +1,110 @@
+# AIEM — Fix Everything Not Yet Verified — Strict Proof Required
+
+Rule for this whole task: **"fixed" is not a status. Proof is the status.**
+For every item below, do not report complete until you paste the raw evidence specified. If you cannot produce the raw evidence, say so explicitly — do not describe what the fix "should" do instead of showing what it did.
+
+Do not move to the next item until proof for the current one is pasted and verified.
+
+---
+
+## 1. Column name mismatch — CANDIDATE_RANKING check
+**Bug:** Supervisor queries `trust_mult` / `drift_mult`; actual columns are `trust_multiplier` / `drift_multiplier`. Reports 0 candidates every run despite 258 rows existing.
+
+**Fix:** Update the supervisor's query to use the correct column names.
+
+**Proof required:** Run the corrected query against `aiem_candidate_rankings` right now. Paste the raw SQL output showing `candidate_count > 0`, plus the actual row count returned. No summaries — the query result itself.
+
+---
+
+## 2. PAPER_TRADE_OPENED timing race (TRADE_NOT_FOUND)
+**Bug:** Supervisor queries the paper trades table immediately after insert; row isn't visible yet (connection isolation timing issue). Shows `"issues": ["TRADE_NOT_FOUND"]` on every trade, 5/5 today.
+
+**Fix:** Correct the race condition — same-transaction read, commit-then-requery, retry/backoff, or whatever is the right pattern for this stack.
+
+**Proof required:** Trigger a real or test trade open. Paste the actual PAPER_TRADE_OPENED event log line (with timestamp) showing `issues: []`. Raw log row, not a description.
+
+---
+
+## 3. No silent-failure gate
+**Bug:** Failures are caught in try/except and treated as non-fatal. Nothing blocks or escalates when a check silently fails.
+
+**Fix:** Add a hard gate — a caught exception in a check must escalate (block the pipeline step, fire an ALERT, or halt).
+
+**Proof required:** Force one of these checks to fail on purpose (bad input, mock exception, etc.). Paste the log/output showing the gate actually tripped — not the code that theoretically would trip it.
+
+---
+
+## 4. execution_time_ms — NULL on all rows
+**Bug:** Field exists in schema, never populated.
+
+**Fix:** Wire the actual timing capture into whatever writes this field.
+
+**Proof required:** Paste a raw SQL query result showing at least one recent row with `execution_time_ms` populated with a real, non-null number.
+
+---
+
+## 5. aiem_decision_log — table does not exist
+**Bug:** Relation does not exist; referenced but never created.
+
+**Fix:** Create the table (or confirm/point to the correct existing table if this was a naming mismatch rather than a missing table).
+
+**Proof required:** Paste the raw output of a query against the table (e.g. `SELECT COUNT(*) FROM aiem_decision_log;`) showing it exists and returns a row count — not just a "table created" claim.
+
+---
+
+## 6. signal_trust_history — only test rows
+**Bug:** Only 3 SMTEST rows exist; not updated by live/production trades.
+
+**Fix:** Wire this table to update from real trade outcomes.
+
+**Proof required:** Paste raw SQL output showing at least one row in this table tied to a real (non-SMTEST) trade ID, with a timestamp after today's live trading.
+
+---
+
+## 7. aiem_paper_thompson_history — only test rows
+**Bug:** Same issue — only 3 SMTEST rows, no live data.
+
+**Fix:** Wire this table to update from real trade outcomes.
+
+**Proof required:** Same as above — raw SQL output showing a real trade-linked row, post-live-trading timestamp.
+
+---
+
+## 8. Step 3 — Hypothesis generation not implemented per-trade
+**Bug:** `bull_bear=N/A` in audit row; not running per trade.
+
+**Fix:** Wire hypothesis generation to run per trade as designed.
+
+**Proof required:** Paste the audit row for a real trade showing a populated (non-N/A) hypothesis/bull_bear value, with a trace_id or timestamp linking it to that specific trade.
+
+---
+
+## 9. Step 4 — Multi-agent debate not implemented per-trade
+**Bug:** Same `bull_bear=N/A` pattern; not running per trade.
+
+**Fix:** Wire multi-agent debate to run per trade.
+
+**Proof required:** Paste the audit row for a real trade showing a populated debate outcome, with trace_id/timestamp linking it to that trade.
+
+---
+
+## 10. Step 9 — Notification not firing
+**Bug:** MONITOR_ONLY mode; Telegram alerting was removed. Not firing.
+
+**Fix:** Either restore working notification delivery, or explicitly confirm (with a stated reason) that notifications are intentionally disabled — do not leave this ambiguous.
+
+**Proof required:** If fixed: paste the actual delivered notification (message content + delivery confirmation/timestamp) from a real trigger. If intentionally disabled: state that explicitly as a design decision, not as an unverified gap.
+
+---
+
+## 11. Step 8 — RL update for today's QQQ trade (currently Pending)
+**Status:** Trade is OPEN; MTM hasn't run yet, so this can't be proven until close.
+
+**Action required:** Do NOT mark this complete today. Once MTM runs at 4PM ET and the trade closes, paste the raw RL buffer row showing the reward value and updated weights for this specific trade.
+
+---
+
+## Standing rule for all items above
+- No item is "done" without the raw evidence specified (SQL output, log line, terminal output) — screenshots of dashboards, prose summaries, or "should work now" statements do not count.
+- If a claimed fix can't be proven right now (e.g., depends on market hours, a scheduled job, or an open trade), say so explicitly and state when it *can* be proven — don't mark it resolved in the meantime.
+- If you find that what looked like a "fix" doesn't actually work when tested, report that as a finding, not a success.
