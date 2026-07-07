@@ -2857,7 +2857,7 @@ def _run_conviction_eval_log_job() -> dict:
     Called daily at 4:35 PM ET Mon-Fri. UNIQUE(eval_date, ticker) = idempotent.
     Builds the forward-looking training corpus for shadow learning (item 5).
     """
-    import psycopg2 as _pg2
+    import psycopg2 as _pg2, json as _json
     from datetime import datetime as _dt
     try:
         today = _dt.now(_ET_TZ).date()
@@ -2872,8 +2872,8 @@ def _run_conviction_eval_log_job() -> dict:
                 float(r.get("total_pts", 0) or 0),
                 float(r.get("regime_adjusted_pts", 0) or 0),
                 r.get("meta", {}).get("regime_recommendation", "unknown"),
-                json.dumps(r.get("layers", {})),
-                json.dumps(r.get("meta", {})),
+                _json.dumps(r.get("layers", {})),
+                _json.dumps(r.get("meta", {})),
             ))
         with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.executemany(
