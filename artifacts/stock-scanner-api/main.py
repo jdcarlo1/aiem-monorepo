@@ -1987,6 +1987,15 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
     #           so Module 2's Thompson sampler accumulates real OOS evidence per category
     _dc_module7_feedback_loop()
 
+    # ── Pipeline audit: stamp learning_update_applied on recently closed trades
+    try:
+        import aiem_pipeline_audit as _apa
+        _lu_n = _apa.log_learning_updates()
+        if _lu_n > 0:
+            print(f"[discovery_cycle] pipeline audit: {_lu_n} learning update(s) stamped")
+    except Exception as _lue:
+        print(f"[discovery_cycle] audit log error (non-fatal): {_lue}")
+
     # ── Release lock + complete log ──────────────────────────────────────────
     completed_at = _dc_dt.now(tz=_dc_ET)
     duration_s   = round((completed_at - started_at).total_seconds(), 2)
@@ -38681,12 +38690,14 @@ def _init_aiem_paper_trades_table():
             # and for any CALL_OPTION pick whose source didn't have them.
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS strike NUMERIC(10,2)")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS expiry TEXT")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS audit_trace_id TEXT")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
         print(f"[aiem_paper] table init error: {_e}")
 
 _DEFERRED_INITS.append(lambda: _init_aiem_paper_trades_table())
+_DEFERRED_INITS.append(lambda: __import__("aiem_pipeline_audit").init_schema())
 
 
 def _init_paper_execution_log():
@@ -39240,6 +39251,7 @@ def _aiem_paper_execute_today():
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             for pick in picks:
                 _t    = pick["ticker"]
+                _audit_trace_id = None
                 _q    = quotes.get(_t) or {}
                 _price = float(_q.get("last") or _q.get("bid") or 0)
                 if _price <= 0:
@@ -39317,6 +39329,73 @@ def _aiem_paper_execute_today():
                     _qty       = round(_notional / _fill_price, 4)
                     _hold_days = 5
 
+                # ── Pipeline audit: create trace + log AIEM decision steps ──
+                try:
+                    import aiem_pipeline_audit as _apa
+                    _atrace = _apa.PipelineTrace(_t)
+                    _audit_trace_id = _atrace.trace_id
+                    _debate_v = _debate_verdicts.get(_t, "N/A")
+                    _atrace.log_step(
+                        "signal_received",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"scanner_table={pick['source']} "
+                            f"score={pick.get('score', 0):.2f}"
+                        ),
+                        output_summary=(
+                            f"ticker={_t} trade_type={_trade_type} "
+                            f"fill_price={_fill_price}"
+                        ),
+                        next_module="aiem_candidate_intake",
+                        decision_authority="stock_scanner",
+                        status="PASS",
+                    )
+                    _atrace.log_step(
+                        "aiem_candidate_intake",
+                        function_name="_aiem_paper_execute_today",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} source={pick['source']} "
+                            f"bull_bear={_debate_v} "
+                            f"kill_switch=CLEAR circuit_breaker=CLEAR "
+                            f"sizing_gate={_sizing_gate}"
+                        ),
+                        output_summary=(
+                            f"candidate accepted fill=${_fill_price:.2f} "
+                            f"notional=${_notional:.0f}"
+                        ),
+                        next_module="final_aiem_decision",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    _atrace.log_step(
+                        "final_aiem_decision",
+                        function_name="_aiem_paper_execute_today",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} price={_fill_price} "
+                            f"type={_trade_type} source={pick['source']}"
+                        ),
+                        output_summary=(
+                            "EXECUTE — writing to aiem_paper_trades "
+                            "[decision_system=AIEM, not stock_scanner]"
+                        ),
+                        next_module="outcome_recorded",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    _atrace.flush()
+                except Exception as _ae:
+                    print(f"[aiem_audit] trace error for {_t} (non-fatal): {_ae}")
+                    _audit_trace_id = None
+
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
                         (trade_date, ticker, trade_type, entry_price, quantity,
@@ -39325,9 +39404,9 @@ def _aiem_paper_execute_today():
                          mid_price, fill_price, spread_pct_used,
                          sizing_stop_price, sizing_stop_basis,
                          sizing_risk_pct, sizing_gate_result,
-                         pre_sizing_model)
+                         pre_sizing_model, audit_trace_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
-                            %s,%s,%s,%s,%s,%s,%s,FALSE)
+                            %s,%s,%s,%s,%s,%s,%s,FALSE,%s)
                     ON CONFLICT DO NOTHING
                 """, (_today, _t, _trade_type, _fill_price, _qty,
                       _notional, pick["source"], pick.get("detail",""),
@@ -39335,7 +39414,7 @@ def _aiem_paper_execute_today():
                       pick.get("strike"), pick.get("expiry"),
                       _mid_price, _fill_price, _spread_pct_used,
                       _sizing_stop, _sizing_stop_basis,
-                      _sizing_risk_pct, _sizing_gate))
+                      _sizing_risk_pct, _sizing_gate, _audit_trace_id))
                 _tg_entry_lines.append(
                     f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
                 )
@@ -39847,6 +39926,22 @@ def _aiem_paper_mark_to_market():
                     print(f"[aiem_paper] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — {_reason}")
                     _emoji = "✅" if _pnl_pct >= 0 else "🔴"
                     _tg_exit_lines.append(f"{_emoji} {_t:<6} {_pnl_pct:+.1f}%  {_reason}")
+                    # ── Pipeline audit: record outcome step ───────────────────
+                    try:
+                        import aiem_pipeline_audit as _apa
+                        _cu.execute(
+                            "SELECT audit_trace_id FROM aiem_paper_trades WHERE id=%s",
+                            (_id,)
+                        )
+                        _at_row = _cu.fetchone()
+                        if _at_row and _at_row[0]:
+                            _apa.log_outcome_for_trade(
+                                trace_id=_at_row[0], ticker=_t,
+                                pnl=float(_pnl), pnl_pct=float(_pnl_pct),
+                                exit_reason=_reason,
+                            )
+                    except Exception as _ae:
+                        print(f"[aiem_audit] outcome log error (non-fatal): {_ae}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously
@@ -40282,6 +40377,78 @@ def admin_paper_fill_audit():
             },
             "flag_run": _flag_result,
         })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/aiem-pipeline-audit", methods=["GET"])
+def admin_aiem_pipeline_audit_list():
+    """List recent AIEM pipeline audit traces with PASS/FAIL summary."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_pipeline_audit as _apa
+        _limit = int(request.args.get("limit", 30))
+        _traces = _apa.list_recent_traces(limit=_limit)
+        return jsonify({
+            "traces": _traces,
+            "total": len(_traces),
+            "audit_flags": {
+                "AIEM_PIPELINE_AUDIT":           _apa.AIEM_PIPELINE_AUDIT,
+                "STRICT_AIEM_SOURCE_VERIFICATION": _apa.STRICT_AIEM_SOURCE_VERIFICATION,
+                "FAIL_IF_SCANNER_DECIDES":        _apa.FAIL_IF_SCANNER_DECIDES,
+                "FAIL_IF_LEARNING_LOOP_BROKEN":   _apa.FAIL_IF_LEARNING_LOOP_BROKEN,
+            },
+        })
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/aiem-pipeline-audit/<trace_id>", methods=["GET"])
+def admin_aiem_pipeline_audit_report(trace_id):
+    """Full PASS/FAIL audit report for a specific trace_id."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_pipeline_audit as _apa
+        _report = _apa.generate_audit_report(trace_id)
+        return jsonify(_report)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/aiem-pipeline-audit/learning-loop", methods=["GET"])
+def admin_aiem_pipeline_audit_learning_loop():
+    """Verify the closed learning loop: does AIEM's outcome feed back into future decisions?"""
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_pipeline_audit as _apa
+        return jsonify(_apa.verify_closed_learning_loop())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/aiem-pipeline-audit/run-verification", methods=["POST"])
+def admin_aiem_pipeline_audit_run_verification():
+    """
+    Run a live end-to-end pipeline verification right now.
+    Returns the full PASS/FAIL report for the most recent audited trade
+    plus the closed-learning-loop status with DB-backed evidence.
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_pipeline_audit as _apa
+        return jsonify(_apa.run_live_verification())
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 

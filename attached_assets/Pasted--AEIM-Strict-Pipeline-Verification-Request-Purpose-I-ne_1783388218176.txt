@@ -1,0 +1,241 @@
+# AEIM Strict Pipeline Verification Request
+
+## Purpose
+
+I need strict proof that my **AEIM autonomous AI agent** is the system making and improving decisions — not my stock scanner, stock skin, dashboard, or website signal scanner.
+
+The goal is to verify that every stock candidate sent to AEIM goes through the full adaptive discovery, decision, and learning process, and that AEIM can prove it is learning from past outcomes.
+
+---
+
+## Core Requirement
+
+Please add a strict verification/audit layer that proves the following:
+
+1. The stock scanner only sends candidates or signals.
+2. AEIM receives those candidates.
+3. AEIM independently processes every stock through its adaptive modules.
+4. AEIM makes the final decision or recommendation.
+5. AEIM records the outcome.
+6. AEIM feeds that outcome back into future learning.
+7. The proof must show this came from AEIM, not the stock scanner or website scanner.
+
+---
+
+## Required Identity Separation
+
+Every trace must clearly label the source system:
+
+- `source_system`: where the stock candidate came from
+- `processing_system`: the system doing the analysis
+- `decision_system`: the system that made the final decision
+- `learning_system`: the system that stored and learned from the result
+
+Expected result:
+
+source_system = stock_scanner
+processing_system = AEIM
+decision_system = AEIM
+learning_system = AEIM
+
+If the stock scanner, website, or stock scanner UI makes the final decision, the verification must fail.
+
+---
+
+## Pipeline Modules to Verify
+
+For every stock candidate, verify this complete AEIM process:
+
+1. Signal Received From Scanner
+2. AEIM Candidate Intake
+3. Outcome Tracker
+4. Decay & Failure Analyzer
+5. Hypothesis Promotion Evaluator
+6. Adversarial Critique
+7. Pattern Discovery Engine
+8. Rediscovery / Variation Generator
+9. Feedback Loop
+10. Notifications
+11. Final AEIM Decision
+12. Outcome Recorded
+13. Learning Update Applied To Future Decisions
+
+---
+
+## Required Trace Fields
+
+Every stock must receive a unique `trace_id`.
+
+Each module must log:
+
+- trace_id
+- ticker
+- timestamp
+- source_system
+- processing_system
+- module_name
+- function_name
+- file_name
+- input_summary
+- output_summary
+- execution_time_ms
+- next_module_called
+- decision_authority
+- learning_update_created
+- status (PASS / FAIL)
+
+---
+
+## Strict Failure Conditions
+
+The verification must fail if:
+
+- AEIM does not receive the candidate.
+- Any required AEIM module is skipped.
+- Modules execute out of order.
+- Any module is dormant or disconnected.
+- The scanner makes the final decision.
+- A final decision is created before the AEIM pipeline completes.
+- Outcome tracking is missing.
+- Results do not feed back into future learning.
+- There is no proof that past mistakes affect future decisions.
+- The trace cannot identify the exact file and function used.
+
+---
+
+## Required Audit Mode
+
+```python
+AEIM_PIPELINE_AUDIT = True
+STRICT_AEIM_SOURCE_VERIFICATION = True
+FAIL_IF_SCANNER_DECIDES = True
+FAIL_IF_LEARNING_LOOP_BROKEN = True
+```
+
+When enabled, the system must:
+
+- Track every stock from scanner handoff to AEIM final decision.
+- Verify every AEIM module executes.
+- Verify execution order.
+- Verify AEIM is the decision maker.
+- Verify AEIM stores the outcome.
+- Verify AEIM uses prior outcomes in future analysis.
+- Save a complete audit trail to the database or a report file.
+
+---
+
+## Required Output Report
+
+Example:
+
+```
+Ticker: NVDA
+Trace ID: aeim_2026_07_06_NVDA_001
+
+Source System: stock_scanner
+Processing System: AEIM
+Decision System: AEIM
+Learning System: AEIM
+
+1. Signal Received From Scanner: PASS
+2. AEIM Candidate Intake: PASS
+3. Outcome Tracker: PASS
+4. Decay & Failure Analyzer: PASS
+5. Hypothesis Promotion Evaluator: PASS
+6. Adversarial Critique: PASS
+7. Pattern Discovery Engine: PASS
+8. Rediscovery / Variation Generator: PASS
+9. Feedback Loop: PASS
+10. Notifications: PASS
+11. Final AEIM Decision: PASS
+12. Outcome Recorded: PASS
+13. Learning Update Applied: PASS
+
+Pipeline Integrity: PASS
+AEIM Decision Proof: PASS
+Scanner Decision Detected: NO
+Learning Loop Verified: YES
+```
+
+If verification fails:
+
+```
+Ticker: AMD
+Trace ID: aeim_2026_07_06_AMD_002
+
+Pipeline Integrity: FAIL
+Failure Point: Rediscovery / Variation Generator
+Reason: No handoff from Pattern Discovery Engine
+
+Decision System: unknown
+Scanner Decision Detected: possible
+Learning Loop Verified: NO
+
+Required Fix:
+
+Connect Pattern Discovery Engine output to Rediscovery / Variation Generator input.
+
+File:
+[exact file name]
+
+Function:
+[exact function name]
+```
+
+---
+
+## Proof That AEIM Learns From Mistakes
+
+Verify the complete closed learning loop:
+
+```
+AEIM decision
+→ market outcome
+→ outcome tracker
+→ failure / decay analysis
+→ updated hypothesis weights
+→ future AEIM decision
+```
+
+For every incorrect prediction show:
+
+- What AEIM predicted
+- What actually happened
+- Which module detected the mistake
+- What AEIM changed because of the mistake
+- Whether that change affected future decisions
+- The exact database row, file, or model weight that changed
+
+If AEIM only records mistakes but does not use them for future decisions:
+
+```
+Learning Loop Status: INCOMPLETE
+```
+
+---
+
+## Final Questions To Answer
+
+1. Is AEIM truly making the final decision, or is the stock scanner doing it?
+2. Does every stock candidate pass through the complete AEIM adaptive module chain?
+3. Are all adaptive discovery modules active and connected?
+4. Does AEIM learn from wrong decisions and change future behavior?
+5. Where exactly does the process break, if anywhere?
+6. Which files and functions prove this?
+7. Can you provide one real execution trace from a stock candidate?
+
+---
+
+## Minimum Acceptable Proof
+
+Do not provide a general explanation.
+
+Provide evidence directly from the code including:
+
+- exact file names
+- exact function names
+- execution trace logs
+- database rows or saved audit reports
+- PASS / FAIL for every module
+- proof that AEIM (not the scanner) made the final decision
+- proof that outcomes feed back into future AEIM decisions

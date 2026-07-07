@@ -143,3 +143,4 @@
 - [Verification script pattern](verification-script-pattern.md) — "verification code" from this user means a standalone falsification-resistant shell script (real-time anchors + DB + log cross-checks), not an OTP
 - [Washout quality gates + July verdict](washout-quality-gates.md) — 6 gates spec; July shows 54.8% WR (1 year of data only, not added to _BAD_MONTHS)
 - [Backtest delegation rule](backtest-delegation-rule.md) — ALL backtesting/historical analysis must go to AIEM, never run by main agent; only file edits stay with main agent
+- [AIEM Pipeline Audit Layer](aiem-pipeline-audit.md) — cryptographic trace per paper trade; 4 admin endpoints; 13-module PASS/FAIL; learning loop has 8 stages (4 currently INCOMPLETE = honest)
