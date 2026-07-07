@@ -1,0 +1,628 @@
+# AEIM_MASTER_ARCHITECTURE_v3_COMPLETE.md
+
+# PART 4 OF 8
+
+## TECHNICAL INTELLIGENCE ENGINE
+### Trend Integrity
+### Leadership Rotation
+### Multi-Timeframe Analysis
+### Oversold Bounce Intelligence
+### Technical Confidence Engine
+
+Version 3.0
+
+====================================================================
+
+# PURPOSE
+
+The Technical Intelligence Engine determines
+whether a stock deserves further consideration.
+
+This engine answers one question:
+
+"Is this stock technically healthy?"
+
+NOT
+
+"Should I buy it?"
+
+Buying decisions belong to the Master Decision Engine.
+
+Technical Intelligence supplies evidence.
+
+====================================================================
+
+# PRIMARY OBJECTIVE
+
+AEIM must distinguish between
+
+Healthy Pullback
+
+and
+
+Structural Breakdown.
+
+This distinction is critical.
+
+Buying healthy weakness is profitable.
+
+Buying structural failure is dangerous.
+
+====================================================================
+
+# EXECUTION ORDER
+
+Macro Intelligence Complete
+
+↓
+
+Trend Integrity
+
+↓
+
+Relative Strength
+
+↓
+
+Leadership Analysis
+
+↓
+
+Volume Analysis
+
+↓
+
+Momentum Analysis
+
+↓
+
+Pattern Recognition
+
+↓
+
+Oversold Bounce
+
+↓
+
+Technical Confidence
+
+↓
+
+Master Decision
+
+====================================================================
+
+# TREND INTEGRITY ENGINE
+
+Every stock receives
+
+Trend Integrity Score
+
+0-100
+
+Questions
+
+Is trend rising?
+
+Is trend weakening?
+
+Is trend accelerating?
+
+Is trend flattening?
+
+Has structure changed?
+
+====================================================================
+
+# MOVING AVERAGES
+
+Evaluate
+
+20 EMA
+
+50 EMA
+
+100 EMA
+
+150 EMA
+
+200 EMA
+
+Questions
+
+Price above?
+
+Price below?
+
+Slope rising?
+
+Slope falling?
+
+Distance from each average?
+
+====================================================================
+
+# IMPORTANT RULE
+
+One moving average
+
+does NOT determine
+
+trend integrity.
+
+Trend Integrity requires
+
+multiple independent confirmations.
+
+====================================================================
+
+# TREND STRUCTURE
+
+Evaluate
+
+Higher Highs
+
+Higher Lows
+
+Lower Highs
+
+Lower Lows
+
+Trendlines
+
+Support
+
+Resistance
+
+Swing Structure
+
+====================================================================
+
+# RELATIVE STRENGTH ENGINE
+
+Compare against
+
+SPY
+
+Sector ETF
+
+Industry
+
+Questions
+
+Outperforming?
+
+Underperforming?
+
+Leading?
+
+Lagging?
+
+Healthy relative strength
+improves confidence.
+
+====================================================================
+
+# MOMENTUM ENGINE
+
+Evaluate
+
+MACD
+
+RSI
+
+Momentum Slope
+
+Acceleration
+
+Deceleration
+
+Momentum Duration
+
+Momentum Persistence
+
+Momentum confirms trend.
+
+====================================================================
+
+# MULTI-TIMEFRAME ANALYSIS
+
+Evaluate
+
+5 Minute
+
+15 Minute
+
+30 Minute
+
+1 Hour
+
+4 Hour
+
+Daily
+
+Weekly
+
+Monthly
+
+Alignment across timeframes
+creates stronger evidence.
+
+====================================================================
+
+# LEADERSHIP ROTATION
+
+Every stock belongs to
+
+Sector
+
+Industry
+
+Leadership Group
+
+Questions
+
+Is leadership expanding?
+
+Is leadership weakening?
+
+Has institutional money rotated away?
+
+Is this group still leading?
+
+====================================================================
+
+# VOLUME ANALYSIS
+
+Evaluate
+
+Average Volume
+
+Relative Volume
+
+Buying Volume
+
+Selling Volume
+
+Volume Trend
+
+Accumulation
+
+Distribution
+
+Heavy volume must be interpreted
+within context.
+
+====================================================================
+
+# INSTITUTIONAL FOOTPRINT
+
+Estimate
+
+Institutional Accumulation
+
+Institutional Distribution
+
+Support Defense
+
+Selling Pressure
+
+Persistent Buying
+
+Persistent Selling
+
+No assumptions.
+
+Evidence only.
+
+====================================================================
+
+# PATTERN RECOGNITION
+
+Detect
+
+Breakouts
+
+False Breakouts
+
+Pullbacks
+
+Bull Flags
+
+Bases
+
+Consolidations
+
+Trend Continuations
+
+Trend Reversals
+
+Support Tests
+
+Resistance Tests
+
+Patterns increase evidence.
+
+They never replace evidence.
+
+====================================================================
+
+# OVERSOLD BOUNCE ENGINE
+
+Purpose
+
+Find quality opportunities
+
+during temporary weakness.
+
+Absolute Rule
+
+Oversold
+
+does NOT automatically
+
+mean BUY.
+
+Instead ask
+
+Oversold
+
+inside
+
+healthy trend?
+
+or
+
+oversold
+
+inside
+
+broken trend?
+
+====================================================================
+
+# HIGH QUALITY PULLBACK
+
+Characteristics
+
+Trend intact
+
+Above long-term averages
+
+Healthy leadership
+
+Strong relative strength
+
+Temporary selling
+
+Institutional support
+
+Macro explains weakness
+
+Support holding
+
+These become
+
+high-quality tactical opportunities.
+
+====================================================================
+
+# FALLING KNIFE DETECTION
+
+Warning Signs
+
+Multiple lower highs
+
+Multiple lower lows
+
+Heavy distribution
+
+Weak relative strength
+
+Sector failure
+
+Leadership failure
+
+Broken support
+
+Long-term trend deterioration
+
+Institutional selling
+
+Require multiple confirmations.
+
+====================================================================
+
+# TECHNICAL CONFIDENCE
+
+Combine
+
+Trend
+
+Momentum
+
+Leadership
+
+Volume
+
+Relative Strength
+
+Pattern Recognition
+
+Institutional Footprint
+
+Support
+
+Resistance
+
+Oversold Bounce
+
+Final Output
+
+Technical Confidence Score
+
+====================================================================
+
+# TECHNICAL SCORE
+
+100
+
+Exceptional
+
+90
+
+Elite
+
+80
+
+Strong
+
+70
+
+Healthy
+
+60
+
+Constructive
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Danger
+
+10
+
+Reject
+
+====================================================================
+
+# DAILY QUESTIONS
+
+Every stock should answer
+
+Am I still trending?
+
+Am I weakening?
+
+Am I leading?
+
+Am I lagging?
+
+Am I under accumulation?
+
+Am I under distribution?
+
+Is today's weakness healthy?
+
+Would institutions likely buy this pullback?
+
+====================================================================
+
+# TECHNICAL MEMORY
+
+Store
+
+Trend Score
+
+Momentum Score
+
+Leadership Score
+
+Relative Strength
+
+Pattern Score
+
+Volume Score
+
+Technical Confidence
+
+Future Performance
+
+Everything becomes training data.
+
+====================================================================
+
+# SELF-IMPROVEMENT
+
+Every month evaluate
+
+Which technical signals
+produced successful trades?
+
+Which produced false signals?
+
+Should evidence weights change?
+
+Should confirmation requirements change?
+
+Should confidence calibration change?
+
+====================================================================
+
+# STRICT VERIFICATION
+
+Before candidate reaches
+Decision Intelligence
+
+verify
+
+✓ Trend Integrity complete
+
+✓ Relative Strength complete
+
+✓ Leadership complete
+
+✓ Momentum complete
+
+✓ Volume complete
+
+✓ Institutional Footprint complete
+
+✓ Pattern Recognition complete
+
+✓ Oversold Bounce complete
+
+✓ Technical Confidence assigned
+
+✓ Technical Memory updated
+
+Failure
+
+Technical Status = FAILED
+
+Candidate blocked.
+
+====================================================================
+
+# END OF PART 4 OF 8
+
+NEXT
+
+PART 5
+
+DECISION INTELLIGENCE ENGINE
+
+• Strategy Council
+
+• Evidence Arbitration
+
+• Master Decision Orchestrator
+
+• Risk Intelligence
+
+• Portfolio Intelligence
+
+• Position Sizing
+
+• Trade Authorization

@@ -1,0 +1,670 @@
+# AEIM_MASTER_ARCHITECTURE_v3_COMPLETE.md
+
+# PART 3 OF 8
+
+## MACRO INTELLIGENCE ENGINE
+### Market Survival Engine
+### Market Regime Recognition
+### Sector Rotation Intelligence
+
+Version 3.0
+
+====================================================================
+
+# PURPOSE
+
+The Macro Intelligence Engine determines
+the environment in which every decision
+is made.
+
+No stock should ever be analyzed
+without first understanding
+the market surrounding it.
+
+The market provides context.
+
+Context changes probability.
+
+====================================================================
+
+# PRIMARY OBJECTIVE
+
+Before evaluating any stock,
+AEIM must answer:
+
+What kind of market am I trading today?
+
+This question is mandatory.
+
+====================================================================
+
+# MACRO EXECUTION ORDER
+
+Polygon Universe
+
+↓
+
+Market Environment
+
+↓
+
+Macro Context
+
+↓
+
+Market Survival
+
+↓
+
+Broad Index Analysis
+
+↓
+
+Market Breadth
+
+↓
+
+Sector Rotation
+
+↓
+
+Industry Rotation
+
+↓
+
+Market Regime
+
+↓
+
+Macro Score
+
+↓
+
+Candidate Evaluation
+
+No candidate bypasses this sequence.
+
+====================================================================
+
+# BROAD MARKET ENGINE
+
+AEIM must monitor every session:
+
+SPY
+
+QQQ
+
+DIA
+
+IWM
+
+VIX
+
+DXY
+
+10-Year Treasury Yield
+
+Advance/Decline Line
+
+New Highs
+
+New Lows
+
+NYSE Breadth
+
+NASDAQ Breadth
+
+Sector Performance
+
+Industry Performance
+
+Market Volume
+
+====================================================================
+
+# MARKET SURVIVAL ENGINE
+
+The Market Survival Engine determines
+whether the market is becoming safer
+or more dangerous.
+
+Possible classifications:
+
+Strong Bull
+
+Bull
+
+Constructive
+
+Correction
+
+High Volatility
+
+Risk-Off
+
+Bear
+
+Panic
+
+Forced Liquidation
+
+Recovery
+
+Transition
+
+This classification influences
+every later decision.
+
+====================================================================
+
+# MARKET REGIME DETECTION
+
+AEIM should identify:
+
+Trending Bull
+
+Trending Bear
+
+Range Bound
+
+High Volatility
+
+Low Volatility
+
+Sector Rotation
+
+Recovery
+
+Distribution
+
+Accumulation
+
+Transition
+
+No regime assumptions.
+
+Evidence only.
+
+====================================================================
+
+# MACRO QUESTIONS
+
+Every evaluation must answer:
+
+Is the market healthy?
+
+Is volatility increasing?
+
+Are institutions buying?
+
+Are institutions selling?
+
+Is breadth expanding?
+
+Is breadth narrowing?
+
+Are defensive sectors leading?
+
+Are growth sectors leading?
+
+Are small caps participating?
+
+Is leadership narrowing?
+
+====================================================================
+
+# INDEX INTERPRETATION
+
+Example
+
+SPY Positive
+
+QQQ Positive
+
+IWM Positive
+
+DIA Positive
+
+Interpretation
+
+Broad participation.
+
+Healthy market.
+
+Normal risk.
+
+------------------------------------------------------------
+
+Example
+
+QQQ Strong
+
+SPY Flat
+
+IWM Weak
+
+DIA Weak
+
+Interpretation
+
+Leadership narrowing.
+
+Institutional concentration.
+
+Reduce confidence slightly.
+
+------------------------------------------------------------
+
+Example
+
+SPY Negative
+
+QQQ Negative
+
+DIA Negative
+
+IWM Negative
+
+VIX Rising
+
+Interpretation
+
+Broad market liquidation.
+
+Increase evidence threshold.
+
+Reduce position size.
+
+Search for only exceptional opportunities.
+
+====================================================================
+
+# IMPORTANT RULE
+
+A weak market
+
+does NOT automatically mean
+
+"No trades."
+
+Instead ask
+
+Has today's weakness created
+an unusually attractive opportunity?
+
+====================================================================
+
+# TACTICAL DIP-BUY LOGIC
+
+When the market sells off,
+AEIM should actively search for:
+
+Strong trends
+
+Strong sectors
+
+Strong industries
+
+Healthy leadership
+
+Temporary fear
+
+Oversold pullbacks
+
+Institutional support
+
+Strong relative strength
+
+These may become high-quality
+tactical opportunities.
+
+====================================================================
+
+# TREND INTEGRITY INSIDE MACRO
+
+Before buying weakness,
+AEIM must verify:
+
+Trend still healthy?
+
+Higher highs intact?
+
+Higher lows intact?
+
+Above major moving averages?
+
+Leadership maintained?
+
+Relative strength healthy?
+
+Sector still leading?
+
+If YES
+
+Weakness may simply be
+a correction.
+
+====================================================================
+
+# STRUCTURAL BREAKDOWN DETECTION
+
+Do NOT confuse
+
+Correction
+
+with
+
+Breakdown.
+
+Structural deterioration usually requires:
+
+Multiple lower highs
+
+Multiple lower lows
+
+Relative weakness
+
+Leadership failure
+
+Distribution
+
+Long-term trend deterioration
+
+Heavy institutional selling
+
+Require multiple confirmations.
+
+====================================================================
+
+# SECTOR ROTATION ENGINE
+
+Every day rank sectors.
+
+Technology
+
+Semiconductors
+
+Artificial Intelligence
+
+Software
+
+Cybersecurity
+
+Financials
+
+Healthcare
+
+Biotechnology
+
+Industrials
+
+Energy
+
+Utilities
+
+Materials
+
+Consumer Discretionary
+
+Consumer Staples
+
+Real Estate
+
+Communication Services
+
+Transportation
+
+====================================================================
+
+# INDUSTRY ROTATION
+
+Inside every sector
+
+identify
+
+which industries
+
+are strengthening
+
+and
+
+which industries
+
+are weakening.
+
+Money rotates continuously.
+
+AEIM must rotate with it.
+
+====================================================================
+
+# LEADERSHIP DETECTION
+
+Questions
+
+Which sectors lead?
+
+Which industries lead?
+
+Which stocks lead?
+
+Has leadership changed?
+
+Has leadership narrowed?
+
+Has leadership expanded?
+
+Leadership influences confidence.
+
+====================================================================
+
+# MACRO SCORE
+
+Every market receives
+
+Macro Score
+
+100
+
+Exceptional
+
+90
+
+Strong Bull
+
+80
+
+Healthy
+
+70
+
+Constructive
+
+60
+
+Neutral
+
+50
+
+Mixed
+
+40
+
+Weak
+
+30
+
+Risk-Off
+
+20
+
+Hostile
+
+10
+
+Panic
+
+====================================================================
+
+# MACRO ADJUSTMENT
+
+Macro modifies
+
+Confidence
+
+Risk
+
+Position Size
+
+It does NOT automatically
+approve or reject trades.
+
+Example
+
+Excellent stock
+
+Weak macro
+
+Result
+
+Smaller position.
+
+Additional confirmation.
+
+Not automatic rejection.
+
+====================================================================
+
+# MACRO MEMORY
+
+Store daily:
+
+Macro Score
+
+Market Regime
+
+Breadth
+
+Leadership
+
+Sector Rankings
+
+Industry Rankings
+
+Volatility
+
+Index Performance
+
+Institutional Participation
+
+This becomes historical memory.
+
+====================================================================
+
+# DAILY COMPARISON
+
+Every morning compare
+
+Today
+
+Yesterday
+
+Last Week
+
+Last Month
+
+Previous Corrections
+
+Previous Bear Markets
+
+Previous Recoveries
+
+Ask
+
+Have I seen this before?
+
+What happened next?
+
+====================================================================
+
+# END-OF-DAY REVIEW
+
+Every close ask:
+
+Was Macro correctly classified?
+
+Did Macro help?
+
+Did Macro hurt?
+
+Were opportunities missed?
+
+Were opportunities forced?
+
+Should confidence calibration change?
+
+Update Macro Memory.
+
+====================================================================
+
+# STRICT VERIFICATION
+
+Before any stock evaluation verify
+
+✓ Macro Engine completed
+
+✓ Market Survival completed
+
+✓ SPY analyzed
+
+✓ QQQ analyzed
+
+✓ DIA analyzed
+
+✓ IWM analyzed
+
+✓ VIX analyzed
+
+✓ Breadth completed
+
+✓ Sector Rotation completed
+
+✓ Industry Rotation completed
+
+✓ Market Regime assigned
+
+✓ Macro Score assigned
+
+✓ Memory updated
+
+Failure of any verification
+
+Macro Status = FAILED
+
+No stock evaluation proceeds.
+
+====================================================================
+
+# END OF PART 3 OF 8
+
+NEXT
+
+PART 4
+
+TECHNICAL INTELLIGENCE ENGINE
+
+• Trend Integrity Engine
+
+• Leadership Rotation
+
+• Relative Strength
+
+• Multi-Timeframe Analysis
+
+• Pattern Recognition
+
+• Oversold Bounce Intelligence
+
+• Technical Confidence
+
+• Technical Learning

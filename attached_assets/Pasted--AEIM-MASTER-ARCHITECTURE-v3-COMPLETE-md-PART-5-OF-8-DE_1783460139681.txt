@@ -1,0 +1,669 @@
+# AEIM_MASTER_ARCHITECTURE_v3_COMPLETE.md
+
+# PART 5 OF 8
+
+## DECISION INTELLIGENCE ENGINE
+### Strategy Council
+### Evidence Arbitration
+### Master Decision Orchestrator
+### Risk Intelligence
+### Portfolio Intelligence
+### Trade Authorization
+
+Version 3.0
+
+====================================================================
+
+# PURPOSE
+
+The Decision Intelligence Engine is the executive brain of AEIM.
+
+All previous engines gather evidence.
+
+This engine makes the final decision.
+
+It decides:
+
+Should capital be committed?
+
+How much?
+
+Why?
+
+What are the risks?
+
+What is the confidence?
+
+====================================================================
+
+# PRIMARY OBJECTIVE
+
+Every trade must answer
+
+Why THIS stock?
+
+Why TODAY?
+
+Why THIS price?
+
+Why THIS position size?
+
+Why NOT another stock?
+
+Every answer must be explainable.
+
+====================================================================
+
+# DECISION PIPELINE
+
+Discovery Engine
+
+↓
+
+Macro Intelligence
+
+↓
+
+Technical Intelligence
+
+↓
+
+Risk Intelligence
+
+↓
+
+Portfolio Intelligence
+
+↓
+
+Strategy Council
+
+↓
+
+Evidence Arbitration
+
+↓
+
+Master Decision
+
+↓
+
+Trade Authorization
+
+↓
+
+Execution
+
+====================================================================
+
+# STRATEGY COUNCIL
+
+AEIM evaluates every opportunity
+from multiple viewpoints.
+
+Examples
+
+Trend Specialist
+
+Momentum Specialist
+
+Oversold Bounce Specialist
+
+Macro Specialist
+
+Sector Rotation Specialist
+
+Leadership Specialist
+
+Risk Specialist
+
+Portfolio Specialist
+
+Execution Specialist
+
+Performance Specialist
+
+Each specialist produces evidence.
+
+None have authority alone.
+
+====================================================================
+
+# SPECIALIST OUTPUT
+
+Each specialist returns
+
+Confidence
+
+Evidence For
+
+Evidence Against
+
+Primary Risks
+
+Recommendation
+
+Explanation
+
+====================================================================
+
+# EVIDENCE ARBITRATION
+
+Purpose
+
+Resolve conflicting evidence.
+
+Example
+
+Macro
+
+Weak
+
+Trend
+
+Strong
+
+Leadership
+
+Strong
+
+Momentum
+
+Strong
+
+Risk
+
+Moderate
+
+Instead of rejecting,
+
+AEIM weighs evidence.
+
+====================================================================
+
+# DECISION RULE
+
+Evidence is weighted.
+
+Evidence is NOT voted.
+
+Weights change according
+to market regime.
+
+====================================================================
+
+# ADAPTIVE WEIGHTING
+
+Strong Bull
+
+Trend receives greater weight.
+
+Correction
+
+Macro receives greater weight.
+
+Bear Market
+
+Risk receives greater weight.
+
+High Volatility
+
+Execution receives greater weight.
+
+Recovery
+
+Leadership receives greater weight.
+
+====================================================================
+
+# MASTER DECISION ENGINE
+
+Inputs
+
+Discovery Score
+
+Opportunity Score
+
+Macro Score
+
+Trend Integrity
+
+Leadership
+
+Momentum
+
+Relative Strength
+
+Technical Confidence
+
+Risk Score
+
+Portfolio Heat
+
+Learning Memory
+
+Historical Similarity
+
+Counterfactual Confidence
+
+Institutional Footprint
+
+Outputs
+
+BUY
+
+SMALL BUY
+
+WATCH
+
+WAIT
+
+REDUCE SIZE
+
+REJECT
+
+EXIT
+
+====================================================================
+
+# CONFIDENCE ENGINE
+
+Final Confidence
+
+0–100
+
+100
+
+Exceptional
+
+90
+
+Elite
+
+80
+
+High
+
+70
+
+Constructive
+
+60
+
+Moderate
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Speculative
+
+20
+
+Avoid
+
+10
+
+Reject
+
+====================================================================
+
+# POSITION SIZE ENGINE
+
+Position size depends on
+
+Macro
+
+Trend
+
+Risk
+
+Volatility
+
+Liquidity
+
+Portfolio Exposure
+
+Correlation
+
+Confidence
+
+Historical Performance
+
+Never use fixed position sizes.
+
+====================================================================
+
+# POSITION SIZE EXAMPLES
+
+Exceptional
+
+100%
+
+Strong
+
+75%
+
+Constructive
+
+50%
+
+Speculative
+
+25%
+
+High Risk
+
+10%
+
+Rejected
+
+0%
+
+These percentages are configurable.
+
+====================================================================
+
+# PORTFOLIO INTELLIGENCE
+
+Every new trade must consider
+
+Existing Positions
+
+Sector Exposure
+
+Industry Exposure
+
+Theme Exposure
+
+Correlation
+
+Portfolio Heat
+
+Available Capital
+
+Diversification
+
+====================================================================
+
+# CORRELATION ENGINE
+
+Questions
+
+Too many technology positions?
+
+Too many AI positions?
+
+Too many semiconductor positions?
+
+Too much market beta?
+
+Too much macro exposure?
+
+Reduce concentration risk.
+
+====================================================================
+
+# PORTFOLIO HEAT
+
+Calculate
+
+Portfolio Risk
+
+Sector Concentration
+
+Industry Concentration
+
+Correlation
+
+Liquidity
+
+Average Confidence
+
+Expected Drawdown
+
+Output
+
+Portfolio Heat Score
+
+====================================================================
+
+# DECISION EXPLANATION
+
+Every trade must produce
+
+Executive Summary
+
+Discovery Reason
+
+Macro Summary
+
+Technical Summary
+
+Risk Summary
+
+Portfolio Summary
+
+Primary Strengths
+
+Primary Risks
+
+Confidence
+
+Position Size
+
+Expected Scenario
+
+Alternative Scenario
+
+====================================================================
+
+# NO BLACK BOX
+
+AEIM must NEVER output
+
+BUY
+
+without explaining
+
+WHY.
+
+Every decision must be traceable.
+
+====================================================================
+
+# CAPITAL PRESERVATION
+
+Highest Priority
+
+Protect Capital
+
+Second Priority
+
+Grow Capital
+
+Never reverse these priorities.
+
+====================================================================
+
+# TRADE AUTHORIZATION
+
+Trade executes ONLY IF
+
+Discovery verified
+
+Macro verified
+
+Technical verified
+
+Risk acceptable
+
+Portfolio acceptable
+
+Supervisor approved
+
+Verification passed
+
+Otherwise
+
+Reject
+
+or
+
+Watchlist
+
+====================================================================
+
+# DAILY SELF QUESTIONS
+
+Before execution ask
+
+Do I truly understand this trade?
+
+Am I ignoring contradictory evidence?
+
+Am I forcing a trade?
+
+Would I approve this
+if it were my own capital?
+
+====================================================================
+
+# DECISION MEMORY
+
+Store
+
+Discovery Score
+
+Opportunity Score
+
+Macro Score
+
+Trend Score
+
+Leadership Score
+
+Risk Score
+
+Portfolio Score
+
+Confidence
+
+Position Size
+
+Decision
+
+Outcome
+
+Explanation
+
+====================================================================
+
+# SELF-IMPROVEMENT
+
+Every month evaluate
+
+Which decisions worked?
+
+Which failed?
+
+Was confidence accurate?
+
+Were positions too large?
+
+Too small?
+
+Did portfolio concentration hurt?
+
+Did macro weighting help?
+
+Adjust gradually using evidence.
+
+====================================================================
+
+# STRICT VERIFICATION
+
+Before Trade Authorization
+
+verify
+
+✓ Discovery completed
+
+✓ Macro completed
+
+✓ Technical completed
+
+✓ Strategy Council completed
+
+✓ Evidence Arbitration completed
+
+✓ Risk approved
+
+✓ Portfolio approved
+
+✓ Position Size assigned
+
+✓ Confidence assigned
+
+✓ Explanation generated
+
+✓ Decision stored
+
+Failure of any verification
+
+Trade Status = BLOCKED
+
+Reason logged.
+
+====================================================================
+
+# FINAL TRADE STATES
+
+BUY
+
+SMALL BUY
+
+WATCHLIST
+
+WAIT
+
+REDUCE EXPOSURE
+
+EXIT
+
+REJECT
+
+Every state must include
+an explanation.
+
+====================================================================
+
+# END OF PART 5 OF 8
+
+NEXT
+
+PART 6
+
+LEARNING INTELLIGENCE ENGINE
+
+• Performance Auditor
+
+• Trade Attribution
+
+• Counterfactual Analysis
+
+• Reinforcement Learning
+
+• Confidence Calibration
+
+• Discovery Learning
+
+• Continuous Improvement
+
+• Autonomous Evolution
