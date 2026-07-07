@@ -1,0 +1,465 @@
+# AEIM_MASTER_VERIFICATION_PROTOCOL_v1A.md
+
+# PART A2 OF 3
+## Architecture & Wiring Verification
+
+Version 1.0
+
+====================================================================
+
+# MACRO ENGINE VERIFICATION
+
+Replit must provide proof that AEIM evaluates
+the overall market BEFORE evaluating any stock.
+
+Questions
+
+1. Where is the Macro Engine implemented?
+
+2. Which file calculates the Macro Score?
+
+3. How often is Macro updated?
+
+4. What information is stored?
+
+5. How is Macro passed to downstream engines?
+
+Required Proof
+
+Show
+
+Macro Engine source
+
+Macro scheduler
+
+Macro database table
+
+Macro object
+
+Macro output
+
+====================================================================
+
+# BROAD INDEX VERIFICATION
+
+Verify AEIM analyzes
+
+SPY
+
+QQQ
+
+DIA
+
+IWM
+
+VIX
+
+before every decision.
+
+Questions
+
+Where is each index loaded?
+
+How often?
+
+Where are scores stored?
+
+How do they affect confidence?
+
+How do they affect position sizing?
+
+Required Proof
+
+Decision log containing
+
+SPY
+
+QQQ
+
+DIA
+
+IWM
+
+VIX
+
+Macro Score
+
+Market Regime
+
+====================================================================
+
+# MARKET SURVIVAL ENGINE
+
+Verify
+
+Market Survival Engine exists.
+
+Questions
+
+How are markets classified?
+
+Strong Bull
+
+Bull
+
+Correction
+
+Risk-Off
+
+Bear
+
+Recovery
+
+Transition
+
+Panic
+
+Show
+
+Classification algorithm.
+
+Show
+
+Example classifications.
+
+====================================================================
+
+# MARKET REGIME
+
+Questions
+
+Where is regime stored?
+
+How is regime updated?
+
+Which engines consume regime?
+
+How does regime change evidence weighting?
+
+Show
+
+Current regime object.
+
+====================================================================
+
+# MARKET BREADTH
+
+Verify
+
+Advance / Decline
+
+New Highs
+
+New Lows
+
+Breadth
+
+Participation
+
+Questions
+
+Where are breadth calculations?
+
+Where are they stored?
+
+How do they affect confidence?
+
+====================================================================
+
+# SECTOR ROTATION
+
+Verify
+
+Daily sector rankings.
+
+Questions
+
+Where are sectors ranked?
+
+How are rankings calculated?
+
+How often updated?
+
+How stored?
+
+Show
+
+Today's sector rankings.
+
+====================================================================
+
+# INDUSTRY ROTATION
+
+Verify
+
+Industry ranking.
+
+Questions
+
+Which industries are strongest?
+
+Weakest?
+
+How often recalculated?
+
+Show
+
+Industry ranking output.
+
+====================================================================
+
+# LEADERSHIP ENGINE
+
+Questions
+
+Where is Leadership Engine?
+
+How are leaders identified?
+
+How are laggards identified?
+
+How does leadership affect decisions?
+
+Show
+
+Leadership Score
+
+attached to one candidate.
+
+====================================================================
+
+# TREND INTEGRITY ENGINE
+
+Questions
+
+Where implemented?
+
+How is Trend Score calculated?
+
+Does it evaluate
+
+20 EMA
+
+50 EMA
+
+100 EMA
+
+150 EMA
+
+200 EMA
+
+Higher highs
+
+Higher lows
+
+Relative strength
+
+Support
+
+Resistance
+
+Volume
+
+Institutional activity
+
+Show
+
+Trend output object.
+
+====================================================================
+
+# MOVING AVERAGE VALIDATION
+
+Verify
+
+Price location
+
+Slope
+
+Distance
+
+Crossovers
+
+Trend persistence
+
+Questions
+
+How are false signals reduced?
+
+How many confirmations required?
+
+====================================================================
+
+# RELATIVE STRENGTH
+
+Verify
+
+Comparison versus
+
+SPY
+
+Sector ETF
+
+Industry
+
+Questions
+
+Where calculated?
+
+How stored?
+
+How influences decisions?
+
+====================================================================
+
+# MOMENTUM ENGINE
+
+Verify
+
+MACD
+
+RSI
+
+Acceleration
+
+Momentum persistence
+
+Questions
+
+How are conflicting momentum signals handled?
+
+====================================================================
+
+# MULTI-TIMEFRAME ENGINE
+
+Verify
+
+5 Minute
+
+15 Minute
+
+30 Minute
+
+1 Hour
+
+4 Hour
+
+Daily
+
+Weekly
+
+Monthly
+
+Questions
+
+How are disagreements resolved?
+
+====================================================================
+
+# OVERSOLD BOUNCE ENGINE
+
+Questions
+
+How are oversold stocks detected?
+
+How are healthy pullbacks identified?
+
+How are falling knives rejected?
+
+Required Tests
+
+Scenario 1
+
+Above 50
+
+Above 200
+
+Healthy trend
+
+Oversold
+
+Expected
+
+Potential tactical bounce.
+
+------------------------------------------------------------
+
+Scenario 2
+
+Below 50
+
+Below 200
+
+Broken structure
+
+Weak leadership
+
+Expected
+
+Reject.
+
+====================================================================
+
+# PATTERN RECOGNITION
+
+Verify
+
+Breakouts
+
+Flags
+
+Bases
+
+Support
+
+Resistance
+
+Continuation
+
+Reversal
+
+Questions
+
+Where stored?
+
+How weighted?
+
+====================================================================
+
+# TECHNICAL CONFIDENCE
+
+Verify
+
+Technical Score
+
+contains
+
+Trend
+
+Momentum
+
+Leadership
+
+Pattern
+
+Volume
+
+Institutional
+
+Relative Strength
+
+Questions
+
+Show
+
+Technical Confidence object.
+
+====================================================================
+
+# END OF PART A2
+
+CONTINUE
+
+AEIM_MASTER_VERIFICATION_PROTOCOL_v1A.md
+
+PART A3 OF 3
