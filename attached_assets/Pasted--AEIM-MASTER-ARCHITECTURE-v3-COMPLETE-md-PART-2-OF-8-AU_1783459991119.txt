@@ -1,0 +1,514 @@
+# AEIM_MASTER_ARCHITECTURE_v3_COMPLETE.md
+
+# PART 2 OF 8
+
+## AUTONOMOUS POLYGON DISCOVERY ENGINE
+
+Version 3.0
+
+====================================================================
+
+# PURPOSE
+
+The Discovery Engine is the first active intelligence
+inside AEIM.
+
+Its responsibility is NOT to evaluate stocks.
+
+Its responsibility is to FIND them.
+
+AEIM must become its own market explorer.
+
+It must never wait for another system
+to tell it what to analyze.
+
+====================================================================
+
+# PRIMARY OBJECTIVE
+
+Every market day AEIM must answer
+
+"What are the highest-quality opportunities
+in today's market?"
+
+NOT
+
+"What stocks were someone else interested in?"
+
+====================================================================
+
+# PRIMARY DATA SOURCE
+
+AEIM shall build its own market universe directly
+from Polygon.
+
+Every candidate originates here.
+
+Required market information includes:
+
+• Active tickers
+• Price
+• Volume
+• Historical candles
+• Intraday candles
+• Relative volume
+• ATR
+• VWAP
+• RSI
+• MACD
+• Moving averages
+• Percent change
+• Gap percentage
+• Sector
+• Industry
+
+====================================================================
+
+# DISCOVERY PIPELINE
+
+Polygon Universe
+
+↓
+
+Data Validation
+
+↓
+
+Universe Filtering
+
+↓
+
+Liquidity Filtering
+
+↓
+
+Volatility Analysis
+
+↓
+
+Momentum Discovery
+
+↓
+
+Relative Strength Discovery
+
+↓
+
+Sector Leadership Discovery
+
+↓
+
+Oversold Bounce Discovery
+
+↓
+
+Pattern Discovery
+
+↓
+
+Opportunity Ranking
+
+↓
+
+Macro Evaluation
+
+↓
+
+Full AEIM Decision Pipeline
+
+====================================================================
+
+# UNIVERSE FILTER
+
+Every stock must pass minimum quality standards.
+
+Example filters
+
+Minimum price
+
+Minimum liquidity
+
+Minimum average volume
+
+Valid historical data
+
+No missing candles
+
+Tradeable spread
+
+No halted securities
+
+The goal is to eliminate poor-quality candidates
+before reasoning begins.
+
+====================================================================
+
+# DISCOVERY CATEGORIES
+
+AEIM should independently search for:
+
+Momentum Leaders
+
+Trend Leaders
+
+Relative Strength Leaders
+
+Oversold Pullbacks
+
+High Relative Volume
+
+Gap Continuations
+
+Gap Reversals
+
+Sector Leaders
+
+Industry Leaders
+
+Breakout Candidates
+
+Support Rebounds
+
+VWAP Reclaims
+
+Institutional Accumulation Candidates
+
+High Conviction Technical Setups
+
+====================================================================
+
+# DISCOVERY QUESTIONS
+
+Every candidate must answer:
+
+Why did I discover this stock?
+
+Why today?
+
+Why now?
+
+Why is it different from yesterday?
+
+Has probability improved?
+
+Has risk improved?
+
+Is this becoming stronger?
+
+Is this becoming weaker?
+
+====================================================================
+
+# DISCOVERY SCORE
+
+Each discovered candidate receives
+
+Discovery Score
+
+100
+
+Exceptional Discovery
+
+90
+
+Elite Discovery
+
+80
+
+High Quality
+
+70
+
+Strong Candidate
+
+60
+
+Watchlist
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Very Poor
+
+10
+
+Reject
+
+====================================================================
+
+# OPPORTUNITY RANKING
+
+After discovery,
+
+all candidates compete for capital.
+
+Ranking Inputs
+
+Macro
+
+Trend
+
+Leadership
+
+Sector
+
+Industry
+
+Relative Strength
+
+Momentum
+
+Liquidity
+
+Risk
+
+Reward
+
+Historical Similarity
+
+Technical Confidence
+
+Oversold Bounce Quality
+
+Institutional Footprint
+
+====================================================================
+
+# OPPORTUNITY SCORE
+
+100
+
+Elite Opportunity
+
+90
+
+Exceptional
+
+80
+
+Strong
+
+70
+
+Good
+
+60
+
+Watchlist
+
+50
+
+Average
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Avoid
+
+10
+
+Reject
+
+====================================================================
+
+# DISCOVERY MEMORY
+
+Every discovered stock is permanently stored.
+
+Store
+
+Ticker
+
+Timestamp
+
+Discovery Reason
+
+Discovery Score
+
+Opportunity Score
+
+Macro Score
+
+Trend Score
+
+Leadership Score
+
+Sector Score
+
+Industry Score
+
+Risk Score
+
+Decision
+
+Future Performance
+
+Learning Label
+
+====================================================================
+
+# DISCOVERY LEARNING
+
+AEIM must learn
+
+not only
+
+from trades,
+
+but also
+
+from discoveries.
+
+Questions
+
+Was this stock worth discovering?
+
+Did it outperform?
+
+Did it underperform?
+
+Was discovery too early?
+
+Too late?
+
+Wrong sector?
+
+Wrong market regime?
+
+Wrong technical structure?
+
+====================================================================
+
+# DISCOVERY QUALITY LABELS
+
+Elite Discovery
+
+Strong Discovery
+
+Valid Discovery
+
+Early Discovery
+
+Late Discovery
+
+Watchlist Success
+
+False Positive
+
+Poor Discovery
+
+Macro Failure
+
+Trend Failure
+
+====================================================================
+
+# DISCOVERY IMPROVEMENT
+
+Every month ask
+
+Which discoveries became winners?
+
+Which became losers?
+
+Which sectors produced the best discoveries?
+
+Which market regimes produced the best discoveries?
+
+Which discovery rules should receive
+greater influence?
+
+====================================================================
+
+# DISCOVERY NEVER STOPS
+
+AEIM should continuously scan Polygon.
+
+It should never stop learning.
+
+Every day expands
+
+Discovery Memory.
+
+Every month improves
+
+Discovery Quality.
+
+Every year improves
+
+Market Intelligence.
+
+====================================================================
+
+# STRICT VERIFICATION
+
+Before any opportunity enters
+the Decision Engine
+
+verify
+
+✓ Polygon universe loaded
+
+✓ Universe filtered
+
+✓ Liquidity validated
+
+✓ Discovery Score assigned
+
+✓ Opportunity Score assigned
+
+✓ Candidate stored in Discovery Memory
+
+✓ Candidate ranked
+
+✓ Candidate passed to Macro Engine
+
+Failure of any verification
+
+Discovery Status = FAILED
+
+Candidate cannot continue.
+
+====================================================================
+
+END OF PART 2 OF 8
+
+NEXT
+
+PART 3
+
+MACRO INTELLIGENCE ENGINE
+
+• Market Survival Engine
+
+• SPY / QQQ / DIA / IWM Analysis
+
+• Market Breadth
+
+• Sector Rotation
+
+• Industry Rotation
+
+• Market Regime Recognition
+
+• Macro Memory
+
+• Macro Learning
