@@ -41,7 +41,7 @@ def audit_completed_trades(db_url: str, lookback_days: int = 30) -> List[Dict]:
                 SELECT id, ticker, trade_date, exit_date, entry_price, exit_price,
                        pnl_pct, signal_source, notional
                 FROM   aiem_paper_trades
-                WHERE  status IN ('CLOSED', 'EXPIRED')
+                WHERE  status IN ('CLOSED', 'EXPIRED', 'CLOSED_AIEM')
                   AND  exit_date >= CURRENT_DATE - %s
                   AND  pnl_pct IS NOT NULL
                 ORDER  BY exit_date DESC

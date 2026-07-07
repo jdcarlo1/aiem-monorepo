@@ -1,0 +1,355 @@
+# STRICT AEIM v3 END-TO-END VERIFICATION REQUEST
+
+Do not only show dashboard output. I need proof from the actual code, database, logs, scheduler, and function calls that AEIM v3 is truly wired and operating autonomously.
+
+For every answer, show:
+1. The exact file/function being used.
+2. The database table/rows created or updated.
+3. The timestamp of the latest run.
+4. The scheduler/job that triggered it.
+5. A real example ticker that passed through the module.
+6. Evidence this came from AEIM execution, not a manual answer.
+7. PASS/WARN/FAIL with reason.
+
+---
+
+## 1. Discovery Engine Verification
+
+Show proof that `aiem_v3_discovery.py` is actually scanning the Polygon universe.
+
+Questions:
+
+- What exact function starts the discovery scan?
+- What scheduler or endpoint triggers it?
+- How many tickers were scanned in the latest run?
+- Show 5 real tickers discovered today.
+- Show their raw Polygon inputs.
+- Show their 5-dimensional discovery scores.
+- Show the database rows where these discoveries were stored.
+- Show logs proving the scan ran automatically.
+- Confirm this is AEIM discovery, not the stock scanner website’s original signal engine.
+
+Required proof:
+- Function name
+- Latest timestamp
+- Row count
+- Example ticker output
+- DB table name
+- Log excerpt
+
+---
+
+## 2. Technical Engine Verification
+
+Show proof that `aiem_v3_technical.py` is calculating technical indicators from real market data.
+
+Questions:
+
+- What exact function calculates RSI, MACD, SMA20/50, Bollinger Bands, ATR, and momentum?
+- For one real ticker from today’s discoveries, show each indicator value.
+- Show the raw candle/price data used.
+- Show where the technical score is stored.
+- Show whether the technical engine runs before or after discovery.
+- Show logs proving this was automatically calculated.
+
+Required proof:
+- Example ticker
+- Indicator values
+- Source data timestamp
+- DB row
+- Function path
+- Execution log
+
+---
+
+## 3. Macro Engine Verification
+
+Show proof that the macro engine is influencing decisions.
+
+Questions:
+
+- What function creates the macro regime score?
+- What inputs are used?
+- What is today’s macro score?
+- How does `BULL_STRONG` change the weighting of the specialist council?
+- Show one ticker decision with and without macro weighting.
+- Show where the macro state is stored.
+- Show timestamp of latest macro update.
+
+Required proof:
+- Macro score
+- Regime label
+- Weighting effect
+- DB row
+- Log excerpt
+
+---
+
+## 4. Orchestrator / Specialist Council Verification
+
+Show proof that `aiem_v3_orchestrator.py` is actually running the 6-specialist council.
+
+Questions:
+
+- What are the 6 specialists?
+- What function calls each specialist?
+- Show one real ticker where all 6 specialists voted.
+- Show each specialist’s vote and score.
+- Show the regime-weighted arbitration result.
+- Show why the ticker became BUY or REJECT.
+- Show where the final decision is stored.
+- Show timestamp of the latest orchestrator run.
+- Confirm the decision was produced by AEIM code, not manual dashboard logic.
+
+Required proof:
+- Specialist names
+- Individual votes
+- Weighted final score
+- BUY/REJECT result
+- DB decision row
+- Log excerpt
+
+---
+
+## 5. Decision Engine Verification
+
+The dashboard shows `0 decisions stored`. I need strict proof this is expected and not broken.
+
+Questions:
+
+- What exact scheduler time runs the decision engine?
+- What file/function creates decision rows?
+- What table stores decisions?
+- If no decisions exist yet, show the exact condition preventing them.
+- After the next market run, show at least one stored decision.
+- Show the full path from discovery → technical → orchestrator → decision.
+- Show whether decision rows are created automatically or manually.
+
+Required proof:
+- Scheduler config
+- Function path
+- DB table schema
+- Latest query result
+- Logs after market run
+
+---
+
+## 6. Paper Trading Verification
+
+Show proof that AEIM decisions are being converted into paper trades correctly.
+
+Questions:
+
+- What function creates paper trades?
+- What source feeds paper picks?
+- Does paper trading use AEIM decisions or old scanner picks?
+- Show one paper trade created from an AEIM BUY decision.
+- Show the decision ID connected to the paper trade.
+- Show open/closed trade status.
+- Show entry price, timestamp, and ticker.
+- Show whether rejected tickers are excluded.
+
+Required proof:
+- Decision row
+- Paper trade row
+- Linked ID
+- Function path
+- Log excerpt
+
+---
+
+## 7. Learning Engine Verification
+
+Show proof that `aiem_v3_learning.py` is learning from trade outcomes, not just storing trades.
+
+Questions:
+
+- What function performs trade attribution?
+- What function creates counterfactual analysis?
+- What function updates EMA strategy memory?
+- Show one completed trade that was analyzed.
+- Show what AEIM said caused the win/loss.
+- Show what counterfactual would have improved the trade.
+- Show how memory changed after the trade.
+- Show where learning artifacts are stored.
+- Show whether future decisions read from this memory.
+
+Required proof:
+- Completed trade ID
+- Attribution result
+- Counterfactual result
+- Memory before/after
+- DB row
+- Function path
+- Log excerpt
+
+---
+
+## 8. Scheduler Verification
+
+Show proof that all AEIM v3 modules are scheduled in the correct order.
+
+Questions:
+
+- List every AEIM v3 scheduler job.
+- Show the exact run order.
+- Show market-open timing.
+- Show which job runs discovery.
+- Show which job runs technical scoring.
+- Show which job runs orchestration.
+- Show which job runs paper trading.
+- Show which job runs learning.
+- Show latest successful run timestamp for each job.
+- Show any failed or skipped jobs.
+
+Required proof:
+- Scheduler table/config
+- Job names
+- Run order
+- Last run timestamps
+- Logs
+
+---
+
+## 9. Database Wiring Verification
+
+Show proof that the modules are connected through the database.
+
+Questions:
+
+- What tables were created for AEIM v3?
+- Which table stores discoveries?
+- Which table stores technical scores?
+- Which table stores macro state?
+- Which table stores decisions?
+- Which table stores paper trades?
+- Which table stores learning memory?
+- Show foreign keys or IDs linking the pipeline together.
+- For one ticker, show every related row across all tables.
+
+Required proof:
+- Table names
+- Schema
+- Example ticker chain
+- Linked IDs
+- Row timestamps
+
+---
+
+## 10. AEIM vs Stock Scanner Separation
+
+This is very important.
+
+Prove that the output is coming from AEIM and not from my stock scanning website.
+
+Questions:
+
+- Which modules belong to the original stock scanner?
+- Which modules belong to AEIM v3?
+- Show the exact source field or origin tag for AEIM decisions.
+- Show whether AEIM uses scanner picks as input or discovers independently.
+- Show one ticker discovered by AEIM without scanner input.
+- Show one scanner pick rejected by AEIM.
+- Show one scanner pick accepted by AEIM.
+- Show database fields proving the source.
+
+Required proof:
+- Source tags
+- Function paths
+- Example tickers
+- DB rows
+- Logs
+
+---
+
+## 11. End-to-End Ticker Trace
+
+Run a real trace for one ticker right now.
+
+Pick one ticker from today and show:
+
+1. Discovery score
+2. Technical score
+3. Macro regime applied
+4. Specialist council votes
+5. Final arbitration
+6. BUY/REJECT decision
+7. Paper trade created or rejected
+8. Learning/memory check
+9. Database rows
+10. Logs
+
+Required output format:
+
+Ticker:
+Discovery result:
+Technical result:
+Macro regime:
+Specialist votes:
+Final decision:
+Paper trade status:
+Learning memory used:
+Database rows:
+Logs:
+PASS/WARN/FAIL:
+
+---
+
+## 12. Verification Battery
+
+Run `aiem_v3_verification.py` and return the full result.
+
+Questions:
+
+- What are the 9 checks?
+- Why does dashboard show 8/9?
+- Which check is not fully passing?
+- Is it a true failure or expected timing issue?
+- What needs to happen for 9/9?
+- After market open, rerun verification and show updated results.
+- Show raw JSON output from verification, not just dashboard table.
+
+Required proof:
+- Full verification output
+- Raw JSON
+- Logs
+- Explanation of WARN/FAIL
+- Fix if needed
+
+---
+
+## 13. Strict PASS Criteria
+
+Do not mark COMPLETE unless all are true:
+
+- Discovery runs automatically.
+- Technical scoring runs after discovery.
+- Macro state is used in orchestration.
+- Specialist council produces votes.
+- Orchestrator creates real BUY/REJECT decisions.
+- Paper trading reads AEIM decisions.
+- Learning engine analyzes trade outcomes.
+- Memory affects future decisions.
+- Scheduler runs jobs in correct order.
+- Database links every step.
+- Logs prove autonomous execution.
+- Source tags prove AEIM origin.
+- No manual-only dashboard output is being counted as proof.
+
+Return final answer as:
+
+AEIM v3 Strict Verification:
+Discovery: PASS/WARN/FAIL
+Technical: PASS/WARN/FAIL
+Macro: PASS/WARN/FAIL
+Orchestrator: PASS/WARN/FAIL
+Decision Engine: PASS/WARN/FAIL
+Paper Trading: PASS/WARN/FAIL
+Learning Engine: PASS/WARN/FAIL
+Scheduler: PASS/WARN/FAIL
+Database Wiring: PASS/WARN/FAIL
+AEIM Source Separation: PASS/WARN/FAIL
+End-to-End Trace: PASS/WARN/FAIL
+Overall: COMPLETE / NOT COMPLETE YET
+
+Also include what still needs fixing.
