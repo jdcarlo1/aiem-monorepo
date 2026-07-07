@@ -1,0 +1,492 @@
+# AEIM_MASTER_ARCHITECTURE_v3_COMPLETE.md
+
+# PART 1 OF 8
+
+Version 3.0
+Status: Master Engineering Specification
+Audience: Replit Engineering Team
+System: AEIM Autonomous Market Intelligence Engine
+
+====================================================================
+
+# EXECUTIVE SUMMARY
+
+This document defines the complete architecture of the AEIM
+(Autonomous Market Intelligence Engine).
+
+The goal is NOT simply to create another stock screener.
+
+The goal is to create an autonomous market intelligence system that
+continuously improves its own ability to discover opportunities,
+evaluate evidence, manage risk, learn from experience, and adapt to
+changing market environments.
+
+This document supersedes previous architecture files.
+
+This is the single source of truth for AEIM.
+
+====================================================================
+
+# MISSION
+
+AEIM must become an autonomous market intelligence engine.
+
+Its responsibilities include:
+
+• Scan the market independently
+• Discover opportunities independently
+• Evaluate opportunities independently
+• Decide independently
+• Audit itself
+• Learn from its own decisions
+• Improve future discovery quality
+• Improve future decision quality
+
+No human intervention should be required for normal operation.
+
+====================================================================
+
+# PRIMARY DESIGN PRINCIPLES
+
+Rule #1
+
+AEIM is NOT a stock screener.
+
+AEIM is an autonomous reasoning system.
+
+------------------------------------------------------------
+
+Rule #2
+
+The stock scanner website is a completely separate product.
+
+The scanner may continue to exist.
+
+It may continue generating signals.
+
+However...
+
+AEIM must NEVER require scanner signals.
+
+AEIM must be fully operational if the stock scanner is shut down.
+
+------------------------------------------------------------
+
+Rule #3
+
+AEIM must discover opportunities directly from Polygon.
+
+Polygon is the primary source of market intelligence.
+
+Every opportunity should originate from AEIM's own discovery engine.
+
+------------------------------------------------------------
+
+Rule #4
+
+AEIM should continuously improve.
+
+It should become better at:
+
+Finding stocks
+
+Ranking stocks
+
+Managing risk
+
+Understanding macro
+
+Understanding leadership
+
+Understanding corrections
+
+Finding tactical dip buys
+
+Avoiding broken trends
+
+Calibrating confidence
+
+Managing portfolio exposure
+
+====================================================================
+
+# HIGH LEVEL SYSTEM
+
+AEIM consists of nine major layers.
+
+Layer 1
+
+Autonomous Discovery
+
+↓
+
+Layer 2
+
+Macro Intelligence
+
+↓
+
+Layer 3
+
+Technical Intelligence
+
+↓
+
+Layer 4
+
+Decision Intelligence
+
+↓
+
+Layer 5
+
+Risk Intelligence
+
+↓
+
+Layer 6
+
+Portfolio Intelligence
+
+↓
+
+Layer 7
+
+Performance Intelligence
+
+↓
+
+Layer 8
+
+Learning Intelligence
+
+↓
+
+Layer 9
+
+Enterprise Governance
+
+====================================================================
+
+# ABSOLUTE ARCHITECTURAL RULE
+
+Every stock candidate must originate from:
+
+AEIM
+
+NOT
+
+the website.
+
+The discovery engine must search the Polygon universe
+independently.
+
+This is mandatory.
+
+====================================================================
+
+# PRIMARY DATA SOURCE
+
+Primary Data Provider
+
+Polygon
+
+Secondary Data
+
+Tradier
+
+Fallback Data
+
+Yahoo
+
+Internal Data
+
+AEIM Learning Database
+
+Historical Memory
+
+Performance Memory
+
+Discovery Memory
+
+Counterfactual Memory
+
+No module should depend upon the stock scanner.
+
+====================================================================
+
+# AEIM DAILY LIFE CYCLE
+
+Every market day AEIM should execute:
+
+Pre-Market
+
+↓
+
+Download market universe
+
+↓
+
+Update macro
+
+↓
+
+Update market regime
+
+↓
+
+Update sectors
+
+↓
+
+Update industries
+
+↓
+
+Begin Polygon discovery
+
+↓
+
+Rank opportunities
+
+↓
+
+Wait for market open
+
+------------------------------------------------------------
+
+During Market
+
+↓
+
+Continuously scan Polygon
+
+↓
+
+Generate new opportunities
+
+↓
+
+Rank opportunities
+
+↓
+
+Evaluate opportunities
+
+↓
+
+Approve or reject trades
+
+↓
+
+Monitor existing positions
+
+↓
+
+Continue learning
+
+------------------------------------------------------------
+
+After Market Close
+
+↓
+
+Audit every trade
+
+↓
+
+Audit every discovery
+
+↓
+
+Run attribution
+
+↓
+
+Run counterfactual analysis
+
+↓
+
+Update confidence
+
+↓
+
+Update learning memory
+
+↓
+
+Improve future discovery
+
+====================================================================
+
+# AEIM CORE PHILOSOPHY
+
+AEIM should think exactly like a professional
+portfolio manager.
+
+Before asking
+
+"Should I buy this stock?"
+
+AEIM first asks
+
+"What kind of market am I trading?"
+
+Then
+
+"Which sectors are strongest?"
+
+Then
+
+"Which industries lead?"
+
+Then
+
+"Which stocks are highest quality?"
+
+Then
+
+"Is today's weakness an opportunity?"
+
+Then
+
+"What is the appropriate position size?"
+
+Only then
+
+may AEIM approve a trade.
+
+====================================================================
+
+# AUTONOMOUS DISCOVERY PHILOSOPHY
+
+Discovery itself is intelligence.
+
+Finding stocks is a learned skill.
+
+AEIM should improve:
+
+Which stocks it discovers.
+
+Which stocks it ignores.
+
+Which sectors deserve attention.
+
+Which themes deserve attention.
+
+Which market environments create
+the best opportunities.
+
+Discovery quality should improve every month.
+
+====================================================================
+
+# PRIMARY OBJECTIVES
+
+AEIM has four primary responsibilities.
+
+1.
+
+Discover
+
+Find opportunities directly from Polygon.
+
+------------------------------------------------------------
+
+2.
+
+Reason
+
+Understand macro.
+
+Understand technicals.
+
+Understand leadership.
+
+Understand probability.
+
+------------------------------------------------------------
+
+3.
+
+Decide
+
+Approve.
+
+Reject.
+
+Reduce size.
+
+Wait.
+
+Exit.
+
+Everything must be explainable.
+
+------------------------------------------------------------
+
+4.
+
+Learn
+
+Every completed discovery.
+
+Every completed trade.
+
+Every rejected trade.
+
+Every mistake.
+
+Every success.
+
+Everything becomes learning data.
+
+====================================================================
+
+# SUCCESS DEFINITION
+
+AEIM is successful when:
+
+✓ It no longer depends on external stock pickers.
+
+✓ It independently discovers high-quality opportunities.
+
+✓ It correctly understands the current market regime.
+
+✓ It distinguishes healthy corrections from structural breakdowns.
+
+✓ It adjusts risk according to macro conditions.
+
+✓ It continuously improves its discovery quality.
+
+✓ It continuously improves its decision quality.
+
+✓ It explains every decision.
+
+✓ It protects capital.
+
+✓ It evolves from experience.
+
+====================================================================
+
+END OF PART 1 OF 8
+
+NEXT:
+
+PART 2
+
+AUTONOMOUS POLYGON DISCOVERY ENGINE
+
+• Universe Selection
+
+• Liquidity Engine
+
+• Discovery Engine
+
+• Opportunity Ranking
+
+• Discovery Memory
+
+• Discovery Learning
+
+• Discovery Verification
