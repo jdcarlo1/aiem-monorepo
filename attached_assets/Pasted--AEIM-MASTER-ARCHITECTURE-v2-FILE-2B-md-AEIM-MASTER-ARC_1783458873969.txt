@@ -1,0 +1,538 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_2B.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 2B
+### Institutional Footprint Engine
+### Smart Money Detection Engine
+### Liquidity Intelligence Engine
+### Adaptive Technical Scoring
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+Retail traders often react.
+
+Institutions usually accumulate and distribute over time.
+
+The purpose of this engine is to estimate
+where institutional capital is flowing.
+
+AEIM should not blindly follow price.
+
+It should follow evidence of institutional participation.
+
+---
+
+# CORE OBJECTIVE
+
+Every stock should answer:
+
+Are institutions accumulating?
+
+Are institutions distributing?
+
+Are they neutral?
+
+Is today's move supported by institutional activity?
+
+---
+
+# INSTITUTIONAL FOOTPRINT ENGINE
+
+Collect:
+
+Relative Volume
+
+Block Trades (if available)
+
+VWAP Position
+
+Accumulation / Distribution Line
+
+On Balance Volume
+
+Chaikin Money Flow
+
+Money Flow Index
+
+Large Volume Spikes
+
+Gap Behavior
+
+Closing Auction Strength
+
+---
+
+# RELATIVE VOLUME
+
+Calculate
+
+Current Volume
+
+/
+
+Average Volume
+
+Classification
+
+<0.75x
+
+Very Light
+
+0.75–1.0x
+
+Normal
+
+1.0–1.5x
+
+Active
+
+1.5–2.5x
+
+Heavy
+
+>2.5x
+
+Institutional Interest Candidate
+
+---
+
+# VOLUME INTERPRETATION
+
+Heavy volume while price rises
+
+Positive evidence.
+
+Heavy volume while price falls
+
+Needs investigation.
+
+Could be:
+
+Panic
+
+Profit Taking
+
+Institutional Distribution
+
+Capitulation
+
+Context matters.
+
+---
+
+# VWAP ANALYSIS
+
+Evaluate
+
+Above VWAP
+
+Below VWAP
+
+VWAP Reclaim
+
+VWAP Failure
+
+Distance from VWAP
+
+Late-Day VWAP Recovery
+
+---
+
+# LATE-DAY STRENGTH
+
+Strong closes often provide useful information.
+
+Questions
+
+Did buyers step in during the afternoon?
+
+Did price recover into the close?
+
+Did volume increase?
+
+Did price finish near session highs?
+
+These observations increase confidence but should not be used alone.
+
+---
+
+# SMART MONEY DETECTION
+
+Estimate whether larger participants may be active.
+
+Evidence includes
+
+Volume Expansion
+
+Relative Strength
+
+Repeated Support Defense
+
+Strong Closing Prices
+
+Persistent Buying
+
+Institutional Trend
+
+Sector Leadership
+
+---
+
+# DISTRIBUTION DETECTION
+
+Warning signs include
+
+Repeated heavy down-volume
+
+Lower highs
+
+Weak closes
+
+Sector weakness
+
+Relative weakness
+
+Increasing selling pressure
+
+Institutional distribution is usually gradual.
+
+AEIM should monitor changes over time.
+
+---
+
+# LIQUIDITY ENGINE
+
+Every stock should evaluate
+
+Average Daily Dollar Volume
+
+Average Daily Shares
+
+Bid/Ask Spread
+
+Gap Frequency
+
+Volatility
+
+Slippage Risk
+
+Execution Quality
+
+---
+
+# LIQUIDITY SCORE
+
+100
+
+Excellent
+
+90
+
+Very Liquid
+
+80
+
+Healthy
+
+70
+
+Tradable
+
+60
+
+Acceptable
+
+50
+
+Neutral
+
+40
+
+Thin
+
+30
+
+Poor
+
+20
+
+Very Poor
+
+10
+
+Avoid
+
+---
+
+# EXECUTION RISK
+
+Estimate
+
+Expected Slippage
+
+Gap Risk
+
+Spread Risk
+
+Opening Volatility
+
+Closing Volatility
+
+Execution Confidence
+
+Execution quality affects position sizing.
+
+---
+
+# PRICE ACCEPTANCE
+
+Determine
+
+Is price accepted?
+
+Rejected?
+
+Testing support?
+
+Testing resistance?
+
+Trending?
+
+Consolidating?
+
+Breaking out?
+
+Breaking down?
+
+---
+
+# ADAPTIVE TECHNICAL SCORING
+
+Every indicator contributes evidence.
+
+Example weights
+
+Trend Structure
+
+25%
+
+Relative Strength
+
+15%
+
+Institutional Footprint
+
+15%
+
+Momentum
+
+10%
+
+Volume
+
+10%
+
+Liquidity
+
+10%
+
+Support / Resistance
+
+5%
+
+VWAP
+
+5%
+
+Macro Alignment
+
+5%
+
+Sector Leadership
+
+5%
+
+Weights should adapt over time as AEIM learns.
+
+---
+
+# EVIDENCE CATEGORIES
+
+Positive Evidence
+
+Neutral Evidence
+
+Negative Evidence
+
+Contradictory Evidence
+
+Unknown Evidence
+
+The Master Decision Orchestrator combines them.
+
+---
+
+# CONFLICT RESOLUTION
+
+Example
+
+Trend
+
+Strong
+
+Macro
+
+Weak
+
+Sector
+
+Strong
+
+Momentum
+
+Strong
+
+Institutional Footprint
+
+Positive
+
+Result
+
+Trade may still qualify,
+
+but with reduced position size.
+
+AEIM should explain WHY.
+
+---
+
+# INSTITUTIONAL MEMORY
+
+Store for every trade
+
+Relative Volume
+
+Liquidity Score
+
+VWAP Position
+
+Institutional Footprint Score
+
+Distribution Score
+
+Accumulation Score
+
+Execution Quality
+
+These become permanent learning features.
+
+---
+
+# SMART MONEY QUESTIONS
+
+Every execution should ask
+
+Is buying persistent?
+
+Is selling persistent?
+
+Did institutions defend support?
+
+Did they sell into strength?
+
+Did leadership remain?
+
+Did volume confirm?
+
+---
+
+# FINAL INSTITUTIONAL SCORE
+
+100
+
+Exceptional Institutional Support
+
+90
+
+Strong Accumulation
+
+80
+
+Healthy Accumulation
+
+70
+
+Positive
+
+60
+
+Neutral
+
+50
+
+Mixed
+
+40
+
+Weak
+
+30
+
+Distribution
+
+20
+
+Heavy Distribution
+
+10
+
+Avoid
+
+---
+
+# STRICT VERIFICATION
+
+Before trade approval verify
+
+✓ Relative Volume calculated
+
+✓ VWAP evaluated
+
+✓ Liquidity Score assigned
+
+✓ Institutional Footprint Score assigned
+
+✓ Distribution analysis completed
+
+✓ Accumulation analysis completed
+
+✓ Execution Risk estimated
+
+✓ Results sent to Master Decision Orchestrator
+
+Failure of any verification prevents
+Technical Evidence completion.
+
+---
+
+# END OF FILE 2B
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_2C.md
+
+Topics
+
+• Multi-Timeframe Momentum Engine
+
+• Momentum Persistence Analysis
+
+• Regime-Adaptive Technical Weighting
+
+• Technical Confidence Engine
+
+• Evidence Fusion Layer
