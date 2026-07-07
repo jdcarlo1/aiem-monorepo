@@ -15732,7 +15732,30 @@ def _aiem_paper_drift_check():
 def _load_todays_unusual_calls_from_db(etf_set=None):
     """Return every unusual call sweep logged today (ET), sorted by vol_oi desc.
     Called after each scan so the endpoint always serves the full day's
-    accumulated history - not just the latest scan's slice."""
+    accumulated history - not just the latest scan's slice.
+    ETFs are excluded — they route to the /etf-calls endpoint instead."""
+    # Comprehensive ETF exclusion list — keeps individual stocks only.
+    # Add new ETFs here; they will be excluded from the unusual-calls tab
+    # and should appear in the High Conviction ETF tab (/etf-calls) instead.
+    _EXCLUDE_ETFS = [
+        "SPY","QQQ","IWM","DIA","MDY","VTI","VOO","IVV","RSP",
+        "XLF","XLE","XLK","XLY","XLI","XLV","XLB","XLP","XLU","XLRE","XLC",
+        "SMH","SOXX","XBI","IBB","KRE","XRT","ITB","JETS","KWEB","DRAM",
+        "TQQQ","SPXL","SOXL","UDOW","LABU","LABD","FNGU","FNGD","TECL","TECS",
+        "UPRO","TNA","FAS","ERX","SSO","QLD","DDM","UWM",
+        "SQQQ","SPXS","SOXS","SDOW","TZA","FAZ","ERY","SDS","QID","DXD","TWM",
+        "SPXU","SPXD",
+        "VXX","UVXY","SVXY","VIXY","SVOL",
+        "GLD","IAU","SLV","USO","UNG","GDX","GDXJ","OIH",
+        "TLT","HYG","LQD","TBT","TMF","SHY","IEF","JNK","AGG","BND",
+        "GOVT","VCIT","VCSH",
+        "EEM","EFA","FXI","EWJ","EWZ","EWY","IEMG",
+        "MCHI","INDA","EWT","EWG","EWU","EWC","EWA","EWH","EWS","EWL",
+        "ARKK","ARKG","ARKW","ARKF","ARKQ",
+        "IBIT","FBTC","BITB","ARKB","WGMI",
+        "XOP","BOIL","KOLD","NAIL","CURE","BULZ","BERZ","MEXX","HIBL","HIBS",
+        "WEBL","WEBS","YINN","YANG","SOXL","SOXS",
+    ]
     try:
         with _psycopg2.connect(_DB_URL) as _conn, _conn.cursor() as _cur:
             _cur.execute("""
@@ -15745,8 +15768,9 @@ def _load_todays_unusual_calls_from_db(etf_set=None):
                   AND expiry::date > (now() AT TIME ZONE 'America/New_York')::date
                   AND vol_oi >= 1.5
                   AND prem >= 100000
+                  AND ticker != ALL(%s)
                 ORDER BY vol_oi DESC, last_seen DESC LIMIT 150
-            """)
+            """, (_EXCLUDE_ETFS,))
             _rows = _cur.fetchall()
         _cols = ["ticker","price","strike","expiry","days_out","volume","oi",
                  "vol_oi","prem","otm_pct","iv","urgency","first_seen","last_seen"]
