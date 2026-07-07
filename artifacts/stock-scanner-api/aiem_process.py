@@ -63,7 +63,7 @@ MAX_PRICE         = 20.0
 MIN_PM_VOLUME     = 50_000
 MIN_GAP_PCT       = 2.0
 MAX_FLOAT_SHARES  = 20_000_000
-CONFIDENCE_THRESH = 72          # fire SMS above this
+CONFIDENCE_THRESH = 45          # fire alert above this (max achievable without float/SI data ~61%)
 CANDIDATE_LIMIT   = 50          # max after float filter before scoring
 
 # ─────────────────────────────────────────────────────────────
@@ -723,52 +723,84 @@ def aiem_open_watcher():
                                "volume": d["volume"], "avg_volume": d["avg_volume"]}
                            for s, d in td.items()}
 
-        fired = 0
+        # Only send the grouped alert once per day (at 9:30 AM first pass)
+        if "DAILY_SUMMARY" in already:
+            return
+
+        # Score every pick against live prices, collect qualifiers
+        qualifiers = []
         for ticker, rank, base_conf, sig_basis, reasoning, predicted_move in picks:
-            if ticker in already:
-                continue
             live = live_prices.get(ticker, {})
             if not live:
                 continue
-
             live_data = {
                 "price":      live.get("price"),
                 "prev_close": live.get("prev_close"),
                 "volume":     live.get("volume", 0),
                 "avg_volume": live.get("avg_volume", 1),
             }
-
             live_conf, _, live_reason, live_move = aiem_score_ticker(
                 ticker, live_data, trust_weights
             )
             blended = round(base_conf * 0.4 + live_conf * 0.6, 1)
-            log.info(f"{ticker} blended={blended} (pre={base_conf} live={live_conf}) at {now_et.strftime('%H:%M')}")
-
+            log.info(f"{ticker} blended={blended} (pre={base_conf} live={live_conf}) sig={sig_basis}")
             if blended >= CONFIDENCE_THRESH:
-                mins_open = (h - 9) * 60 + max(0, m - 30)
                 cur_price  = live.get("price") or 0
                 stop_price = round(cur_price * 0.90, 2) if cur_price else None
-                stop_line  = (f"  ≈ ${stop_price:.2f}" if stop_price else "")
-                msg = (
-                    f"📡 AIEM NANO-CAP ALERT — {ticker}\n"
-                    f"Confidence: {blended}/100  |  Rank: #{rank} today\n"
-                    f"Time: {now_et.strftime('%H:%M ET')} ({mins_open}min after open)\n"
-                    f"Setup: {predicted_move}\n"
-                    f"Signals: {live_reason[:120]}\n"
-                    f"🛑 Stop Loss: -10% from open{stop_line}"
-                )
-                _send_alert(msg)
-                cur.execute("""
-                    INSERT INTO signal_fire_log
-                        (signal_name, ticker, fire_date, metadata, logged_at)
-                    VALUES ('AIEM_OPEN_ALERT', %s, %s, %s::jsonb, NOW())
-                    ON CONFLICT (signal_name, ticker, fire_date) DO NOTHING
-                """, (ticker, today, json.dumps({"conf": blended})))
-                fired += 1
+                qualifiers.append({
+                    "ticker": ticker, "rank": rank, "conf": blended,
+                    "sig": sig_basis or "", "price": cur_price,
+                    "stop": stop_price, "reason": live_reason,
+                })
 
+        if not qualifiers:
+            log.info("open_watcher: no picks crossed threshold — no alert sent")
+            return
+
+        # Group by signal tier
+        s1c   = [q for q in qualifiers if "momentum_carry" in q["sig"]]
+        s1d   = [q for q in qualifiers if "soft_carry"     in q["sig"]]
+        s1b   = [q for q in qualifiers if q not in s1c and q not in s1d]
+
+        def _fmt_pick(q):
+            stop = f"  |  Stop ≈ ${q['stop']:.2f}" if q["stop"] else ""
+            return (f"  {q['ticker']}  |  Open ${q['price']:.2f}  |  Conf {q['conf']:.0f}/100{stop}\n"
+                    f"  💡 {q['reason'][:100]}")
+
+        lines = [
+            f"⚡ AIEM S1B · S1C · S1D — Morning Picks",
+            f"📅 {now_et.strftime('%a %b %-d, %Y')}  |  {now_et.strftime('%I:%M %p ET')}",
+            f"{'─' * 32}",
+        ]
+        if s1c:
+            lines.append("\n🟢 S1c — Full Carry (highest conviction)")
+            lines.append("Gap 15-22% + prior session closed top 20%")
+            for q in s1c:
+                lines.append(_fmt_pick(q))
+        if s1d:
+            lines.append("\n🔵 S1d — Soft Carry")
+            lines.append("Gap 15-22% + prior session closed upper 40%")
+            for q in s1d:
+                lines.append(_fmt_pick(q))
+        if s1b:
+            lines.append("\n🟡 S1b — Gap Zone")
+            lines.append("Gap 15-25% validated sweet-spot")
+            for q in s1b:
+                lines.append(_fmt_pick(q))
+        lines.append(f"\n🛑 -10% hard stop on all names  |  Size $500-$1,000/pick")
+        lines.append(f"📊 {len(qualifiers)} pick{'s' if len(qualifiers) != 1 else ''} confirmed at open")
+
+        _send_alert("\n".join(lines))
+
+        # Log as sent so we don't fire again today
+        cur.execute("""
+            INSERT INTO signal_fire_log
+                (signal_name, ticker, fire_date, metadata, logged_at)
+            VALUES ('AIEM_OPEN_ALERT', 'DAILY_SUMMARY', %s, %s::jsonb, NOW())
+            ON CONFLICT (signal_name, ticker, fire_date) DO NOTHING
+        """, (today, json.dumps({"picks": len(qualifiers)})))
         conn.commit()
-        if fired:
-            log.info(f"open_watcher: fired {fired} alerts at {now_et.strftime('%H:%M')}")
+        log.info(f"open_watcher: grouped alert sent — {len(qualifiers)} picks ({len(s1c)} S1c, {len(s1d)} S1d, {len(s1b)} S1b)")
 
     except Exception as e:
         log.error(f"open_watcher error: {e}")
