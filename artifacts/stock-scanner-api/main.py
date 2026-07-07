@@ -10069,8 +10069,9 @@ def nano_morning_picks_route():
 
 @app.route("/stock-api/nano-carry/picks")
 def nano_carry_picks():
-    """Today's AIEM Process predictions tiered by S1c / S1d / S1b signal."""
+    """Today's AIEM Process predictions with live open→close gain."""
     import psycopg2 as _pg2
+    import time as _tm
     try:
         today = _et_today()
         with _pg2.connect(os.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
@@ -10093,6 +10094,41 @@ def nano_carry_picks():
                 return ("S1b", "Gap Zone", "#f59e0b")
             return ("other", "Other", "#94a3b8")
 
+        # Fetch today's OHLC from yfinance (cached 5 min)
+        _syms = [r[0] for r in _rows]
+        _cache_key = f"nano_ohlc_{today}"
+        _ohlc_cache = getattr(app, "_nano_ohlc_cache", {})
+        _ohlc = _ohlc_cache.get(_cache_key) if _ohlc_cache else None
+        if _ohlc is None and _syms:
+            _ohlc = {}
+            try:
+                import yfinance as _yf
+                _deadline = _tm.time() + 15
+                for _sym in _syms:
+                    if _tm.time() > _deadline:
+                        break
+                    try:
+                        _h = _yf.Ticker(_sym).history(period="1d", interval="1d")
+                        if not _h.empty:
+                            _row = _h.iloc[-1]
+                            _op = float(_row["Open"])
+                            _cl = float(_row["Close"])
+                            _hi = float(_row["High"])
+                            if _op > 0:
+                                _ohlc[_sym] = {
+                                    "open_price":  round(_op, 2),
+                                    "close_price": round(_cl, 2),
+                                    "high_price":  round(_hi, 2),
+                                    "gain_pct":    round((_cl - _op) / _op * 100, 1),
+                                    "best_pct":    round((_hi - _op) / _op * 100, 1),
+                                }
+                    except Exception:
+                        pass
+                app._nano_ohlc_cache = {_cache_key: _ohlc}
+            except Exception as _ye:
+                log.warning(f"nano_carry_picks yf: {_ye}")
+                _ohlc = {}
+
         picks = []
         for ticker, rank, conf, sig_basis, reasoning, move, created_at in _rows:
             tier, tier_label, tier_color = _tier(sig_basis)
@@ -10100,31 +10136,51 @@ def nano_carry_picks():
                 reasoning if isinstance(reasoning, list)
                 else ([reasoning] if reasoning else [])
             )
+            _perf = (_ohlc or {}).get(ticker, {})
             picks.append({
-                "ticker": ticker,
-                "rank": rank,
-                "confidence": round(float(conf or 0), 1),
-                "tier": tier,
-                "tier_label": tier_label,
-                "tier_color": tier_color,
-                "signals": [s.strip() for s in (sig_basis or "").split(",") if s.strip()],
-                "reasoning": reasoning_list,
+                "ticker":      ticker,
+                "rank":        rank,
+                "confidence":  round(float(conf or 0), 1),
+                "tier":        tier,
+                "tier_label":  tier_label,
+                "tier_color":  tier_color,
+                "signals":     [s.strip() for s in (sig_basis or "").split(",") if s.strip()],
+                "reasoning":   reasoning_list,
                 "predicted_move": move,
-                "scan_time": created_at.strftime("%I:%M %p ET") if created_at else None,
+                "scan_time":   created_at.strftime("%I:%M %p ET") if created_at else None,
+                "open_price":  _perf.get("open_price"),
+                "close_price": _perf.get("close_price"),
+                "high_price":  _perf.get("high_price"),
+                "gain_pct":    _perf.get("gain_pct"),
+                "best_pct":    _perf.get("best_pct"),
             })
 
+        _graded  = [p for p in picks if p["gain_pct"] is not None]
+        _winners = len([p for p in _graded if p["gain_pct"] > 0])
+        _avg_gain = round(sum(p["gain_pct"] for p in _graded) / len(_graded), 1) if _graded else None
+        _avg_best = round(sum(p["best_pct"] for p in _graded) / len(_graded), 1) if _graded else None
+
         return jsonify({
-            "date": today.isoformat(),
-            "s1c":  [p for p in picks if p["tier"] == "S1c"],
-            "s1d":  [p for p in picks if p["tier"] == "S1d"],
-            "s1b":  [p for p in picks if p["tier"] == "S1b"],
-            "other":[p for p in picks if p["tier"] == "other"],
-            "total": len(picks),
+            "date":      today.isoformat(),
+            "picks":     picks,
+            "total":     len(picks),
             "scan_time": picks[0]["scan_time"] if picks else None,
+            "perf": {
+                "winners":      _winners,
+                "total_graded": len(_graded),
+                "avg_gain":     _avg_gain,
+                "avg_best":     _avg_best,
+            },
+            "s1c":   [p for p in picks if p["tier"] == "S1c"],
+            "s1d":   [p for p in picks if p["tier"] == "S1d"],
+            "s1b":   [p for p in picks if p["tier"] == "S1b"],
+            "other": [p for p in picks if p["tier"] == "other"],
         })
     except Exception as _e:
         log.error(f"nano_carry_picks: {_e}")
-        return jsonify({"error": str(_e), "s1c": [], "s1d": [], "s1b": [], "other": [], "total": 0}), 500
+        return jsonify({"error": str(_e), "picks": [], "s1c": [], "s1d": [],
+                        "s1b": [], "other": [], "total": 0,
+                        "perf": {"winners": 0, "total_graded": 0, "avg_gain": None, "avg_best": None}}), 500
 
 
 def _admin_ok():

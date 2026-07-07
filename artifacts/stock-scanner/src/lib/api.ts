@@ -2139,16 +2139,30 @@ export interface NanoCarryPick {
   reasoning: string[];
   predicted_move: string;
   scan_time: string | null;
+  open_price: number | null;
+  close_price: number | null;
+  high_price: number | null;
+  gain_pct: number | null;
+  best_pct: number | null;
+}
+
+export interface NanoCarryPerf {
+  winners: number;
+  total_graded: number;
+  avg_gain: number | null;
+  avg_best: number | null;
 }
 
 export interface NanoCarryData {
   date: string;
+  picks: NanoCarryPick[];
+  total: number;
+  scan_time: string | null;
+  perf: NanoCarryPerf;
   s1c: NanoCarryPick[];
   s1d: NanoCarryPick[];
   s1b: NanoCarryPick[];
   other: NanoCarryPick[];
-  total: number;
-  scan_time: string | null;
 }
 
 export function fetchNanoCarryPicks() {

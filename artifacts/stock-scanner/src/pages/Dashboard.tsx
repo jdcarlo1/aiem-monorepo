@@ -17890,176 +17890,141 @@ export default function Dashboard() {
               refetchInterval: 120_000,
             });
 
-            const s1c   = data?.s1c   ?? [];
-            const s1d   = data?.s1d   ?? [];
-            const s1b   = data?.s1b   ?? [];
-            const other = data?.other ?? [];
-            const total = data?.total ?? 0;
-            const scanDate = data?.date ?? null;
+            const picks   = data?.picks    ?? [];
+            const perf    = data?.perf     ?? null;
+            const scanDate = data?.date    ?? null;
             const scanTime = data?.scan_time ?? null;
 
-            const PickCard = ({ p, idx }: { p: NanoCarryPick; idx: number }) => (
-              <div style={{
-                background: "#0f172a",
-                border: `1px solid ${p.tier_color}33`,
-                borderRadius: 10,
-                padding: "12px 14px",
-                marginBottom: 8,
-                display: "flex",
-                flexDirection: "column" as const,
-                gap: 6,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ color: "#475569", fontSize: 11, fontWeight: 700, minWidth: 18 }}>#{idx + 1}</span>
-                    <button
-                      onClick={() => onSelectTicker(p.ticker)}
-                      style={{ color: "#fff", fontWeight: 800, fontSize: 16, background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                    >
-                      {p.ticker}
-                    </button>
-                    <span style={{
-                      background: `${p.tier_color}22`,
-                      color: p.tier_color,
-                      border: `1px solid ${p.tier_color}55`,
-                      borderRadius: 5,
-                      fontSize: 10,
-                      fontWeight: 700,
-                      padding: "2px 6px",
-                      letterSpacing: "0.05em",
-                    }}>
-                      {p.tier}
-                    </span>
-                  </div>
-                  <div style={{ textAlign: "right" as const }}>
-                    <div style={{ color: p.tier_color, fontWeight: 800, fontSize: 15 }}>{p.confidence.toFixed(0)}<span style={{ color: "#475569", fontSize: 10, fontWeight: 500 }}>/100</span></div>
-                    <div style={{ color: "#475569", fontSize: 9 }}>conf</div>
-                  </div>
-                </div>
-                {p.predicted_move && (
-                  <div style={{ color: "#94a3b8", fontSize: 11 }}>🎯 {p.predicted_move}</div>
-                )}
-                {p.reasoning.length > 0 && (
-                  <div style={{ color: "#64748b", fontSize: 10, lineHeight: 1.5 }}>
-                    {p.reasoning.slice(0, 2).map((r, i) => <div key={i}>· {r}</div>)}
-                  </div>
-                )}
-                {p.scan_time && (
-                  <div style={{ color: "#334155", fontSize: 9 }}>⏱ {p.scan_time}</div>
-                )}
-              </div>
-            );
-
-            const Column = ({
-              tier, label, color, picks, subtitle,
-            }: {
-              tier: string; label: string; color: string; picks: NanoCarryPick[]; subtitle: string;
-            }) => (
-              <div style={{ flex: 1, minWidth: 220, maxWidth: 360 }}>
-                <div style={{
-                  background: `${color}11`,
-                  border: `1px solid ${color}44`,
-                  borderRadius: "12px 12px 0 0",
-                  padding: "12px 14px",
-                  marginBottom: 2,
-                }}>
-                  <div style={{ color: color, fontWeight: 800, fontSize: 14, letterSpacing: "0.04em" }}>{label}</div>
-                  <div style={{ color: "#64748b", fontSize: 10, marginTop: 2 }}>{subtitle}</div>
-                  <div style={{
-                    display: "inline-block",
-                    background: `${color}22`,
-                    color: color,
-                    borderRadius: 20,
-                    padding: "1px 10px",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    marginTop: 6,
-                  }}>
-                    {picks.length} pick{picks.length !== 1 ? "s" : ""}
-                  </div>
-                </div>
-                <div style={{
-                  border: `1px solid ${color}22`,
-                  borderTop: "none",
-                  borderRadius: "0 0 12px 12px",
-                  padding: "10px 8px",
-                  minHeight: 80,
-                  background: "#0a0f1a",
-                }}>
-                  {picks.length === 0 && (
-                    <div style={{ color: "#334155", fontSize: 11, textAlign: "center" as const, padding: "24px 0" }}>
-                      No {tier} picks today
-                    </div>
-                  )}
-                  {picks.map((p, i) => <PickCard key={p.ticker} p={p} idx={i} />)}
-                </div>
-              </div>
-            );
+            const fmtDate = (d: string) =>
+              new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
             return (
-              <div style={{ padding: "20px 16px", maxWidth: 1100, margin: "0 auto" }}>
+              <div style={{ padding: "20px 16px", maxWidth: 620, margin: "0 auto" }}>
+
                 {/* Header */}
-                <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap" as const, gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: "#f1f5f9", letterSpacing: "0.01em" }}>
-                      ⚡ Momentum Carry Signals
-                    </div>
-                    <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>
-                      Gap 15–22% + T-1 close strength · S1c &gt; S1d &gt; S1b by conviction · $1,000/pick · EOD exit
-                    </div>
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#f1f5f9" }}>⚡ Today's Picks</div>
+                  <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>
+                    AIEM premarket scan · buy at 9:30 AM open · results at close
                   </div>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" as const }}>
-                    {scanDate && (
-                      <div style={{ background: "#1e293b", borderRadius: 8, padding: "6px 14px", fontSize: 12, color: "#94a3b8" }}>
-                        📅 {new Date(scanDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                        {scanTime && <span style={{ color: "#475569", marginLeft: 6 }}>· {scanTime}</span>}
+                </div>
+
+                {/* Performance summary bar */}
+                {perf && perf.total_graded > 0 && (
+                  <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" as const }}>
+                    {[
+                      { label: "Win Rate",         value: `${perf.winners}/${perf.total_graded}`,                                      color: "#22c55e" },
+                      { label: "Avg Open→Close",   value: perf.avg_gain != null ? `${perf.avg_gain > 0 ? "+" : ""}${perf.avg_gain}%` : "—", color: perf.avg_gain != null && perf.avg_gain >= 0 ? "#22c55e" : "#ef4444" },
+                      { label: "Avg Open→High",    value: perf.avg_best != null ? `+${perf.avg_best}%` : "—",                         color: "#38bdf8" },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "10px 16px", flex: 1, minWidth: 120 }}>
+                        <div style={{ color, fontWeight: 800, fontSize: 18 }}>{value}</div>
+                        <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>{label}</div>
                       </div>
-                    )}
-                    <div style={{ background: "#1e293b", borderRadius: 8, padding: "6px 14px", fontSize: 12 }}>
-                      <span style={{ color: "#94a3b8" }}>Total: </span>
-                      <span style={{ color: "#f1f5f9", fontWeight: 700 }}>{total}</span>
-                    </div>
-                    {isLoading && <div style={{ color: "#64748b", fontSize: 12 }}>Refreshing…</div>}
-                  </div>
-                </div>
-
-                {/* Three signal columns */}
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" as const }}>
-                  <Column tier="S1c" label="S1c — Full Carry" color="#22c55e" picks={s1c}
-                    subtitle="Gap 15–22% + T-1 CS ≥ 0.80 · +13 pts · Highest conviction" />
-                  <Column tier="S1d" label="S1d — Soft Carry" color="#38bdf8" picks={s1d}
-                    subtitle="Gap 15–22% + T-1 CS 0.60–0.79 · +9 pts · Mid-tier" />
-                  <Column tier="S1b" label="S1b — Gap Zone" color="#f59e0b" picks={s1b}
-                    subtitle="Gap 15–25% (no prior carry) · +5 pts · Base signal" />
-                </div>
-
-                {/* Other / uncategorised */}
-                {other.length > 0 && (
-                  <div style={{ marginTop: 20 }}>
-                    <div style={{ color: "#475569", fontSize: 11, fontWeight: 700, marginBottom: 8 }}>Other picks (mixed signals)</div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
-                      {other.map((p, i) => <PickCard key={p.ticker} p={p} idx={i} />)}
-                    </div>
+                    ))}
                   </div>
                 )}
 
-                {/* Edge note */}
-                <div style={{
-                  marginTop: 24,
-                  background: "#0f172a",
-                  border: "1px solid #1e293b",
-                  borderRadius: 10,
-                  padding: "14px 16px",
-                  fontSize: 11,
-                  color: "#475569",
-                  lineHeight: 1.7,
-                }}>
-                  <div style={{ color: "#64748b", fontWeight: 700, marginBottom: 6 }}>📐 Signal Architecture</div>
-                  <div><span style={{ color: "#22c55e", fontWeight: 700 }}>S1c Full Carry</span> — Gap 15–22% AND prior session closed in top 20% of its range (CS ≥ 0.80). Stock was being bought into the close before the gap. Backtest: 97.7% WR (Jun 29 – Jul 2).</div>
-                  <div style={{ marginTop: 4 }}><span style={{ color: "#38bdf8", fontWeight: 700 }}>S1d Soft Carry</span> — Same gap zone, prior close in upper 40% (CS 0.60–0.79). Momentum present but less pronounced.</div>
-                  <div style={{ marginTop: 4 }}><span style={{ color: "#f59e0b", fontWeight: 700 }}>S1b Gap Zone</span> — Gap 15–25% regardless of prior session. Base signal, validated sweet-spot zone.</div>
-                  <div style={{ marginTop: 4 }}>Out of 11,000+ stocks scanned daily, typically <span style={{ color: "#94a3b8", fontWeight: 700 }}>3–8 qualify</span>. Scarcity is the edge.</div>
+                {/* Date / loading */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  {scanDate && (
+                    <div style={{ color: "#475569", fontSize: 11 }}>
+                      📅 {fmtDate(scanDate)}{scanTime ? ` · scanned ${scanTime}` : ""}
+                    </div>
+                  )}
+                  {isLoading && <div style={{ color: "#475569", fontSize: 11 }}>Refreshing…</div>}
                 </div>
+
+                {/* Empty state */}
+                {picks.length === 0 && !isLoading && (
+                  <div style={{ color: "#475569", textAlign: "center" as const, padding: "48px 0", fontSize: 13 }}>
+                    No picks yet — morning scan runs 7:00–9:15 AM ET
+                  </div>
+                )}
+
+                {/* Picks list */}
+                {picks.map((p, i) => {
+                  const gain = p.gain_pct;
+                  const gainColor = gain == null ? "#475569" : gain > 0 ? "#22c55e" : "#ef4444";
+                  const gainStr  = gain == null ? "—" : `${gain > 0 ? "+" : ""}${gain.toFixed(1)}%`;
+                  const bestStr  = p.best_pct != null ? `+${p.best_pct.toFixed(1)}%` : null;
+
+                  return (
+                    <div key={p.ticker} style={{
+                      background: "#0f172a",
+                      border: "1px solid #1e293b",
+                      borderRadius: 10,
+                      padding: "14px 16px",
+                      marginBottom: 10,
+                    }}>
+                      {/* Top row: rank + ticker + tier | gain */}
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ color: "#334155", fontSize: 11, fontWeight: 700, minWidth: 20 }}>#{i + 1}</span>
+                          <button
+                            onClick={() => onSelectTicker(p.ticker)}
+                            style={{ color: "#fff", fontWeight: 800, fontSize: 18, background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1 }}
+                          >
+                            {p.ticker}
+                          </button>
+                          <span style={{
+                            background: `${p.tier_color}22`,
+                            color: p.tier_color,
+                            border: `1px solid ${p.tier_color}55`,
+                            borderRadius: 5,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "2px 7px",
+                          }}>
+                            {p.tier}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: "right" as const }}>
+                          <div style={{ color: gainColor, fontWeight: 900, fontSize: 22, lineHeight: 1 }}>
+                            {gainStr}
+                          </div>
+                          <div style={{ color: "#334155", fontSize: 9, marginTop: 2 }}>open→close</div>
+                        </div>
+                      </div>
+
+                      {/* Price row */}
+                      {p.open_price != null && (
+                        <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 11, color: "#64748b", flexWrap: "wrap" as const }}>
+                          <span>Open <span style={{ color: "#94a3b8", fontWeight: 700 }}>${p.open_price.toFixed(2)}</span></span>
+                          <span>Close <span style={{ color: "#94a3b8", fontWeight: 700 }}>${p.close_price?.toFixed(2)}</span></span>
+                          <span>High <span style={{ color: "#38bdf8", fontWeight: 700 }}>${p.high_price?.toFixed(2)}</span></span>
+                          {bestStr && (
+                            <span>Best intraday <span style={{ color: "#38bdf8", fontWeight: 700 }}>{bestStr}</span></span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Confidence + signals */}
+                      <div style={{ marginTop: 8, fontSize: 10, color: "#475569" }}>
+                        Conf {p.confidence.toFixed(0)}/100 · {p.signals.slice(0, 3).join(", ")}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Edge note */}
+                {picks.length > 0 && (
+                  <div style={{
+                    marginTop: 20,
+                    background: "#0f172a",
+                    border: "1px solid #1e293b",
+                    borderRadius: 10,
+                    padding: "12px 16px",
+                    fontSize: 10,
+                    color: "#475569",
+                    lineHeight: 1.7,
+                  }}>
+                    <span style={{ color: "#22c55e", fontWeight: 700 }}>S1c</span> Gap 15–22% + T-1 closed top 20% ·{" "}
+                    <span style={{ color: "#38bdf8", fontWeight: 700 }}>S1d</span> Same gap + T-1 top 40% ·{" "}
+                    <span style={{ color: "#f59e0b", fontWeight: 700 }}>S1b</span> Gap 15–25% base signal ·{" "}
+                    <span style={{ color: "#94a3b8" }}>Other</span> mixed high-volume gaps
+                  </div>
+                )}
               </div>
             );
           }
