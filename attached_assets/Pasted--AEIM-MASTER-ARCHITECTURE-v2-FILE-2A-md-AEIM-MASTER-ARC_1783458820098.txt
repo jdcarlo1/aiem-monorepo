@@ -1,0 +1,742 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_2A.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 2A
+### Advanced Technical Intelligence Engine
+### Multi-Timeframe Trend Analysis
+### Technical Evidence Framework
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+The Technical Intelligence Engine determines whether
+the current price action is:
+
+• Healthy
+
+• Weak
+
+• Accelerating
+
+• Decelerating
+
+• Correcting
+
+• Reversing
+
+• Breaking Down
+
+It converts technical information into evidence.
+
+Technical indicators NEVER make decisions by themselves.
+
+They only contribute evidence.
+
+---
+
+# TECHNICAL HIERARCHY
+
+Price Action
+
+↓
+
+Trend Structure
+
+↓
+
+Momentum
+
+↓
+
+Relative Strength
+
+↓
+
+Volume
+
+↓
+
+Institutional Activity
+
+↓
+
+Technical Evidence Score
+
+---
+
+# MULTI-TIMEFRAME ANALYSIS
+
+Every stock shall be evaluated on:
+
+5 Minute
+
+15 Minute
+
+30 Minute
+
+1 Hour
+
+4 Hour
+
+Daily
+
+Weekly
+
+Monthly
+
+The objective is alignment.
+
+---
+
+# EXAMPLE
+
+Daily Trend
+
+Bullish
+
+Weekly Trend
+
+Bullish
+
+Monthly Trend
+
+Bullish
+
+15 Minute
+
+Oversold
+
+Interpretation
+
+Healthy pullback
+
+Possible tactical entry
+
+---
+
+# SECOND EXAMPLE
+
+Daily
+
+Bearish
+
+Weekly
+
+Bearish
+
+Monthly
+
+Bearish
+
+5 Minute
+
+Oversold
+
+Interpretation
+
+Oversold alone does NOT justify buying.
+
+Likely falling knife.
+
+---
+
+# MOVING AVERAGE SYSTEM
+
+Calculate
+
+EMA 8
+
+EMA 20
+
+EMA 50
+
+EMA 100
+
+EMA 150
+
+EMA 200
+
+SMA 50
+
+SMA 200
+
+---
+
+# PRICE LOCATION
+
+Determine
+
+Above EMA 20
+
+Above EMA 50
+
+Above EMA 100
+
+Above EMA 150
+
+Above EMA 200
+
+Percent Above
+
+Percent Below
+
+Distance From
+
+Every moving average.
+
+---
+
+# MOVING AVERAGE ALIGNMENT
+
+Ideal Bull Structure
+
+EMA 20
+
+>
+
+EMA 50
+
+>
+
+EMA 100
+
+>
+
+EMA 150
+
+>
+
+EMA 200
+
+All rising.
+
+Highest technical score.
+
+---
+
+# MOVING AVERAGE SLOPES
+
+Calculate slope for
+
+20 EMA
+
+50 EMA
+
+100 EMA
+
+150 EMA
+
+200 EMA
+
+Slope Categories
+
+Strongly Rising
+
+Rising
+
+Flat
+
+Weakening
+
+Falling
+
+Strongly Falling
+
+Slope often matters more than price location.
+
+---
+
+# TREND STRUCTURE
+
+Evaluate
+
+Higher Highs
+
+Higher Lows
+
+Lower Highs
+
+Lower Lows
+
+Swing Highs
+
+Swing Lows
+
+Trendlines
+
+Channels
+
+Trend integrity increases when
+higher highs and higher lows remain intact.
+
+---
+
+# TREND STRENGTH
+
+Use
+
+ADX
+
+Categories
+
+Above 40
+
+Very Strong Trend
+
+30-40
+
+Strong Trend
+
+20-30
+
+Developing Trend
+
+Below 20
+
+Weak Trend
+
+---
+
+# MOMENTUM
+
+Calculate
+
+MACD
+
+Signal Line
+
+Histogram
+
+MACD Slope
+
+MACD Acceleration
+
+Momentum should agree
+with Trend Integrity.
+
+---
+
+# RSI
+
+Use
+
+RSI 5
+
+RSI 14
+
+RSI 21
+
+Interpretation
+
+RSI alone NEVER generates trades.
+
+Instead ask
+
+Oversold
+
+inside
+
+Healthy Trend?
+
+or
+
+Oversold
+
+inside
+
+Broken Trend?
+
+Very different situations.
+
+---
+
+# RSI LOGIC
+
+Oversold
+
++
+
+Healthy Trend
+
+Positive Evidence
+
+Oversold
+
++
+
+Broken Trend
+
+Negative Evidence
+
+---
+
+# STOCHASTICS
+
+Monitor
+
+Fast
+
+Slow
+
+Crossovers
+
+Divergence
+
+Only contributes evidence.
+
+---
+
+# ATR
+
+Average True Range
+
+Used for
+
+Position sizing
+
+Stop placement
+
+Volatility estimation
+
+Reward/Risk calculation
+
+---
+
+# VWAP
+
+Evaluate
+
+Above VWAP
+
+Below VWAP
+
+Distance
+
+Institutional Support
+
+VWAP Recovery
+
+Late-Day Reclaim
+
+---
+
+# RELATIVE STRENGTH
+
+Compare stock against
+
+SPY
+
+Sector ETF
+
+Industry ETF
+
+Questions
+
+Outperforming?
+
+Underperforming?
+
+Leading?
+
+Lagging?
+
+---
+
+# RELATIVE STRENGTH SCORE
+
+100
+
+Elite Leader
+
+90
+
+Leader
+
+80
+
+Strong
+
+70
+
+Healthy
+
+60
+
+Average
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Lagging
+
+20
+
+Poor
+
+10
+
+Avoid
+
+---
+
+# VOLUME
+
+Calculate
+
+Average Volume
+
+Relative Volume
+
+Volume Spike
+
+Buying Volume
+
+Selling Volume
+
+Volume Trend
+
+---
+
+# VOLUME PROFILE
+
+Determine
+
+High Volume Nodes
+
+Low Volume Nodes
+
+Acceptance
+
+Rejection
+
+Support
+
+Resistance
+
+Institutional Interest
+
+---
+
+# ACCUMULATION
+
+Monitor
+
+Accumulation Distribution Line
+
+On Balance Volume
+
+Chaikin Money Flow
+
+Money Flow Index
+
+Institutional Buying
+
+Institutional Selling
+
+---
+
+# DIVERGENCE
+
+Look for
+
+Price Higher
+
+Momentum Lower
+
+Price Lower
+
+Momentum Higher
+
+Bullish Divergence
+
+Bearish Divergence
+
+Never trade divergence alone.
+
+---
+
+# SUPPORT
+
+Determine
+
+Nearest Support
+
+Major Support
+
+Weekly Support
+
+Monthly Support
+
+Trendline Support
+
+VWAP Support
+
+---
+
+# RESISTANCE
+
+Determine
+
+Nearest Resistance
+
+Major Resistance
+
+Weekly Resistance
+
+Monthly Resistance
+
+Trendline Resistance
+
+---
+
+# BREAKOUT QUALITY
+
+Questions
+
+Real breakout?
+
+False breakout?
+
+Low Volume?
+
+High Volume?
+
+Institutional Confirmation?
+
+Retest Successful?
+
+---
+
+# BREAKDOWN QUALITY
+
+Questions
+
+Temporary?
+
+Structural?
+
+Panic?
+
+Distribution?
+
+Macro Driven?
+
+Leadership Failure?
+
+---
+
+# PRICE STRUCTURE SCORE
+
+100
+
+Exceptional
+
+90
+
+Strong
+
+80
+
+Healthy
+
+70
+
+Constructive
+
+60
+
+Neutral
+
+50
+
+Mixed
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Danger
+
+10
+
+Avoid
+
+---
+
+# TECHNICAL EVIDENCE SCORE
+
+Combine
+
+Moving Average Score
+
+Trend Score
+
+Momentum Score
+
+Relative Strength Score
+
+Volume Score
+
+VWAP Score
+
+Support Score
+
+Resistance Score
+
+Structure Score
+
+Institutional Score
+
+Final
+
+Technical Evidence Score
+
+---
+
+# IMPORTANT RULE
+
+Technical Evidence
+
+does NOT approve trades.
+
+It only increases or decreases confidence.
+
+Approval belongs only to
+
+Master Decision Orchestrator.
+
+---
+
+# FILE 2A COMPLETE
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_2B.md
+
+Topics
+
+• Institutional Footprint Engine
+
+• Smart Money Detection
+
+• Liquidity Analysis
+
+• Order Flow Intelligence
+
+• Adaptive Technical Scoring
