@@ -1,0 +1,642 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_2C.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 2C
+### Multi-Timeframe Momentum Engine
+### Regime-Adaptive Technical Intelligence
+### Technical Confidence Engine
+### Evidence Fusion Layer
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+Momentum is one of the strongest forces in financial markets.
+
+However...
+
+Momentum changes.
+
+Strong momentum can weaken.
+
+Weak momentum can recover.
+
+AEIM must determine:
+
+• Is momentum accelerating?
+
+• Is momentum slowing?
+
+• Is momentum exhausted?
+
+• Is momentum beginning again?
+
+• Is this only a pullback?
+
+• Is the trend actually reversing?
+
+---
+
+# MOMENTUM ENGINE
+
+Every stock shall receive a
+
+Momentum Score
+
+0-100
+
+This score contributes evidence.
+
+It never makes decisions alone.
+
+---
+
+# MULTI-TIMEFRAME MOMENTUM
+
+Evaluate momentum on
+
+5 Minute
+
+15 Minute
+
+30 Minute
+
+1 Hour
+
+4 Hour
+
+Daily
+
+Weekly
+
+Monthly
+
+Alignment across multiple timeframes
+produces stronger evidence.
+
+---
+
+# MOMENTUM ALIGNMENT
+
+Example
+
+Monthly
+
+Bullish
+
+Weekly
+
+Bullish
+
+Daily
+
+Bullish
+
+4 Hour
+
+Bullish
+
+1 Hour
+
+Temporary Pullback
+
+Interpretation
+
+High-quality momentum stock experiencing
+normal short-term weakness.
+
+Possible buying opportunity.
+
+---
+
+# MOMENTUM FAILURE
+
+Example
+
+Monthly
+
+Weak
+
+Weekly
+
+Weak
+
+Daily
+
+Weak
+
+4 Hour
+
+Weak
+
+15 Minute
+
+Oversold
+
+Interpretation
+
+Oversold does NOT equal buy.
+
+Momentum is broadly deteriorating.
+
+---
+
+# MOMENTUM PERSISTENCE
+
+AEIM should estimate
+
+How long has momentum existed?
+
+Days
+
+Weeks
+
+Months
+
+Years
+
+Long-duration leadership deserves more
+respect than short-duration leadership.
+
+---
+
+# MOMENTUM ACCELERATION
+
+Questions
+
+Is price accelerating?
+
+Is volume increasing?
+
+Is relative strength improving?
+
+Are institutions participating?
+
+Are breakouts becoming stronger?
+
+---
+
+# MOMENTUM DECELERATION
+
+Questions
+
+Is upside slowing?
+
+Are rallies becoming weaker?
+
+Are pullbacks becoming deeper?
+
+Is participation narrowing?
+
+Is leadership fading?
+
+---
+
+# MOMENTUM EXHAUSTION
+
+Evidence
+
+Large extension
+
+Extreme RSI
+
+Declining momentum
+
+Lower highs
+
+Distribution
+
+Weak closes
+
+Multiple failed breakouts
+
+No single item is sufficient.
+
+Require multiple confirmations.
+
+---
+
+# PULLBACK DETECTION
+
+AEIM must separate
+
+Healthy Pullback
+
+from
+
+Trend Failure
+
+Healthy pullback usually includes
+
+Strong Trend
+
+Healthy Volume
+
+Strong Relative Strength
+
+Support Holding
+
+Institutional Participation
+
+Leadership Maintained
+
+---
+
+# TREND FAILURE
+
+Trend failure usually includes
+
+Lower Highs
+
+Lower Lows
+
+Relative Weakness
+
+Distribution
+
+Sector Weakness
+
+Institutional Exit
+
+Leadership Loss
+
+---
+
+# MACRO ADAPTIVE WEIGHTING
+
+Technical indicators should not always
+carry identical weight.
+
+Example
+
+Strong Bull Market
+
+Trend indicators receive higher weight.
+
+Bear Market
+
+Risk indicators receive higher weight.
+
+High Volatility
+
+Execution quality receives higher weight.
+
+Rotation Market
+
+Leadership receives higher weight.
+
+---
+
+# ADAPTIVE WEIGHT TABLE
+
+Bull Market
+
+Trend
+
+30%
+
+Momentum
+
+20%
+
+Leadership
+
+20%
+
+Macro
+
+10%
+
+Risk
+
+10%
+
+Execution
+
+10%
+
+---
+
+Correction
+
+Trend
+
+20%
+
+Momentum
+
+15%
+
+Leadership
+
+20%
+
+Macro
+
+20%
+
+Risk
+
+15%
+
+Execution
+
+10%
+
+---
+
+Bear Market
+
+Trend
+
+15%
+
+Momentum
+
+10%
+
+Leadership
+
+15%
+
+Macro
+
+30%
+
+Risk
+
+20%
+
+Execution
+
+10%
+
+AEIM should dynamically adjust weights.
+
+---
+
+# TECHNICAL CONFIDENCE ENGINE
+
+Every technical module contributes
+confidence.
+
+Moving Averages
+
++
+
+Trend Structure
+
++
+
+Momentum
+
++
+
+Volume
+
++
+
+VWAP
+
++
+
+Relative Strength
+
++
+
+Institutional Footprint
+
++
+
+Leadership
+
+=
+
+Technical Confidence
+
+---
+
+# TECHNICAL CONFIDENCE SCALE
+
+95+
+
+Exceptional
+
+90
+
+Elite
+
+80
+
+Very Strong
+
+70
+
+Strong
+
+60
+
+Constructive
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Danger
+
+10
+
+Avoid
+
+---
+
+# EVIDENCE FUSION LAYER
+
+Purpose
+
+Combine every technical engine into
+one evidence package.
+
+Inputs
+
+Trend
+
+Momentum
+
+Volume
+
+Liquidity
+
+VWAP
+
+Relative Strength
+
+Leadership
+
+Institutional Footprint
+
+Support
+
+Resistance
+
+Price Structure
+
+Outputs
+
+Technical Evidence Package
+
+This package is passed to the
+Master Decision Orchestrator.
+
+---
+
+# CONFLICT RESOLUTION
+
+Example
+
+Momentum
+
+Strong
+
+Trend
+
+Strong
+
+Leadership
+
+Strong
+
+Macro
+
+Weak
+
+Result
+
+Trade still possible
+
+Position size reduced.
+
+---
+
+Example
+
+Trend
+
+Weak
+
+Momentum
+
+Weak
+
+Leadership
+
+Weak
+
+Macro
+
+Strong
+
+Result
+
+Do NOT buy simply because the market
+is strong.
+
+---
+
+# LEARNING MEMORY
+
+Store
+
+Momentum Score
+
+Momentum Duration
+
+Momentum Acceleration
+
+Momentum Deceleration
+
+Technical Confidence
+
+Adaptive Weights Used
+
+Evidence Package
+
+These become future learning inputs.
+
+---
+
+# SELF-IMPROVEMENT
+
+Every month AEIM should evaluate
+
+Which technical indicators predicted
+success?
+
+Which indicators produced false signals?
+
+Should indicator weights change?
+
+Should evidence thresholds increase?
+
+The system should improve from observed
+performance rather than relying on fixed
+weights forever.
+
+---
+
+# STRICT VERIFICATION
+
+Before trade approval verify
+
+✓ Multi-timeframe momentum completed
+
+✓ Momentum persistence calculated
+
+✓ Momentum acceleration analyzed
+
+✓ Momentum deceleration analyzed
+
+✓ Technical Confidence Score assigned
+
+✓ Adaptive weights selected
+
+✓ Evidence package created
+
+✓ Results passed to Master Decision Orchestrator
+
+Failure of any verification prevents
+trade approval.
+
+---
+
+# END OF FILE 2C
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_2D.md
+
+Topics
+
+• Advanced Pattern Recognition Engine
+
+• Market Regime Recognition
+
+• Historical Similarity Engine
+
+• Counterfactual Analysis
+
+• Technical Learning Memory
+
+• Final Technical Verification
