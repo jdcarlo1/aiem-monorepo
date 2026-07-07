@@ -1,0 +1,698 @@
+# AEIM_MASTER_ARCHITECTURE_v2_PART_1D.md
+
+# AEIM MASTER ARCHITECTURE
+## PART 1D
+### Market Leadership Rotation Engine
+### Oversold Bounce Intelligence
+### Master Decision Orchestrator
+### Final Trade Authorization
+
+Version: 2.0
+
+---
+
+# PURPOSE
+
+This completes File 1.
+
+Everything above has collected evidence.
+
+This final section combines all evidence into one
+intelligent decision.
+
+AEIM should never trade because of one indicator.
+
+AEIM trades because multiple independent engines
+agree with one another.
+
+---
+
+# MARKET LEADERSHIP ROTATION ENGINE
+
+Purpose
+
+Determine where institutional money is flowing.
+
+Every trading day capital rotates.
+
+Some sectors gain strength.
+
+Some sectors lose strength.
+
+AEIM must recognize these rotations automatically.
+
+---
+
+# QUESTIONS
+
+Where is money flowing?
+
+Where is money leaving?
+
+Which sectors are improving?
+
+Which sectors are weakening?
+
+Which industries are becoming leaders?
+
+Which industries are losing leadership?
+
+Is today's weakness broad?
+
+Or isolated?
+
+---
+
+# SECTOR WATCHLIST
+
+Monitor at minimum
+
+Technology
+
+Semiconductors
+
+Artificial Intelligence
+
+Software
+
+Cybersecurity
+
+Financials
+
+Healthcare
+
+Biotechnology
+
+Energy
+
+Industrials
+
+Materials
+
+Utilities
+
+Consumer Staples
+
+Consumer Discretionary
+
+Communication Services
+
+Real Estate
+
+Transportation
+
+---
+
+# DAILY LEADERSHIP SCORE
+
+Every sector receives
+
+Leadership Score
+
+0-100
+
+90+
+
+Dominant Institutional Leader
+
+80+
+
+Strong Leader
+
+70+
+
+Healthy
+
+60+
+
+Neutral
+
+50+
+
+Weakening
+
+40+
+
+Losing Leadership
+
+30+
+
+Institutional Exit
+
+20+
+
+Avoid
+
+---
+
+# IMPORTANT RULE
+
+A sector can decline for one day
+
+and STILL remain
+
+the strongest sector in the market.
+
+One red day
+
+does NOT equal
+
+loss of leadership.
+
+AEIM must compare today's behavior against:
+
+Previous Week
+
+Previous Month
+
+Previous Quarter
+
+Long-term trend
+
+before changing leadership status.
+
+---
+
+# HEALTHY CORRECTION VS LEADERSHIP FAILURE
+
+AEIM must determine
+
+Correction
+
+or
+
+Leadership Failure
+
+Correction characteristics
+
+Price still above major trend measures
+
+Long-term trend remains positive
+
+Sector still outperforming market
+
+Relative strength remains healthy
+
+Institutions still participating
+
+Higher lows remain intact
+
+Leadership Failure characteristics
+
+Multiple lower highs
+
+Multiple lower lows
+
+Weak relative strength
+
+Distribution increases
+
+Sector underperforms market
+
+Long-term trend deteriorates
+
+Institutional selling dominates
+
+Only after multiple confirmations
+
+may AEIM classify
+
+LEADERSHIP FAILURE.
+
+---
+
+# OVERSOLD BOUNCE ENGINE
+
+Purpose
+
+Find exceptional buying opportunities
+
+during weak market conditions.
+
+This engine exists because
+
+red markets often create
+
+the highest quality future trades.
+
+---
+
+# ABSOLUTE RULE
+
+AEIM should NEVER become afraid
+
+simply because
+
+the market is red.
+
+Instead ask
+
+Has today's selling
+
+created opportunity?
+
+---
+
+# OVERSOLD QUESTIONS
+
+Is RSI oversold?
+
+Is RSI deeply oversold?
+
+Is the stock still trending?
+
+Is long-term structure intact?
+
+Is this only profit taking?
+
+Is this panic?
+
+Is support nearby?
+
+Did buyers appear late?
+
+Was volume climactic?
+
+Did institutions defend support?
+
+---
+
+# SHORT TERM VS LONG TERM
+
+The Oversold Bounce Engine
+
+must always work together
+
+with
+
+Trend Integrity Engine.
+
+Oversold
+
+WITHOUT
+
+Trend Integrity
+
+is dangerous.
+
+Oversold
+
+WITH
+
+Healthy Trend Integrity
+
+can become
+
+high-quality opportunity.
+
+---
+
+# BOUNCE SCORE
+
+100
+
+Exceptional Bounce
+
+90
+
+Elite Opportunity
+
+80
+
+High Probability
+
+70
+
+Good
+
+60
+
+Watch
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Danger
+
+10
+
+Falling Knife
+
+0
+
+Avoid
+
+---
+
+# FALLING KNIFE DETECTION
+
+Do NOT buy simply because RSI is low.
+
+Require confirmation.
+
+Examples
+
+Broken structure
+
+Heavy distribution
+
+Leadership failure
+
+Sector weakness
+
+Relative weakness
+
+Declining long-term trend
+
+Multiple support failures
+
+These increase
+
+Falling Knife probability.
+
+---
+
+# HIGH QUALITY DIP BUY
+
+Characteristics
+
+Healthy long-term trend
+
+Healthy intermediate trend
+
+Strong relative strength
+
+Healthy leadership
+
+Short-term oversold
+
+Support nearby
+
+Capitulation volume
+
+Evidence of buyers returning
+
+Macro weakness creating opportunity
+
+These increase
+
+Bounce Score.
+
+---
+
+# POSITION SIZE
+
+Macro healthy
+
+Normal size
+
+Macro weak
+
+Reduce size
+
+Macro hostile
+
+Tiny size
+
+unless
+
+multiple independent engines
+
+strongly agree.
+
+---
+
+# MASTER DECISION ORCHESTRATOR
+
+This is AEIM's final brain.
+
+Every engine submits evidence.
+
+Macro
+
+Trend
+
+Leadership
+
+Sector
+
+Momentum
+
+Technical
+
+Risk
+
+Performance Memory
+
+Historical Similarity
+
+Oversold Bounce
+
+Institutional Participation
+
+Market Survival
+
+The Orchestrator combines all evidence.
+
+---
+
+# FINAL DECISION
+
+Possible outputs
+
+STRONG BUY
+
+BUY
+
+SMALL BUY
+
+WATCHLIST
+
+WAIT
+
+REDUCE SIZE
+
+NO TRADE
+
+EXIT
+
+REDUCE EXPOSURE
+
+DEFENSIVE MODE
+
+---
+
+# EXPLANATION ENGINE
+
+Every decision must include
+
+Why trade approved.
+
+Why trade rejected.
+
+What evidence helped.
+
+What evidence hurt.
+
+Current Macro Score
+
+Trend Score
+
+Leadership Score
+
+Bounce Score
+
+Final Confidence
+
+Recommended Position Size
+
+No "black box" decisions.
+
+Everything must be explainable.
+
+---
+
+# PERFORMANCE MEMORY
+
+Every trade permanently stores
+
+Macro Score
+
+Trend Score
+
+Leadership Score
+
+Bounce Score
+
+Sector Score
+
+Risk Score
+
+Final Confidence
+
+Position Size
+
+Outcome
+
+Learning Attribution
+
+This creates
+
+AEIM's permanent intelligence.
+
+---
+
+# END OF DAY QUESTIONS
+
+Did Macro hurt us?
+
+Did Sector hurt us?
+
+Did Trend fail?
+
+Did Execution fail?
+
+Did Timing fail?
+
+Was the idea correct
+
+but entered too early?
+
+Would waiting one day
+
+have improved outcome?
+
+Should position size change
+
+next time?
+
+Store every answer.
+
+---
+
+# STRICT VERIFICATION
+
+Before ANY trade
+
+verify
+
+✓ Macro Engine completed
+
+✓ Market Survival completed
+
+✓ Broad Index Analysis completed
+
+✓ Market Breadth completed
+
+✓ Sector Rotation completed
+
+✓ Trend Integrity completed
+
+✓ Leadership Rotation completed
+
+✓ Oversold Bounce completed
+
+✓ Technical Evidence completed
+
+✓ Risk completed
+
+✓ Position Size completed
+
+✓ Master Decision completed
+
+✓ Explanation generated
+
+✓ Decision logged
+
+✓ Learning Memory updated
+
+If ANY verification fails
+
+Trade Approval = FALSE
+
+Log reason
+
+Notify Performance Auditor
+
+---
+
+# FILE 1 COMPLETE
+
+The completed execution order is now:
+
+Signal
+        │
+        ▼
+Macro Context Engine
+        │
+        ▼
+Market Survival Engine
+        │
+        ▼
+Broad Index Analysis
+        │
+        ▼
+Market Breadth
+        │
+        ▼
+Sector Rotation
+        │
+        ▼
+Trend Integrity
+        │
+        ▼
+Leadership Rotation
+        │
+        ▼
+Oversold Bounce
+        │
+        ▼
+Technical Evidence
+        │
+        ▼
+Risk Engine
+        │
+        ▼
+Position Size
+        │
+        ▼
+Master Decision Orchestrator
+        │
+        ▼
+Trade Execution
+        │
+        ▼
+Performance Auditor
+        │
+        ▼
+Trade Attribution
+        │
+        ▼
+Learning Memory
+        │
+        ▼
+Continuous Improvement
+
+------------------------------------------------------------
+
+END OF FILE 1
+
+Next File:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_2A.md
+
+Topic:
+
+Advanced Technical Intelligence Engine
+(Market Structure, Relative Strength, Volume, Momentum, Adaptive Technical Scoring, and Multi-Timeframe Analysis)
