@@ -1,0 +1,76 @@
+Please run a strict end-to-end AEIM adaptive-learning verification.
+
+I do not only want proof that the audit logs exist. I want proof that AEIM actually learns from closed trades and changes future decisions.
+
+Verify this exact chain:
+
+1. Pick one real completed paper trade.
+2. Show the trade_id and audit_trace_id.
+3. Show the original signal source, such as stock_scanner.
+4. Show the original AEIM intake decision.
+5. Show the final AEIM decision with decision_authority=AIEM.
+6. Show the trade outcome, including entry, exit, pnl, pnl_pct, and close time.
+7. Show the outcome_recorded log row.
+8. Show the failure/success reason assigned by AEIM.
+9. Show the learning_update_applied row.
+10. Show what internal value changed because of the learning update:
+   - module trust weight
+   - signal trust weight
+   - strategy weight
+   - Thompson sampler value
+   - confidence adjustment
+   - RL buffer update
+   - or any other decision parameter
+
+11. Show the BEFORE and AFTER value of that parameter.
+
+Example:
+trust_weight_gap_volume: 0.68 -> 0.61
+
+12. Then show a later trade where AEIM used that updated value in the decision process.
+
+13. Confirm whether the learning update affected the later decision by:
+   - lowering confidence
+   - increasing confidence
+   - blocking a trade
+   - approving a trade
+   - changing ranking
+   - changing position/risk recommendation
+
+I need the answer to clearly say one of these:
+
+A. PASS — AEIM is learning from outcomes and using those lessons in later decisions.
+
+B. PARTIAL — AEIM records outcomes and learning updates, but the updates are not yet used in later decisions.
+
+C. FAIL — AEIM only logs outcomes and does not yet learn or change behavior.
+
+Important requirements:
+
+- Use live database queries.
+- Do not use assumptions.
+- Do not use mock data.
+- Do not use hard-coded examples.
+- Show the exact SQL queries used.
+- Show the exact returned rows.
+- Show table names and column names.
+- If a table is empty, say it is empty.
+- If Thompson sampler, trust weights, module3, or RL buffer are incomplete, say that honestly.
+- Do not claim full autonomy unless the database proves it.
+- Do not claim AEIM learns unless a later decision actually uses the learned update.
+
+Final deliverable:
+
+Create one report called:
+
+AEIM_ADAPTIVE_LEARNING_PROOF_REPORT
+
+The report must include:
+
+1. Completed trade trace
+2. Outcome grading
+3. Learning update
+4. Before/after weight or parameter change
+5. Later decision using the updated value
+6. PASS / PARTIAL / FAIL verdict
+7. Any missing modules still preventing full closed-loop learning
