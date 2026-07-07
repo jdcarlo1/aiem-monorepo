@@ -1,0 +1,406 @@
+Build a new autonomous layer called:
+
+AEIM_SUPERVISOR_META_REASONING_LAYER
+
+Purpose:
+This layer sits above AEIM. AEIM is the trader. The Supervisor is the risk manager, teacher, auditor, and meta-reasoning controller.
+
+The Supervisor must not replace AEIM. It must monitor AEIM and make sure AEIM is learning correctly, not learning bad habits, not overfitting, and not taking excessive risk.
+
+Run this Supervisor automatically:
+
+1. After every stock alert
+2. After every AEIM final decision
+3. After every paper trade closes
+4. Once daily after market close
+5. Once weekly for a full learning-quality review
+
+==================================================
+SUPERVISOR MODULES TO BUILD
+==================================================
+
+1. LEARNING LOOP MONITOR
+
+Verify every alert follows this chain:
+
+scanner_alert
+→ AEIM intake
+→ candidate ranking
+→ AEIM final decision
+→ paper trade opened or rejected
+→ outcome recorded
+→ learning update applied
+→ future behavior changed
+
+If any step is missing, Supervisor marks the event as INCOMPLETE.
+
+Store results in:
+
+aeim_supervisor_loop_audit
+
+Required fields:
+
+id
+created_at
+audit_trace_id
+ticker
+trade_id
+loop_complete true/false
+missing_steps_json
+supervisor_verdict
+notes
+
+==================================================
+
+2. BAD LEARNING DETECTOR
+
+Detect when AEIM may be learning the wrong lesson.
+
+Examples:
+
+- AEIM reduces trust after only one unlucky loss
+- AEIM increases trust after one lucky win
+- AEIM overreacts to small sample sizes
+- AEIM promotes a signal with weak statistical evidence
+- AEIM punishes a signal that still has positive long-term expectancy
+- AEIM changes weights too aggressively
+- AEIM learns from market noise instead of real signal failure
+
+Create safeguards:
+
+minimum_sample_size
+maximum_weight_change_per_trade
+minimum_confidence_for_promotion
+minimum_confidence_for_retirement
+noise_filter_threshold
+outlier_detection
+
+Store results in:
+
+aeim_supervisor_bad_learning_flags
+
+Required fields:
+
+id
+created_at
+audit_trace_id
+trade_id
+ticker
+flag_type
+old_value
+new_value
+expected_allowed_change
+sample_size
+reason
+supervisor_action
+
+Supervisor actions:
+
+ALLOW_UPDATE
+LIMIT_UPDATE
+REVERSE_UPDATE
+REQUIRE_MORE_DATA
+FREEZE_SIGNAL
+FLAG_FOR_REVIEW
+
+==================================================
+
+3. RISK CONTROL SUPERVISOR
+
+Even if AEIM approves a trade, Supervisor must check risk.
+
+Risk checks:
+
+- max trades per day
+- max exposure per sector
+- max exposure per ticker
+- max loss per day
+- max drawdown limit
+- market regime risk
+- high volatility risk
+- low liquidity risk
+- correlation with existing open trades
+- repeated losses from same signal family
+- too many trades from same source
+
+Store results in:
+
+aeim_supervisor_risk_checks
+
+Required fields:
+
+id
+created_at
+audit_trace_id
+ticker
+trade_id
+risk_score
+risk_flags_json
+approved_by_aeim true/false
+approved_by_supervisor true/false
+supervisor_action
+reason
+
+Supervisor actions:
+
+ALLOW
+REDUCE_CONFIDENCE
+REDUCE_POSITION_SIZE
+BLOCK_TRADE
+PAUSE_SIGNAL_FAMILY
+PAUSE_TRADING_DAY
+
+==================================================
+
+4. AEIM PERFORMANCE GRADER
+
+Grade AEIM over time.
+
+Daily and weekly reports must measure:
+
+- total alerts
+- AEIM approvals
+- AEIM rejections
+- paper trades opened
+- win rate
+- average pnl
+- average pnl_pct
+- max drawdown
+- average confidence on winners
+- average confidence on losers
+- false positives
+- false negatives
+- signals promoted
+- signals demoted
+- learning updates applied
+- learning updates reversed
+- whether AEIM is improving
+
+Store results in:
+
+aeim_supervisor_performance_reports
+
+Required fields:
+
+id
+created_at
+period_type daily/weekly/monthly
+period_start
+period_end
+total_alerts
+total_trades
+win_rate
+avg_pnl_pct
+max_drawdown
+confidence_calibration_score
+learning_quality_score
+risk_discipline_score
+overall_supervisor_grade
+report_json
+
+Grades:
+
+A = AEIM improving with controlled risk
+B = AEIM stable but not clearly improving
+C = AEIM learning but noisy
+D = AEIM learning wrong lessons
+F = AEIM unsafe or unverified
+
+==================================================
+
+5. SIGNAL RETIREMENT AND PROMOTION CONTROLLER
+
+Supervisor decides when signals should be promoted, demoted, frozen, or retired.
+
+Promotion requirements:
+
+- enough sample size
+- positive expectancy
+- stable across regimes
+- not overfit
+- recent performance acceptable
+- confidence calibration acceptable
+
+Retirement requirements:
+
+- persistent negative expectancy
+- signal decay
+- repeated bad outcomes
+- poor regime stability
+- excessive drawdown
+- failed supervisor review
+
+Store in:
+
+aeim_supervisor_signal_lifecycle
+
+Required fields:
+
+id
+created_at
+signal_id
+signal_name
+signal_source
+current_status
+new_status
+reason
+sample_size
+win_rate
+avg_return
+recent_return
+regime_stability
+oos_status
+supervisor_decision
+
+Allowed statuses:
+
+ACTIVE
+PROMOTED
+WATCHLIST
+FROZEN
+DEMOTED
+RETIRED
+
+==================================================
+
+6. OVERFITTING PROTECTION MODULE
+
+Supervisor must prevent AEIM from trusting signals that only worked accidentally.
+
+Checks:
+
+- small sample size
+- too many filters
+- weak out-of-sample result
+- strong in-sample but weak recent performance
+- signal works only on one tiny period
+- performance depends on one outlier trade
+- unstable across regimes
+
+Store in:
+
+aeim_supervisor_overfit_checks
+
+Required fields:
+
+id
+created_at
+signal_id
+audit_trace_id
+overfit_score
+sample_size
+filter_count
+in_sample_edge
+out_of_sample_edge
+recent_edge
+regime_stability_score
+outlier_dependency_score
+verdict
+action
+
+Verdicts:
+
+NOT_OVERFIT
+POSSIBLE_OVERFIT
+LIKELY_OVERFIT
+REJECT_SIGNAL
+
+==================================================
+
+7. SUPERVISOR DECISION OVERRIDE LOG
+
+If Supervisor changes AEIM's action, log it.
+
+Examples:
+
+- AEIM approved trade but Supervisor blocks it
+- AEIM approved high confidence but Supervisor lowers confidence
+- AEIM wants to promote signal but Supervisor requires more data
+- AEIM wants to punish signal but Supervisor limits punishment
+
+Store in:
+
+aeim_supervisor_overrides
+
+Required fields:
+
+id
+created_at
+audit_trace_id
+ticker
+trade_id
+aeim_original_decision
+aeim_original_confidence
+supervisor_final_decision
+supervisor_adjusted_confidence
+override_type
+reason
+evidence_json
+
+==================================================
+INTEGRATION RULES
+==================================================
+
+AEIM remains decision_authority for trade selection.
+
+Supervisor is meta_authority for:
+
+- risk control
+- learning quality
+- overfitting prevention
+- signal lifecycle
+- override approval
+
+Every final decision must store:
+
+decision_authority = AEIM
+meta_authority = AEIM_SUPERVISOR
+supervisor_checked = true
+supervisor_verdict = ALLOW / MODIFY / BLOCK / REVIEW
+
+==================================================
+FINAL DAILY REPORT
+==================================================
+
+Generate daily report:
+
+AEIM_SUPERVISOR_DAILY_REPORT
+
+Include:
+
+1. Number of alerts reviewed
+2. Number of AEIM decisions reviewed
+3. Number of trades reviewed
+4. Number of learning updates reviewed
+5. Bad learning flags
+6. Risk blocks
+7. Signal promotions
+8. Signal demotions
+9. Signal retirements
+10. Overall AEIM learning grade
+11. Supervisor verdict
+
+==================================================
+STRICT RULES
+==================================================
+
+- Do not use mock data.
+- Do not fake supervisor decisions.
+- Do not overwrite AEIM decisions without logging.
+- Do not claim AEIM improved unless performance data proves it.
+- Do not allow one trade to drastically change weights.
+- Do not promote signals without enough sample size.
+- Do not retire signals without evidence.
+- Every supervisor action must be stored in the database.
+- Every override must explain why.
+
+Final deliverables:
+
+1. SQL migration file for all supervisor tables
+2. Python implementation
+3. Integration into alert workflow
+4. Integration into paper trade close workflow
+5. Daily supervisor report generator
+6. Weekly supervisor report generator
+7. One sample live database report
+8. PASS / PARTIAL / FAIL status for Supervisor readiness

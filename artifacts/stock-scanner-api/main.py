@@ -14581,7 +14581,33 @@ try:
         id="daily_fundamentals_snapshot",
         replace_existing=True,
     )
-    print("[aiem_paper] scheduler jobs registered (9:35 AM execute, 4:00 PM MTM, 4:35 PM drift, 4:45 PM fundamentals snapshot)")
+    def _run_supervisor_daily():
+        try:
+            import aiem_supervisor as _asup_sched
+            _asup_sched.generate_daily_supervisor_report()
+        except Exception as _supe:
+            print(f"[supervisor] daily report error: {_supe}")
+
+    def _run_supervisor_weekly():
+        try:
+            import aiem_supervisor as _asup_wsched
+            _asup_wsched.generate_weekly_supervisor_report()
+        except Exception as _supwe:
+            print(f"[supervisor] weekly report error: {_supwe}")
+
+    _scheduler.add_job(
+        _run_supervisor_daily,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=50, timezone=_ET),
+        id="supervisor_daily_report",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _run_supervisor_weekly,
+        CronTrigger(day_of_week="sun", hour=18, minute=0, timezone=_ET),
+        id="supervisor_weekly_report",
+        replace_existing=True,
+    )
+    print("[aiem_paper] scheduler jobs registered (9:35 AM execute, 4:00 PM MTM, 4:35 PM drift, 4:45 PM fundamentals snapshot, 4:50 PM supervisor daily, Sun 6 PM supervisor weekly)")
 except Exception as _e_ap_sched:
     print(f"[aiem_paper] scheduler error: {_e_ap_sched}")
 
@@ -39248,6 +39274,19 @@ def _aiem_paper_pick_candidates() -> list:
     except Exception as _cre:
         print(f"[closed_loop] candidate_rankings skipped (non-fatal): {_cre}")
 
+    # ── Supervisor: post-pick risk check (non-blocking) ────────────────────
+    try:
+        import aiem_supervisor as _asup_pk
+        for _sup_cand in (_final or []):
+            _sup_tk  = _sup_cand.get("ticker", "")
+            _sup_src = _sup_cand.get("source", _sup_cand.get("signal_source", ""))
+            if _sup_tk:
+                _asup_pk.run_post_pick_supervisor(
+                    ticker=_sup_tk, signal_source=_sup_src,
+                    aiem_approved=True, trade_id=None, audit_trace_id=None)
+    except Exception as _sup_pk_e:
+        print(f"[supervisor] post_pick skipped (non-fatal): {_sup_pk_e}")
+
     return _final
 
 
@@ -40278,6 +40317,36 @@ def _aiem_paper_mark_to_market():
                     except Exception as _ppo_e:
                         print(f"[closed_loop] PPO training error (non-fatal): {_ppo_e}")
 
+                    # ── Supervisor: post-trade batch (runs after every MTM) ──
+                    try:
+                        import aiem_supervisor as _asup_mtm
+                        import datetime as _sup_dt, psycopg2 as _sup_pg2
+                        _sup_today = _sup_dt.date.today()
+                        with _sup_pg2.connect(_DB_URL, connect_timeout=3) as _sup_c, \
+                                _sup_c.cursor() as _sup_cu:
+                            _sup_cu.execute("""
+                                SELECT id, ticker, signal_source, pnl_pct, pnl, audit_trace_id
+                                FROM aiem_paper_trades
+                                WHERE (exit_date=%s OR updated_at::date=%s)
+                                  AND status != 'OPEN'
+                                ORDER BY updated_at DESC LIMIT 20
+                            """, (_sup_today, _sup_today))
+                            _sup_rows = _sup_cu.fetchall()
+                        for _sr in (_sup_rows or []):
+                            _sid, _stk, _ssrc, _spnlpct, _spnl, _satid = _sr
+                            _asup_mtm.run_post_trade_supervisor(
+                                trade_id=_sid, ticker=(_stk or ""),
+                                signal_source=(_ssrc or ""),
+                                pnl_pct=float(_spnlpct or 0),
+                                win=(float(_spnl or 0) > 0),
+                                old_trust=None, new_trust=None,
+                                audit_trace_id=_satid,
+                                sample_size=None,
+                            )
+                        print(f"[supervisor] post_trade batch done: {len(_sup_rows or [])} trades")
+                    except Exception as _sup_mtm_e:
+                        print(f"[supervisor] post_trade batch error (non-fatal): {_sup_mtm_e}")
+
                 except Exception as _rle_e:
                     print(f"[rl_engine] bg pipeline error: {_rle_e}")
             _rl_thr.Thread(target=_rl_pipeline_bg, daemon=True).start()
@@ -40668,6 +40737,79 @@ def admin_aiem_pipeline_audit_run_verification():
     try:
         import aiem_pipeline_audit as _apa
         return jsonify(_apa.run_live_verification())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/supervisor-summary", methods=["GET"])
+def admin_supervisor_summary():
+    """AIEM Supervisor — current health summary across all 7 modules."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_supervisor as _asup
+        return jsonify(_asup.get_supervisor_summary())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/supervisor-daily-report", methods=["GET"])
+def admin_supervisor_daily_report():
+    """Generate and return today's full AIEM Supervisor daily report."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_supervisor as _asup
+        return jsonify(_asup.generate_daily_supervisor_report())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/supervisor-weekly-report", methods=["GET"])
+def admin_supervisor_weekly_report():
+    """Generate and return this week's full AIEM Supervisor weekly report."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_supervisor as _asup
+        return jsonify(_asup.generate_weekly_supervisor_report())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/supervisor-signal-lifecycle", methods=["GET"])
+def admin_supervisor_signal_lifecycle():
+    """Run signal lifecycle evaluation for all active signal sources."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_supervisor as _asup
+        sources = ["gap_volume", "multi_signal", "unusual_calls",
+                   "aiem_ai", "conviction_stack", "layer9", "sweep",
+                   "oi_buildup", "washout_ignition"]
+        results = {s: _asup.run_signal_lifecycle(s) for s in sources}
+        return jsonify({"signal_lifecycle": results})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/supervisor-overfit-check", methods=["GET"])
+def admin_supervisor_overfit_check():
+    """Run overfit check for all signal sources."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_supervisor as _asup
+        sources = ["gap_volume", "multi_signal", "unusual_calls",
+                   "aiem_ai", "conviction_stack", "layer9", "sweep",
+                   "oi_buildup", "washout_ignition"]
+        results = {s: _asup.run_overfit_check(s) for s in sources}
+        return jsonify({"overfit_checks": results})
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
@@ -50002,6 +50144,13 @@ try:
     print("[closed_loop] deferred schema init registered")
 except Exception as _acll_import_e:
     print(f"[closed_loop] import failed at registration time: {_acll_import_e}")
+
+try:
+    import aiem_supervisor as _asup_mod
+    _DEFERRED_INITS.append(lambda: _asup_mod.init_schema())
+    print("[supervisor] deferred schema init registered")
+except Exception as _asup_import_e:
+    print(f"[supervisor] import failed at registration time: {_asup_import_e}")
 
 
 def _run_layer9_bg_scan():
