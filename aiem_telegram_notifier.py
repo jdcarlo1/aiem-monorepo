@@ -176,12 +176,15 @@ def _fetch_todays_picks(pick_type: str):
             return rows
 
         # Fallback for stocks: use today's AIEM Process predictions (S1b/S1c/S1d)
+        # Only send picks that passed the confidence threshold (50). Picks below
+        # this have no validated edge and must never appear in the alert.
         if pick_type == "stock":
             log.info("aiem_independent_picks empty today — falling back to aiem_process_predictions (S1b/S1c/S1d)")
             cur.execute("""
                 SELECT ticker, confidence_score, signal_basis
                 FROM aiem_process_predictions
                 WHERE prediction_date = %s
+                  AND confidence_score >= 50
                 ORDER BY rank ASC
                 LIMIT 10
             """, (date.today(),))
@@ -192,6 +195,7 @@ def _fetch_todays_picks(pick_type: str):
                     tier = _tier_label(sig_basis or "")
                     enriched.append(("stock", ticker, conf, tier, None, None, 5))
                 return enriched
+            log.info("aiem_process_predictions: 0 picks above confidence threshold 50 today — no alert sent")
 
         return []
     finally:
