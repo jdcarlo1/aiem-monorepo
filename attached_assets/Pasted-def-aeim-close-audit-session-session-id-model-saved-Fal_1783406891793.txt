@@ -1,0 +1,397 @@
+def _aeim_close_audit_session(session_id, model_saved=False, discovery_saved=False):
+    """
+    Closes the AEIM audit session and produces final strict PASS / FAIL.
+    """
+    order_check = _aeim_verify_tool_order(session_id)
+    discovery_check = _aeim_verify_saved_discoveries(session_id)
+
+    violations = []
+    violations.extend(order_check["violations"])
+    violations.extend(discovery_check["violations"])
+
+    strict_pass = len(violations) == 0
+
+    verdict = (
+        "STRICT PASS — AEIM research session followed required verification."
+        if strict_pass else
+        "STRICT FAIL — AEIM research session has verification violations."
+    )
+
+    with _aeim_db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            UPDATE aiem_research_audit_sessions
+            SET ended_at = NOW(),
+                total_tool_calls = (
+                    SELECT COUNT(*)
+                    FROM aiem_research_tool_audit
+                    WHERE session_id = %s
+                ),
+                model_saved = %s,
+                discovery_saved = %s,
+                strict_pass = %s,
+                verdict = %s,
+                violations = %s
+            WHERE session_id = %s
+        """, [
+            session_id,
+            model_saved,
+            discovery_saved,
+            strict_pass,
+            verdict,
+            _safe_json(violations),
+            session_id,
+        ])
+
+    print("[AEIM AUDITOR]", verdict)
+
+    if violations:
+        print("[AEIM AUDITOR] violations:", violations)
+
+    return {
+        "session_id": session_id,
+        "strict_pass": strict_pass,
+        "verdict": verdict,
+        "order_check": order_check,
+        "discovery_check": discovery_check,
+        "violations": violations,
+    }
+
+
+def _aeim_daily_performance_audit():
+    """
+    Daily performance auditor.
+
+    It checks your existing ai_early_movers_log table if present.
+    This gives AEIM proof of real-world prediction performance.
+    """
+    total_predictions = 0
+    graded_predictions = 0
+    t3_wins = 0
+    t3_losses = 0
+    win_rate = None
+
+    try:
+        with _aeim_db() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT COUNT(*) AS n
+                FROM ai_early_movers_log
+            """)
+            total_predictions = cur.fetchone()["n"]
+
+            cur.execute("""
+                SELECT
+                    COUNT(*) AS graded,
+                    COUNT(*) FILTER (WHERE t3_win = TRUE) AS wins,
+                    COUNT(*) FILTER (WHERE t3_win = FALSE) AS losses
+                FROM ai_early_movers_log
+                WHERE t3_win IS NOT NULL
+            """)
+            row = cur.fetchone()
+
+            graded_predictions = row["graded"] or 0
+            t3_wins = row["wins"] or 0
+            t3_losses = row["losses"] or 0
+
+            if graded_predictions:
+                win_rate = round((t3_wins / graded_predictions) * 100, 2)
+
+    except Exception as e:
+        print("[AEIM AUDITOR] performance audit warning:", e)
+
+    with _aeim_db() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM aiem_signal_discoveries")
+        total_discoveries = cur.fetchone()["n"]
+
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE verified = TRUE) AS verified,
+                COUNT(*) FILTER (WHERE verified = FALSE) AS rejected
+            FROM aiem_discovery_gate_audit
+        """)
+        row = cur.fetchone()
+
+        verified_discoveries = row["verified"] or 0
+        rejected_discoveries = row["rejected"] or 0
+
+    verdict = "OK — AEIM daily performance audit completed"
+
+    if rejected_discoveries > verified_discoveries:
+        verdict = "WARNING — more rejected discoveries than verified discoveries"
+
+    if graded_predictions >= 20 and win_rate is not None and win_rate < 50:
+        verdict = "WARNING — AEIM recent graded win rate below 50%"
+
+    with _aeim_db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO aiem_daily_performance_audit
+            (total_discoveries, verified_discoveries, rejected_discoveries,
+             total_predictions, graded_predictions, t3_wins, t3_losses,
+             t3_win_rate, verdict)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, [
+            total_discoveries,
+            verified_discoveries,
+            rejected_discoveries,
+            total_predictions,
+            graded_predictions,
+            t3_wins,
+            t3_losses,
+            win_rate,
+            verdict,
+        ])
+
+    return {
+        "total_discoveries": total_discoveries,
+        "verified_discoveries": verified_discoveries,
+        "rejected_discoveries": rejected_discoveries,
+        "total_predictions": total_predictions,
+        "graded_predictions": graded_predictions,
+        "t3_wins": t3_wins,
+        "t3_losses": t3_losses,
+        "t3_win_rate": win_rate,
+        "verdict": verdict,
+    }
+
+
+def _aeim_record_trade_outcome(
+    ticker,
+    signal_date,
+    discovery_id,
+    entry_price,
+    exit_price,
+    reason_json=None,
+):
+    """
+    Records actual trade outcome.
+
+    This is how AEIM learns from wins/losses instead of only saving theories.
+    """
+    return_pct = None
+    win = None
+    aeim_verified = False
+
+    if entry_price and exit_price:
+        return_pct = round(((exit_price / entry_price) - 1) * 100, 4)
+        win = return_pct > 0
+
+    verification = _aeim_verify_saved_discoveries()
+    aeim_verified = verification.get("verified", 0) > 0
+
+    with _aeim_db() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO aiem_trade_outcome_audit
+            (ticker, signal_date, discovery_id, entry_price, exit_price,
+             return_pct, win, aeim_verified, reason_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, [
+            ticker,
+            signal_date,
+            discovery_id,
+            entry_price,
+            exit_price,
+            return_pct,
+            win,
+            aeim_verified,
+            _safe_json(reason_json or {}),
+        ])
+
+        audit_id = cur.fetchone()[0]
+
+    return {
+        "audit_id": audit_id,
+        "ticker": ticker,
+        "signal_date": str(signal_date),
+        "discovery_id": discovery_id,
+        "entry_price": entry_price,
+        "exit_price": exit_price,
+        "return_pct": return_pct,
+        "win": win,
+        "aeim_verified": aeim_verified,
+    }
+
+
+def _aeim_generate_final_audit_report(limit=10):
+    """
+    Produces final strict verification report.
+    Use this in admin dashboard or API.
+    """
+    with _aeim_db() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT *
+            FROM aiem_research_audit_sessions
+            ORDER BY id DESC
+            LIMIT %s
+        """, [limit])
+        sessions = cur.fetchall()
+
+        cur.execute("""
+            SELECT *
+            FROM aiem_discovery_gate_audit
+            ORDER BY id DESC
+            LIMIT %s
+        """, [limit * 3])
+        discoveries = cur.fetchall()
+
+        cur.execute("""
+            SELECT *
+            FROM aiem_daily_performance_audit
+            ORDER BY id DESC
+            LIMIT %s
+        """, [limit])
+        performance = cur.fetchall()
+
+        cur.execute("""
+            SELECT *
+            FROM aiem_trade_outcome_audit
+            ORDER BY id DESC
+            LIMIT %s
+        """, [limit * 3])
+        trades = cur.fetchall()
+
+    return {
+        "status": "ok",
+        "message": "AEIM strict verification report generated",
+        "latest_sessions": [dict(x) for x in sessions],
+        "latest_discovery_audits": [dict(x) for x in discoveries],
+        "latest_daily_performance": [dict(x) for x in performance],
+        "latest_trade_outcomes": [dict(x) for x in trades],
+    }
+
+
+def _install_aiem_auditor_routes(app):
+    """
+    Optional Flask admin routes.
+
+    Call this once after app = Flask(__name__):
+        _install_aiem_auditor_routes(app)
+    """
+
+    @app.route("/stock-api/admin/aiem-auditor/init", methods=["POST", "GET"])
+    def aiem_auditor_init_route():
+        _aeim_auditor_init_tables()
+        return {
+            "status": "ok",
+            "message": "AEIM strict auditor tables initialized"
+        }
+
+    @app.route("/stock-api/admin/aiem-auditor/daily", methods=["POST", "GET"])
+    def aiem_auditor_daily_route():
+        return _aeim_daily_performance_audit()
+
+    @app.route("/stock-api/admin/aiem-auditor/report", methods=["GET"])
+    def aiem_auditor_report_route():
+        return _aeim_generate_final_audit_report()
+
+    @app.route("/stock-api/admin/aiem-auditor/latest", methods=["GET"])
+    def aiem_auditor_latest_route():
+        return _aeim_generate_final_audit_report()
+
+
+# ============================================================
+# REQUIRED PATCH FOR YOUR EXISTING main.py
+# ============================================================
+
+"""
+Replit must wire this into your existing _run_aiem_research_agent().
+
+STEP 1:
+Near the beginning of _run_aiem_research_agent(), add:
+
+    audit_session_id = _aeim_start_audit_session("loop_a_research")
+
+
+STEP 2:
+Inside the tool-call loop, immediately after the tool executes:
+
+    result = fn(**fn_args) if fn else {"error": "Unknown tool: {}".format(fn_name)}
+    tool_calls_made += 1
+
+Add:
+
+    _aeim_log_tool_call(
+        audit_session_id,
+        tool_calls_made,
+        fn_name,
+        fn_args,
+        result
+    )
+
+
+STEP 3:
+Near the end of _run_aiem_research_agent(), before returning, add:
+
+    audit_result = _aeim_close_audit_session(
+        audit_session_id,
+        model_saved=model_saved,
+        discovery_saved=False
+    )
+
+    perf_result = _aeim_daily_performance_audit()
+
+
+STEP 4:
+Include audit_result and perf_result in the return JSON:
+
+    return {
+        "status": "ok",
+        "tool_calls_made": tool_calls_made,
+        "model_saved": model_saved,
+        "audit_result": audit_result,
+        "performance_audit": perf_result,
+    }
+
+
+STEP 5:
+After your Flask app is created, add:
+
+    _install_aiem_auditor_routes(app)
+
+
+STEP 6:
+Run this once from Replit shell or browser:
+
+    /stock-api/admin/aiem-auditor/init
+
+
+FINAL STRICT VERIFICATION RULE:
+No AEIM discovery should be trusted unless:
+
+    strict_pass == True
+    p_value < 0.05
+    signal_n >= 50
+    oos_edge is not None
+    mkt_test_inverse was seen
+    mkt_validate_oos was seen
+    mkt_save_discovery was seen
+    audit_hash exists
+
+If any of those are false, AEIM must reject the discovery.
+"""
+
+
+# ============================================================
+# OPTIONAL STARTUP CHECK
+# ============================================================
+
+def _aeim_auditor_startup_check():
+    """
+    Safe startup check.
+    Call this during app startup if desired.
+    """
+    try:
+        _aeim_auditor_init_tables()
+        report = _aeim_generate_final_audit_report(limit=3)
+        print("[AEIM AUDITOR] startup check complete")
+        return report
+    except Exception as e:
+        print("[AEIM AUDITOR] startup check failed:", e)
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+# ============================================================
+# END OF AEIM STRICT PERFORMANCE AUDITOR
+# ============================================================

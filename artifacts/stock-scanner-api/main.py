@@ -160,6 +160,24 @@ except Exception as _m6_e:
     _m6 = None
     print(f"[module6] load warning: {_m6_e}")
 try:
+    import aiem_performance_auditor as _aiem_auditor_mod
+    _aiem_start_audit_session     = _aiem_auditor_mod._aeim_start_audit_session
+    _aiem_log_tool_call           = _aiem_auditor_mod._aiem_log_tool_call
+    _aiem_close_audit_session     = _aiem_auditor_mod._aiem_close_audit_session
+    _aiem_daily_performance_audit = _aiem_auditor_mod._aiem_daily_performance_audit
+    _install_aiem_auditor_routes  = _aiem_auditor_mod._install_aiem_auditor_routes
+    _aiem_auditor_startup_check   = _aiem_auditor_mod._aiem_auditor_startup_check
+    print("[startup] aiem_performance_auditor loaded")
+except Exception as _aiem_aud_e:
+    _aiem_auditor_mod = None
+    print(f"[startup] aiem_performance_auditor load warning: {_aiem_aud_e}")
+    def _aiem_start_audit_session(*_a, **_k): return "NO-AUDIT"
+    def _aiem_log_tool_call(*_a, **_k): return True
+    def _aiem_close_audit_session(*_a, **_k): return {"strict_pass": False, "verdict": "auditor not loaded", "violations": []}
+    def _aiem_daily_performance_audit(*_a, **_k): return {}
+    def _install_aiem_auditor_routes(*_a, **_k): pass
+    def _aiem_auditor_startup_check(*_a, **_k): return {}
+try:
     import aiem_module7_sector_rotation as _m7
 except Exception as _m7_e:
     _m7 = None
@@ -1289,6 +1307,7 @@ def _init_byok_columns():
     except Exception as _e:
         print(f"[byok] _init_byok_columns error: {_e}")
 _DEFERRED_INITS.append(_init_byok_columns)
+_DEFERRED_INITS.append(lambda: _aiem_auditor_startup_check())
 
 def _init_ask_auth_tables():
     """Add ask_openai_key_hash + ask_daily_limit to sm_subscribers; create ask_rate_limits."""
@@ -38330,6 +38349,10 @@ def _run_aiem_research_agent(max_iterations=None):
 
     print(f"[aiem_research] autonomous — settled_picks={_settled}, no OpenAI")
 
+    _ra_audit_id = _aiem_start_audit_session("loop_a_research")
+    _ra_audit_seq = 0
+    _ra_model_saved = False
+
     # ── Full hypothesis battery ───────────────────────────────────────────────
     # Options-flow signals (tested against ai_short_calls_log)
     _OPTIONS_BATTERY = [
@@ -38372,6 +38395,9 @@ def _run_aiem_research_agent(max_iterations=None):
     for conditions, target, desc in _OPTIONS_BATTERY:
         try:
             res = _aiem_tool_test_new_signal(conditions=conditions, target=target, lookback_days=90)
+            _ra_audit_seq += 1
+            _aiem_log_tool_call(_ra_audit_id, _ra_audit_seq, "test_new_signal",
+                                {"conditions": conditions, "target": target}, res)
             if res.get("status") == "error":
                 continue
             r = res.get("result") or res
@@ -38396,6 +38422,9 @@ def _run_aiem_research_agent(max_iterations=None):
     for conditions, horizon, desc in _MARKET_BATTERY:
         try:
             res = _mkt_tool_test_signal(conditions=conditions, horizon=horizon)
+            _ra_audit_seq += 1
+            _aiem_log_tool_call(_ra_audit_id, _ra_audit_seq, "mkt_test_signal",
+                                {"conditions": conditions, "horizon": horizon}, res)
             if res.get("status") == "error":
                 continue
             n  = int(res.get("signal_n") or 0)
@@ -38450,14 +38479,33 @@ def _run_aiem_research_agent(max_iterations=None):
         for f in findings[:12]
     ) or "No testable findings this cycle."
 
-    _aiem_tool_save_research_model(
+    _ra_save_result = _aiem_tool_save_research_model(
         findings=findings_summary,
         scoring_adjustments=weights or {"note": "No significant signals — default weights"},
         confidence=("HIGH" if len(sig_findings) >= 3 else "MEDIUM" if sig_findings else "LOW")
     )
+    _ra_audit_seq += 1
+    _ra_model_saved = True
+    _aiem_log_tool_call(_ra_audit_id, _ra_audit_seq, "save_research_model",
+                        {"confidence": ("HIGH" if len(sig_findings) >= 3 else "MEDIUM" if sig_findings else "LOW")},
+                        _ra_save_result or {"status": "saved"})
 
     print(f"[aiem_research] complete — tested={len(findings)}, significant={len(sig_findings)}, weights={len(weights)}")
-    return {"tested": len(findings), "significant": len(sig_findings), "top_findings": findings[:5]}
+
+    _ra_audit_result = _aiem_close_audit_session(
+        _ra_audit_id,
+        model_saved=_ra_model_saved,
+        discovery_saved=False,
+    )
+    _ra_perf_result = _aiem_daily_performance_audit()
+
+    return {
+        "tested": len(findings),
+        "significant": len(sig_findings),
+        "top_findings": findings[:5],
+        "audit_result": _ra_audit_result,
+        "performance_audit": _ra_perf_result,
+    }
 def _init_signal_history_table():
     """Create signal_history table for multi-day persistence tracking."""
     create_sql = """
@@ -61013,6 +61061,12 @@ def historical_analog_endpoint(ticker):
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
+
+try:
+    _install_aiem_auditor_routes(app)
+    print("[startup] aiem_performance_auditor routes installed")
+except Exception as _aiem_routes_e:
+    print(f"[startup] aiem_performance_auditor routes warning: {_aiem_routes_e}")
 
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
