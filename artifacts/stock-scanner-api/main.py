@@ -1309,6 +1309,15 @@ def _init_byok_columns():
 _DEFERRED_INITS.append(_init_byok_columns)
 _DEFERRED_INITS.append(lambda: _aiem_auditor_startup_check())
 
+# ── AIEM v3 Phase 1: ensure all 12 v3 schema tables exist ────────────────────
+def _init_aiem_v3_schema():
+    try:
+        import aiem_macro_engine as _ame_init
+        _ame_init.init_v3_schema()
+    except Exception as _e_v3:
+        print(f"[aiem_v3_schema] deferred init error (non-fatal): {_e_v3}")
+_DEFERRED_INITS.append(_init_aiem_v3_schema)
+
 def _init_ask_auth_tables():
     """Add ask_openai_key_hash + ask_daily_limit to sm_subscribers; create ask_rate_limits."""
     import psycopg2 as _aapg
@@ -14560,6 +14569,23 @@ except Exception as _e_fp_sched:
 # AIEM autonomous paper trading scheduler jobs
 # Use lambdas so the name lookup happens at call-time (functions defined later in file)
 try:
+    # ── AIEM v3 Phase 2: pre-compute macro snapshot at 9:00 AM ───────────────
+    # Runs 42 minutes BEFORE paper-trade execute so the gate check is instant
+    # (DB cache hit) rather than blocking the execute thread with live fetches.
+    def _run_macro_precompute():
+        try:
+            import aiem_macro_engine as _ame_sched
+            snap = _ame_sched.compute_macro_snapshot()
+            print(f"[macro_sched] {snap.summary_line()}")
+        except Exception as _me:
+            print(f"[macro_sched] precompute error (non-fatal): {_me}")
+    _scheduler.add_job(
+        _run_macro_precompute,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone=_ET),
+        id="macro_precompute",
+        replace_existing=True,
+    )
+
     # Pushed from 9:35 → 9:42 so it doesn't fire simultaneously with the
     # 9:36 unusual-calls market-open scan (heaviest Yahoo job of the day).
     _scheduler.add_job(
@@ -15356,6 +15382,41 @@ def admin_run_gspc_full_history_backtest():
     try:
         from aiem_pullback_reentry import run_gspc_full_history_backtest as _fn
         result = _fn(spy_threshold, hold_days, stop_loss_pct)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
+
+# ── AIEM v3 Phase 2: Macro Engine admin endpoints ─────────────────────────────
+
+@app.route("/stock-api/admin/macro/latest", methods=["GET"])
+def admin_macro_latest():
+    """
+    GET /stock-api/admin/macro/latest
+    Returns today's macro snapshot from DB cache (no network calls).
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_macro_engine as _ame_r
+        result = _ame_r.admin_get_latest_macro()
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
+
+@app.route("/stock-api/admin/macro/refresh", methods=["POST"])
+def admin_macro_refresh():
+    """
+    POST /stock-api/admin/macro/refresh
+    Force-recomputes the macro snapshot from live data, updates DB and cache.
+    No body required.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_macro_engine as _ame_w
+        result = _ame_w.admin_refresh_macro()
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
     return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
@@ -39423,6 +39484,36 @@ def _aiem_paper_execute_today():
                     return
             except Exception as _kse:
                 print(f"[aiem_paper] kill_switch check warning (proceeding): {_kse}")
+
+        # ── AIEM v3 Macro Gate (Phase 2) ──────────────────────────────────────
+        # Hard block if macro regime is BEAR_SEVERE (score < 20).
+        # Uses 9:00 AM pre-computed snapshot from DB; falls back to live fetch.
+        # Fail-safe: if macro engine errors, trading proceeds with a warning.
+        _macro_snap = None
+        try:
+            import aiem_macro_engine as _ame
+            _macro_allowed, _macro_snap = _ame.get_macro_gate()
+            if not _macro_allowed:
+                _block_msg = (
+                    f"MACRO GATE BLOCKED — regime={_macro_snap.regime} "
+                    f"score={_macro_snap.macro_score:.0f}/100 "
+                    f"(threshold={_ame._BLOCK_BELOW}) — no trades today"
+                )
+                print(f"[aiem_paper] {_block_msg}")
+                # Log each candidate as BLOCK_MACRO in decision history
+                for _bp in picks:
+                    try:
+                        _ame.log_decision(
+                            _bp["ticker"], "BLOCK_MACRO", _macro_snap,
+                            block_reason=_block_msg,
+                        )
+                    except Exception:
+                        pass
+                _log_finish("SKIPPED", _trades=0, _err=_block_msg)
+                return
+            print(f"[aiem_paper] macro gate PASS — {_macro_snap.summary_line()}")
+        except Exception as _macro_e:
+            print(f"[aiem_paper] macro gate error (proceeding): {_macro_e}")
 
         tickers = [p["ticker"] for p in picks]
         quotes  = _td_quotes(tickers)
