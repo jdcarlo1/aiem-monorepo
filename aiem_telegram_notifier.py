@@ -163,11 +163,16 @@ def _fetch_todays_picks(pick_type: str):
     try:
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         cur = conn.cursor()
+        # Threshold on the 0–10 scale used by aiem_independent_picks.
+        # Stock floor = 6.5 (avg historical = 7.06; excludes bottom-tier speculative picks).
+        # Options floor = 6.5 (all historical options ≥ 6.2; keeps only genuine flow signals).
+        _INDEP_THRESH = 6.5
         cur.execute("""
             SELECT pick_type, ticker, confidence_score, rationale,
                    option_strike, option_expiry, hold_days_max
             FROM aiem_independent_picks
             WHERE pick_date = %s AND pick_type = %s
+              AND confidence_score >= 6.5
             ORDER BY confidence_score DESC NULLS LAST
             LIMIT 20
         """, (date.today(), pick_type))
@@ -193,7 +198,11 @@ def _fetch_todays_picks(pick_type: str):
                 enriched = []
                 for ticker, conf, sig_basis in proc_rows:
                     tier = _tier_label(sig_basis or "")
-                    enriched.append(("stock", ticker, conf, tier, None, None, 5))
+                    # aiem_process_predictions uses a 0–100 scale; aiem_independent_picks
+                    # uses 0–10. Normalize here so the message formatter (which assumes /10)
+                    # displays correctly: e.g. conf=55.7 → 5.6/10
+                    conf_normalized = round(float(conf) / 10.0, 1) if conf is not None else None
+                    enriched.append(("stock", ticker, conf_normalized, tier, None, None, 5))
                 return enriched
             log.info("aiem_process_predictions: 0 picks above confidence threshold 50 today — no alert sent")
 
