@@ -14586,6 +14586,66 @@ try:
         replace_existing=True,
     )
 
+    # ── AIEM v3 Phase 3: pre-market autonomous discovery scan ─────────────
+    # Runs 8:00 AM — scans full Polygon universe, scores 300 candidates,
+    # stores to aiem_discovery_memory so the 9:42 execute thread just reads.
+    def _run_v3_discovery_premarket():
+        try:
+            import aiem_v3_discovery as _v3d_sched
+            results = _v3d_sched.run_discovery(_DB_URL, top_n=30)
+            print(f"[v3_disc_sched] premarket discovery: {len(results)} candidates")
+            # Also pre-compute technical scores for those tickers
+            if results:
+                import aiem_v3_technical as _v3t_sched
+                tickers = [r["ticker"] for r in results]
+                _v3t_sched.run_technical_analysis(tickers, _DB_URL)
+                print(f"[v3_disc_sched] technical scores computed for {len(tickers)} tickers")
+        except Exception as _v3ds_e:
+            print(f"[v3_disc_sched] premarket discovery error (non-fatal): {_v3ds_e}")
+
+    _scheduler.add_job(
+        _run_v3_discovery_premarket,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=_ET),
+        id="v3_discovery_premarket",
+        replace_existing=True,
+    )
+
+    # ── AIEM v3 Phase 6: post-market learning cycle ───────────────────────
+    # Runs 4:45 PM — after MTM (4:01 PM) so closed trades are available.
+    def _run_v3_learning():
+        try:
+            import aiem_v3_learning as _v3l_sched
+            summary = _v3l_sched.run_learning_cycle(_DB_URL, lookback_days=30)
+            print(f"[v3_learn_sched] {summary}")
+        except Exception as _v3l_e:
+            print(f"[v3_learn_sched] learning cycle error (non-fatal): {_v3l_e}")
+
+    _scheduler.add_job(
+        _run_v3_learning,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=_ET),
+        id="v3_learning_cycle",
+        replace_existing=True,
+    )
+
+    # ── AIEM v3 Phase 8: daily governance verification ───────────────────
+    # Runs 4:55 PM — after learning cycle.
+    def _run_v3_verification():
+        try:
+            import aiem_v3_verification as _v3v_sched
+            report = _v3v_sched.run_full_verification(_DB_URL, run_type="daily")
+            status = report.get("overall", "?")
+            print(f"[v3_verify_sched] daily check: {status} "
+                  f"({report.get('passed')}/{report.get('total')} PASS)")
+        except Exception as _v3v_e:
+            print(f"[v3_verify_sched] verification error (non-fatal): {_v3v_e}")
+
+    _scheduler.add_job(
+        _run_v3_verification,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=55, timezone=_ET),
+        id="v3_verification_daily",
+        replace_existing=True,
+    )
+
     # Pushed from 9:35 → 9:42 so it doesn't fire simultaneously with the
     # 9:36 unusual-calls market-open scan (heaviest Yahoo job of the day).
     _scheduler.add_job(
@@ -15420,6 +15480,47 @@ def admin_macro_refresh():
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
     return Response(__import__("json").dumps(result, default=str), mimetype="application/json")
+
+
+@app.route("/stock-api/admin/aiem-v3/verify", methods=["GET"])
+def admin_aiem_v3_verify():
+    """
+    GET /stock-api/admin/aiem-v3/verify
+    Runs the full AIEM v3 governance verification suite across all 9 engine
+    modules and returns a PASS / WARN / FAIL report. Protected by ADMIN_TOKEN.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_v3_verification as _v3v
+        run_type = request.args.get("run_type", "on_demand")
+        report   = _v3v.run_full_verification(_DB_URL, run_type=run_type)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps(report, default=str), mimetype="application/json")
+
+
+@app.route("/stock-api/admin/aiem-v3/discovery", methods=["POST"])
+def admin_aiem_v3_discovery():
+    """
+    POST /stock-api/admin/aiem-v3/discovery
+    Manually triggers a full v3 discovery + technical scan.
+    Returns top candidates with scores.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_v3_discovery as _v3d
+        import aiem_v3_technical as _v3t
+        top_n   = int(request.args.get("top_n", 25))
+        results = _v3d.run_discovery(_DB_URL, top_n=top_n)
+        if results:
+            tickers = [r["ticker"] for r in results]
+            _v3t.run_technical_analysis(tickers, _DB_URL)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return Response(__import__("json").dumps({"discovered": len(results), "top": results[:10]},
+                                             default=str), mimetype="application/json")
 
 
 def admin_check_signal_data_availability():
@@ -39158,6 +39259,58 @@ def _aiem_paper_pick_candidates() -> list:
 
     except Exception as _e:
         print(f"[aiem_paper] pick error: {_e}")
+
+    # ── 11. AIEM v3 Autonomous Discovery (Phase 3-5 pipeline) ─────────────
+    # Reads today's pre-computed discoveries from DB (fast). If none exist
+    # yet (e.g. first run of the day), falls back to a lightweight scan.
+    # AIEM signal isolation: feeds paper trades tab ONLY — no other tabs.
+    try:
+        import aiem_v3_discovery as _v3d
+        import aiem_v3_technical as _v3t
+        import aiem_v3_orchestrator as _v3o
+
+        _v3_disc = _v3d.get_todays_discoveries(_DB_URL, min_confidence=0.42)
+        if not _v3_disc:
+            _v3_disc = _v3d.run_discovery(_DB_URL, top_n=25)
+
+        if _v3_disc:
+            _v3_tickers  = [d["ticker"] for d in _v3_disc]
+            _v3_tech_db  = _v3t.get_technical_scores(_v3_tickers, _DB_URL)
+            _v3_tech_miss = [t for t in _v3_tickers if t not in _v3_tech_db]
+            if _v3_tech_miss:
+                _v3_tech_live = _v3t.run_technical_analysis(_v3_tech_miss, _DB_URL)
+                _v3_tech_db.update(_v3_tech_live)
+
+            # Current macro state (prefer in-process cache; fall back to DB)
+            try:
+                import aiem_macro_engine as _v3me
+                _v3_macro = _v3me.admin_get_latest_macro() or {}
+            except Exception:
+                _v3_macro = {}
+
+            _v3_portfolio = {
+                "portfolio_heat": 50,
+                "open_positions": sum(1 for c in _candidates.values()),
+            }
+            _v3_decisions = _v3o.run_orchestrator(
+                _v3_disc, _v3_tech_db, _v3_macro, _v3_portfolio, _DB_URL
+            )
+
+            for _v3dec in _v3_decisions:
+                if _v3dec["decision"] in ("BUY", "SMALL_BUY"):
+                    _size_mult = 0.8 if _v3dec["decision"] == "SMALL_BUY" else 1.0
+                    _v3_score  = _v3dec["confidence"] * _size_mult
+                    # Find matching discovery for detail
+                    _v3_detail = next(
+                        (d["detail"] for d in _v3_disc if d["ticker"] == _v3dec["ticker"]),
+                        f"v3={_v3dec['decision']} conf={_v3dec['confidence']:.0f}%"
+                    )
+                    _add(_v3dec["ticker"], _v3_score, "STOCK", "aiem_v3_discovery",
+                         f"v3/{_v3dec['decision']} conf={_v3dec['confidence']:.0f}% | {_v3_detail}")
+            _v3_buys = sum(1 for d in _v3_decisions if d["decision"] in ("BUY","SMALL_BUY"))
+            print(f"[aiem_paper] v3_discovery: {len(_v3_disc)} candidates → {_v3_buys} BUY/SMALL_BUY")
+    except Exception as _v3e:
+        print(f"[aiem_paper] v3_discovery source skipped: {_v3e}")
 
     # ── Social sentiment boost (StockTwits) for top 12 candidates ─────────
     _prelim = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)[:12]

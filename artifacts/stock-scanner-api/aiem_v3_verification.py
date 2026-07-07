@@ -94,7 +94,7 @@ def check_macro_engine(db_url: str) -> Dict:
     t0 = time.time()
     try:
         import aiem_macro_engine as me
-        result = me.get_latest_macro(db_url)
+        result = me.admin_get_latest_macro()
         ms     = (time.time() - t0) * 1000
         if not result or result.get("macro_score") is None:
             return {"module": "macro_engine", "status": "WARNING",

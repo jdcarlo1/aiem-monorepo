@@ -315,7 +315,7 @@ def run_discovery(db_url: str = None, top_n: int = 30) -> List[Dict]:
 
     session_id = f"v3_disc_{date.today().isoformat()}"
     written    = store_discoveries(db_url, scored[:100], session_id,
-                                   universe[0]["scan_date"] if universe else date.today())
+                                   date.today())  # store run-date, not polygon data date
 
     top = scored[:top_n]
     print(f"[v3_discovery] {len(scored)} scored, {written} stored, "

@@ -149,3 +149,4 @@
 - [Backtest delegation rule](backtest-delegation-rule.md) — ALL backtesting/historical analysis must go to AIEM, never run by main agent; only file edits stay with main agent
 - [AIEM Pipeline Audit Layer](aiem-pipeline-audit.md) — cryptographic trace per paper trade; 4 admin endpoints; 13-module PASS/FAIL; learning loop has 8 stages (4 currently INCOMPLETE = honest)
 - [AIEM closed-loop learning gaps](aiem-closed-loop-gaps.md) — all 5 audit gaps closed; helper module aiem_closed_loop_learning.py; 4 new tables; 2 admin endpoints
+- [AIEM v3 engine architecture](aiem-v3-architecture.md) — 5 modules (discovery/technical/orchestrator/learning/verification); admin_get_latest_macro() not get_latest_macro(); discovery_date=date.today() not scan_date
