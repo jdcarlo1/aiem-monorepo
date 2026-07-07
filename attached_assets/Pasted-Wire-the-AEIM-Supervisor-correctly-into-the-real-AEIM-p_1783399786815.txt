@@ -1,0 +1,400 @@
+Wire the AEIM Supervisor correctly into the real AEIM pipeline.
+
+Important:
+Do NOT build the Supervisor as a standalone report.
+Do NOT make it independent from the real AEIM flow.
+It must be connected directly to the existing AEIM closed-loop system.
+
+Start the Supervisor in MONITOR-ONLY mode.
+
+==================================================
+SUPERVISOR WIRING POINTS
+==================================================
+
+Connect Supervisor at these exact points:
+
+1. AFTER SCANNER ALERT → BEFORE AEIM INTAKE
+
+When the stock scanner sends a candidate to AEIM, call:
+
+supervisor_on_scanner_alert(
+    audit_trace_id,
+    ticker,
+    signal_source,
+    scanner_score,
+    scanner_reason,
+    alert_timestamp
+)
+
+Supervisor should log:
+- alert received
+- ticker
+- source
+- timestamp
+- trace_id
+- whether AEIM intake begins after this
+
+==================================================
+
+2. AFTER AEIM CANDIDATE RANKING
+
+After AEIM ranks candidates and stores them in aiem_candidate_rankings, call:
+
+supervisor_on_candidate_ranking(
+    audit_trace_id,
+    run_id,
+    candidates
+)
+
+Supervisor must read from:
+
+aiem_candidate_rankings
+
+and verify:
+- raw_score exists
+- trust_mult exists
+- drift_mult exists
+- rl_weight exists
+- final_adjusted_score exists
+- accepted/rejected status exists
+
+==================================================
+
+3. AFTER AEIM FINAL DECISION
+
+After AEIM makes final decision, call:
+
+supervisor_on_final_decision(
+    audit_trace_id,
+    ticker,
+    trade_id,
+    decision,
+    confidence_score,
+    decision_reason
+)
+
+Supervisor must verify:
+
+decision_authority = 'AEIM'
+
+Then write:
+
+supervisor_checked = true
+meta_authority = 'AEIM_SUPERVISOR'
+supervisor_verdict = 'ALLOW_MONITOR_ONLY'
+
+No blocking yet.
+
+==================================================
+
+4. AFTER PAPER TRADE IS CREATED
+
+When AEIM opens a paper trade, call:
+
+supervisor_on_paper_trade_opened(
+    audit_trace_id,
+    trade_id,
+    ticker,
+    signal_source,
+    entry_price,
+    entry_time
+)
+
+Supervisor must verify:
+- trade has audit_trace_id
+- trade_id links to same trace
+- signal_source is preserved
+- trade was opened after AEIM decision
+
+==================================================
+
+5. AFTER PAPER TRADE CLOSES / MTM EXIT
+
+When trade closes and pnl is known, call:
+
+supervisor_on_trade_closed(
+    audit_trace_id,
+    trade_id,
+    ticker,
+    exit_price,
+    exit_time,
+    pnl,
+    pnl_pct
+)
+
+Supervisor must verify:
+- exit exists
+- pnl exists
+- pnl_pct exists
+- outcome classification exists
+- learning update is expected next
+
+==================================================
+
+6. AFTER AEIM LEARNING UPDATE
+
+After AEIM applies learning update, call:
+
+supervisor_on_learning_update(
+    audit_trace_id,
+    trade_id,
+    ticker,
+    signal_source,
+    old_trust_score,
+    new_trust_score,
+    delta,
+    reason
+)
+
+Supervisor must check:
+- Was the update too aggressive?
+- Was sample size too small?
+- Did AEIM overreact to one trade?
+- Is the update supported by history?
+- Should this be allowed, limited, or flagged?
+
+For now, monitor-only actions:
+
+ALLOW_UPDATE_MONITOR_ONLY
+FLAG_BAD_LEARNING_MONITOR_ONLY
+REQUIRE_MORE_DATA_MONITOR_ONLY
+
+Do not block or reverse updates yet.
+
+==================================================
+TABLES SUPERVISOR MUST READ
+==================================================
+
+Read from these existing AEIM tables:
+
+aiem_paper_trades
+aiem_pipeline_audit_log
+aiem_candidate_rankings
+signal_trust_history
+aiem_paper_thompson
+aiem_paper_thompson_history
+rl_training_runs
+rl_buffer
+drift_check_log
+
+If table names differ, map equivalent existing tables and report the mapping.
+
+==================================================
+TABLES SUPERVISOR MUST WRITE
+==================================================
+
+Create these Supervisor tables:
+
+1. aeim_supervisor_event_log
+
+Fields:
+id
+created_at
+audit_trace_id
+trade_id
+ticker
+event_type
+source_table
+source_row_id
+supervisor_mode
+supervisor_verdict
+notes_json
+
+2. aeim_supervisor_loop_audit
+
+Fields:
+id
+created_at
+audit_trace_id
+trade_id
+ticker
+scanner_alert_seen
+aeim_intake_seen
+candidate_ranking_seen
+final_decision_seen
+paper_trade_seen
+outcome_seen
+learning_update_seen
+loop_complete
+missing_steps_json
+verdict
+
+3. aeim_supervisor_learning_review
+
+Fields:
+id
+created_at
+audit_trace_id
+trade_id
+ticker
+signal_source
+old_trust_score
+new_trust_score
+delta
+sample_size
+pnl_pct
+review_verdict
+risk_of_bad_learning
+reason
+recommended_action
+
+4. aeim_supervisor_risk_review
+
+Fields:
+id
+created_at
+audit_trace_id
+trade_id
+ticker
+aeim_decision
+aeim_confidence
+risk_score
+risk_flags_json
+supervisor_verdict
+recommended_action
+
+5. aeim_supervisor_daily_report
+
+Fields:
+id
+created_at
+report_date
+alerts_seen
+aeim_decisions_seen
+paper_trades_seen
+closed_trades_seen
+learning_updates_seen
+complete_loops
+incomplete_loops
+bad_learning_flags
+risk_flags
+overall_grade
+report_json
+
+==================================================
+MONITOR-ONLY MODE
+==================================================
+
+Add config:
+
+AEIM_SUPERVISOR_MODE = "MONITOR_ONLY"
+
+Allowed values:
+
+MONITOR_ONLY
+SOFT_OVERRIDE
+HARD_OVERRIDE
+
+For now use only:
+
+MONITOR_ONLY
+
+In MONITOR_ONLY mode:
+- Supervisor may log
+- Supervisor may flag
+- Supervisor may recommend
+- Supervisor may grade
+- Supervisor may NOT block trades
+- Supervisor may NOT override AEIM
+- Supervisor may NOT change trust weights directly
+
+==================================================
+REQUIRED INTEGRATION FUNCTIONS
+==================================================
+
+Create file:
+
+aiem_supervisor.py
+
+Implement these functions:
+
+supervisor_on_scanner_alert(...)
+supervisor_on_candidate_ranking(...)
+supervisor_on_final_decision(...)
+supervisor_on_paper_trade_opened(...)
+supervisor_on_trade_closed(...)
+supervisor_on_learning_update(...)
+supervisor_generate_daily_report(...)
+supervisor_verify_loop_complete(audit_trace_id)
+supervisor_review_learning_update(...)
+supervisor_review_risk(...)
+
+Each function must:
+- write to DB
+- use audit_trace_id
+- never use mock data
+- never fabricate missing steps
+- return PASS / PARTIAL / FAIL or ALLOW / FLAG / REVIEW
+
+==================================================
+WHERE TO WIRE IN MAIN CODE
+==================================================
+
+Wire into the real functions, or their equivalents:
+
+1. Scanner alert handoff to AEIM
+   Call supervisor_on_scanner_alert()
+
+2. _aiem_paper_pick_candidates()
+   After candidate ranking is stored, call supervisor_on_candidate_ranking()
+
+3. _aiem_paper_execute_today()
+   After final AEIM decision and before/after paper trade insert, call:
+   supervisor_on_final_decision()
+   supervisor_on_paper_trade_opened()
+
+4. _aiem_paper_mark_to_market()
+   After trade closes and pnl is calculated, call:
+   supervisor_on_trade_closed()
+
+5. closed-loop learning update function
+   After trust/Thompson/RL update, call:
+   supervisor_on_learning_update()
+
+6. Daily scheduled job after market close
+   Call supervisor_generate_daily_report()
+
+==================================================
+STRICT CONNECTION RULE
+==================================================
+
+The Supervisor must prove it is connected by showing one audit_trace_id that appears in:
+
+- aiem_paper_trades
+- aiem_pipeline_audit_log
+- aiem_candidate_rankings
+- signal_trust_history
+- aeim_supervisor_event_log
+- aeim_supervisor_loop_audit
+
+If the same audit_trace_id does not connect these tables, mark the integration PARTIAL.
+
+==================================================
+DELIVERABLES
+==================================================
+
+After implementation, provide:
+
+1. SQL migration file for supervisor tables
+2. aiem_supervisor.py
+3. main.py wiring locations
+4. list of exact functions modified
+5. sample monitor-only supervisor report
+6. proof that Supervisor fires after:
+   - scanner alert
+   - candidate ranking
+   - AEIM final decision
+   - paper trade open
+   - paper trade close
+   - learning update
+
+Final status must be one of:
+
+PASS:
+Supervisor is correctly wired into the real AEIM pipeline.
+
+PARTIAL:
+Supervisor exists but one or more hooks are missing.
+
+FAIL:
+Supervisor is only a standalone report and not connected to AEIM.

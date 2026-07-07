@@ -1,0 +1,90 @@
+Build a strict verifier for the AEIM Supervisor.
+
+File name:
+strict_aeim_supervisor_verifier.py
+
+Purpose:
+Verify that the Supervisor is not just a report, but is actually connected to the real AEIM pipeline.
+
+Check these exact things:
+
+1. Supervisor tables exist:
+- aeim_supervisor_event_log
+- aeim_supervisor_loop_audit
+- aeim_supervisor_learning_review
+- aeim_supervisor_risk_review
+- aeim_supervisor_daily_report
+
+2. Supervisor fires after scanner alert.
+
+3. Supervisor fires after candidate ranking.
+
+4. Supervisor fires after AEIM final decision.
+
+5. Supervisor fires after paper trade opens.
+
+6. Supervisor fires after paper trade closes.
+
+7. Supervisor fires after AEIM learning update.
+
+8. Same audit_trace_id connects:
+- aiem_paper_trades
+- aiem_pipeline_audit_log
+- aiem_candidate_rankings
+- signal_trust_history
+- aeim_supervisor_event_log
+- aeim_supervisor_loop_audit
+
+9. Supervisor is in MONITOR_ONLY mode.
+
+10. Supervisor does not block trades yet.
+
+11. Supervisor creates daily reports.
+
+12. Supervisor reviews learning updates and flags bad learning risk.
+
+13. Supervisor reviews trade risk and logs risk verdict.
+
+Strict rules:
+- Use live database data only.
+- Do not use mock data.
+- Do not use smoke-test rows as final proof.
+- Show SQL queries.
+- Show returned rows.
+- Show timestamps.
+- Show table names.
+- Show audit_trace_id.
+- If something is missing, say missing.
+- If only smoke-test data exists, say PARTIAL.
+- Do not claim PASS unless real AEIM workflow data proves it.
+
+Final report:
+Create:
+
+AEIM_SUPERVISOR_STRICT_VERIFICATION_REPORT.md
+
+Report must include:
+
+1. PASS / PARTIAL / FAIL verdict
+2. Supervisor readiness score from 0–10
+3. Table existence check
+4. Hook-by-hook verification
+5. One real audit_trace_id proof chain
+6. Missing gaps
+7. Required fixes
+8. Final conclusion
+
+Verdict rules:
+
+PASS:
+Supervisor is built, wired, running automatically, and connected to real AEIM events.
+
+PARTIAL:
+Supervisor exists but some hooks are not proven yet or only smoke-test data exists.
+
+FAIL:
+Supervisor is standalone, missing, or not connected to AEIM.
+
+Run command:
+
+python strict_aeim_supervisor_verifier.py
