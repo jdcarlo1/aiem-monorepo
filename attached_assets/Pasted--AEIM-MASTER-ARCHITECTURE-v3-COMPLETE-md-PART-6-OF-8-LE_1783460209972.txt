@@ -1,0 +1,744 @@
+# AEIM_MASTER_ARCHITECTURE_v3_COMPLETE.md
+
+# PART 6 OF 8
+
+## LEARNING INTELLIGENCE ENGINE
+### Performance Auditor
+### Trade Attribution
+### Counterfactual Analysis
+### Reinforcement Learning
+### Discovery Learning
+### Continuous Improvement
+### Autonomous Evolution
+
+Version 3.0
+
+====================================================================
+
+# PURPOSE
+
+The Learning Intelligence Engine is what separates
+AEIM from a traditional stock screener.
+
+Most trading systems stop learning
+once a trade is complete.
+
+AEIM begins learning
+only AFTER the trade is complete.
+
+Every discovery...
+
+Every decision...
+
+Every rejection...
+
+Every winning trade...
+
+Every losing trade...
+
+becomes training data.
+
+Nothing is wasted.
+
+====================================================================
+
+# PRIMARY OBJECTIVE
+
+AEIM should continuously improve:
+
+Discovery Quality
+
+Macro Understanding
+
+Trend Recognition
+
+Leadership Recognition
+
+Risk Management
+
+Position Sizing
+
+Confidence Calibration
+
+Decision Quality
+
+Portfolio Management
+
+Execution Timing
+
+====================================================================
+
+# MASTER LEARNING PIPELINE
+
+Discovery
+
+↓
+
+Decision
+
+↓
+
+Execution
+
+↓
+
+Trade Outcome
+
+↓
+
+Performance Auditor
+
+↓
+
+Trade Attribution
+
+↓
+
+Counterfactual Analysis
+
+↓
+
+Discovery Learning
+
+↓
+
+Confidence Calibration
+
+↓
+
+Learning Memory
+
+↓
+
+Future Decisions Improve
+
+====================================================================
+
+# PERFORMANCE AUDITOR
+
+Every completed trade receives
+a complete audit.
+
+Store
+
+Ticker
+
+Entry
+
+Exit
+
+Holding Time
+
+Position Size
+
+Maximum Gain
+
+Maximum Drawdown
+
+Profit/Loss
+
+Expected Outcome
+
+Actual Outcome
+
+Risk
+
+Reward
+
+Execution Quality
+
+====================================================================
+
+# TRADE ATTRIBUTION
+
+Do NOT simply ask
+
+Did I win?
+
+Instead ask
+
+WHY?
+
+Possible causes
+
+Macro
+
+Trend
+
+Leadership
+
+Sector
+
+Execution
+
+Risk
+
+Timing
+
+Discovery Quality
+
+Position Size
+
+Unexpected Event
+
+====================================================================
+
+# EXAMPLE
+
+Trade Lost
+
+Macro Collapse
+
+Trend Healthy
+
+Sector Healthy
+
+Execution Good
+
+Conclusion
+
+Trade idea may still have
+been correct.
+
+Do NOT punish
+the discovery engine.
+
+====================================================================
+
+# SECOND EXAMPLE
+
+Trade Lost
+
+Trend Failed
+
+Leadership Failed
+
+Distribution Increased
+
+Conclusion
+
+Improve Trend Integrity rules.
+
+====================================================================
+
+# COUNTERFACTUAL ENGINE
+
+Purpose
+
+Discover what would have happened
+if different decisions had been made.
+
+Questions
+
+Would waiting one day
+have improved results?
+
+Would smaller size
+have improved results?
+
+Would larger size
+have improved results?
+
+Would stronger confirmation
+have improved results?
+
+Would rejecting this trade
+have been better?
+
+====================================================================
+
+# DISCOVERY LEARNING
+
+Discovery is evaluated
+independently from trades.
+
+Questions
+
+Was this stock worth discovering?
+
+Did it outperform SPY?
+
+Did it outperform its sector?
+
+Did it outperform similar stocks?
+
+Was discovery too early?
+
+Was discovery too late?
+
+Was this an exceptional find?
+
+====================================================================
+
+# DISCOVERY QUALITY
+
+Labels
+
+Elite Discovery
+
+Excellent Discovery
+
+Good Discovery
+
+Average Discovery
+
+Poor Discovery
+
+False Positive
+
+Too Early
+
+Too Late
+
+Trend Failure
+
+Macro Failure
+
+These labels improve
+future discovery ranking.
+
+====================================================================
+
+# CONFIDENCE CALIBRATION
+
+Compare
+
+Predicted Confidence
+
+versus
+
+Actual Outcome
+
+Example
+
+Predicted
+
+90%
+
+Actual
+
+Loss
+
+Confidence too high.
+
+Reduce future confidence.
+
+------------------------------------------------------------
+
+Predicted
+
+45%
+
+Actual
+
+Large Winner
+
+Confidence too low.
+
+Increase calibration.
+
+====================================================================
+
+# LEARNING MEMORY
+
+Every completed trade updates
+
+Macro Memory
+
+Trend Memory
+
+Leadership Memory
+
+Sector Memory
+
+Technical Memory
+
+Discovery Memory
+
+Execution Memory
+
+Portfolio Memory
+
+Risk Memory
+
+Strategy Memory
+
+Nothing is discarded.
+
+====================================================================
+
+# REINFORCEMENT LEARNING
+
+Reward
+
+Correct reasoning
+
+Good execution
+
+Good risk management
+
+Good discovery
+
+Capital preservation
+
+Correct macro interpretation
+
+Correct trend interpretation
+
+------------------------------------------------------------
+
+Do NOT reward
+
+Luck
+
+Random gains
+
+Poor decisions that happened
+to make money
+
+====================================================================
+
+# PENALTY ENGINE
+
+Penalize
+
+Ignoring evidence
+
+Ignoring macro
+
+Ignoring trend deterioration
+
+Poor execution
+
+Poor position sizing
+
+Repeated overconfidence
+
+Repeated false discoveries
+
+====================================================================
+
+# DISCOVERY EVOLUTION
+
+Every month ask
+
+Which discovery rules
+produced the best opportunities?
+
+Which sectors consistently
+produced winners?
+
+Which technical patterns
+produced winners?
+
+Which market regimes
+produced winners?
+
+Update discovery weighting.
+
+====================================================================
+
+# STRATEGY EVOLUTION
+
+Every strategy receives
+
+Strategy Health Score
+
+100
+
+Elite
+
+90
+
+Excellent
+
+80
+
+Strong
+
+70
+
+Healthy
+
+60
+
+Average
+
+50
+
+Needs Review
+
+40
+
+Weak
+
+30
+
+Retire Candidate
+
+20
+
+Deactivate
+
+====================================================================
+
+# SELF DIAGNOSTICS
+
+Every week AEIM asks
+
+Am I improving?
+
+Am I discovering better stocks?
+
+Am I avoiding weak trends?
+
+Am I understanding macro better?
+
+Am I taking too much risk?
+
+Am I missing opportunities?
+
+Am I overconfident?
+
+Am I underconfident?
+
+====================================================================
+
+# MONTHLY REVIEW
+
+Review
+
+Discovery Quality
+
+Trade Quality
+
+Decision Quality
+
+Confidence Accuracy
+
+Sector Performance
+
+Macro Performance
+
+Leadership Performance
+
+Trend Performance
+
+Portfolio Performance
+
+Learning Growth
+
+====================================================================
+
+# QUARTERLY REVIEW
+
+Review
+
+Strategy Performance
+
+Discovery Engine Performance
+
+Macro Accuracy
+
+Technical Accuracy
+
+Risk Accuracy
+
+Portfolio Accuracy
+
+Counterfactual Accuracy
+
+Learning Stability
+
+Evidence Weighting
+
+====================================================================
+
+# AUTONOMOUS EVOLUTION
+
+AEIM should evolve carefully.
+
+Rules
+
+Never change
+because of one trade.
+
+Never change
+because of one day.
+
+Require
+
+Repeated evidence
+
+Large sample size
+
+Verified improvement
+
+Explainable reasoning
+
+No random changes.
+
+====================================================================
+
+# MASTER KNOWLEDGE BASE
+
+Maintain permanent records of
+
+Winning Discoveries
+
+Failed Discoveries
+
+Winning Trades
+
+Failed Trades
+
+Bull Markets
+
+Bear Markets
+
+Corrections
+
+Recoveries
+
+Sector Rotations
+
+Leadership Changes
+
+Macro Events
+
+Exceptional Opportunities
+
+Everything becomes experience.
+
+====================================================================
+
+# FINAL LEARNING LOOP
+
+Polygon Discovery
+
+↓
+
+Decision
+
+↓
+
+Trade
+
+↓
+
+Performance Audit
+
+↓
+
+Attribution
+
+↓
+
+Counterfactual Analysis
+
+↓
+
+Discovery Learning
+
+↓
+
+Confidence Calibration
+
+↓
+
+Learning Memory
+
+↓
+
+Improved Future Discovery
+
+↓
+
+Improved Future Decisions
+
+This loop never ends.
+
+====================================================================
+
+# STRICT VERIFICATION
+
+Before updating Learning Memory
+
+verify
+
+✓ Trade fully audited
+
+✓ Discovery audited
+
+✓ Attribution completed
+
+✓ Counterfactual completed
+
+✓ Confidence calibrated
+
+✓ Discovery Quality assigned
+
+✓ Strategy Health updated
+
+✓ Learning Memory updated
+
+✓ Knowledge Base updated
+
+✓ Monthly statistics updated
+
+Failure
+
+Learning Update = BLOCKED
+
+Engineering alert generated.
+
+====================================================================
+
+# FINAL PHILOSOPHY
+
+AEIM must not simply become
+a better trader.
+
+AEIM must become
+
+a better learner.
+
+The better it learns,
+
+the better it discovers.
+
+The better it discovers,
+
+the better it decides.
+
+The better it decides,
+
+the better it protects capital.
+
+====================================================================
+
+END OF PART 6 OF 8
+
+NEXT
+
+PART 7
+
+PRODUCTION INTEGRATION
+
+• Polygon Integration
+
+• Database Architecture
+
+• Scheduler Architecture
+
+• Telegram Integration
+
+• Dashboard
+
+• Logging
+
+• Monitoring
+
+• Replit Wiring Instructions
+
+• Autonomous Production Pipeline
