@@ -1,0 +1,494 @@
+# AEIM_MASTER_ARCHITECTURE_v2_PART_1A.md
+
+# AEIM (Autonomous Evidence Intelligence Machine)
+## Enterprise Autonomous Trading Architecture
+### Part 1A — Executive Architecture & Master Decision Pipeline
+
+Version: 2.0
+Status: Engineering Specification
+Target: Replit Engineering Team
+
+---
+
+# PURPOSE
+
+This document defines the core architecture for AEIM's autonomous reasoning engine.
+
+AEIM must become an evidence-driven autonomous trading intelligence system.
+
+It should never make decisions from one indicator.
+
+Every trade must be supported by evidence collected from every level of the market.
+
+The goal is not simply to predict price.
+
+The goal is to understand WHY the market is behaving the way it is.
+
+Only after understanding the current environment should AEIM decide whether capital should be deployed.
+
+---
+
+# PRIMARY DESIGN PHILOSOPHY
+
+AEIM shall behave like an experienced portfolio manager.
+
+Every decision must answer:
+
+• What is happening?
+
+• Why is it happening?
+
+• Is today's behavior normal?
+
+• Is today's behavior unusual?
+
+• Is this stock weak?
+
+or
+
+Is the entire market weak?
+
+• Is this simply profit taking?
+
+or
+
+Has the entire trend changed?
+
+Those are completely different situations.
+
+AEIM must understand the difference.
+
+---
+
+# ABSOLUTE RULE
+
+NO TRADE SHALL EVER BE APPROVED
+WITHOUT COMPLETING THE ENTIRE DECISION PIPELINE.
+
+There are NO shortcuts.
+
+There are NO skipped modules.
+
+Everything must execute in order.
+
+---
+
+# MASTER COMMAND CHAIN
+
+Signal Generated
+        │
+        ▼
+Macro Context Engine
+        │
+        ▼
+Market Survival Engine
+        │
+        ▼
+Broad Index Analysis
+        │
+        ▼
+Market Breadth Analysis
+        │
+        ▼
+Sector Rotation Engine
+        │
+        ▼
+Industry Rotation Engine
+        │
+        ▼
+Trend Integrity Engine
+        │
+        ▼
+Leadership Rotation Engine
+        │
+        ▼
+Oversold Bounce Engine
+        │
+        ▼
+Technical Evidence Engine
+        │
+        ▼
+Risk Engine
+        │
+        ▼
+Position Size Engine
+        │
+        ▼
+Master Decision Orchestrator
+        │
+        ▼
+Trade Execution
+        │
+        ▼
+Performance Auditor
+        │
+        ▼
+Trade Attribution Engine
+        │
+        ▼
+Learning Memory
+        │
+        ▼
+Continuous Improvement
+
+NO MODULE MAY BE SKIPPED.
+
+---
+
+# MASTER DECISION ORCHESTRATOR
+
+Every engine contributes evidence.
+
+NO engine is allowed to make the trade by itself.
+
+Instead every engine submits evidence.
+
+Example
+
+Macro Engine
+
+Confidence
+
++12
+
+Trend Integrity
+
++18
+
+Leadership
+
++9
+
+Sector
+
++6
+
+Momentum
+
++14
+
+Risk
+
+−8
+
+Volatility
+
+−5
+
+Execution
+
++11
+
+Final Confidence
+
+57
+
+Only after every module contributes evidence may AEIM approve a trade.
+
+---
+
+# EVIDENCE ACCUMULATION MODEL
+
+Every module has one responsibility.
+
+Macro Engine
+
+"What is today's market?"
+
+Trend Engine
+
+"Is this trend healthy?"
+
+Sector Engine
+
+"Is money flowing here?"
+
+Leadership Engine
+
+"Is this still institutional leadership?"
+
+Bounce Engine
+
+"Is this oversold?"
+
+Risk Engine
+
+"How much should we risk?"
+
+Performance Engine
+
+"What did we learn?"
+
+The Master Decision Orchestrator combines every answer.
+
+---
+
+# AEIM'S FIRST QUESTION
+
+Before looking at any stock,
+
+AEIM asks
+
+"What kind of market am I trading today?"
+
+This question comes BEFORE stock analysis.
+
+This is mandatory.
+
+---
+
+# STEP ONE
+
+MACRO CONTEXT ENGINE
+
+Purpose:
+
+Determine whether today's environment is favorable.
+
+Required Inputs
+
+SPY
+
+QQQ
+
+DIA
+
+IWM
+
+VIX
+
+Advance Decline
+
+New Highs
+
+New Lows
+
+Sector Performance
+
+Dollar
+
+Treasury Yields
+
+Credit Markets
+
+Volatility
+
+Major News
+
+Economic Calendar
+
+---
+
+# REQUIRED INDEXS
+
+AEIM SHALL ALWAYS MONITOR
+
+SPY
+
+S&P 500
+
+QQQ
+
+NASDAQ
+
+DIA
+
+Dow Jones
+
+IWM
+
+Russell 2000
+
+These four indexes tell AEIM
+
+Large caps
+
+Technology
+
+Industrials
+
+Small caps
+
+Risk Appetite
+
+Institutional participation
+
+Without these four indexes
+
+AEIM cannot understand the market.
+
+---
+
+# WHY SMALL CAPS MATTER
+
+Example
+
+SPY
+
+Flat
+
+QQQ
+
+Up
+
+IWM
+
+Down 2%
+
+This tells AEIM
+
+Institutions are hiding inside mega-cap technology.
+
+Risk appetite is shrinking.
+
+That changes position sizing.
+
+---
+
+# WHY NASDAQ MATTERS
+
+Technology usually leads.
+
+When QQQ leads higher
+
+growth is healthy.
+
+When QQQ rolls over
+
+risk increases.
+
+---
+
+# WHY SPY MATTERS
+
+SPY represents overall institutional participation.
+
+It tells AEIM
+
+Is capital flowing into equities?
+
+or
+
+Leaving equities?
+
+---
+
+# WHY DIA MATTERS
+
+Dow leadership often changes first.
+
+Industrials
+
+Banks
+
+Large defensive companies
+
+This helps detect sector rotation.
+
+---
+
+# MACRO HEALTH SCORE
+
+AEIM creates one score
+
+0
+
+Worst possible environment
+
+100
+
+Best possible environment
+
+Suggested Categories
+
+90-100
+
+Extremely Bullish
+
+80-90
+
+Strong Bull
+
+70-80
+
+Healthy
+
+60-70
+
+Constructive
+
+50-60
+
+Neutral
+
+40-50
+
+Weak
+
+30-40
+
+Risk Off
+
+20-30
+
+Hostile
+
+10-20
+
+Panic
+
+0-10
+
+Liquidation
+
+Every trade stores this score.
+
+Every trade remembers this score.
+
+---
+
+# MACRO DOES NOT MEAN "NO BUY"
+
+Very important.
+
+If every index is red
+
+AEIM should NOT automatically stop buying.
+
+Instead ask
+
+Are today's red conditions creating opportunities?
+
+That question leads into the later Oversold Bounce Engine.
+
+The macro engine is responsible for understanding the environment—not automatically rejecting every long trade.
+
+---
+
+# FIRST PRINCIPLE OF MARKET REASONING
+
+Red market
+
+≠
+
+Bad stock
+
+Good market
+
+≠
+
+Good stock
+
+Macro provides context.
+
+Individual stock analysis provides opportunity.
+
+AEIM must separate the two.
+
+---
+
+# END OF PART 1A
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_PART_1B.md
