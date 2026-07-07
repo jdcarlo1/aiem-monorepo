@@ -63,7 +63,7 @@ MAX_PRICE         = 20.0
 MIN_PM_VOLUME     = 50_000
 MIN_GAP_PCT       = 2.0
 MAX_FLOAT_SHARES  = 20_000_000
-CONFIDENCE_THRESH = 45          # fire alert above this (max achievable without float/SI data ~61%)
+CONFIDENCE_THRESH = 50          # S1b/S1c/S1d score 54-61%; gap_large (non-validated) tops out at ~48%
 CANDIDATE_LIMIT   = 50          # max after float filter before scoring
 
 # ─────────────────────────────────────────────────────────────
