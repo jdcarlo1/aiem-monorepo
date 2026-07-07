@@ -10150,6 +10150,21 @@ def nano_morning_run_ranking():
     return jsonify({"status": "started", "stage": "ranking"}), 202
 
 
+@app.route("/stock-api/admin/aiem-process/run-scan", methods=["POST"])
+def admin_aiem_process_run_scan():
+    """Manually trigger the AIEM Process premarket scan (warmup + score + DB write)."""
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import urllib.request as _ur2
+        _req = _ur2.Request("http://localhost:5055/run-scan", data=b"", method="POST")
+        with _ur2.urlopen(_req, timeout=8) as _r:
+            return jsonify({"status": "triggered", "aiem_process": _r.read().decode()}), 202
+    except Exception as _e:
+        return jsonify({"error": str(_e),
+                        "hint": "aiem-process service may still be restarting"}), 503
+
+
 @app.route("/stock-api/nano-morning/send-watch", methods=["POST"])
 def nano_morning_send_watch():
     if not _admin_ok():

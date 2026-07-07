@@ -39,7 +39,7 @@ import logging
 import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 
 import pytz
 import psycopg2
@@ -644,7 +644,7 @@ def aiem_premarket_scan():
         scored.sort(key=lambda x: x["confidence"], reverse=True)
         top10 = scored[:10]
 
-        today = date.today()
+        today = datetime.now(ET).date()
         cur.execute("DELETE FROM aiem_process_predictions WHERE prediction_date = %s", (today,))
         for rank, p in enumerate(top10, 1):
             cur.execute("""
@@ -694,7 +694,7 @@ def aiem_open_watcher():
     try:
         conn = _db()
         cur  = conn.cursor()
-        today = date.today()
+        today = datetime.now(ET).date()
 
         cur.execute("""
             SELECT ticker, rank, confidence_score, signal_basis, reasoning, predicted_move
@@ -791,7 +791,7 @@ def aiem_grade_outcomes():
     """
     if not _market_day():
         return
-    today = date.today()
+    today = datetime.now(ET).date()
     log.info(f"grade_outcomes for {today}")
 
     conn = None
@@ -866,7 +866,7 @@ def aiem_grade_t3_t5():
     try:
         conn = _db()
         cur  = conn.cursor()
-        today = date.today()
+        today = datetime.now(ET).date()
 
         for n, col_p, col_r, col_w in [
             (3, "t3_price", "t3_return", "win_t3"),
@@ -945,7 +945,7 @@ def aiem_find_missed_runners():
             cur  = conn.cursor()
             cur.execute(
                 "SELECT ticker FROM aiem_process_predictions WHERE prediction_date = %s",
-                (date.today(),)
+                (datetime.now(ET).date(),)
             )
             picks_today = {r[0] for r in cur.fetchall()}
             conn.close()
@@ -1080,7 +1080,7 @@ def aiem_write_signal_discoveries():
     try:
         conn = _db()
         cur  = conn.cursor()
-        today = date.today()
+        today = datetime.now(ET).date()
 
         saved = 0
         for sig, stats in hypotheses:
@@ -1153,7 +1153,7 @@ def aiem_nightly_learn():
     """
     if not _market_day():
         return
-    today = date.today()
+    today = datetime.now(ET).date()
     log.info(f"nightly_learn for {today}")
 
     conn = None
@@ -1321,6 +1321,41 @@ def main():
     sched.add_job(aiem_nightly_learn,
                   CronTrigger(day_of_week="mon-fri", hour=18, minute=0),
                   id="aiem_nightly_learn", replace_existing=True)
+
+    # ── Admin HTTP server (port 5055) for manual scan triggers ──────────────
+    def _run_manual_scan():
+        log.info("admin: manual warmup + premarket scan triggered")
+        try:
+            aiem_warmup()
+            aiem_premarket_scan()
+            log.info("admin: manual scan complete")
+        except Exception as _e:
+            log.error(f"admin: manual scan error: {_e}")
+
+    def _admin_server():
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        import threading as _t2
+
+        class _H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                if self.path == "/run-scan":
+                    _t2.Thread(target=_run_manual_scan, daemon=True).start()
+                    body = b'{"status":"triggered"}'
+                else:
+                    self.send_response(404); self.end_headers(); return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *a): pass   # suppress access logs
+
+        try:
+            HTTPServer(("0.0.0.0", 5055), _H).serve_forever()
+        except Exception as _ae:
+            log.warning(f"admin server error: {_ae}")
+
+    threading.Thread(target=_admin_server, daemon=True).start()
+    log.info("Admin trigger server listening on :5055")
 
     sched.start()
 
