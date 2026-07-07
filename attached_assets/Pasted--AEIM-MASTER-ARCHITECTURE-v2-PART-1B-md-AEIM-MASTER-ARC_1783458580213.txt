@@ -1,0 +1,596 @@
+# AEIM_MASTER_ARCHITECTURE_v2_PART_1B.md
+
+# AEIM MASTER ARCHITECTURE
+## PART 1B
+### Macro Context Engine
+### Market Survival Engine
+### Broad Market Intelligence
+### Evidence Collection Framework
+
+Version: 2.0
+
+---
+
+# PRIMARY OBJECTIVE
+
+The Macro Context Engine is the very first reasoning layer inside AEIM.
+
+Its purpose is NOT to pick stocks.
+
+Its purpose is to determine whether today's environment is favorable, neutral, or hostile before any stock is analyzed.
+
+AEIM should think exactly like a professional portfolio manager.
+
+Before asking:
+
+"Should I buy this stock?"
+
+It must first ask:
+
+"What kind of market am I trading today?"
+
+Without answering that question first, every stock decision is incomplete.
+
+---
+
+# ORDER OF EXECUTION
+
+Signal Generated
+        │
+        ▼
+Macro Context Engine
+        │
+        ▼
+Market Survival Engine
+        │
+        ▼
+Broad Index Analysis
+        │
+        ▼
+Market Breadth
+        │
+        ▼
+Sector Rotation
+        │
+        ▼
+Trend Integrity
+        │
+        ▼
+Leadership Rotation
+        │
+        ▼
+Oversold Bounce Analysis
+        │
+        ▼
+Risk Management
+        │
+        ▼
+Master Decision
+
+NO MODULE MAY EXECUTE OUT OF ORDER.
+
+---
+
+# BROAD MARKET ENGINE
+
+Every execution cycle must collect:
+
+SPY
+
+QQQ
+
+DIA
+
+IWM
+
+VIX
+
+Dollar Index (DXY)
+
+10-Year Treasury Yield
+
+Advance / Decline Line
+
+New Highs
+
+New Lows
+
+NYSE Breadth
+
+NASDAQ Breadth
+
+Sector Performance
+
+Industry Performance
+
+Volume
+
+Economic Calendar
+
+Major Scheduled Events
+
+Major News Events
+
+---
+
+# INDEX ANALYSIS
+
+AEIM shall always understand:
+
+Is the S&P strong?
+
+Is Technology strong?
+
+Are Industrials strong?
+
+Are Small Caps participating?
+
+Examples:
+
+Scenario A
+
+SPY +0.8
+
+QQQ +1.4
+
+IWM +0.9
+
+DIA +0.5
+
+Interpretation
+
+Healthy participation.
+
+Risk appetite exists.
+
+Long exposure can remain normal.
+
+---
+
+Scenario B
+
+SPY -0.6
+
+QQQ +1.1
+
+IWM -2.0
+
+DIA -1.0
+
+Interpretation
+
+Money is concentrating into large-cap technology.
+
+Small caps are weak.
+
+Institutional participation is narrowing.
+
+Risk should be reduced.
+
+---
+
+Scenario C
+
+SPY -2.2
+
+QQQ -2.8
+
+DIA -2.1
+
+IWM -3.5
+
+Interpretation
+
+Broad liquidation.
+
+Do NOT automatically reject every long trade.
+
+Instead:
+
+Increase evidence requirements.
+
+Reduce size.
+
+Search for exceptional opportunities only.
+
+---
+
+# MARKET SURVIVAL ENGINE
+
+Purpose:
+
+Protect AEIM during abnormal markets.
+
+The Market Survival Engine classifies:
+
+NORMAL
+
+CORRECTION
+
+HIGH VOLATILITY
+
+PANIC
+
+LIQUIDATION
+
+BEAR TREND
+
+RECOVERY
+
+NEW BULL TREND
+
+This classification affects every later module.
+
+---
+
+# PANIC DETECTION
+
+Indicators include:
+
+Large VIX expansion
+
+Broad index declines
+
+Heavy downside volume
+
+Large breadth deterioration
+
+Credit spread expansion
+
+Rapid Treasury movement
+
+Unexpected geopolitical events
+
+Central bank surprises
+
+If several occur together:
+
+Market Survival Engine should raise risk level.
+
+---
+
+# MACRO HEALTH SCORE
+
+Every market receives one score.
+
+100
+
+Ideal environment.
+
+90
+
+Strong Bull
+
+80
+
+Healthy
+
+70
+
+Constructive
+
+60
+
+Neutral Positive
+
+50
+
+Neutral
+
+40
+
+Weak
+
+30
+
+Risk Off
+
+20
+
+Hostile
+
+10
+
+Panic
+
+0
+
+Forced Liquidation
+
+Every trade permanently stores this score.
+
+---
+
+# MACRO CONFIDENCE MODIFIER
+
+Macro Score
+
+90+
+
+Confidence +15
+
+80+
+
+Confidence +10
+
+70+
+
+Confidence +5
+
+60
+
+No adjustment
+
+50
+
+-5
+
+40
+
+-10
+
+30
+
+-20
+
+20
+
+-30
+
+10
+
+-40
+
+0
+
+No normal-sized trades.
+
+---
+
+# IMPORTANT RULE
+
+Macro NEVER decides the trade.
+
+Macro only adjusts probability.
+
+Example
+
+Stock Quality
+
+94
+
+Macro
+
+-20
+
+Final
+
+74
+
+The stock may still be tradable.
+
+The position size simply becomes smaller.
+
+---
+
+# EVIDENCE COLLECTION
+
+Every engine contributes evidence.
+
+Macro
+
+Trend
+
+Sector
+
+Industry
+
+Leadership
+
+Momentum
+
+Technical Structure
+
+Risk
+
+Execution
+
+Performance History
+
+Learning Memory
+
+Each module has weighted influence.
+
+No module owns the decision.
+
+---
+
+# EVIDENCE WEIGHTING
+
+Suggested initial weights
+
+Macro
+
+20%
+
+Trend Integrity
+
+20%
+
+Leadership
+
+15%
+
+Sector
+
+10%
+
+Technical Structure
+
+10%
+
+Momentum
+
+10%
+
+Risk
+
+10%
+
+Historical Performance
+
+5%
+
+Weights should become adaptive over time based on learning.
+
+---
+
+# MACRO QUESTIONS
+
+Every execution cycle AEIM must answer:
+
+Is today normal?
+
+Is volatility increasing?
+
+Are institutions buying?
+
+Are institutions selling?
+
+Are all indexes participating?
+
+Is breadth healthy?
+
+Are defensive sectors leading?
+
+Is technology leading?
+
+Is this a correction?
+
+Is this panic?
+
+Is this a trend change?
+
+Those answers become permanent evidence.
+
+---
+
+# MACRO MEMORY
+
+Every trading day should be stored.
+
+Date
+
+Macro Score
+
+Market Regime
+
+Breadth
+
+Volatility
+
+Leadership
+
+Winning Sectors
+
+Weakest Sectors
+
+Strongest Industries
+
+Index Performance
+
+Over months, AEIM builds its own historical macro database.
+
+---
+
+# DAILY COMPARISON
+
+Each morning compare today's environment against:
+
+Yesterday
+
+Last Week
+
+Last Month
+
+Previous Similar Corrections
+
+Previous Bear Markets
+
+Previous Bull Markets
+
+Ask:
+
+Have I seen this environment before?
+
+If yes:
+
+What happened afterward?
+
+---
+
+# MACRO ATTRIBUTION
+
+At market close:
+
+Do NOT ask only:
+
+"Did this trade lose?"
+
+Instead ask:
+
+Did the market lose?
+
+Did the sector lose?
+
+Did leadership weaken?
+
+Was this a macro failure?
+
+Was this execution?
+
+Was this timing?
+
+Was this signal quality?
+
+Separate these categories before learning.
+
+---
+
+# STRICT VERIFICATION
+
+Replit must verify:
+
+✓ Macro executed first
+
+✓ SPY analyzed
+
+✓ QQQ analyzed
+
+✓ DIA analyzed
+
+✓ IWM analyzed
+
+✓ VIX analyzed
+
+✓ Breadth analyzed
+
+✓ Sector rotation completed
+
+✓ Macro score stored
+
+✓ Confidence modifier applied
+
+✓ Evidence logged
+
+✓ No trade bypassed macro engine
+
+Failure of any verification must stop trade approval and log the reason.
+
+---
+
+# END OF PART 1B
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_PART_1C.md
