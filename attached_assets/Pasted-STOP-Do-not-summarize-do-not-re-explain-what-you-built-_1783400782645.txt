@@ -1,0 +1,41 @@
+STOP. Do not summarize, do not re-explain what you built. I need raw proof for each item below. 
+If you cannot produce the raw output, say "I cannot verify this" — do not restate your claim as evidence.
+
+1. MODULE WIRING (not existence)
+   Run this and paste the raw terminal output:
+   grep -n "run_post_pick_supervisor\|run_post_trade_supervisor\|supervisor-summary\|supervisor-daily-report\|supervisor-weekly-report\|supervisor-signal-lifecycle\|supervisor-overfit-check" main.py
+   
+   For each of the 7 modules in aiem_supervisor.py, paste the grep line number(s) in main.py where it is actually CALLED. 
+   A module with zero call sites in main.py is NOT wired, regardless of what you claimed.
+
+2. DATABASE TABLES — ACTUAL, NOT CLAIMED
+   Run and paste raw output:
+   \dt aiem_supervisor*
+   SELECT COUNT(*) FROM aiem_supervisor_overrides;
+   SELECT * FROM aiem_supervisor_overrides ORDER BY created_at DESC LIMIT 10;
+   
+   Confirm all 7 tables + the aiem_supervisor_signal_health view exist. If any are missing, say so explicitly.
+
+3. THE WIN-RATE NUMBERS — RECOMPUTE FROM RAW DATA
+   Paste the raw SQL and its output for:
+   SELECT signal_name, COUNT(*) as n, 
+          SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+          ROUND(100.0 * SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) as wr
+   FROM [your closed trades table]
+   WHERE signal_name IN ('multi_signal', 'gap_volume', 'unusual_calls')
+   GROUP BY signal_name;
+   
+   I need n (sample size) for each signal, not just the WR%. A 0.0% WR on n=2 is meaningless; 
+   confirm actual trade counts per signal.
+
+4. RETIRE/DEMOTE STATUS IS ANNOTATION-ONLY, NOT ENFORCEMENT
+   Show me the exact code path in the signal selection logic (pick_candidates or equivalent) 
+   that proves a RETIRED or DEMOTED signal can still be selected for a live trade. 
+   Paste the function, not a description of it.
+
+5. SCHEDULER — HAS IT RUN, OR IS IT JUST CONFIGURED
+   Paste the raw log output (not a description) confirming the scheduler has ACTUALLY EXECUTED 
+   at least once. If it hasn't run yet because it's not 4:50 PM ET / Sunday 6 PM ET, say that 
+   explicitly — do not imply it has run when it hasn't.
+
+Do not mark anything PASS, COMPLETE, or WIRED in your response. Just paste raw output and let me judge it.
