@@ -1,0 +1,527 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_4C.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 4C
+### Autonomous Supervisor v2
+### Meta-Reasoning Engine
+### Decision Integrity Engine
+### Data Validation Layer
+### Enterprise Governance
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+This layer sits above every decision engine.
+
+It does NOT find stocks.
+
+It does NOT analyze charts.
+
+Its responsibility is to verify that
+AEIM is making intelligent, consistent,
+well-supported decisions.
+
+Think of this layer as the
+Chief Risk Officer
+combined with
+Chief Investment Officer
+combined with
+Chief Compliance Officer.
+
+---
+
+# PRIMARY OBJECTIVE
+
+Before every trade ask
+
+Do I actually understand this trade?
+
+Do I have enough evidence?
+
+Am I missing information?
+
+Am I making assumptions?
+
+Has every engine completed?
+
+Only after answering YES
+may the trade continue.
+
+---
+
+# META-REASONING ENGINE
+
+Purpose
+
+Evaluate the quality of AEIM's reasoning.
+
+Questions
+
+Did every engine agree?
+
+Which engines disagreed?
+
+Why?
+
+Was disagreement expected?
+
+Was evidence complete?
+
+Should confidence be reduced?
+
+---
+
+# META QUESTIONS
+
+AEIM asks itself
+
+Do I actually understand today's market?
+
+Am I overconfident?
+
+Am I underconfident?
+
+Am I relying too heavily
+on one indicator?
+
+Am I ignoring contradictory evidence?
+
+Would I explain this trade
+to a portfolio manager?
+
+---
+
+# DECISION INTEGRITY ENGINE
+
+Every decision receives
+
+Integrity Score
+
+100
+
+Perfect Evidence
+
+90
+
+Excellent
+
+80
+
+Strong
+
+70
+
+Healthy
+
+60
+
+Acceptable
+
+50
+
+Questionable
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Very Poor
+
+10
+
+Reject
+
+---
+
+# DATA VALIDATION
+
+Before any reasoning begins
+
+Verify
+
+Market data available
+
+Volume valid
+
+Price valid
+
+Indicators calculated
+
+Macro available
+
+Sector available
+
+Leadership available
+
+Portfolio available
+
+Learning Memory available
+
+Historical Memory available
+
+No missing values.
+
+---
+
+# MISSING DATA
+
+If required information is missing
+
+Do NOT guess.
+
+Possible actions
+
+Pause
+
+Reduce confidence
+
+Request recalculation
+
+Reject trade
+
+Log engineering warning
+
+---
+
+# CONTRADICTION DETECTOR
+
+Detect contradictions
+
+Example
+
+Macro
+
+Strong Bull
+
+Trend
+
+Strong
+
+Leadership
+
+Strong
+
+Risk
+
+Extreme
+
+Ask
+
+Why?
+
+Risk should explain itself.
+
+Every contradiction requires explanation.
+
+---
+
+# OVERCONFIDENCE DETECTOR
+
+Monitor
+
+Predicted Confidence
+
+Actual Results
+
+Historical Calibration
+
+If confidence repeatedly exceeds reality
+
+Automatically reduce confidence scaling.
+
+---
+
+# UNDERCONFIDENCE DETECTOR
+
+If AEIM repeatedly predicts
+
+40%
+
+and outcomes consistently succeed
+
+increase calibration gradually.
+
+---
+
+# DECISION CONSISTENCY
+
+Compare today's decision against
+
+Yesterday
+
+Last Week
+
+Last Month
+
+Historical Similarity
+
+If identical evidence
+produces different conclusions
+
+Generate review.
+
+---
+
+# DATA QUALITY SCORE
+
+Every decision receives
+
+Data Quality Score
+
+Inputs
+
+Price Completeness
+
+Volume Completeness
+
+Indicator Completeness
+
+Macro Completeness
+
+Leadership Completeness
+
+Portfolio Completeness
+
+Learning Availability
+
+---
+
+# DATA QUALITY SCALE
+
+100
+
+Complete
+
+90
+
+Excellent
+
+80
+
+Strong
+
+70
+
+Healthy
+
+60
+
+Acceptable
+
+50
+
+Limited
+
+40
+
+Weak
+
+30
+
+Poor
+
+20
+
+Critical Missing Data
+
+10
+
+Reject
+
+---
+
+# DECISION TRACE
+
+Every recommendation stores
+
+Raw Inputs
+
+Derived Indicators
+
+Evidence Scores
+
+Weighting
+
+Supervisor Comments
+
+Final Decision
+
+Confidence
+
+Risk
+
+Explanation
+
+Nothing is hidden.
+
+---
+
+# ENGINE HEALTH
+
+Every engine receives
+
+Health Score
+
+Questions
+
+Running?
+
+Updated?
+
+Data Fresh?
+
+Latency Acceptable?
+
+Errors?
+
+Verification Passed?
+
+---
+
+# ENGINE FAILURE
+
+If
+
+Macro Engine fails
+
+No trades.
+
+If
+
+Trend Engine fails
+
+No trades.
+
+If
+
+Learning Memory unavailable
+
+Reduce confidence
+or suspend learning updates.
+
+Everything must fail safely.
+
+---
+
+# SAFETY RULES
+
+Never force a trade.
+
+No evidence
+
+No trade.
+
+Conflicting evidence
+
+Reduce confidence.
+
+Missing evidence
+
+Reject trade.
+
+---
+
+# SELF DIAGNOSTICS
+
+Every day evaluate
+
+Data Quality
+
+Engine Reliability
+
+Decision Consistency
+
+Learning Stability
+
+Confidence Calibration
+
+Portfolio Health
+
+Execution Reliability
+
+---
+
+# ENGINEERING AUDIT
+
+Produce daily report
+
+Trades Approved
+
+Trades Rejected
+
+Reasons
+
+Verification Failures
+
+Engine Failures
+
+Data Problems
+
+Learning Updates
+
+Confidence Changes
+
+System Health
+
+---
+
+# STRICT VERIFICATION
+
+Verify
+
+✓ Data validation completed
+
+✓ Meta-reasoning completed
+
+✓ Decision integrity score assigned
+
+✓ Data quality score assigned
+
+✓ Contradiction analysis completed
+
+✓ Confidence calibration verified
+
+✓ Engine health verified
+
+✓ Decision trace stored
+
+✓ Audit generated
+
+Failure
+
+Supervisor Status = FAILED
+
+Trade Authorization = BLOCKED
+
+Engineering alert generated.
+
+---
+
+# END OF FILE 4C
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_4D.md
+
+Topics
+
+• Enterprise Audit Engine
+
+• Production Monitoring
+
+• Autonomous Health Monitoring
+
+• Explainability Dashboard
+
+• Final Enterprise Verification
+
+• Completion of File 4
