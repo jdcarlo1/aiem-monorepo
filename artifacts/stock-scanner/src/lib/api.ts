@@ -2128,6 +2128,33 @@ export function fetchNanoMorningCandidates() {
   return fetchJson<NanoMorningData>("/nano-morning/candidates");
 }
 
+export interface NanoCarryPick {
+  ticker: string;
+  rank: number;
+  confidence: number;
+  tier: "S1c" | "S1d" | "S1b" | "other";
+  tier_label: string;
+  tier_color: string;
+  signals: string[];
+  reasoning: string[];
+  predicted_move: string;
+  scan_time: string | null;
+}
+
+export interface NanoCarryData {
+  date: string;
+  s1c: NanoCarryPick[];
+  s1d: NanoCarryPick[];
+  s1b: NanoCarryPick[];
+  other: NanoCarryPick[];
+  total: number;
+  scan_time: string | null;
+}
+
+export function fetchNanoCarryPicks() {
+  return fetchJson<NanoCarryData>("/nano-carry/picks");
+}
+
 export interface MultidayRunnerRow {
   ticker: string;
   d1_date: string;

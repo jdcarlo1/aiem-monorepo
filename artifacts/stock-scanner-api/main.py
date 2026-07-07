@@ -10067,6 +10067,66 @@ def nano_morning_picks_route():
         return jsonify({"error": str(_e)}), 500
 
 
+@app.route("/stock-api/nano-carry/picks")
+def nano_carry_picks():
+    """Today's AIEM Process predictions tiered by S1c / S1d / S1b signal."""
+    import psycopg2 as _pg2
+    try:
+        today = _et_today()
+        with _pg2.connect(os.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
+            _cur.execute("""
+                SELECT ticker, rank, confidence_score, signal_basis, reasoning,
+                       predicted_move, created_at
+                FROM aiem_process_predictions
+                WHERE prediction_date = %s
+                ORDER BY rank ASC
+            """, (today,))
+            _rows = _cur.fetchall()
+
+        def _tier(sig_basis):
+            sigs = [s.strip() for s in (sig_basis or "").split(",") if s.strip()]
+            if "momentum_carry" in sigs:
+                return ("S1c", "Full Carry", "#22c55e")
+            if "soft_carry" in sigs:
+                return ("S1d", "Soft Carry", "#38bdf8")
+            if "gap_sweet_spot" in sigs:
+                return ("S1b", "Gap Zone", "#f59e0b")
+            return ("other", "Other", "#94a3b8")
+
+        picks = []
+        for ticker, rank, conf, sig_basis, reasoning, move, created_at in _rows:
+            tier, tier_label, tier_color = _tier(sig_basis)
+            reasoning_list = (
+                reasoning if isinstance(reasoning, list)
+                else ([reasoning] if reasoning else [])
+            )
+            picks.append({
+                "ticker": ticker,
+                "rank": rank,
+                "confidence": round(float(conf or 0), 1),
+                "tier": tier,
+                "tier_label": tier_label,
+                "tier_color": tier_color,
+                "signals": [s.strip() for s in (sig_basis or "").split(",") if s.strip()],
+                "reasoning": reasoning_list,
+                "predicted_move": move,
+                "scan_time": created_at.strftime("%I:%M %p ET") if created_at else None,
+            })
+
+        return jsonify({
+            "date": today.isoformat(),
+            "s1c":  [p for p in picks if p["tier"] == "S1c"],
+            "s1d":  [p for p in picks if p["tier"] == "S1d"],
+            "s1b":  [p for p in picks if p["tier"] == "S1b"],
+            "other":[p for p in picks if p["tier"] == "other"],
+            "total": len(picks),
+            "scan_time": picks[0]["scan_time"] if picks else None,
+        })
+    except Exception as _e:
+        log.error(f"nano_carry_picks: {_e}")
+        return jsonify({"error": str(_e), "s1c": [], "s1d": [], "s1b": [], "other": [], "total": 0}), 500
+
+
 def _admin_ok():
     """Gate for owner-only side-effect POST routes (nano + small-cap morning
     systems) - they send the owner real financial-action (buy/watch) emails and

@@ -59,6 +59,7 @@ import {
   fetchSectorHeat, HotSector, SectorHeatResult,
   fetchFloatPressure, FloatPressureRow, FloatPressureResult,
   fetchNanoMorningCandidates, NanoMorningCandidate,
+  fetchNanoCarryPicks, NanoCarryPick, NanoCarryData,
   fetchMultidayRunners, MultidayRunnersData, MultidayRunnerRow,
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
@@ -15812,7 +15813,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -15990,6 +15991,7 @@ export default function Dashboard() {
     { id: "earningscal",    label: "📅 EARNINGS CALENDAR" },
     { id: "squeezeradar",   label: "🩳 SQUEEZE RADAR" },
     { id: "nanomorning",   label: "🚀 NANO MORNING" },
+    { id: "nanocarry",    label: "⚡ S1B · S1C · S1D" },
     { id: "ics",            label: "🎯 CONVICTION SCORE" },
     { id: "multidayrunner", label: "📈 MULTI-DAY RUNNER" },
     { id: "runneroutcomes", label: "📊 RUNNER OUTCOMES" },
@@ -17877,6 +17879,191 @@ export default function Dashboard() {
             );
           }
           return tab === "nanomorning" ? <NanoMorningTab onSelectTicker={selectTicker} /> : null;
+        })()}
+
+        {/* ── Nano Carry Tab (S1b · S1c · S1d) ── */}
+        {tab === "nanocarry" && (() => {
+          function NanoCarryTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading } = useQuery({
+              queryKey: ["nano-carry"],
+              queryFn: fetchNanoCarryPicks,
+              refetchInterval: 120_000,
+            });
+
+            const s1c   = data?.s1c   ?? [];
+            const s1d   = data?.s1d   ?? [];
+            const s1b   = data?.s1b   ?? [];
+            const other = data?.other ?? [];
+            const total = data?.total ?? 0;
+            const scanDate = data?.date ?? null;
+            const scanTime = data?.scan_time ?? null;
+
+            const PickCard = ({ p, idx }: { p: NanoCarryPick; idx: number }) => (
+              <div style={{
+                background: "#0f172a",
+                border: `1px solid ${p.tier_color}33`,
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 8,
+                display: "flex",
+                flexDirection: "column" as const,
+                gap: 6,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: "#475569", fontSize: 11, fontWeight: 700, minWidth: 18 }}>#{idx + 1}</span>
+                    <button
+                      onClick={() => onSelectTicker(p.ticker)}
+                      style={{ color: "#fff", fontWeight: 800, fontSize: 16, background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    >
+                      {p.ticker}
+                    </button>
+                    <span style={{
+                      background: `${p.tier_color}22`,
+                      color: p.tier_color,
+                      border: `1px solid ${p.tier_color}55`,
+                      borderRadius: 5,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "2px 6px",
+                      letterSpacing: "0.05em",
+                    }}>
+                      {p.tier}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: "right" as const }}>
+                    <div style={{ color: p.tier_color, fontWeight: 800, fontSize: 15 }}>{p.confidence.toFixed(0)}<span style={{ color: "#475569", fontSize: 10, fontWeight: 500 }}>/100</span></div>
+                    <div style={{ color: "#475569", fontSize: 9 }}>conf</div>
+                  </div>
+                </div>
+                {p.predicted_move && (
+                  <div style={{ color: "#94a3b8", fontSize: 11 }}>🎯 {p.predicted_move}</div>
+                )}
+                {p.reasoning.length > 0 && (
+                  <div style={{ color: "#64748b", fontSize: 10, lineHeight: 1.5 }}>
+                    {p.reasoning.slice(0, 2).map((r, i) => <div key={i}>· {r}</div>)}
+                  </div>
+                )}
+                {p.scan_time && (
+                  <div style={{ color: "#334155", fontSize: 9 }}>⏱ {p.scan_time}</div>
+                )}
+              </div>
+            );
+
+            const Column = ({
+              tier, label, color, picks, subtitle,
+            }: {
+              tier: string; label: string; color: string; picks: NanoCarryPick[]; subtitle: string;
+            }) => (
+              <div style={{ flex: 1, minWidth: 220, maxWidth: 360 }}>
+                <div style={{
+                  background: `${color}11`,
+                  border: `1px solid ${color}44`,
+                  borderRadius: "12px 12px 0 0",
+                  padding: "12px 14px",
+                  marginBottom: 2,
+                }}>
+                  <div style={{ color: color, fontWeight: 800, fontSize: 14, letterSpacing: "0.04em" }}>{label}</div>
+                  <div style={{ color: "#64748b", fontSize: 10, marginTop: 2 }}>{subtitle}</div>
+                  <div style={{
+                    display: "inline-block",
+                    background: `${color}22`,
+                    color: color,
+                    borderRadius: 20,
+                    padding: "1px 10px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    marginTop: 6,
+                  }}>
+                    {picks.length} pick{picks.length !== 1 ? "s" : ""}
+                  </div>
+                </div>
+                <div style={{
+                  border: `1px solid ${color}22`,
+                  borderTop: "none",
+                  borderRadius: "0 0 12px 12px",
+                  padding: "10px 8px",
+                  minHeight: 80,
+                  background: "#0a0f1a",
+                }}>
+                  {picks.length === 0 && (
+                    <div style={{ color: "#334155", fontSize: 11, textAlign: "center" as const, padding: "24px 0" }}>
+                      No {tier} picks today
+                    </div>
+                  )}
+                  {picks.map((p, i) => <PickCard key={p.ticker} p={p} idx={i} />)}
+                </div>
+              </div>
+            );
+
+            return (
+              <div style={{ padding: "20px 16px", maxWidth: 1100, margin: "0 auto" }}>
+                {/* Header */}
+                <div style={{ marginBottom: 20, display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap" as const, gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#f1f5f9", letterSpacing: "0.01em" }}>
+                      ⚡ Momentum Carry Signals
+                    </div>
+                    <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>
+                      Gap 15–22% + T-1 close strength · S1c &gt; S1d &gt; S1b by conviction · $1,000/pick · EOD exit
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" as const }}>
+                    {scanDate && (
+                      <div style={{ background: "#1e293b", borderRadius: 8, padding: "6px 14px", fontSize: 12, color: "#94a3b8" }}>
+                        📅 {new Date(scanDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                        {scanTime && <span style={{ color: "#475569", marginLeft: 6 }}>· {scanTime}</span>}
+                      </div>
+                    )}
+                    <div style={{ background: "#1e293b", borderRadius: 8, padding: "6px 14px", fontSize: 12 }}>
+                      <span style={{ color: "#94a3b8" }}>Total: </span>
+                      <span style={{ color: "#f1f5f9", fontWeight: 700 }}>{total}</span>
+                    </div>
+                    {isLoading && <div style={{ color: "#64748b", fontSize: 12 }}>Refreshing…</div>}
+                  </div>
+                </div>
+
+                {/* Three signal columns */}
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" as const }}>
+                  <Column tier="S1c" label="S1c — Full Carry" color="#22c55e" picks={s1c}
+                    subtitle="Gap 15–22% + T-1 CS ≥ 0.80 · +13 pts · Highest conviction" />
+                  <Column tier="S1d" label="S1d — Soft Carry" color="#38bdf8" picks={s1d}
+                    subtitle="Gap 15–22% + T-1 CS 0.60–0.79 · +9 pts · Mid-tier" />
+                  <Column tier="S1b" label="S1b — Gap Zone" color="#f59e0b" picks={s1b}
+                    subtitle="Gap 15–25% (no prior carry) · +5 pts · Base signal" />
+                </div>
+
+                {/* Other / uncategorised */}
+                {other.length > 0 && (
+                  <div style={{ marginTop: 20 }}>
+                    <div style={{ color: "#475569", fontSize: 11, fontWeight: 700, marginBottom: 8 }}>Other picks (mixed signals)</div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+                      {other.map((p, i) => <PickCard key={p.ticker} p={p} idx={i} />)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Edge note */}
+                <div style={{
+                  marginTop: 24,
+                  background: "#0f172a",
+                  border: "1px solid #1e293b",
+                  borderRadius: 10,
+                  padding: "14px 16px",
+                  fontSize: 11,
+                  color: "#475569",
+                  lineHeight: 1.7,
+                }}>
+                  <div style={{ color: "#64748b", fontWeight: 700, marginBottom: 6 }}>📐 Signal Architecture</div>
+                  <div><span style={{ color: "#22c55e", fontWeight: 700 }}>S1c Full Carry</span> — Gap 15–22% AND prior session closed in top 20% of its range (CS ≥ 0.80). Stock was being bought into the close before the gap. Backtest: 97.7% WR (Jun 29 – Jul 2).</div>
+                  <div style={{ marginTop: 4 }}><span style={{ color: "#38bdf8", fontWeight: 700 }}>S1d Soft Carry</span> — Same gap zone, prior close in upper 40% (CS 0.60–0.79). Momentum present but less pronounced.</div>
+                  <div style={{ marginTop: 4 }}><span style={{ color: "#f59e0b", fontWeight: 700 }}>S1b Gap Zone</span> — Gap 15–25% regardless of prior session. Base signal, validated sweet-spot zone.</div>
+                  <div style={{ marginTop: 4 }}>Out of 11,000+ stocks scanned daily, typically <span style={{ color: "#94a3b8", fontWeight: 700 }}>3–8 qualify</span>. Scarcity is the edge.</div>
+                </div>
+              </div>
+            );
+          }
+          return <NanoCarryTab onSelectTicker={selectTicker} />;
         })()}
 
         {/* ── Gap + Volume Signal Tab ── */}
