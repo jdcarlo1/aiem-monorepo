@@ -1,0 +1,563 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_3B.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 3B
+### Reinforcement Learning Framework
+### Continuous Improvement Engine
+### Adaptive Strategy Evolution
+### Market Memory Engine
+### Autonomous Self-Optimization
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+The purpose of the Reinforcement Learning Framework
+is NOT to simply reward winning trades.
+
+Its purpose is to improve AEIM's decision-making.
+
+Winning and learning are not always the same.
+
+A profitable trade can still be a poor decision.
+
+A losing trade can still be an excellent decision.
+
+AEIM must learn the quality of the decision,
+not just the financial outcome.
+
+---
+
+# PRIMARY LEARNING OBJECTIVE
+
+Every completed trade should answer:
+
+Was my reasoning correct?
+
+Was my timing correct?
+
+Was my execution correct?
+
+Was my risk appropriate?
+
+Was Macro responsible?
+
+Was Sector responsible?
+
+Was Leadership responsible?
+
+Would I make this same trade again?
+
+---
+
+# LEARNING LOOP
+
+Trade Closed
+        │
+        ▼
+Performance Auditor
+        │
+        ▼
+Trade Attribution
+        │
+        ▼
+Counterfactual Analysis
+        │
+        ▼
+Confidence Calibration
+        │
+        ▼
+Reinforcement Learning
+        │
+        ▼
+Learning Memory
+        │
+        ▼
+Weight Adjustment
+        │
+        ▼
+Future Decision Improvement
+
+---
+
+# REWARD ENGINE
+
+AEIM should reward:
+
+Correct reasoning
+
+Good execution
+
+Good risk management
+
+Correct macro interpretation
+
+Correct trend interpretation
+
+Correct leadership interpretation
+
+Patience
+
+Discipline
+
+High-quality evidence gathering
+
+---
+
+# DO NOT REWARD
+
+Luck
+
+Random gains
+
+Poor decisions that happened to work
+
+Excessive risk
+
+Ignoring macro conditions
+
+Ignoring trend deterioration
+
+Ignoring execution quality
+
+---
+
+# PENALTY ENGINE
+
+AEIM should penalize:
+
+Ignoring evidence
+
+Repeated execution mistakes
+
+Poor risk management
+
+Entering before confirmation when history
+shows waiting improves outcomes
+
+Ignoring major macro deterioration
+
+Ignoring structural breakdowns
+
+Repeated overconfidence
+
+---
+
+# DO NOT PENALIZE
+
+Trades that failed solely because of:
+
+Unexpected macro shocks
+
+Broad market liquidation
+
+Temporary panic
+
+Sector-wide selling
+
+High-quality setups overwhelmed by
+systemic market events
+
+These should instead update
+risk management rules.
+
+---
+
+# MARKET MEMORY ENGINE
+
+AEIM should build a permanent memory of:
+
+Bull markets
+
+Corrections
+
+Bear markets
+
+Recovery phases
+
+Volatility spikes
+
+Sector rotations
+
+Leadership changes
+
+Macro shocks
+
+Interest-rate cycles
+
+Historical analogs
+
+This memory becomes searchable.
+
+---
+
+# EXPERIENCE LIBRARY
+
+Store examples of:
+
+Successful dip buys
+
+Failed dip buys
+
+Successful breakouts
+
+Failed breakouts
+
+Strong momentum continuations
+
+False breakouts
+
+Trend reversals
+
+Leadership transitions
+
+Institutional accumulation
+
+Institutional distribution
+
+---
+
+# ADAPTIVE STRATEGY EVOLUTION
+
+Every strategy should receive a review.
+
+Questions:
+
+Is this strategy improving?
+
+Declining?
+
+Stable?
+
+Sensitive to macro?
+
+Sensitive to volatility?
+
+Sensitive to sector rotation?
+
+Should thresholds change?
+
+Should risk change?
+
+Should confirmation requirements change?
+
+---
+
+# STRATEGY HEALTH SCORE
+
+100
+
+Elite
+
+90
+
+Excellent
+
+80
+
+Healthy
+
+70
+
+Good
+
+60
+
+Stable
+
+50
+
+Needs Review
+
+40
+
+Weakening
+
+30
+
+Poor
+
+20
+
+Candidate for Retirement
+
+10
+
+Deactivate
+
+---
+
+# CONFIDENCE EVOLUTION
+
+Every prediction produces:
+
+Predicted Probability
+
+Actual Outcome
+
+Calibration Error
+
+Confidence Drift
+
+AEIM gradually learns
+whether it tends to be:
+
+Too optimistic
+
+Too conservative
+
+Well calibrated
+
+---
+
+# ADAPTIVE WEIGHTS
+
+Every evidence engine receives a weight.
+
+Examples
+
+Macro
+
+Trend
+
+Leadership
+
+Momentum
+
+Sector
+
+Technical Structure
+
+Liquidity
+
+Execution
+
+Institutional Footprint
+
+These weights are adjustable.
+
+They should change only after
+sufficient evidence accumulates.
+
+---
+
+# LEARNING RULES
+
+Never change weights
+after one trade.
+
+Never change weights
+after one day.
+
+Require statistically meaningful evidence
+before adjusting the architecture.
+
+This prevents overfitting.
+
+---
+
+# SELF-OPTIMIZATION
+
+AEIM should periodically ask:
+
+Which evidence sources
+are producing the highest quality decisions?
+
+Which evidence sources
+are consistently misleading?
+
+Should evidence thresholds change?
+
+Should position sizing rules change?
+
+Should confidence calibration change?
+
+---
+
+# MONTHLY REVIEW
+
+Every month evaluate:
+
+Best strategies
+
+Worst strategies
+
+Best sectors
+
+Weakest sectors
+
+Best market regimes
+
+Worst market regimes
+
+Largest mistakes
+
+Most successful adaptations
+
+---
+
+# QUARTERLY REVIEW
+
+Every quarter evaluate:
+
+Strategy retirement
+
+Strategy promotion
+
+Evidence weighting
+
+Macro interpretation
+
+Trend interpretation
+
+Leadership interpretation
+
+Execution quality
+
+Learning stability
+
+---
+
+# OVERFITTING PROTECTION
+
+AEIM must avoid learning
+from noise.
+
+Rules:
+
+Require repeated observations.
+
+Require multiple confirmations.
+
+Require statistically meaningful evidence.
+
+Avoid reacting to isolated events.
+
+---
+
+# DECISION CONSISTENCY
+
+If two nearly identical situations occur,
+AEIM should produce similar reasoning
+unless new evidence clearly justifies
+a different conclusion.
+
+Large inconsistencies should be flagged
+for review.
+
+---
+
+# KNOWLEDGE BASE
+
+Maintain permanent records of:
+
+Winning decisions
+
+Losing decisions
+
+Correct reasoning
+
+Incorrect reasoning
+
+Macro environments
+
+Sector leadership
+
+Technical conditions
+
+Execution quality
+
+Counterfactual outcomes
+
+This becomes AEIM's experience.
+
+---
+
+# SELF-DIAGNOSTICS
+
+Every week AEIM should evaluate itself.
+
+Questions:
+
+Am I improving?
+
+Am I becoming more accurate?
+
+Am I becoming overconfident?
+
+Am I missing opportunities?
+
+Am I taking unnecessary risk?
+
+Should confidence be recalibrated?
+
+---
+
+# AUTONOMOUS IMPROVEMENT
+
+Improvements should be:
+
+Evidence-based
+
+Explainable
+
+Incremental
+
+Auditable
+
+Reversible if later evidence shows
+the change reduced performance.
+
+---
+
+# STRICT VERIFICATION
+
+Before updating permanent learning memory
+Replit must verify:
+
+✓ Performance Auditor completed
+
+✓ Attribution completed
+
+✓ Counterfactual analysis completed
+
+✓ Confidence calibration completed
+
+✓ Reinforcement update completed
+
+✓ Strategy Health Score updated
+
+✓ Experience Library updated
+
+✓ Market Memory updated
+
+✓ Adaptive weights validated
+
+✓ Overfitting protection checks passed
+
+✓ Learning changes logged
+
+If any verification fails:
+
+Permanent Learning Update = BLOCKED
+
+Reason must be logged.
+
+---
+
+# END OF FILE 3B
+
+Continue with:
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_3C.md
+
+Topics
+
+• Autonomous Discovery Engine
+• Opportunity Ranking Engine
+• Strategy Selection Engine
+• Dynamic Position Sizing
+• Risk Intelligence Engine
+• Portfolio-Level Learning
