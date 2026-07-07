@@ -1,0 +1,399 @@
+# AEIM_MASTER_VERIFICATION_PROTOCOL_v1A.md
+
+# PART A3 OF 3
+## Architecture & Wiring Verification
+
+Version 1.0
+
+====================================================================
+
+# RISK ENGINE VERIFICATION
+
+Replit must prove that every candidate receives
+a full Risk Score before any trade decision.
+
+Questions
+
+1. Where is the Risk Engine implemented?
+
+2. What inputs does it consume?
+
+3. Does it evaluate volatility?
+
+4. Does it evaluate liquidity?
+
+5. Does it evaluate ATR?
+
+6. Does it evaluate expected drawdown?
+
+7. Does it evaluate expected reward?
+
+8. Does it adjust position size?
+
+Required Proof
+
+Show
+
+Risk Engine source file
+
+Risk Score output
+
+Position size modifier
+
+Risk database record
+
+====================================================================
+
+# PORTFOLIO ENGINE VERIFICATION
+
+Verify AEIM considers the entire portfolio
+before authorizing a trade.
+
+Questions
+
+1. Does AEIM check current exposure?
+
+2. Does AEIM check sector concentration?
+
+3. Does AEIM check industry concentration?
+
+4. Does AEIM check correlation?
+
+5. Does AEIM check portfolio heat?
+
+6. Does AEIM prevent overconcentration?
+
+Required Proof
+
+Show one portfolio risk object.
+
+====================================================================
+
+# STRATEGY COUNCIL VERIFICATION
+
+Verify the Strategy Council exists.
+
+Questions
+
+Which specialists exist?
+
+Examples
+
+Macro Specialist
+
+Trend Specialist
+
+Momentum Specialist
+
+Oversold Bounce Specialist
+
+Risk Specialist
+
+Portfolio Specialist
+
+Execution Specialist
+
+Learning Specialist
+
+Required Proof
+
+Show specialist outputs for one candidate.
+
+====================================================================
+
+# EVIDENCE ARBITRATION VERIFICATION
+
+Questions
+
+Where are conflicting signals resolved?
+
+How are weights assigned?
+
+How do weights change by market regime?
+
+How is final confidence calculated?
+
+Required Proof
+
+Show evidence arbitration log.
+
+====================================================================
+
+# AUTONOMOUS SUPERVISOR VERIFICATION
+
+Questions
+
+Where is Supervisor implemented?
+
+What checks does it perform?
+
+Does it reject incomplete decisions?
+
+Does it detect missing evidence?
+
+Does it detect contradictions?
+
+Does it detect overconfidence?
+
+Required Proof
+
+Show Supervisor approval object.
+
+====================================================================
+
+# MASTER DECISION ORCHESTRATOR VERIFICATION
+
+Replit must show the final brain.
+
+Questions
+
+1. Where is Master Decision Orchestrator implemented?
+
+2. What inputs does it receive?
+
+3. What outputs does it produce?
+
+4. Does it consume every required engine output?
+
+5. Does it produce final confidence?
+
+6. Does it produce position size?
+
+7. Does it produce explanation?
+
+Required output format
+
+```json
+{
+  "ticker": "...",
+  "approved": true,
+  "action": "BUY / SMALL_BUY / WATCH / REJECT / EXIT",
+  "final_confidence": 0,
+  "position_size": 0.0,
+  "evidence_for": [],
+  "evidence_against": [],
+  "warnings": [],
+  "reason": "...",
+  "verification_passed": true
+}
+```
+
+====================================================================
+
+# TELEGRAM VERIFICATION
+
+Telegram must receive AEIM final decisions only.
+
+Not raw scanner candidates.
+
+Required alert fields
+
+Ticker
+
+Action
+
+Confidence
+
+Position Size
+
+Macro Score
+
+Trend Score
+
+Leadership Score
+
+Risk Score
+
+Primary Reason
+
+Warning
+
+Required Proof
+
+Show sample Telegram output.
+
+====================================================================
+
+# DASHBOARD VERIFICATION
+
+Dashboard must display
+
+System Health
+
+Macro Health
+
+Sector Rankings
+
+Industry Rankings
+
+Discovery Candidates
+
+Opportunity Rankings
+
+Trend Integrity
+
+Leadership
+
+Risk
+
+Portfolio Heat
+
+Trade Decisions
+
+Learning Status
+
+Verification Logs
+
+Required Proof
+
+Show dashboard route or component names.
+
+====================================================================
+
+# ENGINE HEALTH VERIFICATION
+
+Every engine must report
+
+Healthy
+
+Warning
+
+Failed
+
+Latency
+
+Last Run
+
+Data Freshness
+
+Verification Status
+
+Required Proof
+
+Show engine health table.
+
+====================================================================
+
+# FAILSAFE VERIFICATION
+
+Critical failures must block trades.
+
+Required behavior
+
+Polygon failure
+
+Pause discovery.
+
+Macro failure
+
+No trades.
+
+Trend failure
+
+No trades.
+
+Risk failure
+
+No trades.
+
+Database failure
+
+No learning update.
+
+Master Decision failure
+
+No trades.
+
+Required Proof
+
+Show failure-handling code.
+
+====================================================================
+
+# FINAL WIRING TEST
+
+Run one full simulated candidate.
+
+Required log order
+
+Discovery
+
+Macro
+
+Market Survival
+
+Indexes
+
+Breadth
+
+Sector
+
+Industry
+
+Trend
+
+Leadership
+
+Technical
+
+Bounce
+
+Risk
+
+Portfolio
+
+Strategy Council
+
+Arbitration
+
+Supervisor
+
+Master Decision
+
+Telegram / Execution
+
+Audit Log
+
+Required Proof
+
+One complete trace.
+
+====================================================================
+
+# PART A FINAL ACCEPTANCE CRITERIA
+
+PASS only if:
+
+✓ AEIM scans Polygon independently
+
+✓ Stock scanner is not required
+
+✓ Every engine has code location
+
+✓ Every engine has input/output contract
+
+✓ Every engine writes logs
+
+✓ Every engine reports health
+
+✓ Every decision follows correct order
+
+✓ Every score is stored
+
+✓ Every decision is explainable
+
+✓ Critical failures block trading
+
+FAIL if any item is missing.
+
+====================================================================
+
+# END OF AEIM_MASTER_VERIFICATION_PROTOCOL_v1A.md
+
+Next Document:
+
+AEIM_MASTER_VERIFICATION_PROTOCOL_v1B.md
+
+Topic:
+
+Learning, Attribution, Failure Testing, and Final Certification
