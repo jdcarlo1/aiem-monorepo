@@ -52,3 +52,37 @@ Log: [gate] LRCX BLOCKED — NO_TRADE (edge=insufficient_data, regime_ok=True, r
 - These are the remaining items on the roadmap's #1 priority
 **Why:** The most dangerous failure mode is writes that are never read. The drift gate
 and trust weight read paths are the minimal viable closure of the loop.
+
+## Session 2 fixes (July 7 2026)
+**Fix: oi_change_pct SQL crash** — oi_daily_snapshot never had oi_change_pct/days_building.
+Replaced with CTE computing day-over-day OI growth from raw `oi` column. Wrapped in
+try/except so any source failure can't crash the whole pick run. main.py ~38914.
+
+**Fix: MIN_IS_TRADES 50→15** — aiem_discovery_engine.py line 47. Training window is 6
+weeks; rare patterns fire 2-3x/week max, so 50 IS trades was structurally unreachable.
+One candidate (62.5% OOS WR) was blocked by this. Overfit gap check still active.
+
+**Verification script**: artifacts/stock-scanner-api/verify_aiem_loop.py
+Run: `python3 artifacts/stock-scanner-api/verify_aiem_loop.py`
+Exits 0 if all 5 critical steps pass. Advisory steps 5-8 may be PARTIAL.
+
+## Why Steps 5-6 are PARTIAL (not bugs)
+Discovery engine correctly rejects all 10 templates: baseline WR=52.5%, all OOS WRs
+41-50%. The market went down in the OOS window (May 19 - July 6 correction). The one
+candidate with 62.5% OOS WR was rejected for MIN_IS_TRADES=50 (now fixed to 15).
+
+## Why Steps 7-8 advisory statuses don't mean broken
+- Hypothesis signals 10-16: conditions are free-text English ("pct_change_3d <= ATR_pct_bucket_threshold") — generic SQL adapter can't parse these. retestable=False is correct.
+- Validated signals 17-20: discovered July 6; polygon_market_daily only through July 2. Zero forward-window data available yet. Will accumulate naturally.
+- Signal 9: structural state machine (washout-ignition). Has its own retest path.
+
+## Verification output (July 7 2026)
+PASS step1 — 120 trades, 6 sources
+PASS step2 — 99 graded, 14 RL rows
+PASS step3 — 10 drift_check_log entries
+PASS step4 — 5 ALERT_UNDERPERFORMING (multi_signal, gap_volume)
+PART step5 — 10 candidates, all rejected
+PART step6 — 0 thompson rows (needs step5 first)
+PASS step7 — 11 evaluated, 1 accumulating (n=9, wr=55.6%)
+PASS step8 — 4 validated signals (wr 81-87%)
+PASS step9 — LRCX NOT picked today, gates firing

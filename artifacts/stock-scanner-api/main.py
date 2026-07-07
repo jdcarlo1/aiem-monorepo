@@ -38909,17 +38909,38 @@ def _aiem_paper_pick_candidates() -> list:
                              f"{_sig_n} signals confirmed")
 
             # ── 7. OI buildup / accumulation ─────────────────────────────────
-            _cu.execute("""
-                SELECT ticker, oi_change_pct, days_building
-                FROM oi_daily_snapshot
-                WHERE snapshot_date >= CURRENT_DATE - INTERVAL '2 days'
-                  AND oi_change_pct >= 20
-                ORDER BY oi_change_pct DESC LIMIT 8
-            """)
-            for _t, _oip, _days in _cu.fetchall():
-                _score = float(_oip or 0) / 10 * (1 + float(_days or 0) * 0.1)
-                _add(_t, _score, "CALL_OPTION", "oi_buildup",
-                     f"OI +{_oip:.0f}% over {_days}d")
+            # oi_daily_snapshot has no oi_change_pct/days_building columns —
+            # compute day-over-day OI growth from the raw `oi` column via CTE.
+            try:
+                _cu.execute("""
+                    WITH daily_oi AS (
+                        SELECT ticker, snapshot_date, SUM(oi) AS total_oi
+                        FROM oi_daily_snapshot
+                        WHERE snapshot_date >= CURRENT_DATE - INTERVAL '4 days'
+                        GROUP BY ticker, snapshot_date
+                    ),
+                    ranked AS (
+                        SELECT ticker, snapshot_date, total_oi,
+                               LAG(total_oi) OVER (PARTITION BY ticker ORDER BY snapshot_date) AS prev_oi,
+                               ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY snapshot_date DESC) AS rn
+                        FROM daily_oi
+                    )
+                    SELECT ticker,
+                           ROUND((total_oi - prev_oi) * 100.0 / NULLIF(prev_oi, 0), 1) AS oi_change_pct,
+                           1 AS days_building
+                    FROM ranked
+                    WHERE rn = 1
+                      AND prev_oi > 0
+                      AND (total_oi - prev_oi) * 100.0 / NULLIF(prev_oi, 0) >= 20
+                    ORDER BY oi_change_pct DESC
+                    LIMIT 8
+                """)
+                for _t, _oip, _days in _cu.fetchall():
+                    _score = float(_oip or 0) / 10 * (1 + float(_days or 0) * 0.1)
+                    _add(_t, _score, "CALL_OPTION", "oi_buildup",
+                         f"OI +{_oip:.0f}% over {_days}d")
+            except Exception as _oib_e:
+                print(f"[aiem_paper] oi_buildup source skipped: {_oib_e}")
 
             # ── 8. Washout Ignition Signal (validated stacked reversal, rare/high-conviction) ──
             # Gate: only include picks if discovery id=9 is currently 'validated'.

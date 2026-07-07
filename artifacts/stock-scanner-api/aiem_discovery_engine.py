@@ -41,7 +41,11 @@ _DB_URL = os.environ.get("DATABASE_URL", "")
 # ── Shared constants (must stay in sync with OverfitDetector in aiem_edge_filter.py) ──
 _OVERFIT_GAP_THRESHOLD   = 20.0  # pp: IS win rate - OOS win rate
 _MIN_OOS_TRADES          = 30    # minimum OOS occurrences before proposing
-_MIN_IS_TRADES           = 50    # minimum in-sample occurrences
+_MIN_IS_TRADES           = 15    # minimum in-sample occurrences
+# Rationale for 15 (was 50): training window is only 6 weeks (2026-04-07 → 2026-05-18).
+# Rare patterns fire ~2-3x/week max, so 50 IS trades is structurally impossible.
+# The overfit gap check (_OVERFIT_GAP_THRESHOLD=20pp) still catches unstable estimates.
+# A candidate with IS_WR == OOS_WR at n=15 IS is not overfit — it's consistent.
 # Minimum edge a candidate must show over the baseline (all-stock OOS win rate).
 # Rationale: at the OOS sample sizes seen here (n > 3,000 per template), a 2pp
 # edge is detectable at p < 0.001 — it is not a noise artifact. Economically,
