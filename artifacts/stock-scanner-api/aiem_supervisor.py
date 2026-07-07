@@ -194,7 +194,7 @@ def _event(event_type, audit_trace_id, trade_id, ticker,
         return None
 
 
-def _upsert_loop_audit(audit_trace_id, ticker=None, trade_id=None, **step_flags):
+def _upsert_loop_audit(audit_trace_id, ticker=None, trade_id=None, signal_source=None, **step_flags):
     """
     Upsert the loop_audit row for this trace_id.
     step_flags keys match column names: scanner_alert_seen, aiem_intake_seen, etc.
@@ -212,13 +212,14 @@ def _upsert_loop_audit(audit_trace_id, ticker=None, trade_id=None, **step_flags)
             # Upsert row
             cu.execute("""
                 INSERT INTO aiem_supervisor_loop_audit
-                    (audit_trace_id, ticker, trade_id, verdict)
-                VALUES (%s,%s,%s,'INCOMPLETE')
+                    (audit_trace_id, ticker, trade_id, signal_source, verdict)
+                VALUES (%s,%s,%s,%s,'INCOMPLETE')
                 ON CONFLICT (audit_trace_id) DO UPDATE
-                    SET updated_at = NOW(),
-                        ticker   = COALESCE(EXCLUDED.ticker, aiem_supervisor_loop_audit.ticker),
-                        trade_id = COALESCE(EXCLUDED.trade_id, aiem_supervisor_loop_audit.trade_id)
-            """, (audit_trace_id, ticker, trade_id))
+                    SET updated_at    = NOW(),
+                        ticker        = COALESCE(EXCLUDED.ticker, aiem_supervisor_loop_audit.ticker),
+                        trade_id      = COALESCE(EXCLUDED.trade_id, aiem_supervisor_loop_audit.trade_id),
+                        signal_source = COALESCE(EXCLUDED.signal_source, aiem_supervisor_loop_audit.signal_source)
+            """, (audit_trace_id, ticker, trade_id, signal_source))
             c.commit()
 
             # Update step flags
@@ -281,6 +282,7 @@ def supervisor_on_scanner_alert(audit_trace_id, ticker, signal_source,
         )
         _upsert_loop_audit(
             audit_trace_id, ticker=ticker,
+            signal_source=signal_source,
             scanner_alert_seen=True, aiem_intake_seen=True,
         )
         return {"verdict": "ALLOW_MONITOR_ONLY", "mode": AIEM_SUPERVISOR_MODE}
@@ -336,11 +338,13 @@ def supervisor_on_candidate_ranking(audit_trace_id, run_id=None, candidates=None
         )
 
         for cand in (candidates or []):
-            _upsert_loop_audit(
-                audit_trace_id, ticker=cand.get("ticker"),
-                candidate_ranking_seen=True,
-            )
-            break  # one loop-audit row per trace
+            cand_trace = cand.get("audit_trace_id") or audit_trace_id
+            if cand_trace:
+                _upsert_loop_audit(
+                    cand_trace, ticker=cand.get("ticker"),
+                    signal_source=cand.get("source"),
+                    candidate_ranking_seen=True,
+                )
 
         return {
             "verdict": verdict,
