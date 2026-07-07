@@ -1,0 +1,26 @@
+# Verification Follow-Up #5 — Item 2 race timing, and Item 16 (cosmetic sizing gate)
+
+Neither of these requires waiting for the 4 PM ET close. Send now.
+
+---
+
+## ASK A — Verify what actually triggered the Item 2 "resolution" at 17:17:59
+
+Trade 173 shows `TRADE_NOT_FOUND` at 14:09:46, then a second `PAPER_TRADE_OPENED` supervisor event with `issues=[]` roughly **three hours later** at 17:17:59. That gap is too large to obviously be the live 3-retry-with-0.6s-sleep fix working as designed — a live retry should resolve in under 2 seconds, not 3 hours.
+
+**Required:**
+1. State plainly what caused the 17:17:59 event: was it the live retry path firing in real time on a later independent event, a separate scheduled reconciliation/catch-up job, a manual re-run, or something else?
+2. If it was a reconciliation job rather than the live retry logic, say so directly — that means Item 2's fix has **not** yet been proven to work in real time, only that some later process eventually cleans up the flag.
+3. To actually prove Item 2 fixed, find or force a **new** `TRADE_NOT_FOUND` event and show the retry resolving it within seconds (matching the 3-attempt / 0.6s sleep design), not hours later.
+
+---
+
+## ASK B — Track and clarify Item 16: the sizing gate is cosmetic
+
+You stated plainly that trade 173 was flagged `CONVICTION_BELOW_MIN` by the sizing gate, but the trade opened anyway — "this gate is cosmetic, it doesn't block execution, it only annotates." This is a new finding, not previously tracked.
+
+**Required:**
+1. Confirm whether this is intentional design (the gate is meant to be advisory/monitor-only) or a gap where a gate that should block execution currently doesn't.
+2. If intentional, state where this is documented or decided, and confirm there's a separate, real enforcement mechanism elsewhere for conviction-below-minimum trades (if one is supposed to exist).
+3. If it's not intentional, treat this as a real bug: identify every gate in the pipeline that currently only annotates rather than blocks, and list them explicitly with file/line — sizing gate, drift gate, trust gate, or any other gate mentioned in this session — since the same pattern may repeat.
+4. Assign this **Item 16** formally in all future status summaries.

@@ -39839,6 +39839,7 @@ def _aiem_paper_execute_today():
                     f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
                 )
                 rows_inserted += 1
+                _c.commit()  # commit before Hook 4 — supervisor opens a new connection; must see the row
                 # ── Supervisor Hook 4: paper trade opened ─────────────────────
                 if _audit_trace_id:
                     try:
