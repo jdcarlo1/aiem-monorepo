@@ -1,0 +1,360 @@
+# AEIM_MASTER_VERIFICATION_PROTOCOL_v1B.md
+
+# PART B1 OF 3
+## Learning Intelligence Verification
+### Performance Auditor
+### Trade Attribution
+### Counterfactual Analysis
+### Discovery Learning
+
+Version 1.0
+
+====================================================================
+
+# PURPOSE
+
+Part B verifies that AEIM is actually learning correctly.
+
+Part A verified wiring.
+
+Part B verifies intelligence.
+
+Every learning update must be explainable,
+repeatable, and evidence-based.
+
+====================================================================
+
+# MASTER LEARNING REQUIREMENT
+
+AEIM must NEVER learn simply because
+a trade won or lost.
+
+AEIM must learn WHY.
+
+Winning does not always mean
+good reasoning.
+
+Losing does not always mean
+poor reasoning.
+
+====================================================================
+
+# PERFORMANCE AUDITOR
+
+Replit must demonstrate:
+
+Where is the Performance Auditor?
+
+When does it execute?
+
+What information is collected?
+
+What database tables are updated?
+
+Show the complete execution order.
+
+====================================================================
+
+# REQUIRED TRADE AUDIT
+
+Every completed trade must contain
+
+Ticker
+
+Entry
+
+Exit
+
+Holding Time
+
+Position Size
+
+Maximum Favorable Excursion
+
+Maximum Adverse Excursion
+
+Profit/Loss
+
+Expected Risk
+
+Expected Reward
+
+Actual Risk
+
+Execution Delay
+
+Slippage
+
+Decision Confidence
+
+Final Outcome
+
+Required Proof
+
+Show one completed audit.
+
+====================================================================
+
+# TRADE ATTRIBUTION ENGINE
+
+Every completed trade must answer
+
+WHY did this trade succeed?
+
+WHY did this trade fail?
+
+Possible causes
+
+Macro
+
+Sector
+
+Leadership
+
+Trend
+
+Execution
+
+Position Size
+
+Timing
+
+Discovery Quality
+
+Unexpected Market Event
+
+====================================================================
+
+# ATTRIBUTION EXAMPLE
+
+Trade Lost
+
+Macro
+
+Very Weak
+
+Trend
+
+Healthy
+
+Leadership
+
+Healthy
+
+Execution
+
+Correct
+
+Conclusion
+
+Do NOT penalize discovery quality.
+
+Instead update macro attribution.
+
+====================================================================
+
+# SECOND ATTRIBUTION TEST
+
+Trade Lost
+
+Trend
+
+Broken
+
+Leadership
+
+Weak
+
+Distribution
+
+Increasing
+
+Macro
+
+Healthy
+
+Conclusion
+
+Trend Integrity requires improvement.
+
+====================================================================
+
+# COUNTERFACTUAL ENGINE
+
+Purpose
+
+Determine whether a different decision
+would likely have produced
+a better outcome.
+
+Questions
+
+Would waiting one day help?
+
+Would entering later help?
+
+Would exiting earlier help?
+
+Would a smaller position improve risk?
+
+Would rejecting the trade improve results?
+
+Would additional confirmation improve results?
+
+====================================================================
+
+# REQUIRED COUNTERFACTUAL OUTPUT
+
+Store
+
+Original Decision
+
+Alternative Decision
+
+Expected Outcome
+
+Observed Outcome
+
+Confidence
+
+Reason
+
+Required Proof
+
+Show one completed counterfactual review.
+
+====================================================================
+
+# DISCOVERY LEARNING
+
+AEIM must evaluate
+
+Discovery Quality
+
+independently from
+
+Trade Quality.
+
+Questions
+
+Was this stock worth discovering?
+
+Did it outperform SPY?
+
+Did it outperform its sector?
+
+Did it outperform similar opportunities?
+
+Was discovery too early?
+
+Was discovery too late?
+
+====================================================================
+
+# DISCOVERY LABELS
+
+Elite Discovery
+
+Excellent Discovery
+
+Strong Discovery
+
+Average Discovery
+
+Poor Discovery
+
+False Positive
+
+Too Early
+
+Too Late
+
+Macro Failure
+
+Trend Failure
+
+====================================================================
+
+# REQUIRED DISCOVERY MEMORY
+
+Verify database contains
+
+Discovery ID
+
+Ticker
+
+Discovery Reason
+
+Discovery Score
+
+Opportunity Score
+
+Decision
+
+Future Returns
+
+Discovery Label
+
+Learning Status
+
+====================================================================
+
+# LEARNING MEMORY
+
+Verify updates to
+
+Macro Memory
+
+Trend Memory
+
+Leadership Memory
+
+Sector Memory
+
+Technical Memory
+
+Risk Memory
+
+Portfolio Memory
+
+Discovery Memory
+
+Strategy Memory
+
+Performance Memory
+
+====================================================================
+
+# LEARNING UPDATE RULE
+
+Learning must NOT occur until
+
+Performance Auditor complete
+
+Trade Attribution complete
+
+Counterfactual complete
+
+Verification complete
+
+Required Proof
+
+Show code enforcing this sequence.
+
+====================================================================
+
+# PART B1 COMPLETE
+
+Continue with
+
+PART B2 OF 3
+
+Confidence Calibration
+
+Reinforcement Learning
+
+Strategy Evolution
+
+Autonomous Learning
+
+Knowledge Base
