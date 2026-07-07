@@ -1,0 +1,324 @@
+# AEIM_MASTER_VERIFICATION_PROTOCOL_v1B.md
+
+# PART B2 OF 3
+## Learning Intelligence Verification
+### Confidence Calibration
+### Reinforcement Learning
+### Strategy Evolution
+### Knowledge Base
+### Autonomous Learning
+
+Version 1.0
+
+====================================================================
+
+# CONFIDENCE CALIBRATION
+
+Replit must prove that AEIM continuously
+calibrates its confidence.
+
+Confidence should become more realistic
+over time.
+
+Questions
+
+Where is confidence stored?
+
+Where is confidence updated?
+
+How is calibration measured?
+
+How often is calibration reviewed?
+
+Required Proof
+
+Show confidence history.
+
+====================================================================
+
+# CONFIDENCE VALIDATION
+
+Every completed trade stores
+
+Predicted Confidence
+
+Actual Outcome
+
+Confidence Error
+
+Calibration Adjustment
+
+Questions
+
+Does AEIM reduce overconfidence?
+
+Does AEIM increase underconfidence?
+
+Does confidence become more accurate
+after repeated observations?
+
+====================================================================
+
+# REINFORCEMENT LEARNING
+
+Purpose
+
+Reward good reasoning.
+
+Not simply profitable trades.
+
+Questions
+
+What receives positive reinforcement?
+
+What receives negative reinforcement?
+
+Required Rule
+
+Reward
+
+Correct reasoning
+
+Good discovery
+
+Good execution
+
+Good risk management
+
+Correct macro interpretation
+
+Correct trend interpretation
+
+Correct position sizing
+
+Do NOT reward
+
+Luck
+
+Random gains
+
+Poor decisions that happened
+to be profitable.
+
+====================================================================
+
+# PENALTY ENGINE
+
+Verify penalties occur for
+
+Ignoring macro
+
+Ignoring trend deterioration
+
+Ignoring leadership failure
+
+Ignoring risk
+
+Repeated false discoveries
+
+Poor execution
+
+Overconfidence
+
+Repeated evidence violations
+
+Required Proof
+
+Show penalty update logic.
+
+====================================================================
+
+# STRATEGY EVOLUTION
+
+Every strategy must receive
+a Strategy Health Score.
+
+Questions
+
+Where is it stored?
+
+How often updated?
+
+What causes improvement?
+
+What causes retirement?
+
+Required Proof
+
+Show strategy health object.
+
+====================================================================
+
+# STRATEGY RETIREMENT
+
+Strategies should never remain active forever.
+
+Questions
+
+What causes retirement?
+
+What causes promotion?
+
+What causes review?
+
+Require
+
+Evidence
+
+Large sample size
+
+Repeatability
+
+No one-trade decisions.
+
+====================================================================
+
+# AUTONOMOUS LEARNING
+
+AEIM should ask itself
+
+Am I improving?
+
+Am I discovering better stocks?
+
+Am I avoiding weak trades?
+
+Am I understanding macro better?
+
+Am I improving confidence?
+
+Am I improving discovery quality?
+
+Required Proof
+
+Weekly self-review report.
+
+====================================================================
+
+# KNOWLEDGE BASE
+
+Verify permanent storage of
+
+Winning Discoveries
+
+Failed Discoveries
+
+Winning Trades
+
+Failed Trades
+
+Bull Markets
+
+Bear Markets
+
+Corrections
+
+Recoveries
+
+Leadership Rotations
+
+Sector Rotations
+
+Exceptional Opportunities
+
+False Positives
+
+Counterfactual Results
+
+Required Proof
+
+Knowledge Base schema.
+
+====================================================================
+
+# MONTHLY REVIEW
+
+Verify AEIM automatically reviews
+
+Discovery Quality
+
+Trade Quality
+
+Decision Quality
+
+Macro Accuracy
+
+Trend Accuracy
+
+Risk Accuracy
+
+Portfolio Accuracy
+
+Confidence Calibration
+
+Learning Growth
+
+Required Proof
+
+Monthly report generation.
+
+====================================================================
+
+# QUARTERLY REVIEW
+
+Verify
+
+Strategy Health
+
+Discovery Engine
+
+Learning Engine
+
+Risk Engine
+
+Portfolio Engine
+
+Counterfactual Accuracy
+
+Evidence Weighting
+
+Questions
+
+How are weights adjusted?
+
+How are adjustments validated?
+
+====================================================================
+
+# LEARNING STABILITY
+
+Verify
+
+AEIM does NOT change itself
+
+after one trade.
+
+Required Rule
+
+Require
+
+Repeated evidence
+
+Meaningful sample size
+
+Verified improvement
+
+Engineering approval if configured
+
+====================================================================
+
+# PART B2 COMPLETE
+
+Continue with
+
+PART B3 OF 3
+
+End-to-End Validation
+
+Production Certification
+
+Engineering Acceptance Tests
+
+Autonomous Operation
+
+Final Sign-Off
