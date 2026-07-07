@@ -14584,14 +14584,14 @@ try:
     def _run_supervisor_daily():
         try:
             import aiem_supervisor as _asup_sched
-            _asup_sched.generate_daily_supervisor_report()
+            _asup_sched.supervisor_generate_daily_report()
         except Exception as _supe:
             print(f"[supervisor] daily report error: {_supe}")
 
     def _run_supervisor_weekly():
         try:
             import aiem_supervisor as _asup_wsched
-            _asup_wsched.generate_weekly_supervisor_report()
+            _asup_wsched.supervisor_generate_daily_report()
         except Exception as _supwe:
             print(f"[supervisor] weekly report error: {_supwe}")
 
@@ -39274,18 +39274,16 @@ def _aiem_paper_pick_candidates() -> list:
     except Exception as _cre:
         print(f"[closed_loop] candidate_rankings skipped (non-fatal): {_cre}")
 
-    # ── Supervisor: post-pick risk check (non-blocking) ────────────────────
+    # ── Supervisor Hook 2: candidate ranking verified (non-blocking) ─────────
     try:
-        import aiem_supervisor as _asup_pk
-        for _sup_cand in (_final or []):
-            _sup_tk  = _sup_cand.get("ticker", "")
-            _sup_src = _sup_cand.get("source", _sup_cand.get("signal_source", ""))
-            if _sup_tk:
-                _asup_pk.run_post_pick_supervisor(
-                    ticker=_sup_tk, signal_source=_sup_src,
-                    aiem_approved=True, trade_id=None, audit_trace_id=None)
-    except Exception as _sup_pk_e:
-        print(f"[supervisor] post_pick skipped (non-fatal): {_sup_pk_e}")
+        import aiem_supervisor as _asup_cr
+        _asup_cr.supervisor_on_candidate_ranking(
+            audit_trace_id=None,
+            run_id=_cr_run_id if "_cr_run_id" in dir() else None,
+            candidates=_final,
+        )
+    except Exception as _sup_cr_e:
+        print(f"[supervisor] hook2_candidate_ranking skipped (non-fatal): {_sup_cr_e}")
 
     return _final
 
@@ -39486,6 +39484,18 @@ def _aiem_paper_execute_today():
                     import aiem_pipeline_audit as _apa
                     _atrace = _apa.PipelineTrace(_t)
                     _audit_trace_id = _atrace.trace_id
+                    # ── Supervisor Hook 1: scanner alert → AIEM intake ────────
+                    try:
+                        import aiem_supervisor as _asup_h1
+                        _asup_h1.supervisor_on_scanner_alert(
+                            audit_trace_id=_audit_trace_id,
+                            ticker=_t,
+                            signal_source=pick.get("source", ""),
+                            scanner_score=pick.get("score"),
+                            scanner_reason=pick.get("detail", ""),
+                        )
+                    except Exception as _sup_h1_e:
+                        print(f"[supervisor] hook1_scanner_alert skipped: {_sup_h1_e}")
                     _debate_v = _debate_verdicts.get(_t, "N/A")
                     _atrace.log_step(
                         "signal_received",
@@ -39548,6 +39558,21 @@ def _aiem_paper_execute_today():
                     print(f"[aiem_audit] trace error for {_t} (non-fatal): {_ae}")
                     _audit_trace_id = None
 
+                # ── Supervisor Hook 3: AIEM final decision logged ─────────────
+                if _audit_trace_id:
+                    try:
+                        import aiem_supervisor as _asup_h3
+                        _asup_h3.supervisor_on_final_decision(
+                            audit_trace_id=_audit_trace_id,
+                            ticker=_t,
+                            trade_id=None,
+                            decision="EXECUTE",
+                            confidence_score=pick.get("score"),
+                            decision_reason=pick.get("detail", ""),
+                        )
+                    except Exception as _sup_h3_e:
+                        print(f"[supervisor] hook3_final_decision skipped: {_sup_h3_e}")
+
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
                         (trade_date, ticker, trade_type, entry_price, quantity,
@@ -39571,6 +39596,26 @@ def _aiem_paper_execute_today():
                     f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
                 )
                 rows_inserted += 1
+                # ── Supervisor Hook 4: paper trade opened ─────────────────────
+                if _audit_trace_id:
+                    try:
+                        import aiem_supervisor as _asup_h4
+                        _cu.execute(
+                            "SELECT id FROM aiem_paper_trades "
+                            "WHERE ticker=%s AND trade_date=%s AND status='OPEN' LIMIT 1",
+                            (_t, _today)
+                        )
+                        _h4_tr = _cu.fetchone()
+                        if _h4_tr:
+                            _asup_h4.supervisor_on_paper_trade_opened(
+                                audit_trace_id=_audit_trace_id,
+                                trade_id=_h4_tr[0],
+                                ticker=_t,
+                                signal_source=pick["source"],
+                                entry_price=_fill_price,
+                            )
+                    except Exception as _sup_h4_e:
+                        print(f"[supervisor] hook4_paper_trade_opened skipped: {_sup_h4_e}")
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
@@ -40094,6 +40139,21 @@ def _aiem_paper_mark_to_market():
                             )
                     except Exception as _ae:
                         print(f"[aiem_audit] outcome log error (non-fatal): {_ae}")
+                    # ── Supervisor Hook 5: trade closed ───────────────────────
+                    try:
+                        import aiem_supervisor as _asup_h5
+                        _h5_trace = _at_row[0] if (_at_row and _at_row[0]) else None
+                        _asup_h5.supervisor_on_trade_closed(
+                            audit_trace_id=_h5_trace,
+                            trade_id=_id,
+                            ticker=_t,
+                            exit_price=_last,
+                            exit_time=_today,
+                            pnl=float(_pnl),
+                            pnl_pct=float(_pnl_pct),
+                        )
+                    except Exception as _sup_h5_e:
+                        print(f"[supervisor] hook5_trade_closed skipped: {_sup_h5_e}")
                     # ── Update signal trust weight from this outcome ──────────
                     # Inline EMA update matching meta_learning_signal_trust logic.
                     # Uses _DB_URL directly (avoids AIEM_DATABASE_URL dependency).
@@ -40142,6 +40202,22 @@ def _aiem_paper_mark_to_market():
                                 )
                             except Exception as _sth_e:
                                 print(f"[closed_loop] trust_history skipped: {_sth_e}")
+                            # ── Supervisor Hook 6: learning update ────────────
+                            try:
+                                import aiem_supervisor as _asup_h6
+                                _h6_trace = _at_row[0] if (_at_row and _at_row[0]) else None
+                                _asup_h6.supervisor_on_learning_update(
+                                    audit_trace_id=_h6_trace,
+                                    trade_id=_id,
+                                    ticker=_t,
+                                    signal_source=_tw_src,
+                                    old_trust_score=_tw_wt_old,
+                                    new_trust_score=_tw_wt_new,
+                                    delta=round(_tw_wt_new - _tw_wt_old, 6),
+                                    reason=f"EMA_update win={bool(_pnl_pct>0)} pnl={_pnl_pct:+.2f}%",
+                                )
+                            except Exception as _sup_h6_e:
+                                print(f"[supervisor] hook6_learning_update skipped: {_sup_h6_e}")
                             _twmcu.execute("""
                                 INSERT INTO signal_trust_weights
                                     (signal_name, context_bucket, rolling_win_rate,
@@ -40317,35 +40393,8 @@ def _aiem_paper_mark_to_market():
                     except Exception as _ppo_e:
                         print(f"[closed_loop] PPO training error (non-fatal): {_ppo_e}")
 
-                    # ── Supervisor: post-trade batch (runs after every MTM) ──
-                    try:
-                        import aiem_supervisor as _asup_mtm
-                        import datetime as _sup_dt, psycopg2 as _sup_pg2
-                        _sup_today = _sup_dt.date.today()
-                        with _sup_pg2.connect(_DB_URL, connect_timeout=3) as _sup_c, \
-                                _sup_c.cursor() as _sup_cu:
-                            _sup_cu.execute("""
-                                SELECT id, ticker, signal_source, pnl_pct, pnl, audit_trace_id
-                                FROM aiem_paper_trades
-                                WHERE (exit_date=%s OR updated_at::date=%s)
-                                  AND status != 'OPEN'
-                                ORDER BY updated_at DESC LIMIT 20
-                            """, (_sup_today, _sup_today))
-                            _sup_rows = _sup_cu.fetchall()
-                        for _sr in (_sup_rows or []):
-                            _sid, _stk, _ssrc, _spnlpct, _spnl, _satid = _sr
-                            _asup_mtm.run_post_trade_supervisor(
-                                trade_id=_sid, ticker=(_stk or ""),
-                                signal_source=(_ssrc or ""),
-                                pnl_pct=float(_spnlpct or 0),
-                                win=(float(_spnl or 0) > 0),
-                                old_trust=None, new_trust=None,
-                                audit_trace_id=_satid,
-                                sample_size=None,
-                            )
-                        print(f"[supervisor] post_trade batch done: {len(_sup_rows or [])} trades")
-                    except Exception as _sup_mtm_e:
-                        print(f"[supervisor] post_trade batch error (non-fatal): {_sup_mtm_e}")
+                    # Supervisor hooks 5+6 fire inline on each trade close above.
+                    # No batch supervisor call needed here.
 
                 except Exception as _rle_e:
                     print(f"[rl_engine] bg pipeline error: {_rle_e}")
@@ -40762,7 +40811,7 @@ def admin_supervisor_daily_report():
         return jsonify({"error": "unauthorized"}), 403
     try:
         import aiem_supervisor as _asup
-        return jsonify(_asup.generate_daily_supervisor_report())
+        return jsonify(_asup.supervisor_generate_daily_report())
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
@@ -40775,7 +40824,7 @@ def admin_supervisor_weekly_report():
         return jsonify({"error": "unauthorized"}), 403
     try:
         import aiem_supervisor as _asup
-        return jsonify(_asup.generate_weekly_supervisor_report())
+        return jsonify(_asup.supervisor_generate_daily_report())
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
