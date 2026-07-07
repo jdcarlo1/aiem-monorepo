@@ -1,0 +1,564 @@
+# AEIM_MASTER_ARCHITECTURE_v2_FILE_2D.md
+
+# AEIM MASTER ARCHITECTURE
+## FILE 2D
+### Advanced Pattern Recognition Engine
+### Market Regime Recognition
+### Historical Similarity Engine
+### Counterfactual Learning Engine
+### Technical Learning Memory
+### Final Technical Verification
+
+Version 2.0
+
+---
+
+# PURPOSE
+
+Technical indicators explain what is happening.
+
+Pattern Recognition attempts to explain
+WHY it is happening.
+
+This engine searches AEIM's historical memory
+for similar market conditions before making
+a decision.
+
+The goal is not prediction.
+
+The goal is evidence-based probability.
+
+---
+
+# PATTERN RECOGNITION ENGINE
+
+Every signal should be compared against:
+
+Historical Winners
+
+Historical Losers
+
+Market Corrections
+
+Bear Markets
+
+Bull Markets
+
+Sector Rotations
+
+Volatility Events
+
+Gap Events
+
+News Events
+
+Macro Events
+
+Institutional Buying Patterns
+
+Institutional Distribution Patterns
+
+---
+
+# QUESTIONS
+
+Has AEIM seen this setup before?
+
+How many times?
+
+What happened afterwards?
+
+Did this setup outperform?
+
+Underperform?
+
+Was the macro environment similar?
+
+Was volatility similar?
+
+Were interest rates similar?
+
+Was sector leadership similar?
+
+---
+
+# PATTERN SCORE
+
+100
+
+Nearly identical historical winner
+
+90
+
+Very similar
+
+80
+
+Strong historical similarity
+
+70
+
+Moderate similarity
+
+60
+
+Some similarity
+
+50
+
+Unknown
+
+40
+
+Weak similarity
+
+30
+
+Historically poor
+
+20
+
+Rare negative outcome
+
+10
+
+Avoid
+
+---
+
+# MARKET REGIME ENGINE
+
+Every trading day must receive
+one regime label.
+
+Examples
+
+Strong Bull
+
+Bull
+
+Constructive
+
+Correction
+
+Sideways
+
+Rotation
+
+Risk-Off
+
+Bear
+
+Panic
+
+Forced Liquidation
+
+Recovery
+
+Transition
+
+---
+
+# REGIME DETECTION
+
+Inputs
+
+Macro Score
+
+Breadth
+
+Leadership
+
+Volatility
+
+Trend Strength
+
+Credit Conditions
+
+Sector Rotation
+
+Institutional Participation
+
+Liquidity
+
+Market Structure
+
+---
+
+# WHY REGIME MATTERS
+
+The same technical setup can behave
+very differently depending on the
+market regime.
+
+Example
+
+Healthy breakout
+
+during
+
+Strong Bull Market
+
+often performs differently than the
+same breakout during a Risk-Off regime.
+
+Regime becomes additional evidence.
+
+---
+
+# HISTORICAL SIMILARITY ENGINE
+
+Purpose
+
+Compare today's environment with
+previous environments stored inside
+AEIM memory.
+
+Similarity Factors
+
+Macro
+
+Trend
+
+Leadership
+
+Sector
+
+Industry
+
+Momentum
+
+Volatility
+
+Liquidity
+
+Relative Strength
+
+Technical Confidence
+
+Institutional Footprint
+
+---
+
+# SIMILARITY SCORE
+
+100
+
+Nearly identical
+
+90
+
+Extremely similar
+
+80
+
+Very similar
+
+70
+
+Moderately similar
+
+60
+
+Some similarity
+
+50
+
+Neutral
+
+Below 50
+
+Weak comparison
+
+---
+
+# COUNTERFACTUAL ENGINE
+
+Purpose
+
+Prevent incorrect learning.
+
+Instead of asking
+
+"Trade lost."
+
+Ask
+
+Why?
+
+Examples
+
+Would this trade have worked
+if Macro were healthy?
+
+Would this trade have worked
+if the sector were stronger?
+
+Would waiting one day
+have improved outcome?
+
+Would reduced position size
+have helped?
+
+Was the signal correct
+
+but
+
+timing wrong?
+
+---
+
+# COUNTERFACTUAL QUESTIONS
+
+If Macro had been healthy
+
+Would outcome improve?
+
+If leadership had remained intact
+
+Would outcome improve?
+
+If volatility were lower
+
+Would outcome improve?
+
+If execution improved
+
+Would outcome improve?
+
+If confirmation waited one day
+
+Would outcome improve?
+
+---
+
+# LEARNING ATTRIBUTION
+
+Every losing trade should receive
+cause percentages.
+
+Example
+
+Macro
+
+45%
+
+Timing
+
+20%
+
+Execution
+
+15%
+
+Sector
+
+10%
+
+Signal Quality
+
+10%
+
+This prevents AEIM from blaming
+the wrong component.
+
+---
+
+# TECHNICAL LEARNING MEMORY
+
+Store permanently
+
+Trend Score
+
+Momentum Score
+
+Leadership Score
+
+Macro Score
+
+Technical Confidence
+
+Pattern Score
+
+Similarity Score
+
+Regime
+
+Outcome
+
+Counterfactual Result
+
+Final Attribution
+
+---
+
+# MONTHLY REVIEW
+
+Once each month AEIM should ask
+
+Which patterns performed best?
+
+Which patterns failed?
+
+Which indicators became less useful?
+
+Which indicators became more useful?
+
+Should evidence weights change?
+
+Should confidence thresholds change?
+
+---
+
+# ADAPTIVE IMPROVEMENT
+
+The architecture should improve using:
+
+Observed performance
+
+Historical evidence
+
+Verified outcomes
+
+Counterfactual review
+
+Pattern repetition
+
+NOT random parameter changes.
+
+Every modification should be explainable.
+
+---
+
+# TECHNICAL KNOWLEDGE BASE
+
+Maintain a continuously growing library of
+
+Winning corrections
+
+Failed corrections
+
+Successful breakouts
+
+Failed breakouts
+
+Sector rotations
+
+Leadership changes
+
+High-volatility environments
+
+Macro shocks
+
+Recovery phases
+
+Bear market rallies
+
+Bull market continuations
+
+This becomes AEIM's experience.
+
+---
+
+# FINAL TECHNICAL SCORE
+
+Combine
+
+Trend Integrity
+
+Momentum
+
+Leadership
+
+Sector
+
+Institutional Footprint
+
+Liquidity
+
+Pattern Recognition
+
+Similarity
+
+Macro Alignment
+
+Counterfactual Confidence
+
+Technical Confidence
+
+Final Output
+
+Technical Intelligence Score
+
+0–100
+
+This score becomes one of the primary
+inputs into the Master Decision Orchestrator.
+
+---
+
+# FINAL VERIFICATION
+
+Before Technical Intelligence is considered complete
+Replit must verify:
+
+✓ Trend Integrity completed
+
+✓ Multi-timeframe analysis completed
+
+✓ Relative Strength calculated
+
+✓ Momentum analysis completed
+
+✓ Institutional Footprint completed
+
+✓ Liquidity evaluated
+
+✓ Pattern Recognition completed
+
+✓ Market Regime assigned
+
+✓ Historical Similarity completed
+
+✓ Counterfactual analysis completed
+
+✓ Technical Learning Memory updated
+
+✓ Technical Intelligence Score calculated
+
+✓ Results delivered to Master Decision Orchestrator
+
+If any verification fails:
+
+Technical Intelligence Status = FAILED
+
+Trade Approval = BLOCKED
+
+Reason must be logged.
+
+---
+
+# FILE 2 COMPLETE
+
+Completed Technical Architecture
+
+✓ File 2A
+✓ File 2B
+✓ File 2C
+✓ File 2D
+
+------------------------------------------------------------
+
+NEXT FILE
+
+AEIM_MASTER_ARCHITECTURE_v2_FILE_3A.md
+
+Topics
+
+• Performance Auditor
+• Trade Attribution Engine
+• Autonomous Learning Engine
+• Reinforcement Learning Framework
+• Continuous Improvement Loop
+• Decision Explainability
+• Strict Autonomous Verification
