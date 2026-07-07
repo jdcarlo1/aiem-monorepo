@@ -1,0 +1,42 @@
+# Verification Follow-Up — Items 5, 6/7
+
+Before I mark these closed, I need live proof, not status descriptions. "Wired in" and "will auto-populate" are not proof. Here's what I need for each:
+
+---
+
+## ITEM 5 — aiem_decision_log
+
+Claim: write path is "wired in" after `_upsert_loop_audit`.
+
+**Required proof:**
+1. Trigger one real EXECUTE or SKIP decision right now (not a simulated/forced one).
+2. Paste the actual SQL query and result showing the new row in `aiem_decision_log` — full row, all 10 columns, with real values (not NULLs where a value should exist).
+3. Confirm the `audit_trace_id` in that row matches the corresponding row in whatever audit table it should tie back to.
+
+If no real decision fires in the next cycle, force one via a controlled test call (like you did for Item 3's `flush()` monkeypatch) and show that row instead — but label it clearly as a forced test, not a live decision.
+
+---
+
+## ITEM 6/7 — signal_trust_history / signal_trust_weights seeding gap
+
+Claim: rows will "auto-populate" when today's 4 PM ET MTM run closes open trades.
+
+**Required proof (after 4 PM ET today):**
+1. SQL query + result showing new rows in `signal_trust_history` for today's closed trades (144–153 range successor / today's trade IDs), with real `pnl_pct` and outcome values.
+2. Confirm `signal_trust_weights` rows that were seeded at 02:22 UTC on July 7 are the ones actually being read/updated — not silently defaulted again.
+3. Explicitly check the `record_trust_update` call path for today's close and confirm no exception was swallowed. Grep the logs for any `silent_except` entries during the 4 PM run and paste them (even if empty — show the empty grep output as proof, not just "none found").
+
+**Do not mark this fixed until after the 4 PM close actually happens and the above rows exist.**
+
+---
+
+## ADDITIONAL — silent exception audit
+
+You found one silent exception (`L4352`, entry_time column) that caused the Items 6/7 gap by masking a timing/seeding issue. This is the second time a swallowed exception has hidden a real bug.
+
+**Required action:**
+1. Grep the full codebase for all `except:` and `except Exception` blocks that don't log or re-raise.
+2. List every one found with file + line number.
+3. For each, state whether it could plausibly be masking a similar seed-timing or state-initialization gap.
+
+Do not fix them yet — just produce the inventory with file/line proof so I can prioritize.
