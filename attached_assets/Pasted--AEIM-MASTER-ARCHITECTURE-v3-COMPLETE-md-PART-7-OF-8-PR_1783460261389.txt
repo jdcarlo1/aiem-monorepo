@@ -1,0 +1,744 @@
+# AEIM_MASTER_ARCHITECTURE_v3_COMPLETE.md
+
+# PART 7 OF 8
+
+## PRODUCTION INTEGRATION
+### Polygon Integration
+### Database Architecture
+### Scheduler Architecture
+### Dashboard
+### Logging
+### Monitoring
+### Replit Integration Guide
+
+Version 3.0
+
+====================================================================
+
+# PURPOSE
+
+This document explains how Replit should integrate
+the complete AEIM architecture into production.
+
+Files 1–6 define HOW AEIM thinks.
+
+Part 7 defines HOW AEIM runs.
+
+Everything must be connected into one
+continuous autonomous system.
+
+====================================================================
+
+# PRIMARY PRODUCTION GOAL
+
+AEIM must operate completely independently.
+
+No dependency on the stock scanner.
+
+No manual intervention.
+
+No human selecting stocks.
+
+Everything begins from Polygon.
+
+====================================================================
+
+# PRODUCTION PIPELINE
+
+Polygon Universe
+
+↓
+
+Data Validation
+
+↓
+
+Universe Filtering
+
+↓
+
+Discovery Engine
+
+↓
+
+Macro Intelligence
+
+↓
+
+Technical Intelligence
+
+↓
+
+Decision Intelligence
+
+↓
+
+Risk Intelligence
+
+↓
+
+Portfolio Intelligence
+
+↓
+
+Trade Decision
+
+↓
+
+Execution / Alert
+
+↓
+
+Performance Auditor
+
+↓
+
+Learning Engine
+
+↓
+
+Memory Update
+
+↓
+
+Continuous Improvement
+
+====================================================================
+
+# POLYGON INTEGRATION
+
+Polygon is the primary data provider.
+
+Required data
+
+Daily candles
+
+Intraday candles
+
+Aggregates
+
+Volume
+
+Relative volume
+
+Moving averages
+
+VWAP
+
+ATR
+
+Historical bars
+
+Market status
+
+Supported symbols
+
+Corporate actions when available
+
+====================================================================
+
+# DATA NORMALIZATION
+
+Before any engine executes,
+all incoming market data
+must be normalized.
+
+Every module must receive
+the same standardized object.
+
+Example
+
+Ticker
+
+Price
+
+Open
+
+High
+
+Low
+
+Close
+
+Volume
+
+Relative Volume
+
+ATR
+
+VWAP
+
+EMA20
+
+EMA50
+
+EMA100
+
+EMA150
+
+EMA200
+
+RSI
+
+MACD
+
+Sector
+
+Industry
+
+Timestamp
+
+Data Quality
+
+====================================================================
+
+# DATABASE ARCHITECTURE
+
+Every engine stores
+its output.
+
+Minimum tables
+
+Discovery Memory
+
+Macro Memory
+
+Trend Memory
+
+Leadership Memory
+
+Technical Memory
+
+Risk Memory
+
+Portfolio Memory
+
+Performance Memory
+
+Counterfactual Memory
+
+Strategy Memory
+
+Decision History
+
+Verification Logs
+
+System Health
+
+====================================================================
+
+# SHARED IDENTIFIERS
+
+Every trade must use
+
+Trade ID
+
+Discovery ID
+
+Decision ID
+
+Timestamp
+
+Ticker
+
+These IDs allow every module
+to reference the same event.
+
+====================================================================
+
+# SCHEDULER
+
+Pre-Market
+
+Load Polygon Universe
+
+Update Macro
+
+Update Sectors
+
+Update Industries
+
+Update Leadership
+
+Generate Initial Rankings
+
+------------------------------------------------------------
+
+Market Hours
+
+Continuously scan Polygon
+
+Refresh Opportunity Rankings
+
+Evaluate Candidates
+
+Run Decision Engine
+
+Monitor Open Positions
+
+Update Portfolio Heat
+
+------------------------------------------------------------
+
+Post-Market
+
+Audit Trades
+
+Audit Discoveries
+
+Run Attribution
+
+Counterfactual Analysis
+
+Learning Update
+
+Confidence Calibration
+
+Database Maintenance
+
+====================================================================
+
+# AUTONOMOUS DISCOVERY LOOP
+
+Forever
+
+Load Universe
+
+↓
+
+Filter Universe
+
+↓
+
+Rank Candidates
+
+↓
+
+Evaluate Candidates
+
+↓
+
+Make Decisions
+
+↓
+
+Learn
+
+↓
+
+Improve Discovery
+
+↓
+
+Repeat
+
+This loop should never stop.
+
+====================================================================
+
+# TELEGRAM INTEGRATION
+
+Telegram receives
+
+only
+
+AEIM decisions.
+
+Never raw scanner output.
+
+Each alert includes
+
+Ticker
+
+Decision
+
+Confidence
+
+Position Size
+
+Macro Score
+
+Trend Score
+
+Leadership Score
+
+Risk Score
+
+Primary Reason
+
+Major Warning
+
+====================================================================
+
+# DASHBOARD
+
+Dashboard Sections
+
+System Health
+
+Market Health
+
+Macro
+
+Sector Rankings
+
+Industry Rankings
+
+Trend Integrity
+
+Leadership
+
+Opportunity Rankings
+
+Trade Decisions
+
+Performance
+
+Learning
+
+Portfolio
+
+Engine Health
+
+Verification
+
+====================================================================
+
+# LOGGING
+
+Every engine logs
+
+Execution Time
+
+Input
+
+Output
+
+Confidence
+
+Errors
+
+Warnings
+
+Verification
+
+Latency
+
+Health
+
+No hidden decisions.
+
+====================================================================
+
+# MONITORING
+
+Monitor
+
+Database
+
+Polygon Connection
+
+Scheduler
+
+Telegram
+
+Memory Usage
+
+CPU
+
+Disk
+
+API Latency
+
+Engine Health
+
+Data Freshness
+
+Learning Status
+
+====================================================================
+
+# ENGINE HEALTH
+
+Every engine reports
+
+Healthy
+
+Warning
+
+Failed
+
+Latency
+
+Verification
+
+Last Successful Run
+
+====================================================================
+
+# FAILURE RULES
+
+If Polygon unavailable
+
+Pause discovery.
+
+If Macro fails
+
+No trades.
+
+If Trend fails
+
+No trades.
+
+If Risk fails
+
+No trades.
+
+If Learning fails
+
+Continue trading
+
+but suspend learning updates
+until repaired.
+
+Fail safely.
+
+====================================================================
+
+# MASTER REPLIT WIRING
+
+Replit shall connect
+
+Discovery Engine
+
+↓
+
+Macro Engine
+
+↓
+
+Technical Engine
+
+↓
+
+Decision Engine
+
+↓
+
+Risk Engine
+
+↓
+
+Portfolio Engine
+
+↓
+
+Performance Auditor
+
+↓
+
+Learning Engine
+
+↓
+
+Database
+
+↓
+
+Dashboard
+
+↓
+
+Monitoring
+
+Nothing bypasses this sequence.
+
+====================================================================
+
+# PRODUCTION RULES
+
+AEIM must
+
+Scan Polygon
+
+Discover opportunities
+
+Rank opportunities
+
+Understand Macro
+
+Understand Trend
+
+Understand Leadership
+
+Determine Risk
+
+Determine Position Size
+
+Explain Decision
+
+Store Everything
+
+Learn Everything
+
+Improve Discovery
+
+Repeat
+
+====================================================================
+
+# AUTONOMOUS DAILY CYCLE
+
+08:00
+
+Load Universe
+
+↓
+
+08:30
+
+Macro Update
+
+↓
+
+09:00
+
+Discovery
+
+↓
+
+09:30–16:00
+
+Continuous Evaluation
+
+↓
+
+16:05
+
+Performance Audit
+
+↓
+
+16:15
+
+Trade Attribution
+
+↓
+
+16:30
+
+Learning Update
+
+↓
+
+17:00
+
+Database Maintenance
+
+↓
+
+Repeat Tomorrow
+
+====================================================================
+
+# REPLIT IMPLEMENTATION RULES
+
+The implementation must remain modular.
+
+Each engine should expose a clear interface.
+
+Avoid hidden dependencies.
+
+Do not duplicate business logic.
+
+Pass structured outputs between engines.
+
+Log all failures.
+
+Version major engine changes.
+
+Support replay of historical decisions for debugging.
+
+====================================================================
+
+# PERFORMANCE TARGETS
+
+Engineering targets should include:
+
+Fast candidate evaluation
+
+Reliable scheduling
+
+Graceful failure handling
+
+Deterministic decision pipeline
+
+Complete audit trail
+
+Reproducible historical analysis
+
+Stable memory growth
+
+====================================================================
+
+# PRODUCTION CHECKLIST
+
+Before enabling production verify
+
+✓ Polygon connected
+
+✓ Universe loading
+
+✓ Discovery Engine running
+
+✓ Macro running
+
+✓ Technical running
+
+✓ Decision running
+
+✓ Risk running
+
+✓ Portfolio running
+
+✓ Performance Auditor running
+
+✓ Learning running
+
+✓ Database connected
+
+✓ Scheduler operational
+
+✓ Dashboard operational
+
+✓ Telegram operational
+
+✓ Logging operational
+
+✓ Monitoring operational
+
+====================================================================
+
+# END OF PART 7 OF 8
+
+NEXT
+
+PART 8
+
+FINAL ENGINEERING VALIDATION
+
+• End-to-End Verification
+
+• Acceptance Criteria
+
+• Production Readiness
+
+• Failure Testing
+
+• Autonomous Health Validation
+
+• Final Replit Sign-Off
+
+• AEIM Production Certification
+
+END OF PART 7
