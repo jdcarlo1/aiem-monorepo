@@ -1,0 +1,73 @@
+# Pre-Flight Verification — Prove It, Don't Tell Me
+
+**Purpose:** Confirm the 9:30 AM Telegram alert will actually fire tomorrow with correct data. Every answer below must include raw terminal/log output — not a description, not a summary, not "confirmed" with no evidence attached.
+
+If any item cannot be shown with real output, say so directly. Do not reframe an unverified item as done.
+
+---
+
+## 1. Confidence threshold is live at 50, not just in a file
+
+- Run the actual config-loading code path (not `grep` on a file) and print the threshold value the running process will use tomorrow morning.
+- Confirm this is the same file/env var the live `aiem-process` reads from — not a second copy that isn't wired in.
+
+**Evidence required:** terminal output showing the loaded value.
+
+---
+
+## 2. The process running right now has today's fixes in memory
+
+- Show the process start time (`ps aux` or equivalent).
+- Confirm that start time is AFTER: the `date` import fix, the threshold change (72 → 50), and the holiday calendar update.
+- If the process was not restarted after these fixes, it's running stale code — restart it and show the new start time.
+
+**Evidence required:** timestamped process listing.
+
+---
+
+## 3. All 9 scheduled jobs, shown directly — not described
+
+- Print the actual cron/scheduler entries (not a bullet list summary) for all 9 jobs.
+- Confirm the exact trigger time for the 9:30 AM re-score → Telegram send job specifically.
+
+**Evidence required:** raw scheduler/cron output.
+
+---
+
+## 4. Holiday calendar doesn't block tomorrow
+
+- Run `_market_day()` (or equivalent function) against tomorrow's actual date.
+- Print the boolean result.
+
+**Evidence required:** function output for tomorrow's specific date, not "2026 holidays added."
+
+---
+
+## 5. Send a real test alert right now
+
+- Trigger an actual Telegram message through the bot using current cached data — not a mock, not a described format.
+- I need to see the grouped S1c/S1d/S1b message land on my phone tonight, in the real format, before I go to sleep.
+
+**Evidence required:** the actual message, delivered now.
+
+---
+
+## 6. Timezone handling (UTC → ET) is correct for the 9:30 AM trigger
+
+- Show what timezone the scheduler's internal clock is using vs. what timezone 9:30 AM is defined in.
+- Confirm the trigger will fire at 9:30 AM Eastern Time, not 9:30 AM UTC or server time.
+
+**Evidence required:** timezone config values + comparison, not a verbal confirmation.
+
+---
+
+## 7. Fires once per day — no duplicate/spam risk
+
+- Show the dedup logic or job lock that prevents the alert from firing more than once tomorrow.
+
+**Evidence required:** the actual guard condition in code, or a log showing it enforced in a prior run.
+
+---
+
+### Rule for this checklist
+Any item answered without terminal output, logs, or a live test result is **not verified** — regardless of how confident the explanation sounds. Flag it as open, don't mark it green.
