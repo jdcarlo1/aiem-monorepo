@@ -358,7 +358,7 @@ def supervisor_on_candidate_ranking(audit_trace_id, run_id=None, candidates=None
 
 def supervisor_on_final_decision(audit_trace_id, ticker, trade_id=None,
                                  decision="EXECUTE", confidence_score=None,
-                                 decision_reason=None):
+                                 decision_reason=None, signal_source=None):
     """
     Fires after AIEM makes its final decision.
     Writes supervisor_checked=true, meta_authority=AIEM_SUPERVISOR.
@@ -406,7 +406,7 @@ def supervisor_on_final_decision(audit_trace_id, ticker, trade_id=None,
                     _dt_dec.date.today(),
                     "EXECUTE" if decision == "EXECUTE" else "SKIP",
                     str(decision_reason or "")[:500],
-                    None,
+                    signal_source,
                     confidence_score,
                     decision,
                     audit_trace_id,

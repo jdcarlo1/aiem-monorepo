@@ -39811,6 +39811,7 @@ def _aiem_paper_execute_today():
                             decision="EXECUTE",
                             confidence_score=pick.get("score"),
                             decision_reason=pick.get("detail", ""),
+                            signal_source=pick.get("source"),
                         )
                     except Exception as _sup_h3_e:
                         print(f"[supervisor] hook3_final_decision skipped: {_sup_h3_e}")

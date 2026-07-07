@@ -1,0 +1,43 @@
+# Verification Follow-Up #2 — signal_source gap, CRITICAL items, full loop trace
+
+None of the three asks below require waiting for the 4 PM ET / 20:00 UTC close. Items 6/7 remain separately pending on that close per the prior instructions — don't conflate them with this list.
+
+---
+
+## ASK 1 — Fix and re-prove the signal_source gap
+
+You found this yourself while proving Item 5: `supervisor_on_final_decision` never receives `signal_source` from the `main.py` caller, even though it's available in the surrounding context. This is now a tracked item — call it **Item 12**.
+
+**Required:**
+1. Fix the call site in `main.py` to thread `signal_source` through.
+2. Re-run the same forced test call used for Item 5 (or a real decision if one fires) and paste the full 10-column row showing `signal_source` now populated with a real value, not empty.
+3. Confirm no other caller of `supervisor_on_final_decision` has the same gap — grep all call sites and list them with file/line, showing which ones pass `signal_source` and which don't.
+
+---
+
+## ASK 2 — Forced-trigger proof for all 4 CRITICAL items (not just risk inventory)
+
+The CRITICAL/HIGH table you produced is a plausibility inventory — file/line plus reasoning about what *could* happen. That is not the same standard as Item 3 or Item 5, which were force-tripped and showed the actual fallback firing.
+
+**Required, for each of the 4 CRITICAL items individually:**
+1. Simulate the missing-table/missing-row condition (same monkeypatch or direct-DB approach used for Items 3 and 5).
+2. Show the actual silent default value being returned (e.g., `dict(_DEFAULT_WEIGHTS)`, `(0.0, False, False)`, etc.) in a real function call, not a code excerpt.
+3. Confirm downstream: show one concrete example of what the caller does with that default — does it log anything distinguishing "real data" from "default data"? If not, state that plainly.
+4. Do this for `StrategyWeightOptimizer`, `ContinualLearner`, the PPO policy loader, and the Thompson sampling loader — the four CRITICAL rows already identified.
+
+Do not leave these as "CRITICAL" in status purely on reasoning — either prove the failure mode fires, or downgrade the label and say why.
+
+---
+
+## ASK 3 — One full end-to-end trace of the closed loop, in order
+
+Everything proven so far is a single point in the pipeline. I need to see the whole chain for one real trade, in chronological order, with no step skipped or silently defaulted.
+
+**Required:**
+1. Pick one real trade_id from today.
+2. For every one of the 9 steps in the closed loop, pull the actual DB row or log line showing that step ran for this specific trade_id, with its timestamp.
+3. Lay them out in a single table: step name → table/row → timestamp → real value written (not a NULL, not a default).
+4. Flag explicitly any step where you cannot find a matching row — don't skip it silently. If a step is missing, say which one and why.
+5. Confirm the timestamps are in the expected order (step 1 before step 2, etc.) — if any are out of order or overlapping in a way that shouldn't happen, call it out.
+
+This is the proof that ties everything else together — until this exists, we have verified parts, not a verified loop.
