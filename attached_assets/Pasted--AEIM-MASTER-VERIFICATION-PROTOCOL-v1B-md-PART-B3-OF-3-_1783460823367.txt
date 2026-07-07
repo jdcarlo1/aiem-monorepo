@@ -1,0 +1,686 @@
+# AEIM_MASTER_VERIFICATION_PROTOCOL_v1B.md
+
+# PART B3 OF 3
+## Final Engineering Validation
+### Autonomous Operation
+### Production Certification
+### End-to-End Acceptance Tests
+
+Version 1.0
+
+====================================================================
+
+# PURPOSE
+
+This document is the final engineering certification
+for AEIM.
+
+The architecture is NOT considered complete until
+every verification in this document passes.
+
+This document verifies autonomous operation,
+system integration, learning integrity,
+and production readiness.
+
+No assumptions.
+
+Evidence only.
+
+====================================================================
+
+# COMPLETE END-TO-END TEST
+
+Replit must demonstrate the complete pipeline.
+
+Expected order
+
+Polygon Universe
+
+↓
+
+Universe Filter
+
+↓
+
+Discovery Engine
+
+↓
+
+Opportunity Ranking
+
+↓
+
+Macro Context
+
+↓
+
+Market Survival
+
+↓
+
+Broad Index Analysis
+
+↓
+
+Market Breadth
+
+↓
+
+Sector Rotation
+
+↓
+
+Industry Rotation
+
+↓
+
+Trend Integrity
+
+↓
+
+Leadership Rotation
+
+↓
+
+Technical Intelligence
+
+↓
+
+Oversold Bounce
+
+↓
+
+Risk Intelligence
+
+↓
+
+Portfolio Intelligence
+
+↓
+
+Strategy Council
+
+↓
+
+Evidence Arbitration
+
+↓
+
+Autonomous Supervisor
+
+↓
+
+Master Decision Engine
+
+↓
+
+Trade Approval
+
+↓
+
+Execution / Alert
+
+↓
+
+Performance Auditor
+
+↓
+
+Trade Attribution
+
+↓
+
+Counterfactual Analysis
+
+↓
+
+Learning Memory
+
+↓
+
+Knowledge Base Update
+
+Every step must execute.
+
+====================================================================
+
+# AUTONOMOUS OPERATION TEST
+
+Disable
+
+Stock Scanner
+
+Expected Result
+
+AEIM continues to
+
+Load Polygon
+
+Scan Universe
+
+Find Candidates
+
+Rank Candidates
+
+Evaluate Candidates
+
+Generate Decisions
+
+Update Memory
+
+Improve Discovery
+
+PASS
+
+Scanner not required.
+
+FAIL
+
+Scanner dependency exists.
+
+====================================================================
+
+# MACRO VALIDATION TEST
+
+Replay historical sessions.
+
+Verify AEIM correctly identifies
+
+Bull Market
+
+Correction
+
+Bear Market
+
+Recovery
+
+Transition
+
+Risk-Off
+
+High Volatility
+
+Questions
+
+What evidence was used?
+
+How was confidence adjusted?
+
+Was position size modified?
+
+Required Proof
+
+Historical replay report.
+
+====================================================================
+
+# TREND VALIDATION TEST
+
+Provide examples of
+
+Healthy Pullback
+
+Structural Breakdown
+
+Trend Continuation
+
+Trend Reversal
+
+Questions
+
+Can AEIM distinguish them?
+
+Can AEIM explain them?
+
+Required Proof
+
+Trend evaluation logs.
+
+====================================================================
+
+# OVERSOLD VALIDATION TEST
+
+Scenario 1
+
+Stock
+
+Above 50-day EMA
+
+Above 200-day EMA
+
+Healthy trend
+
+Sector still leading
+
+Short-term oversold
+
+Expected
+
+Possible tactical bounce.
+
+Reduced-size trade or watchlist.
+
+------------------------------------------------------------
+
+Scenario 2
+
+Below 50-day
+
+Below 200-day
+
+Lower highs
+
+Lower lows
+
+Distribution
+
+Expected
+
+Reject.
+
+Falling knife.
+
+Required Proof
+
+Decision logs.
+
+====================================================================
+
+# DECISION CONSISTENCY
+
+Replay identical historical inputs.
+
+Expected
+
+Equivalent reasoning.
+
+Equivalent confidence.
+
+Equivalent decision.
+
+Minor numeric differences acceptable.
+
+Large unexplained differences
+
+FAIL.
+
+====================================================================
+
+# EXPLAINABILITY TEST
+
+Every decision must contain
+
+Discovery Reason
+
+Macro Summary
+
+Trend Summary
+
+Leadership Summary
+
+Technical Summary
+
+Risk Summary
+
+Portfolio Summary
+
+Confidence
+
+Position Size
+
+Primary Risks
+
+Primary Strengths
+
+Alternative Scenario
+
+No black-box decisions.
+
+====================================================================
+
+# FAILURE TESTING
+
+Simulate
+
+Polygon failure
+
+Macro failure
+
+Trend failure
+
+Risk failure
+
+Database failure
+
+Scheduler failure
+
+Learning failure
+
+Expected behavior
+
+Fail safely.
+
+Pause affected functionality.
+
+Do not execute trades requiring
+missing information.
+
+Log failures.
+
+Generate engineering alerts.
+
+====================================================================
+
+# LEARNING VALIDATION
+
+Verify
+
+Learning occurs only after
+
+Performance Audit
+
+Trade Attribution
+
+Counterfactual Analysis
+
+Verification
+
+Questions
+
+Can incomplete trades update memory?
+
+Expected
+
+No.
+
+====================================================================
+
+# CONFIDENCE VALIDATION
+
+Measure
+
+Predicted confidence
+
+versus
+
+Observed outcomes.
+
+Verify
+
+Calibration improves over time.
+
+Overconfidence decreases.
+
+Underconfidence decreases.
+
+====================================================================
+
+# DISCOVERY VALIDATION
+
+Review historical discoveries.
+
+Questions
+
+Did AEIM discover future winners?
+
+Did AEIM discover false positives?
+
+Did discovery quality improve?
+
+Required Proof
+
+Discovery performance report.
+
+====================================================================
+
+# PERFORMANCE METRICS
+
+Track
+
+Discovery Accuracy
+
+Decision Accuracy
+
+Trade Accuracy
+
+Macro Accuracy
+
+Trend Accuracy
+
+Leadership Accuracy
+
+Risk Accuracy
+
+Portfolio Accuracy
+
+Confidence Calibration
+
+Learning Growth
+
+System Reliability
+
+====================================================================
+
+# ENGINE HEALTH
+
+Every engine must report
+
+Healthy
+
+Warning
+
+Failed
+
+Latency
+
+Data Freshness
+
+Verification
+
+Last Successful Run
+
+Required Proof
+
+System health dashboard.
+
+====================================================================
+
+# DAILY SELF-DIAGNOSTICS
+
+AEIM should automatically review
+
+Did I improve today?
+
+Did I discover quality opportunities?
+
+Did I avoid unnecessary risk?
+
+Did Macro help?
+
+Did Trend Integrity help?
+
+Did confidence improve?
+
+Did discovery improve?
+
+Generate daily engineering report.
+
+====================================================================
+
+# WEEKLY SELF-REVIEW
+
+Generate
+
+Discovery Summary
+
+Trade Summary
+
+Macro Summary
+
+Risk Summary
+
+Learning Summary
+
+Confidence Summary
+
+Portfolio Summary
+
+Engineering Summary
+
+====================================================================
+
+# MONTHLY ENGINEERING REVIEW
+
+Engineering Team should review
+
+Engine Reliability
+
+Learning Growth
+
+Database Health
+
+Scheduler Health
+
+API Stability
+
+Performance
+
+Latency
+
+Verification Failures
+
+Unexpected Behaviors
+
+====================================================================
+
+# PRODUCTION ACCEPTANCE
+
+Replit must certify
+
+✓ AEIM scans Polygon autonomously
+
+✓ Discovery Engine operational
+
+✓ Macro Engine operational
+
+✓ Technical Engine operational
+
+✓ Decision Engine operational
+
+✓ Risk Engine operational
+
+✓ Portfolio Engine operational
+
+✓ Performance Auditor operational
+
+✓ Counterfactual Engine operational
+
+✓ Learning Engine operational
+
+✓ Knowledge Base operational
+
+✓ Dashboard operational
+
+✓ Monitoring operational
+
+✓ Logging operational
+
+✓ Scheduler operational
+
+✓ Telegram operational
+
+✓ Failure handling operational
+
+====================================================================
+
+# MASTER ACCEPTANCE TEST
+
+Run AEIM for multiple market sessions.
+
+Verify
+
+Discovery quality
+
+Decision quality
+
+Risk management
+
+Learning updates
+
+Confidence calibration
+
+System stability
+
+Failure recovery
+
+Explainability
+
+Provide engineering evidence.
+
+====================================================================
+
+# FINAL ENGINEERING QUESTIONS
+
+Replit must answer
+
+1. Can AEIM operate with the stock scanner completely turned off?
+
+2. Can AEIM discover opportunities directly from Polygon?
+
+3. Does every engine execute in the documented order?
+
+4. Can every decision be fully explained?
+
+5. Does every completed trade update learning correctly?
+
+6. Does every completed discovery improve future discovery quality?
+
+7. Does AEIM distinguish corrections from structural breakdowns?
+
+8. Does AEIM avoid learning from incomplete information?
+
+9. Does AEIM fail safely when critical systems fail?
+
+10. Can you provide engineering evidence—not just statements—that each of the above has been verified?
+
+====================================================================
+
+# FINAL CERTIFICATION
+
+AEIM is considered production-ready only when
+
+Architecture Verification = PASS
+
+Learning Verification = PASS
+
+Integration Verification = PASS
+
+Health Verification = PASS
+
+Failure Testing = PASS
+
+Acceptance Testing = PASS
+
+Engineering Evidence = COMPLETE
+
+If any category fails,
+
+Production Certification = NOT APPROVED
+
+====================================================================
+
+# END OF AEIM_MASTER_VERIFICATION_PROTOCOL_v1B.md
+
+MASTER VERIFICATION COMPLETE
+
+Documents Completed
+
+✓ Part A1
+✓ Part A2
+✓ Part A3
+
+✓ Part B1
+✓ Part B2
+✓ Part B3
+
+This completes the AEIM Master Verification Protocol.
