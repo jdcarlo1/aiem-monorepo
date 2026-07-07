@@ -1,0 +1,434 @@
+# AEIM_MASTER_VERIFICATION_PROTOCOL_v1A.md
+
+# PART A1 OF 3
+## Architecture & Wiring Verification
+
+Version 1.0
+
+====================================================================
+
+# PURPOSE
+
+This document is NOT intended to verify trading performance.
+
+Its purpose is to verify that every component of the
+AEIM architecture has been correctly implemented,
+connected, ordered, and validated.
+
+No module should be assumed to be working.
+
+Every module must provide objective proof.
+
+====================================================================
+
+# MASTER REQUIREMENT
+
+Replit must provide engineering evidence,
+not simply answer "yes."
+
+Every verification response should include:
+
+• Code location
+• Files involved
+• Function names
+• Inputs
+• Outputs
+• Execution order
+• Database tables used
+• Verification logs
+• Test results
+
+Statements without evidence are not sufficient.
+
+====================================================================
+
+# SYSTEM BOUNDARY VERIFICATION
+
+Verify the following:
+
+✓ AEIM is completely independent.
+
+✓ AEIM loads Polygon directly.
+
+✓ AEIM does NOT require the stock scanner.
+
+✓ AEIM continues operating if the stock scanner is offline.
+
+Required Proof
+
+Show
+
+Entry point
+
+Scheduler
+
+Discovery function
+
+Polygon connection
+
+Discovery pipeline
+
+Failure test
+
+PASS
+
+AEIM still discovers stocks.
+
+FAIL
+
+AEIM depends on scanner.
+
+====================================================================
+
+# POLYGON CONNECTION
+
+Questions
+
+Where is Polygon initialized?
+
+Which module owns Polygon?
+
+Which functions retrieve:
+
+Daily bars
+
+Intraday bars
+
+Historical bars
+
+Volume
+
+Relative volume
+
+VWAP
+
+ATR
+
+Moving averages
+
+Market status
+
+How frequently is Polygon updated?
+
+Show actual code path.
+
+====================================================================
+
+# AUTONOMOUS DISCOVERY ENGINE
+
+Verify
+
+Where is the Discovery Engine?
+
+How many stocks are scanned?
+
+What filters execute first?
+
+How are candidates ranked?
+
+How are rejected candidates stored?
+
+How are discoveries logged?
+
+How are discoveries learned?
+
+Required Proof
+
+Show
+
+Discovery Engine source file
+
+Discovery scheduler
+
+Discovery database
+
+Discovery output
+
+====================================================================
+
+# DISCOVERY MEMORY
+
+Show database table.
+
+Verify fields
+
+Ticker
+
+Timestamp
+
+Discovery Reason
+
+Discovery Score
+
+Opportunity Score
+
+Decision
+
+Future Performance
+
+Discovery Quality
+
+Learning Status
+
+Required Proof
+
+Show example record.
+
+====================================================================
+
+# DATA NORMALIZATION
+
+Questions
+
+Does every engine receive
+the same normalized object?
+
+What schema is used?
+
+Where is normalization implemented?
+
+How are missing values handled?
+
+How is bad data rejected?
+
+Required Proof
+
+Normalized example object.
+
+====================================================================
+
+# EXECUTION ORDER
+
+Show actual execution order.
+
+Must match
+
+Polygon
+
+↓
+
+Discovery
+
+↓
+
+Opportunity Ranking
+
+↓
+
+Macro
+
+↓
+
+Market Survival
+
+↓
+
+Broad Index
+
+↓
+
+Breadth
+
+↓
+
+Sector
+
+↓
+
+Industry
+
+↓
+
+Trend
+
+↓
+
+Leadership
+
+↓
+
+Technical
+
+↓
+
+Oversold Bounce
+
+↓
+
+Risk
+
+↓
+
+Portfolio
+
+↓
+
+Strategy Council
+
+↓
+
+Evidence Arbitration
+
+↓
+
+Supervisor
+
+↓
+
+Master Decision
+
+↓
+
+Execution
+
+↓
+
+Performance Auditor
+
+↓
+
+Trade Attribution
+
+↓
+
+Learning Memory
+
+Required Proof
+
+Timestamped execution log.
+
+====================================================================
+
+# ORDER ENFORCEMENT
+
+Questions
+
+What prevents engines
+from executing out of order?
+
+Can any engine be skipped?
+
+What happens if Macro fails?
+
+What happens if Trend fails?
+
+What happens if Risk fails?
+
+Required Proof
+
+Code implementing execution control.
+
+====================================================================
+
+# MODULE INTERFACES
+
+For every engine provide
+
+Input
+
+Output
+
+Dependencies
+
+Consumers
+
+Verification Status
+
+Database Writes
+
+Scheduler Trigger
+
+No hidden dependencies.
+
+====================================================================
+
+# DATABASE WIRING
+
+Verify existence of
+
+Discovery Memory
+
+Macro Memory
+
+Trend Memory
+
+Leadership Memory
+
+Technical Memory
+
+Risk Memory
+
+Portfolio Memory
+
+Decision History
+
+Performance Memory
+
+Counterfactual Memory
+
+Verification Logs
+
+System Health
+
+Show
+
+Table definitions
+
+Relationships
+
+Indexes
+
+Primary keys
+
+====================================================================
+
+# SHARED IDENTIFIERS
+
+Verify every decision contains
+
+Discovery ID
+
+Decision ID
+
+Trade ID
+
+Ticker
+
+Timestamp
+
+Show
+
+How every module references
+the same event.
+
+====================================================================
+
+# SCHEDULER VERIFICATION
+
+Provide
+
+Scheduler configuration.
+
+Show
+
+Pre-market jobs
+
+Intraday jobs
+
+Post-market jobs
+
+Learning jobs
+
+Maintenance jobs
+
+Show execution frequency.
+
+====================================================================
+
+# END OF PART A1
+
+CONTINUE
+
+AEIM_MASTER_VERIFICATION_PROTOCOL_v1A.md
+
+PART A2 OF 3
