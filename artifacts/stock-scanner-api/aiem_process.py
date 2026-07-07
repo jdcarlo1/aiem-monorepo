@@ -39,7 +39,7 @@ import logging
 import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 import pytz
 import psycopg2
@@ -98,8 +98,22 @@ def _db():
     return psycopg2.connect(DB_URL, connect_timeout=10)
 
 
+_US_HOLIDAYS_2026 = {
+    date(2026, 1,  1),   # New Year's Day
+    date(2026, 1, 19),   # MLK Day
+    date(2026, 2, 16),   # Presidents Day
+    date(2026, 4,  3),   # Good Friday
+    date(2026, 5, 25),   # Memorial Day
+    date(2026, 6, 19),   # Juneteenth
+    date(2026, 7,  3),   # Independence Day (observed — July 4 is Saturday)
+    date(2026, 9,  7),   # Labor Day
+    date(2026, 11, 26),  # Thanksgiving
+    date(2026, 12, 25),  # Christmas
+}
+
 def _market_day() -> bool:
-    return datetime.now(ET).weekday() < 5
+    today = datetime.now(ET).date()
+    return today.weekday() < 5 and today not in _US_HOLIDAYS_2026
 
 
 # ─────────────────────────────────────────────────────────────
@@ -733,11 +747,20 @@ def aiem_open_watcher():
             live = live_prices.get(ticker, {})
             if not live:
                 continue
+            # Infer prev_close_strength from premarket signal_basis so
+            # momentum_carry / soft_carry fire correctly in the live re-score
+            if "momentum_carry" in (sig_basis or ""):
+                inferred_prev_cs = 0.85   # was >= 0.80 at premarket
+            elif "soft_carry" in (sig_basis or ""):
+                inferred_prev_cs = 0.70   # was 0.60–0.79 at premarket
+            else:
+                inferred_prev_cs = 0.0
             live_data = {
-                "price":      live.get("price"),
-                "prev_close": live.get("prev_close"),
-                "volume":     live.get("volume", 0),
-                "avg_volume": live.get("avg_volume", 1),
+                "price":               live.get("price"),
+                "prev_close":          live.get("prev_close"),
+                "volume":              live.get("volume", 0),
+                "avg_volume":          live.get("avg_volume", 1),
+                "prev_close_strength": inferred_prev_cs,
             }
             live_conf, _, live_reason, live_move = aiem_score_ticker(
                 ticker, live_data, trust_weights
