@@ -741,39 +741,51 @@ def aiem_open_watcher():
         if "DAILY_SUMMARY" in already:
             return
 
-        # Score every pick against live prices, collect qualifiers
+        # Determine if live prices are usable (Polygon 403 is permanent on current plan)
+        live_prices_available = bool(live_prices)
+        if not live_prices_available:
+            log.warning("open_watcher: no live prices available (Polygon 403 + Tradier unavailable) — using premarket scores only")
+
+        # Score every pick. If live prices are unavailable for a ticker, fall
+        # back to the premarket score so picks are never silently dropped.
         qualifiers = []
         for ticker, rank, base_conf, sig_basis, reasoning, predicted_move in picks:
             live = live_prices.get(ticker, {})
-            if not live:
-                continue
-            # Infer prev_close_strength from premarket signal_basis so
-            # momentum_carry / soft_carry fire correctly in the live re-score
-            if "momentum_carry" in (sig_basis or ""):
-                inferred_prev_cs = 0.85   # was >= 0.80 at premarket
-            elif "soft_carry" in (sig_basis or ""):
-                inferred_prev_cs = 0.70   # was 0.60–0.79 at premarket
+            if live:
+                # Full live re-score path
+                if "momentum_carry" in (sig_basis or ""):
+                    inferred_prev_cs = 0.85
+                elif "soft_carry" in (sig_basis or ""):
+                    inferred_prev_cs = 0.70
+                else:
+                    inferred_prev_cs = 0.0
+                live_data = {
+                    "price":               live.get("price"),
+                    "prev_close":          live.get("prev_close"),
+                    "volume":              live.get("volume", 0),
+                    "avg_volume":          live.get("avg_volume", 1),
+                    "prev_close_strength": inferred_prev_cs,
+                }
+                live_conf, _, live_reason, live_move = aiem_score_ticker(
+                    ticker, live_data, trust_weights
+                )
+                blended   = round(base_conf * 0.4 + live_conf * 0.6, 1)
+                cur_price = live.get("price") or 0
+                reason    = live_reason
             else:
-                inferred_prev_cs = 0.0
-            live_data = {
-                "price":               live.get("price"),
-                "prev_close":          live.get("prev_close"),
-                "volume":              live.get("volume", 0),
-                "avg_volume":          live.get("avg_volume", 1),
-                "prev_close_strength": inferred_prev_cs,
-            }
-            live_conf, _, live_reason, live_move = aiem_score_ticker(
-                ticker, live_data, trust_weights
-            )
-            blended = round(base_conf * 0.4 + live_conf * 0.6, 1)
-            log.info(f"{ticker} blended={blended} (pre={base_conf} live={live_conf}) sig={sig_basis}")
+                # Fallback: no live price — use premarket score as-is
+                blended   = float(base_conf)
+                cur_price = 0.0
+                reason    = (reasoning or sig_basis or "premarket signal")
+                live_conf = None
+
+            log.info(f"{ticker} score={blended:.1f} (pre={base_conf} live={live_conf}) sig={sig_basis}")
             if blended >= CONFIDENCE_THRESH:
-                cur_price  = live.get("price") or 0
                 stop_price = round(cur_price * 0.90, 2) if cur_price else None
                 qualifiers.append({
                     "ticker": ticker, "rank": rank, "conf": blended,
                     "sig": sig_basis or "", "price": cur_price,
-                    "stop": stop_price, "reason": live_reason,
+                    "stop": stop_price, "reason": reason,
                 })
 
         if not qualifiers:
@@ -1346,6 +1358,35 @@ def main():
     sched.add_job(aiem_open_watcher,
                   CronTrigger(day_of_week="mon-fri", hour="9,10", minute="*/5"),
                   id="aiem_open_watcher", replace_existing=True)
+
+    # ── Startup catch-up: fire open_watcher immediately if we restarted
+    # during the 9:30–10:30 AM window and today's alert hasn't gone yet.
+    def _startup_open_watcher_catchup():
+        import time as _t
+        _t.sleep(8)  # let scheduler bind and DB settle
+        now_et = datetime.now(ET)
+        if now_et.weekday() >= 5:
+            return
+        now_mins = now_et.hour * 60 + now_et.minute
+        if not (570 <= now_mins <= 630):  # 9:30 AM – 10:30 AM
+            return
+        try:
+            conn = _db()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM signal_fire_log WHERE fire_date=%s AND signal_name='AIEM_OPEN_ALERT' AND ticker='DAILY_SUMMARY'",
+                (now_et.date(),)
+            )
+            already = cur.fetchone()
+            conn.close()
+        except Exception:
+            already = None
+        if not already:
+            log.info(f"[catchup] Restarted during open-watcher window ({now_et.strftime('%H:%M ET')}) — firing immediately")
+            aiem_open_watcher()
+
+    import threading as _ct
+    _ct.Thread(target=_startup_open_watcher_catchup, daemon=True, name="open-watcher-catchup").start()
 
     # 4:30 PM — grade T1 outcomes
     sched.add_job(aiem_grade_outcomes,
