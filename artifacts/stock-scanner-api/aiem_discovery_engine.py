@@ -59,7 +59,10 @@ _MIN_EDGE_OVER_BASELINE  = 2.0   # pp above all-stock OOS baseline win rate
 _TRAIN_START           = "2026-04-07"
 _TRAIN_END             = "2026-05-18"
 _TEST_START            = "2026-05-19"
-_TEST_END              = "2026-07-02"
+# _TEST_END is set dynamically to yesterday so the engine always tests against
+# the most recent available market data without requiring a manual date update.
+import datetime as _de_dt
+_TEST_END              = (_de_dt.date.today() - _de_dt.timedelta(days=1)).strftime("%Y-%m-%d")
 _MIN_PRICE             = 2.0    # filter sub-penny/illiquid names
 _MAX_RVOL              = 100.0  # filter data anomalies
 _NEXT_DAY_MAX_GAP_DAYS = 5      # next trading day must be within 5 calendar days

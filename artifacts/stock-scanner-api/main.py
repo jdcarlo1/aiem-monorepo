@@ -38768,13 +38768,45 @@ def _aiem_paper_pick_candidates() -> list:
         except Exception as _me:
             print(f"[aiem_paper] FRED macro check skipped: {_me}")
 
+    # ── LEARNING GATE (closes loop step 9 ← step 4) ───────────────────────
+    # Reads drift_check_log to get the most recent verdict for every signal
+    # source.  ALERT_UNDERPERFORMING sources have their scores penalised 65%
+    # so healthier sources will always rank above them.  INSUFFICIENT_DATA
+    # sources are penalised 30% to reflect reduced confidence.
+    # This is the functional bridge from the Decay Analyzer (step 4) into
+    # the candidate-ranking decision (step 9).
+    _drift_mult: dict = {}
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _dmc, \
+                _dmc.cursor() as _dmcu:
+            _dmcu.execute("""
+                SELECT DISTINCT ON (signal_source)
+                       signal_source, verdict, live_wr, gap_pp
+                FROM   drift_check_log
+                WHERE  checked_at >= NOW() - INTERVAL '4 days'
+                ORDER  BY signal_source, checked_at DESC
+            """)
+            for _dmsrc, _dmverd, _dm_wr, _dm_gap in _dmcu.fetchall():
+                if _dmverd == "ALERT_UNDERPERFORMING":
+                    _drift_mult[_dmsrc] = 0.35
+                    print(
+                        f"[learning_gate] {_dmsrc} score×0.35 "
+                        f"(live_wr={_dm_wr} gap={_dm_gap}pp ALERT_UNDERPERFORMING)"
+                    )
+                elif _dmverd == "INSUFFICIENT_DATA":
+                    _drift_mult[_dmsrc] = 0.70
+    except Exception as _dme:
+        print(f"[learning_gate] drift gate skipped (non-fatal): {_dme}")
+
     def _add(ticker, score, trade_type, source, detail="", strike=None, expiry=None):
         t = ticker.upper().strip()
         if not t or len(t) > 6:
             return
+        # Apply drift-based learning gate so underperforming sources rank lower
+        _eff = score * _drift_mult.get(source, 1.0)
         existing = _candidates.get(t)
-        if existing is None or score > existing["score"]:
-            _candidates[t] = {"ticker": t, "score": score,
+        if existing is None or _eff > existing["score"]:
+            _candidates[t] = {"ticker": t, "score": _eff,
                                "trade_type": trade_type,
                                "source": source, "detail": detail,
                                "strike": strike, "expiry": expiry}
@@ -39019,6 +39051,36 @@ def _aiem_paper_pick_candidates() -> list:
             pass  # gate is fail-open: if we can't check, don't block
     if _ncm_blocked:
         print(f"[news_catalyst_gate] removed {len(_ncm_blocked)} ticker(s): {sorted(_ncm_blocked)}")
+
+    # ── LEARNING GATE 2 (closes loop step 9 ← trust weights) ────────────
+    # Read signal_trust_weights accumulated from graded PAPER_TRADING outcomes
+    # and multiply each candidate's score by the stored trust_weight for its
+    # source/signal name.
+    # trust_weight < 1.0 → signal underperforming → score reduced.
+    # trust_weight > 1.0 → signal outperforming → score boosted.
+    # Requires ≥5 observed outcomes to avoid reacting to noise.
+    # The table is populated by _aiem_paper_mark_to_market() on each exit.
+    _tw_map: dict = {}
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _twc, \
+                _twc.cursor() as _twcu:
+            _twcu.execute("""
+                SELECT signal_name, trust_weight, n_outcomes_observed
+                FROM signal_trust_weights
+                WHERE context_bucket = 'PAPER_TRADING'
+                  AND n_outcomes_observed >= 5
+            """)
+            for _twsig, _twwt, _twn in _twcu.fetchall():
+                _tw_map[_twsig] = float(_twwt)
+                print(f"[learning_gate] trust_weight {_twsig}×{_twwt:.3f} (n={_twn})")
+    except Exception as _twe2:
+        print(f"[learning_gate] trust weights load skipped (non-fatal): {_twe2}")
+
+    if _tw_map:
+        for _twcand in _candidates.values():
+            _tw = _tw_map.get(_twcand.get("source", ""), 1.0)
+            if _tw != 1.0:
+                _twcand["score"] = round(_twcand["score"] * _tw, 4)
 
     # Apply macro risk-off: cap at 10 picks and downweight options
     _final = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)
@@ -39942,6 +40004,47 @@ def _aiem_paper_mark_to_market():
                             )
                     except Exception as _ae:
                         print(f"[aiem_audit] outcome log error (non-fatal): {_ae}")
+                    # ── Update signal trust weight from this outcome ──────────
+                    # Inline EMA update matching meta_learning_signal_trust logic.
+                    # Uses _DB_URL directly (avoids AIEM_DATABASE_URL dependency).
+                    # decay=0.95, trust_weight = clamp(rolling_wr * 2, 0.2, 2.0)
+                    try:
+                        _tw_src = _src or "unknown"
+                        _tw_win = 1.0 if _pnl_pct > 0 else 0.0
+                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _twmc, \
+                                _twmc.cursor() as _twmcu:
+                            _twmcu.execute("""
+                                SELECT rolling_win_rate, n_outcomes_observed
+                                FROM signal_trust_weights
+                                WHERE signal_name=%s AND context_bucket='PAPER_TRADING'
+                            """, (_tw_src,))
+                            _tw_row = _twmcu.fetchone()
+                            if _tw_row:
+                                _tw_prior = float(_tw_row[0])
+                                _tw_n     = int(_tw_row[1]) + 1
+                                _tw_wr    = 0.95 * _tw_prior + 0.05 * _tw_win
+                            else:
+                                _tw_n  = 1
+                                _tw_wr = _tw_win
+                            _tw_wt = max(0.2, min(2.0, _tw_wr * 2.0))
+                            _twmcu.execute("""
+                                INSERT INTO signal_trust_weights
+                                    (signal_name, context_bucket, rolling_win_rate,
+                                     n_outcomes_observed, trust_weight, last_updated_at)
+                                VALUES (%s, 'PAPER_TRADING', %s, %s, %s, NOW())
+                                ON CONFLICT (signal_name, context_bucket) DO UPDATE SET
+                                    rolling_win_rate    = EXCLUDED.rolling_win_rate,
+                                    n_outcomes_observed = EXCLUDED.n_outcomes_observed,
+                                    trust_weight        = EXCLUDED.trust_weight,
+                                    last_updated_at     = NOW()
+                            """, (_tw_src, round(_tw_wr, 6), _tw_n, round(_tw_wt, 6)))
+                        _tw_lbl = "WIN" if _pnl_pct > 0 else "LOSS"
+                        print(f"[learning_gate] trust updated: {_tw_src} "
+                              f"{_tw_lbl} pnl={_pnl_pct:+.2f}% → "
+                              f"trust={_tw_wt:.3f} (n={_tw_n})")
+                    except Exception as _twe_mtm:
+                        print(f"[learning_gate] trust weight update skipped "
+                              f"(non-fatal): {_twe_mtm}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously
