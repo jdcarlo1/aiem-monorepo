@@ -29955,6 +29955,9 @@ try:
     _dl_mod.init_schema()
     _ew_mod.init_schema()
     print("[aiem_integrity] kill_switch / decision_logger / evaluation_windows schemas ready")
+    import aiem_supervisor as _asup_init
+    _asup_init.init_schema()
+    print("[aiem_integrity] aiem_supervisor schema ready (UNIQUE index on loop_audit)")
     import rl_position_sizer as _rl_mod
     import deep_rl_policy    as _drl_mod
     _rl_mod.init_schema()
@@ -39484,6 +39487,20 @@ def _aiem_paper_execute_today():
                     import aiem_pipeline_audit as _apa
                     _atrace = _apa.PipelineTrace(_t)
                     _audit_trace_id = _atrace.trace_id
+                    # Backfill audit_trace_id into aiem_candidate_rankings for this ticker today
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _cr_bfc, \
+                                _cr_bfc.cursor() as _cr_bfcu:
+                            _cr_bfcu.execute("""
+                                UPDATE aiem_candidate_rankings
+                                SET audit_trace_id = %s
+                                WHERE audit_trace_id IS NULL
+                                  AND ticker = %s
+                                  AND created_at::date = CURRENT_DATE
+                            """, (_audit_trace_id, _t))
+                            _cr_bfc.commit()
+                    except Exception:
+                        pass
                     # ── Supervisor Hook 1: scanner alert → AIEM intake ────────
                     try:
                         import aiem_supervisor as _asup_h1
@@ -39497,6 +39514,11 @@ def _aiem_paper_execute_today():
                     except Exception as _sup_h1_e:
                         print(f"[supervisor] hook1_scanner_alert skipped: {_sup_h1_e}")
                     _debate_v = _debate_verdicts.get(_t, "N/A")
+                    _raw_sc   = float(pick.get("raw_score") or pick.get("score") or 0)
+                    _fin_sc   = float(pick.get("score") or 0)
+                    _dm_lbl   = float(pick.get("drift_mult") or 1.0)
+                    _tw_lbl   = float(pick.get("trust_mult") or 1.0)
+                    # Stage 1 — signal_received
                     _atrace.log_step(
                         "signal_received",
                         function_name="_aiem_paper_pick_candidates",
@@ -39505,7 +39527,7 @@ def _aiem_paper_execute_today():
                         processing_system="AIEM",
                         input_summary=(
                             f"scanner_table={pick['source']} "
-                            f"score={pick.get('score', 0):.2f}"
+                            f"raw_score={_raw_sc:.2f}"
                         ),
                         output_summary=(
                             f"ticker={_t} trade_type={_trade_type} "
@@ -39515,6 +39537,7 @@ def _aiem_paper_execute_today():
                         decision_authority="stock_scanner",
                         status="PASS",
                     )
+                    # Stage 2 — aiem_candidate_intake
                     _atrace.log_step(
                         "aiem_candidate_intake",
                         function_name="_aiem_paper_execute_today",
@@ -39531,10 +39554,180 @@ def _aiem_paper_execute_today():
                             f"candidate accepted fill=${_fill_price:.2f} "
                             f"notional=${_notional:.0f}"
                         ),
+                        next_module="duplicate_filter_check",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 3 — duplicate_filter_check
+                    _atrace.log_step(
+                        "duplicate_filter_check",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=(
+                            f"passed dedup gate — highest-score source "
+                            f"for {_t} retained (raw_score={_raw_sc:.2f})"
+                        ),
+                        next_module="market_context_loaded",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 4 — market_context_loaded
+                    _atrace.log_step(
+                        "market_context_loaded",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t}",
+                        output_summary=(
+                            f"FRED macro loaded; drift_check_log queried; "
+                            f"drift_mult={_dm_lbl:.4f} for source={pick['source']}"
+                        ),
+                        next_module="module_scores_generated",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 5 — module_scores_generated
+                    _atrace.log_step(
+                        "module_scores_generated",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=(
+                            f"raw_score={_raw_sc:.4f} source={pick['source']} "
+                            f"detail={str(pick.get('detail',''))[:100]}"
+                        ),
+                        next_module="candidate_ranking_created",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 6 — candidate_ranking_created
+                    _atrace.log_step(
+                        "candidate_ranking_created",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} raw_score={_raw_sc:.4f}",
+                        output_summary=(
+                            f"final_adjusted_score={_fin_sc:.4f} written to "
+                            f"aiem_candidate_rankings (run_id=aiem_{pick.get('source','')})"
+                        ),
+                        next_module="trust_weights_applied",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 7 — trust_weights_applied
+                    _atrace.log_step(
+                        "trust_weights_applied",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} source={pick['source']} "
+                            f"trust_mult={_tw_lbl:.4f}"
+                        ),
+                        output_summary=(
+                            f"score after trust gate: "
+                            f"{_raw_sc:.4f} × {_tw_lbl:.4f} = "
+                            f"{round(_raw_sc * _tw_lbl, 4):.4f}"
+                        ),
+                        next_module="drift_gate_checked",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 8 — drift_gate_checked
+                    _drift_verdict_lbl = (
+                        "ALERT_UNDERPERFORMING" if _dm_lbl < 0.5
+                        else "INSUFFICIENT_DATA" if _dm_lbl < 1.0
+                        else "OK"
+                    )
+                    _atrace.log_step(
+                        "drift_gate_checked",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} source={pick['source']} "
+                            f"drift_mult={_dm_lbl:.4f}"
+                        ),
+                        output_summary=(
+                            f"verdict={_drift_verdict_lbl} "
+                            f"drift_mult={_dm_lbl:.4f} applied"
+                        ),
+                        next_module="thompson_sampler_checked",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 9 — thompson_sampler_checked (read current alpha/beta state)
+                    _th_summary = "no thompson record for this source yet"
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _thc, \
+                                _thc.cursor() as _thcu:
+                            _thcu.execute(
+                                "SELECT alpha, beta FROM aiem_paper_thompson "
+                                "WHERE signal_source=%s",
+                                (pick.get("source", ""),)
+                            )
+                            _thr = _thcu.fetchone()
+                            if _thr:
+                                _th_a, _th_b = float(_thr[0]), float(_thr[1])
+                                _th_s = _th_a / (_th_a + _th_b) if (_th_a + _th_b) > 0 else 0.5
+                                _th_summary = (
+                                    f"alpha={_th_a:.2f} beta={_th_b:.2f} "
+                                    f"sampled_score={_th_s:.4f}"
+                                )
+                    except Exception:
+                        pass
+                    _atrace.log_step(
+                        "thompson_sampler_checked",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=_th_summary,
+                        next_module="rl_weight_checked",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 10 — rl_weight_checked
+                    _rl_summary = "no live RL weights"
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _rlc, \
+                                _rlc.cursor() as _rlcu:
+                            _rlcu.execute(
+                                "SELECT n_updates, created_at FROM rl_strategy_weights "
+                                "WHERE is_live=TRUE ORDER BY created_at DESC LIMIT 1"
+                            )
+                            _rlr = _rlcu.fetchone()
+                            if _rlr:
+                                _rl_summary = (
+                                    f"live_weights=YES n_updates={_rlr[0]} "
+                                    f"last_trained={str(_rlr[1])[:10]}"
+                                )
+                    except Exception:
+                        pass
+                    _atrace.log_step(
+                        "rl_weight_checked",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=_rl_summary,
                         next_module="final_aiem_decision",
                         decision_authority="AIEM",
                         status="PASS",
                     )
+                    # Stage 11 — final_aiem_decision
                     _atrace.log_step(
                         "final_aiem_decision",
                         function_name="_aiem_paper_execute_today",

@@ -1,0 +1,186 @@
+I need you to finish wiring my existing AEIM Observability + Supervisor architecture correctly.
+
+Goal:
+Use what already exists. Do not rebuild from scratch.
+
+Current foundation:
+- aiem_pipeline_audit.py exists
+- PipelineTrace exists
+- log_step() exists
+- flush() exists
+- log_outcome_for_trade() exists
+- log_learning_updates() exists
+- generate_audit_report() exists
+- verify_closed_learning_loop() exists
+
+Problem:
+Only 3 of 13 pipeline stages are currently wired. The Supervisor has its own parallel event system, but it should consume the Observability Layer instead of duplicating it.
+
+Implement these 3 steps:
+
+==================================================
+STEP 1 — WIRE ALL 13 PIPELINE STAGES
+==================================================
+
+Every AEIM stock alert/trade must use one audit_trace_id from start to finish.
+
+Wire PipelineTrace.log_step() into all 13 stages:
+
+1. signal_received
+- Location: scanner alert handoff / stock scanner output / Telegram alert creation
+- Must log ticker, source_system="stock_scanner", processing_system="AEIM"
+
+2. aiem_candidate_intake
+- Location: AEIM receives candidate
+
+3. duplicate_filter_check
+- Location: candidate deduplication logic
+
+4. market_context_loaded
+- Location: market/regime/context loading
+
+5. module_scores_generated
+- Location: all module scoring / signal scoring
+
+6. candidate_ranking_created
+- Location: after aiem_candidate_rankings insert
+
+7. trust_weights_applied
+- Location: after signal_trust_weights / signal_trust_history lookup
+
+8. drift_gate_checked
+- Location: after drift multiplier / underperformance checks
+
+9. thompson_sampler_checked
+- Location: after aiem_paper_thompson sample is used
+
+10. rl_weight_checked
+- Location: after RL buffer / rl_strategy_weights / PPO logic is checked
+
+11. final_aiem_decision
+- Location: final AEIM approve/reject/commit decision
+- Must log decision_authority="AEIM"
+
+12. outcome_recorded
+- Location: _aiem_paper_mark_to_market() after trade closes
+- Must call log_outcome_for_trade()
+
+13. learning_update_applied
+- Location: after trust update, Thompson update, RL buffer update, PPO training check
+- Must call log_learning_updates()
+
+Requirement:
+Every stage must write to aiem_pipeline_audit_log with the same trace_id.
+
+==================================================
+STEP 2 — CONNECT SUPERVISOR TO OBSERVABILITY
+==================================================
+
+Do not let Supervisor create a separate truth source.
+
+The Supervisor must read from:
+
+- aiem_pipeline_audit_log
+- aiem_paper_trades
+- aiem_candidate_rankings
+- signal_trust_history
+- aiem_paper_thompson_history
+- rl_training_runs
+- rl_buffer
+
+Supervisor tables may still exist, but every Supervisor event must reference:
+
+audit_trace_id
+source_table
+source_row_id
+stage_name
+
+Add trace_id foreign/reference columns if missing.
+
+Supervisor must run in MONITOR_ONLY mode first.
+
+Supervisor must review:
+
+1. complete pipeline chain
+2. missing stages
+3. learning update quality
+4. trust-weight change safety
+5. Thompson sampler update
+6. PPO/RL training status
+7. candidate ranking quality
+8. risk flags
+9. overfitting risk
+10. whether AEIM is learning too aggressively
+
+Supervisor must NOT block trades yet.
+
+==================================================
+STEP 3 — VERIFY EVERYTHING END TO END
+==================================================
+
+Create strict verifier:
+
+strict_observability_supervisor_verifier.py
+
+It must verify:
+
+1. All 13 stages exist in source code.
+2. All 13 stages write to aiem_pipeline_audit_log.
+3. A new real post-deployment trade has one trace_id across all stages.
+4. outcome_recorded fires after close.
+5. learning_update_applied fires after outcome.
+6. Supervisor reads the audit log, not a separate fake event stream.
+7. Supervisor events reference audit_trace_id.
+8. Candidate rankings are linked to trace_id.
+9. Trust history is linked to trace_id.
+10. Thompson history is linked to trace_id.
+11. RL/PPO status is logged honestly.
+12. Daily report shows PASS/PARTIAL/FAIL.
+
+Do not use smoke-test rows as final proof.
+
+Acceptable verdicts:
+PASS
+PARTIAL
+FAIL
+
+PASS only if a real post-deployment trade proves:
+scanner alert → AEIM intake → ranking → final decision → paper trade → outcome → learning update → Supervisor review
+
+==================================================
+WHERE TO WIRE IN MAIN CODE
+==================================================
+
+Please inspect the current code and wire into the equivalent functions, especially:
+
+- scanner alert creation / Telegram alert send
+- _aiem_paper_pick_candidates()
+- _aiem_paper_execute_today()
+- _aiem_paper_mark_to_market()
+- closed-loop learning update logic
+- Thompson sampler update logic
+- trust weight update logic
+- RL/PPO training check
+- Supervisor event/review logic
+
+Do not guess function names. If names differ, find the actual equivalent functions and report the mapping.
+
+==================================================
+FINAL DELIVERABLES
+==================================================
+
+Provide:
+
+1. Files changed
+2. Exact functions modified
+3. All new DB columns/tables
+4. Confirmation all 13 stages are wired
+5. Confirmation Supervisor consumes Observability Layer
+6. Confirmation no duplicate truth source exists
+7. Output of strict verifier
+8. One sample trace_id report
+9. Final verdict: PASS / PARTIAL / FAIL
+
+Important:
+If no new real trade has closed yet, mark PARTIAL honestly and say what event is still needed.
+Do not claim PASS from smoke-test rows.

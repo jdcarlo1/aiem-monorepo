@@ -26,20 +26,21 @@ FAIL_IF_SCANNER_DECIDES      = True
 FAIL_IF_LEARNING_LOOP_BROKEN = True
 
 # Canonical module order — used to detect skips / out-of-order execution
+# Reflects the full trade pipeline: scanner alert → learning update.
 _MODULE_ORDER = [
-    "signal_received",          # 1  scanner hands off candidate
-    "aiem_candidate_intake",    # 2  AIEM deduplicates + ranks
-    "outcome_tracker",          # 3  historical WR tracked per signal
-    "decay_failure_analyzer",   # 4  Module 2 Thompson ranking
-    "hypothesis_promoter",      # 5  Module 5 promotion check
-    "adversarial_critique",     # 6  Module 4 critique
-    "pattern_discovery",        # 7  discovery engine run_cycle
-    "rediscovery_variation",    # 8  Module 6 rediscovery batch
-    "feedback_loop",            # 9  Module 7 Thompson prior update
-    "notifications",            # 10 Module 8 Telegram alerts
-    "final_aiem_decision",      # 11 AIEM commits the trade
-    "outcome_recorded",         # 12 MTM closes + records pnl
-    "learning_update_applied",  # 13 discovery cycle / drift / trust
+    "signal_received",           # 1  scanner hands off candidate to AIEM
+    "aiem_candidate_intake",     # 2  AIEM receives + deduplicates candidate
+    "duplicate_filter_check",    # 3  dedup gate: highest-score source wins
+    "market_context_loaded",     # 4  FRED macro + drift verdict loaded
+    "module_scores_generated",   # 5  raw signal score from all sources
+    "candidate_ranking_created", # 6  aiem_candidate_rankings written
+    "trust_weights_applied",     # 7  signal_trust_weights multiplier applied
+    "drift_gate_checked",        # 8  drift_check_log multiplier applied
+    "thompson_sampler_checked",  # 9  aiem_paper_thompson alpha/beta read
+    "rl_weight_checked",         # 10 rl_strategy_weights live state read
+    "final_aiem_decision",       # 11 AIEM commits trade to aiem_paper_trades
+    "outcome_recorded",          # 12 MTM closes position, pnl written
+    "learning_update_applied",   # 13 trust + Thompson + RL buffer updated
 ]
 
 _DDL = """
@@ -305,11 +306,9 @@ def generate_audit_report(trace_id: str, db_url: str = None) -> dict:
     # Derive whether discovery-cycle modules are covered by the global cycle
     # (they run on the full universe, not per-ticker — count as VERIFIED if
     # the discovery_cycle_log has a recent run and the step exists in the DB)
-    _dc_global_modules = {
-        "outcome_tracker", "decay_failure_analyzer", "hypothesis_promoter",
-        "adversarial_critique", "pattern_discovery", "rediscovery_variation",
-        "feedback_loop", "notifications",
-    }
+    # All 13 stages are now per-ticker (wired in _aiem_paper_execute_today +
+    # _aiem_paper_mark_to_market). No global-cycle fallback needed.
+    _dc_global_modules: set = set()
     try:
         import psycopg2
         _db = db_url or os.environ.get("DATABASE_URL", "")

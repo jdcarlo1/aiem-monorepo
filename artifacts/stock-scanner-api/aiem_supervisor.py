@@ -147,6 +147,13 @@ def init_schema():
         ADD COLUMN IF NOT EXISTS learning_update_seen BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE aiem_supervisor_loop_audit
         ADD COLUMN IF NOT EXISTS verdict TEXT;
+
+    -- Idempotent UNIQUE index on loop_audit.audit_trace_id.
+    -- Older instances were created with TEXT UNIQUE in the DDL but the
+    -- constraint name differed, so ON CONFLICT (audit_trace_id) would fail.
+    -- CREATE UNIQUE INDEX IF NOT EXISTS is safe to run repeatedly.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_sup_loop_trace_uniq
+        ON aiem_supervisor_loop_audit(audit_trace_id);
     """
     try:
         with psycopg2.connect(_DB_URL) as c, c.cursor() as cu:
@@ -815,10 +822,65 @@ def supervisor_generate_daily_report(report_date=None):
             closed_wins = tr[1] or 0
             avg_pnl = float(tr[2] or 0)
 
+            # ── Observability cross-reference: pipeline audit stage coverage ─
+            audit_total_traces = 0
+            audit_full_traces  = 0
+            audit_avg_stages   = 0.0
+            try:
+                cu.execute("""
+                    WITH stage_counts AS (
+                        SELECT trace_id,
+                               COUNT(DISTINCT module_name) AS stage_count
+                        FROM aiem_pipeline_audit_log
+                        WHERE logged_at::date=%s
+                        GROUP BY trace_id
+                    )
+                    SELECT
+                        COUNT(*)                                                   AS total_traces,
+                        SUM(CASE WHEN stage_count = 13 THEN 1 ELSE 0 END)         AS full_traces,
+                        ROUND(AVG(stage_count)::numeric, 1)                        AS avg_stages
+                    FROM stage_counts
+                """, (today,))
+                _pal = cu.fetchone()
+                if _pal:
+                    audit_total_traces = int(_pal[0] or 0)
+                    audit_full_traces  = int(_pal[1] or 0)
+                    audit_avg_stages   = float(_pal[2] or 0)
+            except Exception as _pal_e:
+                print(f"[supervisor] pipeline_audit cross-ref skipped: {_pal_e}")
+
+            # ── Supervisor event coverage per audit_trace_id ─────────────────
+            sup_event_coverage_pct = 0.0
+            try:
+                cu.execute("""
+                    SELECT
+                        COUNT(DISTINCT t.audit_trace_id)                           AS trades_with_trace,
+                        COUNT(DISTINCT e.audit_trace_id)                           AS traces_with_sup_events
+                    FROM aiem_paper_trades t
+                    LEFT JOIN aiem_supervisor_event_log e
+                        ON e.audit_trace_id = t.audit_trace_id
+                       AND e.created_at::date = %s
+                    WHERE t.trade_date = %s
+                      AND t.audit_trace_id IS NOT NULL
+                """, (today, today))
+                _sev = cu.fetchone()
+                if _sev and _sev[0]:
+                    sup_event_coverage_pct = round(
+                        float(_sev[1] or 0) / float(_sev[0]) * 100, 1
+                    )
+            except Exception as _sev_e:
+                print(f"[supervisor] sup_event_coverage skipped: {_sev_e}")
+
         wr = (closed_wins / closed_n) if closed_n else 0
         loop_quality = (complete_loops / (complete_loops + incomplete_loops)
                         if (complete_loops + incomplete_loops) else 0.5)
-        composite = wr * 0.5 + loop_quality * 0.3 + (1 - min(1, bad_flags * 0.1)) * 0.2
+        # Pipeline completeness factor: reward full 13-stage traces
+        _audit_factor = (audit_full_traces / audit_total_traces
+                         if audit_total_traces else 0.5)
+        composite = (wr * 0.45
+                     + loop_quality * 0.25
+                     + (1 - min(1, bad_flags * 0.1)) * 0.15
+                     + _audit_factor * 0.15)
         grade = (
             "A" if composite >= 0.70 else
             "B" if composite >= 0.55 else
@@ -841,6 +903,10 @@ def supervisor_generate_daily_report(report_date=None):
             "win_rate": round(wr, 4),
             "avg_pnl_pct": round(avg_pnl, 4),
             "loop_quality": round(loop_quality, 3),
+            "pipeline_audit_traces_today": audit_total_traces,
+            "pipeline_audit_full_13stage_traces": audit_full_traces,
+            "pipeline_audit_avg_stages_per_trace": audit_avg_stages,
+            "supervisor_event_coverage_pct": sup_event_coverage_pct,
             "overall_grade": grade,
         }
 
