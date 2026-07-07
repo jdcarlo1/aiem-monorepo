@@ -825,6 +825,44 @@ def aiem_open_watcher():
         lines.append(f"\n🛑 -10% hard stop on all names  |  Size $500-$1,000/pick")
         lines.append(f"📊 {len(qualifiers)} pick{'s' if len(qualifiers) != 1 else ''} confirmed at open")
 
+        # Skip-command check — did the owner reply SKIP NANO within the last 90 min?
+        # Polls Telegram getUpdates (non-blocking, no webhook required).
+        _skip_nano = False
+        try:
+            import time as _st
+            _tg_skip_token   = TG_TOKEN
+            _tg_skip_chat_id = TG_CHAT_ID
+            _cutoff = _st.time() - 90 * 60
+            _skip_req = urllib.request.Request(
+                f"https://api.telegram.org/bot{_tg_skip_token}/getUpdates?timeout=0&limit=50",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(_skip_req, timeout=6) as _skip_r:
+                _skip_data = json.loads(_skip_r.read())
+            for _upd in _skip_data.get("result", []):
+                _msg = _upd.get("message", {})
+                if str(_msg.get("chat", {}).get("id", "")) != str(_tg_skip_chat_id):
+                    continue
+                if _msg.get("date", 0) < _cutoff:
+                    continue
+                _txt = (_msg.get("text") or "").upper().strip()
+                if "SKIP NANO" in _txt or "SKIP ALL" in _txt:
+                    _skip_nano = True
+                    break
+        except Exception as _sk_e:
+            log.warning(f"open_watcher: skip-check error (proceeding): {_sk_e}")
+
+        if _skip_nano:
+            log.info("open_watcher: owner replied SKIP NANO — suppressing today's nano alert")
+            cur.execute("""
+                INSERT INTO signal_fire_log
+                    (signal_name, ticker, fire_date, metadata, logged_at)
+                VALUES ('AIEM_OPEN_ALERT', 'DAILY_SUMMARY', %s, %s::jsonb, NOW())
+                ON CONFLICT (signal_name, ticker, fire_date) DO NOTHING
+            """, (today, json.dumps({"picks": 0, "skipped_by_owner": True})))
+            conn.commit()
+            return
+
         _send_alert("\n".join(lines))
 
         # Log as sent so we don't fire again today

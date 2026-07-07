@@ -138,6 +138,134 @@ def _tg_send(text: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────
+# SKIP COMMAND LISTENER — polls getUpdates for owner SKIP replies
+# ─────────────────────────────────────────────────────────────
+def _tg_get_skip_commands(within_minutes: int = 90) -> set:
+    """Poll Telegram getUpdates for recent SKIP commands from the owner.
+    Returns a set of skipped categories: 'nano', 'picks', 'options'.
+    Non-blocking (timeout=0). Safe to call even without webhooks configured."""
+    import time as _t
+    token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return set()
+    cutoff  = _t.time() - within_minutes * 60
+    skipped = set()
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/getUpdates?timeout=0&limit=50",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read())
+        for upd in data.get("result", []):
+            msg = upd.get("message", {})
+            if str(msg.get("chat", {}).get("id", "")) != chat_id:
+                continue
+            if msg.get("date", 0) < cutoff:
+                continue
+            text = (msg.get("text") or "").upper().strip()
+            for cmd, cat in [
+                ("SKIP NANO",    "nano"),
+                ("SKIP PICKS",   "picks"),
+                ("SKIP OPTIONS", "options"),
+                ("SKIP ALL",     "all"),
+            ]:
+                if cmd in text:
+                    skipped.add(cat)
+    except Exception as e:
+        log.warning(f"[skip-check] getUpdates error: {e}")
+    if "all" in skipped:
+        return {"nano", "picks", "options"}
+    return skipped
+
+
+# ─────────────────────────────────────────────────────────────
+# MORNING PREVIEW — 9:00 AM daily briefing with skip instructions
+# ─────────────────────────────────────────────────────────────
+def send_morning_preview():
+    """9:00 AM ET Mon-Fri: send one consolidated preview of every alert
+    planned for today. Owner can reply SKIP NANO / SKIP PICKS / SKIP OPTIONS
+    within 30 minutes to block that category before it fires."""
+    today = date.today()
+    conn  = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        cur  = conn.cursor()
+
+        # Nano picks (S1b/S1c/S1d gap signals from aiem_process)
+        cur.execute("""
+            SELECT ticker, confidence_score, signal_basis
+            FROM aiem_process_predictions
+            WHERE prediction_date = %s AND confidence_score >= 50
+            ORDER BY confidence_score DESC LIMIT 10
+        """, (today,))
+        nano_rows = cur.fetchall()
+
+        # Stock picks (AIEM independent, threshold 7.5)
+        cur.execute("""
+            SELECT ticker, confidence_score
+            FROM aiem_independent_picks
+            WHERE pick_date = %s AND pick_type = 'stock' AND confidence_score >= 7.5
+            ORDER BY confidence_score DESC LIMIT 10
+        """, (today,))
+        stock_rows = cur.fetchall()
+
+        # Options picks (AIEM independent, threshold 7.5)
+        cur.execute("""
+            SELECT ticker, confidence_score
+            FROM aiem_independent_picks
+            WHERE pick_date = %s AND pick_type = 'call_option' AND confidence_score >= 7.5
+            ORDER BY confidence_score DESC LIMIT 10
+        """, (today,))
+        opts_rows = cur.fetchall()
+
+        lines = [
+            f"📅 AIEM MORNING PREVIEW — {today.strftime('%a %b %-d')}",
+            "Reply SKIP to block any category (30 min window)",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+        if nano_rows:
+            lines.append(f"🟢 NANO PICKS — {len(nano_rows)} above threshold (fires 9:30 AM):")
+            for ticker, conf, sig in nano_rows[:5]:
+                tier = "S1c" if "momentum_carry" in (sig or "") else "S1d" if "soft_carry" in (sig or "") else "S1b"
+                lines.append(f"  • {ticker}  {float(conf):.0f}/100  [{tier}]")
+            if len(nano_rows) > 5:
+                lines.append(f"  ...+{len(nano_rows)-5} more")
+            lines.append("  ➤ Reply SKIP NANO to block")
+        else:
+            lines.append("⚪ NANO PICKS: none above 50 threshold today")
+
+        lines.append("")
+
+        if stock_rows:
+            lines.append(f"📈 STOCK PICKS — {len(stock_rows)} ready (fires 9:30 AM):")
+            for ticker, conf in stock_rows[:4]:
+                lines.append(f"  • {ticker}  {float(conf):.1f}/10")
+            lines.append("  ➤ Reply SKIP PICKS to block")
+        else:
+            lines.append("⚪ STOCK PICKS: none above 7.5 today")
+
+        if opts_rows:
+            lines.append(f"🎯 OPTIONS PICKS — {len(opts_rows)} ready (fires 10:30 AM):")
+            for ticker, conf in opts_rows[:4]:
+                lines.append(f"  • {ticker}  {float(conf):.1f}/10")
+            lines.append("  ➤ Reply SKIP OPTIONS to block")
+        else:
+            lines.append("⚪ OPTIONS PICKS: none above 7.5 today")
+
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        _tg_send("\n".join(lines))
+        log.info(f"[preview] sent — {len(nano_rows)} nano, {len(stock_rows)} stock, {len(opts_rows)} options")
+    except Exception as e:
+        log.error(f"[preview] error: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+# ─────────────────────────────────────────────────────────────
 # DB READ — SELECT ONLY. This process must never INSERT/UPDATE/DELETE
 # aiem_predictions; main.py is the single canonical writer.
 # ─────────────────────────────────────────────────────────────
@@ -166,13 +294,13 @@ def _fetch_todays_picks(pick_type: str):
         # Threshold on the 0–10 scale used by aiem_independent_picks.
         # Stock floor = 6.5 (avg historical = 7.06; excludes bottom-tier speculative picks).
         # Options floor = 6.5 (all historical options ≥ 6.2; keeps only genuine flow signals).
-        _INDEP_THRESH = 6.5
+        _INDEP_THRESH = 7.5
         cur.execute("""
             SELECT pick_type, ticker, confidence_score, rationale,
                    option_strike, option_expiry, hold_days_max
             FROM aiem_independent_picks
             WHERE pick_date = %s AND pick_type = %s
-              AND confidence_score >= 6.5
+              AND confidence_score >= 7.5
             ORDER BY confidence_score DESC NULLS LAST
             LIMIT 20
         """, (date.today(), pick_type))
@@ -349,6 +477,14 @@ def _send_picks_brief(brief_type: str, pick_type: str, send_hour_label: str):
     if not won_claim:
         log.info(f"{log_prefix}: {today} already sent (or in progress) by another instance - skipping duplicate")
         _last_run.update(status="skipped_duplicate", timestamp=datetime.utcnow().isoformat())
+        return
+
+    # Skip-command check — did the owner reply SKIP within the last 90 min?
+    skipped = _tg_get_skip_commands(within_minutes=90)
+    skip_cat = "picks" if brief_type in ("stock", "options") else brief_type
+    if skip_cat in skipped:
+        log.info(f"{log_prefix}: owner replied SKIP {skip_cat.upper()} — suppressing today's {brief_type} brief")
+        _record_send_result(today, brief_type, f"skipped_by_owner_command")
         return
 
     try:
@@ -570,6 +706,12 @@ def main():
     _scheduler_ref = scheduler
 
     scheduler.add_job(
+        send_morning_preview,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=0, timezone=ET),
+        id="aiem_morning_preview",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         send_independent_stock_picks_brief,
         CronTrigger(day_of_week="mon-fri", hour=9, minute=30, timezone=ET),
         id="aiem_independent_stock_picks_notifier",
@@ -582,7 +724,7 @@ def main():
         replace_existing=True,
     )
 
-    log.info("AIEM Telegram Notifier started (read-only, sends stock brief 9:30 AM ET + options brief 10:30 AM ET, Mon-Fri)")
+    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 10:30 AM options, Mon-Fri")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

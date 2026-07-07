@@ -39867,20 +39867,11 @@ def _aiem_paper_execute_today():
             except Exception as _ff_e:
                 print(f"[aiem_paper] flag_fills write-time error (non-blocking): {_ff_e}")
         _log_finish("SUCCESS", _trades=rows_inserted)
-        # ── Telegram: one consolidated entry alert ────────────────────────
+        # Paper trades Telegram disabled — positions are on the website.
+        # (The Telegram notification was sending 15 noisy positions including
+        # demoted gap_volume stocks and irrelevant large-cap AI picks.)
         if _tg_entry_lines and rows_inserted > 0:
-            try:
-                import datetime as _tget
-                _tg_send(
-                    f"📋 AIEM PAPER TRADES — {rows_inserted} entered  "
-                    f"{_tget.datetime.now(_ET).strftime('%b %d %Y')}\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    + "\n".join(_tg_entry_lines)
-                    + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "Paper positions — view full details on website"
-                )
-            except Exception as _tge:
-                print(f"[aiem_paper] entry Telegram error (non-blocking): {_tge}")
+            print(f"[aiem_paper] {rows_inserted} positions entered — view details on website (Telegram suppressed)")
     except Exception as _e:
         print(f"[aiem_paper] execute error: {_e}")
         _log_finish("FAILED", _err=str(_e))
@@ -57738,8 +57729,9 @@ def _send_cta_triggers_alert() -> None:
                     f"→{_r.get('trigger_ma','')}@${_r.get('trigger_price',0):.2f}  "
                     f"({_r.get('trigger_pct_away',0):.1f}% away)"
                 )
-        if len(_tg_lines) > 1:
-            _tg_send("\n".join(_tg_lines))
+        # CTA Telegram disabled — data is on the website; macro positioning is
+        # not an actionable pick alert. Results still saved to DB via save_to_db().
+        print(f"[cta_triggers] {len(_tg_lines)-1} results saved to DB (Telegram suppressed)")
     except Exception as _e:
         print(f"[cta_triggers] error: {_e}")
 
