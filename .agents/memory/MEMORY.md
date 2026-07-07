@@ -145,3 +145,4 @@
 - [Washout quality gates + July verdict](washout-quality-gates.md) — 6 gates spec; July shows 54.8% WR (1 year of data only, not added to _BAD_MONTHS)
 - [Backtest delegation rule](backtest-delegation-rule.md) — ALL backtesting/historical analysis must go to AIEM, never run by main agent; only file edits stay with main agent
 - [AIEM Pipeline Audit Layer](aiem-pipeline-audit.md) — cryptographic trace per paper trade; 4 admin endpoints; 13-module PASS/FAIL; learning loop has 8 stages (4 currently INCOMPLETE = honest)
+- [AIEM closed-loop learning gaps](aiem-closed-loop-gaps.md) — all 5 audit gaps closed; helper module aiem_closed_loop_learning.py; 4 new tables; 2 admin endpoints

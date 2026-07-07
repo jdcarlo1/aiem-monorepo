@@ -1,0 +1,337 @@
+Build one STRICT AEIM verification module that independently verifies the full closed-loop process using live database evidence only.
+
+File name:
+strict_aeim_closed_loop_verifier.py
+
+Purpose:
+This verifier must prove whether AEIM itself is performing the full process, not the stock scanner and not a manually written report.
+
+The verifier must check every process from stock alert → AEIM decision → paper trade → outcome grading → learning update → future decision impact.
+
+This must be the strictest possible verification.
+
+DO NOT rely on claims, summaries, logs written by the agent, or manually prepared reports.
+Use only live database rows, source code references, timestamps, trace_ids, and computed verification logic.
+
+==================================================
+STRICT VERIFICATION REQUIREMENTS
+==================================================
+
+The verifier must output one of only three verdicts:
+
+PASS:
+AEIM proves full closed-loop autonomy:
+alert received, AEIM decision made, trade tracked, outcome graded, learning update applied, parameter changed, and later decision used the changed parameter.
+
+PARTIAL:
+Some pieces are working, but one or more required proof links are missing.
+
+FAIL:
+AEIM cannot prove closed-loop learning from DB/source evidence.
+
+==================================================
+REQUIRED PROOF CHAIN
+==================================================
+
+For every verified trade, prove all 13 links:
+
+1. scanner_alert_received
+   - A stock scanner alert exists.
+   - It has ticker, signal_source, timestamp, and scanner reason/score.
+   - Source must be stock_scanner or equivalent scanner source.
+
+2. aeim_intake_started
+   - AEIM received the scanner candidate.
+   - Must be separate from stock scanner.
+   - Must show AEIM intake timestamp after scanner alert timestamp.
+
+3. audit_trace_created
+   - audit_trace_id exists.
+   - audit_trace_id is not NULL.
+   - Same audit_trace_id connects alert, AEIM decision, paper trade, outcome, and learning update.
+
+4. candidate_ranking_stored
+   - Intermediate candidate ranking exists in DB.
+   - Must show ticker rank, raw score, module scores, trust multiplier, drift multiplier, RL weight, and final adjusted score.
+
+5. aeim_final_decision
+   - Final decision exists.
+   - decision_authority must equal AEIM.
+   - Must show approved/rejected, confidence score, and reason.
+
+6. paper_trade_created
+   - If AEIM approved the trade, paper trade must exist.
+   - Paper trade must contain ticker, entry price, entry time, signal_source, and audit_trace_id.
+
+7. outcome_recorded
+   - Trade must have exit price, exit time, pnl, pnl_pct, status closed, and outcome classification.
+
+8. mistake_or_success_reason_assigned
+   - AEIM must assign a specific reason:
+     examples:
+     UNDERPERFORMED_MARKET
+     BAD_ENTRY
+     WEAK_VOLUME
+     REGIME_MISMATCH
+     OVEREXTENDED
+     GOOD_SIGNAL_CONFIRMED
+     STRONG_RELATIVE_PERFORMANCE
+
+9. learning_update_applied
+   - A learning update row must exist.
+   - Must reference trade_id and audit_trace_id.
+   - Must include what was learned.
+
+10. parameter_before_after_changed
+   - At least one internal parameter must change.
+   - Examples:
+     signal_trust_score
+     strategy_weight
+     module_weight
+     drift_multiplier
+     Thompson sampler alpha/beta
+     RL policy/buffer value
+     confidence penalty/boost
+
+   Required:
+   old_value
+   new_value
+   delta
+   reason
+
+11. trust_history_persisted
+   - The trust change must be persisted in DB, not only computed in memory.
+   - If computed in memory only, mark PARTIAL.
+
+12. future_decision_used_update
+   - Find a later AEIM decision after the learning update.
+   - Prove the later decision used the updated value.
+   - Must show later timestamp > learning update timestamp.
+   - Must show updated parameter present in later decision calculation.
+
+13. future_decision_affected
+   - Prove the update had an effect:
+     confidence changed
+     ranking changed
+     trade blocked
+     trade approved
+     signal source suppressed
+     risk reduced
+     another ticker promoted
+
+If any of these 13 links are missing, the trade cannot be marked PASS.
+
+==================================================
+STRICT ANTI-FAKE RULES
+==================================================
+
+The verifier must reject any proof that is:
+
+- manually written only
+- hard-coded
+- generated from mock data
+- based only on text explanation
+- missing SQL queries
+- missing returned rows
+- missing timestamps
+- missing trace_id
+- missing before/after parameter values
+- missing later decision evidence
+
+The verifier must verify timestamps are chronological:
+
+scanner_alert_time
+<
+aeim_intake_time
+<=
+final_decision_time
+<=
+paper_trade_entry_time
+<
+paper_trade_exit_time
+<=
+outcome_recorded_time
+<=
+learning_update_time
+<
+later_decision_time
+
+If timestamps are missing or out of order, mark PARTIAL or FAIL.
+
+==================================================
+DATABASE TABLES TO CHECK
+==================================================
+
+Search for and verify these tables if they exist:
+
+aiem_paper_trades
+aiem_pipeline_audit_log
+aiem_candidate_rankings
+signal_trust_history
+rl_strategy_weights
+rl_buffer
+dc_template_feedback
+aiem_learning_updates
+aiem_signal_discoveries
+drift_check_log
+aiem_decision_log
+scanner_alerts
+telegram_alerts
+
+If table names differ, inspect schema and map equivalent tables.
+
+If any table is missing, report it honestly.
+
+==================================================
+SOURCE-CODE VERIFICATION
+==================================================
+
+The verifier must also inspect source code and confirm the actual functions are wired.
+
+Search source code for:
+
+audit_trace_id
+PipelineTrace
+decision_authority
+candidate_ranking
+signal_trust_history
+dc_template_feedback
+rl_buffer
+rl_strategy_weights
+learning_update_applied
+outcome_recorded
+_a iem_paper_execute_today
+_aiem_paper_mark_to_market
+_discovery_cycle_job
+log_learning_updates
+
+Fix typo while searching:
+also search exact:
+_aiem_paper_execute_today
+_aiem_paper_mark_to_market
+
+For each required function, report:
+
+FOUND / NOT FOUND
+file path
+line number
+brief evidence
+
+==================================================
+OUTPUT REPORT
+==================================================
+
+Create a report file:
+
+AEIM_STRICT_CLOSED_LOOP_VERIFICATION_REPORT.md
+
+The report must include:
+
+1. Executive verdict:
+   PASS / PARTIAL / FAIL
+
+2. Summary table:
+   Required link
+   Status
+   Evidence table
+   Evidence row id
+   Timestamp
+   Notes
+
+3. Full verified trade example:
+   trade_id
+   ticker
+   signal_source
+   audit_trace_id
+   entry
+   exit
+   pnl
+   pnl_pct
+   mistake/success reason
+
+4. Parameter update proof:
+   parameter_name
+   old_value
+   new_value
+   delta
+   update_reason
+   table_name
+   row_id
+
+5. Future decision proof:
+   later_trade_id
+   later_ticker
+   later_decision_time
+   updated_value_used
+   effect_on_decision
+
+6. Missing gaps:
+   Any missing table
+   Any missing field
+   Any empty table
+   Any in-memory-only calculation
+   Any module not functioning
+
+7. Final verdict explanation:
+   Say clearly:
+   "AEIM fully proves closed-loop learning"
+   or
+   "AEIM partially proves learning but lacks full auditability"
+   or
+   "AEIM does not yet prove adaptive learning"
+
+==================================================
+COMMAND LINE USAGE
+==================================================
+
+The file must be runnable as:
+
+python strict_aeim_closed_loop_verifier.py
+
+Optional:
+
+python strict_aeim_closed_loop_verifier.py --trade-id 147
+
+python strict_aeim_closed_loop_verifier.py --latest
+
+python strict_aeim_closed_loop_verifier.py --all-recent 50
+
+==================================================
+REQUIRED TERMINAL OUTPUT
+==================================================
+
+At the end of the run, print:
+
+AEIM STRICT CLOSED LOOP VERIFICATION
+Verdict: PASS / PARTIAL / FAIL
+Verified trades:
+Passed links:
+Failed links:
+Report path:
+Most important missing item:
+
+==================================================
+IMPORTANT
+==================================================
+
+This verifier must be independent.
+
+It must not simply trust AEIM's own written report.
+It must recompute and verify from database rows.
+
+It must prove the process came from AEIM by checking:
+
+decision_authority = 'AEIM'
+AEIM-specific table rows exist
+AEIM-specific timestamps occur after scanner alert
+AEIM-specific learning update exists
+AEIM-specific later decision used changed parameter
+
+If the stock scanner picked the ticker but AEIM only received it, that is OK.
+But the verifier must clearly separate:
+
+scanner = candidate source
+AEIM = decision authority
+AEIM = learning authority
+
+If that separation is not proven, verdict cannot be PASS.

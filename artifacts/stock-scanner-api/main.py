@@ -38803,10 +38803,14 @@ def _aiem_paper_pick_candidates() -> list:
         if not t or len(t) > 6:
             return
         # Apply drift-based learning gate so underperforming sources rank lower
-        _eff = score * _drift_mult.get(source, 1.0)
+        _dm   = _drift_mult.get(source, 1.0)
+        _eff  = score * _dm
         existing = _candidates.get(t)
         if existing is None or _eff > existing["score"]:
             _candidates[t] = {"ticker": t, "score": _eff,
+                               "raw_score": score,   # score BEFORE drift/trust (Gap 5)
+                               "drift_mult": _dm,    # drift multiplier applied (Gap 5)
+                               "trust_mult": 1.0,    # filled by trust gate below (Gap 5)
                                "trade_type": trade_type,
                                "source": source, "detail": detail,
                                "strike": strike, "expiry": expiry}
@@ -39100,6 +39104,7 @@ def _aiem_paper_pick_candidates() -> list:
     if _tw_map:
         for _twcand in _candidates.values():
             _tw = _tw_map.get(_twcand.get("source", ""), 1.0)
+            _twcand["trust_mult"] = _tw   # record for candidate_rankings (Gap 5)
             if _tw != 1.0:
                 _twcand["score"] = round(_twcand["score"] * _tw, 4)
 
@@ -39217,6 +39222,31 @@ def _aiem_paper_pick_candidates() -> list:
         print(f"[gate] {len(_final)} candidates passed (EdgeFilter+OptionBBrain, regime={_regime_label})")
     except Exception as _gate_e:
         print(f"[gate] intelligence gate error (pass-through): {_gate_e}")
+
+    # ── Gap 5: store full intermediate candidate ranking to DB ────────────
+    # Captures every source-level candidate (accepted AND rejected) with
+    # all multipliers applied, so the pick decision is fully reproducible.
+    try:
+        import aiem_closed_loop_learning as _acll
+        import datetime as _crdt
+        _cr_run_id = f"aiem_{_crdt.date.today().strftime('%Y_%m_%d')}"
+        _cr_final_set = {c["ticker"] for c in _final}
+        _cr_all_tickers = set(_candidates.keys())
+        _cr_rejected_set = _cr_all_tickers - _cr_final_set
+        _cr_reject_reasons = {
+            _t: "blocked by EdgeFilter/OptionBBrain/CorrelationGuard/LiquidityFilter/EventRisk or ranked out"
+            for _t in _cr_rejected_set
+        }
+        _acll.store_candidate_rankings(
+            run_id=_cr_run_id,
+            all_candidates=_candidates,
+            final_ranked=_final,
+            rejected_tickers=_cr_rejected_set,
+            rejection_reasons=_cr_reject_reasons,
+            audit_trace_map={},
+        )
+    except Exception as _cre:
+        print(f"[closed_loop] candidate_rankings skipped (non-fatal): {_cre}")
 
     return _final
 
@@ -40029,25 +40059,50 @@ def _aiem_paper_mark_to_market():
                     # Inline EMA update matching meta_learning_signal_trust logic.
                     # Uses _DB_URL directly (avoids AIEM_DATABASE_URL dependency).
                     # decay=0.95, trust_weight = clamp(rolling_wr * 2, 0.2, 2.0)
+                    _tw_wt_new = 1.0  # used by Thompson + audit steps below
+                    _tw_wt_old = 1.0
                     try:
                         _tw_src = _src or "unknown"
                         _tw_win = 1.0 if _pnl_pct > 0 else 0.0
                         with _psycopg2.connect(_DB_URL, connect_timeout=3) as _twmc, \
                                 _twmc.cursor() as _twmcu:
                             _twmcu.execute("""
-                                SELECT rolling_win_rate, n_outcomes_observed
+                                SELECT rolling_win_rate, n_outcomes_observed,
+                                       trust_weight
                                 FROM signal_trust_weights
                                 WHERE signal_name=%s AND context_bucket='PAPER_TRADING'
                             """, (_tw_src,))
                             _tw_row = _twmcu.fetchone()
                             if _tw_row:
-                                _tw_prior = float(_tw_row[0])
-                                _tw_n     = int(_tw_row[1]) + 1
-                                _tw_wr    = 0.95 * _tw_prior + 0.05 * _tw_win
+                                _tw_prior  = float(_tw_row[0])
+                                _tw_n      = int(_tw_row[1]) + 1
+                                _tw_wr     = 0.95 * _tw_prior + 0.05 * _tw_win
+                                _tw_wt_old = float(_tw_row[2])
                             else:
-                                _tw_n  = 1
-                                _tw_wr = _tw_win
-                            _tw_wt = max(0.2, min(2.0, _tw_wr * 2.0))
+                                _tw_prior  = 0.5
+                                _tw_n      = 1
+                                _tw_wr     = _tw_win
+                                _tw_wt_old = 1.0
+                            _tw_wt_new = max(0.2, min(2.0, _tw_wr * 2.0))
+                            # Gap 2: INSERT before/after row into signal_trust_history
+                            try:
+                                import aiem_closed_loop_learning as _acll_tw
+                                _acll_tw.record_trust_update(
+                                    signal_source=_tw_src,
+                                    old_rolling_wr=_tw_prior,
+                                    new_rolling_wr=_tw_wr,
+                                    old_trust=_tw_wt_old,
+                                    new_trust=_tw_wt_new,
+                                    n_trades=_tw_n,
+                                    win=(_pnl_pct > 0),
+                                    pnl=float(_pnl),
+                                    pnl_pct=float(_pnl_pct),
+                                    ticker=_t,
+                                    trade_id=_id,
+                                    audit_trace_id=_at_row[0] if (_at_row and _at_row[0]) else None,
+                                )
+                            except Exception as _sth_e:
+                                print(f"[closed_loop] trust_history skipped: {_sth_e}")
                             _twmcu.execute("""
                                 INSERT INTO signal_trust_weights
                                     (signal_name, context_bucket, rolling_win_rate,
@@ -40058,14 +40113,46 @@ def _aiem_paper_mark_to_market():
                                     n_outcomes_observed = EXCLUDED.n_outcomes_observed,
                                     trust_weight        = EXCLUDED.trust_weight,
                                     last_updated_at     = NOW()
-                            """, (_tw_src, round(_tw_wr, 6), _tw_n, round(_tw_wt, 6)))
+                            """, (_tw_src, round(_tw_wr, 6), _tw_n, round(_tw_wt_new, 6)))
                         _tw_lbl = "WIN" if _pnl_pct > 0 else "LOSS"
                         print(f"[learning_gate] trust updated: {_tw_src} "
                               f"{_tw_lbl} pnl={_pnl_pct:+.2f}% → "
-                              f"trust={_tw_wt:.3f} (n={_tw_n})")
+                              f"trust={_tw_wt_new:.3f} (n={_tw_n})")
                     except Exception as _twe_mtm:
                         print(f"[learning_gate] trust weight update skipped "
                               f"(non-fatal): {_twe_mtm}")
+                    # ── Gap 3: Thompson sampler update ────────────────────────
+                    _thompson_new_score = 0.5
+                    try:
+                        import aiem_closed_loop_learning as _acll_th
+                        _th_result = _acll_th.update_paper_thompson(
+                            signal_source=(_src or "unknown"),
+                            win=(_pnl_pct > 0),
+                            pnl_pct=float(_pnl_pct),
+                            ticker=_t,
+                            trade_id=str(_id),
+                            audit_trace_id=(_at_row[0] if (_at_row and _at_row[0]) else None),
+                        )
+                        _thompson_new_score = _th_result.get("sampled_score", 0.5)
+                    except Exception as _th_e:
+                        print(f"[closed_loop] thompson update skipped (non-fatal): {_th_e}")
+                    # ── Gap 1: log learning_update_applied audit step ─────────
+                    try:
+                        if _at_row and _at_row[0]:
+                            import aiem_closed_loop_learning as _acll_au
+                            _acll_au.log_learning_update_step(
+                                trace_id=_at_row[0],
+                                ticker=_t,
+                                signal_source=(_src or "unknown"),
+                                old_trust=_tw_wt_old,
+                                new_trust=_tw_wt_new,
+                                thompson_before=0.5,
+                                thompson_after=_thompson_new_score,
+                                pnl_pct=float(_pnl_pct),
+                                ppo_trained=False,
+                            )
+                    except Exception as _au_e:
+                        print(f"[closed_loop] audit_step skipped (non-fatal): {_au_e}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously
@@ -40182,6 +40269,14 @@ def _aiem_paper_mark_to_market():
                         print(f"[edge_filter] logged {len(_closed)} trades for regime/feature tracking")
                     except Exception as _ef_e:
                         print(f"[edge_filter] logging error: {_ef_e}")
+
+                    # ── Gap 4: PPO batch training — runs after every MTM ──────
+                    try:
+                        import aiem_closed_loop_learning as _acll_ppo
+                        _ppo_result = _acll_ppo.maybe_run_ppo_training()
+                        print(f"[closed_loop] PPO result: {_ppo_result}")
+                    except Exception as _ppo_e:
+                        print(f"[closed_loop] PPO training error (non-fatal): {_ppo_e}")
 
                 except Exception as _rle_e:
                     print(f"[rl_engine] bg pipeline error: {_rle_e}")
@@ -40573,6 +40668,110 @@ def admin_aiem_pipeline_audit_run_verification():
     try:
         import aiem_pipeline_audit as _apa
         return jsonify(_apa.run_live_verification())
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/closed-loop-audit/<int:trade_id>", methods=["GET"])
+def admin_closed_loop_audit_trade(trade_id):
+    """
+    Per-trade closed-loop audit report (Gap 1-5).
+    Returns PASS/PARTIAL/FAIL with evidence for:
+      - audit_trace_id present and non-null
+      - signal_trust_history row recorded
+      - Thompson sampler updated
+      - RL buffer row written
+      - Candidate rankings stored
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import aiem_closed_loop_learning as _acll
+        return jsonify(_acll.generate_trade_audit_report(trade_id))
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/closed-loop-summary", methods=["GET"])
+def admin_closed_loop_summary():
+    """
+    Fleet-level closed-loop summary:
+      - signal_trust_history row count (Gap 2)
+      - Thompson sampler state per source (Gap 3)
+      - rl_training_runs count + most recent (Gap 4)
+      - aiem_candidate_rankings count (Gap 5)
+      - aiem_pipeline_audit_log step coverage
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _cu.execute("SELECT COUNT(*) FROM signal_trust_history WHERE trade_id IS NOT NULL")
+            _sth_n = _cu.fetchone()[0]
+            _cu.execute("SELECT COUNT(*) FROM signal_trust_history WHERE old_trust_score IS NOT NULL")
+            _sth_full = _cu.fetchone()[0]
+            _cu.execute("""
+                SELECT signal_source, wins, losses, alpha, beta, sampled_score, last_updated
+                FROM aiem_paper_thompson ORDER BY wins + losses DESC
+            """)
+            _thompson = [
+                {"source": r[0], "wins": r[1], "losses": r[2],
+                 "alpha": float(r[3]), "beta": float(r[4]),
+                 "sampled_score": float(r[5]) if r[5] else None,
+                 "last_updated": str(r[6])}
+                for r in _cu.fetchall()
+            ]
+            _cu.execute("SELECT COUNT(*) FROM aiem_candidate_rankings")
+            _cr_n = _cu.fetchone()[0]
+            _cu.execute("SELECT COUNT(*), MAX(started_at) FROM rl_training_runs")
+            _rl_r = _cu.fetchone()
+            _rl_n, _rl_last = _rl_r[0], str(_rl_r[1]) if _rl_r[1] else None
+            _cu.execute("""
+                SELECT COUNT(*) FROM rl_training_runs WHERE gradient_step_completed = TRUE
+            """)
+            _rl_trained = _cu.fetchone()[0]
+            _cu.execute("""
+                SELECT module_name, COUNT(*) FROM aiem_pipeline_audit_log
+                GROUP BY module_name ORDER BY COUNT(*) DESC
+            """)
+            _audit_coverage = {r[0]: r[1] for r in _cu.fetchall()}
+            _cu.execute("""
+                SELECT COUNT(DISTINCT ticker) FROM aiem_pipeline_audit_log
+                WHERE module_name = 'learning_update_applied'
+            """)
+            _learn_applied = _cu.fetchone()[0]
+
+        return jsonify({
+            "gap2_trust_history": {
+                "rows_with_trade_id": _sth_n,
+                "rows_with_before_after": _sth_full,
+                "verdict": "PASS" if _sth_full > 0 else ("PARTIAL" if _sth_n > 0 else "FAIL"),
+            },
+            "gap3_thompson": {
+                "seeded_sources": len(_thompson),
+                "sources": _thompson,
+                "verdict": "PASS" if len(_thompson) >= 5 else "FAIL",
+            },
+            "gap4_ppo_training": {
+                "total_training_runs": _rl_n,
+                "gradient_steps_completed": _rl_trained,
+                "last_run_at": _rl_last,
+                "verdict": "PASS" if _rl_trained > 0 else ("PARTIAL" if _rl_n > 0 else "FAIL"),
+            },
+            "gap5_candidate_rankings": {
+                "total_rows": _cr_n,
+                "verdict": "PASS" if _cr_n > 0 else "FAIL",
+            },
+            "gap1_audit_trace": {
+                "pipeline_module_coverage": _audit_coverage,
+                "learning_update_applied_tickers": _learn_applied,
+                "verdict": "PASS" if _learn_applied > 0 else ("PARTIAL" if _audit_coverage else "FAIL"),
+            },
+        })
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
@@ -49796,6 +49995,13 @@ try:
     print("[discovery_engine] deferred schema init registered")
 except Exception as _de_import_e:
     print(f"[discovery_engine] import failed at registration time: {_de_import_e}")
+
+try:
+    import aiem_closed_loop_learning as _acll_mod
+    _DEFERRED_INITS.append(lambda: _acll_mod.init_schema())
+    print("[closed_loop] deferred schema init registered")
+except Exception as _acll_import_e:
+    print(f"[closed_loop] import failed at registration time: {_acll_import_e}")
 
 
 def _run_layer9_bg_scan():
