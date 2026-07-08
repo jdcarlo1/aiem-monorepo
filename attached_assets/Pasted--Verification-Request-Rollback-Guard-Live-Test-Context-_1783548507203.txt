@@ -1,0 +1,29 @@
+# Verification Request — Rollback Guard Live Test
+
+## Context
+`git blame` + `git show f912a21` / `git show d0ec8001` already confirm:
+- Original bug: query against nonexistent column `is_halted` (real column: `halted`), no rollback → `UndefinedColumn` → `InFailedSqlTransaction` → all subsequent queries in the `with conn:` block fail silently → `open_trades` defaults to 0.
+- Fix in `d0ec8001`: corrected column name + `try: conn.rollback() / except: pass` added after every query in `run_phase2_health()`.
+
+That proves the fix was **written**. It does not prove the fix **works** live, because the original failing server process is gone and can't be replayed.
+
+## What I need — one item only
+
+Run a live induced-failure test against the **current, running** `run_phase2_health()` connection path. Do not describe it, do not summarize it — paste raw terminal output.
+
+**Steps:**
+1. In the same `with conn:` block (or an equivalent scratch script using the live connection pool), deliberately issue a query against a column that does not exist — e.g. `SELECT fake_column_xyz FROM kill_switch_state LIMIT 1`.
+2. Confirm this raises `UndefinedColumn` / `InFailedSqlTransaction` as expected.
+3. Immediately after, in the same block, run the actual production queries that follow it in `run_phase2_health()` (e.g. the `open_trades` count query).
+4. Show the raw output confirming those subsequent queries **succeed** and return real values (not defaults, not 0, not None) — proving the rollback guard cleared the aborted transaction state and didn't just swallow the error and let everything downstream silently fail.
+5. Repeat this 2–3 times to rule out a fluke.
+
+## Format required
+- Raw terminal/log output only — no narrative description of what "should" happen.
+- Include timestamps or `pg_backend_pid()` per run so I can confirm these are live, sequential executions, not a single cached result reused.
+- No self-report ("the rollback guard is working correctly") without the output that backs it.
+
+## What will NOT satisfy this
+- Re-showing the `git show d0ec8001` diff again.
+- Re-showing the `pg_backend_pid` proof from the last item (that proved connection freshness, not rollback recovery).
+- Any explanation of the fix without a live triggered failure + live recovery in the same output.
