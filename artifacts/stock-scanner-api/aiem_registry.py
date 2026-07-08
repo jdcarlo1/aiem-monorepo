@@ -103,6 +103,29 @@ CREATE TABLE IF NOT EXISTS aiem_tool_registry (
 
 ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS owning_module TEXT;
 ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS tool_verification_level TEXT NOT NULL DEFAULT 'phase_only';
+
+CREATE TABLE IF NOT EXISTS aiem_function_registry (
+    function_row_id          SERIAL PRIMARY KEY,
+    file_name                TEXT NOT NULL,
+    function_name            TEXT NOT NULL,
+    purpose                  TEXT,
+    inputs                   TEXT,
+    outputs                  TEXT,
+    upstream_dependencies    TEXT,
+    downstream_dependencies  TEXT,
+    owning_phase             INTEGER,
+    owning_phase_name        TEXT,
+    owning_module            TEXT,
+    is_inline                BOOLEAN NOT NULL DEFAULT TRUE,
+    verification_status      TEXT NOT NULL DEFAULT 'PENDING_VERIFICATION',
+    verification_evidence    TEXT,
+    verified_by_command      TEXT,
+    last_verified_date       TIMESTAMPTZ,
+    verification_version     INTEGER NOT NULL DEFAULT 0,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (file_name, function_name)
+);
 """
 
 
