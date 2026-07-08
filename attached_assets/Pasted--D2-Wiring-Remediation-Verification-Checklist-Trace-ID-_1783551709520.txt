@@ -1,0 +1,36 @@
+# D2 Wiring Remediation — Verification Checklist
+**Trace ID under review:** `verify_2026-07-08_c65f31`
+**Standard:** Raw terminal/SQL output only. No agent summaries, no narrative descriptions, no "confirmed" claims without a pasted result. Every answer must include the literal command run and its unedited output.
+
+---
+
+## 1. Payload truncation fix (Fix 4)
+- [ ] `grep -n "input_summary\|output_summary" aiem_pipeline_audit.py` — paste full output. Confirm no `[:500]` or any slice pattern remains anywhere in the file, not just lines 137-138.
+- [ ] Pull the 3 most recent rows from whatever table stores these summaries. Paste `LENGTH(input_summary)` and `LENGTH(output_summary)` for each row. Any value ≤500 chars is suspect — confirm it's ≤500 because the payload is actually that short, not because of a hidden truncation elsewhere (e.g. serialization layer, DB column type/limit).
+- [ ] Check the column definition itself: `\d aiem_pipeline_audit` (or equivalent) — confirm the column type isn't `VARCHAR(500)` or similar, which would silently truncate regardless of the Python fix.
+
+## 2. Stage 3/10/15 subcheck wiring (Fix 5)
+- [ ] `grep -n "stage3_data_guards_subchecks\|technical_signal_subchecks\|log_stage15_subchecks" main.py` — paste output showing both the call site AND the function definition (should be 2 hits per function minimum).
+- [ ] SQL: `SELECT trace_id, stage, COUNT(*) FROM aiem_d2_subcheck_log WHERE trace_id = 'verify_2026-07-08_c65f31' GROUP BY trace_id, stage ORDER BY stage;` — paste raw result. Confirm it matches the claimed 3×Stage3 / 4×Stage10 / 2×Stage15 breakdown exactly, not just a total of 9.
+- [ ] SQL: `SELECT stage, created_at FROM aiem_d2_subcheck_log WHERE trace_id = 'verify_2026-07-08_c65f31' ORDER BY created_at;` — confirm timestamps fall within this session's actual runtime window, not backfilled or copied from a prior trace.
+- [ ] Confirm `_init_d2_subcheck_log_schema()` is actually in `_DEFERRED_INITS` at startup: `grep -n "_DEFERRED_INITS" main.py` — paste the full list, not just the one append line, so it's clear this isn't a duplicate/dead registration.
+- [ ] Hit `GET /stock-api/admin/diagram2-lookahead-test` directly (not via agent) and paste the raw HTTP response body + status code.
+
+## 3. Lookahead / PIT validation (already showed one passing test)
+- [ ] Run the same test again with a **different** future date (not 2026-07-09) to rule out a hardcoded date check. Paste the rejection message and confirm it dynamically reflects the new date.
+- [ ] Run one negative-control test with a **valid, non-future** date and confirm the pick is accepted (not universally rejected — need proof the gate discriminates, not just blocks everything).
+
+## 4. Stage 21/22 scheduler (Fix 6)
+- [ ] `sed -n '14800,14820p' main.py` — paste exact lines, confirm CronTrigger args verbatim as claimed.
+- [ ] Get the **exact** line number for Stage 22, not `~51042`. `grep -n "_asup_mod.init_schema" main.py` — paste output.
+- [ ] Confirm both jobs are actually registered with the live scheduler at runtime, not just present in source: query the scheduler's job list (e.g. APScheduler `get_jobs()` output) for `supervisor_daily_report` and the D3 governance init job ID. Paste raw output.
+
+## 5. Cross-cutting
+- [ ] Confirm none of the above evidence was generated in the same process/session as the fix itself in a way that could self-validate — i.e., restart the relevant service and re-pull DB rows / re-hit the endpoint fresh, then compare trace IDs to confirm persistence across restart.
+- [ ] Full list of files touched in this fix batch: `git diff --stat` (or equivalent) — paste output so scope is verifiable against the 200-file remediation tracker.
+
+---
+
+## Separate flag — not a wiring issue, needs its own answer
+Live WR (100 closed trades): 36.0%, avg P&L −1.96%, maxDD −34.38%, Sharpe ≈ −0.251.
+This is a losing system on paper capital. None of Fixes 4-6 address performance — confirm this is being tracked as a distinct open item, not implicitly closed out by the wiring sign-off.

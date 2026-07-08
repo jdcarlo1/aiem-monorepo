@@ -61752,6 +61752,28 @@ def admin_diagram2_lookahead_test():
 
 
 
+
+
+@app.route("/stock-api/admin/scheduler-jobs", methods=["GET"])
+def admin_scheduler_jobs():
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        jobs = []
+        for j in _scheduler.get_jobs():
+            jobs.append({
+                "id":          j.id,
+                "name":        j.name,
+                "next_run":    str(j.next_run_time),
+                "trigger":     str(j.trigger),
+                "func":        str(j.func),
+            })
+        return jsonify({"job_count": len(jobs), "jobs": jobs})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
     # Join it to keep the main thread alive. SIGTERM/SIGKILL will terminate the process.
