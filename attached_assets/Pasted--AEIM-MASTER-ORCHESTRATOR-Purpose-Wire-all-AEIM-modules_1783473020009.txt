@@ -1,0 +1,622 @@
+"""
+AEIM MASTER ORCHESTRATOR
+Purpose:
+Wire all AEIM modules, tools, learning loops, risk gates, audit logs,
+and verification systems into one autonomous communication layer.
+
+This file does NOT replace existing modules.
+It coordinates them in the correct order.
+
+Core system:
+- 39 core AEIM modules
+- 224 callable tools
+- ML / RL / microstructure / hypothesis / conviction submodules
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+import uuid
+import traceback
+
+
+# ============================================================
+# 1. TRADE PACKET
+# ============================================================
+
+@dataclass
+class AEIMTradePacket:
+    packet_id: str
+    ticker: str
+    created_at: str
+    source: str
+
+    market_data: Dict[str, Any] = field(default_factory=dict)
+    scanner_signal: Dict[str, Any] = field(default_factory=dict)
+
+    macro: Dict[str, Any] = field(default_factory=dict)
+    discovery: Dict[str, Any] = field(default_factory=dict)
+    technical: Dict[str, Any] = field(default_factory=dict)
+    options: Dict[str, Any] = field(default_factory=dict)
+    microstructure: Dict[str, Any] = field(default_factory=dict)
+    statistical: Dict[str, Any] = field(default_factory=dict)
+    ml_prediction: Dict[str, Any] = field(default_factory=dict)
+    debate: Dict[str, Any] = field(default_factory=dict)
+    ensemble: Dict[str, Any] = field(default_factory=dict)
+
+    supervisor: Dict[str, Any] = field(default_factory=dict)
+    risk: Dict[str, Any] = field(default_factory=dict)
+    position: Dict[str, Any] = field(default_factory=dict)
+    exit_plan: Dict[str, Any] = field(default_factory=dict)
+    final_decision: Dict[str, Any] = field(default_factory=dict)
+
+    paper_trade: Dict[str, Any] = field(default_factory=dict)
+    audit: List[Dict[str, Any]] = field(default_factory=list)
+    performance: Dict[str, Any] = field(default_factory=dict)
+    learning: Dict[str, Any] = field(default_factory=dict)
+    verification: Dict[str, Any] = field(default_factory=dict)
+
+    errors: List[Dict[str, Any]] = field(default_factory=list)
+
+
+# ============================================================
+# 2. MODULE REGISTRY
+# ============================================================
+
+AEIM_MODULES = {
+    # Core
+    "macro_engine": "aiem_macro_engine.py",
+    "v3_discovery": "aiem_v3_discovery.py",
+    "v3_technical": "aiem_v3_technical.py",
+    "v3_orchestrator": "aiem_v3_orchestrator.py",
+    "v3_learning": "aiem_v3_learning.py",
+    "v3_verification": "aiem_v3_verification.py",
+    "supervisor": "aiem_supervisor.py",
+
+    # RL / learning
+    "rl_engine": "aiem_rl_engine.py",
+    "closed_loop_learning": "aiem_closed_loop_learning.py",
+    "performance_auditor": "aiem_performance_auditor.py",
+    "ml_engine": "ml_engine.py",
+    "alpha_model": "alpha_historical_trainer.py + alpha_feature_engineering.py",
+    "momentum_model": "momentum_trade_trainer.py",
+    "gaussian_process": "signal_discovery_gp.py",
+    "deep_rl": "deep_rl_policy.py + rl_position_sizer.py",
+    "online_learning": "online_learning.py",
+    "automated_retrain": "automated_retrain_pipeline.py",
+    "meta_learning_trust": "meta_learning_signal_trust.py",
+
+    # Discovery lifecycle
+    "discovery_engine": "aiem_discovery_engine.py",
+    "module2_decay": "aiem_module2_decay.py",
+    "module3_promotion": "aiem_module3_promotion.py",
+    "module4_gate": "aiem_module4_gate.py",
+    "module5_discovery": "aiem_module5_discovery.py",
+    "module6_rediscovery": "aiem_module6_rediscovery.py",
+    "module7_sector_rotation": "aiem_module7_sector_rotation.py",
+    "hypothesis_registry": "hypothesis_registry.py",
+    "active_hypothesis_selection": "active_hypothesis_selection.py",
+    "literature_scanner": "literature_scanner.py",
+    "signal_drift_monitor": "drift_alarm.py",
+
+    # Statistical / microstructure
+    "stat_tests": "aiem_stat_tests.py",
+    "layer9_statistical_edge": "layer9_statistical_edge.py",
+    "vwap_indicators": "vwap_indicators.py",
+    "intraday_continuation": "intraday_continuation_scanner.py",
+    "premarket_gap": "premarket_gap_continuation_scanner.py",
+
+    # System intelligence
+    "intelligence_layer": "aiem_intelligence_layer.py",
+    "level2": "aiem_level2.py",
+    "level3": "aiem_level3.py",
+    "v2_system": "aiem_v2_system.py",
+    "edge_filter": "aiem_edge_filter.py",
+    "adversarial_critique": "adversarial_critique.py",
+    "bull_bear_debate": "bull_bear_debate.py",
+    "ensemble_combiner": "ensemble_combiner.py",
+
+    # Risk / execution
+    "risk_guards": "aiem_risk_guards.py",
+    "position_sizing": "aiem_position_sizing.py",
+    "exit_engine": "aiem_exit_engine.py",
+    "options_structure": "aiem_options_structure.py",
+    "cta_triggers": "aiem_cta_triggers.py",
+    "momentum_exhaustion": "aiem_momentum_exhaustion.py",
+    "pullback_reentry": "aiem_pullback_reentry.py",
+    "selloff_reversion": "aiem_selloff_reversion.py",
+    "short_squeeze": "aiem_short_squeeze.py",
+
+    # Audit / security
+    "pipeline_audit": "aiem_pipeline_audit.py",
+    "verification": "aiem_verification.py",
+    "security": "aiem_security.py",
+    "provenance": "aiem_provenance.py",
+    "isolation_guard": "aiem_isolation_guard.py",
+    "process": "aiem_process.py",
+    "process_backtest": "aiem_process_backtest.py",
+}
+
+
+# ============================================================
+# 3. ORCHESTRATION ORDER
+# ============================================================
+
+AEIM_PIPELINE_ORDER = [
+    "market_data_intake",
+    "trade_packet_creation",
+
+    "macro_engine",
+    "v3_discovery",
+    "discovery_engine",
+    "module2_decay",
+    "module3_promotion",
+    "module4_gate",
+    "module5_discovery",
+    "module6_rediscovery",
+    "module7_sector_rotation",
+    "hypothesis_registry",
+    "active_hypothesis_selection",
+    "literature_scanner",
+    "signal_drift_monitor",
+
+    "v3_technical",
+    "options_structure",
+    "cta_triggers",
+    "momentum_exhaustion",
+    "pullback_reentry",
+    "selloff_reversion",
+    "short_squeeze",
+
+    "layer9_statistical_edge",
+    "stat_tests",
+    "vwap_indicators",
+    "intraday_continuation",
+    "premarket_gap",
+
+    "ml_engine",
+    "alpha_model",
+    "momentum_model",
+    "gaussian_process",
+    "deep_rl",
+    "online_learning",
+
+    "meta_learning_trust",
+    "intelligence_layer",
+    "adversarial_critique",
+    "bull_bear_debate",
+    "ensemble_combiner",
+
+    "supervisor",
+    "edge_filter",
+    "risk_guards",
+    "position_sizing",
+    "exit_engine",
+
+    "final_decision",
+    "paper_trade",
+
+    "pipeline_audit",
+    "provenance",
+    "performance_auditor",
+    "closed_loop_learning",
+    "rl_engine",
+    "v3_learning",
+    "automated_retrain",
+
+    "verification",
+    "v3_verification",
+    "security",
+    "isolation_guard",
+]
+
+
+# ============================================================
+# 4. MASTER ORCHESTRATOR
+# ============================================================
+
+class AEIMMasterOrchestrator:
+    def __init__(self):
+        self.modules = AEIM_MODULES
+        self.pipeline_order = AEIM_PIPELINE_ORDER
+        self.required_modules = set(AEIM_PIPELINE_ORDER)
+
+    def create_trade_packet(
+        self,
+        ticker: str,
+        source: str,
+        scanner_signal: Optional[Dict[str, Any]] = None,
+        market_data: Optional[Dict[str, Any]] = None,
+    ) -> AEIMTradePacket:
+
+        return AEIMTradePacket(
+            packet_id=str(uuid.uuid4()),
+            ticker=ticker.upper(),
+            created_at=datetime.utcnow().isoformat(),
+            source=source,
+            scanner_signal=scanner_signal or {},
+            market_data=market_data or {},
+        )
+
+    def log_step(
+        self,
+        packet: AEIMTradePacket,
+        module_name: str,
+        status: str,
+        output: Optional[Dict[str, Any]] = None,
+    ):
+        packet.audit.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "module": module_name,
+            "status": status,
+            "output_keys": list((output or {}).keys()),
+            "output": output or {},
+        })
+
+    def run_module(
+        self,
+        packet: AEIMTradePacket,
+        module_name: str,
+        handler,
+    ):
+        try:
+            output = handler(packet)
+            self.log_step(packet, module_name, "SUCCESS", output)
+            return output
+
+        except Exception as e:
+            error = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "module": module_name,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            }
+            packet.errors.append(error)
+            self.log_step(packet, module_name, "FAILED", error)
+            return {"error": str(e)}
+
+    # ========================================================
+    # 5. MODULE HANDLERS
+    # Replace stub logic with calls to your real Replit modules.
+    # ========================================================
+
+    def market_data_intake(self, packet):
+        return {
+            "ticker": packet.ticker,
+            "market_data_loaded": True,
+            "source": packet.source,
+        }
+
+    def macro_engine(self, packet):
+        packet.macro = {
+            "regime": "unknown_until_real_module_runs",
+            "risk_environment": "pending",
+        }
+        return packet.macro
+
+    def discovery_engine(self, packet):
+        packet.discovery = {
+            "candidate_edges": [],
+            "hypothesis_ids": [],
+            "discovery_status": "pending_real_module",
+        }
+        return packet.discovery
+
+    def technical_engine(self, packet):
+        packet.technical = {
+            "technical_score": None,
+            "trend": "pending_real_module",
+        }
+        return packet.technical
+
+    def options_engine(self, packet):
+        packet.options = {
+            "flow_score": None,
+            "gex": None,
+            "skew": None,
+            "status": "pending_real_module",
+        }
+        return packet.options
+
+    def microstructure_engine(self, packet):
+        packet.microstructure = {
+            "hurst": None,
+            "vpin": None,
+            "entropy": None,
+            "tail_risk": None,
+            "amihud": None,
+            "variance_risk_premium": None,
+        }
+        return packet.microstructure
+
+    def statistical_engine(self, packet):
+        packet.statistical = {
+            "p_value": None,
+            "bh_fdr_status": None,
+            "oos_validated": None,
+            "statistical_status": "pending_real_module",
+        }
+        return packet.statistical
+
+    def ml_prediction_engine(self, packet):
+        packet.ml_prediction = {
+            "xgboost_score": None,
+            "alpha_score": None,
+            "momentum_score": None,
+            "gp_signal": None,
+            "prediction": "pending_real_module",
+        }
+        return packet.ml_prediction
+
+    def debate_engine(self, packet):
+        packet.debate = {
+            "bull_case": None,
+            "bear_case": None,
+            "adversarial_critique": None,
+            "debate_result": "pending_real_module",
+        }
+        return packet.debate
+
+    def ensemble_engine(self, packet):
+        packet.ensemble = {
+            "combined_score": None,
+            "confidence": None,
+            "decision_bias": "pending_real_module",
+        }
+        return packet.ensemble
+
+    def supervisor_engine(self, packet):
+        packet.supervisor = {
+            "approved_for_risk_review": True,
+            "conflicts_detected": [],
+            "supervisor_note": "pending_real_supervisor",
+        }
+        return packet.supervisor
+
+    def risk_engine(self, packet):
+        packet.risk = {
+            "risk_approved": True,
+            "kill_switch_active": False,
+            "daily_loss_breached": False,
+            "event_risk": "pending_real_module",
+        }
+        return packet.risk
+
+    def position_engine(self, packet):
+        packet.position = {
+            "position_size": None,
+            "kelly_fraction": None,
+            "max_exposure": None,
+        }
+        return packet.position
+
+    def exit_engine(self, packet):
+        packet.exit_plan = {
+            "stop_loss": None,
+            "profit_target": None,
+            "time_stop": None,
+            "exit_reasoning": "pending_real_module",
+        }
+        return packet.exit_plan
+
+    def final_decision_engine(self, packet):
+        approved = (
+            packet.supervisor.get("approved_for_risk_review") is True
+            and packet.risk.get("risk_approved") is True
+            and packet.risk.get("kill_switch_active") is False
+        )
+
+        packet.final_decision = {
+            "decision": "PAPER_TRADE" if approved else "REJECT",
+            "approved": approved,
+            "reason": "Passed supervisor and risk gates" if approved else "Failed gate",
+        }
+        return packet.final_decision
+
+    def paper_trade_engine(self, packet):
+        if packet.final_decision.get("approved"):
+            packet.paper_trade = {
+                "opened": True,
+                "mode": "shadow_paper_trade",
+                "ticker": packet.ticker,
+            }
+        else:
+            packet.paper_trade = {
+                "opened": False,
+                "reason": "Final decision rejected trade",
+            }
+        return packet.paper_trade
+
+    def performance_engine(self, packet):
+        packet.performance = {
+            "review_pending": True,
+            "performance_id": str(uuid.uuid4()),
+        }
+        return packet.performance
+
+    def learning_engine(self, packet):
+        packet.learning = {
+            "rl_update_pending": True,
+            "trust_update_pending": True,
+            "model_retrain_pending": False,
+        }
+        return packet.learning
+
+    def verification_engine(self, packet):
+        executed_modules = [x["module"] for x in packet.audit]
+        missing = [
+            m for m in self.pipeline_order
+            if m not in executed_modules
+        ]
+
+        packet.verification = {
+            "packet_id": packet.packet_id,
+            "ticker": packet.ticker,
+            "total_expected_steps": len(self.pipeline_order),
+            "total_executed_steps": len(executed_modules),
+            "missing_steps": missing,
+            "errors": packet.errors,
+            "passed": len(missing) == 0 and len(packet.errors) == 0,
+        }
+        return packet.verification
+
+    # ========================================================
+    # 6. FULL PIPELINE RUN
+    # ========================================================
+
+    def run_full_cycle(self, ticker, source="scanner", scanner_signal=None, market_data=None):
+        packet = self.create_trade_packet(
+            ticker=ticker,
+            source=source,
+            scanner_signal=scanner_signal,
+            market_data=market_data,
+        )
+
+        # Intake
+        self.run_module(packet, "market_data_intake", self.market_data_intake)
+        self.log_step(packet, "trade_packet_creation", "SUCCESS", {
+            "packet_id": packet.packet_id
+        })
+
+        # Main analysis
+        self.run_module(packet, "macro_engine", self.macro_engine)
+
+        for m in [
+            "v3_discovery",
+            "discovery_engine",
+            "module2_decay",
+            "module3_promotion",
+            "module4_gate",
+            "module5_discovery",
+            "module6_rediscovery",
+            "module7_sector_rotation",
+            "hypothesis_registry",
+            "active_hypothesis_selection",
+            "literature_scanner",
+            "signal_drift_monitor",
+        ]:
+            self.run_module(packet, m, self.discovery_engine)
+
+        self.run_module(packet, "v3_technical", self.technical_engine)
+
+        for m in [
+            "options_structure",
+            "cta_triggers",
+            "momentum_exhaustion",
+            "pullback_reentry",
+            "selloff_reversion",
+            "short_squeeze",
+        ]:
+            self.run_module(packet, m, self.options_engine)
+
+        for m in [
+            "layer9_statistical_edge",
+            "stat_tests",
+            "vwap_indicators",
+            "intraday_continuation",
+            "premarket_gap",
+        ]:
+            self.run_module(packet, m, self.microstructure_engine)
+
+        for m in [
+            "ml_engine",
+            "alpha_model",
+            "momentum_model",
+            "gaussian_process",
+            "deep_rl",
+            "online_learning",
+        ]:
+            self.run_module(packet, m, self.ml_prediction_engine)
+
+        for m in [
+            "meta_learning_trust",
+            "intelligence_layer",
+            "adversarial_critique",
+            "bull_bear_debate",
+        ]:
+            self.run_module(packet, m, self.debate_engine)
+
+        self.run_module(packet, "ensemble_combiner", self.ensemble_engine)
+        self.run_module(packet, "supervisor", self.supervisor_engine)
+        self.run_module(packet, "edge_filter", self.supervisor_engine)
+        self.run_module(packet, "risk_guards", self.risk_engine)
+        self.run_module(packet, "position_sizing", self.position_engine)
+        self.run_module(packet, "exit_engine", self.exit_engine)
+
+        # Decision and trade
+        self.run_module(packet, "final_decision", self.final_decision_engine)
+        self.run_module(packet, "paper_trade", self.paper_trade_engine)
+
+        # Audit and learning
+        for m in ["pipeline_audit", "provenance"]:
+            self.run_module(packet, m, lambda p: {"audit_confirmed": True})
+
+        self.run_module(packet, "performance_auditor", self.performance_engine)
+        self.run_module(packet, "closed_loop_learning", self.learning_engine)
+        self.run_module(packet, "rl_engine", self.learning_engine)
+        self.run_module(packet, "v3_learning", self.learning_engine)
+        self.run_module(packet, "automated_retrain", self.learning_engine)
+
+        # Verification and security
+        self.run_module(packet, "verification", self.verification_engine)
+        self.run_module(packet, "v3_verification", self.verification_engine)
+        self.run_module(packet, "security", lambda p: {"security_check": "passed"})
+        self.run_module(packet, "isolation_guard", lambda p: {"isolation_check": "passed"})
+
+        # Final verification after all modules
+        packet.verification = self.verification_engine(packet)
+        return packet
+
+
+# ============================================================
+# 7. STRICT VERIFICATION QUESTIONS FOR REPLIT
+# ============================================================
+
+STRICT_VERIFICATION_REQUEST = """
+After installing this orchestrator, prove the following:
+
+1. Show the complete registered module list.
+2. Confirm the 39 core modules and 224 tools are registered.
+3. Show the full pipeline order.
+4. Run one test ticker through the full pipeline.
+5. Show the trade packet ID.
+6. Show every module that executed.
+7. Show timestamps for every module execution.
+8. Show which module outputs were consumed by the next module.
+9. Show whether any module failed.
+10. Show whether any required module was skipped.
+11. Show supervisor approval or rejection.
+12. Show risk gate approval or rejection.
+13. Show position sizing output.
+14. Show exit plan output.
+15. Show paper trade decision.
+16. Show audit trail.
+17. Show performance auditor record.
+18. Show learning update record.
+19. Show verification pass/fail.
+20. Prove all answers came from AEIM logs, not manual explanation.
+"""
+
+
+# ============================================================
+# 8. LOCAL TEST
+# ============================================================
+
+if __name__ == "__main__":
+    orchestrator = AEIMMasterOrchestrator()
+
+    result = orchestrator.run_full_cycle(
+        ticker="NVDA",
+        source="test_scanner_signal",
+        scanner_signal={"example": True},
+        market_data={"price": 100.00},
+    )
+
+    print("\n================ AEIM TEST RUN ================")
+    print("Ticker:", result.ticker)
+    print("Packet ID:", result.packet_id)
+    print("Final Decision:", result.final_decision)
+    print("Verification:", result.verification)
+    print("Errors:", result.errors)
+    print("Executed Steps:", len(result.audit))
+    print("================================================")
