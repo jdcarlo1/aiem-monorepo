@@ -1,0 +1,44 @@
+Two items are still outstanding, plus one full live pipeline test. Same standard as your last few replies: real commands, raw pasted output, real diffs/hashes/commit metadata. No prose summaries in place of output.
+
+=====================================================
+PART 1 — TWO REMAINING QUESTIONS
+=====================================================
+
+1. Verification/security timing — does it block, or only flag after the fact?
+final_decision (45) and paper_trade (46) execute before verification (54), v3_verification (55), security (56), isolation_guard (57).
+
+Answer directly: can verification/security halt, block, or reverse a decision before/during paper_trade execution? Or does it only run afterward and flag/log an already-executed decision?
+
+Prove your answer with the actual code, not a description of it:
+grep -n "def _h_verification\|def _h_security\|def _h_v3_verification\|def _h_isolation_guard" aiem_master_orchestrator.py
+Then paste the body of whichever function would need to raise/abort/block for verification to have real teeth. If none of them can stop execution, say so plainly.
+
+2. One-sentence functional distinction for each paired module.
+You've now confirmed deep_rl, rl_engine, online_learning, and closed_loop_learning are 4 distinct files (not duplicates/dead code). Now give the actual functional split — one sentence each, grounded in the real function signatures:
+
+grep -n "^class\|^def " deep_rl_position_sizer.py aiem_rl_engine.py online_learning.py aiem_closed_loop_learning.py
+
+Paste that raw output, then one sentence per file describing what it actually does based on what you see in the grep — not a generic RL-pattern description.
+
+=====================================================
+PART 2 — ONE FULL LIVE PIPELINE TEST, STRICTEST VERIFICATION
+=====================================================
+
+Same strictness as your last several replies (real diffs, real commit hashes, real grep/python3 output) — now applied to one complete live run.
+
+1. Pre-test integrity check. Before running anything, hash every module file that will execute:
+sha256sum aiem_master_orchestrator.py aiem_macro_engine.py aiem_v3_technical.py aiem_v3_discovery.py ml_engine.py alpha_historical_trainer.py momentum_trade_trainer.py aiem_supervisor.py aiem_position_sizing.py aiem_exit_engine.py aiem_verification.py aiem_security.py aiem_isolation_guard.py
+git status
+git diff --stat
+Paste all three raw outputs before the test runs.
+
+2. Run one complete live pipeline test, ticker of your choice, real market data. Add real-time module-execution logging so the actual call chain is visible — print the fully-qualified module.function name immediately before each of the 57 stages executes. Paste the complete raw stdout in order, unedited, uncollapsed, no "...". If it's long, that's fine — paste all of it or split across multiple messages, but don't summarize any of it.
+
+3. Immediately after that same run, repeat the negative-control test: force one real field to a placeholder value (e.g. macro.regime = 'pending_real_module') and rerun verification against the same packet. Paste the raw output showing passed: False and the populated output_failures / placeholder_hits. This has to be the same code path as step 2, not a separate isolated test.
+
+4. Post-test integrity check — confirm nothing was changed to make the output look cleaner:
+git status
+git diff --stat
+Paste raw output. It should match step 1 exactly (no unexpected new diffs) unless you deliberately changed something to fix a bug found during the test — if so, say what changed and show that diff too.
+
+If any single step above can't be completed exactly as written, stop and say which step and why. Don't substitute an easier alternative and present it as satisfying the request.
