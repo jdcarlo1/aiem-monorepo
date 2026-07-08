@@ -1,0 +1,665 @@
+AEIM DIAGRAM 2 — MASTER WIRING + VERIFICATION
+PART 2 OF 2
+
+CONTINUATION:
+This is the continuation of Part 1. Do not apply Part 2 until Part 1 has been received and acknowledged.
+
+PHASE 9 — ANALYSIS / SCORING / SYNTHESIS
+
+Purpose:
+Combine signals into a full trade thesis and score candidate quality.
+
+Canonical modules/files:
+scoring.py
+analytics.py
+ensemble_combiner.py
+pre_recommendation_synthesis.py
+signal_correlation.py
+signal_magnitude_analysis.py
+evaluation_metrics.py
+evaluation_windows.py
+prediction_logger.py
+decision_logger.py
+decision_logging_helper.py
+
+Tools:
+alpha_score_ticker
+predict_short_term
+strategy_ensemble
+ensemble_combine_signals
+mkt_build_composite
+mkt_compare_signals
+mkt_check_redundancy
+mkt_analyze_false_signals
+mkt_analyze_top_movers
+analyze_signal_correlation
+signal_magnitude_analysis
+query_cross_signal_overlap
+query_rank_effectiveness
+query_temporal_patterns
+query_missed_movers
+query_pick_outcomes
+query_own_prediction_performance
+decision_quality_summary
+record_decision_outcome
+record_human_eval_decision
+
+Output:
+combined_score
+conviction_score
+signal_redundancy_score
+trade_thesis
+ranking
+
+Required proof:
+Show combined score, conviction score, and synthesis output for one candidate.
+
+PHASE 10 — SPECIALIST COUNCIL / ADVERSARIAL REVIEW
+
+Purpose:
+Debate bull case, bear case, neutral/risk case, contradictions, adversarial objections, and final consensus.
+
+Canonical modules/files:
+specialist_council.py
+bull_bear_debate.py
+adversarial_critique.py
+
+Tools:
+adversarial_review
+strategy_ensemble
+
+Required internal council functions:
+bull_case
+bear_case
+neutral_case
+contradiction_check
+council_consensus
+
+Output:
+bull_score
+bear_score
+risk_objections
+contradictions
+council_consensus_score
+
+Required proof:
+Show council debate output with bull case, bear case, contradiction check, and consensus score.
+
+PHASE 11 — PRE-DECISION RISK GATE
+
+Purpose:
+Block unsafe trades before the Decision Engine.
+
+Canonical modules/files:
+pre_decision_risk_gate.py
+aiem_risk_guards.py
+portfolio_correlation_risk.py
+portfolio_allocator.py
+portfolio.py
+position_sizing.py
+aiem_position_sizing.py
+rl_position_sizer.py
+slippage_model.py
+daily_loss_limit.py
+
+Tools:
+run_risk_gate
+check_portfolio_concentration
+portfolio_allocate
+portfolio_correlation_risk
+portfolio_circuit_breaker_status
+kelly_position_size
+rl_position_sizer
+estimate_options_slippage
+execution_realistic_cost
+liquidity_filter_status
+check_daily_loss_limit
+correlation_guard_status
+
+Output:
+risk_approved
+risk_rejected_reason
+position_size
+max_loss
+slippage_estimate
+portfolio_exposure
+
+Hard rule:
+Nothing may bypass this phase.
+
+Required proof:
+Show risk gate PASS or FAIL for one candidate with reason, position size, max loss, and audit log ID.
+
+MID-POINT INTEGRATION CHECKPOINT — AFTER PHASE 11
+
+Purpose:
+Before wiring execution, outcome tracking, performance audit, and learning, run a partial end-to-end test from Phase 0 through Phase 11.
+
+Required command:
+Run AEIM mid-point integration test on one recent scanner candidate through Phases 0–11.
+
+Required proof output:
+candidate received from scanner
+data guards passed or failed
+orchestrator started
+modules executed in correct order
+tools called in correct order
+regime detected
+discovery score generated
+technical score generated
+options score generated or no-data result logged
+quant/statistical score generated
+probability score generated
+synthesis score generated
+specialist council completed
+risk gate passed or rejected
+audit log ID returned
+verification result PASS or FAIL
+
+Required structured fields:
+ticker
+candidate_id
+scanner_signal
+modules_executed
+tools_called
+module_order
+tool_order
+data_timestamp
+point_in_time_status
+staleness_status
+market_regime
+discovery_score
+technical_score
+options_score
+probability_score
+statistical_edge_score
+council_score
+risk_status
+audit_log_id
+verification_status
+
+If this checkpoint fails:
+Do not continue to Phase 12.
+Show full failure output verbatim.
+Fix the issue and re-run the checkpoint.
+
+PHASE 12 — DECISION ENGINE
+
+Purpose:
+Make final TRADE / NO_TRADE / WATCH / WAIT decision.
+
+Canonical modules/files:
+aiem_edge_filter.py
+aiem_exit_engine.py
+
+Dependency only:
+execution.py and execution_simulator.py are NOT owned here.
+They belong to Phase 13.
+Phase 12 may produce execution instructions, but it must not directly own execution files.
+
+Tools:
+edge_filter_evaluate
+edge_filter_status
+run_risk_gate
+rl_get_paper_action
+deep_rl_get_paper_action
+query_exit_timing
+holding_period_optimize
+get_decisions
+log_decision
+
+Decision outputs:
+TRADE
+NO_TRADE
+WATCH
+WAIT_FOR_CONFIRMATION
+SHADOW_TRADE_ONLY
+
+Decision must include:
+ticker
+direction
+confidence
+entry_logic
+exit_logic
+position_size
+risk_reason
+model_reason
+audit_id
+
+Required proof:
+Show one final AEIM decision with full upstream evidence and audit log ID.
+
+PHASE 13 — PAPER TRADING / SIMULATION / SHADOW LEDGER
+
+Purpose:
+Record simulated trades, shadow trades, fills, costs, and trade outcomes.
+
+Canonical modules/files:
+execution.py
+execution_simulator.py
+simulation_lock.py
+shadow_ledger.py
+pnl.py
+position_reconciler.py
+
+Tools:
+open_shadow_trade
+close_shadow_trade
+start_shadow_window
+start_eval_window
+close_eval_window
+is_eval_window_active
+safe_learning_log_trade
+simulation_audit_trail
+shadow_stats
+execution_realistic_cost
+record_decision_outcome
+
+Output:
+paper_trade_id
+shadow_trade_id
+entry_price
+timestamp
+simulated_cost
+audit_trail
+
+Required proof:
+If decision is TRADE or SHADOW_TRADE_ONLY, show paper/shadow execution log.
+If NO_TRADE or WATCH, show no-execution log and reason.
+
+PHASE 14 — OUTCOME TRACKING / PERFORMANCE AUDIT
+
+Purpose:
+Track whether AEIM was right or wrong and why.
+
+Canonical modules/files:
+aiem_performance_auditor.py
+aiem_pipeline_audit.py
+aiem_process_backtest.py
+signal_outcomes.py
+
+Dependency only:
+evaluation_windows.py
+historical_performance.py
+backtest_*.py may be consumed here, but Phase 14 does not own backtest_*.py files.
+backtest_*.py files belong to Phase 7.
+
+Tools:
+analyze_independent_performance
+analyze_missed_movers
+compare_picks_vs_misses
+query_pick_outcomes
+query_own_prediction_performance
+decision_quality_summary
+eval_window_history
+review_own_accuracy
+safe_learning_stats
+shadow_stats
+signal_layer_redundancy
+
+Track:
+1-hour result
+same-day result
+next-day result
+3-day result
+5-day result
+max gain
+max loss
+thesis correctness
+timing correctness
+risk correctness
+
+Output:
+outcome_record
+audit_score
+mistake_category
+improvement_recommendation
+
+Required proof:
+Show outcome tracker attached to one paper/shadow/no-trade decision.
+
+PHASE 15 — LEARNING / RL / SAFE ADAPTATION
+
+Purpose:
+Update AEIM after trades, missed movers, failed signals, and successful patterns.
+
+Canonical modules/files:
+aiem_closed_loop_learning.py
+aiem_rl_engine.py
+deep_rl_policy.py
+safe_learning.py
+online_learning.py
+meta_learning_signal_trust.py
+aiem_v3_learning.py
+aiem_module2_decay.py
+aiem_module3_promotion.py
+aiem_module4_gate.py
+aiem_module5_discovery.py
+aiem_module6_rediscovery.py
+
+Tools:
+adaptive_layer_evaluate
+adaptive_layer_history
+safe_learning_update
+safe_learning_weights
+safe_learning_stats
+trust_apply_to_candidates
+trust_classify_context
+trust_get_history
+trust_get_weights
+trust_update
+rl_counterfactuals
+rl_get_paper_action
+deep_rl_probe
+deep_rl_get_paper_action
+rl_ppo_policy
+rl_readable_policy
+rl_status
+rl_strategy_weights
+check_shadow_promotion
+test_new_signal
+test_scoring_hypothesis
+gate_history
+get_bh_fdr_status
+retrain_pending
+retrain_approve
+retrain_reject
+rollback_to_previous_model
+
+Output:
+learning_update_id
+new_weights
+promoted_patterns
+downgraded_patterns
+rejected_patterns
+updated_confidence_thresholds
+
+Required proof:
+Show safe learning update, trust weights, or RL status update tied to a real audit ID.
+
+PHASE 16 — ALERTS / REPORTS / NOTIFICATIONS
+
+Purpose:
+Send approved alerts, reports, charts, discovery notifications, and system status.
+
+Canonical modules/files:
+alerts.py
+email_alerts.py
+sms_alerts.py
+telegram_charts.py
+aiem_probability_engine/reports.py
+news_catalyst.py
+news_catalyst_monitor.py
+reddit_sentiment.py
+social_sentiment.py
+earnings_calendar.py
+
+Tools:
+send_discovery_alert
+get_literature_briefs
+reddit_sentiment
+check_news_catalyst_risk
+event_risk_check
+
+Output:
+telegram_alert
+email_alert
+sms_alert
+report
+
+Required proof:
+Show alert/report generation only after AEIM decision or discovery event, with audit log reference.
+
+PHASE 17 — VERIFICATION / OBSERVABILITY / STRICT PROOF
+
+Purpose:
+Prove everything is wired, executed, logged, and not fake.
+
+Important clarification:
+This phase is both:
+1. A continuous observer that runs after every phase.
+2. A final strict verification layer after all phases are wired.
+
+Canonical modules/files:
+strict_aeim_supervisor_verifier.py
+strict_observability_supervisor_verifier.py
+verify_aiem_loop.py
+verify_eod_learning_loop.py
+verify_ml_infrastructure.py
+verify_premarket_system.py
+verify_signals.py
+aiem_verification.py
+aiem_v3_verification.py
+aiem_pipeline_audit.py
+monitor.py
+drift_alarm.py
+fix_silent_excepts.py
+
+Tools:
+verify_aiem_loop
+verify_eod_learning_loop
+verify_ml_infrastructure
+verify_premarket_system
+verify_signals
+simulation_audit_trail
+decision_quality_summary
+model_version_history
+drift_alarm
+run_statistical_significance
+
+Required proof output per ticker:
+ticker
+candidate_id
+scanner_signal
+modules_executed
+tools_called
+module_order
+tool_order
+data_timestamp
+point_in_time_status
+staleness_status
+market_regime
+discovery_score
+technical_score
+options_score
+probability_score
+statistical_edge_score
+council_score
+risk_status
+final_decision
+paper_trade_id
+shadow_trade_id
+audit_log_id
+learning_update_id
+verification_status
+
+REQUIRED MODULE REGISTRY FORMAT
+
+Every module must expose:
+
+module_id
+module_name
+module_file
+module_phase
+owned_tools
+required_inputs
+produced_outputs
+upstream_modules
+downstream_modules
+verification_required
+audit_log_enabled
+execution_status
+last_verified_date
+verified_by_command
+verification_result
+verification_version
+
+REQUIRED TOOL REGISTRY FORMAT
+
+Every tool must expose:
+
+tool_id
+tool_name
+owning_module_or_phase
+required_inputs
+produced_outputs
+can_run_independently
+requires_market_data
+requires_options_data
+requires_historical_data
+requires_trade_history
+writes_audit_log
+verification_status
+last_verified_date
+verified_by_command
+verification_result
+verification_version
+
+REQUIRED PHASE-BY-PHASE PROOF
+
+For each phase completed, show:
+
+1. Exact files changed.
+2. Exact modules registered.
+3. Exact tools registered.
+4. Upstream and downstream connections.
+5. Real execution log.
+6. Database/audit-log record.
+7. Test command the owner can run.
+8. Output proving it came from AEIM execution.
+9. Failed modules or missing dependencies, if any.
+10. Confirmation nothing bypasses Master Orchestrator, Risk Gate, or Verification Layer.
+11. last_verified_date.
+12. verified_by_command.
+13. verification_result PASS or FAIL.
+14. If failed, full traceback/error output verbatim.
+
+FAILURE PROOF RULE
+
+If any check fails, Replit must show the failure verbatim:
+
+full traceback
+failing command
+failing test output
+error log
+module name
+tool name
+phase name
+timestamp
+
+Do NOT summarize failures as:
+"mostly working"
+"minor issue"
+"almost complete"
+
+A failed check blocks progression to the next phase until resolved and re-verified.
+
+FINAL END-TO-END TEST
+
+After all phases are wired, run one ticker through the whole system.
+
+Required command:
+Run AEIM full end-to-end test on one recent scanner candidate.
+
+Required output:
+candidate received from scanner
+data guards passed
+orchestrator started
+modules executed in correct order
+tools called in correct order
+regime detected
+discovery score generated
+technical score generated
+options score generated or no-data logged
+quant/statistical score generated
+probability score generated
+specialist council completed
+risk gate passed or rejected
+decision engine returned TRADE / NO_TRADE / WATCH
+paper/shadow execution logged if applicable
+outcome tracker attached
+performance auditor attached
+learning update attached
+verification record written
+audit log ID returned
+
+Required structured fields:
+ticker
+candidate_id
+scanner_signal
+modules_executed
+tools_called
+module_order
+tool_order
+data_timestamp
+point_in_time_status
+staleness_status
+market_regime
+discovery_score
+technical_score
+options_score
+probability_score
+statistical_edge_score
+council_score
+risk_status
+final_decision
+paper_trade_id
+shadow_trade_id
+audit_log_id
+learning_update_id
+verification_status
+last_verified_date
+verified_by_command
+verification_result
+verification_version
+
+FINAL DIAGRAM 2 VISUAL LAYOUT REQUIREMENT
+
+Diagram 2 must show:
+
+1. Stock Scanner as input only.
+2. Master Orchestrator in the center.
+3. Communication Bus connected to every module group.
+4. Module Registry and Tool Registry beside the Orchestrator.
+5. Every module/file grouped under exactly one canonical owning phase.
+6. Tools nested under the modules/phases they belong to.
+7. Dependencies shown as dependency arrows, not duplicate ownership.
+8. Risk Gate before Decision Engine.
+9. Execution only after Decision approval.
+10. Outcome Tracker after Execution.
+11. Performance Auditor after Outcome Tracker.
+12. Learning Loop after Performance Auditor.
+13. Learning Loop feeding back into Master Orchestrator.
+14. Verification Layer watching every phase continuously.
+15. Nothing bypasses data guards, risk, audit, or verification.
+
+FINAL SUMMARY FLOW
+
+Scanner
+→ Intake
+→ Guards
+→ Orchestrator
+→ Regime
+→ Discovery
+→ Technical
+→ Options / Smart Money
+→ Quant / Statistical Edge
+→ Probability Engine
+→ Scoring / Synthesis
+→ Specialist Council
+→ Risk Gate
+→ Mid-Point Integration Checkpoint
+→ Decision Engine
+→ Paper / Shadow Execution
+→ Outcome Tracking
+→ Performance Audit
+→ Safe Learning / RL / Retraining
+→ Verification / Observability
+→ Back to Orchestrator
+
+FINAL REQUIREMENT:
+Diagram 2 must prove AEIM is one connected autonomous machine where all modules and tools are registered, wired, logged, audited, verified, and connected through the Master Orchestrator.
+
+Do not mark Diagram 2 complete until a real execution trace proves the system works end-to-end.
+
+END OF PART 2.
