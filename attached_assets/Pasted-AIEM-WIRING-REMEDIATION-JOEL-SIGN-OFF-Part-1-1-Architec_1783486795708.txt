@@ -1,0 +1,247 @@
+AIEM WIRING REMEDIATION — JOEL SIGN-OFF (Part 1)
+
+1. Architectural ruling — CONFIRMED
+aiem_master_orchestrator.py and main.py's 34 live engines remain two separate systems. Do NOT merge. Orchestrator becomes a flag-gated SHADOW pipeline only. Main.py's live jobs stay untouched. This is final — do not revisit unless I explicitly reopen it.
+
+2. Safety gates — GO AHEAD, WIRE THESE NOW (highest priority)
+Wire daily_loss_limit and portfolio_correlation_risk into the automated pre-trade execution path, using the same call pattern as kill_switch at main.py:39596. These must fire automatically before every paper-trade execution, not just be callable from chat.
+
+Before marking this done, prove it per standard:
+- grep -n showing the new call site (file + line) inside the automated execution function, not just the tool schema
+- Live-trigger test: force one paper-trade execution, grep server logs for daily_loss_limit and portfolio_correlation_risk actually running (not just imported)
+- Confirm via git diff that no other live engine call sites were touched
+
+3. earnings_calendar.py — DECISION: delete the dead file, keep the inline implementation
+Main.py's inline _populate_earnings_calendar() (main.py:6409) stays as the single source of truth. Delete earnings_calendar.py since it's an unimported duplicate. Confirm via grep that nothing else references the deleted file before removing it.
+
+4. Deferred — no action needed now
+- 6 dead specialized-session tool schemas: leave as-is, confirmed superseded by engines #25/#26, not a regression
+- aiem_master_orchestrator.py internal inconsistencies (dead dict entries, orphan stages): irrelevant until Part 3 shadow pipeline work begins — do not fix yet
+
+NOTE ON PROCESS: stopping to flag the table-mismatch bug and the wrong deletion premise, instead of silently patching or asserting "done," is exactly the right behavior. Continue doing this for every remaining module — if a fix would exceed the authorized scope, or if new information contradicts an earlier instruction, stop and flag it before proceeding, same as here.
+
+Scope for this pass: items 2 and 3 above, plus Part 2 below. No other Part 1/2/3 code changes authorized beyond what's listed.
+
+===================================================
+
+AIEM WIRING REMEDIATION — JOEL SIGN-OFF (Part 1 ADDENDUM)
+(issued after live-trigger testing surfaced a pre-existing bug and a wrong premise)
+
+6. Table-mismatch bug — GO AHEAD, FIX THIS (scope expansion authorized)
+Live-trigger testing found that daily_loss_limit.py:68 and portfolio_correlation_risk.py:30 both query the ai_stock_picks table (0 rows), instead of the live aiem_paper_trades table (135 rows: 27 open, 20 cancelled, 88 closed). This is a pre-existing bug inside the two modules themselves, not something the new wiring introduced — but it means both gates will always read todays_realized_pnl and total_open_positions as 0/empty, and will never actually halt on real P&L or real concentration risk until fixed.
+
+Authorized fix: update daily_loss_limit.py and portfolio_correlation_risk.py to query aiem_paper_trades instead of ai_stock_picks. This is a 2-file change, broader than "wire the call site" — explicitly authorized here.
+
+Prove it per standard:
+- grep -n showing the corrected table reference in both files
+- Live-trigger test: force one execution, confirm check_daily_loss_limit and check_current_portfolio_risk now return real numbers matching the actual 27 open positions (not 0/empty)
+- Confirm via git diff that only the table reference was changed — no other logic in either module altered
+
+7. earnings_calendar.py / premarket_open_trader.py — ITEM 3 REVISED AGAIN, FIX authorized (not delete, not remove)
+Original instruction to delete earnings_calendar.py remains WITHDRAWN — it is live-imported by premarket_open_trader.py, which is itself live-imported by main.py at two real call sites (schema init + scheduled 9:52 AM ET premarket job). Do NOT delete either file.
+
+New bug found during reachability verification: _run_premarket_open_tracker's query (main.py:3511-3515) selects `WHERE created_at >= NOW() - INTERVAL '2 days'` against unusual_calls_log, but that table has no created_at column (real columns: id, ticker, price, strike, expiry, days_out, volume, oi, vol_oi, prem, otm_pct, iv, urgency, first_seen, last_seen). Every 9:52 AM run throws psycopg2.errors.UndefinedColumn, is silently swallowed by a bare except at main.py:3530-3531, and returns before evaluate_ticker() or the earnings gate (should_avoid_entry) ever runs. This job has been silently non-functional in production.
+
+Authorized fix: swap created_at → first_seen in the query at main.py:3511-3515, matching "when the unusual call was first detected." Do not touch anything else in this function or in premarket_open_trader.py.
+
+Prove it per standard:
+- grep -n showing the corrected column name in main.py
+- Live-trigger test: force one premarket tracker tick, grep logs confirming the query now executes without error, evaluate_ticker() runs, and should_avoid_entry() returns a real result for a real ticker
+- Confirm via git diff that only this column name was changed — no other logic in main.py or premarket_open_trader.py altered
+
+===================================================
+
+AIEM WIRING REMEDIATION — JOEL SIGN-OFF (Part 2)
+
+5. Remaining 10 chat-tool-only modules — GO AHEAD, WIRE THESE IN, PRIORITY ORDER BELOW
+Same rule as item 2: wire into main.py's live automated execution path, using the same call pattern as kill_switch at main.py:39596. Do NOT wire any of these into aiem_master_orchestrator.py — the orchestrator is a flag-gated shadow pipeline only (per item 1), and wiring live logic into it would mean it's still not actually enforced in the live path.
+
+Work in this order:
+
+HIGHEST PRIORITY (risk/safety-adjacent — treat like the daily_loss_limit/portfolio_correlation_risk pair):
+1. pre_decision_risk_gate — pre-trade check, same class as daily_loss_limit/portfolio_correlation_risk
+2. simulation_lock — controls whether a trade is simulated vs. real; must be automatically enforced so paper mode can't silently fail
+3. safe_learning — if not wired, the RL engine may be learning from unvetted data, corrupting the learning loop silently
+4. portfolio_allocator — position sizing; must be automated so sizing decisions actually respect the rules
+5. decision_logger — not a risk gate, but must fire automatically to keep the audit trail intact when it's needed most
+
+LOWER PRIORITY (signal/data inputs, not safety gates):
+6. shadow_ledger
+7. evaluation_windows
+8. reddit_sentiment
+9. slippage_model
+10. macro_cross_asset
+
+NEW PERMANENT REQUIREMENT — PRE-WIRING DATA-SOURCE CHECK (added after the ai_stock_picks/aiem_paper_trades bug found in Part 1)
+Before wiring the call site for each module below, first confirm what table/data source the module actually reads from, and verify that source contains real, current, live production data — not an empty, stale, or superseded table. Do this check BEFORE wiring, not after. If the module reads from a table that is empty, stale, or clearly not the live data source, STOP and flag it to me before proceeding — do not wire the call site first and discover the mismatch during live-trigger testing.
+
+For each module, before marking it done, prove it per standard:
+- Pre-wiring: grep -n or query confirming the module's data source table has live/current rows (not empty), and matches the actual production table used elsewhere in the system for the same data
+- grep -n showing the new call site (file + line) inside the automated execution function, not just the tool schema
+- Live-trigger test: force one execution of the relevant path, grep server logs for the module's own output to confirm real execution, not just import, AND confirm the returned values are real (not 0/empty/placeholder) given known live data
+- Confirm via git diff that no other live engine call sites were touched
+- Work one module at a time in the priority order above — do not batch multiple modules into a single unverified change
+
+Scope for Part 2: item 5 above only, in the stated order. No other Part 1/2/3 code changes authorized.
+
+===================================================
+
+AIEM WIRING REMEDIATION — JOEL SIGN-OFF (Part 3)
+FINAL DIAGRAM 2 INTEGRATION
+(14-step sequenced rollout — one module at a time)
+
+PRECONDITION
+
+All 12 modules from Part 1 + Part 2 verified PASS by Joel.
+Diagram 1 (Master Orchestration Layer) already verified.
+Architecture audit complete.
+All existing verified modules mapped.
+Only missing components added.
+No verified module duplicated or renamed.
+
+Install Diagram 2 as the permanent AEIM Inter-Module Communication & Verification Layer.
+
+Diagram 2 is not a replacement for the existing architecture.
+Diagram 2 is the integration layer that connects all verified components into one closed-loop autonomous system.
+
+REQUIRED CONNECTIONS
+
+Master Orchestration Layer
+        │
+        ▼
+Inter-Module Communication Bus
+        │
+        ├── Candidate Intake
+        ├── Discovery Layer (existing)
+        ├── Analysis Layer (existing)
+        ├── Market Regime (existing)
+        ├── Specialist Council (existing)
+        ├── Risk Manager (existing)
+        ├── Decision Engine (existing)
+        ├── Paper Trading (existing)
+        ├── Observability/Audit (existing)
+        ├── Outcome Tracker (existing)
+        ├── Attribution (existing)
+        ├── Learning Systems (existing)
+        ├── Memory System (existing)
+        └── Feedback Loop → Master Orchestrator
+
+COMMUNICATION RULES
+
+Every module communicates only through the Communication Bus.
+
+Every module receives:
+- candidate_id
+- execution_plan_id
+- trace_id
+- market context
+- upstream outputs
+
+Every module returns:
+- module_name
+- status
+- confidence
+- score
+- evidence
+- tools_used
+- errors
+- timestamps
+
+The Communication Bus records every transfer.
+The Orchestrator remains the only controller of execution order.
+Diagram 2 never replaces existing decision logic.
+
+Diagram 2 only:
+- routes
+- verifies
+- traces
+- logs
+- connects
+- feeds learning back
+
+LEARNING LOOP
+
+Outcome Tracker
+        │
+        ▼
+Attribution
+        │
+        ▼
+Learning Systems
+        │
+        ▼
+Memory
+        │
+        ▼
+Master Orchestrator
+
+Every completed trade must update future decisions through this loop.
+
+THIS IS A 14-STEP PROCESS. ONE MODULE PER STEP. NO BATCHING. NO SKIPPING AHEAD.
+
+STEP 1 — Candidate Intake
+STEP 2 — Discovery Layer
+STEP 3 — Analysis Layer
+STEP 4 — Market Regime
+STEP 5 — Specialist Council
+STEP 6 — Risk Manager
+STEP 7 — Decision Engine
+STEP 8 — Paper Trading
+STEP 9 — Observability/Audit
+STEP 10 — Outcome Tracker
+STEP 11 — Attribution
+STEP 12 — Learning Systems
+STEP 13 — Memory System
+STEP 14 — Feedback Loop → Master Orchestrator (LAST STEP ONLY, after 1–13 confirmed)
+
+RULE FOR EACH STEP
+
+Do not start the next step until Joel confirms PASS on the current step.
+Build the Communication Bus core once, before Step 1.
+Wire exactly one module per step.
+No shortcuts, even if a module looks simple.
+
+BEFORE EACH STEP
+
+Confirm the exact main.py function/file+line this module maps to.
+If it doesn't map to something already in the verified audit, flag it to Joel. Do not build a placeholder.
+
+PROOF REQUIRED FOR EACH STEP (single-module test)
+
+- grep -n showing the exact call site (file + line) where the module connects to the bus
+- Live-trigger test: force one real execution, grep server logs showing the module's own structured output (status, confidence, evidence, timestamps)
+- git diff confirming only this module's integration was touched
+- Statement: "Module confirmed wired. No duplicates created. No existing modules renamed or altered."
+
+PROOF REQUIRED FOR EACH STEP (cumulative chain test — separate from above)
+
+- Force one real end-to-end execution through every module wired so far (Step 1 through the current step)
+- Real server logs showing every module in the chain firing in order, each returning its full structured envelope
+- Confirm candidate_id and trace_id stay identical and unbroken across the whole chain
+- Confirm every earlier module's output still matches its last-confirmed-good output
+- If the chain test fails, the step is NOT done — even if the single-module test passed
+- Fix any regression before moving to the next step
+
+No PASS without evidence. A module working in isolation is not proof it works in the full chain.
+
+FINAL VERIFICATION (only after Step 14 confirmed)
+
+Return, each backed by its own grep/log/diff:
+
+TOTAL_REGISTERED_MODULES
+TOTAL_REGISTERED_TOOLS
+REUSED_EXISTING_MODULES
+NEW_COMPONENTS_BUILT
+COMMUNICATION_BUS_ACTIVE
+ID_TAGGING_ACTIVE
+STRUCTURED_OUTPUT_ACTIVE
+AUDIT_CHAIN_COMPLETE
+LEARNING_LOOP_COMPLETE
+MEMORY_LOOP_COMPLETE
+NO_DUPLICATE_MODULES
+NO_DUPLICATE_TOOLS
+PIPELINE_STATUS = PASS / FAIL
+
+Also output one complete execution trace for a real sample ticker, from actual server logs of a forced test run (not narrated), showing every module transition from Candidate Intake through Learning and back to the Master Orchestrator.
+
+Scope for Part 3: build the bus, then complete Steps 1–14 above strictly in order, one at a time, with Joel's sign-off between each. No batching. No skipping ahead.
