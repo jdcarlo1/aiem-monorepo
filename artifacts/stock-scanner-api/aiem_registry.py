@@ -64,15 +64,20 @@ CREATE TABLE IF NOT EXISTS aiem_module_registry (
     verification_result     TEXT NOT NULL DEFAULT 'PENDING_VERIFICATION',
     verification_version    INTEGER NOT NULL DEFAULT 0,
     ownership_note          TEXT,
+    ownership_status        TEXT NOT NULL DEFAULT 'CONFIRMED',
     file_exists_confirmed   BOOLEAN NOT NULL DEFAULT FALSE,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE aiem_module_registry ADD COLUMN IF NOT EXISTS ownership_status TEXT NOT NULL DEFAULT 'CONFIRMED';
+
 CREATE TABLE IF NOT EXISTS aiem_tool_registry (
     tool_id                     SERIAL PRIMARY KEY,
     tool_name                   TEXT UNIQUE NOT NULL,
     owning_module_or_phase      TEXT,
+    owning_module               TEXT,
+    tool_verification_level     TEXT NOT NULL DEFAULT 'phase_only',
     tool_type                   TEXT NOT NULL DEFAULT 'ai_callable_tool',
     required_inputs             TEXT,
     produced_outputs            TEXT,
@@ -95,6 +100,9 @@ CREATE TABLE IF NOT EXISTS aiem_tool_registry (
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS owning_module TEXT;
+ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS tool_verification_level TEXT NOT NULL DEFAULT 'phase_only';
 """
 
 

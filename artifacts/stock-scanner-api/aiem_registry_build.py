@@ -79,6 +79,11 @@ def build_module_rows():
             "module_phase": phase,
             "module_phase_name": reg.PHASE_NAMES.get(phase),
             "ownership_note": reg.OWNERSHIP_NOTES.get(module_file),
+            "ownership_status": (
+                "PENDING_REVIEW"
+                if "AUTO-RESOLVED" in (reg.OWNERSHIP_NOTES.get(module_file) or "")
+                else "CONFIRMED"
+            ),
             "file_exists_confirmed": exists,
         })
     return rows
@@ -128,6 +133,8 @@ def build_tool_rows(real_registered_tools):
         rows.append({
             "tool_name": tool_name,
             "owning_module_or_phase": f"Phase {primary_phase} ({reg.PHASE_NAMES.get(primary_phase)})" if primary_phase is not None else None,
+            "owning_module": None,
+            "tool_verification_level": "phase_only",
             "tool_type": tool_type,
             "can_run_independently": can_run_independently,
             "excluded_from_autonomous_use": excluded,
@@ -146,16 +153,17 @@ def upsert_modules(conn, rows):
             cur.execute("""
                 INSERT INTO aiem_module_registry
                     (module_name, module_file, module_phase, module_phase_name,
-                     ownership_note, file_exists_confirmed, verification_required,
-                     execution_status, verification_result)
+                     ownership_note, ownership_status, file_exists_confirmed,
+                     verification_required, execution_status, verification_result)
                 VALUES (%(module_name)s, %(module_file)s, %(module_phase)s, %(module_phase_name)s,
-                        %(ownership_note)s, %(file_exists_confirmed)s, TRUE,
+                        %(ownership_note)s, %(ownership_status)s, %(file_exists_confirmed)s, TRUE,
                         'PENDING_VERIFICATION', 'PENDING_VERIFICATION')
                 ON CONFLICT (module_name) DO UPDATE SET
                     module_file = EXCLUDED.module_file,
                     module_phase = EXCLUDED.module_phase,
                     module_phase_name = EXCLUDED.module_phase_name,
                     ownership_note = EXCLUDED.ownership_note,
+                    ownership_status = EXCLUDED.ownership_status,
                     file_exists_confirmed = EXCLUDED.file_exists_confirmed,
                     updated_at = now()
             """, r)
@@ -167,11 +175,13 @@ def upsert_tools(conn, rows):
         for r in rows:
             cur.execute("""
                 INSERT INTO aiem_tool_registry
-                    (tool_name, owning_module_or_phase, tool_type, can_run_independently,
+                    (tool_name, owning_module_or_phase, owning_module, tool_verification_level,
+                     tool_type, can_run_independently,
                      excluded_from_autonomous_use, exclusion_reason, alias_of,
                      dependency_notes, registered_in_tool_map, verified_by_command,
                      verification_status, verification_result)
-                VALUES (%(tool_name)s, %(owning_module_or_phase)s, %(tool_type)s,
+                VALUES (%(tool_name)s, %(owning_module_or_phase)s, %(owning_module)s,
+                        %(tool_verification_level)s, %(tool_type)s,
                         %(can_run_independently)s, %(excluded_from_autonomous_use)s,
                         %(exclusion_reason)s, %(alias_of)s, %(dependency_notes)s,
                         %(registered_in_tool_map)s, %(verified_by_command)s,
