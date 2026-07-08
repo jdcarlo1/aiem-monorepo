@@ -1,0 +1,335 @@
+# AIEM WIRING REMEDIATION — REQUIRED BEFORE DIAGRAM 2
+
+## STATUS: DO NOT BEGIN DIAGRAM 2 UNTIL EVERY ITEM BELOW SHOWS PASS WITH RAW PROOF
+
+This document is the mandatory precondition for Diagram 2 (Inter-Module
+Communication & Verification Layer). Diagram 2 assumes the current
+architecture is fully wired and verified. The audit below shows it is not.
+You must fix every item in this document, with raw proof, before Diagram 2
+work begins.
+
+---
+
+## STANDING VERIFICATION RULE (applies to every item below)
+
+For every claim of "fixed" or "wired" or "complete," you must provide ALL of
+the following. Self-reported summaries, descriptions of what the code
+"should" do, or narrative claims of completion are not acceptable and will
+be rejected.
+
+1. **Raw command output** — the actual terminal output of the grep/AST/import
+   check used to verify, not a paraphrase of it.
+2. **Exact file + line number** of the call site (not just the import).
+3. **A live-trigger test** — actually invoke the code path (not a static
+   read-through) and show the raw traceback/output proving it executed and
+   returned real data.
+4. **A re-run of the full reconciliation script** (see Appendix A) showing
+   updated counts, with before/after numbers.
+
+If you cannot produce all four for a given item, the item is NOT complete.
+State plainly what is blocking it and what you need to fix it — do not
+report partial progress as done.
+
+---
+
+## PART 1 — CONFIRMED PROBLEMS (from audit, must all be resolved)
+
+### 1. main.py and aiem_master_orchestrator.py are fully disconnected
+
+- Zero imports of main.py inside the orchestrator, and zero imports of the
+  orchestrator inside main.py.
+- 34 Tier-1 scanner engines (in main.py) — 0 of 34 are called by the
+  orchestrator.
+- 221 AIEM tool-map entries (in main.py) — 0 are called by the orchestrator.
+
+**Required fix:** Decide and implement ONE of the following (do not build a
+third parallel system):
+- (a) Wire the Tier-1 engines and tool-map entries into the orchestrator's
+  pipeline as new pipeline-scheduled stages, OR
+- (b) Formally retire/archive them with a documented reason if they are
+  superseded by orchestrator-native equivalents.
+
+**Proof required:** For every engine/tool you claim is wired, show the
+import line, the call-site line number inside the pipeline, and a live
+test showing it actually runs and returns output. For everything retired,
+show the git commit/move to an archive path with a stated reason.
+
+---
+
+### 2. Dead modules inside the orchestrator's own registry
+
+These 5 files exist, are listed in `AIEM_MODULES`, but are never imported by
+`_import_all()` and never run:
+- `aiem_level2.py`
+- `aiem_level3.py`
+- `aiem_v2_system.py`
+- `aiem_process.py`
+- `aiem_process_backtest.py`
+
+**Required fix:** For each file — either wire it in with a real import and
+pipeline call site, or remove/archive it and delete its stale registry
+entry.
+
+**Proof required:** re-run `grep -n "import-count"` style check per file
+(see Appendix A) — must show `import-count-in-orchestrator=1+` if kept, or
+confirm the registry entry and file are both removed if archived.
+
+---
+
+### 3. Orphan pipeline stages with no registry entry
+
+These 4 stages execute inside the 57-stage pipeline but have no matching
+`AIEM_MODULES` entry (undocumented):
+- `market_data_intake`
+- `trade_packet_creation`
+- `final_decision`
+- `paper_trade`
+
+**Required fix:** Add a proper `AIEM_MODULES` dict entry for each, pointing
+at the real source file/function backing that stage.
+
+**Proof required:** re-run the AST-based reconciliation (Appendix A) —
+`AIEM_MODULES` count and `AIEM_PIPELINE_ORDER` count must reconcile with
+zero orphans and zero dead entries.
+
+---
+
+### 4. Tier-3 safety/infrastructure files exist but are completely unwired
+
+All 25 of these files are real, exist on disk, but have
+**import-count-in-orchestrator = 0**, including safety-critical modules:
+- `kill_switch.py`
+- `daily_loss_limit.py`
+- `portfolio_correlation_risk.py`
+- `simulation_lock.py`
+- `slippage_model.py`
+- `execution_simulator.py`
+- `decision_logger.py`
+- `decision_logging_helper.py`
+- `shadow_ledger.py`
+- `evaluation_windows.py`
+- `safe_learning.py`
+- `staleness_guard.py`
+- `telegram_charts.py`
+- `regime_detector.py`
+- `macro_cross_asset.py`
+- `fred_macro.py`
+- `reddit_sentiment.py`
+- `social_sentiment.py`
+- `news_catalyst.py`
+- `news_catalyst_monitor.py`
+- `economic_calendar.py`
+- `earnings_calendar.py`
+- `pre_decision_risk_gate.py`
+- `portfolio_allocator.py`
+- `aiem_provenance.py` (already counted once inside Tier-2's 55 — do not
+  double-count, just confirm)
+
+**This is the highest-priority item.** Kill switch, daily loss limit, and
+correlation risk are safety gates. They currently cannot block or affect
+anything because they are not in the execution path.
+
+**Required fix:** For each file, in priority order (safety gates first):
+1. Add a real import in `_import_all()`.
+2. Add an actual call site inside the pipeline at the correct stage — not
+   just an import.
+3. Prove the gate actually fires with a live test (model this on the
+   DB-failure live-trigger test that worked well: construct a real
+   triggering condition, run it through the real orchestrator `_run()`
+   wrapper, and show the raw traceback/return value proving the gate
+   blocked or altered a decision).
+
+**Proof required:** per file — import line, call-site line number, and a
+live-trigger test transcript.
+
+---
+
+### 5. Inflated / incorrect counts (fix the documentation, not just the code)
+
+The following previously reported numbers are wrong and must be corrected
+in whatever internal docs/comments reference them:
+- "aiem_*.py files: 39" → actual count is 41 (verify with `ls aiem_*.py | wc -l`)
+- "Standalone infrastructure: 100+" → only 25 concrete files can be
+  substantiated; do not use "100+" again without a literal reproducible
+  command backing the number
+- "AIEM tools: 224" → actual dict-entry count is 221
+
+**Required fix:** Correct any documentation, comments, or status reports
+using the old numbers. Do not report a count again without pasting the
+literal command that produced it.
+
+---
+
+## PART 2 — FULL RECONCILIATION MUST PASS BEFORE DIAGRAM 2
+
+Run the reconciliation script in Appendix A and report the output. All of
+the following must be true simultaneously:
+
+- `AIEM_MODULES` total entries == modules actually imported by `_import_all()`
+- Modules actually imported == modules actually scheduled in
+  `AIEM_PIPELINE_ORDER`
+- Zero dead entries (registered but never imported)
+- Zero orphan stages (scheduled but not registered)
+- All 25 Tier-3 safety/infrastructure files show import-count ≥ 1 AND a
+  live-trigger test result
+- main.py and the orchestrator are either (a) properly connected with
+  real call sites in both directions where needed, or (b) main.py's
+  components are formally retired with documented reasons
+- No duplicate modules, no duplicate tool entries
+
+If any of these is false, Diagram 2 does not begin. Report exactly which
+item(s) are still failing and what is blocking the fix.
+
+---
+
+## APPENDIX A — VERIFICATION COMMANDS TO RUN (adapt as needed, but must be real, runnable, and pasted with raw output)
+
+```
+# 1. Confirm no cross-import between main.py and the orchestrator
+grep -n "import main\b\|from main import\|main\.py" aiem_master_orchestrator.py
+grep -n "aiem_master_orchestrator\|AEIMMasterOrchestrator" main.py
+
+# 2. Per-file import count into the orchestrator (repeat for every file in question)
+grep -c "import <module_name>\|from <module_name> import" aiem_master_orchestrator.py
+
+# 3. AST-based reconciliation of AIEM_MODULES vs AIEM_PIPELINE_ORDER vs _import_all()
+python3 <<'EOF'
+import ast
+# parse aiem_master_orchestrator.py
+# extract AIEM_MODULES dict keys/values
+# extract AIEM_PIPELINE_ORDER list
+# extract all import statements inside _import_all()
+# print: total registered, total imported, total scheduled,
+#        dead entries (registered, never imported),
+#        orphan stages (scheduled, not registered)
+EOF
+
+# 4. Live-trigger test template (model on the DB-failure test)
+# For each safety gate: construct a real triggering condition,
+# call the real handler through orchestrator._run(), and print
+# the raw traceback / return value showing the gate fired.
+python3 /tmp/live_trigger_test_<module_name>.py
+```
+
+Every one of these commands must be actually run, with the literal output
+pasted — not summarized, not described, not "should return X."
+
+---
+
+## PART 3 — ONLY AFTER PART 1 AND PART 2 PASS: DIAGRAM 2 INTEGRATION
+
+### Precondition (must be true and proven before this section starts)
+- Diagram 1 (Master Orchestration Layer) has been fully verified per Parts 1–2 above.
+- The architecture audit has completed with PASS on every item.
+- All existing verified modules have been mapped.
+- Only missing components have been added.
+- No verified module has been duplicated or renamed.
+
+### Install Diagram 2 as the permanent AEIM Inter-Module Communication & Verification Layer
+
+Diagram 2 is not a replacement for the existing architecture. Diagram 2 is
+the integration layer that permanently connects all verified components
+into one closed-loop autonomous system.
+
+### Required Connections
+
+```
+Master Orchestration Layer
+        │
+        ▼
+Inter-Module Communication Bus
+        │
+        ├── Candidate Intake
+        ├── Discovery Layer (existing)
+        ├── Analysis Layer (existing)
+        ├── Market Regime (existing)
+        ├── Specialist Council (existing)
+        ├── Risk Manager (existing)
+        ├── Decision Engine (existing)
+        ├── Paper Trading (existing)
+        ├── Observability/Audit (existing)
+        ├── Outcome Tracker (existing)
+        ├── Attribution (existing)
+        ├── Learning Systems (existing)
+        ├── Memory System (existing)
+        └── Feedback Loop → Master Orchestrator
+```
+
+### Communication Rules
+
+- Every module communicates only through the Communication Bus.
+- Every module receives: `candidate_id`, `execution_plan_id`, `trace_id`,
+  market context, upstream outputs.
+- Every module returns: `module_name`, `status`, `confidence`, `score`,
+  `evidence`, `tools_used`, `errors`, `timestamps`.
+- The Communication Bus records every transfer.
+- The Orchestrator remains the only controller of execution order.
+- Diagram 2 never replaces existing decision logic.
+- Diagram 2 only: routes, verifies, traces, logs, connects, feeds learning
+  back.
+
+### Learning Loop
+
+```
+Outcome Tracker
+        │
+        ▼
+Attribution
+        │
+        ▼
+Learning Systems
+        │
+        ▼
+Memory
+        │
+        ▼
+Master Orchestrator
+```
+
+Every completed trade must update future decisions through this loop.
+
+### Final Verification (Diagram 2) — each field requires raw proof, not a self-reported boolean
+
+For every field below, do not simply print `true`/`PASS`. Provide the
+command/test that produced it:
+
+- `TOTAL_REGISTERED_MODULES` — from the AST reconciliation script, not a
+  manual count
+- `TOTAL_REGISTERED_TOOLS` — literal dict-entry count command + output
+- `REUSED_EXISTING_MODULES` — list the actual module names reused
+- `NEW_COMPONENTS_BUILT` — list the actual new files/functions added
+- `COMMUNICATION_BUS_ACTIVE` — show a live message actually passing
+  through the bus with its `trace_id`, not just "true"
+- `ID_TAGGING_ACTIVE` — show one real `candidate_id`/`execution_plan_id`/
+  `trace_id` propagating through at least 3 real modules in one trace
+- `STRUCTURED_OUTPUT_ACTIVE` — paste one real module's raw return object
+  showing all required fields present
+- `AUDIT_CHAIN_COMPLETE` — paste raw audit log entries for one full trade
+  cycle
+- `LEARNING_LOOP_COMPLETE` — show one real trade's outcome flowing through
+  Outcome Tracker → Attribution → Learning → Memory → Orchestrator, with
+  raw data at each hop
+- `MEMORY_LOOP_COMPLETE` — show a memory read/write actually occurring,
+  with before/after state
+- `NO_DUPLICATE_MODULES` — paste the dedup check command + output
+- `NO_DUPLICATE_TOOLS` — paste the dedup check command + output
+- `PIPELINE_STATUS = PASS / FAIL` — only PASS if every item above has raw
+  proof attached; otherwise FAIL with a list of what's missing
+
+### Required Deliverable
+
+Output one complete, real execution trace for a sample ticker showing
+every module transition from Candidate Intake through Learning and back to
+the Master Orchestrator — with real timestamps, real `trace_id`, and real
+data at each hop, not a mocked or narrated version of what it would look
+like.
+
+---
+
+## BOTTOM LINE
+
+Fix Part 1 completely, with raw proof for every item. Re-run Part 2's
+reconciliation until it fully passes. Only then begin Part 3. If at any
+point you cannot fix something, say exactly what is blocking you and what
+you'd need to resolve it — do not report something as working when it
+isn't.
