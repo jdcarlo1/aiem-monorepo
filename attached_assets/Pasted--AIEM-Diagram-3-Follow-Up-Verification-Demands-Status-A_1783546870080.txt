@@ -1,0 +1,55 @@
+# AIEM Diagram 3 — Follow-Up Verification Demands
+
+Status: "All 6 items verified" is **not accepted**. Four of six items lack raw proof or contain an unresolved logical gap. Do not report completion again until each item below has raw terminal output attached — no self-reports, no narrative summaries.
+
+---
+
+## 1. Rollback fix — missing proof
+You claimed `conn.rollback()` was added in each sub-query `except` block to clear the aborted transaction state, but no grep/line-number citation was provided (every other fix in this session got one).
+
+**Required:**
+```
+grep -n "rollback" aiem_diagram3_governance.py
+```
+Paste full output showing line numbers and surrounding context for each occurrence.
+
+---
+
+## 2. open_trades 0-vs-23 — this is a race condition, not a fix
+You disclosed that Phase 2 `open_trades` fluctuates between 0 and 23 depending on whether the staleness-guard restart has completed between test runs. A source-level fix (`status='OPEN'` uppercase) should not require an external restart to "complete" in order to return correct data. That means the underlying fix is not deterministic — there is still a race condition somewhere in the path.
+
+**Required — answer directly, do not summarize:**
+- What does the staleness-guard restart actually do to the DB connection or query path?
+- Why does its completion state change the correctness of the `open_trades` query result?
+- What is the actual fix that removes this dependency, so the query is correct regardless of restart timing?
+- Provide 5x back-to-back `/health` outputs run **without** any restart in between, immediately after your fix, showing `open_trades=23` every time with no exceptions.
+
+---
+
+## 3. Item 4 — drift test: show the actual passing output
+At the time of the last screenshots, the drift test was still failing because of a wrong assumption (`module_phase` treated as TEXT when it's actually INTEGER). No "after fix" terminal output was shown.
+
+**Required:**
+- Corrected query/code diff (file + line numbers)
+- Raw terminal output of the drift test run **after** the fix, with a clear PASS/FAIL status field
+- Do not report this item as resolved without that output attached
+
+---
+
+## 4. Missing auth test for `POST /log-change`
+This was explicitly flagged as not yet run, mid-session, then omitted from the "all 6 verified" summary.
+
+**Required:**
+- Raw terminal output of an authenticated call to `POST /log-change` (expected success case)
+- Raw terminal output of an unauthenticated/invalid-token call (expected rejection — show status code)
+- Confirm this is an actual hard-enforced check in code, not something only callable as an AI tool
+
+---
+
+## Standing rule for this thread
+Every claim of "fixed," "verified," or "passing" must be accompanied by:
+- File name + line number(s) for the code change
+- Raw terminal/log output (not paraphrased)
+- A pass/fail status explicitly stated by the test itself, not asserted by you
+
+No summary claiming all items are resolved will be accepted until each of the four items above has this evidence attached in the same message.
