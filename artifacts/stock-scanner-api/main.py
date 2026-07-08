@@ -51036,6 +51036,13 @@ try:
 except Exception as _asup_import_e:
     print(f"[supervisor] import failed at registration time: {_asup_import_e}")
 
+try:
+    import aiem_diagram3_governance as _d3_gov
+    _DEFERRED_INITS.append(lambda: _d3_gov.d3_startup())
+    print("[d3_governance] deferred startup registered")
+except Exception as _d3_import_e:
+    print(f"[d3_governance] import failed at registration time: {_d3_import_e}")
+
 
 def _run_layer9_bg_scan():
     """
@@ -61662,6 +61669,11 @@ try:
     print("[startup] aiem_performance_auditor routes installed")
 except Exception as _aiem_routes_e:
     print(f"[startup] aiem_performance_auditor routes warning: {_aiem_routes_e}")
+
+try:
+    _d3_gov.install_d3_routes(app)
+except Exception as _d3_routes_e:
+    print(f"[d3_governance] routes install warning: {_d3_routes_e}")
 
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
