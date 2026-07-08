@@ -53,20 +53,23 @@ def get_account_value(db_url: str) -> Optional[float]:
 
 
 def get_todays_realized_pnl(db_url: str) -> float:
-    """Sums exit_price - entry data for positions closed today."""
+    """
+    Sums the `pnl` column for aiem_paper_trades positions closed today.
+
+    NOTE (fixed 2026-07-08, Joel sign-off Part 1 addendum item 6): this used
+    to query `ai_stock_picks`, which is a dead table (0 rows) for the AIEM
+    paper-trading domain. The real live table is `aiem_paper_trades`
+    (status='CLOSED_AIEM' when a position is closed, `pnl` already computed
+    at close time, `exit_date` is the date it closed).
+    """
     conn = psycopg2.connect(db_url)
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN exit_price IS NOT NULL AND score IS NOT NULL
-                        THEN exit_price - score
-                        ELSE 0
-                    END
-                ), 0)
-                FROM ai_stock_picks
-                WHERE closed_at::date = CURRENT_DATE
+                SELECT COALESCE(SUM(pnl), 0)
+                FROM aiem_paper_trades
+                WHERE status = 'CLOSED_AIEM'
+                  AND exit_date = CURRENT_DATE
             """)
             return float(cur.fetchone()[0])
     finally:

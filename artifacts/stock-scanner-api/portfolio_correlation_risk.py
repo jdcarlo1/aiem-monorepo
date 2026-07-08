@@ -23,12 +23,18 @@ CORRELATION_GROUPS = {
 
 
 def get_open_position_tickers(db_url: str) -> List[str]:
+    """
+    NOTE (fixed 2026-07-08, Joel sign-off Part 1 addendum item 6): this used
+    to query `ai_stock_picks`, which is a dead table (0 rows) for the AIEM
+    paper-trading domain. The real live table is `aiem_paper_trades`, where
+    an open position has status='OPEN' (uppercase, confirmed via live data).
+    """
     conn = psycopg2.connect(db_url)
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT ticker FROM ai_stock_picks
-                WHERE status IS NULL OR status = 'open'
+                SELECT ticker FROM aiem_paper_trades
+                WHERE status = 'OPEN'
             """)
             return [row[0] for row in cur.fetchall()]
     finally:
