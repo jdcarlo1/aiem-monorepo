@@ -16,3 +16,4 @@
 {"timestamp": "2026-07-03T16:28:51.984348+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
 {"timestamp": "2026-07-03T16:28:52.024410+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
 {"timestamp": "2026-07-06T22:09:27.225719+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}
+{"timestamp": "2026-07-08T05:21:16.159080+00:00", "event": "simulation_check", "details": {"caller": "premarket_open_trader", "live_trading_enabled": false}}

@@ -3510,7 +3510,7 @@ try:
                 with _conn.cursor() as _cur:
                     _cur.execute("""
                         SELECT DISTINCT ticker FROM unusual_calls_log
-                        WHERE created_at >= NOW() - INTERVAL '2 days'
+                        WHERE first_seen >= NOW() - INTERVAL '2 days'
                         LIMIT 30
                     """)
                     _candidates = [r[0] for r in _cur.fetchall()]
