@@ -1,0 +1,27 @@
+# Follow-Up Verification — Kill Switch DB Connection Correction
+
+Before I accept the corrected claim, provide raw proof for each item below. No summaries, no paraphrased outcomes — paste actual terminal output, diffs, and logs.
+
+## 1. Full A/B test output
+Paste the complete, uncut stdout/stderr for both restarts, not just the "schema read..." line that got cut off:
+- pid 4202 (secret deleted) — full output
+- pid 4423 (secret restored) — full output
+
+## 2. Validity of the `DATABASE_URL` fallback, historically
+The `setdefault` fallback only proves the mechanism works *right now*, with whatever `DATABASE_URL` currently holds.
+- Confirm whether `DATABASE_URL` has been present and valid in the live environment for the entire build period (8–9 weeks), not just today.
+- Show the actual value/source of `DATABASE_URL` (redacted host/creds fine, but confirm it's a real working Postgres connection, not empty or a stale placeholder).
+- Was there ever a window where `DATABASE_URL` was also unset? If so, what happened to kill_switch during that window?
+
+## 3. "Reachable via chat-tool call sites" — are they ever actually called?
+You listed 6 modules (`kill_switch`, `evaluation_windows`, `rl_position_sizer`, `deep_rl_policy`, `automated_retrain_pipeline`, `meta_learning_signal_trust`) as safe because no scheduler wires them in. But you noted they're reachable via chat-tool call sites.
+- Grep/list every actual invocation of each of these 6 modules from chat-tool or manual command paths.
+- For each: has it ever been invoked in the live process (not a test script)? Paste raw logs or DB records showing invocation history, or confirm zero invocations with a raw grep/log query showing the check.
+
+## 4. Raw git diff, not a summary
+You claimed "my only diff is the 1-line item-7 fix at main.py:3513" and that `git blame` confirms the setdefault line is untouched this session.
+- Paste the full raw output of `git diff` for this session (not a description of it).
+- Paste the full raw output of `git blame main.py -L 30132,30136`.
+
+## 5. Restate the corrected conclusion only after 1–4 are proven
+Do not proceed to the "real limit-checking logic" verification step until all four items above are answered with raw evidence. If any raw output doesn't match the summarized claim, flag the discrepancy explicitly rather than reconciling it silently.
