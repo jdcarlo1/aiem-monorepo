@@ -1,0 +1,21 @@
+One item you flagged yourself as unverified — let's close it before calling this done.
+
+THE GAP
+You found (via grep, not live trigger) that momentum_exhaustion (line 609) and pullback_reentry (line 644) have the identical silent-catch pattern as the two that failed live: they catch any exception from self._mx.compute_signal / self._pr.compute_signal and return {"status": "error", "error": str(exc)} instead of raising. You confirmed the new packet.audit-based scan in _h_verification would catch this shape generically if it fired — but you were explicit that this has only been confirmed by code inspection, not by an actual live run where either branch triggers.
+
+WHAT TO DO
+Find or construct a real scenario where one of these two branches actually throws — same standard as before, live data, not simulated:
+
+1. Identify what would realistically cause self._mx.compute_signal or self._pr.compute_signal to raise an exception (e.g. insufficient bars, a missing column, a bad ticker, a data gap for a specific date). Check the function bodies directly if needed:
+
+grep -n -A 20 "def compute_signal" <the relevant module file(s) for _mx and _pr>
+
+2. Run the live pipeline against a ticker/date combination that you expect will actually hit that exception path (thin/illiquid ticker, holiday-adjacent date, etc. — whatever the real trigger condition is based on what you find in step 1).
+
+3. Paste the raw stdout showing momentum_exhaustion or pullback_reentry actually entering the except block and returning the error dict — not a description of it, the literal printed output.
+
+4. Paste the raw packet.verification block from that run, confirming soft_failures actually lists the real error message that came out of that live trigger (not options_structure/layer9 again — this needs to be a new instance from these two specific handlers).
+
+5. If you cannot find a live scenario that naturally triggers either handler's exception path within reasonable effort, say so plainly and explain what you tried — don't substitute a synthetic/forced trigger and present it as equivalent to a live-data trigger unless you're explicit that's what you did.
+
+Raw output only, same standard as before.

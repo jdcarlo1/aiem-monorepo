@@ -1,0 +1,36 @@
+The tier breakdown you gave (Scanner Engines 34, Advanced Technical Modules 39, Standalone Infrastructure 100+, AIEM Tools 224, Total ~400+) is a summary table, not raw output. "100+" and "~400+" are approximations — I need exact counts, same standard as everything else in this session.
+
+PART 1 — EXACT COUNTS, RAW OUTPUT ONLY
+
+For each tier, run the actual commands and paste the real output — no rounding, no "+":
+
+1. Scanner Engines:
+ls -la <wherever these live> | wc -l
+ls -la <wherever these live>
+
+2. Advanced Technical Modules (aiem_*.py):
+ls -la aiem_*.py | wc -l
+ls -la aiem_*.py
+
+Compare this list against the 59 modules in AIEM_MODULES from the orchestrator (already confirmed via python3 -c earlier). Tell me explicitly: is this "39" a subset of the 59 orchestrator modules, a superset, or a different/overlapping set of files? Show the actual diff between the two file lists.
+
+3. Standalone Infrastructure Modules — "100+" is not a real count. Run:
+ls -la <wherever these live> | wc -l
+Paste the exact number and the full file list.
+
+4. AIEM Tools (chat-callable, 224) — confirm this is still _build_aiem_tool_map() in main.py as stated in the original Q2 answer. Paste:
+grep -n "_build_aiem_tool_map" main.py
+python3 -c "<import and print the actual tool count and list, or first/last 20 if too long>"
+
+5. Total unique components — once you have the real numbers from 1-4, recompute this yourself and show the arithmetic. Don't just restate "~400+".
+
+PART 2 — WHAT ACTUALLY CONNECTS TO THE ORCHESTRATOR
+
+This is the more important question. For each of the four tiers above, answer directly and prove it with code:
+
+- Does aiem_master_orchestrator.py import, call, or otherwise invoke anything from the Scanner Engines tier? Show the import/call site if yes, or confirm "no" with a grep showing zero matches if not.
+- Same question for Standalone Infrastructure Modules.
+- Same question for the 224 AIEM Tools (chat-callable) registry — does the orchestrator's 57-stage pipeline call into this registry at all, or is it entirely separate?
+- For Advanced Technical Modules (aiem_*.py) — since many of these names overlap with modules already confirmed live in the 57-stage pipeline (e.g. aiem_macro_engine.py, aiem_v3_technical.py), confirm exactly which of the 39 are already part of the verified pipeline vs. which are NOT called anywhere in aiem_master_orchestrator.py.
+
+I want a clear map: which of these ~400 components are actually wired into the pipeline we've already tested live, and which are sitting completely disconnected from it. Raw grep/code output only — no summary tables in place of this.
