@@ -1543,6 +1543,17 @@ def _init_diagram2_trace_audit_schema():
 _DEFERRED_INITS.append(_init_diagram2_trace_audit_schema)
 
 
+def _init_d2_subcheck_log_schema():
+    try:
+        import aiem_diagram2_stage_helpers as _ad2sh
+        _ad2sh.init_subcheck_log()
+    except Exception as _e:
+        print(f"[d2_subcheck_log] schema init error: {_e}")
+
+
+_DEFERRED_INITS.append(_init_d2_subcheck_log_schema)
+
+
 def _dc_cfg_get(key: str) -> str:
     """Read a single key from discovery_cycle_config. Returns '' on miss."""
     try:
@@ -40229,9 +40240,7 @@ def _aiem_paper_execute_today():
                                      "fill_price": _fill_price, "notional": _notional})
                     _d2_run(3, "data_guards", "Data Guards",
                             "_aiem_paper_execute_today (kill_switch/daily_loss/portfolio_corr gates)",
-                            lambda: {"kill_switch": "CLEAR", "daily_loss_limit": "CLEAR",
-                                     "portfolio_correlation": "CLEAR",
-                                     "checked_at": "batch_level_before_candidate_loop"})
+                            lambda: _d2_help.stage3_data_guards_subchecks(_t, pick, _d2_trace_id))
                     _d2_run(4, "master_orchestrator", "Master Orchestrator",
                             "AEIMMasterOrchestrator.execute_stage",
                             lambda: {"orchestrator_singleton_id": id(_d2_orch), "active": True})
@@ -40260,7 +40269,7 @@ def _aiem_paper_execute_today():
                             _d2_help.check_discovery_cycle_freshness, _t)
                     _d2_run(10, "technical_signal", "Technical Signal",
                             "module_scores_generated (technical component)",
-                            lambda: _d2_help.technical_signal_evidence(pick, _raw_sc))
+                            lambda: _d2_help.technical_signal_subchecks(pick, _raw_sc, _t, _d2_trace_id))
                     _d2_run(11, "options_smart_money", "Options / Smart Money",
                             "module_scores_generated (options component)",
                             lambda: {"source": pick["source"],
@@ -40277,7 +40286,9 @@ def _aiem_paper_execute_today():
                                      "drift_mult": _dm_lbl, "final_score": _fin_sc})
                     _d2_run(15, "specialist_council", "Specialist Council / Bull-Bear",
                             "aiem_bull_bear.run_bull_bear_debate (reused batch-level debate)",
-                            lambda: (_debate_verdicts[_t]["debate"] if _t in _debate_verdicts else
+                            lambda: (_d2_help.log_stage15_subchecks(
+                                         _debate_verdicts[_t]["debate"], _t, _d2_trace_id)
+                                     if _t in _debate_verdicts else
                                      (_ for _ in ()).throw(RuntimeError(
                                          f"no bull/bear debate ran for {_t} today "
                                          "(debate batch is limited to top-ranked candidates)"))))
@@ -61674,6 +61685,72 @@ try:
     _d3_gov.install_d3_routes(app)
 except Exception as _d3_routes_e:
     print(f"[d3_governance] routes install warning: {_d3_routes_e}")
+
+
+
+@app.route("/stock-api/admin/diagram2-lookahead-test", methods=["GET"])
+def admin_diagram2_lookahead_test():
+    """
+    Acceptance test (item A2): inject a pick with a future _test_scan_date and
+    prove the Stage 3 lookahead_bias sub-check catches it. Returns raw DB rows
+    from aiem_d2_subcheck_log — no self-reports, actual data from the table.
+    """
+    import uuid, datetime as _ladt, psycopg2 as _laps
+    import aiem_diagram2_stage_helpers as _lah
+
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+
+    trace_id = f"lookahead_test_{_ladt.date.today().isoformat()}_{uuid.uuid4().hex[:6]}"
+    tomorrow = (_ladt.date.today() + _ladt.timedelta(days=1)).isoformat()
+    fake_pick = {
+        "source": "gap_volume",
+        "score":  100.0,
+        "raw_score": 100.0,
+        "_test_scan_date": tomorrow,
+    }
+
+    checks = []
+    for name, fn, inp in [
+        ("pit_validation",  lambda: _lah.stage3_pit_validation_check("TEST", fake_pick),
+                             {"_test_scan_date": tomorrow}),
+        ("lookahead_bias",  lambda: _lah.stage3_lookahead_bias_check("TEST", fake_pick),
+                             {"_test_scan_date": tomorrow}),
+        ("missing_data",    lambda: _lah.stage3_missing_data_check("TEST", fake_pick),
+                             {"source": fake_pick["source"]}),
+    ]:
+        try:
+            r = fn()
+            _lah._log_subcheck(trace_id, 3, name, "TEST", inp, r, True, "passed", None)
+            checks.append({"check": name, "passed": True, "result": r})
+        except RuntimeError as e:
+            _lah._log_subcheck(trace_id, 3, name, "TEST", inp, {"error": str(e)}, False, str(e), None)
+            checks.append({"check": name, "passed": False, "error": str(e)})
+
+    db_rows = []
+    try:
+        with _laps.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT check_name, passed, reason, result, input_values, checked_at
+                FROM aiem_d2_subcheck_log WHERE trace_id = %s ORDER BY id
+            """, (trace_id,))
+            for r in _cu.fetchall():
+                db_rows.append({"check_name": r[0], "passed": r[1], "reason": r[2],
+                                 "result": r[3], "input_values": r[4], "checked_at": str(r[5])})
+    except Exception as _e:
+        db_rows = [{"error": str(_e)}]
+
+    return jsonify({
+        "trace_id": trace_id,
+        "injected_future_scan_date": tomorrow,
+        "in_process_checks": checks,
+        "db_rows": db_rows,
+        "lookahead_caught": any(not r["passed"] and r["check_name"] == "lookahead_bias" for r in db_rows),
+    })
+
+
+
 
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).
