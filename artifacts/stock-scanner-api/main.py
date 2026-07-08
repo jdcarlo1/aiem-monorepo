@@ -40260,8 +40260,7 @@ def _aiem_paper_execute_today():
                             _d2_help.check_discovery_cycle_freshness, _t)
                     _d2_run(10, "technical_signal", "Technical Signal",
                             "module_scores_generated (technical component)",
-                            lambda: {"source": pick["source"], "raw_score": _raw_sc,
-                                     "note": "technical contribution embedded in unified raw_score"})
+                            lambda: _d2_help.technical_signal_evidence(pick, _raw_sc))
                     _d2_run(11, "options_smart_money", "Options / Smart Money",
                             "module_scores_generated (options component)",
                             lambda: {"source": pick["source"],

@@ -93,6 +93,29 @@ def check_layer9_freshness(ticker: str, db_url: str = None) -> dict:
     }
 
 
+# ── Mutation-test gate (Diagram 2 acceptance test) ────────────────────────
+# Set to True to forcibly disable Stage 10 so the acceptance test can prove
+# that a genuine stage failure is recorded as FAIL in aiem_diagram2_trace_audit.
+# Must be restored to False immediately after the FAIL trace is captured.
+MUTATION_KILL_TECHNICAL: bool = False
+
+
+def technical_signal_evidence(pick: dict, raw_sc: float) -> dict:
+    """Stage 10 — Technical Signal evidence.
+    Returns the real evidence dict, OR raises RuntimeError when the
+    mutation kill flag is set (acceptance test only)."""
+    if MUTATION_KILL_TECHNICAL:
+        raise RuntimeError(
+            "MUTATION_TEST: technical_signal stage forcibly disabled — "
+            "Diagram 2 wiring acceptance proof"
+        )
+    return {
+        "source": pick["source"],
+        "raw_score": raw_sc,
+        "note": "technical contribution embedded in unified raw_score",
+    }
+
+
 def run_probability_engine_for_ticker(ticker: str) -> dict:
     """Stage 13 — Probability Engine. Calls the REAL production adapter,
     aiem_probability_engine.live_query.run_live_query(ticker, mode="ticker"),
