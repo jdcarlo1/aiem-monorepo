@@ -1,0 +1,54 @@
+# AIEM Master Orchestrator — Strict Verification Request
+
+## ⚠️ Critical issue found before any of this — read first
+
+The file you were sent (`aiem_master_orchestrator.py`) is a **scaffold with stub handlers**, not a wired 57-stage system. This directly contradicts the claim "57-stage pipeline, zero stubs, all real modules."
+
+Evidence, straight from the code:
+
+- Every handler (`macro_engine`, `discovery_engine`, `technical_engine`, `ml_prediction_engine`, `debate_engine`, `exit_engine`, etc.) returns a hardcoded placeholder dict, e.g.:
+  - `"regime": "unknown_until_real_module_runs"`
+  - `"discovery_status": "pending_real_module"`
+  - `"technical_score": None, "trend": "pending_real_module"`
+  - `"prediction": "pending_real_module"`
+  - `"debate_result": "pending_real_module"`
+  - `"exit_reasoning": "pending_real_module"`
+- The file's own section header says: *"Replace stub logic with calls to your real Replit modules."*
+- `verification_engine()` only checks that a module **name** appears in the audit log — it does NOT check that the module produced real output. This is why you can get "57/57 executed, 0 errors, verification passed=True" while every stage silently returns `None`.
+
+**Before accepting any "PASS" from this orchestrator, get this confirmed:**
+
+1. Is this exact file (with stub handlers) what's currently live in production, or has each `run_module(packet, m, self.X_engine)` call already been rewired to call the real module functions (e.g., `aiem_v3_technical.compute_technical_score()`) instead of the stub methods defined in this file (`self.technical_engine`, `self.discovery_engine`, etc.)?
+2. If rewired, show the diff — specifically the `run_full_cycle()` method — proving each stub call was replaced with a call to the real module function, not just renamed.
+3. Show one live packet's `technical`, `ml_prediction`, `debate`, and `exit_plan` fields from a real run. If they contain `None` or the string `"pending_real_module"` anywhere, the stage is NOT wired, regardless of what verification_report says.
+
+---
+
+## Strict Verification Questions (from the code's own STRICT_VERIFICATION_REQUEST, plus additions)
+
+1. Show the complete registered module list.
+2. Confirm the 39 core modules and 224 tools are registered — with proof (not a count you assert).
+3. Show the full pipeline order.
+4. Run one test ticker through the full pipeline — paste raw terminal output, not a summary.
+5. Show the trade packet ID.
+6. Show every module that executed — with real output, not just the module name in a log.
+7. Show timestamps for every module execution.
+8. Show which module outputs were consumed by the next module (i.e., prove data actually flows between stages, not just that stages ran in order).
+9. Show whether any module failed.
+10. Show whether any required module was skipped.
+11. Show supervisor approval or rejection — with the actual reasoning content, not just a boolean.
+12. Show risk gate approval or rejection — with actual risk metrics used.
+13. Show position sizing output — actual numbers, not `None`.
+14. Show exit plan output — actual stop/target values, not `None`.
+15. Show paper trade decision.
+16. Show audit trail.
+17. Show performance auditor record.
+18. Show learning update record.
+19. Show verification pass/fail.
+20. Prove all answers came from AEIM logs, not manual explanation.
+
+## Additional questions given the stub discovery
+
+21. For each of the 57 stages, confirm in writing: "this stage calls [specific real module function], not a placeholder" — list function name and file for each.
+22. Paste the git diff showing stub methods being replaced with real module calls.
+23. Run the pipeline on two different tickers with clearly different technicals/regimes (e.g., one bullish, one bearish) and show that `technical_score`, `ml_prediction`, `debate_result`, and `exit_plan` differ meaningfully between them. If they're identical or both `None`/placeholder, the stages aren't actually computing anything ticker-specific.

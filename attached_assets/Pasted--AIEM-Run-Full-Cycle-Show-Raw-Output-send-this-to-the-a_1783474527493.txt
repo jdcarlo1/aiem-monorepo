@@ -1,0 +1,54 @@
+# AIEM — Run Full Cycle & Show Raw Output (send this to the agent)
+
+Run a real ticker through the full `run_full_cycle()` pipeline right now and show
+me the raw output — not a summary.
+
+Pick a ticker (not one you've shown me before). Run:
+
+```python
+from aiem_master_orchestrator import AEIMMasterOrchestrator
+import json
+
+orch = AEIMMasterOrchestrator()
+result = orch.run_full_cycle(ticker="<TICKER>", source="manual_verification_test")
+
+# Print every field of the packet, not just the verification summary
+print(json.dumps({
+    "packet_id": result.packet_id,
+    "ticker": result.ticker,
+    "macro": result.macro,
+    "discovery": result.discovery,
+    "technical": result.technical,
+    "options": result.options,
+    "microstructure": result.microstructure,
+    "statistical": result.statistical,
+    "ml_prediction": result.ml_prediction,
+    "debate": result.debate,
+    "ensemble": result.ensemble,
+    "supervisor": result.supervisor,
+    "risk": result.risk,
+    "position": result.position,
+    "exit_plan": result.exit_plan,
+    "final_decision": result.final_decision,
+    "paper_trade": result.paper_trade,
+    "errors": result.errors,
+    "verification": result.verification,
+}, indent=2, default=str))
+```
+
+Paste the raw terminal output of this exact print statement. Don't reformat it
+into a table, don't summarize it, don't clean it up.
+
+## What I'm checking for and why
+
+- If `technical`, `ml_prediction`, `debate`, `position`, or `exit_plan` contain
+  `None` or strings like `"pending_real_module"` / `"unknown_until_real_module_runs"`
+  — that stage is still a stub, no matter what the verification summary says.
+- I need real numbers: an actual technical score, an actual position size, an
+  actual stop-loss price, an actual bull/bear debate result — not placeholders.
+- Also paste the audit trail (`result.audit`) in full, unedited, so I can see the
+  module name AND timestamp AND actual output for every one of the 57 stages, not
+  just a pass/fail count.
+
+If any field still shows a placeholder value, tell me directly which stages
+aren't wired yet instead of reporting the overall run as a pass.

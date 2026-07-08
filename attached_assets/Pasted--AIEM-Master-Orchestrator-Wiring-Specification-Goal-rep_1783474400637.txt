@@ -1,0 +1,69 @@
+# AIEM Master Orchestrator — Wiring Specification
+
+Goal: replace every stub handler in `aiem_master_orchestrator.py` with a call into
+the REAL existing module already listed in `AEIM_MODULES`. Do not write new logic —
+call what already exists elsewhere in the codebase.
+
+Instruction to give the Replit agent, verbatim:
+
+---
+
+**Task:** Rewire `AEIMMasterOrchestrator` so every stage in `run_full_cycle()` calls
+the real module function instead of the stub handler currently defined in section 5
+of `aiem_master_orchestrator.py`. Do not change `AEIM_PIPELINE_ORDER` or
+`AEIM_MODULES` — use them as the source of truth for which file/function each stage
+belongs to.
+
+For every stub method below, replace its body so it imports and calls the real
+function, passes the packet's existing fields as arguments, and writes the REAL
+return value into the packet field (not a placeholder).
+
+| Stage / stub method | Real module (from AEIM_MODULES) | What to call |
+|---|---|---|
+| `macro_engine` | aiem_macro_engine.py | `compute_macro_snapshot()` / `get_cached_macro_snapshot()` |
+| `discovery_engine` (used for v3_discovery, module2-7, hypothesis_registry, etc.) | aiem_v3_discovery.py, aiem_module2_decay.py ... aiem_module7_sector_rotation.py, hypothesis_registry.py, active_hypothesis_selection.py, literature_scanner.py, drift_alarm.py | each stage must call its OWN file's function — currently they all incorrectly call the same `self.discovery_engine` stub |
+| `technical_engine` | aiem_v3_technical.py | `compute_technical_score()` |
+| `options_engine` (used for options_structure, cta_triggers, momentum_exhaustion, pullback_reentry, selloff_reversion, short_squeeze) | aiem_options_structure.py, aiem_cta_triggers.py, aiem_momentum_exhaustion.py, aiem_pullback_reentry.py, aiem_selloff_reversion.py, aiem_short_squeeze.py | each stage must call its OWN file — currently all six incorrectly share one stub |
+| `microstructure_engine` (used for layer9, stat_tests, vwap, intraday_continuation, premarket_gap) | layer9_statistical_edge.py, aiem_stat_tests.py, vwap_indicators.py, intraday_continuation_scanner.py, premarket_gap_continuation_scanner.py | each stage must call its OWN file — currently all five incorrectly share one stub |
+| `ml_prediction_engine` (used for ml_engine, alpha_model, momentum_model, gaussian_process, deep_rl, online_learning) | ml_engine.py, alpha_historical_trainer.py + alpha_feature_engineering.py, momentum_trade_trainer.py, signal_discovery_gp.py, deep_rl_policy.py + rl_position_sizer.py, online_learning.py | each stage must call its OWN file — currently all six incorrectly share one stub |
+| `debate_engine` (used for meta_learning_trust, intelligence_layer, adversarial_critique, bull_bear_debate) | meta_learning_signal_trust.py, aiem_intelligence_layer.py, adversarial_critique.py, bull_bear_debate.py | each stage must call its OWN file — currently all four incorrectly share one stub |
+| `ensemble_engine` | ensemble_combiner.py | `simple_weighted_average()` |
+| `supervisor_engine` (used for supervisor AND edge_filter — should NOT be the same call) | aiem_supervisor.py, aiem_edge_filter.py | two separate real calls, currently incorrectly sharing one stub |
+| `risk_engine` | aiem_risk_guards.py | real risk gate check |
+| `position_engine` | aiem_position_sizing.py | `derive_stop()` and sizing logic |
+| `exit_engine` | aiem_exit_engine.py | real RSI/CMF/MACD/ADX exit logic |
+| `performance_engine` | aiem_performance_auditor.py | real performance audit |
+| `learning_engine` (used for closed_loop_learning, rl_engine, v3_learning, automated_retrain) | aiem_closed_loop_learning.py, aiem_rl_engine.py, aiem_v3_learning.py, automated_retrain_pipeline.py | each stage must call its OWN file — currently all four incorrectly share one stub |
+| `verification_engine` (used for verification AND v3_verification) | aiem_verification.py, aiem_v3_verification.py | must check REAL output presence per field, not just that a module name is in the audit log |
+| pipeline_audit / provenance | aiem_pipeline_audit.py, aiem_provenance.py | currently a no-op lambda returning `{"audit_confirmed": True}` — must call real `PipelineTrace` / `sign_payload()` |
+| security / isolation_guard | aiem_security.py, aiem_isolation_guard.py | currently no-op lambdas returning hardcoded "passed" — must call real `verify_source_isolation()` etc. |
+
+---
+
+**Critical fix needed in `verification_engine`:**
+
+Currently it only checks module *names* against the audit log:
+```python
+missing = [m for m in self.pipeline_order if m not in executed_modules]
+packet.verification = {..., "passed": len(missing) == 0 and len(packet.errors) == 0}
+```
+
+This must be changed to also check that each stage's OUTPUT is non-placeholder —
+e.g., flag `"passed": False` if any packet field still contains `None` or a string
+matching `"pending_real_module"`, `"unknown_until_real_module_runs"`, etc.
+
+---
+
+**Proof required after wiring (send back to me raw, unedited):**
+
+1. Full diff of `aiem_master_orchestrator.py` showing every stub replaced with a
+   real import + function call.
+2. One full packet dump (all fields) from a live `run_full_cycle("NVDA", ...)` run
+   — I need to see actual numbers in `technical`, `ml_prediction`, `debate`,
+   `position`, `exit_plan`, not `None` or placeholder strings.
+3. Run the same cycle on a second, very different ticker and show the outputs
+   differ meaningfully (proves each stage is really computing on real inputs,
+   not just replaying a fixed value).
+4. Confirm `verification_engine` now fails (`passed: False`) if I manually force
+   one field back to a placeholder value — as a sanity check that the check is
+   real and not cosmetic.
