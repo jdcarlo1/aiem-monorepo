@@ -1,0 +1,67 @@
+# AIEM Diagram 2 — Verification Gaps & Remediation Instructions
+
+**Trace audited:** aiem_2026_07_08_MU_482f74 (ticker=MU, paper_trade_id=175)
+**Auditor:** Claude (independent, raw-data-only standard — no self-reports accepted)
+**Purpose:** Close every gap between "the pipeline ran" and "the pipeline is provably correct at every stage," before this system is represented as 100% verified to a buyer/investor.
+
+**Standing rule for the Replit agent:** Do not respond to any item below with a narrative description or a "this is working" claim. Every fix must be proven with: raw terminal output, file + line number of the change, a fresh trace_id showing the actual payload (not a hash, not a summary), and a PASS/FAIL verdict with the underlying data attached. Self-reported completion will be rejected and re-audited.
+
+---
+
+## SECTION A — Not Yet Verified (requires proof or a fix)
+
+### A1. Stages 1–9 and 16: inputs/outputs are hash-only, not raw payloads
+**Problem:** `_log_trace_stage()` hashes the input/output before writing to `aiem_diagram2_trace_audit`. This proves *consistency* (same input → same hash) but does **not** prove the actual conviction-scoring math (OI Build, Gamma, Charm, Squeeze Fuel, Dark Pool, Float OD, Sweep, Sector Heat) ran correctly at each layer. Raw payloads for these stages are never persisted anywhere.
+
+**What must be proven or fixed:**
+1. Modify `_log_trace_stage()` (or add a parallel write) to persist the **actual serialized payload** — not just `input_hash` / `output_hash` — for stages 1–9 and 16. Provide file + line number of the change.
+2. Re-run a fresh trace end-to-end and show the raw feature values for all 8 conviction layers directly from the `aiem_diagram2_trace_audit` table (or wherever they're now stored) — not from a downstream summary table, and not reconstructed from source tables.
+3. Confirm whether existing historical hash-only rows can be back-filled, or whether verification only applies going forward. State this explicitly — do not imply retroactive proof exists if it doesn't.
+
+### A2. Stage 3 sub-checks (Data Guards): 3 of 4 have zero rows
+**Problem:** Point-in-time validation, lookahead bias check, and missing-data check have no per-check audit rows anywhere — Data Guards runs as one gated block and only the aggregate result is logged.
+
+**What must be proven or fixed:**
+1. Either (a) add individual logged rows for each of the 3 sub-checks so each can be independently verified, or (b) if that's architecturally not warranted, provide the actual gate logic (file + line number) showing all 3 checks are hard-enforced inside the block, plus a live test that trips each check individually (e.g., feed a lookahead-biased input and show it gets rejected).
+2. Do not accept "the block passed" as proof that all 3 sub-checks individually executed — show each one being exercised.
+
+### A3. Stage 10 sub-checks (Technical Analysis): 4 of 5 have zero rows
+**Problem:** Price structure, VWAP, momentum, and volume are not broken out into individual logged steps — only one aggregated `technical_signal` row exists.
+
+**What must be proven or fixed:**
+1. Same standard as A2: either add per-sub-check logging, or produce the actual code (file + line number) plus a live-trigger test showing each of the 4 calculations independently executing and feeding into the aggregate.
+
+### A4. Stage 15 sub-checks (risk review, contradiction check): zero rows
+**Problem:** Specialist Council writes one `bull_bear_debates` row. Risk review and contradiction check are fields inside the `synthesis` JSON (e.g. `net_edge`), not separately logged steps.
+
+**What must be proven or fixed:**
+1. Show the actual code path (file + line number) that computes risk review and contradiction check, and confirm whether they are genuinely separate logic paths or just derived fields.
+2. If they are real independent checks, add separate logged rows so they can be audited on their own. If they are not independent (just math on the bull/bear scores), state that plainly — don't let this be implied as a distinct verification step if it isn't one.
+
+### A5. `input_summary` truncation at 500 chars
+**Problem:** The audit log truncates payload summaries at 500 characters at write time — full data is recoverable from `bull_bear_debates` directly but not from the audit log itself.
+
+**What must be proven or fixed:**
+1. Confirm (file + line number) where the truncation happens.
+2. State clearly whether this is acceptable (since full data lives in the source table) or whether the audit log itself should store the untruncated version for standalone verification without needing to join back to source tables.
+
+---
+
+## SECTION B — Confirmed working (no action needed, do not re-litigate)
+These already have real, verified evidence and should not consume further remediation time:
+- Stage 13a/13b (XGBoost scoring + SHAP): full feature payload + signed contributions for all 13 features — verified.
+- Stages 14–18 (scoring/synthesis → bull/bear debate → risk gate → decision engine → paper trade write): actual JSONB payloads and actual DB writes confirmed, including trust-gate (0.2×) and drift-gate (0.7×) genuinely reducing the score from 2669.82 → 385.17, and a real row written to `aiem_paper_trades` (id=175).
+- Thompson sampler / RL weight check: real alpha/beta/sampled_score values confirmed.
+
+## SECTION C — Expected behavior, not a bug (do not "fix")
+These stages correctly did not fire for this trace — do not force fake rows or change logic just to make Stage 19–22 show data:
+- **Stage 19 (Outcome Tracking):** trade is still OPEN — no settled outcome exists yet. Correct.
+- **Stage 20 (Learning Feedback Loop):** 0 graded samples (need ≥30) — correctly declined to promote/retrain. Correct.
+- **Stage 21 (Performance Auditor) / Stage 22 (D3 Governance):** these are scheduled, portfolio-level snapshots, not per-trade stages. Confirm this is true by design (file + line number of the scheduler), but do not add fake per-trade rows.
+
+---
+
+## What "100% verified" requires before this can be claimed externally
+1. Every item in Section A resolved with raw proof (not narrative) as specified above.
+2. A fresh end-to-end trace, run after all fixes, with every one of the 22 stages showing either (a) full raw payload, or (b) an explicit, justified statement of why that stage is aggregate/scheduled and not per-trace (Section C items only).
+3. No claim of "100% functioning" should be made until Section A is fully closed — right now the provable claim is: **candidate selection through trade execution is logged, internally consistent, and the downstream decision logic (stages 13–18) is independently verified with raw data.** The stock-picking/scoring layer itself (stages 1–9) is not yet independently verifiable beyond hash consistency.

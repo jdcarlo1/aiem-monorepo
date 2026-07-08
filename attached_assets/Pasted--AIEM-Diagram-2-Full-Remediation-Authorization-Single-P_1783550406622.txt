@@ -1,0 +1,47 @@
+# AIEM Diagram 2 — Full Remediation Authorization (Single Pass)
+
+**Trace audited:** aiem_2026_07_08_MU_482f74 (ticker=MU, paper_trade_id=175)
+**Auditor:** Claude — independent, raw-data-only. No self-reports accepted.
+**Directive:** Fix every item below. Do not propose alternatives, do not ask which option I prefer, do not partially implement. This is the full scope of work for this remediation pass. When done, submit one response covering all items with proof as specified. It will be re-audited item by item; anything not proven with raw evidence will bounce back as incomplete, not approved.
+
+**Proof standard (applies to every item):** file path + line number of every code change, a fresh trace_id run end-to-end after the fix, raw terminal/DB output (not a paraphrase, not "this now works"), and the actual data payload — not a hash, not a summary, not a row count. If a table schema changes, show the migration and the new schema.
+
+---
+
+## MANDATORY FIXES
+
+### 1. Persist raw payloads for Stages 1–9 and 16 (currently hash-only)
+`_log_trace_stage()` must be modified to write the full serialized input/output payload to `aiem_diagram2_trace_audit` for every stage from ingestion through the risk gate — not just `input_hash`/`output_hash`. This includes raw values for all 8 conviction layers (OI Build, Gamma, Charm, Squeeze Fuel, Dark Pool, Float OD, Sweep, Sector Heat) at Stage 1–9, and the full risk-gate inputs at Stage 16.
+- Add a new column (e.g. `payload_json JSONB`) alongside the existing hash columns — do not remove the hash, add the raw data next to it.
+- Apply this to all future trace writes going forward, not just a one-off test.
+- Prove it: run one fresh trace and show the actual `payload_json` contents for stages 1–9 and 16 directly from the table — every conviction layer's raw feature values and score, visible without joining to any other table.
+
+### 2. Break out Stage 3 (Data Guards) into individually logged sub-checks
+Point-in-time validation, lookahead bias check, and missing-data check must each write their own row to the trace audit table (or a new `aiem_stage3_subcheck_audit` table), not just the aggregate gate result.
+- Each row must include: which check ran, the actual input evaluated, pass/fail, and why.
+- Prove it: trigger a live test where lookahead bias is deliberately present in the input and show the specific sub-check row that catches and rejects it — not the aggregate block, the specific check.
+
+### 3. Break out Stage 10 (Technical Analysis) into individually logged sub-checks
+Price structure, VWAP, momentum, and volume calculations must each write their own row instead of being collapsed into one `technical_signal` output.
+- Prove it: fresh trace showing four separate rows (or one row with four clearly separated sub-fields carrying real computed values, not placeholders) with the actual numeric outputs for each.
+
+### 4. Separate Stage 15 risk review and contradiction check from the synthesis blob
+Risk review and contradiction check must be logged as their own steps with their own before/after values, not buried inside the `synthesis` JSON field on `bull_bear_debates`.
+- Prove it: show the actual code (file + line number) computing each independently, and a fresh trace with each appearing as its own row/step with real values (not `net_edge` alone standing in for both).
+
+### 5. Remove the 500-character truncation on `input_summary`
+The audit log must store the full untruncated payload, not a 500-char summary that requires joining back to `bull_bear_debates` to see the complete picture.
+- Prove it: file + line number of the truncation logic removed, and a fresh trace showing a summary field longer than 500 characters stored in full.
+
+### 6. Confirm Stage 21/22 scheduler logic is real and not a stub
+Show the actual scheduler code (file + line number) that triggers Performance Auditor and D3 Governance snapshots, and the cron/interval configuration, so it's proven these are genuine scheduled jobs and not dead code that happens to have old rows in the table from manual runs.
+
+### 7. Performance disclosure (separate from wiring, but mandatory before external claims)
+Provide current live numbers pulled fresh, not from the stale Jul 1–7 report: total trades, win rate, avg P&L%, max drawdown, Sharpe ratio, broken out by signal source. This does not need to be "fixed" — it needs to be current and attached to the response so I can see whether performance has moved since the last snapshot (win_rate=0.23, avg_pnl=-2.82%, Sharpe=-0.39 as of the last audit).
+
+---
+
+## What happens after submission
+I will re-run this exact audit format against the new trace and the new code. Every one of the 7 items above gets a PASS/FAIL with evidence cited. Anything that comes back as a narrative claim instead of raw proof will be marked FAIL and sent back — this is not a negotiation on format, only the fixes themselves are the work.
+
+**Only after all 7 items PASS** can this system be described as fully verified end-to-end. That claim will cover: every stage of the pipeline has raw, inspectable evidence of correct execution. It will not by itself cover live trading performance — item 7 is tracked separately and should be included in any accurate representation of the system to a buyer.
