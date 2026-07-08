@@ -1,0 +1,30 @@
+# Scoped Item — Authorize AIEM_DATABASE_URL + Kill Switch Real-Logic Verification
+
+Authorized as its own scoped item, before starting `pre_decision_risk_gate` (Part 2 / Phase 11).
+
+## Background
+
+Item 7 follow-up confirmed the kill switch's fail-closed behavior is a real hard block (not a silent no-op): a missing `AIEM_DATABASE_URL` raises `RuntimeError` → caught → appended to `hard_blockers` → forces `decision = "skip"` → `write_paper_pick()` never reached. No trade goes through. That specific worry is closed.
+
+What it also surfaced: because `AIEM_DATABASE_URL` has never been set in this environment, the kill switch has never once reached its actual purpose — drawdown ceilings, loss-streak limits, trade-count limits. Every call has died at the connection step before that logic runs. It has been "safe" by accident of a missing config, not because the real limits were exercised and passed.
+
+## Scope of this item
+
+1. Set `AIEM_DATABASE_URL` to a real, working database connection in this environment.
+2. Re-run `check_kill_switch()` directly and show the raw return value — confirm it no longer raises at the connection step.
+3. Show the actual drawdown/loss-streak/trade-count logic executing for the first time — with real (or realistic test) data — and show what it returns when limits are NOT breached (should allow) and when they ARE breached (should block).
+4. Show the raw code path and a live test for at least one breach condition (e.g., simulate a loss streak or drawdown past the configured ceiling) and confirm the kill switch actually halts in that case — not just in the "config missing" case.
+5. Confirm no other module silently depends on `AIEM_DATABASE_URL` being unset (i.e., check nothing else was relying on the fail-closed path as an unintentional safety net).
+
+## Explicitly out of scope for this item
+
+- Any changes to `pre_decision_risk_gate.py` or Phase 11 wiring — that work is blocked until this item closes.
+- Any other modules not directly touching kill switch initialization or its limit logic.
+
+## Proof standard
+
+Per the "prove it, don't tell me" standard: raw code snippets with file/line numbers, real terminal/test output, and actual returned values — not descriptions of intended behavior. Do not mark this item done until the kill switch's real limit-checking logic has been shown to execute and correctly block at least one simulated breach.
+
+## Hold point
+
+Do not begin Phase 11 (`pre_decision_risk_gate`) until this item is confirmed closed with proof.
