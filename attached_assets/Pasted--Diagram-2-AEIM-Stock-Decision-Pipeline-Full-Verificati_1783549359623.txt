@@ -1,0 +1,94 @@
+# Diagram 2 — AEIM Stock Decision Pipeline: Full Verification (Single Request, Final Sign-Off)
+
+## Purpose
+One complete, final verification that a single stock pick moves through **every layer of the actual Diagram 2 architecture below, start to finish**, with real evidence at each stage. This replaces all prior partial requests, including the earlier generic 23-stage list — use the stage list below instead, it is the correct one. Answer everything in one pass. Do not ask me to come back for a second round.
+
+## Test subject
+Use the existing run: `aiem_2026_07_08_MU_482f74` (or a fresh NVDA/MU run if that one is incomplete — state which you used and why).
+
+## Known issue to resolve as part of this request
+Two tables currently carry partial trace data for prior runs, and neither alone satisfies all 7 required fields:
+
+| Field | `aiem_diagram2_trace_audit` | `aiem_pipeline_audit_log` |
+|---|---|---|
+| Timestamp | `started_at`, `completed_at` ✓ | `logged_at` ✓ |
+| Module name | `stage_name`, `runtime_function` ✓ | `module_name`, `function_name` ✓ |
+| Input | `input_hash` only — hash, not payload | `input_summary` — text excerpt |
+| Output | `output_hash` only — hash, not payload | `output_summary` — text excerpt |
+| Next module invoked | not stored | `next_module_called` ✓ |
+| Execution duration | computed from `completed_at - started_at` ✓ | `execution_time_ms` ✓ |
+| Success/Failure | `status` ✓ | `status` ✓ |
+
+Cross-map both tables by `trace_id` for this run into **one unified per-stage record**. If a real (non-hash, non-truncated) payload exists anywhere — raw log, JSON blob, queue message, `evidence_pointer` target — find it and include it. If it genuinely does not exist anywhere, say so explicitly per stage. Do not substitute a hash or a summary and call it "input" or "output" without flagging it as such.
+
+## Required stage order — 22 stages, exact architecture
+
+1. Stock Scanner / Website Signal
+2. AEIM Intake
+3. Data Guards — must show evidence for all four sub-checks individually:
+   - point-in-time validation
+   - staleness check
+   - lookahead bias check
+   - missing data check
+4. Master Orchestrator
+5. Module Registry
+6. Tool Registry
+7. Communication Bus
+8. Macro / Market Regime Engine
+9. Discovery / Edge-Finding Layer
+10. Technical Analysis Layer — must show evidence for all five sub-components individually:
+    - price structure
+    - VWAP
+    - momentum
+    - volume
+    - trend
+11. Options / Smart Money / Microstructure Layer
+12. Quant / Statistical Edge Layer
+13. Probability Engine — must show evidence for both:
+    - XGBoost output
+    - TreeSHAP explanation
+14. Scoring / Synthesis Layer
+15. Specialist Council — must show evidence for all four sub-components individually:
+    - bull case
+    - bear case
+    - risk review
+    - contradiction check
+16. Pre-Decision Risk Gate
+17. Decision Engine
+18. Paper Trading / Shadow Execution / No-Execution Log
+19. Outcome Tracking
+20. Learning Feedback Loop
+21. Performance Auditor
+22. Diagram 3 Governance Reporting
+
+## Required output format — for EVERY stage above (and every listed sub-check within a stage)
+```
+Stage: <name> [/ Sub-check: <name>, if applicable]
+Row exists: <yes / no — in which table(s)>
+Timestamp: <value, or "missing">
+Module name: <value, or "missing">
+Input: <actual payload if found, else "hash/summary only: <value>", else "no data in any table">
+Output: <actual payload if found, else "hash/summary only: <value>", else "no data in any table">
+Next module invoked: <value, or "missing">
+Execution duration (ms): <value, or "missing">
+Success/Failure: <value, or "missing">
+```
+
+Paste this block for all 22 stages in order, including a separate block for each named sub-check (Data Guards has 4, Technical Analysis has 5, Probability Engine has 2, Specialist Council has 4 — 33 blocks total minimum). No prose summaries in between. No skipping a stage or sub-check because it "has no interesting data" — show the empty/missing state explicitly.
+
+## Final summary required at the end (after all blocks)
+```
+Stages/sub-checks with full 7-field coverage: <count> / 33 — list them
+Stages/sub-checks with partial coverage (fields missing/hash-only): <count> / 33 — list them + which fields are missing
+Stages/sub-checks with zero rows in either table: <count> / 33 — list them
+```
+
+## What will NOT satisfy this request
+- Any claim that the pipeline "ran successfully end to end" without the stage-by-stage blocks above
+- Collapsing a sub-checked stage (Data Guards, Technical Analysis, Probability Engine, Specialist Council) into one block instead of one block per sub-check
+- Presenting a hash or summary as if it were the actual payload without flagging it
+- Omitting a stage or sub-check silently
+- A partial answer with a promise to follow up — this must be complete in one response
+
+## Sign-off condition
+Diagram 2 is verified 100% only when all 33 stage/sub-check blocks show full 7-field coverage with real payload data (not hashes, not truncated summaries) for one real, traceable run. Any item short of that is named explicitly as an open item — not glossed over — and becomes the next remediation target before Diagram 3 sign-off proceeds.
