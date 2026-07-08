@@ -8,7 +8,14 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
 def init_schema():
-    """Create bull_bear_debates table if it does not exist."""
+    """
+    Create bull_bear_debates table if it does not exist (matches the live
+    production schema — debate_time/signal_context/bull_argument/
+    bear_argument/synthesis/verdict), and ensure the Diagram-2 traceability
+    columns (trace_id, paper_trade_id) exist so every persisted debate can be
+    joined back to its paper trade (aiem_paper_trades.id) and its audit trail
+    (aiem_pipeline_audit_log.trace_id).
+    """
     try:
         url = os.environ.get("DATABASE_URL", "")
         if not url:
@@ -16,20 +23,61 @@ def init_schema():
         with psycopg2.connect(url) as c, c.cursor() as cu:
             cu.execute("""
                 CREATE TABLE IF NOT EXISTS bull_bear_debates (
-                    id          BIGSERIAL PRIMARY KEY,
-                    ticker      TEXT NOT NULL,
-                    debate_date DATE NOT NULL DEFAULT CURRENT_DATE,
-                    bull_score  REAL,
-                    bear_score  REAL,
-                    verdict     TEXT,
-                    confidence  REAL,
-                    context_json JSONB,
-                    created_at  TIMESTAMPTZ DEFAULT NOW()
+                    id             BIGSERIAL PRIMARY KEY,
+                    debate_time    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    ticker         TEXT NOT NULL,
+                    signal_context JSONB NOT NULL,
+                    bull_argument  TEXT,
+                    bear_argument  TEXT,
+                    synthesis      JSONB,
+                    verdict        TEXT
                 )
             """)
+            cu.execute("CREATE INDEX IF NOT EXISTS idx_bull_bear_debates_ticker ON bull_bear_debates (ticker)")
+            cu.execute("ALTER TABLE bull_bear_debates ADD COLUMN IF NOT EXISTS trace_id TEXT")
+            cu.execute("ALTER TABLE bull_bear_debates ADD COLUMN IF NOT EXISTS paper_trade_id BIGINT")
+            cu.execute("CREATE INDEX IF NOT EXISTS idx_bull_bear_debates_trace_id ON bull_bear_debates (trace_id)")
+            cu.execute("CREATE INDEX IF NOT EXISTS idx_bull_bear_debates_paper_trade_id ON bull_bear_debates (paper_trade_id)")
             c.commit()
     except Exception:
         pass
+
+
+def persist_debate(ticker: str, signal_context: Dict[str, Any], debate: Dict[str, Any],
+                    trace_id: Optional[str] = None, paper_trade_id: Optional[int] = None) -> Optional[int]:
+    """
+    Persist one completed bull/bear debate result, linked to its paper-trade
+    candidate (paper_trade_id) and its audit trace (trace_id — joins to
+    aiem_pipeline_audit_log.trace_id). Returns the new row id, or None if the
+    write failed (never raises — callers must not have the paper-trade path
+    interrupted by a persistence issue).
+    """
+    try:
+        url = os.environ.get("DATABASE_URL", "")
+        if not url:
+            return None
+        with psycopg2.connect(url) as c, c.cursor() as cu:
+            cu.execute("""
+                INSERT INTO bull_bear_debates
+                    (ticker, signal_context, bull_argument, bear_argument,
+                     synthesis, verdict, trace_id, paper_trade_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                ticker,
+                json.dumps(signal_context),
+                json.dumps(debate.get("bull_case") or {}),
+                json.dumps(debate.get("bear_case") or {}),
+                json.dumps(debate.get("synthesis") or {}),
+                debate.get("verdict"),
+                trace_id,
+                paper_trade_id,
+            ))
+            row = cu.fetchone()
+            c.commit()
+            return row[0] if row else None
+    except Exception:
+        return None
 
 
 def build_bull_case(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, Any]:

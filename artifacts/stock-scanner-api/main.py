@@ -1231,6 +1231,7 @@ def _backfill_signal_outcomes():
 import threading as _thr_bso
 _thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
 _DEFERRED_INITS.append(lambda: init_sms_log_table())
+_DEFERRED_INITS.append(lambda: _bull_bear.init_schema() if _bull_bear else None)
 
 # ── Microcap/small-cap call outcome tracking ─────────────────────────────────
 # Stores price_1d/3d/5d and ret_1d/3d/5d on unusual_calls_microcap_log so we
@@ -39825,7 +39826,7 @@ def _aiem_paper_execute_today():
                         }
                         _deb = _bull_bear.run_bull_bear_debate(_tt, _ctx)
                         _verd = (_deb.get("synthesis") or {}).get("verdict", "CONFLICTED")
-                        _debate_verdicts[_tt] = _verd
+                        _debate_verdicts[_tt] = {"verdict": _verd, "debate": _deb, "context": _ctx}
                         print(f"[aiem_paper] bull_bear {_tt}: {_verd}")
                     except Exception as _bbe:
                         print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
@@ -40241,6 +40242,27 @@ def _aiem_paper_execute_today():
                             )
                     except Exception as _sup_h4_e:
                         print(f"[supervisor] hook4_paper_trade_opened skipped: {_sup_h4_e}")
+
+                # ── Bull/Bear debate persistence (Diagram 2 closure — item 3) ──
+                if _audit_trace_id and _t in _debate_verdicts:
+                    try:
+                        _cu.execute(
+                            "SELECT id FROM aiem_paper_trades "
+                            "WHERE ticker=%s AND trade_date=%s AND status='OPEN' "
+                            "ORDER BY id DESC LIMIT 1",
+                            (_t, _today)
+                        )
+                        _bbd_row = _cu.fetchone()
+                        _bbd_trade_id = _bbd_row[0] if _bbd_row else None
+                        _bbd_entry = _debate_verdicts[_t]
+                        _bbd_id = _bull_bear.persist_debate(
+                            _t, _bbd_entry["context"], _bbd_entry["debate"],
+                            trace_id=_audit_trace_id, paper_trade_id=_bbd_trade_id,
+                        )
+                        if _bbd_id:
+                            print(f"[aiem_paper] bull_bear persisted id={_bbd_id} trace={_audit_trace_id} trade={_bbd_trade_id}")
+                    except Exception as _bbd_e:
+                        print(f"[aiem_paper] bull_bear persistence skipped {_t}: {_bbd_e}")
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
