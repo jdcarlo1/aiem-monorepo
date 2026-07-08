@@ -1,0 +1,87 @@
+# STRICT VERIFICATION — NO SELF-REPORTS ACCEPTED
+
+This is not a drill and this is not a discussion. This is a business system. Every claim below gets checked against raw output. If a check fails, you fix it. If you don't know how to fix it, say so directly — do not paper over it, do not reframe a FAIL as a PASS with a caveat, do not submit a summary instead of the actual query output.
+
+Your last "Remediation Complete" report has gaps. Close them. Do not tell me it's done — show me the output.
+
+---
+
+## GAP 1 — Stage name reconciliation
+
+The original 13 required connections were named:
+Candidate Intake, Discovery, Analysis, Market Regime, Specialist Council, Risk Manager, Decision Engine, Paper Trading, Observability/Audit, Outcome Tracker, Learning Systems, Memory, Feedback Loop.
+
+Your trace dump shows these stage names instead:
+scanner_signals, aeim_intake, macro_regime, discovery, technical_signal, specialist_council, risk_gate, decision_engine, paper_shadow_execution, post_trade_analytics, communication_bus, learning_feedback, master_orchestrator.
+
+These do not obviously map 1:1. `scanner_signals`, `communication_bus`, and `master_orchestrator` were not in the original 13. `Outcome Tracker` and `Memory` do not appear by name in your trace.
+
+**TASK:** Produce an explicit table — original name → current stage name → file:line where that stage is implemented. All 13 original items must be accounted for. If a required connection was renamed, say so and show it. If one is missing, say so — do not silently substitute a different stage and call it equivalent.
+
+**VERIFY:** I will cross-check this table against the trace dump myself. It must reconcile with no unexplained entries on either side.
+
+---
+
+## GAP 2 — Attribution must be inside the same trace, not a side table
+
+`aiem_trade_attribution` (T5) is a separate table with 3 rows. That is not proof it fires as part of the same end-to-end trace as the other 12 connections. A wiring claim ("wired at main.py:40985 before trust-weight EMA") is not the same as a live join showing it actually executed in sequence.
+
+**TASK:** Run this exact query against one real trace_id/trade_id and paste the raw output:
+
+```sql
+SELECT 
+    b.hop_number, 
+    b.stage_name, 
+    b.event_type, 
+    b.created_at
+FROM aiem_bus_transfer_log b
+WHERE b.trace_id = '<pick one real trace_id>'
+ORDER BY b.created_at;
+```
+
+Then paste the matching attribution row for that same trade:
+
+```sql
+SELECT * FROM aiem_trade_attribution WHERE trade_id = '<matching trade_id>';
+```
+
+The attribution row's timestamp must fall between the Outcome Tracker stage and the Learning Systems stage in the bus log, for the same trade. If it doesn't, the Attribution hop is not actually in the loop — it's a disconnected table being written to independently.
+
+---
+
+## GAP 3 — Full count and order verification, no cutoffs
+
+For T4/T6, run these and paste complete output, not a summary:
+
+```sql
+SELECT COUNT(*) FROM aiem_bus_transfer_log WHERE trace_id = 'bus_test_20260708_234329';
+```
+Expected: 26 (13 stages × 2 events: stage_starting + stage_completed). If it's not exactly 26, say what it actually is.
+
+```sql
+SELECT stage_name, event_type, created_at 
+FROM aiem_bus_transfer_log 
+WHERE trace_id = 'bus_test_20260708_234329' 
+ORDER BY created_at;
+```
+This must show 26 rows, no gaps, no duplicate stage/event pairs, in ascending time order. Paste all 26 rows — not the first 20 with "..." at the end.
+
+---
+
+## GAP 4 — Live end-to-end run, not a synthetic test trace
+
+`bus_test_20260708_234329` looks like a manufactured test trace_id, not a trace from an actual pick-to-trade cycle. 
+
+**TASK:** Trigger one real, live pick-to-trade cycle right now. Capture its trace_id. Run the same COUNT and ORDER BY queries above against that real trace_id. Paste the output. A synthetic test trace proves the plumbing can carry water — it does not prove the system uses that plumbing when it actually runs.
+
+---
+
+## Rules — read before responding
+
+1. **No status words without the query output next to them.** "Complete," "wired," "confirmed," "verified" mean nothing without the raw SELECT result or grep output attached.
+2. **If something doesn't work, say it doesn't work.** Do not reframe a partial result as a pass. Do not average a FAIL and a PASS into "mostly done."
+3. **Paste full output.** No truncation, no "..." in the middle of a result set, no summarizing 26 rows as "26 rows returned."
+4. **One gap at a time.** Close Gap 1, show me, then move to Gap 2. Do not batch all four into one narrative response.
+5. **If you genuinely cannot fix one of these, stop and say exactly what's blocking you** — a missing table, an ambiguous requirement, a design conflict. That's a valid answer. A vague "this is mostly handled" is not.
+
+This system runs on paper money but it's being built for real capital eventually. Treat every claim like someone's going to check it — because someone is.
