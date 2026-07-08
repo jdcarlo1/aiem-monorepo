@@ -1,0 +1,71 @@
+Good. Item 3 appears improved, but Diagram 2 is NOT complete yet.
+
+Please provide FINAL DIAGRAM 2 CLOSURE PROOF for every remaining gap, not only the bull_bear_debates fix.
+
+Required:
+
+1. Master Orchestrator
+Show runtime proof that the live scanner candidate is routed through the Master Orchestrator before module execution.
+Provide:
+- exact function/class name
+- call site
+- trace_id
+- timestamp
+- module sequence emitted by orchestrator
+- proof it is not bypassed by main.py or scheduler direct-calling modules
+
+2. Probability Engine
+Show runtime proof that the verified candidate goes through the Probability Engine / XGBoost + TreeSHAP layer before scoring/synthesis.
+Provide:
+- candidate ticker
+- trace_id
+- model version
+- probability output
+- feature vector hash or feature count
+- TreeSHAP/top drivers output
+- downstream scoring record using that probability
+
+3. Item 3 bull/bear persistence
+Show the complete 3-way join result, not a cropped table.
+Required join:
+paper_trades.paper_trade_id
+↔ bull_bear_debates.paper_trade_id
+↔ execution/learning/feedback record
+
+Return columns:
+ticker, trace_id, paper_trade_id, bull_bear_debate_id, execution_status, feedback_written, learning_record_id
+
+4. End-to-end trace
+For one real recent scanner candidate, print one final trace proving this exact order:
+
+Scanner / Website Signals
+→ AEIM Intake
+→ Data Guards
+→ Master Orchestrator
+→ Module Registry
+→ Tool Registry
+→ Communication Bus
+→ Macro / Market Regime
+→ Discovery
+→ Technical / VWAP / Momentum
+→ Options / Smart Money / Microstructure
+→ Quant / Statistical Edge
+→ Probability Engine
+→ Scoring / Synthesis
+→ Specialist Council
+→ Pre-Decision Risk Gate
+→ Decision Engine
+→ Paper / Shadow Execution or No-Execution Log
+→ Bull/Bear Debate
+→ Post-Trade Analytics
+→ Learning Feedback
+
+5. Final status table
+Return:
+
+Layer | Runtime Proof | Trace ID | DB Row / File Evidence | PASS/FAIL
+
+Only mark COMPLETE if every required layer has runtime proof from the same trace_id.
+Do not use explanation-only proof.
+Do not use simulated proof.
+Do not use memory from earlier sessions.
