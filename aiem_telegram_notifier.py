@@ -105,7 +105,7 @@ log = logging.getLogger('AIEM-NOTIFIER')
 
 ET = pytz.timezone('America/New_York')
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
-_HEALTH_PORT = int(os.environ.get('AIEM_HEALTH_PORT', '5051'))
+_HEALTH_PORT = int(os.environ.get('AIEM_HEALTH_PORT', '5052'))
 
 _scheduler_ref = None
 _last_run = {"status": "not_run_yet", "timestamp": None}
@@ -596,7 +596,8 @@ def _fetch_today_notifier_log_status(brief_type: str):
 
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if not self.path.rstrip('/').endswith('/api/health'):
+        _p = self.path.rstrip('/')
+        if not (_p.endswith('/api/health') or _p.endswith('/aiem-telegram') or _p == ''):
             self.send_response(404)
             self.end_headers()
             return
