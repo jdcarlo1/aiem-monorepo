@@ -1,0 +1,543 @@
+AEIM DIAGRAM 2 — MASTER WIRING + VERIFICATION
+PART 1 OF 2
+
+GOAL:
+Update Diagram 2 so AEIM is shown as one connected autonomous architecture using the confirmed 203 Python modules/files and the tool inventory provided by the owner.
+
+CRITICAL RULES:
+1. Do NOT wire everything all at once.
+2. Wire one phase at a time.
+3. Prove each phase with real logs, test output, database/audit records, and exact commands.
+4. Do NOT proceed to the next phase until the current phase passes.
+5. No tool connects directly to the Decision Engine.
+6. Every tool must be owned by a module or phase.
+7. Every module must have exactly ONE canonical owning phase.
+8. If another phase depends on a file, list it as an upstream/downstream dependency, not as duplicate ownership.
+9. Nothing bypasses Data Guards, Risk Gate, Audit, or Verification.
+10. Verification runs after every phase, not only at the end.
+
+MASTER FLOW:
+Stock Scanner / Website Signals
+→ AEIM Intake
+→ Data Guards / Point-in-Time / Staleness / Lookahead Validation
+→ Master Orchestrator
+→ Module Registry
+→ Tool Registry
+→ Communication Bus
+→ Macro / Market Regime
+→ Discovery / Edge Finding
+→ Technical / Price Structure / VWAP / Momentum
+→ Options / Smart Money / Microstructure
+→ Quant / Statistical Edge
+→ Probability Engine / XGBoost + TreeSHAP
+→ Scoring / Synthesis
+→ Specialist Council
+→ Pre-Decision Risk Gate
+→ Decision Engine
+→ Paper / Shadow Execution
+→ Outcome Tracking
+→ Performance Auditor
+→ Safe Learning / RL / Retraining
+→ Verification / Observability
+→ Feedback Back to Master Orchestrator
+
+CANONICAL OWNERSHIP CORRECTIONS:
+- daily_loss_limit.py belongs to Phase 11 — Pre-Decision Risk Gate.
+  Phase 2 may depend on its status but must not own it.
+- execution.py belongs to Phase 13 — Paper Trading / Execution.
+  Phase 12 may generate execution instructions but must not own execution.py.
+- execution_simulator.py belongs to Phase 13 — Paper Trading / Simulation.
+  Phase 12 may depend on execution-readiness output but must not own it.
+- backtest_*.py files belong to Phase 7 — Quant / Statistical Edge.
+  Phase 14 may consume backtest results but must not own those files.
+
+FAILURE PROOF RULE:
+If any check fails, the failure must be reported verbatim:
+- full traceback
+- failing command
+- failing test output
+- error log
+- module name
+- tool name
+- phase name
+- timestamp
+
+Do NOT summarize failures as:
+"mostly working"
+"minor issue"
+"almost complete"
+
+A failed check blocks progression to the next phase until resolved and re-verified.
+
+CONTINUOUS VERIFICATION RULE:
+The Verification Layer must run after every phase closes.
+No phase may be marked complete without a phase-specific verification pass.
+The final full-system verification is still required after all phases.
+
+PHASE 0 — STOCK SCANNER INPUT
+
+Purpose:
+The website/scanner finds candidates. AEIM does not rely on the scanner for final reasoning. Scanner only provides candidate packets.
+
+Canonical modules/files:
+scanner.py
+composite_scan.py
+prop_signal.py
+precursor_signals.py
+opening_snapshot_tracker.py
+premarket_gap_continuation_scanner.py
+premarket_open_trader.py
+intraday_continuation_scanner.py
+multiday_runner.py
+aiem_probability_engine/daily_picks.py
+
+Tools:
+get_daily_candidates
+query_independent_picks
+compare_independent_vs_website_picks
+mkt_screen_by_indicator
+mkt_screen_period
+mkt_segment_by_cap_tier
+mkt_segment_by_sector
+mkt_refresh_universe
+
+Output:
+candidate_packet
+
+Candidate packet must include:
+ticker
+price
+volume
+signal_source
+signal_type
+timestamp
+scanner_score
+options_activity
+market_context
+
+Required proof:
+Show one real candidate packet generated from the scanner and passed into AEIM intake.
+
+PHASE 1 — AEIM INTAKE / ORCHESTRATION
+
+Purpose:
+AEIM receives candidate packets and starts autonomous processing.
+
+Canonical modules/files:
+main.py
+aiem_master_orchestrator.py
+aiem_v3_orchestrator.py
+self_coding_orchestrator.py
+aiem_process.py
+aiem_v2_system.py
+aiem_supervisor.py
+aiem_comm_test.py
+aiem_provenance.py
+aiem_intelligence_layer.py
+aiem_level2.py
+aiem_level3.py
+
+Tools:
+v2_run_cycle
+v2_status
+run_level2
+run_level3
+get_live_snapshot
+get_decisions
+log_decision
+log_prediction
+
+Diagram rule:
+Master Orchestrator must be the central node.
+All modules must connect through:
+Master Orchestrator
+→ Module Registry
+→ Tool Registry
+→ Communication Bus
+→ Audit Log
+→ Verification Layer
+
+Required proof:
+Show the orchestrator receiving a candidate_id and creating an execution trace.
+
+PHASE 2 — DATA VALIDATION / SAFETY GUARDS
+
+Purpose:
+Prevent stale data, lookahead bias, survivorship bias, bad timestamps, duplicate orders, bad fills, and unsafe execution.
+
+Canonical modules/files:
+point_in_time_guard.py
+staleness_guard.py
+lookahead_audit.py
+simulation_lock.py
+order_dedup.py
+aiem_isolation_guard.py
+aiem_security.py
+kill_switch.py
+manual_rollback.py
+shadow_ledger.py
+
+Dependency only:
+daily_loss_limit.py is NOT owned here. It belongs to Phase 11.
+
+Tools:
+fetch_historical_prices_pit
+mkt_check_survivorship
+check_signal_data_availability
+simulation_lock_check
+check_kill_switch
+clear_kill_switch_halt
+kill_switch_events
+correlation_guard_status
+liquidity_filter_status
+portfolio_circuit_breaker_status
+portfolio_circuit_breaker_reset
+
+Hard rule:
+No module may bypass:
+point_in_time_guard.py
+staleness_guard.py
+lookahead_audit.py
+kill_switch.py
+simulation_lock.py
+
+Required proof:
+Show a candidate passing or failing data validation with timestamps and audit log ID.
+
+PHASE 3 — MACRO / REGIME / MARKET CONTEXT
+
+Purpose:
+Determine if the market environment supports the trade.
+
+Canonical modules/files:
+aiem_macro_engine.py
+regime.py
+regime_detector.py
+regime_monitor.py
+regime_macro_patch.py
+market_regime_overlay.py
+macro_cross_asset.py
+fred_macro.py
+economic_calendar.py
+sector_etf_data.py
+aiem_module7_sector_rotation.py
+aiem_cta_triggers.py
+
+Tools:
+get_current_regime
+get_regime_flags
+query_market_regime
+regime_overlay_check
+regime_overlay_manual
+run_regime_filtered_backtest
+momentum_macro_regime
+mkt_regime_filter
+mkt_term_structure
+mkt_cta_triggers
+econ_is_high_impact_day
+event_risk_check
+event_risk_filter_status
+
+Output:
+market_regime
+risk_on_or_off
+sector_rotation_state
+macro_permission
+regime_confidence
+
+Required proof:
+Show regime output for one candidate with timestamp and source data.
+
+PHASE 4 — DISCOVERY LAYER
+
+Purpose:
+Find new edge, hidden patterns, recurring patterns, behavioral setups, and candidate opportunities.
+
+Canonical modules/files:
+aiem_discovery_engine.py
+aiem_v3_discovery.py
+aiem_module5_discovery.py
+aiem_module6_rediscovery.py
+signal_discovery_gp.py
+breakout_signature_discovery.py
+behavioral_fingerprint.py
+historical_analog_search.py
+niche_segment_finder.py
+literature_scanner.py
+hypothesis_registry.py
+active_hypothesis_selection.py
+causal_discovery.py
+causal_inference.py
+adversarial_critique.py
+
+Tools:
+discovery_run_cycle
+discovery_status
+discovery_list_candidates
+discovery_get_candidate
+discovery_promote_candidate
+discovery_reject_candidate
+discover_numeric_patterns
+breakout_discover
+breakout_extract_features
+causal_discover
+mkt_generate_hypotheses
+mkt_load_discoveries
+mkt_save_discovery
+mkt_discover_interactions
+mkt_explore_dimensions
+mkt_find_behavioral_matches
+mkt_find_historical_analogs
+mkt_behavioral_templates
+mkt_invent_indicator
+search_past_findings
+send_discovery_alert
+register_hypothesis
+register_hypotheses
+rank_hypothesis_candidates
+list_hypotheses
+list_signal_dimensions
+
+Output:
+discovery_candidates
+hypotheses
+pattern_matches
+historical_analogs
+discovery_score
+
+Required proof:
+Show discovery tools called in order and discovery_score written to audit log.
+
+PHASE 5 — TECHNICAL / PRICE STRUCTURE / VWAP / MOMENTUM
+
+Purpose:
+Analyze price behavior, chart structure, momentum, VWAP, gaps, candles, trend, exhaustion, reversal, and continuation setups.
+
+Canonical modules/files:
+aiem_v3_technical.py
+advanced_quant_indicators.py
+indicators.py
+candlestick_patterns.py
+price_structure_patterns.py
+vwap_indicators.py
+aiem_momentum_exhaustion.py
+aiem_pullback_reentry.py
+aiem_selloff_reversion.py
+aiem_short_squeeze.py
+eod_swing.py
+momentum_trade_trainer.py
+
+Tools:
+mkt_compute_indicators
+mkt_candlestick_patterns
+mkt_chart_patterns
+mkt_price_patterns
+mkt_price_structure
+mkt_volume_patterns
+mkt_52week_momentum
+mkt_compute_momentum
+momentum_trade_score
+momentum_optimize_filters
+gap_continuation_score
+intraday_compute_features
+intraday_continuation_score
+vwap_compute_features
+vwap_price_vs
+vwap_reclaim_detect
+squeeze_subscore
+test_stock_panic_exhaustion
+run_panic_exhaustion_backtest
+mkt_capitulation_detector
+mkt_extreme_move_reversion
+mkt_accumulation_squeeze
+mkt_quiet_accumulation
+mkt_pre_squeeze_warning
+divergence_scan
+check_price_bullish
+
+Output:
+technical_score
+momentum_score
+price_structure_score
+gap_score
+vwap_score
+reversal_or_continuation_signal
+
+Required proof:
+Show technical score, VWAP score, and momentum score for one ticker.
+
+PHASE 6 — OPTIONS / SMART MONEY / MICROSTRUCTURE
+
+Purpose:
+Evaluate options flow, sweeps, skew, gamma exposure, unusual activity, insider/congress behavior, and smart-money divergence.
+
+Canonical modules/files:
+options_sweep.py
+smart_money.py
+smart_money_divergence_detector.py
+insider_trades.py
+congress_trades.py
+aiem_options_structure.py
+microstructure_proxy.py
+fetch_si_background.py
+
+Tools:
+mkt_options_flow_scan
+mkt_options_predicts_price
+mkt_options_skew
+mkt_ticker_options_history
+mkt_cross_confirm_options
+mkt_gex_scan
+option_b_evaluate
+option_b_status
+microstructure_proxy
+smart_money_divergence
+mkt_net_flow_db
+
+Output:
+options_flow_score
+smart_money_score
+skew_score
+gamma_score
+microstructure_score
+
+Required proof:
+Show options/smart money output for one ticker or a clear no-data result with audit log.
+
+PHASE 7 — QUANT / STATISTICAL EDGE
+
+Purpose:
+Run statistical edge detection, statistical arbitrage, volatility clustering, factor research, significance tests, backtesting, and market anomaly tests.
+
+Canonical modules/files:
+layer9_statistical_edge.py
+stat_arb_engine.py
+volatility_clustering.py
+aiem_stat_tests.py
+factors.py
+benchmark_comparison.py
+historical_performance.py
+event_study_backtest.py
+backtest.py
+backtest_deeper.py
+backtest_options.py
+backtest_results.py
+backtest_harness.py
+backtest_tiers.py
+backtest_week.py
+backtest_eod_swing.py
+backtest_falsenegatives.py
+backtest_losers.py
+backtest_morning_losers.py
+backtest_grinder.py
+backtest_grinder_losers.py
+backtest_combo60.py
+backtest_highfactor.py
+backtest_quant_vs_v2.py
+
+Dependency note:
+Phase 14 Outcome Tracking may consume these results, but Phase 14 does not own backtest_*.py files.
+
+Tools:
+stat_arb_check
+run_statistical_significance
+run_granger_test
+run_backtest
+run_aiem_self_backtest
+run_gspc_full_history_backtest
+run_vix_spike_reversal_grid
+mkt_layer9_score
+mkt_required_pvalue
+mkt_validate_oos
+mkt_retrospective_backtest
+mkt_test_signal
+mkt_test_inverse
+mkt_factor_correlations
+multivariate_regression
+ml_classification_metrics
+ml_regression_metrics
+benchmark_vs_baselines
+analyze_metrics
+review_own_accuracy
+walk_forward_validate
+
+Output:
+statistical_edge_score
+p_value
+oos_validation
+backtest_score
+false_positive_risk
+confidence_adjustment
+
+Required proof:
+Show statistical edge score and validation output.
+
+PHASE 8 — PROBABILITY ENGINE / XGBOOST + TREESHAP
+
+Purpose:
+Generate calibrated probability scores using historical features, point-in-time data, model registry, training, walk-forward validation, and live queries.
+
+Canonical nested probability engine:
+aiem_probability_engine/__init__.py
+aiem_probability_engine/calibration.py
+aiem_probability_engine/config.py
+aiem_probability_engine/context.py
+aiem_probability_engine/daily_picks.py
+aiem_probability_engine/daily_scheduler.py
+aiem_probability_engine/data_snapshot.py
+aiem_probability_engine/date_utils.py
+aiem_probability_engine/features.py
+aiem_probability_engine/live_query.py
+aiem_probability_engine/model_registry.py
+aiem_probability_engine/pit_correction.py
+aiem_probability_engine/pit_metrics.py
+aiem_probability_engine/predict.py
+aiem_probability_engine/reports.py
+aiem_probability_engine/schemas.py
+aiem_probability_engine/train.py
+aiem_probability_engine/verify_live_query.py
+aiem_probability_engine/walk_forward.py
+scripts/spy_historical_backfill.py
+
+Related modules/files:
+ml_engine.py
+ml_infrastructure.py
+model_training.py
+feature_engineering.py
+alpha_feature_engineering.py
+alpha_historical_trainer.py
+alpha_train_pipeline.py
+automated_retrain_pipeline.py
+retrain_pipeline.py
+
+Tools:
+build_features
+ml_train_model
+ml_time_split
+ml_estimate_fill
+ml_gp_signal_search
+model_version_history
+save_research_model
+evaluate_previous_model
+rollback_to_previous_model
+retrain_pending
+retrain_approve
+retrain_reject
+retrain_history
+get_meta_learning_weights
+get_m2_decay_status
+get_m6_rediscovery_status
+
+Output:
+probability_score
+calibration_score
+model_version
+feature_importance
+TreeSHAP_explanation
+walk_forward_result
+
+Required proof:
+Show one live probability query with model version, timestamp, feature snapshot, and audit log ID.
+
+END OF PART 1.
+Wait for owner confirmation before applying Part 2.
