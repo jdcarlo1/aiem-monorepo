@@ -340,10 +340,11 @@ class AEIMMasterOrchestrator:
             conn = _db_conn_dict()
             cur  = conn.cursor()
             cur.execute("""
-                SELECT trade_date, open, high, low, close, volume
+                SELECT scan_date, open_price, high_price, low_price,
+                       close_price, volume
                 FROM polygon_market_daily
                 WHERE ticker = %s
-                ORDER BY trade_date DESC
+                ORDER BY scan_date DESC
                 LIMIT 120
             """, (packet.ticker,))
             rows = [dict(r) for r in cur.fetchall()]
@@ -351,12 +352,12 @@ class AEIMMasterOrchestrator:
         except Exception as e:
             rows = []
 
-        closes  = [float(r["close"])  for r in rows if r.get("close")]
-        highs   = [float(r["high"])   for r in rows if r.get("high")]
-        lows    = [float(r["low"])    for r in rows if r.get("low")]
-        opens   = [float(r["open"])   for r in rows if r.get("open")]
-        volumes = [float(r["volume"]) for r in rows if r.get("volume")]
-        dates   = [str(r["trade_date"]) for r in rows]
+        closes  = [float(r["close_price"])  for r in rows if r.get("close_price")]
+        highs   = [float(r["high_price"])   for r in rows if r.get("high_price")]
+        lows    = [float(r["low_price"])    for r in rows if r.get("low_price")]
+        opens   = [float(r["open_price"])   for r in rows if r.get("open_price")]
+        volumes = [float(r["volume"])       for r in rows if r.get("volume")]
+        dates   = [str(r["scan_date"])      for r in rows]
 
         packet.market_data = {
             "closes":        closes,
@@ -578,38 +579,74 @@ class AEIMMasterOrchestrator:
         return out
 
     def _h_momentum_exhaustion(self, packet: AEIMTradePacket) -> Dict:
-        closes = packet.market_data.get("closes", [])
-        highs  = packet.market_data.get("highs",  [])
-        lows   = packet.market_data.get("lows",   [])
-        if len(closes) >= 20:
-            result = self._mx.compute_signal(
-                ticker   = packet.ticker,
-                closes   = closes,
-                highs    = highs,
-                lows     = lows,
-                sig_date = date.today(),
-            )
-        else:
+        closes  = packet.market_data.get("closes",  [])
+        highs   = packet.market_data.get("highs",   [])
+        lows    = packet.market_data.get("lows",    [])
+        volumes = packet.market_data.get("volumes", [])
+        dates   = packet.market_data.get("dates",   [])
+        if len(closes) < 20:
             result = {"status": "insufficient_data", "bars": len(closes)}
-        packet.technical["momentum_exhaustion"] = result
-        return result
+            packet.technical["momentum_exhaustion"] = result
+            return result
+        conn = _db_conn()
+        cur  = conn.cursor()
+        try:
+            cur.execute("""SELECT close_price FROM polygon_market_daily
+                           WHERE ticker='SPY' ORDER BY scan_date DESC LIMIT 120""")
+            spy_closes = [float(r[0]) for r in cur.fetchall() if r[0]]
+            result = self._mx.compute_signal(
+                ticker     = packet.ticker,
+                closes     = closes,
+                highs      = highs,
+                lows       = lows,
+                volumes    = volumes,
+                dates      = dates,
+                spy_closes = spy_closes,
+                cur        = cur,
+                conn       = conn,
+            )
+        except Exception as exc:
+            result = {"status": "error", "error": str(exc)}
+        finally:
+            try: conn.close()
+            except Exception: pass
+        packet.technical["momentum_exhaustion"] = result or {"status": "no_signal"}
+        return result or {"status": "no_signal"}
 
     def _h_pullback_reentry(self, packet: AEIMTradePacket) -> Dict:
-        closes = packet.market_data.get("closes", [])
-        highs  = packet.market_data.get("highs",  [])
-        lows   = packet.market_data.get("lows",   [])
-        if len(closes) >= 20:
-            result = self._pr.compute_signal(
-                ticker   = packet.ticker,
-                closes   = closes,
-                highs    = highs,
-                lows     = lows,
-                sig_date = date.today(),
-            )
-        else:
+        closes  = packet.market_data.get("closes",  [])
+        highs   = packet.market_data.get("highs",   [])
+        lows    = packet.market_data.get("lows",    [])
+        volumes = packet.market_data.get("volumes", [])
+        dates   = packet.market_data.get("dates",   [])
+        if len(closes) < 20:
             result = {"status": "insufficient_data", "bars": len(closes)}
-        packet.technical["pullback_reentry"] = result
-        return result
+            packet.technical["pullback_reentry"] = result
+            return result
+        conn = _db_conn()
+        cur  = conn.cursor()
+        try:
+            cur.execute("""SELECT close_price FROM polygon_market_daily
+                           WHERE ticker='SPY' ORDER BY scan_date DESC LIMIT 120""")
+            spy_closes = [float(r[0]) for r in cur.fetchall() if r[0]]
+            result = self._pr.compute_signal(
+                ticker     = packet.ticker,
+                closes     = closes,
+                highs      = highs,
+                lows       = lows,
+                volumes    = volumes,
+                dates      = dates,
+                spy_closes = spy_closes,
+                cur        = cur,
+                conn       = conn,
+            )
+        except Exception as exc:
+            result = {"status": "error", "error": str(exc)}
+        finally:
+            try: conn.close()
+            except Exception: pass
+        packet.technical["pullback_reentry"] = result or {"status": "no_signal"}
+        return result or {"status": "no_signal"}
 
     def _h_selloff_reversion(self, packet: AEIMTradePacket) -> Dict:
         closes = packet.market_data.get("closes", [])
@@ -675,13 +712,25 @@ class AEIMMasterOrchestrator:
         rows = packet.market_data.get("rows", [])
         if len(rows) >= 5:
             bars = pd.DataFrame(rows[::-1])
+            # polygon_market_daily uses open_price/high_price/low_price/close_price
+            # vwap_indicators.compute_vwap expects: high, low, close, volume
+            bars = bars.rename(columns={
+                "open_price":  "open",
+                "high_price":  "high",
+                "low_price":   "low",
+                "close_price": "close",
+            })
             bars.columns = [c.lower() for c in bars.columns]
-            if "volume" in bars.columns and "close" in bars.columns:
+            need = ("high", "low", "close", "volume")
+            if all(c in bars.columns for c in need):
+                for c in need:
+                    bars[c] = pd.to_numeric(bars[c], errors="coerce")
                 result = self._vi.price_vs_vwap_pct(
                     bars, packet.market_data.get("current_price")
                 )
             else:
-                result = {"status": "missing_ohlcv_columns"}
+                result = {"status": "missing_ohlcv_columns",
+                          "available": list(bars.columns)}
         else:
             result = {"status": "insufficient_data"}
         packet.statistical["vwap"] = result
@@ -955,28 +1004,87 @@ class AEIMMasterOrchestrator:
         return out
 
     def _h_position_sizing(self, packet: AEIMTradePacket) -> Dict:
+        conviction = float(packet.scanner_signal.get("conviction_score", 5) or 5)
+        entry_price = packet.market_data.get("current_price") or 0.0
         signal_row = {
             "ticker":           packet.ticker,
             "signal_source":    packet.source,
-            "conviction_score": float(packet.scanner_signal.get("conviction_score", 5) or 5),
+            "conviction_score": conviction,
             "rvol":             float(packet.technical.get("rvol", 1.0) or 1.0),
             "gap_pct":          float(packet.technical.get("gap_pct", 0) or 0),
+            "entry_price":      entry_price,
         }
-        stop = self._ps.derive_stop(packet.source, signal_row)
-        conv_mult = self._ps._conviction_risk_mult(signal_row["conviction_score"])
+        # Full sizing — returns gate_result, notional, calculated_stop_price, risk_pct_used
+        sizing = self._ps.compute_position_size(
+            ticker=packet.ticker,
+            signal_source=packet.source,
+            conviction_score=conviction,
+            entry_price=entry_price,
+            signal_row=signal_row,
+        )
+        conv_mult = self._ps._conviction_risk_mult(conviction)
         packet.position = {
-            "stop_plan":       stop,
-            "conviction_mult": conv_mult,
-            "signal_source":   packet.source,
+            "gate_result":          sizing.get("gate_result"),
+            "notional_usd":         sizing.get("calculated_notional"),
+            "stop_price":           sizing.get("calculated_stop_price"),
+            "stop_basis":           sizing.get("stop_basis"),
+            "stop_distance_pct":    sizing.get("stop_distance_pct"),
+            "risk_pct_used":        sizing.get("risk_pct_used"),
+            "conviction_mult":      conv_mult,
+            "entry_price":          entry_price,
+            "signal_source":        packet.source,
+            "mode":                 sizing.get("mode"),
         }
         return packet.position
 
     def _h_exit_engine(self, packet: AEIMTradePacket) -> Dict:
+        # Entry-time snapshot: indicator readings at point of pick + thesis stop/target
+        entry_price    = packet.position.get("entry_price") or packet.market_data.get("current_price")
+        stop_price     = packet.position.get("stop_price")
+        stop_dist_pct  = packet.position.get("stop_distance_pct")
+
+        # Target = 2:1 R:R from stop distance; None if stop undefined
+        if entry_price and stop_dist_pct:
+            target_price  = round(entry_price * (1 + 2.0 * stop_dist_pct), 4)
+            rr_ratio      = 2.0
+        elif entry_price and stop_price:
+            raw_dist      = (entry_price - stop_price) / entry_price if entry_price > 0 else None
+            target_price  = round(entry_price * (1 + 2.0 * raw_dist), 4) if raw_dist else None
+            rr_ratio      = 2.0 if raw_dist else None
+        else:
+            target_price  = None
+            rr_ratio      = None
+
+        # Pull computed technicals already on packet (from _h_v3_technical)
+        rsi  = packet.technical.get("rsi_14")
+        macd = packet.technical.get("macd_hist")
+        bb   = packet.technical.get("bb_pct")
+        atr  = packet.technical.get("atr_pct")
+
+        # Determine entry-time exit bias from RSI + MACD
+        if rsi is not None:
+            if rsi > 70:
+                hold_bias = "CAUTION — overbought at entry"
+            elif rsi < 30:
+                hold_bias = "HOLD — oversold bounce setup"
+            else:
+                hold_bias = "HOLD — neutral RSI at entry"
+        else:
+            hold_bias = "HOLD — insufficient indicator data"
+
         out = {
             "module":             "aiem_exit_engine",
-            "entry_point":        "review_open_positions(db_url, price_history_fn)",
-            "indicators_checked": ["RSI", "CMF", "MACD", "ADX"],
-            "runs_at":            "4:01 PM ET mark-to-market",
+            "entry_price":        entry_price,
+            "stop_price":         stop_price,
+            "target_price":       target_price,
+            "rr_ratio":           rr_ratio,
+            "entry_rsi_14":       rsi,
+            "entry_macd_hist":    macd,
+            "entry_bb_pct":       bb,
+            "entry_atr_pct":      atr,
+            "hold_bias_at_entry": hold_bias,
+            "review_at":          "4:01 PM ET — review_open_positions(db_url, price_history_fn)",
+            "exit_indicators":    ["RSI", "CMF", "MACD", "ADX"],
         }
         packet.exit_plan = out
         return out
@@ -1140,9 +1248,89 @@ class AEIMMasterOrchestrator:
     # ================================================================
 
     def _h_verification(self, packet: AEIMTradePacket) -> Dict:
+        _PLACEHOLDER_STRINGS = {
+            "pending_real_module", "unknown_until_real_module_runs",
+            "pending", "stub", "not_wired",
+        }
+
+        def _is_placeholder(v) -> bool:
+            if v is None:
+                return True
+            if isinstance(v, str) and v.strip().lower() in _PLACEHOLDER_STRINGS:
+                return True
+            return False
+
+        # Check critical packet fields for None / placeholder values
+        output_failures: List[str] = []
+
+        # macro: regime must be a real string
+        if _is_placeholder(packet.macro.get("regime")):
+            output_failures.append("macro.regime is None/placeholder")
+
+        # technical: technical_score must be a real number (status ok to be insufficient_data)
+        if _is_placeholder(packet.technical.get("technical_score")):
+            output_failures.append("technical.technical_score is None/placeholder")
+
+        # ml_prediction: alpha_prob from alpha_model must be present
+        alpha_prob = packet.ml_prediction.get("alpha_model", {}).get("alpha_prob")
+        if _is_placeholder(alpha_prob):
+            output_failures.append("ml_prediction.alpha_model.alpha_prob is None/placeholder")
+
+        # debate: adversarial overall_verdict must be present
+        adv_verdict = packet.debate.get("adversarial_critique", {}).get("overall_verdict")
+        if _is_placeholder(adv_verdict):
+            output_failures.append("debate.adversarial_critique.overall_verdict is None/placeholder")
+
+        # position: gate_result must be present
+        if _is_placeholder(packet.position.get("gate_result")):
+            output_failures.append("position.gate_result is None/placeholder")
+
+        # supervisor: verdict must be present
+        if _is_placeholder(packet.supervisor.get("verdict")):
+            output_failures.append("supervisor.verdict is None/placeholder")
+
+        # final_decision: decision must be present
+        if _is_placeholder(packet.final_decision.get("decision")):
+            output_failures.append("final_decision.decision is None/placeholder")
+
+        # Scan ALL string values in every packet field for placeholder text
+        def _scan_for_placeholders(obj, path="") -> List[str]:
+            found = []
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    found.extend(_scan_for_placeholders(v, f"{path}.{k}"))
+            elif isinstance(obj, list):
+                for i, v in enumerate(obj):
+                    found.extend(_scan_for_placeholders(v, f"{path}[{i}]"))
+            elif isinstance(obj, str):
+                if obj.strip().lower() in _PLACEHOLDER_STRINGS:
+                    found.append(f"{path}={obj!r}")
+            return found
+
+        placeholder_hits: List[str] = []
+        for field_name in ("macro", "technical", "ml_prediction", "debate",
+                           "ensemble", "position", "exit_plan", "final_decision"):
+            placeholder_hits.extend(
+                _scan_for_placeholders(getattr(packet, field_name, {}), field_name)
+            )
+
         executed = [x["module"] for x in packet.audit]
-        missing  = [m for m in self.pipeline_order if m not in executed]
-        passed   = len(missing) == 0 and len(packet.errors) == 0
+
+        # Only check stages that should have run BEFORE verification itself.
+        # Stages after verification (v3_verification, security, isolation_guard)
+        # haven't executed yet at this point — they're not missing, they're pending.
+        verif_idx = (self.pipeline_order.index("verification")
+                     if "verification" in self.pipeline_order
+                     else len(self.pipeline_order))
+        steps_before_verif = self.pipeline_order[:verif_idx]
+        missing = [m for m in steps_before_verif if m not in executed]
+
+        passed = (
+            len(missing) == 0
+            and len(packet.errors) == 0
+            and len(output_failures) == 0
+            and len(placeholder_hits) == 0
+        )
 
         packet.verification = {
             "packet_id":            packet.packet_id,
@@ -1151,6 +1339,8 @@ class AEIMMasterOrchestrator:
             "total_executed_steps": len(executed),
             "missing_steps":        missing,
             "error_count":          len(packet.errors),
+            "output_failures":      output_failures,
+            "placeholder_hits":     placeholder_hits,
             "passed":               passed,
             "verified_at":          datetime.utcnow().isoformat(),
         }
