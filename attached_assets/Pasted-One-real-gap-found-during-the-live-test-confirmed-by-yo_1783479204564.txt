@@ -1,0 +1,16 @@
+One real gap found during the live test, confirmed by your own root-cause analysis: fix it, then re-verify with the same rigor as before (real diff, real re-run, raw output only).
+
+THE GAP
+_h_verification's pass/fail logic only flags a stage as failed if the handler raises an exception, or if a checked field matches a fixed placeholder-string list. Two handlers in the live run (options_structure, layer9_statistical_edge) caught their own internal errors and returned a dict containing an "error" key instead of raising or using a placeholder string. Since "error" isn't in _PLACEHOLDER_STRINGS and neither module's output fields are in the checked-field list, this class of failure is invisible to verification. Net effect: packet.verification.passed can be true while modules silently produced no usable output (gex_m: null, statistical_score defaulting to "unknown" regime).
+
+THE FIX
+Expand _h_verification (or _scan_for_placeholders) to also flag any stage whose output dict contains a truthy "error" key, treating that the same as a raised exception for pass/fail purposes — not just the fixed field list and placeholder strings. This needs to cover every module's output generically, not just the two that failed in this test, since the same silent-catch pattern could exist in any handler.
+
+WHAT TO SHOW ME, RAW ONLY
+1. The actual diff (unified format, real hunk headers) making this change to aiem_master_orchestrator.py.
+2. Re-run the exact same live pipeline test (same ticker, same conditions) and paste the full raw stdout again, stage by stage.
+3. Confirm in the final packet.verification whether passed now correctly flips to false when options_structure/layer9_statistical_edge hit their known error conditions — paste the raw verification dict.
+4. Run the negative-control test again on this updated code (force a placeholder field) to confirm you didn't break the existing check while adding the new one.
+5. sha256sum before/after on aiem_master_orchestrator.py plus git diff --stat, same as your last test, to confirm this is the only file that changed and by how much.
+
+If fixing this surfaces any other modules with the same silent-catch pattern, tell me which ones and whether you fixed those too — don't just report on the two visible in this test.

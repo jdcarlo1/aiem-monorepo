@@ -1314,6 +1314,20 @@ class AEIMMasterOrchestrator:
                 _scan_for_placeholders(getattr(packet, field_name, {}), field_name)
             )
 
+        # Generic soft-failure scan: catch any handler that swallowed its own
+        # exception and returned a dict containing a truthy "error" key
+        # instead of raising (which _run/_log would have already caught as
+        # FAILED). This does not depend on a fixed field list or the
+        # _PLACEHOLDER_STRINGS set, so it covers every module's output,
+        # including ones not explicitly checked above.
+        soft_failures: List[str] = []
+        for audit_entry in packet.audit:
+            out = audit_entry.get("output")
+            if isinstance(out, dict) and out.get("error"):
+                soft_failures.append(
+                    f"{audit_entry['module']}.error={out.get('error')!r}"
+                )
+
         executed = [x["module"] for x in packet.audit]
 
         # Only check stages that should have run BEFORE verification itself.
@@ -1330,6 +1344,7 @@ class AEIMMasterOrchestrator:
             and len(packet.errors) == 0
             and len(output_failures) == 0
             and len(placeholder_hits) == 0
+            and len(soft_failures) == 0
         )
 
         packet.verification = {
@@ -1341,6 +1356,7 @@ class AEIMMasterOrchestrator:
             "error_count":          len(packet.errors),
             "output_failures":      output_failures,
             "placeholder_hits":     placeholder_hits,
+            "soft_failures":        soft_failures,
             "passed":               passed,
             "verified_at":          datetime.utcnow().isoformat(),
         }
