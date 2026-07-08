@@ -39663,6 +39663,38 @@ def _aiem_paper_execute_today():
             except Exception as _kse:
                 print(f"[aiem_paper] kill_switch check warning (proceeding): {_kse}")
 
+        # ── Daily loss limit gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
+        # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
+        # daily_loss_limit.py fails closed (halt_trading=True) if ACCOUNT_VALUE_BASELINE is
+        # not configured, so this can legitimately halt trading until that env var is set.
+        try:
+            _dll_result = _daily_loss_check(_DB_URL)
+            if _dll_result.get("halt_trading"):
+                _dll_reason = _dll_result.get("reason") or (
+                    f"loss_pct={_dll_result.get('loss_pct')} <= "
+                    f"-{_dll_result.get('loss_limit_pct')}"
+                )
+                print(f"[aiem_paper] DAILY LOSS LIMIT HALTED — no trades today: {_dll_reason}")
+                _log_finish("SKIPPED", _trades=0, _err=f"daily_loss_limit: {_dll_reason}")
+                return
+        except Exception as _dlle:
+            print(f"[aiem_paper] daily_loss_limit check warning (proceeding): {_dlle}")
+
+        # ── Portfolio correlation risk gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
+        # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
+        # portfolio_correlation_risk.py has no halt_trading field of its own — a flagged
+        # concentration on the CURRENT open book (>=3 open positions in one correlation
+        # group) halts today's NEW trade batch so no more correlated risk is added on top.
+        try:
+            _pcr_result = _portfolio_corr_risk(_DB_URL)
+            if _pcr_result.get("concentration_risk_flag"):
+                _pcr_reason = "; ".join(_pcr_result.get("warnings") or []) or "concentration risk flagged"
+                print(f"[aiem_paper] PORTFOLIO CONCENTRATION RISK HALTED — no new trades today: {_pcr_reason}")
+                _log_finish("SKIPPED", _trades=0, _err=f"portfolio_correlation_risk: {_pcr_reason}")
+                return
+        except Exception as _pcre:
+            print(f"[aiem_paper] portfolio_correlation_risk check warning (proceeding): {_pcre}")
+
         # ── AIEM v3 Macro Gate (Phase 2) ──────────────────────────────────────
         # Hard block if macro regime is BEAR_SEVERE (score < 20).
         # Uses 9:00 AM pre-computed snapshot from DB; falls back to live fetch.
