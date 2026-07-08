@@ -1,0 +1,121 @@
+FINAL DIAGRAM 2 END-TO-END STOCK TRACE TEST
+
+Now that Phases 0–17 have each passed individually, run one real recent scanner candidate through the entire Diagram 2 AEIM pipeline.
+
+This must prove that one stock travels through every required layer from scanner input to learning feedback.
+
+Required full path:
+
+Stock Scanner / Website Signals
+→ AEIM Intake
+→ Data Guards / Point-in-Time / Staleness / Lookahead Validation
+→ Master Orchestrator
+→ Module Registry
+→ Tool Registry
+→ Communication Bus
+→ Macro / Market Regime
+→ Discovery / Edge Finding
+→ Technical / Price Structure / VWAP / Momentum
+→ Options / Smart Money / Microstructure
+→ Quant / Statistical Edge
+→ Probability Engine / XGBoost + TreeSHAP
+→ Scoring / Synthesis
+→ Specialist Council
+→ Pre-Decision Risk Gate
+→ Decision Engine
+→ Paper / Shadow Execution or No-Execution Log
+→ Outcome Tracking
+→ Performance Auditor
+→ Safe Learning / RL / Retraining
+→ Memory
+→ Verification / Observability
+→ Feedback Back to Master Orchestrator
+
+Required proof for the sample stock:
+
+- ticker
+- candidate_id
+- execution_plan_id
+- trace_id
+- scanner_signal
+- candidate_packet
+- modules_executed
+- tools_called
+- exact module_order
+- exact tool_order
+- data_timestamp
+- point_in_time_status
+- staleness_status
+- lookahead_status
+- market_regime
+- discovery_score
+- technical_score
+- vwap_score
+- momentum_score
+- options_score or no-data audit
+- smart_money_score
+- statistical_edge_score
+- p_value / validation result
+- probability_score
+- calibration_score
+- model_version
+- TreeSHAP explanation
+- combined_score
+- conviction_score
+- trade_thesis
+- council bull case
+- council bear case
+- contradiction check
+- council consensus score
+- risk_status
+- risk_approved or risk_rejected_reason
+- position_size
+- max_loss
+- slippage_estimate
+- final_decision
+- decision_reason
+- paper_trade_id or no-execution reason
+- shadow_trade_id or no-execution reason
+- outcome_tracker_id
+- performance_audit_id
+- learning_update_id
+- memory_update_id
+- audit_log_id
+- verification_status
+- last_verified_date
+- verified_by_command
+- verification_result
+- verification_version
+
+Strict rules:
+
+1. Do not summarize.
+2. Show the actual execution trace.
+3. Show timestamps for every module transition.
+4. Show audit/log IDs for every major phase.
+5. Show failures verbatim.
+6. Prove no module bypassed:
+   - Data Guards
+   - Master Orchestrator
+   - Communication Bus
+   - Risk Gate
+   - Audit
+   - Verification Layer
+7. Prove no tool connects directly to the Decision Engine.
+8. Prove every tool is owned by a module or phase.
+9. Prove every module has exactly one canonical owning phase.
+10. Prove the learning loop feeds back into the Master Orchestrator.
+
+Final answer required:
+
+FULL_END_TO_END_TRACE = PASS / FAIL
+STOCK_REACHED_ALL_LAYERS = YES / NO
+ALL_PHASES_0_TO_17_EXECUTED = YES / NO
+NO_BYPASS_DETECTED = YES / NO
+RISK_GATE_ENFORCED = YES / NO
+AUDIT_CHAIN_COMPLETE = YES / NO
+LEARNING_LOOP_COMPLETE = YES / NO
+MEMORY_LOOP_COMPLETE = YES / NO
+VERIFICATION_LAYER_ACTIVE = YES / NO
+PIPELINE_STATUS = PASS / FAIL
+FAILURES = NONE or full traceback/error output
