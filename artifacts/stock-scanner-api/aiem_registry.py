@@ -430,3 +430,108 @@ EXCLUDED_SAFETY_TOOLS = {
     "run_risk_gate": "can trigger send_discovery_alert",
     "send_discovery_alert": "fires email/SMS to subscribers",
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# DIAGRAM 2 — 21-STAGE RUNTIME MAP (Final Diagram 2 Remediation)
+# ─────────────────────────────────────────────────────────────────────────
+# This is the ONLY place the 21 canonical Diagram 2 stage names + their
+# owning module_phase live. AEIMMasterOrchestrator.execute_stage() calls
+# get_module_for_stage() below to CONSULT this at runtime (a real SELECT
+# against aiem_module_registry, not a hardcoded call) before running each
+# stage. module_phase is used to find the confirmed owning module row(s)
+# already populated by the 18-phase registry above -- this table is not
+# duplicated, only cross-referenced.
+DIAGRAM2_STAGE_MAP = {
+    1:  ("scanner_signals",            "Scanner Signals",                 0,  "_aiem_paper_pick_candidates"),
+    2:  ("aeim_intake",                "AEIM Intake",                     1,  "_aiem_paper_execute_today"),
+    3:  ("data_guards",                "Data Guards",                     1,  "_aiem_paper_execute_today (kill_switch/daily_loss/portfolio_corr)"),
+    4:  ("master_orchestrator",        "Master Orchestrator",             1,  "AEIMMasterOrchestrator.execute_stage"),
+    5:  ("module_registry",            "Module Registry",                 1,  "aiem_registry.get_module_for_stage"),
+    6:  ("tool_registry",              "Tool Registry",                   1,  "aiem_registry.get_tool"),
+    7:  ("communication_bus",          "Communication Bus",               1,  "aiem_communication_bus.CommunicationBus.publish"),
+    8:  ("macro_regime",               "Macro / Regime",                  3,  "aiem_macro_engine.get_macro_gate"),
+    9:  ("discovery",                  "Discovery",                       4,  "aiem_discovery_engine (global cycle check)"),
+    10: ("technical_signal",           "Technical Signal",                5,  "module_scores_generated (technical component)"),
+    11: ("options_smart_money",        "Options / Smart Money",           6,  "module_scores_generated (options component)"),
+    12: ("quant_stat_edge",            "Quant / Statistical Edge",        7,  "layer9_statistical_edge (global scanner check)"),
+    13: ("probability_engine",         "Probability Engine",              8,  "aiem_probability_engine.live_query (candidate adapter)"),
+    14: ("scoring_synthesis",          "Scoring / Synthesis",             9,  "candidate_ranking_created + trust_weights_applied"),
+    15: ("specialist_council",         "Specialist Council",              10, "bull_bear_debate.run_bull_bear_debate"),
+    16: ("risk_gate",                  "Risk Gate",                       11, "risk_gate_evaluate (kill_switch/daily_loss/corr/sizing/macro)"),
+    17: ("decision_engine",            "Decision Engine",                 1,  "final_aiem_decision"),
+    18: ("paper_shadow_execution",     "Paper / Shadow Execution",        13, "aiem_paper_trades INSERT"),
+    19: ("bull_bear_debate",           "Bull/Bear Debate",                10, "bull_bear_debate.persist_debate"),
+    20: ("post_trade_analytics",       "Post-Trade Analytics",            14, "_aiem_paper_mark_to_market"),
+    21: ("learning_feedback",          "Learning Feedback",               15, "aiem_closed_loop_learning (thompson/trust/EMA update)"),
+}
+
+
+def get_module_for_stage(stage_order: int) -> dict:
+    """
+    Runtime consultation of the Module Registry for one Diagram 2 stage.
+    Does a REAL SELECT against aiem_module_registry (keyed by the stage's
+    module_phase) so the registry is load-bearing at runtime, not just
+    static documentation. Never fabricates a result: if no confirmed
+    module row exists for that phase, found=False is returned honestly.
+    """
+    spec = DIAGRAM2_STAGE_MAP.get(stage_order)
+    if not spec:
+        return {"found": False, "error": f"no DIAGRAM2_STAGE_MAP entry for stage_order={stage_order}"}
+    stage_name, display_name, module_phase, runtime_function = spec
+    result = {
+        "found": False,
+        "stage_order": stage_order,
+        "stage_name": stage_name,
+        "display_name": display_name,
+        "module_phase": module_phase,
+        "runtime_function": runtime_function,
+    }
+    try:
+        with _connect() as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT module_name, module_file, execution_status, ownership_status
+                FROM aiem_module_registry
+                WHERE module_phase = %s
+                ORDER BY module_id
+                LIMIT 5
+            """, (module_phase,))
+            rows = _cu.fetchall()
+        result["found"] = bool(rows)
+        result["modules"] = [
+            {"module_name": r[0], "module_file": r[1], "execution_status": r[2], "ownership_status": r[3]}
+            for r in rows
+        ]
+    except Exception as _e:
+        result["error"] = str(_e)
+    return result
+
+
+def get_tool(tool_name: str) -> dict:
+    """
+    Runtime consultation of the Tool Registry. Real SELECT against
+    aiem_tool_registry -- used by the orchestrator to confirm a tool is
+    registered (and not in EXCLUDED_SAFETY_TOOLS) before any stage that
+    would invoke it autonomously.
+    """
+    result = {"found": False, "tool_name": tool_name, "excluded": tool_name in EXCLUDED_SAFETY_TOOLS}
+    try:
+        with _connect() as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                SELECT owning_module_or_phase, owning_module, tool_type,
+                       excluded_from_autonomous_use, verification_status
+                FROM aiem_tool_registry
+                WHERE tool_name = %s
+                LIMIT 1
+            """, (tool_name,))
+            row = _cu.fetchone()
+        if row:
+            result["found"] = True
+            result["owning_module_or_phase"] = row[0]
+            result["owning_module"] = row[1]
+            result["tool_type"] = row[2]
+            result["excluded_from_autonomous_use"] = row[3]
+            result["verification_status"] = row[4]
+    except Exception as _e:
+        result["error"] = str(_e)
+    return result

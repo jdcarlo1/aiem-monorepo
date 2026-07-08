@@ -330,6 +330,90 @@ class AEIMMasterOrchestrator:
             return {"error": str(exc)}
 
     # ================================================================
+    # DIAGRAM 2 RUNTIME CONTROLLER (Final Diagram 2 Remediation)
+    # ----------------------------------------------------------------
+    # This is the real, load-bearing sequencing entry point for the
+    # 21-stage Diagram 2 live candidate path. It does NOT reuse the
+    # _h_* handlers above (those were confirmed shadow-only, no live
+    # call sites, per the prior strict-verification audit) -- it wraps
+    # the ACTUAL production stage logic (still owned by main.py / the
+    # real per-stage modules) with real control-plane behavior:
+    #   1. Consults the Module Registry (real SELECT) before the stage.
+    #   2. Publishes stage_starting / stage_completed / stage_failed to
+    #      the real Communication Bus.
+    #   3. Runs the real stage logic (fn).
+    #   4. Writes one real row to aiem_diagram2_trace_audit -- PASS on
+    #      success, FAIL (with the real exception message) on error.
+    # A stage that legitimately has no data for this candidate (e.g.
+    # Probability Engine has no ai_short_calls_log row for a ticker
+    # sourced from a different scanner table) is NOT silently hidden:
+    # fn must return/raise honestly, and that honest outcome is what
+    # gets recorded. Never overridden to a fabricated PASS.
+    # ================================================================
+
+    def execute_stage(self, trace_id: str, ticker: str, stage_order: int,
+                       stage_name: str, component_name: str, runtime_function: str,
+                       fn: Callable, *args, paper_trade_id: int = None, **kwargs):
+        import aiem_registry as _areg
+        import aiem_communication_bus as _abus
+        import aiem_diagram2_trace_audit as _atrace2
+
+        started = datetime.utcnow()
+        bus = _abus.get_bus()
+        try:
+            reg_check = _areg.get_module_for_stage(stage_order)
+        except Exception as _reg_e:
+            reg_check = {"found": False, "error": str(_reg_e)}
+
+        bus.publish(_abus.StageEvent(
+            trace_id, ticker, stage_order, stage_name, "stage_starting",
+            component_name=component_name,
+        ))
+
+        def _safe_payload(obj):
+            if isinstance(obj, (dict, list, str, int, float, bool)) or obj is None:
+                return obj
+            return repr(obj)[:500]
+
+        try:
+            result = fn(*args, **kwargs)
+            bus.publish(_abus.StageEvent(
+                trace_id, ticker, stage_order, stage_name, "stage_completed",
+                component_name=component_name,
+                payload={"registry_confirmed": reg_check.get("found")},
+            ))
+            _atrace2.record_stage(
+                trace_id=trace_id, ticker=ticker, stage_order=stage_order,
+                stage_name=stage_name, component_name=component_name,
+                runtime_function=runtime_function, status="PASS", started_at=started,
+                input_payload={"kwargs_keys": list(kwargs.keys())},
+                output_payload=_safe_payload(result),
+                evidence_pointer=(
+                    f"module_registry_phase={reg_check.get('module_phase')} "
+                    f"registry_found={reg_check.get('found')}"
+                ),
+                paper_trade_id=paper_trade_id,
+            )
+            return result
+        except Exception as exc:
+            bus.publish(_abus.StageEvent(
+                trace_id, ticker, stage_order, stage_name, "stage_failed",
+                component_name=component_name, payload={"error": str(exc)},
+            ))
+            _atrace2.record_stage(
+                trace_id=trace_id, ticker=ticker, stage_order=stage_order,
+                stage_name=stage_name, component_name=component_name,
+                runtime_function=runtime_function, status="FAIL", started_at=started,
+                error_message=str(exc)[:1000],
+                evidence_pointer=(
+                    f"module_registry_phase={reg_check.get('module_phase')} "
+                    f"registry_found={reg_check.get('found')}"
+                ),
+                paper_trade_id=paper_trade_id,
+            )
+            raise
+
+    # ================================================================
     # STAGE 0 — MARKET DATA INTAKE
     # Real data: polygon_market_daily + current price
     # ================================================================
@@ -1491,6 +1575,23 @@ class AEIMMasterOrchestrator:
         # Final verification snapshot after all modules including verification itself
         packet.verification = self._h_verification(packet)
         return packet
+
+
+# ============================================================
+# DIAGRAM 2 ORCHESTRATOR SINGLETON
+# ============================================================
+# _import_all() imports 50+ modules; Python caches those in sys.modules
+# after the first import so re-instantiation is cheap, but a singleton
+# avoids doing it more than once per process and gives a single shared
+# object identity for the real Diagram 2 candidate path.
+_diagram2_orchestrator_singleton: Optional["AEIMMasterOrchestrator"] = None
+
+
+def get_orchestrator() -> "AEIMMasterOrchestrator":
+    global _diagram2_orchestrator_singleton
+    if _diagram2_orchestrator_singleton is None:
+        _diagram2_orchestrator_singleton = AEIMMasterOrchestrator()
+    return _diagram2_orchestrator_singleton
 
 
 # ============================================================

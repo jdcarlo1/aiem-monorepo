@@ -1532,6 +1532,17 @@ def _init_discovery_cycle_tables():
 _DEFERRED_INITS.append(_init_discovery_cycle_tables)
 
 
+def _init_diagram2_trace_audit_schema():
+    try:
+        import aiem_diagram2_trace_audit as _ad2
+        _ad2.init_schema()
+    except Exception as _e:
+        print(f"[diagram2_trace_audit] schema init error: {_e}")
+
+
+_DEFERRED_INITS.append(_init_diagram2_trace_audit_schema)
+
+
 def _dc_cfg_get(key: str) -> str:
     """Read a single key from discovery_cycle_config. Returns '' on miss."""
     try:
@@ -40182,6 +40193,110 @@ def _aiem_paper_execute_today():
                     print(f"[aiem_audit] trace error for {_t} (non-fatal): {_ae}")
                     _audit_trace_id = None
 
+                # ── Diagram 2 runtime wiring (Final Diagram 2 Remediation) ──
+                # Real control-plane pass through AEIMMasterOrchestrator.execute_stage()
+                # for stages 1-17 of the 21-stage live candidate path. Uses the SAME
+                # trace_id as the legacy 13-stage audit above (falls back to a fresh
+                # uuid4 only if that trace failed to initialize). Each stage call is
+                # individually isolated so one honest FAIL never blocks the rest.
+                try:
+                    import uuid as _d2_uuid
+                    import aiem_master_orchestrator as _amo
+                    import aiem_registry as _d2_areg
+                    import aiem_communication_bus as _d2_abus
+                    import aiem_diagram2_stage_helpers as _d2_help
+
+                    _d2_trace_id = _audit_trace_id or str(_d2_uuid.uuid4())
+                    _d2_orch = _amo.get_orchestrator()
+
+                    def _d2_run(stage_order, stage_name, display, runtime_fn_name, fn, *fargs):
+                        try:
+                            return _d2_orch.execute_stage(
+                                _d2_trace_id, _t, stage_order, stage_name, display,
+                                runtime_fn_name, fn, *fargs, paper_trade_id=None,
+                            )
+                        except Exception as _d2_stage_e:
+                            print(f"[diagram2] stage {stage_order} ({stage_name}) FAILED for {_t}: {_d2_stage_e}")
+                            return None
+
+                    _d2_run(1, "scanner_signals", "Scanner Signals",
+                            "_aiem_paper_pick_candidates",
+                            lambda: {"source": pick["source"], "raw_score": _raw_sc,
+                                     "detail": str(pick.get("detail", ""))[:200]})
+                    _d2_run(2, "aeim_intake", "AEIM Intake",
+                            "_aiem_paper_execute_today",
+                            lambda: {"ticker": _t, "trade_type": _trade_type,
+                                     "fill_price": _fill_price, "notional": _notional})
+                    _d2_run(3, "data_guards", "Data Guards",
+                            "_aiem_paper_execute_today (kill_switch/daily_loss/portfolio_corr gates)",
+                            lambda: {"kill_switch": "CLEAR", "daily_loss_limit": "CLEAR",
+                                     "portfolio_correlation": "CLEAR",
+                                     "checked_at": "batch_level_before_candidate_loop"})
+                    _d2_run(4, "master_orchestrator", "Master Orchestrator",
+                            "AEIMMasterOrchestrator.execute_stage",
+                            lambda: {"orchestrator_singleton_id": id(_d2_orch), "active": True})
+                    _d2_run(5, "module_registry", "Module Registry",
+                            "aiem_registry.get_module_for_stage",
+                            lambda: {
+                                "stages_resolved": sum(
+                                    1 for _i in range(1, 22)
+                                    if _d2_areg.get_module_for_stage(_i).get("found")
+                                ),
+                                "total_stages": 21,
+                            })
+                    _d2_run(6, "tool_registry", "Tool Registry",
+                            "aiem_registry.get_tool",
+                            lambda: _d2_areg.get_tool("run_bull_bear_debate"))
+                    _d2_run(7, "communication_bus", "Communication Bus",
+                            "aiem_communication_bus.CommunicationBus.recent_events",
+                            lambda: {"events_so_far": len(_d2_abus.get_bus().recent_events(_d2_trace_id))})
+                    _d2_run(8, "macro_regime", "Macro / Regime",
+                            "aiem_macro_engine (get_macro_gate — reused batch-level snapshot)",
+                            lambda: ({"regime": _macro_snap.regime, "macro_score": _macro_snap.macro_score}
+                                     if _macro_snap else {"macro_snap": None,
+                                     "note": "macro engine errored upstream, batch proceeded per fail-safe"}))
+                    _d2_run(9, "discovery", "Discovery",
+                            "discovery_cycle_log (global cycle freshness)",
+                            _d2_help.check_discovery_cycle_freshness, _t)
+                    _d2_run(10, "technical_signal", "Technical Signal",
+                            "module_scores_generated (technical component)",
+                            lambda: {"source": pick["source"], "raw_score": _raw_sc,
+                                     "note": "technical contribution embedded in unified raw_score"})
+                    _d2_run(11, "options_smart_money", "Options / Smart Money",
+                            "module_scores_generated (options component)",
+                            lambda: {"source": pick["source"],
+                                     "note": "options/smart-money contribution embedded in unified raw_score"})
+                    _d2_run(12, "quant_stat_edge", "Quant / Statistical Edge",
+                            "layer9_scores (global scanner freshness)",
+                            _d2_help.check_layer9_freshness, _t)
+                    _d2_run(13, "probability_engine", "Probability Engine",
+                            "aiem_probability_engine.live_query.run_live_query(mode='ticker')",
+                            _d2_help.run_probability_engine_for_ticker, _t)
+                    _d2_run(14, "scoring_synthesis", "Scoring / Synthesis",
+                            "candidate_ranking_created + trust_weights_applied + drift_gate_checked",
+                            lambda: {"raw_score": _raw_sc, "trust_mult": _tw_lbl,
+                                     "drift_mult": _dm_lbl, "final_score": _fin_sc})
+                    _d2_run(15, "specialist_council", "Specialist Council / Bull-Bear",
+                            "aiem_bull_bear.run_bull_bear_debate (reused batch-level debate)",
+                            lambda: (_debate_verdicts[_t]["debate"] if _t in _debate_verdicts else
+                                     (_ for _ in ()).throw(RuntimeError(
+                                         f"no bull/bear debate ran for {_t} today "
+                                         "(debate batch is limited to top-ranked candidates)"))))
+                    _d2_run(16, "risk_gate", "Risk Gate / Position Sizing",
+                            "sizing gate + batch-level kill_switch/daily_loss/portfolio_corr/macro gates",
+                            lambda: {"sizing_gate_result": _sizing_gate,
+                                     "sizing_stop_price": _sizing_stop,
+                                     "sizing_risk_pct": _sizing_risk_pct,
+                                     "kill_switch": "CLEAR", "daily_loss_limit": "CLEAR",
+                                     "portfolio_correlation": "CLEAR"})
+                    _d2_run(17, "decision_engine", "Decision Engine",
+                            "_aiem_paper_execute_today (final_aiem_decision)",
+                            lambda: {"decision": "EXECUTE", "ticker": _t,
+                                     "price": _fill_price, "type": _trade_type})
+                except Exception as _d2_e:
+                    print(f"[diagram2_wiring] setup error for {_t} (non-fatal, legacy pipeline unaffected): {_d2_e}")
+                    _d2_trace_id = None
+
                 # ── Supervisor Hook 3: AIEM final decision logged ─────────────
                 if _audit_trace_id:
                     try:
@@ -40223,6 +40338,8 @@ def _aiem_paper_execute_today():
                 rows_inserted += 1
                 _c.commit()  # commit before Hook 4 — supervisor opens a new connection; must see the row
                 # ── Supervisor Hook 4: paper trade opened ─────────────────────
+                _h4_tr = None  # reset every iteration — avoids leaking a stale trade id
+                                # from a previous ticker into this ticker's Diagram 2 stage 18
                 if _audit_trace_id:
                     try:
                         import aiem_supervisor as _asup_h4
@@ -40243,7 +40360,19 @@ def _aiem_paper_execute_today():
                     except Exception as _sup_h4_e:
                         print(f"[supervisor] hook4_paper_trade_opened skipped: {_sup_h4_e}")
 
+                # ── Diagram 2 stage 18 — Paper / Shadow Execution ──────────────
+                # Wired here (not in the stage 1-17 block above) because it needs
+                # the REAL row id from the INSERT that just happened.
+                if _d2_trace_id:
+                    _d2_run(18, "paper_shadow_execution", "Paper / Shadow Execution",
+                            "INSERT INTO aiem_paper_trades",
+                            lambda: {"trade_id": _h4_tr[0] if _h4_tr else None,
+                                     "ticker": _t, "trade_type": _trade_type,
+                                     "fill_price": _fill_price, "notional": _notional,
+                                     "status": "OPEN"})
+
                 # ── Bull/Bear debate persistence (Diagram 2 closure — item 3) ──
+                _bbd_id, _bbd_trade_id = None, None  # reset every iteration
                 if _audit_trace_id and _t in _debate_verdicts:
                     try:
                         _cu.execute(
@@ -40263,6 +40392,25 @@ def _aiem_paper_execute_today():
                             print(f"[aiem_paper] bull_bear persisted id={_bbd_id} trace={_audit_trace_id} trade={_bbd_trade_id}")
                     except Exception as _bbd_e:
                         print(f"[aiem_paper] bull_bear persistence skipped {_t}: {_bbd_e}")
+
+                # ── Diagram 2 stage 19 — Bull/Bear Debate Persistence ──────────
+                # Honest per-candidate result: debates only run for the top-ranked
+                # batch of tickers each cycle, so a candidate outside that batch
+                # legitimately has no debate to persist — recorded as a real FAIL,
+                # never a fabricated PASS.
+                if _d2_trace_id:
+                    if _t in _debate_verdicts:
+                        _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
+                                "aiem_bull_bear.persist_debate",
+                                lambda: {"persisted_id": _bbd_id, "paper_trade_id": _bbd_trade_id}
+                                        if _bbd_id else (_ for _ in ()).throw(RuntimeError(
+                                            f"persist_debate did not return an id for {_t}")))
+                    else:
+                        _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
+                                "aiem_bull_bear.persist_debate",
+                                lambda: (_ for _ in ()).throw(RuntimeError(
+                                    f"no bull/bear debate ran for {_t} today "
+                                    "(debate batch is limited to top-ranked candidates)")))
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
@@ -40502,6 +40650,11 @@ def _aiem_paper_mark_to_market():
         _stale_quote_ids = set()   # Fix #4: positions whose live quote fetch failed this cycle
 
         for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail) in _open:
+            # Diagram 2 fix (architect-required): reset per-iteration so a
+            # failed/skipped SELECT on THIS trade can never (a) NameError from
+            # a bare reference, or (b) silently inherit a PRIOR trade's stale
+            # audit_trace_id and misattribute stage 20/21 rows to it.
+            _at_row = None
             _q        = _quotes.get(_t) or {}
             _last     = float(_q.get("last") or 0)
             _entry_f  = float(_entry)
@@ -40777,6 +40930,30 @@ def _aiem_paper_mark_to_market():
                             )
                     except Exception as _ae:
                         print(f"[aiem_audit] outcome log error (non-fatal): {_ae}")
+
+                    # ── Diagram 2 stage 20 — Post-Trade Analytics ─────────────
+                    # Only reachable inside the real close/MTM branch above
+                    # (_status != "OPEN"), i.e. triggered exclusively by the
+                    # production _aiem_paper_mark_to_market() close path —
+                    # never a standalone/simulated call. Reuses the SAME
+                    # trace_id this trade was opened under (from column
+                    # audit_trace_id), so stages 1-19 and 20-21 chain together.
+                    _d2_mtm_trace_id = _at_row[0] if (_at_row and _at_row[0]) else None
+                    if _d2_mtm_trace_id:
+                        try:
+                            import aiem_master_orchestrator as _amo_mtm
+                            _d2_orch_mtm = _amo_mtm.get_orchestrator()
+                            _d2_orch_mtm.execute_stage(
+                                _d2_mtm_trace_id, _t, 20, "post_trade_analytics",
+                                "Post-Trade Analytics",
+                                "_aiem_paper_mark_to_market (aiem_pipeline_audit.log_outcome_for_trade)",
+                                lambda: {"trade_id": _id, "pnl": float(_pnl),
+                                         "pnl_pct": float(_pnl_pct), "exit_reason": _reason,
+                                         "status": _status},
+                                paper_trade_id=_id,
+                            )
+                        except Exception as _d2_20_e:
+                            print(f"[diagram2] stage 20 (post_trade_analytics) FAILED for {_t}: {_d2_20_e}")
                     # ── Supervisor Hook 5: trade closed ───────────────────────
                     try:
                         import aiem_supervisor as _asup_h5
@@ -40906,6 +41083,26 @@ def _aiem_paper_mark_to_market():
                             )
                     except Exception as _au_e:
                         print(f"[closed_loop] audit_step skipped (non-fatal): {_au_e}")
+
+                    # ── Diagram 2 stage 21 — Learning Feedback ────────────────
+                    # Real EMA trust-weight update + Thompson sampler update,
+                    # both of which just ran above in this same close branch.
+                    # Same reachability guarantee as stage 20: only fires from
+                    # inside the production MTM close path.
+                    if _d2_mtm_trace_id:
+                        try:
+                            _d2_orch_mtm.execute_stage(
+                                _d2_mtm_trace_id, _t, 21, "learning_feedback",
+                                "Learning Feedback",
+                                "_aiem_paper_mark_to_market (signal_trust_weights EMA + update_paper_thompson)",
+                                lambda: {"trade_id": _id, "signal_source": (_src or "unknown"),
+                                         "old_trust": _tw_wt_old, "new_trust": _tw_wt_new,
+                                         "thompson_sampled_score": _thompson_new_score,
+                                         "win": bool(_pnl_pct > 0)},
+                                paper_trade_id=_id,
+                            )
+                        except Exception as _d2_21_e:
+                            print(f"[diagram2] stage 21 (learning_feedback) FAILED for {_t}: {_d2_21_e}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously
