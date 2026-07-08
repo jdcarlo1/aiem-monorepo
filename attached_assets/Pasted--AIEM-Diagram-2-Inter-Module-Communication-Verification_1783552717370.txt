@@ -1,0 +1,128 @@
+# AIEM Diagram 2 — Inter-Module Communication & Verification Layer
+## Integration Verification Checklist
+
+**Standard: Raw evidence only. No self-reports, no narrative descriptions, no "should work."**
+**Every claim below must be backed by: file+line number, raw terminal output, live HTTP response, or a DB query result with a trace_id.**
+
+---
+
+## PRECONDITIONS (verify before touching anything)
+
+- [ ] Diagram 1 (Master Orchestration Layer) sign-off doc exists and is dated. Provide file path.
+- [ ] Full list of currently-verified modules (from prior audit sessions). Provide as a literal list with file+line for each.
+- [ ] Confirm no module in the "Required Connections" list below is being newly built when it already exists. For each module claimed "existing," provide `grep -n` proof of its current call site BEFORE this integration touches it.
+
+**Do not proceed past this section until preconditions are answered with evidence, not assurance.**
+
+---
+
+## 1. COMMUNICATION BUS — structural wiring
+
+For the bus itself (not the modules behind it):
+
+- [ ] `grep -n` showing the bus module/class definition (file + line).
+- [ ] `grep -n` showing every one of the 13 required connections (Candidate Intake, Discovery, Analysis, Market Regime, Specialist Council, Risk Manager, Decision Engine, Paper Trading, Observability/Audit, Outcome Tracker, Attribution, Learning Systems, Memory, Feedback Loop) as an actual call site through the bus — not a direct call bypassing it.
+- [ ] For each of the 13, confirm the call is a live wired call (present in main.py's active execution path), not a function defined but never invoked. Provide the caller's file+line AND confirm it's reachable from the orchestrator's actual run path (not dead code, not behind an `if False` / disabled flag / unused branch).
+- [ ] Explicitly flag any of the 13 that are NOT yet wired through the bus. Do not mark PASS for a module that's "planned" or "stubbed."
+
+---
+
+## 2. MESSAGE CONTRACT — inbound
+
+Every module must receive: `candidate_id`, `execution_plan_id`, `trace_id`, `market_context`, `upstream_outputs`.
+
+- [ ] For each of the 13 modules, show the actual function signature or payload schema it receives (file+line).
+- [ ] Confirm all 5 required fields are present per module — not "most of them." List any module missing any field, by name.
+- [ ] Live trace: pick one in-flight trace_id and show the actual payload received by 3 different modules in the chain (raw JSON/dict dump, not a summary).
+
+## 3. MESSAGE CONTRACT — outbound
+
+Every module must return: `module_name`, `status`, `confidence`, `score`, `evidence`, `tools_used`, `errors`, `timestamps`.
+
+- [ ] For each of the 13 modules, show the actual return object structure (file+line).
+- [ ] Confirm all 8 fields are present per module. List any module missing any field, by name.
+- [ ] Live trace: same trace_id as above, show 3 modules' actual raw return payloads.
+
+## 4. BUS LOGGING — every transfer recorded
+
+- [ ] Identify the DB table (or log store) that records bus transfers.
+- [ ] Provide table schema (`information_schema.columns` output, like the prior audit did for `aiem_pipeline_audit_log`).
+- [ ] Run one live trace end-to-end, then query that table for that trace_id. Row count should match the number of module hops. Show the raw query + raw results.
+- [ ] Confirm timestamps are sequential and consistent with actual execution order (not all identical / not out of order).
+
+## 5. ORCHESTRATOR AS SOLE CONTROLLER
+
+- [ ] Confirm no module calls another module directly, bypassing the orchestrator/bus. Search for direct cross-module imports/calls between the 13 listed modules (not through the bus) and report any found.
+- [ ] If any direct calls exist, they are a FAIL on this item — list them explicitly, do not omit or soften.
+
+## 6. DIAGRAM 2 SCOPE DISCIPLINE
+
+Diagram 2 must only route/verify/trace/log/connect/feed-learning-back — it must not contain new decision logic.
+
+- [ ] Confirm no trading/risk/exit decision logic lives inside bus/Diagram-2 code. Search Diagram 2 files for anything that looks like a decision branch affecting trade outcome (position sizing, entry/exit thresholds, risk gating) and report any found as a violation.
+
+---
+
+## 7. LEARNING LOOP
+
+Outcome Tracker → Attribution → Learning Systems → Memory → Master Orchestrator
+
+- [ ] `grep -n` for each of the 4 hops showing the call site chain, in order.
+- [ ] Confirm this is a closed loop back into the orchestrator (not a dead-end write to a table nobody reads). Show where the orchestrator actually reads from Memory before/during a new decision (file+line).
+- [ ] Live proof: take one closed (completed) trade. Show:
+  - the Outcome Tracker row for it (raw DB row)
+  - the Attribution row derived from it (raw DB row)
+  - the Learning Systems update it triggered (raw DB row or diff, e.g. trust weight before→after — same format as the `learning_update_applied` events already seen: `trust: X→Y`)
+  - the Memory write (raw DB row)
+  - confirm (with file+line + a subsequent trace) that the NEXT decision cycle actually read this updated memory/weight before making its next pick. This last part is the one that actually proves the loop closes — a write with no confirmed downstream read is not a closed loop.
+
+## 8. MEMORY LOOP INTEGRITY
+
+- [ ] Confirm Memory system read/write is not in-process/ephemeral. Same cross-restart persistence test as before: write a marker, restart the server, query it back. Show both raw outputs pre- and post-restart with identical trace_id.
+
+---
+
+## FINAL VERIFICATION — REQUIRED OUTPUT BLOCK
+
+Return this block filled in with actual counted values (not estimates), each backed by a query or grep count shown above it:
+
+```
+TOTAL_REGISTERED_MODULES       = <int>   (grep/DB count, show query)
+TOTAL_REGISTERED_TOOLS         = <int>   (grep/DB count, show query)
+REUSED_EXISTING_MODULES        = <int>   (list names)
+NEW_COMPONENTS_BUILT           = <int>   (list names + file paths)
+COMMUNICATION_BUS_ACTIVE       = TRUE/FALSE  (based on section 1)
+ID_TAGGING_ACTIVE              = TRUE/FALSE  (based on section 2)
+STRUCTURED_OUTPUT_ACTIVE       = TRUE/FALSE  (based on section 3)
+AUDIT_CHAIN_COMPLETE           = TRUE/FALSE  (based on section 4)
+LEARNING_LOOP_COMPLETE         = TRUE/FALSE  (based on section 7 — requires confirmed downstream READ, not just write)
+MEMORY_LOOP_COMPLETE           = TRUE/FALSE  (based on section 8)
+NO_DUPLICATE_MODULES           = TRUE/FALSE  (show dedup check — e.g. module name/registration ID grep for duplicates)
+NO_DUPLICATE_TOOLS             = TRUE/FALSE  (same, for tools)
+PIPELINE_STATUS                = PASS / FAIL
+```
+
+**PASS requires every item above to be TRUE with evidence attached. A single FALSE or unverified item = overall FAIL, regardless of how many other items passed.**
+
+---
+
+## SAMPLE END-TO-END TRACE (required)
+
+Run one real ticker through the full path:
+
+Candidate Intake → Discovery → Analysis → Market Regime → Specialist Council → Risk Manager → Decision Engine → Paper Trading → Observability/Audit → Outcome Tracker → Attribution → Learning Systems → Memory → back to Master Orchestrator
+
+For this single trace_id, output:
+- Every module hop in order, with timestamp
+- The bus log rows for every hop (raw, from the table identified in section 4)
+- Confirmation that the trace_id is identical across all hops (proves it's one continuous flow, not stitched-together separate runs)
+
+This is the one artifact that answers "is it going through every layer as designed" directly — a single trace_id with every hop logged, in order, with no missing steps and no fabricated/inferred hops.
+
+---
+
+## NOTES FOR THE AGENT
+
+- If any section cannot be completed because the component doesn't exist yet, say so explicitly. Do not substitute a description of what it "would do."
+- If any section was already verified in a prior session, reference that prior trace_id/commit instead of re-doing it, but do not skip it silently — cite it.
+- Do not mark PIPELINE_STATUS = PASS based on structural code presence alone. Every module must show a LIVE call in an actual trace, not just a defined function.
