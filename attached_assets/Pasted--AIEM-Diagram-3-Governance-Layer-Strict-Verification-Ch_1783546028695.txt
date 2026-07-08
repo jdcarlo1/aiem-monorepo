@@ -1,0 +1,79 @@
+# AIEM Diagram 3 Governance Layer — Strict Verification Checklist
+
+**Standard:** Raw terminal output only. No narrative explanations, no "should work," no self-reports. Every item below requires a live-trigger test with pasted output, or it is not considered verified.
+
+---
+
+## 1. Forecast trend population (disclosure #1)
+
+Claim: `/forecast` needs ≥2 health snapshots at different times to populate a trend, and will "self-populate automatically on the second health check cycle."
+
+- [ ] Run `/forecast` now — paste raw response (expect error field).
+- [ ] Trigger a health check cycle manually (provide the exact command/endpoint used).
+- [ ] Wait for the second health check cycle to complete — paste the timestamp of each cycle.
+- [ ] Run `/forecast` again — paste raw response.
+- [ ] Confirm: does the trend field actually populate, or does it still error? If it errors, show the exact error and the DB row count for the health snapshot table at that moment.
+
+**Not accepted:** "it will self-populate" as a statement. Only a before/after paste of two actual runs, with timestamps and DB row counts, counts.
+
+---
+
+## 2. open_trades consistency (disclosure #2)
+
+Claim: Phase 2 `open_trades` fluctuates 0–23 depending on staleness-guard restart timing; the fix (`status='OPEN'` uppercase) is in place; Phase 3 `/performance` is stable at 23 because it uses the corrected query.
+
+- [ ] Run `/performance` (Phase 3) three times in a row, back-to-back, no restarts in between — paste all three raw `open_trades` values.
+- [ ] Run the Phase 2 endpoint three times in a row immediately after — paste all three raw `open_trades` values.
+- [ ] If Phase 2 values differ across the three runs, show the raw DB query being run and confirm whether `status='OPEN'` (uppercase) is actually what's executing — paste the query source, not a description of it.
+- [ ] Trigger a staleness-guard restart mid-test and show the `open_trades` value immediately before and after the restart.
+
+**Not accepted:** the explanation of *why* it fluctuates. Only actual repeated-run output showing it's either stable or not.
+
+---
+
+## 3. D3 governance layer — enforcement vs. reporting
+
+Current state per executive report: D3 is import + deferred_startup + route_install only — no wiring into orchestrator, kill switch, or execution paths.
+
+- [ ] Confirm explicitly: does D3 currently have the ability to **block or alter** any live decision (trade execution, kill switch trigger, module activation), or does it **only read and report** on system state? Answer must be yes/no with the relevant code path cited (file + line).
+- [ ] If D3 is reporting-only right now, is that the intended scope for this phase, or is enforcement supposed to exist yet? State which.
+- [ ] `GOVERNANCE_ACTIVE: True` in the executive report — define precisely what "active" means here (reporting loop is running vs. governance actually constrains something). Cite the code that sets this flag.
+
+**Not accepted:** "governance is active" as a blanket claim. Needs the literal definition of what "active" triggers in code.
+
+---
+
+## 4. Baseline/rollback hash proof — re-verify under drift
+
+Current proof shows `baseline_hash == current_hash` (no drift). This only proves the check works when nothing has changed.
+
+- [ ] Deliberately introduce a small, reversible change to a tracked file (e.g., add a comment to a governed module).
+- [ ] Run `/d3/status` again — paste the new `current_hash`, `hash_match`, and `drift_detected` values. Confirm hash_match flips to False and drift_detected flips to True.
+- [ ] Confirm a `d3_rollback_registry` row is actually written (paste the row, not a description of the schema).
+- [ ] Revert the change and confirm hash_match returns to True and no further rollback row is written.
+
+**Not accepted:** the current all-True state alone. A negative control (proof it *can* detect drift) is required before this is considered proven, not just "proof it doesn't currently show drift."
+
+---
+
+## 5. Auth enforcement — confirm no bypass path
+
+Current proof: no token → 401, wrong token → 401, correct token → 200, on `/d3/status`.
+
+- [ ] Repeat the same three tests (no token / wrong token / correct token) against every other D3 endpoint individually — paste raw output per endpoint, not just `/d3/status`.
+- [ ] Confirm there is no endpoint reachable via a different HTTP method (e.g., GET where only POST was tested, or vice versa) that skips the `_auth()` check. Paste the route list with methods and confirm each has the auth guard.
+
+---
+
+## 6. Overall health score vs. trading performance — no conflation
+
+`SYSTEM_HEALTH_SCORE: 80.0` sits alongside 30d performance of 23% win rate, -34.38% max drawdown, negative Sharpe.
+
+- [ ] Confirm explicitly, in writing, whether `SYSTEM_HEALTH_SCORE` factors in trading performance at all, or is purely architecture/wiring/security health. Cite the scoring formula/code.
+- [ ] If it does not factor in performance, state that plainly so the 80.0 score is not read as "the system is trading well."
+
+---
+
+### Sign-off condition
+
+This checklist is only satisfied when every item above has a pasted raw output (terminal, JSON response, or code citation) — not a written explanation. Any item still resolved by narrative description gets flagged as unverified in the final sign-off doc.

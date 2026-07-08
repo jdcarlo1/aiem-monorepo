@@ -492,18 +492,22 @@ def run_phase2_health() -> Dict[str, Any]:
             db_ok = True
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 try:
-                    cur.execute("SELECT is_halted FROM kill_switch_state LIMIT 1")
+                    cur.execute("SELECT halted FROM kill_switch_state LIMIT 1")
                     r = cur.fetchone()
-                    kill_switch_active = bool(r["is_halted"]) if r else False
+                    kill_switch_active = bool(r["halted"]) if r else False
                 except Exception as e:
                     kill_switch_active = None
                     errors.append(f"kill_switch: {e}")
+                    try: conn.rollback()   # clear aborted-transaction state
+                    except Exception: pass
 
                 try:
                     cur.execute("SELECT COUNT(*) AS n FROM aiem_paper_trades WHERE status='OPEN'")
                     open_trades = cur.fetchone()["n"]
                 except Exception as e:
                     errors.append(f"open_trades: {e}")
+                    try: conn.rollback()
+                    except Exception: pass
 
                 try:
                     cur.execute(
@@ -513,6 +517,8 @@ def run_phase2_health() -> Dict[str, Any]:
                     traces_24h = cur.fetchone()["n"]
                 except Exception as e:
                     errors.append(f"traces_24h: {e}")
+                    try: conn.rollback()
+                    except Exception: pass
 
                 try:
                     cur.execute(
@@ -522,6 +528,8 @@ def run_phase2_health() -> Dict[str, Any]:
                     supervisor_events_24h = cur.fetchone()["n"]
                 except Exception as e:
                     errors.append(f"supervisor_events: {e}")
+                    try: conn.rollback()
+                    except Exception: pass
 
     except Exception as e:
         db_ok = False
@@ -1249,9 +1257,13 @@ def run_phase11_forecast() -> Dict[str, Any]:
                     """SELECT period_days, win_rate, avg_pnl_pct, snapshot_at
                        FROM d3_performance_snapshots ORDER BY snapshot_at DESC LIMIT 10"""
                 )
-                perf_snaps = [dict(r) for r in cur.fetchall()]
-                for p in perf_snaps:
-                    p["snapshot_at"] = str(p["snapshot_at"])
+                perf_snaps = []
+                for r in cur.fetchall():
+                    row = dict(r)
+                    row["snapshot_at"] = str(row.get("snapshot_at", ""))
+                    row["win_rate"] = float(row["win_rate"]) if row.get("win_rate") is not None else None
+                    row["avg_pnl_pct"] = float(row["avg_pnl_pct"]) if row.get("avg_pnl_pct") is not None else None
+                    perf_snaps.append(row)
 
                 forecast = {
                     "health_trajectory": trend,
