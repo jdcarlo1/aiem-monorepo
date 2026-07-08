@@ -259,7 +259,67 @@ from staleness_guard import (
     mark_request_end as _staleness_mark_end,
 )
 from flask import g as _staleness_g
-_start_staleness_watchdog()
+# This watchdog was designed for iterative dev hot-reload (restart-on-commit-
+# gap), where files under this directory legitimately change mtime while the
+# process keeps running. In production the deployed filesystem is immutable,
+# so this mechanism has no legitimate job to do there and only adds risk (an
+# os.execv() full-process restart is not something we want triggered by a
+# false-positive git-SHA read on a production VM). Dev-only.
+if os.environ.get("REPLIT_DEPLOYMENT") != "1":
+    _start_staleness_watchdog()
+else:
+    print("[startup] staleness-guard disabled in production deployment (dev-only hot-reload watchdog)", flush=True)
+
+# ── Liveness watchdog (production self-healing) ──────────────────────────────
+# Root-caused outage (see .agents/memory/db-pool-liveness-watchdog.md): a
+# single stuck thread inside the shared psycopg2 connection-pool lock (GC
+# finalizer or a DNS stall during pool growth) can freeze EVERY request the
+# whole app ever serves again, forever, with no crash/traceback logged. This
+# thread is independent of Flask/the DB pool: it periodically calls this
+# process's own early-bound health route over loopback. If that call hangs or
+# fails repeatedly, the process is treated as unrecoverably wedged and force-
+# exits so the platform (Reserved VM) restarts it automatically — turning a
+# manual-redeploy-required, all-day outage into an ~1 minute automatic blip.
+def _liveness_watchdog_loop():
+    import time as _lw_time
+    import sys as _lw_sys
+    import urllib.request as _lw_urllib
+    import faulthandler as _lw_faulthandler
+    consecutive_failures = 0
+    url = f"http://127.0.0.1:{PORT}/stock-api/"
+    while True:
+        _lw_time.sleep(30)
+        try:
+            with _lw_urllib.urlopen(url, timeout=10) as resp:
+                if resp.status == 200:
+                    consecutive_failures = 0
+                    continue
+                consecutive_failures += 1
+                print(f"[LIVENESS-WATCHDOG] health check returned status={resp.status} "
+                      f"({consecutive_failures}/3)", flush=True)
+        except Exception as _lw_e:
+            consecutive_failures += 1
+            print(f"[LIVENESS-WATCHDOG] health check failed ({consecutive_failures}/3): "
+                  f"{type(_lw_e).__name__}: {_lw_e}", flush=True)
+        if consecutive_failures >= 3:
+            print("=" * 78, flush=True)
+            print(f"[LIVENESS-WATCHDOG] CRITICAL: {consecutive_failures} consecutive self health-check "
+                  f"failures/timeouts (~90s+ unresponsive) — process appears wedged (e.g. every thread "
+                  f"blocked on a stuck lock). Dumping thread stacks for post-mortem, then force-exiting "
+                  f"so the platform restarts a fresh process.", flush=True)
+            try:
+                _lw_faulthandler.dump_traceback(file=_lw_sys.stderr)
+            except Exception:
+                pass
+            _lw_sys.stdout.flush()
+            _lw_sys.stderr.flush()
+            os._exit(1)
+
+_liveness_watchdog_thr = _early_bind_thr.Thread(
+    target=_liveness_watchdog_loop, daemon=True, name="liveness-watchdog"
+)
+_liveness_watchdog_thr.start()
+print("[startup] liveness watchdog started (self health-check every 30s, force-restart after 3 consecutive failures)", flush=True)
 
 @app.route("/stock-api/process-info", methods=["GET"])
 def process_info():
@@ -13839,8 +13899,27 @@ class _PoolConn:
         self._put_back()
 
     def __del__(self):
+        # SAFETY: never call back into the pool (putconn) from a GC finalizer.
+        # __del__ can run on ANY thread, at ANY point, including while that
+        # same thread already holds _PG_POOL's internal (non-reentrant) lock
+        # for a DIFFERENT connection (e.g. mid-getconn()/putconn()). Calling
+        # _put_back() -> pool.putconn() here would try to re-acquire that same
+        # lock and deadlock forever — and since every DB call in the app goes
+        # through this one pool/lock, that one deadlock freezes the entire
+        # application permanently (root cause of a prior production outage).
+        # A _PoolConn reaching __del__ without an explicit close()/context-exit
+        # means caller code leaked it; log that and close the raw connection
+        # directly, bypassing the pool entirely.
+        if self.__dict__.get("_returned"):
+            return
+        self.__dict__["_returned"] = True
         try:
-            self._put_back()
+            print("[db] WARNING: _PoolConn garbage-collected without close() — "
+                  "leaked connection, closing directly instead of returning to pool", flush=True)
+        except Exception:
+            pass
+        try:
+            self.__dict__["_conn"].close()
         except Exception as _exc:
             print(f"[silent_except:L11301] {type(_exc).__name__}: {_exc}")
 
@@ -13858,6 +13937,7 @@ try:
 
     _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(
         minconn=2, maxconn=25, dsn=_DB_URL,
+        connect_timeout=5,
         keepalives=1, keepalives_idle=10,
         keepalives_interval=5, keepalives_count=3,
     )
