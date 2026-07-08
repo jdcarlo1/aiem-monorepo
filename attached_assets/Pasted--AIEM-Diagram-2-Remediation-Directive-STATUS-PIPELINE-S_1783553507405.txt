@@ -1,0 +1,120 @@
+# AIEM Diagram 2 — Remediation Directive
+
+STATUS: PIPELINE_STATUS = FAIL (verified 2026-07-08, verify_2026-07-08_c65f31 audit)
+GOAL: Close all 6 FAIL items below. No task is complete without the paired verification command producing the stated output. Raw terminal output only — no narrative completion claims.
+
+Do these in order. Each one is a hard dependency for the next.
+
+---
+
+## 0. Diagram 1 sign-off (BLOCKING PRECONDITION)
+
+Cannot be waived. Produce `diagram1-signoff.md` documenting the Master Orchestration Layer as currently implemented — stages, call sites, file/line refs. This must exist before Diagram 2 sign-off can be issued.
+
+**Verify:** `ls -la diagram1-signoff.md` returns the file with a non-zero size.
+
+---
+
+## 1. Route all 13 connections through the bus
+
+Currently 1 of 13 (Stage 4/master_orchestrator) calls `execute_stage()→bus.publish()`. The other 12 (Candidate Intake, Discovery, Analysis, Market Regime, Specialist Council, Risk Manager, Decision Engine, Paper Trading, Observability/Audit, Outcome Tracker, Learning Systems, Memory, Feedback Loop) call module functions directly via `_d2_run()`.
+
+Task: refactor `_d2_run()` stage dispatch so every stage's module call is wrapped in `execute_stage()`, publishing to `bus.publish()` on start/complete/fail, same as Stage 4.
+
+**Verify (run after refactor, not before):**
+```
+grep -n "bus.publish(StageEvent" aiem_master_orchestrator.py main.py
+```
+Must return 13 distinct stage-tagged publish call sites (or one generic call site proven to fire for all 13 stages via live trace — see Section 3).
+
+---
+
+## 2. Add `execution_plan_id` to inbound contract
+
+`execution_plan_id` has zero occurrences codebase-wide. Add it to `AEIMTradePacket` (aiem_master_orchestrator.py:69-100) and thread it through every module handler signature.
+
+**Verify:**
+```
+grep -rn "execution_plan_id" --include="*.py" . | wc -l
+```
+Must be > 0, and must include a hit inside the `AEIMTradePacket` dataclass definition and inside at least 3 module handler signatures (paste the grep lines, not just the count).
+
+---
+
+## 3. Standardize the 8-field outbound contract
+
+Every module handler currently returns a domain-specific dict (e.g. `{"run_ok": ..., "ticker_discovery": ...}`). Standardize to:
+```python
+{
+    "module_name": str,
+    "status": str,
+    "confidence": float,
+    "score": float,
+    "evidence": dict,
+    "tools_used": list,
+    "errors": list,
+    "timestamp": str,
+}
+```
+Apply across all 13 module handlers in aiem_master_orchestrator.py.
+
+**Verify:**
+```
+grep -n "def _h_" aiem_master_orchestrator.py
+```
+Then for each handler function found, paste the return statement. All 13 must match the schema above — no domain-specific top-level keys.
+
+---
+
+## 4. Create DB-persisted bus transfer log
+
+`aiem_communication_bus.py` currently stores events in-memory only (`self._recent`, max 500, resets on restart — confirmed no INSERT/psycopg/DB calls in that file). Create `aiem_bus_transfer_log` table, write to it from `bus.publish()`.
+
+**Verify:**
+```sql
+SELECT table_name FROM information_schema.tables WHERE table_name = 'aiem_bus_transfer_log';
+```
+Must return 1 row. Then:
+```sql
+SELECT COUNT(*) FROM aiem_bus_transfer_log;
+```
+Run a live end-to-end pick-to-trade cycle, then re-run the count query — it must have increased by 13 (one row per stage connection) for that single trace_id.
+
+---
+
+## 5. Create Attribution module/table
+
+Learning loop is currently 3-hop (Outcome→Learning→Memory→read-back), missing the Attribution hop between Outcome Tracker and Learning Systems. Closest existing artifact is `signal_trust_history`, which is not a formal Attribution module.
+
+Task: create `aiem_attribution` module + table that sits between outcome resolution and learning update — records which upstream signal/module gets credit/blame for a resolved trade's PnL, before that gets consumed by Learning Systems.
+
+**Verify:**
+```
+grep -rn "attribution" --include="*.py" . 
+```
+Must show a standalone module (not just a variable name), and:
+```sql
+SELECT table_name FROM information_schema.tables WHERE table_name ILIKE '%attribution%';
+```
+Must return the new table. Then run one live trade resolution and confirm a row was written with a real trade_id (paste the row).
+
+---
+
+## 6. Full 13-hop end-to-end trace
+
+Once 1-5 are done, produce ONE trace_id that shows all 13 named stages firing in order for a single pick-to-trade cycle, sourced from the new `aiem_bus_transfer_log` table — not a partial reconstruction from multiple logs.
+
+**Verify:**
+```sql
+SELECT stage_name, created_at FROM aiem_bus_transfer_log WHERE trace_id = '<id>' ORDER BY created_at;
+```
+Must return exactly 13 rows, in stage order, no gaps, no duplicates.
+
+---
+
+## Reporting rules (non-negotiable)
+
+- No "done" / "complete" / "wired" claims without the paired verification output pasted in full.
+- No summarizing what a script "should" do — paste what it actually did.
+- If a verification query returns 0 rows or fails, say so plainly. Do not reframe a FAIL as a PASS with caveats.
+- One deliverable at a time, in the order above. Do not skip ahead to section 6 without 1-5 passing their own checks.

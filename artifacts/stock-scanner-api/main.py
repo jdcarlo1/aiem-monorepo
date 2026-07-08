@@ -40979,6 +40979,22 @@ def _aiem_paper_mark_to_market():
                         )
                     except Exception as _sup_h5_e:
                         print(f"[supervisor] hook5_trade_closed skipped: {_sup_h5_e}")
+                    # ── Attribution: record credit/blame before learning update ─
+                    try:
+                        import aiem_attribution as _aattr_mtm
+                        _aattr_mtm.record_attribution(
+                            trade_id=int(_id),
+                            ticker=_t,
+                            signal_source=(_src or "unknown"),
+                            entry_price=float(_entry) if _entry else None,
+                            exit_price=float(_last) if _last else None,
+                            pnl_pct=float(_pnl_pct),
+                            hold_days=((_today - _td).days if hasattr(_today, 'year') and hasattr(_td, 'year') else None),
+                            confidence_at_entry=None,
+                            trace_id=(_at_row[0] if (_at_row and _at_row[0]) else None),
+                        )
+                    except Exception as _aattr_e:
+                        print(f"[attribution] record skipped (non-fatal): {_aattr_e}")
                     # ── Update signal trust weight from this outcome ──────────
                     # Inline EMA update matching meta_learning_signal_trust logic.
                     # Uses _DB_URL directly (avoids AIEM_DATABASE_URL dependency).
@@ -51053,6 +51069,13 @@ try:
     print("[d3_governance] deferred startup registered")
 except Exception as _d3_import_e:
     print(f"[d3_governance] import failed at registration time: {_d3_import_e}")
+
+try:
+    import aiem_attribution as _aattr_mod
+    _DEFERRED_INITS.append(lambda: _aattr_mod.init_schema())
+    print("[attribution] deferred schema init registered")
+except Exception as _aattr_import_e:
+    print(f"[attribution] import failed at registration time: {_aattr_import_e}")
 
 
 def _run_layer9_bg_scan():

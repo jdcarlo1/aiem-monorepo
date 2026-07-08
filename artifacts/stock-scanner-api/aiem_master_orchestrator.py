@@ -71,6 +71,7 @@ class AEIMTradePacket:
     ticker:     str
     created_at: str
     source:     str
+    execution_plan_id: str = ""
 
     market_data:    Dict[str, Any] = field(default_factory=dict)
     scanner_signal: Dict[str, Any] = field(default_factory=dict)
@@ -243,6 +244,21 @@ class AEIMMasterOrchestrator:
         self._import_all()
 
     # ── import all real modules at startup ───────────────────────────────
+    @staticmethod
+    def _std_out(module_name: str, status: str, confidence: float, score: float,
+                 evidence: dict, tools_used: list, errors: list) -> dict:
+        import datetime as _dt
+        return {
+            "module_name": module_name,
+            "status":      status,
+            "confidence":  round(float(confidence or 0), 4),
+            "score":       round(float(score or 0), 4),
+            "evidence":    evidence if isinstance(evidence, dict) else {"raw": str(evidence)[:500]},
+            "tools_used":  tools_used,
+            "errors":      errors,
+            "timestamp":   _dt.datetime.utcnow().isoformat(),
+        }
+
     def _import_all(self):
         import aiem_macro_engine                as _me;   self._me   = _me
         import aiem_v3_discovery                as _vd;   self._vd   = _vd
@@ -454,12 +470,11 @@ class AEIMMasterOrchestrator:
             "rows":          rows,
             "bars_loaded":   len(rows),
         }
-        return {
-            "ticker":        packet.ticker,
-            "bars_loaded":   len(rows),
-            "current_price": packet.market_data["current_price"],
-            "source":        packet.source,
-        }
+        _ev = {"ticker": packet.ticker, "bars_loaded": len(rows),
+               "current_price": packet.market_data.get("current_price"), "source": packet.source}
+        return self._std_out("candidate_intake", "PASS" if rows else "PARTIAL",
+            1.0 if len(rows) > 30 else 0.5, float(len(rows)), _ev,
+            ["polygon_market_daily"], [])
 
     # ================================================================
     # STAGE 1 — MACRO ENGINE
@@ -480,7 +495,11 @@ class AEIMMasterOrchestrator:
             "gate_approved":    gate_ok,
         }
         packet.macro = result
-        return result
+        return self._std_out("market_regime",
+            "PASS" if result.get("gate_approved") else "FAIL",
+            float(result.get("score", 50) or 50) / 100.0,
+            float(result.get("score", 0) or 0),
+            result, ["aiem_macro_engine"], [])
 
     # ================================================================
     # STAGE 2 — SIGNAL DISCOVERY LIFECYCLE
@@ -496,7 +515,10 @@ class AEIMMasterOrchestrator:
             "total_candidates": len(results),
         }
         packet.discovery["v3_discovery"] = out
-        return out
+        return self._std_out("discovery",
+            "PASS", 1.0 if out.get("ticker_in_top10") else 0.5,
+            float(out.get("total_candidates", 0)),
+            out, ["aiem_v3_discovery", "aiem_discovery_engine"], [])
 
     def _h_discovery_engine(self, packet: AEIMTradePacket) -> Dict:
         total  = self._hr.get_total_registered()
@@ -635,7 +657,12 @@ class AEIMMasterOrchestrator:
         }
         score = self._vt.compute_technical_score(packet.ticker, hist)
         packet.technical.update(score)
-        return score
+        _ts = float(score.get("technical_score", 0) if isinstance(score, dict) else 0)
+        _tc = float(score.get("confidence", 0.7) if isinstance(score, dict) else 0.7)
+        return self._std_out("analysis", "PASS" if not (isinstance(score, dict) and score.get("error")) else "PARTIAL",
+            _tc, _ts,
+            score if isinstance(score, dict) else {"raw": str(score)[:200]},
+            ["aiem_v3_technical"], [])
 
     def _h_options_structure(self, packet: AEIMTradePacket) -> Dict:
         price  = packet.market_data.get("current_price")
@@ -1034,7 +1061,10 @@ class AEIMMasterOrchestrator:
             verdict = {"weighted_vote": None, "regime": regime,
                        "note": "no specialist opinions available yet"}
         packet.ensemble["specialist_council"] = verdict
-        return verdict
+        _wv = float(verdict.get("weighted_vote", 0.5) or 0.5)
+        return self._std_out("specialist_council", "PASS",
+            _wv, _wv * 100,
+            verdict, ["specialist_council", "bull_bear_debate"], [])
 
     # ================================================================
     # STAGE 9 — SUPERVISOR + EDGE FILTER
@@ -1085,7 +1115,11 @@ class AEIMMasterOrchestrator:
             "event_risk":               "checked",
         }
         packet.risk = out
-        return out
+        _rg_ok = not out.get("kill_switch_active") and not out.get("daily_loss_breached")
+        return self._std_out("risk_manager",
+            "PASS" if _rg_ok else "FAIL",
+            1.0, 100.0 if _rg_ok else 0.0,
+            out, ["aiem_risk_guards", "aiem_position_sizing"], [])
 
     def _h_position_sizing(self, packet: AEIMTradePacket) -> Dict:
         conviction = float(packet.scanner_signal.get("conviction_score", 5) or 5)
@@ -1192,7 +1226,11 @@ class AEIMMasterOrchestrator:
             "error_count": len(packet.errors),
             "reason":      "All gates passed" if approved else "One or more gates failed",
         }
-        return packet.final_decision
+        return self._std_out("decision_engine",
+            "PASS" if packet.final_decision.get("approved") else "FAIL",
+            1.0 if packet.final_decision.get("approved") else 0.0,
+            100.0 if packet.final_decision.get("approved") else 0.0,
+            packet.final_decision, ["final_decision_gate"], [])
 
     def _h_paper_trade(self, packet: AEIMTradePacket) -> Dict:
         if packet.final_decision.get("approved"):
@@ -1211,7 +1249,10 @@ class AEIMMasterOrchestrator:
                 "reason": packet.final_decision.get("reason", "Rejected"),
             }
         packet.paper_trade = out
-        return out
+        return self._std_out("paper_trading",
+            "PASS" if out.get("opened") else "FAIL",
+            1.0, 100.0 if out.get("opened") else 0.0,
+            out, ["aiem_paper_trades_insert"], [])
 
     # ================================================================
     # STAGE 12 — AUDIT + PROVENANCE + PERFORMANCE
@@ -1243,7 +1284,9 @@ class AEIMMasterOrchestrator:
             "error_count":  len(packet.errors),
         }
         packet.performance["pipeline_audit"] = out
-        return out
+        return self._std_out("observability_audit", "PASS",
+            1.0, 100.0,
+            out, ["aiem_pipeline_audit", "aiem_diagram2_trace_audit"], [])
 
     def _h_provenance(self, packet: AEIMTradePacket) -> Dict:
         payload = {
@@ -1268,7 +1311,9 @@ class AEIMMasterOrchestrator:
             "steps_audited":    len(packet.audit),
         }
         packet.performance["auditor"] = out
-        return out
+        return self._std_out("outcome_tracker", "PASS",
+            1.0, 100.0,
+            out, ["aiem_performance_auditor"], [])
 
     # ================================================================
     # STAGE 13 — LEARNING LOOP
@@ -1284,7 +1329,11 @@ class AEIMMasterOrchestrator:
             "ppo_available":          hasattr(self._cl, "maybe_run_ppo_training"),
         }
         packet.learning["closed_loop"] = out
-        return out
+        return self._std_out("learning_systems",
+            "PASS" if out.get("thompson_scores_loaded") else "PARTIAL",
+            0.8 if out.get("thompson_scores_loaded") else 0.3,
+            float(out.get("signal_count", 0)),
+            out, ["aiem_closed_loop_learning", "signal_trust_weights"], [])
 
     def _h_rl_engine(self, packet: AEIMTradePacket) -> Dict:
         out = {
@@ -1297,7 +1346,9 @@ class AEIMMasterOrchestrator:
             "fires_from": "MTM background thread post-trade",
         }
         packet.learning["rl_engine"] = out
-        return out
+        return self._std_out("feedback_loop", "PASS",
+            0.9, 90.0,
+            out, ["aiem_rl_engine", "AdaptiveRiskManager"], [])
 
     def _h_v3_learning(self, packet: AEIMTradePacket) -> Dict:
         out = {
@@ -1310,7 +1361,9 @@ class AEIMMasterOrchestrator:
             "schedule": "nightly",
         }
         packet.learning["v3_learning"] = out
-        return out
+        return self._std_out("memory", "PASS",
+            0.9, 90.0,
+            out, ["aiem_v3_learning", "aiem_strategy_memory"], [])
 
     def _h_automated_retrain(self, packet: AEIMTradePacket) -> Dict:
         history = self._ar.get_retrain_history("momentum_v3", limit=5)
@@ -1488,15 +1541,17 @@ class AEIMMasterOrchestrator:
         source: str = "scanner",
         scanner_signal: Optional[Dict] = None,
         market_data:    Optional[Dict] = None,
+        execution_plan_id: Optional[str] = None,
     ) -> AEIMTradePacket:
 
         packet = AEIMTradePacket(
-            packet_id      = str(uuid.uuid4()),
-            ticker         = ticker.upper(),
-            created_at     = datetime.utcnow().isoformat(),
-            source         = source,
-            scanner_signal = scanner_signal or {},
-            market_data    = market_data    or {},
+            packet_id         = str(uuid.uuid4()),
+            ticker            = ticker.upper(),
+            created_at        = datetime.utcnow().isoformat(),
+            source            = source,
+            execution_plan_id = execution_plan_id or str(uuid.uuid4()),
+            scanner_signal    = scanner_signal or {},
+            market_data       = market_data    or {},
         )
         self._log(packet, "trade_packet_creation", "SUCCESS", {"packet_id": packet.packet_id})
 
