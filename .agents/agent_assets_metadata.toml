@@ -216,3 +216,39 @@ id = "Kgch_xB-9cHQORR969QXm"
 uri = "file://artifacts/stock-scanner-api/diagrams/aiem_orchestrator_pipeline.png"
 type = "image"
 title = "AEIM Master Orchestrator — All 57 Modules in Execution Order"
+
+[[outputs]]
+id = "HMwZvMuVoJYFY_kqifS97"
+uri = "file://artifacts/stock-scanner-api/diagrams/columns/col1.png"
+type = "image"
+title = "Column 1 of 6 — Modules 1-10"
+
+[[outputs]]
+id = "7qPpWTlJJsaMnH0X_yGen"
+uri = "file://artifacts/stock-scanner-api/diagrams/columns/col2.png"
+type = "image"
+title = "Column 2 of 6 — Modules 11-20"
+
+[[outputs]]
+id = "fMo6OUlv_TIXC50rR-UhY"
+uri = "file://artifacts/stock-scanner-api/diagrams/columns/col3.png"
+type = "image"
+title = "Column 3 of 6 — Modules 21-30"
+
+[[outputs]]
+id = "m7ry3TeCpWdQCuDR_DImd"
+uri = "file://artifacts/stock-scanner-api/diagrams/columns/col4.png"
+type = "image"
+title = "Column 4 of 6 — Modules 31-39"
+
+[[outputs]]
+id = "62wWpG7QEjI6pedodCDRN"
+uri = "file://artifacts/stock-scanner-api/diagrams/columns/col5.png"
+type = "image"
+title = "Column 5 of 6 — Modules 40-48"
+
+[[outputs]]
+id = "vx8B5hhcptqh4zAzAX-rz"
+uri = "file://artifacts/stock-scanner-api/diagrams/columns/col6.png"
+type = "image"
+title = "Column 6 of 6 — Modules 49-57"
