@@ -1,0 +1,88 @@
+FINAL DIAGRAM 2 REMEDIATION AUTHORIZATION
+
+I am authorizing a controlled remediation pass to make the LIVE runtime match the approved Diagram 2 architecture.
+
+This is NOT permission to redesign AEIM.
+
+This IS permission to wire the existing architecture correctly so the implementation matches the specification.
+
+Primary Objective
+
+A real scanner candidate must travel through every Diagram 2 layer in the correct order under one shared trace_id.
+
+No architectural component may exist only on paper.
+
+No component may exist only as a standalone package.
+
+No component may exist only for admin/testing.
+
+If Diagram 2 specifies that a component participates in the runtime pipeline, then it must participate in the runtime pipeline.
+
+Required Remediation
+
+1. Master Orchestrator
+- Become the live execution controller for Diagram 2.
+- main.py should hand candidate execution to the Orchestrator rather than directly sequencing Diagram 2 modules.
+- Preserve current production behavior while changing control ownership.
+
+2. Module Registry
+- Become a runtime-consulted registry.
+- Runtime should verify module availability through the registry rather than treating it as static documentation.
+
+3. Tool Registry
+- Become a runtime-consulted registry.
+- Modules should request tools through the registry instead of hard-coded access where appropriate.
+
+4. Communication Bus
+- Implement a real runtime event/payload routing layer (or equivalent) if Diagram 2 specifies one.
+- Every stage transition should be observable.
+
+5. Probability Engine
+- Integrate it into the same candidate pipeline used for live paper-trading decisions if that is the intended architecture.
+- The same candidate being evaluated for paper trading must receive:
+    - model version
+    - probability score
+    - feature count/hash
+    - TreeSHAP explanation
+before Scoring/Synthesis.
+- If integration is technically impossible because the current data model is incompatible, implement the necessary schema or pipeline changes rather than documenting the incompatibility.
+
+6. Runtime Trace
+Every Diagram 2 stage must emit runtime evidence under one shared trace_id.
+
+Each stage should produce evidence including:
+- stage_order
+- stage_name
+- component
+- runtime function
+- timestamp
+- PASS/FAIL
+- evidence pointer
+
+Final Acceptance Test (Required)
+
+Do NOT declare Diagram 2 complete until all of the following are true:
+
+✓ One REAL fresh scanner candidate is used.
+✓ One shared trace_id exists from beginning to end.
+✓ Every required Diagram 2 stage executes in order.
+✓ Master Orchestrator is proven to control execution.
+✓ Module Registry is consulted at runtime.
+✓ Tool Registry is consulted at runtime.
+✓ Communication Bus is active in the runtime path.
+✓ Probability Engine scores the same live candidate before Scoring/Synthesis.
+✓ Decision Engine uses outputs from prior required stages.
+✓ Paper trade, Bull/Bear Debate, Post-Trade Analytics, and Learning Feedback all reference the same trace_id.
+
+Required Deliverables
+
+1. Implementation summary.
+2. Files changed.
+3. Runtime trace.
+4. SQL evidence.
+5. Audit evidence.
+6. Final PASS/FAIL table.
+
+Diagram 2 is considered COMPLETE only if every required architectural component is part of the live runtime path and every acceptance criterion passes for one real scanner candidate.
+
+If any criterion fails, leave Diagram 2 OPEN and identify the exact remaining gap with supporting runtime evidence rather than marking it complete.

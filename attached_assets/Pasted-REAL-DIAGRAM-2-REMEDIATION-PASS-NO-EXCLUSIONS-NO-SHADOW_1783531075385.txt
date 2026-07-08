@@ -1,0 +1,170 @@
+REAL DIAGRAM 2 REMEDIATION PASS — NO EXCLUSIONS, NO SHADOW-ONLY, NO BYPASS
+
+Goal:
+Make Diagram 2 true in the live runtime path.
+
+Current verified gaps:
+1. Master Orchestrator exists but is not the live controller.
+2. Module Registry exists but is not consulted at runtime.
+3. Tool Registry exists but is not consulted at runtime.
+4. Communication Bus does not exist as a live routing layer.
+5. Probability Engine exists but is isolated from aiem_paper_trades and does not score live paper-trading candidates.
+
+Required remediation:
+Wire the live AEIM candidate path so that every real scanner candidate must flow through:
+
+Scanner / Website Signals
+→ AEIM Intake
+→ Data Guards
+→ Master Orchestrator
+→ Module Registry
+→ Tool Registry
+→ Communication Bus
+→ Macro / Market Regime
+→ Discovery
+→ Technical / VWAP / Momentum
+→ Options / Smart Money / Microstructure
+→ Quant / Statistical Edge
+→ Probability Engine / XGBoost + TreeSHAP
+→ Scoring / Synthesis
+→ Specialist Council
+→ Pre-Decision Risk Gate
+→ Decision Engine
+→ Paper / Shadow Execution or No-Execution Log
+→ Bull/Bear Debate
+→ Post-Trade Analytics
+→ Learning Feedback
+
+Implementation rules:
+- main.py may no longer directly call the Diagram 2 modules inline.
+- main.py must hand the candidate to the Master Orchestrator.
+- The Master Orchestrator must control execution order.
+- The Master Orchestrator must consult the Module Registry before each module runs.
+- Each module must request needed tools through the Tool Registry.
+- All stage-to-stage payloads must pass through a Communication Bus or equivalent event/payload router.
+- The Probability Engine must accept the same candidate universe used by aiem_paper_trades.
+- Probability Engine output must be written back to the same trace_id before Scoring/Synthesis.
+- No candidate can reach Scoring/Synthesis without a probability_engine_result.
+- No candidate can reach Decision Engine without Risk Gate approval.
+- Every layer must write to an audit table with the same trace_id, ticker, stage_name, stage_order, status, timestamp, input_hash, output_hash, and evidence_pointer.
+
+Create or update this audit table if needed:
+
+aiem_diagram2_trace_audit
+columns:
+id
+trace_id
+ticker
+paper_trade_id nullable
+stage_order
+stage_name
+component_name
+runtime_function
+status
+started_at
+completed_at
+input_hash
+output_hash
+evidence_pointer
+error_message nullable
+
+ULTIMATE TEST REQUIRED:
+
+Run one real fresh scanner candidate, not simulated, not manually invented, through the live production AEIM path after the remediation.
+
+Return:
+
+1. Git proof
+- git diff --stat
+- git status --short
+- list of files changed
+- short explanation of each file changed
+
+2. Runtime proof
+Use one real fresh ticker and one shared trace_id.
+
+Return a table:
+
+Stage Order | Required Diagram 2 Layer | Runtime Function | Registry Lookup | Bus Event | Probability/Score Evidence | DB Evidence | PASS/FAIL
+
+Every row must be PASS.
+
+3. Hard SQL proof
+
+Run and show output:
+
+SELECT
+  trace_id,
+  ticker,
+  COUNT(*) AS stages_recorded,
+  MIN(stage_order) AS first_stage,
+  MAX(stage_order) AS last_stage,
+  SUM(CASE WHEN status = 'PASS' THEN 1 ELSE 0 END) AS pass_count,
+  SUM(CASE WHEN status != 'PASS' THEN 1 ELSE 0 END) AS fail_count
+FROM aiem_diagram2_trace_audit
+WHERE trace_id = '<TRACE_ID>'
+GROUP BY trace_id, ticker;
+
+Required result:
+stages_recorded must equal 21
+first_stage must equal 1
+last_stage must equal 21
+pass_count must equal 21
+fail_count must equal 0
+
+4. Exact ordered-stage proof
+
+SELECT
+  stage_order,
+  stage_name,
+  component_name,
+  runtime_function,
+  status,
+  evidence_pointer
+FROM aiem_diagram2_trace_audit
+WHERE trace_id = '<TRACE_ID>'
+ORDER BY stage_order;
+
+Required:
+Rows 1 through 21 must appear in exact Diagram 2 order.
+No missing rows.
+No duplicate stage_order.
+No FAIL.
+No N/A.
+
+5. Probability Engine proof
+
+Show the row proving the same ticker and same trace_id received:
+
+- model_version
+- probability_score
+- feature_count
+- feature_vector_hash
+- TreeSHAP/top drivers
+- written before Scoring/Synthesis
+
+6. Anti-bypass proof
+
+Show grep or static test proving main.py does not directly bypass the orchestrator for Diagram 2 modules.
+
+Required:
+- main.py calls Master Orchestrator for candidate processing.
+- Direct inline calls to Diagram 2 module sequence are removed or blocked.
+- Probability Engine cannot be skipped.
+- Risk Gate cannot be skipped.
+
+7. Final declaration
+
+Only say Diagram 2 COMPLETE if:
+
+- 21/21 stages PASS
+- one real fresh scanner candidate used
+- one shared trace_id used
+- Master Orchestrator controls runtime execution
+- Module Registry is consulted at runtime
+- Tool Registry is consulted at runtime
+- Communication Bus routes payloads/events
+- Probability Engine scores the same live candidate before scoring/synthesis
+- Decision and learning feedback are linked to the same trace_id
+
+If any item fails, do not mark complete. Return the failing layer and the exact code path that still needs remediation.
