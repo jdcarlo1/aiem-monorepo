@@ -308,16 +308,23 @@ CLI_VERIFICATION_TOOLS = {
 # to real, already-registered tool(s).
 TOOL_ALIASES = {
     "rl_position_sizer": {
-        "real_tools": ["rl_get_paper_action", "rl_status", "rl_strategy_weights",
-                        "rl_readable_policy", "rl_ppo_policy", "rl_counterfactuals"],
-        "note": "rl_position_sizer.py is the owning MODULE (Phase 11/15), not a tool name. "
-                "Its functionality is exposed under the listed real tool names.",
+        "real_tools": ["rl_get_paper_action", "rl_readable_policy"],
+        "note": "rl_position_sizer.py is the owning MODULE (Phase 11), not a tool name. "
+                "VERIFIED 2026-07-08 via sed trace (Phase 11 verification pass): only "
+                "rl_get_paper_action and rl_readable_policy actually `import rl_position_sizer`. "
+                "CORRECTION: the previously-listed rl_status/rl_strategy_weights/rl_ppo_policy "
+                "instead call aiem_rl_engine.py (Phase 15 -- a DIFFERENT, unrelated module); "
+                "rl_counterfactuals is inline direct-SQL against the rl_counterfactuals table "
+                "with no module import at all. Those 4 were removed from real_tools here.",
     },
     "portfolio_correlation_risk": {
-        "real_tools": ["portfolio_circuit_breaker_status"],
-        "note": "portfolio_correlation_risk is an internal check used inside the risk-gate "
-                "flow (main.py ~line 39693), not a standalone AI-callable tool today. "
-                "Closest registered proxy tool listed; exact coverage still PENDING_VERIFICATION.",
+        "real_tools": ["check_portfolio_concentration"],
+        "note": "portfolio_correlation_risk.py's check_current_portfolio_risk() is called "
+                "directly inside _aiem_tool_check_portfolio_concentration (main.py ~L31373), "
+                "and also inline in the paper-trading pipeline gate (~L39689). VERIFIED "
+                "2026-07-08 via sed trace (Phase 11 verification pass) -- CORRECTS the prior "
+                "guess of portfolio_circuit_breaker_status, which is actually a different "
+                "mechanism entirely (aiem_risk_guards.py's PortfolioCircuitBreaker).",
     },
 }
 
