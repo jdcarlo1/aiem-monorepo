@@ -1,5 +1,6 @@
 - [Diagram 2 Phase 0 tool-ownership finding](diagram2-phase0-tool-ownership-finding.md) — AI tools tagged to a phase often live inline in main.py, not in that phase's file modules; verify honestly, don't force-map
 - [Diagram 2 Function Registry convention](diagram2-function-registry.md) — aiem_function_registry table + aiem_function_registry_build.py pattern; every significant inline main.py function gets its own auditable row per phase
+- [Diagram 2 Phase 1 orchestration findings](diagram2-phase1-orchestration-findings.md) — aiem_master_orchestrator.py (full pipeline, ~1550 lines) is completely unwired/orphaned; repo-grep absence-proofs must exclude registry/verify scripts themselves
 - [AIEM feedback loop bug fixes session July 2026](aiem-feedback-loop-bugs.md) — 7 fixed (supervisor cols, retry, failure-gate, exec_ms, decision_log, bull_bear, candidate_count); items 6/7/11 proven at 4PM MTM
 - [AIEM v3 Macro Engine](aiem-v3-macro-engine.md) — Phase 1(12 tables) + Phase 2(macro gate) done; TOKEN_2=live Tradier; score=0-100; block<20; wired @L39439 in main.py; 9AM scheduler; live: 66 BULL_STRONG
 - [AIEM Process alert system](aiem-process-alert-system.md) — threshold=50; S1b/S1c/S1d score 54-61%; gap_large tops out 48% (blocked); dedup via signal_fire_log DAILY_SUMMARY; Polygon snapshot 403s → Tradier fallback

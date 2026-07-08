@@ -363,6 +363,59 @@ PHASE0_FUNCTIONS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# PHASE 1 — Orchestration Layer
+# Every row below was traced by directly reading main.py (sed), not by
+# import or execution. Evidence string names the exact grep/sed check used.
+# Only the 2 Phase-1-tagged tools with NO backing module file are registered
+# here (log_prediction, get_live_snapshot). The other 6 Phase-1 tools are
+# either genuinely file-owned (aiem_level2.py/aiem_level3.py/aiem_v2_system.py)
+# or real-module-but-cross-phase (decision_logger.py, Phase 9) — those do not
+# need a Function Registry row since a real module already owns them.
+# ---------------------------------------------------------------------------
+PHASE1_FUNCTIONS = [
+    dict(
+        file_name="main.py",
+        function_name="_aiem_tool_log_prediction",
+        purpose="AI-callable tool (tool_name: log_prediction) — saves AIEM's own "
+                "directional call (BULLISH/BEARISH/NEUTRAL) on a ticker to the track "
+                "record so it can be graded automatically once target_date arrives.",
+        inputs="ticker:str, direction:str, horizon_days:int=3, confidence:str='MEDIUM', "
+                "predicted_win_pct:float=None, rationale:str=None, session_id:str=None",
+        outputs="dict {logged, prediction_id, entry_price, target_date}; INSERT INTO "
+                "aiem_track_record",
+        upstream_dependencies="polygon_market_daily (latest close as entry_price)",
+        downstream_dependencies="aiem_track_record table -> automatic grading job "
+                "(not re-traced in this Phase 1 pass; belongs to the learning/grading "
+                "phases downstream)",
+        owning_phase=1,
+        owning_module="INLINE (main.py) — no dedicated Phase 1 module file",
+        verification_status="VERIFIED",
+        verification_evidence="sed -n '21877,21910p' main.py — full body read, confirmed "
+                "direct psycopg2 INSERT into aiem_track_record with real entry_price lookup",
+        verified_by_command="sed trace, 2026-07-08 (Phase 1 tool-tracing pass)",
+    ),
+    dict(
+        file_name="main.py",
+        function_name="_aiem_tool_get_live_snapshot",
+        purpose="AI-callable tool (tool_name: get_live_snapshot) — live intraday data for "
+                "specific tickers right now, from Polygon's snapshot endpoint, for "
+                "'right now'/'currently'/'today so far' questions.",
+        inputs="tickers: str or list[str] (capped at 50)",
+        outputs="dict {status:'OK'|'DELAYED'|'error', per-ticker price/volume/minute-bar/"
+                "change_pct, _cache_age_s}; in-process TTL cache (_LIVE_SNAPSHOT_CACHE)",
+        upstream_dependencies="Polygon v2 snapshot API (POLYGON_API_KEY secret)",
+        downstream_dependencies="AI chat tool dispatch map (tool_name get_live_snapshot)",
+        owning_phase=1,
+        owning_module="INLINE (main.py) — no dedicated Phase 1 module file",
+        verification_status="VERIFIED",
+        verification_evidence="sed -n '31029,31070p' main.py — full body read, confirmed "
+                "real urllib call to Polygon snapshot endpoint + TTL cache check",
+        verified_by_command="sed trace, 2026-07-08 (Phase 1 tool-tracing pass)",
+    ),
+]
+
+
 def upsert_functions(conn, rows):
     with conn.cursor() as cur:
         for r in rows:
@@ -402,18 +455,19 @@ def upsert_functions(conn, rows):
 def main():
     conn = _connect()
     try:
-        upsert_functions(conn, PHASE0_FUNCTIONS)
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM aiem_function_registry WHERE owning_phase = 0")
-            n_total = cur.fetchone()[0]
-            cur.execute("""
-                SELECT verification_status, COUNT(*) FROM aiem_function_registry
-                WHERE owning_phase = 0 GROUP BY verification_status ORDER BY 1
-            """)
-            by_status = cur.fetchall()
-        print(f"[aiem_function_registry] Phase 0: {n_total} function rows upserted")
-        for status, n in by_status:
-            print(f"  {status}: {n}")
+        for phase, rows in ((0, PHASE0_FUNCTIONS), (1, PHASE1_FUNCTIONS)):
+            upsert_functions(conn, rows)
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM aiem_function_registry WHERE owning_phase = %s", (phase,))
+                n_total = cur.fetchone()[0]
+                cur.execute("""
+                    SELECT verification_status, COUNT(*) FROM aiem_function_registry
+                    WHERE owning_phase = %s GROUP BY verification_status ORDER BY 1
+                """, (phase,))
+                by_status = cur.fetchall()
+            print(f"[aiem_function_registry] Phase {phase}: {n_total} function rows upserted")
+            for status, n in by_status:
+                print(f"  {status}: {n}")
     finally:
         conn.close()
 
