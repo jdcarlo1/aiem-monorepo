@@ -210,3 +210,9 @@ id = "A8hZXV-uHNGFYBgvat2-o"
 uri = "file://stockscanner_full_export.zip"
 type = "unspecified"
 title = "StockScanner AI + AIEM — Complete Source (6.6 MB / 641 files)"
+
+[[outputs]]
+id = "Kgch_xB-9cHQORR969QXm"
+uri = "file://artifacts/stock-scanner-api/diagrams/aiem_orchestrator_pipeline.png"
+type = "image"
+title = "AEIM Master Orchestrator — 57-Stage Pipeline"
