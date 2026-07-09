@@ -1,0 +1,65 @@
+# Fix: aiem_bus_transfer_log.published_at timestamp bug
+
+## Root cause
+`published_at` is defined as `TIMESTAMPTZ NOT NULL DEFAULT NOW()`. Postgres `NOW()`
+returns the **transaction start time**, frozen for the entire transaction — not
+wall-clock time. Since all stage rows for a given MTM cycle are written inside one
+shared, long-lived transaction (`_c`, opened at the top of the loop, committed once
+~280 lines later), every row in that cycle gets the identical timestamp.
+
+This is NOT fabricated/batch-written execution — sleep tests confirmed stages run
+sequentially in real time. It's purely a wrong-function choice for the timestamp
+column.
+
+## Fix — two options, pick one
+
+### Option A (preferred, minimal change): use `clock_timestamp()` instead of `NOW()`
+`clock_timestamp()` returns actual wall-clock time at the moment the statement
+executes, regardless of transaction state.
+
+1. Schema change — `aiem_communication_bus.py` (or wherever the table DDL lives),
+   line ~41:
+   ```sql
+   -- before
+   published_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+   -- after
+   published_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+   ```
+   If the table already exists in production, also run a migration:
+   ```sql
+   ALTER TABLE aiem_bus_transfer_log
+     ALTER COLUMN published_at SET DEFAULT clock_timestamp();
+   ```
+   (This only changes the default for future inserts — existing rows keep their
+   already-wrong frozen timestamps and cannot be recovered.)
+
+### Option B (more explicit, matches trace_audit pattern): pass Python timestamp explicitly
+Instead of relying on any Postgres default, capture `datetime.utcnow()` in Python
+right before each INSERT and pass it as a column value — the same pattern already
+used correctly for `aiem_diagram2_trace_audit.started_at`/`completed_at`.
+
+1. Add `published_at` to the column list and `%s` placeholders in every
+   `_cu.execute("INSERT INTO aiem_bus_transfer_log ...")` call site in `main.py`
+   (currently at lines ~40965, and the equivalent for stages 21/22/23).
+2. Pass `datetime.utcnow()` captured fresh at each call site (not the `started`
+   variable captured once at the top of `execute_stage()` — needs to be per-INSERT,
+   not per-stage-loop).
+
+**Recommendation: Option A.** It's a one-line schema change, requires no call-site
+edits, and doesn't risk missing one of the INSERT call sites.
+
+## Verification after fix
+Re-run the same live sleep test used to diagnose this (4 inserts, 1s Python
+`time.sleep()` between each, inside one transaction) and confirm `published_at`
+values now advance by ~1s each — matching the `clock_timestamp()` explicit-insert
+test that already proved this works.
+
+## Scope / severity note
+- Affects only `aiem_bus_transfer_log.published_at` — an observability/logging
+  table, not a decision-making or trading-logic table.
+- `aiem_diagram2_trace_audit` (the trace-level audit table) already uses explicit
+  Python timestamps and was already confirmed accurate — no fix needed there.
+- No kill switch, safety gate, or trade execution logic is affected.
+- Existing historical rows in `aiem_bus_transfer_log` will remain incorrect
+  (frozen-at-transaction-start) since the true wall-clock time was never recorded —
+  only new rows after the fix will be accurate.

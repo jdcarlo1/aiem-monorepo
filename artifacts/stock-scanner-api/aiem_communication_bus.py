@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS aiem_bus_transfer_log (
     event_type      TEXT,
     component_name  TEXT,
     payload         JSONB,
-    published_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    published_at    TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX IF NOT EXISTS idx_aiem_bus_trace_id ON aiem_bus_transfer_log (trace_id);
 CREATE INDEX IF NOT EXISTS idx_aiem_bus_stage    ON aiem_bus_transfer_log (stage_order);
