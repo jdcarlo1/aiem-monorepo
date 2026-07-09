@@ -1,0 +1,107 @@
+# DIAGRAM 2 — FINAL CLOSURE VERIFICATION PACKET
+## Send this to the Replit agent as-is. Do not summarize or paraphrase back to Joel — respond to each numbered item with raw evidence only.
+
+**Standing rule for every item below:** raw terminal output, file + line numbers,
+live-trigger test results, and actual database rows returned by query. No narrative
+descriptions of what the code "does" or "should do." No self-reported completion
+status. If something cannot be proven, say so explicitly — do not imply it works.
+
+Diagram 2 is NOT complete until every item below has either (a) runtime proof, or
+(b) an explicit written justification for why it's intentionally excluded — signed
+off by you before moving on, not decided unilaterally by the agent.
+
+---
+
+## 1. Master Orchestrator
+
+**Question:** Is `AEIMMasterOrchestrator` the live control-plane for Diagram 2, or
+is it dead/parallel code?
+
+**Required proof:**
+- Grep every call site of `AEIMMasterOrchestrator.execute_stage(` across the
+  entire codebase (not just `main.py`) — file + line number for each.
+- For each call site found, show whether it's reachable from the actual live
+  trading/paper-trading entrypoint (i.e., what does main.py actually run on a
+  live cycle — trace the real call chain from process start).
+- If `main.py` and `aiem_master_orchestrator.py` are disconnected paths (per
+  earlier audit finding), state that explicitly and either:
+  - (a) wire the orchestrator into the live path and show a fresh execution
+    trace proving it now controls stage dispatch, or
+  - (b) if Diagram 2 documentation is wrong and the orchestrator was never
+    meant to be the runtime controller, explain in writing why the diagram
+    names it the "central controller" and what actually plays that role instead.
+
+## 2. Probability Engine
+
+**Required proof:**
+- Identify the specific candidate/trace that was verified earlier and show,
+  with file + line, the exact branch of code that caused it to skip the
+  Probability Engine.
+- Determine: is Probability Engine invocation conditional on candidate type,
+  score threshold, or some other routing logic? Show that routing logic with
+  file + line.
+- If routing is correct as-is: document the routing rule explicitly (e.g.
+  "Probability Engine only runs for candidates with X property").
+- If routing is broken (every candidate should hit it): fix it, then run a
+  fresh live trace on a new candidate and show the Probability Engine's
+  output actually appears in that trace's database rows.
+
+## 3. Bull/Bear Debate Persistence
+
+**Required proof — a real database row, not a code snippet:**
+- Show the exact INSERT statement (file + line) that persists debate results.
+- Confirm the row includes: `candidate_id`, `trace_id`, `audit_log_id`,
+  `timestamp`. If any of these four columns doesn't exist in the current
+  schema, add it, then re-run and show a fresh row containing all four.
+- Query and paste the actual database row (raw `SELECT` output) for one real
+  debate that ran during this verification session — not a historical/backfilled
+  row.
+
+## 4. Thompson Sampler Feedback Persistence
+
+**Required proof:**
+- Show whether feedback persistence is implemented at all (file + line, or
+  confirm it does not exist yet).
+- If missing: implement it.
+- Required proof of completion: one full cycle —
+  1. A trade completes (paper trade, real or simulated close).
+  2. A feedback record is written linking that trade to the sampler.
+  3. Paste the raw `SELECT` output of that feedback row, showing it's linked
+     to the specific completed trade (by trade ID/candidate ID — not just a
+     standalone feedback row with no linkage).
+
+## 5. Runtime Stage → Diagram Phase Mapping
+
+**Required deliverable:** a table, one row per Diagram 2 phase (0 through 17),
+with these columns:
+
+| Diagram Phase (0–17) | Phase Name | Runtime Stage(s) that implement it | File + line of the call site | Status (LIVE / STUB / MISSING) |
+
+- Every one of the 18 phases (0–17) must have a row. If a phase has no runtime
+  equivalent, mark it MISSING — do not omit it from the table.
+- If multiple diagram phases map to a single runtime stage, or one phase maps
+  to multiple stages, show that explicitly rather than forcing a false 1:1.
+- Cross-check: does the current runtime actually have 13 stages, or does the
+  earlier "13 runtime stages" count only cover part of the pipeline (e.g., only
+  Diagram 2's own stages, not Diagram 1's)? Clarify stage numbering scheme
+  before filling in the table.
+
+---
+
+## Final closure requirement
+
+After items 1–5 above are each resolved (fixed) or explicitly justified
+(documented as intentional), run **one new, single, uninterrupted end-to-end
+execution trace** — one ticker, one full cycle, phase 0 through phase 17 (or
+whatever the corrected final phase count is per item 5) — and provide:
+
+- The `trace_id` used.
+- Raw terminal output showing each phase firing in order, with real timestamps
+  (using `clock_timestamp()` or explicit Python `datetime.utcnow()` — not
+  `NOW()`, per the bus-log timestamp bug already found).
+- The full set of database rows this trace produced across every relevant
+  table (trace_audit, bus_transfer_log, debate persistence, sampler feedback,
+  etc.), pasted as raw query output — not summarized.
+
+Diagram 2 is only marked COMPLETE once this final trace is produced and Joel
+has reviewed the raw output directly.
