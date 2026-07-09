@@ -1,0 +1,46 @@
+# AIEM Verification Directive — July 9, 2026
+## Diagram 2 Data Contamination + Silent Failure
+
+**Priority: Items 1 and 2 must be resolved with evidence before any architecture planning begins. Item 3 is deferred to the architect pass.**
+
+Standard reminder: no narrative summaries. Every claim below requires raw SQL output, terminal output, file paths with line numbers, or log excerpts. "Fixed" or "verified" with no attached evidence is not accepted.
+
+---
+
+## 1. Contaminated Trust Score (URGENT — fix first)
+
+`signal_trust_history` contains fabricated wins that have already influenced the `aiem_ai` signal's trust score, which feeds the candidate-ranking system.
+
+**Contaminated trace IDs to isolate:**
+- `bus_diag_test_trace_001`
+- `direct_bus_log_trace_001`
+- `d2_full_verify_v1`
+- `cu_bus_proof_trace_001`
+
+**Required deliverables:**
+1. SQL query identifying every row in `signal_trust_history` (and any downstream table) tied to these trace IDs, or to the fabricated entries from 8:42–9:30 PM ET on July 8 (round-number entry prices like $180/$500/$420, impossible returns like +428%/+187%/+99%/+106%).
+2. Raw query output showing row counts and affected tables.
+3. Trust score value for the `aiem_ai` signal **before** removal and **after** removal — actual numbers, not a description.
+4. Answer: did the candidate-picking function make any real ranking decisions while the corrupted score was live? If yes, list which candidates/dates were affected.
+5. The exact remediation applied (null the rows, flag them, hard delete) — show the migration/script and the row count actually affected after running it.
+
+---
+
+## 2. Silent Failure on July 9 (URGENT — needs a yes/no, not a plan)
+
+No genuine `trade_date = 2026-07-09` rows exist. Current status is "can't tell if it silently failed or found nothing" — this is not acceptable.
+
+**Required deliverables:**
+1. Direct evidence the 9:42 AM ET cron job fired today — process list, systemd/cron log entry, or equivalent. If no evidence exists, say so explicitly.
+2. If logs have already rotated out, confirm that today, and state exactly what log retention/alerting is being added right now so this cannot happen invisibly again tomorrow.
+3. A concrete yes/no: did the job run and find nothing, or did it fail to run at all? No hedging language.
+
+---
+
+## 3. Deferred to Architect Planning (not urgent)
+
+- Wiring the 6+ Telegram alert types that currently never touch Diagram 2
+- The 2 explanation-text gaps identified in this session
+- Any broader hardening of the restart catch-up safety net
+
+Do not fold items 1 and 2 into this planning pass — they need to be closed with evidence first.
