@@ -20467,13 +20467,26 @@ def _aiem_tool_save_daily_predictions(predictions):
 # picks and reasoning, saved to aiem_independent_picks, then compared later
 # against website-sourced performance.
 
-def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150):
+def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150, max_rvol=40.0):
     """
     INDEPENDENT stock candidate pool - raw Polygon technical facts ONLY.
     Source: polygon_market_daily (raw daily bars ingested straight from
     Polygon's grouped-daily endpoint). Deliberately does NOT touch
     conviction_stack_watchlist, unusual_calls_log, or any other
     website-computed composite/conviction score.
+
+    Quality/sanity gates (added after 2026-07-09 review - extreme RVOL
+    names like 500x were dominating the candidate pool and were almost
+    certainly data artifacts, not genuine conviction):
+      - max_rvol ceiling: rvol is volume / historical-average-volume, and
+        polygon_market_daily has no independent liquidity baseline column
+        to cross-check it against. In practice a real breakout/gap rarely
+        prints >40x; beyond that it is overwhelmingly a thin/halted/
+        reverse-split ticker where the denominator (avg volume) is
+        near-zero, not real institutional flow.
+      - raised dollar-volume floor ($1M -> $3M) and an absolute share-volume
+        floor so a name can't qualify purely because its price is high on
+        tiny share counts.
     """
     try:
         with _psycopg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
@@ -20489,10 +20502,12 @@ def _aiem_indep_tool_stock_universe(min_rvol=2.0, max_price=150.0, limit=150):
                 WHERE scan_date = %s
                   AND close_price BETWEEN 1.0 AND %s
                   AND rvol >= %s
-                  AND volume * close_price >= 1000000
+                  AND rvol <= %s
+                  AND volume * close_price >= 3000000
+                  AND volume >= 300000
                 ORDER BY rvol DESC NULLS LAST
                 LIMIT %s
-            """, (latest, max_price, min_rvol, limit))
+            """, (latest, max_price, min_rvol, max_rvol, limit))
             rows = _cu.fetchall()
             tickers = [r[0] for r in rows]
             hist = {}
@@ -36143,8 +36158,18 @@ def _run_aiem_independent_pick_scan(kind: str):
                     gap        = float(c.get("gap_pct") or 0.0)
                     mom5       = float(c.get("momentum_5d_pct") or 0.0)
                     rng        = float(c.get("range_pct") or 0.0)
+                    # RVOL weight capped at 6x (was 10x*1.5=15, which alone
+                    # saturated the min(10.0, ...) clip below for anything
+                    # >=6.67x RVOL). That let raw volume-ratio outliers
+                    # (often thin/halted/reverse-split data artifacts, now
+                    # additionally filtered upstream by max_rvol) dominate
+                    # and made every high-RVOL name score an identical
+                    # 10.0/10 with zero real differentiation. Capping lower
+                    # and leaving weight on close_strength/gap/momentum/range
+                    # means a pick only reaches the top score by genuinely
+                    # combining volume conviction with real technical quality.
                     score = (
-                        min(rvol, 10.0) * 1.5 +
+                        min(rvol, 6.0) * 1.0 +
                         cs * 4.0 +
                         (1.5 if gap > 2.0 else 0.5 if gap > 0 else 0) +
                         (1.0 if mom5 > 5.0 else 0.5 if mom5 > 0 else 0) +

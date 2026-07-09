@@ -148,3 +148,4 @@
 - [Verification script pattern](verification-script-pattern.md) — "verification code" from this user means a standalone falsification-resistant shell script (real-time anchors + DB + log cross-checks), not an OTP
 - [Backtest delegation rule](backtest-delegation-rule.md) — ALL backtesting/historical analysis must go to AIEM, never run by main agent; only file edits stay with main agent
 - [AIEM Pipeline Audit + closed-loop gaps](aiem-pipeline-audit.md) — cryptographic trace per paper trade, 4 admin endpoints, 13-module PASS/FAIL, learning loop 8 stages; all 5 audit gaps since closed (aiem-closed-loop-gaps.md) via aiem_closed_loop_learning.py, 4 new tables
+- [Workstream D RVOL artifact fix](aiem-workstream-d-rvol-artifact-fix.md) — no RVOL ceiling + score-saturation bug let 500-11,000x volume-ratio data artifacts dominate Independent Picks; fixed with rvol<=40 gate + rebalanced weight
