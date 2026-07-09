@@ -24050,6 +24050,7 @@ def _mkt_tool_explore_dimensions():
 # ──────────────────────────────────────────────────────────────────────────
 _MKT_HORIZON_DAYS = {
     "next_day": 1, "1d": 1, "1_day": 1,
+    "2d": 2, "2_day": 2,
     "3d": 3, "3_day": 3,
     "5d": 5, "5_day": 5,
     "10d": 10, "10_day": 10,
@@ -32916,10 +32917,12 @@ _AIEM_AGENT_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "conditions": {"type": "object",
                 "description": "Dict of {factor_min/max: value}. Price/volume factors: gap_pct, rvol, close_strength, range_pct, close_price, volume, open_price, high_price, low_price, vwap. Technical-indicator factors (joined from polygon_indicators_daily, populated by the daily backfill/incremental job): rsi_14, stoch_k, stoch_d, macd, macd_hist, adx_14, cmf_20, mfi_14, cci_20, williams_r, bb_pct, roc_12, momentum_10, atr_pct, pct_from_sma20, pct_from_sma50, pct_from_sma200, pct_from_52w_high, pct_from_52w_low. Mix both kinds freely in one dict, e.g. {'rsi_14_max': 30, 'gap_pct_min': 1.0}."},
-            "horizon": {"type": "string", "enum": ["next_day", "3d", "5d", "10d"],
-                "description": "Forward-return window: next_day (1 trading day), 3d, 5d, or 10d. Indicator-based signals often play out over several days, not just the next open - test multiple horizons before concluding a signal is weak."},
+            "horizon": {"type": "string", "enum": ["next_day", "2d", "3d", "5d", "10d"],
+                "description": "Forward-return window: next_day (1 trading day), 2d, 3d, 5d, or 10d. Indicator-based signals often play out over several days, not just the next open - test multiple horizons before concluding a signal is weak."},
             "baseline": {"type": "string", "enum": ["broad", "tight"],
                 "description": "broad=vs all stocks; tight=vs stocks just below each threshold."},
+            "start_date": {"type": "string", "description": "Optional 'YYYY-MM-DD' - restrict signal+baseline rows to scan_date >= this."},
+            "end_date": {"type": "string", "description": "Optional 'YYYY-MM-DD' - restrict signal+baseline rows to scan_date <= this."},
         }, "required": ["conditions"]}
     }},
     {"type": "function", "function": {
@@ -32931,7 +32934,7 @@ _AIEM_AGENT_TOOLS = [
         ),
         "parameters": {"type": "object", "properties": {
             "conditions": {"type": "object"},
-            "horizon": {"type": "string", "enum": ["next_day", "3d", "5d", "10d"]},
+            "horizon": {"type": "string", "enum": ["next_day", "2d", "3d", "5d", "10d"]},
         }, "required": ["conditions"]}
     }},
     {"type": "function", "function": {

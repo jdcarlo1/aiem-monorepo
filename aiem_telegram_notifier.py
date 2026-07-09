@@ -615,17 +615,38 @@ def _td_quotes_lite(symbols: list) -> dict:
         return {}
 
 
+def _classify_combo_tier(rvol: float, gap_pct: float, close_price: float) -> str:
+    """AIEM's own 2026-07-09 research finding (see verify link recorded that
+    day): within the RVOL/Gap/CloseStrength combo, losers had materially
+    HIGHER average RVOL than winners (11.97x vs 8.54x) while close_strength
+    was nearly identical between the two groups - i.e. once volume/gap gets
+    extreme the setup looks more like a one-day blow-off/exhaustion move than
+    a clean continuation, regardless of how strong the close looks. AIEM's
+    recommended split: 'core' = gap_pct<8, rvol<15, close_price>=$5; anything
+    outside that is flagged 'exhaustion_risk' - not excluded, just labeled
+    separately so the owner isn't treating a blow-off name the same as a
+    clean setup. Thresholds may be refined once the fuller last-month
+    per-trigger backtest AIEM ran on 2026-07-09 comes back with harder
+    threshold-search results."""
+    if gap_pct >= 8 or rvol >= 15 or close_price < 5:
+        return "exhaustion_risk"
+    return "core"
+
+
 def _fetch_rvol_combo_hits(limit: int = 20):
-    """Backtested combo: rvol>2.5, gap_pct>0.5, close_strength>0.6 (up to
-    87.65% historical win rate per the owner's backtest). Reads the most
-    recently COMPLETED session in polygon_market_daily — that table only
-    ever holds finished trading days, so 'today' only appears here starting
-    the following morning. Basic quality floor (price>=$1, no dotted
-    warrant/rights tickers) keeps sub-$1 noise out of a daily alert; a
-    handful of leveraged ETFs/ETNs can still pass this combo since their
-    intraday range also produces a close_strength value — flagged in the
-    message body, not filtered, since the backtest itself did not exclude
-    them.
+    """Backtested combo: rvol>2.5, gap_pct>0.5, close_strength>0.6. AIEM's own
+    2026-07-09 full-universe re-test (signed research session, see
+    .agents/memory/rvol-gap-closestrength-3pm-alert.md) found 76.41% WR at
+    next-day horizon (n=1,619) and 87.35% WR at 3-day horizon (n=166) — the
+    owner's original 87.65% figure lines up with a multi-day hold, not a
+    same-session/next-day grade. Reads the most recently COMPLETED session in
+    polygon_market_daily — that table only ever holds finished trading days,
+    so 'today' only appears here starting the following morning. Basic
+    quality floor (price>=$1, no dotted warrant/rights tickers) keeps sub-$1
+    noise out of a daily alert; a handful of leveraged ETFs/ETNs can still
+    pass this combo since their intraday range also produces a
+    close_strength value — flagged in the message body, not filtered, since
+    the backtest itself did not exclude them.
     Returns (scan_date, [(ticker, rvol, gap_pct, close_strength, close_price), ...])."""
     conn = None
     try:
@@ -702,21 +723,43 @@ def send_rvol_combo_alert():
         f"AIEM RVOL Combo Alert - hits from {scan_date.strftime('%a %b %d')} "
         f"close ({len(hits)})"
     )
-    sub = "RVOL>2.5 + Gap>0.5% + CloseStrength>0.6 - backtested up to 87.65% WR"
-    lines = []
-    for i, (ticker, rvol, gap_pct, close_strength, prior_close) in enumerate(hits, start=1):
+    sub = (
+        "RVOL>2.5 + Gap>0.5% + CloseStrength>0.6 - AIEM re-test: 76.4% WR "
+        "next-day, 87.3% WR at 3-day hold. Tiered below per AIEM's "
+        "exhaustion-risk finding (high RVOL/gap can mean blow-off, not "
+        "continuation)."
+    )
+
+    def _fmt_line(i, ticker, rvol, gap_pct, close_strength, prior_close):
         q = quotes.get(ticker)
         if q and q.get("last"):
             chg = (q["last"] - prior_close) / prior_close * 100 if prior_close else 0
             live_txt = f"now ${q['last']:.2f} ({chg:+.1f}% since {scan_date.strftime('%m/%d')} close)"
         else:
             live_txt = "live price unavailable"
-        lines.append(
-            f"#{i} ${ticker}  RVOL {rvol:.1f}x  Gap {gap_pct:+.1f}%  CloseStr {close_strength:.2f}  |  {live_txt}"
+        return (
+            f"#{i} ${ticker}  RVOL {rvol:.1f}x  Gap {gap_pct:+.1f}%  "
+            f"CloseStr {close_strength:.2f}  |  {live_txt}"
         )
 
-    chunks, cur_chunk = [], [header, sub, "----------------------"]
-    cur_len = sum(len(l) + 1 for l in cur_chunk)
+    core_lines, exhaustion_lines = [], []
+    for i, (ticker, rvol, gap_pct, close_strength, prior_close) in enumerate(hits, start=1):
+        line = _fmt_line(i, ticker, rvol, gap_pct, close_strength, prior_close)
+        tier = _classify_combo_tier(rvol, gap_pct, prior_close)
+        (core_lines if tier == "core" else exhaustion_lines).append(line)
+
+    lines = [header, sub, "----------------------"]
+    lines.append(f"CORE ({len(core_lines)}) - moderate gap/RVOL, price>=$5:")
+    lines.extend(core_lines if core_lines else ["  (none today)"])
+    lines.append("")
+    lines.append(
+        f"⚠ EXHAUSTION-RISK ({len(exhaustion_lines)}) - extreme gap/RVOL or "
+        f"sub-$5, higher blow-off odds per AIEM's research:"
+    )
+    lines.extend(exhaustion_lines if exhaustion_lines else ["  (none today)"])
+
+    chunks, cur_chunk = [], []
+    cur_len = 0
     for line in lines:
         if cur_len + len(line) + 1 > 3500:
             chunks.append(cur_chunk)
