@@ -1,0 +1,84 @@
+# END-TO-END TRACE VERIFICATION — Stage 1 → Stage 20, One Real Trace ID
+
+## Why this is being requested
+
+Every verification so far — the P12 exit tests (ids 190, 191, 192), the
+bull_bear_debate column checks, the Thompson sampler check — tested
+INDIVIDUAL stages or gates IN ISOLATION, using synthetically inserted or
+manually overridden rows planted directly at or near the exit end of the
+pipeline. None of these prove the stages are actually WIRED TOGETHER in
+sequence for a real candidate.
+
+This has never been tested. Not once, across this entire audit. This request
+supersedes and is more important than any individual stage check done so far.
+
+## What "verified" does NOT mean here
+
+Do not respond to this with:
+- A summary of stages that are individually LIVE (already established)
+- A synthetic trade inserted at stage 18/20 and traced backward
+- A description of how the code is supposed to flow
+- Any self-report that the pipeline "is wired to do X"
+
+None of that answers this request. Only a real, forward, unbroken trace counts.
+
+## What is required
+
+### 1. Pick ONE real ticker, right now, that has not yet been processed today
+- No synthetic ticker names (no "P12_TEST", no placeholder entries).
+- No manually inserted rows. It must enter the pipeline the normal way — via
+  the scanner (stage 1) — and be allowed to run through the system live.
+
+### 2. Let it run through the pipeline naturally, or force it through stage-by-stage if needed for time
+- If you must force progression stage-by-stage rather than waiting for a
+  natural scheduler pass, that's acceptable — but you must still call the
+  REAL `execute_stage()` function for each stage in sequence, with the SAME
+  trace_id carried through every call. No skipping stages. No manually
+  writing rows to make it look like a stage ran.
+
+### 3. For EACH stage from 1 through 20, report:
+- Stage number and name
+- The exact row from `aiem_diagram2_trace_audit` (or whichever table logs
+  per-stage results) for this trace_id — raw output, not summarized
+- PASS or FAIL for that stage, and if FAIL, what happened and whether the
+  candidate was correctly killed/dropped or incorrectly allowed to continue
+- File + line number of the call site that executed this stage for this
+  specific trace_id
+
+### 4. If the candidate is killed/dropped at any stage before reaching stage 20
+- That is an acceptable and valid outcome — DO NOT force it through anyway.
+- Report exactly which stage killed it, why, and confirm the trace_audit log
+  shows the correct terminal status.
+- If this happens, immediately pick a second real ticker and try again, until
+  you get at least ONE trace that either:
+  (a) makes it cleanly through all stages to a stage 20 result, or
+  (b) is correctly and legitimately killed at a specific stage — either
+  outcome is valid PROOF, as long as it's a real, non-synthetic, forward
+  trace with no manual row insertion.
+
+### 5. Final summary table required
+A single table, one row per stage (1 through 20), columns:
+- Stage #
+- Stage name
+- trace_id
+- Real timestamp of execution
+- PASS/FAIL
+- File:line of call site
+- Raw evidence reference (row ID or log line)
+
+## What counts as done
+
+This is closed only when you can show ONE single trace_id that:
+- Originated from a real scanner signal, not a synthetic insert
+- Has a real, logged row at every stage from 1 through wherever it terminated
+  (whether that's stage 20 or an earlier legitimate kill)
+- Shows PASS/FAIL for every stage it reached, with raw evidence, not a
+  narrative description
+
+If any stage in the chain shows zero rows, a gap, or a disconnect between
+what stage N produced and what stage N+1 consumed, STOP and report that
+specific break — do not paper over it or route around it. A broken link
+found here is exactly the kind of finding this audit exists to catch.
+
+Do not report this as "verified" unless the full stage-by-stage table above
+is provided for one real, complete, non-synthetic trace.
