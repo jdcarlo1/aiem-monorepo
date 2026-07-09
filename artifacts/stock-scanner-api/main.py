@@ -23533,8 +23533,22 @@ def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params,
                         horizon_days=1, limit=100000):
     """Fetch forward returns for two groups and compute all stats. Returns dict or None.
     horizon_days: N trading days ahead (1=next day close-to-close, 3/5/10=multi-day).
-    Uses a single LEAD() window-function CTE (not a correlated subquery) so this
-    scales to the full 12K-stock universe regardless of horizon.
+
+    FIX (2026-07-09): the forward-return LEAD() must be computed over EVERY
+    trading day for a ticker (its full, unfiltered daily timeline), THEN the
+    signal/baseline WHERE condition is applied to pick which rows to measure.
+    The previous version applied WHERE *before* the LEAD() window function,
+    which means the window only advanced across rows that ALSO matched the
+    same condition — so "next_day" silently meant "the next day this exact
+    condition fires again for this ticker", not "the next trading day".
+    Single-fire tickers (the majority of any restrictive signal) got
+    fwd_close=NULL and were silently dropped entirely, biasing every sample
+    toward serial re-triggering (already-hot momentum) names and inflating
+    win rates. Confirmed on AACG 2026-06-29->06-30 (+7.29% real next-day
+    return that the old query dropped because AACG never re-fired the exact
+    combo). Fixed by computing LEAD in a base CTE over ALL valid trading
+    days, unfiltered, then joining back to apply the condition.
+
     Auto-joins polygon_indicators_daily (aliased 'ind.') whenever either WHERE
     fragment references it — indicator-aware conditions from _mkt_parse_conditions
     work here with zero changes at any of this function's ~20 call sites."""
@@ -23554,18 +23568,20 @@ def _mkt_run_two_group(conn, sig_where, sig_params, base_where, base_params,
 
     def _fetch(where, params):
         sql = f"""
-            WITH fwd AS (
-                SELECT t.ticker, t.scan_date, t.close_price,
-                       LEAD(t.close_price, {_h}) OVER (
-                           PARTITION BY t.ticker ORDER BY t.scan_date
+            WITH fwd_all AS (
+                SELECT ticker, scan_date, close_price,
+                       LEAD(close_price, {_h}) OVER (
+                           PARTITION BY ticker ORDER BY scan_date
                        ) AS fwd_close
-                FROM polygon_market_daily t
-                {_join_sql}
-                WHERE t.close_price > 0{(' AND ' + where) if where else ''}
+                FROM polygon_market_daily
+                WHERE close_price > 0
             )
-            SELECT ((fwd_close / NULLIF(close_price,0)) - 1) * 100
-            FROM fwd
-            WHERE fwd_close IS NOT NULL
+            SELECT ((fwd.fwd_close / NULLIF(fwd.close_price,0)) - 1) * 100
+            FROM fwd_all fwd
+            JOIN polygon_market_daily t
+              ON t.ticker = fwd.ticker AND t.scan_date = fwd.scan_date
+            {_join_sql}
+            WHERE fwd.fwd_close IS NOT NULL{(' AND ' + where) if where else ''}
             LIMIT {limit}
         """
         with conn.cursor() as cur:

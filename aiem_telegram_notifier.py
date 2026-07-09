@@ -917,10 +917,18 @@ def main():
             log.info(f"[catchup] Missed 10:30 AM options brief (now {now_et.strftime('%H:%M')} ET) — sending now")
             send_independent_options_picks_brief()
 
-        # RVOL combo brief: window 3:00 PM (900 min) → 4:00 PM (960 min)
-        if 900 <= now_mins < close_mins and not _already_sent("rvol_combo"):
-            log.info(f"[catchup] Missed 3:00 PM RVOL combo alert (now {now_et.strftime('%H:%M')} ET) — sending now")
-            send_rvol_combo_alert()
+        # RVOL combo brief: PAUSED 2026-07-09. A bug in AIEM's core backtest
+        # tool (_mkt_run_two_group) was found and fixed - it had been computing
+        # forward returns over an already-filtered rowset, which silently
+        # dropped single-fire tickers and inflated the apparent win rate
+        # (76-87%). After the fix, AIEM re-ran the exact combo on the last
+        # ~30 days and found NO real edge at next_day/2d/3d for the overall
+        # combo OR the core tier (all edges negative-to-flat, p>0.34
+        # everywhere). Do not re-enable until a fresh AIEM backtest on the
+        # fixed tool shows a genuine, significant edge.
+        # if 900 <= now_mins < close_mins and not _already_sent("rvol_combo"):
+        #     log.info(f"[catchup] Missed 3:00 PM RVOL combo alert (now {now_et.strftime('%H:%M')} ET) — sending now")
+        #     send_rvol_combo_alert()
 
     threading.Thread(target=_catchup, daemon=True, name="startup-catchup").start()
     # ────────────────────────────────────────────────────────────────────────
@@ -946,14 +954,15 @@ def main():
         id="aiem_independent_options_picks_notifier",
         replace_existing=True,
     )
-    scheduler.add_job(
-        send_rvol_combo_alert,
-        CronTrigger(day_of_week="mon-fri", hour=15, minute=0, timezone=ET),
-        id="aiem_rvol_combo_alert",
-        replace_existing=True,
-    )
+    # PAUSED 2026-07-09 — see comment above _catchup's rvol_combo block for why.
+    # scheduler.add_job(
+    #     send_rvol_combo_alert,
+    #     CronTrigger(day_of_week="mon-fri", hour=15, minute=0, timezone=ET),
+    #     id="aiem_rvol_combo_alert",
+    #     replace_existing=True,
+    # )
 
-    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 10:30 AM options + 3:00 PM RVOL combo, Mon-Fri")
+    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 10:30 AM options, Mon-Fri (3:00 PM RVOL combo PAUSED - see code comment)")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
