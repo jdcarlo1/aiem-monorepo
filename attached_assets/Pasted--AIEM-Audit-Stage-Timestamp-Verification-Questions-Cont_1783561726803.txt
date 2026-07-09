@@ -1,0 +1,25 @@
+# AIEM Audit — Stage Timestamp Verification Questions
+**Context:** `d2_full_verify_v1` (GOOGL, stages 20–23) and `prewarm_fix_trace_v1` (AAPL, stages 20–23) each show `stage_starting` and `stage_completed` timestamps identical to the microsecond across all four stages. This pattern is consistent with rows being batch-written after the fact rather than logged live as each stage executed. Need raw evidence to confirm or rule this out.
+
+## 1. Show the exact write calls
+Paste the raw function/method (with file + line numbers) where `stage_starting` and `stage_completed` rows are inserted for a stage. Specifically:
+- What generates the timestamp value — `datetime.now()` / `time.time()` called at the point of insert, or a timestamp variable computed once and reused?
+- Is there a single `datetime.now(timezone.utc)` call whose result gets passed into multiple row inserts (which would explain identical timestamps)?
+
+## 2. Show the call site that invokes `execute_stage()` for stages 20–23
+- Is each stage invoked in its own function call at the time it actually runs, or are all four stages processed in a single loop/batch where timestamps are assigned once for the whole batch?
+- Grep for where `stage_starting` and `stage_completed` inserts are triggered relative to `execute_stage()` — are they inside the stage function itself, or injected afterward by a wrapper/logger?
+
+## 3. Live-trigger test
+Run a single live trace through stages 20–23 with wall-clock delays between them (e.g. artificial `sleep()` or by triggering stages minutes apart) and dump the resulting `stage_starting`/`stage_completed` rows. Do the timestamps now differ per stage? Raw terminal output only — no narrative summary.
+
+## 4. Trace-level vs stage-level consistency
+`audit_trace` (created_at → updated_at) showed real elapsed deltas (38s and ~34min) for the two traces checked. Reconcile: if the trace-level record is generated live, why would every stage-level sub-row within that same trace share one identical timestamp? Show the code path that would explain this discrepancy.
+
+## 5. Confirm intended behavior for Stage 15 non-top-ranked tickers
+Stage 15 (`specialist_council`) pulls from `_debate_verdicts[_t]` and raises `RuntimeError` if the ticker isn't in that batch-level debate dict ("debate batch is limited to top-ranked candidates").
+- Is this the intended design (stage 15 only runs for top-ranked candidates), or should it run a fresh debate for every ticker?
+- If intended: show where in the pipeline non-top-ranked tickers are expected to skip stage 15 entirely (i.e., is the RuntimeError ever actually reached in production, or is it dead code guarded against upstream?).
+
+---
+**Standard required:** raw terminal output, file + line numbers, live-trigger test results. No agent self-reports or narrative descriptions of what "should" be happening.
