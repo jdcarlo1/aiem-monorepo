@@ -6826,7 +6826,7 @@ try:
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_pt, _c_pt.cursor() as _cur_pt:
                         _cur_pt.execute(
                             "SELECT 1 FROM aiem_paper_trades "
-                            "WHERE DATE(entry_time AT TIME ZONE 'America/New_York') = %s LIMIT 1",
+                            "WHERE trade_date = %s LIMIT 1",
                             (_today_et,)
                         )
                         if _cur_pt.fetchone():
@@ -15049,6 +15049,67 @@ try:
         lambda: _aiem_paper_execute_today(),
         CronTrigger(day_of_week="mon-fri", hour=9, minute=42, timezone=_ET),
         id="aiem_paper_execute",
+        replace_existing=True,
+    )
+
+    # ── Watchdog: alert owner if the 9:42 AM paper-trading run never
+    # produced a terminal log row for today. This is the safety net so a
+    # silent failure (crash, exception swallowed upstream, missed cron
+    # fire) is never discovered a day later — it fires a Telegram alert
+    # within ~35 minutes of the scheduled run instead.
+    def _aiem_paper_heartbeat_check():
+        import datetime as _hbdt
+        _today = _hbdt.datetime.now(_ET).date()
+        if not _is_trading_day(_today):
+            return
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _hc, _hc.cursor() as _hcu:
+                _hcu.execute(
+                    "SELECT status, trades_inserted, error_msg FROM aiem_paper_execution_log "
+                    "WHERE started_at::date = %s AND status IN ('SUCCESS','NO_CANDIDATES','SKIPPED','FAILED') "
+                    "ORDER BY id DESC LIMIT 1",
+                    (_today,),
+                )
+                _row = _hcu.fetchone()
+                # Also sweep any rows stuck in RUNNING for >30 min so the
+                # execution log stops accumulating phantom in-flight rows.
+                _hcu.execute(
+                    "UPDATE aiem_paper_execution_log SET status='TIMEOUT', finished_at=NOW(), "
+                    "error_msg='Watchdog: no terminal status after 30+ min (likely killed/crashed mid-run)' "
+                    "WHERE status='RUNNING' AND started_at < NOW() - INTERVAL '30 minutes'"
+                )
+                _hc.commit()
+        except Exception as _hbe:
+            print(f"[aiem_paper_heartbeat] DB check error: {_hbe}")
+            return
+        if _row is None:
+            _msg = (
+                f"⚠️ AIEM Diagram2 paper-trading watchdog: no execution-log row found for "
+                f"{_today.strftime('%A %Y-%m-%d')} by 10:15 AM ET. The 9:42 AM scheduled run "
+                f"may have crashed before it could even open its log row. Investigate immediately."
+            )
+            print(f"[aiem_paper_heartbeat] {_msg}")
+            try:
+                _tg_send(_msg)
+            except Exception as _hbe2:
+                print(f"[aiem_paper_heartbeat] telegram send error: {_hbe2}")
+        elif _row[0] == "FAILED":
+            _msg = (
+                f"⚠️ AIEM Diagram2 paper-trading watchdog: today's run FAILED — {_row[2]}. "
+                f"Investigate immediately."
+            )
+            print(f"[aiem_paper_heartbeat] {_msg}")
+            try:
+                _tg_send(_msg)
+            except Exception as _hbe2:
+                print(f"[aiem_paper_heartbeat] telegram send error: {_hbe2}")
+        else:
+            print(f"[aiem_paper_heartbeat] OK — today's status={_row[0]} trades={_row[1]}")
+
+    _scheduler.add_job(
+        _aiem_paper_heartbeat_check,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=15, timezone=_ET),
+        id="aiem_paper_heartbeat",
         replace_existing=True,
     )
     # AIEM exit engine: re-evaluates every open ai_stock_picks position every 30 min
@@ -41499,6 +41560,7 @@ def _aiem_paper_execute_today():
         picks = _aiem_paper_pick_candidates()
         if not picks:
             print("[aiem_paper] no candidates found today")
+            _log_finish("NO_CANDIDATES", _trades=0)
             return
         _tg_entry_lines = []  # collect for consolidated Telegram
 
