@@ -1,0 +1,33 @@
+# AIEM Runtime Architecture — Verification Request
+
+## Purpose
+I need to know exactly how AIEM runs right now, before building a Telegram interface. Answer with raw evidence only. No summaries, no "yes it's running," no narrative descriptions. If you cannot produce the evidence below, say so explicitly instead of guessing.
+
+## Questions — answer each with proof
+
+**1. Is there a standalone running process for AIEM separate from this agent chat?**
+- Run: `ps aux | grep -i python` (or the equivalent for however this is deployed)
+- Paste raw terminal output showing every AIEM-related process, its PID, and start time.
+
+**2. Is AIEM deployed as a persistent service (Replit Deployment / Reserved VM / Autoscale) or does it only run when I'm actively chatting with you?**
+- State which Replit deployment type is in use (if any).
+- Show the deployment config file or `.replit` file contents.
+- Show uptime evidence: `uptime` command output or process start timestamp vs current time.
+
+**3. Does AIEM expose any API or endpoint that could be called from outside this chat (e.g., a Flask/FastAPI route, a webhook, an HTTP port)?**
+- Grep the codebase for `@app.route`, `FastAPI(`, `app.listen`, `Flask(`, or equivalent.
+- Paste every matching file path + line number.
+- For each one found, state whether it is currently reachable (test with `curl localhost:<port>/<route>` and paste the raw response).
+
+**4. Where does scheduled/autonomous AIEM activity actually execute?**
+- Identify the exact file and function that the scheduler (cron/APScheduler/etc.) calls.
+- Paste the scheduler registration code with file + line number.
+- Confirm whether this is the SAME code path a new Telegram-triggered request would need to call, or a separate one.
+
+**5. Is there a database or shared state AIEM writes to that a separate process could read from without going through this agent chat?**
+- Name the database (Postgres/SQLite/etc.), connection string location (redact secrets), and confirm it's reachable from outside this Repl if needed.
+
+## Required format for your response
+- Raw terminal output only, no paraphrasing.
+- File paths with line numbers for every code claim.
+- If something doesn't exist or isn't running, say "NOT FOUND" — do not describe what it *should* do.
