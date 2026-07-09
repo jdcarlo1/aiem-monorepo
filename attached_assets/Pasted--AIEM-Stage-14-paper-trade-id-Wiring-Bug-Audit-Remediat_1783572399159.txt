@@ -1,0 +1,121 @@
+# AIEM — Stage 14 `paper_trade_id` Wiring Bug: Audit + Remediation + Provenance Verification
+
+**Date:** 2026-07-09
+**Component:** Diagram 2 (Inter-Module Communication and Verification Layer), Stage 14 — `scoring_synthesis`
+**Status:** Fix claimed applied by Replit agent. NOT YET VERIFIED with live receipts.
+
+---
+
+## 1. The Bug (confirmed root cause)
+
+`execute_stage()` opens its own `psycopg2` connection, separate from the `_c` connection used for the `aiem_paper_trades` INSERT.
+
+- Stage 14 fires at `main.py:L40323`, writing `payload_json` (raw_score, trust_mult, drift_mult, final_score, thompson_sampled_score, thompson_multiplier, thompson_signal_source).
+- The trade INSERT fires later at `main.py:L40370`.
+- At the moment Stage 14 writes, the trade row does not exist yet → `paper_trade_id=None` gets permanently baked into the `aiem_diagram2_trace_audit` row for that stage.
+- Stage 18 already had this exact problem and was fixed by moving it to execute *after* the INSERT. Stage 14 was never given the same fix — that's the gap.
+
+**Consequence:** every `scoring_synthesis` audit row is orphaned (`paper_trade_id IS NULL`), and the Thompson sampling diagnostics (`thompson_sampled_score`, `thompson_multiplier`, `thompson_signal_source`) were never persisted onto the `aiem_paper_trades` row itself — only into the disconnected audit payload.
+
+---
+
+## 2. Fix as claimed by the Replit agent (unverified until Section 4 passes)
+
+### Fix A — Schema (`_init_aiem_paper_trades_table()`, L39065–39068)
+Four columns added to `aiem_paper_trades`:
+
+```sql
+ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS entry_score NUMERIC(14,6);
+ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_multiplier_applied NUMERIC(8,4);
+ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_sampled_score NUMERIC(8,4);
+ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_signal_source TEXT;
+```
+
+Agent reported these applied live, confirmed via column introspection:
+```
+('entry_score', 'numeric')
+('thompson_multiplier_applied', 'numeric')
+('thompson_sampled_score', 'numeric')
+('thompson_signal_source', 'text')
+```
+→ Schema existence is checkable independently right now (see 4.0 below) — don't wait for a trade to confirm this part.
+
+### Fix B — Backfill block (L40419–40452, inserted after Hook 4, before Stage 18 — same placement pattern Stage 18 already uses)
+
+Logic: opens a new connection, and *after* the trade row is known to exist, runs two UPDATEs:
+1. `UPDATE aiem_diagram2_trace_audit SET paper_trade_id = %s WHERE trace_id = %s AND stage_order = 14`
+2. `UPDATE aiem_paper_trades SET entry_score = %s, thompson_multiplier_applied = %s, thompson_sampled_score = %s, thompson_signal_source = %s WHERE id = %s`
+
+Wrapped in try/except, non-fatal on error, prints `[thompson-gate] stage14 patched ...` with the resolved `paper_trade_id`, `trace_id`, `th_mult`, `entry_score` on success.
+
+**Note the failure mode:** the except block is silent-non-fatal by design. That means if this patch throws, the system keeps running with the bug unfixed and prints an error line only — it will NOT halt trading. You must positively confirm success lines, not just absence of error lines.
+
+---
+
+## 3. What the agent has NOT proven yet
+
+Per your standing rule — no self-reports, no narrative, only raw terminal output / file+line / live-trigger tests. Everything above is the agent *telling* you what it did. None of it is proof until a real cron cycle produces the receipts below.
+
+Next legitimate live-trigger window (per agent, unverified): **2026-07-09, 9:35 AM ET / 13:35 UTC**.
+
+---
+
+## 4. Provenance Verification Protocol — run in this order
+
+### 4.0 — Schema check (can run immediately, no trade required)
+```sql
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'aiem_paper_trades'
+  AND column_name IN ('entry_score','thompson_multiplier_applied','thompson_sampled_score','thompson_signal_source');
+```
+Expect exactly 4 rows, types `numeric, numeric, numeric, text`. If fewer than 4 rows return, Fix A did not actually commit — stop here, do not proceed to 4.1.
+
+### 4.1 — Cron fired
+Grep stock-api log for the scheduler invocation after 13:35 UTC:
+```
+grep "aiem_paper] executing for 2026-07-09" /path/to/stock-api.log
+```
+Confirms the paper-execute cycle actually ran (not that the fix worked).
+
+### 4.2 — Gate patch fired and succeeded (not just attempted)
+```
+grep "\[thompson-gate\]" /path/to/stock-api.log | grep -A0 -B0 "13:[3-9][0-9]"
+```
+You must see a line reading `[thompson-gate] stage14 patched ...` with a **non-null** `paper_trade_id={id}`.
+If instead you see `[thompson-gate] stage14 patch error (non-fatal): ...` — the fix failed silently. This is the critical failure mode to check for; a clean log with *no* thompson-gate line at all also means it didn't fire (e.g. `_d2_trace_id` or `_h4_tr` was falsy) — don't treat silence as success.
+
+### 4.3 — Audit row is no longer orphaned
+```sql
+SELECT trace_id, ticker, paper_trade_id, payload_json
+FROM aiem_diagram2_trace_audit
+WHERE stage_name = 'scoring_synthesis'
+  AND started_at >= '2026-07-09 13:35:00+00'
+ORDER BY id DESC;
+```
+Every row **must** have `paper_trade_id IS NOT NULL`. A single NULL row post-fix = regression, not resolved.
+
+### 4.4 — Cross-reference the trade row itself
+```sql
+SELECT id, ticker, entry_score, thompson_multiplier_applied,
+       thompson_sampled_score, thompson_signal_source, signal_source
+FROM aiem_paper_trades
+WHERE id = <paper_trade_id from 4.3>;
+```
+`entry_score` should equal `raw_score × drift_mult × trust_mult × thompson_multiplier_applied` (values recoverable from the `payload_json` in 4.3). If it doesn't reconcile, the backfill UPDATE wrote a stale/mismatched value — this is a math-integrity failure, not just a wiring failure.
+
+### 4.5 — One ticker traced top to bottom
+Pick one ticker from 4.3/4.4 and manually walk: `raw_score → drift_mult → trust_mult → thompson_multiplier_applied → entry_score → trade row at that id`. This is the single test that would catch a case where all four checks above pass individually but the values don't actually correspond to the same real event (e.g. right shape, wrong row).
+
+---
+
+## 5. Sign-off criteria (all required — partial pass = fail)
+
+- [ ] 4.0 schema check: 4/4 columns present with correct types
+- [ ] 4.1 cron fired at expected window
+- [ ] 4.2 `[thompson-gate] stage14 patched` line present, non-null `paper_trade_id`, no `patch error` line
+- [ ] 4.3 zero NULL `paper_trade_id` rows in `scoring_synthesis` post-fix
+- [ ] 4.4 `entry_score` reconciles arithmetically for at least one row
+- [ ] 4.5 one full ticker trace confirmed end-to-end
+
+Only when all six are checked with raw output (not agent narrative) should this be marked resolved and folded into the Diagram 2 sign-off document.
