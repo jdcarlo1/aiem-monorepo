@@ -2759,6 +2759,7 @@ _OWNER_EMAIL_SCHEDULE = {
     "gex_options":     [(10, 5)],
     "aiem_digest":     [(18, 55)],
     "bullish_reversal_combo": [(8, 50)],
+    "candlestick_confluence": [(8, 55)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -12809,6 +12810,7 @@ _TG_KIND_LABEL = {
     "cta_triggers":      "📐 CTA trigger levels scan",
     "gex_options":       "⚡ GEX + Skew + Term Structure scan",
     "bullish_reversal_combo": "🕯️ Bullish reversal combo scan (candle + SAR flip)",
+    "candlestick_confluence": "🕯️ Candlestick confluence scan (pattern + vol/support/RSI)",
 }
 
 def _owner_send_now(kind: str) -> None:
@@ -12897,6 +12899,11 @@ def _owner_send_now(kind: str) -> None:
         # 8:50 AM ET Mon-Fri - full-market bullish candlestick + Parabolic SAR flip
         # combo scan (the SNDK-style setup), pure Polygon daily data.
         _send_bullish_reversal_combo_alert()
+    elif kind == "candlestick_confluence":
+        # 8:55 AM ET Mon-Fri - fully isolated full-market candlestick pattern +
+        # confluence (volume/support/RSI) scan. Own tab, own table, never fed
+        # into any scoring/ranking loop.
+        _send_candlestick_confluence_alert()
 
 
 def _owner_run_due_emails() -> dict:
@@ -27319,6 +27326,377 @@ def _mkt_screen_bullish_reversal_combo(min_price=2.0, min_volume=100000, end_dat
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Candlestick Confluence scanner — FULLY ISOLATED signal, own DB table, own
+# website tab, own Telegram alert. Deliberately NOT wired into any live
+# scoring/ranking loop (Conviction Stack, Nano Morning, etc.) and NOT part
+# of the AIEM tool map — per explicit user decision (2026-07-09) after this
+# was originally proposed as a live-pipeline injection and rejected. This
+# scans the whole market daily for 11 candlestick patterns (ported from the
+# user-provided candlestick_backtester.py reference script) AND 3 confluence
+# filters (volume confirmation, support proximity, RSI oversold). No win-rate
+# claim is made for THIS project's universe — the source script's stats came
+# from generic Yahoo backtests on arbitrary tickers, never validated against
+# this app's real market-wide data, so every number here is labeled
+# descriptive/unvalidated until AIEM statistically tests it separately.
+# ──────────────────────────────────────────────────────────────────────────
+_CANDLE_CONFLUENCE_TREND_LOOKBACK = 5
+_CANDLE_CONFLUENCE_VOL_LOOKBACK = 20
+_CANDLE_CONFLUENCE_SUPPORT_LOOKBACK = 20
+_CANDLE_CONFLUENCE_RSI_PERIOD = 14
+_CANDLE_CONFLUENCE_MIN_BARS = 30
+
+
+def _cc_body(df):
+    return (df["close"] - df["open"]).abs()
+
+
+def _cc_range(df):
+    return (df["high"] - df["low"]).replace(0, float("nan"))
+
+
+def _cc_upper_wick(df):
+    return df["high"] - df[["open", "close"]].max(axis=1)
+
+
+def _cc_lower_wick(df):
+    return df[["open", "close"]].min(axis=1) - df["low"]
+
+
+def _cc_is_green(df):
+    return df["close"] > df["open"]
+
+
+def _cc_is_red(df):
+    return df["close"] < df["open"]
+
+
+def _cc_add_pattern_columns(df, trend_lookback=_CANDLE_CONFLUENCE_TREND_LOOKBACK):
+    """Ports the 11 bullish patterns from the user-provided
+    candlestick_backtester.py `add_pattern_columns()` 1:1 (same thresholds),
+    operating on lowercase open/high/low/close columns to match this
+    codebase's existing OHLC convention."""
+    body = _cc_body(df)
+    rng = _cc_range(df)
+    upper = _cc_upper_wick(df)
+    lower = _cc_lower_wick(df)
+    green = _cc_is_green(df)
+
+    prior_downtrend = df["close"] < df["close"].shift(trend_lookback)
+
+    df["hammer"] = (
+        prior_downtrend
+        & (lower >= 2 * body)
+        & (upper <= 0.25 * body.replace(0, float("nan")).fillna(rng))
+        & (body / rng < 0.35)
+    )
+
+    df["bullish_marubozu"] = (
+        green
+        & (upper / rng < 0.03)
+        & (lower / rng < 0.03)
+        & (body / rng > 0.9)
+    )
+
+    prev_open, prev_close = df["open"].shift(1), df["close"].shift(1)
+    prev_red = _cc_is_red(df.shift(1))
+
+    df["bullish_engulfing"] = (
+        prior_downtrend
+        & prev_red
+        & green
+        & (df["open"] <= prev_close)
+        & (df["close"] >= prev_open)
+        & (body > _cc_body(df.shift(1)))
+    )
+
+    df["piercing_line"] = (
+        prior_downtrend
+        & prev_red
+        & green
+        & (df["open"] < df["low"].shift(1))
+        & (df["close"] > (prev_open + prev_close) / 2)
+        & (df["close"] < prev_open)
+    )
+
+    df["bullish_harami"] = (
+        prior_downtrend
+        & prev_red
+        & green
+        & (df["open"] > prev_close)
+        & (df["close"] < prev_open)
+    )
+
+    c2_open, c2_close = df["open"].shift(2), df["close"].shift(2)
+    c2_red = _cc_is_red(df.shift(2))
+    c1_body_small = _cc_body(df.shift(1)) / _cc_range(df.shift(1)) < 0.35
+
+    df["morning_star"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & c2_red
+        & c1_body_small
+        & green
+        & (df["close"] > (c2_open + c2_close) / 2)
+    )
+
+    g0, g1, g2 = green, green.shift(1), green.shift(2)
+    df["three_white_soldiers"] = (
+        g0 & g1.fillna(False) & g2.fillna(False)
+        & (df["close"] > df["close"].shift(1))
+        & (df["close"].shift(1) > df["close"].shift(2))
+        & (df["open"] > df["open"].shift(1))
+        & (df["open"] < df["close"].shift(1))
+    )
+
+    df["morning_doji_star"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & c2_red
+        & (_cc_body(df.shift(1)) / _cc_range(df.shift(1)) < 0.08)
+        & green
+        & (df["close"] > (c2_open + c2_close) / 2)
+    )
+
+    prev_harami = (
+        c2_red
+        & (df["open"].shift(1) > c2_close)
+        & (df["close"].shift(1) < c2_open)
+        & green.shift(1)
+    )
+    df["three_inside_up"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & prev_harami.fillna(False)
+        & green
+        & (df["close"] > c2_open)
+    )
+
+    prev_engulf = (
+        c2_red
+        & green.shift(1)
+        & (df["open"].shift(1) <= c2_close)
+        & (df["close"].shift(1) >= c2_open)
+    )
+    df["three_outside_up"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & prev_engulf.fillna(False)
+        & green
+        & (df["close"] > df["close"].shift(1))
+    )
+
+    prev_doji = _cc_body(df.shift(1)) / _cc_range(df.shift(1)) < 0.05
+    gap_down_to_doji = df[["open", "close"]].shift(1).max(axis=1) < df["low"].shift(2)
+    gap_up_from_doji = df["open"] > df[["open", "close"]].shift(1).max(axis=1)
+    df["abandoned_baby"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & c2_red
+        & prev_doji.fillna(False)
+        & gap_down_to_doji.fillna(False)
+        & green
+        & gap_up_from_doji.fillna(False)
+    )
+
+    return df
+
+
+_CANDLE_CONFLUENCE_PATTERN_COLS = [
+    "hammer", "bullish_marubozu",
+    "bullish_engulfing", "piercing_line", "bullish_harami",
+    "morning_star", "morning_doji_star", "three_white_soldiers",
+    "three_inside_up", "three_outside_up", "abandoned_baby",
+]
+
+
+def _cc_add_confluence_columns(df, vol_lookback=_CANDLE_CONFLUENCE_VOL_LOOKBACK,
+                                support_lookback=_CANDLE_CONFLUENCE_SUPPORT_LOOKBACK,
+                                rsi_period=_CANDLE_CONFLUENCE_RSI_PERIOD):
+    """Ports `add_confluence_columns()` from the reference script: volume
+    confirmation, support proximity, RSI oversold — 1:1 same math."""
+    df["vol_confirmed"] = df["volume"] > df["volume"].rolling(vol_lookback).mean()
+
+    rolling_low = df["low"].rolling(support_lookback).min()
+    df["at_support"] = (df["low"] - rolling_low).abs() / rolling_low < 0.02
+
+    delta = df["close"].diff()
+    gain = delta.clip(lower=0).rolling(rsi_period).mean()
+    loss = (-delta.clip(upper=0)).rolling(rsi_period).mean()
+    rs = gain / loss.replace(0, float("nan"))
+    df["rsi"] = 100 - (100 / (1 + rs))
+    df["rsi_oversold"] = df["rsi"] < 40
+
+    return df
+
+
+def _init_candlestick_confluence_table():
+    import psycopg2 as _cc_pg2
+    with _cc_pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS candlestick_confluence_signals (
+                id               SERIAL PRIMARY KEY,
+                scan_date        DATE NOT NULL,
+                ticker           VARCHAR(10) NOT NULL,
+                close_price      FLOAT,
+                volume           BIGINT,
+                patterns_detected TEXT[],
+                vol_confirmed    BOOLEAN,
+                at_support       BOOLEAN,
+                rsi_oversold     BOOLEAN,
+                rsi_value        FLOAT,
+                confluence_count INT,
+                created_at       TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (scan_date, ticker)
+            )
+        """)
+        _cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_candlestick_confluence_scan_date
+            ON candlestick_confluence_signals (scan_date DESC)
+        """)
+    _c.close()
+
+
+def _scan_candlestick_confluence(min_price=2.0, min_volume=100000, end_date=None,
+                                   top_n=100, lookback_bars=45):
+    """FULLY ISOLATED daily full-market scan (own table/tab/Telegram alert
+    only — never read by any live scoring/ranking loop). For every ticker,
+    checks the 11 candlestick patterns ported from the reference
+    candlestick_backtester.py against the LATEST completed bar, and reports
+    which of the 3 confluence filters (volume confirmation, support
+    proximity, RSI<40 oversold) also pass on that same bar. Purely
+    descriptive — no win-rate number is attached to matches from this
+    project's own data until AIEM runs a real statistical backtest."""
+    import psycopg2
+    import pandas as _cc_pd
+    from collections import defaultdict
+
+    lookback_bars = max(int(lookback_bars), _CANDLE_CONFLUENCE_MIN_BARS)
+
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            if end_date:
+                cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily WHERE scan_date <= %s", [end_date])
+            else:
+                cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+            target_date = cur.fetchone()[0]
+            if not target_date:
+                return {"status": "error", "error": "No data in polygon_market_daily."}
+
+            cur.execute("""SELECT ticker, volume FROM polygon_market_daily
+                           WHERE scan_date = %s AND close_price >= %s AND volume >= %s""",
+                        [target_date, min_price, min_volume])
+            universe_rows = cur.fetchall()
+            universe = [r[0] for r in universe_rows]
+
+        if not universe:
+            return {"status": "error", "error": f"No tickers for {target_date}."}
+
+        BATCH = 500
+        all_raw = []
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for i in range(0, len(universe), BATCH):
+                batch = universe[i:i + BATCH]
+                ph = ",".join(["%s"] * len(batch))
+                cur.execute(f"""
+                    SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume
+                    FROM polygon_market_daily
+                    WHERE ticker IN ({ph}) AND scan_date <= %s AND close_price > 0
+                    ORDER BY ticker, scan_date DESC
+                    LIMIT {BATCH * lookback_bars}
+                """, batch + [target_date])
+                all_raw.extend(cur.fetchall())
+
+        by_ticker = defaultdict(list)
+        for row in all_raw:
+            by_ticker[row[0]].append(row[1:])  # (date, open, high, low, close, volume) DESC
+
+        results = []
+        for t, rows in by_ticker.items():
+            if len(rows) < _CANDLE_CONFLUENCE_MIN_BARS:
+                continue
+            asc = list(reversed(rows[:lookback_bars]))  # oldest first
+            df = _cc_pd.DataFrame(asc, columns=["date", "open", "high", "low", "close", "volume"])
+            for col in ("open", "high", "low", "close", "volume"):
+                df[col] = df[col].astype(float)
+
+            df = _cc_add_pattern_columns(df)
+            df = _cc_add_confluence_columns(df)
+
+            latest = df.iloc[-1]
+            found = [p for p in _CANDLE_CONFLUENCE_PATTERN_COLS if bool(latest.get(p, False))]
+            if not found:
+                continue
+
+            vol_confirmed = bool(latest.get("vol_confirmed", False))
+            at_support = bool(latest.get("at_support", False))
+            rsi_oversold = bool(latest.get("rsi_oversold", False))
+            rsi_value = latest.get("rsi")
+            confluence_count = sum([vol_confirmed, at_support, rsi_oversold])
+
+            results.append({
+                "ticker": t,
+                "close": float(latest["close"]),
+                "volume": int(latest["volume"]),
+                "latest_date": str(latest["date"]),
+                "patterns_detected": found,
+                "vol_confirmed": vol_confirmed,
+                "at_support": at_support,
+                "rsi_oversold": rsi_oversold,
+                "rsi_value": round(float(rsi_value), 1) if rsi_value == rsi_value else None,  # NaN check
+                "confluence_count": confluence_count,
+            })
+
+        # Rank by confluence strength first (more filters passed = more
+        # actionable per the reference script's intent), then dollar volume.
+        results.sort(key=lambda x: (x["confluence_count"], x["close"] * x["volume"]), reverse=True)
+        results_top = results[:top_n]
+
+        return {
+            "status": "ok",
+            "scan_date": str(target_date),
+            "tickers_scanned": len(universe),
+            "matches": len(results),
+            "results": results_top,
+            "interpretation": (
+                f"Found {len(results)} stocks with at least one bullish candlestick pattern "
+                f"on their latest bar as of {target_date}, out of {len(universe):,} scanned. "
+                f"Confluence filters (volume/support/RSI) are shown per stock but this is a "
+                f"descriptive scan only — no win-rate claim is made for this project's own "
+                f"market data until AIEM statistically validates it."
+            ),
+        }
+    except Exception as e:
+        import traceback
+        return {"status": "error", "error": str(e), "trace": traceback.format_exc()}
+
+
+@app.route("/stock-api/candlestick-confluence", methods=["GET"])
+def candlestick_confluence_endpoint():
+    """Isolated tab data source — reads the daily-scan DB table ONLY (never
+    triggers a live scan on request), matching the tab-graceful-fallback
+    convention used by every other signal tab."""
+    try:
+        import psycopg2 as _cce_pg
+        with _cce_pg.connect(os.environ["DATABASE_URL"], connect_timeout=3,
+                              options="-c statement_timeout=5000") as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                SELECT scan_date::text, ticker, close_price, volume, patterns_detected,
+                       vol_confirmed, at_support, rsi_oversold, rsi_value, confluence_count
+                FROM candlestick_confluence_signals
+                WHERE scan_date >= CURRENT_DATE - 14
+                ORDER BY scan_date DESC, confluence_count DESC, (close_price * volume) DESC
+                LIMIT 200
+            """)
+            cols = [d[0] for d in _cur.description]
+            signals = [dict(zip(cols, r)) for r in _cur.fetchall()]
+        scan_date = signals[0]["scan_date"] if signals else None
+        return jsonify({
+            "signals": signals,
+            "count": len(signals),
+            "scan_date": scan_date,
+            "stale": len(signals) == 0,
+        })
+    except Exception as _e:
+        app.logger.error(f"[candlestick-confluence] {_e}")
+        return jsonify({"signals": [], "count": 0, "scan_date": None, "stale": True, "error": str(_e)})
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -52004,6 +52382,8 @@ try:
 except Exception as _aattr_import_e:
     print(f"[attribution] import failed at registration time: {_aattr_import_e}")
 
+_DEFERRED_INITS.append(lambda: _init_candlestick_confluence_table())
+
 
 def _run_layer9_bg_scan():
     """
@@ -59485,6 +59865,111 @@ def admin_run_bullish_reversal_combo():
     import threading as _brc_thr
     _brc_thr.Thread(target=_send_bullish_reversal_combo_alert, daemon=True).start()
     return jsonify({"status": "ok", "message": "Bullish reversal combo scan triggered"})
+
+
+def _send_candlestick_confluence_alert() -> None:
+    """8:55 AM ET Mon-Fri: FULLY ISOLATED full-market candlestick pattern +
+    confluence scan (own DB table, own tab, own Telegram alert — never read
+    by any live scoring/ranking loop). Writes every match to
+    candlestick_confluence_signals (the tab's data source) AND logs to
+    signal_fire_log for future AIEM backtesting. Dedups on scan_date so an
+    app restart after the scheduled slot never re-sends the same day."""
+    import psycopg2 as _cca_pg2
+    try:
+        _res = _scan_candlestick_confluence(min_price=2.0, min_volume=200000, top_n=100)
+        if _res.get("status") != "ok":
+            print(f"[candlestick_confluence] scan error: {_res.get('error')}")
+            return
+
+        _scan_date = _res["scan_date"]
+        _matches = _res.get("results", [])
+
+        _ensure_signal_fire_log()
+        with _cca_pg2.connect(os.environ["DATABASE_URL"]) as _cc_conn:
+            with _cc_conn.cursor() as _cc_cur:
+                _cc_cur.execute(
+                    "SELECT COUNT(*) FROM signal_fire_log WHERE signal_name=%s AND fire_date=%s",
+                    ("candlestick_confluence", _scan_date),
+                )
+                _already_sent = _cc_cur.fetchone()[0] > 0
+
+                if not _already_sent:
+                    for _m in _matches:
+                        _cc_cur.execute("""
+                            INSERT INTO candlestick_confluence_signals
+                                (scan_date, ticker, close_price, volume, patterns_detected,
+                                 vol_confirmed, at_support, rsi_oversold, rsi_value, confluence_count)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                            ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                                close_price=EXCLUDED.close_price, volume=EXCLUDED.volume,
+                                patterns_detected=EXCLUDED.patterns_detected,
+                                vol_confirmed=EXCLUDED.vol_confirmed, at_support=EXCLUDED.at_support,
+                                rsi_oversold=EXCLUDED.rsi_oversold, rsi_value=EXCLUDED.rsi_value,
+                                confluence_count=EXCLUDED.confluence_count
+                        """, (_scan_date, _m["ticker"], _m["close"], _m["volume"],
+                              _m["patterns_detected"], _m["vol_confirmed"], _m["at_support"],
+                              _m["rsi_oversold"], _m["rsi_value"], _m["confluence_count"]))
+            _cc_conn.commit()
+
+        if _already_sent:
+            print(f"[candlestick_confluence] already sent for {_scan_date} — skipping duplicate Telegram alert")
+            return
+
+        if not _matches:
+            _tg_send(
+                f"🕯️ Candlestick Confluence Scan · {_scan_date}\n"
+                f"No stocks matched any of the 11 patterns today "
+                f"({_res.get('tickers_scanned', 0):,} scanned)."
+            )
+            return
+
+        _tg_lines = [
+            f"🕯️ Candlestick Confluence Scan · {_scan_date}",
+            f"{len(_matches)} stocks matched a bullish pattern (isolated scan — descriptive only, not a validated win rate)",
+        ]
+        for _m in _matches[:15]:
+            _pats = "/".join(_m.get("patterns_detected", []))
+            _conf_flags = "".join([
+                "V" if _m.get("vol_confirmed") else "-",
+                "S" if _m.get("at_support") else "-",
+                "R" if _m.get("rsi_oversold") else "-",
+            ])
+            _tg_lines.append(
+                f"  {_m['ticker']}  ${_m['close']:.2f}  {_pats}  [{_conf_flags}]  vol={_m.get('volume') or 0:,}"
+            )
+        if len(_matches) > 15:
+            _tg_lines.append(f"  …+{len(_matches) - 15} more (see website tab for full list)")
+        _tg_lines.append("(V=vol confirmed, S=at support, R=RSI oversold)")
+        _tg_send("\n".join(_tg_lines))
+
+        for _m in _matches:
+            log_signal_fired(
+                "candlestick_confluence", _m["ticker"], _scan_date, _m.get("close"),
+                metadata={
+                    "patterns_detected": _m.get("patterns_detected"),
+                    "vol_confirmed": _m.get("vol_confirmed"),
+                    "at_support": _m.get("at_support"),
+                    "rsi_oversold": _m.get("rsi_oversold"),
+                    "rsi_value": _m.get("rsi_value"),
+                    "confluence_count": _m.get("confluence_count"),
+                    "volume": _m.get("volume"),
+                },
+            )
+        print(f"[candlestick_confluence] {_scan_date}: {len(_matches)} matches sent + logged + saved")
+    except Exception as _e:
+        import traceback
+        print(f"[candlestick_confluence] error: {_e}\n{traceback.format_exc()}")
+
+
+@app.route("/stock-api/admin/run-candlestick-confluence", methods=["POST"])
+def admin_run_candlestick_confluence():
+    """Admin: trigger the isolated candlestick pattern + confluence scan immediately."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import threading as _cca_thr
+    _cca_thr.Thread(target=_send_candlestick_confluence_alert, daemon=True).start()
+    return jsonify({"status": "ok", "message": "Candlestick confluence scan triggered"})
 
 
 @app.route("/stock-api/admin/run-module2-decay", methods=["POST"])
