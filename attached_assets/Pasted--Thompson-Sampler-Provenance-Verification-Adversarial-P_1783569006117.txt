@@ -1,0 +1,78 @@
+# Thompson Sampler Provenance Verification — Adversarial Protocol
+
+**Purpose:** Prove alpha/beta/sampled_score are (a) genuinely computed from real trade outcomes, (b) genuinely drawn from a Beta distribution, and (c) genuinely consumed downstream — not narrated. Self-reports are not evidence. Every step below produces an artifact that would be impossible to fake without doing the real work.
+
+---
+
+## Test 1 — Update-rule code provenance (static proof)
+
+**Ask for:** the exact function that mutates `alpha`/`beta` in `aiem_paper_thompson`, full source, file + line range.
+
+**Check yourself, don't take their word:**
+- The update must be a function of a **real trade outcome** (win/loss, pnl sign, or similar) joined against a **real row** in `aiem_paper_trades` — via trade_id or signal_source, with a timestamp *after* the trade closed.
+- Reject if the update path can fire with no trade reference at all (i.e., increments on a timer, or on an arbitrary event with no outcome data attached).
+- `git log -p` or equivalent history on this function. If the increment logic was written once and never touched, and yet the audit table shows hundreds of rows — ask why. Real updates should show variable increments (win → alpha+1, loss → beta+1, or a weighted variant), not identical deltas every row.
+
+**Grep for the failure mode directly:**
+```
+grep -rn "UPDATE aiem_paper_thompson" .
+grep -rn "SET alpha" .
+grep -rn "SET beta" .
+```
+Flag any UPDATE with a **literal numeric value** for alpha/beta (e.g. `SET alpha = 12.0`) outside the one legitimate increment function. A hardcoded overwrite anywhere is the fabrication signature.
+
+---
+
+## Test 2 — Live causal injection (the test that can't be faked)
+
+This is the strongest proof because it requires the system to actually behave correctly in response to a controlled input, not describe itself.
+
+**Procedure:**
+1. Record current `alpha, beta` for one `signal_source` in `aiem_paper_thompson`. Raw row, timestamped.
+2. Manually close a paper trade tied to that signal_source with a **known, deliberately chosen outcome** (force a win, or force a loss) via whatever real code path normally closes trades — not a manual DB UPDATE.
+3. Re-read the same row immediately after.
+4. **Pass condition:** alpha or beta changed by exactly the amount the stated update rule predicts (e.g. +1 for a win, if that's the rule), timestamp is *after* the trade close event, and no other row changed.
+5. **Fail condition:** no change; a change that doesn't match the stated formula; multiple unrelated rows changed; or the change appears with a timestamp *before* the trade closed (proves it was pre-set, not reactive).
+
+Demand the raw before/after rows and the trade-close timestamp side by side. Do not accept "confirmed working" — require the three timestamps in sequence.
+
+---
+
+## Test 3 — Distributional proof that sampled_score is a real Beta draw
+
+A fabricated system can return a plausible-looking float. It's much harder to fake an entire distribution.
+
+**Procedure:**
+1. For one fixed (alpha, beta) pair, force `get_thompson_scores()` (or whatever calls the sampler) to run 500-1000 times in a loop without the underlying alpha/beta changing.
+2. Collect the `sampled_score` output each time.
+3. Compute: mean, variance, and histogram of the samples.
+4. **Pass condition:** mean ≈ alpha/(alpha+beta) within a small margin, variance ≈ alpha·beta / [(alpha+beta)²(alpha+beta+1)] (the Beta distribution's known variance formula), and the histogram is not a single repeated value, not a straight line, not obviously uniform/random-noise.
+5. **Fail condition:** identical value every call (means it's not sampling, it's returning a stored number); mean/variance don't match the Beta formula; or the numbers look like `random.uniform()` rather than a Beta draw.
+
+This test requires no trust in the agent's description — the math either holds or it doesn't. Ask them to hand you the raw list of 500+ sampled values so you (or I) can check the distribution independently rather than accepting their computed mean/variance.
+
+---
+
+## Test 4 — Downstream consumption wiring (ties to Defect 4 from the remediation doc)
+
+Provenance is pointless if nothing reads the value. Per the read-site audit already done, `sampled_score`/alpha/beta currently reach zero scoring or decision code — only a packet field nobody reads and a log string nobody parses.
+
+**Required before this system can be called "closed-loop" or "learning":**
+1. Identify the exact line in the scoring/decision path (stage 10-17 territory) where `sampled_score` (or a value derived from it) will be read and used to affect a score, a position size, a go/no-go decision, or a ranking.
+2. Show the before/after: a decision output that changes when alpha/beta changes, holding all other scanner signals constant. This is the same causal-injection pattern as Test 2, but applied to the consumption side — perturb alpha/beta, show the downstream decision output moves.
+3. If they can't produce this, the honest label is: "Thompson sampler computes valid statistics; they are not currently used in any decision." State it that way — do not accept "it's wired" without the before/after decision-output diff.
+
+---
+
+## What counts as proof vs. what doesn't
+
+| Claim type | Acceptable evidence | Not acceptable |
+|---|---|---|
+| "The math is correct" | Raw sampled values + your own variance calc (Test 3) | Agent's computed mean/variance with no raw data |
+| "It updates from real outcomes" | Live injection with 3 ordered timestamps (Test 2) | "Confirmed working" / narrative description |
+| "It's wired into decisions" | Before/after decision output diff from a controlled alpha/beta perturbation (Test 4) | A packet field existing, a log line existing |
+| "No hardcoded overwrites" | Grep output showing zero literal-value UPDATEs outside the one increment function | "I checked and there aren't any" |
+
+## Bottom line for the agent
+
+Do not report back "the Thompson sampler is verified real" or similar summary language. Report back only: the 4 raw artifacts above (code+grep, 3-timestamp injection result, 500-sample distribution dump, before/after decision diff). I will draw the conclusion from the artifacts, not from your summary of them.

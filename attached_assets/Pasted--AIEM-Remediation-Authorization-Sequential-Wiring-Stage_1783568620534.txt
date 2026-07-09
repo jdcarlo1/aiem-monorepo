@@ -1,0 +1,52 @@
+# AIEM Remediation Authorization — Sequential Wiring, Stage 15 Fail-Open, payload_json Gap
+
+**Trace basis:** aiem_2026_07_08_PLTR_f18372 (paper_trade_id=181)
+**Audit date:** 2026-07-08
+**Status:** NOT authorized to close. Three defects confirmed by raw trace + code read. Fix required before next sign-off.
+
+---
+
+## Defect 1 — Stages 1-13 are not a sequential pipeline
+
+**Evidence:** Rows 134-146 (stages s01-s13) execute in 94ms total (18:52:30.255430 → 18:52:30.350074). Call-site code at lines 40233-40280: each of stages 1-12 calls `_d2_run()` with an inline lambda returning an **already-computed dict** — `pick["source"]`, `_fill_price`, `_macro_snap.regime`, etc. These values were computed *before* the stage loop started (scanner ran, AI session ran, macro was fetched, all pre-loop). Stage 13 (`run_probability_engine_for_ticker`) is the first call in the loop that actually executes a function rather than returning a pre-computed dict.
+
+**What this means:** Diagram 2 represents stages 1-13 as a sequential pipeline where each stage's output feeds the next. The code does not do this. It's a set of independently-computed values with a logging wrapper and timestamp stapled on after the fact, in loop order, post-hoc.
+
+**Required fix — pick ONE and state which in your response:**
+
+- **Option A (make it real):** Refactor stages 1-13 so each stage function receives the prior stage's return value as an argument and its own return value is what gets passed to `execute_stage()` for the next call — i.e., actual data dependency, not a shared closure over pre-computed variables. Show the diff.
+- **Option B (relabel it honestly):** If stages 1-12 are fundamentally a parallel/pre-computed intake batch and only 13+ is sequential, change `DIAGRAM2_STAGE_MAP` and any user-facing docs to reflect that stages 1-12 are "intake snapshot" stages, not pipeline stages, and stage 13 is where sequential execution starts. Do not present it as 20 sequential stages if it isn't.
+
+**Do not report "fixed" without:** raw terminal output showing stage N's actual return value object being consumed as stage N+1's input argument (variable name, file, line number) — not a narrative description.
+
+---
+
+## Defect 2 — payload_json is NULL for stages 1-17
+
+**Evidence:** Rows 134-150, `payload_json = NULL` for all. `execute_stage()` wrapper passes `output_payload=_safe_payload(result)` to `record_stage()`, but whatever `record_stage()` does with it, it is not reaching the `payload_json` column for these stages. Only stages 18-23 (rows 151-215) have stored payload.
+
+**Required fix:**
+1. Find where `record_stage()` drops `output_payload` for stages 1-17 specifically (line number).
+2. Fix so payload is actually persisted for every stage, not just 18-23.
+3. Re-run a live trace and paste the raw row for at least one stage 1-17 showing non-NULL `payload_json`.
+
+**Do not report "fixed" without:** the raw DB row, not a description of the fix.
+
+---
+
+## Defect 3 — Stage 15 (specialist_council) fails open
+
+**Evidence:** Row 148, stage s15, status=FAIL, error `no bull/bear debate ran for PLTR today (debate batch is limited to top-ranked candidates)`. The `_d2_run()` wrapper for stage 15 raises `RuntimeError` via `(_ for _ in ()).throw(...)`, which `_d2_run()` catches and logs as FAIL before returning `None`. **The outer pipeline does not check the return value — it continues to stage 16 unconditionally.** PLTR was inserted as a paper trade at stage 18 despite stage 15 FAIL.
+
+**Required fix — this is a policy decision, not just a code fix. State which:**
+
+- **Option A:** Stage 15 FAIL is intentionally non-fatal (candidate wasn't in the debate batch is expected/normal, not an error) → then it should log as SKIP or INFO, not FAIL, and the messaging should not use `RuntimeError`/exception-throw machinery to represent a routine skip condition.
+- **Option B:** Stage 15 FAIL should block trade insertion at stage 18 → add an explicit check on stage 15's return value before stage 16/18 proceed, fail closed.
+
+Whichever you pick, show the line number of the check (or the logging-level change) and a live-trigger test proving the new behavior — not a self-report.
+
+---
+
+## Response format required
+
+For each of the 3 defects: file + line number(s) changed, raw terminal/DB output proving the new behavior, and which option (A/B) you implemented. No narrative-only completion claims will be accepted as sign-off evidence.
