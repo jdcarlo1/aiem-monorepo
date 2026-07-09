@@ -39059,6 +39059,10 @@ def _init_aiem_paper_trades_table():
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS strike NUMERIC(10,2)")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS expiry TEXT")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS audit_trace_id TEXT")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS entry_score NUMERIC(14,6)")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_multiplier_applied NUMERIC(8,4)")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_sampled_score NUMERIC(8,4)")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_signal_source TEXT")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
@@ -40408,6 +40412,41 @@ def _aiem_paper_execute_today():
                             )
                     except Exception as _sup_h4_e:
                         print(f"[supervisor] hook4_paper_trade_opened skipped: {_sup_h4_e}")
+
+                # ── Stage 14 paper_trade_id backfill + Thompson fields on trade row ──
+                # Stage 14 (scoring_synthesis) is executed in the Stages 1-17 block
+                # BEFORE the INSERT, so paper_trade_id=None at write time.
+                # Now that we have the real trade id from Hook 4, patch both:
+                #   (a) aiem_diagram2_trace_audit stage_order=14 → paper_trade_id
+                #   (b) aiem_paper_trades → entry_score + three Thompson columns
+                # This is the same pattern used for Stage 18 (also needs the trade id).
+                if _d2_trace_id and _h4_tr:
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _th_fix_c, \
+                                _th_fix_c.cursor() as _th_fix_cu:
+                            _th_fix_cu.execute(
+                                "UPDATE aiem_diagram2_trace_audit "
+                                "SET paper_trade_id = %s "
+                                "WHERE trace_id = %s AND stage_order = 14",
+                                (_h4_tr[0], _d2_trace_id)
+                            )
+                            _th_fix_cu.execute(
+                                "UPDATE aiem_paper_trades "
+                                "SET entry_score                 = %s, "
+                                "    thompson_multiplier_applied = %s, "
+                                "    thompson_sampled_score      = %s, "
+                                "    thompson_signal_source      = %s "
+                                "WHERE id = %s",
+                                (_fin_sc, _th_lbl_diag, _th_sc_diag, _th_src_diag, _h4_tr[0])
+                            )
+                            _th_fix_c.commit()
+                        print(
+                            f"[thompson-gate] stage14 patched — "
+                            f"paper_trade_id={_h4_tr[0]} trace={_d2_trace_id} "
+                            f"th_mult={_th_lbl_diag:.4f} entry_score={_fin_sc:.4f}"
+                        )
+                    except Exception as _th_fix_e:
+                        print(f"[thompson-gate] stage14 patch error (non-fatal): {_th_fix_e}")
 
                 # ── Diagram 2 stage 18 — Paper / Shadow Execution ──────────────
                 # Wired here (not in the stage 1-17 block above) because it needs
