@@ -66,8 +66,9 @@ def persist_debate(ticker: str, signal_context: Dict[str, Any], debate: Dict[str
             cu.execute("""
                 INSERT INTO bull_bear_debates
                     (ticker, signal_context, bull_argument, bear_argument,
-                     synthesis, verdict, trace_id, paper_trade_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     synthesis, verdict, trace_id, paper_trade_id,
+                     candidate_id, audit_log_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
                 ticker,
@@ -78,6 +79,8 @@ def persist_debate(ticker: str, signal_context: Dict[str, Any], debate: Dict[str
                 debate.get("verdict"),
                 trace_id,
                 paper_trade_id,
+                paper_trade_id,   # candidate_id mirrors paper_trade_id
+                trace_id,         # audit_log_id mirrors trace_id (joins aiem_pipeline_audit_log)
             ))
             row = cu.fetchone()
             c.commit()
