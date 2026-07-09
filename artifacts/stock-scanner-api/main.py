@@ -27668,6 +27668,239 @@ def _scan_candlestick_confluence(min_price=2.0, min_volume=100000, end_date=None
         return {"status": "error", "error": str(e), "trace": traceback.format_exc()}
 
 
+def _cc_run_statistical_backtest(start_date=None, end_date=None, min_price=2.0,
+                                   min_volume=100000, max_tickers=2500,
+                                   horizons=(1, 3, 5, 10), min_occurrences=10):
+    """Real statistical backtest of the candlestick-confluence scanner.
+
+    Ports `run_backtest()`/`summarize()` from the user's reference
+    candlestick_backtester.py 1:1 (occurrences/win_rate/avg_ret per
+    pattern x confluence-level x horizon), but runs it pooled across the
+    REAL historical multi-ticker universe in polygon_market_daily instead
+    of a single ticker, and adds real significance testing on top (Welch's
+    t-test vs the full-universe baseline at the same horizon, same
+    methodology as _mkt_run_two_group, plus a Bonferroni-corrected alpha
+    since many pattern x confluence x horizon combos are tested at once).
+
+    Confluence levels mirror the reference script exactly: base, +volume,
+    +support, +volume+support+rsi<40.
+
+    Caveats (reported honestly, not hidden): survivorship bias (universe is
+    chosen by CURRENT liquidity, not point-in-time), no walk-forward /
+    embargo split (in-sample backtest only), no transaction costs/slippage.
+    """
+    import psycopg2, traceback
+    import pandas as _bt_pd
+    import numpy as _bt_np
+    from scipy import stats as _bt_sc
+    from collections import defaultdict
+    from datetime import date as _bt_date, timedelta as _bt_td
+
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+            _latest = cur.fetchone()[0]
+            if not _latest:
+                return {"status": "error", "error": "No data in polygon_market_daily."}
+
+            _end = end_date or _latest
+            if isinstance(_end, str):
+                _end = _bt_date.fromisoformat(_end)
+            _start = start_date
+            if isinstance(_start, str):
+                _start = _bt_date.fromisoformat(_start)
+            if not _start:
+                _start = _end - _bt_td(days=730)  # default: 2-year window
+
+            _max_h = max(horizons)
+            _pad_days = int((_CANDLE_CONFLUENCE_MIN_BARS + max(
+                _CANDLE_CONFLUENCE_VOL_LOOKBACK, _CANDLE_CONFLUENCE_SUPPORT_LOOKBACK) + 10) * 1.6)
+            _pull_start = _start - _bt_td(days=_pad_days)
+
+            # Universe: most-liquid tickers meeting the live scanner's own
+            # price/volume filter at any point in the test window, ranked by
+            # avg dollar volume, capped for query/runtime feasibility.
+            cur.execute("""
+                SELECT ticker, AVG(close_price * volume) AS dv
+                FROM polygon_market_daily
+                WHERE scan_date BETWEEN %s AND %s
+                  AND close_price >= %s AND volume >= %s
+                GROUP BY ticker
+                ORDER BY dv DESC
+                LIMIT %s
+            """, [_start, _end, min_price, min_volume, max_tickers])
+            universe = [r[0] for r in cur.fetchall()]
+
+        if not universe:
+            return {"status": "error", "error": "No tickers matched the universe filter in this window."}
+
+        BATCH = 500
+        all_raw = []
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for i in range(0, len(universe), BATCH):
+                batch = universe[i:i + BATCH]
+                ph = ",".join(["%s"] * len(batch))
+                cur.execute(f"""
+                    SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume
+                    FROM polygon_market_daily
+                    WHERE ticker IN ({ph}) AND scan_date BETWEEN %s AND %s AND close_price > 0
+                    ORDER BY ticker, scan_date ASC
+                """, batch + [_pull_start, _end])
+                all_raw.extend(cur.fetchall())
+
+        by_ticker = defaultdict(list)
+        for row in all_raw:
+            by_ticker[row[0]].append(row[1:])
+
+        frames = []
+        for t, rows in by_ticker.items():
+            if len(rows) < _CANDLE_CONFLUENCE_MIN_BARS + max(horizons):
+                continue
+            df = _bt_pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
+            for col in ("open", "high", "low", "close", "volume"):
+                df[col] = df[col].astype(float)
+            df = _cc_add_pattern_columns(df)
+            df = _cc_add_confluence_columns(df)
+            for h in horizons:
+                df[f"fwd_ret_{h}d"] = df["close"].shift(-h) / df["close"] - 1
+            df = df[(df["date"] >= _start) & (df["date"] <= _end)]
+            if not df.empty:
+                frames.append(df)
+
+        if not frames:
+            return {"status": "error", "error": "No tickers had enough history to test."}
+
+        combined = _bt_pd.concat(frames, ignore_index=True)
+
+        _confluence_levels = [
+            ("base", []),
+            ("+vol", ["vol_confirmed"]),
+            ("+support", ["at_support"]),
+            ("+vol+support+rsi<40", ["vol_confirmed", "at_support", "rsi_oversold"]),
+        ]
+
+        baseline_cache = {}
+        for h in horizons:
+            baseline_cache[h] = combined[f"fwd_ret_{h}d"].dropna().to_numpy()
+
+        rows_out = []
+        total_tests = 0
+        for pattern in _CANDLE_CONFLUENCE_PATTERN_COLS:
+            for level_label, extra_cols in _confluence_levels:
+                mask = combined[pattern].fillna(False)
+                for c in extra_cols:
+                    mask &= combined[c].fillna(False)
+                for h in horizons:
+                    rets = combined.loc[mask, f"fwd_ret_{h}d"].dropna().to_numpy()
+                    n = len(rets)
+                    if n < min_occurrences:
+                        continue
+                    total_tests += 1
+                    base = baseline_cache[h]
+                    win_rate = float(_bt_np.mean(rets > 0)) * 100
+                    avg_ret = float(_bt_np.mean(rets)) * 100
+                    base_win_rate = float(_bt_np.mean(base > 0)) * 100
+                    base_avg_ret = float(_bt_np.mean(base)) * 100
+                    try:
+                        _, pval = _bt_sc.ttest_ind(rets, base, equal_var=False)
+                        pval = float(pval)
+                    except Exception:
+                        pval = None
+                    rows_out.append({
+                        "pattern": pattern,
+                        "confluence": level_label,
+                        "horizon_days": h,
+                        "n": n,
+                        "win_rate_pct": round(win_rate, 1),
+                        "avg_ret_pct": round(avg_ret, 2),
+                        "baseline_win_rate_pct": round(base_win_rate, 1),
+                        "baseline_avg_ret_pct": round(base_avg_ret, 2),
+                        "edge_winrate_pp": round(win_rate - base_win_rate, 1),
+                        "edge_avg_ret_pp": round(avg_ret - base_avg_ret, 2),
+                        "p_value": round(pval, 5) if pval is not None else None,
+                    })
+
+        if not rows_out:
+            return {
+                "status": "ok",
+                "matches": 0,
+                "interpretation": f"No pattern occurred at least {min_occurrences} times in this window/universe.",
+            }
+
+        _bonf_alpha = 0.05 / max(total_tests, 1)
+        for r in rows_out:
+            r["significant_p05"] = bool(r["p_value"] is not None and r["p_value"] < 0.05)
+            r["significant_bonferroni"] = bool(r["p_value"] is not None and r["p_value"] < _bonf_alpha)
+
+        # "Most accurate" ranking: require real sample size (n>=200, the same
+        # floor this codebase uses elsewhere before trusting a signal),
+        # Bonferroni-significant, then sort by edge (win-rate lift over baseline).
+        reliable = [r for r in rows_out if r["n"] >= 200 and r["significant_bonferroni"]]
+        reliable.sort(key=lambda r: r["edge_winrate_pp"], reverse=True)
+        best = reliable[0] if reliable else None
+
+        rows_out.sort(key=lambda r: (r["n"] >= 200, r["significant_bonferroni"], r["edge_winrate_pp"]), reverse=True)
+
+        return {
+            "status": "ok",
+            "universe_tickers_tested": len(frames),
+            "date_range": [str(_start), str(_end)],
+            "total_pattern_bar_matches": int(sum(combined[p].fillna(False).sum() for p in _CANDLE_CONFLUENCE_PATTERN_COLS)),
+            "total_combos_tested": total_tests,
+            "bonferroni_alpha": round(_bonf_alpha, 7),
+            "best_signal": best,
+            "results": rows_out,
+            "caveats": [
+                "In-sample historical backtest only — no walk-forward/embargo split.",
+                "Universe selected by CURRENT liquidity over the test window (survivorship bias) not point-in-time membership.",
+                "No transaction costs, slippage, or spread modeled.",
+                f"significant_bonferroni requires p < {round(_bonf_alpha, 7)} (0.05 / {total_tests} combos tested) to control for multiple-comparison false positives.",
+                "n >= 200 required before a result is included in 'best_signal', matching this codebase's existing signal-trust convention.",
+            ],
+            "interpretation": (
+                (
+                    f"Most statistically reliable signal: {best['pattern']} ({best['confluence']}) at "
+                    f"{best['horizon_days']}d horizon — {best['win_rate_pct']}% win rate vs "
+                    f"{best['baseline_win_rate_pct']}% baseline (n={best['n']}, p={best['p_value']}, "
+                    f"edge={best['edge_winrate_pp']:+.1f}pp)."
+                ) if best else (
+                    "No pattern/confluence/horizon combo cleared both n>=200 AND the Bonferroni-corrected "
+                    "significance bar in this window — see 'results' for the raw (unfiltered) numbers instead."
+                )
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e), "trace": traceback.format_exc()}
+
+
+def _mkt_tool_backtest_candlestick_confluence(start_date: str = None, end_date: str = None,
+                                                min_price: float = 2.0, min_volume: int = 100000,
+                                                max_tickers: int = 2500) -> dict:
+    """AIEM tool wrapper — real statistical backtest of the candlestick-confluence
+    scanner's 11 patterns x 4 confluence levels x [1,3,5,10]d horizons, pooled
+    across a liquid multi-ticker universe from polygon_market_daily."""
+    return _cc_run_statistical_backtest(
+        start_date=start_date, end_date=end_date, min_price=min_price,
+        min_volume=min_volume, max_tickers=max_tickers,
+    )
+
+
+@app.route("/stock-api/admin/backtest-candlestick-confluence", methods=["POST"])
+def admin_backtest_candlestick_confluence():
+    """Admin-only direct trigger for verification (same underlying function AIEM calls)."""
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN"):
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    result = _cc_run_statistical_backtest(
+        start_date=body.get("start_date"),
+        end_date=body.get("end_date"),
+        min_price=float(body.get("min_price", 2.0)),
+        min_volume=int(body.get("min_volume", 100000)),
+        max_tickers=int(body.get("max_tickers", 2500)),
+    )
+    return jsonify(result)
+
+
 @app.route("/stock-api/candlestick-confluence", methods=["GET"])
 def candlestick_confluence_endpoint():
     """Isolated tab data source — reads the daily-scan DB table ONLY (never
@@ -32638,6 +32871,7 @@ def _build_aiem_tool_map():
         "mkt_price_structure":    _mkt_price_structure,
         "mkt_chart_patterns":     _mkt_chart_patterns,
         "mkt_candlestick_patterns": _mkt_candlestick_patterns,
+        "mkt_backtest_candlestick_confluence": _mkt_tool_backtest_candlestick_confluence,
         "mkt_screen_by_candlestick_pattern": _mkt_screen_by_candlestick_pattern,
         "mkt_screen_bullish_reversal_combo": _mkt_screen_bullish_reversal_combo,
         "mkt_screen_by_indicator": _mkt_screen_by_indicator,
@@ -34111,6 +34345,34 @@ _AIEM_AGENT_TOOLS = [
             "ticker":   {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
             "lookback": {"type": "integer", "description": "Prior bars to include for trend context (default 10)."},
         }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_backtest_candlestick_confluence",
+        "description": (
+            "Run a REAL statistical backtest of the candlestick-confluence scanner's 11 bullish "
+            "patterns (hammer, bullish_marubozu, bullish_engulfing, piercing_line, bullish_harami, "
+            "morning_star, morning_doji_star, three_white_soldiers, three_inside_up, "
+            "three_outside_up, abandoned_baby) x 4 confluence levels (base, +volume-confirmed, "
+            "+at-support, +volume+support+RSI<40) x 4 forward-return horizons (1/3/5/10 trading "
+            "days), pooled across a liquid multi-ticker universe pulled from real historical "
+            "OHLCV in polygon_market_daily. For every pattern x confluence x horizon combo with "
+            "n>=10 occurrences, computes win_rate, avg_return, edge vs the full-universe baseline "
+            "at that horizon, and a Welch's t-test p-value with a Bonferroni-corrected significance "
+            "threshold (since many combos are tested at once). Returns a ranked 'best_signal' "
+            "(requires n>=200 AND Bonferroni-significant) plus the full results table and honest "
+            "caveats (in-sample only, no walk-forward split, survivorship bias from using current "
+            "liquidity to pick the universe, no transaction costs). Use this — not "
+            "mkt_candlestick_patterns/mkt_screen_by_candlestick_pattern (those are live detection, "
+            "not backtests) — to answer 'which candlestick pattern/confluence combo is actually "
+            "the most statistically accurate' for this scanner."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "start_date": {"type": "string", "description": "Optional 'YYYY-MM-DD'. Defaults to 2 years before end_date."},
+            "end_date": {"type": "string", "description": "Optional 'YYYY-MM-DD'. Defaults to the latest date in polygon_market_daily."},
+            "min_price": {"type": "number", "description": "Universe filter, matches the live scanner's own floor (default 2.0)."},
+            "min_volume": {"type": "integer", "description": "Universe filter, matches the live scanner's own floor (default 100000)."},
+            "max_tickers": {"type": "integer", "description": "Cap on number of tickers tested, ranked by avg dollar volume (default 2500). Lower this if the call times out."},
+        }, "required": []}
     }},
     {"type": "function", "function": {
         "name": "mkt_screen_by_candlestick_pattern",
