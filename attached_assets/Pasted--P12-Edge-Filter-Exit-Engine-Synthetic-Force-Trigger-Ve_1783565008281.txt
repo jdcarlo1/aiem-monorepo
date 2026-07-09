@@ -1,0 +1,59 @@
+# P12 (Edge Filter / Exit Engine) — Synthetic Force-Trigger Verification Request
+
+## Context
+Diagram 2 closure packet claims P12 exit logic (stop-loss, hold cap, MTM price check)
+is inline in the close branch of `_aiem_paper_mark_to_market`, with no dedicated
+`execute_stage()` wrapper. This is currently an UNPROVEN claim — it describes code
+shape, not runtime behavior. Per the standing rule on this project: no self-reports,
+no narrative descriptions, no "it's structured to handle this." Only raw terminal
+output, file/line numbers, and live-trigger evidence count as proof.
+
+Waiting for a natural market condition to trigger a stop-loss or hold-cap exit is
+not acceptable — do this synthetically, right now, in paper trading only.
+
+## What I need you to do — in order
+
+### 1. Pick or force a ticker into a triggerable state
+- Select one open paper position (or open a new tiny paper position right now if
+  none is open).
+- Manually override whatever internal value gates the exit condition — entry
+  price, current price, or the stop-loss/hold-cap threshold itself — so that the
+  condition you're testing evaluates TRUE on the next MTM pass.
+- State explicitly which value you changed, the file and line where you changed
+  it, and what the before/after value was.
+
+### 2. Trigger the MTM pass
+- Manually invoke `_aiem_paper_mark_to_market` (or whatever the real live call
+  path is) for that ticker.
+- Paste the raw terminal/log output of that run — not a summary of it.
+
+### 3. Prove the close branch actually executed
+- Show the exact line number(s) where the stop-loss/hold-cap/MTM-price
+  comparison lives and confirm via log output that this specific comparison
+  block ran and returned True.
+- Show the resulting row (or updated row) in whatever table records the close
+  — ticker, close reason, closed_at timestamp, id.
+
+### 4. Do this for BOTH conditions separately
+- One run forcing a stop-loss trigger.
+- One run forcing a hold-cap trigger.
+(If MTM price check is a third distinct condition from stop-loss, force that
+one too as a third run.)
+
+### 5. Answer directly — no paraphrasing
+- What ticker did you use for each test?
+- What was the exact value you overrode, and what file/line is it at?
+- What is the file/line of the comparison logic that fired?
+- Paste the raw output/row for each of the resulting closes.
+- Is there ANY code path where a real stop-loss or hold-cap condition could be
+  met in production and NOT result in a close? If yes, explain exactly where
+  and why.
+
+## What counts as done
+This is only closed when I have, for each condition tested:
+- The override you made (value + file/line)
+- Raw log output showing the comparison firing
+- The resulting closed-trade row (ticker, close reason, timestamp, id)
+
+Narrative confirmation ("yes it works," "this is handled inline") without the
+above is not acceptable and will not close P12.

@@ -40788,6 +40788,14 @@ def _aiem_paper_mark_to_market():
             pnl = (pos.get("pnl_pct") if pos.get("pnl_pct") is not None
                    else pos.get("synthetic_option_proxy_pct") or 0.0)
 
+            # ── Hard stop-loss gate (P12 — Edge Filter / Exit Engine) ──────
+            # Close immediately if loss exceeds -15%. This is the first check
+            # so it cannot be overridden by any other signal. Fires regardless
+            # of technical indicator state or hold-days remaining.
+            if pnl <= -15.0:
+                return {"decision": "EXIT",
+                        "reason": f"hard stop-loss triggered: pnl={pnl:.1f}%"}
+
             sessions  = pos.get("recent_sessions") or []
             close_str = float(sessions[0].get("close_strength", 0.5)) if sessions else 0.5
             prev_rvol = float(sessions[0].get("rvol", 1.0))           if sessions else 1.0
