@@ -31298,6 +31298,18 @@ def _classify_question_complexity(question: str) -> int:
     simple = ["what is", "define", "explain", "how does"]
     if any(s in q for s in deep):   return 10
     if any(s in q for s in compare): return 7
+    # Predictive/scan questions: "which stocks will go up", "find me calls",
+    # "go up tomorrow", "next 7 days" — these require market-wide scanning
+    # across many tools, so they need more iterations and a longer deadline.
+    _predictive_scan = [
+        "go up", "will go up", "will move", "which stocks to buy",
+        "find stocks", "find me call", "find call option",
+        "short term call", "short-term call", "7 day", "7-day",
+        "next week", "next 7", "tomorrow stock", "buy tomorrow",
+        "best stock", "top stock", "which stock should",
+        "what stock should", "call to buy", "calls to buy",
+    ]
+    if any(s in q for s in _predictive_scan): return 8
     if any(s in q for s in simple) and len(q) < 80: return 4
     return 6
 
@@ -32095,6 +32107,11 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
             # on_token fires only when the model emits content (final text response).
             # During tool-calling iterations the model emits no content, so
             # on_token is naturally silent until the last iteration.
+            # Per-call timeout: gpt-5.4 is a reasoning model that can spend 40-60s
+            # in its internal thinking phase before emitting the first token/tool-call
+            # chunk. The client-level 25s timeout is too short and fires during
+            # that thinking window, causing spurious failures. We override it per-call.
+            _oai_call_timeout = 90.0 if "gpt-5" in _model_tier else 35.0
             for _attempt in range(3):
                 try:
                     _stm = _oai.chat.completions.create(
@@ -32104,6 +32121,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                         tool_choice="none" if max_iterations == 1 else "auto",
                         max_completion_tokens=2000,
                         stream=True,
+                        timeout=_oai_call_timeout,
                     )
                     _stc_raw: dict = {}   # chunk index → {id, name, args}
                     for _ck in _stm:
@@ -32147,6 +32165,8 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                     _fst.sleep(1.5 * (_attempt + 1))
         else:
             # Non-streaming path (original behaviour, unchanged)
+            # Same per-call timeout override as streaming path above.
+            _oai_call_timeout = 90.0 if "gpt-5" in _model_tier else 35.0
             resp = None
             for _attempt in range(3):
                 try:
@@ -32156,6 +32176,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                         tools=_fs_schema,
                         tool_choice="none" if max_iterations == 1 else "auto",
                         max_completion_tokens=2000,
+                        timeout=_oai_call_timeout,
                     )
                     break
                 except Exception as _oe2:
@@ -32255,10 +32276,27 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                 "content": result_str,
             })
 
+        # Time budget guard: if we've burned most of the expected wall-clock budget
+        # doing tool calls, break now so the forced-final-pass has enough time to run.
+        # gpt-5.4 needs ~55s per iteration; gpt-4o ~25s. If elapsed > (max_iters-1)
+        # full iterations worth of time, there's no room for another round-trip.
+        _iter_budget_s = 55 if "gpt-5" in _model_tier else 25
+        _elapsed_s = _fst.time() - _t_session_start
+        if (_elapsed_s > _iter_budget_s * (max_iterations - 1)
+                and _i < max_iterations - 1
+                and _resp_tool_calls):
+            print(f"[aiem_24h:{session_name}] time budget guard fired at iter {_i+1} "
+                  f"({_elapsed_s:.0f}s elapsed, budget={_iter_budget_s*(max_iterations-1)}s); "
+                  f"breaking to forced final pass")
+            break
+
     # Forced final text-generation pass when max_iterations was exhausted without text.
     # Happens when the LLM calls tools on every iteration without taking a text turn.
     if not _last_text and messages and messages[-1].get("role") == "tool":
         print(f"[aiem_24h:{session_name}] forcing final text pass (loop exhausted without text)")
+        # Use the same generous per-call timeout so gpt-5.4's reasoning phase
+        # during the final synthesis doesn't get cut off by the 25s client default.
+        _fp_timeout = 90.0 if "gpt-5" in _model_tier else 40.0
         for _fp_attempt in range(2):
             try:
                 if on_token is not None:
@@ -32269,6 +32307,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                         tool_choice="none",
                         max_completion_tokens=2000,
                         stream=True,
+                        timeout=_fp_timeout,
                     )
                     _fp_content = ""
                     for _fp_ck in _fp_stm:
@@ -32290,6 +32329,7 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
                         tools=_fs_schema,
                         tool_choice="none",
                         max_completion_tokens=2000,
+                        timeout=_fp_timeout,
                     )
                     _fp_content = (_fp_resp.choices[0].message.content or "")
                     if _fp_content:
@@ -59748,6 +59788,8 @@ def aiem_chat_start():
     _session_deadline_s = 120
     if len(image_data_urls) >= 3 or max_iters >= 10:
         _session_deadline_s = 480  # 8 min — deep cross-ticker/cross-image research
+    elif max_iters >= 8:
+        _session_deadline_s = 480  # 8 min — predictive scan questions (find stocks, call options)
     elif max_iters >= 5:
         _session_deadline_s = 360  # 6 min — allows forced-final-pass to complete (6-iter sessions avg ~280s)
 
@@ -60024,9 +60066,20 @@ def aiem_chat_stream():
 
     _sst.Thread(target=_run, daemon=True, name=f"stream_{job_id[:8]}").start()
 
+    import time as _gen_time
+    _gen_deadline = _gen_time.time() + 540  # 9 min hard cap — slightly over max session deadline
+
     def generate():
         yield f"data: {_ssj.dumps({'type': 'started', 'job_id': job_id})}\n\n"
         while True:
+            # Hard cap: if the backend thread is still running after 9 min, stop
+            # the SSE stream so the browser doesn't hang indefinitely. The daemon
+            # thread will eventually finish and write its result to the DB.
+            if _gen_time.time() > _gen_deadline:
+                _qa_db_update(job_id, "error",
+                              error="Session timed out — the research took too long. Try a more focused question.")
+                yield f"data: {_ssj.dumps({'type': 'error', 'error': 'Session timed out — try a more focused question.'})}\n\n"
+                break
             try:
                 ev = event_q.get(timeout=90)
                 yield f"data: {_ssj.dumps(ev, ensure_ascii=False)}\n\n"
