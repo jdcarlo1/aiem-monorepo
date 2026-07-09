@@ -6837,7 +6837,7 @@ try:
                     print(f"[startup_catchup] no paper trades for {_today_et} — running catch-up pick session")
                     _time_su.sleep(20)   # let other catch-ups settle first
                     try:
-                        _aiem_paper_execute_today()
+                        _aiem_paper_execute_today(trigger_source="startup_catchup")
                         print(f"[startup_catchup] paper trading catch-up complete")
                     except Exception as _e_pt:
                         print(f"[startup_catchup] paper trading catch-up error: {_e_pt}")
@@ -15046,7 +15046,7 @@ try:
     # Pushed from 9:35 → 9:42 so it doesn't fire simultaneously with the
     # 9:36 unusual-calls market-open scan (heaviest Yahoo job of the day).
     _scheduler.add_job(
-        lambda: _aiem_paper_execute_today(),
+        lambda: _aiem_paper_execute_today(trigger_source="scheduled_942"),
         CronTrigger(day_of_week="mon-fri", hour=9, minute=42, timezone=_ET),
         id="aiem_paper_execute",
         replace_existing=True,
@@ -40855,8 +40855,14 @@ def _init_paper_execution_log():
                     finished_at      TIMESTAMPTZ,
                     status           TEXT NOT NULL DEFAULT 'RUNNING',
                     trades_inserted  INTEGER,
-                    error_msg        TEXT
+                    error_msg        TEXT,
+                    trigger_source   TEXT
                 )
+            """)
+            # ALTER for pre-existing deployments created before trigger_source existed.
+            _cu.execute("""
+                ALTER TABLE aiem_paper_execution_log
+                ADD COLUMN IF NOT EXISTS trigger_source TEXT
             """)
             _c.commit()
     except Exception as _ie:
@@ -41506,11 +41512,17 @@ def _is_trading_day(d=None):
         return _d.weekday() < 5
 
 
-def _aiem_paper_execute_today():
+def _aiem_paper_execute_today(trigger_source: str = "unknown"):
     """
     9:35 AM ET: pick top 20, fetch live prices, record positions.
     Skips non-NYSE trading days (weekends + holidays) and any day where
     today's trades are already entered.
+
+    trigger_source identifies WHO called this (scheduled_942 / startup_catchup /
+    admin_force / unknown) so the execution log can distinguish a genuine
+    scheduled run from a restart-triggered catch-up attempt after the fact —
+    added 2026-07-09 because a day's worth of stuck catch-up rows made it
+    impossible to tell whether the real 9:42 AM cron ever fired.
     """
     import datetime as _apdt
     _today = _apdt.datetime.now(_ET).date()
@@ -41521,13 +41533,28 @@ def _aiem_paper_execute_today():
 
     if not _AIEM_PAPER_LOCK.acquire(blocking=False):
         print("[aiem_paper] already executing — concurrent call rejected")
+        # Previously a fully silent no-op (print only, no DB trace). Now writes
+        # an honest SKIPPED_LOCK_HELD row so "did it run, fail, or never fire"
+        # is never ambiguous again — this is the exact gap that made the
+        # 9:42 AM 2026-07-09 run unverifiable after the fact.
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _llc, _llc.cursor() as _llcu:
+                _llcu.execute(
+                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                    "VALUES ('SKIPPED_LOCK_HELD', %s, %s)",
+                    (trigger_source, "concurrent call rejected — _AIEM_PAPER_LOCK already held"),
+                )
+                _llc.commit()
+        except Exception as _lle:
+            print(f"[aiem_paper] lock-contention log error: {_lle}")
         return
 
     _exec_id = None
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
             _lcu.execute(
-                "INSERT INTO aiem_paper_execution_log (status) VALUES ('RUNNING') RETURNING id"
+                "INSERT INTO aiem_paper_execution_log (status, trigger_source) VALUES ('RUNNING', %s) RETURNING id",
+                (trigger_source,),
             )
             _exec_id = _lcu.fetchone()[0]
             _lc.commit()
