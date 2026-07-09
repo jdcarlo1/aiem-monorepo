@@ -27901,6 +27901,282 @@ def admin_backtest_candlestick_confluence():
     return jsonify(result)
 
 
+@app.route("/stock-api/admin/test-candlestick-indicator-combo", methods=["POST"])
+def admin_test_candlestick_indicator_combo():
+    """Admin-only direct trigger for verification (same underlying function AIEM calls)."""
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN"):
+        return jsonify({"error": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    result = _mkt_tool_test_candlestick_indicator_combo(
+        pattern=body.get("pattern", "bullish_marubozu"),
+        horizon_days=int(body.get("horizon_days", 10)),
+        indicator_conditions=body.get("indicator_conditions"),
+        require_volume=bool(body.get("require_volume", False)),
+        require_support=bool(body.get("require_support", False)),
+        require_rsi_oversold=bool(body.get("require_rsi_oversold", False)),
+        start_date=body.get("start_date"),
+        end_date=body.get("end_date"),
+        min_price=float(body.get("min_price", 2.0)),
+        min_volume=int(body.get("min_volume", 100000)),
+        max_tickers=int(body.get("max_tickers", 2500)),
+    )
+    return jsonify(result)
+
+
+# ── Fast iterative pattern+indicator combo search (add/remove indicators) ──
+# Building the full multi-ticker OHLCV+pattern+indicator universe is the
+# expensive part (~60-90s for 2500 tickers/2yr). AIEM needs to try MANY
+# different indicator combinations quickly when hunting for a better filter
+# around one pattern, so we build the universe ONCE per (window/universe)
+# key and cache it in memory; each combo test after that is just pandas
+# boolean masking (sub-second).
+_CC_INDICATOR_UNIVERSE_CACHE: dict = {}
+_CC_INDICATOR_UNIVERSE_TTL = 900  # 15 min — long enough for a multi-call AIEM session
+
+_CC_INDICATOR_FIELDS = [
+    "rsi_14", "stoch_k", "stoch_d", "macd", "macd_hist", "adx_14", "cmf_20",
+    "mfi_14", "cci_20", "williams_r", "bb_pct", "roc_12", "momentum_10",
+    "atr_pct", "pct_from_sma20", "pct_from_sma50", "pct_from_sma200",
+    "pct_from_52w_high", "pct_from_52w_low",
+]
+
+
+def _cc_get_indicator_universe_cached(start_date=None, end_date=None, min_price=2.0,
+                                        min_volume=100000, max_tickers=2500,
+                                        horizons=(1, 3, 5, 10)):
+    """Builds (or returns cached) a combined DataFrame with pattern columns,
+    confluence columns, forward returns, AND joined polygon_indicators_daily
+    columns, for the given universe/window. Same universe-selection logic as
+    _cc_run_statistical_backtest so results are directly comparable."""
+    import time as _cc_time
+    import psycopg2, pandas as _bt_pd
+    from collections import defaultdict
+    from datetime import date as _bt_date, timedelta as _bt_td
+
+    key = (str(start_date), str(end_date), float(min_price), int(min_volume),
+           int(max_tickers), tuple(horizons))
+    cached = _CC_INDICATOR_UNIVERSE_CACHE.get(key)
+    if cached and (_cc_time.time() - cached[0]) < _CC_INDICATOR_UNIVERSE_TTL:
+        return cached[1]
+
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+        latest = cur.fetchone()[0]
+        end = end_date or latest
+        if isinstance(end, str):
+            end = _bt_date.fromisoformat(end)
+        start = start_date
+        if isinstance(start, str):
+            start = _bt_date.fromisoformat(start)
+        if not start:
+            start = end - _bt_td(days=730)
+
+        pad_days = int((_CANDLE_CONFLUENCE_MIN_BARS + max(
+            _CANDLE_CONFLUENCE_VOL_LOOKBACK, _CANDLE_CONFLUENCE_SUPPORT_LOOKBACK) + 10) * 1.6)
+        pull_start = start - _bt_td(days=pad_days)
+
+        cur.execute("""
+            SELECT ticker, AVG(close_price * volume) AS dv
+            FROM polygon_market_daily
+            WHERE scan_date BETWEEN %s AND %s AND close_price >= %s AND volume >= %s
+            GROUP BY ticker ORDER BY dv DESC LIMIT %s
+        """, [start, end, min_price, min_volume, max_tickers])
+        universe = [r[0] for r in cur.fetchall()]
+
+    if not universe:
+        result = {"status": "error", "error": "No tickers matched the universe filter in this window."}
+        _CC_INDICATOR_UNIVERSE_CACHE[key] = (_cc_time.time(), result)
+        return result
+
+    BATCH = 500
+    all_raw, all_ind = [], []
+    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+        for i in range(0, len(universe), BATCH):
+            batch = universe[i:i + BATCH]
+            ph = ",".join(["%s"] * len(batch))
+            cur.execute(f"""
+                SELECT ticker, scan_date, open_price, high_price, low_price, close_price, volume
+                FROM polygon_market_daily
+                WHERE ticker IN ({ph}) AND scan_date BETWEEN %s AND %s AND close_price > 0
+                ORDER BY ticker, scan_date ASC
+            """, batch + [pull_start, end])
+            all_raw.extend(cur.fetchall())
+            cur.execute(f"""
+                SELECT ticker, scan_date, {", ".join(_CC_INDICATOR_FIELDS)}
+                FROM polygon_indicators_daily
+                WHERE ticker IN ({ph}) AND scan_date BETWEEN %s AND %s
+            """, batch + [start, end])
+            all_ind.extend(cur.fetchall())
+
+    ind_lookup = {(r[0], r[1]): r[2:] for r in all_ind}
+
+    by_ticker = defaultdict(list)
+    for row in all_raw:
+        by_ticker[row[0]].append(row[1:])
+
+    frames = []
+    for t, rows in by_ticker.items():
+        if len(rows) < _CANDLE_CONFLUENCE_MIN_BARS + max(horizons):
+            continue
+        df = _bt_pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
+        for col in ("open", "high", "low", "close", "volume"):
+            df[col] = df[col].astype(float)
+        df = _cc_add_pattern_columns(df)
+        df = _cc_add_confluence_columns(df)
+        for h in horizons:
+            df[f"fwd_ret_{h}d"] = df["close"].shift(-h) / df["close"] - 1
+        df = df[(df["date"] >= start) & (df["date"] <= end)].copy()
+        if df.empty:
+            continue
+        df["ticker"] = t
+        for fi, fname in enumerate(_CC_INDICATOR_FIELDS):
+            df[fname] = df["date"].map(lambda d, tk=t: ind_lookup.get((tk, d), (None,) * len(_CC_INDICATOR_FIELDS))[fi])
+            df[fname] = _bt_pd.to_numeric(df[fname], errors="coerce")
+        frames.append(df)
+
+    if not frames:
+        result = {"status": "error", "error": "No tickers had enough history to test."}
+        _CC_INDICATOR_UNIVERSE_CACHE[key] = (_cc_time.time(), result)
+        return result
+
+    combined = _bt_pd.concat(frames, ignore_index=True)
+    result = {"status": "ok", "combined": combined, "universe_tickers_tested": len(frames),
+              "date_range": [str(start), str(end)]}
+    _CC_INDICATOR_UNIVERSE_CACHE[key] = (_cc_time.time(), result)
+    return result
+
+
+def _mkt_tool_test_candlestick_indicator_combo(pattern: str = "bullish_marubozu",
+                                                 horizon_days: int = 10,
+                                                 indicator_conditions: dict = None,
+                                                 require_volume: bool = False,
+                                                 require_support: bool = False,
+                                                 require_rsi_oversold: bool = False,
+                                                 start_date: str = None, end_date: str = None,
+                                                 min_price: float = 2.0, min_volume: int = 100000,
+                                                 max_tickers: int = 2500) -> dict:
+    """Fast, repeatable tool for iteratively adding/removing technical-indicator
+    filters around ONE candlestick pattern to search for a better-performing
+    combo than the plain confluence levels. First call builds the universe
+    (~60-90s); every subsequent call in the same session with the SAME
+    start_date/end_date/min_price/min_volume/max_tickers reuses the cached
+    universe and returns in under a second, so call this MANY times with
+    different indicator_conditions/require_* flags to explore the space.
+
+    indicator_conditions: dict of {field_min/field_max: value} over
+    rsi_14, stoch_k, stoch_d, macd, macd_hist, adx_14, cmf_20, mfi_14,
+    cci_20, williams_r, bb_pct, roc_12, momentum_10, atr_pct,
+    pct_from_sma20/50/200, pct_from_52w_high/low. Example:
+    {"adx_14_min": 25, "macd_hist_min": 0} = ADX>=25 AND MACD histogram>=0.
+
+    Reports BOTH win_rate edge and avg_ret edge vs the same full-universe
+    baseline used elsewhere — a combo only truly "improves" the pattern if
+    avg_ret edge is ALSO positive, not just win_rate (a high win-rate/
+    negative-avg-return combo is a trap, not an edge).
+    """
+    import numpy as _bt_np
+    from scipy import stats as _bt_sc
+
+    if pattern not in _CANDLE_CONFLUENCE_PATTERN_COLS:
+        return {"status": "error", "error": f"Unknown pattern '{pattern}'. Valid: {_CANDLE_CONFLUENCE_PATTERN_COLS}"}
+
+    universe = _cc_get_indicator_universe_cached(
+        start_date=start_date, end_date=end_date, min_price=min_price,
+        min_volume=min_volume, max_tickers=max_tickers, horizons=(horizon_days,)
+        if horizon_days not in (1, 3, 5, 10) else (1, 3, 5, 10),
+    )
+    if universe.get("status") != "ok":
+        return universe
+
+    combined = universe["combined"]
+    ret_col = f"fwd_ret_{horizon_days}d"
+    if ret_col not in combined.columns:
+        combined[ret_col] = combined["close"].shift(-horizon_days) / combined["close"] - 1
+
+    mask = combined[pattern].fillna(False)
+    applied = []
+    if require_volume:
+        mask &= combined["vol_confirmed"].fillna(False)
+        applied.append("vol_confirmed")
+    if require_support:
+        mask &= combined["at_support"].fillna(False)
+        applied.append("at_support")
+    if require_rsi_oversold:
+        mask &= combined["rsi_oversold"].fillna(False)
+        applied.append("rsi_oversold(scanner's own RSI<40)")
+
+    for cond, val in (indicator_conditions or {}).items():
+        if cond.endswith("_min"):
+            field = cond[:-4]
+            if field not in _CC_INDICATOR_FIELDS:
+                return {"status": "error", "error": f"Unknown indicator field '{field}'. Valid: {_CC_INDICATOR_FIELDS}"}
+            mask &= (combined[field] >= val)
+            applied.append(f"{field} >= {val}")
+        elif cond.endswith("_max"):
+            field = cond[:-4]
+            if field not in _CC_INDICATOR_FIELDS:
+                return {"status": "error", "error": f"Unknown indicator field '{field}'. Valid: {_CC_INDICATOR_FIELDS}"}
+            mask &= (combined[field] <= val)
+            applied.append(f"{field} <= {val}")
+        else:
+            return {"status": "error", "error": f"Condition key '{cond}' must end in _min or _max."}
+
+    rets = combined.loc[mask, ret_col].dropna().to_numpy()
+    n = len(rets)
+    baseline = combined[ret_col].dropna().to_numpy()
+    base_win_rate = float(_bt_np.mean(baseline > 0)) * 100
+    base_avg_ret = float(_bt_np.mean(baseline)) * 100
+
+    if n < 10:
+        return {
+            "status": "ok", "pattern": pattern, "filters_applied": applied or ["(none — base pattern only)"],
+            "horizon_days": horizon_days, "n": n,
+            "interpretation": f"Only {n} occurrences with this filter combo — too few to evaluate (need >=10, ideally >=200 to trust). Try removing a filter.",
+        }
+
+    win_rate = float(_bt_np.mean(rets > 0)) * 100
+    avg_ret = float(_bt_np.mean(rets)) * 100
+    try:
+        _, pval = _bt_sc.ttest_ind(rets, baseline, equal_var=False)
+        pval = float(pval)
+    except Exception:
+        pval = None
+
+    edge_winrate = win_rate - base_win_rate
+    edge_avgret = avg_ret - base_avg_ret
+    improved = bool(n >= 200 and pval is not None and pval < 0.05 and edge_winrate > 0 and edge_avgret > 0)
+
+    return {
+        "status": "ok",
+        "pattern": pattern,
+        "filters_applied": applied or ["(none — base pattern only)"],
+        "horizon_days": horizon_days,
+        "n": n,
+        "win_rate_pct": round(win_rate, 1),
+        "avg_ret_pct": round(avg_ret, 2),
+        "baseline_win_rate_pct": round(base_win_rate, 1),
+        "baseline_avg_ret_pct": round(base_avg_ret, 2),
+        "edge_winrate_pp": round(edge_winrate, 1),
+        "edge_avg_ret_pp": round(edge_avgret, 2),
+        "p_value": round(pval, 5) if pval is not None else None,
+        "reliable_n": n >= 200,
+        "significant_p05": bool(pval is not None and pval < 0.05),
+        "genuinely_improved": improved,
+        "interpretation": (
+            f"n={n}, win_rate={win_rate:.1f}% (baseline {base_win_rate:.1f}%), "
+            f"avg_ret={avg_ret:.2f}% (baseline {base_avg_ret:.2f}%), p={pval}. "
+            + ("Both win-rate AND avg-return improved with a real sample and p<0.05 — this is a genuine improvement over the base pattern."
+               if improved else
+               "NOT a genuine improvement: " + (
+                   "sample too small (n<200)." if n < 200 else
+                   "not statistically significant (p>=0.05)." if (pval is None or pval >= 0.05) else
+                   "win rate improved but avg return got WORSE (or vice versa) — same win-more/pay-less trap as the base pattern." if not (edge_winrate > 0 and edge_avgret > 0) else
+                   "inconclusive."
+               ))
+        ),
+    }
+
+
 @app.route("/stock-api/candlestick-confluence", methods=["GET"])
 def candlestick_confluence_endpoint():
     """Isolated tab data source — reads the daily-scan DB table ONLY (never
@@ -32872,6 +33148,7 @@ def _build_aiem_tool_map():
         "mkt_chart_patterns":     _mkt_chart_patterns,
         "mkt_candlestick_patterns": _mkt_candlestick_patterns,
         "mkt_backtest_candlestick_confluence": _mkt_tool_backtest_candlestick_confluence,
+        "mkt_test_candlestick_indicator_combo": _mkt_tool_test_candlestick_indicator_combo,
         "mkt_screen_by_candlestick_pattern": _mkt_screen_by_candlestick_pattern,
         "mkt_screen_bullish_reversal_combo": _mkt_screen_bullish_reversal_combo,
         "mkt_screen_by_indicator": _mkt_screen_by_indicator,
@@ -34372,6 +34649,47 @@ _AIEM_AGENT_TOOLS = [
             "min_price": {"type": "number", "description": "Universe filter, matches the live scanner's own floor (default 2.0)."},
             "min_volume": {"type": "integer", "description": "Universe filter, matches the live scanner's own floor (default 100000)."},
             "max_tickers": {"type": "integer", "description": "Cap on number of tickers tested, ranked by avg dollar volume (default 2500). Lower this if the call times out."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_test_candlestick_indicator_combo",
+        "description": (
+            "Iteratively ADD or REMOVE technical-indicator filters around ONE candlestick "
+            "pattern (default bullish_marubozu) to search for a genuinely better-performing "
+            "combo than mkt_backtest_candlestick_confluence's plain confluence levels. The "
+            "FIRST call for a given start_date/end_date/min_price/min_volume/max_tickers builds "
+            "and caches the universe (~60-90s); every SUBSEQUENT call with the SAME window "
+            "params reuses the cache and returns in under a second — so call this many times "
+            "in a row trying different indicator_conditions / require_volume / require_support / "
+            "require_rsi_oversold combinations to explore the space (e.g. try ADX>=25 alone, "
+            "then add MACD histogram>=0, then swap RSI for CMF, etc). "
+            "Available indicator fields (from polygon_indicators_daily): rsi_14, stoch_k, "
+            "stoch_d, macd, macd_hist, adx_14, cmf_20, mfi_14, cci_20, williams_r, bb_pct, "
+            "roc_12, momentum_10, atr_pct, pct_from_sma20, pct_from_sma50, pct_from_sma200, "
+            "pct_from_52w_high, pct_from_52w_low. "
+            "CRITICAL: only trust a result where genuinely_improved=true (n>=200, p<0.05, AND "
+            "BOTH win_rate edge and avg_return edge are positive vs the same baseline used by "
+            "mkt_backtest_candlestick_confluence) — a high win-rate combo with a worse avg "
+            "return is the same trap the base pattern already showed, not an improvement."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "pattern": {"type": "string",
+                "enum": ["hammer", "bullish_marubozu", "bullish_engulfing", "piercing_line",
+                          "bullish_harami", "morning_star", "morning_doji_star",
+                          "three_white_soldiers", "three_inside_up", "three_outside_up",
+                          "abandoned_baby"],
+                "description": "Which candlestick pattern to filter on (default bullish_marubozu)."},
+            "horizon_days": {"type": "integer", "description": "Forward-return horizon in trading days (default 10)."},
+            "indicator_conditions": {"type": "object",
+                "description": "Dict of {field_min/field_max: value}, e.g. {'adx_14_min': 25, 'macd_hist_min': 0}. Combine freely; ANDed together and with the pattern."},
+            "require_volume": {"type": "boolean", "description": "Also require the scanner's own vol_confirmed flag (volume > 20d avg)."},
+            "require_support": {"type": "boolean", "description": "Also require the scanner's own at_support flag."},
+            "require_rsi_oversold": {"type": "boolean", "description": "Also require the scanner's own rsi_oversold flag (RSI<40)."},
+            "start_date": {"type": "string", "description": "Optional 'YYYY-MM-DD'. Must match across calls to reuse the cache. Defaults to 2 years before end_date."},
+            "end_date": {"type": "string", "description": "Optional 'YYYY-MM-DD'. Defaults to the latest date in polygon_market_daily."},
+            "min_price": {"type": "number", "description": "Universe filter (default 2.0). Must match across calls to reuse the cache."},
+            "min_volume": {"type": "integer", "description": "Universe filter (default 100000). Must match across calls to reuse the cache."},
+            "max_tickers": {"type": "integer", "description": "Universe cap (default 2500). Must match across calls to reuse the cache."},
         }, "required": []}
     }},
     {"type": "function", "function": {

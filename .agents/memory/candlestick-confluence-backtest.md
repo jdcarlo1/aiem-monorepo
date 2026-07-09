@@ -33,3 +33,29 @@ walk-forward split, survivorship bias from picking the universe by current
 liquidity, no transaction costs modeled — the tool reports these caveats
 itself every run). Admin verification endpoint:
 `/stock-api/admin/backtest-candlestick-confluence` (ADMIN_TOKEN-gated).
+
+**Indicator-combo search tool (2026-07-09):** added a second AIEM tool,
+`mkt_test_candlestick_indicator_combo`, purpose-built for cheaply iterating
+many indicator filters around ONE pattern (user wanted to try swapping/adding
+indicators around bullish_marubozu after the trap above). It caches the
+built OHLCV+pattern+indicator universe (joined from `polygon_indicators_daily`:
+rsi_14/stoch/macd/adx_14/cmf_20/mfi_14/cci_20/williams_r/bb_pct/roc_12/
+momentum_10/atr_pct/pct_from_sma20-50-200/pct_from_52w_high-low) keyed by
+(start,end,min_price,min_volume,max_tickers) for 15 min, so the first call is
+slow (~60-90s cold-build) and every later call with the SAME window params is
+near-instant — this let one AIEM session run 20+ combo tests in ~210s. Returns
+`genuinely_improved` = only true when n>=200, p<0.05, AND both win-rate edge
+and avg-return edge are positive (guards against the same win-more-pay-less
+trap). Admin verification endpoint:
+`/stock-api/admin/test-candlestick-indicator-combo` (ADMIN_TOKEN-gated).
+
+**Finding:** none of the money-flow (CMF/MFI) or trend-alignment (SMA20/50)
+filters cleared the bar. The one that did: requiring the stock be **at least
+5-10% below its 52-week high** (`pct_from_52w_high_max: -5` or `-10`) at 5d/10d
+horizons — genuinely_improved=true, independently re-verified against the raw
+tool output: 5d n=667 57.0% WR (+3.7pp) avg_ret +1.66% (+1.06pp) p=0.0024;
+10d n=650 55.7% WR (+1.8pp) avg_ret +2.46% (+1.34pp) p=0.0229; 10d @ -10%
+n=462 56.3% WR (+2.4pp) avg_ret +3.02% (+1.89pp) p=0.0156. Interpretation:
+marubozu works better as a recovery/continuation signal off a depressed base,
+not as a breakout-near-highs signal. Still in-sample/no walk-forward — same
+caveats as above apply.
