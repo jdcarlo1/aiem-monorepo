@@ -1,0 +1,65 @@
+# Verification Directive: Trust Suffix + Weekly Digest Feature
+
+**Do not summarize. Do not narrate what you did. Paste raw output only.**
+Every item below must be answered with one of: terminal output, SQL query result, git diff with file path + line numbers, or a screenshot of an actual Telegram message. If you cannot produce the raw artifact, say "I cannot produce this evidence" — do not describe what you believe happened.
+
+---
+
+## 1. Schema + live data for trust weights
+
+Run this and paste the raw output:
+
+```sql
+SELECT * FROM signal_trust_weights ORDER BY updated_at DESC LIMIT 20;
+```
+
+- How many distinct `signal_source` values currently have `n >= 5`?
+- Paste the full row for at least one source with `n >= 5` so I can see the actual win rate / weight numbers being used.
+
+## 2. Git diff for all 6 "wired" files
+
+Paste `git diff` (not a description) for each of:
+- `main.py` (`_tg_send`)
+- `aiem_process.py` (`_tg_send`)
+- `aiem_telegram_notifier.py` (`_tg_send`)
+- `aiem_selloff_reversion.py` (`_tg`)
+- `aiem_pullback_reentry.py` (`_tg`)
+- `aiem_momentum_exhaustion.py` (`_tg`)
+
+For each one, the diff must show `get_trust_display(...)` actually being called and its return value actually being appended to the outgoing message string. A call that's present but whose result is discarded (same class of bug as the bull/bear debate module) counts as a fail.
+
+## 3. Prove grading text is NOT contaminated by the suffix
+
+Pull the most recent alert that included a trust suffix, and show me:
+- The exact Telegram message sent (with suffix)
+- The exact row logged for grading purposes (should be suffix-free)
+
+```sql
+SELECT id, alert_text, source, created_at
+FROM <whatever table alert_grading.py reads from>
+ORDER BY created_at DESC LIMIT 5;
+```
+
+Confirm the column name and table name explicitly — don't assume I know it.
+
+## 4. Re-run the "fake row" test live, right now
+
+Don't tell me you already tested it and deleted the data. Insert a new temporary fake row with `n=4` and one with `n=5`, call `get_trust_display()` on both, paste the actual function output for each, then paste the `DELETE` statement you used to clean up. I want to see n=4 return `""` and n=5 return a populated suffix in the same terminal session.
+
+## 5. Scheduler registration — prove the Friday 4:50 PM ET job exists
+
+Paste the exact code block (file + line numbers) where this job is registered, and the raw output of whatever command lists active scheduled jobs on this process (e.g. APScheduler's job list, cron table, etc.) showing this job present with its next run time.
+
+## 6. "Architect review" — show the actual review, not a summary
+
+Paste the raw output/text of the second-pass review itself, not your paraphrase of it. If this was another agent call, paste its full response.
+
+## 7. Restart verification
+
+Paste the actual terminal output from both service restarts, including any stack traces or warnings — not just "came up clean."
+
+---
+
+### Pass/fail
+
+I will not treat this feature as done until every item above has a raw artifact attached. "It compiles" and "I tested it" are not evidence on their own.
