@@ -2758,6 +2758,7 @@ _OWNER_EMAIL_SCHEDULE = {
     "cta_triggers":    [(8, 38)],
     "gex_options":     [(10, 5)],
     "aiem_digest":     [(18, 55)],
+    "bullish_reversal_combo": [(8, 50)],
 }
 _EOD_SMART_MONEY_SLOT = (16, 50)
 
@@ -12807,6 +12808,7 @@ _TG_KIND_LABEL = {
     "aiem_digest":       "🤖 AIEM evening digest",
     "cta_triggers":      "📐 CTA trigger levels scan",
     "gex_options":       "⚡ GEX + Skew + Term Structure scan",
+    "bullish_reversal_combo": "🕯️ Bullish reversal combo scan (candle + SAR flip)",
 }
 
 def _owner_send_now(kind: str) -> None:
@@ -12891,6 +12893,10 @@ def _owner_send_now(kind: str) -> None:
     elif kind == "gex_options":
         # 10:05 AM ET Mon–Fri - GEX + Put/Call Skew + Term Structure from Tradier chains.
         _send_gex_options_alert()
+    elif kind == "bullish_reversal_combo":
+        # 8:50 AM ET Mon-Fri - full-market bullish candlestick + Parabolic SAR flip
+        # combo scan (the SNDK-style setup), pure Polygon daily data.
+        _send_bullish_reversal_combo_alert()
 
 
 def _owner_run_due_emails() -> dict:
@@ -26993,6 +26999,329 @@ def _mkt_candlestick_patterns(ticker, lookback=10):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# mkt_screen_by_candlestick_pattern — full-market candlestick pattern screen.
+# Same batch-fetch architecture as mkt_screen_by_indicator (universe filter
+# by price/volume, then one batched history pull), but runs the existing
+# per-ticker candlestick_patterns.detect_patterns() logic across every
+# qualifying ticker instead of requiring one ticker at a time.
+# ──────────────────────────────────────────────────────────────────────────
+_CANDLESTICK_PATTERNS_VALID = {
+    "any", "doji", "hammer", "hanging_man", "shooting_star",
+    "bullish_engulfing", "bearish_engulfing", "morning_star", "evening_star",
+}
+
+
+def _mkt_screen_by_candlestick_pattern(pattern="any", min_price=2.0, min_volume=100000,
+                                         end_date=None, top_n=50, lookback=10):
+    """Screen ALL 11,000+ stocks in the market at once for a candlestick pattern
+    (doji, hammer, hanging_man, shooting_star, bullish_engulfing, bearish_engulfing,
+    morning_star, evening_star) on the latest completed daily bar, instead of
+    checking one ticker at a time via mkt_candlestick_patterns. Pass pattern='any'
+    to return every ticker with ANY pattern detected. Use this when the user asks
+    'what stocks right now have a bullish engulfing / hammer / doji' or wants to
+    find tickers sharing the same candlestick signature another stock had before
+    a big move."""
+    import psycopg2
+    import candlestick_patterns as _cp
+    from collections import defaultdict
+
+    pattern = (pattern or "any").strip().lower()
+    if pattern not in _CANDLESTICK_PATTERNS_VALID:
+        return {"status": "error",
+                "error": f"Unknown pattern '{pattern}'. Valid options: {sorted(_CANDLESTICK_PATTERNS_VALID)}"}
+
+    lookback = max(int(lookback), 5)
+
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            if end_date:
+                cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily WHERE scan_date <= %s", [end_date])
+            else:
+                cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+            target_date = cur.fetchone()[0]
+            if not target_date:
+                return {"status": "error", "error": "No data in polygon_market_daily."}
+
+            cur.execute("""SELECT ticker, volume FROM polygon_market_daily
+                           WHERE scan_date = %s AND close_price >= %s AND volume >= %s""",
+                        [target_date, min_price, min_volume])
+            universe_rows = cur.fetchall()
+            universe = [r[0] for r in universe_rows]
+            latest_vol = {r[0]: int(r[1] or 0) for r in universe_rows}
+
+        if not universe:
+            return {"status": "error", "error": f"No tickers for {target_date}."}
+
+        # Batch-fetch OHLC history for all universe tickers (same pattern as
+        # mkt_screen_by_indicator — one batched query per 500 tickers).
+        BATCH = 500
+        bar_rows_needed = lookback + 5
+        all_raw = []
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for i in range(0, len(universe), BATCH):
+                batch = universe[i:i + BATCH]
+                ph = ",".join(["%s"] * len(batch))
+                cur.execute(f"""
+                    SELECT ticker, scan_date, open_price, high_price, low_price, close_price
+                    FROM polygon_market_daily
+                    WHERE ticker IN ({ph}) AND scan_date <= %s AND close_price > 0
+                    ORDER BY ticker, scan_date DESC
+                    LIMIT {BATCH * bar_rows_needed}
+                """, batch + [target_date])
+                all_raw.extend(cur.fetchall())
+
+        by_ticker = defaultdict(list)
+        for row in all_raw:
+            by_ticker[row[0]].append(row[1:])  # (date, open, high, low, close) DESC
+
+        results = []
+        for t, rows in by_ticker.items():
+            if len(rows) < 2:
+                continue
+            asc = list(reversed(rows[:bar_rows_needed]))  # oldest first
+            bars = [{
+                "date": str(r[0]), "open": float(r[1] or 0), "high": float(r[2] or 0),
+                "low": float(r[3] or 0), "close": float(r[4] or 0),
+            } for r in asc]
+            det = _cp.detect_patterns(bars)
+            found = det.get("patterns", [])
+            if not found:
+                continue
+            if pattern != "any" and pattern not in found:
+                continue
+            results.append({
+                "ticker": t,
+                "close": bars[-1]["close"],
+                "latest_date": bars[-1]["date"],
+                "volume": latest_vol.get(t),
+                "patterns_detected": found,
+            })
+
+        # Surface the most liquid/actionable names first — dollar volume descending.
+        results.sort(key=lambda x: (x["close"] or 0) * (x["volume"] or 0), reverse=True)
+        results = results[:top_n]
+
+        _pattern_desc = "any candlestick pattern" if pattern == "any" else f"a '{pattern}' pattern"
+        return {
+            "status": "ok",
+            "scan_date": str(target_date),
+            "pattern": pattern,
+            "tickers_scanned": len(universe),
+            "matches": len(results),
+            "results": results,
+            "interpretation": (
+                f"Found {len(results)} stocks with {_pattern_desc} "
+                f"on their latest bar as of {target_date}, out of {len(universe):,} stocks scanned "
+                f"with price>=${min_price} and volume>={int(min_volume):,}. "
+                f"Sorted by dollar volume (most liquid first)."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# mkt_screen_bullish_reversal_combo — the SNDK-style signature: a bullish
+# candlestick pattern (bullish_engulfing / hammer / morning_star) landing on
+# the SAME bar that Parabolic SAR flips from bearish (dot above price) to
+# bullish (dot below price). One signal alone (a bullish candle) is common
+# and not by itself meaningfully predictive — this requires BOTH a chart
+# pattern AND a trend-indicator confirmation together, market-wide, in one
+# pass, instead of checking tickers one at a time.
+# ──────────────────────────────────────────────────────────────────────────
+_BULLISH_CANDLESTICK_PATTERNS = {"bullish_engulfing", "hammer", "morning_star"}
+
+
+def _compute_psar_series(highs, lows, closes):
+    """Standard Parabolic SAR (AF step 0.02, max 0.20). Same algorithm used in
+    _mkt_compute_indicators, factored out so the market-wide combo screener
+    doesn't duplicate divergent SAR logic."""
+    n = len(closes)
+    psar = [None] * n
+    if n < 2:
+        return psar
+    _af_step = 0.02
+    _af_max = 0.20
+    _bull = closes[1] > closes[0]
+    _sar = lows[0] if _bull else highs[0]
+    _ep = highs[0] if _bull else lows[0]
+    _af = _af_step
+    for i in range(1, n):
+        _sar_new = _sar + _af * (_ep - _sar)
+        if _bull:
+            _sar_new = min(_sar_new, lows[i - 1], lows[max(0, i - 2)])
+            if closes[i] < _sar_new:
+                _bull = False
+                _sar_new = _ep
+                _ep = lows[i]
+                _af = _af_step
+            elif highs[i] > _ep:
+                _ep = highs[i]
+                _af = min(_af + _af_step, _af_max)
+        else:
+            _sar_new = max(_sar_new, highs[i - 1], highs[max(0, i - 2)])
+            if closes[i] > _sar_new:
+                _bull = True
+                _sar_new = _ep
+                _ep = highs[i]
+                _af = _af_step
+            elif lows[i] < _ep:
+                _ep = lows[i]
+                _af = min(_af + _af_step, _af_max)
+        _sar = _sar_new
+        psar[i] = round(_sar, 4)
+    return psar
+
+
+def _mkt_screen_bullish_reversal_combo(min_price=2.0, min_volume=100000, end_date=None,
+                                        top_n=50, require_sar_flip=True,
+                                        bullish_patterns=None, sar_bars=60):
+    """Screen ALL 11,000+ stocks in the market at once for the SNDK-style bullish
+    reversal signature: a bullish candlestick pattern (bullish_engulfing, hammer,
+    or morning_star by default) occurring on the SAME latest bar that Parabolic
+    SAR flips from bearish to bullish (dot moves from above price to below price).
+    This combo — chart pattern + indicator confirmation together — is what a
+    discretionary trader actually looks for; a bullish candle alone is common
+    and not by itself meaningfully predictive. Set require_sar_flip=False to
+    also see plain candlestick-only matches for comparison, and use
+    bullish_patterns to override the default pattern set. This is a descriptive
+    market scan for chart-pattern research, not a backtested/validated trading
+    signal — no win-rate claim is made until AIEM statistically tests it."""
+    import psycopg2
+    import candlestick_patterns as _cp
+    from collections import defaultdict
+
+    bullish_set = (
+        {p.strip().lower() for p in bullish_patterns}
+        if bullish_patterns else set(_BULLISH_CANDLESTICK_PATTERNS)
+    )
+    sar_bars = max(int(sar_bars), 30)
+
+    try:
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            if end_date:
+                cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily WHERE scan_date <= %s", [end_date])
+            else:
+                cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+            target_date = cur.fetchone()[0]
+            if not target_date:
+                return {"status": "error", "error": "No data in polygon_market_daily."}
+
+            cur.execute("""SELECT ticker, volume FROM polygon_market_daily
+                           WHERE scan_date = %s AND close_price >= %s AND volume >= %s""",
+                        [target_date, min_price, min_volume])
+            universe_rows = cur.fetchall()
+            universe = [r[0] for r in universe_rows]
+            latest_vol = {r[0]: int(r[1] or 0) for r in universe_rows}
+
+        if not universe:
+            return {"status": "error", "error": f"No tickers for {target_date}."}
+
+        # Batch-fetch OHLC history for all universe tickers (same pattern as
+        # mkt_screen_by_indicator / mkt_screen_by_candlestick_pattern).
+        BATCH = 500
+        all_raw = []
+        with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
+            for i in range(0, len(universe), BATCH):
+                batch = universe[i:i + BATCH]
+                ph = ",".join(["%s"] * len(batch))
+                cur.execute(f"""
+                    SELECT ticker, scan_date, open_price, high_price, low_price, close_price
+                    FROM polygon_market_daily
+                    WHERE ticker IN ({ph}) AND scan_date <= %s AND close_price > 0
+                    ORDER BY ticker, scan_date DESC
+                    LIMIT {BATCH * sar_bars}
+                """, batch + [target_date])
+                all_raw.extend(cur.fetchall())
+
+        by_ticker = defaultdict(list)
+        for row in all_raw:
+            by_ticker[row[0]].append(row[1:])  # (date, open, high, low, close) DESC
+
+        results = []
+        sar_flip_count = 0
+        candle_only_count = 0
+        for t, rows in by_ticker.items():
+            if len(rows) < 15:
+                continue
+            asc = list(reversed(rows))  # oldest first
+            dates = [str(r[0]) for r in asc]
+            opens = [float(r[1] or 0) for r in asc]
+            highs = [float(r[2] or 0) for r in asc]
+            lows = [float(r[3] or 0) for r in asc]
+            closes = [float(r[4] or 0) for r in asc]
+
+            bars = [{"date": dates[i], "open": opens[i], "high": highs[i],
+                     "low": lows[i], "close": closes[i]} for i in range(len(asc))]
+            det = _cp.detect_patterns(bars)
+            found = det.get("patterns", [])
+            bullish_found = [p for p in found if p in bullish_set]
+
+            psar = _compute_psar_series(highs, lows, closes)
+            sar_flip = False
+            if len(psar) >= 2 and psar[-1] is not None and psar[-2] is not None:
+                bearish_before = psar[-2] > closes[-2]
+                bullish_now = psar[-1] < closes[-1]
+                sar_flip = bearish_before and bullish_now
+
+            if sar_flip:
+                sar_flip_count += 1
+            if bullish_found and not sar_flip:
+                candle_only_count += 1
+
+            if not bullish_found:
+                continue
+            if require_sar_flip and not sar_flip:
+                continue
+
+            results.append({
+                "ticker": t,
+                "close": closes[-1],
+                "latest_date": dates[-1],
+                "volume": latest_vol.get(t),
+                "bullish_patterns_detected": bullish_found,
+                "all_patterns_detected": found,
+                "sar_flip_bullish": sar_flip,
+                "psar_latest": psar[-1],
+            })
+
+        results.sort(key=lambda x: (x["close"] or 0) * (x["volume"] or 0), reverse=True)
+        results = results[:top_n]
+
+        if require_sar_flip:
+            combo_desc = (
+                f"a bullish candlestick pattern ({'/'.join(sorted(bullish_set))}) "
+                f"landing on the same bar as a Parabolic SAR flip to bullish"
+            )
+        else:
+            combo_desc = f"a bullish candlestick pattern ({'/'.join(sorted(bullish_set))})"
+
+        return {
+            "status": "ok",
+            "scan_date": str(target_date),
+            "require_sar_flip": require_sar_flip,
+            "bullish_patterns_checked": sorted(bullish_set),
+            "tickers_scanned": len(universe),
+            "matches": len(results),
+            "candlestick_only_no_sar_flip_count": candle_only_count,
+            "sar_flip_bullish_count_all": sar_flip_count,
+            "results": results,
+            "interpretation": (
+                f"Found {len(results)} stocks with {combo_desc} "
+                f"on their latest bar as of {target_date}, out of {len(universe):,} stocks scanned "
+                f"with price>=${min_price} and volume>={int(min_volume):,}. "
+                f"For context: {candle_only_count} more stocks had a bullish candle WITHOUT the SAR "
+                f"flip (weaker signal, shown for comparison only if you widen the scan). "
+                f"This is a descriptive chart-pattern scan, not a backtested win-rate claim — "
+                f"run it through AIEM's statistical test tools before treating it as a trading edge. "
+                f"Sorted by dollar volume (most liquid first)."
+            ),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # mkt_screen_by_indicator — full-market screen by any technical indicator
 # Supports all Barchart-style indicators: RSI, Stochastic, Williams %R,
 # CCI, MACD, ADX, OBV, MFI, CMF, all MAs/EMAs, pct-from-MA, ROC, ATR.
@@ -31931,6 +32260,8 @@ def _build_aiem_tool_map():
         "mkt_price_structure":    _mkt_price_structure,
         "mkt_chart_patterns":     _mkt_chart_patterns,
         "mkt_candlestick_patterns": _mkt_candlestick_patterns,
+        "mkt_screen_by_candlestick_pattern": _mkt_screen_by_candlestick_pattern,
+        "mkt_screen_bullish_reversal_combo": _mkt_screen_bullish_reversal_combo,
         "mkt_screen_by_indicator": _mkt_screen_by_indicator,
         "mkt_historical_study":   _mkt_historical_study,
         # ── Dealer Positioning: GEX / Skew / Term Structure / CTA ─────────────
@@ -33402,6 +33733,57 @@ _AIEM_AGENT_TOOLS = [
             "ticker":   {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
             "lookback": {"type": "integer", "description": "Prior bars to include for trend context (default 10)."},
         }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_screen_by_candlestick_pattern",
+        "description": (
+            "Screen ALL 11,000+ stocks in the market AT ONCE for a candlestick pattern on their "
+            "latest completed daily bar — doji, hammer, hanging_man, shooting_star, "
+            "bullish_engulfing, bearish_engulfing, morning_star, evening_star. Pass pattern='any' "
+            "to get every ticker with ANY pattern detected right now. Unlike mkt_candlestick_patterns "
+            "(which only checks one ticker you already named), this scans the whole market and "
+            "returns matching tickers sorted by dollar volume. Use this when the user asks 'what "
+            "stocks right now have a bullish engulfing/hammer/doji' or wants to find OTHER tickers "
+            "sharing the same candlestick signature a stock had right before a big move."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "pattern": {"type": "string",
+                "enum": ["any", "doji", "hammer", "hanging_man", "shooting_star",
+                          "bullish_engulfing", "bearish_engulfing", "morning_star", "evening_star"],
+                "description": "Pattern to match, or 'any' for all patterns (default 'any')."},
+            "min_price":  {"type": "number", "description": "Min stock price (default $2)."},
+            "min_volume": {"type": "number", "description": "Min daily volume (default 100,000)."},
+            "end_date":   {"type": "string", "description": "Screen as of this date 'YYYY-MM-DD' (default latest)."},
+            "top_n":      {"type": "integer", "description": "Max results (default 50)."},
+            "lookback":   {"type": "integer", "description": "Prior bars used for trend context per ticker (default 10)."},
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_screen_bullish_reversal_combo",
+        "description": (
+            "Screen ALL 11,000+ stocks in the market AT ONCE for the SNDK-style bullish "
+            "reversal signature: a bullish candlestick pattern (bullish_engulfing, hammer, or "
+            "morning_star by default) landing on the SAME latest bar that Parabolic SAR flips "
+            "from bearish to bullish (dot moves from above price to below price). This is the "
+            "combo the user cares about most — a chart pattern alone is common and weak; "
+            "requiring the SAR flip too is what makes it a meaningful reversal signature. Use "
+            "this whenever the user asks to scan the whole market for 'stocks with a bullish "
+            "candle and a SAR flip', wants the daily bullish-reversal watchlist, or wants to "
+            "find every other ticker sharing the setup a stock had right before a big move. "
+            "Set require_sar_flip=False only if explicitly asked to see candlestick-only matches "
+            "for comparison. This is a descriptive scan, not a validated trading signal — say so "
+            "and offer to backtest it with AIEM's statistical tools if the user wants a real win rate."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_price":  {"type": "number", "description": "Min stock price (default $2)."},
+            "min_volume": {"type": "number", "description": "Min daily volume (default 100,000)."},
+            "end_date":   {"type": "string", "description": "Screen as of this date 'YYYY-MM-DD' (default latest)."},
+            "top_n":      {"type": "integer", "description": "Max results (default 50)."},
+            "require_sar_flip": {"type": "boolean",
+                "description": "Require the same-bar SAR flip to bullish (default true — the real combo)."},
+            "bullish_patterns": {"type": "array", "items": {"type": "string"},
+                "description": "Override the default bullish pattern set (bullish_engulfing, hammer, morning_star)."},
+        }, "required": []}
     }},
     {"type": "function", "function": {
         "name": "mkt_layer9_score",
@@ -58996,6 +59378,82 @@ def _send_gex_options_alert() -> None:
         print(f"[gex_options] error: {_e}\n{traceback.format_exc()}")
 
 
+# ── Bullish Reversal Combo Alert (candlestick + Parabolic SAR flip) ─────────
+
+def _send_bullish_reversal_combo_alert() -> None:
+    """8:50 AM ET Mon-Fri: full-market scan for the SNDK-style bullish reversal
+    signature (bullish candlestick pattern + same-bar Parabolic SAR flip to
+    bullish), send Telegram, and log every match to signal_fire_log for future
+    AIEM backtesting. Runs on the most recently completed session (no live
+    intraday full-market data available — same pattern as the other
+    pre-market Polygon scans). Dedups against signal_fire_log so an app
+    restart after the scheduled slot never re-sends the same day's alert."""
+    import psycopg2 as _brc_pg2
+    try:
+        _res = _mkt_screen_bullish_reversal_combo(min_price=2.0, min_volume=200000,
+                                                    top_n=25, require_sar_flip=True)
+        if _res.get("status") != "ok":
+            print(f"[bullish_reversal_combo] scan error: {_res.get('error')}")
+            return
+
+        _scan_date = _res["scan_date"]
+        _matches = _res.get("results", [])
+
+        # Dedup: if today's date already has logged fires for this signal, an
+        # earlier run (or restart) already sent the alert — skip re-sending.
+        _ensure_signal_fire_log()
+        with _brc_pg2.connect(os.environ["DATABASE_URL"]) as _bc:
+            with _bc.cursor() as _bcu:
+                _bcu.execute(
+                    "SELECT COUNT(*) FROM signal_fire_log WHERE signal_name=%s AND fire_date=%s",
+                    ("bullish_reversal_combo", _scan_date),
+                )
+                _already_sent = _bcu.fetchone()[0] > 0
+
+        if _already_sent:
+            print(f"[bullish_reversal_combo] already sent for {_scan_date} — skipping duplicate Telegram alert")
+            return
+
+        if not _matches:
+            _tg_send(
+                f"🕯️ Bullish Reversal Combo Scan · {_scan_date}\n"
+                f"No stocks matched bullish candle + SAR-flip today "
+                f"({_res.get('tickers_scanned', 0):,} scanned, "
+                f"{_res.get('candlestick_only_no_sar_flip_count', 0)} had the candle alone)."
+            )
+            return
+
+        _tg_lines = [
+            f"🕯️ Bullish Reversal Combo Scan · {_scan_date}",
+            f"{len(_matches)} stocks: bullish candle + same-bar Parabolic SAR flip to bullish",
+            f"(SNDK-style setup — descriptive scan, not a validated win rate)",
+        ]
+        for _m in _matches[:15]:
+            _pats = "/".join(_m.get("bullish_patterns_detected", []))
+            _tg_lines.append(
+                f"  {_m['ticker']}  ${_m['close']:.2f}  {_pats}  vol={_m.get('volume') or 0:,}"
+            )
+        if len(_matches) > 15:
+            _tg_lines.append(f"  …+{len(_matches) - 15} more (see AIEM chat for full list)")
+        _tg_send("\n".join(_tg_lines))
+
+        for _m in _matches:
+            log_signal_fired(
+                "bullish_reversal_combo", _m["ticker"], _scan_date, _m.get("close"),
+                metadata={
+                    "bullish_patterns": _m.get("bullish_patterns_detected"),
+                    "all_patterns": _m.get("all_patterns_detected"),
+                    "sar_flip_bullish": _m.get("sar_flip_bullish"),
+                    "psar_latest": _m.get("psar_latest"),
+                    "volume": _m.get("volume"),
+                },
+            )
+        print(f"[bullish_reversal_combo] {_scan_date}: {len(_matches)} matches sent + logged")
+    except Exception as _e:
+        import traceback
+        print(f"[bullish_reversal_combo] error: {_e}\n{traceback.format_exc()}")
+
+
 @app.route("/stock-api/admin/run-gex-options", methods=["POST"])
 def admin_run_gex_options():
     """Admin: trigger GEX + Skew + Term Structure scan immediately."""
@@ -59016,6 +59474,17 @@ def admin_run_cta_triggers():
     import threading as _cta_thr
     _cta_thr.Thread(target=_send_cta_triggers_alert, daemon=True).start()
     return jsonify({"status": "ok", "message": "CTA trigger scan triggered"})
+
+
+@app.route("/stock-api/admin/run-bullish-reversal-combo", methods=["POST"])
+def admin_run_bullish_reversal_combo():
+    """Admin: trigger the bullish candlestick + Parabolic SAR flip combo scan immediately."""
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    import threading as _brc_thr
+    _brc_thr.Thread(target=_send_bullish_reversal_combo_alert, daemon=True).start()
+    return jsonify({"status": "ok", "message": "Bullish reversal combo scan triggered"})
 
 
 @app.route("/stock-api/admin/run-module2-decay", methods=["POST"])

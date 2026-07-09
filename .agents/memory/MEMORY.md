@@ -1,4 +1,5 @@
 - [RVOL/Gap/CloseStrength 3PM combo alert](rvol-gap-closestrength-3pm-alert.md) — PAUSED 2026-07-09: 76-87% WR was a `_mkt_run_two_group` LEAD()-after-filter bug (fixed); real edge is ~0 at all horizons
+- [Bullish reversal combo signal](bullish-reversal-combo-signal.md) — SNDK-style candlestick+PSAR-flip same-bar combo; daily scan auto-wires via `_OWNER_EMAIL_SCHEDULE` dict, no explicit add_job needed
 - [artifact.toml service registration gap](artifact-toml-service-registration-gap.md) — a background script that only exists as a `.replit` dev workflow (not an artifact.toml `[[services]]` block) never runs in production, with zero errors surfaced
 - [aiem_open_watcher Decimal crash](aiem-open-watcher-decimal-crash.md) — Decimal(DB NUMERIC) * float TypeError silently aborted the daily S1B/S1C/S1D alert on every day live prices were actually available; fix = float() both operands
 - [Thompson sampler wiring complete](thompson-wiring-complete.md) — GATE 3 wired into _aiem_paper_pick_candidates(); multiplier chain is in-place mutations not a single line
@@ -152,3 +153,4 @@
 - [Backtest delegation rule](backtest-delegation-rule.md) — ALL backtesting/historical analysis must go to AIEM, never run by main agent; only file edits stay with main agent
 - [AIEM Pipeline Audit + closed-loop gaps](aiem-pipeline-audit.md) — cryptographic trace per paper trade, 4 admin endpoints, 13-module PASS/FAIL, learning loop 8 stages; all 5 audit gaps since closed (aiem-closed-loop-gaps.md) via aiem_closed_loop_learning.py, 4 new tables
 - [Workstream D RVOL artifact fix](aiem-workstream-d-rvol-artifact-fix.md) — no RVOL ceiling + score-saturation bug let 500-11,000x volume-ratio data artifacts dominate Independent Picks; fixed with rvol<=40 gate + rebalanced weight
+- [Market-wide candlestick pattern screener](mkt-screen-by-candlestick-pattern.md) — new AIEM tool scans ALL tickers at once for a pattern (vs old per-ticker-only tool); nested f-string-with-backslash SyntaxError gotcha
