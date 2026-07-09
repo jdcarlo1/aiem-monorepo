@@ -1,3 +1,4 @@
+- [Telegram alert trust/audit pipeline](telegram-alert-trust-pipeline.md) — app-wide ledger+grading+soft-gate trust suffix/digest; Phase 4 done, Phase 5 hard-gating deferred (n>=20/source + approval)
 - [RVOL/Gap/CloseStrength 3PM combo alert](rvol-gap-closestrength-3pm-alert.md) — PAUSED 2026-07-09: 76-87% WR was a `_mkt_run_two_group` LEAD()-after-filter bug (fixed); real edge is ~0 at all horizons
 - [Bullish reversal combo signal](bullish-reversal-combo-signal.md) — SNDK-style candlestick+PSAR-flip same-bar combo; daily scan auto-wires via `_OWNER_EMAIL_SCHEDULE` dict, no explicit add_job needed
 - [Candlestick Confluence isolated scanner](candlestick-confluence-isolated-scanner.md) — user's attached backtester script wired as a fully isolated tab/table/alert, NOT into any scoring loop, per explicit user decision; reusable isolated-signal template

@@ -418,39 +418,95 @@ def _tradier_live_update(candidates: list) -> list:
 # ─────────────────────────────────────────────────────────────
 # HELPERS: ALERT
 # ─────────────────────────────────────────────────────────────
-def _tg_send(message: str) -> bool:
-    """Send a Telegram message. Returns True if API responded ok:true."""
+def _tg_send(message: str, *, signal_source: str = "aiem_process_nanocap",
+             ticker: str = None, alert_class: str = "SIGNAL",
+             audit_trace_id: str = None, trigger_price: float = None,
+             is_test: bool = False) -> bool:
+    """Send a Telegram message. Returns True if API responded ok:true.
+
+    Defaults to alert_class='SIGNAL' under signal_source='aiem_process_nanocap'
+    since every alert this process sends is a ticker-bearing nano-cap pick —
+    this is the one sender where 'SIGNAL' is the correct default rather than
+    an opt-in, so it starts building a TELEGRAM_ALERTS trust history
+    immediately. Logging is fail-open via alert_gateway and never blocks
+    or is blocked by the actual Telegram send."""
+    send_text = message
+    if alert_class == "SIGNAL" and signal_source != "unclassified":
+        try:
+            import alert_gateway as _ag_trust
+            send_text = message + _ag_trust.get_trust_display(signal_source)
+        except Exception as _te:
+            log.warning(f"trust display error (non-fatal): {_te}")
+    ok = False
     if not TG_TOKEN or not TG_CHAT_ID:
         log.warning("_tg_send: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set")
-        return False
+        ok = False
+    else:
+        try:
+            payload = json.dumps({
+                "chat_id":    TG_CHAT_ID,
+                "text":       send_text,
+                "parse_mode": "HTML",
+            }).encode()
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                resp = json.loads(r.read())
+                ok = resp.get("ok", False)
+                if ok:
+                    log.info(f"Telegram sent: {message[:60]}…")
+                else:
+                    log.warning(f"Telegram API error: {resp}")
+        except Exception as _e:
+            log.warning(f"Telegram send failed: {_e}")
+            ok = False
     try:
-        payload = json.dumps({
-            "chat_id":    TG_CHAT_ID,
-            "text":       message,
-            "parse_mode": "HTML",
-        }).encode()
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
-            resp = json.loads(r.read())
-            ok = resp.get("ok", False)
-            if ok:
-                log.info(f"Telegram sent: {message[:60]}…")
-            else:
-                log.warning(f"Telegram API error: {resp}")
-            return ok
-    except Exception as e:
-        log.warning(f"_tg_send error: {e}")
-        return False
+        import alert_gateway as _ag
+        _ag.log_alert(message, signal_source=signal_source, ticker=ticker,
+                       alert_class=alert_class, audit_trace_id=audit_trace_id,
+                       trigger_price=trigger_price, is_test=is_test, sent_ok=ok)
+    except Exception as _ge:
+        log.warning(f"alert_gateway logging error (non-fatal): {_ge}")
+    return ok
 
 
 def _send_alert(message: str) -> None:
-    """Backward-compat wrapper — delegates to Telegram."""
-    _tg_send(message)
+    """Backward-compat wrapper — delegates to Telegram.
+
+    This is used for the combined multi-pick daily summary, so the whole
+    message is logged as alert_class='INFO' (not gradeable on its own);
+    per-ticker SIGNAL rows for the individual picks are logged separately
+    by the caller via _log_pick_signals() so each ticker+price gets its
+    own gradeable row.
+    """
+    _tg_send(message, alert_class="INFO")
+
+
+def _log_pick_signals(qualifiers: list, sent_ok: bool) -> None:
+    """Log one gradeable SIGNAL row per ticker pick that has a real live
+    price (cur_price > 0). Fallback picks scored on premarket data only
+    (cur_price == 0.0) have no real trigger_price to grade against, so
+    they are skipped rather than logged with a fake price."""
+    try:
+        import alert_gateway as _ag, uuid as _uuid
+        trace_id = f"aiem_process_nanocap_{_uuid.uuid4().hex[:12]}"
+        for q in qualifiers:
+            price = q.get("price") or 0
+            if not price:
+                continue
+            _ag.log_alert(
+                f"{q['ticker']} sig={q.get('sig')} conf={q.get('conf')} "
+                f"price={price} stop={q.get('stop')}",
+                signal_source="aiem_process_nanocap", ticker=q["ticker"],
+                alert_class="SIGNAL", audit_trace_id=trace_id,
+                trigger_price=price, sent_ok=sent_ok,
+            )
+    except Exception as _ge:
+        log.warning(f"_log_pick_signals: alert_gateway logging error (non-fatal): {_ge}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -890,7 +946,8 @@ def aiem_open_watcher():
             conn.commit()
             return
 
-        _send_alert("\n".join(lines))
+        _sent_ok = _tg_send("\n".join(lines), alert_class="INFO")
+        _log_pick_signals(qualifiers, _sent_ok)
 
         # Log as sent so we don't fire again today
         cur.execute("""

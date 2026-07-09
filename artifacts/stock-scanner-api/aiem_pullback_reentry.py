@@ -546,20 +546,32 @@ def _save(sig: dict, tg_sent: bool = False) -> None:
 
 # ── Telegram ───────────────────────────────────────────────────────────────────
 
-def _tg(text: str) -> None:
+def _tg(text: str, *, ticker: str = None, trigger_price: float = None) -> None:
     import urllib.request as _u
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
-    if not token or not chat_id:
-        return
+    send_text = text
     try:
-        payload = json.dumps({"chat_id": chat_id, "text": text}).encode()
-        req = _u.Request(f"https://api.telegram.org/bot{token}/sendMessage",
-                         data=payload, headers={"Content-Type": "application/json"})
-        with _u.urlopen(req, timeout=8):
-            pass
-    except Exception as e:
-        print(f"[pullback_reentry] telegram error: {e}")
+        import alert_gateway as _ag_trust
+        send_text = text + _ag_trust.get_trust_display("pullback_reentry")
+    except Exception as _te:
+        print(f"[pullback_reentry] trust display error (non-fatal): {_te}")
+    ok = False
+    if token and chat_id:
+        try:
+            payload = json.dumps({"chat_id": chat_id, "text": send_text}).encode()
+            req = _u.Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                             data=payload, headers={"Content-Type": "application/json"})
+            with _u.urlopen(req, timeout=8):
+                ok = True
+        except Exception as e:
+            print(f"[pullback_reentry] telegram error: {e}")
+    try:
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source="pullback_reentry", ticker=ticker,
+                       alert_class="SIGNAL", trigger_price=trigger_price, sent_ok=ok)
+    except Exception as _ge:
+        print(f"[pullback_reentry] alert_gateway logging error (non-fatal): {_ge}")
 
 def _format_alert(sig: dict) -> str:
     lines = [
@@ -629,7 +641,7 @@ def run_scan() -> dict:
                     if sig:
                         _save(sig, tg_sent=False)
                         if sig["state"] == "CONFIRMED":
-                            _tg(_format_alert(sig))
+                            _tg(_format_alert(sig), ticker=ticker, trigger_price=closes[-1])
                             _save(sig, tg_sent=True)
                         fired += 1
                     else:

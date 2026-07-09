@@ -52,23 +52,42 @@ def _market_open() -> bool:
 
 # ── Self-contained Telegram sender ────────────────────────────────────────────
 
-def _tg(text: str) -> bool:
+def _tg(text: str, *, ticker: str = None, alert_class: str = "SIGNAL",
+        audit_trace_id: str = None, trigger_price: float = None,
+        is_test: bool = False) -> bool:
     import urllib.request as _u
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    send_text = text
+    if alert_class == "SIGNAL":
+        try:
+            import alert_gateway as _ag_trust
+            send_text = text + _ag_trust.get_trust_display("selloff_reversion")
+        except Exception as _te:
+            print(f"[bounce] trust display error (non-fatal): {_te}")
+    ok = False
     if not token or not chat_id:
-        return False
+        ok = False
+    else:
+        try:
+            payload = json.dumps({"chat_id": chat_id, "text": send_text}).encode()
+            req = _u.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload, headers={"Content-Type": "application/json"},
+            )
+            with _u.urlopen(req, timeout=8) as r:
+                ok = json.loads(r.read()).get("ok", False)
+        except Exception as e:
+            print(f"[bounce] telegram error: {e}")
+            ok = False
     try:
-        payload = json.dumps({"chat_id": chat_id, "text": text}).encode()
-        req = _u.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=payload, headers={"Content-Type": "application/json"},
-        )
-        with _u.urlopen(req, timeout=8) as r:
-            return json.loads(r.read()).get("ok", False)
-    except Exception as e:
-        print(f"[bounce] telegram error: {e}")
-        return False
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source="selloff_reversion", ticker=ticker,
+                       alert_class=alert_class, audit_trace_id=audit_trace_id,
+                       trigger_price=trigger_price, is_test=is_test, sent_ok=ok)
+    except Exception as _ge:
+        print(f"[bounce] alert_gateway logging error (non-fatal): {_ge}")
+    return ok
 
 # ── Technical indicators ───────────────────────────────────────────────────────
 
@@ -477,15 +496,17 @@ def refire_overnight_signals() -> None:
         for row in rows:
             rec = dict(zip(cols, row))
             gap = 0.0
+            close_price = None
             try:
                 with psycopg2.connect(_DB_URL) as c2, c2.cursor() as cu2:
                     cu2.execute(
-                        "SELECT gap_pct FROM polygon_market_daily "
+                        "SELECT gap_pct, close_price FROM polygon_market_daily "
                         "WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1",
                         (rec["ticker"],),
                     )
                     r = cu2.fetchone()
                     gap = float(r[0]) if r and r[0] else 0.0
+                    close_price = float(r[1]) if r and r[1] else None
             except Exception:
                 pass
 
@@ -507,7 +528,7 @@ def refire_overnight_signals() -> None:
                     "state": "CONFIRMED",
                     "fundamental_check_status": "NOT_IMPLEMENTED",
                 }, overnight=True)
-                _tg(msg)
+                _tg(msg, ticker=rec["ticker"], trigger_price=close_price)
 
             try:
                 with psycopg2.connect(_DB_URL) as c3, c3.cursor() as cu3:
@@ -608,7 +629,8 @@ def run_scan() -> dict:
                 _save_signal(sig, tg_sent=send_now)
 
                 if send_now:
-                    _tg(_format_alert(sig))
+                    _tg(_format_alert(sig), ticker=sig["ticker"],
+                        trigger_price=d["closes"][-1])
                     _TG_COOLDOWN[ticker] = _et_now()
                     alerted.append(ticker)
                 elif sig["state"] == "CONFIRMED":

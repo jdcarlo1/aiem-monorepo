@@ -1641,6 +1641,17 @@ def _init_d2_subcheck_log_schema():
 _DEFERRED_INITS.append(_init_d2_subcheck_log_schema)
 
 
+def _init_alert_gateway_schema():
+    try:
+        import alert_gateway as _ag
+        _ag.init_schema()
+    except Exception as _e:
+        print(f"[alert_gateway] deferred init error: {_e}")
+
+
+_DEFERRED_INITS.append(_init_alert_gateway_schema)
+
+
 def _dc_cfg_get(key: str) -> str:
     """Read a single key from discovery_cycle_config. Returns '' on miss."""
     try:
@@ -5813,6 +5824,56 @@ try:
         _run_insider_outcomes,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=37, timezone=_ET),
         id="insider_outcomes_check",
+        replace_existing=True,
+    )
+
+    # Telegram alert ledger grading: Mon-Fri 4:38 PM ET - fills D1/D3/D5 forward
+    # returns for every SIGNAL-class Telegram alert app-wide and feeds the
+    # TELEGRAM_ALERTS trust bucket. No _intraday_scan_allowed() guard - this
+    # runs after market close (guard ceiling is 4:30 PM so scheduler jitter
+    # would silently block it). Cron trigger already limits to Mon-Fri.
+    def _run_alert_ledger_grading():
+        from datetime import date as _algd
+        import pytz as _algptz
+        from datetime import datetime as _algdtm
+        _US_MARKET_HOLIDAYS_2026 = frozenset({
+            _algd(2026, 1, 1), _algd(2026, 1, 19), _algd(2026, 2, 16),
+            _algd(2026, 4, 3), _algd(2026, 5, 25), _algd(2026, 6, 19),
+            _algd(2026, 7, 3), _algd(2026, 9, 7),  _algd(2026, 11, 26),
+            _algd(2026, 12, 25),
+        })
+        if _algdtm.now(_algptz.timezone("America/New_York")).date() in _US_MARKET_HOLIDAYS_2026:
+            print("[scheduler] alert ledger grading skipped - market holiday")
+            return
+        try:
+            import alert_grading
+            alert_grading.run_daily_grading()
+        except Exception as e:
+            print(f"[scheduler] alert ledger grading error: {e}")
+    _scheduler.add_job(
+        _run_alert_ledger_grading,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=38, timezone=_ET),
+        id="alert_ledger_grading",
+        replace_existing=True,
+    )
+
+    # Weekly Telegram alert trust digest: Fri 4:50 PM ET, after the day's
+    # 4:38 PM grading run so the week's final grades are included. Purely
+    # informational (Phase 4 soft-gate) - no holiday check needed since it's
+    # a summary, not market-data dependent; skips send if there are no
+    # SIGNAL-class alerts logged yet at all.
+    def _run_weekly_alert_digest():
+        try:
+            import alert_grading
+            digest_text = alert_grading.build_weekly_digest()
+            if digest_text:
+                _tg_send(digest_text, signal_source="alert_trust_digest", alert_class="INFO")
+        except Exception as e:
+            print(f"[scheduler] weekly alert trust digest error: {e}")
+    _scheduler.add_job(
+        _run_weekly_alert_digest,
+        CronTrigger(day_of_week="fri", hour=16, minute=50, timezone=_ET),
+        id="weekly_alert_trust_digest",
         replace_existing=True,
     )
 
@@ -13160,27 +13221,53 @@ def _send_owner_chart(kind: str, title: str, tickers, caption: str = None) -> bo
         return False
 
 
-def _tg_send(text: str) -> bool:
+def _tg_send(text: str, *, signal_source: str = "unclassified", ticker: str = None,
+             alert_class: str = "INFO", audit_trace_id: str = None,
+             trigger_price: float = None, is_test: bool = False) -> bool:
     """Send a Telegram message to the owner chat. Returns True on success.
     Reads TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID from env; strips whitespace from
     the token automatically (guards against mobile-keyboard space corruption).
-    Silent no-op when credentials are not configured."""
+    Silent no-op when credentials are not configured.
+
+    Every call is also logged (fail-open, never blocks the send) to
+    telegram_alert_ledger via alert_gateway.log_alert(). Callers that don't
+    pass signal_source/alert_class keep working exactly as before, tagged
+    'unclassified'/'INFO' (never graded). Pass alert_class='SIGNAL' plus a
+    real signal_source + ticker for any alert that should build a trust
+    track record under the 'TELEGRAM_ALERTS' bucket."""
     import urllib.request as _ulr, json as _jmod
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN",  "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    _send_text = text
+    if alert_class == "SIGNAL" and signal_source != "unclassified":
+        try:
+            import alert_gateway as _ag_trust
+            _send_text = text + _ag_trust.get_trust_display(signal_source)
+        except Exception as _te:
+            print(f"[telegram] trust display error (non-fatal): {_te}")
+    _ok = False
     if not token or not chat_id:
-        return False
+        _ok = False
+    else:
+        try:
+            payload = _jmod.dumps({"chat_id": chat_id, "text": _send_text}).encode()
+            req = _ulr.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload, headers={"Content-Type": "application/json"}
+            )
+            with _ulr.urlopen(req, timeout=8) as r:
+                _ok = _jmod.loads(r.read()).get("ok", False)
+        except Exception as _e:
+            print(f"[telegram] send error: {_e}")
+            _ok = False
     try:
-        payload = _jmod.dumps({"chat_id": chat_id, "text": text}).encode()
-        req = _ulr.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=payload, headers={"Content-Type": "application/json"}
-        )
-        with _ulr.urlopen(req, timeout=8) as r:
-            return _jmod.loads(r.read()).get("ok", False)
-    except Exception as _e:
-        print(f"[telegram] send error: {_e}")
-        return False
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source=signal_source, ticker=ticker,
+                       alert_class=alert_class, audit_trace_id=audit_trace_id,
+                       trigger_price=trigger_price, is_test=is_test, sent_ok=_ok)
+    except Exception as _ge:
+        print(f"[telegram] alert_gateway logging error (non-fatal): {_ge}")
+    return _ok
 
 
 def _aiem_daily_price_options_alert() -> None:
@@ -13242,7 +13329,20 @@ def _aiem_daily_price_options_alert() -> None:
             _lines.append(f"   2d price: {_sign}{float(_chg or 0):.1f}%  (${float(_p2 or 0):.2f} → ${float(_p1 or 0):.2f})")
             _lines.append(f"   Calls: {_hits} hits · ${_prem_m:.1f}M prem · Max vol/OI: {float(_voi or 0):.1f}x")
         _lines += ["", "StockScanner AI · Not financial advice"]
-        _tg_send("\n".join(_lines))
+        _ok_dpa = _tg_send("\n".join(_lines), signal_source="daily_price_options_alert",
+                            alert_class="INFO")
+        try:
+            import alert_gateway as _ag_dpa, uuid as _uuid_dpa
+            _trace_id_dpa = f"daily_price_options_{_uuid_dpa.uuid4().hex[:12]}"
+            for _tkr, _p1, _p2, _chg, _hits, _prem, _voi in _rows_dpa:
+                _ag_dpa.log_alert(
+                    f"{_tkr} 2d chg {_chg}% ${round(float(_prem or 0)/1_000_000, 1)}M call prem",
+                    signal_source="daily_price_options_alert", ticker=_tkr,
+                    alert_class="SIGNAL", audit_trace_id=_trace_id_dpa,
+                    trigger_price=float(_p1 or 0), sent_ok=_ok_dpa,
+                )
+        except Exception as _ge_dpa:
+            print(f"[daily_alert] alert_gateway per-ticker logging error (non-fatal): {_ge_dpa}")
         print(f"[daily_alert] {_slot} ET — sent {len(_rows_dpa)} stock(s) to Telegram")
     except Exception as _e_dpa:
         print(f"[daily_alert] error: {_e_dpa}")
@@ -13317,7 +13417,20 @@ def _aiem_same_day_alert() -> None:
             _newly_sent.add(_tkr)
         _lines += ["", "Position early · StockScanner AI · Not financial advice"]
 
-        _tg_send("\n".join(_lines))
+        _ok_sda = _tg_send("\n".join(_lines), signal_source="same_day_alert",
+                            alert_class="INFO")
+        try:
+            import alert_gateway as _ag_sda, uuid as _uuid_sda
+            _trace_id_sda = f"same_day_alert_{_uuid_sda.uuid4().hex[:12]}"
+            for _tkr, _pf, _pl, _chg, _hits, _prem, _voi in _new_rows:
+                _ag_sda.log_alert(
+                    f"{_tkr} intraday chg {_chg}% ${round(float(_prem or 0)/1_000_000, 1)}M call prem",
+                    signal_source="same_day_alert", ticker=_tkr,
+                    alert_class="SIGNAL", audit_trace_id=_trace_id_sda,
+                    trigger_price=float(_pl or 0), sent_ok=_ok_sda,
+                )
+        except Exception as _ge_sda:
+            print(f"[same_day_alert] alert_gateway per-ticker logging error (non-fatal): {_ge_sda}")
 
         # Update dedup state on app
         _existing = getattr(app, "_same_day_alerted", {})
@@ -52846,7 +52959,22 @@ Return a JSON array of the best 3–5 objects that meet the PROVEN SWEET SPOT cr
                         _ps   = f"${float(_prem)/1e6:.1f}M" if float(_prem) >= 1_000_000 else f"${float(_prem)/1e3:.0f}K"
                         _voi  = _ap.get("vol_oi", 0) or 0
                         _aisc_tg.append(f"  {_tk}  ${float(_str):.0f}c  {_exp}  {float(_voi):.0f}×  {_ps}")
-                    _tg_send("\n".join(_aisc_tg))
+                    _ok_aisc = _tg_send("\n".join(_aisc_tg), signal_source="ai_short_calls",
+                                         alert_class="INFO")
+                    try:
+                        import alert_gateway as _ag_aisc, uuid as _uuid_aisc
+                        _trace_id_aisc = f"ai_short_calls_{_uuid_aisc.uuid4().hex[:12]}"
+                        for _ap in picks[:6]:
+                            _ag_aisc.log_alert(
+                                f"{_ap.get('ticker','?')} ${_ap.get('strike','?')}c "
+                                f"vol/oi {_ap.get('vol_oi', 0)}x",
+                                signal_source="ai_short_calls", ticker=_ap.get("ticker"),
+                                alert_class="SIGNAL", audit_trace_id=_trace_id_aisc,
+                                trigger_price=float(_ap.get("stock_price") or 0) or None,
+                                sent_ok=_ok_aisc,
+                            )
+                    except Exception as _ge_aisc:
+                        print(f"[ai_short_calls] alert_gateway per-ticker logging error (non-fatal): {_ge_aisc}")
             except Exception as _aisc_tge:
                 print(f"[silent_except:aisc_tg] {type(_aisc_tge).__name__}: {_aisc_tge}", file=_sys.stderr)
             try:
@@ -60418,9 +60546,26 @@ def _send_gex_options_alert() -> None:
                 )
 
         if len(_tg_lines) > 1:
-            _tg_send("\n".join(_tg_lines))
+            _ok_gex = _tg_send("\n".join(_tg_lines), signal_source="gex_options",
+                                alert_class="INFO")
+            try:
+                import alert_gateway as _ag_gex, uuid as _uuid_gex
+                _trace_id_gex = f"gex_options_{_uuid_gex.uuid4().hex[:12]}"
+                _gex_flagged = {r["ticker"]: r for r in (_short_gamma + _fear + _inverted)
+                                 if r.get("ticker")}
+                for _tk, _r in _gex_flagged.items():
+                    _ag_gex.log_alert(
+                        f"{_tk} GEX regime={_r.get('gex_regime')} skew={_r.get('pc_skew_tag')} "
+                        f"term={_r.get('term_tag')}",
+                        signal_source="gex_options", ticker=_tk,
+                        alert_class="SIGNAL", audit_trace_id=_trace_id_gex,
+                        trigger_price=_r.get("spot"), sent_ok=_ok_gex,
+                    )
+            except Exception as _ge_gex:
+                print(f"[gex_options] alert_gateway per-ticker logging error (non-fatal): {_ge_gex}")
         else:
-            _tg_send("⚡ GEX scan complete — no extreme readings today")
+            _tg_send("⚡ GEX scan complete — no extreme readings today",
+                      signal_source="gex_options", alert_class="INFO")
 
     except Exception as _e:
         import traceback

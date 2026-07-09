@@ -145,27 +145,60 @@ _last_run = {"status": "not_run_yet", "timestamp": None}
 # ─────────────────────────────────────────────────────────────
 # TELEGRAM SEND (no DB write side effects)
 # ─────────────────────────────────────────────────────────────
-def _tg_send(text: str) -> bool:
-    """Send a message to the Telegram owner chat. Silent no-op when not configured."""
+def _tg_send(text: str, *, signal_source: str = "aiem_telegram_notifier",
+             ticker: str = None, alert_class: str = "INFO",
+             audit_trace_id: str = None, trigger_price: float = None,
+             is_test: bool = False) -> bool:
+    """Send a message to the Telegram owner chat. Silent no-op when not configured.
+
+    Also logged (fail-open, never blocks the send) to telegram_alert_ledger via
+    alert_gateway.log_alert(). This process's briefs are mostly INFO-class
+    (morning previews, digests); callers can pass alert_class='SIGNAL' plus a
+    ticker for any individual pick line that should build a trust track record
+    under the 'TELEGRAM_ALERTS' bucket."""
     token = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    send_text = text
+    if alert_class == "SIGNAL" and signal_source != "unclassified":
+        try:
+            _stock_scanner_api_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                   "artifacts", "stock-scanner-api")
+            if _stock_scanner_api_dir not in sys.path:
+                sys.path.insert(0, _stock_scanner_api_dir)
+            import alert_gateway as _ag_trust
+            send_text = text + _ag_trust.get_trust_display(signal_source)
+        except Exception as _te:
+            log.warning(f"[telegram] trust display error (non-fatal): {_te}")
+    ok = False
     if not token or not chat_id:
         log.warning("[telegram] TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not configured - skipping send")
-        return False
+        ok = False
+    else:
+        try:
+            payload = json.dumps({"chat_id": chat_id, "text": send_text}).encode()
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=payload, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=8) as r:
+                ok = json.loads(r.read()).get("ok", False)
+                if not ok:
+                    log.warning("[telegram] API responded without ok=true")
+        except Exception as e:
+            log.warning(f"[telegram] send failed: {e}")
+            ok = False
     try:
-        payload = json.dumps({"chat_id": chat_id, "text": text}).encode()
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=payload, headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=8) as r:
-            ok = json.loads(r.read()).get("ok", False)
-            if not ok:
-                log.warning("[telegram] API responded without ok=true")
-            return ok
-    except Exception as e:
-        log.warning(f"[telegram] send failed: {e}")
-        return False
+        _stock_scanner_api_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                               "artifacts", "stock-scanner-api")
+        if _stock_scanner_api_dir not in sys.path:
+            sys.path.insert(0, _stock_scanner_api_dir)
+        import alert_gateway as _ag
+        _ag.log_alert(text, signal_source=signal_source, ticker=ticker,
+                       alert_class=alert_class, audit_trace_id=audit_trace_id,
+                       trigger_price=trigger_price, is_test=is_test, sent_ok=ok)
+    except Exception as _ge:
+        log.warning(f"[telegram] alert_gateway logging error (non-fatal): {_ge}")
+    return ok
 
 
 # ─────────────────────────────────────────────────────────────
