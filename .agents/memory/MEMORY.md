@@ -1,3 +1,4 @@
+- [RVOL/Gap/CloseStrength 3PM combo alert](rvol-gap-closestrength-3pm-alert.md) — EOD-only combo can't scan live intraday; 3PM alert reports last completed session + live follow-through instead; gap_pct = close-vs-close not open-gap
 - [Thompson sampler wiring complete](thompson-wiring-complete.md) — GATE 3 wired into _aiem_paper_pick_candidates(); multiplier chain is in-place mutations not a single line
 - [Bus DDL / RowExclusiveLock deadlock](bus-ddl-rowlock-deadlock.md) — _cu INSERT (open txn) + execute_stage CREATE INDEX = Python deadlock; fix: call get_bus() once BEFORE first _cu INSERT to pre-run DDL
 - [DB pool finalizer deadlock + liveness watchdog](db-pool-liveness-watchdog.md) — root cause of daily prod freezes: _PoolConn.__del__ re-entered pool's non-reentrant lock from GC; fixed + self-restart watchdog added

@@ -39,6 +39,18 @@ SCHEDULE (Eastern Time)
                    sweep data instead of just the noisy first few minutes
                    after the open). 10:30 leaves the same 10-minute buffer
                    after the 10:20 canonical write.
+  15:00  Mon-Fri   RVOL/Gap/Close-Strength combo brief — reads
+                   polygon_market_daily for the most recently COMPLETED
+                   session (rvol>2.5, gap_pct>0.5, close_strength>0.6 — the
+                   backtested combo, up to 87.65% historical win rate) and
+                   pairs each hit with a LIVE Tradier quote so the owner can
+                   see today's follow-through in progress. NOTE: close_strength
+                   can only be finalized once a session fully closes, so this
+                   brief always reports on the last completed day's hits, not
+                   an intraday-only computation for today — there is no
+                   full-market live/today snapshot available from the current
+                   Polygon plan (grouped-daily for "today" 403s until the
+                   session closes).
 
 IDEMPOTENCY (no duplicate sends across restarts/redeploys)
   Owns one dedicated table it created itself, `aiem_notifier_log`
@@ -567,6 +579,167 @@ def send_independent_options_picks_brief():
 
 
 # ─────────────────────────────────────────────────────────────
+# 3:00 PM RVOL / GAP / CLOSE-STRENGTH COMBO BRIEF
+# Read-only w.r.t. polygon_market_daily (written by main.py's 8:35 AM
+# Polygon grouped-daily scan). This process only SELECTs from it and never
+# writes, same non-collision guarantee as the picks briefs above.
+# ─────────────────────────────────────────────────────────────
+def _td_quotes_lite(symbols: list) -> dict:
+    """Minimal batch real-time quote fetch from Tradier via urllib (no
+    'requests' dependency needed in this process). Returns
+    {SYM: {last, prevclose}} or {} on any failure — callers must treat a
+    missing/empty result as 'live price unavailable', never as zero."""
+    token = os.environ.get("TRADIER_API_TOKEN_2", "") or os.environ.get("TRADIER_API_TOKEN", "")
+    if not token or not symbols:
+        return {}
+    try:
+        import urllib.parse as _uparse
+        qs = _uparse.urlencode({"symbols": ",".join(str(s) for s in symbols[:200])})
+        req = urllib.request.Request(
+            f"https://api.tradier.com/v1/markets/quotes?{qs}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            raw = json.loads(r.read()).get("quotes", {}).get("quote", [])
+        if isinstance(raw, dict):
+            raw = [raw]
+        return {
+            q["symbol"]: {
+                "last": float(q.get("last") or 0),
+                "prevclose": float(q.get("prevclose") or 0),
+            }
+            for q in raw if q.get("symbol")
+        }
+    except Exception as e:
+        log.warning(f"[td_quotes_lite] error: {e}")
+        return {}
+
+
+def _fetch_rvol_combo_hits(limit: int = 20):
+    """Backtested combo: rvol>2.5, gap_pct>0.5, close_strength>0.6 (up to
+    87.65% historical win rate per the owner's backtest). Reads the most
+    recently COMPLETED session in polygon_market_daily — that table only
+    ever holds finished trading days, so 'today' only appears here starting
+    the following morning. Basic quality floor (price>=$1, no dotted
+    warrant/rights tickers) keeps sub-$1 noise out of a daily alert; a
+    handful of leveraged ETFs/ETNs can still pass this combo since their
+    intraday range also produces a close_strength value — flagged in the
+    message body, not filtered, since the backtest itself did not exclude
+    them.
+    Returns (scan_date, [(ticker, rvol, gap_pct, close_strength, close_price), ...])."""
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(scan_date) FROM polygon_market_daily")
+        row = cur.fetchone()
+        scan_date = row[0] if row else None
+        if not scan_date:
+            return None, []
+        cur.execute(
+            """
+            SELECT ticker, rvol, gap_pct, close_strength, close_price
+            FROM polygon_market_daily
+            WHERE scan_date = %s
+              AND rvol > 2.5 AND gap_pct > 0.5 AND close_strength > 0.6
+              AND close_price >= 1.00
+              AND ticker NOT LIKE '%%.%%'
+            ORDER BY rvol DESC
+            LIMIT %s
+            """,
+            (scan_date, limit),
+        )
+        return scan_date, cur.fetchall()
+    finally:
+        if conn:
+            conn.close()
+
+
+def send_rvol_combo_alert():
+    """3:00 PM ET Mon-Fri. Reports the RVOL>2.5 + Gap>0.5% + Close-Strength>0.6
+    combo hits from the most recently completed session, each paired with a
+    LIVE Tradier quote so the owner can see today's real-time follow-through.
+    Claim-before-send guarantees at most one send per ET calendar date even
+    if two instances are alive at once."""
+    today = date.today()
+    log_prefix = "rvol_combo_alert"
+
+    try:
+        won_claim = _claim_todays_send(today, "rvol_combo")
+    except Exception as e:
+        log.error(f"{log_prefix}: idempotency claim failed (DB unreachable): {e}")
+        _last_run.update(status=f"claim_db_error: {e}", timestamp=datetime.utcnow().isoformat())
+        return
+
+    if not won_claim:
+        log.info(f"{log_prefix}: {today} already sent (or in progress) by another instance - skipping duplicate")
+        _last_run.update(status="skipped_duplicate", timestamp=datetime.utcnow().isoformat())
+        return
+
+    try:
+        scan_date, hits = _fetch_rvol_combo_hits(limit=20)
+    except Exception as e:
+        log.error(f"{log_prefix}: DB read failed: {e}")
+        _last_run.update(status=f"db_error: {e}", timestamp=datetime.utcnow().isoformat())
+        _record_send_result(today, "rvol_combo", f"failed_db_error: {e}")
+        return
+
+    if not scan_date or not hits:
+        date_txt = f" ({scan_date.strftime('%a %b %d')})" if scan_date else ""
+        ok = _tg_send(
+            f"AIEM 3:00 PM Combo Alert - no RVOL>2.5/Gap>0.5%/CloseStrength>0.6 "
+            f"hits found in the most recently completed session{date_txt}."
+        )
+        log.warning(f"{log_prefix}: no combo hits found (telegram sent={ok})")
+        status = f"sent_empty ok={ok}"
+        _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
+        _record_send_result(today, "rvol_combo", status)
+        return
+
+    quotes = _td_quotes_lite([h[0] for h in hits])
+
+    header = (
+        f"AIEM RVOL Combo Alert - hits from {scan_date.strftime('%a %b %d')} "
+        f"close ({len(hits)})"
+    )
+    sub = "RVOL>2.5 + Gap>0.5% + CloseStrength>0.6 - backtested up to 87.65% WR"
+    lines = []
+    for i, (ticker, rvol, gap_pct, close_strength, prior_close) in enumerate(hits, start=1):
+        q = quotes.get(ticker)
+        if q and q.get("last"):
+            chg = (q["last"] - prior_close) / prior_close * 100 if prior_close else 0
+            live_txt = f"now ${q['last']:.2f} ({chg:+.1f}% since {scan_date.strftime('%m/%d')} close)"
+        else:
+            live_txt = "live price unavailable"
+        lines.append(
+            f"#{i} ${ticker}  RVOL {rvol:.1f}x  Gap {gap_pct:+.1f}%  CloseStr {close_strength:.2f}  |  {live_txt}"
+        )
+
+    chunks, cur_chunk = [], [header, sub, "----------------------"]
+    cur_len = sum(len(l) + 1 for l in cur_chunk)
+    for line in lines:
+        if cur_len + len(line) + 1 > 3500:
+            chunks.append(cur_chunk)
+            cur_chunk, cur_len = [], 0
+        cur_chunk.append(line)
+        cur_len += len(line) + 1
+    if cur_chunk:
+        chunks.append(cur_chunk)
+
+    all_ok = True
+    for idx, chunk in enumerate(chunks, start=1):
+        text = "\n".join(chunk)
+        if len(chunks) > 1:
+            text = f"(part {idx}/{len(chunks)})\n" + text
+        all_ok = _tg_send(text) and all_ok
+
+    log.info(f"{log_prefix}: sent={all_ok} hits={len(hits)} parts={len(chunks)}")
+    status = f"sent_ok={all_ok}"
+    _last_run.update(status=status, timestamp=datetime.utcnow().isoformat())
+    _record_send_result(today, "rvol_combo", status)
+
+
+# ─────────────────────────────────────────────────────────────
 # HEALTH SERVER — stdlib HTTPServer, GET-only, read-only DB probe
 # ─────────────────────────────────────────────────────────────
 def _fetch_today_notifier_log_status(brief_type: str):
@@ -610,6 +783,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
             "last_run":            _last_run,                                 # this process's own memory (whichever brief last ran)
             "today_status_stock":  _fetch_today_notifier_log_status("stock"),  # shared DB truth - use this for monitoring
             "today_status_options": _fetch_today_notifier_log_status("options"),
+            "today_status_rvol_combo": _fetch_today_notifier_log_status("rvol_combo"),
             "mode":                "read_only_notifier",
         }
         try:
@@ -700,6 +874,11 @@ def main():
             log.info(f"[catchup] Missed 10:30 AM options brief (now {now_et.strftime('%H:%M')} ET) — sending now")
             send_independent_options_picks_brief()
 
+        # RVOL combo brief: window 3:00 PM (900 min) → 4:00 PM (960 min)
+        if 900 <= now_mins < close_mins and not _already_sent("rvol_combo"):
+            log.info(f"[catchup] Missed 3:00 PM RVOL combo alert (now {now_et.strftime('%H:%M')} ET) — sending now")
+            send_rvol_combo_alert()
+
     threading.Thread(target=_catchup, daemon=True, name="startup-catchup").start()
     # ────────────────────────────────────────────────────────────────────────
 
@@ -724,8 +903,14 @@ def main():
         id="aiem_independent_options_picks_notifier",
         replace_existing=True,
     )
+    scheduler.add_job(
+        send_rvol_combo_alert,
+        CronTrigger(day_of_week="mon-fri", hour=15, minute=0, timezone=ET),
+        id="aiem_rvol_combo_alert",
+        replace_existing=True,
+    )
 
-    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 10:30 AM options, Mon-Fri")
+    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 10:30 AM options + 3:00 PM RVOL combo, Mon-Fri")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
@@ -737,5 +922,8 @@ if __name__ == "__main__":
         log.info("Manual test mode: sending both briefs now (stock then options), scheduler NOT started")
         send_independent_stock_picks_brief()
         send_independent_options_picks_brief()
+    elif "--once-rvol" in sys.argv:
+        log.info("Manual test mode: sending RVOL combo alert now, scheduler NOT started")
+        send_rvol_combo_alert()
     else:
         main()
