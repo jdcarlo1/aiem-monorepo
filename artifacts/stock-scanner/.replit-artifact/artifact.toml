@@ -60,3 +60,14 @@ path = "/aiem-telegram/api/health"
 
 [services.env]
 AIEM_HEALTH_PORT = "5052"
+
+[[services]]
+name = "aiem-process"
+paths = [ "/aiem-process/" ]
+localPort = 5055
+
+[services.development]
+run = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.py"
+
+[services.production]
+run = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.py"

@@ -1,4 +1,6 @@
 - [RVOL/Gap/CloseStrength 3PM combo alert](rvol-gap-closestrength-3pm-alert.md) — PAUSED 2026-07-09: 76-87% WR was a `_mkt_run_two_group` LEAD()-after-filter bug (fixed); real edge is ~0 at all horizons
+- [artifact.toml service registration gap](artifact-toml-service-registration-gap.md) — a background script that only exists as a `.replit` dev workflow (not an artifact.toml `[[services]]` block) never runs in production, with zero errors surfaced
+- [aiem_open_watcher Decimal crash](aiem-open-watcher-decimal-crash.md) — Decimal(DB NUMERIC) * float TypeError silently aborted the daily S1B/S1C/S1D alert on every day live prices were actually available; fix = float() both operands
 - [Thompson sampler wiring complete](thompson-wiring-complete.md) — GATE 3 wired into _aiem_paper_pick_candidates(); multiplier chain is in-place mutations not a single line
 - [Bus DDL / RowExclusiveLock deadlock](bus-ddl-rowlock-deadlock.md) — _cu INSERT (open txn) + execute_stage CREATE INDEX = Python deadlock; fix: call get_bus() once BEFORE first _cu INSERT to pre-run DDL
 - [DB pool finalizer deadlock + liveness watchdog](db-pool-liveness-watchdog.md) — root cause of daily prod freezes: _PoolConn.__del__ re-entered pool's non-reentrant lock from GC; fixed + self-restart watchdog added

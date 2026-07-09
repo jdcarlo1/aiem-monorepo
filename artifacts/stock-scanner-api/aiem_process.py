@@ -701,7 +701,8 @@ def aiem_open_watcher():
         return
     now_et = datetime.now(ET)
     h, m   = now_et.hour, now_et.minute
-    if not ((h == 9 and m >= 30) or h == 10):
+    now_mins = h * 60 + m
+    if not (570 <= now_mins <= 930):  # 9:30 AM – 3:30 PM ET
         return
 
     conn = None
@@ -769,7 +770,14 @@ def aiem_open_watcher():
                 live_conf, _, live_reason, live_move = aiem_score_ticker(
                     ticker, live_data, trust_weights
                 )
-                blended   = round(base_conf * 0.4 + live_conf * 0.6, 1)
+                # base_conf comes from the NUMERIC confidence_score DB column,
+                # so psycopg2 hands it back as decimal.Decimal — mixing that
+                # with a plain float in arithmetic raises TypeError and was
+                # silently crashing every run that had live prices available
+                # (i.e. every run where Tradier/Polygon actually worked), which
+                # meant the Telegram alert never fired even when everything
+                # else was healthy. Cast both operands to float explicitly.
+                blended   = round(float(base_conf) * 0.4 + float(live_conf) * 0.6, 1)
                 cur_price = live.get("price") or 0
                 reason    = live_reason
             else:
@@ -1423,13 +1431,25 @@ def main():
                   CronTrigger(day_of_week="mon-fri", hour="7-9", minute="*/15"),
                   id="aiem_premarket_scan", replace_existing=True)
 
-    # 9:30–10:30 AM — open watcher every 5 min
+    # 9:30 AM – 3:30 PM — open watcher: every 5 min through 10:30 (primary
+    # window), then every 15 min as a catch-up net through the rest of the
+    # trading day. The function itself is idempotent (checks signal_fire_log
+    # for today's DAILY_SUMMARY before doing anything), so extra ticks are
+    # harmless. This exists because a container restart/redeploy that lands
+    # outside 9:30-10:30 AM used to cause a PERMANENT miss for that day with
+    # no recovery — see _startup_open_watcher_catchup below.
     sched.add_job(aiem_open_watcher,
                   CronTrigger(day_of_week="mon-fri", hour="9,10", minute="*/5"),
                   id="aiem_open_watcher", replace_existing=True)
+    sched.add_job(aiem_open_watcher,
+                  CronTrigger(day_of_week="mon-fri", hour="11-15", minute="*/15"),
+                  id="aiem_open_watcher_catchup_net", replace_existing=True)
 
     # ── Startup catch-up: fire open_watcher immediately if we restarted
-    # during the 9:30–10:30 AM window and today's alert hasn't gone yet.
+    # anytime between 9:30 AM and 3:30 PM ET and today's alert hasn't gone
+    # yet (e.g. a deploy/restart landed outside the primary 9:30-10:30
+    # window — previously this meant the alert was permanently skipped for
+    # the day).
     def _startup_open_watcher_catchup():
         import time as _t
         _t.sleep(8)  # let scheduler bind and DB settle
@@ -1437,7 +1457,7 @@ def main():
         if now_et.weekday() >= 5:
             return
         now_mins = now_et.hour * 60 + now_et.minute
-        if not (570 <= now_mins <= 630):  # 9:30 AM – 10:30 AM
+        if not (570 <= now_mins <= 930):  # 9:30 AM – 3:30 PM
             return
         try:
             conn = _db()
@@ -1539,7 +1559,8 @@ def main():
     log.info("Scheduler running — 9 jobs:")
     log.info("  6:55 AM               warm-up (Polygon full snapshot)")
     log.info("  7:00–9:15 every 15m   premarket scan + funnel")
-    log.info("  9:30–10:30 every  5m  open watcher + Telegram alert")
+    log.info("  9:30–10:30 every  5m  open watcher + Telegram alert (primary)")
+    log.info("  11:00–3:30 every 15m  open watcher catch-up net (idempotent)")
     log.info("  4:30 PM               grade T1 outcomes")
     log.info("  4:35 PM               grade T3/T5 outcomes")
     log.info("  4:45 PM               find missed runners")
