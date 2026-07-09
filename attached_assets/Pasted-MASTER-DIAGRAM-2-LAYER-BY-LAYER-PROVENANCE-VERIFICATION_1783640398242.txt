@@ -1,0 +1,126 @@
+MASTER DIAGRAM 2 LAYER-BY-LAYER PROVENANCE VERIFICATION
+
+Goal:
+Prove that AEIM Diagram 2 is functioning as one connected system from intake to final decision, with full code-level provenance.
+
+Required tracking chain:
+candidate_id → trace_id → phase_run_id → module_run_id → tool_run_id → output_hash → final_decision_id
+
+For one real ticker, provide proof of the full path:
+
+1. Intake
+2. Data Guards / Point-in-Time Validation
+3. Master Orchestrator
+4. Module Registry
+5. Tool Registry
+6. Communication Bus
+7. Macro / Market Regime
+8. Discovery / Pattern Finding
+9. Technical / Price Structure
+10. Microstructure / VPIN / Liquidity
+11. Options / GEX / Skew / Term Structure
+12. Quant / GARCH / Jump / PCA / Stat Arb
+13. Probability Engine / XGBoost / TreeSHAP
+14. Scoring / Synthesis
+15. Specialist Council / Thompson Sampling
+16. Pre-Decision Risk Gate
+17. Decision Engine
+18. Paper Execution or No-Execution Log
+19. Outcome Tracking
+20. Learning Feedback
+21. Memory / Performance Auditor
+22. Diagram 3 Governance Reporting
+
+Required proof for every layer:
+- phase name
+- phase_run_id
+- modules called
+- module_run_id
+- tools called
+- tool_run_id
+- input data
+- input_hash
+- output data
+- output_hash
+- timestamp
+- latency_ms
+- status: PASS / FAIL / SKIPPED
+- skip reason if skipped
+- error message if failed
+- contribution score or influence weight if applicable
+
+Required tools to verify include, but are not limited to:
+- VPIN
+- BH-FDR
+- Point-in-Time Data Guard
+- GARCH(1,1)
+- Jump Detection
+- Statistical Arbitrage Engine
+- GEX Gamma Exposure
+- Put/Call Skew
+- Options Term Structure
+- CTA Trigger Levels
+- Thompson Sampling
+- XGBoost
+- Native TreeSHAP
+- Hurst Exponent
+- Amihud Illiquidity
+- Corwin-Schultz Spread Estimator
+- Variance Risk Premium
+- Risk-Neutral Density
+- PCA Factor Decomposition
+- Pattern Discovery
+- Decay Detection
+- Rediscovery
+- Self-Invalidating Signal Lifecycle
+
+Required code-level provenance:
+1. Show the exact source file and function/class that executed each layer.
+2. Show the git commit hash or deployment version.
+3. Show sha256 hash of each involved source file.
+4. Show the registry entry proving the module/tool is registered.
+5. Show that the orchestrator called the module/tool.
+6. Show the audit row written after execution.
+7. Show that outputs were passed forward to the next layer.
+8. Show that no tool bypassed the orchestrator.
+9. Show that no tool connected directly to the Decision Engine.
+10. Show that Data Guards ran before analysis tools.
+11. Show that Risk Gate ran before Decision Engine approval.
+
+Required final proof:
+- original ticker
+- candidate_id
+- trace_id
+- full trace graph
+- full ordered phase list
+- full ordered tool list
+- final score
+- final decision
+- reason codes
+- rejected reasons if any
+- paper execution or no-execution record
+- outcome tracking record
+- learning feedback record
+- performance auditor record
+
+Negative controls:
+1. Inject stale data and prove Point-in-Time/Data Guard blocks it.
+2. Inject future/leaked data and prove LookaheadViolation is raised.
+3. Attempt to call Decision Engine directly and prove it is blocked.
+4. Attempt to skip Risk Gate and prove it is blocked.
+5. Disable one required tool and prove the trace shows FAIL or SKIPPED with reason.
+6. Run a second ticker and prove it receives a separate trace_id.
+
+Do not respond with a summary only.
+
+Return:
+- actual command output
+- actual database rows
+- actual audit logs
+- actual trace graph
+- actual source file hashes
+- actual registry rows
+- actual final decision record
+
+Approval standard:
+Diagram 2 is NOT approved unless one ticker can be followed end-to-end through every layer, every module, and every tool with complete provenance evidence.
