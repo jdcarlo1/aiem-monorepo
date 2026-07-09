@@ -1,0 +1,90 @@
+# THOMPSON SAMPLER LEARNING LOOP — Does the System Actually Get Smarter?
+
+## Why this is being asked
+
+It's been confirmed that closed trades write real feedback rows to
+`aiem_paper_thompson_history` (e.g., trade id=189/GOOGL → history id=23,
+linked by trade_id, with win_loss/pnl_pct/signal_source populated). That
+proves the WRITE path works.
+
+It does NOT prove the system learns anything from it. A write path can exist
+completely disconnected from any read path — this is the same failure
+pattern already found elsewhere in this system (modules with wired call
+sites but zero consumption downstream). This request is to determine,
+conclusively, whether Thompson feedback actually changes future behavior or
+is just being logged and never used.
+
+Do not respond with a description of how the sampler is "supposed to work."
+Only code-level proof and live test results count.
+
+---
+
+## 1. Find every READ of the Thompson history table
+
+Search the entire codebase for every place `aiem_paper_thompson_history` (or
+whatever the actual sampler-state table is) is queried — SELECT, not INSERT
+or UPDATE.
+
+- List every file + line number where this table is read.
+- For each read site, show the surrounding function and what it's part of
+  (e.g., stage 1 scanner, stage 13 probability engine, stage 14 scoring,
+  stage 15/19 debate).
+- If NO read site exists anywhere outside the write function itself, say so
+  explicitly. That is a valid and important answer — it means the data is
+  logged but never consumed, and the "learning loop" does not exist.
+
+## 2. If a read exists, trace what it actually changes
+
+For each read site found in step 1:
+- Does the Thompson data change a candidate's score, ranking, or pass/fail
+  status anywhere downstream? Show the exact line where the value read from
+  Thompson history is used in a comparison, weight, or filter.
+- Or does it just get logged, displayed, or passed through unused? Show
+  proof either way — the actual code path, not a description of intent.
+
+## 3. Check what the feedback data can actually distinguish
+
+Look at the schema for `aiem_paper_thompson_history` (all columns, not just
+the ones seen so far).
+- Does it track anything beyond `signal_source` + `win_loss` + `pnl_pct`
+  (e.g., setup type, time of day, volatility regime, sizing, indicator
+  values at entry)?
+- If it only tracks signal_source-level win/loss, say so plainly. That means
+  the system can at most learn "this source is underperforming lately" — it
+  cannot learn specific things like "this setup fails in high-IV names" or
+  "entries after 2pm underperform," because those dimensions were never
+  captured.
+
+## 4. Live A/B test — does ranking actually change based on history?
+
+Run this test and report raw output:
+- Manually insert (or use existing) 10 consecutive LOSS records for one
+  signal_source in `aiem_paper_thompson_history`.
+- Manually insert (or use existing) 10 consecutive WIN records for a
+  different signal_source.
+- Run the scanner/scoring stage fresh for new candidates from both sources.
+- Report the actual scores/rankings produced for each. If the loss-heavy
+  source's candidates are NOT ranked lower or filtered differently than the
+  win-heavy source's candidates, that is conclusive proof the "learning"
+  loop is cosmetic — the data is recorded but has zero effect on behavior.
+
+Report exact before/after scores, file/line of the scoring logic involved,
+and raw output of both test runs.
+
+---
+
+## What counts as a complete answer
+
+All four items answered directly, with raw evidence for each:
+1. List of every read site of the Thompson history table (or explicit
+   confirmation there are none).
+2. For each read site: proof of what it actually changes downstream, or
+   proof that it's unused.
+3. Explicit list of what dimensions the feedback schema can and cannot
+   distinguish.
+4. Raw before/after output from the live A/B ranking test.
+
+A "yes, it's designed to learn" answer without all four is not acceptable.
+If the honest answer is "it writes data but nothing reads it," that is a
+valid and useful finding — report it plainly, don't reframe it as partial
+success.
