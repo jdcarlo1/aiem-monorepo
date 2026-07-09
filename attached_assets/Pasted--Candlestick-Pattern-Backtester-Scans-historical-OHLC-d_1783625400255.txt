@@ -1,0 +1,446 @@
+"""
+Candlestick Pattern Backtester
+--------------------------------
+Scans historical OHLC data for common bullish candlestick patterns,
+then measures actual forward returns (with and without confluence
+filters: support level, volume, RSI) to see whether the pattern
+carries a real statistical edge.
+
+Requires internet access to pull data (this sandbox has none), so
+run this locally:
+
+    pip install yfinance pandas numpy
+
+    python candlestick_backtester.py --ticker AAPL --start 2015-01-01
+
+Everything below is self-contained - no external pattern-detection
+libraries (like TA-Lib) required, so you can read/audit exactly what
+counts as a "hit" for each pattern.
+"""
+
+import argparse
+import numpy as np
+import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# Pattern detection
+# ---------------------------------------------------------------------------
+
+def _body(df):
+    return (df["Close"] - df["Open"]).abs()
+
+def _range(df):
+    return (df["High"] - df["Low"]).replace(0, np.nan)
+
+def _upper_wick(df):
+    return df["High"] - df[["Open", "Close"]].max(axis=1)
+
+def _lower_wick(df):
+    return df[["Open", "Close"]].min(axis=1) - df["Low"]
+
+def _is_green(df):
+    return df["Close"] > df["Open"]
+
+def _is_red(df):
+    return df["Close"] < df["Open"]
+
+
+def add_pattern_columns(df: pd.DataFrame, trend_lookback: int = 5) -> pd.DataFrame:
+    """
+    Adds one boolean column per bullish pattern:
+    True on the bar where the pattern *completes*.
+    Also adds a simple downtrend filter (close is below its
+    N-bar-ago close) since most reversal patterns require prior
+    downtrend context to be meaningful.
+    """
+    df = df.copy()
+    body = _body(df)
+    rng = _range(df)
+    upper = _upper_wick(df)
+    lower = _lower_wick(df)
+    green = _is_green(df)
+    red = _is_red(df)
+
+    prior_downtrend = df["Close"] < df["Close"].shift(trend_lookback)
+
+    # ---- single candle ----
+    df["hammer"] = (
+        prior_downtrend
+        & (lower >= 2 * body)
+        & (upper <= 0.25 * body.replace(0, np.nan).fillna(rng))
+        & (body / rng < 0.35)
+    )
+
+    df["bullish_marubozu"] = (
+        green
+        & (upper / rng < 0.03)
+        & (lower / rng < 0.03)
+        & (body / rng > 0.9)
+    )
+
+    # ---- two candle ----
+    prev_open, prev_close = df["Open"].shift(1), df["Close"].shift(1)
+    prev_red = _is_red(df.shift(1))
+
+    df["bullish_engulfing"] = (
+        prior_downtrend
+        & prev_red
+        & green
+        & (df["Open"] <= prev_close)
+        & (df["Close"] >= prev_open)
+        & (body > _body(df.shift(1)))
+    )
+
+    df["piercing_line"] = (
+        prior_downtrend
+        & prev_red
+        & green
+        & (df["Open"] < df["Low"].shift(1))
+        & (df["Close"] > (prev_open + prev_close) / 2)
+        & (df["Close"] < prev_open)
+    )
+
+    df["bullish_harami"] = (
+        prior_downtrend
+        & prev_red
+        & green
+        & (df["Open"] > prev_close)
+        & (df["Close"] < prev_open)
+    )
+
+    # ---- three candle ----
+    c2_open, c2_close = df["Open"].shift(2), df["Close"].shift(2)
+    c2_red = _is_red(df.shift(2))
+    c1_body_small = _body(df.shift(1)) / _range(df.shift(1)) < 0.35
+
+    df["morning_star"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & c2_red
+        & c1_body_small
+        & green
+        & (df["Close"] > (c2_open + c2_close) / 2)
+    )
+
+    g0, g1, g2 = green, green.shift(1), green.shift(2)
+    df["three_white_soldiers"] = (
+        g0 & g1.fillna(False) & g2.fillna(False)
+        & (df["Close"] > df["Close"].shift(1))
+        & (df["Close"].shift(1) > df["Close"].shift(2))
+        & (df["Open"] > df["Open"].shift(1))
+        & (df["Open"] < df["Close"].shift(1))
+    )
+
+    df["morning_doji_star"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & c2_red
+        & (_body(df.shift(1)) / _range(df.shift(1)) < 0.08)  # middle bar is a doji
+        & green
+        & (df["Close"] > (c2_open + c2_close) / 2)
+    )
+
+    # Three Inside Up: harami (down) followed by a third candle confirming
+    # with a close above the first candle's open
+    prev_harami = (
+        c2_red
+        & (df["Open"].shift(1) > c2_close)
+        & (df["Close"].shift(1) < c2_open)
+        & green.shift(1)
+    )
+    df["three_inside_up"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & prev_harami.fillna(False)
+        & green
+        & (df["Close"] > c2_open)
+    )
+
+    # Three Outside Up: bullish engulfing (bars 1-2) followed by a third
+    # candle that closes higher again
+    prev_engulf = (
+        c2_red
+        & green.shift(1)
+        & (df["Open"].shift(1) <= c2_close)
+        & (df["Close"].shift(1) >= c2_open)
+    )
+    df["three_outside_up"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & prev_engulf.fillna(False)
+        & green
+        & (df["Close"] > df["Close"].shift(1))
+    )
+
+    # Abandoned Baby (bullish): red candle, gapped-down doji with no
+    # overlap, then a green candle gapped back up with no overlap
+    prev_doji = _body(df.shift(1)) / _range(df.shift(1)) < 0.05
+    gap_down_to_doji = df[["Open", "Close"]].shift(1).max(axis=1) < df["Low"].shift(2)
+    gap_up_from_doji = df["Open"] > df[["Open", "Close"]].shift(1).max(axis=1)
+    df["abandoned_baby"] = (
+        prior_downtrend.shift(2).fillna(False)
+        & c2_red
+        & prev_doji.fillna(False)
+        & gap_down_to_doji.fillna(False)
+        & green
+        & gap_up_from_doji.fillna(False)
+    )
+
+    return df
+
+
+PATTERN_COLS = [
+    "hammer", "bullish_marubozu",
+    "bullish_engulfing", "piercing_line", "bullish_harami",
+    "morning_star", "morning_doji_star", "three_white_soldiers",
+    "three_inside_up", "three_outside_up", "abandoned_baby",
+]
+
+
+# ---------------------------------------------------------------------------
+# Confluence filters
+# ---------------------------------------------------------------------------
+
+def add_confluence_columns(df: pd.DataFrame, vol_lookback: int = 20,
+                            support_lookback: int = 20, rsi_period: int = 14) -> pd.DataFrame:
+    df = df.copy()
+
+    # Volume confirmation: pattern bar volume above its own rolling average
+    df["vol_confirmed"] = df["Volume"] > df["Volume"].rolling(vol_lookback).mean()
+
+    # Support proximity: low of pattern bar within 2% of rolling N-bar low
+    rolling_low = df["Low"].rolling(support_lookback).min()
+    df["at_support"] = (df["Low"] - rolling_low).abs() / rolling_low < 0.02
+
+    # RSI oversold
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0).rolling(rsi_period).mean()
+    loss = (-delta.clip(upper=0)).rolling(rsi_period).mean()
+    rs = gain / loss.replace(0, np.nan)
+    df["rsi"] = 100 - (100 / (1 + rs))
+    df["rsi_oversold"] = df["rsi"] < 40
+
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Forward return measurement
+# ---------------------------------------------------------------------------
+
+def forward_returns(df: pd.DataFrame, horizons=(1, 3, 5, 10)) -> pd.DataFrame:
+    df = df.copy()
+    for h in horizons:
+        df[f"fwd_ret_{h}d"] = df["Close"].shift(-h) / df["Close"] - 1
+    return df
+
+
+def summarize(df: pd.DataFrame, pattern: str, horizons=(1, 3, 5, 10),
+              require_volume=False, require_support=False, require_rsi=False):
+    mask = df[pattern].fillna(False)
+    label = pattern
+    if require_volume:
+        mask &= df["vol_confirmed"].fillna(False)
+        label += " +vol"
+    if require_support:
+        mask &= df["at_support"].fillna(False)
+        label += " +support"
+    if require_rsi:
+        mask &= df["rsi_oversold"].fillna(False)
+        label += " +rsi<40"
+
+    n = int(mask.sum())
+    row = {"pattern": label, "occurrences": n}
+    for h in horizons:
+        rets = df.loc[mask, f"fwd_ret_{h}d"].dropna()
+        if len(rets) == 0:
+            row[f"win_rate_{h}d"] = np.nan
+            row[f"avg_ret_{h}d"] = np.nan
+        else:
+            row[f"win_rate_{h}d"] = round((rets > 0).mean() * 100, 1)
+            row[f"avg_ret_{h}d"] = round(rets.mean() * 100, 2)
+    return row
+
+
+def run_backtest(df: pd.DataFrame, horizons=(1, 3, 5, 10)) -> pd.DataFrame:
+    df = add_pattern_columns(df)
+    df = add_confluence_columns(df)
+    df = forward_returns(df, horizons)
+
+    rows = []
+    for pattern in PATTERN_COLS:
+        rows.append(summarize(df, pattern, horizons))
+        rows.append(summarize(df, pattern, horizons, require_volume=True))
+        rows.append(summarize(df, pattern, horizons, require_support=True))
+        rows.append(summarize(df, pattern, horizons,
+                               require_volume=True, require_support=True, require_rsi=True))
+    result = pd.DataFrame(rows)
+    result = result[result["occurrences"] > 0].reset_index(drop=True)
+    return result, df
+
+
+# ---------------------------------------------------------------------------
+# Optional: Parabolic SAR filter
+# ---------------------------------------------------------------------------
+
+def parabolic_sar(df: pd.DataFrame, af_step=0.02, af_max=0.2) -> pd.Series:
+    high, low = df["High"].values, df["Low"].values
+    n = len(df)
+    sar = np.zeros(n)
+    trend = np.zeros(n, dtype=int)  # 1 = up, -1 = down
+    af = af_step
+    ep = low[0]
+    sar[0] = high[0]
+    trend[0] = -1
+
+    for i in range(1, n):
+        prev_sar = sar[i - 1]
+        if trend[i - 1] == 1:
+            sar[i] = prev_sar + af * (ep - prev_sar)
+            sar[i] = min(sar[i], low[i - 1], low[i - 2] if i > 1 else low[i - 1])
+            if low[i] < sar[i]:
+                trend[i] = -1
+                sar[i] = ep
+                ep = low[i]
+                af = af_step
+            else:
+                trend[i] = 1
+                if high[i] > ep:
+                    ep = high[i]
+                    af = min(af + af_step, af_max)
+        else:
+            sar[i] = prev_sar + af * (ep - prev_sar)
+            sar[i] = max(sar[i], high[i - 1], high[i - 2] if i > 1 else high[i - 1])
+            if high[i] > sar[i]:
+                trend[i] = 1
+                sar[i] = ep
+                ep = high[i]
+                af = af_step
+            else:
+                trend[i] = -1
+                if low[i] < ep:
+                    ep = low[i]
+                    af = min(af + af_step, af_max)
+
+    return pd.Series(sar, index=df.index), pd.Series(trend, index=df.index)
+
+
+def add_sar_flip(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    sar, trend = parabolic_sar(df)
+    df["sar"] = sar
+    df["sar_trend"] = trend
+    df["sar_bull_flip"] = (trend == 1) & (trend.shift(1) == -1)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# Live integration entry point (for wiring into a pipeline / AIEM)
+# ---------------------------------------------------------------------------
+
+def get_ranked_signals(df: pd.DataFrame, horizon_days: int = 5,
+                        min_occurrences: int = 20,
+                        require_volume: bool = True,
+                        require_support: bool = True) -> list:
+    """
+    Single entry point meant to be called from a live pipeline stage.
+
+    Input:
+        df - OHLCV dataframe (columns: Open, High, Low, Close, Volume),
+             sorted ascending by date, with enough history (200+ bars
+             recommended) for rolling calcs to be valid.
+
+    Output:
+        List of dicts, one per pattern that is TRUE on the most recent bar,
+        ranked by historical avg_ret at the given horizon (highest first).
+        Each dict:
+            {
+                "pattern": str,
+                "occurrences": int,       # sample size backtest was based on
+                "win_rate_pct": float,
+                "avg_ret_pct": float,
+                "confluence": {"volume": bool, "support": bool},
+            }
+        Returns [] if no pattern fires on the latest bar, or if a firing
+        pattern's historical sample size is below min_occurrences (i.e.
+        not enough history to trust the stat - do not treat this as "no
+        signal", treat it as "insufficient evidence", and log accordingly).
+
+    This function does NOT place trades or generate orders. It only
+    returns ranked historical statistics for whatever pattern(s) are
+    active on the latest bar. The candidate-picking stage downstream is
+    responsible for deciding what to do with this, and must actually
+    consume the returned list - do not let this become a stage that
+    computes output no one reads (same bug class as the Thompson sampler
+    issue: computed, never consumed).
+    """
+    df = add_pattern_columns(df)
+    df = add_confluence_columns(df)
+    df = forward_returns(df, horizons=(horizon_days,))
+
+    latest = df.iloc[-1]
+    ret_col = f"fwd_ret_{horizon_days}d"
+
+    signals = []
+    for pattern in PATTERN_COLS:
+        if not bool(latest.get(pattern, False)):
+            continue
+
+        mask = df[pattern].fillna(False)
+        if require_volume:
+            mask &= df["vol_confirmed"].fillna(False)
+        if require_support:
+            mask &= df["at_support"].fillna(False)
+
+        rets = df.loc[mask, ret_col].dropna()
+        n = len(rets)
+        if n < min_occurrences:
+            continue
+
+        signals.append({
+            "pattern": pattern,
+            "occurrences": n,
+            "win_rate_pct": round((rets > 0).mean() * 100, 1),
+            "avg_ret_pct": round(rets.mean() * 100, 2),
+            "confluence": {"volume": require_volume, "support": require_support},
+        })
+
+    signals.sort(key=lambda s: s["avg_ret_pct"], reverse=True)
+    return signals
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def load_data(ticker: str, start: str, end: str = None) -> pd.DataFrame:
+    import yfinance as yf
+    data = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    return data
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Bullish candlestick pattern backtester")
+    parser.add_argument("--ticker", default="SPY")
+    parser.add_argument("--start", default="2010-01-01")
+    parser.add_argument("--end", default=None)
+    parser.add_argument("--sar", action="store_true",
+                         help="Only count patterns that occur within 3 bars of a SAR bullish flip")
+    parser.add_argument("--out", default="backtest_results.csv")
+    args = parser.parse_args()
+
+    df = load_data(args.ticker, args.start, args.end)
+    print(f"Loaded {len(df)} bars for {args.ticker}")
+
+    if args.sar:
+        df = add_sar_flip(df)
+        near_flip = df["sar_bull_flip"].rolling(3, min_periods=1).max().astype(bool)
+        df = df[near_flip.reindex(df.index).fillna(False) | ~near_flip.isna()]
+
+    result, full_df = run_backtest(df)
+    result = result.sort_values("win_rate_5d", ascending=False)
+    print(result.to_string(index=False))
+    result.to_csv(args.out, index=False)
+    print(f"\nSaved full results to {args.out}")
+
+
+if __name__ == "__main__":
+    main()

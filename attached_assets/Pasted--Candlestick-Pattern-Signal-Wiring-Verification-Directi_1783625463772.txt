@@ -1,0 +1,111 @@
+# Candlestick Pattern Signal — Wiring & Verification Directive
+
+## Purpose
+Wire `candlestick_backtester.py` into AIEM as a signal source, and prove it is
+genuinely read by a downstream stage — not just computed and discarded.
+
+---
+
+## 1. Where this fits in the pipeline
+
+This gets wired into the **ingestion loop** — the point where each incoming
+stock first enters the pipeline, before it's admitted to the candidate pool.
+Every stock that comes through the loop gets screened against all patterns
+at that point, not later in scoring.
+
+This is a **signal-generation input**, not a decision-maker. The loop's job
+is to attach the screening result to the stock as it passes through — a
+downstream stage (candidate scoring / conviction) is what actually acts on
+it.
+
+Do NOT let the agent create a new isolated "candlestick module" that runs
+off to the side and logs results nowhere else touches. It must plug into the
+existing ingestion loop's per-stock processing path, and its output must
+travel with the stock record through whatever stages come after.
+
+## 2. Required integration steps
+
+1. Identify the exact function/method in the ingestion loop where each
+   incoming stock's OHLCV data is first available (get the file path + line
+   number before writing any code — don't let the agent guess at this).
+2. Import `get_ranked_signals` from `candlestick_backtester.py` into that
+   loop step.
+3. For each stock as it passes through the loop, call:
+   ```python
+   signals = get_ranked_signals(ohlcv_df, horizon_days=5,
+                                 min_occurrences=20,
+                                 require_volume=True, require_support=True)
+   ```
+4. Attach the result to the stock's record as it exits the loop
+   (e.g. `stock["candlestick_signals"] = signals`), so it's carried forward
+   into whatever candidate pool / scoring stage consumes loop output.
+5. Confirm downstream — the candidate-scoring/ranking function must actually
+   read `stock["candlestick_signals"]` and factor it in, not just receive a
+   record with the field populated and ignore it.
+6. Decide and document: does a firing pattern add to conviction score, act as
+   a gate at the loop level (no pattern = stock doesn't advance past ingestion),
+   or just get carried as context for later stages? Pick one intentionally —
+   a gate at the loop is a much bigger behavioral change than a scoring input,
+   so make sure that's actually what you want before the agent implements it.
+
+## 3. Data requirements
+
+- `ohlcv_df` needs 200+ bars of history minimum before calling — rolling
+  calcs (volume average, support lookback, RSI) need runway or they'll return
+  NaN/False everywhere, silently producing zero signals forever.
+- Confirm the pipeline is feeding real, current OHLCV — not stale or
+  placeholder data — before trusting any output from this.
+
+## 4. Verification requirements (evidence the agent must produce)
+
+Reject any completion claim that isn't backed by all of the following:
+
+1. **File path + line number** where `get_ranked_signals` is imported and
+   called inside the actual ingestion loop (not a test script, not a
+   standalone runner, not a copy of the loop off to the side).
+2. **Raw log output** from an actual loop run showing, for a batch of real
+   incoming stocks:
+   - each ticker/timestamp screened
+   - the exact `signals` list returned per stock (can be empty — that's
+     fine, it must just be real, and every stock in the batch should show
+     up, not a cherry-picked one)
+3. **SQL query result** (or equivalent) showing stock rows in the
+   database/state store, post-loop, where the `candlestick_signals` field is
+   populated — not NULL, not a placeholder — for stocks that passed through
+   ingestion.
+4. **Git diff** of the ingestion loop function showing the call site, and a
+   second diff of the downstream scoring/ranking function showing where
+   `stock["candlestick_signals"]` is actually read and used in a calculation
+   — not just assigned in the loop and left unread downstream.
+5. A case where a pattern **did not fire** for a given stock and that stock's
+   record reflects that correctly (empty list persisted, stock still flows
+   through the loop normally) — proves the negative case isn't swallowed or
+   mistaken for an error.
+6. If a gate was implemented (patternless stocks blocked from advancing),
+   evidence of at least one stock actually being blocked — a log line or DB
+   state showing it stopped at ingestion — not just the gate code existing
+   unexercised.
+
+If the agent cannot produce items 1-5 (item 6 only applies if a gate was
+actually built), treat it as unverified — same standard as the Thompson
+sampler and Stage 14/18 issues: computed does not mean connected.
+
+## 5. Common failure modes to specifically check for
+
+- Function is called in the loop, output stored on the stock record, but the
+  downstream scoring function never reads that field (silently-discarded
+  pattern, same bug class as the bull/bear debate module).
+- `min_occurrences` threshold set too low or ignored, letting low-sample
+  patterns (n<20) masquerade as reliable signals.
+- Rolling calcs running on insufficient history, returning all-False
+  patterns forever without anyone noticing (looks "wired" but never fires).
+- Only the "no confluence" raw pattern is checked instead of the
+  volume+support-filtered version, quietly reintroducing the near-coinflip
+  win rates the confluence filters exist to screen out.
+
+## 6. Attached file
+
+`candlestick_backtester.py` — contains `get_ranked_signals()` as the single
+call point for this integration, plus the standalone CLI/backtest tooling for
+manually re-validating win rates against real data whenever you want to
+sanity-check the numbers being used to rank patterns.
