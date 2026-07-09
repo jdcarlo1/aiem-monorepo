@@ -1,0 +1,152 @@
+# AIEM — Thompson Sampler Wiring Directive
+**Target:** `_aiem_paper_pick_candidates()` in `artifacts/stock-scanner-api/main.py`
+**Status before this work:** Thompson sampler PARTIAL — math verified, write path verified, **zero read path into decisions**
+**Required exit status:** PASS — with provenance proof, not self-report
+
+---
+
+## 1. What is currently broken
+
+`aiem_closed_loop_learning.py` correctly computes and stores `sampled_score` (a Beta(α,β) draw) per `signal_source` in `aiem_paper_thompson`. This value is written to audit tables and the governance dashboard.
+
+It is **never read** by the candidate scoring path. The current multiplier chain in `_aiem_paper_pick_candidates()` is:
+
+```
+final_score = _raw_sc * _dm_lbl * _tw_lbl
+```
+
+- `_dm_lbl` = drift multiplier (from `drift_check_log.verdict`)
+- `_tw_lbl` = trust multiplier (from `signal_trust_weights.trust_weight`, itself derived from `signal_trust_history` EMA — a *separate* win/loss tracker, not Thompson)
+
+Thompson's `sampled_score` has no line of code that touches `final_score`, ranking, or go/no-go. The docstring at `aiem_closed_loop_learning.py:258` ("so pick_candidates can use it") is false and must be corrected regardless of outcome.
+
+---
+
+## 2. Required change — add Thompson as a third multiplier
+
+### 2.0 Pre-change baseline capture — MANDATORY, do this before writing any code
+
+Do not edit anything until this step is pasted back in full.
+
+1. Locate the function boundaries:
+   ```bash
+   grep -n "def _aiem_paper_pick_candidates" artifacts/stock-scanner-api/main.py
+   ```
+   Paste the line number. Then find where the function ends (next `def ` at the same indent level, or end of file) and paste that line number too.
+
+2. Paste the **entire current function body**, line-numbered, from the `view` tool or `sed -n 'START,ENDp' main.py`. Do not summarize or paraphrase it — the raw text is required to confirm the exact insertion point against Section 2.1 below.
+
+3. Within that body, find and paste the exact current line computing `final_score` (search for `_raw_sc`, `_dm_lbl`, and `_tw_lbl` co-occurring on one assignment line or a small block). Paste that line with its line number.
+
+4. **If step 3 does not turn up one clear line** — e.g. the multiplier chain is split across reassignments, computed in a helper function, or the variable names differ from what's documented here — **stop and report the actual structure found**. Do not guess where to insert the Thompson read. A wrong guess here (inserting after scores are already used for ranking, or inside a branch that doesn't always execute) silently reintroduces the exact "computed but not consumed" bug this directive exists to fix. Report back and wait for confirmation before proceeding.
+
+5. Confirm the candidate's signal-source variable name: trace backward from `_tw_lbl`'s lookup into `signal_trust_weights` to find the exact in-scope variable/field holding the candidate's signal source string. Paste that variable name — it replaces the placeholder `candidate_signal_source` in Section 2.1. Do not insert that literal placeholder text into production code.
+
+Only after all 5 items above are confirmed and pasted back, proceed to 2.1.
+
+### 2.1 New read site
+
+Inside `_aiem_paper_pick_candidates()`, **before** `final_score` is computed, add a fetch of the current Thompson score for the candidate's `signal_source`:
+
+```python
+# --- Thompson trust gate (Diagram 2 / decision layer) ---
+_th_lbl = 1.0
+try:
+    _th_row = cu.execute(
+        "SELECT sampled_score FROM aiem_paper_thompson WHERE signal_source=%s",
+        (candidate_signal_source,)
+    ).fetchone()
+    if _th_row and _th_row[0] is not None:
+        _th_score = float(_th_row[0])
+        # map [0,1] sampled probability to a bounded multiplier band
+        # keep the band conservative on first wiring pass — do not let
+        # Thompson swing scores more than the existing trust multiplier does
+        _th_lbl = 0.5 + _th_score  # range: 0.5x (score=0) to 1.5x (score=1)
+    else:
+        _th_lbl = 1.0  # no data yet for this source — neutral, not penalized
+except Exception as _th_e:
+    _th_lbl = 1.0
+    logger.warning(f"[thompson-gate] fetch failed for {candidate_signal_source}: {_th_e}")
+```
+
+### 2.2 Fold into final score
+
+Replace the **exact line pasted in Step 2.0.3** — do not write a new line elsewhere and hope it executes in the right order. The new multiplier must be applied at the same point in the same expression, not before `_dm_lbl`/`_tw_lbl` are computed and not after `final_score` is already used downstream (ranking, sorting, threshold checks). If those downstream uses exist between the old final_score line and the return/output of the function, the Thompson read block from 2.1 must be inserted immediately above the final_score line, so all three multipliers are available before the single multiplication happens:
+
+```python
+final_score = _raw_sc * _dm_lbl * _tw_lbl * _th_lbl
+```
+
+If the real line differs from this pattern (different variable order, intermediate variables, etc.), preserve its exact structure and only add `* _th_lbl` to it — do not restructure the existing multiplier chain.
+
+### 2.2.1 Rollback safety
+
+Before editing, copy the original function body (from Step 2.0.2) into a comment block or a git stash so it can be restored if Test B or D fails. If any of the four provenance tests in Section 3 fail, revert to the original and report the failure — do not leave a half-wired state where the read site exists but produces incorrect multiplier math, since that is worse than the current "not wired" state (it would silently corrupt scoring rather than leaving it neutral).
+
+### 2.3 Log it — this is what makes the read auditable
+
+Whatever payload/record function already logs `_dm_lbl` and `_tw_lbl` for this candidate (find the existing `record_stage()` or equivalent call in this function) must also log:
+
+- `thompson_sampled_score` (raw value read)
+- `thompson_multiplier` (`_th_lbl` as applied)
+- `thompson_signal_source` (which source key was matched)
+
+If no such per-candidate audit row currently exists for `_dm_lbl`/`_tw_lbl`, create one — do not invent a new audit table; extend the existing candidate-scoring audit row with these three fields.
+
+### 2.4 Fix the docstring
+
+`aiem_closed_loop_learning.py:258` — replace the false claim with an accurate one once the read site above exists, e.g. `"consumed by _aiem_paper_pick_candidates() as a trust multiplier"`.
+
+### 2.5 Do NOT touch
+
+- `update_paper_thompson()` — write path is verified correct, leave it alone
+- `signal_trust_weights` / `_tw_lbl` — separate system, do not merge or replace it, Thompson is additive
+- Any kill-switch or safety gate logic
+
+---
+
+## 3. Provenance proof required for sign-off (same standard as prior audits)
+
+No self-report. No "I added the code and it should work." The following four tests must be run and raw output pasted back, in this order:
+
+### Test A — Static wiring proof (diff against Step 2.0 baseline)
+
+```bash
+git diff artifacts/stock-scanner-api/main.py
+```
+Paste the full diff for this function. It must show:
+- The Thompson read block (2.1) inserted, using the real variable name confirmed in Step 2.0.5 — not the literal string `candidate_signal_source`
+- The final_score line modified in place (same structure as baseline, `* _th_lbl` appended) — not a new/duplicate final_score line added elsewhere
+- No changes outside `_aiem_paper_pick_candidates()` and the docstring fix in 2.4
+
+Then independently confirm placement:
+```bash
+grep -n "aiem_paper_thompson\|sampled_score\|_th_lbl" artifacts/stock-scanner-api/main.py
+```
+Paste line numbers. The SELECT and `_th_lbl` computation must appear at a line number *before* the modified final_score line, and both must fall between the function boundaries confirmed in Step 2.0.1.
+
+### Test B — Live differential test
+Pick (or seed) two `signal_source` rows in `aiem_paper_thompson` with materially different `sampled_score` (e.g. one ~0.1, one ~0.9). Run `_aiem_paper_pick_candidates()` (or the smallest function that calls it) against otherwise-identical synthetic candidates that differ *only* in `signal_source`. Paste raw output showing:
+- `_th_lbl` computed per candidate
+- `final_score` differs between the two candidates by a ratio consistent with `_th_lbl` (i.e. score₁/score₂ ≈ th_lbl₁/th_lbl₂, holding `_dm_lbl`/`_tw_lbl` constant)
+
+This is the causal test — it proves the read site changes output, not just that it executes without error.
+
+### Test C — Audit trail proof
+Query the candidate-scoring audit row for the test candidates above and confirm `thompson_sampled_score`, `thompson_multiplier`, `thompson_signal_source` are present and match the values from Test B.
+
+### Test D — Regression check
+Run the existing candidate-scoring path against a `signal_source` with **no** Thompson row (new/untested source). Confirm `_th_lbl=1.0` (neutral) and `final_score` is unchanged from pre-change behavior — i.e. sources with no Thompson history are not penalized.
+
+---
+
+## 4. Sign-off criteria
+
+| Test | Pass condition |
+|---|---|
+| A | SELECT exists, executes before `final_score` computation |
+| B | `final_score` measurably changes with `_th_lbl`, ratio matches expected |
+| C | Audit row contains all 3 new fields, values match Test B |
+| D | No-data case is neutral (1.0x), not zero/penalized |
+
+All four must pass with raw terminal output — not narrative description — before this module moves from PARTIAL to PASS. Send back file:line references and raw query/test output exactly as in the Test 1–4 audit already completed.

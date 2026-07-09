@@ -255,7 +255,7 @@ def update_paper_thompson(
       - increment alpha (win) or beta (loss)
       - draw a Thompson sample (Beta(alpha, beta))
       - store before/after in aiem_paper_thompson_history
-      - return the new sampled_score so pick_candidates can use it
+      - return the new sampled_score; consumed by _aiem_paper_pick_candidates() as LEARNING GATE 3 (Thompson trust multiplier)
     """
     try:
         with _conn(timeout=3) as c, c.cursor() as cu:

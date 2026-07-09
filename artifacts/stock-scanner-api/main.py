@@ -39528,6 +39528,39 @@ def _aiem_paper_pick_candidates() -> list:
             if _tw != 1.0:
                 _twcand["score"] = round(_twcand["score"] * _tw, 4)
 
+    # ── LEARNING GATE 3 (Thompson trust gate — Beta(α,β) sampled score) ──────
+    # Reads sampled_score from aiem_paper_thompson for each candidate's source.
+    # Maps [0,1] Beta sample to multiplier band [0.5, 1.5]: _th_lbl = 0.5 + sampled_score.
+    # Sources with no Thompson record default to _th_lbl=1.0 (neutral, no penalty).
+    # Band is intentionally conservative: cannot swing scores more than ±50% of base.
+    _th_map: dict = {}
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _thmc, \
+                _thmc.cursor() as _thmcu:
+            _thmcu.execute("""
+                SELECT signal_source, sampled_score
+                FROM aiem_paper_thompson
+                WHERE sampled_score IS NOT NULL
+            """)
+            for _thsrc, _thsc in _thmcu.fetchall():
+                _th_map[_thsrc] = float(_thsc)
+    except Exception as _the:
+        print(f"[thompson-gate] load skipped (non-fatal): {_the}")
+
+    for _thcand in _candidates.values():
+        _thsrc = _thcand.get("source", "")
+        _thsc  = _th_map.get(_thsrc)
+        if _thsc is not None:
+            _th_lbl = 0.5 + _thsc   # sampled_score=0 → ×0.5x, sampled_score=1 → ×1.5x
+        else:
+            _th_lbl = 1.0            # no Thompson data for this source — neutral
+        _thcand["thompson_sampled_score"] = _thsc
+        _thcand["thompson_multiplier"]    = round(_th_lbl, 4)
+        _thcand["thompson_signal_source"] = _thsrc
+        if _th_lbl != 1.0:
+            _thcand["score"] = round(_thcand["score"] * _th_lbl, 4)
+            print(f"[thompson-gate] {_thsrc} sampled={_thsc:.4f} ×{_th_lbl:.4f} → score={_thcand['score']:.4f}")
+
     # Apply macro risk-off: cap at 10 picks and downweight options
     _final = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)
     if _macro_bias == -1:
@@ -39967,10 +40000,13 @@ def _aiem_paper_execute_today():
                     except Exception as _sup_h1_e:
                         print(f"[supervisor] hook1_scanner_alert skipped: {_sup_h1_e}")
                     _debate_v = _debate_verdicts.get(_t, "N/A")
-                    _raw_sc   = float(pick.get("raw_score") or pick.get("score") or 0)
-                    _fin_sc   = float(pick.get("score") or 0)
-                    _dm_lbl   = float(pick.get("drift_mult") or 1.0)
-                    _tw_lbl   = float(pick.get("trust_mult") or 1.0)
+                    _raw_sc      = float(pick.get("raw_score") or pick.get("score") or 0)
+                    _fin_sc      = float(pick.get("score") or 0)
+                    _dm_lbl      = float(pick.get("drift_mult") or 1.0)
+                    _tw_lbl      = float(pick.get("trust_mult") or 1.0)
+                    _th_sc_diag  = pick.get("thompson_sampled_score")
+                    _th_lbl_diag = float(pick.get("thompson_multiplier") or 1.0)
+                    _th_src_diag = str(pick.get("thompson_signal_source") or pick.get("source", ""))
                     # Stage 1 — signal_received
                     _atrace.log_step(
                         "signal_received",
@@ -40283,7 +40319,10 @@ def _aiem_paper_execute_today():
                     _d2_run(14, "scoring_synthesis", "Scoring / Synthesis",
                             "candidate_ranking_created + trust_weights_applied + drift_gate_checked",
                             lambda: {"raw_score": _raw_sc, "trust_mult": _tw_lbl,
-                                     "drift_mult": _dm_lbl, "final_score": _fin_sc})
+                                     "drift_mult": _dm_lbl, "final_score": _fin_sc,
+                                     "thompson_sampled_score": _th_sc_diag,
+                                     "thompson_multiplier": _th_lbl_diag,
+                                     "thompson_signal_source": _th_src_diag})
                     _d2_run(15, "specialist_council", "Specialist Council / Bull-Bear",
                             "aiem_bull_bear.run_bull_bear_debate (reused batch-level debate)",
                             lambda: (_d2_help.log_stage15_subchecks(

@@ -1,3 +1,4 @@
+- [Thompson sampler wiring complete](thompson-wiring-complete.md) — GATE 3 wired into _aiem_paper_pick_candidates(); multiplier chain is in-place mutations not a single line
 - [Bus DDL / RowExclusiveLock deadlock](bus-ddl-rowlock-deadlock.md) — _cu INSERT (open txn) + execute_stage CREATE INDEX = Python deadlock; fix: call get_bus() once BEFORE first _cu INSERT to pre-run DDL
 - [DB pool finalizer deadlock + liveness watchdog](db-pool-liveness-watchdog.md) — root cause of daily prod freezes: _PoolConn.__del__ re-entered pool's non-reentrant lock from GC; fixed + self-restart watchdog added
 - [Diagram 3 Governance Layer](aiem-diagram3-governance.md) — 15 phases, 15 d3_ tables, 18 admin endpoints; baseline_hash=61a65ca7587d79fd; status=OPEN (uppercase) in paper trades
