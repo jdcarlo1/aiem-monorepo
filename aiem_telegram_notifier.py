@@ -108,6 +108,25 @@ import pytz
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+# ── Socket-liveness default for every psycopg2.connect() in this process ────
+# connect_timeout alone only bounds the initial TCP/SSL handshake, not a
+# recv()/send() on an already-established connection. If the DB's TCP path
+# dies silently (no clean FIN/RST), a raw connect() with no keepalives can
+# block this process's single-threaded scheduler loop forever. See
+# .agents/memory/db-pool-liveness-watchdog.md for the full incident history —
+# this mirrors the fix applied to main.py's global psycopg2.connect patch.
+def _make_safe_pg_connect(_orig_connect):
+    def _safe(*_pa, **_pk):
+        _pk.setdefault("connect_timeout", 10)
+        _pk.setdefault("keepalives", 1)
+        _pk.setdefault("keepalives_idle", 10)
+        _pk.setdefault("keepalives_interval", 5)
+        _pk.setdefault("keepalives_count", 3)
+        _pk.setdefault("tcp_user_timeout", 30000)
+        return _orig_connect(*_pa, **_pk)
+    return _safe
+psycopg2.connect = _make_safe_pg_connect(psycopg2.connect)
+
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] [AIEM-NOTIFIER] %(message)s',

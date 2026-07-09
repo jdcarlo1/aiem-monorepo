@@ -35,15 +35,31 @@ def _thread_excepthook(args):
 
 threading.excepthook = _thread_excepthook
 
-# ── DB connect timeout global default ────────────────────────────────────────
-# Patches psycopg2.connect() so every call in the entire codebase defaults to
-# connect_timeout=10s.  Prevents indefinite hangs when the DB connection pool is
-# under pressure from concurrent background scans.  Explicit callers that pass
-# their own connect_timeout= value are unaffected (setdefault never overwrites).
+# ── DB connect timeout + socket-liveness global default ─────────────────────
+# Patches psycopg2.connect() so every call in the entire codebase (542+ ad-hoc
+# call sites, plus the pool) defaults to connect_timeout=2s AND TCP keepalives
+# + tcp_user_timeout. connect_timeout only bounds the initial TCP/SSL handshake
+# — it does NOT bound a recv()/send() on an already-established connection. If
+# the DB's TCP path dies silently (cloud LB/NAT drops it without a clean
+# FIN/RST — this happens routinely, visible as "SSL connection has been closed
+# unexpectedly" in prod logs), a raw connect() with no keepalives can block a
+# thread FOREVER with zero timeout. Enough of these accumulating (one per
+# background job tick, since jobs don't join/kill previous hung runs) leaks
+# unbounded OS threads until the whole VM (including unrelated co-located
+# services) is starved — this is the confirmed root cause of the recurring
+# full-VM freezes. keepalives make the OS itself detect a dead peer and error
+# out within ~25-30s instead of hanging indefinitely; tcp_user_timeout is a
+# second independent belt-and-suspenders bound. Explicit callers that pass
+# their own values are unaffected (setdefault never overwrites).
 import psycopg2 as _pg_patch
 def _make_safe_pg_connect(_orig_connect):
     def _safe(*_pa, **_pk):
         _pk.setdefault("connect_timeout", 2)
+        _pk.setdefault("keepalives", 1)
+        _pk.setdefault("keepalives_idle", 10)
+        _pk.setdefault("keepalives_interval", 5)
+        _pk.setdefault("keepalives_count", 3)
+        _pk.setdefault("tcp_user_timeout", 30000)
         return _orig_connect(*_pa, **_pk)
     return _safe
 _pg_patch.connect = _make_safe_pg_connect(_pg_patch.connect)
@@ -280,6 +296,47 @@ else:
 # fails repeatedly, the process is treated as unrecoverably wedged and force-
 # exits so the platform (Reserved VM) restarts it automatically — turning a
 # manual-redeploy-required, all-day outage into an ~1 minute automatic blip.
+def _lw_read_proc_status():
+    """Best-effort (thread_count, rss_bytes, rss_pct_of_total) from /proc. Never
+    raises — resource-starvation detection must not itself be a new crash risk."""
+    threads_n = None
+    rss_bytes = None
+    rss_pct = None
+    try:
+        threads_n = threading.active_count()
+    except Exception:
+        pass
+    try:
+        with open("/proc/self/status") as _f:
+            for _line in _f:
+                if _line.startswith("VmRSS:"):
+                    rss_bytes = int(_line.split()[1]) * 1024
+                    break
+    except Exception:
+        pass
+    try:
+        mem_total_kb = None
+        with open("/proc/meminfo") as _f:
+            for _line in _f:
+                if _line.startswith("MemTotal:"):
+                    mem_total_kb = int(_line.split()[1])
+                    break
+        if mem_total_kb and rss_bytes:
+            rss_pct = (rss_bytes / (mem_total_kb * 1024)) * 100
+    except Exception:
+        pass
+    return threads_n, rss_bytes, rss_pct
+
+
+# Resource-starvation thresholds (see .agents/memory/db-pool-liveness-watchdog.md):
+# the health-check-only watchdog above catches a fully wedged process, but a
+# leaking-threads/leaking-memory process can still serve health checks fine
+# right up until the VM itself starves — which takes down every co-located
+# artifact (NCLEX Prep + stock-scanner) on this shared Reserved VM, not just
+# this one. These checks catch that BEFORE the OOM/starvation event.
+_LW_MAX_THREADS = 400
+_LW_MAX_RSS_PCT = 70.0
+
 def _liveness_watchdog_loop():
     import time as _lw_time
     import sys as _lw_sys
@@ -289,6 +346,36 @@ def _liveness_watchdog_loop():
     url = f"http://127.0.0.1:{PORT}/stock-api/"
     while True:
         _lw_time.sleep(30)
+        threads_n, rss_bytes, rss_pct = _lw_read_proc_status()
+        rss_mb = (rss_bytes / (1024 * 1024)) if rss_bytes else None
+        rss_mb_str = f"{rss_mb:.1f}" if rss_mb is not None else "unknown"
+        rss_pct_str = f"{rss_pct:.1f}%" if rss_pct is not None else "unknown"
+        print(f"[LIVENESS-WATCHDOG] threads={threads_n} rss_mb={rss_mb_str} "
+              f"rss_pct={rss_pct_str}", flush=True)
+        if threads_n is not None and threads_n > _LW_MAX_THREADS:
+            print("=" * 78, flush=True)
+            print(f"[LIVENESS-WATCHDOG] CRITICAL: thread count {threads_n} > {_LW_MAX_THREADS} — "
+                  f"likely a background job leaking daemon threads (each stuck on a hung DB call). "
+                  f"Force-exiting before the VM starves every co-located artifact.", flush=True)
+            try:
+                _lw_faulthandler.dump_traceback(file=_lw_sys.stderr)
+            except Exception:
+                pass
+            _lw_sys.stdout.flush()
+            _lw_sys.stderr.flush()
+            os._exit(1)
+        if rss_pct is not None and rss_pct > _LW_MAX_RSS_PCT:
+            print("=" * 78, flush=True)
+            print(f"[LIVENESS-WATCHDOG] CRITICAL: RSS {rss_pct:.1f}% of total VM memory > "
+                  f"{_LW_MAX_RSS_PCT}% — process is close to OOM-killing the whole VM (all co-located "
+                  f"artifacts). Force-exiting now for a clean, fast restart instead.", flush=True)
+            try:
+                _lw_faulthandler.dump_traceback(file=_lw_sys.stderr)
+            except Exception:
+                pass
+            _lw_sys.stdout.flush()
+            _lw_sys.stderr.flush()
+            os._exit(1)
         try:
             with _lw_urllib.urlopen(url, timeout=10) as resp:
                 if resp.status == 200:
@@ -10014,6 +10101,11 @@ def _send_nano_buy_email():
 def _run_nano_morning_outcomes():
     """Stage D (16:10 ET): grade confirmed buys forward. 5% stop walk-forward,
     winners ride. Day 0 (entry day) is excluded from the forward walk."""
+    if not hasattr(app, "_nano_morning_outcomes_lock"):
+        app._nano_morning_outcomes_lock = _threading.Lock()
+    if not app._nano_morning_outcomes_lock.acquire(blocking=False):
+        print("[nano_morning] outcomes already running - skip")
+        return
     try:
         import psycopg2 as _pg
         from datetime import timedelta as _td
@@ -10085,6 +10177,8 @@ def _run_nano_morning_outcomes():
     except Exception as _e:
         import traceback
         print(f"[nano_morning] outcomes error: {_e}\n{traceback.format_exc()}")
+    finally:
+        app._nano_morning_outcomes_lock.release()
 
 
 @app.route("/stock-api/nano-morning/candidates", methods=["GET"])
@@ -11425,6 +11519,11 @@ def _send_sc_buy_email():
 def _run_sc_morning_outcomes():
     """Stage D (16:12 ET): grade confirmed small-cap buys forward. 5% stop walk-forward,
     winners ride. Day 0 (entry day) is excluded from the forward walk."""
+    if not hasattr(app, "_sc_morning_outcomes_lock"):
+        app._sc_morning_outcomes_lock = _threading.Lock()
+    if not app._sc_morning_outcomes_lock.acquire(blocking=False):
+        print("[sc_morning] outcomes already running - skip")
+        return
     try:
         import psycopg2 as _pg
         from datetime import timedelta as _td
@@ -11494,6 +11593,8 @@ def _run_sc_morning_outcomes():
     except Exception as _e:
         import traceback
         print(f"[sc_morning] outcomes error: {_e}\n{traceback.format_exc()}")
+    finally:
+        app._sc_morning_outcomes_lock.release()
 
 
 @app.route("/stock-api/sc-morning/candidates", methods=["GET"])
