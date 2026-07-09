@@ -65,6 +65,7 @@ import {
   fetchGrinderScan, GrinderScanData, GrinderResult,
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
   fetchWashoutComplete, WashoutCompleteSignal, WashoutCompleteResult,
+  fetchCandlestickConfluence, CandlestickConfluenceSignal, CandlestickConfluenceResult,
   fetchFlowScores, fetchCallWinRates, fetchHistoricalSimilarity,
   HistSimEntry, HistSimRequest,
   fetchAiemPaperPortfolio, AiemPaperPortfolio, AiemPaperTrade,
@@ -15813,7 +15814,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete"|"candlestick-confluence">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -15998,6 +15999,7 @@ export default function Dashboard() {
     { id: "steadygrinder",  label: "🔄 STEADY GRINDERS" },
     { id: "gapvolume",      label: "⚡ GAP+VOL SIGNAL" },
     { id: "washout-complete", label: "🎯 WASHOUT COMPLETE" },
+    { id: "candlestick-confluence", label: "🕯️ CANDLESTICK CONFLUENCE" },
     { id: "quantagent",     label: "🤖 QUANT AGENT" },
     { id: "gasboard",       label: "⚡ GAS BOARD" },
     { id: "signalintel",    label: "🔬 SIGNAL INTEL" },
@@ -18410,6 +18412,114 @@ export default function Dashboard() {
             );
           }
           return <WashoutCompleteTab onSelectTicker={selectTicker} />;
+        })()}
+
+        {/* ── Candlestick Confluence Tab (fully isolated — own scan/table/alert, never fed into any scoring loop) ── */}
+        {tab === "candlestick-confluence" && (() => {
+          function CandlestickConfluenceTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading } = useQuery({
+              queryKey: ["candlestick-confluence"],
+              queryFn: fetchCandlestickConfluence,
+              refetchInterval: 300_000,
+            });
+            const signals  = data?.signals ?? [];
+            const stale    = data?.stale ?? false;
+            const scanDate = data?.scan_date ?? null;
+
+            const flag = (ok: boolean, label: string) => (
+              <span
+                className="text-xs px-1.5 py-0.5 rounded"
+                style={{
+                  color: ok ? "#10b981" : "#64748b",
+                  background: ok ? "rgba(16,185,129,0.12)" : "rgba(100,116,139,0.08)",
+                }}
+              >
+                {ok ? "✔" : "✘"} {label}
+              </span>
+            );
+
+            const patternLabel = (p: string) =>
+              p.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+            return (
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+                    <div>
+                      <div className="text-slate-100 text-base font-bold tracking-wide">
+                        🕯️ Candlestick Confluence Scan
+                      </div>
+                      <div className="text-slate-500 text-xs mt-0.5">
+                        Full-market daily scan for 11 bullish candlestick patterns + volume/support/RSI confluence.
+                        Fully isolated — descriptive only, not fed into any scoring or ranking tab.
+                      </div>
+                    </div>
+                    {scanDate && (
+                      <span className="text-slate-500 text-xs">
+                        {stale ? "⚠ no recent scan · " : ""}Last scan: {scanDate}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-slate-600 text-xs mt-2">
+                    Patterns: hammer, marubozu, engulfing, piercing line, harami, morning star / doji star,
+                    three white soldiers, three inside/outside up, abandoned baby. Confluence: volume above
+                    20-day avg, price near 20-day low (support), RSI(14) &lt; 40 (oversold).
+                  </div>
+                </div>
+
+                {isLoading ? (
+                  <div className="text-slate-500 text-sm text-center py-8">Loading scan…</div>
+                ) : signals.length === 0 ? (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
+                    <div className="text-slate-400 text-sm">No candlestick confluence matches in the last 14 days</div>
+                    <div className="text-slate-600 text-xs mt-2">Scan runs at 8:55 AM ET each trading day</div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {signals.map((s: CandlestickConfluenceSignal) => (
+                      <div
+                        key={`${s.ticker}-${s.scan_date}`}
+                        className="bg-slate-900 border border-slate-700/60 rounded-xl p-4 hover:border-slate-500 transition-colors cursor-pointer"
+                        onClick={() => onSelectTicker(s.ticker)}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <div className="text-slate-100 text-lg font-bold">{s.ticker}</div>
+                            <div className="text-slate-500 text-xs">{s.scan_date}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-slate-200 text-sm font-semibold">${s.close_price?.toFixed(2)}</div>
+                            <div className="text-slate-600 text-xs">vol {s.volume?.toLocaleString()}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {s.patterns_detected.map(p => (
+                            <span
+                              key={p}
+                              className="text-xs px-2 py-0.5 rounded-full bg-amber-900/30 border border-amber-700/40 text-amber-300"
+                            >
+                              {patternLabel(p)}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          {flag(s.vol_confirmed, "Vol")}
+                          {flag(s.at_support, "Support")}
+                          {flag(s.rsi_oversold, `RSI ${s.rsi_value ?? "—"}`)}
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
+                            {s.confluence_count}/3 confluence
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return <CandlestickConfluenceTab onSelectTicker={selectTicker} />;
         })()}
 
         {tab === "quantagent"  && <QuantAgentTab />}

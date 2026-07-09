@@ -2571,3 +2571,27 @@ export interface WashoutCompleteResult {
 export function fetchWashoutComplete(): Promise<WashoutCompleteResult> {
   return fetchJson<WashoutCompleteResult>("/stock-api/momentum-washout-complete");
 }
+
+export interface CandlestickConfluenceSignal {
+  scan_date: string;
+  ticker: string;
+  close_price: number;
+  volume: number;
+  patterns_detected: string[];
+  vol_confirmed: boolean;
+  at_support: boolean;
+  rsi_oversold: boolean;
+  rsi_value: number | null;
+  confluence_count: number;
+}
+
+export interface CandlestickConfluenceResult {
+  signals: CandlestickConfluenceSignal[];
+  count: number;
+  scan_date: string | null;
+  stale: boolean;
+}
+
+export function fetchCandlestickConfluence(): Promise<CandlestickConfluenceResult> {
+  return fetchJson<CandlestickConfluenceResult>("/stock-api/candlestick-confluence");
+}
