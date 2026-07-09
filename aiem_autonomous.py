@@ -274,7 +274,13 @@ def _start_health_server():
 # ─────────────────────────────────────────────────────────────
 # SMS — standalone (no dependency on main.py _send_sms)
 # ─────────────────────────────────────────────────────────────
-def _tg_send(text: str) -> bool:
+# QUARANTINED 2026-07-09: this function sends directly to the Telegram API via
+# urllib, bypassing alert_gateway.log_alert(), the telegram_alert_ledger, and the
+# entire trust/grading pipeline. aiem_autonomous.py is not currently imported or
+# invoked by any running workflow, so this is dormant, not an active leak — but
+# do NOT call this function again without first rewiring it through
+# alert_gateway (see aiem_process.py's _tg_send for the reference pattern).
+def _tg_send_QUARANTINED_DO_NOT_USE(text: str) -> bool:
     """Mirror a message to Telegram owner chat. Silent no-op when not configured."""
     import urllib.request as _ulr, json as _jmod
     token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
@@ -295,7 +301,7 @@ def _tg_send(text: str) -> bool:
 
 
 def _aiem_send_sms(message: str):
-    _tg_send(f"🤖 {message}")
+    _tg_send_QUARANTINED_DO_NOT_USE(f"🤖 {message}")
     if not (TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and TWILIO_TO):
         log.info(f"[SMS disabled] {message[:80]}")
         return
@@ -2326,7 +2332,7 @@ def _aiem_send_watch_alert_telegram(new_alerts: list, job_name: str):
         )
     if len(new_alerts) > 15:
         lines.append(f"...and {len(new_alerts) - 15} more")
-    _tg_send("\n".join(lines))
+    _tg_send_QUARANTINED_DO_NOT_USE("\n".join(lines))
 
 
 def _aiem_scan_watch_criteria(conn, cur, job_name: str, candidates: list = None) -> list:
@@ -2924,12 +2930,12 @@ def aiem_eod_report():
                 chunk = header
                 for line in lines:
                     if len(chunk) + len(line) + 2 > 3800:
-                        _tg_send(chunk.rstrip())
+                        _tg_send_QUARANTINED_DO_NOT_USE(chunk.rstrip())
                         time.sleep(0.3)
                         chunk = header
                     chunk += line + "\n\n"
                 if chunk.strip() and chunk != header:
-                    _tg_send(chunk.rstrip())
+                    _tg_send_QUARANTINED_DO_NOT_USE(chunk.rstrip())
                 time.sleep(0.3)
 
     except Exception as e:

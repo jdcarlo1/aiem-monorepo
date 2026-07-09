@@ -445,7 +445,13 @@ def get_previous_close(ticker: str) -> float:
 # TELEGRAM
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _tg_send(msg: str) -> None:
+# QUARANTINED 2026-07-09: this function sends directly to the Telegram API via
+# requests.post(), bypassing alert_gateway.log_alert(), the telegram_alert_ledger,
+# and the entire trust/grading pipeline. aiem_standalone_scanner.py is not
+# currently imported or invoked by any running workflow, so this is dormant, not
+# an active leak — but do NOT call this function again without first rewiring it
+# through alert_gateway (see aiem_process.py's _tg_send for the reference pattern).
+def _tg_send_QUARANTINED_DO_NOT_USE(msg: str) -> None:
     if not TG_TOKEN:
         return
     try:
@@ -776,7 +782,7 @@ def _send_morning_picks_tg(picks: list[dict]) -> None:
         lines.append(f"\n⚠️ CONCENTRATION WARNING: all picks tagged {all_patterns[0]}"
                      " — possible systemic scanner bias.")
 
-    _tg_send("\n".join(lines))
+    _tg_send_QUARANTINED_DO_NOT_USE("\n".join(lines))
 
 
 def job_eod_feedback() -> None:
@@ -865,7 +871,7 @@ def job_eod_feedback() -> None:
         except Exception as e:
             logger.warning("[EOD] Feedback loop stats failed: %s", e)
 
-    _tg_send(msg)
+    _tg_send_QUARANTINED_DO_NOT_USE(msg)
 
 
 def job_health_check() -> None:

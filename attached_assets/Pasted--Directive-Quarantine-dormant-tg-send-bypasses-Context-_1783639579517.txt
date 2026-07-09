@@ -1,0 +1,50 @@
+# Directive: Quarantine dormant _tg_send bypasses
+
+## Context
+`aiem_autonomous.py:277` and `aiem_standalone_scanner.py:448` each define their own
+`_tg_send()` that calls the Telegram API directly (`urllib`/`requests`), bypassing
+`alert_gateway`, the ledger, and the trust pipeline entirely. Grep confirmed neither
+is currently imported or invoked by any running workflow — this is dead/dormant code,
+not an active leak. The goal is to remove the *capability* to silently reactivate it,
+not to "fix" the alerting (it's not wired into anything active right now).
+
+## What to do
+1. In `aiem_autonomous.py`, rename `_tg_send` to `_tg_send_QUARANTINED_DO_NOT_USE` and
+   add a docstring/comment at the top of the function explaining it bypasses
+   `alert_gateway` and must not be called without rewiring through the ledger.
+2. Do the same in `aiem_standalone_scanner.py:448`.
+3. Do NOT delete the function bodies — rename + comment only, so history/diff stays
+   traceable and nothing has to be reconstructed later if we do rewire it.
+4. Confirm no other file references the old function name after the rename.
+
+## Evidence required (no narrative summaries — raw output only)
+
+1. **Diff of both files** showing the rename and added comment:
+   ```
+   git diff -- aiem_autonomous.py aiem_standalone_scanner.py
+   ```
+
+2. **Grep confirming old name is gone everywhere:**
+   ```
+   grep -rn "_tg_send(" --include=*.py . | grep -v QUARANTINED
+   ```
+   Expected: zero matches inside `aiem_autonomous.py` or `aiem_standalone_scanner.py`
+   for the un-renamed name.
+
+3. **Grep confirming new name exists exactly twice (the two definitions):**
+   ```
+   grep -rn "_tg_send_QUARANTINED_DO_NOT_USE" --include=*.py .
+   ```
+
+4. **Confirm nothing else imports or calls these two files' functions**, to prove the
+   rename doesn't break anything currently running:
+   ```
+   grep -rln "aiem_autonomous\|aiem_standalone_scanner" --include=*.py . | grep -v "^\./aiem_autonomous.py$\|^\./aiem_standalone_scanner.py$"
+   ```
+
+## Explicitly out of scope
+- No changes to `alert_gateway`, the ledger schema, or any live signal module
+  (`aiem_momentum_exhaustion.py`, `aiem_pullback_reentry.py`, `aiem_selloff_reversion.py`).
+- No changes to `main.py` or `aiem_process.py`'s `_tg_send` — those are separate,
+  correctly-parameterized functions and are not part of this directive.
+- Do not report this as "done" without pasting the actual grep/diff output above.
