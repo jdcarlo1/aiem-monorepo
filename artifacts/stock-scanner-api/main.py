@@ -4786,6 +4786,41 @@ try:
             id=f"microcap_calls_email_{_mc_h}_{_mc_m}",
             replace_existing=True,
         )
+    # Daily Price + Call Flow Telegram alert: 9:40 AM + 3:00 PM ET
+    # Screens for stocks with 2-day price uptrend cross-confirmed by unusual call activity.
+    def _run_daily_price_options_alert():
+        if not _intraday_scan_allowed():
+            return
+        try:
+            import threading as _thr_dpa
+            _thr_dpa.Thread(target=_aiem_daily_price_options_alert, daemon=True).start()
+        except Exception as _e_dpa_s:
+            print(f"[scheduler] daily price+options alert error: {_e_dpa_s}")
+    for _dpa_h, _dpa_m in [(9, 40), (15, 0)]:
+        _scheduler.add_job(
+            _run_daily_price_options_alert,
+            CronTrigger(day_of_week="mon-fri", hour=_dpa_h, minute=_dpa_m, timezone=_ET),
+            id=f"daily_price_options_alert_{_dpa_h}_{_dpa_m}",
+            replace_existing=True,
+        )
+    # Same-day intraday alert: 10:30 AM, 12:30 PM, 2:00 PM ET
+    # Fires on Day 1 as soon as positive inflows + unusual call activity are detected.
+    # Each ticker only alerts once per day (dedup via app._same_day_alerted).
+    def _run_same_day_alert():
+        if not _intraday_scan_allowed():
+            return
+        try:
+            import threading as _thr_sda
+            _thr_sda.Thread(target=_aiem_same_day_alert, daemon=True).start()
+        except Exception as _e_sda_s:
+            print(f"[scheduler] same-day alert error: {_e_sda_s}")
+    for _sda_h, _sda_m in [(10, 30), (12, 30), (14, 0)]:
+        _scheduler.add_job(
+            _run_same_day_alert,
+            CronTrigger(day_of_week="mon-fri", hour=_sda_h, minute=_sda_m, timezone=_ET),
+            id=f"same_day_alert_{_sda_h}_{_sda_m}",
+            replace_existing=True,
+        )
     # High Conviction Calls email: 9:48 AM (after unusual calls scan) + 4:22 PM EOD
     def _run_hc_calls_email():
         if not _intraday_scan_allowed():
@@ -13032,6 +13067,151 @@ def _tg_send(text: str) -> bool:
     except Exception as _e:
         print(f"[telegram] send error: {_e}")
         return False
+
+
+def _aiem_daily_price_options_alert() -> None:
+    """Daily Telegram alert: stocks with strong 2-day price action + unusual call activity.
+    Scheduled at 9:40 AM ET and 3:00 PM ET Mon-Fri.
+    Uses unusual_calls_log exclusively: requires activity on BOTH yesterday and today
+    (prem >= $500K per hit, $10M+ total), and confirms price moved up over the 2-day window."""
+    import psycopg2 as _pg_dpa
+    try:
+        _slot = "9:40 AM" if _et_now().hour < 12 else "3:00 PM"
+        with _pg_dpa.connect(_DB_URL) as _c_dpa, _c_dpa.cursor() as _cu_dpa:
+            _cu_dpa.execute("""
+                WITH day_buckets AS (
+                    SELECT ticker,
+                        AVG(price) FILTER (WHERE last_seen BETWEEN NOW()-INTERVAL '48h' AND NOW()-INTERVAL '24h') AS price_d2,
+                        AVG(price) FILTER (WHERE last_seen >= NOW() - INTERVAL '24h') AS price_d1,
+                        COUNT(*) AS call_hits,
+                        SUM(prem)::bigint AS total_prem,
+                        MAX(vol_oi) AS max_voi,
+                        COUNT(*) FILTER (WHERE last_seen >= NOW() - INTERVAL '24h') AS hits_today,
+                        COUNT(*) FILTER (WHERE last_seen BETWEEN NOW()-INTERVAL '48h' AND NOW()-INTERVAL '24h') AS hits_yest
+                    FROM unusual_calls_log
+                    WHERE last_seen >= NOW() - INTERVAL '48h'
+                      AND prem >= 500000
+                    GROUP BY ticker
+                    HAVING SUM(prem) >= 10000000
+                      AND COUNT(*) FILTER (WHERE last_seen >= NOW() - INTERVAL '24h') >= 3
+                      AND COUNT(*) FILTER (WHERE last_seen BETWEEN NOW()-INTERVAL '48h' AND NOW()-INTERVAL '24h') >= 3
+                )
+                SELECT ticker,
+                    ROUND(price_d1::numeric, 2) AS price_today,
+                    ROUND(price_d2::numeric, 2) AS price_yest,
+                    ROUND(((price_d1 - price_d2) / NULLIF(price_d2, 0) * 100)::numeric, 1) AS chg_pct_2d,
+                    call_hits, total_prem, max_voi
+                FROM day_buckets
+                WHERE price_d1 > price_d2
+                ORDER BY total_prem DESC
+                LIMIT 8
+            """)
+            _rows_dpa = _cu_dpa.fetchall()
+
+        if not _rows_dpa:
+            print(f"[daily_alert] {_slot} ET — 0 qualifying stocks (price+calls cross-confirm empty)")
+            return
+
+        _today_str = _et_now().strftime("%Y-%m-%d")
+        _emojis = ["1\ufe0f\u20e3","2\ufe0f\u20e3","3\ufe0f\u20e3","4\ufe0f\u20e3",
+                   "5\ufe0f\u20e3","6\ufe0f\u20e3","7\ufe0f\u20e3","8\ufe0f\u20e3"]
+        _lines = [
+            f"📊 PRICE + CALL FLOW ALERT · {_slot} ET · {_today_str}",
+            "",
+            f"Stocks with 2-day uptrend AND unusual call activity ({len(_rows_dpa)} found):",
+        ]
+        for _i, (_tkr, _p1, _p2, _chg, _hits, _prem, _voi) in enumerate(_rows_dpa):
+            _prem_m = round(float(_prem or 0) / 1_000_000, 1)
+            _em = _emojis[_i] if _i < len(_emojis) else "▪️"
+            _sign = "+" if float(_chg or 0) >= 0 else ""
+            _lines.append(f"{_em} {_tkr}")
+            _lines.append(f"   2d price: {_sign}{float(_chg or 0):.1f}%  (${float(_p2 or 0):.2f} → ${float(_p1 or 0):.2f})")
+            _lines.append(f"   Calls: {_hits} hits · ${_prem_m:.1f}M prem · Max vol/OI: {float(_voi or 0):.1f}x")
+        _lines += ["", "StockScanner AI · Not financial advice"]
+        _tg_send("\n".join(_lines))
+        print(f"[daily_alert] {_slot} ET — sent {len(_rows_dpa)} stock(s) to Telegram")
+    except Exception as _e_dpa:
+        print(f"[daily_alert] error: {_e_dpa}")
+
+
+def _aiem_same_day_alert() -> None:
+    """Intraday Telegram alert fired at 10:30 AM, 12:30 PM, and 2:00 PM ET.
+    Triggers on Day 1 — the SAME day unusual call activity + positive price action are
+    detected, so the user can position BEFORE a potential second-day continuation.
+    Deduplicates: each ticker only fires once per calendar day (ET)."""
+    import psycopg2 as _pg_sda
+    try:
+        _et_today = _et_now().strftime("%Y-%m-%d")
+        _slot = _et_now().strftime("%-I:%M %p")
+        # Per-day dedup: app._same_day_alerted = {date_str: {ticker, ...}}
+        _sent_today: set = getattr(app, "_same_day_alerted", {}).get(_et_today, set())
+
+        with _pg_sda.connect(_DB_URL) as _c_sda, _c_sda.cursor() as _cu_sda:
+            _cu_sda.execute("""
+                WITH today_calls AS (
+                    SELECT ticker,
+                        MIN(price)        AS price_first,
+                        MAX(price)        AS price_latest,
+                        COUNT(*)          AS call_hits,
+                        SUM(prem)::bigint AS total_prem,
+                        MAX(vol_oi)       AS max_voi
+                    FROM unusual_calls_log
+                    WHERE last_seen >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                      AND prem >= 250000
+                    GROUP BY ticker
+                    HAVING SUM(prem)   >= 5000000
+                       AND COUNT(*)    >= 3
+                       AND MAX(vol_oi) >= 2.5
+                )
+                SELECT ticker,
+                    ROUND(price_first::numeric, 2)  AS price_first,
+                    ROUND(price_latest::numeric, 2) AS price_latest,
+                    ROUND(((price_latest - price_first) / NULLIF(price_first, 0) * 100)::numeric, 1) AS intraday_chg,
+                    call_hits,
+                    total_prem,
+                    ROUND(max_voi::numeric, 1) AS max_voi
+                FROM today_calls
+                WHERE price_latest >= price_first
+                ORDER BY total_prem DESC
+                LIMIT 10
+            """)
+            _rows_sda = _cu_sda.fetchall()
+
+        # Filter out already-alerted tickers for today
+        _new_rows = [r for r in _rows_sda if r[0] not in _sent_today]
+        if not _new_rows:
+            _reason = "already alerted today" if _rows_sda and not _new_rows else "0 qualifying stocks"
+            print(f"[same_day_alert] {_slot} ET — skipped ({_reason})")
+            return
+
+        _emojis = ["1\ufe0f\u20e3","2\ufe0f\u20e3","3\ufe0f\u20e3","4\ufe0f\u20e3",
+                   "5\ufe0f\u20e3","6\ufe0f\u20e3","7\ufe0f\u20e3","8\ufe0f\u20e3",
+                   "9\ufe0f\u20e3","🔟"]
+        _lines = [
+            f"🚨 SAME-DAY ALERT · {_slot} ET · {_et_today}",
+            "",
+            f"Fresh setups: positive inflows + unusual calls detected TODAY ({len(_new_rows)} stock{'s' if len(_new_rows) != 1 else ''}):",
+        ]
+        _newly_sent: set = set()
+        for _i, (_tkr, _pf, _pl, _chg, _hits, _prem, _voi) in enumerate(_new_rows):
+            _prem_m = round(float(_prem or 0) / 1_000_000, 1)
+            _em = _emojis[_i] if _i < len(_emojis) else "▪️"
+            _sign = "+" if float(_chg or 0) >= 0 else ""
+            _lines.append(f"{_em} {_tkr}")
+            _lines.append(f"   Intraday: {_sign}{float(_chg or 0):.1f}%  (${float(_pf or 0):.2f} → ${float(_pl or 0):.2f})")
+            _lines.append(f"   Calls: {_hits} hits · ${_prem_m:.1f}M prem · Max vol/OI: {float(_voi or 0):.1f}x")
+            _newly_sent.add(_tkr)
+        _lines += ["", "Position early · StockScanner AI · Not financial advice"]
+
+        _tg_send("\n".join(_lines))
+
+        # Update dedup state on app
+        _existing = getattr(app, "_same_day_alerted", {})
+        _existing[_et_today] = _sent_today | _newly_sent
+        app._same_day_alerted = _existing
+        print(f"[same_day_alert] {_slot} ET — sent {len(_new_rows)} new ticker(s): {sorted(_newly_sent)}")
+    except Exception as _e_sda:
+        print(f"[same_day_alert] error: {_e_sda}")
 
 
 def _send_sms(message: str, to: str = None) -> None:
