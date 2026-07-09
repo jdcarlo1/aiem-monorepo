@@ -1,0 +1,59 @@
+# WIRE ALL 13 STAGES INTO THE BUS — DO THE FULL JOB, THEN PROVE IT
+
+Stop asking which option. The answer is: wire everything, all 13 stages, into the live bus, so 
+every stage — pre-trade AND post-trade — publishes real events that get logged to 
+aiem_bus_transfer_log. That is the only acceptable end state. Not a partial split, not a "shadow 
+path that's basically equivalent." All 13, live, provable.
+
+## WHAT'S ALREADY WORKING (copy this pattern exactly)
+
+Stage 4 (master_orchestrator) already publishes correctly. Find its execute_stage() wrapping in 
+aiem_master_orchestrator.py (~lines 368, 380, 399) and use that exact call pattern for every other 
+stage. Do not invent a new pattern. Do not use a different mechanism for post-trade stages than 
+you use for pre-trade stages.
+
+## WHAT TO DO
+
+1. Identify every stage currently NOT publishing to the live bus — this includes anything in the 
+   MTM close path (Paper Trading confirmation, Outcome Tracker, Learning Systems, Feedback Loop, 
+   Memory, and any others you find that are missing — get the real, correct count yourself, don't 
+   guess or contradict yourself again).
+
+2. Wrap each one in execute_stage() the same way Stage 4 is wrapped, so each publishes 
+   stage_starting and stage_completed (and stage_failed on error) to the bus.
+
+3. Make sure stage_num values don't collide with the ones already in use.
+
+4. Do this for every missing stage. Do not stop partway and ask which ones I want — wire all of 
+   them.
+
+## PROOF REQUIRED WHEN DONE
+
+Trigger one real, live pick-to-trade cycle — start to finish, through MTM close, not a synthetic 
+test. Get its trace_id. Run:
+
+```sql
+SELECT stage_name, stage_num, event, created_at 
+FROM aiem_bus_transfer_log 
+WHERE trace_id = '<real trace_id>' 
+ORDER BY created_at;
+```
+
+Paste every row, in full, no truncation. All 13 stages must appear, each with a stage_starting and 
+stage_completed entry, in correct time order, no gaps, no duplicates, no missing stages.
+
+If a stage still doesn't show up after wiring, say which one, show the code you wrote for it, and 
+show the actual error — don't tell me it's "mostly working."
+
+## WHY THIS MATTERS — SAY THIS BACK TO ME IN YOUR OWN WORDS BEFORE YOU START
+
+The entire point of this bus is that every module's output becomes visible, logged, and traceable 
+in one place — that's what lets the system correctly track a stock candidate through discovery, 
+filtering, scoring, and trade resolution without silently dropping or corrupting information 
+between steps. If even one stage bypasses the bus, that stage's decisions and outputs are invisible 
+to everything downstream, including the learning loop that's supposed to get smarter from real 
+trade outcomes. A partially wired bus means the system might be filtering stocks based on incomplete 
+or stale information without anyone knowing it's happening. That is the whole reason this has to be 
+100%, not 90%.
+
+Do the work. Then show the proof. No status updates in between.

@@ -1,0 +1,115 @@
+# HOW TO WIRE STAGES 18–21 INTO THE BUS — STEP BY STEP
+
+You already have a working pattern. Stage 4 (master_orchestrator) proves it — it publishes to the 
+bus correctly. Copy that exact pattern onto the MTM close path. Do not invent a new approach.
+
+---
+
+## STEP 0 — Find the reference pattern you already built
+
+Open `aiem_master_orchestrator.py` around lines 368, 380, 399. This is the ONLY code that currently 
+calls `bus.publish()` successfully. It looks like this:
+
+```python
+# aiem_master_orchestrator.py:368
+bus.publish(StageEvent(stage_name="master_orchestrator", stage_num=4, event="stage_starting", ...))
+
+# ... module logic runs here ...
+
+# aiem_master_orchestrator.py:380
+bus.publish(StageEvent(stage_name="master_orchestrator", stage_num=4, event="stage_completed", ...))
+
+# aiem_master_orchestrator.py:399  (only on failure path)
+bus.publish(StageEvent(stage_name="master_orchestrator", stage_num=4, event="stage_failed", ...))
+```
+
+This is wrapped inside `execute_stage()`. Find that function definition and paste it here before 
+doing anything else, so we both know exactly what it takes as arguments.
+
+---
+
+## STEP 1 — Find where the 6 missing stages currently execute
+
+Open `main.py` and find the MTM close path — the code that runs at line ~40956 and ~41104 
+(`_d2_orch_mtm.execute_stage(...)`). Also find where paper trading confirmation, outcome tracking, 
+learning update, feedback loop, and memory writes currently happen — they exist in the code already 
+(that's how the system produces paper trades), they're just not calling `execute_stage()`/`bus.publish()` 
+around themselves.
+
+Paste the current code for each of these 6 spots, as it exists right now, before you change anything.
+
+---
+
+## STEP 2 — Wrap each one in execute_stage(), same shape as Step 0
+
+For each of the 6 stages, the change is mechanical: take the existing function call and wrap it 
+exactly the way Stage 4 is wrapped. Example shape (adjust names/args to match what execute_stage() 
+actually requires from Step 0):
+
+```python
+# BEFORE (current — no bus involvement):
+result = outcome_tracker.resolve_trade(trade_id)
+
+# AFTER (wrapped like Stage 4):
+result = execute_stage(
+    stage_name="outcome_tracker",
+    stage_num=10,
+    fn=lambda: outcome_tracker.resolve_trade(trade_id)
+)
+```
+
+The exact call signature depends on what `execute_stage()` requires — that's why Step 0 comes first. 
+Do not guess at the signature. Use the real one.
+
+Do this for all 6:
+- Paper Trading confirmation
+- Observability/Audit (if not already covered — check first)
+- Outcome Tracker
+- Learning Systems
+- Feedback Loop
+- Memory
+
+---
+
+## STEP 3 — Confirm the stage_num values don't collide
+
+The original 13 used stage_num 1–17 for pre-trade and some number range for post-trade. Before 
+wiring, check what stage_num values are already in use by the live bus (query 
+`aiem_bus_transfer_log` for `DISTINCT stage_name, stage_num`) so the new 6 don't overwrite or 
+collide with existing entries. Assign each a unique stage_num that doesn't already exist in that 
+table.
+
+---
+
+## STEP 4 — Reconcile the count before you finish
+
+You said "6 are not" in the live bus in one message, then listed 4 items in Option A 
+(Paper Trading, Outcome Tracker, Learning Systems, Memory). Before you mark this done:
+
+List, by name, every stage currently missing from the live bus. Count them. If it's 6, name all 6. 
+If it's 4, say so and explain why the earlier "6" count was wrong. Do not proceed to Step 5 until 
+this number is fixed and confirmed.
+
+---
+
+## STEP 5 — Test it for real
+
+1. Trigger one live pick-to-trade cycle, start to finish, through MTM close.
+2. Get its trace_id.
+3. Run:
+```sql
+SELECT stage_name, stage_num, event, created_at 
+FROM aiem_bus_transfer_log 
+WHERE trace_id = '<real trace_id>' 
+ORDER BY created_at;
+```
+4. Paste every row. All 13 (or however many the corrected count from Step 4 says) must appear, 
+   each with a stage_starting and stage_completed row, in time order, no gaps, no duplicates.
+
+---
+
+## IF YOU GET STUCK
+
+Stop and tell me exactly which step you're stuck on and what you tried. Show the error message 
+or the actual code you're looking at. "This is complex" is not an answer. "I tried X, got error Y, 
+here's the code" is an answer.
