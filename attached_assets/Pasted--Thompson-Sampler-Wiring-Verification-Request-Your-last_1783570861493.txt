@@ -1,0 +1,52 @@
+# Thompson Sampler Wiring — Verification Request
+
+Your last report claims PASS on 4 tests. Narrative summaries and self-reported
+results are not accepted as proof. Before this gets signed off, produce the
+raw evidence below. No paraphrasing, no "confirmed," no result tables —
+terminal output only.
+
+## 1. Static wiring (Test A)
+Run and paste full unedited output:
+```
+sed -n '39080,39690p' main.py
+```
+I will independently confirm:
+- SELECT statement location
+- score mutation location
+- `_final = sorted(...)` location
+- that all three appear in that order, unconditionally, inside the claimed range
+
+## 2. Causal proof (Test B)
+Paste:
+- The exact SQL query used to pull `score_A`, `score_B`, `_th_lbl_A`, `_th_lbl_B`
+- The raw row(s) returned by that query (not computed/rounded values)
+- Confirm these came from a live run, not a manually constructed test fixture
+
+## 3. Audit trail (Test C)
+Run and paste full raw row:
+```sql
+SELECT * FROM <audit_table_name> WHERE stage = 14 ORDER BY id DESC LIMIT 1;
+```
+Paste the full `payload_json` blob unmodified. I will check `thompson_sampled_score`,
+`thompson_multiplier`, `thompson_signal_source` myself for null/placeholder values.
+
+## 4. Regression test (Test D)
+Paste:
+- The actual test harness source code for the `new_untracked_source` case
+- Full raw terminal output from running it live, right now, in this session
+- Timestamp of the run
+
+## 5. Live-trigger proof (not in your original 4 tests)
+All 4 tests above can pass against a manual test harness while the gate never
+fires during real execution. Provide:
+- One real trade-cycle log line (from normal scheduled execution, not a manual
+  invocation) showing `_th_lbl` and the multiplier actually applied to a
+  candidate's score
+- Timestamp + which scheduled job/cron produced it
+
+## Rules
+- Raw terminal output only. No "I confirmed," "verified," "this shows."
+- If any of the above can't be produced, say so explicitly — don't reframe
+  the test to avoid answering.
+- Line numbers and file paths must match current on-disk state, not a
+  cached description.
