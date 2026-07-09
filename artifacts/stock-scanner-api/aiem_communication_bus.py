@@ -100,7 +100,7 @@ def _db_insert(event_dict: dict) -> None:
         )
         conn.close()
     except Exception as _e:
-        pass  # bus must never block the trading path
+        print(f"[aiem_bus] _db_insert error (non-fatal): {type(_e).__name__}: {_e}")
 
 
 # ---------------------------------------------------------------------------

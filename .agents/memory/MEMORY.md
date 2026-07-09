@@ -1,3 +1,4 @@
+- [Bus DDL / RowExclusiveLock deadlock](bus-ddl-rowlock-deadlock.md) — _cu INSERT (open txn) + execute_stage CREATE INDEX = Python deadlock; fix: call get_bus() once BEFORE first _cu INSERT to pre-run DDL
 - [DB pool finalizer deadlock + liveness watchdog](db-pool-liveness-watchdog.md) — root cause of daily prod freezes: _PoolConn.__del__ re-entered pool's non-reentrant lock from GC; fixed + self-restart watchdog added
 - [Diagram 3 Governance Layer](aiem-diagram3-governance.md) — 15 phases, 15 d3_ tables, 18 admin endpoints; baseline_hash=61a65ca7587d79fd; status=OPEN (uppercase) in paper trades
 - [Diagram 2 sweep — START HERE](diagram2-sweep-complete-final-summary.md) — all 18 phases (0-17) done; 195 modules (152 wired/39 by-design/3 dormant/1 remediation-required), 220 tools (210 real/7 failed); cross-phase patterns (naming traps, transitive wiring, table coupling); [function registry convention](diagram2-function-registry.md)

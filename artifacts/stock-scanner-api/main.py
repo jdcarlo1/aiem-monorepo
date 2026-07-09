@@ -40953,6 +40953,17 @@ def _aiem_paper_mark_to_market():
                         try:
                             import aiem_master_orchestrator as _amo_mtm
                             _d2_orch_mtm = _amo_mtm.get_orchestrator()
+                            # Prewarm bus schema (CREATE TABLE + INDEX) BEFORE any
+                            # _cu INSERT touches aiem_bus_transfer_log.  Without this,
+                            # CREATE INDEX (ShareLock) deadlocks against _cu's
+                            # RowExclusiveLock on the same table.
+                            import aiem_communication_bus as _abus_pw
+                            _abus_pw.get_bus()
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,20,"post_trade_analytics","stage_starting","Post-Trade Analytics"))
                             _d2_orch_mtm.execute_stage(
                                 _d2_mtm_trace_id, _t, 20, "post_trade_analytics",
                                 "Post-Trade Analytics",
@@ -40962,6 +40973,11 @@ def _aiem_paper_mark_to_market():
                                          "status": _status},
                                 paper_trade_id=_id,
                             )
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,20,"post_trade_analytics","stage_completed","Post-Trade Analytics"))
                         except Exception as _d2_20_e:
                             print(f"[diagram2] stage 20 (post_trade_analytics) FAILED for {_t}: {_d2_20_e}")
                     # ── Supervisor Hook 5: trade closed ───────────────────────
@@ -41117,6 +41133,11 @@ def _aiem_paper_mark_to_market():
                     # inside the production MTM close path.
                     if _d2_mtm_trace_id:
                         try:
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,21,"learning_feedback","stage_starting","Learning Feedback"))
                             _d2_orch_mtm.execute_stage(
                                 _d2_mtm_trace_id, _t, 21, "learning_feedback",
                                 "Learning Feedback",
@@ -41127,8 +41148,74 @@ def _aiem_paper_mark_to_market():
                                          "win": bool(_pnl_pct > 0)},
                                 paper_trade_id=_id,
                             )
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,21,"learning_feedback","stage_completed","Learning Feedback"))
                         except Exception as _d2_21_e:
                             print(f"[diagram2] stage 21 (learning_feedback) FAILED for {_t}: {_d2_21_e}")
+                    # ── Diagram 2 stage 22 — Feedback Loop ───────────────────
+                    if _d2_mtm_trace_id:
+                        try:
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,22,"feedback_loop","stage_starting","Feedback Loop"))
+                            _d2_orch_mtm.execute_stage(
+                                _d2_mtm_trace_id, _t, 22, "feedback_loop",
+                                "Feedback Loop",
+                                "_rl_pipeline_bg (aiem_rl_engine.run_full_rl_pipeline async)",
+                                lambda: {"trade_id": int(_id), "ticker": _t,
+                                         "rl_triggered": True, "close_date": str(_today),
+                                         "signal_source": str(_src or "unknown"),
+                                         "win": bool(_pnl_pct > 0)},
+                                paper_trade_id=_id,
+                            )
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,22,"feedback_loop","stage_completed","Feedback Loop"))
+                        except Exception as _d2_22_e:
+                            print(f"[diagram2] stage 22 (feedback_loop) FAILED for {_t}: {_d2_22_e}")
+                    # ── Diagram 2 stage 23 — Memory ──────────────────────────
+                    if _d2_mtm_trace_id:
+                        try:
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,23,"memory","stage_starting","Memory"))
+                            def _d2_memory_stage(_trade_id, _ticker, _pnl_p, _sig, _db_url):
+                                import aiem_v3_learning as _v3l
+                                _tr = {"id": _trade_id, "ticker": _ticker,
+                                       "pnl_pct": float(_pnl_p),
+                                       "signal_source": str(_sig or "unknown"),
+                                       "exit_date": str(_today)}
+                                _attr = _v3l.attribute_trade(_tr)
+                                _v3l.update_strategy_memory(_db_url, [_attr])
+                                return {"memory_updated": True, "trade_id": _trade_id,
+                                        "ticker": _ticker,
+                                        "strategy_keys": list(_attr.keys())[:6]}
+                            import os as _os_mem
+                            _d2_orch_mtm.execute_stage(
+                                _d2_mtm_trace_id, _t, 23, "memory",
+                                "Memory",
+                                "aiem_v3_learning.attribute_trade + update_strategy_memory",
+                                lambda: _d2_memory_stage(
+                                    int(_id), _t, _pnl_pct,
+                                    _src, _os_mem.environ.get("DATABASE_URL", "")),
+                                paper_trade_id=_id,
+                            )
+                            _cu.execute(
+                                "INSERT INTO aiem_bus_transfer_log"
+                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                                " VALUES (%s,%s,%s,%s,%s,%s)",
+                                (_d2_mtm_trace_id,_t,23,"memory","stage_completed","Memory"))
+                        except Exception as _d2_23_e:
+                            print(f"[diagram2] stage 23 (memory) FAILED for {_t}: {_d2_23_e}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously

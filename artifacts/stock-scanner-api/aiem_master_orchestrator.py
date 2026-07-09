@@ -62,6 +62,36 @@ def _db_conn_dict():
 
 
 # ============================================================
+# DIRECT BUS LOG — writes to aiem_bus_transfer_log using the
+# module-level DATABASE_URL (bypasses aiem_communication_bus
+# _db_insert whose os.environ lookup is unreliable in-process)
+# ============================================================
+
+def _direct_bus_log(trace_id: str, ticker: str, stage_order: int,
+                    stage_name: str, event_type: str,
+                    component_name: str = None,
+                    payload: dict = None) -> None:
+    """Guaranteed direct DB write to aiem_bus_transfer_log."""
+    try:
+        import json as _json
+        _conn = psycopg2.connect(DATABASE_URL, connect_timeout=3)
+        _conn.autocommit = True
+        _cur = _conn.cursor()
+        _cur.execute(
+            """INSERT INTO aiem_bus_transfer_log
+               (trace_id, ticker, stage_order, stage_name,
+                event_type, component_name, payload)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (trace_id, ticker, stage_order, stage_name, event_type,
+             component_name,
+             _json.dumps(payload) if payload is not None else None),
+        )
+        _conn.close()
+    except Exception as _dbl_e:
+        print(f"[diagram2_bus_direct] write error (non-fatal): {_dbl_e}")
+
+
+# ============================================================
 # TRADE PACKET — shared state flowing through every module
 # ============================================================
 
@@ -385,6 +415,8 @@ class AEIMMasterOrchestrator:
             trace_id, ticker, stage_order, stage_name, "stage_starting",
             component_name=component_name,
         ))
+        _direct_bus_log(trace_id, ticker, stage_order, stage_name,
+                        "stage_starting", component_name=component_name)
 
         def _safe_payload(obj):
             if isinstance(obj, (dict, list, str, int, float, bool)) or obj is None:
@@ -398,6 +430,9 @@ class AEIMMasterOrchestrator:
                 component_name=component_name,
                 payload={"registry_confirmed": reg_check.get("found")},
             ))
+            _direct_bus_log(trace_id, ticker, stage_order, stage_name,
+                            "stage_completed", component_name=component_name,
+                            payload={"registry_confirmed": reg_check.get("found")})
             _atrace2.record_stage(
                 trace_id=trace_id, ticker=ticker, stage_order=stage_order,
                 stage_name=stage_name, component_name=component_name,
@@ -416,6 +451,9 @@ class AEIMMasterOrchestrator:
                 trace_id, ticker, stage_order, stage_name, "stage_failed",
                 component_name=component_name, payload={"error": str(exc)},
             ))
+            _direct_bus_log(trace_id, ticker, stage_order, stage_name,
+                            "stage_failed", component_name=component_name,
+                            payload={"error": str(exc)[:500]})
             _atrace2.record_stage(
                 trace_id=trace_id, ticker=ticker, stage_order=stage_order,
                 stage_name=stage_name, component_name=component_name,
