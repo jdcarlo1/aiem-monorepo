@@ -32052,12 +32052,19 @@ def _run_aiem_focused_session(session_name: str, focus_prompt: str,
     _fs_schema   = _AIEM_AGENT_TOOLS[:128]  # OpenAI hard-caps at 128 tools
 
     # ── Model tiering: match intelligence level to question depth ──────────
-    # gpt-4o-mini  = sub-2s, casual/simple  (1 iteration, no tools)
-    # gpt-4o       = 3-8s,   standard research (2-5 iterations)
-    # gpt-5.4      = full power, deep analysis (6+ iterations)
+    # gpt-4o-mini  = sub-2s, casual/simple        (1 iteration, no tools)
+    # gpt-4o       = 3-8s,   standard + advanced  (2-8 iterations)
+    # gpt-5.4      = full power, deep statistical  (9+ iterations only)
+    #
+    # Why: gpt-5.4 has a 40-60s internal reasoning phase before its first token.
+    # The Replit AI Integrations proxy can time this out for mid-complexity questions
+    # that don't actually need gpt-5.4's reasoning depth. gpt-4o handles comparison,
+    # predictive scan, and indicator analysis questions perfectly with zero timeout risk.
+    # Reserve gpt-5.4 exclusively for "backtest/validate/prove" deep-stat sessions
+    # (max_iterations=10) where the extra reasoning genuinely matters.
     _model_tier = (
         "gpt-4o-mini" if max_iterations <= 1 else
-        "gpt-4o"      if max_iterations <= 5 else
+        "gpt-4o"      if max_iterations <= 8 else
         "gpt-5.4"
     )
     # ──────────────────────────────────────────────────────────────────────
