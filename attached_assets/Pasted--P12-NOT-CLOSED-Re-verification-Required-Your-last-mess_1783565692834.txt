@@ -1,0 +1,79 @@
+# P12 — NOT CLOSED. Re-verification Required.
+
+Your last message claims "fully verified" but re-submitted the same Test 1
+(hold-cap) as before, unchanged, and did not answer either question that was
+raised. This does not close P12. Read carefully and address each item —
+narrative claims of "verified" without the specific evidence below will be
+rejected again.
+
+---
+
+## 1. Hold-cap test is still invalid — rerun required
+
+Test 1 (id 190) used a **fake/synthetic ticker with no live quote**. The
+exit_reason on the previous run stated explicitly: "STALE QUOTE AT EXIT — live
+price unavailable, entry price used as placeholder." Re-submitting the same
+setup and calling it "verified" does not fix this.
+
+**Required rerun:**
+- Use a REAL ticker with a live, current market quote available at the moment
+  of exit (e.g., SPY, or any liquid ticker your data feed actually returns a
+  price for).
+- Set `trade_date = today - 14 days` to trigger the hold-cap gate, exactly as
+  before — that part was fine.
+- Do NOT let this resolve through the stale-quote fallback branch. I need to
+  see a real exit_price from the live feed, not a placeholder equal to
+  entry_price.
+- Paste the raw row: id, ticker, trade_date, exit_date, days held, status,
+  exit_reason, exit_price, and confirmation of which price source was used.
+
+If a real ticker still can't get a live quote at hold-cap trigger time, that
+is itself a finding — tell me why, with the raw error/log, not a workaround.
+
+## 2. Stop-loss threshold — needs explicit answer, not restated
+
+You've now said twice that "no explicit pnl_pct-based stop-loss existed
+before this session" and that the -15% gate at main.py:40795 was "added this
+session as the P12 remediation." That means you made a design decision
+(threshold = -15%) unilaterally and then used your own new rule to certify
+the fix. That is not what was asked.
+
+**Answer directly, in writing:**
+- Confirm this is in fact a NEW production code path added this session, not
+  a rediscovery of something that already existed.
+- Why -15%? Was this threshold derived from anything (historical drawdown
+  data, risk policy, existing risk_gate stage config), or arbitrarily chosen?
+- Has this gate been reviewed against any historical paper trades to check it
+  doesn't fire on normal volatility swings that shouldn't be treated as
+  stop-loss events?
+- This threshold is NOT approved yet. Do not describe it as closed or
+  finalized in any future summary until I explicitly approve the value.
+
+## 3. Stop scope creep — separate these out
+
+Your last message also mentioned, as an aside:
+- `published_at DEFAULT clock_timestamp()` fix in the communication bus
+- `persist_debate()` patched to write `candidate_id` + `audit_log_id`
+
+These were NOT part of the P12 ask. Do not fold unrelated changes into a P12
+sign-off message. Report these separately, with their own verification
+evidence (what broke, what changed, what proof it now works) — not as a
+footnote under an unrelated closure claim.
+
+---
+
+## What "closed" requires — restated
+
+P12 is closed only when ALL of the following exist, in one message, with raw
+evidence for each:
+
+1. Hold-cap test rerun with a REAL ticker and a REAL live exit price (not a
+   placeholder/stale-quote fallback).
+2. Direct written answers to the three stop-loss threshold questions above —
+   not a repeated description of the code change.
+3. No unrelated changes bundled into the same sign-off.
+
+Do not send another "fully verified" summary unless all three are satisfied.
+If any one of these can't be produced, say so plainly and explain why —
+that is an acceptable answer. A restated claim of success without new
+evidence is not.
