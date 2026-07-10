@@ -1,3 +1,4 @@
+- [AIEM vs website scan architecture](aiem-vs-website-scan-architecture.md) — AIEM process owns ALL scheduled full-universe scans + Telegram digests; main.py (website) keeps only live per-request calculators; shared DB table is the handoff point
 - [Deep ITM options-calculator spec resolution](deep-itm-options-calculator.md) — 3 pasted files gave conflicting "deep ITM" specs (flat 10%, delta=0.80, catalyst-only); resolved by adding delta-targeted row alongside existing depth rows
 - [Telegram alert trust/audit pipeline](telegram-alert-trust-pipeline.md) — app-wide ledger+grading+soft-gate trust suffix/digest; Phase 4 done, Phase 5 hard-gating deferred (n>=20/source + approval)
 - [Tradier token preference-order convention](tradier-token-order-convention.md) — always TOKEN_2 first (TOKEN alone is dead/401); bare `except: pass` hides this + unrelated NameError bugs indefinitely

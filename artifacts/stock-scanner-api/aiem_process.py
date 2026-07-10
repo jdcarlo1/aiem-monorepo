@@ -44,6 +44,7 @@ from datetime import datetime, timedelta, date
 import pytz
 import psycopg2
 import psycopg2.extras
+import aiem_optprob
 
 # ── Socket-liveness default for every psycopg2.connect() in this process ────
 # connect_timeout alone only bounds the initial TCP/SSL handshake, not a
@@ -108,6 +109,10 @@ _STATE = {
     "gap_patterns": {},  # signal → {in_picks, in_misses} tallies
 }
 _STATE_LOCK = threading.Lock()
+
+# Rotating cursor for the deep-ITM options-probability segment scans.
+# Mutable dict so aiem_optprob can advance it across the 6 daily runs.
+_optprob_cursor_state: dict = {"cursor": 0}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1583,6 +1588,43 @@ def main():
                   CronTrigger(day_of_week="mon-fri", hour=18, minute=0),
                   id="aiem_nightly_learn", replace_existing=True)
 
+    # ── Deep-ITM Options Probability scan (AIEM-owned, fully independent) ───
+    # Full ~6,635-ticker options-active universe, pre-filtered to
+    # avg_vol_30d>=2M via polygon_market_daily (zero extra API calls).
+    # Rotated across 6 segments/day at :35 past hour (10:35–15:35 ET),
+    # offset from the unusual-calls scan so the two jobs never compete for
+    # the Tradier rate limiter at the same moment.
+    # 4:10 PM digest sends ONE Telegram message with the day's top-20.
+    aiem_optprob.init_optprob_table(DB_URL)
+
+    def _optprob_scan_job(label: str = "segment"):
+        aiem_optprob.run_optprob_deep_itm_scan(
+            db_url=DB_URL,
+            tg_send=_tg_send,
+            cursor_state=_optprob_cursor_state,
+            label=label,
+        )
+
+    def _optprob_digest_job():
+        aiem_optprob.run_optprob_daily_digest(db_url=DB_URL, tg_send=_tg_send)
+
+    for _h in (10, 11, 12, 13, 14, 15):
+        sched.add_job(
+            _optprob_scan_job,
+            CronTrigger(day_of_week="mon-fri", hour=_h, minute=35, timezone=ET),
+            id=f"aiem_optprob_scan_{_h}",
+            kwargs={"label": f"{_h}:35"},
+            replace_existing=True,
+        )
+
+    sched.add_job(
+        _optprob_digest_job,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=ET),
+        id="aiem_optprob_digest",
+        replace_existing=True,
+    )
+    log.info("[aiem_optprob] 6 segment scans (10:35-15:35 ET) + digest (16:10 ET) scheduled")
+
     # ── Admin HTTP server (port 5055) for manual scan triggers ──────────────
     def _run_manual_scan():
         log.info("admin: manual warmup + premarket scan triggered")
@@ -1645,11 +1687,13 @@ def main():
 
     sched.start()
 
-    log.info("Scheduler running — 9 jobs:")
+    log.info("Scheduler running — 16 jobs:")
     log.info("  6:55 AM               warm-up (Polygon full snapshot)")
     log.info("  7:00–9:15 every 15m   premarket scan + funnel")
     log.info("  9:30–10:30 every  5m  open watcher + Telegram alert (primary)")
     log.info("  11:00–3:30 every 15m  open watcher catch-up net (idempotent)")
+    log.info("  10:35–15:35 every hr  deep-ITM options-prob scan (6 segments, own Tradier chain)")
+    log.info("  4:10 PM               deep-ITM options-prob digest (top-20 Telegram)")
     log.info("  4:30 PM               grade T1 outcomes")
     log.info("  4:35 PM               grade T3/T5 outcomes")
     log.info("  4:45 PM               find missed runners")
