@@ -354,7 +354,124 @@ _SCHEMA_STMTS = [
         END IF;
     END $$;
     """,
+    # ── v2 provenance-envelope migration (additive only — ADD COLUMN IF NOT
+    # EXISTS is safe against the append-only trigger, which only blocks
+    # UPDATE/DELETE). Pre-existing rows are honestly left at
+    # event_schema_version=1 and NULL on the new columns — never backfilled
+    # with fabricated values. New emits default to version 2. See the
+    # AEIM_D2_D3_GOVERNANCE_CONTRACT doc for the mapping between these
+    # spec-required column names and the pre-existing v1 columns that already
+    # cover the same concept (event_hash==event_sha256 equivalent, etc.) —
+    # those are NOT duplicated here to avoid two sources of truth for one hash.
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS event_schema_version INT NOT NULL DEFAULT 1",
+    "ALTER TABLE d3_governance_event_links ALTER COLUMN event_schema_version SET DEFAULT 2",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS event_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS event_type TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS root_trace_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS correlation_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS causation_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS parent_event_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS diagram3_trace_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS shadow_trade_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS no_execution_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS memory_event_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS strategy_version TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS approval_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS rejection_id TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS d2_phase TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS d3_phase TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS producer_module TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS producer_function TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS consumer_module TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS consumer_function TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS input_record_ids JSONB",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS output_record_ids JSONB",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS idempotency_key TEXT",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS emitted_at TIMESTAMPTZ",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ",
+    "ALTER TABLE d3_governance_event_links ADD COLUMN IF NOT EXISTS environment TEXT",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_d3gel_event_id ON d3_governance_event_links (event_id) WHERE event_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_d3gel_idempotency ON d3_governance_event_links (idempotency_key) WHERE idempotency_key IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_root_trace ON d3_governance_event_links (root_trace_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_d3_trace ON d3_governance_event_links (diagram3_trace_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_outcome ON d3_governance_event_links (outcome_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_strategy ON d3_governance_event_links (strategy_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_rollback ON d3_governance_event_links (rollback_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_event_type ON d3_governance_event_links (event_type)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_created_at ON d3_governance_event_links (created_at)",
+
+    # ── T-F: governance-action request/acknowledgement tracking ──────────
+    # This is a single monolith — there is no independently-owned D2
+    # "service" that can send back a real acknowledgement of an enforcement
+    # action. The CHECK constraint below makes that limitation a real,
+    # unbypassable DB-level guarantee rather than just an app-layer
+    # convention: 'ENFORCED' is not a legal value in this column, full
+    # stop, so no future code change can silently start claiming
+    # enforcement that was never independently confirmed.
+    """CREATE TABLE IF NOT EXISTS d3_governance_actions (
+        id BIGSERIAL PRIMARY KEY,
+        action_id TEXT NOT NULL UNIQUE,
+        governance_event_id BIGINT REFERENCES d3_governance_event_links(id),
+        requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        phase TEXT NOT NULL,
+        action_type TEXT NOT NULL,
+        target_type TEXT,
+        target_id TEXT,
+        reason TEXT,
+        status TEXT NOT NULL DEFAULT 'REQUESTED'
+            CHECK (status IN ('REQUESTED', 'ADVISORY_ACKNOWLEDGED', 'NOT_ENFORCED')),
+        checked_at TIMESTAMPTZ,
+        check_detail TEXT,
+        is_test_record BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_d3ga_action_type ON d3_governance_actions (action_type)",
+    "CREATE INDEX IF NOT EXISTS ix_d3ga_status ON d3_governance_actions (status)",
+    "CREATE INDEX IF NOT EXISTS ix_d3ga_target ON d3_governance_actions (target_type, target_id)",
 ]
+
+# Rollback for the v2 migration above (NOT executed automatically — kept here
+# as the documented, ready-to-run reversal per the spec's "create a rollback
+# migration" requirement). Dropping columns is destructive; only run this
+# manually and only if v2 needs to be reverted.
+_D3_V2_ROLLBACK_SQL = """
+DROP INDEX IF EXISTS ux_d3gel_event_id;
+DROP INDEX IF EXISTS ux_d3gel_idempotency;
+DROP INDEX IF EXISTS ix_d3gel_root_trace;
+DROP INDEX IF EXISTS ix_d3gel_d3_trace;
+DROP INDEX IF EXISTS ix_d3gel_outcome;
+DROP INDEX IF EXISTS ix_d3gel_strategy;
+DROP INDEX IF EXISTS ix_d3gel_rollback;
+DROP INDEX IF EXISTS ix_d3gel_event_type;
+DROP INDEX IF EXISTS ix_d3gel_created_at;
+ALTER TABLE d3_governance_event_links
+    DROP COLUMN IF EXISTS event_schema_version,
+    DROP COLUMN IF EXISTS event_id,
+    DROP COLUMN IF EXISTS event_type,
+    DROP COLUMN IF EXISTS root_trace_id,
+    DROP COLUMN IF EXISTS correlation_id,
+    DROP COLUMN IF EXISTS causation_id,
+    DROP COLUMN IF EXISTS parent_event_id,
+    DROP COLUMN IF EXISTS diagram3_trace_id,
+    DROP COLUMN IF EXISTS shadow_trade_id,
+    DROP COLUMN IF EXISTS no_execution_id,
+    DROP COLUMN IF EXISTS memory_event_id,
+    DROP COLUMN IF EXISTS strategy_version,
+    DROP COLUMN IF EXISTS approval_id,
+    DROP COLUMN IF EXISTS rejection_id,
+    DROP COLUMN IF EXISTS d2_phase,
+    DROP COLUMN IF EXISTS d3_phase,
+    DROP COLUMN IF EXISTS producer_module,
+    DROP COLUMN IF EXISTS producer_function,
+    DROP COLUMN IF EXISTS consumer_module,
+    DROP COLUMN IF EXISTS consumer_function,
+    DROP COLUMN IF EXISTS input_record_ids,
+    DROP COLUMN IF EXISTS output_record_ids,
+    DROP COLUMN IF EXISTS idempotency_key,
+    DROP COLUMN IF EXISTS emitted_at,
+    DROP COLUMN IF EXISTS received_at,
+    DROP COLUMN IF EXISTS environment;
+"""
 
 
 def _d3_init_schema():
@@ -382,7 +499,10 @@ def _d3_init_schema():
 
 _D3_CHAIN_LOCK_KEY = "d3_governance_event_links"
 
-_D3_EVENT_FIELDS = [
+# v1 field set — frozen exactly as originally shipped so the 2 pre-migration
+# events (and any future v1-tagged event) can still be hash-verified using
+# the field set that was actually used to compute their event_hash.
+_D3_EVENT_FIELDS_V1 = [
     "governance_cycle_id", "governance_trace_id", "parent_trace_id",
     "diagram1_trace_id", "diagram2_trace_id", "candidate_id", "ticker",
     "recommendation_id", "decision_id", "execution_plan_id", "paper_trade_id",
@@ -395,11 +515,77 @@ _D3_EVENT_FIELDS = [
     "config_hash", "started_at", "completed_at", "is_test_record",
 ]
 
+# v2 adds the richer unified provenance-envelope fields required by the
+# AEIM Diagram2<->Diagram3 integration spec. New emits use this field set.
+_D3_EVENT_FIELDS_V2 = _D3_EVENT_FIELDS_V1 + [
+    "event_id", "event_type", "root_trace_id", "correlation_id",
+    "causation_id", "parent_event_id", "diagram3_trace_id", "shadow_trade_id",
+    "no_execution_id", "memory_event_id", "strategy_version", "approval_id",
+    "rejection_id", "d2_phase", "d3_phase", "producer_module",
+    "producer_function", "consumer_module", "consumer_function",
+    "input_record_ids", "output_record_ids", "idempotency_key", "emitted_at",
+    "environment",
+]
+
+# Keyed by event_schema_version so the validator (T-E) can recompute the
+# correct hash input for any row regardless of when it was written.
+_D3_EVENT_FIELDS_BY_VERSION = {1: _D3_EVENT_FIELDS_V1, 2: _D3_EVENT_FIELDS_V2}
+
+_D3_CURRENT_SCHEMA_VERSION = 2
+_D3_EVENT_FIELDS = _D3_EVENT_FIELDS_V2
+
 
 def _d3_get_last_event_hash(cur) -> str:
     cur.execute("SELECT event_hash FROM d3_governance_event_links ORDER BY id DESC LIMIT 1")
     row = cur.fetchone()
     return row[0] if row else "GENESIS"
+
+
+def _d3_infer_event_type(governance_phase: str, check_result: Optional[str]) -> str:
+    """
+    Honest, non-fabricated mapping from a real phase result to the closest
+    canonical D3->D1 event type in the spec's vocabulary. Most D3 phases are
+    read-only observations (system health, discovery, performance snapshots,
+    architecture consistency, forecasts, reports) — those map to
+    'governance.observation_recorded'. Only phases that genuinely produce an
+    approve/reject/restrict decision get a more specific type, and only when
+    check_result actually says so.
+    """
+    cr = (check_result or "").upper()
+    if governance_phase == "PHASE_6_LEARNING_APPROVAL":
+        if "REJECT" in cr:
+            return "governance.learning_rejected"
+        if "APPROVE" in cr or cr in ("PASS", "OK"):
+            return "governance.learning_approved"
+        return "governance.review_requested"
+    if governance_phase == "PHASE_5_MODEL_GOVERNANCE":
+        if "REJECT" in cr:
+            return "governance.model_rejected"
+        if "APPROVE" in cr:
+            return "governance.model_approved"
+    if governance_phase == "PHASE_4_STRATEGY_GOVERNANCE":
+        if "SUSPEND" in cr:
+            return "governance.strategy_suspended"
+        if "RESTRICT" in cr:
+            return "governance.strategy_restricted"
+    if governance_phase == "PHASE_9_ROLLBACK_MANAGEMENT":
+        if cr == "PENDING":
+            return "governance.rollback_requested"
+        if cr in ("PASS", "OK", "COMPLETED"):
+            return "governance.rollback_completed"
+    if governance_phase == "PHASE_12_SECURITY_GOVERNANCE" and cr not in ("PASS", "OK"):
+        return "governance.security_violation"
+    if governance_phase == "PHASE_13_ARCHITECTURE_CONSISTENCY" and cr not in ("PASS", "OK"):
+        return "governance.architecture_violation"
+    if governance_phase == "PHASE_14_EXECUTIVE_REPORTING":
+        return "governance.report_generated"
+    if governance_phase == "PHASE_7_CHANGE_MANAGEMENT":
+        return "governance.change_approved"  # log_change() only records already-applied, non-vetoable changes
+    return "governance.observation_recorded"
+
+
+def _d3_environment() -> str:
+    return "production" if os.environ.get("REPLIT_DEPLOYMENT") == "1" else "development"
 
 
 def _d3_emit_event(
@@ -441,6 +627,26 @@ def _d3_emit_event(
     output_payload: Optional[Dict[str, Any]] = None,
     is_test_record: bool = False,
     governance_module: str = "aiem_diagram3_governance",
+    # v2 provenance-envelope fields (all optional — real values only, never fabricated)
+    event_type: Optional[str] = None,
+    root_trace_id: Optional[str] = None,
+    correlation_id: Optional[str] = None,
+    causation_id: Optional[str] = None,
+    parent_event_id: Optional[str] = None,
+    shadow_trade_id: Optional[str] = None,
+    no_execution_id: Optional[str] = None,
+    memory_event_id: Optional[str] = None,
+    strategy_version: Optional[str] = None,
+    approval_id: Optional[str] = None,
+    rejection_id: Optional[str] = None,
+    d2_phase: Optional[str] = None,
+    producer_module: Optional[str] = None,
+    producer_function: Optional[str] = None,
+    consumer_module: Optional[str] = None,
+    consumer_function: Optional[str] = None,
+    input_record_ids: Optional[Dict[str, Any]] = None,
+    output_record_ids: Optional[Dict[str, Any]] = None,
+    idempotency_key: Optional[str] = None,
     conn=None,
 ) -> Dict[str, Any]:
     """
@@ -449,9 +655,18 @@ def _d3_emit_event(
     reflect what the calling phase actually observed.
     """
     governance_trace_id = governance_trace_id or uuid.uuid4().hex
+    event_id = uuid.uuid4().hex
+    now = datetime.datetime.utcnow()
 
     def _ts(v):
         return v.isoformat() if hasattr(v, "isoformat") else v
+
+    # root_trace_id: prefer an explicit override, else the real upstream D2
+    # trace, else the real D1 trace, else fall back to this governance
+    # cycle's own id (a self-originated, D3-only check with no upstream
+    # D1/D2 trace to anchor to — disclosed as such, never invented).
+    resolved_root = root_trace_id or diagram2_trace_id or diagram1_trace_id or governance_cycle_id
+    resolved_correlation = correlation_id or resolved_root
 
     row: Dict[str, Any] = {
         "governance_cycle_id": governance_cycle_id,
@@ -491,6 +706,31 @@ def _d3_emit_event(
         "started_at": _ts(started_at),
         "completed_at": _ts(completed_at),
         "is_test_record": bool(is_test_record),
+        "event_schema_version": _D3_CURRENT_SCHEMA_VERSION,
+        "event_id": event_id,
+        "event_type": event_type or _d3_infer_event_type(governance_phase, check_result),
+        "root_trace_id": resolved_root,
+        "correlation_id": resolved_correlation,
+        "causation_id": causation_id,
+        "parent_event_id": parent_event_id,
+        "diagram3_trace_id": governance_trace_id,
+        "shadow_trade_id": shadow_trade_id,
+        "no_execution_id": no_execution_id,
+        "memory_event_id": memory_event_id,
+        "strategy_version": strategy_version,
+        "approval_id": approval_id,
+        "rejection_id": rejection_id,
+        "d2_phase": d2_phase,
+        "d3_phase": governance_phase,
+        "producer_module": producer_module,
+        "producer_function": producer_function,
+        "consumer_module": consumer_module or governance_module,
+        "consumer_function": consumer_function or governance_function,
+        "input_record_ids": psycopg2.extras.Json(input_record_ids) if input_record_ids is not None else None,
+        "output_record_ids": psycopg2.extras.Json(output_record_ids) if output_record_ids is not None else None,
+        "idempotency_key": idempotency_key,
+        "emitted_at": _ts(now),
+        "environment": _d3_environment(),
     }
 
     own_conn = conn is None
@@ -1135,7 +1375,7 @@ def run_phase6_learning_approval() -> Dict[str, Any]:
                         (pid, p["model_name"], decision, reason,
                          perf_ok, calibration_ok, risk_ok)
                     )
-                    approvals.append({
+                    entry = {
                         "proposal_id": pid,
                         "model_name": p["model_name"],
                         "decision": decision,
@@ -1143,7 +1383,31 @@ def run_phase6_learning_approval() -> Dict[str, Any]:
                         "current_score": current,
                         "new_score": new_s,
                         "n_samples": n,
-                    })
+                    }
+
+                    # T-F: a REJECT decision here is a real governance action —
+                    # formally record the request + honest self-consistency
+                    # check (never claims ENFORCED; see request_governance_action
+                    # docstring for why that's the correct scoping here).
+                    if decision == "REJECT":
+                        action = request_governance_action(
+                            phase="PHASE_6_LEARNING_APPROVAL",
+                            action_type="REJECT_LEARNING_PROPOSAL",
+                            target_type="learning_proposal",
+                            target_id=str(pid),
+                            reason=reason,
+                        )
+                        if action.get("requested"):
+                            ack = check_action_status(action["action_id"])
+                            entry["governance_action"] = {
+                                "action_id": action["action_id"],
+                                "status": ack.get("status"),
+                                "detail": ack.get("detail"),
+                            }
+                        else:
+                            entry["governance_action"] = {"requested": False, "error": action.get("error")}
+
+                    approvals.append(entry)
 
                 try:
                     cur.execute(
@@ -1348,6 +1612,29 @@ def run_phase9_rollback() -> Dict[str, Any]:
                 )
             conn.commit()
 
+        governance_action = None
+        if drift:
+            # T-F: architecture drift has no automated remediation in this
+            # single-process system — formally REQUEST a review rather than
+            # silently noting it, so it's tracked in the same
+            # request/acknowledgement ledger as other governance actions.
+            action = request_governance_action(
+                phase="PHASE_9_ROLLBACK_MANAGEMENT",
+                action_type="ARCHITECTURE_DRIFT_REVIEW",
+                target_type="architecture_baseline",
+                target_id=current_hash,
+                reason=(f"drift vs baseline={baseline_hash[:16]}...: "
+                        f"+{len(new_mods)} modules, -{len(removed_mods)} modules, "
+                        f"+{len(new_tools)} tools, -{len(removed_tools)} tools, "
+                        f"+{len(new_tables)} tables"),
+            )
+            if action.get("requested"):
+                ack = check_action_status(action["action_id"])
+                governance_action = {"action_id": action["action_id"],
+                                      "status": ack.get("status"), "detail": ack.get("detail")}
+            else:
+                governance_action = {"requested": False, "error": action.get("error")}
+
         return {
             "phase": "PHASE_9_ROLLBACK_MANAGEMENT",
             "status": "PASS",
@@ -1362,6 +1649,7 @@ def run_phase9_rollback() -> Dict[str, Any]:
                 "new_tools_since_baseline": len(new_tools),
                 "removed_tools_since_baseline": len(removed_tools),
                 "drift_details": drift_details,
+                "governance_action": governance_action,
                 "note": ("Architecture drift detected — governance review required."
                          if drift else "Architecture matches baseline exactly."),
             },
@@ -2114,7 +2402,123 @@ def install_d3_routes(app):
             return jsonify({"error": "unauthorized"}), 401
         return jsonify(run_phase15_evolution())
 
-    print("[d3_governance] 18 admin routes installed at /stock-api/admin/d3/")
+    @app.route("/stock-api/admin/d3/trace/<trace_id>", methods=["GET"])
+    def d3_trace(trace_id):
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            with _d3_connect() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        """
+                        SELECT * FROM d3_governance_event_links
+                        WHERE governance_trace_id = %s
+                           OR root_trace_id = %s
+                           OR diagram1_trace_id = %s
+                           OR diagram2_trace_id = %s
+                           OR diagram3_trace_id = %s
+                           OR governance_cycle_id = %s
+                        ORDER BY id ASC
+                        """,
+                        (trace_id, trace_id, trace_id, trace_id, trace_id, trace_id),
+                    )
+                    rows = [dict(r) for r in cur.fetchall()]
+            for r in rows:
+                for k, v in list(r.items()):
+                    if isinstance(v, datetime.datetime):
+                        r[k] = v.isoformat()
+            if not rows:
+                return jsonify({
+                    "trace_id": trace_id, "event_count": 0, "events": [],
+                    "note": "No d3_governance_event_links rows found for this trace_id — "
+                            "either it never touched Diagram 3 governance, or it predates "
+                            "the v2 provenance columns (schema_version=1 rows only carry "
+                            "diagram1_trace_id/diagram2_trace_id, not root_trace_id).",
+                })
+            return jsonify({"trace_id": trace_id, "event_count": len(rows), "events": rows})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/run-cycle", methods=["POST"])
+    def d3_run_cycle():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+        return jsonify(run_governance_cycle(
+            trigger=body.get("trigger", "manual_admin"),
+            audit_trace_id=body.get("audit_trace_id"),
+            paper_trade_id=body.get("paper_trade_id"),
+            ticker=body.get("ticker"),
+            phases=body.get("phases"),
+            context=body.get("context"),
+            is_test_record=bool(body.get("is_test_record", False)),
+        ))
+
+    @app.route("/stock-api/admin/d3/actions", methods=["GET"])
+    def d3_actions():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        status = request.args.get("status")
+        action_type = request.args.get("action_type")
+        limit = int(request.args.get("limit", 50))
+        clauses, params = [], []
+        if status:
+            clauses.append("status = %s")
+            params.append(status)
+        if action_type:
+            clauses.append("action_type = %s")
+            params.append(action_type)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        try:
+            with _d3_connect() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        f"SELECT * FROM d3_governance_actions {where} "
+                        f"ORDER BY id DESC LIMIT %s",
+                        params + [limit],
+                    )
+                    rows = [dict(r) for r in cur.fetchall()]
+            for r in rows:
+                for k, v in list(r.items()):
+                    if isinstance(v, datetime.datetime):
+                        r[k] = v.isoformat()
+            return jsonify({
+                "count": len(rows), "actions": rows,
+                "note": "status is capped at REQUESTED / ADVISORY_ACKNOWLEDGED / NOT_ENFORCED "
+                        "by a DB CHECK constraint — 'ENFORCED' can never appear here (see "
+                        "aiem_diagram3_governance.py T-F section for why).",
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/actions/<action_id>", methods=["GET"])
+    def d3_action_detail(action_id):
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            with _d3_connect() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT * FROM d3_governance_actions WHERE action_id = %s", (action_id,)
+                    )
+                    row = cur.fetchone()
+            if not row:
+                return jsonify({"error": f"no action found for action_id={action_id}"}), 404
+            row = dict(row)
+            for k, v in list(row.items()):
+                if isinstance(v, datetime.datetime):
+                    row[k] = v.isoformat()
+            return jsonify(row)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/actions/<action_id>/recheck", methods=["POST"])
+    def d3_action_recheck(action_id):
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        return jsonify(check_action_status(action_id))
+
+    print("[d3_governance] 23 admin routes installed at /stock-api/admin/d3/")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2168,25 +2572,35 @@ def run_governance_cycle(
     (1-15); default runs all 15. Returns per-phase real results plus the
     governance_cycle_id so the emitted events can be queried afterward.
     """
+    # NOTE on concurrency (fixed): each phase's governance-function work AND
+    # its ledger emit run in their OWN short transaction, committed
+    # immediately after that one INSERT. Earlier this held a single
+    # transaction (and therefore the global d3_governance_event_links
+    # advisory xact lock) open across all 15 phases for the entire cycle
+    # duration — on a live single-DB trading system that meant a nightly
+    # full cycle could block the paper-trade-close hot path's own
+    # link_paper_trade_close() emit for as long as the whole cycle took to
+    # run. Committing per-phase bounds that block to (at most) one phase's
+    # own emit, not the whole cycle.
     governance_cycle_id = uuid.uuid4().hex
-    conn = _d3_connect()
     results = []
-    try:
-        run_set = _D3_CYCLE_PHASES if not phases else [
-            p for p in _D3_CYCLE_PHASES if p[0] in set(phases)
-        ]
-        for phase_num, phase_name, func_name, func in run_set:
-            started = datetime.datetime.utcnow()
-            try:
-                out = func()
-                status = out.get("status", "UNKNOWN") if isinstance(out, dict) else "UNKNOWN"
-                error = out.get("error") if isinstance(out, dict) else None
-            except Exception as phase_e:
-                out = {"phase": phase_name, "status": "ERROR", "error": str(phase_e)}
-                status = "ERROR"
-                error = str(phase_e)
-            completed = datetime.datetime.utcnow()
+    run_set = _D3_CYCLE_PHASES if not phases else [
+        p for p in _D3_CYCLE_PHASES if p[0] in set(phases)
+    ]
+    for phase_num, phase_name, func_name, func in run_set:
+        started = datetime.datetime.utcnow()
+        try:
+            out = func()
+            status = out.get("status", "UNKNOWN") if isinstance(out, dict) else "UNKNOWN"
+            error = out.get("error") if isinstance(out, dict) else None
+        except Exception as phase_e:
+            out = {"phase": phase_name, "status": "ERROR", "error": str(phase_e)}
+            status = "ERROR"
+            error = str(phase_e)
+        completed = datetime.datetime.utcnow()
 
+        phase_conn = _d3_connect()
+        try:
             event = _d3_emit_event(
                 governance_cycle_id=governance_cycle_id,
                 governance_phase=phase_name,
@@ -2206,20 +2620,35 @@ def run_governance_cycle(
                 output_payload=out if isinstance(out, dict) else {"raw": str(out)},
                 input_payload=context,
                 is_test_record=is_test_record,
-                conn=conn,
+                producer_module="aiem_diagram3_governance",
+                producer_function=func_name,
+                conn=phase_conn,
             )
+            phase_conn.commit()
+        except Exception as emit_e:
+            phase_conn.rollback()
             results.append({
                 "phase_num": phase_num,
                 "phase": phase_name,
-                "status": status,
-                "error": error,
-                "event_id": event["id"],
-                "event_hash": event["event_hash"],
+                "status": "EMIT_ERROR",
+                "error": f"phase_status={status}; ledger emit failed: {emit_e}",
+                "event_id": None,
+                "event_hash": None,
                 "duration_ms": round((completed - started).total_seconds() * 1000, 1),
             })
-        conn.commit()
-    finally:
-        conn.close()
+            continue
+        finally:
+            phase_conn.close()
+
+        results.append({
+            "phase_num": phase_num,
+            "phase": phase_name,
+            "status": status,
+            "error": error,
+            "event_id": event["id"],
+            "event_hash": event["event_hash"],
+            "duration_ms": round((completed - started).total_seconds() * 1000, 1),
+        })
 
     overall = "PASS" if all(r["status"] in ("PASS", "OK", "PENDING_REVIEW") for r in results) else "PARTIAL"
     return {
@@ -2282,6 +2711,159 @@ def link_paper_trade_close(
     except Exception as e:
         print(f"[d3_governance] link_paper_trade_close FAILED for trade {paper_trade_id}: {e}")
         return {"linked": False, "error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T-F: GOVERNANCE-ACTION REQUEST / ACKNOWLEDGEMENT — honest scoping
+#
+# This is a single monolith: Diagram 2 and Diagram 3 run in the same process
+# with no independently-owned D2 "service" that could send back a genuine,
+# independently-verified acknowledgement of an enforcement action (spec
+# Section 8 assumes such a service exists; it does not, here). So this
+# module NEVER claims "ENFORCED" — that value isn't even legal in the
+# `d3_governance_actions.status` column (DB CHECK constraint above blocks
+# it at the schema level, not just by convention).
+#
+# What IS real: `request_governance_action()` genuinely records, in the
+# immutable hash-chained ledger, that Diagram 3 identified something and
+# formally requested an action. `check_action_status()` then does the
+# most honest thing actually available in a single-process system: it
+# re-reads the REAL current state of the real target row/table and reports
+# whether that state is CONSISTENT with the request having been honored
+# (ADVISORY_ACKNOWLEDGED) or not (NOT_ENFORCED) — self-consistency inside
+# one process, not independent cross-service confirmation. Both outcomes
+# are disclosed as advisory-only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def request_governance_action(
+    phase: str,
+    action_type: str,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    reason: Optional[str] = None,
+    is_test_record: bool = False,
+) -> Dict[str, Any]:
+    """
+    Records a real governance-action REQUEST: one immutable ledger event
+    (enforcement_status='REQUESTED') plus one row in the mutable
+    `d3_governance_actions` tracking table linked to it. Never marks
+    anything enforced at request time — enforcement (if any) can only be
+    assessed afterward via `check_action_status()`, and even then caps out
+    at ADVISORY_ACKNOWLEDGED / NOT_ENFORCED.
+    """
+    action_id = uuid.uuid4().hex
+    now = datetime.datetime.utcnow()
+    try:
+        event = _d3_emit_event(
+            governance_cycle_id=f"ACTION_{action_id}",
+            governance_phase=phase,
+            governance_check_name="request_governance_action",
+            governance_function="aiem_diagram3_governance.request_governance_action",
+            started_at=now,
+            completed_at=now,
+            check_result="ACTION_REQUESTED",
+            strategy_id=target_id if target_type == "strategy" else None,
+            reason_code=action_type,
+            reason_detail=reason,
+            enforcement_action=action_type,
+            enforcement_status="REQUESTED",
+            output_payload={"target_type": target_type, "target_id": target_id, "reason": reason},
+            is_test_record=is_test_record,
+            producer_module="aiem_diagram3_governance",
+            producer_function="request_governance_action",
+        )
+    except Exception as e:
+        print(f"[d3_governance] request_governance_action ledger emit FAILED: {e}")
+        return {"requested": False, "error": str(e)}
+
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """INSERT INTO d3_governance_actions
+                       (action_id, governance_event_id, phase, action_type,
+                        target_type, target_id, reason, status, is_test_record)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'REQUESTED',%s)
+                       RETURNING id, action_id, status""",
+                    (action_id, event["id"], phase, action_type,
+                     target_type, target_id, reason, is_test_record),
+                )
+                row = dict(cur.fetchone())
+            conn.commit()
+        return {
+            "requested": True, "action_id": action_id, "action_row_id": row["id"],
+            "status": row["status"], "governance_event_id": event["id"],
+            "event_hash": event["event_hash"],
+        }
+    except Exception as e:
+        print(f"[d3_governance] request_governance_action DB insert FAILED: {e}")
+        return {"requested": False, "error": str(e),
+                "governance_event_id": event["id"], "event_hash": event["event_hash"]}
+
+
+def check_action_status(action_id: str) -> Dict[str, Any]:
+    """
+    Re-reads REAL current state for one requested action and updates its
+    honest status. This is self-consistency within one process (D3 asking
+    "does the real data still look the way I requested?"), not an
+    independent cross-service acknowledgement — status is capped at
+    ADVISORY_ACKNOWLEDGED / NOT_ENFORCED, never ENFORCED (also blocked at
+    the DB layer by the status CHECK constraint).
+    """
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT * FROM d3_governance_actions WHERE action_id = %s", (action_id,)
+                )
+                action = cur.fetchone()
+                if not action:
+                    return {"checked": False, "error": f"no action found for action_id={action_id}"}
+                action = dict(action)
+
+                status = "NOT_ENFORCED"
+                detail = "No automated real-state re-check implemented for this action_type " \
+                         "— defaulting to the honest, non-claiming state."
+
+                if action["action_type"] == "REJECT_LEARNING_PROPOSAL":
+                    cur.execute(
+                        "SELECT accepted, promoted FROM aiem_learning_proposals WHERE id = %s",
+                        (action["target_id"],),
+                    )
+                    prow = cur.fetchone()
+                    if prow is None:
+                        detail = f"aiem_learning_proposals id={action['target_id']} no longer exists"
+                        status = "NOT_ENFORCED"
+                    elif prow["accepted"] is True or prow["promoted"] is True:
+                        detail = (f"proposal accepted={prow['accepted']} promoted={prow['promoted']} "
+                                  f"despite REJECT request — real state contradicts the request")
+                        status = "NOT_ENFORCED"
+                    else:
+                        detail = (f"proposal accepted={prow['accepted']} promoted={prow['promoted']} "
+                                  f"— consistent with the REJECT request as of this check")
+                        status = "ADVISORY_ACKNOWLEDGED"
+
+                elif action["action_type"] == "ARCHITECTURE_DRIFT_REVIEW":
+                    # No automated remediation exists for architecture drift — a human
+                    # must review it. Re-checking drift doesn't tell us the REQUEST
+                    # was acted on, only whether drift still exists, so this always
+                    # stays NOT_ENFORCED and says so honestly.
+                    status = "NOT_ENFORCED"
+                    detail = ("architecture drift review has no automated remediation path; "
+                              "requires manual review — always advisory-only regardless of "
+                              "current drift state")
+
+                cur.execute(
+                    """UPDATE d3_governance_actions
+                       SET status = %s, checked_at = NOW(), check_detail = %s
+                       WHERE action_id = %s""",
+                    (status, detail, action_id),
+                )
+            conn.commit()
+        return {"checked": True, "action_id": action_id, "status": status, "detail": detail}
+    except Exception as e:
+        print(f"[d3_governance] check_action_status FAILED for {action_id}: {e}")
+        return {"checked": False, "error": str(e)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,60 @@
+{
+  "artifact": "diagram2_baseline_manifest",
+  "generated_at": "2026-07-10T02:06:10.936618Z",
+  "generated_by": "artifacts/stock-scanner-api/generate_d3_manifests.py",
+  "git_commit_sha": "c4cc5ee0a69587c81546c0a1e510e02598b48b4d",
+  "git_working_tree_dirty_at_generation": true,
+  "note_on_dirty": "If true, the file hashes below reflect the working tree at generation time, which may include uncommitted edits from this same session \u2014 this is honest, not a fabricated 'clean' state.",
+  "d3_event_schema_version": 2,
+  "d3_event_schema_version_note": "This is the d3_governance_event_links envelope version (_D3_CURRENT_SCHEMA_VERSION in aiem_diagram3_governance.py), not a formal 'D2 DB schema version' \u2014 no such single version number exists for the D2 side; it is tracked implicitly via the d3_architecture_baseline.baseline_hash snapshot instead.",
+  "files": {
+    "aiem_master_orchestrator.py": {
+      "path": "artifacts/stock-scanner-api/aiem_master_orchestrator.py",
+      "exists": true,
+      "sha256": "a272b812ec81d1b5899b5ceba650f40a90e76f403d6bef53cbb139f7e7754fb3",
+      "size_bytes": 80881
+    },
+    "aiem_communication_bus.py": {
+      "path": "artifacts/stock-scanner-api/aiem_communication_bus.py",
+      "exists": true,
+      "sha256": "ef327bbccd7f240dfca6bcc34ddd35cae44ae53c647deb9381def4e1a36d27d4",
+      "size_bytes": 7197
+    },
+    "aiem_registry.py": {
+      "path": "artifacts/stock-scanner-api/aiem_registry.py",
+      "exists": true,
+      "sha256": "7793bee1e5b7cf680b15de666ecc07e5078d2c6f5f3b1aa7196ea11571dd842a",
+      "size_bytes": 31944
+    },
+    "aiem_diagram2_trace_audit.py": {
+      "path": "artifacts/stock-scanner-api/aiem_diagram2_trace_audit.py",
+      "exists": true,
+      "sha256": "20c9d9dfabd3a667b20fd2083eb5f368ea4b0441dafc330fbb7db61210b16cc7",
+      "size_bytes": 8038
+    },
+    "aiem_diagram2_stage_helpers.py": {
+      "path": "artifacts/stock-scanner-api/aiem_diagram2_stage_helpers.py",
+      "exists": true,
+      "sha256": "b5ed2f04fd5812e690d7c2635594a4765fdbdb8618879228180a889fbf529c84",
+      "size_bytes": 27078
+    },
+    "aiem_provenance.py": {
+      "path": "artifacts/stock-scanner-api/aiem_provenance.py",
+      "exists": true,
+      "sha256": "531dfb91623dd737a0b87ed80e90b86471b576350aaae8f3ceb2437c7e2236cc",
+      "size_bytes": 9033
+    },
+    "main.py": {
+      "path": "artifacts/stock-scanner-api/main.py",
+      "exists": true,
+      "sha256": "c9334d42062a9f9965cdd9976a0ae794b8c3270f42183efc62328ac533fb1743",
+      "size_bytes": 3302559
+    },
+    "aiem_diagram3_governance.py": {
+      "path": "artifacts/stock-scanner-api/aiem_diagram3_governance.py",
+      "exists": true,
+      "sha256": "2a5b8073a77645cecc73c236cf267a341494cf287da0f1f64902b8616972b1e1",
+      "size_bytes": 122870
+    }
+  }
+}

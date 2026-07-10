@@ -1,0 +1,217 @@
+{
+  "artifact": "AEIM_D2_D3_GOVERNANCE_CONTRACT",
+  "version": 1,
+  "generated_at": "2026-07-10T02:06:10.936699Z",
+  "scope_statement": "This contract documents the REAL, currently-wired D2<->D3 event flow in this live single-DB production system, contrasted with the full canonical 21 D2-event / 18 D3-event bus architecture described in the integration spec (Section 3). The full canonical event-bus wiring across all 21 D2 pipeline stages, and real cross-service enforcement acknowledgements, are explicitly OUT OF SCOPE for this pass \u2014 this is a monolith with one DB and no message broker; building a full pub/sub bus is a major architecture change that was honestly descoped per user agreement, not silently skipped.",
+  "d2_to_d3_canonical_events": {
+    "candidate.accepted": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "candidate.rejected": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "data_guard.passed": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "data_guard.failed": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "analysis.completed": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "probability.completed": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "synthesis.completed": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "risk.approved": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "risk.rejected": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "decision.created": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "decision.no_trade": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "execution.paper_created": {
+      "status": "PARTIALLY_OBSERVABLE_VIA_TABLE_READ",
+      "evidence": "aiem_paper_trades INSERT is real and observable by querying the table, but D3 does not subscribe to or react to it at insert time \u2014 no event is emitted to D3 when a trade opens."
+    },
+    "execution.shadow_created": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "execution.failed": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "outcome.recorded": {
+      "status": "WIRED_VIA_DIRECT_HOOK",
+      "evidence": "_aiem_close_paper_trade_and_run_loop() in main.py calls aiem_diagram3_governance.link_paper_trade_close() directly (in-process function call, not a bus event) immediately before returning, for both mode='close' and mode='backfill'. This is a direct synchronous call, not the canonical event-bus subscription the spec describes, but it is real and verified this session."
+    },
+    "performance.updated": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "learning.event_created": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "model.retraining_requested": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "strategy.degradation_detected": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    },
+    "trace.completed": {
+      "status": "PARTIALLY_OBSERVABLE_VIA_TABLE_READ",
+      "evidence": "aiem_diagram2_trace_audit rows are real and D3's Phase 0 baseline discovery reads DISTINCT stage_name from it, but this is a periodic/on-demand snapshot read, not an event-driven per-trace completion notification to D3."
+    },
+    "trace.failed": {
+      "status": "NOT_WIRED",
+      "evidence": "No code path in aiem_diagram3_governance.py or the trade-close hook consumes or reacts to this event category. No canonical event bus exists for D2->D3 today."
+    }
+  },
+  "d3_response_canonical_events": {
+    "governance.observation_recorded": {
+      "status": "EMITTED_LIVE",
+      "evidence": "Present in the real distinct event_type values already written to d3_governance_event_links (9 total rows as of generation).",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.review_requested": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.policy_approved": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.policy_rejected": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.model_approved": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.model_rejected": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.learning_approved": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.learning_rejected": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.strategy_restricted": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.strategy_suspended": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.change_approved": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.change_rejected": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.rollback_requested": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.rollback_approved": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.rollback_completed": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.architecture_violation": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.security_violation": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() in aiem_diagram3_governance.py contains a real mapping rule for this event_type (conditioned on governance_phase + check_result), but no real phase run has yet produced a check_result that triggers it. Not fabricated as PASS \u2014 genuinely not yet observed.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    },
+    "governance.report_generated": {
+      "status": "PRODUCIBLE_NOT_YET_OBSERVED",
+      "evidence": "_d3_infer_event_type() maps PHASE_14_EXECUTIVE_REPORTING to this event_type, but that phase has not yet run in a cycle since the v2 schema/event_type column was added.",
+      "returns_through_diagram1": "NOT_IMPLEMENTED",
+      "returns_through_diagram1_note": "Spec Section 3 requires D3 governance responses to 'return through Diagram 1'. No such return path exists in this codebase \u2014 D3 events are written to d3_governance_event_links and read back only via the admin API (GET /trace/<id>, admin dashboards). There is no mechanism that pushes a D3 response back into a live Diagram 1 process. Honestly scoped as NOT_IMPLEMENTED, not descoped-and-hidden."
+    }
+  },
+  "actual_integration_mechanism_today": {
+    "mechanism": "direct in-process function call, not an event bus",
+    "entry_point": "main.py::_aiem_close_paper_trade_and_run_loop",
+    "call": "aiem_diagram3_governance.link_paper_trade_close(...)",
+    "trigger_conditions": [
+      "a real paper trade closes via mode='close' (OPEN->CLOSED* transition)",
+      "a real paper trade backfill runs via mode='backfill'"
+    ],
+    "failure_isolation": "wrapped in try/except; a D3 governance failure can never block or corrupt the real trade-close write path",
+    "additional_read_paths": [
+      "Phase 0/1 discovery reads aiem_module_registry, aiem_tool_registry, aiem_diagram2_trace_audit, information_schema.tables directly (SELECT only)"
+    ]
+  },
+  "enforcement_status_note": "No governance action in this codebase is ever marked 'ENFORCED'. Every emitted event uses enforcement_action='ADVISORY_ONLY' and enforcement_status='NOT_ENFORCED' because there is no separate D2 owner microservice to send back a real, independently-checked acknowledgement \u2014 this is a single monolith, not a distributed system. See T-F for the full scoping rationale.",
+  "contract_sha256": "2c8197d20d510bc7a4c3badbcf732b987078d74d4368b0bec3286543bed67aab"
+}

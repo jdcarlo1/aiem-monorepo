@@ -43021,6 +43021,25 @@ def _aiem_close_paper_trade_and_run_loop(
                 except Exception as _d2_23_e:
                     print(f"[diagram2] stage 23 (memory) FAILED for {_t}: {_d2_23_e}")
 
+            # ── Diagram 3 governance: real per-trade provenance link ──
+            # Not a synthetic/simulated call — audit_trace_id/paper_trade_id
+            # are the genuine ids this trade closed under. Lightweight
+            # single-event append, not a full 15-phase cycle (unsafe on
+            # this hot path); see aiem_diagram3_governance.link_paper_trade_close.
+            try:
+                import aiem_diagram3_governance as _d3_gov_close
+                _d3_gov_close.link_paper_trade_close(
+                    audit_trace_id=_trace_id,
+                    paper_trade_id=int(_id),
+                    ticker=_t,
+                    pnl=float(_pnl),
+                    pnl_pct=float(_pnl_pct),
+                    exit_reason=str(_reason or exit_reason or ""),
+                    signal_source=_src,
+                )
+            except Exception as _d3_link_e:
+                print(f"[d3_governance] link_paper_trade_close error (non-fatal) for trade {_id}: {_d3_link_e}")
+
             return {"fired": True, "trade_id": _id, "ticker": _t,
                     "mode": mode, "status": status,
                     "pnl": float(_pnl), "pnl_pct": float(_pnl_pct),

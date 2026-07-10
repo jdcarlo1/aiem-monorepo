@@ -1,0 +1,2971 @@
+{
+  "artifact": "d2_d3_implementation_inventory",
+  "generated_at": "2026-07-10T02:06:10.936648Z",
+  "source_of_truth": "aiem_module_registry / aiem_tool_registry tables (queried live) for D2; information_schema + aiem_diagram3_governance.py source for D3. Fields not mechanically derivable are 'UNKNOWN'.",
+  "diagram2": {
+    "module_count": 195,
+    "tool_count": 220,
+    "phase_names_0_to_17": {
+      "0": "Scanner Input / Candidate Generation",
+      "1": "Orchestration Layer",
+      "2": "Guardrails & Safety",
+      "3": "Macro & Regime Context",
+      "4": "Discovery Engine",
+      "5": "Technical Signal Layer",
+      "6": "Options & Smart Money Flow",
+      "7": "Statistical Validation & Backtesting",
+      "8": "ML / Probability Engine",
+      "9": "Scoring, Analytics & Decision Logging",
+      "10": "Specialist Council / Debate",
+      "11": "Risk Gate & Position Sizing",
+      "12": "Edge Filter & Exit Engine",
+      "13": "Execution & Shadow Trading",
+      "14": "Performance Audit",
+      "15": "Learning & Adaptation Loop",
+      "16": "Alerts & Notifications",
+      "17": "Verification & Observability"
+    },
+    "module_count_by_phase": {
+      "0": 10,
+      "1": 12,
+      "2": 10,
+      "3": 12,
+      "4": 15,
+      "5": 12,
+      "6": 8,
+      "7": 24,
+      "8": 28,
+      "9": 11,
+      "10": 2,
+      "11": 10,
+      "12": 2,
+      "13": 4,
+      "14": 4,
+      "15": 10,
+      "16": 9,
+      "17": 12
+    },
+    "execution_status_counts": {
+      "ARCHITECTURAL_REMEDIATION_REQUIRED": 1,
+      "DOCUMENTED_DORMANT": 3,
+      "VERIFIED_NOT_WIRED_BY_DESIGN": 39,
+      "VERIFIED_WIRED": 152
+    },
+    "execution_status_legend": {
+      "VERIFIED_WIRED": "confirmed live-wired into the real pipeline this session/prior sessions",
+      "VERIFIED_NOT_WIRED_BY_DESIGN": "intentionally not wired (documented reason exists)",
+      "DOCUMENTED_DORMANT": "code exists, not currently invoked, reason documented",
+      "ARCHITECTURAL_REMEDIATION_REQUIRED": "known gap, not yet fixed"
+    },
+    "modules": [
+      {
+        "module_name": "composite_scan",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "daily_picks",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "intraday_continuation_scanner",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "multiday_runner",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "opening_snapshot_tracker",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "precursor_signals",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "premarket_gap_continuation_scanner",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "premarket_open_trader",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "prop_signal",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "scanner",
+        "module_phase": 0,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_comm_test",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_intelligence_layer",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_level2",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_level3",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_master_orchestrator",
+        "module_phase": 1,
+        "execution_status": "DOCUMENTED_DORMANT",
+        "ownership_status": "CONFIRMED_DORMANT_PENDING_ARCHITECTURAL_REMEDIATION_REQUIRED"
+      },
+      {
+        "module_name": "aiem_process",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_provenance",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_supervisor",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_v2_system",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_v3_orchestrator",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "main",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "self_coding_orchestrator",
+        "module_phase": 1,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_isolation_guard",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_security",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "kill_switch",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "lookahead_audit",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "manual_rollback",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "order_dedup",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "point_in_time_guard",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "shadow_ledger",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "simulation_lock",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "staleness_guard",
+        "module_phase": 2,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_cta_triggers",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_macro_engine",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_module7_sector_rotation",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "economic_calendar",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "fred_macro",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "macro_cross_asset",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "market_regime_overlay",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "regime",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "regime_detector",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "regime_macro_patch",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "regime_monitor",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "sector_etf_data",
+        "module_phase": 3,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "active_hypothesis_selection",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "adversarial_critique",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "aiem_discovery_engine",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_module5_discovery",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "aiem_module6_rediscovery",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "aiem_v3_discovery",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "behavioral_fingerprint",
+        "module_phase": 4,
+        "execution_status": "DOCUMENTED_DORMANT",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "breakout_signature_discovery",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "causal_discovery",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "causal_inference",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "historical_analog_search",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "hypothesis_registry",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "literature_scanner",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "niche_segment_finder",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "signal_discovery_gp",
+        "module_phase": 4,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "advanced_quant_indicators",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_momentum_exhaustion",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_pullback_reentry",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_selloff_reversion",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_short_squeeze",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_v3_technical",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "candlestick_patterns",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "eod_swing",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "indicators",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "momentum_trade_trainer",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "price_structure_patterns",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "vwap_indicators",
+        "module_phase": 5,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_options_structure",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "congress_trades",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "fetch_si_background",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "insider_trades",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "microstructure_proxy",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "options_sweep",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "smart_money",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "smart_money_divergence_detector",
+        "module_phase": 6,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_stat_tests",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_combo60",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_deeper",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_eod_swing",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_falsenegatives",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_grinder",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_grinder_losers",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_harness",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_highfactor",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_losers",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_morning_losers",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_options",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_quant_vs_v2",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_results",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_tiers",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "backtest_week",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "benchmark_comparison",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "event_study_backtest",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "factors",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "historical_performance",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "layer9_statistical_edge",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "stat_arb_engine",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "volatility_clustering",
+        "module_phase": 7,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "__init__",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "alpha_feature_engineering",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "alpha_historical_trainer",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "alpha_train_pipeline",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "automated_retrain_pipeline",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "calibration",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "config",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "context",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "daily_scheduler",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "data_snapshot",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "date_utils",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "feature_engineering",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "features",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "live_query",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "ml_engine",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "ml_infrastructure",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "model_registry",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "model_training",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "pit_correction",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "pit_metrics",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "predict",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "reports",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "retrain_pipeline",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "schemas",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "spy_historical_backfill",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "train",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "verify_live_query",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "walk_forward",
+        "module_phase": 8,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "analytics",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "decision_logger",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "decision_logging_helper",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "ensemble_combiner",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "evaluation_metrics",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "evaluation_windows",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "pre_recommendation_synthesis",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "prediction_logger",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "scoring",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "signal_correlation",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "signal_magnitude_analysis",
+        "module_phase": 9,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "bull_bear_debate",
+        "module_phase": 10,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "specialist_council",
+        "module_phase": 10,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_position_sizing",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_risk_guards",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "daily_loss_limit",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "portfolio",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "portfolio_allocator",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "portfolio_correlation_risk",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "position_sizing",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "pre_decision_risk_gate",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "rl_position_sizer",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "slippage_model",
+        "module_phase": 11,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_edge_filter",
+        "module_phase": 12,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_exit_engine",
+        "module_phase": 12,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "execution",
+        "module_phase": 13,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "execution_simulator",
+        "module_phase": 13,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "pnl",
+        "module_phase": 13,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "position_reconciler",
+        "module_phase": 13,
+        "execution_status": "DOCUMENTED_DORMANT",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_performance_auditor",
+        "module_phase": 14,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_pipeline_audit",
+        "module_phase": 14,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "PENDING_REVIEW"
+      },
+      {
+        "module_name": "aiem_process_backtest",
+        "module_phase": 14,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "signal_outcomes",
+        "module_phase": 14,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_closed_loop_learning",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_module2_decay",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_module3_promotion",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_module4_gate",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_rl_engine",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_v3_learning",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "deep_rl_policy",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "meta_learning_signal_trust",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "online_learning",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "safe_learning",
+        "module_phase": 15,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "alerts",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "earnings_calendar",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "email_alerts",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "news_catalyst",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "news_catalyst_monitor",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "reddit_sentiment",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "sms_alerts",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "social_sentiment",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "telegram_charts",
+        "module_phase": 16,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_v3_verification",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "aiem_verification",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_WIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "drift_alarm",
+        "module_phase": 17,
+        "execution_status": "ARCHITECTURAL_REMEDIATION_REQUIRED",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "fix_silent_excepts",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "monitor",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "strict_aeim_supervisor_verifier",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "strict_observability_supervisor_verifier",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "verify_aiem_loop",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "verify_eod_learning_loop",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "verify_ml_infrastructure",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "verify_premarket_system",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      },
+      {
+        "module_name": "verify_signals",
+        "module_phase": 17,
+        "execution_status": "VERIFIED_NOT_WIRED_BY_DESIGN",
+        "ownership_status": "CONFIRMED"
+      }
+    ],
+    "tools": [
+      {
+        "tool_name": "adaptive_layer_evaluate",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "adaptive_layer_history",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "adversarial_review",
+        "owning_module_or_phase": "Phase 10 (Specialist Council / Debate)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "alpha_score_ticker",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "analyze_independent_performance",
+        "owning_module_or_phase": "Phase 14 (Performance Audit)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "analyze_metrics",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "analyze_missed_movers",
+        "owning_module_or_phase": "Phase 14 (Performance Audit)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "analyze_signal_correlation",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "benchmark_vs_baselines",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "breakout_discover",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "breakout_extract_features",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "build_features",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "causal_discover",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "check_daily_loss_limit",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "check_kill_switch",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "check_news_catalyst_risk",
+        "owning_module_or_phase": "Phase 16 (Alerts & Notifications)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "check_portfolio_concentration",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "check_price_bullish",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "check_shadow_promotion",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "check_signal_data_availability",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "clear_kill_switch_halt",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "close_eval_window",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "close_shadow_trade",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "compare_independent_vs_website_picks",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "compare_picks_vs_misses",
+        "owning_module_or_phase": "Phase 14 (Performance Audit)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "correlation_guard_status",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "decision_quality_summary",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "deep_rl_get_paper_action",
+        "owning_module_or_phase": "Phase 12 (Edge Filter & Exit Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "deep_rl_probe",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "discover_numeric_patterns",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "discovery_get_candidate",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "discovery_list_candidates",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "discovery_promote_candidate",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "discovery_reject_candidate",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "discovery_run_cycle",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "discovery_status",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "divergence_scan",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "drift_alarm",
+        "owning_module_or_phase": "Phase 17 (Verification & Observability)",
+        "tool_type": "cli_verification_command",
+        "verification_status": "VERIFICATION_FAILED"
+      },
+      {
+        "tool_name": "econ_is_high_impact_day",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "edge_filter_evaluate",
+        "owning_module_or_phase": "Phase 12 (Edge Filter & Exit Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "edge_filter_status",
+        "owning_module_or_phase": "Phase 12 (Edge Filter & Exit Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "ensemble_combine_signals",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "estimate_options_slippage",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "eval_window_history",
+        "owning_module_or_phase": "Phase 14 (Performance Audit)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "evaluate_previous_model",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "event_risk_check",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "event_risk_filter_status",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "execution_realistic_cost",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "fetch_historical_prices_pit",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "gap_continuation_score",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "gate_history",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_bh_fdr_status",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_current_regime",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_daily_candidates",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_decisions",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_literature_briefs",
+        "owning_module_or_phase": "Phase 16 (Alerts & Notifications)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_live_snapshot",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_m2_decay_status",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_m6_rediscovery_status",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_meta_learning_weights",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "get_regime_flags",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "holding_period_optimize",
+        "owning_module_or_phase": "Phase 12 (Edge Filter & Exit Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "intraday_compute_features",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "intraday_continuation_score",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "is_eval_window_active",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "kelly_position_size",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "kill_switch_events",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "liquidity_filter_status",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "list_hypotheses",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "list_signal_dimensions",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "log_decision",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "log_prediction",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "microstructure_proxy",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_52week_momentum",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_accumulation_squeeze",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_analyze_false_signals",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_analyze_top_movers",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_behavioral_templates",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_build_composite",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_candlestick_patterns",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_capitulation_detector",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_chart_patterns",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_check_redundancy",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_check_survivorship",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_compare_signals",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_compute_indicators",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_compute_momentum",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_cross_confirm_options",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_cta_triggers",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_discover_interactions",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_explore_dimensions",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_extreme_move_reversion",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_factor_correlations",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_find_behavioral_matches",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_find_historical_analogs",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_generate_hypotheses",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_gex_scan",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_invent_indicator",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_layer9_score",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_load_discoveries",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_net_flow_db",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_options_flow_scan",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_options_predicts_price",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_options_skew",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_pre_squeeze_warning",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_price_patterns",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_price_structure",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_quiet_accumulation",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_refresh_universe",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_regime_filter",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_required_pvalue",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_retrospective_backtest",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_save_discovery",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_screen_by_indicator",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_screen_period",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_segment_by_cap_tier",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_segment_by_sector",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_term_structure",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_test_inverse",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_test_signal",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_ticker_options_history",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_validate_oos",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "mkt_volume_patterns",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "ml_classification_metrics",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "ml_estimate_fill",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "ml_gp_signal_search",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "ml_regression_metrics",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "ml_time_split",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "ml_train_model",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "model_version_history",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "momentum_macro_regime",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "momentum_optimize_filters",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "momentum_trade_score",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "multivariate_regression",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "open_shadow_trade",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "option_b_evaluate",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "option_b_status",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "portfolio_allocate",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "portfolio_circuit_breaker_reset",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "portfolio_circuit_breaker_status",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "portfolio_correlation_risk",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "alias_mapped",
+        "verification_status": "VERIFIED_ALIAS_NOT_DIRECT_DISPATCH"
+      },
+      {
+        "tool_name": "predict_short_term",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_cross_signal_overlap",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_exit_timing",
+        "owning_module_or_phase": "Phase 12 (Edge Filter & Exit Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_INLINE_NO_MODULE"
+      },
+      {
+        "tool_name": "query_independent_picks",
+        "owning_module_or_phase": "Phase 0 (Scanner Input / Candidate Generation)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_market_regime",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_missed_movers",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_own_prediction_performance",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_pick_outcomes",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_rank_effectiveness",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "query_temporal_patterns",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rank_hypothesis_candidates",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "record_decision_outcome",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "record_human_eval_decision",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "reddit_sentiment",
+        "owning_module_or_phase": "Phase 16 (Alerts & Notifications)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "regime_overlay_check",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "regime_overlay_manual",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "register_hypotheses",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "register_hypothesis",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "retrain_approve",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "retrain_history",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "retrain_pending",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "retrain_reject",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "review_own_accuracy",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rl_counterfactuals",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rl_get_paper_action",
+        "owning_module_or_phase": "Phase 12 (Edge Filter & Exit Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rl_position_sizer",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "alias_mapped",
+        "verification_status": "VERIFIED_ALIAS_NOT_DIRECT_DISPATCH"
+      },
+      {
+        "tool_name": "rl_ppo_policy",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rl_readable_policy",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rl_status",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rl_strategy_weights",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "rollback_to_previous_model",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_aiem_self_backtest",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_backtest",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_granger_test",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_gspc_full_history_backtest",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_level2",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_level3",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_panic_exhaustion_backtest",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_regime_filtered_backtest",
+        "owning_module_or_phase": "Phase 3 (Macro & Regime Context)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_risk_gate",
+        "owning_module_or_phase": "Phase 11 (Risk Gate & Position Sizing)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_statistical_significance",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "run_vix_spike_reversal_grid",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "safe_learning_log_trade",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "safe_learning_stats",
+        "owning_module_or_phase": "Phase 14 (Performance Audit)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "safe_learning_update",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "safe_learning_weights",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "save_research_model",
+        "owning_module_or_phase": "Phase 8 (ML / Probability Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "search_past_findings",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "send_discovery_alert",
+        "owning_module_or_phase": "Phase 4 (Discovery Engine)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "shadow_stats",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "signal_layer_redundancy",
+        "owning_module_or_phase": "Phase 14 (Performance Audit)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "signal_magnitude_analysis",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "simulation_audit_trail",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "simulation_lock_check",
+        "owning_module_or_phase": "Phase 2 (Guardrails & Safety)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "smart_money_divergence",
+        "owning_module_or_phase": "Phase 6 (Options & Smart Money Flow)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFICATION_FAILED"
+      },
+      {
+        "tool_name": "squeeze_subscore",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "start_eval_window",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "start_shadow_window",
+        "owning_module_or_phase": "Phase 13 (Execution & Shadow Trading)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "stat_arb_check",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "strategy_ensemble",
+        "owning_module_or_phase": "Phase 9 (Scoring, Analytics & Decision Logging)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "test_new_signal",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "test_scoring_hypothesis",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "test_stock_panic_exhaustion",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "trust_apply_to_candidates",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "trust_classify_context",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "trust_get_history",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "trust_get_weights",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "trust_update",
+        "owning_module_or_phase": "Phase 15 (Learning & Adaptation Loop)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "v2_run_cycle",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "v2_status",
+        "owning_module_or_phase": "Phase 1 (Orchestration Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "verify_aiem_loop",
+        "owning_module_or_phase": "Phase 17 (Verification & Observability)",
+        "tool_type": "cli_verification_command",
+        "verification_status": "VERIFICATION_FAILED"
+      },
+      {
+        "tool_name": "verify_eod_learning_loop",
+        "owning_module_or_phase": "Phase 17 (Verification & Observability)",
+        "tool_type": "cli_verification_command",
+        "verification_status": "VERIFICATION_FAILED"
+      },
+      {
+        "tool_name": "verify_ml_infrastructure",
+        "owning_module_or_phase": "Phase 17 (Verification & Observability)",
+        "tool_type": "cli_verification_command",
+        "verification_status": "VERIFICATION_FAILED"
+      },
+      {
+        "tool_name": "verify_premarket_system",
+        "owning_module_or_phase": "Phase 17 (Verification & Observability)",
+        "tool_type": "cli_verification_command",
+        "verification_status": "VERIFICATION_FAILED"
+      },
+      {
+        "tool_name": "verify_signals",
+        "owning_module_or_phase": "Phase 17 (Verification & Observability)",
+        "tool_type": "cli_verification_command",
+        "verification_status": "VERIFICATION_FAILED"
+      },
+      {
+        "tool_name": "vwap_compute_features",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "vwap_price_vs",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "vwap_reclaim_detect",
+        "owning_module_or_phase": "Phase 5 (Technical Signal Layer)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      },
+      {
+        "tool_name": "walk_forward_validate",
+        "owning_module_or_phase": "Phase 7 (Statistical Validation & Backtesting)",
+        "tool_type": "ai_callable_tool",
+        "verification_status": "VERIFIED_REAL_IMPLEMENTATION"
+      }
+    ],
+    "stages_observed_in_aiem_diagram2_trace_audit": [
+      {
+        "stage_order": 1,
+        "stage_name": "scanner_signals"
+      },
+      {
+        "stage_order": 2,
+        "stage_name": "aeim_intake"
+      },
+      {
+        "stage_order": 3,
+        "stage_name": "data_guards"
+      },
+      {
+        "stage_order": 4,
+        "stage_name": "master_orchestrator"
+      },
+      {
+        "stage_order": 5,
+        "stage_name": "module_registry"
+      },
+      {
+        "stage_order": 6,
+        "stage_name": "tool_registry"
+      },
+      {
+        "stage_order": 7,
+        "stage_name": "communication_bus"
+      },
+      {
+        "stage_order": 8,
+        "stage_name": "macro_regime"
+      },
+      {
+        "stage_order": 9,
+        "stage_name": "discovery"
+      },
+      {
+        "stage_order": 10,
+        "stage_name": "technical_signal"
+      },
+      {
+        "stage_order": 11,
+        "stage_name": "options_smart_money"
+      },
+      {
+        "stage_order": 12,
+        "stage_name": "quant_stat_edge"
+      },
+      {
+        "stage_order": 13,
+        "stage_name": "probability_engine"
+      },
+      {
+        "stage_order": 14,
+        "stage_name": "scoring_synthesis"
+      },
+      {
+        "stage_order": 15,
+        "stage_name": "specialist_council"
+      },
+      {
+        "stage_order": 16,
+        "stage_name": "risk_gate"
+      },
+      {
+        "stage_order": 17,
+        "stage_name": "decision_engine"
+      },
+      {
+        "stage_order": 18,
+        "stage_name": "paper_shadow_execution"
+      },
+      {
+        "stage_order": 19,
+        "stage_name": "bull_bear_persistence"
+      },
+      {
+        "stage_order": 20,
+        "stage_name": "post_trade_analytics"
+      },
+      {
+        "stage_order": 21,
+        "stage_name": "learning_feedback"
+      },
+      {
+        "stage_order": 22,
+        "stage_name": "feedback_loop"
+      },
+      {
+        "stage_order": 23,
+        "stage_name": "memory"
+      }
+    ],
+    "stages_observed_count": 23,
+    "note_on_stage_count": "23 distinct stages have real rows in aiem_diagram2_trace_audit today. The integration spec (Section 3) lists a nominal 21 D2 event categories, and the earlier 13-stage verification doc used an 18-phase model \u2014 these are three different groupings of the same pipeline (event-category count vs. governance-phase count vs. trace-audit stage count), not a contradiction. See AEIM_D2_D3_GOVERNANCE_CONTRACT.json for the canonical 21-event-category comparison."
+  },
+  "diagram3": {
+    "tables": [
+      "d3_architecture_baseline",
+      "d3_architecture_status",
+      "d3_change_log",
+      "d3_evolution_plan",
+      "d3_executive_reports",
+      "d3_governance_event_links",
+      "d3_learning_approvals",
+      "d3_model_governance",
+      "d3_optimization_recommendations",
+      "d3_performance_snapshots",
+      "d3_rollback_registry",
+      "d3_security_reports",
+      "d3_strategy_registry",
+      "d3_system_forecasts",
+      "d3_system_health_snapshots",
+      "d3_version_history"
+    ],
+    "table_count": 16,
+    "note_on_table_count": "The startup log line '[d3_governance] schema init complete \u2014 N d3_ tables ready' actually reports len(_SCHEMA_STMTS) \u2014 the count of CREATE TABLE/ALTER TABLE/CREATE INDEX statements run (currently ~68), NOT the number of distinct d3_ tables. The real distinct d3_ table count, queried from information_schema, is 16. This is a pre-existing, mildly misleading log message identified during this session, not corrected here to avoid touching unrelated startup code without user sign-off.",
+    "admin_routes_installed": 20,
+    "d3_governance_event_links_columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "governance_cycle_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "governance_trace_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "parent_trace_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "diagram1_trace_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "diagram2_trace_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "candidate_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "ticker",
+        "data_type": "text"
+      },
+      {
+        "column_name": "recommendation_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "decision_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "execution_plan_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "paper_trade_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "outcome_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "learning_event_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "model_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "model_version",
+        "data_type": "text"
+      },
+      {
+        "column_name": "strategy_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "change_request_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "architecture_version_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "baseline_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "rollback_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "governance_phase",
+        "data_type": "text"
+      },
+      {
+        "column_name": "governance_check_name",
+        "data_type": "text"
+      },
+      {
+        "column_name": "governance_module",
+        "data_type": "text"
+      },
+      {
+        "column_name": "governance_function",
+        "data_type": "text"
+      },
+      {
+        "column_name": "check_result",
+        "data_type": "text"
+      },
+      {
+        "column_name": "enforcement_action",
+        "data_type": "text"
+      },
+      {
+        "column_name": "enforcement_status",
+        "data_type": "text"
+      },
+      {
+        "column_name": "reason_code",
+        "data_type": "text"
+      },
+      {
+        "column_name": "reason_detail",
+        "data_type": "text"
+      },
+      {
+        "column_name": "input_hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "output_hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "previous_event_hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "event_hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "source_code_commit",
+        "data_type": "text"
+      },
+      {
+        "column_name": "source_file_hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "config_hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "started_at",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "completed_at",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "created_at",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "is_test_record",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "event_schema_version",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "event_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "event_type",
+        "data_type": "text"
+      },
+      {
+        "column_name": "root_trace_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "correlation_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "causation_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "parent_event_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "diagram3_trace_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "shadow_trade_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "no_execution_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "memory_event_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "strategy_version",
+        "data_type": "text"
+      },
+      {
+        "column_name": "approval_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "rejection_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "d2_phase",
+        "data_type": "text"
+      },
+      {
+        "column_name": "d3_phase",
+        "data_type": "text"
+      },
+      {
+        "column_name": "producer_module",
+        "data_type": "text"
+      },
+      {
+        "column_name": "producer_function",
+        "data_type": "text"
+      },
+      {
+        "column_name": "consumer_module",
+        "data_type": "text"
+      },
+      {
+        "column_name": "consumer_function",
+        "data_type": "text"
+      },
+      {
+        "column_name": "input_record_ids",
+        "data_type": "jsonb"
+      },
+      {
+        "column_name": "output_record_ids",
+        "data_type": "jsonb"
+      },
+      {
+        "column_name": "idempotency_key",
+        "data_type": "text"
+      },
+      {
+        "column_name": "emitted_at",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "received_at",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "environment",
+        "data_type": "text"
+      }
+    ],
+    "d3_governance_event_links_column_count": 67,
+    "d3_governance_event_links_row_count_live": 9,
+    "event_types_actually_emitted_so_far": [
+      "governance.observation_recorded"
+    ],
+    "event_schema_versions_present": [
+      1,
+      2
+    ],
+    "phase_names_0_to_15": {
+      "0": "Baseline Freeze",
+      "1": "Architecture Discovery",
+      "2": "System Health",
+      "3": "Performance Governance",
+      "4": "Strategy Governance",
+      "5": "Model Governance",
+      "6": "Learning Approval",
+      "7": "Change Management",
+      "8": "Version Control",
+      "9": "Rollback Management",
+      "10": "Self-Optimization",
+      "11": "System Health Forecast",
+      "12": "Security Governance",
+      "13": "Architecture Consistency",
+      "14": "Executive Reporting",
+      "15": "Long-Term Evolution"
+    }
+  }
+}
