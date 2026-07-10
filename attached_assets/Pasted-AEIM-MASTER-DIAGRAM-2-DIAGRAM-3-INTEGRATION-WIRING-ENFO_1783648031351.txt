@@ -1,0 +1,758 @@
+AEIM MASTER DIAGRAM 2 ↔ DIAGRAM 3
+INTEGRATION, WIRING, ENFORCEMENT AND STRICT PROVENANCE VERIFICATION
+
+======================================================================
+MISSION
+======================================================================
+
+Diagram 2 was previously verified independently.
+
+Diagram 3 has now been added as the:
+
+AEIM Autonomous Governance, Self-Optimization & Evolution Layer.
+
+The purpose of this assignment is to:
+
+1. Preserve the previously verified Diagram 2 architecture.
+2. Connect Diagram 3 correctly to Diagram 2 through Diagram 1 and the
+   canonical message/event bus.
+3. Prove that Diagram 2 sends real decisions, outcomes, performance
+   evidence and learning events to Diagram 3.
+4. Prove that Diagram 3 sends only governed policies, approvals,
+   restrictions, rollback instructions and change decisions back through
+   Diagram 1.
+5. Prove that Diagram 3 cannot trade, execute orders, bypass Diagram 1,
+   bypass Diagram 2 controls or directly modify production components.
+6. Establish immutable end-to-end provenance for every applicable event.
+7. Run strict positive, negative, tamper and enforcement tests.
+8. Produce a reproducible evidence bundle.
+
+This is not a request for a written assurance.
+
+Do not respond merely with:
+
+- “The diagrams are connected.”
+- “Architecture integrity is intact.”
+- “The system is active.”
+- “Health score is 90/100.”
+- “All modules exist.”
+- “All endpoints return 200.”
+- “All tables exist.”
+- “The message bus is working.”
+
+Every claim must be supported by real runtime, database, source-code,
+configuration and cryptographic evidence.
+
+======================================================================
+NON-NEGOTIABLE ARCHITECTURE
+======================================================================
+
+The required relationship is:
+
+Diagram 3
+Governance, policy, approval, restriction, rollback and evolution control
+
+        ↓
+
+Diagram 1
+Master Orchestrator, registries and canonical communication bus
+
+        ↓
+
+Diagram 2
+Analysis, probability, synthesis, risk, decision, paper/shadow execution,
+outcomes, learning and memory
+
+        ↓
+
+Diagram 1 / Canonical Communication Bus
+
+        ↓
+
+Diagram 3
+Performance governance, strategy governance, model governance,
+safe-learning approval, change control, rollback and reporting
+
+Diagram 3 must not become another trading layer.
+
+Diagram 3 must not:
+
+- place trades,
+- create execution orders,
+- call execution.py directly,
+- call execution_simulator.py directly,
+- call broker adapters directly,
+- call the Decision Engine directly,
+- alter a Diagram 2 result after the fact,
+- bypass Diagram 1,
+- bypass the canonical communication bus,
+- bypass Data Guards,
+- bypass the Risk Gate,
+- bypass verification,
+- deploy a model without approval,
+- deploy a strategy without approval,
+- deploy a learning update without approval,
+- deploy an architecture change without approval,
+- mutate historical audit evidence,
+- silently rewrite Diagram 1 or Diagram 2.
+
+Diagram 3 may:
+
+- observe Diagram 2 events,
+- evaluate aggregate and event-level performance,
+- approve or reject model changes,
+- approve or reject learning changes,
+- approve or reject governed system changes,
+- create policy restrictions,
+- suspend a model or strategy,
+- request rollback through Diagram 1,
+- create optimization proposals,
+- produce executive reports,
+- detect architectural violations.
+
+======================================================================
+SECTION 1 — FREEZE AND PROTECT THE VERIFIED DIAGRAM 2 BASELINE
+======================================================================
+
+Before changing any integration code, create a frozen Diagram 2 baseline.
+
+The baseline must include:
+
+- baseline_id,
+- baseline_version,
+- creation timestamp,
+- Git commit SHA,
+- complete Diagram 2 module registry,
+- complete Diagram 2 tool registry,
+- phase ownership map,
+- approved dependency graph,
+- communication-bus configuration,
+- database schema version,
+- relevant configuration files,
+- SHA-256 for every included source file,
+- SHA-256 for every included configuration file,
+- SHA-256 for the complete canonical baseline manifest.
+
+Create:
+
+diagram2_baseline_manifest.json
+
+Do not silently alter the previously verified Diagram 2 architecture.
+
+Any integration-related Diagram 2 modification must have:
+
+- change_request_id,
+- exact affected file,
+- reason for change,
+- before SHA-256,
+- after SHA-256,
+- compatibility assessment,
+- test coverage,
+- rollback instructions,
+- approval status.
+
+Required rule:
+
+Diagram 2 must still pass its previously approved verification suite after
+Diagram 3 integration.
+
+Run:
+
+A. Diagram 2 verification before integration.
+B. Diagram 2 verification after integration.
+
+Compare both outputs.
+
+No existing Diagram 2 test may be removed, weakened, skipped or converted
+into a warning merely to make the new integration pass.
+
+======================================================================
+SECTION 2 — DISCOVER THE REAL IMPLEMENTATION
+======================================================================
+
+Do not rely on assumed filenames.
+
+Inspect the actual repository and identify:
+
+- Diagram 1 master orchestrator,
+- Diagram 1 module registry,
+- Diagram 1 tool registry,
+- canonical message/event bus,
+- Diagram 2 pipeline entry point,
+- Diagram 2 phase registry,
+- candidate intake,
+- data guards,
+- macro/regime layer,
+- discovery layer,
+- technical and quantitative analysis,
+- probability engine,
+- synthesis/scoring,
+- specialist council,
+- pre-decision Risk Gate,
+- Decision Engine,
+- paper/shadow execution,
+- outcome tracking,
+- learning systems,
+- memory systems,
+- audit and trace systems,
+- all Diagram 3 modules,
+- all Diagram 3 database tables,
+- all Diagram 3 administrative endpoints,
+- all schedulers that start Diagram 3,
+- all background jobs that consume Diagram 2 events.
+
+Produce:
+
+d2_d3_implementation_inventory.json
+
+For every component include:
+
+- diagram_number,
+- phase_number,
+- phase_name,
+- canonical_owner,
+- source_file,
+- class_name,
+- function_name,
+- registered_name,
+- events_consumed,
+- events_emitted,
+- tables_read,
+- tables_written,
+- upstream_component,
+- downstream_component,
+- enforcement_authority,
+- source_file_sha256,
+- active_status.
+
+Report:
+
+- missing registrations,
+- duplicate ownership,
+- orphan modules,
+- unreachable modules,
+- duplicate consumers,
+- duplicate event handlers,
+- dead code,
+- placeholder implementations,
+- hard-coded success responses,
+- direct cross-diagram calls,
+- unauthorized execution paths.
+
+======================================================================
+SECTION 3 — REQUIRED DIAGRAM 2 ↔ DIAGRAM 3 CONTRACT
+======================================================================
+
+Create or verify a versioned integration contract.
+
+Required contract name:
+
+AEIM_D2_D3_GOVERNANCE_CONTRACT
+
+Required fields:
+
+- contract_version,
+- contract_hash,
+- event_schema_version,
+- producer,
+- consumer,
+- event_type,
+- required_identifiers,
+- required_payload_fields,
+- idempotency_key,
+- ordering_requirement,
+- retry_policy,
+- timeout_policy,
+- dead-letter behavior,
+- failure behavior,
+- authorization rule,
+- retention policy,
+- created_at,
+- approved_at.
+
+Diagram 2 must be able to emit these canonical event categories where
+applicable:
+
+1. candidate.accepted
+2. candidate.rejected
+3. data_guard.passed
+4. data_guard.failed
+5. analysis.completed
+6. probability.completed
+7. synthesis.completed
+8. risk.approved
+9. risk.rejected
+10. decision.created
+11. decision.no_trade
+12. execution.paper_created
+13. execution.shadow_created
+14. execution.failed
+15. outcome.recorded
+16. performance.updated
+17. learning.event_created
+18. model.retraining_requested
+19. strategy.degradation_detected
+20. trace.completed
+21. trace.failed
+
+Diagram 3 must be able to consume the approved events and emit governed
+responses such as:
+
+1. governance.observation_recorded
+2. governance.review_requested
+3. governance.policy_approved
+4. governance.policy_rejected
+5. governance.model_approved
+6. governance.model_rejected
+7. governance.learning_approved
+8. governance.learning_rejected
+9. governance.strategy_restricted
+10. governance.strategy_suspended
+11. governance.change_approved
+12. governance.change_rejected
+13. governance.rollback_requested
+14. governance.rollback_approved
+15. governance.rollback_completed
+16. governance.architecture_violation
+17. governance.security_violation
+18. governance.report_generated
+
+Diagram 3 responses must return through Diagram 1.
+
+Diagram 3 must not publish a trading order or execution command.
+
+======================================================================
+SECTION 4 — UNIFIED PROVENANCE ENVELOPE
+======================================================================
+
+Every cross-diagram event must use one canonical provenance envelope.
+
+Required fields:
+
+- event_id
+- event_type
+- event_schema_version
+- correlation_id
+- causation_id
+- parent_event_id
+- root_trace_id
+- diagram1_trace_id
+- diagram2_trace_id
+- diagram3_trace_id
+- governance_cycle_id
+- candidate_id
+- ticker
+- recommendation_id
+- decision_id
+- execution_plan_id
+- paper_trade_id
+- shadow_trade_id
+- no_execution_id
+- outcome_id
+- learning_event_id
+- memory_event_id
+- strategy_id
+- strategy_version
+- model_id
+- model_version
+- approval_id
+- rejection_id
+- change_request_id
+- rollback_id
+- baseline_id
+- architecture_version_id
+- producer_diagram
+- producer_phase
+- producer_module
+- producer_function
+- consumer_diagram
+- consumer_phase
+- consumer_module
+- input_record_ids
+- output_record_ids
+- source_commit_sha
+- source_file_sha256
+- configuration_sha256
+- payload_sha256
+- previous_event_sha256
+- event_sha256
+- emitted_at
+- received_at
+- processing_started_at
+- processing_completed_at
+- status
+- reason_code
+- error_code
+- retry_count
+- idempotency_key
+- environment
+
+Not every event requires every business identifier.
+
+However:
+
+- root_trace_id must always exist,
+- event_id must always exist,
+- event_type must always exist,
+- producer and consumer must exist,
+- source/version hashes must exist,
+- timestamps must exist,
+- event hash must exist,
+- applicable business identifiers must never be discarded.
+
+Reject events missing mandatory provenance fields.
+
+Do not create new unrelated trace IDs at every phase.
+
+Child events must retain:
+
+- root_trace_id,
+- correlation_id,
+- causation_id,
+- parent_event_id.
+
+======================================================================
+SECTION 5 — IMMUTABLE EVENT HASHING
+======================================================================
+
+Use deterministic canonical serialization.
+
+Recommended rule:
+
+payload_sha256 =
+SHA256(canonical_json(event_payload))
+
+event_sha256 =
+SHA256(
+    canonical_json(provenance_metadata)
+    + payload_sha256
+    + previous_event_sha256
+)
+
+Canonical JSON must use:
+
+- deterministic key ordering,
+- UTF-8,
+- consistent null handling,
+- consistent timestamp formatting,
+- no unstable memory addresses,
+- no random whitespace,
+- no secrets.
+
+Store the previous hash and current hash.
+
+Create a validation function that can:
+
+- validate a single event,
+- validate a complete trace,
+- identify the first broken event,
+- identify the altered field,
+- identify missing sequence numbers,
+- detect duplicate event IDs,
+- detect duplicate idempotency keys,
+- detect impossible timestamp ordering.
+
+Historical evidence must be append-only.
+
+Corrections must create a new corrective event; they must not overwrite
+historical evidence.
+
+======================================================================
+SECTION 6 — REQUIRED PROVENANCE DATABASE STRUCTURE
+======================================================================
+
+Use existing canonical tables when possible.
+
+Do not unnecessarily duplicate existing data.
+
+Create a migration only for fields or linkage structures that do not exist.
+
+At minimum, ensure an immutable table equivalent to:
+
+d3_governance_event_links
+
+Required columns:
+
+- id
+- event_id
+- event_type
+- root_trace_id
+- correlation_id
+- causation_id
+- parent_event_id
+- diagram1_trace_id
+- diagram2_trace_id
+- diagram3_trace_id
+- governance_cycle_id
+- candidate_id
+- ticker
+- recommendation_id
+- decision_id
+- execution_plan_id
+- paper_trade_id
+- shadow_trade_id
+- no_execution_id
+- outcome_id
+- learning_event_id
+- memory_event_id
+- strategy_id
+- strategy_version
+- model_id
+- model_version
+- approval_id
+- rejection_id
+- change_request_id
+- rollback_id
+- baseline_id
+- architecture_version_id
+- d2_phase
+- d3_phase
+- governance_check_name
+- producer_module
+- producer_function
+- consumer_module
+- consumer_function
+- input_record_ids
+- output_record_ids
+- check_result
+- enforcement_action
+- enforcement_status
+- reason_code
+- reason_detail
+- source_commit_sha
+- source_file_sha256
+- configuration_sha256
+- payload_sha256
+- previous_event_sha256
+- event_sha256
+- idempotency_key
+- emitted_at
+- received_at
+- processing_started_at
+- processing_completed_at
+- created_at
+
+Add appropriate:
+
+- primary keys,
+- foreign keys,
+- unique constraints,
+- check constraints,
+- indexes.
+
+Required indexes include:
+
+- event_id,
+- root_trace_id,
+- diagram2_trace_id,
+- diagram3_trace_id,
+- governance_cycle_id,
+- candidate_id,
+- ticker,
+- decision_id,
+- execution_plan_id,
+- paper_trade_id,
+- outcome_id,
+- learning_event_id,
+- model_id,
+- strategy_id,
+- change_request_id,
+- rollback_id,
+- event_type,
+- created_at.
+
+No free-text-only linkage is acceptable where a canonical identifier exists.
+
+Create a rollback migration.
+
+======================================================================
+SECTION 7 — REQUIRED BIDIRECTIONAL WIRING
+======================================================================
+
+A. DIAGRAM 2 → DIAGRAM 3
+
+Prove Diagram 2 sends Diagram 3 the following, when applicable:
+
+- candidate lineage,
+- data-quality status,
+- analysis completion status,
+- probability output,
+- synthesis result,
+- council result,
+- Risk Gate result,
+- final decision,
+- execution/no-execution status,
+- outcome,
+- realized performance,
+- attribution,
+- learning event,
+- model retraining request,
+- strategy degradation signal,
+- completed trace evidence.
+
+Diagram 3 must consume those events through the canonical event bus.
+
+It must not scrape disconnected tables as its only integration method.
+
+Reading canonical tables for reporting is allowed, but the live governance
+workflow must have an explicit event or orchestrated invocation path.
+
+B. DIAGRAM 3 → DIAGRAM 2
+
+Prove Diagram 3 sends governed actions through Diagram 1, including:
+
+- approved policy updates,
+- model approvals and rejections,
+- strategy restrictions,
+- strategy suspensions,
+- learning approvals and rejections,
+- change approvals and rejections,
+- rollback requests,
+- security restrictions,
+- architecture violation restrictions.
+
+Diagram 1 must:
+
+- validate the Diagram 3 action,
+- verify authorization,
+- verify contract version,
+- verify provenance,
+- verify approval status,
+- route it to the canonical Diagram 2 owner,
+- record enforcement,
+- return an acknowledgement.
+
+Diagram 3 must not modify Diagram 2 databases directly to simulate
+enforcement.
+
+======================================================================
+SECTION 8 — GOVERNANCE ENFORCEMENT ACKNOWLEDGEMENT
+======================================================================
+
+Every governed action must have a request and acknowledgement pair.
+
+Required request fields:
+
+- governance_action_id
+- governance_cycle_id
+- root_trace_id
+- action_type
+- target_component
+- target_version
+- requested_state
+- reason_code
+- evidence_ids
+- approval_id
+- effective_at
+- expires_at
+- event_sha256
+
+Required acknowledgement fields:
+
+- governance_action_id
+- acknowledgement_id
+- receiving_component
+- previous_state
+- resulting_state
+- enforcement_status
+- enforced_at
+- enforcement_record_id
+- failure_reason
+- acknowledgement_sha256
+
+Diagram 3 cannot mark an action as enforced merely because it was emitted.
+
+An action is enforced only when the canonical Diagram 2 owner returns a
+valid acknowledgement and the resulting state is independently confirmed.
+
+======================================================================
+SECTION 9 — ONE COMPLETE END-TO-END TEST
+======================================================================
+
+Run one controlled candidate through the real integrated system.
+
+Use real market data when available.
+
+Paper/shadow execution only.
+
+Do not place a live trade.
+
+Required sequence:
+
+1. Create or ingest candidate.
+2. Generate root_trace_id.
+3. Diagram 1 accepts orchestration request.
+4. Diagram 2 intake accepts candidate.
+5. Data Guards run.
+6. Macro/regime runs.
+7. Discovery runs.
+8. Technical/options/quant analysis runs.
+9. Probability Engine runs.
+10. Scoring and synthesis run.
+11. Specialist Council runs.
+12. Pre-decision Risk Gate runs.
+13. Decision Engine creates decision.
+14. Paper/shadow execution or canonical no-execution record is created.
+15. Outcome is recorded or a controlled test outcome is attached.
+16. Attribution/performance evidence is produced.
+17. Learning event is created.
+18. Diagram 2 emits governance-relevant evidence.
+19. Diagram 1 routes evidence to Diagram 3.
+20. Diagram 3 performs applicable governance checks.
+21. Diagram 3 records approve/reject/restrict/no-action result.
+22. If an enforcement action applies, Diagram 3 sends it through Diagram 1.
+23. Diagram 1 routes it to the canonical Diagram 2 owner.
+24. Diagram 2 acknowledges enforcement.
+25. Diagram 3 confirms resulting state.
+26. Executive report record is generated.
+27. Full hash chain is validated.
+28. Evidence bundle is finalized.
+
+The trace must include, when applicable:
+
+- root_trace_id
+- diagram1_trace_id
+- diagram2_trace_id
+- diagram3_trace_id
+- governance_cycle_id
+- candidate_id
+- ticker
+- recommendation_id
+- decision_id
+- execution_plan_id
+- paper_trade_id or no_execution_id
+- outcome_id
+- learning_event_id
+- approval_id or rejection_id
+- governance_action_id
+- acknowledgement_id
+- executive_report_id
+- audit_log_ids
+- evidence_bundle_id
+
+Print a complete ordered timeline.
+
+For each event print:
+
+- sequence,
+- event_id,
+- event_type,
+- timestamp,
+- diagram,
+- phase,
+- module,
+- function,
+- input IDs,
+- output IDs,
+- status,
+- duration,
+- previous hash,
+- event hash.
+
+======================================================================
+SECTION 10 — TEST BOTH DECISION PATHS
+======================================================================
+
+Test at least:
+
+PATH A — TRADE/PAPER-EXECUTION

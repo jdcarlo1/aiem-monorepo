@@ -1,0 +1,991 @@
+AEIM DIAGRAM 3 — FINAL STRICT VERIFICATION, PROVENANCE, WIRING AND REMEDIATION TEST
+
+PURPOSE
+
+This is not a request for another narrative summary.
+
+This is a mandatory runtime verification and remediation pass for:
+
+AEIM Diagram 3
+Autonomous Governance, Self-Optimization & Evolution Layer
+
+The objective is to prove, using real executable code, database evidence, runtime traces, cryptographic hashes and negative controls, that every Diagram 3 phase is:
+
+1. Implemented.
+2. Registered.
+3. Wired correctly.
+4. Executing in the correct order.
+5. Connected to Diagram 1 and Diagram 2.
+6. Producing real governance decisions.
+7. Persisting those decisions.
+8. Enforcing approvals, rejections, blocks and rollbacks.
+9. Traceable to the exact trade, model, learning event, system change or architecture version that caused the check.
+10. Free of placeholders, simulated success responses and manually assembled proof.
+
+A status such as “ACTIVE,” “90/100,” “intact,” “rollback ready,” or “table exists” is not sufficient proof.
+
+No phase may be marked PASS solely because:
+
+- a Python file exists,
+- a class exists,
+- a function returns success,
+- an endpoint returns HTTP 200,
+- a table exists,
+- a table contains rows,
+- an agent says it is working,
+- a manually created record exists,
+- a mocked test succeeds,
+- an isolated unit test succeeds without full integration.
+
+==================================================
+SECTION 1 — REQUIRED TRACE AND PROVENANCE MODEL
+==================================================
+
+Diagram 3 must use a unified provenance model linked to the existing Diagram 1 and Diagram 2 tracing system.
+
+Every governance cycle must generate or inherit the following identifiers:
+
+- governance_cycle_id
+- governance_trace_id
+- parent_trace_id
+- diagram1_trace_id
+- diagram2_trace_id
+- candidate_id
+- ticker
+- recommendation_id
+- decision_id
+- execution_plan_id
+- paper_trade_id
+- outcome_id
+- learning_event_id
+- model_id
+- model_version
+- strategy_id
+- change_request_id
+- architecture_version_id
+- baseline_id
+- rollback_id
+- approval_id
+- rejection_id
+- audit_log_id
+- evidence_bundle_id
+
+Not every event will use every identifier.
+
+However, every applicable identifier must be populated and linked through foreign keys or an immutable association table.
+
+Do not use free-text-only relationships.
+
+Every governance record must identify:
+
+- what triggered the governance check,
+- what was checked,
+- which phase performed the check,
+- which module performed it,
+- which function performed it,
+- which configuration was active,
+- which code version was active,
+- which architecture baseline was active,
+- which input records were read,
+- which output records were created,
+- what decision was produced,
+- whether that decision was enforced,
+- the timestamp before and after execution,
+- the runtime duration,
+- the previous hash,
+- the current event hash.
+
+==================================================
+SECTION 2 — PER-TRADE AND PER-DECISION AUDIT TRAIL
+==================================================
+
+Implement the missing per-trade Diagram 3 governance audit trail.
+
+Diagram 3 must be able to answer:
+
+“For Diagram 2 trace ID X, which Diagram 3 governance checks ran, what did each one conclude, and what actions were enforced?”
+
+Create an immutable governance-to-runtime linkage structure.
+
+A recommended canonical table is:
+
+d3_governance_event_links
+
+Required fields:
+
+- id
+- governance_cycle_id
+- governance_trace_id
+- parent_trace_id
+- diagram1_trace_id
+- diagram2_trace_id
+- candidate_id
+- ticker
+- recommendation_id
+- decision_id
+- execution_plan_id
+- paper_trade_id
+- outcome_id
+- learning_event_id
+- model_id
+- model_version
+- strategy_id
+- change_request_id
+- architecture_version_id
+- baseline_id
+- rollback_id
+- governance_phase
+- governance_check_name
+- governance_module
+- governance_function
+- check_result
+- enforcement_action
+- enforcement_status
+- reason_code
+- reason_detail
+- input_hash
+- output_hash
+- previous_event_hash
+- event_hash
+- source_code_commit
+- source_file_hash
+- config_hash
+- started_at
+- completed_at
+- created_at
+
+Add indexes for:
+
+- governance_trace_id
+- diagram2_trace_id
+- candidate_id
+- ticker
+- decision_id
+- execution_plan_id
+- paper_trade_id
+- learning_event_id
+- model_id
+- change_request_id
+- architecture_version_id
+- baseline_id
+- governance_phase
+
+Use real foreign keys wherever the underlying canonical table exists.
+
+Where a foreign key cannot be added because of legacy architecture, create an explicit immutable association table and document the reason.
+
+The system must provide a query or endpoint that accepts a Diagram 2 trace ID and returns the complete Diagram 3 governance history for that trace.
+
+==================================================
+SECTION 3 — CANONICAL PHASE ORDER
+==================================================
+
+Verify these 16 Diagram 3 phases as one ordered governance pipeline:
+
+Phase 0 — Baseline Freeze
+Phase 1 — Architecture Discovery
+Phase 2 — System Health Monitoring
+Phase 3 — Performance Governance
+Phase 4 — Strategy Registry and Strategy Governance
+Phase 5 — Model Governance
+Phase 6 — Safe Learning Approval
+Phase 7 — Change Management
+Phase 8 — Version Control
+Phase 9 — Rollback Protection
+Phase 10 — Self-Optimization Suggestions
+Phase 11 — Health Forecasting
+Phase 12 — Security Governance
+Phase 13 — Architecture Consistency
+Phase 14 — Executive Reporting
+Phase 15 — Long-Term Evolution Planning
+
+For every phase, identify:
+
+- canonical owning module,
+- canonical class,
+- canonical entry function,
+- upstream dependency,
+- downstream destination,
+- required input schema,
+- output schema,
+- database tables written,
+- events emitted,
+- events consumed,
+- enforcement authority,
+- failure behavior,
+- retry behavior,
+- timeout behavior,
+- idempotency behavior,
+- rollback behavior.
+
+No module may claim ownership of the same governance responsibility unless one is explicitly designated as:
+
+- canonical owner,
+- adapter,
+- observer,
+- compatibility wrapper,
+- deprecated implementation.
+
+Produce a duplicate-ownership report.
+
+==================================================
+SECTION 4 — REGISTRY AND BOOT VERIFICATION
+==================================================
+
+Prove that all Diagram 3 modules are registered through the real registry and loaded by the real runtime.
+
+Provide runtime evidence showing:
+
+- module registration,
+- tool registration where applicable,
+- boot order,
+- dependency resolution,
+- active/inactive status,
+- module source path,
+- module source SHA-256,
+- configuration SHA-256,
+- loaded code commit,
+- registration timestamp,
+- successful health check.
+
+Required negative control:
+
+Temporarily remove or disable one Diagram 3 registration in a controlled test environment.
+
+The system must:
+
+- detect the missing registration,
+- fail the appropriate architecture consistency check,
+- record the failure,
+- lower the governance health state,
+- prevent a false PASS,
+- restore the registration after the test.
+
+Do not perform destructive testing against the production environment without isolation.
+
+==================================================
+SECTION 5 — PHASE-BY-PHASE STRICT VERIFICATION
+==================================================
+
+PHASE 0 — BASELINE FREEZE
+
+Prove that the baseline contains:
+
+- Diagram 1 registry snapshot,
+- Diagram 2 registry snapshot,
+- Diagram 3 registry snapshot,
+- module inventory,
+- tool inventory,
+- database schema version,
+- code commit,
+- code file hashes,
+- configuration hashes,
+- architecture rules,
+- approved dependency graph,
+- timestamp,
+- immutable baseline hash.
+
+Required negative control:
+
+Modify one non-production test file or test configuration after the baseline is created.
+
+The system must detect the mismatch and identify the exact changed artifact.
+
+Then restore the original artifact and prove the baseline returns to valid status.
+
+PHASE 1 — ARCHITECTURE DISCOVERY
+
+Prove the system discovers the real runtime architecture, not a hard-coded list.
+
+The report must contain:
+
+- discovered modules,
+- discovered tools,
+- duplicates,
+- orphan modules,
+- unregistered modules,
+- unreachable modules,
+- missing dependencies,
+- circular dependencies,
+- unexpected direct connections,
+- prohibited Decision Engine tool connections,
+- bypasses around Data Guards,
+- bypasses around the Risk Gate,
+- bypasses around verification.
+
+Required negative control:
+
+Introduce one controlled orphan or duplicate in a test environment.
+
+The discovery phase must detect it.
+
+PHASE 2 — SYSTEM HEALTH MONITORING
+
+Prove the 90/100 score is calculated from documented components.
+
+Provide:
+
+- exact scoring formula,
+- weight of each component,
+- raw component measurements,
+- thresholds,
+- missing-data behavior,
+- stale-data behavior,
+- degraded-state behavior,
+- reason the score equals the reported number.
+
+Required negative control:
+
+Force one monitored dependency to report unhealthy in a test environment.
+
+The health score and status must change.
+
+PHASE 3 — PERFORMANCE GOVERNANCE
+
+Prove performance governance reads real outcome and trading records.
+
+Show:
+
+- sample size,
+- date range,
+- strategy breakdown,
+- model breakdown,
+- market-regime breakdown,
+- win rate,
+- loss rate,
+- calibration,
+- expectancy,
+- drawdown,
+- false-positive rate,
+- missed-opportunity rate where available,
+- degradation thresholds,
+- resulting governance decision.
+
+Required negative control:
+
+Feed a controlled degraded performance dataset.
+
+The system must create a degradation event and appropriate restriction, warning or review action.
+
+PHASE 4 — STRATEGY GOVERNANCE
+
+Prove every active strategy has:
+
+- strategy_id,
+- owner module,
+- version,
+- approved status,
+- allowed market regimes,
+- risk limits,
+- performance thresholds,
+- activation date,
+- deactivation capability,
+- traceable decisions,
+- outcomes.
+
+Required negative control:
+
+Attempt to use an unapproved or disabled strategy.
+
+The system must block or quarantine it and record the enforcement.
+
+PHASE 5 — MODEL GOVERNANCE
+
+Prove every active model has:
+
+- model_id,
+- model version,
+- feature schema,
+- training dataset reference,
+- training data hash,
+- training date,
+- validation metrics,
+- calibration metrics,
+- approval status,
+- approval authority,
+- deployment status,
+- rollback version,
+- source code hash,
+- artifact hash.
+
+Required negative control:
+
+Attempt to activate an unapproved model version.
+
+The system must reject activation and record the reason.
+
+PHASE 6 — SAFE LEARNING APPROVAL
+
+The empty d3_learning_approvals table cannot be accepted as verified merely because no production event occurred.
+
+Run a controlled end-to-end approval test using a non-production candidate model or isolated test artifact.
+
+Test both:
+
+A. Approval path:
+- enough samples,
+- improved validation performance,
+- acceptable calibration,
+- acceptable drawdown,
+- no prohibited leakage,
+- correct feature schema,
+- reproducible training run.
+
+B. Rejection path:
+- fewer than required samples or
+- degraded performance or
+- data leakage or
+- failed calibration or
+- missing provenance.
+
+Prove that:
+
+- the approval path creates an approval record,
+- the rejection path creates a rejection record,
+- only the approved artifact can move forward,
+- the rejected artifact cannot deploy,
+- the records include full provenance.
+
+After the test, clearly identify test records so they cannot be mistaken for production learning events.
+
+PHASE 7 — CHANGE MANAGEMENT
+
+Prove every governed change uses:
+
+- change_request_id,
+- requester,
+- reason,
+- affected components,
+- risk classification,
+- before state,
+- proposed after state,
+- tests required,
+- approval status,
+- deployment status,
+- rollback plan,
+- audit history.
+
+Required negative control:
+
+Attempt an unapproved governed change.
+
+The system must block it.
+
+PHASE 8 — VERSION CONTROL
+
+Prove the 181 version records correspond to real versioned artifacts.
+
+Randomly sample at least 10 records and validate:
+
+- artifact exists,
+- hash matches,
+- prior version exists where applicable,
+- timestamp is legitimate,
+- change request is linked,
+- deployment record is linked,
+- rollback target is known.
+
+Do not accept row count as proof.
+
+PHASE 9 — ROLLBACK PROTECTION
+
+Prove “rollback ready: yes” through execution, not a Boolean field.
+
+In an isolated environment:
+
+1. Deploy a controlled test version.
+2. Confirm it becomes active.
+3. Trigger a governed rollback condition.
+4. Execute rollback.
+5. Confirm the previous approved version becomes active.
+6. Confirm database and configuration consistency.
+7. Confirm the rollback event is fully traced.
+8. Confirm no unrelated component was altered.
+
+Provide before and after hashes.
+
+PHASE 10 — SELF-OPTIMIZATION SUGGESTIONS
+
+Prove this phase only generates governed proposals.
+
+It must not directly alter production strategy, model, thresholds, code, risk limits or architecture.
+
+Every proposal must include:
+
+- evidence,
+- expected benefit,
+- risk,
+- confidence,
+- affected components,
+- validation plan,
+- approval requirement,
+- rollback plan.
+
+Required negative control:
+
+Attempt direct application of an optimization without approval.
+
+The system must block it.
+
+PHASE 11 — HEALTH FORECASTING
+
+Prove the forecast is calculated from real historical data.
+
+Provide:
+
+- input features,
+- lookback period,
+- forecast horizon,
+- model or rule set,
+- confidence,
+- backtested forecast accuracy,
+- uncertainty handling,
+- resulting actions.
+
+A fabricated static forecast is prohibited.
+
+PHASE 12 — SECURITY GOVERNANCE
+
+Prove checks exist for:
+
+- unauthorized configuration changes,
+- secret exposure,
+- invalid access attempts,
+- privilege boundaries,
+- admin endpoint protection,
+- audit tampering,
+- hash-chain tampering,
+- unexpected code changes,
+- dangerous direct database updates.
+
+Required negative control:
+
+Attempt a controlled unauthorized or invalid governance action.
+
+The system must reject it and log it.
+
+Do not expose real credentials or secrets in the evidence.
+
+PHASE 13 — ARCHITECTURE CONSISTENCY
+
+Prove Diagram 3 checks all critical architecture invariants:
+
+- Diagram 1 remains the master orchestration layer.
+- Diagram 2 remains the communication and execution pipeline.
+- Diagram 3 remains governance only.
+- Diagram 3 cannot place trades.
+- No tool directly connects to the Decision Engine.
+- No module bypasses Data Guards.
+- No module bypasses the Risk Gate.
+- No module bypasses verification.
+- Every module has one canonical owner.
+- Every trace follows an approved path.
+- Learning cannot deploy without approval.
+- Changes cannot deploy without governance.
+- Rollbacks target approved versions.
+
+Required negative control:
+
+Create a controlled prohibited connection in a test environment.
+
+The consistency phase must detect it.
+
+PHASE 14 — EXECUTIVE REPORTING
+
+Prove reports are generated from canonical database records and not manually assembled text.
+
+Each report must contain:
+
+- report_id,
+- report period,
+- source table references,
+- data freshness,
+- architecture status,
+- system health,
+- performance status,
+- model status,
+- learning approvals and rejections,
+- change status,
+- rollback readiness,
+- security status,
+- unresolved violations,
+- evidence bundle ID,
+- report hash.
+
+PHASE 15 — LONG-TERM EVOLUTION PLANNING
+
+Prove this phase produces proposals only.
+
+It must not autonomously rewrite or deploy architecture.
+
+Every evolution proposal must pass:
+
+- evidence review,
+- architecture impact analysis,
+- backward-compatibility analysis,
+- testing plan,
+- security review,
+- approval,
+- versioning,
+- rollback planning.
+
+==================================================
+SECTION 6 — DIAGRAM 1, 2 AND 3 WIRING PROOF
+==================================================
+
+Run one complete test showing:
+
+Diagram 3 governance initiation
+→ Diagram 1 orchestration
+→ Diagram 2 candidate processing
+→ decision
+→ risk result
+→ paper/shadow execution or no-execution
+→ outcome tracking
+→ learning event
+→ Diagram 3 performance/model/learning governance
+→ approval or rejection
+→ executive report
+→ immutable audit record
+
+Use one controlled real-market-data candidate where permitted.
+
+The full test must preserve one correlated lineage.
+
+At minimum, prove linkage between:
+
+- governance_trace_id,
+- diagram1_trace_id,
+- diagram2_trace_id,
+- candidate_id,
+- decision_id,
+- execution_plan_id,
+- paper_trade_id or no-execution record,
+- outcome_id,
+- learning_event_id,
+- governance approval/rejection ID,
+- executive report ID.
+
+Print the ordered event timeline.
+
+Each event must contain:
+
+- sequence number,
+- timestamp,
+- phase,
+- module,
+- function,
+- input reference,
+- output reference,
+- status,
+- duration,
+- event hash.
+
+==================================================
+SECTION 7 — ENFORCEMENT TESTS
+==================================================
+
+Run and prove these failures are actually blocked:
+
+1. Unregistered module.
+2. Duplicate canonical ownership.
+3. Baseline hash mismatch.
+4. Stale configuration.
+5. Unapproved model.
+6. Insufficient model samples.
+7. Degraded model candidate.
+8. Unapproved strategy.
+9. Unapproved change.
+10. Direct self-optimization deployment attempt.
+11. Invalid rollback target.
+12. Audit hash tampering.
+13. Missing Diagram 2 trace ID.
+14. Missing provenance fields.
+15. Attempt by Diagram 3 to call execution directly.
+16. Attempt to bypass the Risk Gate.
+17. Attempt to bypass Data Guards.
+18. Attempt to alter the Decision Engine directly.
+
+For every test, report:
+
+- test ID,
+- test name,
+- injected fault,
+- expected result,
+- observed result,
+- enforcement point,
+- record ID,
+- error or reason code,
+- trace ID,
+- evidence hash,
+- PASS or FAIL.
+
+==================================================
+SECTION 8 — DATABASE INTEGRITY VERIFICATION
+==================================================
+
+For all 15 existing Diagram 3 tables and all newly required provenance tables, provide:
+
+- exact table name,
+- purpose,
+- row count,
+- earliest record,
+- latest record,
+- primary key,
+- foreign keys,
+- unique constraints,
+- indexes,
+- retention policy,
+- mutation policy,
+- responsible module,
+- sample record with sensitive values redacted.
+
+Check for:
+
+- orphan records,
+- broken foreign keys,
+- duplicate event IDs,
+- duplicate hashes,
+- missing hashes,
+- missing timestamps,
+- impossible timestamp order,
+- records with no parent trace,
+- approvals with no model,
+- model versions with no artifact,
+- rollbacks with no source version,
+- governance results with no enforcement status.
+
+The two previously empty tables must be tested through controlled approval and rejection scenarios.
+
+Do not fabricate production events merely to populate the tables.
+
+Use explicitly labeled test records.
+
+==================================================
+SECTION 9 — CRYPTOGRAPHIC EVIDENCE
+==================================================
+
+Create an evidence bundle for the final verification.
+
+The evidence bundle must include:
+
+- architecture snapshot,
+- registry snapshot,
+- dependency graph,
+- phase map,
+- test manifest,
+- database verification report,
+- trace timeline,
+- negative-control results,
+- code commit,
+- file hashes,
+- configuration hashes,
+- SQL query hashes,
+- relevant audit record hashes,
+- final bundle hash.
+
+Use SHA-256.
+
+Each audit event must contain:
+
+event_hash = SHA256(
+    canonical_event_payload
+    + previous_event_hash
+)
+
+Use deterministic canonical serialization.
+
+Prove chain validation from the first event through the final event.
+
+Run a tamper test on a copied test record.
+
+The copied chain must fail validation.
+
+The real production evidence chain must remain unaltered.
+
+==================================================
+SECTION 10 — NO-FAKE-PROOF REQUIREMENTS
+==================================================
+
+The following are prohibited:
+
+- manually typing expected database outputs,
+- hard-coding PASS,
+- creating endpoints that return static success,
+- generating fake trace IDs,
+- generating disconnected audit rows,
+- inserting records solely to make row counts nonzero,
+- using mocks as the final evidence,
+- presenting source code without executing it,
+- presenting logs that cannot be linked to database records,
+- presenting database rows that cannot be linked to runtime logs,
+- presenting screenshots as the only evidence,
+- claiming enforcement without showing a blocked action,
+- claiming rollback readiness without executing a rollback test,
+- claiming learning governance without testing approval and rejection.
+
+The verification script must exit nonzero if any required test fails.
+
+==================================================
+SECTION 11 — REQUIRED DELIVERABLES
+==================================================
+
+Provide all of the following:
+
+A. DIAGRAM 3 IMPLEMENTATION INVENTORY
+
+For each phase:
+
+- phase number,
+- phase name,
+- source file,
+- class,
+- function,
+- registered name,
+- database tables,
+- input event,
+- output event,
+- enforcement responsibility,
+- current verification state.
+
+B. WIRING MAP
+
+A machine-readable and human-readable map of:
+
+Diagram 3
+→ Diagram 1
+→ Diagram 2
+→ execution/no-execution
+→ outcome
+→ learning
+→ Diagram 3 governance feedback
+
+C. PROVENANCE SCHEMA
+
+Provide:
+
+- migration files,
+- ORM definitions,
+- indexes,
+- foreign keys,
+- rollback migration,
+- sample query by Diagram 2 trace ID.
+
+D. VERIFICATION RUNNER
+
+Create one command that runs the full suite.
+
+Example:
+
+python -m aeim_diagram3_verification \
+    --strict \
+    --with-negative-controls \
+    --verify-provenance \
+    --verify-database \
+    --verify-hash-chain \
+    --verify-rollback \
+    --verify-learning-approval \
+    --verify-diagram-links \
+    --fail-on-warning
+
+Use the real project module path if different.
+
+E. MACHINE-READABLE RESULTS
+
+Produce a JSON file containing:
+
+- overall_result,
+- started_at,
+- completed_at,
+- code_commit,
+- baseline_hash,
+- evidence_bundle_hash,
+- phases,
+- tests,
+- failures,
+- warnings,
+- unresolved_gaps.
+
+F. HUMAN-READABLE FINAL REPORT
+
+The final report must clearly separate:
+
+- VERIFIED PASS,
+- PARTIAL,
+- NOT TESTED,
+- FAILED,
+- BLOCKED,
+- REMEDIATION REQUIRED.
+
+==================================================
+SECTION 12 — FINAL ACCEPTANCE STANDARD
+==================================================
+
+Diagram 3 may be declared VERIFIED only if:
+
+1. All 16 phases are registered.
+2. All 16 phases execute.
+3. Canonical ownership is documented.
+4. Diagram 1, Diagram 2 and Diagram 3 traces are linked.
+5. Per-trade governance provenance exists.
+6. Per-decision governance provenance exists.
+7. Model approval and rejection are tested.
+8. Learning approval and rejection are tested.
+9. An unauthorized change is blocked.
+10. An unapproved model is blocked.
+11. An unapproved strategy is blocked.
+12. A controlled rollback succeeds.
+13. Architecture violations are detected.
+14. Audit tampering is detected.
+15. Hash-chain validation succeeds.
+16. Every final claim links to database and runtime evidence.
+17. No critical test is mocked.
+18. No unresolved HIGH or CRITICAL defect remains.
+19. The strict runner exits with code 0.
+20. A reproducible evidence bundle is produced.
+
+Do not state “100% complete” merely because the final runner exits successfully.
+
+State only:
+
+“Diagram 3 passed the defined strict verification suite for the tested code commit, database state, configuration, environment and evidence bundle.”
+
+==================================================
+SECTION 13 — RESPONSE FORMAT
+==================================================
+
+Do not answer with a general explanation.
+
+Respond in this order:
+
+1. Implementation inventory.
+2. Missing components found.
+3. Database migration plan.
+4. Wiring remediation performed.
+5. Exact verification command.
+6. Raw test output.
+7. Phase-by-phase result table.
+8. Negative-control result table.
+9. One complete correlated provenance trace.
+10. Database integrity results.
+11. Hash-chain validation results.
+12. Rollback execution proof.
+13. Learning approval proof.
+14. Learning rejection proof.
+15. Final unresolved defects.
+16. Evidence bundle path and SHA-256.
+17. Final verdict.
+
+If any required functionality does not currently exist, implement it before claiming PASS.
+
+Do not silently alter Diagram 1 or Diagram 2.
+
+Any necessary change to Diagram 1 or Diagram 2 must be:
+
+- minimal,
+- documented,
+- versioned,
+- backward compatible where possible,
+- protected by tests,
+- assigned a change_request_id,
+- linked to the Diagram 3 evidence bundle.

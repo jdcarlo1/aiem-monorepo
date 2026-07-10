@@ -35,11 +35,14 @@ import hashlib
 import json
 import os
 import time
+import uuid
 import datetime
 from typing import Optional, Dict, Any
 
 import psycopg2
 import psycopg2.extras
+
+from aiem_provenance import _canonical_bytes
 
 _D3_VERSION = "1.0.0"
 _D3_STARTED_AT = datetime.datetime.utcnow().isoformat() + "Z"
@@ -272,6 +275,85 @@ _SCHEMA_STMTS = [
         recommendations_json JSONB
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS d3_governance_event_links (
+        id BIGSERIAL PRIMARY KEY,
+        governance_cycle_id TEXT NOT NULL,
+        governance_trace_id TEXT NOT NULL,
+        parent_trace_id TEXT,
+        diagram1_trace_id TEXT,
+        diagram2_trace_id TEXT,
+        candidate_id TEXT,
+        ticker TEXT,
+        recommendation_id TEXT,
+        decision_id TEXT,
+        execution_plan_id TEXT,
+        paper_trade_id BIGINT,
+        outcome_id TEXT,
+        learning_event_id TEXT,
+        model_id TEXT,
+        model_version TEXT,
+        strategy_id TEXT,
+        change_request_id TEXT,
+        architecture_version_id TEXT,
+        baseline_id TEXT,
+        rollback_id TEXT,
+        governance_phase TEXT NOT NULL,
+        governance_check_name TEXT NOT NULL,
+        governance_module TEXT NOT NULL DEFAULT 'aiem_diagram3_governance',
+        governance_function TEXT NOT NULL,
+        check_result TEXT,
+        enforcement_action TEXT DEFAULT 'ADVISORY_ONLY',
+        enforcement_status TEXT DEFAULT 'NOT_ENFORCED',
+        reason_code TEXT,
+        reason_detail TEXT,
+        input_hash TEXT,
+        output_hash TEXT,
+        previous_event_hash TEXT,
+        event_hash TEXT NOT NULL UNIQUE,
+        source_code_commit TEXT,
+        source_file_hash TEXT,
+        config_hash TEXT,
+        started_at TIMESTAMPTZ NOT NULL,
+        completed_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        is_test_record BOOLEAN NOT NULL DEFAULT FALSE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_gov_trace ON d3_governance_event_links (governance_trace_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_d2_trace ON d3_governance_event_links (diagram2_trace_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_candidate ON d3_governance_event_links (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_ticker ON d3_governance_event_links (ticker)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_decision ON d3_governance_event_links (decision_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_exec_plan ON d3_governance_event_links (execution_plan_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_paper_trade ON d3_governance_event_links (paper_trade_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_learning_event ON d3_governance_event_links (learning_event_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_model ON d3_governance_event_links (model_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_change_request ON d3_governance_event_links (change_request_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_arch_version ON d3_governance_event_links (architecture_version_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_baseline ON d3_governance_event_links (baseline_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_phase ON d3_governance_event_links (governance_phase)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gel_cycle ON d3_governance_event_links (governance_cycle_id)",
+    """
+    CREATE OR REPLACE FUNCTION d3gel_block_mutation() RETURNS trigger AS $BODY$
+    BEGIN
+        RAISE EXCEPTION 'd3_governance_event_links is append-only: % not permitted on id=%',
+            TG_OP, OLD.id;
+    END;
+    $BODY$ LANGUAGE plpgsql;
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger WHERE tgname = 'trg_d3gel_immutable'
+        ) THEN
+            CREATE TRIGGER trg_d3gel_immutable
+                BEFORE UPDATE OR DELETE ON d3_governance_event_links
+                FOR EACH ROW EXECUTE FUNCTION d3gel_block_mutation();
+        END IF;
+    END $$;
+    """,
 ]
 
 
@@ -285,6 +367,164 @@ def _d3_init_schema():
         print(f"[d3_governance] schema init complete — {len(_SCHEMA_STMTS)} d3_ tables ready")
     except Exception as e:
         print(f"[d3_governance] schema init error: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HASH-CHAIN EVENT LEDGER — d3_governance_event_links
+#
+# Single global append-only chain. Every event's event_hash is
+# SHA256(canonical_json(row_without_hash) || previous_event_hash).
+# A postgres advisory xact lock serializes writers so the chain can never
+# fork under concurrent callers. The genesis row (first ever event) chains
+# off the literal string "GENESIS" — there is no real "previous" for it,
+# and this is disclosed as such (no historical backfill is fabricated).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_D3_CHAIN_LOCK_KEY = "d3_governance_event_links"
+
+_D3_EVENT_FIELDS = [
+    "governance_cycle_id", "governance_trace_id", "parent_trace_id",
+    "diagram1_trace_id", "diagram2_trace_id", "candidate_id", "ticker",
+    "recommendation_id", "decision_id", "execution_plan_id", "paper_trade_id",
+    "outcome_id", "learning_event_id", "model_id", "model_version",
+    "strategy_id", "change_request_id", "architecture_version_id",
+    "baseline_id", "rollback_id", "governance_phase", "governance_check_name",
+    "governance_module", "governance_function", "check_result",
+    "enforcement_action", "enforcement_status", "reason_code", "reason_detail",
+    "input_hash", "output_hash", "source_code_commit", "source_file_hash",
+    "config_hash", "started_at", "completed_at", "is_test_record",
+]
+
+
+def _d3_get_last_event_hash(cur) -> str:
+    cur.execute("SELECT event_hash FROM d3_governance_event_links ORDER BY id DESC LIMIT 1")
+    row = cur.fetchone()
+    return row[0] if row else "GENESIS"
+
+
+def _d3_emit_event(
+    *,
+    governance_cycle_id: str,
+    governance_phase: str,
+    governance_check_name: str,
+    governance_function: str,
+    started_at,
+    completed_at,
+    check_result: Optional[str] = None,
+    governance_trace_id: Optional[str] = None,
+    parent_trace_id: Optional[str] = None,
+    diagram1_trace_id: Optional[str] = None,
+    diagram2_trace_id: Optional[str] = None,
+    candidate_id: Optional[str] = None,
+    ticker: Optional[str] = None,
+    recommendation_id: Optional[str] = None,
+    decision_id: Optional[str] = None,
+    execution_plan_id: Optional[str] = None,
+    paper_trade_id: Optional[int] = None,
+    outcome_id: Optional[str] = None,
+    learning_event_id: Optional[str] = None,
+    model_id: Optional[str] = None,
+    model_version: Optional[str] = None,
+    strategy_id: Optional[str] = None,
+    change_request_id: Optional[str] = None,
+    architecture_version_id: Optional[str] = None,
+    baseline_id: Optional[str] = None,
+    rollback_id: Optional[str] = None,
+    enforcement_action: str = "ADVISORY_ONLY",
+    enforcement_status: str = "NOT_ENFORCED",
+    reason_code: Optional[str] = None,
+    reason_detail: Optional[str] = None,
+    source_code_commit: Optional[str] = None,
+    source_file_hash: Optional[str] = None,
+    config_hash: Optional[str] = None,
+    input_payload: Optional[Dict[str, Any]] = None,
+    output_payload: Optional[Dict[str, Any]] = None,
+    is_test_record: bool = False,
+    governance_module: str = "aiem_diagram3_governance",
+    conn=None,
+) -> Dict[str, Any]:
+    """
+    Append one real, hash-chained governance event. Never call this with
+    fabricated/hardcoded results — check_result and the linkage ids must
+    reflect what the calling phase actually observed.
+    """
+    governance_trace_id = governance_trace_id or uuid.uuid4().hex
+
+    def _ts(v):
+        return v.isoformat() if hasattr(v, "isoformat") else v
+
+    row: Dict[str, Any] = {
+        "governance_cycle_id": governance_cycle_id,
+        "governance_trace_id": governance_trace_id,
+        "parent_trace_id": parent_trace_id,
+        "diagram1_trace_id": diagram1_trace_id,
+        "diagram2_trace_id": diagram2_trace_id,
+        "candidate_id": candidate_id,
+        "ticker": ticker,
+        "recommendation_id": recommendation_id,
+        "decision_id": decision_id,
+        "execution_plan_id": execution_plan_id,
+        "paper_trade_id": paper_trade_id,
+        "outcome_id": outcome_id,
+        "learning_event_id": learning_event_id,
+        "model_id": model_id,
+        "model_version": model_version,
+        "strategy_id": strategy_id,
+        "change_request_id": change_request_id,
+        "architecture_version_id": architecture_version_id,
+        "baseline_id": baseline_id,
+        "rollback_id": rollback_id,
+        "governance_phase": governance_phase,
+        "governance_check_name": governance_check_name,
+        "governance_module": governance_module,
+        "governance_function": governance_function,
+        "check_result": check_result,
+        "enforcement_action": enforcement_action,
+        "enforcement_status": enforcement_status,
+        "reason_code": reason_code,
+        "reason_detail": reason_detail,
+        "input_hash": hashlib.sha256(_canonical_bytes(input_payload)).hexdigest() if input_payload is not None else None,
+        "output_hash": hashlib.sha256(_canonical_bytes(output_payload)).hexdigest() if output_payload is not None else None,
+        "source_code_commit": source_code_commit,
+        "source_file_hash": source_file_hash,
+        "config_hash": config_hash,
+        "started_at": _ts(started_at),
+        "completed_at": _ts(completed_at),
+        "is_test_record": bool(is_test_record),
+    }
+
+    own_conn = conn is None
+    if own_conn:
+        conn = _d3_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (_D3_CHAIN_LOCK_KEY,))
+            previous_event_hash = _d3_get_last_event_hash(cur)
+            row["previous_event_hash"] = previous_event_hash
+            event_hash = hashlib.sha256(
+                _canonical_bytes({k: row[k] for k in _D3_EVENT_FIELDS + ["previous_event_hash"]})
+            ).hexdigest()
+            row["event_hash"] = event_hash
+
+            cols = list(row.keys())
+            cur.execute(
+                f"INSERT INTO d3_governance_event_links ({','.join(cols)}) "
+                f"VALUES ({','.join(['%s'] * len(cols))}) RETURNING id, created_at",
+                [row[c] for c in cols],
+            )
+            new_id, created_at = cur.fetchone()
+        if own_conn:
+            conn.commit()
+        row["id"] = new_id
+        row["created_at"] = _ts(created_at)
+        return row
+    except Exception:
+        if own_conn:
+            conn.rollback()
+        raise
+    finally:
+        if own_conn:
+            conn.close()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1875,6 +2115,173 @@ def install_d3_routes(app):
         return jsonify(run_phase15_evolution())
 
     print("[d3_governance] 18 admin routes installed at /stock-api/admin/d3/")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GOVERNANCE CYCLE RUNNER — real, on-demand full-phase audit run
+#
+# Runs phases 1-15 (phase 0 baseline stays startup/admin-only — freezing it
+# on every cycle would defeat its purpose) under one governance_cycle_id,
+# emitting one real hash-chained d3_governance_event_links row per phase
+# with that phase's ACTUAL status/timing/error, never a fabricated PASS.
+# When audit_trace_id / paper_trade_id / ticker are supplied (e.g. invoked
+# from a real paper-trade close), those are attached to every event so the
+# cycle is genuinely traceable back to that Diagram 1/2 trace — but most
+# phases are system-wide checks, not per-trade, so this only records a
+# real correlation ("this system-wide cycle ran around the same time as
+# this trade"), not a claim that e.g. Phase 12 Security inspected that
+# specific trade.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_D3_CYCLE_PHASES = [
+    (1, "PHASE_1_ARCHITECTURE_DISCOVERY", "run_phase1_discovery", run_phase1_discovery),
+    (2, "PHASE_2_SYSTEM_HEALTH", "run_phase2_health", run_phase2_health),
+    (3, "PHASE_3_PERFORMANCE_GOVERNANCE", "run_phase3_performance", run_phase3_performance),
+    (4, "PHASE_4_STRATEGY_GOVERNANCE", "run_phase4_strategy", run_phase4_strategy),
+    (5, "PHASE_5_MODEL_GOVERNANCE", "run_phase5_models", run_phase5_models),
+    (6, "PHASE_6_LEARNING_APPROVAL", "run_phase6_learning_approval", run_phase6_learning_approval),
+    (7, "PHASE_7_CHANGE_MANAGEMENT", "run_phase7_change_log", run_phase7_change_log),
+    (8, "PHASE_8_VERSION_CONTROL", "run_phase8_versions", run_phase8_versions),
+    (9, "PHASE_9_ROLLBACK_MANAGEMENT", "run_phase9_rollback", run_phase9_rollback),
+    (10, "PHASE_10_SELF_OPTIMIZATION", "run_phase10_optimization", run_phase10_optimization),
+    (11, "PHASE_11_SYSTEM_HEALTH_FORECAST", "run_phase11_forecast", run_phase11_forecast),
+    (12, "PHASE_12_SECURITY_GOVERNANCE", "run_phase12_security", run_phase12_security),
+    (13, "PHASE_13_ARCHITECTURE_CONSISTENCY", "run_phase13_consistency", run_phase13_consistency),
+    (14, "PHASE_14_EXECUTIVE_REPORTING", "run_phase14_executive_report", run_phase14_executive_report),
+    (15, "PHASE_15_LONG_TERM_EVOLUTION", "run_phase15_evolution", run_phase15_evolution),
+]
+
+
+def run_governance_cycle(
+    trigger: str,
+    audit_trace_id: Optional[str] = None,
+    paper_trade_id: Optional[int] = None,
+    ticker: Optional[str] = None,
+    phases: Optional[list] = None,
+    context: Optional[Dict[str, Any]] = None,
+    is_test_record: bool = False,
+) -> Dict[str, Any]:
+    """
+    Run a real governance cycle. `trigger` documents WHY this cycle ran
+    (e.g. 'paper_trade_close', 'manual_verification', 'nightly_schedule').
+    `phases` optionally restricts the run to a subset of phase numbers
+    (1-15); default runs all 15. Returns per-phase real results plus the
+    governance_cycle_id so the emitted events can be queried afterward.
+    """
+    governance_cycle_id = uuid.uuid4().hex
+    conn = _d3_connect()
+    results = []
+    try:
+        run_set = _D3_CYCLE_PHASES if not phases else [
+            p for p in _D3_CYCLE_PHASES if p[0] in set(phases)
+        ]
+        for phase_num, phase_name, func_name, func in run_set:
+            started = datetime.datetime.utcnow()
+            try:
+                out = func()
+                status = out.get("status", "UNKNOWN") if isinstance(out, dict) else "UNKNOWN"
+                error = out.get("error") if isinstance(out, dict) else None
+            except Exception as phase_e:
+                out = {"phase": phase_name, "status": "ERROR", "error": str(phase_e)}
+                status = "ERROR"
+                error = str(phase_e)
+            completed = datetime.datetime.utcnow()
+
+            event = _d3_emit_event(
+                governance_cycle_id=governance_cycle_id,
+                governance_phase=phase_name,
+                governance_check_name=f"cycle_run_{func_name}",
+                governance_function=f"aiem_diagram3_governance.{func_name}",
+                started_at=started,
+                completed_at=completed,
+                check_result=status,
+                diagram1_trace_id=audit_trace_id,
+                diagram2_trace_id=audit_trace_id,
+                paper_trade_id=paper_trade_id,
+                ticker=ticker,
+                reason_code="TRIGGER_" + trigger.upper(),
+                reason_detail=f"triggered_by={trigger}",
+                enforcement_action="ADVISORY_ONLY",
+                enforcement_status="NOT_ENFORCED",
+                output_payload=out if isinstance(out, dict) else {"raw": str(out)},
+                input_payload=context,
+                is_test_record=is_test_record,
+                conn=conn,
+            )
+            results.append({
+                "phase_num": phase_num,
+                "phase": phase_name,
+                "status": status,
+                "error": error,
+                "event_id": event["id"],
+                "event_hash": event["event_hash"],
+                "duration_ms": round((completed - started).total_seconds() * 1000, 1),
+            })
+        conn.commit()
+    finally:
+        conn.close()
+
+    overall = "PASS" if all(r["status"] in ("PASS", "OK", "PENDING_REVIEW") for r in results) else "PARTIAL"
+    return {
+        "governance_cycle_id": governance_cycle_id,
+        "trigger": trigger,
+        "audit_trace_id": audit_trace_id,
+        "paper_trade_id": paper_trade_id,
+        "ticker": ticker,
+        "phases_run": len(results),
+        "overall_status": overall,
+        "results": results,
+    }
+
+
+def link_paper_trade_close(
+    audit_trace_id: Optional[str],
+    paper_trade_id: int,
+    ticker: str,
+    pnl: float,
+    pnl_pct: float,
+    exit_reason: str,
+    signal_source: Optional[str] = None,
+    is_test_record: bool = False,
+) -> Dict[str, Any]:
+    """
+    Real, lightweight per-trade provenance link — called from the ACTUAL
+    _aiem_close_paper_trade_and_run_loop close path in main.py (not a
+    synthetic/simulated call), so diagram1_trace_id/diagram2_trace_id/
+    paper_trade_id are the genuine ids this trade closed under. This does
+    NOT re-run all 15 governance phases inline on every trade close
+    (that would be unsafe on a live trading hot path) — for a full 15-
+    phase audit tied to this trace, call run_governance_cycle() with the
+    same audit_trace_id afterward (e.g. from the verification CLI).
+    """
+    now = datetime.datetime.utcnow()
+    try:
+        event = _d3_emit_event(
+            governance_cycle_id=f"TRADE_CLOSE_{paper_trade_id}",
+            governance_phase="TRADE_CLOSE_PROVENANCE_LINK",
+            governance_check_name="link_paper_trade_close",
+            governance_function="aiem_diagram3_governance.link_paper_trade_close",
+            started_at=now,
+            completed_at=now,
+            check_result="RECORDED",
+            diagram1_trace_id=audit_trace_id,
+            diagram2_trace_id=audit_trace_id,
+            paper_trade_id=paper_trade_id,
+            ticker=ticker,
+            strategy_id=signal_source,
+            reason_code="PAPER_TRADE_CLOSED",
+            reason_detail=exit_reason,
+            enforcement_action="ADVISORY_ONLY",
+            enforcement_status="NOT_ENFORCED",
+            output_payload={"pnl": pnl, "pnl_pct": pnl_pct, "exit_reason": exit_reason,
+                            "signal_source": signal_source},
+            is_test_record=is_test_record,
+        )
+        return {"linked": True, "event_id": event["id"], "event_hash": event["event_hash"],
+                "governance_trace_id": event["governance_trace_id"]}
+    except Exception as e:
+        print(f"[d3_governance] link_paper_trade_close FAILED for trade {paper_trade_id}: {e}")
+        return {"linked": False, "error": str(e)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
