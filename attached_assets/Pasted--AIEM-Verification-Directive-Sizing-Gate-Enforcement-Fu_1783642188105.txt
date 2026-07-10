@@ -1,0 +1,73 @@
+# AIEM Verification Directive — Sizing Gate Enforcement + Full-Loop Coverage Audit
+
+**Date issued:** 2026-07-09
+**Reference trace:** aiem_2026_07_08_TSLA_9cd741 (trade id=179)
+**Standard:** No narrative summaries. Every claim below must be answered with raw terminal output, SQL query results, exact file path + line numbers, and/or git diff. "Fixed" or "wired" with no evidence attached = rejected.
+
+---
+
+## PART 1 — CRITICAL BUG: Sizing gate is not enforced
+
+### 1.1 Ground truth (already confirmed this session)
+In the stage-16 risk_gate code path, `_pos_sizer.compute_position_size()` sets `gate_result`, but the consuming logic only does this:
+
+```python
+_sizing_gate = _sz.get("gate_result", "UNKNOWN")
+if _sizing_gate == "APPROVED":
+    _notional = _sz["calculated_notional"]
+elif _sizing_gate not in ("PARAMS_NOT_CONFIRMED",):
+    print(f"[aiem_paper] sizing gate {_sizing_gate} for {_t}: {_sz.get('gate_detail','')}")
+```
+
+There is no `continue` / `return` / `raise` on a non-APPROVED result. A `BLOCKED` gate only prints a warning — the trade still gets inserted, using a default $1000 notional. Trade #179's own row confirms this: `sizing_gate_result=NO_STOP_DEFINED`, and it still executed and closed.
+
+### 1.2 Fix requirement
+Add an actual block: any `gate_result` that is not `APPROVED` (and not the explicit bypass case `PARAMS_NOT_CONFIRMED`, if that bypass is intentional and Joel confirms it should stay) must skip trade insertion entirely — no default notional fallback.
+
+### 1.3 Required evidence after the fix (all of the following, no exceptions)
+
+1. **Git diff** of the exact function, showing the before/after with line numbers in `main.py`.
+2. **Unit-level proof of the block firing**: inject a synthetic candidate with a sizing gate result of `BLOCKED` (or whatever non-approved values exist) and show:
+   - Raw stdout/log output proving the trade insertion path was skipped
+   - A SQL query (`SELECT * FROM aiem_paper_trades WHERE ...`) proving no row was written for that synthetic candidate
+3. **Regression proof for the APPROVED path**: run one candidate that legitimately gets `APPROVED`, and show the SQL row that DOES get inserted, with `calculated_notional` matching what the sizer computed (not the $1000 default).
+4. **Enumerate every distinct value `gate_result` can actually take** in the codebase (grep for all assignments to `gate_result`/`_sizing_gate`), and state explicitly which values are being treated as "pass" vs "block" post-fix. If `PARAMS_NOT_CONFIRMED` is being treated as a pass-through, justify why in writing — don't silently let it slide through.
+5. **A live production trace after the fix**, not synthetic: next real trading day, pull one candidate that hits stage 16, and show its trace row + trade row (if any) end to end.
+
+---
+
+## PART 2 — "Is everything going through the loop?" — Full coverage audit
+
+This is the honest state as of the last verification, and what still needs closing:
+
+| Area | Status | What's proven | What's NOT proven |
+|---|---|---|---|
+| Stages 1–14, 16–18, 20–23 | PASS | Stage ran, passed, trace row exists with input/output hash | — |
+| Stage 15 (specialist_council) / 19 (bull/bear persistence) | FAIL for TSLA | Debate module exists, is wired, ran for other tickers same day | Did NOT run for TSLA — batch only runs debate for top-ranked candidates. Need to confirm this is *intentional design*, not a silent drop of a candidate that should have qualified. |
+| Stages 1–19 payload detail | GAP | Stage passed/failed status is real | `payload_json` is NULL for stages 1–19 — cannot independently prove *which sub-metrics* (VPIN, GARCH, GEX, Corwin-Schultz, VRP, RND, PCA, etc.) actually computed for this specific ticker/trace. Only the parent stage's pass/fail is auditable. |
+| Sizing gate (stage 16, per-trade) | **FAIL — confirmed bug** | Gate computes a result | Result is not enforced (see Part 1) |
+| Diagram 3 Governance | GAP | System-wide aggregate counts exist (190 traces/24h, health_score=90.0) | No `trace_id`/`trade_id`/`ticker` column on any of the 15 `d3_*` tables — cannot prove governance ran *for this specific trace*, only that it ran for the system as a whole. |
+| Decision Engine (stage 17) | Clarification, not a bug | It's an inline audit-log lambda inside the orchestrator, not a separate callable module | Don't treat this as something that needs a "bypass-proof" test — there's no separate service boundary to bypass. Update any documentation/diagrams that imply it's a standalone module. |
+| Paper trade write path | PASS | Only one `INSERT INTO aiem_paper_trades` call site in the entire repo (`main.py`) | — |
+
+### 2.1 Required follow-up verification requests (separate from Part 1)
+
+**A. Stage 1–19 payload gap**
+- Confirm whether `payload_json` can be populated for entry stages without major refactor, or whether this is accepted as a permanent design limitation.
+- If accepted as permanent: get a written acknowledgment in the codebase (comment + a note in whatever audit-doc Joel keeps) that per-indicator execution for stages 1–19 is NOT independently verifiable — only stage-level pass/fail is.
+- If fixable: scope it as a separate ticket, not bundled into the sizing gate fix.
+
+**B. Debate-eligibility logic (stages 15/19)**
+- Pull the exact filter logic that decides which candidates enter the bull/bear debate batch.
+- Confirm with a real query: for 2026-07-08, what were TSLA's rank/score vs. the cutoff used to admit candidates into debate? Show the raw numbers, not a summary.
+- Determine if this is working as intended (debate is resource-limited to top candidates) or if it's silently dropping candidates that should qualify.
+
+**C. Diagram 3 per-trace governance linkage**
+- Confirm whether Diagram 3 tables are supposed to be per-trace or are intentionally aggregate-only.
+- If per-trace linkage was part of the original design intent, this is a real gap requiring a schema change (add `trace_id`/`trade_id` to at least the tables that log individual events, not just snapshots).
+- If aggregate-only was the intent, get that in writing so future audits don't re-flag it as a gap.
+
+---
+
+## Evidence format reminder for the agent
+For every item above: raw terminal output, exact SQL query + result set, file path with line numbers, git diff. No "this is now wired" statements without one of the above attached. If something can't be proven, say so explicitly rather than inferring success from a passing parent stage.

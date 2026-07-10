@@ -41846,9 +41846,16 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                 _trade_type = pick["trade_type"]
 
                 # ── Position sizing (spec §2-5, aiem_position_sizing) ─────────
-                # compute_position_size() is a safe no-op (returns PARAMS_NOT_CONFIRMED)
-                # until Joel confirms Q1-Q5. When active, overrides _notional with the
-                # risk-per-trade formula and logs the sizing decision.
+                # compute_position_size() returns PARAMS_NOT_CONFIRMED only when
+                # _pos_sizer failed to import / is not wired (module-not-deployed
+                # bypass). All Q1-Q5 params are confirmed as of 2026-07-04, so a
+                # live call can never itself return PARAMS_NOT_CONFIRMED — it is
+                # kept as an ALLOWED pass-through (default $1000 notional) purely
+                # to represent "sizing subsystem not deployed", never a live
+                # block decision. Every other non-APPROVED gate_result (including
+                # SIZING_ERROR on an unexpected exception) is a real block: no
+                # default-notional fallback, no trade insertion for that pick.
+                # AIEM VERIFICATION DIRECTIVE 2026-07-09 Part 1 — fail-closed fix.
                 _sizing_stop       = None
                 _sizing_stop_basis = None
                 _sizing_risk_pct   = None
@@ -41872,7 +41879,26 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                         _sizing_stop_basis = _sz.get("stop_basis")
                         _sizing_risk_pct   = _sz.get("risk_pct_used")
                     except Exception as _se:
-                        print(f"[aiem_paper] sizing error for {_t} (using $1000 default): {_se}")
+                        _sizing_gate = "SIZING_ERROR"
+                        print(f"[aiem_paper] sizing error for {_t} — SIZING_ERROR, "
+                              f"blocking trade (fail-closed, no $1000 default): {_se}")
+
+                # ── Sizing gate enforcement (fail-closed allowlist) ─────────
+                # Only APPROVED (real sizer pass) and PARAMS_NOT_CONFIRMED
+                # (sizer not deployed) may proceed to trade insertion.
+                # Every other gate_result — CONVICTION_BELOW_MIN, NO_STOP_DEFINED,
+                # STOP_UNDEFINED, POSITION_TOO_SMALL, kill_switch, max_positions,
+                # max_sector_positions, daily_loss, SIZING_ERROR, or any future/
+                # unknown value — skips this candidate entirely. No audit/trace
+                # stages are logged for a blocked pick (no PipelineTrace/_d2_run
+                # stage has been opened yet at this point in the loop); the sizing
+                # decision itself is already durably logged by
+                # aiem_position_sizing._log_sizing_decision() into
+                # aiem_position_sizing_log for every gate_result, including this one.
+                if _sizing_gate not in ("APPROVED", "PARAMS_NOT_CONFIRMED"):
+                    print(f"[aiem_paper] SIZING_GATE_BLOCKED {_t}: gate={_sizing_gate} "
+                          f"— skipping trade insertion (no default notional fallback)")
+                    continue
 
                 if _trade_type == "CALL_OPTION":
                     # Paper options: record $1000 notional as premium spent,
