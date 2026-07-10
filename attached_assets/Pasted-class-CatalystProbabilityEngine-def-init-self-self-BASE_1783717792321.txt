@@ -1,0 +1,40 @@
+class CatalystProbabilityEngine:
+    def __init__(self):
+        self.BASE_WIN_RATE = 0.55 # Baseline for random breakout scalping
+
+    def calculate_catalyst_edge(self, earnings_calendar, index_schedule, current_date) -> float:
+        """
+        Calculates localized probability multipliers based on market events.
+        """
+        event_modifier = 0.0
+
+        # EVENT 1: Pre-Earnings Accumulation Check (14-Day Window)
+        days_until_earnings = (earnings_calendar['next_release_date'] - current_date).days
+        if 5 <= days_until_earnings <= 12:
+            # High probability drift window before structural IV crush
+            event_modifier += 0.12  # Pushes probability up by +12%
+
+        # EVENT 2: Russell Reconstitution Inflows (June Peak)
+        if current_date.month == 6 and index_schedule['is_russell_addition']:
+            # Institutional forced buying waves generate massive follow-through
+            event_modifier += 0.15  # Pushes probability up by +15%
+
+        # EVENT 3: Post-Earnings Volume Continuation (Day 2 Drift)
+        if earnings_calendar['days_since_earnings'] == 1 and earnings_calendar['was_positive_beat']:
+            if earnings_calendar['day1_volume_ratio'] > 2.0:
+                # Institutional multi-day positioning drift confirmed
+                event_modifier += 0.10  # Pushes probability up by +10%
+
+        return event_modifier
+
+    def evaluate_70_percent_gate(self, ticker, earnings_data, index_data, market_date):
+        """
+        Enforces a hard restriction: Trade only executes if catalyst math yields >70%.
+        """
+        added_alpha = self.calculate_catalyst_edge(earnings_data, index_data, market_date)
+        final_probability = self.BASE_WIN_RATE + added_alpha
+
+        if final_probability >= 0.70:
+            return f"PROBABILITY CLEARED ({round(final_probability*100, 2)}%): Route midpoint limit order."
+        else:
+            return f"ABORT: Probability is {round(final_probability*100, 2)}%. No active corporate catalyst."

@@ -12863,6 +12863,14 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
   );
 }
 
+interface OptionRowLiquidity {
+  avg_vol_30d: number | null;
+  option_open_interest: number;
+  spread_pct: number | null;
+  passed: boolean;
+  reject_reasons: string[];
+}
+
 interface OptionProbRow {
   depth_pct: number;
   strike: number;
@@ -12877,6 +12885,37 @@ interface OptionProbRow {
   volume?: number;
   open_interest?: number;
   note?: string;
+  liquidity?: OptionRowLiquidity | null;
+  verdict?: string;
+  suggested_limit?: number | null;
+}
+
+interface UnavailableFactor {
+  available: false;
+  note: string;
+}
+
+interface OptionProbContext {
+  avg_vol_30d: number | null;
+  trend_aligned: boolean | null;
+  sma50: number | null;
+  sma200: number | null;
+  sector_alpha: number | null;
+  smart_money_flag: boolean | null;
+  smart_money_detail?: { day_rvol: number } | null;
+  squeeze_flag: boolean | null;
+  squeeze_detail?: { iv_percentile: number | null; resistance_20d: number; volume_vs_30d_avg: number | null } | null;
+  days_to_earnings: number | null;
+  russell_reconstitution: UnavailableFactor;
+  post_earnings_drift: UnavailableFactor;
+}
+
+interface OptionEdgeScore {
+  points: number;
+  max_points: number;
+  validated: boolean;
+  label: string;
+  components: { label: string; points: number }[];
 }
 
 interface OptionProbResult {
@@ -12887,6 +12926,8 @@ interface OptionProbResult {
   hold_days: number;
   iv_source: string;
   rows: OptionProbRow[];
+  context?: OptionProbContext;
+  edge_score?: OptionEdgeScore;
   generated_at: string;
   error?: string;
 }
@@ -12991,11 +13032,14 @@ function OptionsProbabilityCalculator() {
                   <th style={{ padding: "6px 8px" }}>Hold BEP</th>
                   <th style={{ padding: "6px 8px" }}>IV</th>
                   <th style={{ padding: "6px 8px" }}>Win Prob.</th>
+                  <th style={{ padding: "6px 8px" }}>Liquidity Gate</th>
+                  <th style={{ padding: "6px 8px" }}>Suggested Limit</th>
                 </tr>
               </thead>
               <tbody>
                 {result.rows.map((row, i) => {
                   const hot = (row.win_probability ?? 0) >= 80;
+                  const tradeable = row.verdict === "TRADEABLE";
                   return (
                     <tr key={i} style={{ borderBottom: "1px solid #14213a" }}>
                       <td style={{ padding: "8px" }}>{row.depth_pct}% ITM</td>
@@ -13008,14 +13052,81 @@ function OptionsProbabilityCalculator() {
                         {row.win_probability != null ? `${row.win_probability.toFixed(1)}%` : row.note || "—"}
                         {hot && <span style={{ marginLeft: 6, fontSize: 10, background: "#0f3d2b", color: "#34d399", borderRadius: 10, padding: "2px 6px" }}>≥80%</span>}
                       </td>
+                      <td style={{ padding: "8px" }}>
+                        {row.liquidity ? (
+                          <span
+                            title={row.liquidity.reject_reasons.join("; ") || "Passes all liquidity gates"}
+                            style={{
+                              fontSize: 10, fontWeight: 700, borderRadius: 10, padding: "3px 8px",
+                              background: tradeable ? "#0f3d2b" : "#3d1414",
+                              color: tradeable ? "#34d399" : "#ff8a8a",
+                              cursor: row.liquidity.reject_reasons.length ? "help" : "default",
+                            }}
+                          >
+                            {tradeable ? "TRADEABLE" : "ILLIQUID"}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td style={{ padding: "8px", color: "#d6e2f0" }}>
+                        {row.suggested_limit != null ? `$${row.suggested_limit.toFixed(2)}` : "—"}
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+
+          {result.context && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #1c3350" }}>
+              <div style={{ fontSize: 12, color: "#7fb3ff", fontWeight: 600, marginBottom: 8 }}>
+                Context Factors <span style={{ color: "#5f7a99", fontWeight: 400 }}>(real data — separate from win probability above)</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                <ContextChip label="Trend" value={result.context.trend_aligned == null ? "N/A" : result.context.trend_aligned ? "Aligned (>SMA50/200)" : "Not aligned"} good={result.context.trend_aligned === true} />
+                <ContextChip label="Sector Alpha (10d)" value={result.context.sector_alpha != null ? `${result.context.sector_alpha > 0 ? "+" : ""}${result.context.sector_alpha.toFixed(2)}%` : "N/A"} good={(result.context.sector_alpha ?? 0) > 0} />
+                <ContextChip label="Volume Flow" value={result.context.smart_money_detail ? `${result.context.smart_money_detail.day_rvol.toFixed(2)}x avg` : "N/A"} good={result.context.smart_money_flag === true} />
+                <ContextChip label="Squeeze Setup" value={result.context.squeeze_flag ? "Yes" : "No"} good={result.context.squeeze_flag === true} />
+                <ContextChip label="Next Earnings" value={result.context.days_to_earnings != null ? `${result.context.days_to_earnings}d` : "Unknown"} good={result.context.days_to_earnings != null && result.context.days_to_earnings >= 5 && result.context.days_to_earnings <= 12} />
+              </div>
+              <div style={{ fontSize: 10, color: "#5f7a99", lineHeight: 1.5, marginBottom: 10 }}>
+                Russell reconstitution: {result.context.russell_reconstitution.note}<br />
+                Post-earnings drift: {result.context.post_earnings_drift.note}
+              </div>
+              {result.edge_score && (
+                <div style={{ background: "#12203a", border: "1px solid #24406a", borderRadius: 8, padding: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: result.edge_score.components.length ? 6 : 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#d6e2f0" }}>
+                      Edge Score: {result.edge_score.points}/{result.edge_score.max_points}
+                    </span>
+                    <span style={{ fontSize: 9, background: "#3d2f14", color: "#e8b84b", borderRadius: 10, padding: "2px 6px", fontWeight: 700 }}>
+                      {result.edge_score.label}
+                    </span>
+                  </div>
+                  {result.edge_score.components.map((c, i) => (
+                    <div key={i} style={{ fontSize: 11, color: "#8fa8c4" }}>+{c.points} — {c.label}</div>
+                  ))}
+                  {!result.edge_score.components.length && (
+                    <div style={{ fontSize: 11, color: "#5f7a99" }}>No heuristic factors present for this ticker right now.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ContextChip({ label, value, good }: { label: string; value: string; good: boolean }) {
+  return (
+    <div style={{
+      background: "#0a1220", border: `1px solid ${good ? "#1f5c3f" : "#1c3350"}`, borderRadius: 8,
+      padding: "6px 10px", fontSize: 11,
+    }}>
+      <div style={{ color: "#5f7a99", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ color: good ? "#34d399" : "#d6e2f0", fontWeight: 600 }}>{value}</div>
     </div>
   );
 }

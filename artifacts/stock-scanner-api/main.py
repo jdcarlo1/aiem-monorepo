@@ -97,6 +97,7 @@ from alerts import get_alerts, add_alert, delete_alert
 from analytics import run_historical_analytics
 from prop_signal import prop_signal
 from smart_money import scan_smart_money, compute_smart_money, DEFAULT_LEADERBOARD
+from sector_etf_data import get_sector_relative_strength
 from congress_trades import get_congress_trades
 from insider_trades import fetch_insider_trades
 from email_alerts import (
@@ -1183,6 +1184,183 @@ def _td_chain(ticker: str, expiry: str):
         return _empty
 
 
+def _get_days_to_next_earnings(ticker: str):
+    """Lightweight next-earnings-date lookup for the earnings-proximity
+    catalyst context used by the options-probability calculator + daily
+    alert. Returns an int day count (>=0) or None if unavailable. Reuses the
+    same Tradier-backed `_TdTicker.calendar` source as `_check_earnings`
+    (real data only — never fabricated)."""
+    try:
+        tk = _TdTicker(ticker)
+        cal = tk.calendar
+        if cal is None:
+            return None
+        earn_date = None
+        if hasattr(cal, "empty") and not cal.empty:
+            if "Earnings Date" in cal.index:
+                earn_date = cal.loc["Earnings Date"].iloc[0]
+            elif "Earnings Date" in cal.columns:
+                earn_date = cal.iloc[0]["Earnings Date"]
+        elif isinstance(cal, dict):
+            ed_list = cal.get("Earnings Date", [])
+            earn_date = ed_list[0] if ed_list else None
+        if earn_date is None:
+            return None
+        from datetime import datetime as _de_dt, date as _de_date
+        if hasattr(earn_date, "date"):
+            earn_dt = earn_date.date()
+        else:
+            earn_dt = _de_dt.strptime(str(earn_date)[:10], "%Y-%m-%d").date()
+        delta = (earn_dt - _de_date.today()).days
+        return delta if delta >= 0 else None
+    except Exception as _e:
+        print(f"[options_prob] earnings lookup error {ticker}: {_e}")
+        return None
+
+
+def _compute_option_row_context(ticker: str, spot: float, hist_long) -> dict:
+    """Real-data context factors requested for the merged options-probability
+    engine: liquidity backbone (avg volume), trend alignment, sector relative
+    strength, a same-day volume-flow proxy for "smart money", a squeeze/
+    breakout setup flag, and earnings proximity. Every field is either
+    computed from real Tradier/DB data or explicitly returned as
+    {"available": false} with a note - this app's convention (see
+    module4-force-bypass / stat-integrity gates) is to never fabricate a
+    number when real data isn't wired up. Kept completely separate from the
+    Black-Scholes `win_probability` - see `_compute_edge_score` for the
+    separately-labeled, explicitly UNVALIDATED heuristic score."""
+    import numpy as _np_ctx
+    from datetime import date as _ctx_date
+
+    ctx = {
+        "avg_vol_30d": None, "trend_aligned": None, "sma50": None, "sma200": None,
+        "sector_alpha": None,
+        "smart_money_flag": None, "smart_money_detail": None,
+        "squeeze_flag": None, "squeeze_detail": None,
+        "days_to_earnings": None,
+        "russell_reconstitution": {
+            "available": False,
+            "note": "No real index-membership data source exists in this app - omitted rather than faked.",
+        },
+        "post_earnings_drift": {
+            "available": False,
+            "note": "Requires earnings-surprise (beat/miss) + day-1 volume data not yet wired up - omitted rather than approximated.",
+        },
+    }
+
+    try:
+        if hist_long is not None and not hist_long.empty and "Volume" in hist_long.columns:
+            vol = hist_long["Volume"].dropna()
+            if len(vol) >= 5:
+                ctx["avg_vol_30d"] = round(float(vol.tail(30).mean()), 0)
+    except Exception as _e:
+        print(f"[options_prob_ctx] avg_vol_30d error {ticker}: {_e}")
+
+    try:
+        if hist_long is not None and not hist_long.empty and "Close" in hist_long.columns:
+            closes = hist_long["Close"].dropna()
+            if len(closes) >= 50:
+                sma50 = float(closes.tail(50).mean())
+                ctx["sma50"] = round(sma50, 2)
+            if len(closes) >= 200:
+                sma200 = float(closes.tail(200).mean())
+                ctx["sma200"] = round(sma200, 2)
+            if ctx["sma50"] is not None and ctx["sma200"] is not None:
+                ctx["trend_aligned"] = bool(spot > ctx["sma50"] and spot > ctx["sma200"])
+    except Exception as _e:
+        print(f"[options_prob_ctx] trend error {ticker}: {_e}")
+
+    try:
+        rs = get_sector_relative_strength(ticker, _ctx_date.today(), window_days=10)
+        ctx["sector_alpha"] = round(rs, 4) if rs is not None else None
+    except Exception as _e:
+        print(f"[options_prob_ctx] sector_rs error {ticker}: {_e}")
+
+    try:
+        if hist_long is not None and not hist_long.empty and len(hist_long) >= 5:
+            today_vol = float(hist_long["Volume"].iloc[-1])
+            avg30 = ctx["avg_vol_30d"] or 0.0
+            rvol = (today_vol / avg30) if avg30 else None
+            if rvol is not None:
+                ctx["smart_money_detail"] = {"day_rvol": round(rvol, 2)}
+                ctx["smart_money_flag"] = bool(rvol > 2.0)
+    except Exception as _e:
+        print(f"[options_prob_ctx] smart_money error {ticker}: {_e}")
+
+    try:
+        if hist_long is not None and not hist_long.empty and len(hist_long) >= 20:
+            closes = hist_long["Close"].dropna()
+            highs = hist_long["High"].dropna() if "High" in hist_long.columns else closes
+            resistance = float(highs.tail(20).max())
+            iv_pctile = None
+            if len(closes) >= 40:
+                log_ret = _np_ctx.log(closes / closes.shift(1)).dropna()
+                rolling_hv = (log_ret.rolling(30).std() * _np_ctx.sqrt(252) * 100).dropna()
+                if len(rolling_hv) >= 10:
+                    cur_hv = float(rolling_hv.iloc[-1])
+                    iv_pctile = float((rolling_hv < cur_hv).mean() * 100)
+            today_vol = float(hist_long["Volume"].iloc[-1]) if "Volume" in hist_long.columns else None
+            avg30 = ctx["avg_vol_30d"] or 0.0
+            vol_ratio = (today_vol / avg30) if (today_vol is not None and avg30) else None
+            above_resistance = bool(spot > resistance * 0.999)
+            ctx["squeeze_detail"] = {
+                "iv_percentile": round(iv_pctile, 1) if iv_pctile is not None else None,
+                "resistance_20d": round(resistance, 2),
+                "volume_vs_30d_avg": round(vol_ratio, 2) if vol_ratio is not None else None,
+            }
+            ctx["squeeze_flag"] = bool(
+                iv_pctile is not None and iv_pctile < 10
+                and above_resistance
+                and vol_ratio is not None and vol_ratio > 1.5
+            )
+    except Exception as _e:
+        print(f"[options_prob_ctx] squeeze error {ticker}: {_e}")
+
+    try:
+        ctx["days_to_earnings"] = _get_days_to_next_earnings(ticker)
+    except Exception as _e:
+        print(f"[options_prob_ctx] earnings error {ticker}: {_e}")
+
+    return ctx
+
+
+def _compute_edge_score(ctx: dict) -> dict:
+    """Heuristic, EXPLICITLY UNVALIDATED point-boost score requested by the
+    user alongside the real Black-Scholes win_probability. Every point value
+    here is a hardcoded guess carried over from the pasted snippets, with no
+    backtest behind it in this codebase - unlike every other signal in this
+    app, which is gated behind real statistical validation (Bonferroni/BH-FDR,
+    walk-forward, embargo periods, etc. - see stat-integrity-gate-fixes /
+    signal-discoveries-audit conventions). It is kept in its own field, never
+    summed into win_probability, and always carries `validated: False` so it
+    can never be mistaken for a proven edge."""
+    components = []
+    points = 0
+    if ctx.get("trend_aligned"):
+        points += 4
+        components.append({"label": "Trend aligned (price > SMA50 & SMA200)", "points": 4})
+    if (ctx.get("sector_alpha") or 0) > 0:
+        points += 3
+        components.append({"label": "Outperforming sector ETF (10d)", "points": 3})
+    if ctx.get("smart_money_flag"):
+        points += 5
+        components.append({"label": "Elevated volume flow (day RVOL > 2x)", "points": 5})
+    dte_earn = ctx.get("days_to_earnings")
+    if dte_earn is not None and 5 <= dte_earn <= 12:
+        points += 12
+        components.append({"label": f"Pre-earnings drift window ({dte_earn}d out)", "points": 12})
+    if ctx.get("squeeze_flag"):
+        points += 6
+        components.append({"label": "Squeeze setup (low IV pctile + breakout + volume)", "points": 6})
+    return {
+        "points": points,
+        "max_points": 30,
+        "validated": False,
+        "label": "HEURISTIC \u2014 not backtested, informational only",
+        "components": components,
+    }
+
+
 def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte: int = 7,
                                          depths=(5, 10, 15)) -> dict:
     """Real-data options break-even/probability matrix for near-term calls.
@@ -1229,15 +1407,20 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
         return {"error": f"No live call chain returned for {ticker} {expiry}."}
 
     hist_iv = None
+    hist_long = None
     try:
-        hist = _td_history(ticker, days=45)
-        if not hist.empty and "Close" in hist.columns:
+        hist_long = _td_history(ticker, days=260)
+        hist = hist_long.tail(45) if hist_long is not None and not hist_long.empty else hist_long
+        if hist is not None and not hist.empty and "Close" in hist.columns:
             closes = hist["Close"].dropna().to_numpy(dtype=float)
             if len(closes) >= 2:
                 log_ret = _np.log(closes[1:] / closes[:-1])
                 hist_iv = float(_np.std(log_ret) * _np.sqrt(252) * 100)
     except Exception as _e_hv:
         print(f"[options_prob] historical vol fallback error {ticker}: {_e_hv}")
+
+    context = _compute_option_row_context(ticker, float(spot), hist_long)
+    edge_score = _compute_edge_score(context)
 
     def _bs_call(S, K, T, sigma, r=0.045):
         if T <= 0 or sigma <= 0:
@@ -1293,6 +1476,7 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
                 "expiration_bep": None, "holding_bep": None,
                 "win_probability": None, "iv_used": round(iv_used, 1),
                 "note": "No live quote for this strike right now.",
+                "liquidity": None, "verdict": "NO_QUOTE", "suggested_limit": None,
             })
             continue
 
@@ -1302,6 +1486,33 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
             holding_bep = _holding_bep(strike, T_remaining_days / 365.0, iv_used, premium, spot)
         else:
             holding_bep = expiration_bep
+
+        open_interest = int(row.get("openInterest") or 0)
+        opt_volume = int(row.get("volume") or 0)
+        mid = (bid + ask) / 2 if bid and ask else None
+        spread_pct = round((ask - bid) / mid * 100, 2) if (mid and ask >= bid) else None
+        avg_vol_30d = context.get("avg_vol_30d")
+
+        # ── Institutional liquidity gates (real, objective - not a probability
+        # claim): underlying 30d avg volume, option open interest, bid-ask
+        # spread. Failing any of these means the position is genuinely hard to
+        # enter/exit at a fair price, regardless of what win_probability says. ──
+        reject_reasons = []
+        if avg_vol_30d is None or avg_vol_30d < 2_000_000:
+            reject_reasons.append("Underlying 30d avg volume below 2,000,000 shares")
+        if open_interest < 500:
+            reject_reasons.append("Option open interest below 500 contracts")
+        if spread_pct is None or spread_pct > 1.5:
+            reject_reasons.append("Bid-ask spread above 1.5% of midpoint")
+        liquidity = {
+            "avg_vol_30d":       avg_vol_30d,
+            "option_open_interest": open_interest,
+            "spread_pct":        spread_pct,
+            "passed":            len(reject_reasons) == 0,
+            "reject_reasons":    reject_reasons,
+        }
+        verdict = "TRADEABLE" if liquidity["passed"] else "REJECTED_ILLIQUID"
+        suggested_limit = round(mid, 2) if (liquidity["passed"] and mid) else None
 
         rows.append({
             "depth_pct":       pct,
@@ -1314,8 +1525,11 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
             "win_probability": _win_prob(spot, strike, iv_used, hold_days),
             "iv_used":         round(iv_used, 1),
             "contract_symbol": row.get("contractSymbol"),
-            "volume":          int(row.get("volume") or 0),
-            "open_interest":   int(row.get("openInterest") or 0),
+            "volume":          opt_volume,
+            "open_interest":   open_interest,
+            "liquidity":       liquidity,
+            "verdict":         verdict,
+            "suggested_limit": suggested_limit,
         })
 
     return {
@@ -1326,6 +1540,8 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
         "hold_days":       hold_days,
         "iv_source":       iv_source,
         "rows":            rows,
+        "context":         context,
+        "edge_score":      edge_score,
         "generated_at":    _opt_dt.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -7038,6 +7254,70 @@ try:
         replace_existing=True,
     )
     print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET")
+
+    # ── Daily Options Probability Calculator alert ──────────────────────────
+    # Runs the merged options-probability engine (`_compute_options_probability_matrix`,
+    # which now folds in the liquidity gates + real-data context + heuristic
+    # edge score) across WATCHLIST_DEFAULT (no user-specified ticker universe
+    # was given for this alert - see architect discussion) and Telegrams any
+    # row that clears BOTH: (1) the real Black-Scholes win_probability >= 80%,
+    # and (2) the objective liquidity gate (avg volume / open interest /
+    # spread). The heuristic edge_score is informational only in the alert
+    # text - it never gates which alerts fire, consistent with keeping
+    # win_probability the sole, pure statistical gate.
+    def _run_daily_options_probability_alert():
+        job_name = "daily_options_probability_alert"
+        try:
+            sent = 0
+            checked = 0
+            for _tkr in WATCHLIST_DEFAULT:
+                checked += 1
+                try:
+                    result = _compute_options_probability_matrix(_tkr, hold_days=2, max_dte=7)
+                except Exception as _e_row:
+                    print(f"[{job_name}] {_tkr} error: {_e_row}")
+                    continue
+                if "error" in result:
+                    continue
+                for row in result.get("rows", []):
+                    wp = row.get("win_probability")
+                    liq = row.get("liquidity")
+                    if wp is None or wp < 80 or not liq or not liq.get("passed"):
+                        continue
+                    edge = result.get("edge_score") or {}
+                    lines = [
+                        f"\U0001F4CA Options Probability Alert — {result['ticker']}",
+                        f"Strike ${row['strike']:.2f} ({row['depth_pct']}% ITM) · Exp {result['expiry']} ({result['days_to_expiry']}d)",
+                        f"Win probability: {wp:.1f}% (Black-Scholes, {result['hold_days']}d hold)",
+                        f"Suggested limit: ${row['suggested_limit']:.2f}" if row.get("suggested_limit") else "",
+                        f"Liquidity: PASSED (OI {liq.get('option_open_interest')}, spread {liq.get('spread_pct')}%)",
+                    ]
+                    if edge.get("points"):
+                        lines.append(f"Edge score (HEURISTIC, not backtested): {edge['points']}/{edge.get('max_points', 30)}")
+                    lines.append("Not financial advice - informational only.")
+                    _tg_send(
+                        "\n".join(l for l in lines if l),
+                        signal_source="options_prob_daily",
+                        ticker=result["ticker"],
+                        alert_class="SIGNAL",
+                    )
+                    sent += 1
+            print(f"[{job_name}] checked {checked} tickers, sent {sent} alert(s)")
+            record_job_success(job_name)
+        except Exception as _e:
+            print(f"[{job_name}] error: {_e}")
+            record_job_failure(job_name, str(_e))
+
+    # Mon-Fri 9:50 AM ET — 20 min after the open, once the live option chain
+    # has real quotes/volume for the day (matches the liquidity gate's need
+    # for real bid/ask + volume data, not stale overnight quotes).
+    _scheduler.add_job(
+        _run_daily_options_probability_alert,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=50, timezone=_ET),
+        id="daily_options_probability_alert",
+        replace_existing=True,
+    )
+    print("[options_prob_alert] scheduled — daily ≥80% win-probability + liquidity-passed alert: Mon-Fri 9:50 AM ET")
 
     _scheduler.start()
     # reconcile_orphaned_sessions is defined later in the file; defer so the

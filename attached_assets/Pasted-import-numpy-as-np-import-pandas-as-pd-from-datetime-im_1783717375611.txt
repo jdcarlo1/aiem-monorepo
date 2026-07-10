@@ -1,0 +1,144 @@
+import numpy as np
+import pandas as pd
+from datetime import datetime
+
+class InstitutionalAEMIProcessor:
+    def __init__(self, target_delta=0.80, min_probability=0.65):
+        # Operational parameters for a 2-3 Day Deep ITM Strategy
+        self.TARGET_DELTA = target_delta
+        self.MIN_PROBABILITY_THRESHOLD = min_probability
+        
+    def check_liquidity_gates(self, stock_ticker, option_contract) -> bool:
+        """
+        MODULE 1: THE LIQUIDITY GUARD (ANTI-TRAP FILTERS)
+        Must verify three distinct axes of liquidity before any pricing math executes.
+        """
+        # A. Underlying Equity Volume Check
+        # Rule: Eliminate illiquid underlyings completely
+        underlying_30d_avg_volume = stock_ticker['avg_daily_volume_30d']
+        if underlying_30d_avg_volume < 2000000: # 2 Million Share Hard Floor
+            return False
+            
+        # B. Option Contract Structural Open Interest
+        # Rule: Assure active secondary market maker pools exist on the deep strike
+        contract_open_interest = option_contract['open_interest']
+        if contract_open_interest < 500: # 500 Contract Hard Floor
+            return False
+            
+        # C. Real-time Bid-Ask Percentage Spread Check
+        # Rule: Tax prevention logic. Spreads must be tightly bound to mid-price.
+        bid = option_contract['bid']
+        ask = option_contract['ask']
+        midpoint = (bid + ask) / 2
+        
+        spread_percentage = ((ask - bid) / midpoint) * 100
+        if spread_percentage > 1.5: # Reject if market markers extract > 1.5% premium
+            return False
+            
+        return True # Clear to process if all constraints pass
+
+    def evaluate_outside_probability_boosters(self, stock_ticker, sector_etf) -> float:
+        """
+        MODULE 2: UNCORRELATED ALPHA FILTERS (PROBABILITY MULTIPLIERS)
+        Checks macro conditions to stack structural tailwinds behind the 48-72h trade.
+        """
+        probability_modifier = 0.0
+        
+        # Booster A: Multi-Timeframe Anchor Trend Alignment
+        # The stock must be trading safely over core daily technical baselines
+        if stock_ticker['current_price'] > stock_ticker['sma_50'] and stock_ticker['current_price'] > stock_ticker['sma_200']:
+            probability_modifier += 0.04 # Structural trend confluence (+4% win probability)
+            
+        # Booster B: Sector Relative Strength Index
+        # Confirming sector outperformance over the base benchmark
+        if sector_etf['alpha_vs_spy'] > 0.0:
+            probability_modifier += 0.03 # Group tailwinds (+3% win probability)
+            
+        # Booster C: Institutional Smart Money Options Flow
+        # Tracks real-time sweep urgency and aggressive positioning adjustments
+        if stock_ticker['sweep_volume_ratio'] > 2.0 and stock_ticker['volume_to_oi_ratio'] > 1.5:
+            probability_modifier += 0.05 # Smart Money Confirmation (+5% win probability)
+            
+        return probability_modifier
+
+    def process_execution_pipeline(self, ticker_data, option_chain_data, market_context_data):
+        """
+        MODULE 3: CORE STRATEGY EXECUTION PIPELINE
+        Combines Image Breakout triggers with absolute risk management parameters.
+        """
+        print(f"[{datetime.now()}] Initializing AEMI Scan Pipeline for Ticker: {ticker_data['symbol']}...")
+
+        # STEP 1: LIQUIDITY GATEKEEPER 
+        # Instantly dumps the setup if it presents an asset trap scenario
+        is_liquid = self.check_liquidity_gates(ticker_data, option_chain_data)
+        if not is_liquid:
+            return "REJECTED: Contract fails strict deep-ITM liquidity thresholds. Execution Aborted."
+
+        # STEP 2: IMAGE STRATEGY ALIGNMENT CRITERIA
+        # Validate Volatility Squeeze parameters and real-time resistance penetrations
+        is_squeeze_active = ticker_data['iv_percentile'] < 10.0 # Rock-bottom implied levels
+        is_price_breakout = ticker_data['current_price'] > ticker_data['resistance_line']
+        is_volume_confirmed = ticker_data['current_volume'] > (1.5 * ticker_data['avg_1minute_volume'])
+
+        if not (is_squeeze_active and is_price_breakout and is_volume_confirmed):
+            return "HOLD: Technical setup from strategy documentation not fully materialized."
+
+        # STEP 3: PROBABILITY MATH STACKING
+        # Merges core quantitative probabilities with empirical trend enhancements
+        base_probability = market_context_data['base_model_probability'] # Internal core probability logic
+        additional_edge = self.evaluate_outside_probability_boosters(ticker_data, market_context_data['sector_etf'])
+        final_calculated_probability = base_probability + additional_edge
+
+        # STEP 4: DECISION ENGINE & ORDER ENTRY LOGIC
+        # Execute limit orders pegged strictly to fair value midpoints to minimize execution drag
+        if final_calculated_probability >= self.MIN_PROBABILITY_THRESHOLD:
+            mid_price = (option_chain_data['bid'] + option_chain_data['ask']) / 2
+            
+            execution_payload = {
+                "Order_Type": "LIMIT",
+                "Target_Price": round(mid_price, 2),
+                "Delta_Target": self.TARGET_DELTA,
+                "Win_Probability_Cached": f"{round(final_calculated_probability * 100, 2)}%",
+                "Hard_Time_Exit": "72 Hours Max (The 3-Day Flip)",
+                "Action": "BUY_TO_OPEN_CALL"
+            }
+            return f"EXECUTE ORDER: Parameters completely validated.\nPayload: {execution_payload}"
+            
+        return f"HOLD: Combined win probability ({round(final_calculated_probability*100,2)}%) underneath execution baseline."
+
+# ==========================================
+# REPLIT SIMULATION ORCHESTRATION 
+# ==========================================
+if __name__ == "__main__":
+    # Mocking standard data streams to demonstrate functionality 
+    sample_ticker = {
+        "symbol": "XYZ",
+        "current_price": 152.50,
+        "resistance_line": 150.00,
+        "avg_daily_volume_30d": 3500000, 
+        "current_volume": 45000,
+        "avg_1minute_volume": 20000,
+        "iv_percentile": 8.5,             
+        "sma_50": 142.00,
+        "sma_200": 135.00,
+        "sweep_volume_ratio": 2.4,        
+        "volume_to_oi_ratio": 1.8         
+    }
+    
+    sample_deep_itm_option = {
+        "strike": 135.00,
+        "delta": 0.82,
+        "bid": 18.00,
+        "ask": 18.15,                     # Spread is $0.15 on $18.075 mid (~0.83%) -> Liquid
+        "open_interest": 1200             
+    }
+    
+    sample_macro_context = {
+        "base_model_probability": 0.55,   # Standard predictive setup engine output
+        "sector_etf": {"alpha_vs_spy": 0.02}, 
+    }
+
+    # Initialize Engine instance and execute workflow
+    aemi_system = InstitutionalAEMIProcessor(target_delta=0.80, min_probability=0.65)
+    action_verdict = aemi_system.process_execution_pipeline(sample_ticker, sample_deep_itm_option, sample_macro_context)
+    print("\n" + action_verdict)
