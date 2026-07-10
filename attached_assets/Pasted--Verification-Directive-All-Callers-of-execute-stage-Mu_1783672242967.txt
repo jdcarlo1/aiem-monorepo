@@ -1,0 +1,29 @@
+# Verification Directive: All Callers of `execute_stage()` Must Respect G0 Gate
+
+## Context
+Prior verification (D2↔D3 wiring) confirmed that D2 (`execute_stage()`) never checks D3 governance state internally — gating happens one layer up, in `main.py:41707-41830`'s early-return before the per-ticker loop. This was proven for the per-ticker loop caller only. This directive requires you to prove — not assert — that this is true for **every** caller of `execute_stage()` in the codebase, not just the one already tested.
+
+## Required Evidence (no narrative summaries — raw output only)
+
+### 1. Enumerate every caller of `execute_stage()`
+Run and paste raw output:
+```
+grep -rn "execute_stage(" --include="*.py" .
+```
+For each match that is a *call site* (not the function definition itself), list the file:line.
+
+### 2. For each call site, show the guard path
+For every call site found in step 1, paste the surrounding function (file:line range) showing whether a G0/governance authorization check (`require_governance_authorization` or equivalent) runs *before* that call site is reached, and whether there's an early-return/block on failure.
+
+If a call site has **no** guard above it in its own function, trace its callers upward (who calls this function?) until you either find a guard or reach a top-level entry point with no guard — and report which one it is.
+
+### 3. Flag any unguarded path explicitly
+State explicitly: "There are ___ total call sites. ___ are guarded by G0 before reaching `execute_stage()`. ___ are NOT guarded." List the unguarded ones by file:line with zero exceptions omitted.
+
+### 4. Live test on any unguarded path found
+If any unguarded call site exists, force G0 to `ENFORCE` + `PAUSED` (same method as prior test) and invoke that specific code path directly. Paste the raw result showing whether `execute_stage()` still ran and wrote to `aiem_diagram2_trace_audit` despite the BLOCK.
+
+## Rejection Criteria
+- Any claim of "all callers are guarded" without the full grep output and per-site trace from step 2 is rejected.
+- "This is the only caller" without a grep showing zero other matches is rejected.
+- Do not reuse the prior main.py:41707-41830 test as proof for a different call site.
