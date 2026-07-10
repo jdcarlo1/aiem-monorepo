@@ -1,0 +1,372 @@
+CONTINUE WITH OPTION 1 — FULL COMPONENT-BY-COMPONENT STRICT VERIFICATION
+
+Do not stop, fast-pass, summarize prematurely, or begin remediation yet.
+
+Continue examining every remaining component at the same evidentiary depth used for Component 1.
+
+The purpose of this pass is to establish the complete pre-remediation truth of the current production architecture.
+
+==================================================
+MANDATORY REMAINING SCOPE
+==================================================
+
+Complete full strict verification for:
+
+C3
+C4
+C5
+C6
+C22
+C24
+C28
+C30
+
+Also close every currently unresolved or partial component, including:
+
+C7 — FRED macro vintage/release-date/point-in-time behavior
+C16 — Options term-structure live scheduled-path wiring
+C25 — Which Deep-RL sizing implementation executes in the real live/paper candidate path
+C29 — Actual M2 → M4 → M6 → M3 sequence and data handoffs
+
+Do not treat any component as complete merely because:
+
+- the file exists,
+- a function exists,
+- it imports successfully,
+- it passes an isolated unit test,
+- it is available as an on-demand chat tool,
+- it runs in a backtest,
+- or a similar implementation exists elsewhere.
+
+==================================================
+REQUIRED CLASSIFICATIONS
+==================================================
+
+Each component must receive exactly one final classification:
+
+PASS_LIVE_WIRED
+PASS_RESEARCH_ONLY
+PARTIAL
+DEAD_CODE
+DUPLICATED
+BYPASSED
+WRONG_ORDER
+WRONG_IMPLEMENTATION
+NOT_FOUND
+FAIL_ARCHITECTURAL_DISCREPANCY
+
+For every classification, provide the exact source evidence supporting it.
+
+==================================================
+REQUIRED EVIDENCE FOR EACH COMPONENT
+==================================================
+
+For every component, return:
+
+1. component_id
+2. component_name
+3. canonical_module_file
+4. canonical_class_or_function
+5. implementation_status
+6. final_component_status
+7. exact definition file and line range
+8. exact import site and line range
+9. exact caller file and line range
+10. exact live/paper scheduled entry point
+11. exact call chain from entry point to component
+12. upstream producer
+13. input schema and representative real input
+14. downstream consumer
+15. output schema and representative real output
+16. trace_id propagation behavior
+17. candidate_id propagation behavior
+18. timestamps proving execution order
+19. database/audit record written
+20. proof whether the component can block downstream processing
+21. proof whether a failed result is obeyed downstream
+22. negative control
+23. clean control
+24. duplicate implementation search
+25. zero-caller/dead-code search
+26. alternate-path/bypass search
+27. scheduled-job proof
+28. live-candidate-path proof
+29. paper-trade-path proof
+30. final verdict and remediation requirement
+
+No narrative-only conclusions are acceptable.
+
+==================================================
+SPECIAL REQUIRED INVESTIGATIONS
+==================================================
+
+A. POINT-IN-TIME GUARD
+
+Preserve the current finding:
+
+FAIL_ARCHITECTURAL_DISCREPANCY
+
+Do not repair it yet.
+
+Document precisely where the new mandatory live guard must eventually sit:
+
+market-data acquisition
+→ point-in-time/staleness/lookahead guard
+→ feature calculations
+→ indicators
+→ models
+→ probability
+→ scoring
+→ specialist council
+→ risk
+→ decision
+
+Prove every existing live/paper path currently capable of bypassing that future location.
+
+B. BH-FDR DUPLICATION
+
+Identify both copies and calculate hashes/diffs.
+
+Determine the correct canonical owner.
+
+Do not remove either copy during this audit.
+
+Mark every caller of each copy.
+
+C. FRED MACRO
+
+Determine whether production decisions use:
+
+- current revised values,
+- original release values,
+- vintage-specific observations,
+- or an undocumented mixture.
+
+Prove whether a historical/backtest decision could see data revisions unavailable at the historical decision time.
+
+D. PCA / ABSORPTION RATIO
+
+Confirm every definition and caller search.
+
+Determine whether another function performs equivalent behavior under a different name.
+
+If there is no caller or equivalent live path, retain DEAD_CODE.
+
+E. SPECIALIST COUNCIL
+
+Trace every real live/paper council construction site.
+
+List the exact specialists actually instantiated.
+
+Do not count:
+
+- files that merely exist,
+- unavailable specialists,
+- registry entries never selected,
+- duplicate names,
+- fallback objects,
+- or historical test fixtures.
+
+Prove the actual live council member count.
+
+Trace each opinion into Thompson sampling and prove which opinions affect the final result.
+
+F. DEEP-RL SIZING
+
+There are multiple real implementations.
+
+Determine exactly which implementation, if any, controls position sizing in the live/paper per-candidate path.
+
+Return:
+
+selected_model
+selection_logic
+model_artifact/version
+input state
+raw action
+bounded action
+final position size
+downstream consumer
+fallback behavior
+negative control
+
+G. M2 → M4 → M6 → M3
+
+Do not infer this sequence from file names.
+
+Prove the actual runtime sequence with:
+
+trace_id
+timestamps
+caller/callee edges
+inputs
+outputs
+state transition
+database/audit events
+failure behavior
+downstream acknowledgement
+
+==================================================
+PHASE 2 CROSS-CUTTING VERIFICATION
+==================================================
+
+After all 30 individual component reviews are complete, perform the complete cross-cutting review.
+
+1. Generate the authoritative runtime edge map:
+
+entry point
+→ module
+→ function
+→ output
+→ downstream consumer
+
+2. Run one real scheduled paper/shadow candidate through the complete path.
+
+3. Capture:
+
+trace_id
+root_trace_id
+candidate_id
+ticker
+scheduled_job_id
+module_order
+function_order
+timestamps
+input hashes
+output hashes
+database record IDs
+audit record IDs
+risk decision
+decision output
+paper execution or rejection
+outcome record
+learning event
+memory event
+
+4. Compare the observed runtime path against the claimed architecture.
+
+5. Identify:
+
+missing components
+dead components
+duplicated components
+out-of-order components
+research-only components
+on-demand-only components
+bypasses
+silent fallbacks
+unconsumed outputs
+outputs overwritten downstream
+components that cannot block
+components whose decisions are ignored
+
+==================================================
+NEGATIVE CONTROLS
+==================================================
+
+Run controlled failures for all mandatory gates and critical components.
+
+At minimum inject:
+
+future-dated market row
+stale market data
+missing required field
+invalid numerical output
+NaN/Infinity
+component exception
+timeout
+duplicate candidate
+invalid trace_id
+risk rejection
+specialist council rejection
+model unavailable
+database write failure
+
+For each control prove:
+
+the failure was detected
+the correct reason code was produced
+downstream processing stopped where required
+no paper order was created
+no alternate route continued
+an audit event was written
+the candidate's final state was correct
+
+==================================================
+PROVENANCE AND TAMPER TEST
+==================================================
+
+Verify that provenance is not merely logged but integrity protected.
+
+Return:
+
+hash algorithm
+hash inputs
+parent/child hash chain
+record identifiers
+tamper test procedure
+original verification result
+modified-record verification result
+proof that tampering is detected
+
+==================================================
+DATABASE RECONCILIATION
+==================================================
+
+For the traced candidate reconcile every expected record across:
+
+candidate intake
+guard results
+feature/indicator outputs
+model outputs
+probability output
+scoring output
+specialist opinions
+Thompson-sampling result
+risk result
+decision
+paper execution/rejection
+outcome tracking
+learning
+memory
+audit/provenance
+
+Identify missing, duplicate, orphaned, or contradictory rows.
+
+==================================================
+FINAL REQUIRED DELIVERABLES
+==================================================
+
+Do not stop again until all of the following are supplied:
+
+1. Complete 30-component verification matrix
+2. Full source-level call graph
+3. Full runtime edge map
+4. Real scheduled candidate trace
+5. Negative-control report
+6. Provenance/tamper report
+7. Database reconciliation report
+8. Duplicate-implementation report
+9. Dead-code report
+10. Bypass report
+11. Research-only versus live-path report
+12. Architectural discrepancy report
+13. Prior-claim correction report
+14. Ordered remediation plan
+
+The final remediation plan must separate findings into:
+
+P0 — unsafe or capable of corrupting decisions
+P1 — mandatory architecture not live-wired
+P2 — partial/duplicated/dead-code discrepancies
+P3 — cleanup and maintainability
+
+Do not modify production code during this evidence-gathering pass.
+
+Do not declare Diagram 2 complete.
+
+Do not use prior reports as proof.
+
+Do not substitute isolated tests for live-path execution.
+
+Continue until the complete evidence package is delivered.
