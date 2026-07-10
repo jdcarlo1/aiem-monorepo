@@ -1,0 +1,101 @@
+# AIEM Diagram 2 ↔ Diagram 3 Wiring Verification Directive
+
+**Purpose:** Prove — with raw evidence, not narrative summary — that Diagram 2
+(Inter-Module Communication & Verification Layer) and Diagram 3 (Governance
+Layer) are actually calling each other in the running system, in both
+directions, and that a real governance decision changes real D2 behavior
+end-to-end. No claim in your response counts unless it is backed by one of:
+raw terminal output, SQL query results, file path + line number, or a git diff.
+Narrative summaries ("this is wired correctly," "the modules communicate as
+expected") without the underlying evidence are treated as unverified and will
+be rejected.
+
+If any answer is "no" or "partially," say so explicitly. A disclosed gap is a
+correct answer. A silently smoothed-over gap is not.
+
+---
+
+## 1. D3 → D2 direction: does D2 actually consume D3's governance output?
+
+**1.1** — Grep for every place D2 code imports or calls a D3 module/function
+(e.g. `require_governance_authorization`, `d3_system_state`,
+`d3_checkpoint_config`, baseline hash, or any `_d3_*` reference). Paste the
+raw grep command and full output with file:line for each hit.
+
+**1.2** — For each hit in 1.1, paste the actual surrounding code (10-15 lines)
+showing what D2 does with the returned value — does it branch on
+`decision`/`state`, does it log it, does it pass it downstream, or does it
+just call the function and discard the result? If any call's return value is
+never read or used, say so explicitly and cite the line where it's discarded.
+
+**1.3** — Live test: force a real D3 governance state change (e.g. set a
+checkpoint to `ENFORCE` + `BLOCK`, or trigger `RECOVERY_REQUIRED`) against a
+non-production DB/table (shadow table or test schema — do not touch the real
+baseline), then run the actual D2 verification path and capture real output
+showing D2's behavior changed as a result. Paste the before-state, the
+trigger command, and the after-state/output. If D2's behavior does NOT change
+in response to the D3 state change, report that as a failure — do not
+reframe it as expected behavior unless you can point to code proving it's
+intentional.
+
+---
+
+## 2. D2 → D3 direction: does D3 ever receive input/feedback from D2?
+
+**2.1** — Grep for every place D3 code imports or calls a D2 module/function,
+or reads any table/value that D2 writes. Paste raw grep output with
+file:line.
+
+**2.2** — If D2 writes verification results, health checks, or module-status
+signals anywhere (a table, a file, an in-memory object), identify exactly
+where, then grep for every reader of that same location. Confirm whether D3
+is among the readers. If D3 never reads anything D2 produces, state this
+plainly — this may be a legitimate one-way design, but it must be confirmed,
+not assumed.
+
+---
+
+## 3. End-to-end trace of one real decision
+
+**3.1** — Pick one concrete, currently-active governance checkpoint (e.g. G0
+or G5). Trace it as a literal call chain from the moment a trading decision
+enters the system through: D1 (orchestration) → D2 (verification) → D3
+(governance) → back out to the trading action (execute, block, or skip).
+For each hop, cite the exact function name and file:line. Do not skip a hop
+because it "should" be there — if you can't find the call, say so.
+
+**3.2** — Run this full chain live (in shadow/test mode, not against real
+capital) for one candidate ticker and paste the raw execution trace/log
+output showing the decision passing through all three diagrams in sequence,
+with timestamps or ordering that prove sequence, not just presence.
+
+---
+
+## 4. Failure-mode check — does a broken D3 actually stop D2/D1?
+
+**4.1** — Simulate a D3 failure (e.g. kill the DB connection D3 depends on,
+or force an exception inside `require_governance_authorization`) and observe
+what D2/D1 actually do. Paste the raw exception/log output. Confirm: does the
+system fail closed (blocks the trade) or fail open (proceeds as if governance
+approved it)? This is a critical safety question — do not infer the answer
+from code reading alone; force the failure and observe real behavior.
+
+**4.2** — If it fails open anywhere, cite the exact file:line where that
+happens and flag it as a finding, even though it wasn't asked for directly.
+
+---
+
+## 5. Final summary table
+
+Provide a table with one row per sub-question above (1.1 through 4.2), each
+marked VERIFIED / PARTIALLY VERIFIED / FAILED / NOT APPLICABLE, with the
+evidence citation (file:line, command, or query) next to each row. No row may
+be marked VERIFIED without a citation.
+
+---
+
+**Reminder to the agent:** If at any point real verification would require
+touching the live production baseline, real capital, or real production
+governance state, do not do it — build a shadow/test equivalent instead
+(same pattern used successfully in the TEST K baseline-idempotency check) and
+say explicitly that this is what you did.
