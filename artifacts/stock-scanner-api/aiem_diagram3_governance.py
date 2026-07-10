@@ -560,15 +560,50 @@ _SCHEMA_STMTS = [
 
     """
     CREATE TABLE IF NOT EXISTS d3_checkpoint_config (
-        checkpoint TEXT PRIMARY KEY CHECK (checkpoint IN ('G0', 'G2', 'G3', 'G4', 'G5')),
+        checkpoint TEXT PRIMARY KEY CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5')),
         mode TEXT NOT NULL DEFAULT 'SHADOW' CHECK (mode IN ('OFF', 'SHADOW', 'ENFORCE')),
         updated_by TEXT,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         note TEXT
     )
     """,
+    # G1 (data-guard completion integrity authorization) was added to the
+    # checkpoint set in P3.5 -- on a pre-existing prod DB whose CHECK
+    # constraint was created before G1 existed, the inline CHECK above is a
+    # no-op (CREATE TABLE IF NOT EXISTS), so the old 5-value constraint would
+    # still reject a G1 row. This discovers the REAL constraint name from
+    # pg_constraint (never assumes the default-generated name) and only
+    # replaces it if it doesn't already allow G1 -- idempotent every boot,
+    # and a no-op on a fresh DB where the inline CHECK above already has G1.
+    """
+    DO $$
+    DECLARE
+        con RECORD;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'd3_checkpoint_config'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) LIKE '%G1%'
+        ) THEN
+            FOR con IN
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'd3_checkpoint_config'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%checkpoint%'
+            LOOP
+                EXECUTE format('ALTER TABLE d3_checkpoint_config DROP CONSTRAINT %I', con.conname);
+            END LOOP;
+            ALTER TABLE d3_checkpoint_config
+                ADD CONSTRAINT d3_checkpoint_config_checkpoint_check
+                CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5'));
+        END IF;
+    END $$;
+    """,
     "INSERT INTO d3_checkpoint_config (checkpoint, mode, updated_by, note) VALUES "
     "('G0', 'SHADOW', 'SYSTEM_STARTUP', 'boot authorization -- seeded SHADOW'), "
+    "('G1', 'SHADOW', 'SYSTEM_STARTUP', 'data-guard completion integrity authorization -- "
+    "seeded SHADOW; no real call site wired yet as of P3.5, schema-only'), "
     "('G2', 'SHADOW', 'SYSTEM_STARTUP', 'pre-decision block -- seeded SHADOW'), "
     "('G3', 'SHADOW', 'SYSTEM_STARTUP', 'pre-execution authorization -- seeded SHADOW'), "
     "('G4', 'SHADOW', 'SYSTEM_STARTUP', 'learning/model promotion gate -- seeded SHADOW'), "
@@ -612,6 +647,184 @@ _SCHEMA_STMTS = [
             CREATE TRIGGER trg_d3gch_immutable
                 BEFORE UPDATE OR DELETE ON d3_governance_config_history
                 FOR EACH ROW EXECUTE FUNCTION d3gch_block_mutation();
+        END IF;
+    END $$;
+    """,
+
+    # ─────────────────────────────────────────────────────────────────────
+    # P3.5 — Section 12 named-component registry + Section 12F request/
+    # decision/acknowledgement correlation triplet.
+    #
+    # d3_governance_components: the 6 canonical components from Section 12B.
+    # This is a live registry (upserted every boot with the REAL module/
+    # function names and a real health signal), not an append-only history
+    # table -- there is nothing dishonest about updating "last seen active"
+    # on restart, unlike the audit tables below which must never be edited.
+    # ─────────────────────────────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS d3_governance_components (
+        component_name TEXT PRIMARY KEY CHECK (component_name IN (
+            'D2_EVENT_PUBLISHER', 'D3_EVENT_CONSUMER', 'D2_GOVERNANCE_CLIENT',
+            'D3_GOVERNANCE_SERVICE', 'D2_GOVERNANCE_ACKNOWLEDGER', 'D3_GOVERNANCE_LEDGER'
+        )),
+        owner_diagram TEXT NOT NULL CHECK (owner_diagram IN ('DIAGRAM_2', 'DIAGRAM_3')),
+        module_path TEXT NOT NULL,
+        function_or_class_name TEXT NOT NULL,
+        responsibility TEXT NOT NULL,
+        version TEXT NOT NULL DEFAULT '1.0.0',
+        status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'DISABLED')),
+        registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_health_check_at TIMESTAMPTZ,
+        last_health_result TEXT
+    )
+    """,
+
+    # d3_governance_requests: Section 12F REQUEST record. Append-only --
+    # a request, once submitted, is a historical fact that is never edited.
+    """
+    CREATE TABLE IF NOT EXISTS d3_governance_requests (
+        id BIGSERIAL PRIMARY KEY,
+        governance_request_id TEXT NOT NULL UNIQUE,
+        trace_id TEXT,
+        root_trace_id TEXT,
+        checkpoint TEXT NOT NULL CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5')),
+        source_phase TEXT,
+        requested_action TEXT,
+        entrypoint TEXT NOT NULL,
+        run_kind TEXT NOT NULL,
+        trigger_source TEXT,
+        architecture_version TEXT,
+        model_version TEXT,
+        strategy_version TEXT,
+        configuration_version TEXT,
+        payload_hash TEXT,
+        timeout_ms INT,
+        is_test_record BOOLEAN NOT NULL DEFAULT FALSE,
+        request_timestamp_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_d3gr_checkpoint ON d3_governance_requests (checkpoint)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gr_trace ON d3_governance_requests (trace_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gr_test ON d3_governance_requests (is_test_record)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gr_ts ON d3_governance_requests (request_timestamp_utc)",
+    """
+    CREATE OR REPLACE FUNCTION d3gr_block_mutation() RETURNS trigger AS $BODY$
+    BEGIN
+        RAISE EXCEPTION 'd3_governance_requests is append-only: % not permitted on id=%',
+            TG_OP, OLD.id;
+    END;
+    $BODY$ LANGUAGE plpgsql;
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger WHERE tgname = 'trg_d3gr_immutable'
+        ) THEN
+            CREATE TRIGGER trg_d3gr_immutable
+                BEFORE UPDATE OR DELETE ON d3_governance_requests
+                FOR EACH ROW EXECUTE FUNCTION d3gr_block_mutation();
+        END IF;
+    END $$;
+    """,
+
+    # d3_governance_decisions: Section 12F DECISION record. UNIQUE
+    # (governance_decision_id, decision) exists SOLELY so d3_governance_acks
+    # can carry a composite FK to it below -- that is the physical mechanism
+    # that makes a false acknowledgement (claiming a decision said something
+    # it didn't) impossible to insert, not just logically wrong. Append-only.
+    """
+    CREATE TABLE IF NOT EXISTS d3_governance_decisions (
+        id BIGSERIAL PRIMARY KEY,
+        governance_decision_id TEXT NOT NULL UNIQUE,
+        governance_request_id TEXT NOT NULL REFERENCES d3_governance_requests(governance_request_id),
+        trace_id TEXT,
+        checkpoint TEXT NOT NULL CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5')),
+        decision TEXT NOT NULL CHECK (decision IN ('ALLOW', 'ALLOW_WITH_WARNING', 'BLOCK')),
+        blocking BOOLEAN NOT NULL,
+        reason_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        policy_version TEXT,
+        decision_hash TEXT NOT NULL,
+        ledger_event_id BIGINT REFERENCES d3_governance_event_links(id),
+        is_test_record BOOLEAN NOT NULL DEFAULT FALSE,
+        response_timestamp_utc TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (governance_decision_id, decision)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_d3gd_request ON d3_governance_decisions (governance_request_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gd_checkpoint ON d3_governance_decisions (checkpoint)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gd_test ON d3_governance_decisions (is_test_record)",
+    """
+    CREATE OR REPLACE FUNCTION d3gd_block_mutation() RETURNS trigger AS $BODY$
+    BEGIN
+        RAISE EXCEPTION 'd3_governance_decisions is append-only: % not permitted on id=%',
+            TG_OP, OLD.id;
+    END;
+    $BODY$ LANGUAGE plpgsql;
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger WHERE tgname = 'trg_d3gd_immutable'
+        ) THEN
+            CREATE TRIGGER trg_d3gd_immutable
+                BEFORE UPDATE OR DELETE ON d3_governance_decisions
+                FOR EACH ROW EXECUTE FUNCTION d3gd_block_mutation();
+        END IF;
+    END $$;
+    """,
+
+    # d3_governance_acks: Section 12F ACKNOWLEDGEMENT record. decision_recorded
+    # is NEVER caller-supplied at the Python layer (acknowledge_governance_
+    # decision() always re-reads the real decision from d3_governance_decisions
+    # first) -- but the composite FK below is what makes that honesty a DB-
+    # enforced physical fact rather than a convention someone could bypass
+    # with a raw INSERT: it can only reference a (governance_decision_id,
+    # decision) pair that genuinely exists together in d3_governance_decisions.
+    # CHECK(NOT (continued AND decision_recorded='BLOCK')) is a second,
+    # redundant, purely-declarative belt-and-suspenders constraint for the
+    # same TEST 12 negative control. Append-only.
+    """
+    CREATE TABLE IF NOT EXISTS d3_governance_acks (
+        id BIGSERIAL PRIMARY KEY,
+        governance_ack_id TEXT NOT NULL UNIQUE,
+        governance_request_id TEXT NOT NULL REFERENCES d3_governance_requests(governance_request_id),
+        governance_decision_id TEXT NOT NULL,
+        decision_recorded TEXT NOT NULL,
+        trace_id TEXT,
+        action_taken TEXT NOT NULL,
+        continued BOOLEAN NOT NULL,
+        blocked BOOLEAN NOT NULL,
+        acknowledged_by TEXT,
+        acknowledgement_hash TEXT NOT NULL,
+        is_test_record BOOLEAN NOT NULL DEFAULT FALSE,
+        acknowledged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (NOT (continued AND blocked)),
+        CHECK (NOT (continued AND decision_recorded = 'BLOCK')),
+        FOREIGN KEY (governance_decision_id, decision_recorded)
+            REFERENCES d3_governance_decisions (governance_decision_id, decision)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_d3gack_decision ON d3_governance_acks (governance_decision_id)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gack_test ON d3_governance_acks (is_test_record)",
+    """
+    CREATE OR REPLACE FUNCTION d3gack_block_mutation() RETURNS trigger AS $BODY$
+    BEGIN
+        RAISE EXCEPTION 'd3_governance_acks is append-only: % not permitted on id=%',
+            TG_OP, OLD.id;
+    END;
+    $BODY$ LANGUAGE plpgsql;
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger WHERE tgname = 'trg_d3gack_immutable'
+        ) THEN
+            CREATE TRIGGER trg_d3gack_immutable
+                BEFORE UPDATE OR DELETE ON d3_governance_acks
+                FOR EACH ROW EXECUTE FUNCTION d3gack_block_mutation();
         END IF;
     END $$;
     """,
@@ -1030,36 +1243,56 @@ def _d3_emit_event(
 #   - a SCAN_ONLY run is never blocked by G0 in this phase (only
 #     trade-executing runs are in scope for G0's active-enforcement default)
 
-_G0_CACHE_TTL_SECONDS = 5
-_G0_STALE_ALLOW_WINDOW_SECONDS = 60
-_G0_CONFIG_CACHE: Dict[str, Any] = {"ts": 0.0, "mode": None, "state": None, "error": None}
-_G0_CACHE_LOCK = threading.Lock()
+# Generalized per-checkpoint config cache (P3.6). Originally G0-only; G1
+# (Section 12D DIAGRAM 2 DATA-GUARD COMPLETION) reuses the exact same
+# read/cache/fail-closed skeleton via _read_checkpoint_config(checkpoint=...)
+# instead of duplicating it. _g0_read_config(force=...) is kept as a thin
+# backward-compatible wrapper around _read_checkpoint_config("G0", force=...)
+# so existing call sites keep working unchanged.
+_CHECKPOINT_CACHE_TTL_SECONDS = 5
+_CHECKPOINT_STALE_ALLOW_WINDOW_SECONDS = 60
+_G0_CACHE_TTL_SECONDS = _CHECKPOINT_CACHE_TTL_SECONDS
+_G0_STALE_ALLOW_WINDOW_SECONDS = _CHECKPOINT_STALE_ALLOW_WINDOW_SECONDS
+_CHECKPOINT_CONFIG_CACHE: Dict[str, Dict[str, Any]] = {}
+_CHECKPOINT_CACHE_LOCK = threading.Lock()
 
 _D3_SYSTEM_STATES = ("NORMAL", "DEGRADED", "RESTRICTED", "PAUSED",
                       "RECOVERY_REQUIRED", "ROLLBACK_IN_PROGRESS")
-_D3_CHECKPOINTS = ("G0", "G2", "G3", "G4", "G5")
+_D3_CHECKPOINTS = ("G0", "G1", "G2", "G3", "G4", "G5")
 _D3_CHECKPOINT_MODES = ("OFF", "SHADOW", "ENFORCE")
 _D3_BLOCKING_SYSTEM_STATES = {"PAUSED", "RESTRICTED", "RECOVERY_REQUIRED", "ROLLBACK_IN_PROGRESS"}
+# The subset of _D3_BLOCKING_SYSTEM_STATES that Section 4 CHECKPOINT G5
+# actually names as its trigger conditions (PAUSE_SYSTEM, QUARANTINE_COMPONENT
+# -> ROLLBACK_IN_PROGRESS, ROLLBACK_REQUIRED -> ROLLBACK_IN_PROGRESS).
+# RESTRICTED is deliberately EXCLUDED: per Section 6 it just means
+# "paper/shadow only, live execution prohibited" -- a policy restriction, not
+# evidence of an incident requiring recovery verification -- so exiting
+# RESTRICTED directly back to NORMAL/DEGRADED is a normal admin action, not a
+# G5 resume. Only an exit FROM one of these three states TO a non-gated state
+# is a real "resume" that must go through g5_authorize_resume().
+_D3_RECOVERY_GATED_STATES = {"PAUSED", "RECOVERY_REQUIRED", "ROLLBACK_IN_PROGRESS"}
 
 
-def _g0_read_config(force: bool = False) -> Dict[str, Any]:
-    """Real DB read of (G0 checkpoint mode, system state), cached for
-    _G0_CACHE_TTL_SECONDS. On a DB error, the PREVIOUS good ts/mode/state are
-    kept (never overwritten with a fabricated fresh-looking value) and the
-    error + when it happened are recorded separately, so callers can apply
-    the bounded stale-allow policy honestly against the age of the last real
-    read."""
-    global _G0_CONFIG_CACHE
+def _read_checkpoint_config(checkpoint: str, force: bool = False) -> Dict[str, Any]:
+    """Real DB read of (`checkpoint` mode, system state), cached per-checkpoint
+    for _CHECKPOINT_CACHE_TTL_SECONDS. On a DB error, the PREVIOUS good
+    ts/mode/state for THIS checkpoint are kept (never overwritten with a
+    fabricated fresh-looking value) and the error + when it happened are
+    recorded separately, so callers can apply the bounded stale-allow policy
+    honestly against the age of the last real read. Generalized from the
+    original G0-only _g0_read_config (P3.5) so G1 (P3.6) and future
+    checkpoints share one real read/cache/fail-closed implementation instead
+    of each duplicating it."""
     now = time.time()
-    with _G0_CACHE_LOCK:
-        cached = dict(_G0_CONFIG_CACHE)
-        if not force and cached.get("mode") is not None and (now - cached.get("ts", 0)) < _G0_CACHE_TTL_SECONDS:
+    with _CHECKPOINT_CACHE_LOCK:
+        cached = dict(_CHECKPOINT_CONFIG_CACHE.get(checkpoint, {}))
+        if not force and cached.get("mode") is not None and (now - cached.get("ts", 0)) < _CHECKPOINT_CACHE_TTL_SECONDS:
             return cached
     try:
         with _d3_connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("SET LOCAL statement_timeout = '3s'")
-                cur.execute("SELECT mode FROM d3_checkpoint_config WHERE checkpoint = 'G0'")
+                cur.execute("SELECT mode FROM d3_checkpoint_config WHERE checkpoint = %s", (checkpoint,))
                 mode_row = cur.fetchone()
                 cur.execute("SELECT state FROM d3_system_state WHERE id = 1")
                 state_row = cur.fetchone()
@@ -1069,16 +1302,1414 @@ def _g0_read_config(force: bool = False) -> Dict[str, Any]:
             "state": state_row[0] if state_row else "NORMAL",
             "error": None,
         }
-        with _G0_CACHE_LOCK:
-            _G0_CONFIG_CACHE = fresh
+        with _CHECKPOINT_CACHE_LOCK:
+            _CHECKPOINT_CONFIG_CACHE[checkpoint] = fresh
         return fresh
     except Exception as e:
-        with _G0_CACHE_LOCK:
-            stale = dict(_G0_CONFIG_CACHE)
+        with _CHECKPOINT_CACHE_LOCK:
+            stale = dict(_CHECKPOINT_CONFIG_CACHE.get(checkpoint, {}))
             stale["error"] = str(e)
             stale["error_ts"] = now
-            _G0_CONFIG_CACHE = stale
+            _CHECKPOINT_CONFIG_CACHE[checkpoint] = stale
             return dict(stale)
+
+
+def _g0_read_config(force: bool = False) -> Dict[str, Any]:
+    """Thin backward-compatible wrapper around
+    _read_checkpoint_config("G0", force=force). Kept so pre-P3.6 call sites
+    (set_d3_system_state, set_d3_checkpoint_mode, the /d3/g0/status admin
+    route) keep working unchanged."""
+    return _read_checkpoint_config("G0", force=force)
+
+
+def _evaluate_g0_decision(run_kind: str) -> Dict[str, Any]:
+    """
+    Pure G0 policy evaluation -- NO DB writes, no ledger emission. Extracted
+    from the original g0_authorize_run() body so require_governance_
+    authorization() can persist the Section 12F request/decision/ledger
+    triplet around it atomically. Reads the cached checkpoint config (see
+    _g0_read_config) and returns everything a caller needs to persist a
+    decision, honestly, including any real DB error hit while reading config.
+
+    run_kind: 'TRADE_EXECUTING' (can be blocked once G0 is in ENFORCE mode,
+    or fail-closed BLOCKed on an unrecovered DB error) or 'SCAN_ONLY' (never
+    blocked by G0 in this phase).
+    """
+    cfg = _g0_read_config()
+    mode = cfg.get("mode") or "SHADOW"
+    state = cfg.get("state") or "NORMAL"
+    db_error = cfg.get("error")
+
+    # OFF means the checkpoint is fully disabled: unconditional ALLOW, no
+    # would_block evaluation, no DB-error fail-closed logic (there is nothing
+    # to fail closed on since this checkpoint isn't gating anything). This is
+    # intentionally NOT the same as SHADOW, which still evaluates and flags
+    # would_block for the proof window -- OFF is the "this checkpoint's
+    # judgment doesn't count right now" escape hatch, e.g. while the
+    # checkpoint itself is suspected broken. A lightweight ledger row is
+    # still emitted by the caller for audit continuity.
+    if mode == "OFF":
+        decision = "ALLOW"
+        reason_codes = ["CHECKPOINT_OFF"]
+        would_block = False
+        enforcement_status, enforcement_action = "NOT_ENFORCED", "DISABLED"
+    else:
+        would_block = bool(run_kind == "TRADE_EXECUTING" and state in _D3_BLOCKING_SYSTEM_STATES)
+        reason_codes = [f"STATE_{state}"] if would_block else ["STATE_OK"]
+        decision = "ALLOW"
+        enforcement_status = "NOT_ENFORCED"
+        enforcement_action = "ADVISORY_ONLY"
+
+        if db_error:
+            last_read_age = time.time() - cfg.get("ts", 0)
+            if mode == "SHADOW" and last_read_age < _G0_STALE_ALLOW_WINDOW_SECONDS:
+                decision = "ALLOW"
+                reason_codes = ["DB_ERROR_STALE_CACHE_ALLOW"]
+            elif run_kind == "TRADE_EXECUTING":
+                decision = "BLOCK"
+                reason_codes = ["DB_ERROR_FAIL_CLOSED"]
+            else:
+                decision = "ALLOW"
+                reason_codes = ["DB_ERROR_SCAN_ALLOWED"]
+        elif mode == "ENFORCE" and would_block:
+            decision = "BLOCK"
+            enforcement_status = "ENFORCED"
+            enforcement_action = "BLOCKED"
+
+    return {
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "would_block": would_block,
+        "mode": mode,
+        "system_state": state,
+        "db_error": db_error,
+        "enforcement_status": enforcement_status,
+        "enforcement_action": enforcement_action,
+    }
+
+
+def _g1_check_baseline_integrity() -> Dict[str, Any]:
+    """Real, bounded comparison of the in-memory architecture baseline hash
+    (_D3_BASELINE_HASH, set once at d3_startup() from
+    run_phase0_baseline_freeze) against the CURRENT authoritative row in
+    d3_architecture_baseline. A mismatch means the protected baseline row
+    diverged from what this process has in memory since it last booted --
+    a genuine system-wide integrity signal that only Diagram 3 can detect,
+    and is deliberately DISTINCT from Diagram 2's own kill_switch/daily_loss/
+    portfolio_corr data guards (Section A: D2 owns trading-data guards, D3
+    owns architecture-baseline/governance-system integrity). Never fabricates
+    'ok' on a real DB error or a missing/unset hash -- both are honest
+    failures, not silent passes. This is a single cheap bounded SELECT, not
+    a full hash-chain walk (that belongs to the offline verification/TEST
+    harness, not this synchronous per-batch call)."""
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2s'")
+                cur.execute(
+                    "SELECT baseline_hash FROM d3_architecture_baseline ORDER BY id LIMIT 1"
+                )
+                row = cur.fetchone()
+        current_hash = row[0] if row else None
+        if current_hash is None:
+            return {"ok": False, "error": "NO_BASELINE_ROW",
+                    "current_hash": None, "in_memory_hash": _D3_BASELINE_HASH}
+        if _D3_BASELINE_HASH is None:
+            # This process never froze/loaded a baseline into memory (e.g.
+            # d3_startup() failed silently) -- an honest gap, never a
+            # fabricated match.
+            return {"ok": False, "error": "IN_MEMORY_HASH_UNSET",
+                    "current_hash": current_hash, "in_memory_hash": None}
+        return {"ok": _D3_BASELINE_HASH == current_hash, "error": None,
+                "current_hash": current_hash, "in_memory_hash": _D3_BASELINE_HASH}
+    except Exception as e:
+        return {"ok": False, "error": str(e),
+                "current_hash": None, "in_memory_hash": _D3_BASELINE_HASH}
+
+
+def _evaluate_g1_decision(run_kind: str) -> Dict[str, Any]:
+    """
+    Pure G1 policy evaluation (Section 12D: DIAGRAM 2 DATA-GUARD COMPLETION
+    checkpoint) -- NO DB writes, no ledger emission. Mirrors _evaluate_g0_
+    decision's checkpoint-mode / system-state / DB-error-fail-closed
+    skeleton via the same generalized _read_checkpoint_config("G1") reader,
+    PLUS one check G0 does not perform: architecture-baseline integrity
+    (_g1_check_baseline_integrity). This is D3 authorizing on ITS OWN
+    system-wide integrity state -- it never re-evaluates or overrides D2's
+    own kill_switch/daily_loss/portfolio_corr guard outcomes, which remain
+    entirely under D2's authority per spec Section A. D2 only contacts
+    D3_GOVERNANCE_SERVICE at G1 AFTER its own three data guards have already
+    passed (the caller in main.py enforces this by only invoking G1 from the
+    single fall-through reached after all three gates succeed).
+
+    run_kind: 'TRADE_EXECUTING' (can be blocked once G1 is in ENFORCE mode,
+    fail-closed BLOCKed on an unrecovered checkpoint-config DB error, or
+    blocked on a real baseline mismatch while ENFORCE) or 'SCAN_ONLY' (never
+    blocked by G1 in this phase).
+    """
+    cfg = _read_checkpoint_config("G1")
+    mode = cfg.get("mode") or "SHADOW"
+    state = cfg.get("state") or "NORMAL"
+    db_error = cfg.get("error")
+
+    if mode == "OFF":
+        return {
+            "decision": "ALLOW",
+            "reason_codes": ["CHECKPOINT_OFF"],
+            "would_block": False,
+            "mode": mode,
+            "system_state": state,
+            "db_error": db_error,
+            "enforcement_status": "NOT_ENFORCED",
+            "enforcement_action": "DISABLED",
+        }
+
+    would_block = bool(run_kind == "TRADE_EXECUTING" and state in _D3_BLOCKING_SYSTEM_STATES)
+    reason_codes = [f"STATE_{state}"] if would_block else ["STATE_OK"]
+    decision = "ALLOW"
+    enforcement_status = "NOT_ENFORCED"
+    enforcement_action = "ADVISORY_ONLY"
+
+    if db_error:
+        # Same bounded stale-cache-allow policy as G0. The baseline-integrity
+        # check below is intentionally SKIPPED on this path -- the
+        # checkpoint-config read already failed, so we are already on the
+        # more conservative fail-closed branch; adding a second independent
+        # DB call here would only ever make the outcome equally or more
+        # restrictive, never less, so skipping it keeps the fail-closed
+        # semantics simple and auditable.
+        last_read_age = time.time() - cfg.get("ts", 0)
+        if mode == "SHADOW" and last_read_age < _CHECKPOINT_STALE_ALLOW_WINDOW_SECONDS:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_STALE_CACHE_ALLOW"]
+        elif run_kind == "TRADE_EXECUTING":
+            decision = "BLOCK"
+            reason_codes = ["DB_ERROR_FAIL_CLOSED"]
+        else:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_SCAN_ALLOWED"]
+    else:
+        baseline = _g1_check_baseline_integrity()
+        if not baseline["ok"]:
+            cur_h = (baseline.get("current_hash") or "")[:12]
+            mem_h = (baseline.get("in_memory_hash") or "")[:12]
+            reason_codes = reason_codes + [
+                f"BASELINE_MISMATCH:{baseline.get('error') or 'HASH_DIFFERS'}:cur={cur_h}:mem={mem_h}"
+            ]
+            if run_kind == "TRADE_EXECUTING":
+                would_block = True
+            if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
+                decision = "BLOCK"
+                enforcement_status = "ENFORCED"
+                enforcement_action = "BLOCKED"
+        else:
+            reason_codes = reason_codes + ["BASELINE_OK"]
+            if mode == "ENFORCE" and would_block:
+                decision = "BLOCK"
+                enforcement_status = "ENFORCED"
+                enforcement_action = "BLOCKED"
+
+    return {
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "would_block": would_block,
+        "mode": mode,
+        "system_state": state,
+        "db_error": db_error,
+        "enforcement_status": enforcement_status,
+        "enforcement_action": enforcement_action,
+    }
+
+
+# ── G2: DIAGRAM 2 PRE-DECISION TRACE-INTEGRITY CHECKPOINT (Section 12) ──────
+# Per-CANDIDATE check (unlike G0/G1's once-per-batch checks): immediately
+# before ONE candidate's trade is inserted into aiem_paper_trades, confirm
+# that every mandatory Diagram 2 stage (stage_orders 1-17 of
+# aiem_registry.DIAGRAM2_STAGE_MAP -- 18-21 run AT/AFTER the insert itself,
+# so they physically cannot be checked here) was actually observed via the
+# real CommunicationBus for THIS candidate's diagram2_trace_id. "Observed"
+# means a real D2_BUS_OBSERVATION row with check_result='PASS' exists in
+# d3_governance_event_links for that trace_id + stage -- never inferred,
+# never assumed from the candidate having reached this point in the code.
+#
+# The mandatory stage list is DERIVED from aiem_registry.DIAGRAM2_STAGE_MAP
+# (D2's single source of truth for its stage set) at call time rather than
+# hardcoded as an independent parallel list, so it cannot silently drift out
+# of sync if D2's stage set ever changes. If DIAGRAM2_STAGE_MAP stops
+# covering a stage this checkpoint considers mandatory, that surfaces as a
+# real, honest STAGE_CHECK_ERROR (see _g2_check_stage_completeness) rather
+# than silently checking a shorter/stale list forever.
+_G2_MANDATORY_STAGE_ORDERS = tuple(range(1, 18))
+
+
+def _g2_mandatory_check_names() -> Dict[int, str]:
+    """
+    Real derivation of the expected D2_BUS_OBSERVATION governance_check_name
+    (see _on_bus_stage_event: f"stage_{{event.stage_order}}_{{event.stage_name}}")
+    for each mandatory stage order, read live from
+    aiem_registry.DIAGRAM2_STAGE_MAP. Raises if the registry doesn't cover a
+    stage this checkpoint considers mandatory -- that means D2's own stage
+    set changed underneath this checkpoint and must not be silently ignored.
+    """
+    import aiem_registry as _g2_areg
+    names: Dict[int, str] = {}
+    for order in _G2_MANDATORY_STAGE_ORDERS:
+        spec = _g2_areg.DIAGRAM2_STAGE_MAP.get(order)
+        if not spec:
+            raise RuntimeError(
+                f"G2 mandatory stage_order={order} has no entry in "
+                f"aiem_registry.DIAGRAM2_STAGE_MAP -- D2/D3 stage lists have "
+                f"desynced, refusing to evaluate G2 against a stale stage list"
+            )
+        stage_name = spec[0]
+        names[order] = f"stage_{order}_{stage_name}"
+    return names
+
+
+def _g2_check_stage_completeness(trace_id: str) -> Dict[str, Any]:
+    """
+    Real, bounded query of d3_governance_event_links for every mandatory D2
+    stage (1-17) actually observed as PASS for this candidate's
+    diagram2_trace_id via the real D2_BUS_OBSERVATION subscriber
+    (_on_bus_stage_event). Single query on the indexed diagram2_trace_id
+    column (ix_d3gel_d2_trace) with a short statement_timeout so it can
+    never stall the hot per-ticker trade loop. Never fabricates completeness
+    on a DB error -- that is surfaced honestly as `error` so the caller can
+    apply its own fail-closed/stale-cache policy, exactly like
+    _g1_check_baseline_integrity does for G1.
+    """
+    try:
+        expected = _g2_mandatory_check_names()
+    except Exception as e:
+        return {"ok": False, "error": f"MANDATORY_STAGE_LIST_ERROR:{e}",
+                "missing_stages": list(_G2_MANDATORY_STAGE_ORDERS),
+                "present_count": 0, "expected_count": len(_G2_MANDATORY_STAGE_ORDERS)}
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2s'")
+                cur.execute(
+                    """
+                    SELECT DISTINCT governance_check_name
+                    FROM d3_governance_event_links
+                    WHERE diagram2_trace_id = %s
+                      AND governance_phase = 'D2_BUS_OBSERVATION'
+                      AND check_result = 'PASS'
+                    """,
+                    (trace_id,),
+                )
+                present = {r[0] for r in cur.fetchall()}
+        missing = [order for order, name in expected.items() if name not in present]
+        return {
+            "ok": len(missing) == 0,
+            "error": None,
+            "missing_stages": missing,
+            "present_count": len(expected) - len(missing),
+            "expected_count": len(expected),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e),
+                "missing_stages": list(_G2_MANDATORY_STAGE_ORDERS),
+                "present_count": 0, "expected_count": len(_G2_MANDATORY_STAGE_ORDERS)}
+
+
+def _evaluate_g2_decision(run_kind: str, trace_id: Optional[str]) -> Dict[str, Any]:
+    """
+    Pure G2 policy evaluation (Section 12: DIAGRAM 2 PRE-DECISION
+    TRACE-INTEGRITY checkpoint) -- NO DB writes, no ledger emission. Unlike
+    G0/G1 (evaluated once per batch, before the per-ticker loop even
+    starts), G2 is evaluated ONCE PER CANDIDATE, immediately before that
+    candidate's aiem_paper_trades INSERT. Its caller's BLOCK branch must
+    skip only that one candidate (`continue` in the per-ticker loop) --
+    never the whole batch -- and must NEVER touch the batch-level
+    _AIEM_PAPER_LOCK (acquired/released once per batch, not per-candidate).
+
+    trace_id is REQUIRED per-candidate context (unlike G0/G1's purely
+    ambient checkpoint state): if the caller has no real diagram2_trace_id
+    for this candidate (e.g. the D2 wiring try/except upstream in main.py
+    failed and set it to None), that is evaluated as
+    would_block=True/NO_TRACE_ID rather than skipped or assumed clean -- a
+    candidate this checkpoint cannot verify is treated the same as one that
+    failed verification, never silently passed through.
+
+    run_kind: 'TRADE_EXECUTING' (can be blocked once G2 is in ENFORCE mode,
+    or fail-closed BLOCKed on an unrecovered DB error) or 'SCAN_ONLY' (never
+    blocked by G2 in this phase).
+    """
+    cfg = _read_checkpoint_config("G2")
+    mode = cfg.get("mode") or "SHADOW"
+    state = cfg.get("state") or "NORMAL"
+    db_error = cfg.get("error")
+
+    if mode == "OFF":
+        return {
+            "decision": "ALLOW",
+            "reason_codes": ["CHECKPOINT_OFF"],
+            "would_block": False,
+            "mode": mode,
+            "system_state": state,
+            "db_error": db_error,
+            "enforcement_status": "NOT_ENFORCED",
+            "enforcement_action": "DISABLED",
+        }
+
+    would_block = bool(run_kind == "TRADE_EXECUTING" and state in _D3_BLOCKING_SYSTEM_STATES)
+    reason_codes = [f"STATE_{state}"] if would_block else ["STATE_OK"]
+    decision = "ALLOW"
+    enforcement_status = "NOT_ENFORCED"
+    enforcement_action = "ADVISORY_ONLY"
+
+    if db_error:
+        # Same bounded stale-cache-allow policy as G0/G1. The stage-
+        # completeness check below is intentionally SKIPPED on this path --
+        # the checkpoint-config read already failed, so we are already on
+        # the more conservative fail-closed branch.
+        last_read_age = time.time() - cfg.get("ts", 0)
+        if mode == "SHADOW" and last_read_age < _CHECKPOINT_STALE_ALLOW_WINDOW_SECONDS:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_STALE_CACHE_ALLOW"]
+        elif run_kind == "TRADE_EXECUTING":
+            decision = "BLOCK"
+            reason_codes = ["DB_ERROR_FAIL_CLOSED"]
+        else:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_SCAN_ALLOWED"]
+    elif not trace_id:
+        reason_codes = reason_codes + ["NO_TRACE_ID"]
+        if run_kind == "TRADE_EXECUTING":
+            would_block = True
+        if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
+            decision = "BLOCK"
+            enforcement_status = "ENFORCED"
+            enforcement_action = "BLOCKED"
+    else:
+        completeness = _g2_check_stage_completeness(trace_id)
+        if completeness.get("error"):
+            reason_codes = reason_codes + [f"STAGE_CHECK_ERROR:{completeness['error']}"]
+            if run_kind == "TRADE_EXECUTING":
+                would_block = True
+            if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
+                decision = "BLOCK"
+                enforcement_status = "ENFORCED"
+                enforcement_action = "BLOCKED"
+        elif not completeness["ok"]:
+            missing_str = ",".join(str(s) for s in completeness["missing_stages"])
+            reason_codes = reason_codes + [f"MISSING_STAGES:{missing_str}"]
+            if run_kind == "TRADE_EXECUTING":
+                would_block = True
+            if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
+                decision = "BLOCK"
+                enforcement_status = "ENFORCED"
+                enforcement_action = "BLOCKED"
+        else:
+            reason_codes = reason_codes + ["STAGES_COMPLETE"]
+            if mode == "ENFORCE" and would_block:
+                decision = "BLOCK"
+                enforcement_status = "ENFORCED"
+                enforcement_action = "BLOCKED"
+
+    return {
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "would_block": would_block,
+        "mode": mode,
+        "system_state": state,
+        "db_error": db_error,
+        "enforcement_status": enforcement_status,
+        "enforcement_action": enforcement_action,
+    }
+
+
+# ── G3: PRE-EXECUTION GOVERNANCE AUTHORIZATION (Section 4/5 real checks) ─────
+#
+# Authorized execution modes for THIS system. There is no live broker
+# adapter anywhere in this codebase (aiem_position_sizing.LIVE_MODE_ENABLED
+# is hard-False) -- "LIVE" is therefore never an authorized mode, it is an
+# unconditional hard block below, never a SHADOW-observed one.
+_G3_AUTHORIZED_EXECUTION_MODES = {"PAPER", "SHADOW"}
+
+
+def _g3_check_strategy_approval(strategy_version: Optional[str]) -> Dict[str, Any]:
+    """
+    Real, bounded check against d3_strategy_registry -- the only
+    approved-strategy ledger that actually exists in this codebase -- for
+    whether `strategy_version` (the candidate's pick source, e.g.
+    'gap_volume') is a formally registered, approved, active strategy.
+
+    strategy_version=None (caller has no signal-source context for this
+    request) is reported as STRATEGY_VERSION_UNKNOWN, never assumed
+    approved. A strategy_version with no matching row is reported as
+    UNAPPROVED_STRATEGY:<version> -- as of this writing 5 of the 11 real
+    live pick sources in _aiem_paper_pick_candidates (sweep, oi_buildup,
+    washout_ignition, layer9_stat, squeeze_reversion) have never been
+    registered in d3_strategy_registry, so this check will honestly report
+    them as unapproved. That is a real, pre-existing gap this checkpoint is
+    designed to surface in SHADOW mode, not something this change fabricates
+    or silently hides.
+    """
+    if not strategy_version:
+        return {"ok": False, "error": None, "found": False,
+                "reason": "STRATEGY_VERSION_UNKNOWN"}
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2s'")
+                cur.execute(
+                    "SELECT approval_status, status FROM d3_strategy_registry "
+                    "WHERE signal_source = %s",
+                    (strategy_version,),
+                )
+                row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": None, "found": False,
+                     "reason": f"UNAPPROVED_STRATEGY:{strategy_version}"}
+        approval_status, status = row
+        ok = (approval_status == "approved" and status == "active")
+        reason = None if ok else f"STRATEGY_NOT_APPROVED:{strategy_version}:{approval_status}/{status}"
+        return {"ok": ok, "error": None, "found": True, "reason": reason}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "found": False,
+                "reason": f"STRATEGY_CHECK_ERROR:{e}"}
+
+
+def _g3_check_model_approval(model_version: Optional[str]) -> Dict[str, Any]:
+    """
+    Real, bounded check against d3_model_governance for whether
+    `model_version` names a currently deployment_status='active' model.
+
+    model_version=None is reported as MODEL_VERSION_NOT_TRACKED rather than
+    silently skipped/approved. This is expected to fire for essentially
+    every candidate today: none of the current pick sources in
+    _aiem_paper_pick_candidates attach a per-candidate model_version (the
+    unrelated `model_versions` table owned by online_learning.py tracks a
+    conviction-scoring model, not a per-trade-candidate one) -- an honest,
+    pre-existing gap this checkpoint surfaces in SHADOW mode rather than
+    papering over with a fabricated default version.
+    """
+    if not model_version:
+        return {"ok": False, "error": None, "found": False,
+                "reason": "MODEL_VERSION_NOT_TRACKED"}
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2s'")
+                cur.execute(
+                    "SELECT deployment_status FROM d3_model_governance "
+                    "WHERE model_version = %s ORDER BY recorded_at DESC LIMIT 1",
+                    (model_version,),
+                )
+                row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": None, "found": False,
+                     "reason": f"UNAPPROVED_MODEL:{model_version}"}
+        ok = row[0] == "active"
+        reason = None if ok else f"MODEL_NOT_ACTIVE:{model_version}:{row[0]}"
+        return {"ok": ok, "error": None, "found": True, "reason": reason}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "found": False,
+                "reason": f"MODEL_CHECK_ERROR:{e}"}
+
+
+def _g3_check_unresolved_actions() -> Dict[str, Any]:
+    """
+    Real, bounded check against d3_governance_actions for any action still
+    in status='REQUESTED' (i.e. not yet ADVISORY_ACKNOWLEDGED/NOT_ENFORCED)
+    whose action_type names a critical-incident or quarantine condition.
+
+    No action_type matching QUARANTINE/CRITICAL/PAUSE has ever actually been
+    requested against this table as of this writing (confirmed by direct
+    inspection), so this check honestly returns ok=True today. It becomes a
+    real, live block the moment any future phase (supervisor layer, G4/G5)
+    requests one -- this is not a fabricated always-pass, it is a real query
+    against the real table with a currently-empty result set.
+    """
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2s'")
+                cur.execute(
+                    "SELECT action_id, action_type FROM d3_governance_actions "
+                    "WHERE status = 'REQUESTED' "
+                    "  AND (action_type ILIKE %s OR action_type ILIKE %s OR action_type ILIKE %s) "
+                    "ORDER BY requested_at DESC LIMIT 10",
+                    ("%QUARANTINE%", "%CRITICAL%", "%PAUSE%"),
+                )
+                rows = cur.fetchall()
+        if rows:
+            ids = ",".join(r[0] for r in rows)
+            return {"ok": False, "error": None, "count": len(rows),
+                    "reason": f"UNRESOLVED_ACTIONS:{ids}"}
+        return {"ok": True, "error": None, "count": 0, "reason": None}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "count": None,
+                "reason": f"ACTIONS_CHECK_ERROR:{e}"}
+
+
+def _evaluate_g3_decision(run_kind: str, diagram2_risk_result: Optional[str],
+                           execution_mode: Optional[str],
+                           model_version: Optional[str],
+                           strategy_version: Optional[str]) -> Dict[str, Any]:
+    """
+    Pure G3 policy evaluation (Section 4/5: PRE-EXECUTION GOVERNANCE
+    AUTHORIZATION checkpoint) -- NO DB writes of its own decision record
+    (that happens once, atomically, in require_governance_authorization).
+    Unlike G0/G1 (once per batch) and like G2, G3 is evaluated once per
+    trade candidate, immediately before that candidate's real write
+    (aiem_paper_trades INSERT / write_paper_pick call).
+
+    TEST E structural guarantee: diagram2_risk_result is checked FIRST,
+    before any other D3 logic runs, and an UNCONDITIONAL BLOCK is returned
+    the moment it is anything other than 'PASS' -- regardless of G3's own
+    SHADOW/ENFORCE mode. There is no code path below this point that can
+    turn a Diagram 2 rejection into a Diagram 3 approval. In real production
+    this branch is unreachable today: the fail-closed sizing-gate check
+    upstream in main.py already `continue`s every non-APPROVED/
+    PARAMS_NOT_CONFIRMED candidate before G3 is ever called, and
+    premarket_open_trader.py always passes 'PASS' because its own hard/soft
+    blocker gates already ran before this call site. The branch exists so
+    the invariant is provable under a direct/test-harness call, not because
+    it is expected to fire live.
+
+    Also unconditional (independent of mode/state): a request for
+    execution_mode='LIVE' is hard-blocked, because there is no live broker
+    adapter anywhere in this system to authorize against -- fabricating a
+    SHADOW-only observation for a request this system can never actually
+    execute would misrepresent what was checked.
+
+    For every other candidate, this composes the real system-state check
+    (same _D3_BLOCKING_SYSTEM_STATES signal G0/G1/G2 use -- there is no
+    second, independently-tracked "daily safety state" anywhere in this
+    codebase, so reusing it here is an honest choice, not a duplicated
+    fabrication) with three checks unique to G3: approved strategy version
+    (_g3_check_strategy_approval), approved model version
+    (_g3_check_model_approval), and no unresolved critical/quarantine
+    action (_g3_check_unresolved_actions). "Broker/execution adapter
+    healthy" for this system's only real execution adapter -- the
+    governance DB write path itself -- is the same successful checkpoint-
+    config read already performed for every other checkpoint; a second,
+    redundant connection is not opened to manufacture an extra check.
+    """
+    if diagram2_risk_result != "PASS":
+        return {
+            "decision": "BLOCK",
+            "reason_codes": [f"D2_RISK_REJECTED:{diagram2_risk_result}"],
+            "would_block": True,
+            "mode": "N/A_D2_GATE",
+            "system_state": None,
+            "db_error": None,
+            "enforcement_status": "ENFORCED",
+            "enforcement_action": "BLOCKED_D2_REJECT",
+        }
+
+    if execution_mode == "LIVE":
+        return {
+            "decision": "BLOCK",
+            "reason_codes": ["NO_LIVE_BROKER_ADAPTER", "LIVE_MODE_DISABLED"],
+            "would_block": True,
+            "mode": "N/A_LIVE_HARD_BLOCK",
+            "system_state": None,
+            "db_error": None,
+            "enforcement_status": "ENFORCED",
+            "enforcement_action": "BLOCKED_LIVE_DISABLED",
+        }
+
+    cfg = _read_checkpoint_config("G3")
+    mode = cfg.get("mode") or "SHADOW"
+    state = cfg.get("state") or "NORMAL"
+    db_error = cfg.get("error")
+
+    if mode == "OFF":
+        return {
+            "decision": "ALLOW",
+            "reason_codes": ["CHECKPOINT_OFF"],
+            "would_block": False,
+            "mode": mode,
+            "system_state": state,
+            "db_error": db_error,
+            "enforcement_status": "NOT_ENFORCED",
+            "enforcement_action": "DISABLED",
+        }
+
+    if db_error:
+        # Same bounded stale-cache-allow policy as G0/G1/G2.
+        last_read_age = time.time() - cfg.get("ts", 0)
+        if mode == "SHADOW" and last_read_age < _CHECKPOINT_STALE_ALLOW_WINDOW_SECONDS:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_STALE_CACHE_ALLOW"]
+            would_block = False
+            enforcement_status = "NOT_ENFORCED"
+            enforcement_action = "ADVISORY_ONLY"
+        elif run_kind == "TRADE_EXECUTING":
+            decision = "BLOCK"
+            reason_codes = ["DB_ERROR_FAIL_CLOSED"]
+            would_block = True
+            enforcement_status = "ENFORCED"
+            enforcement_action = "BLOCKED"
+        else:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_SCAN_ALLOWED"]
+            would_block = False
+            enforcement_status = "NOT_ENFORCED"
+            enforcement_action = "ADVISORY_ONLY"
+        return {
+            "decision": decision, "reason_codes": reason_codes, "would_block": would_block,
+            "mode": mode, "system_state": state, "db_error": db_error,
+            "enforcement_status": enforcement_status, "enforcement_action": enforcement_action,
+        }
+
+    reason_codes: list = []
+    would_block = False
+
+    if run_kind == "TRADE_EXECUTING" and state in _D3_BLOCKING_SYSTEM_STATES:
+        would_block = True
+        reason_codes.append(f"STATE_{state}")
+        if state == "PAUSED":
+            reason_codes.append("PAUSE_SYSTEM")
+
+    if execution_mode not in _G3_AUTHORIZED_EXECUTION_MODES:
+        would_block = True
+        reason_codes.append(f"UNAUTHORIZED_EXECUTION_MODE:{execution_mode}")
+
+    # Broker/execution adapter healthy: for this system's only real
+    # execution adapter (the governance DB write path), the successful
+    # checkpoint-config read above (db_error is falsy on this path) IS the
+    # health check -- reported honestly rather than re-proven redundantly.
+    reason_codes.append("PAPER_ADAPTER_DB_OK")
+
+    baseline = _g1_check_baseline_integrity()
+    if not baseline.get("ok"):
+        would_block = True
+        reason_codes.append(f"BASELINE_INVALID:{baseline.get('error')}")
+
+    strat = _g3_check_strategy_approval(strategy_version)
+    if not strat.get("ok"):
+        would_block = True
+        reason_codes.append(strat.get("reason") or "STRATEGY_CHECK_FAILED")
+
+    modc = _g3_check_model_approval(model_version)
+    if not modc.get("ok"):
+        would_block = True
+        reason_codes.append(modc.get("reason") or "MODEL_CHECK_FAILED")
+
+    actions = _g3_check_unresolved_actions()
+    if not actions.get("ok"):
+        would_block = True
+        reason_codes.append(actions.get("reason") or "ACTIONS_CHECK_FAILED")
+
+    if not would_block:
+        reason_codes.append("ALL_CHECKS_OK")
+
+    decision = "ALLOW"
+    enforcement_status = "NOT_ENFORCED"
+    enforcement_action = "ADVISORY_ONLY"
+    if mode == "ENFORCE" and would_block:
+        decision = "BLOCK"
+        enforcement_status = "ENFORCED"
+        enforcement_action = "BLOCKED"
+
+    return {
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "would_block": would_block,
+        "mode": mode,
+        "system_state": state,
+        "db_error": db_error,
+        "enforcement_status": enforcement_status,
+        "enforcement_action": enforcement_action,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# G4 — LEARNING / MODEL PROMOTION GOVERNANCE (Path B P6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_G4_MIN_SAMPLES = 100
+_G4_MAX_SCORE_DRIFT = 0.20
+
+
+def _g4_check_rollback_artifact(model_name: Optional[str]) -> Dict[str, Any]:
+    """
+    Real check against online_learning's own model_versions table (the only
+    rollback ledger that exists for learning-model promotions in this
+    codebase) for whether a PRIOR version of `model_name` exists to roll
+    back to if this promotion needs to be reverted.
+
+    A model_name with zero prior versions is NOT treated as a failure --
+    every model's first-ever promotion is structurally unable to have a
+    rollback target, and blocking a first deployment on the absence of a
+    history it cannot possibly have would be dishonest theater, not a real
+    safety check. It is reported as ok=True with an explicit
+    FIRST_VERSION_NO_ROLLBACK_TARGET reason so the gap stays visible rather
+    than being silently indistinguishable from a model with real history.
+    """
+    if not model_name:
+        return {"ok": False, "error": None, "count": 0, "reason": "MODEL_NAME_UNKNOWN"}
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2s'")
+                cur.execute(
+                    "SELECT COUNT(*) FROM model_versions WHERE model_name = %s",
+                    (model_name,),
+                )
+                count = cur.fetchone()[0]
+        if count == 0:
+            return {"ok": True, "error": None, "count": 0,
+                     "reason": "FIRST_VERSION_NO_ROLLBACK_TARGET"}
+        return {"ok": True, "error": None, "count": count,
+                 "reason": f"PRIOR_VERSIONS_AVAILABLE:{count}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "count": None,
+                 "reason": f"ROLLBACK_ARTIFACT_CHECK_ERROR:{e}"}
+
+
+def _g4_check_version_manifest(model_name: Optional[str],
+                                version_saved: Optional[Any],
+                                weights_hash: Optional[str]) -> Dict[str, Any]:
+    """
+    Real cross-check between the aiem_learning_proposals row being promoted
+    and online_learning's own model_versions table -- the actual weights
+    artifact -- for whether the version/hash this admin action is about to
+    mark is_live=TRUE really exists and really matches what was recorded at
+    proposal time. Catches real data-integrity divergence between the two
+    tables (e.g. a version row deleted/corrupted after the proposal was
+    created); never assumed to match just because the proposal row says so.
+    """
+    if version_saved is None or not weights_hash or not model_name:
+        return {"ok": False, "error": None, "found": False,
+                 "reason": "VERSION_MANIFEST_INCOMPLETE"}
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '2s'")
+                cur.execute(
+                    "SELECT weights_hash FROM model_versions "
+                    "WHERE model_name = %s AND version = %s",
+                    (model_name, version_saved),
+                )
+                row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": None, "found": False,
+                     "reason": f"VERSION_MANIFEST_NOT_FOUND:{model_name}:{version_saved}"}
+        if row[0] != weights_hash:
+            return {"ok": False, "error": None, "found": True,
+                     "reason": "VERSION_MANIFEST_HASH_MISMATCH"}
+        return {"ok": True, "error": None, "found": True, "reason": None}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "found": False,
+                 "reason": f"VERSION_MANIFEST_CHECK_ERROR:{e}"}
+
+
+def _evaluate_g4_decision(run_kind: str,
+                           learning_accepted: Optional[bool],
+                           learning_model_name: Optional[str],
+                           learning_n_samples: Optional[int],
+                           learning_current_score: Optional[float],
+                           learning_new_score: Optional[float],
+                           learning_max_drift: Optional[float],
+                           learning_version_saved: Optional[Any],
+                           learning_weights_hash: Optional[str]) -> Dict[str, Any]:
+    """
+    Pure G4 policy evaluation (LEARNING / MODEL PROMOTION GOVERNANCE
+    checkpoint) -- NO DB writes of its own decision record (that happens
+    once, atomically, in require_governance_authorization).
+
+    Real promotion action in this codebase: POST
+    /stock-api/admin/learning-proposals/<id>/approve in main.py -- the ONLY
+    code path that ever sets aiem_learning_proposals.promoted=TRUE and calls
+    online_learning.rollback_to_version() to flip a model_versions row live.
+    This is the single choke-point G4 gates, immediately before that real
+    write -- exactly like G3 gates immediately before the real
+    aiem_paper_trades INSERT.
+
+    A separate, real, PRE-EXISTING gap this checkpoint does NOT close: model
+    'discovery_cycle_signal_weights' is auto-promoted with promote=True
+    directly inside _dc_module3_online_learning_update (main.py), with zero
+    human review and zero D3 involvement -- it never reaches this admin
+    endpoint at all. Disclosed here (and in session/memory docs), not
+    silently patched by this checkpoint -- the spec calls for one
+    choke-point, and the admin-approval endpoint is the one that mirrors
+    G3's "gate immediately before the real write" pattern.
+
+    TEST F structural guarantee: learning_accepted is checked FIRST. A
+    proposal already rejected by online_learning's own drift/perf gate at
+    proposal-creation time is unconditionally BLOCKed, regardless of G4
+    mode. In real production this branch is unreachable -- the caller
+    (admin_approve_learning_proposal) already hard-rejects accepted=FALSE
+    proposals with a 400 before G4 is ever invoked -- it exists so the
+    invariant is provable under a direct/test-harness call, same as G3's
+    diagram2_risk_result check.
+
+    For every other proposal, this recomputes -- independently, from the
+    raw n_samples/current_score/new_score fields, never trusting a
+    caller-supplied boolean -- the EXACT same 3-factor policy
+    run_phase6_learning_approval() already computes and logs as
+    ADVISORY-ONLY into d3_learning_approvals (performance_ok: new_score >=
+    current_score; calibration_ok: n_samples >= 100; risk_ok: score drift <
+    20%). These two implementations must be kept in lock-step by hand if
+    either threshold ever changes -- there is no shared constant between
+    them today because run_phase6_learning_approval's literals predate this
+    checkpoint.
+
+    Two REAL checks beyond Phase 6's advisory analysis, unique to this
+    checkpoint: rollback_artifact_ok (_g4_check_rollback_artifact -- a real
+    prior model_versions row exists to revert to, or this is honestly the
+    model's first-ever version) and version_manifest_ok
+    (_g4_check_version_manifest -- the specific version/weights_hash this
+    action is about to mark live really exists in model_versions and really
+    matches what the proposal row recorded).
+
+    Two INFORMATIONAL, NEVER-BLOCKING disclosures always appended to
+    reason_codes: this codebase's held-out evaluation is a single
+    time-ordered 80/20 split (X[:split]/X[split:] on time-ordered rows) -- a
+    real but partial walk-forward property, not full walk-forward
+    cross-validation -- and there is no automated leakage/lookahead
+    statistical test anywhere in this codebase for a learning-model
+    promotion. Both are disclosed honestly rather than either fabricating a
+    passing check that does not exist, or permanently hard-blocking every
+    future promotion forever on a capability gap that no single promotion
+    decision can close.
+    """
+    if learning_accepted is not True:
+        return {
+            "decision": "BLOCK",
+            "reason_codes": [f"PROPOSAL_NOT_ACCEPTED:{learning_accepted}"],
+            "would_block": True,
+            "mode": "N/A_ACCEPTED_GATE",
+            "system_state": None,
+            "db_error": None,
+            "enforcement_status": "ENFORCED",
+            "enforcement_action": "BLOCKED_NOT_ACCEPTED",
+        }
+
+    cfg = _read_checkpoint_config("G4")
+    mode = cfg.get("mode") or "SHADOW"
+    state = cfg.get("state") or "NORMAL"
+    db_error = cfg.get("error")
+
+    if mode == "OFF":
+        return {
+            "decision": "ALLOW",
+            "reason_codes": ["CHECKPOINT_OFF"],
+            "would_block": False,
+            "mode": mode,
+            "system_state": state,
+            "db_error": db_error,
+            "enforcement_status": "NOT_ENFORCED",
+            "enforcement_action": "DISABLED",
+        }
+
+    if db_error:
+        # Same bounded stale-cache-allow policy as G0/G1/G2/G3.
+        last_read_age = time.time() - cfg.get("ts", 0)
+        if mode == "SHADOW" and last_read_age < _CHECKPOINT_STALE_ALLOW_WINDOW_SECONDS:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_STALE_CACHE_ALLOW"]
+            would_block = False
+            enforcement_status = "NOT_ENFORCED"
+            enforcement_action = "ADVISORY_ONLY"
+        elif run_kind == "TRADE_EXECUTING":
+            decision = "BLOCK"
+            reason_codes = ["DB_ERROR_FAIL_CLOSED"]
+            would_block = True
+            enforcement_status = "ENFORCED"
+            enforcement_action = "BLOCKED"
+        else:
+            decision = "ALLOW"
+            reason_codes = ["DB_ERROR_SCAN_ALLOWED"]
+            would_block = False
+            enforcement_status = "NOT_ENFORCED"
+            enforcement_action = "ADVISORY_ONLY"
+        return {
+            "decision": decision, "reason_codes": reason_codes, "would_block": would_block,
+            "mode": mode, "system_state": state, "db_error": db_error,
+            "enforcement_status": enforcement_status, "enforcement_action": enforcement_action,
+        }
+
+    reason_codes: list = []
+    would_block = False
+
+    if run_kind == "TRADE_EXECUTING" and state in _D3_BLOCKING_SYSTEM_STATES:
+        would_block = True
+        reason_codes.append(f"STATE_{state}")
+        if state == "PAUSED":
+            reason_codes.append("PAUSE_SYSTEM")
+
+    baseline = _g1_check_baseline_integrity()
+    if not baseline.get("ok"):
+        would_block = True
+        reason_codes.append(f"BASELINE_INVALID:{baseline.get('error')}")
+
+    current = float(learning_current_score) if learning_current_score is not None else 0.0
+    new_s = float(learning_new_score) if learning_new_score is not None else 0.0
+    n = int(learning_n_samples or 0)
+
+    performance_ok = new_s >= current
+    calibration_ok = n >= _G4_MIN_SAMPLES
+    risk_ok = (new_s - current) < _G4_MAX_SCORE_DRIFT
+
+    if not performance_ok:
+        would_block = True
+        reason_codes.append(f"PERFORMANCE_REGRESSION:{new_s:.6f}<{current:.6f}")
+    if not calibration_ok:
+        would_block = True
+        reason_codes.append(f"INSUFFICIENT_SAMPLES:{n}<{_G4_MIN_SAMPLES}")
+    if not risk_ok:
+        would_block = True
+        reason_codes.append(f"SCORE_DRIFT_TOO_HIGH:{(new_s - current):.6f}>={_G4_MAX_SCORE_DRIFT}")
+
+    rollback = _g4_check_rollback_artifact(learning_model_name)
+    if not rollback.get("ok"):
+        would_block = True
+        reason_codes.append(rollback.get("reason") or "ROLLBACK_ARTIFACT_CHECK_FAILED")
+    else:
+        reason_codes.append(rollback.get("reason"))
+
+    manifest = _g4_check_version_manifest(learning_model_name, learning_version_saved, learning_weights_hash)
+    if not manifest.get("ok"):
+        would_block = True
+        reason_codes.append(manifest.get("reason") or "VERSION_MANIFEST_CHECK_FAILED")
+
+    # Informational only -- disclosed for transparency, never contributes to
+    # would_block. See docstring for why these are not fabricated pass/fail
+    # gates.
+    reason_codes.append("OOS_VALIDATION:TIME_ORDERED_80_20_HOLDOUT_ONLY_NOT_FULL_WALK_FORWARD")
+    reason_codes.append("LEAKAGE_CHECK:NO_AUTOMATED_LEAKAGE_LOOKAHEAD_DETECTOR_EXISTS")
+
+    if not would_block:
+        reason_codes.append("ALL_CHECKS_OK")
+
+    decision = "ALLOW"
+    enforcement_status = "NOT_ENFORCED"
+    enforcement_action = "ADVISORY_ONLY"
+    if mode == "ENFORCE" and would_block:
+        decision = "BLOCK"
+        enforcement_status = "ENFORCED"
+        enforcement_action = "BLOCKED"
+
+    return {
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "would_block": would_block,
+        "mode": mode,
+        "system_state": state,
+        "db_error": db_error,
+        "enforcement_status": enforcement_status,
+        "enforcement_action": enforcement_action,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# G5 — RECOVERY AND RESUMPTION (Path B P7)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _g5_check_ledger_chain_integrity() -> Dict[str, Any]:
+    """
+    Real recovery-verification check: walks the ENTIRE d3_governance_event_links
+    hash chain from GENESIS using the exact same recompute_event_hash/
+    verify_chain logic the offline TEST I tamper-evidence harness uses
+    (aiem_diagram3_verification), imported LAZILY here (not at module level)
+    because that module itself imports this one as `d3gov` for
+    _D3_EVENT_FIELDS_BY_VERSION -- a top-level import would be circular.
+
+    Unlike every G0-G4 check (bounded, cheap, run on the G0-G4 hot per-batch/
+    per-candidate path), this is intentionally a FULL chain walk. G5 recovery
+    verification only runs on a rare, human-triggered RECOVERY_REQUIRED/
+    PAUSED/ROLLBACK_IN_PROGRESS -> NORMAL resume request (see
+    g5_authorize_resume below), never on a hot path, so the cost of walking
+    the whole ledger is acceptable here -- and a tail-only/windowed walk would
+    not honestly prove "the chain is intact": a forged row in the middle of
+    the ledger would be invisible to a check that only re-verifies the most
+    recent N rows.
+    """
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '20s'")
+            import aiem_diagram3_verification as _d3verify
+            rows = _d3verify.fetch_all_events(conn)
+            report = _d3verify.verify_chain(rows)
+        if report.get("chain_intact"):
+            return {"ok": True, "error": None, "rows_checked": report.get("rows_checked"),
+                     "reason": f"CHAIN_INTACT:{report.get('rows_checked')}_ROWS"}
+        return {"ok": False, "error": None, "rows_checked": report.get("rows_checked"),
+                 "reason": f"CHAIN_BROKEN:{report.get('mismatch_count')}_MISMATCHES"}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "rows_checked": None,
+                 "reason": f"CHAIN_CHECK_ERROR:{e}"}
+
+
+def _g5_check_recovery_verification() -> Dict[str, Any]:
+    """
+    Combines the three real, independent checks G5's recovery verification
+    relies on: architecture-baseline integrity (reused from G1 -- the same
+    check that would have flagged the drift that likely caused a PAUSE in
+    the first place), no unresolved critical/quarantine governance actions
+    (reused from G3), and full ledger hash-chain integrity (new to G5, see
+    _g5_check_ledger_chain_integrity). All three must be independently
+    honest 'ok' for a resume to be verified -- this function performs no
+    aggregation logic beyond returning the three sub-results so
+    _evaluate_g5_decision (and the /g5/status route, for transparency) can
+    see exactly which one failed.
+    """
+    return {
+        "baseline": _g1_check_baseline_integrity(),
+        "unresolved_actions": _g3_check_unresolved_actions(),
+        "ledger_chain": _g5_check_ledger_chain_integrity(),
+    }
+
+
+def _evaluate_g5_decision(run_kind: str, target_state: Optional[str]) -> Dict[str, Any]:
+    """
+    Pure G5 policy evaluation (Section 4 CHECKPOINT G5: RECOVERY AND
+    RESUMPTION / Section 6 RECOVERY_REQUIRED, PAUSED, ROLLBACK_IN_PROGRESS
+    system states) -- NO DB writes, no ledger emission (that happens once,
+    atomically, in require_governance_authorization), and NO system-state
+    mutation either (that happens in g5_authorize_resume, the only real
+    caller, immediately AFTER the request/decision are durably persisted).
+
+    current_state is read fresh from _read_checkpoint_config('G5') below --
+    never trusted from a caller-supplied value -- exactly like every other
+    checkpoint's state read, to avoid a TOCTOU gap between whatever the
+    caller last observed and what d3_system_state actually holds right now.
+
+    If current_state is not in _D3_RECOVERY_GATED_STATES, there is honestly
+    nothing to recover from: this returns an unconditional NO_RECOVERY_NEEDED
+    ALLOW rather than fabricating a "verified recovery" for a system that was
+    never paused/quarantined/rolled back. Likewise, if target_state is ITSELF
+    still a recovery-gated state (e.g. PAUSED -> ROLLBACK_IN_PROGRESS), this
+    is a lateral admin transition between two protective states, not a
+    resume, and is also an honest NO_RECOVERY_NEEDED ALLOW --
+    set_d3_system_state() permits that transition directly without G5 (only
+    an exit to a NON-gated state is a real resume requiring this checkpoint).
+
+    A real DB error reading G5's own checkpoint config is UNCONDITIONALLY
+    fail-closed (BLOCK) regardless of run_kind -- unlike G0-G4's bounded
+    stale-cache-allow window for SCAN_ONLY/non-trade-executing runs, there is
+    no "safe to allow anyway" case for a resume: authorizing an exit from a
+    protective state on exactly the kind of infrastructure failure that state
+    exists to guard against would defeat the entire purpose of the
+    checkpoint.
+    """
+    # force=True: G5 only runs on a rare, human-triggered resume request, so
+    # the cost of a real read is negligible -- unlike G0-G4's hot per-batch/
+    # per-candidate path, there is no reason to accept up to
+    # _CHECKPOINT_CACHE_TTL_SECONDS of staleness here. This narrows (but does
+    # not by itself close) the TOCTOU window between this decision and the
+    # eventual set_d3_system_state() write in g5_authorize_resume -- that
+    # window is closed by expected_old_state below.
+    cfg = _read_checkpoint_config("G5", force=True)
+    mode = cfg.get("mode") or "SHADOW"
+    current_state = cfg.get("state") or "NORMAL"
+    db_error = cfg.get("error")
+
+    if mode == "OFF":
+        return {
+            "decision": "ALLOW", "reason_codes": ["CHECKPOINT_OFF"], "would_block": False,
+            "mode": mode, "system_state": current_state, "db_error": db_error,
+            "enforcement_status": "NOT_ENFORCED", "enforcement_action": "DISABLED",
+        }
+
+    if current_state not in _D3_RECOVERY_GATED_STATES or (target_state in _D3_RECOVERY_GATED_STATES if target_state else False):
+        return {
+            "decision": "ALLOW",
+            "reason_codes": [f"NO_RECOVERY_NEEDED:{current_state}->{target_state}"],
+            "would_block": False, "mode": mode, "system_state": current_state, "db_error": db_error,
+            "enforcement_status": "NOT_ENFORCED", "enforcement_action": "NOOP_NOT_A_RESUME",
+        }
+
+    if db_error:
+        return {
+            "decision": "BLOCK", "reason_codes": ["DB_ERROR_FAIL_CLOSED_RESUME"], "would_block": True,
+            "mode": mode, "system_state": current_state, "db_error": db_error,
+            "enforcement_status": "ENFORCED", "enforcement_action": "BLOCKED",
+        }
+
+    reason_codes: list = [f"STATE_{current_state}", f"TARGET_{target_state}"]
+    would_block = False
+
+    verification = _g5_check_recovery_verification()
+
+    baseline = verification["baseline"]
+    if not baseline.get("ok"):
+        would_block = True
+        reason_codes.append(f"BASELINE_INVALID:{baseline.get('error')}")
+
+    unresolved = verification["unresolved_actions"]
+    if not unresolved.get("ok"):
+        would_block = True
+        reason_codes.append(unresolved.get("reason") or "UNRESOLVED_ACTIONS_CHECK_FAILED")
+
+    chain = verification["ledger_chain"]
+    if not chain.get("ok"):
+        would_block = True
+        reason_codes.append(chain.get("reason") or "CHAIN_CHECK_FAILED")
+    else:
+        reason_codes.append(chain.get("reason"))
+
+    if not would_block:
+        reason_codes.append("RECOVERY_VERIFIED")
+
+    decision = "ALLOW"
+    enforcement_status = "NOT_ENFORCED"
+    enforcement_action = "ADVISORY_ONLY"
+    if mode == "ENFORCE" and would_block:
+        decision = "BLOCK"
+        enforcement_status = "ENFORCED"
+        enforcement_action = "BLOCKED"
+
+    return {
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "would_block": would_block,
+        "mode": mode,
+        "system_state": current_state,
+        "db_error": db_error,
+        "enforcement_status": enforcement_status,
+        "enforcement_action": enforcement_action,
+    }
+
+
+def require_governance_authorization(*, checkpoint: str, entrypoint: str, run_kind: str,
+                                      source_phase: Optional[str] = None,
+                                      requested_action: Optional[str] = None,
+                                      architecture_version: Optional[str] = None,
+                                      model_version: Optional[str] = None,
+                                      strategy_version: Optional[str] = None,
+                                      configuration_version: Optional[str] = None,
+                                      payload: Optional[Dict[str, Any]] = None,
+                                      timeout_ms: int = 5000,
+                                      trigger_source: Optional[str] = None,
+                                      is_test_record: bool = False,
+                                      candidate_trace_id: Optional[str] = None,
+                                      candidate_ticker: Optional[str] = None,
+                                      diagram2_risk_result: Optional[str] = None,
+                                      execution_mode: Optional[str] = None,
+                                      learning_accepted: Optional[bool] = None,
+                                      learning_model_name: Optional[str] = None,
+                                      learning_n_samples: Optional[int] = None,
+                                      learning_current_score: Optional[float] = None,
+                                      learning_new_score: Optional[float] = None,
+                                      learning_max_drift: Optional[float] = None,
+                                      learning_version_saved: Optional[Any] = None,
+                                      learning_weights_hash: Optional[str] = None,
+                                      g5_target_state: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Combined D2_GOVERNANCE_CLIENT + D3_GOVERNANCE_SERVICE entrypoint
+    (Section 12 authoritative D2<->D3 wiring). Evaluates the real checkpoint
+    policy for `checkpoint`, then persists a REQUEST + LEDGER EVENT +
+    DECISION as ONE atomic transaction, so the Section 12F correlation
+    triplet (request/decision/ack) can never desync from the real
+    d3_governance_event_links ledger.
+
+    checkpoints 'G0' (P3.5), 'G1' (P3.6), 'G2' (P4), 'G3' (P5), 'G4' (P6),
+    and 'G5' (P7) all have real policy evaluators wired -- an unrecognized
+    checkpoint string raises NotImplementedError rather than fabricate a
+    PASS/ALLOW for a gate that does not exist, but every checkpoint this
+    codebase actually defines (_D3_CHECKPOINTS) is now real.
+
+    g5_target_state is REQUIRED for checkpoint='G5' -- the real state the
+    caller wants d3_system_state to become (see g5_authorize_resume, the
+    only intended caller). It is never used for any other checkpoint.
+
+    learning_accepted / learning_model_name / learning_n_samples /
+    learning_current_score / learning_new_score / learning_version_saved /
+    learning_weights_hash are REQUIRED for checkpoint='G4' -- these must be
+    the caller's real aiem_learning_proposals row fields for the exact
+    proposal being promoted, never fabricated defaults (see
+    _evaluate_g4_decision). learning_max_drift is accepted for disclosure/
+    audit purposes but is NOT used by G4's own gating math (which recomputes
+    performance/calibration/risk independently from current_score/new_score/
+    n_samples, matching run_phase6_learning_approval()'s existing formulas).
+
+    candidate_trace_id / candidate_ticker are REQUIRED for checkpoint in
+    ('G2', 'G3') (per-candidate context; both are evaluated once per trade
+    candidate, not once per batch like G0/G1). When provided they take
+    priority over the ambient trace_context() for root_trace_id/trace_id/
+    ticker on this request's ledger event, so the audit trail is anchored to
+    the exact candidate evaluated rather than to whatever trace_context()
+    happens to still be set from the last D2 stage call in the loop.
+
+    diagram2_risk_result / execution_mode are REQUIRED for checkpoint='G3'.
+    diagram2_risk_result must be the caller's real upstream D2 risk-gate
+    verdict ('PASS' or anything else, e.g. 'REJECT') for THIS candidate --
+    never omitted/assumed -- because G3 is structurally required to BLOCK
+    unconditionally the moment it is not 'PASS' (see _evaluate_g3_decision).
+    execution_mode must be the caller's real execution mode ('PAPER' for
+    every entrypoint in this codebase today; 'LIVE' is unconditionally
+    hard-blocked because no live broker adapter exists).
+
+    On a real persistence failure, the already-computed decision is NEVER
+    flipped: it is returned exactly as computed, with governance_request_id/
+    governance_decision_id/ledger_event_id=None and 'PERSIST_FAILED'
+    appended to reason_codes, so a caller can see the decision was sound but
+    unaudited rather than silently getting a different answer.
+    """
+    if checkpoint not in _D3_CHECKPOINTS:
+        raise ValueError(f"unknown checkpoint {checkpoint!r}, must be one of {_D3_CHECKPOINTS}")
+
+    started_at = datetime.datetime.utcnow()
+
+    if checkpoint == "G0":
+        ev_result = _evaluate_g0_decision(run_kind)
+    elif checkpoint == "G1":
+        ev_result = _evaluate_g1_decision(run_kind)
+    elif checkpoint == "G2":
+        ev_result = _evaluate_g2_decision(run_kind, candidate_trace_id)
+    elif checkpoint == "G3":
+        ev_result = _evaluate_g3_decision(run_kind, diagram2_risk_result, execution_mode,
+                                           model_version, strategy_version)
+    elif checkpoint == "G4":
+        ev_result = _evaluate_g4_decision(run_kind, learning_accepted, learning_model_name,
+                                           learning_n_samples, learning_current_score,
+                                           learning_new_score, learning_max_drift,
+                                           learning_version_saved, learning_weights_hash)
+    elif checkpoint == "G5":
+        if not g5_target_state:
+            raise ValueError("require_governance_authorization: checkpoint='G5' requires g5_target_state")
+        ev_result = _evaluate_g5_decision(run_kind, g5_target_state)
+    else:
+        raise NotImplementedError(
+            f"require_governance_authorization: checkpoint {checkpoint!r} has no real policy "
+            f"evaluator wired yet -- refusing to fabricate a decision"
+        )
+
+    decision = ev_result["decision"]
+    reason_codes = list(ev_result["reason_codes"])
+    would_block = ev_result["would_block"]
+    mode = ev_result["mode"]
+    state = ev_result["system_state"]
+    db_error = ev_result["db_error"]
+    enforcement_status = ev_result["enforcement_status"]
+    enforcement_action = ev_result["enforcement_action"]
+    blocking = decision == "BLOCK"
+
+    ctx = get_trace_context() or {}
+    ctx_is_test = bool(ctx.get("is_test_record", is_test_record))
+    root_trace_id = candidate_trace_id or ctx.get("root_trace_id")
+    trace_id = candidate_trace_id or ctx.get("trace_id") or root_trace_id
+
+    governance_request_id = f"GREQ_{checkpoint}_{uuid.uuid4().hex}"
+    governance_decision_id = f"GDEC_{checkpoint}_{uuid.uuid4().hex}"
+    payload_hash = hashlib.sha256(_canonical_bytes(payload)).hexdigest() if payload is not None else None
+    decision_hash = hashlib.sha256(_canonical_bytes({
+        "governance_request_id": governance_request_id,
+        "checkpoint": checkpoint,
+        "decision": decision,
+        "reason_codes": reason_codes,
+        "blocking": blocking,
+    })).hexdigest()
+
+    ledger_event_id = None
+    out_request_id = None
+    out_decision_id = None
+    persist_error = None
+
+    try:
+        conn = _d3_connect()
+        try:
+            with conn.cursor() as cur:
+                # Correction (2) from architect review: SET LOCAL must run at
+                # the START of THIS transaction -- _d3_emit_event's own
+                # internal SET LOCAL only takes effect for whatever remains
+                # of an already-open transaction, which would leave the
+                # request INSERT below unbounded if we relied on it instead.
+                cur.execute("SET LOCAL lock_timeout = '2s'")
+                cur.execute("SET LOCAL statement_timeout = '5s'")
+                cur.execute(
+                    """
+                    INSERT INTO d3_governance_requests (
+                        governance_request_id, trace_id, root_trace_id, checkpoint,
+                        source_phase, requested_action, entrypoint, run_kind,
+                        trigger_source, architecture_version, model_version,
+                        strategy_version, configuration_version, payload_hash,
+                        timeout_ms, is_test_record
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (governance_request_id, trace_id, root_trace_id, checkpoint,
+                     source_phase, requested_action, entrypoint, run_kind,
+                     trigger_source, architecture_version, model_version,
+                     strategy_version, configuration_version, payload_hash,
+                     timeout_ms, ctx_is_test),
+                )
+
+            ev = _d3_emit_event(
+                governance_cycle_id=f"{checkpoint}_{entrypoint}_{uuid.uuid4().hex[:8]}",
+                governance_phase=f"{checkpoint}_GOVERNANCE_AUTHORIZATION",
+                governance_check_name="require_governance_authorization",
+                governance_function="require_governance_authorization",
+                governance_module="aiem_diagram3_governance",
+                started_at=started_at,
+                completed_at=datetime.datetime.utcnow(),
+                check_result="FAIL" if (would_block or db_error) else "PASS",
+                root_trace_id=root_trace_id,
+                diagram2_trace_id=candidate_trace_id,
+                ticker=candidate_ticker,
+                enforcement_action=enforcement_action,
+                enforcement_status=enforcement_status,
+                reason_code="|".join(reason_codes),
+                reason_detail=(
+                    f"entrypoint={entrypoint} run_kind={run_kind} trigger_source={trigger_source} "
+                    f"checkpoint={checkpoint} checkpoint_mode={mode} system_state={state} "
+                    f"decision={decision} would_block={would_block} db_error={db_error} "
+                    f"governance_request_id={governance_request_id}"
+                ),
+                producer_module="aiem_diagram3_governance",
+                producer_function="require_governance_authorization",
+                is_test_record=ctx_is_test,
+                conn=conn,
+            )
+            ledger_event_id = ev.get("id")
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO d3_governance_decisions (
+                        governance_decision_id, governance_request_id, trace_id,
+                        checkpoint, decision, blocking, reason_codes, policy_version,
+                        decision_hash, ledger_event_id, is_test_record
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (governance_decision_id, governance_request_id, trace_id,
+                     checkpoint, decision, blocking, psycopg2.extras.Json(reason_codes),
+                     "P3.5", decision_hash, ledger_event_id, ctx_is_test),
+                )
+            conn.commit()
+            out_request_id = governance_request_id
+            out_decision_id = governance_decision_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    except Exception as pe:
+        # Correction (3) from architect review: a persistence failure NEVER
+        # flips the already-computed decision. Disclose it via reason_codes
+        # and return everything else exactly as computed above.
+        persist_error = str(pe)
+        print(f"[d3_governance] require_governance_authorization PERSIST_FAILED "
+              f"checkpoint={checkpoint} entrypoint={entrypoint}: {pe}")
+        reason_codes = reason_codes + ["PERSIST_FAILED"]
+        ledger_event_id = None
+        out_request_id = None
+        out_decision_id = None
+
+    return {
+        "decision": decision,
+        "mode": mode,
+        "system_state": state,
+        "would_block": would_block,
+        "blocking": blocking,
+        "checkpoint": checkpoint,
+        "reason_code": "|".join(reason_codes),
+        "reason_codes": reason_codes,
+        "ledger_event_id": ledger_event_id,
+        "governance_request_id": out_request_id,
+        "governance_decision_id": out_decision_id,
+        "entrypoint": entrypoint,
+        "run_kind": run_kind,
+        "persist_error": persist_error,
+    }
 
 
 def g0_authorize_run(*, entrypoint: str, run_kind: str,
@@ -1088,101 +2719,244 @@ def g0_authorize_run(*, entrypoint: str, run_kind: str,
     G0 boot-authorization checkpoint. Call once per real invocation of a
     trade-executing entrypoint, before any trade-executing work begins.
 
-    run_kind: 'TRADE_EXECUTING' (can be blocked once G0 is in ENFORCE mode,
-    or fail-closed BLOCKed on an unrecovered DB error) or 'SCAN_ONLY' (never
-    blocked by G0 in this phase).
+    Backward-compatible thin wrapper around require_governance_authorization
+    (checkpoint='G0') -- kept so existing call sites and this exact function
+    name keep working unchanged. Prefer calling
+    require_governance_authorization(checkpoint='G0', ...) directly in new
+    code so the request_id/decision_id are visible for acknowledgement.
 
     Returns {decision: 'ALLOW'|'BLOCK', mode, system_state, would_block,
-    reason_code, ledger_event_id, entrypoint, run_kind}. Never fabricates a
-    PASS/ALLOW result on a real DB error for a TRADE_EXECUTING run outside
-    the bounded stale-cache-allow window described above.
+    reason_code, ledger_event_id, entrypoint, run_kind, ...}. Never
+    fabricates a PASS/ALLOW result on a real DB error for a TRADE_EXECUTING
+    run outside the bounded stale-cache-allow window described above.
     """
-    started_at = datetime.datetime.utcnow()
-    cfg = _g0_read_config()
-    mode = cfg.get("mode") or "SHADOW"
-    state = cfg.get("state") or "NORMAL"
-    db_error = cfg.get("error")
+    return require_governance_authorization(
+        checkpoint="G0",
+        entrypoint=entrypoint,
+        run_kind=run_kind,
+        trigger_source=trigger_source,
+        is_test_record=is_test_record,
+    )
+
+
+def acknowledge_governance_decision(*, governance_decision_id: Optional[str],
+                                     action_taken: str, continued: bool, blocked: bool,
+                                     acknowledged_by: str,
+                                     is_test_record: bool = False) -> Dict[str, Any]:
+    """
+    D2_GOVERNANCE_ACKNOWLEDGER (Section 12F ACKNOWLEDGEMENT record). NEVER
+    trusts a caller-supplied decision value -- always re-reads the REAL
+    decision + governance_request_id from d3_governance_decisions by
+    governance_decision_id first, then writes the ack with a composite FK
+    back to that exact (governance_decision_id, decision) pair. That FK
+    (not a Python-level convention) is what makes a false acknowledgement
+    (e.g. claiming a BLOCK decision said ALLOW) a physical DB impossibility
+    -- this is the mechanism TEST 12's negative control exercises.
+
+    Callers MUST wrap this in try/except and skip it entirely when
+    governance_decision_id is None (e.g. the synthetic fail-closed dict
+    returned when persistence itself failed, which has no real decision
+    row) -- an ack failure must NEVER alter trade flow, especially in a
+    BLOCK branch that has already released a lock / recorded a blocked
+    trade. This writes directly via psycopg2 (not CommunicationBus.publish,
+    which swallows exceptions) so a genuine constraint violation propagates
+    to the caller instead of being silently absorbed.
+    """
+    if not governance_decision_id:
+        raise ValueError("acknowledge_governance_decision requires a real governance_decision_id")
 
     ctx = get_trace_context() or {}
-    ctx_is_test = ctx.get("is_test_record", is_test_record)
-    root_trace_id = ctx.get("root_trace_id")
+    ctx_is_test = bool(ctx.get("is_test_record", is_test_record))
+    trace_id = ctx.get("trace_id") or ctx.get("root_trace_id")
 
-    # OFF means the checkpoint is fully disabled: unconditional ALLOW, no
-    # would_block evaluation, no DB-error fail-closed logic (there is nothing
-    # to fail closed on since this checkpoint isn't gating anything). This is
-    # intentionally NOT the same as SHADOW, which still evaluates and flags
-    # would_block for the proof window -- OFF is the "this checkpoint's
-    # judgment doesn't count right now" escape hatch, e.g. while the
-    # checkpoint itself is suspected broken. A lightweight ledger row is
-    # still emitted below for audit continuity.
-    if mode == "OFF":
-        decision, reason_code = "ALLOW", "CHECKPOINT_OFF"
-        would_block = False
-        enforcement_status, enforcement_action = "NOT_ENFORCED", "DISABLED"
-    else:
-        would_block = bool(run_kind == "TRADE_EXECUTING" and state in _D3_BLOCKING_SYSTEM_STATES)
-        reason_code = f"STATE_{state}" if would_block else "STATE_OK"
-        decision = "ALLOW"
-        enforcement_status = "NOT_ENFORCED"
-        enforcement_action = "ADVISORY_ONLY"
-
-        if db_error:
-            last_read_age = time.time() - cfg.get("ts", 0)
-            if mode == "SHADOW" and last_read_age < _G0_STALE_ALLOW_WINDOW_SECONDS:
-                decision = "ALLOW"
-                reason_code = "DB_ERROR_STALE_CACHE_ALLOW"
-            elif run_kind == "TRADE_EXECUTING":
-                decision = "BLOCK"
-                reason_code = "DB_ERROR_FAIL_CLOSED"
-            else:
-                decision = "ALLOW"
-                reason_code = "DB_ERROR_SCAN_ALLOWED"
-        elif mode == "ENFORCE" and would_block:
-            decision = "BLOCK"
-            enforcement_status = "ENFORCED"
-            enforcement_action = "BLOCKED"
-
-    ledger_event_id = None
+    conn = _d3_connect()
     try:
-        ev = _d3_emit_event(
-            governance_cycle_id=f"G0_{entrypoint}_{uuid.uuid4().hex[:8]}",
-            governance_phase="G0_BOOT_AUTHORIZATION",
-            governance_check_name="g0_authorize_run",
-            governance_function="g0_authorize_run",
-            governance_module="aiem_diagram3_governance",
-            started_at=started_at,
-            completed_at=datetime.datetime.utcnow(),
-            check_result="FAIL" if (would_block or db_error) else "PASS",
-            root_trace_id=root_trace_id,
-            enforcement_action=enforcement_action,
-            enforcement_status=enforcement_status,
-            reason_code=reason_code,
-            reason_detail=(
-                f"entrypoint={entrypoint} run_kind={run_kind} trigger_source={trigger_source} "
-                f"checkpoint_mode={mode} system_state={state} decision={decision} "
-                f"would_block={would_block} db_error={db_error}"
-            ),
-            producer_module="aiem_diagram3_governance",
-            producer_function="g0_authorize_run",
-            is_test_record=bool(ctx_is_test),
-        )
-        ledger_event_id = ev.get("id")
-    except Exception as le:
-        # A ledger-emit failure means this decision is unaudited -- it must
-        # NEVER flip an already-computed BLOCK to ALLOW or vice versa.
-        print(f"[d3_governance] g0_authorize_run ledger emit failed (decision unaffected): {le}")
-        reason_code = f"{reason_code}|LEDGER_EMIT_FAILED"
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL lock_timeout = '2s'")
+            cur.execute("SET LOCAL statement_timeout = '5s'")
+            cur.execute(
+                "SELECT governance_request_id, decision FROM d3_governance_decisions "
+                "WHERE governance_decision_id = %s",
+                (governance_decision_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(
+                    f"acknowledge_governance_decision: no decision row for "
+                    f"governance_decision_id={governance_decision_id}"
+                )
+            governance_request_id, decision_recorded = row
 
-    return {
-        "decision": decision,
-        "mode": mode,
-        "system_state": state,
-        "would_block": would_block,
-        "reason_code": reason_code,
-        "ledger_event_id": ledger_event_id,
-        "entrypoint": entrypoint,
-        "run_kind": run_kind,
-    }
+            governance_ack_id = f"GACK_{uuid.uuid4().hex}"
+            acknowledgement_hash = hashlib.sha256(_canonical_bytes({
+                "governance_ack_id": governance_ack_id,
+                "governance_decision_id": governance_decision_id,
+                "decision_recorded": decision_recorded,
+                "action_taken": action_taken,
+                "continued": bool(continued),
+                "blocked": bool(blocked),
+            })).hexdigest()
+
+            cur.execute(
+                """
+                INSERT INTO d3_governance_acks (
+                    governance_ack_id, governance_request_id, governance_decision_id,
+                    decision_recorded, trace_id, action_taken, continued, blocked,
+                    acknowledged_by, acknowledgement_hash, is_test_record
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (governance_ack_id, governance_request_id, governance_decision_id,
+                 decision_recorded, trace_id, action_taken, bool(continued), bool(blocked),
+                 acknowledged_by, acknowledgement_hash, ctx_is_test),
+            )
+        conn.commit()
+        return {
+            "governance_ack_id": governance_ack_id,
+            "governance_decision_id": governance_decision_id,
+            "governance_request_id": governance_request_id,
+            "decision_recorded": decision_recorded,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+_D3_GOVERNANCE_COMPONENTS_SEED = [
+    {
+        "component_name": "D2_EVENT_PUBLISHER",
+        "owner_diagram": "DIAGRAM_2",
+        "module_path": "aiem_master_orchestrator.py",
+        "function_or_class_name": "AEIMMasterOrchestrator.execute_stage",
+        "responsibility": (
+            "Publishes real-time D2 stage lifecycle events (stage_starting/"
+            "stage_completed/stage_failed) onto the shared CommunicationBus."
+        ),
+    },
+    {
+        "component_name": "D3_EVENT_CONSUMER",
+        "owner_diagram": "DIAGRAM_3",
+        "module_path": "aiem_diagram3_governance.py",
+        "function_or_class_name": "_on_bus_stage_event (via subscribe_to_bus)",
+        "responsibility": (
+            "Subscribes to the CommunicationBus and ledgers every real D2 "
+            "StageEvent as a hash-chained governance event (Path A observation)."
+        ),
+    },
+    {
+        "component_name": "D2_GOVERNANCE_CLIENT",
+        "owner_diagram": "DIAGRAM_2",
+        "module_path": "main.py",
+        "function_or_class_name": "_run_premarket_open_tracker, _aiem_paper_execute_today",
+        "responsibility": (
+            "Calls require_governance_authorization() (D3_GOVERNANCE_SERVICE) at each "
+            "real trade-executing entrypoint before allowing execution to proceed."
+        ),
+    },
+    {
+        "component_name": "D3_GOVERNANCE_SERVICE",
+        "owner_diagram": "DIAGRAM_3",
+        "module_path": "aiem_diagram3_governance.py",
+        "function_or_class_name": "require_governance_authorization",
+        "responsibility": (
+            "Evaluates the real checkpoint policy (G0 only as of P3.5) and persists "
+            "the request/decision/ledger-event triplet as one atomic transaction."
+        ),
+    },
+    {
+        "component_name": "D2_GOVERNANCE_ACKNOWLEDGER",
+        "owner_diagram": "DIAGRAM_2",
+        "module_path": "main.py",
+        "function_or_class_name": "_run_premarket_open_tracker, _aiem_paper_execute_today",
+        "responsibility": (
+            "Acknowledges the governance decision it received via "
+            "acknowledge_governance_decision() and records the real action D2 took "
+            "(continued/blocked)."
+        ),
+    },
+    {
+        "component_name": "D3_GOVERNANCE_LEDGER",
+        "owner_diagram": "DIAGRAM_3",
+        "module_path": "aiem_diagram3_governance.py",
+        "function_or_class_name": "_d3_emit_event",
+        "responsibility": (
+            "Appends the tamper-evident, hash-chained governance event ledger "
+            "(d3_governance_event_links) that every checkpoint decision and D2 "
+            "stage event is recorded into."
+        ),
+    },
+]
+
+
+def _seed_governance_components() -> Dict[str, Any]:
+    """
+    Upserts the 6 Section 12B named components with real module/function
+    names, and a REAL health signal derived from actual DB/process state --
+    never a hardcoded 'HEALTHY'. Called from d3_startup() on every boot, so
+    the registry always reflects the current binary, not a stale snapshot.
+    """
+    results = {}
+    try:
+        conn = _d3_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '5s'")
+                cur.execute("SELECT COUNT(*) FROM d3_governance_event_links "
+                            "WHERE producer_module = 'aiem_master_orchestrator'")
+                d2_publisher_events = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM d3_governance_event_links")
+                total_ledger_events = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM d3_governance_requests")
+                total_requests = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM d3_governance_decisions")
+                total_decisions = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM d3_governance_acks")
+                total_acks = cur.fetchone()[0]
+
+            health = {
+                "D2_EVENT_PUBLISHER": "ACTIVE" if d2_publisher_events > 0 else "NO_EVENTS_OBSERVED_YET",
+                "D3_EVENT_CONSUMER": "SUBSCRIBED" if _D3_BUS_SUBSCRIBED else "NOT_SUBSCRIBED",
+                "D2_GOVERNANCE_CLIENT": "REQUESTS_RECORDED" if total_requests > 0 else "NO_REQUESTS_YET",
+                "D3_GOVERNANCE_SERVICE": "DECISIONS_RECORDED" if total_decisions > 0 else "NO_DECISIONS_YET",
+                "D2_GOVERNANCE_ACKNOWLEDGER": "ACKS_RECORDED" if total_acks > 0 else "NO_ACKS_YET",
+                "D3_GOVERNANCE_LEDGER": "ACTIVE" if total_ledger_events > 0 else "NO_EVENTS_YET",
+            }
+
+            now = datetime.datetime.utcnow()
+            with conn.cursor() as cur:
+                for c in _D3_GOVERNANCE_COMPONENTS_SEED:
+                    name = c["component_name"]
+                    cur.execute(
+                        """
+                        INSERT INTO d3_governance_components (
+                            component_name, owner_diagram, module_path,
+                            function_or_class_name, responsibility, version, status,
+                            last_health_check_at, last_health_result
+                        ) VALUES (%s,%s,%s,%s,%s,%s,'ACTIVE',%s,%s)
+                        ON CONFLICT (component_name) DO UPDATE SET
+                            owner_diagram = EXCLUDED.owner_diagram,
+                            module_path = EXCLUDED.module_path,
+                            function_or_class_name = EXCLUDED.function_or_class_name,
+                            responsibility = EXCLUDED.responsibility,
+                            last_health_check_at = EXCLUDED.last_health_check_at,
+                            last_health_result = EXCLUDED.last_health_result
+                        """,
+                        (name, c["owner_diagram"], c["module_path"],
+                         c["function_or_class_name"], c["responsibility"], "1.0.0",
+                         now, health.get(name, "UNKNOWN")),
+                    )
+                    results[name] = health.get(name, "UNKNOWN")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        return {"status": "OK", "components": results}
+    except Exception as e:
+        print(f"[d3_governance] _seed_governance_components failed (non-fatal): {e}")
+        return {"status": "ERROR", "error": str(e), "components": results}
 
 
 def get_d3_system_state() -> Dict[str, Any]:
@@ -1200,7 +2974,8 @@ def get_d3_system_state() -> Dict[str, Any]:
 
 
 def get_d3_checkpoint_config() -> Dict[str, Any]:
-    """Real current rows from d3_checkpoint_config, all 5 checkpoints."""
+    """Real current rows from d3_checkpoint_config, all 6 checkpoints
+    (G0-G5; G1 added in P3.5, schema/seed-only until its own phase ships)."""
     with _d3_connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
@@ -1213,17 +2988,61 @@ def get_d3_checkpoint_config() -> Dict[str, Any]:
     return {"checkpoints": rows}
 
 
-def set_d3_system_state(*, state: str, reason: str, changed_by: str) -> Dict[str, Any]:
+def set_d3_system_state(*, state: str, reason: str, changed_by: str,
+                         _g5_authorized: bool = False,
+                         _expected_old_state: Optional[str] = None) -> Dict[str, Any]:
     """Real DB write to the d3_system_state singleton + append-only history
     row + ledger event. Immediately invalidates the G0 read cache so the new
-    state is honored on the very next call, not after a stale 5s window."""
+    state is honored on the very next call, not after a stale 5s window.
+
+    _g5_authorized is an internal-only flag. It must NEVER be passed True by
+    any caller except g5_authorize_resume() immediately after a real G5 ALLOW
+    decision has been persisted -- it exists purely so this function can
+    refuse (fail-closed, ValueError) any attempt to exit a recovery-gated
+    state (_D3_RECOVERY_GATED_STATES: PAUSED/RECOVERY_REQUIRED/
+    ROLLBACK_IN_PROGRESS) to a non-gated state through the raw admin
+    state-setter route or any other direct caller, which is exactly the
+    "resume trading with no authorization check" gap Section 12's Recovery
+    Orchestrator wiring exists to close. Transitions BETWEEN two gated
+    states, or INTO a gated state from anywhere, are real admin actions
+    (e.g. declaring PAUSED, or escalating PAUSED->ROLLBACK_IN_PROGRESS) and
+    remain unguarded here -- only an exit TO a non-gated state is a resume.
+
+    SELECT ... FOR UPDATE below serializes concurrent callers on the single
+    d3_system_state row (id=1), closing the plain race two simultaneous
+    writers would otherwise have. _expected_old_state (set only by
+    g5_authorize_resume, from the system_state _evaluate_g5_decision actually
+    verified recovery against) additionally closes the narrow TOCTOU window
+    between that verification read and this write: if the real state on disk
+    no longer matches what G5 verified against (e.g. a concurrent PAUSE
+    landed in between), this raises ValueError rather than silently
+    committing a resume decision that was verified against a state that no
+    longer holds -- a stale ALLOW is not honored just because it was real
+    when it was computed.
+    """
     if state not in _D3_SYSTEM_STATES:
         raise ValueError(f"invalid state {state!r}; must be one of {_D3_SYSTEM_STATES}")
     with _d3_connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT state FROM d3_system_state WHERE id = 1")
+            cur.execute("SELECT state FROM d3_system_state WHERE id = 1 FOR UPDATE")
             row = cur.fetchone()
             old_state = row[0] if row else None
+            if (old_state in _D3_RECOVERY_GATED_STATES
+                    and state not in _D3_RECOVERY_GATED_STATES
+                    and not _g5_authorized):
+                raise ValueError(
+                    f"set_d3_system_state: refusing to resume {old_state!r} -> {state!r} "
+                    f"without G5 recovery authorization -- call g5_authorize_resume() instead "
+                    f"of setting system state directly"
+                )
+            if (_g5_authorized and _expected_old_state is not None
+                    and old_state != _expected_old_state):
+                raise ValueError(
+                    f"set_d3_system_state: refusing stale G5 resume -- verified against "
+                    f"state {_expected_old_state!r} but live state is now {old_state!r} "
+                    f"(changed concurrently) -- re-run g5_authorize_resume to re-verify "
+                    f"against the current state"
+                )
             cur.execute(
                 """
                 INSERT INTO d3_system_state (id, state, reason, changed_by, changed_at)
@@ -1243,7 +3062,12 @@ def set_d3_system_state(*, state: str, reason: str, changed_by: str) -> Dict[str
                 (old_state, state, reason, changed_by),
             )
         conn.commit()
-    _g0_read_config(force=True)
+    # System state is shared across ALL checkpoints (d3_system_state is a
+    # single-row singleton, not per-checkpoint) -- invalidate every
+    # checkpoint's cached read, not just G0's, so a state change (e.g. into
+    # PAUSED) is honored immediately by G1 (and any future checkpoint) too.
+    for _cp in _D3_CHECKPOINTS:
+        _read_checkpoint_config(_cp, force=True)
     try:
         _d3_emit_event(
             governance_cycle_id=f"D3_SYSTEM_STATE_CHANGE_{uuid.uuid4().hex[:8]}",
@@ -1261,6 +3085,85 @@ def set_d3_system_state(*, state: str, reason: str, changed_by: str) -> Dict[str
     except Exception as e:
         print(f"[d3_governance] set_d3_system_state ledger emit failed (state change already committed): {e}")
     return {"old_state": old_state, "new_state": state, "changed_by": changed_by}
+
+
+def g5_authorize_resume(*, target_state: str, reason: str, changed_by: str,
+                         run_kind: str = "ADMIN_RECOVERY_RESUME",
+                         trigger_source: Optional[str] = None) -> Dict[str, Any]:
+    """
+    The ONE real entrypoint for "DIAGRAM 2 RECOVERY ORCHESTRATOR contacts
+    D3_GOVERNANCE_SERVICE at G5" (Section 12-13 addition) / CHECKPOINT G5:
+    RECOVERY AND RESUMPTION (Section 4) / "no protected operation may resume
+    without RESUME authorization" (Section 12-13). This is the only
+    supported way to exit a recovery-gated system state
+    (_D3_RECOVERY_GATED_STATES) back to a non-gated one -- the raw
+    `/stock-api/admin/d3/g0/system-state` setter now hard-refuses that exact
+    transition (see set_d3_system_state's _g5_authorized guard) so this
+    function cannot be silently bypassed.
+
+    Unlike G0-G4 (which gate a caller's OWN pending action -- the caller
+    still has to go do the trade/promotion/etc after an ALLOW), G5 is
+    different: ITS OWN ALLOW decision IS the resume. So after
+    require_governance_authorization(checkpoint='G5') persists the real
+    request/decision/ledger-event triplet, an ALLOW here immediately makes
+    the real set_d3_system_state() write (with _g5_authorized=True) as part
+    of the SAME call -- there is no separate "now go do the thing" step for
+    a caller to forget.
+
+    SHADOW mode note: per this codebase's existing G0-G4 convention, SHADOW
+    mode's decision is always ALLOW even when would_block is True (only
+    ENFORCE mode ever flips decision to BLOCK). G5 is seeded SHADOW at
+    startup, exactly like every other checkpoint (see the P3.5 seed INSERT),
+    as part of this codebase's deliberate phased-rollout convention -- an
+    operator must explicitly move it to ENFORCE via
+    set_d3_checkpoint_mode(checkpoint='G5', mode='ENFORCE', confirm=True)
+    for real resume verification to actually block. Until then, a resume
+    request that WOULD have been blocked in ENFORCE still actually resumes
+    the system in SHADOW -- this is an intentional consistency choice with
+    the rest of this codebase's mode semantics, not a gap invented for G5,
+    and it is surfaced verbatim in the /g5/status route's response and in
+    reason_codes so an operator can see it before relying on it.
+
+    TOCTOU note: the state this function's verification is actually valid
+    against is auth['system_state'] (what _evaluate_g5_decision read, via a
+    forced non-cached read -- see there), not whatever the live state
+    happens to be by the time this write runs. That value is passed through
+    to set_d3_system_state as _expected_old_state, which re-checks it under
+    a real row lock (SELECT ... FOR UPDATE) at write time and refuses
+    (ValueError, state_change_error surfaced below, decision NEVER flipped)
+    rather than silently resuming against a state that changed underneath
+    the verification between read and write.
+    """
+    if target_state not in _D3_SYSTEM_STATES:
+        raise ValueError(f"invalid target_state {target_state!r}; must be one of {_D3_SYSTEM_STATES}")
+
+    auth = require_governance_authorization(
+        checkpoint="G5",
+        entrypoint="g5_authorize_resume",
+        run_kind=run_kind,
+        requested_action=f"RESUME_TO_{target_state}",
+        payload={"target_state": target_state, "reason": reason},
+        trigger_source=trigger_source or "ADMIN",
+        g5_target_state=target_state,
+    )
+
+    result = {**auth, "state_change": None}
+
+    if auth["decision"] != "ALLOW":
+        return result
+
+    try:
+        state_change = set_d3_system_state(
+            state=target_state, reason=f"G5_AUTHORIZED_RESUME: {reason}",
+            changed_by=changed_by, _g5_authorized=True,
+            _expected_old_state=auth.get("system_state"),
+        )
+        result["state_change"] = state_change
+    except Exception as e:
+        result["reason_codes"] = list(auth.get("reason_codes") or []) + [f"RESUME_WRITE_FAILED:{e}"]
+        result["state_change_error"] = str(e)
+
+    return result
 
 
 def set_d3_checkpoint_mode(*, checkpoint: str, mode: str, reason: str,
@@ -1302,8 +3205,10 @@ def set_d3_checkpoint_mode(*, checkpoint: str, mode: str, reason: str,
                 (checkpoint, old_mode, mode, reason, changed_by),
             )
         conn.commit()
-    if checkpoint == "G0":
-        _g0_read_config(force=True)
+    # Only THIS checkpoint's mode changed -- invalidate just its cache entry
+    # (unlike system-state, mode is per-checkpoint, so G1's cache must not be
+    # force-refreshed just because G0's mode changed, and vice versa).
+    _read_checkpoint_config(checkpoint, force=True)
     try:
         _d3_emit_event(
             governance_cycle_id=f"D3_CHECKPOINT_MODE_CHANGE_{uuid.uuid4().hex[:8]}",
@@ -2916,8 +4821,147 @@ def install_d3_routes(app):
             return jsonify({
                 "system_state": get_d3_system_state(),
                 "checkpoint_config": get_d3_checkpoint_config(),
-                "g0_cache": dict(_G0_CONFIG_CACHE),
+                "g0_cache": dict(_CHECKPOINT_CONFIG_CACHE.get("G0", {})),
             })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g1/status", methods=["GET"])
+    def d3_g1_status():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            return jsonify({
+                "system_state": get_d3_system_state(),
+                "checkpoint_config": get_d3_checkpoint_config(),
+                "g1_cache": dict(_CHECKPOINT_CONFIG_CACHE.get("G1", {})),
+                "baseline_integrity": _g1_check_baseline_integrity(),
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g2/status", methods=["GET"])
+    def d3_g2_status():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            resp = {
+                "system_state": get_d3_system_state(),
+                "checkpoint_config": get_d3_checkpoint_config(),
+                "g2_cache": dict(_CHECKPOINT_CONFIG_CACHE.get("G2", {})),
+                "mandatory_stage_orders": list(_G2_MANDATORY_STAGE_ORDERS),
+            }
+            # Real stage-completeness lookup — only run when a real
+            # trace_id is passed in, never a fabricated default.
+            test_trace_id = request.args.get("trace_id")
+            if test_trace_id:
+                resp["stage_completeness_for_trace_id"] = _g2_check_stage_completeness(test_trace_id)
+            else:
+                try:
+                    resp["mandatory_check_names"] = _g2_mandatory_check_names()
+                except Exception as e:
+                    resp["mandatory_check_names_error"] = str(e)
+            return jsonify(resp)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g3/status", methods=["GET"])
+    def d3_g3_status():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            resp = {
+                "system_state": get_d3_system_state(),
+                "checkpoint_config": get_d3_checkpoint_config(),
+                "g3_cache": dict(_CHECKPOINT_CONFIG_CACHE.get("G3", {})),
+                "authorized_execution_modes": sorted(_G3_AUTHORIZED_EXECUTION_MODES),
+                "unresolved_critical_or_quarantine_actions": _g3_check_unresolved_actions(),
+            }
+            # Real lookups — only run when the caller passes the real
+            # version string it wants checked, never a fabricated default.
+            test_strategy_version = request.args.get("strategy_version")
+            if test_strategy_version:
+                resp["strategy_approval_for_version"] = _g3_check_strategy_approval(test_strategy_version)
+            test_model_version = request.args.get("model_version")
+            if test_model_version:
+                resp["model_approval_for_version"] = _g3_check_model_approval(test_model_version)
+            return jsonify(resp)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g4/status", methods=["GET"])
+    def d3_g4_status():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            resp = {
+                "system_state": get_d3_system_state(),
+                "checkpoint_config": get_d3_checkpoint_config(),
+                "g4_cache": dict(_CHECKPOINT_CONFIG_CACHE.get("G4", {})),
+                "min_samples": _G4_MIN_SAMPLES,
+                "max_score_drift": _G4_MAX_SCORE_DRIFT,
+            }
+            # Real lookups — only run when the caller passes the real
+            # model_name it wants checked, never a fabricated default.
+            test_model_name = request.args.get("model_name")
+            if test_model_name:
+                resp["rollback_artifact_for_model"] = _g4_check_rollback_artifact(test_model_name)
+                test_version = request.args.get("version")
+                test_hash = request.args.get("weights_hash")
+                if test_version and test_hash:
+                    resp["version_manifest_check"] = _g4_check_version_manifest(
+                        test_model_name, int(test_version), test_hash)
+            return jsonify(resp)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g5/status", methods=["GET"])
+    def d3_g5_status():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            cfg = _read_checkpoint_config("G5", force=True)
+            current_state = cfg.get("state") or "NORMAL"
+            resp = {
+                "system_state": get_d3_system_state(),
+                "checkpoint_config": get_d3_checkpoint_config(),
+                "g5_cache": dict(_CHECKPOINT_CONFIG_CACHE.get("G5", {})),
+                "recovery_gated_states": sorted(_D3_RECOVERY_GATED_STATES),
+                "is_recovery_gated_now": current_state in _D3_RECOVERY_GATED_STATES,
+                "mode_note": (
+                    "SHADOW mode never blocks a resume -- an ALLOW is issued and the state "
+                    "change is actually performed even if the recovery verification would "
+                    "have failed under ENFORCE. Move G5 to ENFORCE for real blocking."
+                ),
+            }
+            # Real on-demand check — only run when explicitly requested, since
+            # a full ledger-chain walk is not free and this is a status route,
+            # not the resume path itself.
+            if request.args.get("check_recovery") == "1":
+                resp["recovery_verification"] = _g5_check_recovery_verification()
+            return jsonify(resp)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g5/resume", methods=["POST"])
+    def d3_g5_resume():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+        target_state = body.get("target_state")
+        reason = body.get("reason")
+        changed_by = body.get("changed_by") or "ADMIN_API"
+        if not target_state or not reason:
+            return jsonify({"error": "target_state and reason are both required"}), 400
+        try:
+            result = g5_authorize_resume(
+                target_state=target_state, reason=reason, changed_by=changed_by,
+                trigger_source="ADMIN_API",
+            )
+            status_code = 200 if result["decision"] == "ALLOW" else 403
+            return jsonify(result), status_code
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -3235,7 +5279,7 @@ def install_d3_routes(app):
             return jsonify({"error": "unauthorized"}), 401
         return jsonify(check_action_status(action_id))
 
-    print("[d3_governance] 23 admin routes installed at /stock-api/admin/d3/")
+    print("[d3_governance] 34 admin routes installed at /stock-api/admin/d3/")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3467,9 +5511,34 @@ def request_governance_action(
     anything enforced at request time — enforcement (if any) can only be
     assessed afterward via `check_action_status()`, and even then caps out
     at ADVISORY_ACKNOWLEDGED / NOT_ENFORCED.
+
+    TEST J (automatic test-propagation) fix: this used to take
+    `is_test_record` ONLY as an explicit keyword argument and never
+    consulted the ambient `trace_context()` set by an upstream caller
+    (e.g. a G0-G5 authorization already running inside
+    `with trace_context(root_trace_id=..., is_test_record=True):`) --
+    meaning a real governance action requested downstream of a labeled
+    TEST root event (e.g. the PHASE_6_LEARNING_APPROVAL REJECT action or
+    the PHASE_9_ROLLBACK_MANAGEMENT drift-review action) would silently
+    fall back to is_test_record=False and mislabel a TEST-originated
+    action as real production data. Now mirrors the exact same
+    `ctx.get("is_test_record", is_test_record)` precedence already used by
+    `require_governance_authorization` / `acknowledge_governance_decision`
+    -- an active ambient context always wins over the caller's own default,
+    and an explicit caller-supplied is_test_record=True still works when
+    there is no ambient context (e.g. aiem_diagram3_g5_verify.py's direct
+    calls). root_trace_id is also now forwarded to the underlying ledger
+    event when the ambient context carries a real one -- `d3_governance_actions`
+    itself has no trace_id/root_trace_id column (these are cross-cutting
+    system actions, not always anchored to one candidate trace), so that
+    part of the promise is necessarily scoped to the ledger event only;
+    this is disclosed, not silently patched over.
     """
     action_id = uuid.uuid4().hex
     now = datetime.datetime.utcnow()
+    ctx = get_trace_context() or {}
+    ctx_is_test = bool(ctx.get("is_test_record", is_test_record))
+    ctx_root_trace_id = ctx.get("root_trace_id")
     try:
         event = _d3_emit_event(
             governance_cycle_id=f"ACTION_{action_id}",
@@ -3479,13 +5548,14 @@ def request_governance_action(
             started_at=now,
             completed_at=now,
             check_result="ACTION_REQUESTED",
+            root_trace_id=ctx_root_trace_id,
             strategy_id=target_id if target_type == "strategy" else None,
             reason_code=action_type,
             reason_detail=reason,
             enforcement_action=action_type,
             enforcement_status="REQUESTED",
             output_payload={"target_type": target_type, "target_id": target_id, "reason": reason},
-            is_test_record=is_test_record,
+            is_test_record=ctx_is_test,
             producer_module="aiem_diagram3_governance",
             producer_function="request_governance_action",
         )
@@ -3503,7 +5573,7 @@ def request_governance_action(
                        VALUES (%s,%s,%s,%s,%s,%s,%s,'REQUESTED',%s)
                        RETURNING id, action_id, status""",
                     (action_id, event["id"], phase, action_type,
-                     target_type, target_id, reason, is_test_record),
+                     target_type, target_id, reason, ctx_is_test),
                 )
                 row = dict(cur.fetchone())
             conn.commit()
@@ -3643,6 +5713,13 @@ def d3_startup():
         )
     except Exception as _sub_e:
         print(f"[d3_governance] bus subscription FAILED (non-fatal, D2 stage events will NOT be ledgered): {_sub_e}")
+
+    try:
+        comp_result = _seed_governance_components()
+        print(f"[d3_governance] Section 12B component registry: {comp_result.get('status')} "
+              f"{comp_result.get('components')}")
+    except Exception as _comp_e:
+        print(f"[d3_governance] component registry seed FAILED (non-fatal): {_comp_e}")
 
     result = run_phase0_baseline_freeze(force=False)
     status = result.get("status", "ERROR")

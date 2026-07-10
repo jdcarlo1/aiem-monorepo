@@ -3712,7 +3712,8 @@ try:
             # this entire tick's writes.
             try:
                 import aiem_diagram3_governance as _d3_g0_pot
-                _g0_pot_result = _d3_g0_pot.g0_authorize_run(
+                _g0_pot_result = _d3_g0_pot.require_governance_authorization(
+                    checkpoint="G0",
                     entrypoint="_run_premarket_open_tracker",
                     run_kind="TRADE_EXECUTING",
                     trigger_source="scheduled_premarket_open_tracker",
@@ -3723,18 +3724,54 @@ try:
                       f"fail-closed BLOCK: {_g0_pot_e}")
                 _g0_pot_result = {"decision": "BLOCK",
                                    "reason_code": f"G0_CHECK_EXCEPTION:{_g0_pot_e}",
-                                   "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True}
+                                   "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                                   "governance_decision_id": None}
+
+            # Acknowledge whatever G0 decided (D2_GOVERNANCE_ACKNOWLEDGER,
+            # Section 12F). Skipped entirely when governance_decision_id is
+            # None (e.g. the synthetic fail-closed dict above, or a real
+            # PERSIST_FAILED from require_governance_authorization -- neither
+            # has a real decision row to acknowledge against). An ack
+            # failure is caught and logged but NEVER changes trade flow.
+            _g0_pot_gdid = _g0_pot_result.get("governance_decision_id")
 
             if _g0_pot_result.get("decision") == "BLOCK":
                 print(f"[scheduler] premarket_open_tracker G0 BLOCKED this tick — "
                       f"{_g0_pot_result.get('reason_code')} "
                       f"(system_state={_g0_pot_result.get('system_state')}, "
                       f"checkpoint_mode={_g0_pot_result.get('mode')})")
+                if _g0_pot_gdid:
+                    try:
+                        _d3_g0_pot.acknowledge_governance_decision(
+                            governance_decision_id=_g0_pot_gdid,
+                            action_taken="TICK_SKIPPED_G0_BLOCK",
+                            continued=False,
+                            blocked=True,
+                            acknowledged_by="_run_premarket_open_tracker",
+                            is_test_record=False,
+                        )
+                    except Exception as _g0_pot_ack_e:
+                        print(f"[scheduler] premarket_open_tracker G0 ack (BLOCK) failed, "
+                              f"non-fatal: {_g0_pot_ack_e}")
                 return
-            elif _g0_pot_result.get("would_block"):
-                print(f"[scheduler] premarket_open_tracker G0 SHADOW: would have blocked this tick — "
-                      f"{_g0_pot_result.get('reason_code')} "
-                      f"(ledger_event_id={_g0_pot_result.get('ledger_event_id')})")
+            else:
+                if _g0_pot_result.get("would_block"):
+                    print(f"[scheduler] premarket_open_tracker G0 SHADOW: would have blocked this tick — "
+                          f"{_g0_pot_result.get('reason_code')} "
+                          f"(ledger_event_id={_g0_pot_result.get('ledger_event_id')})")
+                if _g0_pot_gdid:
+                    try:
+                        _d3_g0_pot.acknowledge_governance_decision(
+                            governance_decision_id=_g0_pot_gdid,
+                            action_taken="PROCEEDING_WITH_TICK",
+                            continued=True,
+                            blocked=False,
+                            acknowledged_by="_run_premarket_open_tracker",
+                            is_test_record=False,
+                        )
+                    except Exception as _g0_pot_ack_e:
+                        print(f"[scheduler] premarket_open_tracker G0 ack (ALLOW) failed, "
+                              f"non-fatal: {_g0_pot_ack_e}")
 
             _quotes = _td_quotes(_candidates)
             for _t in _candidates:
@@ -41714,7 +41751,8 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
     # than silently returning, matching the SKIPPED_LOCK_HELD precedent above.
     try:
         import aiem_diagram3_governance as _d3_g0
-        _g0_result = _d3_g0.g0_authorize_run(
+        _g0_result = _d3_g0.require_governance_authorization(
+            checkpoint="G0",
             entrypoint="_aiem_paper_execute_today",
             run_kind="TRADE_EXECUTING",
             trigger_source=trigger_source,
@@ -41723,7 +41761,15 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
     except Exception as _g0e:
         print(f"[aiem_paper] G0 checkpoint itself raised — fail-closed BLOCK: {_g0e}")
         _g0_result = {"decision": "BLOCK", "reason_code": f"G0_CHECK_EXCEPTION:{_g0e}",
-                      "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True}
+                      "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                      "governance_decision_id": None}
+
+    # Acknowledge whatever G0 decided (D2_GOVERNANCE_ACKNOWLEDGER, Section
+    # 12F). Skipped entirely when governance_decision_id is None (synthetic
+    # fail-closed dict above, or a real PERSIST_FAILED — neither has a real
+    # decision row). Wrapped so an ack failure NEVER alters trade flow —
+    # in particular it must never skip the lock release below.
+    _g0_gdid = _g0_result.get("governance_decision_id")
 
     if _g0_result.get("decision") == "BLOCK":
         print(f"[aiem_paper] G0 BLOCKED this run — {_g0_result.get('reason_code')} "
@@ -41738,11 +41784,36 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                 _blc.commit()
         except Exception as _ble:
             print(f"[aiem_paper] BLOCKED_G0 log error: {_ble}")
+        if _g0_gdid:
+            try:
+                _d3_g0.acknowledge_governance_decision(
+                    governance_decision_id=_g0_gdid,
+                    action_taken="RUN_BLOCKED_G0",
+                    continued=False,
+                    blocked=True,
+                    acknowledged_by="_aiem_paper_execute_today",
+                    is_test_record=False,
+                )
+            except Exception as _g0_ack_e:
+                print(f"[aiem_paper] G0 ack (BLOCK) failed, non-fatal: {_g0_ack_e}")
         _AIEM_PAPER_LOCK.release()
         return
-    elif _g0_result.get("would_block"):
-        print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "
-              f"(ledger_event_id={_g0_result.get('ledger_event_id')})")
+    else:
+        if _g0_result.get("would_block"):
+            print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "
+                  f"(ledger_event_id={_g0_result.get('ledger_event_id')})")
+        if _g0_gdid:
+            try:
+                _d3_g0.acknowledge_governance_decision(
+                    governance_decision_id=_g0_gdid,
+                    action_taken="PROCEEDING_WITH_RUN",
+                    continued=True,
+                    blocked=False,
+                    acknowledged_by="_aiem_paper_execute_today",
+                    is_test_record=False,
+                )
+            except Exception as _g0_ack_e:
+                print(f"[aiem_paper] G0 ack (ALLOW) failed, non-fatal: {_g0_ack_e}")
 
     _exec_id = None
     try:
@@ -41786,23 +41857,49 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
             return
         _tg_entry_lines = []  # collect for consolidated Telegram
 
+        # ── Data-guard bus publish helper (Section 12 wiring gap fix) ────────
+        # kill_switch/daily_loss_limit/portfolio_correlation_risk previously
+        # only printed/logged their outcome — the Communication Bus (Diagram 2
+        # stage 3, "data_guards") never heard about it. Batch-level (ticker=
+        # None, one shared trace id for this run) since these are once-per-
+        # run checks, not per-ticker. Never raises: a bus outage must never
+        # affect trading.
+        import uuid as _dg_uuid
+        _dg_trace_id = f"DATA_GUARDS_{_today.isoformat()}_{_dg_uuid.uuid4().hex[:8]}"
+
+        def _dg_bus_publish(event_type, payload):
+            try:
+                import aiem_communication_bus as _dg_abus
+                _dg_abus.get_bus().publish(_dg_abus.StageEvent(
+                    trace_id=_dg_trace_id, ticker=None, stage_order=3,
+                    stage_name="data_guards", event_type=event_type,
+                    component_name="_aiem_paper_execute_today", payload=payload,
+                ))
+            except Exception as _dg_be:
+                print(f"[aiem_paper] data_guards bus publish warning (non-fatal): {_dg_be}")
+
         # ── Kill-switch gate (spec §7, aiem_position_sizing) ─────────────────
         # Checked BEFORE fetching quotes or placing any position.
+        _ks_outcome = "SKIPPED_NO_POS_SIZER"
         if _pos_sizer:
             try:
                 from kill_switch import _is_currently_halted as _ks_halted
                 _ks_reason = _ks_halted()
                 if _ks_reason:
                     print(f"[aiem_paper] KILL SWITCH HALTED — no trades today: {_ks_reason}")
+                    _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "kill_switch", "reason": _ks_reason})
                     _log_finish("SKIPPED", _trades=0, _err=f"kill_switch: {_ks_reason}")
                     return
+                _ks_outcome = "CLEAR"
             except Exception as _kse:
                 print(f"[aiem_paper] kill_switch check warning (proceeding): {_kse}")
+                _ks_outcome = f"ERRORED_OPEN:{_kse}"
 
         # ── Daily loss limit gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
         # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
         # daily_loss_limit.py fails closed (halt_trading=True) if ACCOUNT_VALUE_BASELINE is
         # not configured, so this can legitimately halt trading until that env var is set.
+        _dll_outcome = "CLEAR"
         try:
             _dll_result = _daily_loss_check(_DB_URL)
             if _dll_result.get("halt_trading"):
@@ -41811,25 +41908,124 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                     f"-{_dll_result.get('loss_limit_pct')}"
                 )
                 print(f"[aiem_paper] DAILY LOSS LIMIT HALTED — no trades today: {_dll_reason}")
+                _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "daily_loss_limit", "reason": _dll_reason})
                 _log_finish("SKIPPED", _trades=0, _err=f"daily_loss_limit: {_dll_reason}")
                 return
         except Exception as _dlle:
             print(f"[aiem_paper] daily_loss_limit check warning (proceeding): {_dlle}")
+            _dll_outcome = f"ERRORED_OPEN:{_dlle}"
 
         # ── Portfolio correlation risk gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
         # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
         # portfolio_correlation_risk.py has no halt_trading field of its own — a flagged
         # concentration on the CURRENT open book (>=3 open positions in one correlation
         # group) halts today's NEW trade batch so no more correlated risk is added on top.
+        _pcr_outcome = "CLEAR"
         try:
             _pcr_result = _portfolio_corr_risk(_DB_URL)
             if _pcr_result.get("concentration_risk_flag"):
                 _pcr_reason = "; ".join(_pcr_result.get("warnings") or []) or "concentration risk flagged"
                 print(f"[aiem_paper] PORTFOLIO CONCENTRATION RISK HALTED — no new trades today: {_pcr_reason}")
+                _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "portfolio_correlation_risk", "reason": _pcr_reason})
                 _log_finish("SKIPPED", _trades=0, _err=f"portfolio_correlation_risk: {_pcr_reason}")
                 return
         except Exception as _pcre:
             print(f"[aiem_paper] portfolio_correlation_risk check warning (proceeding): {_pcre}")
+            _pcr_outcome = f"ERRORED_OPEN:{_pcre}"
+
+        # All three real D2 data guards cleared, OR errored open with a
+        # warning (same fail-open convention each already had individually
+        # before G1 existed — G1 does not change that behavior, it only
+        # observes and records it honestly). Per-gate outcome payload for
+        # G1's own audit trail reflects what ACTUALLY happened on this run
+        # (CLEAR / ERRORED_OPEN:<exception> / SKIPPED_NO_POS_SIZER) — never
+        # a fabricated blanket "CLEAR" regardless of real outcome.
+        _dg_outcomes = {
+            "kill_switch": _ks_outcome,
+            "daily_loss_limit": _dll_outcome,
+            "portfolio_correlation_risk": _pcr_outcome,
+        }
+        _dg_bus_publish("DATA_GUARDS_PASSED", _dg_outcomes)
+
+        # ── G1 data-guard-completion checkpoint (Path B P3.6) ─────────────────
+        # Real DB-backed governance check, once per batch, right after the
+        # three real D2 data guards above have all cleared. G1 does NOT
+        # re-decide those three outcomes — it evaluates D3's OWN integrity
+        # (checkpoint mode/system state, same skeleton as G0) plus a NEW
+        # architecture-baseline-hash comparison, and carries the three real
+        # outcomes above as an audit payload. While G1 is in SHADOW mode
+        # (the only mode it runs in today) this can never actually block a
+        # run — it only records what an ENFORCE-mode gate would have done.
+        try:
+            import aiem_diagram3_governance as _d3_g1
+            _g1_result = _d3_g1.require_governance_authorization(
+                checkpoint="G1",
+                entrypoint="_aiem_paper_execute_today",
+                run_kind="TRADE_EXECUTING",
+                source_phase="data_guards",
+                trigger_source=trigger_source,
+                payload={"data_guard_outcomes": _dg_outcomes, "trace_id": _dg_trace_id},
+                is_test_record=False,
+            )
+        except Exception as _g1e:
+            print(f"[aiem_paper] G1 checkpoint itself raised — fail-closed BLOCK: {_g1e}")
+            _g1_result = {"decision": "BLOCK", "reason_code": f"G1_CHECK_EXCEPTION:{_g1e}",
+                          "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                          "governance_decision_id": None}
+
+        _g1_gdid = _g1_result.get("governance_decision_id")
+
+        if _g1_result.get("decision") == "BLOCK":
+            print(f"[aiem_paper] G1 BLOCKED this run — {_g1_result.get('reason_code')} "
+                  f"(system_state={_g1_result.get('system_state')}, checkpoint_mode={_g1_result.get('mode')})")
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=4) as _blc1, _blc1.cursor() as _blcu1:
+                    _blcu1.execute(
+                        "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                        "VALUES ('BLOCKED_G1', %s, %s)",
+                        (trigger_source, f"G1 governance checkpoint blocked this run: {_g1_result.get('reason_code')}"),
+                    )
+                    _blc1.commit()
+            except Exception as _ble1:
+                print(f"[aiem_paper] BLOCKED_G1 log error: {_ble1}")
+            if _g1_gdid:
+                try:
+                    _d3_g1.acknowledge_governance_decision(
+                        governance_decision_id=_g1_gdid,
+                        action_taken="RUN_BLOCKED_G1",
+                        continued=False,
+                        blocked=True,
+                        acknowledged_by="_aiem_paper_execute_today",
+                        is_test_record=False,
+                    )
+                except Exception as _g1_ack_e:
+                    print(f"[aiem_paper] G1 ack (BLOCK) failed, non-fatal: {_g1_ack_e}")
+            # NOTE: unlike the G0 BLOCK branch above (which runs BEFORE the
+            # outer try/finally at ~41845/42728 and therefore must release
+            # the lock itself), this G1 BLOCK branch runs INSIDE that same
+            # try/finally — the finally already calls
+            # _AIEM_PAPER_LOCK.release() unconditionally on any return path.
+            # An explicit release here would double-release the lock and
+            # raise RuntimeError('release unlocked lock') from the finally,
+            # escaping as an unhandled exception (architect-caught bug,
+            # fixed same session before any real G1 BLOCK could hit prod).
+            return
+        else:
+            if _g1_result.get("would_block"):
+                print(f"[aiem_paper] G1 SHADOW: would have blocked this run — {_g1_result.get('reason_code')} "
+                      f"(ledger_event_id={_g1_result.get('ledger_event_id')})")
+            if _g1_gdid:
+                try:
+                    _d3_g1.acknowledge_governance_decision(
+                        governance_decision_id=_g1_gdid,
+                        action_taken="PROCEEDING_WITH_RUN",
+                        continued=True,
+                        blocked=False,
+                        acknowledged_by="_aiem_paper_execute_today",
+                        is_test_record=False,
+                    )
+                except Exception as _g1_ack_e:
+                    print(f"[aiem_paper] G1 ack (ALLOW) failed, non-fatal: {_g1_ack_e}")
 
         # ── AIEM v3 Macro Gate (Phase 2) ──────────────────────────────────────
         # Hard block if macro regime is BEAR_SEVERE (score < 20).
@@ -42393,6 +42589,154 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                         )
                     except Exception as _sup_h3_e:
                         print(f"[supervisor] hook3_final_decision skipped: {_sup_h3_e}")
+
+                # ── G2 pre-decision trace-integrity checkpoint (Path B P4) ────
+                # Real per-CANDIDATE DB-backed check, immediately before THIS
+                # candidate's trade is inserted into aiem_paper_trades.
+                # Confirms every mandatory D2 stage (1-17) was actually
+                # observed via the real CommunicationBus for _d2_trace_id.
+                # While G2 is in SHADOW mode (the only mode it runs in today)
+                # this can never actually skip a candidate — it only records
+                # what an ENFORCE-mode gate would have done. A BLOCK skips
+                # only THIS ticker (`continue`) — it must never abort the
+                # whole batch or touch _AIEM_PAPER_LOCK (held once per batch
+                # by the caller, not per-candidate; untouched by this branch).
+                try:
+                    import aiem_diagram3_governance as _d3_g2
+                    _g2_result = _d3_g2.require_governance_authorization(
+                        checkpoint="G2",
+                        entrypoint="_aiem_paper_execute_today",
+                        run_kind="TRADE_EXECUTING",
+                        source_phase="decision_engine",
+                        trigger_source=trigger_source,
+                        payload={"ticker": _t, "diagram2_trace_id": _d2_trace_id},
+                        candidate_trace_id=_d2_trace_id,
+                        candidate_ticker=_t,
+                        is_test_record=False,
+                    )
+                except Exception as _g2e:
+                    print(f"[aiem_paper] G2 checkpoint itself raised for {_t} — fail-closed BLOCK: {_g2e}")
+                    _g2_result = {"decision": "BLOCK", "reason_code": f"G2_CHECK_EXCEPTION:{_g2e}",
+                                  "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                                  "governance_decision_id": None}
+
+                _g2_gdid = _g2_result.get("governance_decision_id")
+
+                if _g2_result.get("decision") == "BLOCK":
+                    print(f"[aiem_paper] G2 BLOCKED candidate {_t} — {_g2_result.get('reason_code')} "
+                          f"(system_state={_g2_result.get('system_state')}, checkpoint_mode={_g2_result.get('mode')})")
+                    if _g2_gdid:
+                        try:
+                            _d3_g2.acknowledge_governance_decision(
+                                governance_decision_id=_g2_gdid,
+                                action_taken="CANDIDATE_SKIPPED_G2",
+                                continued=False,
+                                blocked=True,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g2_ack_e:
+                            print(f"[aiem_paper] G2 ack (BLOCK) failed, non-fatal: {_g2_ack_e}")
+                    # G2 runs per-candidate INSIDE the per-ticker loop — unlike
+                    # G0/G1's once-per-batch BLOCK (which returns from the
+                    # whole function), a G2 BLOCK skips only THIS candidate.
+                    # No lock is acquired/released in this branch, so
+                    # `continue` is safe and cannot double-release anything.
+                    continue
+                else:
+                    if _g2_result.get("would_block"):
+                        print(f"[aiem_paper] G2 SHADOW: would have blocked candidate {_t} — {_g2_result.get('reason_code')} "
+                              f"(ledger_event_id={_g2_result.get('ledger_event_id')})")
+                    if _g2_gdid:
+                        try:
+                            _d3_g2.acknowledge_governance_decision(
+                                governance_decision_id=_g2_gdid,
+                                action_taken="PROCEEDING_WITH_CANDIDATE",
+                                continued=True,
+                                blocked=False,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g2_ack_e:
+                            print(f"[aiem_paper] G2 ack (ALLOW) failed, non-fatal: {_g2_ack_e}")
+
+                # ── G3 pre-execution governance authorization (Path B P5) ──────
+                # Real per-CANDIDATE check, immediately before THIS candidate's
+                # trade is inserted into aiem_paper_trades. diagram2_risk_result
+                # is the real upstream sizing-gate verdict for this candidate —
+                # by construction it is always "PASS" here (any other
+                # _sizing_gate value already `continue`d above, before G2 even
+                # ran), but it is still computed and passed explicitly rather
+                # than assumed, so G3's D2_RISK_REJECTED short-circuit is a real
+                # structural guarantee, not a value nobody ever checks.
+                # execution_mode="PAPER" is this system's only real execution
+                # mode (no live broker adapter exists anywhere in this
+                # codebase). strategy_version=pick["source"] is checked against
+                # d3_strategy_registry; model_version is honestly None (no
+                # pick source in this function attaches a per-candidate model
+                # version today).
+                _g3_diagram2_risk_result = "PASS" if _sizing_gate in ("APPROVED", "PARAMS_NOT_CONFIRMED") else "REJECT"
+                try:
+                    import aiem_diagram3_governance as _d3_g3
+                    _g3_result = _d3_g3.require_governance_authorization(
+                        checkpoint="G3",
+                        entrypoint="_aiem_paper_execute_today",
+                        run_kind="TRADE_EXECUTING",
+                        source_phase="decision_engine",
+                        trigger_source=trigger_source,
+                        payload={"ticker": _t, "diagram2_trace_id": _d2_trace_id,
+                                 "sizing_gate": _sizing_gate},
+                        candidate_trace_id=_d2_trace_id,
+                        candidate_ticker=_t,
+                        diagram2_risk_result=_g3_diagram2_risk_result,
+                        execution_mode="PAPER",
+                        strategy_version=pick["source"],
+                        model_version=None,
+                        is_test_record=False,
+                    )
+                except Exception as _g3e:
+                    print(f"[aiem_paper] G3 checkpoint itself raised for {_t} — fail-closed BLOCK: {_g3e}")
+                    _g3_result = {"decision": "BLOCK", "reason_code": f"G3_CHECK_EXCEPTION:{_g3e}",
+                                  "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                                  "governance_decision_id": None}
+
+                _g3_gdid = _g3_result.get("governance_decision_id")
+
+                if _g3_result.get("decision") == "BLOCK":
+                    print(f"[aiem_paper] G3 BLOCKED candidate {_t} — {_g3_result.get('reason_code')} "
+                          f"(system_state={_g3_result.get('system_state')}, checkpoint_mode={_g3_result.get('mode')})")
+                    if _g3_gdid:
+                        try:
+                            _d3_g3.acknowledge_governance_decision(
+                                governance_decision_id=_g3_gdid,
+                                action_taken="CANDIDATE_SKIPPED_G3",
+                                continued=False,
+                                blocked=True,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g3_ack_e:
+                            print(f"[aiem_paper] G3 ack (BLOCK) failed, non-fatal: {_g3_ack_e}")
+                    # G3 runs per-candidate INSIDE the per-ticker loop, exactly
+                    # like G2 — a BLOCK skips only THIS candidate. No lock is
+                    # acquired/released in this branch, so `continue` is safe.
+                    continue
+                else:
+                    if _g3_result.get("would_block"):
+                        print(f"[aiem_paper] G3 SHADOW: would have blocked candidate {_t} — {_g3_result.get('reason_code')} "
+                              f"(ledger_event_id={_g3_result.get('ledger_event_id')})")
+                    if _g3_gdid:
+                        try:
+                            _d3_g3.acknowledge_governance_decision(
+                                governance_decision_id=_g3_gdid,
+                                action_taken="PROCEEDING_WITH_CANDIDATE",
+                                continued=True,
+                                blocked=False,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g3_ack_e:
+                            print(f"[aiem_paper] G3 ack (ALLOW) failed, non-fatal: {_g3_ack_e}")
 
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
@@ -61579,19 +61923,99 @@ def admin_approve_learning_proposal(proposal_id):
     try:
         with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
             cur.execute("""
-                SELECT model_name, version_saved, accepted, promoted
+                SELECT model_name, version_saved, accepted, promoted,
+                       n_samples, current_score, new_score, max_drift_observed,
+                       weights_hash
                 FROM aiem_learning_proposals WHERE id=%s
             """, (proposal_id,))
             row = cur.fetchone()
         if not row:
             return jsonify({"error": f"proposal {proposal_id} not found"}), 404
-        model_name, version_saved, accepted, promoted = row
+        (model_name, version_saved, accepted, promoted,
+         n_samples, current_score, new_score, max_drift_observed,
+         weights_hash) = row
         if not accepted:
             return jsonify({"error": "proposal was rejected by drift/perf gates — cannot promote"}), 400
         if promoted:
             return jsonify({"error": "already promoted"}), 400
         if not version_saved:
             return jsonify({"error": "no version_saved on this proposal"}), 400
+
+        # ── G4 learning/model promotion governance authorization (Path B P6) ──
+        # Real single choke-point immediately before the real promotion write
+        # below (online_learning.rollback_to_version + promoted=TRUE UPDATE) —
+        # mirrors G3's "gate immediately before the real write" pattern. All
+        # fields passed are this exact proposal row's real values, never
+        # fabricated defaults. See _evaluate_g4_decision docstring for the
+        # honest, disclosed gap this does NOT close (discovery_cycle_signal_
+        # weights auto-promotes elsewhere with zero D3 involvement).
+        try:
+            import aiem_diagram3_governance as _d3_g4
+            _g4_result = _d3_g4.require_governance_authorization(
+                checkpoint="G4",
+                entrypoint="admin_approve_learning_proposal",
+                run_kind="TRADE_EXECUTING",
+                source_phase="phase6_learning_approval",
+                requested_action="PROMOTE_MODEL_VERSION",
+                trigger_source="admin_manual",
+                payload={"proposal_id": proposal_id, "model_name": model_name,
+                         "version_saved": version_saved},
+                model_version=str(version_saved),
+                learning_accepted=bool(accepted),
+                learning_model_name=model_name,
+                learning_n_samples=n_samples,
+                learning_current_score=current_score,
+                learning_new_score=new_score,
+                learning_max_drift=max_drift_observed,
+                learning_version_saved=version_saved,
+                learning_weights_hash=weights_hash,
+                is_test_record=False,
+            )
+        except Exception as _g4e:
+            print(f"[admin_approve_learning_proposal] G4 checkpoint itself raised — "
+                  f"fail-closed BLOCK: {_g4e}")
+            _g4_result = {"decision": "BLOCK", "reason_code": f"G4_CHECK_EXCEPTION:{_g4e}",
+                          "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                          "governance_decision_id": None}
+
+        _g4_gdid = _g4_result.get("governance_decision_id")
+
+        if _g4_result.get("decision") == "BLOCK":
+            if _g4_gdid:
+                try:
+                    _d3_g4.acknowledge_governance_decision(
+                        governance_decision_id=_g4_gdid,
+                        action_taken="PROMOTION_BLOCKED_G4",
+                        continued=False,
+                        blocked=True,
+                        acknowledged_by="admin_approve_learning_proposal",
+                        is_test_record=False,
+                    )
+                except Exception as _g4_ack_e:
+                    print(f"[admin_approve_learning_proposal] G4 ack (BLOCK) failed, non-fatal: {_g4_ack_e}")
+            return jsonify({
+                "error": "blocked by G4 learning/model promotion governance gate",
+                "reason_code": _g4_result.get("reason_code"),
+                "checkpoint_mode": _g4_result.get("mode"),
+                "governance_decision_id": _g4_gdid,
+            }), 409
+        else:
+            if _g4_result.get("would_block"):
+                print(f"[admin_approve_learning_proposal] G4 SHADOW: would have blocked "
+                      f"proposal {proposal_id} — {_g4_result.get('reason_code')}")
+            if _g4_gdid:
+                try:
+                    _d3_g4.acknowledge_governance_decision(
+                        governance_decision_id=_g4_gdid,
+                        action_taken="PROCEEDING_WITH_PROMOTION",
+                        continued=True,
+                        blocked=False,
+                        acknowledged_by="admin_approve_learning_proposal",
+                        is_test_record=False,
+                    )
+                except Exception as _g4_ack_e:
+                    print(f"[admin_approve_learning_proposal] G4 ack (ALLOW) failed, non-fatal: {_g4_ack_e}")
+
         import online_learning as _ol
         result = _ol.rollback_to_version(model_name, version_saved)
         if "error" in result:
@@ -61601,7 +62025,14 @@ def admin_approve_learning_proposal(proposal_id):
                         (proposal_id,))
             conn.commit()
         return jsonify({"promoted": True, "model_name": model_name,
-                        "version": version_saved, "detail": result})
+                        "version": version_saved, "detail": result,
+                        "g4_governance": {
+                            "decision": _g4_result.get("decision"),
+                            "would_block": _g4_result.get("would_block"),
+                            "reason_code": _g4_result.get("reason_code"),
+                            "mode": _g4_result.get("mode"),
+                            "governance_decision_id": _g4_gdid,
+                        }})
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 

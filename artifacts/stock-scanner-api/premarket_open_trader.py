@@ -442,12 +442,156 @@ def evaluate_ticker(db_url: str, ticker: str, premarket_gap_pct: float) -> Dict[
                 f"(log_decision failed) — skipping write to preserve dedup guarantee"
             )
         elif od.should_place_order(db_url, decision_id):
-            write_paper_pick(db_url, ticker, opening_pattern, synthesis, regime=regime)
-            od.mark_order_placed(
-                db_url, decision_id,
-                broker_order_id=f"paper-{decision_id}",
-                ticker=ticker, side="long", qty=1, status="filled",
-            )
+            # ── G2 pre-decision trace-integrity checkpoint (Path B P4) ────
+            # This module never runs candidates through the Diagram 2
+            # 1-17 stage pipeline (it is a separate opening-pattern
+            # decision path, not the `_aiem_paper_execute_today` engine),
+            # so candidate_trace_id is honestly None every time -- G2
+            # will report NO_TRACE_ID rather than fabricate STAGES_COMPLETE.
+            # While G2 is in SHADOW mode (the only mode it runs in today)
+            # this can never actually skip a write -- it only records what
+            # an ENFORCE-mode gate would have done, surfacing the real fact
+            # that this write path bypasses D2 stage tracking entirely.
+            try:
+                import aiem_diagram3_governance as _d3_g2_pot
+                _g2_pot_result = _d3_g2_pot.require_governance_authorization(
+                    checkpoint="G2",
+                    entrypoint="premarket_open_trader.evaluate_ticker",
+                    run_kind="TRADE_EXECUTING",
+                    source_phase="decision_engine",
+                    trigger_source="scheduled_premarket_open_tracker",
+                    payload={"ticker": ticker, "diagram2_trace_id": None},
+                    candidate_trace_id=None,
+                    candidate_ticker=ticker,
+                    is_test_record=False,
+                )
+            except Exception as _g2_pot_e:
+                print(f"[premarket_open_trader] G2 checkpoint itself raised for {ticker} — "
+                      f"fail-closed BLOCK: {_g2_pot_e}")
+                _g2_pot_result = {"decision": "BLOCK", "reason_code": f"G2_CHECK_EXCEPTION:{_g2_pot_e}",
+                                   "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                                   "governance_decision_id": None}
+
+            _g2_pot_gdid = _g2_pot_result.get("governance_decision_id")
+
+            if _g2_pot_result.get("decision") == "BLOCK":
+                print(f"[premarket_open_trader] G2 BLOCKED candidate {ticker} — "
+                      f"{_g2_pot_result.get('reason_code')} "
+                      f"(system_state={_g2_pot_result.get('system_state')}, "
+                      f"checkpoint_mode={_g2_pot_result.get('mode')})")
+                if _g2_pot_gdid:
+                    try:
+                        _d3_g2_pot.acknowledge_governance_decision(
+                            governance_decision_id=_g2_pot_gdid,
+                            action_taken="CANDIDATE_SKIPPED_G2",
+                            continued=False,
+                            blocked=True,
+                            acknowledged_by="premarket_open_trader.evaluate_ticker",
+                            is_test_record=False,
+                        )
+                    except Exception as _g2_pot_ack_e:
+                        print(f"[premarket_open_trader] G2 ack (BLOCK) failed, non-fatal: {_g2_pot_ack_e}")
+                # G2 BLOCK skips only this candidate's write -- no lock held
+                # in this branch, mirrors the main.py G2 call site pattern.
+            else:
+                if _g2_pot_result.get("would_block"):
+                    print(f"[premarket_open_trader] G2 SHADOW: would have blocked candidate "
+                          f"{ticker} — {_g2_pot_result.get('reason_code')} "
+                          f"(ledger_event_id={_g2_pot_result.get('ledger_event_id')})")
+                if _g2_pot_gdid:
+                    try:
+                        _d3_g2_pot.acknowledge_governance_decision(
+                            governance_decision_id=_g2_pot_gdid,
+                            action_taken="PROCEEDING_WITH_CANDIDATE",
+                            continued=True,
+                            blocked=False,
+                            acknowledged_by="premarket_open_trader.evaluate_ticker",
+                            is_test_record=False,
+                        )
+                    except Exception as _g2_pot_ack_e:
+                        print(f"[premarket_open_trader] G2 ack (ALLOW) failed, non-fatal: {_g2_pot_ack_e}")
+
+            # ── G3 pre-execution governance authorization (Path B P5) ──────
+            # This module's own hard/soft blocker gates (od.should_place_order,
+            # opening-pattern confluence, dedup) already ran before this call
+            # site — that IS this path's real risk determination, so
+            # diagram2_risk_result="PASS" is honest here, not assumed.
+            # execution_mode="PAPER" (no live broker adapter exists in this
+            # codebase). strategy_version="premarket_open_trader" is checked
+            # against d3_strategy_registry — as of this writing that name has
+            # never been registered there, so G3 will honestly report
+            # UNAPPROVED_STRATEGY:premarket_open_trader; a real, pre-existing
+            # gap this checkpoint surfaces in SHADOW mode, not one this
+            # change papers over. model_version is honestly None (this path
+            # is opening-pattern/confluence-driven, not model-scored).
+            try:
+                import aiem_diagram3_governance as _d3_g3_pot
+                _g3_pot_result = _d3_g3_pot.require_governance_authorization(
+                    checkpoint="G3",
+                    entrypoint="premarket_open_trader.evaluate_ticker",
+                    run_kind="TRADE_EXECUTING",
+                    source_phase="decision_engine",
+                    trigger_source="scheduled_premarket_open_tracker",
+                    payload={"ticker": ticker, "diagram2_trace_id": None},
+                    candidate_trace_id=None,
+                    candidate_ticker=ticker,
+                    diagram2_risk_result="PASS",
+                    execution_mode="PAPER",
+                    strategy_version="premarket_open_trader",
+                    model_version=None,
+                    is_test_record=False,
+                )
+            except Exception as _g3_pot_e:
+                print(f"[premarket_open_trader] G3 checkpoint itself raised for {ticker} — "
+                      f"fail-closed BLOCK: {_g3_pot_e}")
+                _g3_pot_result = {"decision": "BLOCK", "reason_code": f"G3_CHECK_EXCEPTION:{_g3_pot_e}",
+                                   "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                                   "governance_decision_id": None}
+
+            _g3_pot_gdid = _g3_pot_result.get("governance_decision_id")
+
+            if _g3_pot_result.get("decision") == "BLOCK":
+                print(f"[premarket_open_trader] G3 BLOCKED candidate {ticker} — "
+                      f"{_g3_pot_result.get('reason_code')} "
+                      f"(system_state={_g3_pot_result.get('system_state')}, "
+                      f"checkpoint_mode={_g3_pot_result.get('mode')})")
+                if _g3_pot_gdid:
+                    try:
+                        _d3_g3_pot.acknowledge_governance_decision(
+                            governance_decision_id=_g3_pot_gdid,
+                            action_taken="CANDIDATE_SKIPPED_G3",
+                            continued=False,
+                            blocked=True,
+                            acknowledged_by="premarket_open_trader.evaluate_ticker",
+                            is_test_record=False,
+                        )
+                    except Exception as _g3_pot_ack_e:
+                        print(f"[premarket_open_trader] G3 ack (BLOCK) failed, non-fatal: {_g3_pot_ack_e}")
+                # G3 BLOCK skips only this candidate's write, mirroring the G2
+                # call site above — no lock held in this branch.
+            else:
+                if _g3_pot_result.get("would_block"):
+                    print(f"[premarket_open_trader] G3 SHADOW: would have blocked candidate "
+                          f"{ticker} — {_g3_pot_result.get('reason_code')} "
+                          f"(ledger_event_id={_g3_pot_result.get('ledger_event_id')})")
+                if _g3_pot_gdid:
+                    try:
+                        _d3_g3_pot.acknowledge_governance_decision(
+                            governance_decision_id=_g3_pot_gdid,
+                            action_taken="PROCEEDING_WITH_CANDIDATE",
+                            continued=True,
+                            blocked=False,
+                            acknowledged_by="premarket_open_trader.evaluate_ticker",
+                            is_test_record=False,
+                        )
+                    except Exception as _g3_pot_ack_e:
+                        print(f"[premarket_open_trader] G3 ack (ALLOW) failed, non-fatal: {_g3_pot_ack_e}")
+                write_paper_pick(db_url, ticker, opening_pattern, synthesis, regime=regime)
+                od.mark_order_placed(
+                    db_url, decision_id,
+                    broker_order_id=f"paper-{decision_id}",
+                    ticker=ticker, side="long", qty=1, status="filled",
+                )
         else:
             print(
                 f"[premarket_open_trader] duplicate blocked: "
