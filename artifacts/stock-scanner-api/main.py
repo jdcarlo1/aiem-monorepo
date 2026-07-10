@@ -40949,6 +40949,13 @@ def _init_aiem_paper_trades_table():
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_multiplier_applied NUMERIC(8,4)")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_sampled_score NUMERIC(8,4)")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS thompson_signal_source TEXT")
+            # Structural anti-double-fire guard for the close-time learning
+            # loop (stages 20/21/23 + trust/thompson/attribution). Claimed
+            # via a compare-and-swap UPDATE in
+            # _aiem_close_paper_trade_and_run_loop() so the loop can only
+            # ever run once per trade, no matter which code path (autonomous
+            # MTM exit, manual/admin close, or backfill) triggers the close.
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS learning_loop_fired_at TIMESTAMPTZ")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
@@ -42595,6 +42602,434 @@ def _aiem_paper_flag_fills(trade_date_from=None):
         return {"error": str(_fe)}
 
 
+def _aiem_close_paper_trade_and_run_loop(
+        trade_id, status, exit_reason, exit_price=None,
+        exit_date=None, mode="close"):
+    """
+    Single funnel for EVERY way an aiem_paper_trades row can be closed —
+    the autonomous 4PM MTM exit, a manual/admin close, or a one-time
+    backfill for a trade that was already closed outside this function.
+    Guarantees the full close-time learning loop (Diagram 2 stages
+    20/21/22/23: post-trade analytics, trust-weight EMA + Thompson
+    sampler, RL feedback-loop marker, memory/attribution) fires EXACTLY
+    ONCE per trade no matter which caller reaches it, via a
+    compare-and-swap claim on the learning_loop_fired_at column.
+
+    mode='close'    : trade is currently OPEN. Caller supplies exit_price;
+                      this function computes pnl/pnl_pct (including the
+                      CALL_OPTION synthetic 2x proxy) and performs the
+                      real status/exit-field UPDATE, claimed atomically
+                      via `WHERE status='OPEN'`.
+    mode='backfill' : trade is ALREADY closed (status LIKE 'CLOSED%') with
+                      pnl/pnl_pct/exit_price already recorded (e.g. a past
+                      raw-SQL manual close) but never ran the loop.
+                      Existing values are reused as-is; only the loop side
+                      effects run, claimed atomically via
+                      `WHERE learning_loop_fired_at IS NULL`.
+
+    Returns {"fired": bool, "reason": str, ...}. Never raises — every
+    downstream stage is fail-soft, matching the pre-existing MTM
+    behavior where one stage failing must never block the others or the
+    status update. Intentionally does NOT trigger the RL pipeline itself
+    (aiem_rl_engine stays a batch run keyed off exit_date=today across
+    ALL trades closed that day — see _rl_pipeline_bg /
+    _aiem_paper_mark_to_market tail); this function only logs the
+    stage-22 marker so a per-trade close never double-fires the batch
+    RL run.
+    """
+    import datetime as _cpdt
+    _today = exit_date or _cpdt.date.today()
+    _id = trade_id
+
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            if mode == "close":
+                _cu.execute("""
+                    SELECT ticker, trade_type, entry_price, quantity, notional,
+                           trade_date, signal_source, audit_trace_id, status
+                    FROM aiem_paper_trades WHERE id=%s
+                """, (_id,))
+                _row = _cu.fetchone()
+                if not _row:
+                    return {"fired": False, "reason": f"trade {_id} not found"}
+                (_t, _ttype, _entry, _qty, _notional, _td, _src,
+                 _trace_id, _cur_status) = _row
+                if _cur_status != "OPEN":
+                    return {"fired": False,
+                            "reason": f"trade {_id} not OPEN (status={_cur_status}); "
+                                      f"refusing to re-close"}
+                _entry_f = float(_entry or 0)
+                _qty_f = float(_qty or 0)
+                _not_f = float(_notional or 0)
+                _last = float(exit_price)
+
+                # Fix #8: CALL_OPTION P&L is a synthetic 2x proxy, not real
+                # options pricing — tag it in the log so it's never misread.
+                if _ttype == "CALL_OPTION":
+                    _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
+                    _pnl_pct = round(max(-100.0, _move_pct * 2.0), 4)
+                    _pnl = round(_not_f * _pnl_pct / 100, 2)
+                else:
+                    _pnl = round((_last - _entry_f) * _qty_f, 2)
+                    _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 4) if _entry_f > 0 else 0
+                _reason = exit_reason
+
+                _cu.execute("""
+                    UPDATE aiem_paper_trades
+                    SET status=%s, exit_price=%s, exit_date=%s,
+                        pnl=%s, pnl_pct=%s, last_price=%s,
+                        exit_reason=%s, updated_at=NOW(),
+                        needs_review=FALSE, review_reason=NULL,
+                        learning_loop_fired_at=NOW()
+                    WHERE id=%s AND status='OPEN'
+                    RETURNING id
+                """, (status, _last, _today, _pnl, _pnl_pct,
+                      _last, _reason, _id))
+                if not _cu.fetchone():
+                    _c.rollback()
+                    return {"fired": False,
+                            "reason": f"trade {_id} lost the OPEN->{status} race "
+                                      f"(closed by another caller first)"}
+                _c.commit()
+                _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype == "CALL_OPTION" else ""
+                print(f"[aiem_paper_close] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — "
+                      f"{_reason} (mode=close, id={_id})")
+
+            elif mode == "backfill":
+                _cu.execute("""
+                    UPDATE aiem_paper_trades
+                    SET learning_loop_fired_at=NOW()
+                    WHERE id=%s AND status LIKE 'CLOSED%%'
+                      AND learning_loop_fired_at IS NULL
+                    RETURNING ticker, trade_type, entry_price, quantity,
+                              notional, trade_date, signal_source,
+                              audit_trace_id, status, exit_price, pnl,
+                              pnl_pct, exit_reason
+                """, (_id,))
+                _row = _cu.fetchone()
+                if not _row:
+                    _c.rollback()
+                    return {"fired": False,
+                            "reason": f"trade {_id} not eligible for backfill "
+                                      f"(not CLOSED%, or loop already fired)"}
+                _c.commit()
+                (_t, _ttype, _entry, _qty, _notional, _td, _src, _trace_id,
+                 status, _last, _pnl, _pnl_pct, _reason) = _row
+                _entry_f = float(_entry or 0)
+                _last = float(_last or 0)
+                _pnl = float(_pnl or 0)
+                _pnl_pct = float(_pnl_pct or 0)
+                print(f"[aiem_paper_close] BACKFILL loop for {_t} id={_id} "
+                      f"status={status} pnl_pct={_pnl_pct:+.2f}% (mode=backfill)")
+            else:
+                return {"fired": False, "reason": f"unknown mode={mode!r}"}
+
+            # ── Pipeline audit: record outcome step ───────────────────
+            try:
+                import aiem_pipeline_audit as _apa
+                if _trace_id:
+                    _apa.log_outcome_for_trade(
+                        trace_id=_trace_id, ticker=_t,
+                        pnl=float(_pnl), pnl_pct=float(_pnl_pct),
+                        exit_reason=_reason,
+                    )
+            except Exception as _ae:
+                print(f"[aiem_audit] outcome log error (non-fatal): {_ae}")
+
+            # ── Diagram 2 stage 20 — Post-Trade Analytics ─────────────
+            # Reuses the SAME trace_id this trade was opened under (from
+            # column audit_trace_id), so stages 1-19 and 20-23 chain
+            # together regardless of which caller closed the trade.
+            _d2_mtm_trace_id = _trace_id
+            _d2_orch_mtm = None
+            if _d2_mtm_trace_id:
+                try:
+                    import aiem_master_orchestrator as _amo_mtm
+                    _d2_orch_mtm = _amo_mtm.get_orchestrator()
+                    # Prewarm bus schema (CREATE TABLE + INDEX) BEFORE any
+                    # _cu INSERT touches aiem_bus_transfer_log. Without this,
+                    # CREATE INDEX (ShareLock) deadlocks against _cu's
+                    # RowExclusiveLock on the same table.
+                    import aiem_communication_bus as _abus_pw
+                    _abus_pw.get_bus()
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 20, "post_trade_analytics", "stage_starting", "Post-Trade Analytics"))
+                    _c.commit()
+                    _d2_orch_mtm.execute_stage(
+                        _d2_mtm_trace_id, _t, 20, "post_trade_analytics",
+                        "Post-Trade Analytics",
+                        "_aiem_close_paper_trade_and_run_loop (aiem_pipeline_audit.log_outcome_for_trade)",
+                        lambda: {"trade_id": _id, "pnl": float(_pnl),
+                                 "pnl_pct": float(_pnl_pct), "exit_reason": _reason,
+                                 "status": status},
+                        paper_trade_id=_id,
+                    )
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 20, "post_trade_analytics", "stage_completed", "Post-Trade Analytics"))
+                    _c.commit()
+                except Exception as _d2_20_e:
+                    print(f"[diagram2] stage 20 (post_trade_analytics) FAILED for {_t}: {_d2_20_e}")
+
+            # ── Supervisor Hook 5: trade closed ───────────────────────
+            try:
+                import aiem_supervisor as _asup_h5
+                _asup_h5.supervisor_on_trade_closed(
+                    audit_trace_id=_trace_id,
+                    trade_id=_id,
+                    ticker=_t,
+                    exit_price=_last,
+                    exit_time=_today,
+                    pnl=float(_pnl),
+                    pnl_pct=float(_pnl_pct),
+                )
+            except Exception as _sup_h5_e:
+                print(f"[supervisor] hook5_trade_closed skipped: {_sup_h5_e}")
+
+            # ── Attribution: record credit/blame before learning update ─
+            try:
+                import aiem_attribution as _aattr_mtm
+                _aattr_mtm.record_attribution(
+                    trade_id=int(_id),
+                    ticker=_t,
+                    signal_source=(_src or "unknown"),
+                    entry_price=float(_entry_f) if _entry_f else None,
+                    exit_price=float(_last) if _last else None,
+                    pnl_pct=float(_pnl_pct),
+                    hold_days=((_today - _td).days if hasattr(_today, 'year') and hasattr(_td, 'year') else None),
+                    confidence_at_entry=None,
+                    trace_id=_trace_id,
+                )
+            except Exception as _aattr_e:
+                print(f"[attribution] record skipped (non-fatal): {_aattr_e}")
+
+            # ── Update signal trust weight from this outcome ──────────
+            # Inline EMA update matching meta_learning_signal_trust logic.
+            # decay=0.95, trust_weight = clamp(rolling_wr * 2, 0.2, 2.0)
+            _tw_wt_new = 1.0  # used by Thompson + audit steps below
+            _tw_wt_old = 1.0
+            try:
+                _tw_src = _src or "unknown"
+                _tw_win = 1.0 if _pnl_pct > 0 else 0.0
+                with _psycopg2.connect(_DB_URL, connect_timeout=3) as _twmc, \
+                        _twmc.cursor() as _twmcu:
+                    _twmcu.execute("""
+                        SELECT rolling_win_rate, n_outcomes_observed,
+                               trust_weight
+                        FROM signal_trust_weights
+                        WHERE signal_name=%s AND context_bucket='PAPER_TRADING'
+                    """, (_tw_src,))
+                    _tw_row = _twmcu.fetchone()
+                    if _tw_row:
+                        _tw_prior = float(_tw_row[0])
+                        _tw_n = int(_tw_row[1]) + 1
+                        _tw_wr = 0.95 * _tw_prior + 0.05 * _tw_win
+                        _tw_wt_old = float(_tw_row[2])
+                    else:
+                        _tw_prior = 0.5
+                        _tw_n = 1
+                        _tw_wr = _tw_win
+                        _tw_wt_old = 1.0
+                    _tw_wt_new = max(0.2, min(2.0, _tw_wr * 2.0))
+                    try:
+                        import aiem_closed_loop_learning as _acll_tw
+                        _acll_tw.record_trust_update(
+                            signal_source=_tw_src,
+                            old_rolling_wr=_tw_prior,
+                            new_rolling_wr=_tw_wr,
+                            old_trust=_tw_wt_old,
+                            new_trust=_tw_wt_new,
+                            n_trades=_tw_n,
+                            win=(_pnl_pct > 0),
+                            pnl=float(_pnl),
+                            pnl_pct=float(_pnl_pct),
+                            ticker=_t,
+                            trade_id=_id,
+                            audit_trace_id=_trace_id,
+                        )
+                    except Exception as _sth_e:
+                        print(f"[closed_loop] trust_history skipped: {_sth_e}")
+                    # ── Supervisor Hook 6: learning update ────────────
+                    try:
+                        import aiem_supervisor as _asup_h6
+                        _asup_h6.supervisor_on_learning_update(
+                            audit_trace_id=_trace_id,
+                            trade_id=_id,
+                            ticker=_t,
+                            signal_source=_tw_src,
+                            old_trust_score=_tw_wt_old,
+                            new_trust_score=_tw_wt_new,
+                            delta=round(_tw_wt_new - _tw_wt_old, 6),
+                            reason=f"EMA_update win={bool(_pnl_pct>0)} pnl={_pnl_pct:+.2f}%",
+                        )
+                    except Exception as _sup_h6_e:
+                        print(f"[supervisor] hook6_learning_update skipped: {_sup_h6_e}")
+                    _twmcu.execute("""
+                        INSERT INTO signal_trust_weights
+                            (signal_name, context_bucket, rolling_win_rate,
+                             n_outcomes_observed, trust_weight, last_updated_at)
+                        VALUES (%s, 'PAPER_TRADING', %s, %s, %s, NOW())
+                        ON CONFLICT (signal_name, context_bucket) DO UPDATE SET
+                            rolling_win_rate    = EXCLUDED.rolling_win_rate,
+                            n_outcomes_observed = EXCLUDED.n_outcomes_observed,
+                            trust_weight        = EXCLUDED.trust_weight,
+                            last_updated_at     = NOW()
+                    """, (_tw_src, round(_tw_wr, 6), _tw_n, round(_tw_wt_new, 6)))
+                _tw_lbl = "WIN" if _pnl_pct > 0 else "LOSS"
+                print(f"[learning_gate] trust updated: {_tw_src} "
+                      f"{_tw_lbl} pnl={_pnl_pct:+.2f}% → "
+                      f"trust={_tw_wt_new:.3f} (n={_tw_n})")
+            except Exception as _twe_mtm:
+                print(f"[learning_gate] trust weight update skipped "
+                      f"(non-fatal): {_twe_mtm}")
+
+            # ── Gap 3: Thompson sampler update ────────────────────────
+            _thompson_new_score = 0.5
+            try:
+                import aiem_closed_loop_learning as _acll_th
+                _th_result = _acll_th.update_paper_thompson(
+                    signal_source=(_src or "unknown"),
+                    win=(_pnl_pct > 0),
+                    pnl_pct=float(_pnl_pct),
+                    ticker=_t,
+                    trade_id=str(_id),
+                    audit_trace_id=_trace_id,
+                )
+                _thompson_new_score = _th_result.get("sampled_score", 0.5)
+            except Exception as _th_e:
+                print(f"[closed_loop] thompson update skipped (non-fatal): {_th_e}")
+
+            # ── Gap 1: log learning_update_applied audit step ─────────
+            try:
+                if _trace_id:
+                    import aiem_closed_loop_learning as _acll_au
+                    _acll_au.log_learning_update_step(
+                        trace_id=_trace_id,
+                        ticker=_t,
+                        signal_source=(_src or "unknown"),
+                        old_trust=_tw_wt_old,
+                        new_trust=_tw_wt_new,
+                        thompson_before=0.5,
+                        thompson_after=_thompson_new_score,
+                        pnl_pct=float(_pnl_pct),
+                        ppo_trained=False,
+                    )
+            except Exception as _au_e:
+                print(f"[closed_loop] audit_step skipped (non-fatal): {_au_e}")
+
+            # ── Diagram 2 stage 21 — Learning Feedback ────────────────
+            if _d2_mtm_trace_id and _d2_orch_mtm:
+                try:
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 21, "learning_feedback", "stage_starting", "Learning Feedback"))
+                    _c.commit()
+                    _d2_orch_mtm.execute_stage(
+                        _d2_mtm_trace_id, _t, 21, "learning_feedback",
+                        "Learning Feedback",
+                        "_aiem_close_paper_trade_and_run_loop (signal_trust_weights EMA + update_paper_thompson)",
+                        lambda: {"trade_id": _id, "signal_source": (_src or "unknown"),
+                                 "old_trust": _tw_wt_old, "new_trust": _tw_wt_new,
+                                 "thompson_sampled_score": _thompson_new_score,
+                                 "win": bool(_pnl_pct > 0)},
+                        paper_trade_id=_id,
+                    )
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 21, "learning_feedback", "stage_completed", "Learning Feedback"))
+                    _c.commit()
+                except Exception as _d2_21_e:
+                    print(f"[diagram2] stage 21 (learning_feedback) FAILED for {_t}: {_d2_21_e}")
+
+            # ── Diagram 2 stage 22 — Feedback Loop ───────────────────
+            # Marker only: the RL pipeline itself stays a batch run keyed
+            # off exit_date=today across ALL trades closed today (see
+            # _rl_pipeline_bg), so a per-trade close never double-fires it.
+            if _d2_mtm_trace_id and _d2_orch_mtm:
+                try:
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 22, "feedback_loop", "stage_starting", "Feedback Loop"))
+                    _c.commit()
+                    _d2_orch_mtm.execute_stage(
+                        _d2_mtm_trace_id, _t, 22, "feedback_loop",
+                        "Feedback Loop",
+                        "_rl_pipeline_bg (aiem_rl_engine.run_full_rl_pipeline async)",
+                        lambda: {"trade_id": int(_id), "ticker": _t,
+                                 "rl_triggered": True, "close_date": str(_today),
+                                 "signal_source": str(_src or "unknown"),
+                                 "win": bool(_pnl_pct > 0)},
+                        paper_trade_id=_id,
+                    )
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 22, "feedback_loop", "stage_completed", "Feedback Loop"))
+                    _c.commit()
+                except Exception as _d2_22_e:
+                    print(f"[diagram2] stage 22 (feedback_loop) FAILED for {_t}: {_d2_22_e}")
+
+            # ── Diagram 2 stage 23 — Memory ──────────────────────────
+            if _d2_mtm_trace_id and _d2_orch_mtm:
+                try:
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 23, "memory", "stage_starting", "Memory"))
+                    _c.commit()
+
+                    def _d2_memory_stage(_trade_id, _ticker, _pnl_p, _sig, _db_url):
+                        import aiem_v3_learning as _v3l
+                        _tr = {"id": _trade_id, "ticker": _ticker,
+                               "pnl_pct": float(_pnl_p),
+                               "signal_source": str(_sig or "unknown"),
+                               "exit_date": str(_today)}
+                        _attr = _v3l.attribute_trade(_tr)
+                        _v3l.update_strategy_memory(_db_url, [_attr])
+                        return {"memory_updated": True, "trade_id": _trade_id,
+                                "ticker": _ticker,
+                                "strategy_keys": list(_attr.keys())[:6]}
+                    import os as _os_mem
+                    _d2_orch_mtm.execute_stage(
+                        _d2_mtm_trace_id, _t, 23, "memory",
+                        "Memory",
+                        "aiem_v3_learning.attribute_trade + update_strategy_memory",
+                        lambda: _d2_memory_stage(
+                            int(_id), _t, _pnl_pct,
+                            _src, _os_mem.environ.get("DATABASE_URL", "")),
+                        paper_trade_id=_id,
+                    )
+                    _cu.execute(
+                        "INSERT INTO aiem_bus_transfer_log"
+                        " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
+                        " VALUES (%s,%s,%s,%s,%s,%s)",
+                        (_d2_mtm_trace_id, _t, 23, "memory", "stage_completed", "Memory"))
+                    _c.commit()
+                except Exception as _d2_23_e:
+                    print(f"[diagram2] stage 23 (memory) FAILED for {_t}: {_d2_23_e}")
+
+            return {"fired": True, "trade_id": _id, "ticker": _t,
+                    "mode": mode, "status": status,
+                    "pnl": float(_pnl), "pnl_pct": float(_pnl_pct),
+                    "trace_id": _trace_id}
+    except Exception as _close_loop_e:
+        print(f"[aiem_close_paper_trade_and_run_loop] error for trade {trade_id}: {_close_loop_e}")
+        return {"fired": False, "reason": f"error: {_close_loop_e}"}
+
+
 def _aiem_paper_mark_to_market():
     """
     4:00 PM ET: update prices and let AIEM decide autonomously whether to
@@ -42934,314 +43369,17 @@ def _aiem_paper_mark_to_market():
                         print(f"[aiem_paper][NEEDS_REVIEW] {_t} — {_review_reason}")
 
                 if _status != "OPEN":
-                    _cu.execute("""
-                        UPDATE aiem_paper_trades
-                        SET status=%s, exit_price=%s, exit_date=%s,
-                            pnl=%s, pnl_pct=%s, last_price=%s,
-                            exit_reason=%s, updated_at=NOW(),
-                            needs_review=FALSE, review_reason=NULL
-                        WHERE id=%s
-                    """, (_status, _last, _today,
-                          round(_pnl, 2), round(_pnl_pct, 4),
-                          _last, _reason, _id))
-                    # Fix #8: CALL_OPTION P&L is a synthetic 2x proxy, not real
-                    # options pricing — tag it in the log so it's never misread.
-                    _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype == "CALL_OPTION" else ""
-                    print(f"[aiem_paper] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — {_reason}")
-                    _emoji = "✅" if _pnl_pct >= 0 else "🔴"
-                    _tg_exit_lines.append(f"{_emoji} {_t:<6} {_pnl_pct:+.1f}%  {_reason}")
-                    # ── Pipeline audit: record outcome step ───────────────────
-                    try:
-                        import aiem_pipeline_audit as _apa
-                        _cu.execute(
-                            "SELECT audit_trace_id FROM aiem_paper_trades WHERE id=%s",
-                            (_id,)
-                        )
-                        _at_row = _cu.fetchone()
-                        if _at_row and _at_row[0]:
-                            _apa.log_outcome_for_trade(
-                                trace_id=_at_row[0], ticker=_t,
-                                pnl=float(_pnl), pnl_pct=float(_pnl_pct),
-                                exit_reason=_reason,
-                            )
-                    except Exception as _ae:
-                        print(f"[aiem_audit] outcome log error (non-fatal): {_ae}")
-
-                    # ── Diagram 2 stage 20 — Post-Trade Analytics ─────────────
-                    # Only reachable inside the real close/MTM branch above
-                    # (_status != "OPEN"), i.e. triggered exclusively by the
-                    # production _aiem_paper_mark_to_market() close path —
-                    # never a standalone/simulated call. Reuses the SAME
-                    # trace_id this trade was opened under (from column
-                    # audit_trace_id), so stages 1-19 and 20-21 chain together.
-                    _d2_mtm_trace_id = _at_row[0] if (_at_row and _at_row[0]) else None
-                    if _d2_mtm_trace_id:
-                        try:
-                            import aiem_master_orchestrator as _amo_mtm
-                            _d2_orch_mtm = _amo_mtm.get_orchestrator()
-                            # Prewarm bus schema (CREATE TABLE + INDEX) BEFORE any
-                            # _cu INSERT touches aiem_bus_transfer_log.  Without this,
-                            # CREATE INDEX (ShareLock) deadlocks against _cu's
-                            # RowExclusiveLock on the same table.
-                            import aiem_communication_bus as _abus_pw
-                            _abus_pw.get_bus()
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,20,"post_trade_analytics","stage_starting","Post-Trade Analytics"))
-                            _d2_orch_mtm.execute_stage(
-                                _d2_mtm_trace_id, _t, 20, "post_trade_analytics",
-                                "Post-Trade Analytics",
-                                "_aiem_paper_mark_to_market (aiem_pipeline_audit.log_outcome_for_trade)",
-                                lambda: {"trade_id": _id, "pnl": float(_pnl),
-                                         "pnl_pct": float(_pnl_pct), "exit_reason": _reason,
-                                         "status": _status},
-                                paper_trade_id=_id,
-                            )
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,20,"post_trade_analytics","stage_completed","Post-Trade Analytics"))
-                        except Exception as _d2_20_e:
-                            print(f"[diagram2] stage 20 (post_trade_analytics) FAILED for {_t}: {_d2_20_e}")
-                    # ── Supervisor Hook 5: trade closed ───────────────────────
-                    try:
-                        import aiem_supervisor as _asup_h5
-                        _h5_trace = _at_row[0] if (_at_row and _at_row[0]) else None
-                        _asup_h5.supervisor_on_trade_closed(
-                            audit_trace_id=_h5_trace,
-                            trade_id=_id,
-                            ticker=_t,
-                            exit_price=_last,
-                            exit_time=_today,
-                            pnl=float(_pnl),
-                            pnl_pct=float(_pnl_pct),
-                        )
-                    except Exception as _sup_h5_e:
-                        print(f"[supervisor] hook5_trade_closed skipped: {_sup_h5_e}")
-                    # ── Attribution: record credit/blame before learning update ─
-                    try:
-                        import aiem_attribution as _aattr_mtm
-                        _aattr_mtm.record_attribution(
-                            trade_id=int(_id),
-                            ticker=_t,
-                            signal_source=(_src or "unknown"),
-                            entry_price=float(_entry) if _entry else None,
-                            exit_price=float(_last) if _last else None,
-                            pnl_pct=float(_pnl_pct),
-                            hold_days=((_today - _td).days if hasattr(_today, 'year') and hasattr(_td, 'year') else None),
-                            confidence_at_entry=None,
-                            trace_id=(_at_row[0] if (_at_row and _at_row[0]) else None),
-                        )
-                    except Exception as _aattr_e:
-                        print(f"[attribution] record skipped (non-fatal): {_aattr_e}")
-                    # ── Update signal trust weight from this outcome ──────────
-                    # Inline EMA update matching meta_learning_signal_trust logic.
-                    # Uses _DB_URL directly (avoids AIEM_DATABASE_URL dependency).
-                    # decay=0.95, trust_weight = clamp(rolling_wr * 2, 0.2, 2.0)
-                    _tw_wt_new = 1.0  # used by Thompson + audit steps below
-                    _tw_wt_old = 1.0
-                    try:
-                        _tw_src = _src or "unknown"
-                        _tw_win = 1.0 if _pnl_pct > 0 else 0.0
-                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _twmc, \
-                                _twmc.cursor() as _twmcu:
-                            _twmcu.execute("""
-                                SELECT rolling_win_rate, n_outcomes_observed,
-                                       trust_weight
-                                FROM signal_trust_weights
-                                WHERE signal_name=%s AND context_bucket='PAPER_TRADING'
-                            """, (_tw_src,))
-                            _tw_row = _twmcu.fetchone()
-                            if _tw_row:
-                                _tw_prior  = float(_tw_row[0])
-                                _tw_n      = int(_tw_row[1]) + 1
-                                _tw_wr     = 0.95 * _tw_prior + 0.05 * _tw_win
-                                _tw_wt_old = float(_tw_row[2])
-                            else:
-                                _tw_prior  = 0.5
-                                _tw_n      = 1
-                                _tw_wr     = _tw_win
-                                _tw_wt_old = 1.0
-                            _tw_wt_new = max(0.2, min(2.0, _tw_wr * 2.0))
-                            # Gap 2: INSERT before/after row into signal_trust_history
-                            try:
-                                import aiem_closed_loop_learning as _acll_tw
-                                _acll_tw.record_trust_update(
-                                    signal_source=_tw_src,
-                                    old_rolling_wr=_tw_prior,
-                                    new_rolling_wr=_tw_wr,
-                                    old_trust=_tw_wt_old,
-                                    new_trust=_tw_wt_new,
-                                    n_trades=_tw_n,
-                                    win=(_pnl_pct > 0),
-                                    pnl=float(_pnl),
-                                    pnl_pct=float(_pnl_pct),
-                                    ticker=_t,
-                                    trade_id=_id,
-                                    audit_trace_id=_at_row[0] if (_at_row and _at_row[0]) else None,
-                                )
-                            except Exception as _sth_e:
-                                print(f"[closed_loop] trust_history skipped: {_sth_e}")
-                            # ── Supervisor Hook 6: learning update ────────────
-                            try:
-                                import aiem_supervisor as _asup_h6
-                                _h6_trace = _at_row[0] if (_at_row and _at_row[0]) else None
-                                _asup_h6.supervisor_on_learning_update(
-                                    audit_trace_id=_h6_trace,
-                                    trade_id=_id,
-                                    ticker=_t,
-                                    signal_source=_tw_src,
-                                    old_trust_score=_tw_wt_old,
-                                    new_trust_score=_tw_wt_new,
-                                    delta=round(_tw_wt_new - _tw_wt_old, 6),
-                                    reason=f"EMA_update win={bool(_pnl_pct>0)} pnl={_pnl_pct:+.2f}%",
-                                )
-                            except Exception as _sup_h6_e:
-                                print(f"[supervisor] hook6_learning_update skipped: {_sup_h6_e}")
-                            _twmcu.execute("""
-                                INSERT INTO signal_trust_weights
-                                    (signal_name, context_bucket, rolling_win_rate,
-                                     n_outcomes_observed, trust_weight, last_updated_at)
-                                VALUES (%s, 'PAPER_TRADING', %s, %s, %s, NOW())
-                                ON CONFLICT (signal_name, context_bucket) DO UPDATE SET
-                                    rolling_win_rate    = EXCLUDED.rolling_win_rate,
-                                    n_outcomes_observed = EXCLUDED.n_outcomes_observed,
-                                    trust_weight        = EXCLUDED.trust_weight,
-                                    last_updated_at     = NOW()
-                            """, (_tw_src, round(_tw_wr, 6), _tw_n, round(_tw_wt_new, 6)))
-                        _tw_lbl = "WIN" if _pnl_pct > 0 else "LOSS"
-                        print(f"[learning_gate] trust updated: {_tw_src} "
-                              f"{_tw_lbl} pnl={_pnl_pct:+.2f}% → "
-                              f"trust={_tw_wt_new:.3f} (n={_tw_n})")
-                    except Exception as _twe_mtm:
-                        print(f"[learning_gate] trust weight update skipped "
-                              f"(non-fatal): {_twe_mtm}")
-                    # ── Gap 3: Thompson sampler update ────────────────────────
-                    _thompson_new_score = 0.5
-                    try:
-                        import aiem_closed_loop_learning as _acll_th
-                        _th_result = _acll_th.update_paper_thompson(
-                            signal_source=(_src or "unknown"),
-                            win=(_pnl_pct > 0),
-                            pnl_pct=float(_pnl_pct),
-                            ticker=_t,
-                            trade_id=str(_id),
-                            audit_trace_id=(_at_row[0] if (_at_row and _at_row[0]) else None),
-                        )
-                        _thompson_new_score = _th_result.get("sampled_score", 0.5)
-                    except Exception as _th_e:
-                        print(f"[closed_loop] thompson update skipped (non-fatal): {_th_e}")
-                    # ── Gap 1: log learning_update_applied audit step ─────────
-                    try:
-                        if _at_row and _at_row[0]:
-                            import aiem_closed_loop_learning as _acll_au
-                            _acll_au.log_learning_update_step(
-                                trace_id=_at_row[0],
-                                ticker=_t,
-                                signal_source=(_src or "unknown"),
-                                old_trust=_tw_wt_old,
-                                new_trust=_tw_wt_new,
-                                thompson_before=0.5,
-                                thompson_after=_thompson_new_score,
-                                pnl_pct=float(_pnl_pct),
-                                ppo_trained=False,
-                            )
-                    except Exception as _au_e:
-                        print(f"[closed_loop] audit_step skipped (non-fatal): {_au_e}")
-
-                    # ── Diagram 2 stage 21 — Learning Feedback ────────────────
-                    # Real EMA trust-weight update + Thompson sampler update,
-                    # both of which just ran above in this same close branch.
-                    # Same reachability guarantee as stage 20: only fires from
-                    # inside the production MTM close path.
-                    if _d2_mtm_trace_id:
-                        try:
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,21,"learning_feedback","stage_starting","Learning Feedback"))
-                            _d2_orch_mtm.execute_stage(
-                                _d2_mtm_trace_id, _t, 21, "learning_feedback",
-                                "Learning Feedback",
-                                "_aiem_paper_mark_to_market (signal_trust_weights EMA + update_paper_thompson)",
-                                lambda: {"trade_id": _id, "signal_source": (_src or "unknown"),
-                                         "old_trust": _tw_wt_old, "new_trust": _tw_wt_new,
-                                         "thompson_sampled_score": _thompson_new_score,
-                                         "win": bool(_pnl_pct > 0)},
-                                paper_trade_id=_id,
-                            )
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,21,"learning_feedback","stage_completed","Learning Feedback"))
-                        except Exception as _d2_21_e:
-                            print(f"[diagram2] stage 21 (learning_feedback) FAILED for {_t}: {_d2_21_e}")
-                    # ── Diagram 2 stage 22 — Feedback Loop ───────────────────
-                    if _d2_mtm_trace_id:
-                        try:
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,22,"feedback_loop","stage_starting","Feedback Loop"))
-                            _d2_orch_mtm.execute_stage(
-                                _d2_mtm_trace_id, _t, 22, "feedback_loop",
-                                "Feedback Loop",
-                                "_rl_pipeline_bg (aiem_rl_engine.run_full_rl_pipeline async)",
-                                lambda: {"trade_id": int(_id), "ticker": _t,
-                                         "rl_triggered": True, "close_date": str(_today),
-                                         "signal_source": str(_src or "unknown"),
-                                         "win": bool(_pnl_pct > 0)},
-                                paper_trade_id=_id,
-                            )
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,22,"feedback_loop","stage_completed","Feedback Loop"))
-                        except Exception as _d2_22_e:
-                            print(f"[diagram2] stage 22 (feedback_loop) FAILED for {_t}: {_d2_22_e}")
-                    # ── Diagram 2 stage 23 — Memory ──────────────────────────
-                    if _d2_mtm_trace_id:
-                        try:
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,23,"memory","stage_starting","Memory"))
-                            def _d2_memory_stage(_trade_id, _ticker, _pnl_p, _sig, _db_url):
-                                import aiem_v3_learning as _v3l
-                                _tr = {"id": _trade_id, "ticker": _ticker,
-                                       "pnl_pct": float(_pnl_p),
-                                       "signal_source": str(_sig or "unknown"),
-                                       "exit_date": str(_today)}
-                                _attr = _v3l.attribute_trade(_tr)
-                                _v3l.update_strategy_memory(_db_url, [_attr])
-                                return {"memory_updated": True, "trade_id": _trade_id,
-                                        "ticker": _ticker,
-                                        "strategy_keys": list(_attr.keys())[:6]}
-                            import os as _os_mem
-                            _d2_orch_mtm.execute_stage(
-                                _d2_mtm_trace_id, _t, 23, "memory",
-                                "Memory",
-                                "aiem_v3_learning.attribute_trade + update_strategy_memory",
-                                lambda: _d2_memory_stage(
-                                    int(_id), _t, _pnl_pct,
-                                    _src, _os_mem.environ.get("DATABASE_URL", "")),
-                                paper_trade_id=_id,
-                            )
-                            _cu.execute(
-                                "INSERT INTO aiem_bus_transfer_log"
-                                " (trace_id,ticker,stage_order,stage_name,event_type,component_name)"
-                                " VALUES (%s,%s,%s,%s,%s,%s)",
-                                (_d2_mtm_trace_id,_t,23,"memory","stage_completed","Memory"))
-                        except Exception as _d2_23_e:
-                            print(f"[diagram2] stage 23 (memory) FAILED for {_t}: {_d2_23_e}")
+                    _close_result = _aiem_close_paper_trade_and_run_loop(
+                        trade_id=_id, status=_status, exit_reason=_reason,
+                        exit_price=_last, exit_date=_today, mode="close")
+                    if _close_result.get("fired"):
+                        _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype == "CALL_OPTION" else ""
+                        print(f"[aiem_paper][MTM] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — {_reason}")
+                        _emoji = "✅" if _pnl_pct >= 0 else "🔴"
+                        _tg_exit_lines.append(f"{_emoji} {_t:<6} {_pnl_pct:+.1f}%  {_reason}")
+                    else:
+                        print(f"[aiem_paper][MTM] close+loop NOT fired for {_t} id={_id}: "
+                              f"{_close_result.get('reason')}")
                 elif _stale:
                     # Fix #4: do NOT overwrite last_price/pnl/pnl_pct with the
                     # masked flat-price placeholder — leave the previously
@@ -43834,6 +43972,62 @@ def admin_supervisor_overfit_check():
                    "oi_buildup", "washout_ignition"]
         results = {s: _asup.run_overfit_check(s) for s in sources}
         return jsonify({"overfit_checks": results})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/paper-trade/<int:trade_id>/close", methods=["POST"])
+def admin_close_paper_trade(trade_id):
+    """
+    Manually close a paper trade outside the 4PM MTM cycle, going through
+    the SAME close-time learning loop (Diagram 2 stages 20-23: post-trade
+    analytics, trust-weight EMA + Thompson sampler, RL feedback marker,
+    memory/attribution) as the autonomous MTM exit. This is now the ONLY
+    supported way to close a paper trade by hand — raw SQL UPDATEs
+    bypass the loop entirely and must never be used again.
+
+    POST body JSON:
+      mode         str    "close" (default) or "backfill"
+      exit_price   float  REQUIRED when mode="close" — price to close at
+      exit_reason  str    default "MANUAL_ADMIN_CLOSE" (mode="close" only)
+      status       str    default "CLOSED_MANUAL", must start with CLOSED
+                           (mode="close" only)
+
+      mode="backfill" is for a trade that was ALREADY closed outside this
+      function (e.g. a past raw-SQL manual close) and never ran the
+      learning loop — it reuses the already-stored exit_price/pnl/pnl_pct
+      as-is and only runs the loop side effects. No body fields needed.
+
+    Header: X-Admin-Token required (fail-closed; see _admin_ok()).
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    _want = os.environ.get("ADMIN_TOKEN", "")
+    if not _tok or not _want or not hmac.compare_digest(_tok, _want):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _body = request.get_json(silent=True) or {}
+        _mode = str(_body.get("mode") or "close")
+        if _mode not in ("close", "backfill"):
+            return jsonify({"error": "mode must be 'close' or 'backfill'"}), 400
+        if _mode == "close":
+            _exit_price = _body.get("exit_price")
+            if _exit_price is None:
+                return jsonify({"error": "exit_price is required for mode=close"}), 400
+            _exit_price = float(_exit_price)
+            _exit_reason = str(_body.get("exit_reason") or "MANUAL_ADMIN_CLOSE")
+            _status = str(_body.get("status") or "CLOSED_MANUAL")
+            if not _status.upper().startswith("CLOSED"):
+                return jsonify({"error": "status must start with CLOSED"}), 400
+            _result = _aiem_close_paper_trade_and_run_loop(
+                trade_id=trade_id, status=_status, exit_reason=_exit_reason,
+                exit_price=_exit_price, mode="close")
+        else:
+            _result = _aiem_close_paper_trade_and_run_loop(
+                trade_id=trade_id, status=None, exit_reason=None,
+                mode="backfill")
+        if not _result.get("fired"):
+            return jsonify(_result), 409
+        return jsonify(_result), 200
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 
