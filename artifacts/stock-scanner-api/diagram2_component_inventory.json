@@ -198,17 +198,30 @@
       "canonical_files": [
         {
           "path": "artifacts/stock-scanner-api/volatility_clustering.py",
-          "sha256": "935f57d63e1faa2661a699f22eef13e62e28aa3ecad64b646dc4d309f3c0a8ec"
+          "sha256": "d79f6023086d523903bfca982b4004e366816791a595b5710f7ccf6421121dfe"
         },
         {
-          "path": "artifacts/stock-scanner-api/specialist_council.py",
-          "sha256": "515125c896e1bf8a895f3e5146c38c05c7658091f421279f04a72469f3cb80a9"
+          "path": "artifacts/stock-scanner-api/market_regime_overlay.py",
+          "sha256": "75eb92ce5f5e9bae16f27a05c750dbb65c8f2a58f0f1e99b7a052c744fcc010f"
+        },
+        {
+          "path": "artifacts/stock-scanner-api/main.py",
+          "sha256": "ebca5573f2a5c8ebc739bc14ee1bfca455e3d42272c324cb49942f037ecb82d6"
         }
       ],
-      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
-      "runtime_evidence": null,
-      "failure_reason": "fit_garch_model/forecast_volatility/get_persistence/garch_regime_indicator are confirmed real (non-stub) in volatility_clustering.py, and specialist_council.py line 35 has a real call site consuming garch_result into a SpecialistOpinion vote. However, within this session's time-box no dedicated DB table or trace_audit payload could be located that persists a real per-run GARCH forecast/regime numeric output tied to a specific ticker/date, so the run_id + real_output + DB-record bar required for PASS was not met. This reflects incomplete evidence gathered this session, not a confirmed non-execution \u2014 flagged for a targeted follow-up query (e.g., a wider sample of bull_bear_debates.signal_context/synthesis JSONB) in the next deliverable phase.",
-      "discrepancy_notes": null
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "agent_decisions.id=30366",
+        "trace_id": "not applicable (regime-overlay ensemble check; decision_time timestamp serves as the execution anchor)",
+        "function_call_evidence": "_aiem_tool_regime_overlay_check() (real AIEM chat tool, also reachable via ADMIN_TOKEN-gated POST /stock-api/admin/regime-overlay-check) -> market_regime_overlay.combine_regime_votes() -> volatility_clustering.garch_regime_indicator(), same code path an AIEM agent session hits calling the regime_overlay_check tool; no low-level function called outside its real wiring",
+        "real_input": "real SPY daily close prices from polygon_market_daily (ticker='SPY', 6,668 real rows on file 2000-01-03 to 2026-07-09), 260-row window queried this run, real fitted GARCH(1,1) over the resulting return series",
+        "real_output": "BEFORE fix 1 (column-name bug): garch_vol vote=0 reason='no price history provided for GARCH fit'. AFTER fix 1 / BEFORE fix 2 (real-data-source bug): garch_vol vote=0 reason='GARCH fit failed or insufficient data \u2014 falling back to neutral'. AFTER fix 2 (real SPY data wired in): garch_vol vote=0 reason='GARCH forecast flat/mixed (current 0.86%, forecast 0.86%, persistence 0.965)' \u2014 a genuinely fitted GARCH(1,1) result (real persistence parameter, real current/forecast conditional volatility), not a fallback/error string. Vote is neutral because the forecast is genuinely flat, not because the model failed; the \u00b11 branches are pure threshold comparisons on the same computed numbers (architect-approved, same logic as C12).",
+        "db_or_audit_record": "agent_decisions row id=30366 (decision_time 2026-07-10 19:26:39 UTC); input_state_snapshot->'indicator_votes' JSONB column contains the full 8-indicator array including the garch_vol entry verbatim (queried directly this session)",
+        "downstream_consumption_event": "get_weekly_regime_check()'s combined recommendation/confidence/total_score (which garch_vol's vote feeds into via combine_regime_votes()) is logged through decision_logger into agent_decisions, the same table/path consumed for C13's PASS evidence",
+        "code_sha256": "d79f6023086d523903bfca982b4004e366816791a595b5710f7ccf6421121dfe"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": "Two real bugs fixed, not a documentation-only close. (1) garch_regime_indicator() required an exact-case 'Close' column while every real caller builds price_history with lowercase 'close' (the convention every other indicator in market_regime_overlay.py already uses) -- this silently routed every real call to the neutral 'no price history provided' branch. Fixed to accept either case. (2) The shared price_history was sourced from scan_history's AVG(price_chg_pct) column mislabeled as 'close' -- an average PERCENT-CHANGE, not a price level -- producing meaningless returns on ~12 sparse rows and a nonsensical '84% drawdown' figure. Replaced with real SPY daily closes from polygon_market_daily. Claimed-capability correction: the original claim that GARCH 'feeds the Specialist Council's macro/volatility vote' was never real -- the specialist_council.py line previously cited as the call site is inside a docstring explicitly labeled 'ILLUSTRATIVE ONLY -- NOT THE LIVE WIRING' (same finding as the C23 remediation this session). GARCH is deliberately excluded from the live council per the approved C23 parallel-paths design; its real and only live consumer is market_regime_overlay.combine_regime_votes(), the same regime-overlay ensemble already proven for C13. specialist_council.py is removed from canonical_files accordingly. Residual honesty gap (not part of C8, noted for the record): the same tool's vix_history input is still a hardcoded placeholder (pd.Series([15.0]*len)), not real VIX data -- VIX is not a tracked Diagram-2 component so this is left as a known limitation, not fixed here."
     },
     {
       "component_id": "C9",
