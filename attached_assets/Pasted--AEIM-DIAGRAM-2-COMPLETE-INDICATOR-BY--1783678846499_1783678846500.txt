@@ -1,0 +1,1559 @@
+============================================================
+AEIM DIAGRAM 2 — COMPLETE INDICATOR-BY-INDICATOR WIRING AUDIT
+STRICT LIVE PROVENANCE VERIFICATION
+============================================================
+
+PURPOSE
+
+Verify that every named Diagram 2 indicator, model, research engine,
+validation control, learning component, and specialist component is:
+
+1. Present in the real production codebase.
+2. Registered under its canonical owner.
+3. Initialized successfully.
+4. Wired to the authorized upstream component.
+5. Wired to the authorized downstream component.
+6. Receiving real production or paper/shadow data.
+7. Executing real implementation code.
+8. Producing a real output.
+9. Having its output consumed by the pipeline.
+10. Contributing only where architecturally authorized.
+11. Producing traceable provenance.
+12. Producing auditable runtime evidence.
+13. Protected against bypass, silent fallback, and fabricated success.
+14. Assigned to the correct execution cadence.
+15. Not duplicated under conflicting implementations.
+
+This is not a feature-building task.
+
+Do not create replacement architecture merely to pass the audit.
+
+Do not mock any component.
+
+Do not fabricate runtime traces.
+
+Do not mark a component PASS merely because a file, function, class,
+database table, configuration entry, or import exists.
+
+A component passes only when its real implementation is proven to execute
+and its output is proven to reach an authorized downstream consumer.
+
+============================================================
+MANDATORY AUDIT MODES
+============================================================
+
+Classify every component as exactly one of the following:
+
+A. PER-CANDIDATE
+Executed during analysis of an individual stock candidate.
+
+B. PER-MARKET-CYCLE
+Executed once per scheduled market scan or market-state refresh, with its
+output then attached to one or more candidate traces.
+
+C. PERIODIC RESEARCH
+Executed on a scheduled daily, weekly, monthly, or retraining cadence.
+
+D. LEARNING / POST-OUTCOME
+Executed only after decisions, fills, holdings, or outcomes become available.
+
+E. GOVERNED OPTIONAL
+Executed only when an explicit trigger condition is satisfied.
+
+A component must not fail solely because it is not intended to execute on
+every stock. However, its actual cadence, trigger, most recent real run,
+and downstream usage must be proven.
+
+“Not applicable” is prohibited unless the architecture explicitly excludes
+the component. Any exclusion must be reported as a Diagram 2 discrepancy.
+
+============================================================
+UNIVERSAL EVIDENCE REQUIRED FOR EVERY COMPONENT
+============================================================
+
+For each named component below, return:
+
+component_number
+component_name
+canonical_component_id
+canonical_module_file
+canonical_class_or_function
+canonical_owning_phase
+execution_mode
+configured_cadence
+trigger_condition
+enabled_status
+implementation_status
+module_registry_record
+tool_registry_record_or_reason_not_applicable
+configuration_source
+code_sha256
+configuration_sha256
+process_or_worker_name
+scheduler_job_id
+most_recent_real_run_id
+most_recent_trace_id
+root_trace_id
+candidate_id_if_applicable
+ticker_if_applicable
+market_data_source
+input_dataset_or_event_id
+input_schema_name
+input_timestamp
+point_in_time_as_of_timestamp
+upstream_component
+upstream_event_id
+function_entry_timestamp
+function_exit_timestamp
+execution_duration_ms
+actual_function_call_proof
+real_input_sample_redacted_if_needed
+real_output_sample
+output_schema_name
+output_artifact_id
+output_hash
+database_record_id
+audit_log_id
+provenance_event_id
+downstream_component
+downstream_consumption_event_id
+downstream_consumption_timestamp
+decision_influence_status
+decision_influence_field
+fallback_used
+fallback_reason
+exception_status
+exception_id
+retry_count
+staleness_status
+lookahead_status
+duplicate_implementation_status
+bypass_test_status
+negative_control_status
+replay_status
+final_component_status
+failure_reason_if_any
+
+For every PASS, provide machine-verifiable evidence.
+
+Do not provide narrative-only proof.
+
+============================================================
+REQUIRED STATUS VALUES
+============================================================
+
+implementation_status must be one of:
+
+IMPLEMENTED
+PARTIALLY_IMPLEMENTED
+STUB
+PLACEHOLDER
+DEAD_CODE
+NOT_FOUND
+DUPLICATED
+DISABLED
+
+final_component_status must be one of:
+
+PASS
+FAIL
+BLOCKED
+NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE
+ARCHITECTURAL_DISCREPANCY
+
+Do not replace these values with vague language.
+
+============================================================
+COMPONENT 1 — POINT-IN-TIME DATA GUARD
+============================================================
+
+Prove the Point-in-Time Data Guard:
+
+1. Executes before any feature, indicator, model, probability, scoring,
+   specialist, risk, or decision calculation.
+2. Uses only information available at the candidate’s as-of timestamp.
+3. Rejects future-dated records.
+4. Rejects stale records outside configured tolerances.
+5. prevents survivorship-bias leakage where applicable.
+6. prevents revised macro values from being treated as originally known.
+7. records source timestamps, ingestion timestamps, and as-of timestamps.
+8. blocks downstream execution after a failed guard decision.
+
+Required negative controls:
+
+A. Inject a future-dated market-data row.
+B. Inject a stale market-data row.
+C. Inject a feature computed using data beyond the as-of timestamp.
+D. Prove each is rejected before downstream analysis.
+
+Return:
+
+guard_decision
+guard_reason_codes
+rejected_record_ids
+as_of_timestamp
+maximum_source_timestamp
+staleness_threshold
+lookahead_detected
+downstream_block_proof
+
+============================================================
+COMPONENT 2 — BH-FDR CORRECTION
+BENJAMINI-HOCHBERG FALSE DISCOVERY RATE
+EXPECTED TEST FAMILY: 75 TESTS
+============================================================
+
+Prove:
+
+1. The real Benjamini-Hochberg procedure is implemented.
+2. The actual test family contains the configured number of tests.
+3. Raw p-values are preserved.
+4. Sorted p-values and ranks are recorded.
+5. The configured FDR q-level is recorded.
+6. Adjusted p-values or rejection thresholds are produced.
+7. Only corrected discoveries are allowed to proceed as statistically
+   supported findings.
+8. Uncorrected significance cannot bypass the correction layer.
+9. The correction output is consumed by the correct discovery or
+   validation component.
+
+Return:
+
+test_family_id
+expected_test_count
+actual_test_count
+raw_p_values_hash
+sorted_p_values_hash
+fdr_q_level
+bh_thresholds
+adjusted_p_values_hash
+rejected_hypotheses
+retained_hypotheses
+downstream_consumer
+downstream_consumption_proof
+
+Negative control:
+
+Provide a test family in which several raw p-values are below 0.05 but fail
+BH-FDR correction. Prove those false positives do not proceed.
+
+============================================================
+COMPONENT 3 — SIGNAL DECAY MODULE
+M2 — DECAY DETECTION
+============================================================
+
+Prove:
+
+1. Each active signal has a persistent signal identifier.
+2. Historical performance is evaluated over defined windows.
+3. Decay metrics are calculated from real outcomes.
+4. The module distinguishes noise from meaningful deterioration.
+5. Decay status changes signal trust or lifecycle status.
+6. Decayed signals cannot silently remain fully promoted.
+7. The output reaches the lifecycle, trust, or governance consumer.
+
+Return:
+
+signal_id
+signal_version
+evaluation_window
+sample_size
+baseline_metric
+current_metric
+decay_metric
+decay_threshold
+decay_detected
+confidence_interval
+lifecycle_action
+trust_adjustment
+downstream_event_id
+
+============================================================
+COMPONENT 4 — REDISCOVERY ENGINE
+M6 — REDISCOVERY
+============================================================
+
+Prove:
+
+1. The engine receives previously invalidated or decayed signals.
+2. It does not treat old performance as new evidence.
+3. It uses a new out-of-sample evaluation period.
+4. It records why a signal entered rediscovery.
+5. It produces a rediscovery decision.
+6. Promotion cannot occur without required validation and governance gates.
+7. Rejected rediscovery attempts remain quarantined.
+
+Return:
+
+signal_id
+prior_lifecycle_state
+rediscovery_trigger
+new_evaluation_period
+new_data_hash
+rediscovery_metrics
+rediscovery_decision
+promotion_eligibility
+governance_requirement
+resulting_lifecycle_state
+
+============================================================
+COMPONENT 5 — WALK-FORWARD AND OUT-OF-SAMPLE SPLITS
+============================================================
+
+Prove:
+
+1. Training, validation, and test windows are temporally separated.
+2. No future observations enter an earlier training window.
+3. Each walk-forward fold is recorded.
+4. Hyperparameter selection does not use the final test set.
+5. Performance is reported separately by fold.
+6. Aggregate results preserve failed folds.
+7. Models promoted to production identify the exact folds and datasets used.
+8. The final untouched out-of-sample result is available.
+
+Return:
+
+experiment_id
+dataset_version
+train_windows
+validation_windows
+test_windows
+embargo_period_if_used
+purge_period_if_used
+fold_count
+fold_results
+out_of_sample_metrics
+lookahead_check
+selected_model_version
+promotion_decision
+
+Negative control:
+
+Deliberately overlap one training and test interval and prove the validation
+system rejects the experiment.
+
+============================================================
+COMPONENT 6 — M5 PATTERN DISCOVERY
+FISHER’S EXACT TEST
+EXPECTED CADENCE: WEEKLY
+============================================================
+
+Prove:
+
+1. The real weekly job exists and is enabled.
+2. The latest real scheduled execution is shown.
+3. Pattern contingency tables are built from real data.
+4. Fisher’s exact test is actually called.
+5. Odds ratios and p-values are recorded.
+6. BH-FDR or the authorized multiple-testing correction is applied.
+7. Minimum sample-size rules are enforced.
+8. Discovered patterns enter quarantine, validation, or hypothesis storage.
+9. A pattern does not become production-active from one test alone.
+
+Return:
+
+scheduler_job_id
+scheduled_time
+actual_start_time
+actual_end_time
+pattern_count
+contingency_table_hashes
+odds_ratios
+raw_p_values
+corrected_p_values
+minimum_sample_rule
+accepted_patterns
+rejected_patterns
+hypothesis_registry_ids
+
+============================================================
+COMPONENT 7 — FRED MACRO REGIME OVERLAY
+============================================================
+
+Prove:
+
+1. Real FRED series identifiers are configured.
+2. Data vintage or release timestamps are preserved where available.
+3. No later revision leaks into earlier decisions.
+4. Macro features are calculated successfully.
+5. A regime label or macro state is produced.
+6. The regime output is timestamped and freshness checked.
+7. Candidate traces consume the correct regime version.
+8. Macro output modifies only authorized scoring, gating, or contextual fields.
+
+Return:
+
+fred_series_ids
+release_timestamp
+vintage_timestamp
+observation_timestamp
+ingestion_timestamp
+macro_feature_values
+macro_regime
+macro_regime_version
+freshness_status
+candidate_attachment_event_ids
+downstream_consumer
+
+============================================================
+COMPONENT 8 — GARCH(1,1) VOLATILITY CLUSTERING
+============================================================
+
+Prove:
+
+1. The model is a real GARCH(1,1) implementation.
+2. Input return series and frequency are recorded.
+3. Parameters are estimated from real data.
+4. Convergence status is recorded.
+5. Conditional variance and volatility are produced.
+6. Parameter constraints are checked.
+7. Failed convergence cannot silently produce a PASS.
+8. The output is consumed by an authorized risk, volatility, or scoring layer.
+
+Return:
+
+ticker_or_market_id
+return_frequency
+observation_count
+omega
+alpha_1
+beta_1
+persistence
+convergence_status
+conditional_variance
+conditional_volatility
+forecast_horizon
+output_consumer
+
+============================================================
+COMPONENT 9 — BIPOWER VARIATION JUMP DETECTION
+BARNDORFF-NIELSEN AND SHEPHARD
+============================================================
+
+Prove:
+
+1. Realized variance is calculated.
+2. Bipower variation is calculated.
+3. Jump variation or a jump statistic is calculated.
+4. Sampling interval is documented.
+5. Microstructure-noise handling is documented.
+6. A statistically defined jump decision is produced.
+7. The result reaches volatility, risk, or event-detection consumers.
+
+Return:
+
+price_series_id
+sampling_interval
+realized_variance
+bipower_variation
+jump_variation
+jump_statistic
+significance_threshold
+jump_detected
+event_timestamp
+downstream_consumer
+
+============================================================
+COMPONENT 10 — VARIANCE RISK PREMIUM
+============================================================
+
+Prove:
+
+1. Implied variance input is sourced and timestamped.
+2. Realized or expected realized variance is calculated.
+3. Maturity alignment is enforced.
+4. Variance risk premium is calculated with documented units.
+5. Stale or unavailable options data triggers an explicit status.
+6. Output is consumed by the authorized options, volatility, or regime layer.
+
+Return:
+
+underlying
+options_snapshot_id
+implied_variance
+realized_variance_measure
+maturity
+calculation_method
+variance_risk_premium
+data_freshness
+output_consumer
+
+============================================================
+COMPONENT 11 — RISK-NEUTRAL DENSITY
+============================================================
+
+Prove:
+
+1. The options chain used is real and timestamped.
+2. Quotes pass spread, liquidity, and arbitrage-quality checks.
+3. The density extraction method is identified.
+4. Density values are nonnegative or corrected under an explicit rule.
+5. Density integrates approximately to one within tolerance.
+6. The resulting moments or tail probabilities are recorded.
+7. The output reaches an authorized options or risk consumer.
+
+Return:
+
+underlying
+expiration
+options_snapshot_id
+strike_count
+density_method
+density_integral
+negative_density_count
+normalization_status
+risk_neutral_mean
+risk_neutral_variance
+tail_probabilities
+downstream_consumer
+
+============================================================
+COMPONENT 12 — STATISTICAL ARBITRAGE ENGINE
+ENGLE-GRANGER COINTEGRATION AND Z-SCORE
+EXPECTED ENTRY REFERENCE: ±2.0 SIGMA
+============================================================
+
+Prove:
+
+1. Candidate pairs are selected under a documented rule.
+2. Engle-Granger cointegration testing is executed.
+3. Hedge ratio and residual series are recorded.
+4. Residual stationarity test results are recorded.
+5. Z-score is calculated from the authorized lookback.
+6. Entry, exit, and stop rules are explicit.
+7. A ±2.0 threshold is either enforced or any different configured value is
+   reported as a discrepancy.
+8. Transaction costs and borrow constraints are considered where applicable.
+9. The output cannot bypass ordinary trade-risk controls.
+
+Return:
+
+pair_id
+symbols
+selection_method
+cointegration_statistic
+cointegration_p_value
+hedge_ratio
+residual_half_life
+z_score
+entry_threshold
+exit_threshold
+stop_threshold
+signal_direction
+risk_gate_event_id
+
+============================================================
+COMPONENT 13 — PCA FACTOR DECOMPOSITION AND ABSORPTION RATIO
+KRITZMAN SYSTEMIC-RISK MEASURE
+============================================================
+
+Prove:
+
+1. The asset universe and return matrix are identified.
+2. Standardization rules are recorded.
+3. PCA is actually fitted.
+4. Eigenvalues and explained-variance ratios are retained.
+5. The number of factors used for the absorption ratio is documented.
+6. Absorption ratio is calculated.
+7. Regime thresholds are versioned.
+8. Output is consumed by systemic-risk, macro, or portfolio-risk logic.
+
+Return:
+
+universe_id
+asset_count
+lookback_window
+return_frequency
+standardization_method
+eigenvalues_hash
+explained_variance_ratios
+factor_count
+absorption_ratio
+systemic_risk_state
+downstream_consumer
+
+============================================================
+COMPONENT 14 — GEX
+GAMMA EXPOSURE
+============================================================
+
+Prove:
+
+1. A real options-chain snapshot is used.
+2. Open interest, gamma, contract multiplier, and spot inputs are recorded.
+3. Call and put sign conventions are documented.
+4. Aggregate gamma exposure is calculated.
+5. Gamma flip or key levels are produced when supported.
+6. Expiration and strike contributions are traceable.
+7. Stale open-interest data is identified.
+8. Output is consumed by authorized options, positioning, or risk logic.
+
+Return:
+
+underlying
+spot_price
+options_snapshot_id
+open_interest_timestamp
+aggregate_gex
+call_gex
+put_gex
+gamma_flip_level
+key_strikes
+calculation_hash
+downstream_consumer
+
+============================================================
+COMPONENT 15 — PUT/CALL SKEW
+============================================================
+
+Prove:
+
+1. The definition of skew is explicit.
+2. Delta, strike, or moneyness buckets are documented.
+3. Comparable expirations are used.
+4. Implied-volatility inputs pass quality checks.
+5. Skew value and percentile or regime are produced.
+6. Output reaches authorized options or sentiment logic.
+
+Return:
+
+underlying
+expiration
+skew_definition
+put_bucket
+call_bucket
+put_implied_volatility
+call_implied_volatility
+skew_value
+historical_percentile
+skew_state
+downstream_consumer
+
+============================================================
+COMPONENT 16 — OPTIONS TERM STRUCTURE
+============================================================
+
+Prove:
+
+1. Multiple expirations are used.
+2. Expiration selection rules are recorded.
+3. Implied volatility or variance by maturity is recorded.
+4. Contango, backwardation, slope, or curvature is calculated.
+5. Calendar inconsistencies and stale quotes are rejected.
+6. Output reaches authorized volatility, regime, or options logic.
+
+Return:
+
+underlying
+expiration_set
+term_values
+front_slope
+back_slope
+curvature
+term_structure_state
+data_quality_status
+downstream_consumer
+
+============================================================
+COMPONENT 17 — CTA TRIGGER LEVELS
+============================================================
+
+Prove:
+
+1. The actual CTA model methodology used by AEIM is identified.
+2. Price, trend, volatility, and lookback inputs are recorded.
+3. Trigger levels are calculated from real data.
+4. Long, neutral, or short state is produced.
+5. Distance from current price to trigger is reported.
+6. Output is used only by authorized flow, technical, or risk consumers.
+
+Return:
+
+symbol_or_index
+model_version
+trend_lookbacks
+volatility_input
+long_trigger
+short_trigger
+current_state
+distance_to_trigger
+estimated_flow_state_if_supported
+downstream_consumer
+
+============================================================
+COMPONENT 18 — VPIN
+VOLUME-SYNCHRONIZED PROBABILITY OF INFORMED TRADING
+============================================================
+
+Prove:
+
+1. Trade or bar data source is identified.
+2. Volume bucket construction is implemented.
+3. Buy/sell volume classification method is documented.
+4. Order imbalance is calculated.
+5. VPIN is calculated over the configured bucket window.
+6. Data resolution limitations are disclosed.
+7. Output reaches authorized toxicity, execution, or risk consumers.
+
+Return:
+
+symbol
+source_resolution
+bucket_volume
+bucket_count
+classification_method
+order_imbalance_series_hash
+vpin_value
+vpin_percentile
+toxicity_state
+downstream_consumer
+
+============================================================
+COMPONENT 19 — HURST EXPONENT
+============================================================
+
+Prove:
+
+1. Calculation method is identified.
+2. Input series and lookback are recorded.
+3. Minimum sample requirements are enforced.
+4. Hurst value is calculated.
+5. Confidence or robustness checks are recorded.
+6. Mean-reverting, random, or persistent classification is produced.
+7. Output reaches authorized strategy-selection or technical logic.
+
+Return:
+
+symbol
+calculation_method
+lookback
+observation_count
+hurst_exponent
+confidence_measure
+series_classification
+downstream_consumer
+
+============================================================
+COMPONENT 20 — AMIHUD ILLIQUIDITY RATIO
+============================================================
+
+Prove:
+
+1. Return and dollar-volume inputs are real and timestamped.
+2. Zero-volume and corporate-action handling is documented.
+3. The Amihud ratio is calculated over a defined window.
+4. Outliers are handled under a documented rule.
+5. Liquidity state or percentile is produced.
+6. Output reaches risk, sizing, discovery, or execution constraints.
+
+Return:
+
+symbol
+lookback
+daily_observations
+return_series_hash
+dollar_volume_series_hash
+amihud_ratio
+historical_percentile
+liquidity_state
+downstream_consumer
+
+============================================================
+COMPONENT 21 — CORWIN-SCHULTZ SPREAD ESTIMATOR
+============================================================
+
+Prove:
+
+1. High-low price inputs are real and adjusted appropriately.
+2. Required consecutive-day calculations are implemented.
+3. Alpha and spread estimates are produced.
+4. Invalid mathematical cases are explicitly handled.
+5. The final spread estimate is stored.
+6. Output reaches authorized liquidity, cost, or execution logic.
+
+Return:
+
+symbol
+lookback
+high_low_input_hash
+beta_values_hash
+gamma_values_hash
+alpha_value
+estimated_spread
+invalid_observation_count
+downstream_consumer
+
+============================================================
+COMPONENT 22 — XGBOOST AND NATIVE TREESHAP ATTRIBUTION
+============================================================
+
+Prove:
+
+1. The production model is a real XGBoost model.
+2. Model version and model-file hash are recorded.
+3. Feature schema and ordering are enforced.
+4. Training-data version is recorded.
+5. A real candidate produces a prediction.
+6. Native TreeSHAP attribution is calculated.
+7. Base value plus SHAP contributions reconcile with model output within
+   numerical tolerance.
+8. Missing-feature handling is explicit.
+9. No fallback score is mislabeled as the XGBoost probability.
+10. Prediction and explanation reach scoring and synthesis.
+
+Return:
+
+model_version
+model_sha256
+feature_schema_version
+feature_count
+feature_vector_hash
+missing_features
+raw_margin
+predicted_probability
+shap_base_value
+shap_values_hash
+shap_reconciliation_error
+top_positive_features
+top_negative_features
+prediction_record_id
+downstream_synthesis_event_id
+
+Negative controls:
+
+A. Change feature order and prove schema enforcement rejects it.
+B. Remove a required feature and prove explicit failure or authorized handling.
+C. Corrupt the model hash and prove loading is blocked.
+
+============================================================
+COMPONENT 23 — SPECIALIST COUNCIL WITH THOMPSON SAMPLING
+EXPECTED SPECIALISTS: 9
+============================================================
+
+Prove:
+
+1. Exactly nine canonical specialist identities are configured, or report the
+   discrepancy.
+2. Each specialist has a unique identifier and defined evidence domain.
+3. Each specialist receives the authorized synthesis packet.
+4. Each specialist produces a structured vote, score, confidence, or abstention.
+5. Thompson Sampling uses real persisted posterior parameters.
+6. Posterior parameters are based on resolved historical outcomes.
+7. Sampling is reproducible using a stored random seed where replay is required.
+8. Specialist weights cannot be manually fabricated at runtime.
+9. Council aggregation is recorded.
+10. The Decision Engine consumes the council output only after required risk and
+    governance ordering constraints.
+
+For each of the nine specialists, return:
+
+specialist_id
+specialist_name
+specialist_domain
+input_event_id
+posterior_alpha_before
+posterior_beta_before
+sampled_weight
+vote
+confidence
+abstention_status
+output_event_id
+
+Also return:
+
+expected_specialist_count
+actual_specialist_count
+council_session_id
+random_seed
+aggregate_vote
+disagreement_measure
+council_confidence
+downstream_consumer
+
+Negative control:
+
+Disable or remove one specialist and prove the council reports an incomplete
+configuration rather than silently pretending nine specialists executed.
+
+============================================================
+COMPONENT 24 — META-LEARNING SIGNAL TRUST
+============================================================
+
+Prove:
+
+1. Every signal or specialist has a persistent trust identity.
+2. Trust is based on resolved, time-valid outcomes.
+3. Trust updates use a versioned formula.
+4. Sample-size requirements are enforced.
+5. Recent outcomes cannot overwrite long-term evidence without policy.
+6. Trust affects only authorized weighting or eligibility fields.
+7. A low-trust signal can be reduced, quarantined, or blocked under policy.
+8. Trust updates are reversible and auditable.
+
+Return:
+
+trust_entity_id
+trust_entity_type
+trust_version
+outcome_window
+sample_size
+prior_trust
+update_inputs
+update_formula_version
+new_trust
+trust_delta
+policy_action
+downstream_consumer
+
+============================================================
+COMPONENT 25 — DEEP RL POSITION SIZING
+============================================================
+
+Prove:
+
+1. The RL sizing model actually exists and is not a placeholder.
+2. Environment, state space, action space, reward, and constraints are defined.
+3. Production model version and hash are recorded.
+4. The model receives the authorized post-decision or pre-execution state.
+5. It produces a proposed position size.
+6. The proposed size remains subordinate to hard risk limits.
+7. Daily-loss, concentration, exposure, liquidity, and maximum-position limits
+   cannot be overridden by RL.
+8. Out-of-distribution or missing-state handling is explicit.
+9. Paper/shadow mode is identified.
+10. The final allowed size and any clipping reason are recorded.
+
+Return:
+
+rl_model_version
+model_sha256
+state_schema_version
+state_vector_hash
+action_output
+proposed_position_size
+hard_risk_maximum
+final_position_size
+clipping_applied
+clipping_reason
+reward_version
+paper_or_shadow_status
+downstream_execution_plan_id
+
+Negative control:
+
+Make the RL model request a size exceeding the hard maximum and prove the risk
+layer clips or rejects it.
+
+============================================================
+COMPONENT 26 — CAUSAL DISCOVERY ENGINE
+============================================================
+
+Prove:
+
+1. The actual causal-discovery algorithm is identified.
+2. Variables and temporal ordering are documented.
+3. Forbidden edges or domain constraints are recorded.
+4. Data version and sample period are recorded.
+5. The engine produces a graph or causal hypotheses.
+6. Stability or bootstrap testing is recorded.
+7. Observational association is not falsely labeled proven causation.
+8. New findings enter research quarantine rather than immediate live trading.
+9. Output reaches the hypothesis registry or research-validation process.
+
+Return:
+
+experiment_id
+algorithm
+variable_set
+sample_period
+lag_structure
+forbidden_edges
+graph_hash
+candidate_edges
+edge_confidence
+stability_results
+quarantine_status
+hypothesis_registry_ids
+
+============================================================
+COMPONENT 27 — GAUSSIAN PROCESS SIGNAL DISCOVERY
+============================================================
+
+Prove:
+
+1. The kernel and hyperparameters are identified.
+2. Training data and feature schema are versioned.
+3. Optimization convergence is recorded.
+4. Predictive mean and uncertainty are produced.
+5. Uncertainty is used rather than discarded.
+6. Newly discovered signals enter validation and quarantine.
+7. Output reaches the hypothesis or research system.
+
+Return:
+
+experiment_id
+kernel
+kernel_hyperparameters
+training_dataset_id
+feature_schema_version
+convergence_status
+log_marginal_likelihood
+predictive_mean_hash
+predictive_variance_hash
+candidate_signal_ids
+validation_status
+downstream_registry_ids
+
+============================================================
+COMPONENT 28 — ONLINE LEARNING WITH VERSION CONTROL AND ROLLBACK
+============================================================
+
+Prove:
+
+1. No production model is silently overwritten.
+2. Every update creates a new immutable version.
+3. Training data and outcome cutoff timestamps are recorded.
+4. Evaluation criteria are run before promotion.
+5. Champion and challenger identities are recorded.
+6. Promotion requires authorized policy approval.
+7. Rollback points are preserved.
+8. A real rollback test succeeds.
+9. Active candidate traces reference the exact model version used.
+10. Failed updates cannot alter the active production version.
+
+Return:
+
+learning_run_id
+parent_model_version
+challenger_model_version
+training_data_version
+outcome_cutoff_timestamp
+evaluation_metrics
+promotion_thresholds
+promotion_decision
+approval_event_id
+active_model_before
+active_model_after
+rollback_target
+rollback_test_status
+rollback_event_id
+
+Negative control:
+
+Submit a challenger that fails promotion thresholds and prove the active model
+does not change.
+
+============================================================
+COMPONENT 29 — SELF-INVALIDATING SIGNAL LIFECYCLE
+M2 → M4 HUMAN GATE → M6 → M3 PROMOTION
+============================================================
+
+Prove the actual lifecycle state machine.
+
+Required states and transitions must be mapped to the implementation.
+
+At minimum, prove the meaning and implementation of:
+
+M2
+M4
+M6
+M3
+
+Do not assume the labels. Return the authoritative definition used in code.
+
+Prove:
+
+1. Every signal has one current lifecycle state.
+2. State transitions are event-driven and stored.
+3. Illegal transitions are rejected.
+4. Decay can move a signal into the appropriate restricted state.
+5. The human gate is required where specified.
+6. Rediscovery cannot skip validation.
+7. Promotion requires all mandatory evidence.
+8. Invalidated signals cannot continue contributing as active signals.
+9. Version history is immutable.
+10. Rollback or revocation is supported.
+
+Return:
+
+signal_id
+signal_version
+state_before
+transition_event
+transition_reason
+required_evidence
+human_approval_id_if_required
+state_after
+transition_timestamp
+transition_hash
+illegal_transition_test_status
+downstream_effect
+
+Required negative controls:
+
+A. Attempt M2 directly to M3 without required gates.
+B. Attempt M6 to active promotion without validation.
+C. Attempt to use an invalidated signal in a live candidate score.
+D. Prove all unauthorized actions are blocked.
+
+============================================================
+COMPONENT 30 — 53 LIVE RESEARCH TOOLS
+UMBRELLA CLAIM
+============================================================
+
+The phrase “53 live research tools” is not acceptable as proof.
+
+Produce a complete, deduplicated inventory of all 53 tools.
+
+For each tool return:
+
+tool_number
+canonical_tool_id
+tool_name
+module_file
+class_or_function
+tool_registry_id
+canonical_owner
+purpose
+input_schema
+output_schema
+execution_mode
+configured_cadence
+trigger_condition
+enabled_status
+implementation_status
+code_sha256
+latest_real_run_id
+latest_trace_id
+latest_input_event_id
+latest_output_event_id
+latest_audit_log_id
+latest_provenance_event_id
+downstream_consumer
+duplicate_status
+orphan_status
+final_tool_status
+failure_reason_if_any
+
+Requirements:
+
+1. Exactly 53 unique tools must be identified if 53 is the architectural claim.
+2. Aliases must not be counted as separate tools.
+3. Multiple functions in one file may count separately only if independently
+   registered and independently callable.
+4. A file name alone is not a tool.
+5. A database table alone is not a tool.
+6. A prompt alone is not a tool.
+7. A configuration flag alone is not a tool.
+8. A disabled, dead, placeholder, or uncalled implementation cannot be reported
+   as a live tool.
+9. Every live tool must have at least one real runtime execution record.
+10. Every output-producing tool must have an authorized downstream consumer.
+11. Orphaned tools must be marked FAIL.
+12. Duplicate tools must be marked FAIL until canonical ownership is resolved.
+13. If fewer than 53 tools are proven, report the exact verified count.
+14. If more than 53 tools exist, report the verified count and explain why the
+   architectural claim is outdated.
+
+Return:
+
+claimed_tool_count
+discovered_tool_count
+registered_tool_count
+enabled_tool_count
+runtime_verified_tool_count
+orphaned_tool_count
+duplicated_tool_count
+stub_tool_count
+failed_tool_count
+
+============================================================
+AUTHORITATIVE DIAGRAM 2 ORDERING VERIFICATION
+============================================================
+
+Map all components to their correct Diagram 2 phases.
+
+At minimum, prove the ordering relationship among:
+
+Point-in-Time Data Guard
+Macro and Regime Context
+Research and Discovery
+Technical and Statistical Analysis
+Options and Microstructure Analysis
+Probability Engine
+Scoring and Synthesis
+Specialist Council
+Ordinary Pre-Decision Risk Gate
+Decision Engine
+Paper or Shadow Execution
+Outcome Tracking
+Observability and Audit
+Learning
+Memory and Feedback
+
+No component may call the Decision Engine directly unless it is the one
+authorized immediate predecessor in the canonical architecture.
+
+No research tool may bypass:
+
+Point-in-Time Data Guard
+Required validation
+Scoring and synthesis
+Specialist Council where required
+Pre-Decision Risk Gate
+Governance gate where required
+
+Return a machine-readable edge table:
+
+edge_number
+upstream_component
+upstream_output_event
+downstream_component
+downstream_input_event
+authorized_status
+runtime_verified_status
+trace_id
+timestamp
+audit_log_id
+provenance_event_id
+
+Also return all unauthorized or suspicious edges.
+
+============================================================
+REAL END-TO-END CANDIDATE TRACE
+============================================================
+
+Use one real scheduled paper/shadow production candidate.
+
+Do not use a synthetic candidate for the primary proof.
+
+Return:
+
+ticker
+candidate_id
+root_trace_id
+trace_id
+scan_run_id
+market_as_of_timestamp
+data_guard_event_id
+macro_context_event_id
+discovery_event_ids
+technical_event_ids
+options_event_ids
+microstructure_event_ids
+probability_event_id
+xgboost_prediction_record_id
+treeshap_record_id
+synthesis_event_id
+specialist_council_session_id
+risk_gate_event_id
+decision_event_id
+execution_plan_id
+paper_or_shadow_execution_id
+outcome_tracking_id_if_available
+learning_event_id_if_available
+memory_event_id_if_available
+final_decision
+final_position_size
+final_status
+
+For the candidate trace, identify which of the 30 components:
+
+EXECUTED_DIRECTLY
+CONSUMED_PRECOMPUTED_OUTPUT
+NOT_TRIGGERED
+FAILED
+BLOCKED
+NOT_WIRED
+
+For each component that consumed precomputed output, provide:
+
+source_run_id
+source_trace_id
+source_as_of_timestamp
+output_version
+freshness_at_candidate_time
+attachment_event_id
+
+============================================================
+LIVE SCHEDULED RESEARCH TRACE
+============================================================
+
+Because not every research component executes for every candidate, select at
+least one real scheduled research run that proves the periodic components.
+
+The scheduled research trace must cover all research components due on that
+cadence or provide separate traces for daily, weekly, and retraining cadences.
+
+Return:
+
+research_run_id
+root_trace_id
+scheduled_job_id
+scheduled_start
+actual_start
+actual_end
+components_due
+components_executed
+components_skipped
+skip_reasons
+hypotheses_created
+hypotheses_rejected
+signals_invalidated
+signals_sent_to_rediscovery
+signals_promoted
+model_versions_created
+governance_events
+audit_chain
+provenance_chain
+final_status
+
+============================================================
+PROVENANCE CHAIN REQUIREMENTS
+============================================================
+
+Every execution event must include:
+
+event_id
+root_trace_id
+trace_id
+parent_event_id
+component_id
+component_version
+code_sha256
+configuration_sha256
+input_artifact_ids
+input_hashes
+output_artifact_ids
+output_hashes
+started_at
+completed_at
+host_or_worker_id
+process_id
+execution_status
+
+Prove:
+
+1. Every non-root event has a valid parent event.
+2. Every consumed artifact was produced by an earlier authorized event.
+3. Input hashes match the producing event’s output hashes.
+4. The chain contains no missing parent.
+5. The chain contains no timestamp reversal.
+6. The chain contains no duplicate event ID.
+7. The chain contains no unregistered component.
+8. The chain contains no unexplained external output.
+9. Stored hashes can be recalculated successfully.
+10. Tampering causes verification failure.
+
+Perform one tamper test by modifying a copied audit artifact and prove the hash
+chain rejects it.
+
+Do not modify production records for the tamper test.
+
+============================================================
+BYPASS AND FAILURE TESTS
+============================================================
+
+Run all of the following controlled negative tests:
+
+1. Attempt to invoke the Decision Engine before the Point-in-Time Data Guard.
+2. Attempt to invoke the Decision Engine without scoring and synthesis.
+3. Attempt to invoke the Decision Engine without the Specialist Council when
+   the council is mandatory.
+4. Attempt to invoke execution without a passed risk gate.
+5. Attempt to use stale FRED macro data beyond tolerance.
+6. Attempt to use future-dated market data.
+7. Attempt to promote an unvalidated pattern.
+8. Attempt to use an invalidated signal.
+9. Attempt to bypass BH-FDR correction.
+10. Attempt to load a corrupted XGBoost model.
+11. Attempt to provide a misordered feature vector.
+12. Attempt to let Deep RL exceed a hard risk limit.
+13. Attempt an illegal signal-lifecycle transition.
+14. Attempt to consume output from an unregistered tool.
+15. Attempt to alter a copied provenance artifact and verify hash failure.
+
+For every negative test return:
+
+test_id
+attempted_action
+expected_blocking_component
+actual_blocking_component
+blocked_status
+error_code
+audit_log_id
+provenance_event_id
+downstream_execution_prevented
+final_status
+
+A negative test passes only if the prohibited action is actually blocked.
+
+============================================================
+DATABASE AND AUDIT RECONCILIATION
+============================================================
+
+Reconcile runtime events against persistent records.
+
+Return counts for the selected audit period:
+
+function_entry_count
+function_exit_count
+successful_execution_count
+failed_execution_count
+output_artifact_count
+provenance_event_count
+audit_log_count
+database_result_count
+downstream_consumption_count
+
+Explain every mismatch.
+
+The following must be zero for final PASS:
+
+missing_function_exits
+outputs_without_provenance
+provenance_events_without_outputs_when_output_expected
+outputs_without_downstream_consumers
+database_records_without_trace_ids
+trace_ids_without_root_trace_ids
+unregistered_runtime_components
+duplicate_canonical_owners
+silent_fallbacks
+fabricated_success_records
+unexplained_orphan_tools
+
+============================================================
+REQUIRED COMPONENT MATRIX
+============================================================
+
+Return one final table containing all 30 entries:
+
+1. Point-in-Time Data Guard
+2. BH-FDR Correction
+3. Signal Decay Module
+4. Rediscovery Engine
+5. Walk-Forward and Out-of-Sample Splits
+6. M5 Pattern Discovery with Fisher’s Exact Test
+7. FRED Macro Regime Overlay
+8. GARCH(1,1) Volatility Clustering
+9. Bipower Variation Jump Detection
+10. Variance Risk Premium
+11. Risk-Neutral Density
+12. Statistical Arbitrage Engine
+13. PCA Factor Decomposition and Absorption Ratio
+14. GEX — Gamma Exposure
+15. Put/Call Skew
+16. Options Term Structure
+17. CTA Trigger Levels
+18. VPIN
+19. Hurst Exponent
+20. Amihud Illiquidity Ratio
+21. Corwin-Schultz Spread Estimator
+22. XGBoost and Native TreeSHAP Attribution
+23. Specialist Council with Thompson Sampling
+24. Meta-Learning Signal Trust
+25. Deep RL Position Sizing
+26. Causal Discovery Engine
+27. Gaussian Process Signal Discovery
+28. Online Learning with Version Control and Rollback
+29. Self-Invalidating Signal Lifecycle
+30. 53 Live Research Tools
+
+Required columns:
+
+number
+component
+canonical_owner
+implementation_status
+registration_status
+latest_real_execution
+real_input_proven
+real_output_proven
+downstream_consumption_proven
+provenance_complete
+audit_complete
+negative_control_passed
+duplicate_free
+bypass_protected
+final_status
+failure_reason
+
+============================================================
+FINAL VERDICT RULES
+============================================================
+
+Return exactly one overall verdict:
+
+DIAGRAM_2_COMPONENT_WIRING_PASS
+DIAGRAM_2_COMPONENT_WIRING_PARTIAL
+DIAGRAM_2_COMPONENT_WIRING_FAIL
+
+DIAGRAM_2_COMPONENT_WIRING_PASS is allowed only if:
+
+1. All 29 named components are implemented or validly triggered according to
+   their documented execution modes.
+2. All 53 claimed research tools are individually inventoried.
+3. Every claimed live tool has real runtime evidence.
+4. No component is an unreported stub or placeholder.
+5. No required component is orphaned.
+6. No required output lacks a downstream consumer.
+7. No unauthorized bypass exists.
+8. All required negative controls pass.
+9. Provenance is complete and hash-verifiable.
+10. Registry, runtime, audit, database, and scheduler evidence reconcile.
+11. The real end-to-end candidate trace succeeds.
+12. The required scheduled research trace succeeds.
+13. Every failure and skipped trigger is explicitly accounted for.
+14. No narrative statement substitutes for machine-verifiable proof.
+
+If even one required component lacks implementation or downstream-consumption
+proof, do not return a full PASS.
+
+============================================================
+REQUIRED DELIVERABLES
+============================================================
+
+Deliver:
+
+1. diagram2_component_inventory.json
+2. diagram2_53_tool_inventory.json
+3. diagram2_component_matrix.csv
+4. diagram2_authorized_edge_map.json
+5. diagram2_runtime_trace.json
+6. diagram2_research_trace.json
+7. diagram2_provenance_chain.json
+8. diagram2_negative_controls.json
+9. diagram2_registry_reconciliation.json
+10. diagram2_scheduler_reconciliation.json
+11. diagram2_database_reconciliation.json
+12. diagram2_sha256_manifest.txt
+13. diagram2_failures_and_discrepancies.json
+14. diagram2_final_verification_report.md
+
+The Markdown report must reference the underlying machine-readable evidence.
+It cannot replace it.
+
+At the end, print:
+
+OVERALL_VERDICT=
+TOTAL_NAMED_COMPONENTS_EXPECTED=29
+TOTAL_NAMED_COMPONENTS_RUNTIME_VERIFIED=
+RESEARCH_TOOLS_CLAIMED=53
+RESEARCH_TOOLS_DISCOVERED=
+RESEARCH_TOOLS_RUNTIME_VERIFIED=
+COMPONENTS_FAILED=
+COMPONENTS_BLOCKED=
+COMPONENTS_NOT_WIRED=
+ORPHANED_COMPONENTS=
+DUPLICATED_COMPONENTS=
+UNAUTHORIZED_EDGES=
+NEGATIVE_TESTS_RUN=
+NEGATIVE_TESTS_PASSED=
+PROVENANCE_CHAIN_VALID=
+HASH_MANIFEST_VALID=
+REAL_CANDIDATE_TRACE_VALID=
+SCHEDULED_RESEARCH_TRACE_VALID=
+DIAGRAM_2_READY_FOR_CLOSURE=
+
+Do not state that Diagram 2 is complete until all required evidence has been
+returned and independently reviewed.
