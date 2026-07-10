@@ -102,6 +102,46 @@ def classify_context_bucket(market_regime_recommendation: Optional[str] = None) 
     return "mixed_market"
 
 
+def compute_ema_trust_update(
+    prior_rate: Optional[float],
+    prior_n: int,
+    outcome_was_win: bool,
+    decay_factor: float = 0.95,
+    min_weight: float = 0.2,
+    max_weight: float = 2.0,
+) -> "tuple[float, int, float]":
+    """Pure, DB-free arithmetic core of the trust-weight EMA update. This is
+    the ONE canonical implementation of the formula — every call site that
+    needs the EMA math (this module's own update_trust_weight(), and
+    main.py's MTM close-path trust update, which has its own separate
+    DB reads/writes and audit side effects) must delegate here instead of
+    reimplementing the arithmetic inline.
+
+    prior_rate=None (or prior_n<=0) means "first observation for this
+    signal+context" — the rolling rate is seeded directly from this
+    outcome rather than decayed against a prior.
+
+    Returns (new_rate, new_n, trust_weight). Trust weight conversion:
+    1.0 = neutral (50% win rate). Above 1.0 means this signal/context combo
+    has been outperforming a coin flip; below 1.0 means it's been
+    underperforming. Capped at [min_weight, max_weight] so no single signal
+    can ever be entirely zeroed out or entirely dominate.
+    """
+    outcome_value = 1.0 if outcome_was_win else 0.0
+
+    if prior_rate is not None and prior_n > 0:
+        new_rate = decay_factor * float(prior_rate) + (1 - decay_factor) * outcome_value
+        new_n = prior_n + 1
+    else:
+        new_rate = outcome_value
+        new_n = 1
+
+    trust_weight = 1.0 + (new_rate - 0.5) * 2 * (max_weight - 1.0)
+    trust_weight = max(min_weight, min(max_weight, trust_weight))
+
+    return new_rate, new_n, trust_weight
+
+
 def update_trust_weight(
     signal_name: str,
     context_bucket: str,
@@ -133,18 +173,17 @@ def update_trust_weight(
             )
             existing = cur.fetchone()
 
-    outcome_value = 1.0 if new_outcome_was_win else 0.0
-
     if existing:
         prior_rate = float(existing["rolling_win_rate"])
-        n_observed = existing["n_outcomes_observed"] + 1
-        new_rate = decay_factor * prior_rate + (1 - decay_factor) * outcome_value
+        prior_n = int(existing["n_outcomes_observed"])
     else:
-        new_rate = outcome_value
-        n_observed = 1
+        prior_rate = None
+        prior_n = 0
 
-    trust_weight = 1.0 + (new_rate - 0.5) * 2 * (max_weight - 1.0)
-    trust_weight = max(min_weight, min(max_weight, trust_weight))
+    new_rate, n_observed, trust_weight = compute_ema_trust_update(
+        prior_rate, prior_n, new_outcome_was_win,
+        decay_factor=decay_factor, min_weight=min_weight, max_weight=max_weight,
+    )
 
     with _connect() as conn:
         with conn.cursor() as cur:

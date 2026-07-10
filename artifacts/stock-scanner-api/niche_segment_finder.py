@@ -28,6 +28,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+import aiem_stat_tests as _stat_tests
+
 # Hard floor for any segment to even be considered. Lower than this and a
 # win-rate estimate is mostly noise.
 MIN_SEGMENT_SAMPLES = 40
@@ -171,33 +173,14 @@ def search_two_way_interactions(
 
 def _benjamini_hochberg(p_values: List[float], alpha: float) -> tuple:
     """
-    Manual Benjamini-Hochberg FDR correction (no statsmodels dependency).
+    Delegates to the canonical aiem_stat_tests.bh_fdr_adjust (Diagram 2
+    remediation spec P1-1 / C2: one authoritative BH-FDR implementation,
+    shared across Module 5, Module 6, and this niche-segment finder).
     Returns (rejected: List[bool], p_adjusted: List[float]) in original order.
+    See tests/test_bh_fdr_equivalence.py for proof this is a pure
+    behavior-preserving refactor of the previous local implementation.
     """
-    n = len(p_values)
-    if n == 0:
-        return [], []
-
-    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
-    sorted_p = [p for _, p in indexed]
-
-    p_adjusted_sorted = [0.0] * n
-    prev = 1.0
-    for i in range(n - 1, -1, -1):
-        rank = i + 1
-        val = sorted_p[i] * n / rank
-        prev = min(prev, val)
-        p_adjusted_sorted[i] = prev
-
-    rejected_sorted = [p <= alpha for p in p_adjusted_sorted]
-
-    p_adjusted = [0.0] * n
-    rejected = [False] * n
-    for sorted_idx, (orig_idx, _) in enumerate(indexed):
-        p_adjusted[orig_idx] = p_adjusted_sorted[sorted_idx]
-        rejected[orig_idx] = rejected_sorted[sorted_idx]
-
-    return rejected, p_adjusted
+    return _stat_tests.bh_fdr_adjust(p_values, alpha)
 
 
 def apply_multiple_testing_correction(

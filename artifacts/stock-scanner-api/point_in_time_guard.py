@@ -197,3 +197,63 @@ def snapshot_daily_fundamentals(tickers: list, db_conn) -> None:
                 ON CONFLICT (ticker, snapshot_date) DO NOTHING
             """, r)
     db_conn.commit()
+
+
+def evaluate_live_candidate_pit(*, ticker: str, price_source, price_source_scan_date=None,
+                                 now_et_date=None) -> dict:
+    """
+    Real point-in-time integrity check for a LIVE paper-trade candidate.
+    Called once per candidate from _aiem_paper_execute_today, immediately
+    after price resolution and before position sizing (Diagram 2 remediation
+    spec step 3 / Governance Checkpoint G6, SHADOW mode).
+
+    This is a DIFFERENT concern from fetch_point_in_time_prices /
+    assert_no_future_leakage above -- those guard HISTORICAL as_of_date
+    computations (backtests/training) against a full OHLCV DataFrame. A live
+    candidate has no such DataFrame; the one concrete, verifiable-today PIT
+    risk in the live path is PRICE PROVENANCE. Specifically, the
+    polygon_rvol_scan fallback query in _aiem_paper_execute_today
+    (`SELECT price, scan_date FROM polygon_rvol_scan WHERE ticker=%s
+    ORDER BY scan_date DESC LIMIT 1`) has NO date filter and can silently
+    return a price from a stale prior session (e.g. if today's row hasn't
+    landed yet) which then gets written into aiem_paper_trades as if it were
+    today's live fill price. Live quotes (quotes.get(_t)['last'/'bid']) are
+    always today's tape by construction and carry no such risk.
+
+    Parameters
+    ----------
+    ticker: candidate ticker (evidence/logging only, not used for gating)
+    price_source: 'live_quote' (no PIT risk) or 'polygon_fallback' (the
+        only source that can leak a stale date) or None (no price found —
+        caller already `continue`s before this is ever invoked in that case)
+    price_source_scan_date: the scan_date column value actually returned by
+        the polygon_rvol_scan fallback row (a date), or None if no fallback
+        row was found / price_source != 'polygon_fallback'
+    now_et_date: today's date in US/Eastern, supplied by the caller so this
+        function never independently re-derives "today" and stays
+        deterministically unit-testable
+
+    Returns {"violations": [...], "evidence": {...}}. Never raises --
+    callers (G6's _evaluate_g6_decision) decide SHADOW vs ENFORCE handling.
+    Empty violations means price_source == 'live_quote', or the fallback
+    row's scan_date really is today's ET date.
+    """
+    violations = []
+    evidence = {
+        "ticker": ticker,
+        "price_source": price_source,
+        "price_source_scan_date": (
+            price_source_scan_date.isoformat()
+            if hasattr(price_source_scan_date, "isoformat") else price_source_scan_date
+        ),
+        "now_et_date": now_et_date.isoformat() if hasattr(now_et_date, "isoformat") else now_et_date,
+    }
+
+    if price_source == "polygon_fallback":
+        if price_source_scan_date is None:
+            violations.append("PRICE_PROVENANCE_UNKNOWN_DATE")
+        elif now_et_date is not None and price_source_scan_date < now_et_date:
+            violations.append("PRICE_STALE_FALLBACK")
+            evidence["days_stale"] = (now_et_date - price_source_scan_date).days
+
+    return {"violations": violations, "evidence": evidence}

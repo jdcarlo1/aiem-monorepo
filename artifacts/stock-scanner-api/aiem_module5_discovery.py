@@ -351,25 +351,13 @@ def init_schema(conn) -> None:
 
 
 # ---------------------------------------------------------------------------
-# BH-FDR correction (no external scipy needed for this step)
+# BH-FDR correction — delegates to the canonical aiem_stat_tests.bh_fdr_reject
+# (Diagram 2 remediation spec P1-1 / C2: one authoritative implementation,
+# shared with Module 6, see tests/test_bh_fdr_equivalence.py for proof this is
+# a pure behavior-preserving refactor of the previous local implementation).
 
 def _bh_fdr_reject(p_values: list[float], alpha: float = 0.05) -> list[bool]:
-    """
-    Benjamini-Hochberg step-up FDR correction.
-    Returns a boolean list parallel to p_values: True = rejected (significant).
-    """
-    n = len(p_values)
-    if n == 0:
-        return []
-    ranked = sorted(range(n), key=lambda i: p_values[i])
-    last_rejected = -1
-    for rank, orig_idx in enumerate(ranked, 1):
-        if p_values[orig_idx] <= rank / n * alpha:
-            last_rejected = rank - 1   # 0-indexed position in ranked list
-    rejected = [False] * n
-    for rank_idx in range(last_rejected + 1):
-        rejected[ranked[rank_idx]] = True
-    return rejected
+    return _stat_tests.bh_fdr_reject(p_values, alpha)
 
 
 # ---------------------------------------------------------------------------

@@ -88,21 +88,15 @@ def init_schema(conn):
 
 
 # ---------------------------------------------------------------------------
-# BH-FDR (mirrors Module 5; defined locally to avoid cross-module coupling)
+# BH-FDR — delegates to the canonical aiem_stat_tests.bh_fdr_reject (Diagram 2
+# remediation spec P1-1 / C2: one authoritative implementation, shared with
+# Module 5). Module 6 already imports aiem_stat_tests for run_fisher_test, so
+# this adds zero new cross-module coupling beyond what already exists. See
+# tests/test_bh_fdr_equivalence.py for proof this is a pure behavior-preserving
+# refactor of the previous local implementation.
 
 def _bh_fdr_reject(p_values: list, alpha: float = _FDR_ALPHA) -> list:
-    n = len(p_values)
-    if n == 0:
-        return []
-    ranked      = sorted(range(n), key=lambda i: p_values[i])
-    last_reject = -1
-    for rank, orig_idx in enumerate(ranked, 1):
-        if p_values[orig_idx] <= rank / n * alpha:
-            last_reject = rank - 1
-    rejected = [False] * n
-    for ri in range(last_reject + 1):
-        rejected[ranked[ri]] = True
-    return rejected
+    return _stat_tests.bh_fdr_reject(p_values, alpha)
 
 
 # ---------------------------------------------------------------------------

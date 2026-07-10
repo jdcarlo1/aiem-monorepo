@@ -1,0 +1,1630 @@
+============================================================
+AEIM DIAGRAM 2
+AUTHORITATIVE MASTER REMEDIATION AND WIRING SPECIFICATION
+============================================================
+
+STATUS
+
+The Diagram 2 truth audit is complete.
+
+The authoritative audit report is:
+
+.local/DIAGRAM2_AUDIT_FINAL_REPORT.md
+
+The audit established:
+
+- 19 of 30 components are genuinely PASS_LIVE_WIRED.
+- Multiple advanced components are real but research-only.
+- Two implementations are dead code.
+- BH-FDR and meta-learning trust contain duplicated logic.
+- The Point-in-Time Guard is not protecting the live candidate path.
+- The documented M2→M4→M6→M3 lifecycle does not match production.
+- The Specialist Council creates only 2 opinions, not the intended 9.
+- Real end-to-end candidate traces exist.
+- Cryptographic provenance passed its tamper test.
+- A sizing/risk rejection can terminate without an explicit terminal
+  Diagram 2 audit record.
+- DIAGRAM2_STAGE_MAP contains 21 authoritative production stages.
+- The active trace table is aiem_diagram2_trace_audit.
+- aiem_bus_transfer_log is a misleading legacy path.
+
+This directive converts those findings into the authoritative
+implementation and verification plan.
+
+============================================================
+NON-NEGOTIABLE RULES
+============================================================
+
+1. Do not add new analytical modules.
+
+2. Do not redesign working architecture without evidence.
+
+3. Preserve all components already proven PASS_LIVE_WIRED unless a
+   specific remediation below requires a controlled change.
+
+4. No technical indicator, research tool, model, specialist, risk
+   component, or execution component may call the Decision Engine
+   directly except through its canonical Diagram 2 stage.
+
+5. No component may bypass:
+
+   candidate intake
+   → market-data acquisition
+   → point-in-time/data-quality guard
+   → analysis layers
+   → probability/scoring
+   → Specialist Council
+   → risk
+   → sizing
+   → Decision Engine
+
+6. Every component must have exactly one canonical owner.
+
+7. Duplicate source-of-truth implementations are forbidden.
+
+8. Every component must be intentionally classified as one of:
+
+   LIVE_PER_CANDIDATE
+   LIVE_SCHEDULED
+   RESEARCH_SCHEDULED
+   RESEARCH_ON_DEMAND
+   DEPRECATED
+
+9. Research-only code must not be represented as live trading logic.
+
+10. A component is not considered wired merely because:
+
+    - its file exists,
+    - it is imported,
+    - it can be called by an AI chat tool,
+    - it passes an isolated unit test,
+    - or it appears in a registry.
+
+11. Wiring requires runtime proof that:
+
+    - the component executed,
+    - it received the correct upstream input,
+    - it produced a real output,
+    - a named downstream consumer consumed that output,
+    - and the complete event was persisted with trace/provenance.
+
+12. No production candidate may disappear silently from the audit trail.
+
+13. Do not modify production until a restorable baseline has been created.
+
+============================================================
+PHASE 0 — BASELINE AND CHANGE CONTROL
+============================================================
+
+Before editing production code:
+
+1. Create a Git commit and tag:
+
+   diagram2-pre-remediation-baseline-2026-07-10
+
+2. Record:
+
+   git commit hash
+   repository status
+   changed-file count
+   main.py line count
+   database migration version
+   DIAGRAM2_STAGE_MAP hash
+   module registry hash
+   tool registry hash
+   audit report hash
+
+3. Export or snapshot all schemas/tables affected by remediation.
+
+4. Confirm rollback can restore:
+
+   source code
+   scheduler configuration
+   database schema
+   registry configuration
+
+5. Create a dedicated implementation branch:
+
+   diagram2-authoritative-remediation
+
+No unrelated feature work is permitted on this branch.
+
+============================================================
+PHASE 1 — AUTHORITATIVE 21-STAGE MAP
+============================================================
+
+Use the existing DIAGRAM2_STAGE_MAP in aiem_registry.py as the
+authoritative stage-number source.
+
+Do not recreate or renumber the map based on this document.
+
+Return the actual current mapping for all 21 stages before implementation.
+
+The functional ownership must correspond to this order:
+
+1. Candidate/scanner intake
+2. Data acquisition
+3. Point-in-time, staleness, lookahead, schema and quality guard
+4. Macro and market regime
+5. Discovery intake
+6. Signal lifecycle / decay / validation / rediscovery
+7. Technical and price structure
+8. Options and derivatives structure
+9. Market microstructure
+10. Quantitative and statistical edge
+11. Causal/research context where approved
+12. Model feature synthesis
+13. Probability Engine: XGBoost + TreeSHAP
+14. Scoring and evidence synthesis
+15. Specialist Council
+16. Pre-decision risk gate
+17. Position sizing
+18. Decision Engine
+19. Paper/shadow execution or explicit no-execution
+20. Outcome, attribution and observability
+21. Learning feedback and memory handoff
+
+If the existing 21-stage names differ, preserve their IDs and map their
+actual names to these functional responsibilities.
+
+Required output before code changes:
+
+stage_id
+existing_stage_name
+functional_owner
+runtime_function
+source_file
+upstream_stage
+downstream_stage
+blocking_behavior
+audit_event_type
+
+============================================================
+PHASE 2 — STANDARD CANDIDATE AND TRACE CONTRACT
+============================================================
+
+Every production stage must consume or preserve the following fields:
+
+root_trace_id
+trace_id
+parent_trace_id
+span_id
+pipeline_run_id
+candidate_id
+ticker
+trade_date
+scheduled_job_id
+stage_id
+stage_name
+component_id
+component_name
+component_version
+source_file
+source_function
+market_as_of_timestamp
+input_record_ids
+input_hash
+input_schema_version
+output_record_ids
+output_hash
+output_schema_version
+status
+decision
+reason_codes
+blocking
+started_at_utc
+completed_at_utc
+duration_ms
+attempt_number
+error_class
+error_message
+provenance_parent_hash
+provenance_hash
+
+Rules:
+
+1. root_trace_id is generated exactly once at intake.
+
+2. candidate_id is immutable.
+
+3. All downstream stages must receive the original root_trace_id and
+   candidate_id.
+
+4. Every component receives its own trace_id/span_id and identifies the
+   direct parent.
+
+5. A downstream consumer must acknowledge the exact upstream output_hash.
+
+6. Missing root_trace_id, candidate_id, or market_as_of_timestamp must
+   fail closed.
+
+7. Every exit path must write a terminal status:
+
+   COMPLETED
+   REJECTED
+   BLOCKED
+   FAILED
+   SKIPPED_WITH_REASON
+   NO_EXECUTION
+
+8. The active Diagram 2 audit table is:
+
+   aiem_diagram2_trace_audit
+
+9. Do not use aiem_bus_transfer_log as proof of Diagram 2 execution.
+
+============================================================
+PHASE 3 — P0 CORRECTNESS AND TRUST REMEDIATION
+============================================================
+
+------------------------------------------------------------
+P0-1 — C1 POINT-IN-TIME DATA GUARD
+------------------------------------------------------------
+
+Current finding:
+
+FAIL / ARCHITECTURAL_DISCREPANCY
+
+Canonical source:
+
+artifacts/stock-scanner-api/point_in_time_guard.py
+
+Existing functions/classes include:
+
+fetch_point_in_time_prices()
+assert_no_future_leakage()
+LookaheadViolation
+snapshot_daily_fundamentals()
+
+Required placement:
+
+candidate intake
+→ data acquisition
+→ Point-in-Time Guard
+→ all indicators/models/scoring/council/risk/decision
+
+Required implementation:
+
+1. Create one canonical production adapter around the existing guard.
+
+2. Invoke it automatically for every real paper/shadow candidate.
+
+3. It must validate:
+
+   - no row timestamp after market_as_of_timestamp,
+   - no future-dated price data,
+   - no stale data beyond configured tolerances,
+   - no missing required timestamps,
+   - normalized timezone handling,
+   - deterministic duplicate-row handling,
+   - finite numeric values,
+   - correct schema,
+   - fundamental release/vintage validity,
+   - options-chain as-of consistency.
+
+4. Required output:
+
+   guard_decision
+   guard_reason_codes
+   market_as_of_timestamp
+   newest_input_timestamp
+   oldest_input_timestamp
+   stale_age_seconds
+   future_rows_found
+   missing_fields
+   invalid_numeric_fields
+   schema_valid
+   source_status
+   rejected_record_ids
+
+5. Any non-PASS result must:
+
+   - block all analytical stages,
+   - prevent probability/scoring/council/risk/decision execution,
+   - prevent order creation,
+   - create an explicit terminal audit row,
+   - preserve the rejection reason.
+
+6. The live pipeline must be structurally incapable of executing its first
+   indicator before C1 passes.
+
+Required negative controls:
+
+future-dated row
+stale quote
+missing timestamp
+timezone mismatch
+NaN
+Infinity
+conflicting duplicate row
+future fundamental revision
+future options-chain snapshot
+
+------------------------------------------------------------
+P0-2 — C29 LIFECYCLE ORDER AND DEPENDENCY
+------------------------------------------------------------
+
+Current audit finding:
+
+The claimed M2→M4→M6→M3 sequence is not real.
+
+Observed schedule:
+
+M2 at 2:30 AM Sunday
+M3 at 3:00 AM Sunday
+M5 at 4:00 AM Sunday
+M6 at 4:15 AM Sunday
+
+M4 is admin-triggered and not scheduled.
+
+Observed dependency:
+
+M2 → M4
+M4 → M6
+M3 and M5 operate independently.
+
+Required architecture:
+
+Implement one explicit lifecycle contract rather than relying on clock
+times and shared-table inference.
+
+Required states:
+
+DISCOVERED
+DECAY_EVALUATED
+GATE_PENDING
+GATE_APPROVED
+GATE_REJECTED
+VALIDATION_PENDING
+VALIDATED
+VALIDATION_FAILED
+REDISCOVERY_PENDING
+REDISCOVERED
+PROMOTION_PENDING
+PROMOTED
+ARCHIVED
+
+Canonical responsibilities:
+
+M2:
+Evaluate decay and emit a versioned decay result.
+
+M4:
+Consume the exact M2 record ID and output hash.
+Perform the lifecycle gate.
+Admin approval may remain as an override, but not as an undocumented
+exclusive dependency.
+
+M5:
+Perform Fisher/BH-FDR validation using an explicitly identified
+discovery/lifecycle record.
+
+M6:
+Consume the exact gated/validated upstream record and perform
+rediscovery.
+
+M3:
+Promotion must consume an explicitly eligible lifecycle record.
+It may not promote independently based only on broad shared-table reads
+when the documented architecture requires upstream lifecycle proof.
+
+Required record fields:
+
+lifecycle_event_id
+signal_id
+previous_state
+new_state
+source_component
+source_record_id
+source_output_hash
+transition_reason
+transition_actor
+transition_timestamp
+next_required_state
+root_trace_id
+provenance_hash
+
+Do not merely reschedule jobs.
+
+The correction must enforce actual record-level dependencies.
+
+Required proof:
+
+Trace one real signal through every applicable transition.
+Show record IDs, hashes, timestamps and downstream acknowledgements.
+
+------------------------------------------------------------
+P0-3 — C23 SPECIALIST COUNCIL
+------------------------------------------------------------
+
+Current finding:
+
+Thompson sampling is real, but only 2 SpecialistOpinion objects are
+constructed in live code instead of the documented 9.
+
+Required placement:
+
+scoring/evidence synthesis
+→ Specialist Council
+→ pre-decision risk gate
+→ sizing
+→ Decision Engine
+
+The council must not execute before complete scoring/synthesis.
+
+Canonical 9 specialist roles:
+
+1. Macro and Market-Regime Specialist
+2. Technical Structure and Momentum Specialist
+3. Mean-Reversion and Statistical-Arbitrage Specialist
+4. Options Structure and Dealer-Positioning Specialist
+5. Market-Microstructure and Liquidity Specialist
+6. Quantitative Statistical-Edge Specialist
+7. Probability and Model-Attribution Specialist
+8. Signal-Lifecycle and Historical-Trust Specialist
+9. Risk and Trade-Quality Specialist
+
+Do not create fake opinions.
+
+Each specialist must be backed by existing real component outputs.
+
+Required input mapping:
+
+Macro Specialist:
+FRED/macro context, market regime, index conditions.
+
+Technical Specialist:
+technical structure, VWAP, trend, momentum, CTA and related outputs.
+
+Mean-Reversion Specialist:
+Engle-Granger, reversion, pullback, selloff and related outputs.
+
+Options Specialist:
+GEX, put/call skew, term structure when available, flow context.
+
+Microstructure Specialist:
+VPIN, Amihud, Corwin-Schultz and liquidity outputs.
+
+Quant Specialist:
+GARCH, bipower variation, VRP, RND, Hurst, quantitative evidence.
+
+Probability Specialist:
+XGBoost probability, TreeSHAP attribution, model confidence.
+
+Lifecycle/Trust Specialist:
+decay, validation, rediscovery, promotion status, meta-learning trust.
+
+Risk Specialist:
+risk-gate context, exposure, correlation, drawdown and sizing constraints.
+
+Each specialist must output:
+
+specialist_id
+specialist_name
+evidence_record_ids
+evidence_hash
+opinion
+confidence
+abstained
+abstention_reason
+historical_successes
+historical_failures
+beta_alpha
+beta_beta
+sampled_weight
+reason_codes
+timestamp
+root_trace_id
+trace_id
+provenance_hash
+
+Council output:
+
+council_recommendation
+weighted_support
+weighted_opposition
+abstention_count
+disagreement_score
+confidence
+specialist_count_expected
+specialist_count_executed
+specialist_count_abstained
+missing_specialists
+reason_codes
+output_hash
+
+Rules:
+
+- Missing evidence may cause an explicit abstention.
+- It must not generate fabricated substitute values.
+- Exactly 9 opinion records must exist per fully evaluated candidate,
+  including explicit abstentions.
+- Council output must be consumed by the risk gate.
+- Council may not execute orders.
+- Council may not call brokers.
+- Council may not bypass risk.
+
+Required proof:
+
+One real candidate must show 9 persisted specialist records,
+Thompson-sampling parameters, sampled weights, council aggregation,
+risk-gate consumption and final decision consumption.
+
+------------------------------------------------------------
+P0-4 — EXPLICIT TERMINAL REJECTION AUDIT
+------------------------------------------------------------
+
+Current finding:
+
+A sizing/risk-gate rejection can stop before later trace stages without an
+explicit rejection row in aiem_diagram2_trace_audit.
+
+Required fix:
+
+For every rejection or block at any stage, write a terminal event.
+
+Required fields:
+
+terminal_status=REJECTED or BLOCKED
+rejected_at_stage_id
+rejected_at_stage_name
+rejecting_component
+reason_codes
+human_readable_reason
+last_successful_stage
+no_order_created=true
+root_trace_id
+candidate_id
+input_hash
+provenance_parent_hash
+provenance_hash
+timestamp
+
+Do not write hardcoded CLEAR or EXECUTE payloads into risk or decision
+audit stages.
+
+Every stored risk and decision value must come from the real computed
+result object used by production.
+
+Required negative control:
+
+Force a sizing-gate rejection and prove:
+
+- the pipeline stops,
+- no order is created,
+- an explicit terminal row is written,
+- the real reason appears in the trace,
+- the provenance chain remains valid.
+
+============================================================
+PHASE 4 — P1 CANONICAL OWNERSHIP AND DUPLICATION
+============================================================
+
+------------------------------------------------------------
+P1-1 — C2 BH-FDR
+------------------------------------------------------------
+
+Current finding:
+
+PASS_LIVE_WIRED but duplicated in:
+
+aiem_module5_discovery.py
+aiem_module6_rediscovery.py
+
+Required fix:
+
+1. Select or create one canonical statistical-validation module.
+
+2. Move the authoritative _bh_fdr_reject() implementation into that
+   shared module.
+
+3. Replace both copied implementations with imports/calls.
+
+4. Preserve exact behavior through equivalence tests.
+
+5. Maintain compatibility wrappers only where necessary.
+
+Canonical placement:
+
+Discovery/statistical-validation processing after p-values are generated
+and before accepted signals proceed downstream.
+
+Required input:
+
+test_family_id
+hypothesis_ids
+raw_p_values
+alpha
+method
+
+Required output:
+
+adjusted_p_values
+accepted_hypotheses
+rejected_hypotheses
+threshold
+reason_codes
+output_hash
+
+Forbidden:
+
+direct Decision Engine call
+direct execution
+direct Telegram-only output
+silent duplicate implementation
+
+Required verification:
+
+grep identifies exactly one authoritative implementation.
+Both M5 and M6 call it.
+Outputs match the previous implementations on fixed test vectors.
+
+------------------------------------------------------------
+P1-2 — C24 META-LEARNING TRUST WEIGHTS
+------------------------------------------------------------
+
+Current finding:
+
+The canonical module exists but production logic is duplicated inline in
+main.py.
+
+Canonical module:
+
+meta_learning_signal_trust.py
+
+Required fix:
+
+1. Make meta_learning_signal_trust.py the only source of trust-weight
+   calculation and update logic.
+
+2. Replace inline production SQL/math in:
+
+   _aiem_paper_pick_candidates
+   _aiem_close_paper_trade_and_run_loop
+
+   with canonical module calls.
+
+3. Preserve current production behavior through before/after comparison.
+
+Required functions/contracts:
+
+read_signal_trust(...)
+update_signal_trust(...)
+calculate_effective_weight(...)
+record_trust_update(...)
+
+Required input:
+
+signal_or_specialist_id
+prior_successes
+prior_failures
+recent_outcome
+decay_factor
+market_regime
+model_version
+
+Required output:
+
+prior_weight
+updated_weight
+confidence
+update_reason
+record_id
+output_hash
+
+The Specialist Council’s lifecycle/trust specialist must consume this
+canonical output.
+
+------------------------------------------------------------
+P1-3 — DEAD CODE DECISION
+------------------------------------------------------------
+
+Current dead code:
+
+pca_factor_decomposition()
+absorption_ratio()
+gamma_exposure_by_strike()
+
+Rules:
+
+1. Do not keep misleading production-looking code with zero callers.
+
+2. Do not blindly connect duplicate GEX logic.
+
+Decision:
+
+A. PCA / Absorption Ratio
+
+Wire into the quantitative systemic-risk context as an advisory indicator.
+
+Canonical placement:
+
+Point-in-time guard
+→ Quantitative/Statistical Edge
+→ Scoring/Synthesis
+→ Risk context
+
+Required input:
+
+point-in-time validated cross-sectional or multi-asset return matrix
+lookback window
+minimum asset count
+as-of timestamp
+
+Required output:
+
+principal_components
+explained_variance
+absorption_ratio
+systemic_risk_state
+confidence
+data_coverage
+reason_codes
+output_hash
+
+Consumers:
+
+scoring/synthesis
+risk context
+Quant Specialist
+
+It must not directly call Decision Engine or execution.
+
+If the required production-quality input matrix is not available,
+classify it as RESEARCH_SCHEDULED rather than fabricating inputs.
+
+B. gamma_exposure_by_strike()
+
+Do not wire this duplicate if _compute_gex() is already the canonical
+live GEX calculation.
+
+Deprecate gamma_exposure_by_strike() clearly and route any valid callers
+to _compute_gex() through a compatibility adapter.
+
+============================================================
+PHASE 5 — ADVANCED INDICATOR CANONICAL WIRING
+============================================================
+
+Every advanced indicator must have an intentional owner.
+
+The following components must be registered in the authoritative wiring
+matrix.
+
+------------------------------------------------------------
+QUANTITATIVE / STATISTICAL EDGE
+------------------------------------------------------------
+
+GARCH volatility model
+
+Canonical live status:
+LIVE_PER_CANDIDATE or LIVE_SCHEDULED according to current proven path.
+
+Required outputs:
+
+forecast_volatility
+persistence
+conditional_variance
+garch_regime
+confidence
+as_of_timestamp
+output_hash
+
+Consumers:
+
+scoring/synthesis
+probability context
+risk context
+Quant Specialist
+
+------------------------------------------------------------
+
+Bipower variation / jump detection
+
+Required outputs:
+
+realized_variation
+bipower_variation
+jump_component
+jump_detected
+jump_intensity
+confidence
+output_hash
+
+Consumers:
+
+statistical-edge aggregator
+risk context
+Quant Specialist
+
+------------------------------------------------------------
+
+Variance risk premium
+
+Required outputs:
+
+implied_variance
+realized_variance
+variance_risk_premium
+vrp_state
+confidence
+output_hash
+
+Consumers:
+
+statistical-edge aggregator
+options/risk context
+Quant Specialist
+
+------------------------------------------------------------
+
+Risk-neutral density
+
+Required outputs:
+
+density_summary
+tail_probability
+skewness
+kurtosis
+downside_tail_risk
+confidence
+output_hash
+
+Consumers:
+
+options/quant synthesis
+risk context
+Quant Specialist
+
+------------------------------------------------------------
+
+Engle-Granger statistical arbitrage
+
+Required outputs:
+
+pair_or_basket_id
+cointegration_status
+test_statistic
+p_value
+hedge_ratio
+z_score
+entry_state
+exit_state
+confidence
+output_hash
+
+Consumers:
+
+statistical-edge aggregator
+Mean-Reversion Specialist
+scoring/synthesis
+
+------------------------------------------------------------
+
+Hurst exponent
+
+Required outputs:
+
+hurst_value
+regime=TRENDING|MEAN_REVERTING|RANDOM
+confidence
+lookback
+output_hash
+
+Consumers:
+
+strategy-regime context
+Quant Specialist
+scoring/synthesis
+
+------------------------------------------------------------
+OPTIONS / DERIVATIVES
+------------------------------------------------------------
+
+Canonical GEX:
+
+_compute_gex() in the proven production path.
+
+Required outputs:
+
+net_gex
+call_gex
+put_gex
+zero_gamma_level
+dealer_positioning_state
+key_strikes
+confidence
+output_hash
+
+Consumers:
+
+options aggregator
+Options Specialist
+scoring/synthesis
+risk context
+
+------------------------------------------------------------
+
+Put/Call skew
+
+Required outputs:
+
+put_call_skew
+skew_percentile
+downside_demand_state
+confidence
+output_hash
+
+Consumers:
+
+options aggregator
+Options Specialist
+scoring/synthesis
+
+------------------------------------------------------------
+
+Options term structure
+
+Current status:
+
+RESEARCH_ON_DEMAND
+
+Required placement:
+
+Convert to LIVE_SCHEDULED options-context production, not an isolated
+chat-only tool.
+
+Do not necessarily run heavy term-structure processing on every ticker.
+
+Run it on an appropriate scheduled cadence and publish a current,
+timestamped context artifact.
+
+Required outputs:
+
+vix_term_structure
+front_back_spread
+contango_backwardation_state
+divergence_signal
+confidence
+valid_until
+output_hash
+
+Consumers:
+
+options context
+macro/regime
+Options Specialist
+risk context
+
+A stale artifact must be rejected or clearly marked unavailable.
+
+------------------------------------------------------------
+MARKET MICROSTRUCTURE
+------------------------------------------------------------
+
+VPIN
+
+Required outputs:
+
+vpin_score
+order_flow_toxicity
+toxicity_state
+confidence
+output_hash
+
+Consumers:
+
+microstructure aggregator
+Microstructure Specialist
+risk context
+scoring/synthesis
+
+------------------------------------------------------------
+
+Amihud illiquidity
+
+Required outputs:
+
+amihud_ratio
+liquidity_state
+confidence
+output_hash
+
+Consumers:
+
+microstructure aggregator
+Microstructure Specialist
+risk/sizing context
+
+------------------------------------------------------------
+
+Corwin-Schultz spread estimator
+
+Required outputs:
+
+estimated_spread
+spread_percentile
+liquidity_state
+confidence
+output_hash
+
+Consumers:
+
+microstructure aggregator
+probability context
+risk/sizing
+Microstructure Specialist
+
+------------------------------------------------------------
+TECHNICAL / TREND / FLOW
+------------------------------------------------------------
+
+CTA trigger levels
+
+Required outputs:
+
+cta_buy_level
+cta_sell_level
+positioning_state
+trigger_distance
+confidence
+output_hash
+
+Consumers:
+
+technical synthesis
+Technical Specialist
+risk context
+
+Preserve its existing proven live wiring.
+
+------------------------------------------------------------
+MACHINE LEARNING / PROBABILITY
+------------------------------------------------------------
+
+XGBoost + TreeSHAP
+
+Preserve current Stage 13 live wiring.
+
+Required outputs:
+
+probability
+model_version
+feature_vector_hash
+feature_contributions
+top_positive_features
+top_negative_features
+calibration_status
+confidence
+output_hash
+
+Consumers:
+
+scoring/synthesis
+Probability Specialist
+
+Forbidden:
+
+direct execution
+direct broker access
+
+------------------------------------------------------------
+RESEARCH AND MODEL GOVERNANCE
+------------------------------------------------------------
+
+Walk-forward validation
+
+Do not place heavy walk-forward training inside each candidate request.
+
+Classify as RESEARCH_SCHEDULED.
+
+It must publish a signed validation artifact used by model promotion.
+
+Required outputs:
+
+model_id
+model_version
+training_window
+validation_window
+embargo_period
+leakage_checks
+metrics
+approval_status
+artifact_hash
+timestamp
+
+Consumers:
+
+model promotion
+governance
+Probability Specialist trust context
+
+------------------------------------------------------------
+
+Causal discovery
+
+Classify as RESEARCH_SCHEDULED.
+
+Do not force its PC algorithm into every candidate request.
+
+Required outputs:
+
+graph_version
+variables
+directed_edges
+conditional_independence_tests
+stability_score
+artifact_hash
+approved_for_use
+
+Only approved causal artifacts may influence feature selection or
+research context.
+
+------------------------------------------------------------
+
+Gaussian Process signal search
+
+Classify as RESEARCH_SCHEDULED.
+
+Required outputs:
+
+experiment_id
+kernel
+training_window
+forecast
+uncertainty
+validation_metrics
+artifact_hash
+promotion_eligibility
+
+Do not allow an unvalidated GP result to control live decisions.
+
+------------------------------------------------------------
+
+Deep RL position sizing
+
+Current status:
+
+RESEARCH_ON_DEMAND and not controlling live sizing.
+
+Do not silently replace the proven rule-based live position sizer.
+
+Implement as SHADOW_RESEARCH first.
+
+For every paper candidate, where safe, calculate:
+
+rule_based_size
+rl_shadow_size
+rl_action
+bounded_rl_action
+difference
+risk_constraint_result
+model_version
+state_hash
+output_hash
+
+The rule-based position sizer remains authoritative until the RL model
+passes:
+
+walk-forward validation
+out-of-sample testing
+drawdown limits
+stability testing
+risk-constraint testing
+governance approval
+shadow comparison threshold
+rollback test
+
+Only after those gates pass may RL influence live paper sizing, and it
+must always remain bounded by the canonical risk constraints.
+
+============================================================
+PHASE 6 — FRED POINT-IN-TIME MACRO
+============================================================
+
+Current finding:
+
+fred_macro.py retrieves current FRED values without proven
+vintage/release-date handling.
+
+Required remediation:
+
+1. Separate live-current macro context from historical/backtest context.
+
+2. For live decisions:
+
+   record retrieval timestamp
+   observation date
+   release date if available
+   source series
+   value
+   revision/vintage metadata if available
+   output hash
+
+3. For historical/backtest decisions:
+
+   use vintage-aware data or explicitly exclude the feature.
+
+4. Never allow revised values unavailable at the historical as-of date
+   to enter a backtest/training record.
+
+5. Required outputs:
+
+   macro_series
+   observation_date
+   release_date
+   realtime_start
+   realtime_end
+   value
+   revision_status
+   point_in_time_valid
+   confidence
+   output_hash
+
+Consumers:
+
+macro/regime
+Macro Specialist
+scoring/synthesis
+
+============================================================
+PHASE 7 — OBSERVABILITY, HEARTBEATS AND RECONCILIATION
+============================================================
+
+1. Deprecate aiem_bus_transfer_log as a Diagram 2 proof source.
+
+2. Preserve it temporarily only if a real production dependency exists.
+
+3. Add a clear DEPRECATED marker and migration note.
+
+4. The canonical trace source is:
+
+   aiem_diagram2_trace_audit
+
+5. Add heartbeat records for scheduled jobs:
+
+   module2_decay_check
+   module3_promotion
+   module5_discovery_batch
+   module6_rediscovery_batch
+
+Required heartbeat fields:
+
+job_id
+scheduled_time
+actual_start_time
+actual_end_time
+status
+rows_read
+rows_written
+error
+run_id
+root_trace_id
+provenance_hash
+
+6. Repair aiem_paper_trades.audit_trace_id coverage for new records.
+
+7. Do not rely on ticker+trade_date when an immutable candidate or trace
+   identifier can be stored.
+
+8. Backfill old data only through a documented, reversible migration.
+
+9. Update documentation from 53 tools to the proven current registry
+   count, while also documenting:
+
+   registered tools
+   live production tools
+   scheduled research tools
+   on-demand research tools
+   deprecated tools
+
+Do not confuse registry count with live execution count.
+
+============================================================
+PHASE 8 — REQUIRED AUTHORITATIVE WIRING MATRIX
+============================================================
+
+Before declaring implementation complete, generate one machine-readable
+and one human-readable wiring matrix.
+
+Required row fields:
+
+component_id
+component_name
+canonical_file
+canonical_function
+classification
+stage_id
+stage_name
+upstream_component
+upstream_record_type
+required_inputs
+point_in_time_requirement
+output_schema
+downstream_consumer
+blocking_or_advisory
+database_table
+audit_event
+trace_fields
+failure_behavior
+fallback_behavior
+positive_test
+negative_test
+source_commit
+component_version
+status
+
+Every one of the 30 audited components must have a row.
+
+Every advanced indicator listed in this directive must have a row.
+
+Every registered tool must be mapped to:
+
+LIVE
+SCHEDULED_RESEARCH
+ON_DEMAND_RESEARCH
+DEPRECATED
+UTILITY
+
+No tool may remain UNCLASSIFIED.
+
+============================================================
+PHASE 9 — IMPLEMENTATION ORDER
+============================================================
+
+Implement in this exact sequence:
+
+1. Baseline and rollback
+2. Trace contract
+3. Point-in-Time Guard
+4. Explicit terminal rejection audit
+5. BH-FDR canonicalization
+6. Meta-learning canonicalization
+7. Lifecycle state machine and dependency repair
+8. Specialist Council expansion
+9. Advanced indicator routing
+10. Scheduled research artifacts
+11. FRED point-in-time handling
+12. Dead-code deprecation/removal
+13. Heartbeats and reconciliation
+14. Documentation and registry classification
+
+After each numbered step:
+
+- stop,
+- run its tests,
+- return evidence,
+- and do not proceed until the step passes.
+
+Do not perform one giant unverified rewrite.
+
+============================================================
+PHASE 10 — STRICT VERIFICATION
+============================================================
+
+A. SOURCE-LEVEL PROOF
+
+For every changed component return:
+
+definition file and line range
+import file and line range
+caller file and line range
+downstream consumer file and line range
+duplicate-search result
+zero-caller search result
+bypass-search result
+git diff
+commit hash
+
+B. REAL RUNTIME PROOF
+
+Run multiple real scheduled paper/shadow candidates.
+
+For each candidate return:
+
+ticker
+candidate_id
+root_trace_id
+pipeline_run_id
+scheduled_job_id
+stage order
+component order
+start/end timestamps
+input hashes
+output hashes
+database record IDs
+specialist opinion IDs
+risk result
+sizing result
+decision
+execution or rejection
+outcome record
+learning event
+provenance chain result
+
+C. REQUIRED EDGE PROOF
+
+For every edge prove:
+
+producer executed
+producer output persisted
+consumer received exact output record/hash
+consumer acknowledged it
+timestamps prove correct order
+trace IDs remained linked
+
+D. NEGATIVE CONTROLS
+
+At minimum inject:
+
+future market row
+stale data
+missing timestamp
+NaN
+Infinity
+component exception
+timeout
+missing options artifact
+missing specialist evidence
+specialist abstention
+risk rejection
+sizing rejection
+duplicate candidate
+invalid trace ID
+database write failure
+provenance tamper attempt
+
+For each control prove:
+
+detected
+correct reason code
+correct blocking or degradation behavior
+no forbidden order created
+explicit terminal audit event
+provenance preserved
+no alternate bypass path
+
+E. SPECIALIST COUNCIL PROOF
+
+For at least one real candidate return all 9 opinion records.
+
+Each must show:
+
+evidence
+confidence
+posterior values
+sampled weight
+opinion or explicit abstention
+
+Prove the council result was consumed by risk.
+
+F. INDICATOR PROOF
+
+For every live advanced indicator return at least one real record showing:
+
+real input
+input timestamp
+output
+output timestamp
+output hash
+consumer
+consumer acknowledgment
+trace ID
+
+No screenshots alone.
+
+Return query output, structured logs, DB rows and source references.
+
+G. RESEARCH-ARTIFACT PROOF
+
+For every scheduled research component return:
+
+job heartbeat
+artifact ID
+artifact hash
+validation status
+consumer or governance status
+
+H. PROVENANCE
+
+Re-run the production provenance verification tool.
+
+Required:
+
+full chain recompute
+zero mismatches
+append-only DB enforcement
+tamper attempt rejected
+in-memory altered-field mismatch detected
+
+============================================================
+PHASE 11 — ACCEPTANCE CRITERIA
+============================================================
+
+Do not declare Diagram 2 remediated unless all conditions pass:
+
+1. Point-in-Time Guard protects the live candidate path.
+
+2. No indicator executes before data-guard approval.
+
+3. Every advanced indicator has an intentional classification and owner.
+
+4. No duplicate BH-FDR implementation remains.
+
+5. No duplicate meta-learning trust implementation remains.
+
+6. Dead code is either safely wired, research-classified, or deprecated.
+
+7. The lifecycle runs through explicit record dependencies.
+
+8. Nine SpecialistOpinion records exist for fully evaluated candidates,
+   including explicit abstentions.
+
+9. Specialist Council output reaches risk before Decision Engine.
+
+10. Risk and sizing rejections create explicit terminal trace rows.
+
+11. Real risk and decision outputs replace hardcoded audit literals.
+
+12. All scheduled research jobs have heartbeat evidence.
+
+13. Real candidates produce complete, linked trace records.
+
+14. Every live advanced indicator has producer-to-consumer proof.
+
+15. Research-only tools are not falsely described as live.
+
+16. No component bypasses risk or calls execution directly.
+
+17. Provenance passes the tamper test.
+
+18. Database reconciliation contains no unexplained orphan or duplicate
+    records.
+
+19. All tests pass after a clean restart.
+
+20. A rollback test succeeds.
+
+============================================================
+FINAL REQUIRED DELIVERABLES
+============================================================
+
+Return:
+
+1. Authoritative 21-stage mapping
+2. Complete 30-component wiring matrix
+3. Advanced-indicator wiring matrix
+4. Tool classification inventory
+5. Canonical ownership report
+6. Duplicate-removal report
+7. Dead/deprecated-code report
+8. Source-level call graph
+9. Runtime edge graph
+10. Real candidate trace package
+11. Specialist Council evidence package
+12. Indicator output-and-consumer package
+13. Negative-control report
+14. Scheduler heartbeat report
+15. Database reconciliation report
+16. Provenance/tamper report
+17. Git commit list
+18. Final changed-file list
+19. Rollback proof
+20. Remaining known limitations
+
+FINAL VERDICT MAY ONLY BE:
+
+PASS_REMEDIATED_AND_VERIFIED
+
+or
+
+FAIL_WITH_EXACT_REMAINING_ITEMS
+
+Do not use “mostly complete,” “appears correct,” or narrative-only proof.
+
+Do not add new modules.
+
+The goal is to make the existing AEIM components operate as one coherent,
+traceable, point-in-time-safe production system.
+============================================================
+END OF AUTHORITATIVE MASTER DIRECTIVE
+============================================================

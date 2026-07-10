@@ -46,6 +46,7 @@ import psycopg2
 import psycopg2.extras
 
 from aiem_provenance import _canonical_bytes
+from point_in_time_guard import evaluate_live_candidate_pit
 
 _D3_VERSION = "1.0.0"
 _D3_STARTED_AT = datetime.datetime.utcnow().isoformat() + "Z"
@@ -560,7 +561,7 @@ _SCHEMA_STMTS = [
 
     """
     CREATE TABLE IF NOT EXISTS d3_checkpoint_config (
-        checkpoint TEXT PRIMARY KEY CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5')),
+        checkpoint TEXT PRIMARY KEY CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6')),
         mode TEXT NOT NULL DEFAULT 'SHADOW' CHECK (mode IN ('OFF', 'SHADOW', 'ENFORCE')),
         updated_by TEXT,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -596,7 +597,38 @@ _SCHEMA_STMTS = [
             END LOOP;
             ALTER TABLE d3_checkpoint_config
                 ADD CONSTRAINT d3_checkpoint_config_checkpoint_check
-                CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5'));
+                CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6'));
+        END IF;
+    END $$;
+    """,
+    # G6 (Point-in-Time Guard, Diagram 2 remediation spec step 3) added
+    # later still -- same idempotent re-derive-and-replace pattern as the
+    # G1 migration above, applied to all three checkpoint-constrained
+    # tables (d3_checkpoint_config here, d3_governance_requests and
+    # d3_governance_decisions below) so a pre-existing prod DB whose CHECK
+    # constraints predate G6 can accept G6 rows without a manual migration.
+    """
+    DO $$
+    DECLARE
+        con RECORD;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'd3_checkpoint_config'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) LIKE '%G6%'
+        ) THEN
+            FOR con IN
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'd3_checkpoint_config'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%checkpoint%'
+            LOOP
+                EXECUTE format('ALTER TABLE d3_checkpoint_config DROP CONSTRAINT %I', con.conname);
+            END LOOP;
+            ALTER TABLE d3_checkpoint_config
+                ADD CONSTRAINT d3_checkpoint_config_checkpoint_check
+                CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6'));
         END IF;
     END $$;
     """,
@@ -607,7 +639,8 @@ _SCHEMA_STMTS = [
     "('G2', 'SHADOW', 'SYSTEM_STARTUP', 'pre-decision block -- seeded SHADOW'), "
     "('G3', 'SHADOW', 'SYSTEM_STARTUP', 'pre-execution authorization -- seeded SHADOW'), "
     "('G4', 'SHADOW', 'SYSTEM_STARTUP', 'learning/model promotion gate -- seeded SHADOW'), "
-    "('G5', 'SHADOW', 'SYSTEM_STARTUP', 'recovery/resume state machine -- seeded SHADOW') "
+    "('G5', 'SHADOW', 'SYSTEM_STARTUP', 'recovery/resume state machine -- seeded SHADOW'), "
+    "('G6', 'SHADOW', 'SYSTEM_STARTUP', 'point-in-time guard (price provenance) -- seeded SHADOW') "
     "ON CONFLICT (checkpoint) DO NOTHING",
 
     """
@@ -687,7 +720,7 @@ _SCHEMA_STMTS = [
         governance_request_id TEXT NOT NULL UNIQUE,
         trace_id TEXT,
         root_trace_id TEXT,
-        checkpoint TEXT NOT NULL CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5')),
+        checkpoint TEXT NOT NULL CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6')),
         source_phase TEXT,
         requested_action TEXT,
         entrypoint TEXT NOT NULL,
@@ -727,6 +760,34 @@ _SCHEMA_STMTS = [
         END IF;
     END $$;
     """,
+    # G6 migration for d3_governance_requests -- same idempotent
+    # re-derive-and-replace pattern as the d3_checkpoint_config migrations
+    # above (see G6 comment there for rationale).
+    """
+    DO $$
+    DECLARE
+        con RECORD;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'd3_governance_requests'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) LIKE '%G6%'
+        ) THEN
+            FOR con IN
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'd3_governance_requests'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%checkpoint%'
+            LOOP
+                EXECUTE format('ALTER TABLE d3_governance_requests DROP CONSTRAINT %I', con.conname);
+            END LOOP;
+            ALTER TABLE d3_governance_requests
+                ADD CONSTRAINT d3_governance_requests_checkpoint_check
+                CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6'));
+        END IF;
+    END $$;
+    """,
 
     # d3_governance_decisions: Section 12F DECISION record. UNIQUE
     # (governance_decision_id, decision) exists SOLELY so d3_governance_acks
@@ -739,7 +800,7 @@ _SCHEMA_STMTS = [
         governance_decision_id TEXT NOT NULL UNIQUE,
         governance_request_id TEXT NOT NULL REFERENCES d3_governance_requests(governance_request_id),
         trace_id TEXT,
-        checkpoint TEXT NOT NULL CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5')),
+        checkpoint TEXT NOT NULL CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6')),
         decision TEXT NOT NULL CHECK (decision IN ('ALLOW', 'ALLOW_WITH_WARNING', 'BLOCK')),
         blocking BOOLEAN NOT NULL,
         reason_codes JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -771,6 +832,33 @@ _SCHEMA_STMTS = [
             CREATE TRIGGER trg_d3gd_immutable
                 BEFORE UPDATE OR DELETE ON d3_governance_decisions
                 FOR EACH ROW EXECUTE FUNCTION d3gd_block_mutation();
+        END IF;
+    END $$;
+    """,
+    # G6 migration for d3_governance_decisions -- same idempotent
+    # re-derive-and-replace pattern as the two migrations above.
+    """
+    DO $$
+    DECLARE
+        con RECORD;
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'd3_governance_decisions'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) LIKE '%G6%'
+        ) THEN
+            FOR con IN
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'd3_governance_decisions'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%checkpoint%'
+            LOOP
+                EXECUTE format('ALTER TABLE d3_governance_decisions DROP CONSTRAINT %I', con.conname);
+            END LOOP;
+            ALTER TABLE d3_governance_decisions
+                ADD CONSTRAINT d3_governance_decisions_checkpoint_check
+                CHECK (checkpoint IN ('G0', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6'));
         END IF;
     END $$;
     """,
@@ -1258,7 +1346,7 @@ _CHECKPOINT_CACHE_LOCK = threading.Lock()
 
 _D3_SYSTEM_STATES = ("NORMAL", "DEGRADED", "RESTRICTED", "PAUSED",
                       "RECOVERY_REQUIRED", "ROLLBACK_IN_PROGRESS")
-_D3_CHECKPOINTS = ("G0", "G1", "G2", "G3", "G4", "G5")
+_D3_CHECKPOINTS = ("G0", "G1", "G2", "G3", "G4", "G5", "G6")
 _D3_CHECKPOINT_MODES = ("OFF", "SHADOW", "ENFORCE")
 _D3_BLOCKING_SYSTEM_STATES = {"PAUSED", "RESTRICTED", "RECOVERY_REQUIRED", "ROLLBACK_IN_PROGRESS"}
 # The subset of _D3_BLOCKING_SYSTEM_STATES that Section 4 CHECKPOINT G5
@@ -2020,6 +2108,109 @@ def _evaluate_g3_decision(run_kind: str, diagram2_risk_result: Optional[str],
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# G6 — POINT-IN-TIME GUARD (Diagram 2 remediation spec, step 3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _evaluate_g6_decision(run_kind: str, candidate_ticker: Optional[str],
+                           pit_price_source: Optional[str],
+                           pit_price_source_scan_date: Optional[Any],
+                           now_et_date: Optional[Any] = None) -> Dict[str, Any]:
+    """
+    Pure G6 policy evaluation (Diagram 2 remediation spec step 3: POINT-IN-
+    TIME GUARD). Evaluated once per live trade candidate in
+    _aiem_paper_execute_today, immediately after price resolution, using the
+    REAL provenance of the price actually resolved for this candidate (see
+    point_in_time_guard.evaluate_live_candidate_pit -- the concrete risk this
+    checks is the polygon_rvol_scan fallback query returning a stale prior-
+    session price with no date filter).
+
+    UNLIKE every other checkpoint in this module (G0-G5, all fail-CLOSED on
+    TRADE_EXECUTING + db_error/exception), G6 fails OPEN by design: any
+    internal exception -- including a DB error reading d3_checkpoint_config,
+    or an unexpected failure inside evaluate_live_candidate_pit itself --
+    always returns ALLOW (advisory-only), never BLOCK. G6 audits price
+    PROVENANCE, not trade risk that the rest of the stack (G2/G3) already
+    gates; a config-read hiccup here is not a reason to silently drop a
+    candidate that already cleared real risk checks. G6 is also seeded
+    SHADOW at boot and is intentionally never auto-promoted to ENFORCE --
+    only a documented, deliberate admin action can flip it (architect
+    decision) -- so even the ENFORCE branch below stays inert until that
+    happens.
+    """
+    try:
+        cfg = _read_checkpoint_config("G6")
+        mode = cfg.get("mode") or "SHADOW"
+        state = cfg.get("state") or "NORMAL"
+        db_error = cfg.get("error")
+
+        if mode == "OFF":
+            return {
+                "decision": "ALLOW",
+                "reason_codes": ["CHECKPOINT_OFF"],
+                "would_block": False,
+                "mode": mode,
+                "system_state": state,
+                "db_error": db_error,
+                "enforcement_status": "NOT_ENFORCED",
+                "enforcement_action": "DISABLED",
+            }
+
+        if db_error:
+            return {
+                "decision": "ALLOW",
+                "reason_codes": ["DB_ERROR_FAIL_OPEN"],
+                "would_block": False,
+                "mode": mode,
+                "system_state": state,
+                "db_error": db_error,
+                "enforcement_status": "NOT_ENFORCED",
+                "enforcement_action": "ADVISORY_ONLY",
+            }
+
+        pit_result = evaluate_live_candidate_pit(
+            ticker=candidate_ticker,
+            price_source=pit_price_source,
+            price_source_scan_date=pit_price_source_scan_date,
+            now_et_date=now_et_date,
+        )
+        violations = pit_result.get("violations") or []
+        reason_codes = list(violations) if violations else ["PIT_OK"]
+        would_block = bool(violations)
+
+        decision = "ALLOW"
+        enforcement_status = "NOT_ENFORCED"
+        enforcement_action = "ADVISORY_ONLY"
+        if mode == "ENFORCE" and would_block:
+            decision = "BLOCK"
+            enforcement_status = "ENFORCED"
+            enforcement_action = "BLOCKED"
+
+        return {
+            "decision": decision,
+            "reason_codes": reason_codes,
+            "would_block": would_block,
+            "mode": mode,
+            "system_state": state,
+            "db_error": db_error,
+            "enforcement_status": enforcement_status,
+            "enforcement_action": enforcement_action,
+            "pit_evidence": pit_result.get("evidence"),
+        }
+    except Exception as exc:
+        return {
+            "decision": "ALLOW",
+            "reason_codes": [f"G6_INTERNAL_EXCEPTION_FAIL_OPEN:{type(exc).__name__}"],
+            "would_block": False,
+            "mode": "SHADOW",
+            "system_state": None,
+            "db_error": str(exc),
+            "enforcement_status": "NOT_ENFORCED",
+            "enforcement_action": "ADVISORY_ONLY",
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # G4 — LEARNING / MODEL PROMOTION GOVERNANCE (Path B P6)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -2493,7 +2684,10 @@ def require_governance_authorization(*, checkpoint: str, entrypoint: str, run_ki
                                       learning_max_drift: Optional[float] = None,
                                       learning_version_saved: Optional[Any] = None,
                                       learning_weights_hash: Optional[str] = None,
-                                      g5_target_state: Optional[str] = None) -> Dict[str, Any]:
+                                      g5_target_state: Optional[str] = None,
+                                      pit_price_source: Optional[str] = None,
+                                      pit_price_source_scan_date: Optional[Any] = None,
+                                      pit_now_et_date: Optional[Any] = None) -> Dict[str, Any]:
     """
     Combined D2_GOVERNANCE_CLIENT + D3_GOVERNANCE_SERVICE entrypoint
     (Section 12 authoritative D2<->D3 wiring). Evaluates the real checkpoint
@@ -2503,10 +2697,21 @@ def require_governance_authorization(*, checkpoint: str, entrypoint: str, run_ki
     d3_governance_event_links ledger.
 
     checkpoints 'G0' (P3.5), 'G1' (P3.6), 'G2' (P4), 'G3' (P5), 'G4' (P6),
-    and 'G5' (P7) all have real policy evaluators wired -- an unrecognized
+    'G5' (P7), and 'G6' (Diagram 2 remediation spec step 3, Point-in-Time
+    Guard) all have real policy evaluators wired -- an unrecognized
     checkpoint string raises NotImplementedError rather than fabricate a
     PASS/ALLOW for a gate that does not exist, but every checkpoint this
     codebase actually defines (_D3_CHECKPOINTS) is now real.
+
+    pit_price_source / pit_price_source_scan_date / pit_now_et_date are
+    REQUIRED for checkpoint='G6' -- pit_price_source must be the caller's
+    real resolved price provenance for THIS candidate ('live_quote' or
+    'polygon_fallback'), pit_price_source_scan_date the scan_date actually
+    returned by the polygon_rvol_scan fallback row (or None), and
+    pit_now_et_date today's date in US/Eastern as computed by the caller
+    (never re-derived inside the evaluator, for testability). Unlike every
+    other checkpoint, G6 fails OPEN (ALLOW) on any internal exception or
+    db_error -- see _evaluate_g6_decision.
 
     g5_target_state is REQUIRED for checkpoint='G5' -- the real state the
     caller wants d3_system_state to become (see g5_authorize_resume, the
@@ -2568,6 +2773,9 @@ def require_governance_authorization(*, checkpoint: str, entrypoint: str, run_ki
         if not g5_target_state:
             raise ValueError("require_governance_authorization: checkpoint='G5' requires g5_target_state")
         ev_result = _evaluate_g5_decision(run_kind, g5_target_state)
+    elif checkpoint == "G6":
+        ev_result = _evaluate_g6_decision(run_kind, candidate_ticker, pit_price_source,
+                                           pit_price_source_scan_date, pit_now_et_date)
     else:
         raise NotImplementedError(
             f"require_governance_authorization: checkpoint {checkpoint!r} has no real policy "

@@ -42087,21 +42087,92 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
             for pick in picks:
                 _t    = pick["ticker"]
                 _audit_trace_id = None
+                # REMEDIATION S2 ("AUTHORITATIVE MASTER REMEDIATION" directive
+                # P0-4): a trace_id must exist for THIS candidate before any
+                # gate can reject it, so a rejection can be recorded as an
+                # explicit terminal row instead of silently `continue`-ing
+                # with zero audit trace anywhere. This is generated once per
+                # candidate iteration and is independent of _audit_trace_id
+                # (aiem_pipeline_audit, a different legacy audit system) and
+                # of _d2_trace_id (assigned later, reused via `_audit_trace_id
+                # or ...` for candidates that pass every gate).
+                import uuid as _d2_uuid_early
+                _d2_trace_id_early = str(_d2_uuid_early.uuid4())
                 _q    = quotes.get(_t) or {}
                 _price = float(_q.get("last") or _q.get("bid") or 0)
+                _price_source = "live_quote" if _price > 0 else None
+                _price_source_scan_date = None
                 if _price <= 0:
                     # fallback: try polygon
                     try:
                         _pg_row = None
                         with _psycopg2.connect(_DB_URL, connect_timeout=3) as _c2, _c2.cursor() as _cu2:
-                            _cu2.execute("SELECT price FROM polygon_rvol_scan WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1", (_t,))
+                            _cu2.execute("SELECT price, scan_date FROM polygon_rvol_scan WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1", (_t,))
                             _pg_row = _cu2.fetchone()
                         if _pg_row:
                             _price = float(_pg_row[0])
+                            _price_source = "polygon_fallback"
+                            _price_source_scan_date = _pg_row[1]
                     except Exception as _exc:
                         print(f"[silent_except:L31766] {type(_exc).__name__}: {_exc}")
                 if _price <= 0:
                     continue
+
+                # ── G6: Point-in-Time Guard (Diagram 2 remediation spec step 3) ──
+                # SHADOW-only, fail-OPEN: audits the price provenance just resolved
+                # above (the polygon_rvol_scan fallback has no date filter and can
+                # silently return a stale prior-session price). In SHADOW mode
+                # (the only mode it runs in today) _evaluate_g6_decision can never
+                # return BLOCK, so the check below is provably unreachable right
+                # now -- it exists so that if an admin ever flips G6 to ENFORCE,
+                # the checkpoint's verdict actually gates the candidate instead of
+                # being a silently-discarded audit-only side effect (which would
+                # make the audit trail lie about candidates it claims were
+                # BLOCKED). See aiem_diagram3_governance._evaluate_g6_decision for
+                # the fail-open contract and why G6 alone is exempt from it.
+                try:
+                    import aiem_diagram3_governance as _d3gov_g6
+                    _now_et_date_g6 = _dt.now(_ET_TZ).date()
+                    _g6_result = _d3gov_g6.require_governance_authorization(
+                        checkpoint="G6",
+                        entrypoint="_aiem_paper_execute_today",
+                        run_kind="TRADE_EXECUTING",
+                        source_phase="PRICE_RESOLUTION",
+                        trigger_source=trigger_source,
+                        payload={"ticker": _t, "price": _price, "price_source": _price_source},
+                        candidate_trace_id=_d2_trace_id_early,
+                        candidate_ticker=_t,
+                        is_test_record=False,
+                        pit_price_source=_price_source,
+                        pit_price_source_scan_date=_price_source_scan_date,
+                        pit_now_et_date=_now_et_date_g6,
+                    )
+                except Exception as _g6_exc:
+                    print(f"[aiem_paper] G6 PIT guard check failed (fail-open, continuing): {_g6_exc}")
+                    _g6_result = None
+
+                if _g6_result and _g6_result.get("decision") == "BLOCK":
+                    print(f"[aiem_paper] G6 BLOCKED candidate {_t} — {_g6_result.get('reason_code')} "
+                          f"(system_state={_g6_result.get('system_state')}, checkpoint_mode={_g6_result.get('mode')})")
+                    _g6_gdid = _g6_result.get("governance_decision_id")
+                    if _g6_gdid:
+                        try:
+                            _d3gov_g6.acknowledge_governance_decision(
+                                governance_decision_id=_g6_gdid,
+                                action_taken="CANDIDATE_SKIPPED_G6",
+                                continued=False,
+                                blocked=True,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g6_ack_e:
+                            print(f"[aiem_paper] G6 ack (BLOCK) failed, non-fatal: {_g6_ack_e}")
+                    # No lock is acquired/released in this branch (same as G2),
+                    # so `continue` here is safe.
+                    continue
+                elif _g6_result and _g6_result.get("would_block"):
+                    print(f"[aiem_paper] G6 SHADOW: would have blocked candidate {_t} — {_g6_result.get('reason_code')} "
+                          f"(ledger_event_id={_g6_result.get('ledger_event_id')})")
 
                 # ── Execution realism: apply half-spread slippage BEFORE persisting ──
                 # No live bid/ask available at write time (Tradier market-data only,
@@ -42167,15 +42238,40 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                 # Every other gate_result — CONVICTION_BELOW_MIN, NO_STOP_DEFINED,
                 # STOP_UNDEFINED, POSITION_TOO_SMALL, kill_switch, max_positions,
                 # max_sector_positions, daily_loss, SIZING_ERROR, or any future/
-                # unknown value — skips this candidate entirely. No audit/trace
-                # stages are logged for a blocked pick (no PipelineTrace/_d2_run
-                # stage has been opened yet at this point in the loop); the sizing
+                # unknown value — skips this candidate entirely. No stage 1-15
+                # PipelineTrace/_d2_run rows are opened for a blocked pick (D2
+                # stage wiring only starts after this gate); the sizing
                 # decision itself is already durably logged by
                 # aiem_position_sizing._log_sizing_decision() into
-                # aiem_position_sizing_log for every gate_result, including this one.
+                # aiem_position_sizing_log for every gate_result, including this
+                # one. REMEDIATION S2 (P0-4, "AUTHORITATIVE MASTER REMEDIATION"
+                # directive): additionally write one explicit terminal REJECTED
+                # row to aiem_diagram2_trace_audit using _d2_trace_id_early, so
+                # this candidate is never silently invisible from the Diagram 2
+                # trace surface — every candidate now resolves to either 17
+                # PASS stages + an order, or exactly one terminal row.
                 if _sizing_gate not in ("APPROVED", "PARAMS_NOT_CONFIRMED"):
                     print(f"[aiem_paper] SIZING_GATE_BLOCKED {_t}: gate={_sizing_gate} "
                           f"— skipping trade insertion (no default notional fallback)")
+                    try:
+                        import aiem_diagram2_trace_audit as _ad2_term
+                        _ad2_term.record_terminal(
+                            trace_id=_d2_trace_id_early,
+                            ticker=_t,
+                            terminal_status="REJECTED",
+                            rejected_at_stage_order=16,
+                            rejected_at_stage_name="risk_gate",
+                            rejecting_component="aiem_position_sizing.compute_position_size",
+                            human_readable_reason=(
+                                f"Position sizing gate returned {_sizing_gate} "
+                                f"(not APPROVED/PARAMS_NOT_CONFIRMED) — "
+                                f"{_sz.get('gate_detail', '') if '_sz' in dir() else ''}"
+                            ),
+                            reason_codes=[_sizing_gate],
+                            last_successful_stage=None,
+                        )
+                    except Exception as _term_e:
+                        print(f"[aiem_paper] record_terminal (sizing reject) failed, non-fatal: {_term_e}")
                     continue
 
                 if _trade_type == "CALL_OPTION":
@@ -43250,17 +43346,27 @@ def _aiem_close_paper_trade_and_run_loop(
                         WHERE signal_name=%s AND context_bucket='PAPER_TRADING'
                     """, (_tw_src,))
                     _tw_row = _twmcu.fetchone()
+                    # Canonical EMA arithmetic (Diagram 2 P1-2): delegates to
+                    # meta_learning_signal_trust.compute_ema_trust_update(),
+                    # the same formula alert_grading.py's TELEGRAM_ALERTS
+                    # bucket uses via update_trust_weight(). Only the pure
+                    # math is shared — the SELECT/UPSERT and the richer
+                    # aiem_closed_loop_learning.record_trust_update() audit
+                    # write below remain specific to this PAPER_TRADING path.
+                    import meta_learning_signal_trust as _mlst_ema
                     if _tw_row:
                         _tw_prior = float(_tw_row[0])
-                        _tw_n = int(_tw_row[1]) + 1
-                        _tw_wr = 0.95 * _tw_prior + 0.05 * _tw_win
+                        _tw_n_prior = int(_tw_row[1])
                         _tw_wt_old = float(_tw_row[2])
+                        _tw_wr, _tw_n, _tw_wt_new = _mlst_ema.compute_ema_trust_update(
+                            _tw_prior, _tw_n_prior, (_pnl_pct > 0),
+                        )
                     else:
                         _tw_prior = 0.5
-                        _tw_n = 1
-                        _tw_wr = _tw_win
                         _tw_wt_old = 1.0
-                    _tw_wt_new = max(0.2, min(2.0, _tw_wr * 2.0))
+                        _tw_wr, _tw_n, _tw_wt_new = _mlst_ema.compute_ema_trust_update(
+                            None, 0, (_pnl_pct > 0),
+                        )
                     try:
                         import aiem_closed_loop_learning as _acll_tw
                         _acll_tw.record_trust_update(

@@ -1,0 +1,199 @@
+==================================================
+AEIM STRICT EVIDENCE-ONLY RESPONSE PROTOCOL
+NO NARRATIVE CLAIMS ACCEPTED
+==================================================
+PURPOSE
+This task establishes a mandatory response and verification protocol for all AEIM remediation, wiring, integration, and production-verification work.
+A statement such as:
+- “Implemented”
+- “Verified”
+- “Working correctly”
+- “Fully wired”
+- “The test passed”
+- “Everything is connected”
+- “Production ready”
+- “No issues found”
+is NOT evidence and must not be accepted.
+No task may be marked COMPLETE, VERIFIED, PASS, or PRODUCTION READY unless every required claim is supported by reproducible runtime evidence.
+==================================================
+1. REQUIRED RESPONSE MODE
+==================================================
+Respond only with the following evidence sections:
+1. CHANGE MANIFEST
+2. SOURCE-CODE EVIDENCE
+3. EXECUTION COMMANDS
+4. RAW RUNTIME OUTPUT
+5. TRACE EVIDENCE
+6. DATABASE EVIDENCE
+7. ORDERING AND WIRING EVIDENCE
+8. HASH / INTEGRITY EVIDENCE
+9. NEGATIVE-CONTROL EVIDENCE
+10. REQUIREMENT-BY-REQUIREMENT PASS/FAIL MATRIX
+11. UNRESOLVED ISSUES
+12. FINAL MACHINE-VERIFIABLE STATUS
+Do not replace any required section with explanations, summaries, confidence statements, or narrative assurances.
+If evidence is unavailable, return:
+STATUS: FAIL
+REASON: REQUIRED EVIDENCE NOT PRODUCED
+Do not claim PASS.
+==================================================
+2. CHANGE MANIFEST
+==================================================
+For every changed file, provide:
+- absolute or repository-relative file path
+- change type: created / modified / deleted
+- exact function, class, or configuration changed
+- starting and ending line numbers
+- Git diff
+- previous file SHA-256
+- new file SHA-256
+- reason for the change
+- requirement addressed
+Required format:
+FILE:
+CHANGE_TYPE:
+SYMBOL:
+LINES:
+OLD_SHA256:
+NEW_SHA256:
+REQUIREMENT_ID:
+Then include the actual Git diff.
+Do not provide only a description of the change.
+==================================================
+3. SOURCE-CODE EVIDENCE
+==================================================
+For every claimed connection or behavior, show the exact source code that implements it.
+Each code-evidence item must contain:
+- requirement ID
+- file path
+- class or function name
+- exact line range
+- exact code excerpt
+- upstream caller
+- downstream receiver
+- input contract
+- output contract
+- error behavior
+- fail-open or fail-closed behavior
+Example:
+REQUIREMENT_ID: G2-ORDER-001
+FILE: path/to/file.py
+SYMBOL: run_pre_decision_governance
+LINES: 210-276
+UPSTREAM: specialist_council.finalize()
+DOWNSTREAM: decision_engine.evaluate()
+FAILURE_MODE: FAIL_CLOSED
+Do not merely name a file. Show the relevant implementation.
+==================================================
+4. EXECUTION COMMANDS
+==================================================
+Provide every exact command used to generate the evidence.
+Commands must be directly reproducible from the repository root.
+Include, when applicable:
+- environment setup
+- database migration
+- service startup
+- test execution
+- manual candidate injection
+- scheduled-job execution
+- log retrieval
+- SQL verification
+- hash verification
+- negative-control execution
+Required format:
+COMMAND_ID:
+WORKING_DIRECTORY:
+COMMAND:
+EXPECTED_EXIT_CODE:
+ACTUAL_EXIT_CODE:
+START_TIMESTAMP_UTC:
+END_TIMESTAMP_UTC:
+Redacted, shortened, paraphrased, or reconstructed commands are not acceptable.
+==================================================
+5. RAW RUNTIME OUTPUT
+==================================================
+Return raw command output.
+Requirements:
+- no paraphrasing
+- no summarized logs
+- no omitted failure lines
+- no manually rewritten output
+- no fabricated examples
+- no mocked output presented as live output
+- no ellipses hiding material events
+- include exit codes
+- include timestamps
+- include trace IDs
+- include candidate IDs
+- include governance decision IDs
+- include execution-plan IDs where applicable
+If output is longer than the response limit:
+1. save the complete output to an evidence artifact;
+2. provide the artifact path;
+3. provide its SHA-256;
+4. provide the exact command used to produce it;
+5. include the relevant beginning and ending sections in the response.
+==================================================
+6. LIVE-EVIDENCE REQUIREMENTS
+==================================================
+Clearly label every evidence item as one of:
+- LIVE_PRODUCTION
+- LIVE_PAPER
+- LIVE_SHADOW
+- CONTROLLED_MANUAL_INJECTION
+- AUTOMATED_INTEGRATION_TEST
+- UNIT_TEST
+- STATIC_CODE_INSPECTION
+Do not present a unit test, mocked test, or static inspection as proof of live runtime execution.
+For production-path acceptance, evidence must come from:
+LIVE_PAPER,
+LIVE_SHADOW,
+LIVE_PRODUCTION,
+or an explicitly authorized CONTROLLED_MANUAL_INJECTION through the real pipeline.
+Mocks, stubs, fixtures, monkeypatches, synthetic success responses, or manually constructed log entries are not acceptable for production-path proof.
+==================================================
+7. TRACE EVIDENCE
+==================================================
+For each end-to-end verification, return one complete trace containing:
+- root_trace_id
+- trace_id
+- candidate_id
+- ticker
+- source event ID
+- scheduler job ID
+- pipeline run ID
+- governance decision ID
+- risk decision ID
+- execution_plan_id
+- execution or no-execution record ID
+- outcome record ID
+- learning event ID
+- memory event ID
+- audit record IDs
+- start and end timestamps
+- total duration
+- final decision
+Every phase must show:
+- phase name
+- module name
+- function name
+- entry timestamp
+- exit timestamp
+- input event ID
+- output event ID
+- status
+- parent event ID
+- payload hash
+- error field
+- acknowledgement field
+A list of module names without runtime timestamps and linked event IDs is not sufficient.
+==================================================
+8. DATABASE EVIDENCE
+==================================================
+For every claimed persisted event, provide:
+1. exact SQL query;
+2. raw SQL result;
+3. table name;
+4. primary key;
+5. trace ID;
+6.

@@ -266,6 +266,83 @@ def run_fisher_test_lag(
 
 
 # ---------------------------------------------------------------------------
+# BH-FDR correction — canonical shared implementation (Diagram 2 P1-1 / C2)
+
+def bh_fdr_reject(p_values: list, alpha: float = 0.05) -> list:
+    """
+    Benjamini-Hochberg step-up FDR correction — the single canonical implementation
+    for the whole AIEM codebase (Diagram 2 remediation spec P1-1 / C2 BH-FDR).
+
+    Returns a boolean list parallel to p_values: True = rejected (statistically
+    significant after correction), in the SAME order as the input.
+
+    Algorithm: rank p-values ascending; find the largest rank r such that
+    p_(r) <= (r / n) * alpha; reject every hypothesis at rank <= r.
+
+    Module 5 (aiem_module5_discovery.py) and Module 6 (aiem_module6_rediscovery.py)
+    both delegate to this function instead of keeping local copies — see
+    tests/test_bh_fdr_equivalence.py for the fixed-vector proof that this refactor
+    is a pure behavior-preserving move (byte-identical output to the two prior
+    local implementations, including boundary/tie cases).
+    """
+    n = len(p_values)
+    if n == 0:
+        return []
+    ranked = sorted(range(n), key=lambda i: p_values[i])
+    last_rejected = -1
+    for rank, orig_idx in enumerate(ranked, 1):
+        if p_values[orig_idx] <= rank / n * alpha:
+            last_rejected = rank - 1   # 0-indexed position in ranked list
+    rejected = [False] * n
+    for rank_idx in range(last_rejected + 1):
+        rejected[ranked[rank_idx]] = True
+    return rejected
+
+
+def bh_fdr_adjust(p_values: list, alpha: float = 0.05):
+    """
+    Benjamini-Hochberg FDR correction that also returns adjusted p-values
+    (canonical home for the richer variant needed by niche_segment_finder.py).
+
+    Returns (rejected, p_adjusted), both lists parallel to p_values in the
+    SAME (original) order:
+      - p_adjusted[i]: the BH-adjusted p-value (cumulative-minimum-from-the-
+        largest-rank formula), i.e. the smallest FDR at which hypothesis i
+        would be rejected.
+      - rejected[i]: True iff p_adjusted[i] <= alpha.
+
+    This is mathematically equivalent to bh_fdr_reject() (same step-up
+    decision rule expressed via adjusted p-values instead of a raw threshold
+    comparison) — see tests/test_bh_fdr_equivalence.py for the fixed-vector
+    proof that `rejected` here matches bh_fdr_reject() on every case.
+    """
+    n = len(p_values)
+    if n == 0:
+        return [], []
+
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+    sorted_p = [p for _, p in indexed]
+
+    p_adjusted_sorted = [0.0] * n
+    prev = 1.0
+    for i in range(n - 1, -1, -1):
+        rank = i + 1
+        val = sorted_p[i] * n / rank
+        prev = min(prev, val)
+        p_adjusted_sorted[i] = prev
+
+    rejected_sorted = [p <= alpha for p in p_adjusted_sorted]
+
+    p_adjusted = [0.0] * n
+    rejected = [False] * n
+    for sorted_idx, (orig_idx, _) in enumerate(indexed):
+        p_adjusted[orig_idx] = p_adjusted_sorted[sorted_idx]
+        rejected[orig_idx] = rejected_sorted[sorted_idx]
+
+    return rejected, p_adjusted
+
+
+# ---------------------------------------------------------------------------
 # Overlapping (legacy) — for retroactive comparison only
 
 def run_fisher_test_overlapping(
