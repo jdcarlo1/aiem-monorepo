@@ -1,0 +1,40 @@
+# Verification Directive: Thompson Score Consumption + Stage 22 RL Completion Proof
+
+Two open questions from the Diagram 2 stages 20-23 audit (main.py ~lines 43150-43450). Answer with raw evidence only — no narrative summaries, no "this is handled elsewhere" claims without a file path + line number.
+
+---
+
+## Question 1: Is `thompson_sampled_score` (written in Stage 21) ever actually consumed?
+
+Stage 21 (`learning_feedback`) computes `_thompson_new_score` and writes it into an audit payload via `_aiem_close_paper_trade_and_run_loop`. This does NOT prove the score is used anywhere downstream to influence candidate selection.
+
+**Required evidence:**
+
+1. `grep -n "thompson_sampled_score\|_thompson_new_score\|thompson_new_score" main.py aiem_*.py` — every file and line number where these identifiers appear, not just where they're written.
+2. For every READ (not write) site found above, paste the surrounding function with `sed -n 'START,ENDp' <file>` (at least 15 lines of context) so I can see what the value is used for.
+3. Specifically confirm or deny: does the candidate-picking function (whatever selects which signal/trade to act on) reference this score anywhere in its selection logic? Give the exact function name and file:line where selection happens, and either quote the line that reads the score, or state plainly "no read site found."
+4. If a read site exists but is never called in the live pipeline (e.g. dead code, unreferenced function), say so explicitly and show the call graph evidence (grep for the function name to show zero callers, or callers that are themselves unreferenced).
+
+**Do not accept:** "the Thompson sampler is integrated" or "this feeds the learning loop" without the grep output and line-numbered read site backing it up.
+
+---
+
+## Question 2: Does Stage 22 (`feedback_loop`) prove the RL pipeline actually completed, or only that it was launched?
+
+The code comment says "Marker only: the RL pipeline itself stays a batch run keyed off exit_date=today across ALL trades closed today." This means Stage 22 completing tells us nothing about whether `run_full_rl_pipeline` succeeded.
+
+**Required evidence:**
+
+1. `grep -n "run_full_rl_pipeline\|_rl_pipeline_bg" main.py aiem_rl_engine.py` — every definition and call site.
+2. Paste the full body of `run_full_rl_pipeline` (or wherever the async task actually executes) via `sed -n`. Confirm whether it writes any completion/success/failure record anywhere (DB row, log table, status flag).
+3. If it does write a completion record: give me the exact table/column name and a live SQL query run against the actual database showing rows from the last 7 days, with timestamps, so I can see it's actually firing and succeeding — not just defined.
+4. If it does NOT write any completion record: say so explicitly. That means Stage 22 currently has no way to detect a silently failed or hung RL run, and I want that stated as a known gap, not glossed over.
+5. Check whether `_rl_pipeline_bg` is awaited, tracked, or fire-and-forgotten. If fire-and-forget, confirm there's no `try/except` swallowing an exception inside the background task with only a non-fatal print — show me the actual exception handling inside the async function itself (not the outer Stage 22 wrapper).
+
+**Do not accept:** "the RL pipeline runs in the background" as an answer. I need proof it runs, proof it finishes, and proof a failure would be visible somewhere.
+
+---
+
+## Format requirement
+
+For both questions, respond with raw terminal output only (grep results, sed output, SQL query results). Do not summarize what you found in prose first — show the evidence, then a one-line conclusion per question.
