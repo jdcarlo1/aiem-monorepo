@@ -1,0 +1,637 @@
+============================================================
+AEIM DIAGRAM 2 — STRICT REMEDIATION PASS
+REPAIR ALL FAILURES AND ARCHITECTURAL DISCREPANCIES
+============================================================
+
+PURPOSE
+
+The previous Diagram 2 audit identified:
+
+- 6 FAIL
+- 8 ARCHITECTURAL_DISCREPANCY
+- 7 NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE
+- 9 PASS
+
+This task is now an authorized remediation task.
+
+Fix the real implementation.
+
+Do not merely revise the audit verdicts.
+
+Do not fabricate success.
+
+Do not add mocks, placeholder outputs, synthetic database rows,
+hard-coded indicator values, or narrative-only explanations.
+
+Do not redesign unrelated architecture.
+
+Do not mark any component PASS unless the repaired implementation
+executes during a real eligible paper/shadow run and produces
+verifiable downstream-consumed output.
+
+============================================================
+SOURCE OF TRUTH
+============================================================
+
+Use these existing audit artifacts as the authoritative defect list:
+
+artifacts/stock-scanner-api/diagram2_component_inventory.json
+
+artifacts/stock-scanner-api/diagram2_component_matrix.csv
+
+Every component currently classified as:
+
+- FAIL
+- ARCHITECTURAL_DISCREPANCY
+
+must be investigated, repaired, retested, and reclassified only when
+supported by new evidence.
+
+The 9 existing PASS components must not be modified unless required
+to repair a confirmed dependency problem.
+
+============================================================
+GLOBAL REMEDIATION RULES
+============================================================
+
+For every defective component:
+
+1. Identify its canonical owner.
+2. Identify its canonical implementation file.
+3. Identify all duplicate or competing implementations.
+4. Identify every live call site.
+5. Identify its authorized upstream producer.
+6. Identify its authorized downstream consumer.
+7. Identify its expected input contract.
+8. Identify its expected output contract.
+9. Identify its persistence table, if applicable.
+10. Identify its execution cadence and trigger.
+11. Determine the exact root cause.
+12. Repair the existing implementation.
+13. Remove or disable conflicting duplicate ownership.
+14. Add fail-closed behavior where silent fallback currently exists.
+15. Execute a real eligible trigger.
+16. Capture function-call evidence.
+17. Capture real input and output values.
+18. Capture persistence evidence.
+19. Capture downstream-consumption evidence.
+20. Run regression tests against previously passing components.
+
+No component may be declared repaired based only on:
+
+- successful import
+- successful initialization
+- existence of a function
+- existence of a table
+- an orchestrator returning PASS
+- a log message saying success
+- default numeric values
+- fallback numeric values
+- manually inserted database rows
+- a mocked or simulated function trace
+
+============================================================
+REMEDIATION PRIORITY ORDER
+============================================================
+
+Repair in this exact order:
+
+1. Layer 9 numeric-computation failures
+2. Options structure persistence discrepancy
+3. Specialist Council ownership and runtime discrepancy
+4. Remaining FAIL components
+5. Remaining ARCHITECTURAL_DISCREPANCY components
+6. NOT_EXECUTED components through valid-trigger execution
+7. Full Diagram 2 regression run
+
+Do not begin the next group until the current group has been repaired
+and independently verified.
+
+============================================================
+SECTION 1 — LAYER 9 BATTERY REMEDIATION
+============================================================
+
+Affected components include the audited Layer 9 group:
+
+C9
+C10
+C11
+C18
+C19
+C20
+
+The audit found:
+
+- layer9_scores contains real rows
+- 100% of the inspected rows contain errors
+- Hurst is always exactly 0.5
+- VPIN is always exactly 0.3
+- VRP and/or Amihud are always NULL
+- the scheduled batch has never completed successfully
+
+Required repair work:
+
+A. TRACE THE REAL EXECUTION PATH
+
+Identify:
+
+- scheduler job
+- scheduler registration
+- trigger cadence
+- batch entry point
+- service function
+- indicator functions
+- database-write function
+- downstream reader
+
+Return exact file paths, class names, function names, and call order.
+
+B. REMOVE SILENT DEFAULT SUCCESS
+
+Locate every fallback such as:
+
+- hurst = 0.5
+- vpin = 0.3
+- return 0.5
+- return 0.3
+- except Exception: use default
+- except: continue
+- NULL-on-error persistence
+- success status despite computation failure
+
+Replace silent fallback behavior with explicit structured failure.
+
+If an indicator cannot be computed because of insufficient data, return:
+
+status = INSUFFICIENT_DATA
+
+If an indicator encounters a real computation error, return:
+
+status = COMPUTATION_ERROR
+
+Do not persist a plausible numeric value as though it were computed.
+
+C. REPAIR INPUT DATA REQUIREMENTS
+
+For each indicator, prove the required source fields exist and are valid.
+
+Examples may include:
+
+- timestamped trades
+- trade size
+- bid/ask
+- close prices
+- returns
+- volume
+- option-implied volatility
+- realized volatility
+- market-cap or liquidity inputs
+
+Validate:
+
+- row count
+- date range
+- non-null percentage
+- timestamp ordering
+- duplicate timestamps
+- stale data
+- zero values
+- invalid prices
+- invalid volume
+- timezone consistency
+
+D. REPAIR EACH NUMERIC IMPLEMENTATION
+
+For every affected Layer 9 metric:
+
+1. Identify the actual formula or library implementation.
+2. Verify required lookback length.
+3. Verify array alignment.
+4. Verify division-by-zero protections.
+5. Verify NaN and infinity handling.
+6. Verify no constant fallback is substituted.
+7. Verify output range and units.
+8. Persist the computation status with the numeric value.
+
+E. REPAIR THE SCHEDULED BATCH
+
+Prove:
+
+- scheduler job is registered
+- scheduler process is alive
+- job reaches its entry point
+- job does not terminate before all eligible symbols are processed
+- errors are recorded per symbol
+- one symbol failure does not fabricate success for others
+- final job status reflects the real batch result
+- successful rows contain non-default computed values
+
+F. REQUIRED LAYER 9 VERIFICATION
+
+Use at least three real eligible symbols with different market behavior.
+
+For each symbol return:
+
+- ticker
+- trace_id
+- batch_run_id
+- source data range
+- source row count
+- indicator function called
+- computed Hurst
+- computed VPIN
+- computed VRP
+- computed Amihud
+- computation status
+- database row ID
+- database values
+- downstream consumer
+- downstream event ID
+- timestamps
+- source-code SHA256
+
+The repaired values must not all be identical unless the raw inputs
+mathematically justify that result.
+
+Run a negative control with invalid or insufficient input and prove
+that the system returns an explicit non-success status instead of a
+hard-coded numeric value.
+
+============================================================
+SECTION 2 — OPTIONS STRUCTURE REMEDIATION
+============================================================
+
+Affected components:
+
+C14
+C15
+C16
+
+The audit found:
+
+- a real orchestrator stage returns PASS
+- actual options structure persistence table has zero rows
+- claimed GEX/skew outputs cannot be independently verified
+
+Required work:
+
+A. Identify the complete canonical path:
+
+real options data
+→ options structure computation
+→ validation
+→ persistence
+→ downstream consumption
+
+B. Determine why the orchestrator reports PASS while no row is written.
+
+Check for:
+
+- persistence function never called
+- transaction rollback
+- wrong database connection
+- wrong schema
+- wrong table name
+- conditional write bypass
+- empty result treated as PASS
+- exception swallowed
+- shadow path different from production path
+- obsolete table being written instead
+- downstream result generated from in-memory fallback only
+
+C. Enforce a truthful stage result.
+
+The stage must not return PASS unless:
+
+- required input was received
+- computation executed
+- validated output was produced
+- persistence succeeded, when persistence is required
+- downstream consumer accepted the output
+
+Valid statuses must distinguish:
+
+- PASS
+- INSUFFICIENT_OPTIONS_DATA
+- COMPUTATION_ERROR
+- PERSISTENCE_ERROR
+- VALIDATION_REJECTED
+- DOWNSTREAM_REJECTED
+
+D. Use a real symbol with eligible options data.
+
+Return:
+
+- ticker
+- trace_id
+- source options timestamp
+- expiration dates used
+- strike count
+- contract count
+- GEX output
+- skew output
+- validation result
+- persistence function
+- persisted table name
+- persisted row ID
+- downstream consumer
+- downstream event ID
+- transaction commit evidence
+- source-code SHA256
+
+Prove that the persisted values match the function output and the
+values consumed downstream.
+
+============================================================
+SECTION 3 — SPECIALIST COUNCIL REMEDIATION
+============================================================
+
+Affected component:
+
+C23
+
+The audit found:
+
+- architecture claims 9 specialists
+- module defines 4
+- two live call sites independently construct only 2
+
+This must be resolved through one authoritative design decision based
+on the existing intended architecture.
+
+Do not simply create empty specialist classes to make the count equal 9.
+
+A. INVENTORY THE REAL COUNCIL
+
+Return:
+
+- all claimed specialist names
+- all implemented specialist names
+- all registered specialist names
+- all instantiated specialist names
+- all specialists actually invoked in a real run
+- every council-construction call site
+
+B. ESTABLISH ONE CANONICAL OWNER
+
+There must be one canonical Specialist Council factory or registry.
+
+All live call sites must use that canonical implementation.
+
+No call site may independently construct a partial council.
+
+C. RECONCILE THE COUNT
+
+Determine whether the authoritative architecture truly requires:
+
+- 9 specialists
+or
+- a smaller verified council
+
+If 9 are genuinely required by the approved architecture:
+
+- implement or connect the missing real specialists
+- define their distinct authority
+- define their input contracts
+- define their output contracts
+- prevent duplicate voting
+- prevent missing-member silent success
+
+If the approved architecture only supports 4:
+
+- correct the registry and architecture metadata
+- remove the false claim of 9
+- prove all 4 are canonical and executed
+
+Do not choose a count merely to satisfy the audit.
+
+D. VERIFY COUNCIL AGGREGATION
+
+For one real candidate return:
+
+- trace_id
+- council_run_id
+- canonical council factory
+- registered member count
+- instantiated member count
+- invoked member count
+- each member name
+- each member input hash
+- each member result
+- each member confidence
+- each member vote
+- aggregation method
+- final council result
+- downstream consumer
+- downstream event ID
+- timestamps
+- source-code SHA256
+
+Prove that no live path constructs an unauthorized partial council.
+
+============================================================
+SECTION 4 — REMAINING FAILURES
+============================================================
+
+For every remaining component currently marked FAIL:
+
+Create a defect record containing:
+
+- component ID
+- component name
+- current verdict
+- canonical file
+- canonical function
+- exact root cause
+- affected call sites
+- affected database tables
+- code change made
+- tests added
+- real trigger used
+- runtime trace ID
+- real input
+- real output
+- persistence evidence
+- downstream-consumption evidence
+- regression result
+- new verdict
+
+A component remains FAIL until all required evidence exists.
+
+============================================================
+SECTION 5 — REMAINING ARCHITECTURAL DISCREPANCIES
+============================================================
+
+For every remaining ARCHITECTURAL_DISCREPANCY:
+
+Resolve all mismatches involving:
+
+- documented ownership versus runtime ownership
+- registry entry versus actual implementation
+- claimed count versus implemented count
+- claimed output versus persisted output
+- orchestrator status versus actual stage result
+- duplicate implementation
+- conflicting call sites
+- incorrect upstream connection
+- incorrect downstream connection
+- unauthorized bypass
+- incorrect cadence
+- inactive persistence
+- stale or obsolete implementation
+
+Return a before-and-after wiring map for each discrepancy.
+
+============================================================
+SECTION 6 — NOT-EXECUTED COMPONENTS
+============================================================
+
+Affected audit group includes:
+
+C5
+C8
+C25
+C26
+C27
+
+And any other component classified as:
+
+NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE
+
+These include real implementations such as:
+
+- walk-forward validation
+- GARCH
+- RL position sizing
+- causal discovery
+- Gaussian Process search
+
+Do not mark these PASS merely because the code exists.
+
+For each component:
+
+1. Identify its legitimate production trigger.
+2. Identify its intended cadence.
+3. Identify its minimum required input.
+4. Identify why the trigger did not occur in the prior session.
+5. Use the legitimate trigger if currently eligible.
+6. If the cadence is periodic, invoke the real registered job entry
+   point without bypassing validations.
+7. Do not call a low-level function directly if production normally
+   reaches it through a scheduler or orchestrator.
+8. Capture the same runtime, persistence, and downstream evidence
+   required for PASS.
+
+If the component cannot legitimately execute under current conditions,
+retain:
+
+NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE
+
+and provide:
+
+- exact trigger condition
+- current unmet condition
+- next eligible execution time
+- proof the scheduler or event registration exists
+- proof the trigger will reach the component
+- no fabricated execution
+
+============================================================
+SECTION 7 — REGRESSION PROTECTION
+============================================================
+
+After each repaired component, run regression verification proving:
+
+- the 9 previously passing components still pass
+- BH-FDR remains canonical
+- meta-learning trust remains canonical
+- no duplicate implementation was reintroduced
+- no direct tool-to-Decision-Engine path exists
+- Data Guards are not bypassed
+- Risk Gate is not bypassed
+- G2 ordering is preserved, if already implemented
+- audit provenance remains intact
+- SHA256 chain remains valid
+- failure statuses propagate correctly
+- no default values are presented as computed results
+
+============================================================
+SECTION 8 — FINAL END-TO-END VALIDATION
+============================================================
+
+After all authorized remediation is complete, run one real eligible
+paper/shadow candidate through the entire Diagram 2 path.
+
+Required evidence:
+
+- ticker
+- candidate_id
+- root_trace_id
+- stage-by-stage trace
+- module order
+- tool order
+- all component verdicts
+- all real inputs
+- all real outputs
+- all database row IDs
+- all downstream-consumption events
+- risk-gate result
+- decision result
+- execution or no-execution result
+- outcome tracking result
+- learning event
+- memory event
+- audit-log ID
+- SHA256 chain
+- start and end timestamps
+- errors and warnings
+- source-code commit or snapshot identifier
+
+The final audit must recompute the C1–C30 distribution.
+
+Diagram 2 is not complete unless:
+
+- 0 FAIL
+- 0 unresolved ARCHITECTURAL_DISCREPANCY
+- 0 fabricated PASS
+- no silent fallback
+- no unauthorized bypass
+- every PASS has real runtime evidence
+- any remaining NOT_EXECUTED item has a legitimate unmet trigger with
+  verified scheduling evidence
+
+============================================================
+REQUIRED DELIVERABLES
+============================================================
+
+Produce:
+
+1. diagram2_remediation_plan.md
+2. diagram2_root_cause_report.json
+3. diagram2_code_changes.json
+4. diagram2_repaired_component_inventory.json
+5. diagram2_repaired_component_matrix.csv
+6. diagram2_runtime_evidence.json
+7. diagram2_database_evidence.json
+8. diagram2_downstream_consumption_evidence.json
+9. diagram2_regression_report.json
+10. diagram2_final_end_to_end_trace.json
+11. diagram2_unresolved_items.json
+12. diagram2_final_verdict.md
+
+============================================================
+STOPPING RULE
+============================================================
+
+Do not proceed to Diagram 3.
+
+Stop after:
+
+- completing the authorized Diagram 2 remediation
+- producing all required evidence
+- reporting all unresolved defects honestly
+- returning the new C1–C30 verdict distribution
+
+Do not claim Diagram 2 complete unless the final evidence satisfies
+every rule above.
+============================================================

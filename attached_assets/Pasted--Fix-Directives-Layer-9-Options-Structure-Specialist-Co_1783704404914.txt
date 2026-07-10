@@ -1,0 +1,79 @@
+# Fix Directives — Layer 9, Options Structure, Specialist Council
+
+Scope: these three findings only. Do not touch other components. For each, follow the three phases in order — diagnose, fix, prove. Do not skip to "fixed" without Phase 3 evidence. If any phase can't be completed, stop and report exactly what's blocking it — do not mark PASS.
+
+---
+
+## 1. Layer 9 battery (C9/C10/C11/C18/C19/C20) — FAIL
+
+**Problem:** `layer9_scores` has 751 real rows, 100% carrying hardcoded defaults (hurst=0.5, vpin=0.3, vrp/amihud=NULL). The scheduled batch computation has never completed successfully.
+
+### Phase 1 — Diagnose
+1. Find the function that's supposed to compute hurst/vpin/vrp/amihud per row.
+2. Find every place that writes to `layer9_scores` and trace which one actually fires in production.
+3. Check for a try/except (or equivalent) around the real computation that falls back to defaults on error, and check whether it logs or swallows the exception.
+4. Run the batch job manually, capture the full stack trace / error output — do not paraphrase it, paste it raw.
+5. State the root cause in one sentence, e.g. "X throws because Y is undefined at Z line."
+
+### Phase 2 — Fix
+6. Fix the actual root cause identified in step 5 (not just remove the fallback).
+7. If a fallback/default path is legitimately needed for missing data, make it conditional and flagged (e.g. a `data_quality` column), never silent and never 100% of the time.
+8. Ensure the exception, if any, is logged with enough context to debug in the future, not swallowed.
+
+### Phase 3 — Prove
+9. Re-run the batch job. Paste raw terminal output showing it completes successfully.
+10. Query `layer9_scores` for the last N rows written post-fix. Paste raw SQL output showing hurst/vpin/vrp/amihud are no longer uniform defaults — real variation across rows.
+11. Report: rows written, % still hitting fallback (should not be 100%), and the SHA256 or commit hash of the fixed file.
+
+**Rejection criteria:** Any of the following is an automatic reject — "should be fixed now," no raw SQL output, still shows uniform default values on any sampled rows, no root-cause statement.
+
+---
+
+## 2. Options structure (C14/C15/C16) — ARCHITECTURAL_DISCREPANCY
+
+**Problem:** Orchestrator stage reports "PASS" on genuine trades, but `options_structure_scan` has zero rows ever. Either the write never happens, or it's writing somewhere else.
+
+### Phase 1 — Diagnose
+1. Find the code path from "stage reports PASS" back to whatever write call is supposed to persist to `options_structure_scan`.
+2. Confirm: is there a DB write call in that path at all? If yes, what table/schema does it actually target?
+3. If the write call exists and targets the right table, run it manually and check for a silent failure (permissions, schema mismatch, transaction not committed).
+4. State the root cause in one sentence.
+
+### Phase 2 — Fix
+5. Wire the actual write, or correct the misdirected write, so a genuine PASS always results in a persisted row.
+6. Make the stage's PASS/FAIL status conditional on the write actually succeeding (don't let it report PASS if persistence fails).
+
+### Phase 3 — Prove
+7. Trigger a real trade event through the stage. Paste raw terminal/log output showing the stage firing PASS.
+8. Immediately query `options_structure_scan` for that row. Paste raw SQL output showing it exists with correct values.
+9. Report row count before/after, and file + commit hash.
+
+**Rejection criteria:** Stage reports PASS but table still shows zero rows for the test event; no SQL evidence of the specific row tied to the specific test trade.
+
+---
+
+## 3. Specialist Council (C23) — ARCHITECTURAL_DISCREPANCY
+
+**Problem:** Claimed 9 specialists; module defines 4; the two live call sites each independently construct only 2.
+
+### Phase 1 — Diagnose
+1. Confirm exact specialist count intended by design (9? or was that number wrong to begin with — check original spec/docs).
+2. List the 4 currently defined in the module, by name/file/line.
+3. List what each of the two call sites constructs, by name/file/line, and confirm they're duplicating instantiation logic independently (not sharing a single source of truth).
+
+### Phase 2 — Fix
+4. Decide and implement the single correct number of specialists (either build out the missing ones to reach the intended count, or correct the documentation/claim if 9 was never actually the design — do not fabricate specialists to hit a number).
+5. Consolidate instantiation into one shared factory/constructor so both call sites use the same source instead of building independently. This prevents the two call sites drifting apart again.
+
+### Phase 3 — Prove
+6. Paste the file/line for the consolidated specialist definitions.
+7. Paste raw output from both call sites at runtime showing they now construct the same, correct count.
+8. Report final specialist count and confirm it matches updated documentation.
+
+**Rejection criteria:** Two call sites still independently constructing (even if counts happen to match); no runtime evidence, only code review.
+
+---
+
+## General rule for all three
+
+Do not report any of these as PASS or "fixed" without the Phase 3 raw evidence pasted directly in your response. Narrative summaries ("this is now working correctly") without raw terminal/SQL/log output attached are an automatic reject and will be sent back.
