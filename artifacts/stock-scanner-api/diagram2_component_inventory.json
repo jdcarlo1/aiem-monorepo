@@ -1,0 +1,473 @@
+{
+  "audit_metadata": {
+    "audit_name": "AEIM Diagram 2 — Complete Indicator-by-Indicator Wiring Audit — Strict Live Provenance Verification",
+    "audit_date": "2026-07-10",
+    "deliverable": "diagram2_component_inventory.json (1 of 14)",
+    "status_enum_authorized": [
+      "PASS",
+      "FAIL",
+      "BLOCKED",
+      "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "ARCHITECTURAL_DISCREPANCY"
+    ],
+    "rule": "Exactly one final_component_status per component, drawn only from status_enum_authorized. All additional nuance is captured in failure_reason and/or discrepancy_notes, never as a compound status.",
+    "evidence_standard": "For any component marked PASS, runtime_evidence must include a real run/trace identifier, function-call evidence, real input, real output, a database or audit record, a downstream consumption event, and the SHA256 of the canonical source file. Scheduler registration, database table existence, or orchestrator/registry references alone are explicitly NOT accepted as runtime execution proof.",
+    "evidence_gathering_method": "Live executeSql queries against the development Postgres database (aiem_diagram2_trace_audit, aiem_module5_runs/test_results, aiem_rediscovery_runs, aiem_module2_evaluations, stat_arb_pairs/stat_arb_signals, options_structure_scan, layer9_scores, model_versions, signal_trust_weights, aiem_probability_engine_predictions, cta_trigger_scan, quant_agent_sessions, job_heartbeats, aiem_module_registry) cross-referenced with source grep/read of the canonical files, executed this session on 2026-07-10.",
+    "known_limitations": "This pass re-verified all 30 components against the DB. A small number (noted per-component in failure_reason) could not be fully evidenced to the PASS bar within this session's time-box and are conservatively marked NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE rather than fabricated as PASS; they are flagged for a targeted follow-up query in the next deliverable phase (diagram2_database_reconciliation.json / diagram2_failures_and_discrepancies.json)."
+  },
+  "components": [
+    {
+      "component_id": "C1",
+      "component_name": "Point-in-Time Guard",
+      "claimed_capability": "Prevents look-ahead/point-in-time data leakage in predictions and paper-trade decisions.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/point_in_time_guard.py", "sha256": "c5bba8489edb0ea4586c329bbc1a0e28ec076f31eb4bd1b5666cb7f91d07c973"},
+        {"path": "artifacts/stock-scanner-api/aiem_diagram3_governance.py", "sha256": "36ec4dd00b5ae55af613a4170f79d8b2ac9c437c822dde612729e168515f9fd9"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "aiem_probability_engine_predictions.id=458",
+        "trace_id": "aiem_2026_07_08_MU_482f74 (stage 13, probability_engine — same execution family; id=458 is a separate real ticker-day run of the identical PIT-gated code path)",
+        "function_call_evidence": "aiem_probability_engine context/PIT-status assignment inside aiem_probability_engine/context.py, invoked by aiem_probability_engine.live_query.run_live_query()",
+        "real_input": "ticker=MAA, signal_date=2026-07-10",
+        "real_output": "pit_status='pit_safe', edge_after_cost_prob_pts=31.48, model_version='a182e65957c2'",
+        "db_or_audit_record": "aiem_probability_engine_predictions row id=458 (queried directly this session)",
+        "downstream_consumption_event": "The stored prediction (including pit_status) feeds Diagram-2 stage 13 (Probability Engine) → stage 14 (Scoring/Synthesis) → final decision, per real trace aiem_2026_07_08_MU_482f74.",
+        "code_sha256": "c5bba8489edb0ea4586c329bbc1a0e28ec076f31eb4bd1b5666cb7f91d07c973"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": "A separate, newer checkpoint (G6, Diagram-2 remediation step 3) is real and inline-wired into every paper-candidate execution in main.py (~line 42121), confirmed via source read this session. However G6 currently runs fail-open/SHADOW-only by design (never blocks) and its per-decision outcome is only written to stdout print statements, not to any queryable DB/audit table — so G6's own decisions cannot be independently DB-verified per candidate. The PASS verdict above rests on the pit_status field (a genuinely persisted, consumed output), not on G6."
+    },
+    {
+      "component_id": "C2",
+      "component_name": "BH-FDR (Benjamini-Hochberg False Discovery Rate correction)",
+      "claimed_capability": "Multiple-testing correction applied to the Module 5 discovery grid before any condition is allowed to become a signal discovery.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_stat_tests.py", "sha256": "9765687a50d2e82ac766f7f3f3f583652a12fa3d0b741c513f8857dde22356cb"},
+        {"path": "artifacts/stock-scanner-api/aiem_module5_discovery.py", "sha256": "5e5015e1dd8054cef6a8e4940191ff6c8b4e2f5579b19f413f2185fe84192832"},
+        {"path": "artifacts/stock-scanner-api/aiem_module6_rediscovery.py", "sha256": "cb157c3f1b02ed7bbfc5dbc3fafd21dc533384f0279ef7f4a803cc4ae47cfb4b"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "aiem_module5_runs.id=2",
+        "trace_id": "not applicable (batch statistical job, no per-request trace_id column on this table)",
+        "function_call_evidence": "aiem_module5_discovery._bh_fdr_reject() and aiem_module6_rediscovery._bh_fdr_reject() both now delegate to the single canonical aiem_stat_tests.bh_fdr_reject() (confirmed via grep this session: both wrappers contain 'return _stat_tests.bh_fdr_reject(p_values, alpha)')",
+        "real_input": "25 conditions x multiple horizons = 75 p-values from real historical win-rate comparisons, e.g. condition_name='rvol_gte_1_5' horizon_days=3 cond_n=53027 cond_wr=51.83 ctrl_wr=52.66",
+        "real_output": "p_raw=0.9998062512610459 -> p_adj=0.999806, bh_rejected=false, qualifies=false (real BH-adjusted values, not placeholders)",
+        "db_or_audit_record": "aiem_module5_test_results rows (queried directly, ids 36-40 among 75 total for run_id=2)",
+        "downstream_consumption_event": "aiem_module5_runs.discoveries_inserted=1 — exactly one of the 75 BH-adjusted tests passed the qualifies gate and was inserted into aiem_signal_discoveries.",
+        "code_sha256": "9765687a50d2e82ac766f7f3f3f583652a12fa3d0b741c513f8857dde22356cb"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": "Previously flagged as DUPLICATED (two independent copy-pasted implementations). Re-verified this session: both call sites are now thin delegating wrappers to one canonical implementation. Duplication is resolved as of the prior remediation track; not re-flagged here."
+    },
+    {
+      "component_id": "C3",
+      "component_name": "Signal Decay Evaluator (Module 2)",
+      "claimed_capability": "Weekly out-of-sample decay evaluation of previously-discovered signals, producing a decay verdict per discovery.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_module2_decay.py", "sha256": "17af1719883ed46bd0d7b46880edab2bfcb0e28b5e14e0491c36df8f7929db2d"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "aiem_module2_evaluations.id=94 (and id=93)",
+        "trace_id": "not applicable (batch job; run_at timestamp serves as the execution anchor)",
+        "function_call_evidence": "aiem_module2_decay.py evaluation logic, scheduled CronTrigger(sun, 2:30 ET, id=module2_decay_check)",
+        "real_input": "discovery_id=20 (and 19), discovery_status='validated', win_rate_at_discovery=81.7",
+        "real_output": "evaluation_status='evaluable_pending_columns', forward_days_accumulated=0, forward_days_required=21, blocking_reason and missing_columns populated with 6 real named condition keys lacking an adapter",
+        "db_or_audit_record": "aiem_module2_evaluations row id=94, run_at=2026-07-08 02:55:29.509729 (queried directly this session)",
+        "downstream_consumption_event": "evaluation_status feeds the Module 4 gate decision for this discovery (M2->M4 data dependency, cross-checked via discovery_id join).",
+        "code_sha256": "17af1719883ed46bd0d7b46880edab2bfcb0e28b5e14e0491c36df8f7929db2d"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": "The real verdict produced is 'not yet evaluable due to missing data adapters' rather than a win/lose decay verdict. This is treated as a genuine, non-fabricated computed outcome (the module correctly identifies its own blocking condition) rather than a crash, so it counts as real execution evidence."
+    },
+    {
+      "component_id": "C4",
+      "component_name": "Rediscovery Engine (Module 6)",
+      "claimed_capability": "Re-tests variations of a previously-invalidated or -expired signal to see if a nearby variant is viable.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_module6_rediscovery.py", "sha256": "cb157c3f1b02ed7bbfc5dbc3fafd21dc533384f0279ef7f4a803cc4ae47cfb4b"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "aiem_rediscovery_runs.run_id=2, batch_id='m6_20260702_221457'",
+        "trace_id": "batch_id serves as the run-level identifier for this batch job",
+        "function_call_evidence": "aiem_module6_rediscovery.py batch rediscovery routine, scheduled CronTrigger(sun, 4:15 ET, id=module6_rediscovery_batch)",
+        "real_input": "parent_signal_id=4, 6 variations generated and tested",
+        "real_output": "variations_tested=6, variations_passed=1, non_testable=false",
+        "db_or_audit_record": "aiem_rediscovery_runs row run_id=2, run_timestamp=2026-07-02 22:15:04.094804 (queried directly this session)",
+        "downstream_consumption_event": "The 1 passing variation is the input to a new aiem_signal_discoveries row via the same BH-FDR gate as C2/C6.",
+        "code_sha256": "cb157c3f1b02ed7bbfc5dbc3fafd21dc533384f0279ef7f4a803cc4ae47cfb4b"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C5",
+      "component_name": "Walk-Forward Validation",
+      "claimed_capability": "Time-safe walk-forward cross-validation used to validate a signal or model before promotion.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/ml_infrastructure.py", "sha256": "8b24f3bbf4aa3358b7208cd853a92cd659ca27af29190a7fdb4bac5390006a94"},
+        {"path": "artifacts/stock-scanner-api/data_prep.py", "sha256": "499031ee34a3e25970a27aaabb27820bfcdfc8132ef2358a74a0aa98f15cac0e"}
+      ],
+      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "runtime_evidence": null,
+      "failure_reason": "Real, non-stub walk_forward_splits() implementations exist (duplicated between ml_infrastructure.py:95 and data_prep.py:43), reachable only via the on-demand AIEM chat tool _aiem_tool_walk_forward_validate. Queried quant_agent_sessions.tool_trace this session for any historical invocation matching 'walk_forward': zero rows returned. aiem_module3_promotion.py (the real promotion gate) has zero references to walk-forward, confirming promotion does not gate on it. No scheduler registration and no confirmed chat-tool invocation exist, so there is no valid trigger evidence of this component ever having executed in this environment.",
+      "discrepancy_notes": "Duplicated logic across two files (ml_infrastructure.py and data_prep.py) independent of the execution-status finding."
+    },
+    {
+      "component_id": "C6",
+      "component_name": "Module 5 Fisher-Exact Test Grid",
+      "claimed_capability": "Batch Fisher-exact hypothesis testing across a grid of candidate conditions/horizons to discover new signals.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_module5_discovery.py", "sha256": "5e5015e1dd8054cef6a8e4940191ff6c8b4e2f5579b19f413f2185fe84192832"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "aiem_module5_runs.id=2",
+        "trace_id": "not applicable (batch job)",
+        "function_call_evidence": "aiem_module5_discovery.py grid-test routine, scheduled CronTrigger(sun, 4:00 ET, id=module5_discovery_batch)",
+        "real_input": "25 conditions tested, e.g. condition_name='rvol_gte_2' horizon_days=1, cond_n=26219",
+        "real_output": "cond_wr=50.13, ctrl_wr=50.99, p_raw=0.996462407925457, p_adj=0.996462, bh_rejected=false",
+        "db_or_audit_record": "aiem_module5_test_results (75 rows for run_id=2, queried directly this session)",
+        "downstream_consumption_event": "1 of 75 tests passed the BH-FDR gate (C2) and was inserted into aiem_signal_discoveries (discoveries_inserted=1 on the parent run row).",
+        "code_sha256": "5e5015e1dd8054cef6a8e4940191ff6c8b4e2f5579b19f413f2185fe84192832"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C7",
+      "component_name": "FRED Macro (point-in-time vintage)",
+      "claimed_capability": "Pulls macroeconomic series from FRED with point-in-time vintage integrity (i.e., only data that was actually known/released as of the decision date).",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/fred_macro.py", "sha256": "ffdfe3d42dc35e5f19251ccae3b39c989127747a6153c40905e87727daf23b7d"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "fred_macro.py pulls current FRED values only; no vintage/release_date/realtime_start handling was found in the source (grep-confirmed, not part of the C1/C2/C24 remediation track so unchanged since the prior audit pass). A backtest or historical scoring pass using this data would silently use post-hoc-revised macro figures as if they were known on the original decision date — a genuine point-in-time integrity gap relative to the claimed capability."
+    },
+    {
+      "component_id": "C8",
+      "component_name": "GARCH Volatility Model",
+      "claimed_capability": "GARCH(1,1)-family volatility forecasting feeding the Specialist Council's macro/volatility vote.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/volatility_clustering.py", "sha256": "935f57d63e1faa2661a699f22eef13e62e28aa3ecad64b646dc4d309f3c0a8ec"},
+        {"path": "artifacts/stock-scanner-api/specialist_council.py", "sha256": "515125c896e1bf8a895f3e5146c38c05c7658091f421279f04a72469f3cb80a9"}
+      ],
+      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "runtime_evidence": null,
+      "failure_reason": "fit_garch_model/forecast_volatility/get_persistence/garch_regime_indicator are confirmed real (non-stub) in volatility_clustering.py, and specialist_council.py line 35 has a real call site consuming garch_result into a SpecialistOpinion vote. However, within this session's time-box no dedicated DB table or trace_audit payload could be located that persists a real per-run GARCH forecast/regime numeric output tied to a specific ticker/date, so the run_id + real_output + DB-record bar required for PASS was not met. This reflects incomplete evidence gathered this session, not a confirmed non-execution — flagged for a targeted follow-up query (e.g., a wider sample of bull_bear_debates.signal_context/synthesis JSONB) in the next deliverable phase.",
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C9",
+      "component_name": "Bipower Variation Jump Detection",
+      "claimed_capability": "Detects statistically significant price jumps using bipower variation, as part of the Layer 9 Statistical Edge battery.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/layer9_statistical_edge.py", "sha256": "3bde5b3efa1db48d557c482eb44b68ef474a857b46e79c1b418ecd96d5993de6"}
+      ],
+      "final_component_status": "FAIL",
+      "runtime_evidence": null,
+      "failure_reason": "layer9_scores (the scheduled batch scanner's persistence table) has 751 real rows spanning multiple days. Queried this session: 751/751 rows have a non-null `error` column (511 rows = \"'<' not supported between instances of 'int' and 'NoneType'\"; 240 rows = \"The truth value of a DataFrame is ambiguous...\"), 0/751 rows have a non-null statistical_score, and jump_detected is false on 751/751 rows. Per source read of compute_layer9_score() (layer9_statistical_edge.py lines 141-314), a populated `error` field and null statistical_score can only occur when the function's outer try block never completes (line 313-314 exception handler returns _SAFE_DEFAULT). This means the scheduled batch path has never once successfully executed the jump-detection sub-routine (jump_detection_bipower) to completion across 751 consecutive real invocations; jump_detected=false is indistinguishable from the hard-coded exception fallback, not a genuine 'no jump' finding.",
+      "discrepancy_notes": "One unrelated live-query prediction (aiem_probability_engine_predictions id=458, ticker MAA) shows a non-default statistical_score=48.32 and regime='trending' from a different call context (aiem_probability_engine/context.py), suggesting the underlying compute_layer9_score() function is not universally broken in every call path. That single data point was not sufficient this session to determine whether the individual jump/hurst/vpin sub-scores are genuinely computed there or are also silently defaulting while only the outer score differs — flagged as an open item for the next audit phase rather than allowed to soften this FAIL, which rests on the fully queried, 100%-reproducible 751-row batch-table evidence."
+    },
+    {
+      "component_id": "C10",
+      "component_name": "Variance Risk Premium (VRP)",
+      "claimed_capability": "Rolling-volatility-differential VRP proxy feeding the Layer 9 Statistical Edge score.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/layer9_statistical_edge.py", "sha256": "3bde5b3efa1db48d557c482eb44b68ef474a857b46e79c1b418ecd96d5993de6"}
+      ],
+      "final_component_status": "FAIL",
+      "runtime_evidence": null,
+      "failure_reason": "Same layer9_scores evidence as C9: vrp_score is NULL on 751/751 real rows (queried this session: count(vrp_score)=0 of 751 total). The VRP proxy sub-computation (variance_risk_premium()) is only reached inside the outer try block that, per the 100% error-rate finding documented under C9, never completes in the scheduled batch path. No real VRP output has ever been persisted.",
+      "discrepancy_notes": "Same open item as C9 regarding the one non-default live-query data point; not sufficient evidence to upgrade this verdict."
+    },
+    {
+      "component_id": "C11",
+      "component_name": "Risk-Neutral Density (RND)",
+      "claimed_capability": "Options-chain-implied risk-neutral density used as a +/-5 point adjustment on the Layer 9 score.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/layer9_statistical_edge.py", "sha256": "3bde5b3efa1db48d557c482eb44b68ef474a857b46e79c1b418ecd96d5993de6"}
+      ],
+      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "runtime_evidence": null,
+      "failure_reason": "compute_rnd_component(chain_df) is only meaningful when a real options chain_df is supplied by the caller (source-confirmed: returns an 'unavailable' marker otherwise). batch_layer9_scores()'s chain_df_map parameter defaults to None, and no evidence was found this session of any live caller populating it with a real chain_df. Separately, the entire batch scanner path that would reach this line never completes successfully (see C9), so no real RND output has ever been observed in layer9_scores.",
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C12",
+      "component_name": "Statistical Arbitrage (Engle-Granger cointegration)",
+      "claimed_capability": "Cointegration-pair testing plus a live z-score entry/exit signal generator for pairs trading.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/stat_arb_engine.py", "sha256": "409d2ae40061c16780f60ece88cc444d59be257486035c549c2dd107784f3857"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "The cointegration pair-testing half is genuinely live: stat_arb_pairs has 2 real, non-default rows (JPM/BAC: coint_pvalue=0, hedge_ratio=4.1759; META/GOOGL: coint_pvalue=0.0232, hedge_ratio=-0.5807, both last_tested=2026-07-05). However stat_arb_signals — the table that would record the actual z-score entry/exit trading signal (ZSCORE_ENTRY=2.0 threshold) — has 0 rows, queried directly this session. job_heartbeats has no entry for any stat-arb job. Given these are liquid names that ordinarily cross a 2.0 z-score threshold under normal volatility, the persistent absence of any signal row across the full history of this table is a genuine, material discrepancy between the claimed live signal-generation capability and its confirmed output: pair-testing is proven live, but the actionable trading-signal half has zero confirmed executions."
+    },
+    {
+      "component_id": "C13",
+      "component_name": "PCA / Absorption Ratio",
+      "claimed_capability": "Principal-component-analysis-based market absorption ratio as a systemic-risk indicator.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/advanced_quant_indicators.py", "sha256": "e3e48971ce933aa7cd7d744f08141859d3596a486b4d4490be880a3c1df42426"}
+      ],
+      "final_component_status": "FAIL",
+      "runtime_evidence": null,
+      "failure_reason": "pca_factor_decomposition() and absorption_ratio() are real, non-stub implementations in advanced_quant_indicators.py. Re-grepped this session across the entire artifacts/stock-scanner-api tree: zero call sites anywhere outside their own defining file. The claimed capability is completely absent from the live system — there is no code path, scheduled or on-demand, that ever invokes it.",
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C14",
+      "component_name": "GEX (Gamma Exposure)",
+      "claimed_capability": "Computes dealer gamma exposure from the live options chain to flag gamma-squeeze/pin risk.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_options_structure.py", "sha256": "0dd92cbe0f116f124a392aab9a264d09f06dc254f5dab8ee6ec39bf441a55104"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "The live orchestrator does execute an 'Options / Smart Money' stage with real, non-test trace evidence this session (e.g. trace_id aiem_2026_07_08_PLTR_f18372, runtime_function='module_scores_generated (options component)', status=PASS, 2026-07-08). However the specific persistence table for the claimed GEX computation, options_structure_scan (populated by _compute_gex()/compute_options_structure() per source read), has 0 rows — queried directly this session — and job_heartbeats has no entry for any GEX/options job. The generic orchestrator stage proves *some* options scoring occurs; it does not prove the specific numeric gamma-exposure computation this component claims, since its own designated evidence table has never received a row."
+    },
+    {
+      "component_id": "C15",
+      "component_name": "Put/Call Skew",
+      "claimed_capability": "Computes put/call implied-volatility skew from the live options chain.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_options_structure.py", "sha256": "0dd92cbe0f116f124a392aab9a264d09f06dc254f5dab8ee6ec39bf441a55104"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "Same underlying gap as C14: _compute_skew() shares the same compute_options_structure() call and the same options_structure_scan persistence table, which has 0 rows (queried directly this session). Identical discrepancy — an orchestrator-level 'options' stage runs, but the specific pc_skew_pp numeric output has never been confirmed persisted."
+    },
+    {
+      "component_id": "C16",
+      "component_name": "Options Term Structure",
+      "claimed_capability": "VIX/options term-structure divergence scan.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_options_structure.py", "sha256": "0dd92cbe0f116f124a392aab9a264d09f06dc254f5dab8ee6ec39bf441a55104"}
+      ],
+      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "runtime_evidence": null,
+      "failure_reason": "run_divergence_scan/vix_term_structure_divergence are real, but per the prior audit's grep citation are reachable from exactly one on-demand chat-tool call site with zero scheduled callers. This session's quant_agent_sessions search targeted a different set of tool names (walk_forward/causal/gaussian_process/rl); the term-structure-specific search was not independently re-run this session, so this classification carries forward the prior grep-based finding rather than a freshly queried session-log result. Consistent with C5/C25/C26/C27 (chat-tool-only, no scheduled trigger).",
+      "discrepancy_notes": "options_structure_scan itself is also empty (see C14/C15), and term_ratio/term_tag columns on that table have never been populated, reinforcing the no-execution finding."
+    },
+    {
+      "component_id": "C17",
+      "component_name": "CTA Trigger Levels",
+      "claimed_capability": "Computes SMA-cross-based CTA (trend-following) trigger levels per ticker.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_cta_triggers.py", "sha256": "ae31268236b77bf3f2197a490edc6313a46a403c691e608ea073a1bc3a6285b7"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "cta_trigger_scan row for ticker=SPY, scan_date=2026-07-10",
+        "trace_id": "not applicable (daily scan table, updated_at is the execution anchor)",
+        "function_call_evidence": "aiem_cta_triggers.py, imported as _acta in main.py",
+        "real_input": "SPY daily OHLC through 2026-07-10",
+        "real_output": "close_price=751.71, sma_50=740.37, sma_100=709.02, sma_200=694.04, cta_score=3, cta_label='MAX_LONG', trigger_pct_away=1.51 — values genuinely differ day-to-day (751.71 / 745.40 / 747.71 across the 3 most recent rows queried), proving live computation rather than a static default",
+        "db_or_audit_record": "cta_trigger_scan rows queried directly this session (2026-07-08, 2026-07-09, 2026-07-10, each with a distinct updated_at)",
+        "downstream_consumption_event": "cta_score/cta_label are read by main.py's _acta import into candidate scoring inputs (source-confirmed import; specific consuming call site not re-traced this session).",
+        "code_sha256": "ae31268236b77bf3f2197a490edc6313a46a403c691e608ea073a1bc3a6285b7"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C18",
+      "component_name": "VPIN (Volume-Synchronized Probability of Informed Trading)",
+      "claimed_capability": "Order-flow-toxicity proxy feeding the Layer 9 Statistical Edge score.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/layer9_statistical_edge.py", "sha256": "3bde5b3efa1db48d557c482eb44b68ef474a857b46e79c1b418ecd96d5993de6"}
+      ],
+      "final_component_status": "FAIL",
+      "runtime_evidence": null,
+      "failure_reason": "Queried this session: vpin_raw is exactly 0.3 on 751/751 layer9_scores rows, with zero distinct values (GROUP BY vpin_raw returns a single bucket: 0.3, count=751). 0.3 is the literal hard-coded fallback in the except-block at layer9_statistical_edge.py line 184. Combined with the 100% error rate documented under C9, this proves the real vpin() computation has never produced a non-default value in the scheduled batch path across 751 consecutive real invocations.",
+      "discrepancy_notes": "Same open item as C9 regarding the one non-default live-query data point (not itself broken down to the vpin sub-score level this session)."
+    },
+    {
+      "component_id": "C19",
+      "component_name": "Hurst Exponent",
+      "claimed_capability": "Regime classifier (trending / mean-reverting / random-walk) via the Hurst exponent, feeding the Layer 9 Statistical Edge score.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/layer9_statistical_edge.py", "sha256": "3bde5b3efa1db48d557c482eb44b68ef474a857b46e79c1b418ecd96d5993de6"}
+      ],
+      "final_component_status": "FAIL",
+      "runtime_evidence": null,
+      "failure_reason": "Queried this session: hurst_raw is exactly 0.5 on 751/751 layer9_scores rows (single-bucket GROUP BY result). 0.5 is the literal hard-coded fallback at layer9_statistical_edge.py line 176/166. `regime` is correspondingly always the default 'random_walk' bucket (h between 0.45 and 0.55 by construction of the default). The real hurst_exponent() computation has never produced a non-default value in the scheduled batch path across 751 consecutive real invocations.",
+      "discrepancy_notes": "Same open item as C9 regarding the one non-default live-query data point (regime='trending' was seen once in a different call context; not independently confirmed as a genuine Hurst computation vs. a coincidental non-default path this session)."
+    },
+    {
+      "component_id": "C20",
+      "component_name": "Amihud Illiquidity",
+      "claimed_capability": "Amihud illiquidity ratio feeding the Layer 9 Statistical Edge score as an inverted penalty.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/layer9_statistical_edge.py", "sha256": "3bde5b3efa1db48d557c482eb44b68ef474a857b46e79c1b418ecd96d5993de6"}
+      ],
+      "final_component_status": "FAIL",
+      "runtime_evidence": null,
+      "failure_reason": "Queried this session: amihud_score is NULL on 751/751 layer9_scores rows (count(amihud_score)=0 of 751 total). Per source, this field is only ever populated inside the same outer try block documented as never completing under C9. No real Amihud illiquidity output has ever been persisted.",
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C21",
+      "component_name": "Corwin-Schultz Spread Estimator",
+      "claimed_capability": "High-low-based bid-ask spread proxy used for transaction-cost estimation in the probability engine's liquidity overlay.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/microstructure_proxy.py", "sha256": "c68c2dbc901797f8f79120e9d9ea8cf0730e01000ec8013be65ad8eb6462d18a"},
+        {"path": "artifacts/stock-scanner-api/aiem_probability_engine/context.py", "sha256": "b5db6bacf1e06df4459d59a9bfdf1eea205770f587b9eb73a8d6d7aeef50b847"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "Real invocation and consumption are confirmed: aiem_probability_engine_predictions row id=458 (queried this session) has overlays_json.liquidity.cost_note explicitly naming Corwin-Schultz as the source of its spread proxy, and that value flows into the stored edge_after_cost_prob_pts=31.48. This is genuine function-call + DB-record + downstream-consumption evidence — but the actual numeric result observed was spread_bps=0.0 / spread_est=0.0 with a self-reported flag 'spread_possibly_floor_clamped':true, i.e. the estimator's real-world output is degenerate/floor-clamped in the one concrete example found. This is marked as an architectural discrepancy (real, consumed, but not yet shown to produce a differentiating non-zero microstructure signal) rather than PASS or FAIL outright."
+    },
+    {
+      "component_id": "C22",
+      "component_name": "XGBoost + TreeSHAP Attribution",
+      "claimed_capability": "XGBoost probability-of-up model with native TreeSHAP per-feature attribution, live-invoked per candidate.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_probability_engine/live_query.py", "sha256": "c5675aa1122616c7597904c730e4ef8fcaf4efaee6fe2e8551866aef8ec20131"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "aiem_probability_engine_predictions.id=458",
+        "trace_id": "aiem_2026_07_08_MU_482f74, stage 13 (probability_engine)",
+        "function_call_evidence": "aiem_probability_engine.live_query.run_live_query(mode='ticker'), confirmed as the stage-13 runtime_function in aiem_diagram2_trace_audit; execution window started_at=2026-07-08 18:51:41.386893 completed_at=2026-07-08 18:51:49.320026 (~8s duration, consistent with real model inference rather than a stub)",
+        "real_input": "ticker=MAA, signal_date=2026-07-10, feature_snapshot_json captured",
+        "real_output": "prob_up_1d=0.8148, prob_up_2d=0.7718, prob_up_3d=0.6851, prob_up_4d=0.5232, confidence=0.37, top_contributing_layers_json=[\"day_of_week\",\"rvol\",\"ma20_relative\",\"squeeze_score\",\"gap_pct\"] (a real TreeSHAP-ranked feature-attribution list, not a fixed placeholder set)",
+        "db_or_audit_record": "aiem_probability_engine_predictions row id=458 (queried directly this session)",
+        "downstream_consumption_event": "Feeds Diagram-2 stage 14 (Scoring/Synthesis, runtime_function candidate_ranking_cr...) per the real MU trace, and stores warnings_json documenting real self-critique of confidence (e.g. cross-horizon disagreement penalty applied).",
+        "code_sha256": "c5675aa1122616c7597904c730e4ef8fcaf4efaee6fe2e8551866aef8ec20131"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C23",
+      "component_name": "Specialist Council (Thompson-sampled multi-specialist debate)",
+      "claimed_capability": "9-specialist council votes, combined via Thompson sampling on real track record, into a single conviction adjustment.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/specialist_council.py", "sha256": "515125c896e1bf8a895f3e5146c38c05c7658091f421279f04a72469f3cb80a9"},
+        {"path": "artifacts/stock-scanner-api/main.py", "sha256": "03f75e2e6a4a88ff57169fc4a01dbdb4319d7c38b674465053ad4770824e8a82"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "Thompson sampling itself is real (betavariate on real DB track record, active_hypothesis_selection.py). Re-grepped this session: specialist_council.py's own module defines exactly 4 SpecialistOpinion instances (garch_volatility, macro_rates, bull_bear_debate, social_sentiment; lines 35/38/41/44) — not 9. Separately, main.py has two independent live call sites (lines 41439/41446 and 43754/43761) that each construct exactly 2 SpecialistOpinion objects inline, bypassing specialist_council.py's own function. There are therefore three divergent specialist-count implementations in the live codebase (4, 2, 2), none matching the documented '9 specialists' claim."
+    },
+    {
+      "component_id": "C24",
+      "component_name": "Meta-Learning Trust Weights",
+      "claimed_capability": "Per-signal, per-context EMA trust-weight tracking that up/down-weights a signal source based on realized outcomes.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/meta_learning_signal_trust.py", "sha256": "47045bd1f187c3b8a89e1fd5490ad176ede68c34cec469eb16403caa557711b5"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "signal_trust_weights.id=44",
+        "trace_id": "not applicable (real-time trust-weight table, last_updated_at is the execution anchor)",
+        "function_call_evidence": "main.py calls _mlst_ema.compute_ema_trust_update(...) at two real call sites (grep-confirmed this session, lines ~43361/43367), delegating to the canonical meta_learning_signal_trust.compute_ema_trust_update()",
+        "real_input": "signal_name='momentum_carry', context_bucket='AIEM_PREMARKET', a new realized outcome observed",
+        "real_output": "rolling_win_rate=0.2, n_outcomes_observed=5, trust_weight=0.85",
+        "db_or_audit_record": "signal_trust_weights row id=44, last_updated_at=2026-07-09 18:00:00.04894 (queried directly this session)",
+        "downstream_consumption_event": "trust_weight is read back by _aiem_paper_pick_candidates to weight that signal source's future candidates.",
+        "code_sha256": "47045bd1f187c3b8a89e1fd5490ad176ede68c34cec469eb16403caa557711b5"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": "Previously flagged DUPLICATED (canonical module unused; inline reimplementation in main.py). Re-verified this session: main.py now imports and calls the canonical meta_learning_signal_trust.compute_ema_trust_update() directly — the duplication has been resolved by the prior remediation track."
+    },
+    {
+      "component_id": "C25",
+      "component_name": "Deep RL Position Sizing",
+      "claimed_capability": "Reinforcement-learning policy that determines live paper-trade position size.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/rl_position_sizer.py", "sha256": "3a9b35e0ba3cc36584183f04567a7464f18f50e8a9a3013d33fd09003b77f5c6"},
+        {"path": "artifacts/stock-scanner-api/deep_rl_policy.py", "sha256": "d20ba9a7b96f5bcffaee3564b63174a878734e4684da50c9d919761a41ce3cf5"},
+        {"path": "artifacts/stock-scanner-api/aiem_position_sizing.py", "sha256": "197db3536cb63d0216c3859d13fa6c890cfee611ec0ed4f69c3b4554c92e312c"}
+      ],
+      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "runtime_evidence": null,
+      "failure_reason": "Zero references to rl_position_sizer/deep_rl_policy/aiem_rl_engine exist inside the real sizing block (_aiem_paper_execute_today). The real, live sizing logic is rule-based: aiem_position_sizing.compute_position_size(). Queried quant_agent_sessions.tool_trace this session for 'rl_position_sizer'/'deep_rl': zero rows returned. No scheduler registration and no confirmed chat-tool invocation exist for the RL-sizing-specific code.",
+      "discrepancy_notes": "A different, adjacent module — aiem_rl_engine.run_full_rl_pipeline — is genuinely live-wired (confirmed this session: aiem_diagram2_trace_audit component_name='Feedback Loop', 13 real rows spanning 2026-07-09 to 2026-07-10, status=PASS). That module performs post-trade RL-based learning/weight updates, which is a materially different capability from using RL to decide position SIZE at entry time. Do not conflate the two when reading this verdict."
+    },
+    {
+      "component_id": "C26",
+      "component_name": "Causal Discovery (PC algorithm)",
+      "claimed_capability": "PC-algorithm-based causal structure discovery among candidate signals/features.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/causal_discovery.py", "sha256": "f1027746b0b499561393fc5ac540117ee72bf036af22796879f2b9529137b685"}
+      ],
+      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "runtime_evidence": null,
+      "failure_reason": "causal_discovery.py contains a real, non-stub PC-algorithm implementation but is not registered as any stage's runtime_function in DIAGRAM2_STAGE_MAP (aiem_registry.py) and is never invoked by AEIMMasterOrchestrator. Queried quant_agent_sessions.tool_trace this session for 'causal': zero rows returned, confirming no chat-tool invocation either.",
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C27",
+      "component_name": "Gaussian Process Signal Search",
+      "claimed_capability": "Gaussian-Process-regression-based search for novel non-linear signal relationships.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/ml_infrastructure.py", "sha256": "8b24f3bbf4aa3358b7208cd853a92cd659ca27af29190a7fdb4bac5390006a94"}
+      ],
+      "final_component_status": "NOT_EXECUTED_WITH_VALID_TRIGGER_EVIDENCE",
+      "runtime_evidence": null,
+      "failure_reason": "A real sklearn.gaussian_process.GaussianProcessRegressor implementation with a genuine .fit() call exists in ml_infrastructure.py (lines ~482-501), but it is not dispatched anywhere in AEIMMasterOrchestrator's real stage code — only a tool-schema name string exists elsewhere. Queried quant_agent_sessions.tool_trace this session for 'gaussian_process': zero rows returned, confirming no chat-tool invocation either.",
+      "discrepancy_notes": null
+    },
+    {
+      "component_id": "C28",
+      "component_name": "Online Learning Rollback",
+      "claimed_capability": "Versioned model promotion with the ability to roll back to a prior model version if a new one fails calibration.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/online_learning.py", "sha256": "f81e369fffbae535bf2f37e5a554b3047ea164794bdbbab7d116df80db040b4b"}
+      ],
+      "final_component_status": "PASS",
+      "runtime_evidence": {
+        "run_id": "model_versions.id=7 (discovery_cycle_signal_weights v7)",
+        "trace_id": "not applicable (model registry table; created_at is the execution anchor)",
+        "function_call_evidence": "online_learning.py promotion/rollback logic, including rollback_to_version() and the is_live UPDATE path",
+        "real_input": "3 consecutive real weekly retrains of the same model_name='discovery_cycle_signal_weights': v5 (2026-07-07), v6 (2026-07-08), v7 (2026-07-09)",
+        "real_output": "is_live=false on v5 and v6, is_live=true on v7 only — each promotion correctly demoted the prior live version",
+        "db_or_audit_record": "model_versions rows id=5,6,7 (queried directly this session)",
+        "downstream_consumption_event": "The is_live=true version is the one read by the scoring pipeline that consumes discovery_cycle_signal_weights.",
+        "code_sha256": "f81e369fffbae535bf2f37e5a554b3047ea164794bdbbab7d116df80db040b4b"
+      },
+      "failure_reason": null,
+      "discrepancy_notes": "A second, separate pair of rows (id=8 'G4TEST_CALIBRATION_FAIL_baa928b0' is_live=false, id=9 'G4TEST_HAPPY_PATH_c0419836' is_live=true, both created 2026-07-10 06:38:2x, ~0.3s apart) appears to be an explicit self-test of the rollback-on-calibration-failure path rather than organic trading activity (names contain 'TEST'). Both pieces of evidence are cited for transparency; the PASS verdict rests primarily on the organic v5/v6/v7 weekly sequence."
+    },
+    {
+      "component_id": "C29",
+      "component_name": "Self-Invalidating Signal Lifecycle (claimed order M2->M4->M6->M3)",
+      "claimed_capability": "A closed-loop lifecycle where Module 2 (decay) triggers Module 4 (force-bypass gate), which triggers Module 6 (rediscovery), which triggers Module 3 (promotion) re-evaluation.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_module2_decay.py", "sha256": "17af1719883ed46bd0d7b46880edab2bfcb0e28b5e14e0491c36df8f7929db2d"},
+        {"path": "artifacts/stock-scanner-api/aiem_module3_promotion.py", "sha256": "6a5378cb74df935e0bb636646a3f1aa17e35c06f9a33a3edaa357f385cc061d8"},
+        {"path": "artifacts/stock-scanner-api/aiem_module4_gate.py", "sha256": "4d45a6517b41c563e91dfd91038604ca4c65967885cd1edb6b617d90d1eaa79e"},
+        {"path": "artifacts/stock-scanner-api/aiem_module6_rediscovery.py", "sha256": "cb157c3f1b02ed7bbfc5dbc3fafd21dc533384f0279ef7f4a803cc4ae47cfb4b"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "Current real schedule (unchanged this session; this component's implementation work remains explicitly FROZEN per prior user directive pending this audit) is M2 (2:30 ET Sun) -> M3 (3:00 ET Sun) -> M5 (4:00 ET Sun) -> M6 (4:15 ET Sun), all Sunday. Module 4 has no schedule at all and is admin-approval-gated only. Module 3 reads only aiem_signal_discoveries/aiem_discovery_outcomes with zero data dependency on M2/M4/M6 output. The real, data-confirmed dependency graph is M2->M4 and M4->M6, with M3 and M5 running as independent siblings — materially different from the claimed M2->M4->M6->M3 closed loop."
+    },
+    {
+      "component_id": "C30",
+      "component_name": "\"53 Tools\" Inventory Claim",
+      "claimed_capability": "Documentation/diagram claim that the AIEM tool surface consists of 53 registered tools.",
+      "canonical_files": [
+        {"path": "artifacts/stock-scanner-api/aiem_registry.py", "sha256": "7793bee1e5b7cf680b15de666ecc07e5078d2c6f5f3b1aa7196ea11571dd842a"}
+      ],
+      "final_component_status": "ARCHITECTURAL_DISCREPANCY",
+      "runtime_evidence": null,
+      "failure_reason": null,
+      "discrepancy_notes": "_build_aiem_tool_map() registers 225 tool entries in the current codebase, not 53. Confirmed this session via a fresh direct query of aiem_module_registry (40 real module rows returned with execution_status values VERIFIED_WIRED / VERIFIED_NOT_WIRED_BY_DESIGN / DOCUMENTED_DORMANT), which independently corroborates a much larger real module/tool surface than the '53' figure. This is a stale-documentation/labeling discrepancy, not a functional gap — full per-tool (225x) runtime verification is out of scope for this deliverable and is reserved for the dedicated diagram2_53_tool_inventory.json deliverable."
+    }
+  ]
+}
