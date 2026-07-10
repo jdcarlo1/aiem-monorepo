@@ -1,0 +1,104 @@
+The aiem-process health-check repair was a separate deployment remediation.
+
+It does not replace, satisfy, reduce, or close the previously assigned:
+
+AEIM DIAGRAM 2 — COMPLETE INDICATOR-BY-INDICATOR WIRING AUDIT
+STRICT LIVE PROVENANCE VERIFICATION
+
+Your own report states that the freeze diagnosis was fully separate from the lifecycle/C29 work.
+
+Therefore, after the production health-check fix is published and verified, return immediately to the original Diagram 2 audit.
+
+Do not start a narrowed “Phase 1 lifecycle implementation” as though Component 29 were the only remaining task.
+
+The assigned work is the complete audit of all 30 required entries:
+
+1. Point-in-Time Data Guard
+2. BH-FDR Correction
+3. Signal Decay Module
+4. Rediscovery Engine
+5. Walk-Forward and Out-of-Sample Splits
+6. M5 Pattern Discovery with Fisher’s Exact Test
+7. FRED Macro Regime Overlay
+8. GARCH(1,1) Volatility Clustering
+9. Bipower Variation Jump Detection
+10. Variance Risk Premium
+11. Risk-Neutral Density
+12. Statistical Arbitrage Engine
+13. PCA Factor Decomposition and Absorption Ratio
+14. GEX
+15. Put/Call Skew
+16. Options Term Structure
+17. CTA Trigger Levels
+18. VPIN
+19. Hurst Exponent
+20. Amihud Illiquidity Ratio
+21. Corwin-Schultz Spread Estimator
+22. XGBoost and Native TreeSHAP Attribution
+23. Specialist Council with Thompson Sampling
+24. Meta-Learning Signal Trust
+25. Deep RL Position Sizing
+26. Causal Discovery Engine
+27. Gaussian Process Signal Discovery
+28. Online Learning with Version Control and Rollback
+29. Self-Invalidating Signal Lifecycle
+30. Complete inventory and runtime verification of the claimed 53 research tools
+
+Before changing any Diagram 2 architecture, first report the current status of the original audit.
+
+Return:
+
+AUDIT_ASSIGNMENT_STATUS=
+AUDIT_START_TIMESTAMP=
+CURRENT_AUDIT_STAGE=
+COMPONENTS_INSPECTED=
+COMPONENTS_RUNTIME_VERIFIED=
+COMPONENTS_FAILED=
+COMPONENTS_NOT_FOUND=
+COMPONENTS_PARTIALLY_IMPLEMENTED=
+COMPONENTS_NOT_WIRED=
+RESEARCH_TOOLS_DISCOVERED=
+RESEARCH_TOOLS_RUNTIME_VERIFIED=
+DELIVERABLES_CREATED=
+DELIVERABLES_REMAINING=
+CURRENT_BLOCKERS=
+ESTIMATED_REMAINING_WORK=
+
+Then continue the original audit exactly as assigned.
+
+Important rules:
+
+1. Do not substitute narrative descriptions for the required machine-readable evidence.
+2. Do not mark a component PASS because its file or function exists.
+3. Do not build replacement implementations merely to make an audit test pass.
+4. If a component is missing, partial, duplicated, disabled, dead code, a stub, or not wired, report that truthfully.
+5. Do not silently narrow the audit to Component 29.
+6. Do not declare Diagram 2 complete until all required deliverables have been produced and reviewed.
+7. Keep the lifecycle/C29 work frozen until the audit determines its actual present implementation status, unless a prerequisite repair is explicitly documented and approved.
+8. The health-check repair must remain isolated from Diagram 2 and lifecycle files.
+
+Required final deliverables remain:
+
+1. diagram2_component_inventory.json
+2. diagram2_53_tool_inventory.json
+3. diagram2_component_matrix.csv
+4. diagram2_authorized_edge_map.json
+5. diagram2_runtime_trace.json
+6. diagram2_research_trace.json
+7. diagram2_provenance_chain.json
+8. diagram2_negative_controls.json
+9. diagram2_registry_reconciliation.json
+10. diagram2_scheduler_reconciliation.json
+11. diagram2_database_reconciliation.json
+12. diagram2_sha256_manifest.txt
+13. diagram2_failures_and_discrepancies.json
+14. diagram2_final_verification_report.md
+
+At the end, use only the permitted overall verdict:
+
+DIAGRAM_2_COMPONENT_WIRING_PASS
+DIAGRAM_2_COMPONENT_WIRING_PARTIAL
+DIAGRAM_2_COMPONENT_WIRING_FAIL
+
+Do not proceed to unrelated architecture work.
+Do not claim the Diagram 2 audit is complete without returning the actual evidence files.
