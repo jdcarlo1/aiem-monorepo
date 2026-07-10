@@ -1,0 +1,40 @@
+# VERIFICATION DIRECTIVE — Thompson Gate: Freshness & Cold-Start
+
+**Context:** Follow-up to Q1 (Thompson Score Consumption), which confirmed the score is consumed via a DB-mediated path (`update_paper_thompson` → `aiem_paper_thompson.sampled_score` → `_aiem_paper_pick_candidates()` SELECT), not via the in-memory `_thompson_new_score` variable. This directive closes two open questions before Q1 is considered fully verified.
+
+**Evidence standard:** Raw grep/log output, file paths with line numbers, and query results only. No "this should work" or "the logic supports X" — if a claim can't be shown executing, say so explicitly.
+
+---
+
+## Question 2: Scoring Freshness
+
+1. What triggers `_aiem_paper_pick_candidates()` — cron/scheduler entry, stage sequence, or on-demand call? Cite the exact scheduler config or calling site with line number.
+
+2. What triggers `update_paper_thompson()` (the close-time write)? Cite line number and the condition that gates it (market close event, fixed time, etc.).
+
+3. Does `_aiem_paper_pick_candidates()` ever execute **before** `update_paper_thompson()` has run for the current session (i.e., intraday picks using a stale/prior-day posterior)? Answer with either:
+   - A grep/log showing pick-candidate timestamps vs. thompson-update timestamps from actual runs, OR
+   - The scheduler ordering that makes same-day staleness structurally impossible.
+
+4. If staleness is possible, is that intentional (using yesterday's posterior is a deliberate design choice) or a gap? State which, and cite where that intent is documented if intentional.
+
+---
+
+## Question 3: Cold-Start Path
+
+1. Confirm: for a `signal_source` with no row in `aiem_paper_thompson`, `_th_lbl` defaults to `1.0` (neutral) per main.py (`else: _th_lbl = 1.0`). Cite exact line.
+
+2. Is there a separate write path that *creates* the initial row for a new source (e.g., on first trade/signal from that source), or does a source only get a row after `update_paper_thompson` processes it — and if so, what makes `update_paper_thompson` aware of a brand-new source in the first place?
+
+3. Grep for all `INSERT INTO aiem_paper_thompson` (not just `UPDATE`) and show the exact insert site(s) with line numbers.
+
+4. Trace one new source end-to-end with either real log output or a constructed trace:
+   - First time it appears
+   - When does it first get a non-null `sampled_score`
+   - When does it first affect a candidate's `score` multiplier
+
+   Give timestamps/cycle numbers, not a description of the mechanism.
+
+---
+
+**Reminder:** No narrative summaries. Every claim needs a citation (file:line) or a raw output block backing it up.
