@@ -706,6 +706,12 @@ _NANO_CAP_SPREAD_PCT  = 0.01
 _lb_cursor      = 0
 _lb_cursor_lock = threading.Lock()
 
+# ── Rotating deep-ITM options-probability cursor (dedicated - never shares
+# _lb_cursor with the unusual-calls scan above; sharing would mean the two
+# jobs skip each other's segments and neither ever covers its own universe). ──
+_optprob_cursor      = 0
+_optprob_cursor_lock = threading.Lock()
+
 def _yf_breaker_state() -> str:
     """Return current breaker state: 'closed', 'open', or 'half-open'."""
     now = _time_cb.time()
@@ -1577,6 +1583,50 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
     }
 
 
+_OPTPROB_UNIVERSE_CACHE = {"date": None, "tickers": []}
+
+def _get_optprob_universe() -> list:
+    """Full daily-alert universe for the deep-ITM options-probability scan:
+    DEFAULT_LEADERBOARD (~6,635 liquid, options-active names) pre-filtered to
+    underlying 30d avg volume >= 2,000,000 via a single DB query against
+    polygon_market_daily (zero live API calls). This mirrors the exact
+    liquidity gate _compute_options_probability_matrix already enforces
+    (avg_vol_30d >= 2,000,000), so pre-filtering here can never exclude a
+    ticker that could have passed the real gate anyway - it just avoids
+    thousands of guaranteed-to-reject Tradier chain calls per day. Cached
+    once per ET calendar day; falls back to WATCHLIST_DEFAULT (never an
+    empty universe) if the DB query errors."""
+    import datetime as _dt_ou, pytz as _pytz_ou
+    today = _dt_ou.datetime.now(_pytz_ou.timezone("America/New_York")).strftime("%Y-%m-%d")
+    if _OPTPROB_UNIVERSE_CACHE["date"] == today and _OPTPROB_UNIVERSE_CACHE["tickers"]:
+        return _OPTPROB_UNIVERSE_CACHE["tickers"]
+    try:
+        import psycopg2 as _pg2_ou
+        with _pg2_ou.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                WITH latest AS (SELECT MAX(scan_date) AS d FROM polygon_market_daily),
+                avg30 AS (
+                    SELECT ticker, AVG(volume) AS avg_vol_30d
+                    FROM polygon_market_daily, latest
+                    WHERE scan_date > latest.d - INTERVAL '45 days'
+                    GROUP BY ticker
+                    HAVING COUNT(*) >= 15
+                )
+                SELECT ticker FROM avg30 WHERE avg_vol_30d >= 2000000
+            """)
+            _liquid = {r[0] for r in _cu.fetchall()}
+        _universe = sorted(_liquid & set(DEFAULT_LEADERBOARD))
+        if _universe:
+            _OPTPROB_UNIVERSE_CACHE["date"] = today
+            _OPTPROB_UNIVERSE_CACHE["tickers"] = _universe
+        print(f"[optprob_universe] {len(_universe)} tickers pass liquidity pre-filter "
+              f"(of {len(DEFAULT_LEADERBOARD)} leaderboard names)")
+        return _universe or list(WATCHLIST_DEFAULT)
+    except Exception as _e:
+        print(f"[optprob_universe] error: {_e} - falling back to WATCHLIST_DEFAULT")
+        return list(WATCHLIST_DEFAULT)
+
+
 @app.route("/stock-api/quant/options-probability", methods=["GET"])
 def api_quant_options_probability():
     """Manual-entry options probability calculator for the Quant tab.
@@ -1739,6 +1789,46 @@ _thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
 _DEFERRED_INITS.append(lambda: init_sms_log_table())
 _DEFERRED_INITS.append(lambda: _bull_bear.init_schema() if _bull_bear else None)
 _DEFERRED_INITS.append(lambda: _specialist_council.init_schema() if _specialist_council else None)
+
+def _init_optprob_deep_itm_table():
+    """DB table backing the full-universe deep-ITM options-probability scan
+    (see _run_optprob_deep_itm_scan / _run_optprob_daily_digest below).
+    UNIQUE(scan_date, ticker) - a ticker hit multiple times across the day's
+    6 rotating segment scans keeps only its best (highest) win_probability."""
+    import psycopg2 as _oi_pg2
+    try:
+        with _oi_pg2.connect(_DB_URL) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS options_prob_deep_itm_daily (
+                    id                SERIAL PRIMARY KEY,
+                    scan_date         DATE        NOT NULL,
+                    ticker            TEXT        NOT NULL,
+                    spot_price        NUMERIC,
+                    strike            NUMERIC,
+                    delta             NUMERIC,
+                    win_probability   NUMERIC,
+                    premium           NUMERIC,
+                    suggested_limit   NUMERIC,
+                    expiry            TEXT,
+                    days_to_expiry    INTEGER,
+                    open_interest     INTEGER,
+                    spread_pct        NUMERIC,
+                    edge_points       INTEGER,
+                    edge_max_points   INTEGER,
+                    first_seen        TIMESTAMPTZ DEFAULT NOW(),
+                    last_seen         TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (scan_date, ticker)
+                )
+            """)
+            _cu.execute("""
+                CREATE INDEX IF NOT EXISTS idx_optprob_deep_itm_date
+                ON options_prob_deep_itm_daily (scan_date)
+            """)
+        print("[optprob_deep_itm] table ready")
+    except Exception as _e:
+        print(f"[optprob_deep_itm] table init error: {_e}")
+
+_DEFERRED_INITS.append(lambda: _init_optprob_deep_itm_table())
 
 # ── Microcap/small-cap call outcome tracking ─────────────────────────────────
 # Stores price_1d/3d/5d and ret_1d/3d/5d on unusual_calls_microcap_log so we
@@ -7286,69 +7376,195 @@ try:
     )
     print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET")
 
-    # ── Daily Options Probability Calculator alert ──────────────────────────
-    # Runs the merged options-probability engine (`_compute_options_probability_matrix`,
-    # which now folds in the liquidity gates + real-data context + heuristic
-    # edge score) across WATCHLIST_DEFAULT (no user-specified ticker universe
-    # was given for this alert - see architect discussion) and Telegrams any
-    # row that clears BOTH: (1) the real Black-Scholes win_probability >= 80%,
-    # and (2) the objective liquidity gate (avg volume / open interest /
-    # spread). The heuristic edge_score is informational only in the alert
-    # text - it never gates which alerts fire, consistent with keeping
-    # win_probability the sole, pure statistical gate.
-    def _run_daily_options_probability_alert():
-        job_name = "daily_options_probability_alert"
+    # ── Full-universe deep-ITM Options Probability daily alert ──────────────
+    # Replaces the old WATCHLIST_DEFAULT-based single-shot alert (22 tickers,
+    # 80% threshold, one Telegram per ticker) with a full ~6,635-ticker
+    # leaderboard scan pre-filtered to the liquid subset via
+    # _get_optprob_universe(), deep-ITM (real 0.80-delta) row only - never
+    # the 5/10/15%-depth rows - at a 75% win-probability + liquidity-PASS
+    # threshold. The universe is rotated across 6 segment scans/day (dedicated
+    # _optprob_cursor - never shares the unusual-calls scan's _lb_cursor) so
+    # the whole pre-filtered universe is covered daily, then a single curated
+    # top-20 Telegram digest is sent at end of day instead of an alert flood.
+    # A ticker with no delta data (chain missing greeks) is honestly skipped,
+    # never faked.
+    def _run_optprob_deep_itm_scan(label: str = "segment"):
+        job_name = "optprob_deep_itm_scan"
+        if not _intraday_scan_allowed():
+            print(f"[{job_name}] {label} skipped - market closed (holiday/weekend)")
+            return
         try:
-            sent = 0
-            checked = 0
-            for _tkr in WATCHLIST_DEFAULT:
-                checked += 1
+            from concurrent.futures import ThreadPoolExecutor, as_completed as _asc_op
+            import datetime as _dt_op, pytz as _pytz_op, psycopg2 as _pg2_os
+
+            universe = _get_optprob_universe()
+            if not universe:
+                print(f"[{job_name}] {label} empty universe - skipping")
+                return
+
+            global _optprob_cursor, _optprob_cursor_lock
+            _seg_size = max(1, -(-len(universe) // 6))  # ceil(len/6) -> full coverage across 6 runs/day
+            with _optprob_cursor_lock:
+                _seg_start = _optprob_cursor
+                _seg_end   = min(_optprob_cursor + _seg_size, len(universe))
+                _optprob_cursor = _seg_end % len(universe)
+            _segment = universe[_seg_start:_seg_end]
+            print(f"[{job_name}] {label} scanning {len(_segment)} of {len(universe)} tickers "
+                  f"(segment [{_seg_start}:{_seg_end}])")
+
+            def _scan_one_optprob(ticker):
+                if _td_breaker_open():
+                    return None
                 try:
-                    result = _compute_options_probability_matrix(_tkr, hold_days=2, max_dte=7)
+                    result = _compute_options_probability_matrix(ticker, hold_days=2, max_dte=7)
                 except Exception as _e_row:
-                    print(f"[{job_name}] {_tkr} error: {_e_row}")
-                    continue
+                    print(f"[{job_name}] {ticker} error: {_e_row}")
+                    return None
                 if "error" in result:
-                    continue
+                    return None
                 for row in result.get("rows", []):
+                    # Deep-ITM (real 0.80-delta target) row only.
+                    if row.get("strategy") != "deep_itm_delta_target":
+                        continue
+                    if row.get("delta") is None:
+                        return None  # honestly skip - no delta data, never fabricated
                     wp = row.get("win_probability")
                     liq = row.get("liquidity")
-                    if wp is None or wp < 80 or not liq or not liq.get("passed"):
-                        continue
+                    if wp is None or wp < 75 or not liq or not liq.get("passed"):
+                        return None
                     edge = result.get("edge_score") or {}
-                    lines = [
-                        f"\U0001F4CA Options Probability Alert — {result['ticker']}",
-                        f"Strike ${row['strike']:.2f} ({row['depth_pct']}% ITM) · Exp {result['expiry']} ({result['days_to_expiry']}d)",
-                        f"Win probability: {wp:.1f}% (Black-Scholes, {result['hold_days']}d hold)",
-                        f"Suggested limit: ${row['suggested_limit']:.2f}" if row.get("suggested_limit") else "",
-                        f"Liquidity: PASSED (OI {liq.get('option_open_interest')}, spread {liq.get('spread_pct')}%)",
-                    ]
-                    if edge.get("points"):
-                        lines.append(f"Edge score (HEURISTIC, not backtested): {edge['points']}/{edge.get('max_points', 30)}")
-                    lines.append("Not financial advice - informational only.")
-                    _tg_send(
-                        "\n".join(l for l in lines if l),
-                        signal_source="options_prob_daily",
-                        ticker=result["ticker"],
-                        alert_class="SIGNAL",
-                    )
-                    sent += 1
-            print(f"[{job_name}] checked {checked} tickers, sent {sent} alert(s)")
+                    return {
+                        "ticker": result["ticker"], "spot_price": result["spot_price"],
+                        "strike": row["strike"], "delta": row.get("delta"),
+                        "win_probability": wp, "premium": row.get("premium"),
+                        "suggested_limit": row.get("suggested_limit"),
+                        "expiry": result["expiry"], "days_to_expiry": result["days_to_expiry"],
+                        "open_interest": liq.get("option_open_interest"),
+                        "spread_pct": liq.get("spread_pct"),
+                        "edge_points": edge.get("points"), "edge_max_points": edge.get("max_points"),
+                    }
+                return None
+
+            candidates = []
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                futs = {ex.submit(_scan_one_optprob, t): t for t in _segment}
+                _done = 0
+                try:
+                    for fut in _asc_op(futs, timeout=600):
+                        try:
+                            r = fut.result()
+                            if r:
+                                candidates.append(r)
+                            _done += 1
+                        except Exception as _exc:
+                            print(f"[{job_name}] worker error: {_exc}")
+                except TimeoutError:
+                    for _f in futs:
+                        _f.cancel()
+                    print(f"[{job_name}] {label} 600s timeout - {_done}/{len(_segment)} tickers done, "
+                          f"found {len(candidates)} partial candidates")
+
+            if candidates:
+                _et_today = _dt_op.datetime.now(_pytz_op.timezone("America/New_York")).strftime("%Y-%m-%d")
+                with _pg2_os.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                    for c in candidates:
+                        _cu.execute("""
+                            INSERT INTO options_prob_deep_itm_daily
+                                (scan_date, ticker, spot_price, strike, delta, win_probability,
+                                 premium, suggested_limit, expiry, days_to_expiry, open_interest,
+                                 spread_pct, edge_points, edge_max_points, last_seen)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                            ON CONFLICT (scan_date, ticker) DO UPDATE SET
+                                win_probability = GREATEST(options_prob_deep_itm_daily.win_probability, EXCLUDED.win_probability),
+                                spot_price      = EXCLUDED.spot_price, strike = EXCLUDED.strike,
+                                delta           = EXCLUDED.delta,      premium = EXCLUDED.premium,
+                                suggested_limit = EXCLUDED.suggested_limit, expiry = EXCLUDED.expiry,
+                                days_to_expiry  = EXCLUDED.days_to_expiry,  open_interest = EXCLUDED.open_interest,
+                                spread_pct      = EXCLUDED.spread_pct,  edge_points = EXCLUDED.edge_points,
+                                edge_max_points = EXCLUDED.edge_max_points, last_seen = NOW()
+                        """, (_et_today, c["ticker"], c["spot_price"], c["strike"], c["delta"],
+                              c["win_probability"], c["premium"], c["suggested_limit"], c["expiry"],
+                              c["days_to_expiry"], c["open_interest"], c["spread_pct"],
+                              c["edge_points"], c["edge_max_points"]))
+            print(f"[{job_name}] {label} segment done - {len(candidates)} candidate(s) "
+                  f">=75% win-prob + liquidity PASS (deep-ITM only)")
             record_job_success(job_name)
         except Exception as _e:
-            print(f"[{job_name}] error: {_e}")
+            import traceback
+            print(f"[{job_name}] {label} error: {_e}\n{traceback.format_exc()}")
             record_job_failure(job_name, str(_e))
 
-    # Mon-Fri 9:50 AM ET — 20 min after the open, once the live option chain
-    # has real quotes/volume for the day (matches the liquidity gate's need
-    # for real bid/ask + volume data, not stale overnight quotes).
+    # 6 segment scans/day at :35 past the hour - offset from the unusual-calls
+    # scan's :05/:36 slots so the two full-universe jobs never compete for the
+    # Tradier rate limiter at the same moment. Covers the full pre-filtered
+    # universe (~1,500-2,000 liquid names / 6 ≈ 250-350 tickers per run).
+    for _optprob_h in (10, 11, 12, 13, 14, 15):
+        _scheduler.add_job(
+            _run_optprob_deep_itm_scan,
+            CronTrigger(day_of_week="mon-fri", hour=_optprob_h, minute=35, timezone=_ET),
+            id=f"optprob_deep_itm_scan_{_optprob_h}",
+            kwargs={"label": f"{_optprob_h}:35"},
+            replace_existing=True,
+        )
+    print("[optprob_deep_itm] scheduled - 6 segment scans/day (10:35 AM-3:35 PM ET) covering full pre-filtered universe")
+
+    # ── End-of-day curated digest ────────────────────────────────────────────
+    # ONE combined Telegram message with today's top 20 (by win_probability)
+    # deep-ITM candidates instead of a per-ticker alert flood.
+    def _run_optprob_daily_digest():
+        job_name = "optprob_daily_digest"
+        try:
+            import datetime as _dt_dg, pytz as _pytz_dg, psycopg2 as _pg2_dg
+            _et_today = _dt_dg.datetime.now(_pytz_dg.timezone("America/New_York")).strftime("%Y-%m-%d")
+            with _pg2_dg.connect(_DB_URL) as _c, _c.cursor() as _cu:
+                _cu.execute("""
+                    SELECT ticker, spot_price, strike, delta, win_probability, premium,
+                           suggested_limit, expiry, days_to_expiry, open_interest, spread_pct,
+                           edge_points, edge_max_points
+                    FROM options_prob_deep_itm_daily
+                    WHERE scan_date = %s
+                    ORDER BY win_probability DESC
+                    LIMIT 20
+                """, (_et_today,))
+                rows = _cu.fetchall()
+            if not rows:
+                _tg_send(
+                    "\U0001F4CA Options Probability Daily Digest\n"
+                    "No deep-ITM candidates cleared the 75% win-probability + liquidity bar "
+                    "today across the full scanned universe.",
+                    signal_source="options_prob_daily", alert_class="SIGNAL",
+                )
+                print(f"[{job_name}] 0 candidates today - sent empty-day note")
+                record_job_success(job_name)
+                return
+            lines = [f"\U0001F4CA Options Probability Daily Digest - Top {len(rows)} (deep-ITM, ≥75% win prob)"]
+            for r in rows:
+                (tkr, spot, strike, delta, wp, prem, sug_limit, expiry, dte, oi, spread, ep, emp) = r
+                line = (f"• {tkr}: {float(wp):.1f}% win · Δ{float(delta):.2f} · "
+                        f"Strike ${float(strike):.2f} (spot ${float(spot):.2f}) · Exp {expiry} ({dte}d)")
+                if sug_limit is not None:
+                    line += f" · Limit ${float(sug_limit):.2f}"
+                if ep is not None:
+                    line += f" · Edge {ep}/{emp or 30}"
+                lines.append(line)
+            lines.append("Not financial advice - informational only.")
+            _tg_send("\n".join(lines), signal_source="options_prob_daily", alert_class="SIGNAL")
+            print(f"[{job_name}] sent digest with {len(rows)} candidate(s)")
+            record_job_success(job_name)
+        except Exception as _e:
+            import traceback
+            print(f"[{job_name}] error: {_e}\n{traceback.format_exc()}")
+            record_job_failure(job_name, str(_e))
+
+    # Mon-Fri 4:10 PM ET - 10 min after close, after the 3:35 PM segment scan
+    # has finished and after-hours quotes have settled.
     _scheduler.add_job(
-        _run_daily_options_probability_alert,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=50, timezone=_ET),
-        id="daily_options_probability_alert",
+        _run_optprob_daily_digest,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=_ET),
+        id="optprob_daily_digest",
         replace_existing=True,
     )
-    print("[options_prob_alert] scheduled — daily ≥80% win-probability + liquidity-passed alert: Mon-Fri 9:50 AM ET")
+    print("[optprob_daily_digest] scheduled - Mon-Fri 4:10 PM ET top-20 curated digest")
 
     _scheduler.start()
     # reconcile_orphaned_sessions is defined later in the file; defer so the
