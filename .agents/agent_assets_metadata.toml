@@ -252,3 +252,9 @@ id = "vx8B5hhcptqh4zAzAX-rz"
 uri = "file://artifacts/stock-scanner-api/diagrams/columns/col6.png"
 type = "image"
 title = "Column 6 of 6 — Modules 49-57"
+
+[[outputs]]
+id = "iPDTM27aFx-RnT7O7qBvG"
+uri = "file://.local/DIAGRAM2_AUDIT_FINAL_REPORT.md"
+type = "text"
+title = "Diagram 2 Wiring Audit — Final Report"
