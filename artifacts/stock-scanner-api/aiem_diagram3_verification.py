@@ -439,16 +439,121 @@ def run_timeline(trace_id: str) -> int:
     return 0 if rows else 1
 
 
+def fetch_bus_transfer_log(conn, since=None):
+    """
+    Real rows from aiem_bus_transfer_log — the CommunicationBus's own
+    cross-restart persistence table, written by every publish() call
+    regardless of whether any subscriber is registered. This is the
+    independent source of truth for "what did D2 actually publish",
+    used to check the D3 bus subscriber for silent coverage gaps.
+    """
+    cur = conn.cursor()
+    q = ("SELECT trace_id, ticker, stage_order, stage_name, event_type, "
+         "published_at FROM aiem_bus_transfer_log")
+    params = ()
+    if since is not None:
+        q += " WHERE published_at >= %s"
+        params = (since,)
+    q += " ORDER BY id ASC"
+    cur.execute(q, params)
+    rows = [_row_to_dict(cur, r) for r in cur.fetchall()]
+    cur.close()
+    return rows
+
+
+def _expected_idempotency_key(bus_row: dict) -> str:
+    # Must exactly match aiem_diagram3_governance._on_bus_stage_event()'s
+    # own key construction: f"bus:{event.trace_id}:{event.stage_order}:{event.event_type}"
+    return f"bus:{bus_row['trace_id']}:{bus_row['stage_order']}:{bus_row['event_type']}"
+
+
+def reconcile_bus_coverage(conn, since=None) -> dict:
+    """
+    T-P2 coverage reconciliation: for every real event D2 actually published
+    to the bus (per aiem_bus_transfer_log), confirm the D3 subscriber
+    actually ledgered a matching row (per d3_governance_event_links'
+    idempotency_key). Reports real gaps honestly rather than assuming
+    coverage from the subscriber's own success path — this is the only way
+    to catch a silent drop (e.g. a bus.publish() that ran before
+    subscribe_to_bus() was registered, a different process's bus singleton
+    with no subscriber attached, or an exception swallowed inside
+    _on_bus_stage_event).
+    """
+    bus_rows = fetch_bus_transfer_log(conn, since=since)
+
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT idempotency_key FROM d3_governance_event_links "
+        "WHERE idempotency_key LIKE 'bus:%'"
+    )
+    ledgered_keys = set(r[0] for r in cur.fetchall())
+    cur.close()
+
+    missing = []
+    expected_keys = set()
+    for r in bus_rows:
+        key = _expected_idempotency_key(r)
+        expected_keys.add(key)
+        if key not in ledgered_keys:
+            missing.append({
+                "trace_id": r["trace_id"], "ticker": r["ticker"],
+                "stage_order": r["stage_order"], "stage_name": r["stage_name"],
+                "event_type": r["event_type"], "published_at": str(r["published_at"]),
+                "expected_idempotency_key": key,
+            })
+
+    return {
+        "since": str(since) if since else "ALL TIME",
+        "bus_events_checked": len(bus_rows),
+        "distinct_expected_keys": len(expected_keys),
+        "missing_count": len(missing),
+        "coverage_complete": len(missing) == 0,
+        "missing_sample": missing[:25],
+    }
+
+
+def run_reconcile_bus(hours: float) -> int:
+    conn = d3gov._d3_connect()
+    since = None
+    if hours is not None:
+        since = datetime.datetime.utcnow() - datetime.timedelta(hours=hours)
+    report = reconcile_bus_coverage(conn, since=since)
+    conn.close()
+    print(json.dumps(report, indent=2, default=str))
+    if report["bus_events_checked"] == 0:
+        print(
+            "\nNOTE: 0 real bus events found in this window — this is NOT proof of "
+            "coverage, it means no D2 stage execution has happened in this window "
+            "(e.g. market closed). Re-run after a real candidate loop runs (9:35 "
+            "AM ET execute / 4:00 PM ET MTM) for an honest coverage verdict."
+        )
+        return 2
+    if not report["coverage_complete"]:
+        print(f"\nFAIL — {report['missing_count']} real bus event(s) were never "
+              f"ledgered by the D3 subscriber. See missing_sample above.")
+        return 1
+    print(f"\nPASS — all {report['bus_events_checked']} real bus event(s) in this "
+          f"window were ledgered (idempotency_key coverage complete).")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("verify", help="Run full hash-chain verification + tamper tests")
     tl = sub.add_parser("timeline", help="Print real ordered event timeline for one trace")
     tl.add_argument("--trace-id", required=True)
+    rb = sub.add_parser("reconcile-bus", help="Compare aiem_bus_transfer_log vs "
+                        "d3_governance_event_links for silent subscriber coverage gaps")
+    rb.add_argument("--hours", type=float, default=None,
+                     help="Only check bus events published in the last N hours "
+                          "(default: all time)")
     args = parser.parse_args()
 
     if args.command == "timeline":
         return run_timeline(args.trace_id)
+    if args.command == "reconcile-bus":
+        return run_reconcile_bus(args.hours)
     return run_verify()
 
 

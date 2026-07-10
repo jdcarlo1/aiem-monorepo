@@ -1,6 +1,6 @@
 ---
 name: AIEM Diagram 3 Governance Layer
-description: Pure supervisory governance layer over D1+D2; 16 phases, 17 d3_ tables, 25 admin endpoints, advisory-only (cannot enforce), tamper-evident event ledger; NEVER modifies D1/D2
+description: Pure supervisory governance layer over D1+D2, now growing real Path B active-enforcement checkpoints (G0-G5) on top of the original advisory-only Path A; 20 d3_ tables as of P3; tamper-evident event ledger; NEVER modifies D1/D2 business logic
 ---
 
 # AIEM Diagram 3 — Autonomous Governance, Self-Optimization & Evolution Layer
@@ -88,12 +88,44 @@ close). All other D2 stages/events still have zero D3 linkage. Don't claim full
 per-trace governance coverage — it's exactly one event type, verified live via
 `aiem_diagram3_verification.py timeline --trace-id <id>`.
 
-## Path B — open question, unresolved
-The newer "D2<->D3 integration" spec (758 lines) truncates mid-Section-10
-immediately after introducing "PATH A" (the trade-close hook, now verified live).
-"PATH B" is never defined anywhere in the spec text seen by any session so far.
-Multiple `user_query` attempts to ask the user directly failed with a tool-level
-"prompt already pending" error. If this comes up again, ask early and don't guess.
+## Path B active enforcement — now in progress (started 2026-07-10)
+The user supplied the full 604-line Path B spec (Sections 1-11, TESTS A-L); the
+"unresolved/truncated spec" issue below is now moot for future sessions. Path B adds
+6 real gate checkpoints (G0 boot auth, G1 tamper — already closed pre-Path-B, G2
+pre-decision block, G3 pre-execution auth, G4 learning/promotion gate, G5
+recovery/resume) with a shared per-checkpoint SHADOW/ENFORCE mode config, on top of
+the existing Path A advisory ledger. Session-by-session plan lives in
+`.local/session_plan.md` (P0-P8) — always check that file for current phase status
+before resuming this work; it has the authoritative proof-by-phase detail, this memory
+file only holds durable cross-session facts.
+**G0 boot authorization shipped and live-verified**: `d3_system_state` (singleton,
+6-state CHECK) + `d3_checkpoint_config` (per-checkpoint OFF/SHADOW/ENFORCE, 5s cache) +
+append-only `d3_governance_config_history`. `g0_authorize_run(entrypoint, run_kind,
+trigger_source, is_test_record)` is the real gate fn — `run_kind="SCAN_ONLY"` is NEVER
+blocked by G0 even in ENFORCE+PAUSED (agreed default: outages only block
+trade-executing runs). ENFORCE-mode escalation requires `confirm=True`; de-escalation
+never does. Wired into both real production call sites:
+`_aiem_paper_execute_today` (before RUNNING-row insert, BLOCK writes a `BLOCKED_G0`
+execution-log row and releases the lock) and `_run_premarket_open_tracker` (once per
+scheduler tick before the per-ticker quote loop). All checkpoints currently seeded
+SHADOW (log-only) — no real trade has ever been blocked by G0 yet, by design, pending
+a multi-day would-block proof window before flipping to ENFORCE.
+
+**OFF vs SHADOW mode semantics are intentionally different, not the same thing wearing
+two names.** SHADOW still evaluates `would_block` and logs it (proof-of-concept data for
+later ENFORCE decisions) but never blocks. OFF skips evaluation entirely and always
+returns `ALLOW`/`reason_code=CHECKPOINT_OFF`/`enforcement_action=DISABLED` — it's the
+"this checkpoint's own judgment doesn't count right now" escape hatch (e.g. checkpoint
+logic itself suspected broken), and it also skips the DB-error fail-closed/stale-cache
+logic since there's nothing to fail closed on. This pattern (three distinct modes, not
+two) should be reused verbatim for every future G-checkpoint (G2-G5), not re-derived.
+
+## Old Path B truncated-spec issue (historical, resolved 2026-07-10)
+An earlier, shorter "D2<->D3 integration" doc truncated mid-Section-10 before ever
+defining "PATH B", and `user_query` attempts to ask the user hit a tool-level "prompt
+already pending" error. Superseded by the full spec above — kept here only as a
+reminder that stuck `user_query` calls should be retried/escalated rather than guessed
+around.
 
 ## How to Apply
 - Add governance metadata for any new module: call `log_change(module, reason, expected_impact)`

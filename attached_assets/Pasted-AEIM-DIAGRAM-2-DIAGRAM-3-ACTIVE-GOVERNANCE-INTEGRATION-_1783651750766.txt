@@ -1,0 +1,604 @@
+AEIM DIAGRAM 2 ↔ DIAGRAM 3 ACTIVE GOVERNANCE INTEGRATION
+MASTER IMPLEMENTATION AND STRICT VERIFICATION ORDER
+
+IMPORTANT PURPOSE
+
+Diagram 2 remains the sole trading-analysis and trading-decision pipeline.
+
+Diagram 3 must NOT become a second stock-selection engine and must NOT independently modify ticker scores, technical indicators, probability outputs, council conclusions, or trade direction.
+
+Diagram 3 is the active system-governance authority responsible for:
+
+1. Architectural integrity.
+2. Approved model/strategy/configuration versions.
+3. System-wide safety and health.
+4. Learning and promotion governance.
+5. Audit integrity.
+6. Controlled pause, quarantine, rollback, and recovery.
+7. Authorization of system-level execution readiness.
+
+The existing implementation is not complete because Diagram 3 is currently advisory-only and wired only to the Diagram 2 trade-close event.
+
+Do not report Diagram 3 as fully integrated until all mandatory work and verification below passes.
+
+==================================================
+SECTION 1 — DEFINE PATH A AND PATH B
+==================================================
+
+PATH A — OBSERVATION / EVENT PATH
+
+Diagram 2 publishes canonical, immutable lifecycle events to Diagram 3.
+
+Diagram 3 records, validates, links, audits, measures, and reports these events.
+
+Path A does not alter an ordinary Diagram 2 stock decision.
+
+PATH B — ACTIVE ENFORCEMENT PATH
+
+At designated mandatory checkpoints, Diagram 2 must synchronously request a governance authorization from Diagram 3.
+
+Diagram 2 must technically obey the returned result.
+
+Allowed results:
+
+ALLOW
+ALLOW_WITH_WARNING
+REVIEW_REQUIRED
+BLOCK
+PAUSE_SYSTEM
+QUARANTINE_COMPONENT
+ROLLBACK_REQUIRED
+
+For mandatory checkpoints:
+
+ALLOW and ALLOW_WITH_WARNING may continue.
+
+REVIEW_REQUIRED, BLOCK, PAUSE_SYSTEM, QUARANTINE_COMPONENT, and ROLLBACK_REQUIRED must prevent the protected action from continuing.
+
+Path B is therefore the missing enforcement route.
+
+==================================================
+SECTION 2 — DIAGRAM 3 AUTHORITY BOUNDARIES
+==================================================
+
+Diagram 3 MAY:
+
+1. Observe and record all major Diagram 2 lifecycle events.
+2. Raise warnings.
+3. Require review of model, strategy, configuration, registry, and architecture changes.
+4. Reject a model or learning proposal.
+5. Block use of an unapproved model or strategy version.
+6. Block execution when system-level integrity requirements fail.
+7. Pause new trading activity during critical incidents.
+8. Quarantine a module, tool, model, strategy, or configuration version.
+9. Initiate a controlled rollback to a previously approved version.
+10. Require human approval for high-impact changes.
+11. Authorize recovery and resumption after verification.
+12. Generate immutable executive, security, architecture, and performance records.
+
+Diagram 3 MUST NOT:
+
+1. Select stocks.
+2. Re-score a stock.
+3. Change BUY/SELL/HOLD based on an independent market opinion.
+4. replace the Diagram 2 risk gate.
+5. Bypass any Diagram 2 phase.
+6. Directly execute a broker order.
+7. Directly rewrite production code.
+8. Silently change thresholds.
+9. Deploy a learning/model change without approval evidence.
+10. Modify or delete historical governance evidence.
+
+==================================================
+SECTION 3 — REQUIRED CANONICAL EVENT CONTRACT
+==================================================
+
+Create one canonical Diagram 2 → Diagram 3 event schema.
+
+Every event must include:
+
+event_id
+event_type
+trace_id
+root_trace_id
+candidate_id
+ticker
+plan_id
+paper_trade_id
+source_phase
+source_module
+architecture_version
+model_version
+strategy_version
+configuration_version
+event_timestamp_utc
+payload
+payload_hash
+previous_event_hash
+is_test_record
+environment
+producer
+schema_version
+
+Required event types:
+
+PIPELINE_STARTED
+INTAKE_ACCEPTED
+DATA_GUARDS_PASSED
+DATA_GUARDS_FAILED
+REGIME_COMPLETED
+DISCOVERY_COMPLETED
+ANALYSIS_COMPLETED
+PROBABILITY_COMPLETED
+SYNTHESIS_COMPLETED
+COUNCIL_COMPLETED
+RISK_GATE_PASSED
+RISK_GATE_REJECTED
+DECISION_CREATED
+EXECUTION_AUTHORIZATION_REQUESTED
+EXECUTION_BLOCKED
+EXECUTION_COMPLETED
+OUTCOME_RECORDED
+LEARNING_PROPOSED
+LEARNING_APPROVED
+LEARNING_REJECTED
+MEMORY_WRITTEN
+PIPELINE_COMPLETED
+PIPELINE_FAILED
+COMPONENT_ERROR
+ARCHITECTURE_DRIFT_DETECTED
+MODEL_DRIFT_DETECTED
+SYSTEM_PAUSED
+SYSTEM_RESUMED
+ROLLBACK_STARTED
+ROLLBACK_COMPLETED
+
+Use the existing canonical communication bus where possible.
+
+Do not create direct ad hoc calls from every module to the Diagram 3 database.
+
+Preferred route:
+
+Diagram 2 phase
+→ canonical event bus
+→ Diagram 3 event consumer
+→ immutable governance ledger
+
+==================================================
+SECTION 4 — REQUIRED BLOCKING CHECKPOINTS
+==================================================
+
+CHECKPOINT G0 — BOOT AUTHORIZATION
+
+Before a new Diagram 2 run or scheduled scan begins, validate:
+
+architecture baseline hash
+module registry
+tool registry
+approved architecture version
+approved configuration version
+required dependencies
+governance operating state
+critical unresolved incidents
+
+Block startup if the governance state is PAUSED, RECOVERY_REQUIRED, or integrity validation fails.
+
+CHECKPOINT G1 — POST-DATA-GUARD SYSTEM INTEGRITY
+
+After Diagram 2 performs ordinary ticker-level data guards, Diagram 3 checks only system-wide concerns:
+
+critical data provider outage
+system-wide stale data
+clock/time synchronization failure
+point-in-time infrastructure failure
+audit subsystem failure
+mandatory source unavailable
+known integrity incident
+
+Do not use Diagram 3 to replace ticker-level Diagram 2 data rejection.
+
+CHECKPOINT G2 — PRE-DECISION TRACE INTEGRITY
+
+Before the Decision Engine creates the final decision, validate:
+
+all mandatory phases executed
+correct canonical phase order
+no prohibited bypass occurred
+all required module results exist
+active model is approved
+active strategy is approved
+no quarantined component contributed
+trace hash chain is valid
+
+If any mandatory phase is missing or an unapproved component contributed, return BLOCK.
+
+CHECKPOINT G3 — PRE-EXECUTION GOVERNANCE AUTHORIZATION
+
+After Diagram 2's normal risk gate passes but before paper, shadow, or live execution:
+
+Require both:
+
+diagram2_risk_result == PASS
+diagram3_governance_result in [ALLOW, ALLOW_WITH_WARNING]
+
+Diagram 3 checks:
+
+system not paused
+execution mode authorized
+broker/execution adapter healthy
+audit chain valid
+approved model/strategy/configuration versions
+no unresolved critical incident
+no quarantined dependency
+architecture baseline valid
+daily/system-wide safety state valid
+
+Diagram 3 does not recalculate the stock's expected return or technical score.
+
+CHECKPOINT G4 — LEARNING/MODEL/STRATEGY PROMOTION
+
+No learning proposal, retrained model, strategy change, threshold change, registry change, or configuration change may be promoted without Diagram 3 approval.
+
+Validate:
+
+minimum sample size
+out-of-sample performance
+walk-forward performance
+benchmark comparison
+calibration
+drawdown
+stability across regimes
+data leakage tests
+lookahead tests
+rollback artifact
+version manifest
+approval record
+
+Reject regressions and insufficient-evidence proposals.
+
+CHECKPOINT G5 — RECOVERY AND RESUMPTION
+
+After PAUSE_SYSTEM, QUARANTINE_COMPONENT, or ROLLBACK_REQUIRED:
+
+Run recovery verification.
+
+Require explicit Diagram 3 RESUME authorization before Diagram 2 restarts protected operations.
+
+==================================================
+SECTION 5 — ENFORCEMENT RESPONSE CONTRACT
+==================================================
+
+Create one typed governance decision object:
+
+governance_decision_id
+trace_id
+checkpoint
+decision
+reason_codes
+human_readable_reason
+severity
+blocking
+required_actions
+target_component
+target_version
+expires_at
+created_at
+architecture_version
+policy_version
+decision_hash
+
+Diagram 2 must persist an acknowledgement:
+
+governance_decision_id
+acknowledged_by
+acknowledged_at
+action_taken
+continued
+blocked
+resulting_event_id
+acknowledgement_hash
+
+This acknowledgement must prove Diagram 2 obeyed the decision.
+
+Do not count Diagram 3 reading back its own database row as a cross-component acknowledgement.
+
+==================================================
+SECTION 6 — REQUIRED SYSTEM STATES
+==================================================
+
+Implement explicit system governance states:
+
+NORMAL
+DEGRADED
+RESTRICTED
+PAUSED
+RECOVERY_REQUIRED
+ROLLBACK_IN_PROGRESS
+
+Allowed behavior:
+
+NORMAL:
+All approved operations allowed.
+
+DEGRADED:
+Continue with warnings if policy permits.
+
+RESTRICTED:
+Paper/shadow only; live execution prohibited.
+
+PAUSED:
+No new execution requests.
+
+RECOVERY_REQUIRED:
+No restart until recovery verification passes.
+
+ROLLBACK_IN_PROGRESS:
+No affected component may be used until rollback completes.
+
+State transitions must be audited and policy-controlled.
+
+==================================================
+SECTION 7 — TAMPER EVIDENCE AND TEST PROPAGATION
+==================================================
+
+Fix G1:
+
+Add append-only or anti-tamper enforcement to d3_governance_actions.
+
+Governance action records must not be silently UPDATEd or DELETEd.
+
+Corrections must be appended as new superseding records.
+
+Fix G2:
+
+Automatically propagate is_test_record and root_trace_id from upstream events.
+
+All records produced from a test trace must inherit test status automatically.
+
+Do not rely on callers manually remembering to set is_test_record.
+
+Fix G5:
+
+Correct the boot message.
+
+Do not report 72 Diagram 3 tables.
+
+Report:
+
+17 Diagram 3 tables
+plus exact separate counts of indexes, triggers, and schema statements.
+
+==================================================
+SECTION 8 — SAFE INTEGRATION ORDER
+==================================================
+
+Do not refactor all 21 stages at once.
+
+Implement incrementally:
+
+Step 1:
+Canonical event schema and event publisher.
+
+Step 2:
+Path A events for all major Diagram 2 stages.
+
+Step 3:
+G0 boot authorization.
+
+Step 4:
+G2 pre-decision trace-integrity block.
+
+Step 5:
+G3 pre-execution governance authorization.
+
+Step 6:
+G4 learning/model/strategy promotion gate.
+
+Step 7:
+G5 pause, rollback, recovery, and resume.
+
+Step 8:
+Tamper protection, automatic test propagation, and final verification.
+
+After each step, provide real proof before continuing.
+
+==================================================
+SECTION 9 — FAILURE-SAFE RULES
+==================================================
+
+For protected checkpoints, governance failure must fail closed.
+
+If Diagram 3 cannot respond because of an internal error or database outage:
+
+No live execution.
+
+Paper/shadow behavior must follow an explicit configured policy and must never silently default to ALLOW.
+
+Timeouts, exceptions, malformed responses, missing decisions, and unknown status values must be treated as BLOCK for protected operations.
+
+The existing Diagram 2 risk gate remains mandatory.
+
+Diagram 3 can add a block but can never convert a Diagram 2 rejection into an approval.
+
+==================================================
+SECTION 10 — STRICT VERIFICATION
+==================================================
+
+TEST A — FULL PATH A EVENT TRACE
+
+Inject one labeled test ticker through the complete Diagram 2 pipeline.
+
+Prove each required lifecycle event exists under one trace_id.
+
+Show:
+
+ordered event timeline
+event IDs
+phase names
+timestamps
+payload hashes
+previous hashes
+source modules
+test-record inheritance
+final chain verification
+
+TEST B — PRE-DECISION MISSING-PHASE BLOCK
+
+Deliberately omit one mandatory phase result.
+
+Expected:
+
+G2 returns BLOCK.
+Decision Engine is not called.
+A Diagram 2 acknowledgement proves the block was honored.
+
+TEST C — UNAPPROVED MODEL BLOCK
+
+Run a labeled trace using an unapproved model version.
+
+Expected:
+
+G2 or G3 returns BLOCK.
+No execution record is created.
+The reason identifies the unapproved model.
+
+TEST D — PRE-EXECUTION ACTIVE PAUSE BLOCK
+
+Set governance state to PAUSED in a controlled test.
+
+Allow Diagram 2 to create an otherwise valid plan with a passed risk gate.
+
+Expected:
+
+G3 returns PAUSE_SYSTEM or BLOCK.
+Execution simulator/live adapter is not called.
+Diagram 2 acknowledgement records blocked=true and continued=false.
+
+TEST E — DIAGRAM 2 REJECTION CANNOT BE OVERRIDDEN
+
+Force Diagram 2 risk result to REJECT.
+
+Expected:
+
+Execution is blocked regardless of Diagram 3 result.
+Diagram 3 cannot convert rejection into approval.
+
+TEST F — LEARNING REGRESSION REJECTION
+
+Submit a worse model/learning proposal:
+
+new_score < current_score
+
+Expected:
+
+G4 returns BLOCK/REJECT.
+No active model pointer changes.
+Existing model remains active.
+
+TEST G — APPROVED PROMOTION
+
+Submit a controlled proposal that passes all promotion policies.
+
+Expected:
+
+Diagram 3 creates APPROVE.
+The approved version becomes active only after acknowledgement.
+Rollback artifact exists.
+Every change is versioned and audited.
+
+TEST H — FAIL-CLOSED GOVERNANCE OUTAGE
+
+Make the Diagram 3 authorization call unavailable in a controlled test.
+
+Expected:
+
+No live execution.
+No silent default ALLOW.
+A governance-unavailable block record is created.
+
+TEST I — HASH-TAMPER NEGATIVE CONTROL
+
+Attempt to UPDATE or DELETE a historical governance event and governance action.
+
+Expected:
+
+Database rejects the change or the immutable superseding-record policy prevents silent mutation.
+
+TEST J — AUTOMATIC TEST-PROPAGATION
+
+Start with one root event marked is_test_record=true.
+
+Expected:
+
+Every downstream Diagram 3 record automatically inherits test status and root_trace_id.
+
+TEST K — PAUSE / RECOVERY / RESUME
+
+Trigger a controlled critical condition.
+
+Expected sequence:
+
+NORMAL
+→ PAUSED
+→ RECOVERY_REQUIRED
+→ verified recovery
+→ NORMAL
+
+No protected execution may occur while PAUSED or RECOVERY_REQUIRED.
+
+TEST L — REAL NON-TEST PRODUCTION TRACE
+
+After all controlled tests pass, capture one real paper/shadow production trace.
+
+Show:
+
+Diagram 2 lifecycle
+Path A events
+all applicable Path B decisions
+Diagram 2 acknowledgements
+execution or valid rejection
+outcome record
+learning record
+memory record
+complete audit chain
+
+==================================================
+SECTION 11 — REQUIRED FINAL VERDICT
+==================================================
+
+Do not state “100% integrated” unless all of the following are true:
+
+1. Path A is wired across all required major Diagram 2 stages.
+2. Path B is implemented at G0–G5.
+3. Diagram 2 technically obeys blocking decisions.
+4. The risk gate cannot be overridden.
+5. Fail-closed behavior is proven.
+6. Cross-component acknowledgements are real.
+7. Governance actions and event records are tamper-evident.
+8. Test records propagate automatically.
+9. Learning/model promotion is governed.
+10. Pause, rollback, recovery, and resume are proven.
+11. One real end-to-end production trace passes.
+12. No material unresolved gaps remain.
+
+Until then, report the exact status as:
+
+DIAGRAM 3 IMPLEMENTED
+DIAGRAM 2 ↔ DIAGRAM 3 INTEGRATION IN PROGRESS
+ACTIVE GOVERNANCE NOT YET FULLY VERIFIED
+
+Provide:
+
+changed file list
+database migration list
+route/API list
+event contract
+decision contract
+exact commands
+raw outputs
+SQL evidence
+negative-control results
+trace IDs
+hash-chain results
+known remaining gaps
+final PASS/FAIL table

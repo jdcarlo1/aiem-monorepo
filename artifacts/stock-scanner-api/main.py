@@ -3701,6 +3701,41 @@ try:
                 _conn.close()
             if not _candidates:
                 return
+
+            # ── G0 boot-authorization checkpoint (Path B P3) ─────────────────
+            # Gated ONCE per scheduler tick, before the per-ticker loop -- not
+            # inside evaluate_ticker, so one governance DB round-trip covers
+            # the whole batch instead of one per ticker. SHADOW mode (today)
+            # never actually blocks; would_block is logged to the ledger for
+            # the multi-day proof window. A real ENFORCE-mode BLOCK (or a
+            # fail-closed BLOCK on an unrecovered governance DB error) skips
+            # this entire tick's writes.
+            try:
+                import aiem_diagram3_governance as _d3_g0_pot
+                _g0_pot_result = _d3_g0_pot.g0_authorize_run(
+                    entrypoint="_run_premarket_open_tracker",
+                    run_kind="TRADE_EXECUTING",
+                    trigger_source="scheduled_premarket_open_tracker",
+                    is_test_record=False,
+                )
+            except Exception as _g0_pot_e:
+                print(f"[scheduler] premarket_open_tracker G0 checkpoint itself raised — "
+                      f"fail-closed BLOCK: {_g0_pot_e}")
+                _g0_pot_result = {"decision": "BLOCK",
+                                   "reason_code": f"G0_CHECK_EXCEPTION:{_g0_pot_e}",
+                                   "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True}
+
+            if _g0_pot_result.get("decision") == "BLOCK":
+                print(f"[scheduler] premarket_open_tracker G0 BLOCKED this tick — "
+                      f"{_g0_pot_result.get('reason_code')} "
+                      f"(system_state={_g0_pot_result.get('system_state')}, "
+                      f"checkpoint_mode={_g0_pot_result.get('mode')})")
+                return
+            elif _g0_pot_result.get("would_block"):
+                print(f"[scheduler] premarket_open_tracker G0 SHADOW: would have blocked this tick — "
+                      f"{_g0_pot_result.get('reason_code')} "
+                      f"(ledger_event_id={_g0_pot_result.get('ledger_event_id')})")
+
             _quotes = _td_quotes(_candidates)
             for _t in _candidates:
                 _q = _quotes.get(_t, {})
@@ -41669,6 +41704,46 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
             print(f"[aiem_paper] lock-contention log error: {_lle}")
         return
 
+    # ── G0 boot-authorization checkpoint (Path B P3) ─────────────────────────
+    # Real DB-backed governance check, once per invocation, BEFORE any
+    # trade-executing work begins. While the G0 checkpoint is in SHADOW mode
+    # (the only mode it runs in today) this can never actually block a run —
+    # it only records what an ENFORCE-mode gate would have done. A real
+    # ENFORCE-mode BLOCK (or a fail-closed BLOCK on an unrecovered governance
+    # DB error) releases the lock and writes an honest BLOCKED_G0 row rather
+    # than silently returning, matching the SKIPPED_LOCK_HELD precedent above.
+    try:
+        import aiem_diagram3_governance as _d3_g0
+        _g0_result = _d3_g0.g0_authorize_run(
+            entrypoint="_aiem_paper_execute_today",
+            run_kind="TRADE_EXECUTING",
+            trigger_source=trigger_source,
+            is_test_record=False,
+        )
+    except Exception as _g0e:
+        print(f"[aiem_paper] G0 checkpoint itself raised — fail-closed BLOCK: {_g0e}")
+        _g0_result = {"decision": "BLOCK", "reason_code": f"G0_CHECK_EXCEPTION:{_g0e}",
+                      "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True}
+
+    if _g0_result.get("decision") == "BLOCK":
+        print(f"[aiem_paper] G0 BLOCKED this run — {_g0_result.get('reason_code')} "
+              f"(system_state={_g0_result.get('system_state')}, checkpoint_mode={_g0_result.get('mode')})")
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _blc, _blc.cursor() as _blcu:
+                _blcu.execute(
+                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                    "VALUES ('BLOCKED_G0', %s, %s)",
+                    (trigger_source, f"G0 governance checkpoint blocked this run: {_g0_result.get('reason_code')}"),
+                )
+                _blc.commit()
+        except Exception as _ble:
+            print(f"[aiem_paper] BLOCKED_G0 log error: {_ble}")
+        _AIEM_PAPER_LOCK.release()
+        return
+    elif _g0_result.get("would_block"):
+        print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "
+              f"(ledger_event_id={_g0_result.get('ledger_event_id')})")
+
     _exec_id = None
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
@@ -42203,16 +42278,22 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                     import aiem_registry as _d2_areg
                     import aiem_communication_bus as _d2_abus
                     import aiem_diagram2_stage_helpers as _d2_help
+                    import aiem_diagram3_governance as _d3_gov_ctx
 
                     _d2_trace_id = _audit_trace_id or str(_d2_uuid.uuid4())
                     _d2_orch = _amo.get_orchestrator()
 
                     def _d2_run(stage_order, stage_name, display, runtime_fn_name, fn, *fargs):
                         try:
-                            return _d2_orch.execute_stage(
-                                _d2_trace_id, _t, stage_order, stage_name, display,
-                                runtime_fn_name, fn, *fargs, paper_trade_id=None,
-                            )
+                            # trace_context: real root_trace_id for this ticker's D2 run,
+                            # scoped to just this one execute_stage() call so it can never
+                            # leak into a different ticker/stage's bus-subscriber-derived
+                            # governance ledger row (see aiem_diagram3_governance gap G2 fix).
+                            with _d3_gov_ctx.trace_context(root_trace_id=_d2_trace_id, is_test_record=False):
+                                return _d2_orch.execute_stage(
+                                    _d2_trace_id, _t, stage_order, stage_name, display,
+                                    runtime_fn_name, fn, *fargs, paper_trade_id=None,
+                                )
                         except Exception as _d2_stage_e:
                             print(f"[diagram2] stage {stage_order} ({stage_name}) FAILED for {_t}: {_d2_stage_e}")
                             return None

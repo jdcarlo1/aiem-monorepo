@@ -31,9 +31,12 @@ PHASES:
   15 — Long-Term Evolution (EVOLUTION_PLAN)
 """
 
+import contextvars
 import hashlib
+import hmac
 import json
 import os
+import threading
 import time
 import uuid
 import datetime
@@ -47,6 +50,55 @@ from aiem_provenance import _canonical_bytes
 _D3_VERSION = "1.0.0"
 _D3_STARTED_AT = datetime.datetime.utcnow().isoformat() + "Z"
 _D3_BASELINE_HASH: Optional[str] = None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRACE CONTEXT (contextvars) — structural fix for gap G2
+# ─────────────────────────────────────────────────────────────────────────────
+# Problem this closes: without an explicit carrier, root_trace_id/is_test_record
+# would have to be threaded as a parameter through every intermediate function
+# between "a real D2 run starts" and "a bus subscriber emits a D3 ledger row",
+# which is exactly the kind of plumbing that gets missed on one call path and
+# silently degrades to a self-anchored/production-mislabeled event. contextvars
+# propagate automatically through the whole call stack (and, per
+# CommunicationBus's own synchronous-same-thread guarantee, through every
+# bus.publish() -> subscriber callback) without being passed explicitly.
+#
+# Real values only: this never invents a root_trace_id or is_test_record value.
+# If nothing has called trace_context(...), get_trace_context() returns None and
+# callers must fall back to their own real, disclosed anchor (e.g. the event's
+# own trace_id) — never a fabricated one.
+
+_D3_TRACE_CTX: "contextvars.ContextVar" = contextvars.ContextVar("d3_trace_ctx", default=None)
+
+
+class trace_context:
+    """
+    Context manager: `with trace_context(root_trace_id=..., is_test_record=...):`
+    Sets the real root trace id / test-record flag for every D3 ledger event
+    emitted (directly or via the bus subscriber) inside the `with` block, in
+    this thread's call stack, for the duration of the block only.
+    """
+
+    def __init__(self, root_trace_id: str, is_test_record: bool = False):
+        self._value = {
+            "root_trace_id": root_trace_id,
+            "is_test_record": bool(is_test_record),
+        }
+        self._token = None
+
+    def __enter__(self):
+        self._token = _D3_TRACE_CTX.set(self._value)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        _D3_TRACE_CTX.reset(self._token)
+        return False
+
+
+def get_trace_context() -> Optional[Dict[str, Any]]:
+    """Real, currently-active trace context, or None if none has been set."""
+    return _D3_TRACE_CTX.get()
 
 
 # ── DB connection ─────────────────────────────────────────────────────────────
@@ -428,6 +480,141 @@ _SCHEMA_STMTS = [
     "CREATE INDEX IF NOT EXISTS ix_d3ga_action_type ON d3_governance_actions (action_type)",
     "CREATE INDEX IF NOT EXISTS ix_d3ga_status ON d3_governance_actions (status)",
     "CREATE INDEX IF NOT EXISTS ix_d3ga_target ON d3_governance_actions (target_type, target_id)",
+
+    # ── P0 (Path B Section 7, gap G1 fix): d3_governance_actions had NO
+    # anti-tamper protection, unlike d3_governance_event_links. This closes
+    # that gap WITHOUT breaking the legitimate lifecycle re-check that
+    # check_action_status() performs (REQUESTED -> ADVISORY_ACKNOWLEDGED /
+    # NOT_ENFORCED, and re-checks that flip between those two as real
+    # underlying state changes over time). The trigger:
+    #   - always blocks DELETE (no history erasure, ever)
+    #   - blocks any UPDATE that touches an identity/request field
+    #     (action_id, governance_event_id, requested_at, phase, action_type,
+    #     target_type, target_id, reason, is_test_record, created_at) —
+    #     those are frozen at insert time; only status/checked_at/check_detail
+    #     may ever change, and only to a value already legal under the
+    #     existing status CHECK constraint.
+    # This is a real DB-level guarantee, not an app-layer convention — proven
+    # in P0 verification below via a rejected raw UPDATE/DELETE attempt.
+    """
+    CREATE OR REPLACE FUNCTION d3ga_guard_mutation() RETURNS trigger AS $BODY$
+    BEGIN
+        IF TG_OP = 'DELETE' THEN
+            RAISE EXCEPTION 'd3_governance_actions is append-only for history: DELETE not permitted on id=%',
+                OLD.id;
+        END IF;
+        IF NEW.action_id            IS DISTINCT FROM OLD.action_id
+           OR NEW.governance_event_id IS DISTINCT FROM OLD.governance_event_id
+           OR NEW.requested_at      IS DISTINCT FROM OLD.requested_at
+           OR NEW.phase             IS DISTINCT FROM OLD.phase
+           OR NEW.action_type       IS DISTINCT FROM OLD.action_type
+           OR NEW.target_type       IS DISTINCT FROM OLD.target_type
+           OR NEW.target_id         IS DISTINCT FROM OLD.target_id
+           OR NEW.reason            IS DISTINCT FROM OLD.reason
+           OR NEW.is_test_record    IS DISTINCT FROM OLD.is_test_record
+           OR NEW.created_at        IS DISTINCT FROM OLD.created_at
+        THEN
+            RAISE EXCEPTION 'd3_governance_actions identity/request fields are immutable: attempted tamper on id=%',
+                OLD.id;
+        END IF;
+        RETURN NEW;
+    END;
+    $BODY$ LANGUAGE plpgsql;
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger WHERE tgname = 'trg_d3ga_guard'
+        ) THEN
+            CREATE TRIGGER trg_d3ga_guard
+                BEFORE UPDATE OR DELETE ON d3_governance_actions
+                FOR EACH ROW EXECUTE FUNCTION d3ga_guard_mutation();
+        END IF;
+    END $$;
+    """,
+
+    # ── P3 (Path B G0 boot authorization): singleton system-state,
+    # per-checkpoint enforcement mode, and an append-only audit history of
+    # every change to either. These three tables are the real, DB-level
+    # source of truth that g0_authorize_run() reads on every trade-executing
+    # entrypoint call -- never an in-memory-only flag that a restart could
+    # silently reset to a permissive default. Checkpoints default to
+    # 'SHADOW' (log real would-block decisions, never actually block) until
+    # a human operator explicitly flips one to 'ENFORCE' via the admin route
+    # (which requires confirm=true for that specific direction only).
+    """
+    CREATE TABLE IF NOT EXISTS d3_system_state (
+        id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        state TEXT NOT NULL DEFAULT 'NORMAL'
+            CHECK (state IN ('NORMAL', 'DEGRADED', 'RESTRICTED', 'PAUSED',
+                              'RECOVERY_REQUIRED', 'ROLLBACK_IN_PROGRESS')),
+        reason TEXT,
+        changed_by TEXT,
+        changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "INSERT INTO d3_system_state (id, state, reason, changed_by) "
+    "VALUES (1, 'NORMAL', 'initial seed on boot', 'SYSTEM_STARTUP') "
+    "ON CONFLICT (id) DO NOTHING",
+
+    """
+    CREATE TABLE IF NOT EXISTS d3_checkpoint_config (
+        checkpoint TEXT PRIMARY KEY CHECK (checkpoint IN ('G0', 'G2', 'G3', 'G4', 'G5')),
+        mode TEXT NOT NULL DEFAULT 'SHADOW' CHECK (mode IN ('OFF', 'SHADOW', 'ENFORCE')),
+        updated_by TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        note TEXT
+    )
+    """,
+    "INSERT INTO d3_checkpoint_config (checkpoint, mode, updated_by, note) VALUES "
+    "('G0', 'SHADOW', 'SYSTEM_STARTUP', 'boot authorization -- seeded SHADOW'), "
+    "('G2', 'SHADOW', 'SYSTEM_STARTUP', 'pre-decision block -- seeded SHADOW'), "
+    "('G3', 'SHADOW', 'SYSTEM_STARTUP', 'pre-execution authorization -- seeded SHADOW'), "
+    "('G4', 'SHADOW', 'SYSTEM_STARTUP', 'learning/model promotion gate -- seeded SHADOW'), "
+    "('G5', 'SHADOW', 'SYSTEM_STARTUP', 'recovery/resume state machine -- seeded SHADOW') "
+    "ON CONFLICT (checkpoint) DO NOTHING",
+
+    """
+    CREATE TABLE IF NOT EXISTS d3_governance_config_history (
+        id BIGSERIAL PRIMARY KEY,
+        config_type TEXT NOT NULL CHECK (config_type IN ('SYSTEM_STATE', 'CHECKPOINT_MODE')),
+        target TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT NOT NULL,
+        reason TEXT,
+        changed_by TEXT NOT NULL,
+        changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        is_test_record BOOLEAN NOT NULL DEFAULT FALSE
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS ix_d3gch_target ON d3_governance_config_history (config_type, target)",
+    "CREATE INDEX IF NOT EXISTS ix_d3gch_changed_at ON d3_governance_config_history (changed_at)",
+
+    # Every row here is a permanent record of who flipped what and why --
+    # there is no legitimate app-layer reason to ever edit or erase one, so
+    # (unlike d3_governance_actions) this trigger blocks ALL UPDATE/DELETE,
+    # full stop, same pattern as trg_d3gel_immutable above.
+    """
+    CREATE OR REPLACE FUNCTION d3gch_block_mutation() RETURNS trigger AS $BODY$
+    BEGIN
+        RAISE EXCEPTION 'd3_governance_config_history is append-only: % not permitted on id=%',
+            TG_OP, OLD.id;
+    END;
+    $BODY$ LANGUAGE plpgsql;
+    """,
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger WHERE tgname = 'trg_d3gch_immutable'
+        ) THEN
+            CREATE TRIGGER trg_d3gch_immutable
+                BEFORE UPDATE OR DELETE ON d3_governance_config_history
+                FOR EACH ROW EXECUTE FUNCTION d3gch_block_mutation();
+        END IF;
+    END $$;
+    """,
 ]
 
 # Rollback for the v2 migration above (NOT executed automatically — kept here
@@ -474,6 +661,41 @@ ALTER TABLE d3_governance_event_links
 """
 
 
+def _d3_schema_stmt_counts() -> Dict[str, int]:
+    """
+    Real, independently-derived counts of what _SCHEMA_STMTS actually
+    contains, by statement kind. Fixes gap G5: the old boot log claimed
+    "N d3_ tables" using len(_SCHEMA_STMTS) (every CREATE TABLE + CREATE
+    INDEX + CREATE TRIGGER/FUNCTION + ALTER TABLE statement combined) as if
+    it were a table count. This counts each kind separately and only calls
+    a statement a "table" if it actually contains CREATE TABLE.
+    """
+    tables = sum(1 for s in _SCHEMA_STMTS if "CREATE TABLE" in s)
+    indexes = sum(1 for s in _SCHEMA_STMTS if "CREATE INDEX" in s or "CREATE UNIQUE INDEX" in s)
+    triggers = sum(1 for s in _SCHEMA_STMTS
+                   if "CREATE TRIGGER" in s or "CREATE OR REPLACE FUNCTION" in s)
+    alters = sum(1 for s in _SCHEMA_STMTS if s.strip().startswith("ALTER TABLE"))
+    return {
+        "tables": tables, "indexes": indexes, "triggers": triggers,
+        "alters": alters, "total_statements": len(_SCHEMA_STMTS),
+    }
+
+
+def _d3_real_table_count() -> Optional[int]:
+    """Independently re-derives the table count by querying the live DB,
+    rather than trusting the static _SCHEMA_STMTS count alone."""
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_schema='public' AND table_name LIKE 'd3\\_%'"
+                )
+                return cur.fetchone()[0]
+    except Exception:
+        return None
+
+
 def _d3_init_schema():
     try:
         with _d3_connect() as conn:
@@ -481,7 +703,16 @@ def _d3_init_schema():
                 for stmt in _SCHEMA_STMTS:
                     cur.execute(stmt)
             conn.commit()
-        print(f"[d3_governance] schema init complete — {len(_SCHEMA_STMTS)} d3_ tables ready")
+        counts = _d3_schema_stmt_counts()
+        real_tables = _d3_real_table_count()
+        table_note = f"{real_tables} (live-verified)" if real_tables is not None else f"{counts['tables']} (static count)"
+        print(
+            f"[d3_governance] schema init complete — "
+            f"{table_note} d3_ tables, {counts['indexes']} indexes, "
+            f"{counts['triggers']} trigger/function statements, "
+            f"{counts['alters']} ALTER statements, "
+            f"{counts['total_statements']} total schema statements ready"
+        )
     except Exception as e:
         print(f"[d3_governance] schema init error: {e}")
 
@@ -738,6 +969,17 @@ def _d3_emit_event(
         conn = _d3_connect()
     try:
         with conn.cursor() as cur:
+            # Bound BOTH the advisory-lock wait and the rest of the txn. Without
+            # these, a hung/slow lock holder stalls this call forever, and since
+            # this runs SYNCHRONOUSLY inside the live per-ticker D2 stage loop
+            # (via the bus subscriber), an unbounded wait here would freeze real
+            # trading, not just the governance ledger. A timeout here raises
+            # lock_not_available/query_canceled, which the caller (e.g.
+            # _on_bus_stage_event) already catches as non-fatal for Path A
+            # observation; enforcement gates (P4/P5) must map this same timeout
+            # to a fail-closed ERROR, never to a fabricated PASS.
+            cur.execute("SET LOCAL lock_timeout = '2s'")
+            cur.execute("SET LOCAL statement_timeout = '5s'")
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (_D3_CHAIN_LOCK_KEY,))
             previous_event_hash = _d3_get_last_event_hash(cur)
             row["previous_event_hash"] = previous_event_hash
@@ -765,6 +1007,428 @@ def _d3_emit_event(
     finally:
         if own_conn:
             conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# G0 BOOT AUTHORIZATION CHECKPOINT — Path B active enforcement (P3)
+# ─────────────────────────────────────────────────────────────────────────────
+# G0 is consulted ONCE per real invocation of a trade-executing entrypoint,
+# before any trade-executing work begins. It reads the real, DB-backed
+# d3_system_state + d3_checkpoint_config rows (never an in-memory-only flag),
+# with a short TTL cache so the hot path doesn't take a DB round-trip on every
+# call. While the G0 checkpoint's mode is SHADOW/OFF (the only mode it is
+# seeded with, and the only mode this phase operates in), the real decision is
+# ALWAYS 'ALLOW' -- `would_block` records what an ENFORCE-mode gate would have
+# done, for the multi-day SHADOW proof window the spec requires before anyone
+# flips this to ENFORCE. Every call is written to the governance ledger; a
+# ledger-emit failure never changes the already-computed decision.
+#
+# Fail-closed DB-error policy (tri-state, never silently maps ERROR -> PASS):
+#   - if the last successful config read is <60s old AND was SHADOW/OFF ->
+#     ALLOW (the error itself is disclosed via reason_code, not hidden)
+#   - otherwise, for a TRADE_EXECUTING run -> BLOCK
+#   - a SCAN_ONLY run is never blocked by G0 in this phase (only
+#     trade-executing runs are in scope for G0's active-enforcement default)
+
+_G0_CACHE_TTL_SECONDS = 5
+_G0_STALE_ALLOW_WINDOW_SECONDS = 60
+_G0_CONFIG_CACHE: Dict[str, Any] = {"ts": 0.0, "mode": None, "state": None, "error": None}
+_G0_CACHE_LOCK = threading.Lock()
+
+_D3_SYSTEM_STATES = ("NORMAL", "DEGRADED", "RESTRICTED", "PAUSED",
+                      "RECOVERY_REQUIRED", "ROLLBACK_IN_PROGRESS")
+_D3_CHECKPOINTS = ("G0", "G2", "G3", "G4", "G5")
+_D3_CHECKPOINT_MODES = ("OFF", "SHADOW", "ENFORCE")
+_D3_BLOCKING_SYSTEM_STATES = {"PAUSED", "RESTRICTED", "RECOVERY_REQUIRED", "ROLLBACK_IN_PROGRESS"}
+
+
+def _g0_read_config(force: bool = False) -> Dict[str, Any]:
+    """Real DB read of (G0 checkpoint mode, system state), cached for
+    _G0_CACHE_TTL_SECONDS. On a DB error, the PREVIOUS good ts/mode/state are
+    kept (never overwritten with a fabricated fresh-looking value) and the
+    error + when it happened are recorded separately, so callers can apply
+    the bounded stale-allow policy honestly against the age of the last real
+    read."""
+    global _G0_CONFIG_CACHE
+    now = time.time()
+    with _G0_CACHE_LOCK:
+        cached = dict(_G0_CONFIG_CACHE)
+        if not force and cached.get("mode") is not None and (now - cached.get("ts", 0)) < _G0_CACHE_TTL_SECONDS:
+            return cached
+    try:
+        with _d3_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout = '3s'")
+                cur.execute("SELECT mode FROM d3_checkpoint_config WHERE checkpoint = 'G0'")
+                mode_row = cur.fetchone()
+                cur.execute("SELECT state FROM d3_system_state WHERE id = 1")
+                state_row = cur.fetchone()
+        fresh = {
+            "ts": now,
+            "mode": mode_row[0] if mode_row else "SHADOW",
+            "state": state_row[0] if state_row else "NORMAL",
+            "error": None,
+        }
+        with _G0_CACHE_LOCK:
+            _G0_CONFIG_CACHE = fresh
+        return fresh
+    except Exception as e:
+        with _G0_CACHE_LOCK:
+            stale = dict(_G0_CONFIG_CACHE)
+            stale["error"] = str(e)
+            stale["error_ts"] = now
+            _G0_CONFIG_CACHE = stale
+            return dict(stale)
+
+
+def g0_authorize_run(*, entrypoint: str, run_kind: str,
+                      trigger_source: Optional[str] = None,
+                      is_test_record: bool = False) -> Dict[str, Any]:
+    """
+    G0 boot-authorization checkpoint. Call once per real invocation of a
+    trade-executing entrypoint, before any trade-executing work begins.
+
+    run_kind: 'TRADE_EXECUTING' (can be blocked once G0 is in ENFORCE mode,
+    or fail-closed BLOCKed on an unrecovered DB error) or 'SCAN_ONLY' (never
+    blocked by G0 in this phase).
+
+    Returns {decision: 'ALLOW'|'BLOCK', mode, system_state, would_block,
+    reason_code, ledger_event_id, entrypoint, run_kind}. Never fabricates a
+    PASS/ALLOW result on a real DB error for a TRADE_EXECUTING run outside
+    the bounded stale-cache-allow window described above.
+    """
+    started_at = datetime.datetime.utcnow()
+    cfg = _g0_read_config()
+    mode = cfg.get("mode") or "SHADOW"
+    state = cfg.get("state") or "NORMAL"
+    db_error = cfg.get("error")
+
+    ctx = get_trace_context() or {}
+    ctx_is_test = ctx.get("is_test_record", is_test_record)
+    root_trace_id = ctx.get("root_trace_id")
+
+    # OFF means the checkpoint is fully disabled: unconditional ALLOW, no
+    # would_block evaluation, no DB-error fail-closed logic (there is nothing
+    # to fail closed on since this checkpoint isn't gating anything). This is
+    # intentionally NOT the same as SHADOW, which still evaluates and flags
+    # would_block for the proof window -- OFF is the "this checkpoint's
+    # judgment doesn't count right now" escape hatch, e.g. while the
+    # checkpoint itself is suspected broken. A lightweight ledger row is
+    # still emitted below for audit continuity.
+    if mode == "OFF":
+        decision, reason_code = "ALLOW", "CHECKPOINT_OFF"
+        would_block = False
+        enforcement_status, enforcement_action = "NOT_ENFORCED", "DISABLED"
+    else:
+        would_block = bool(run_kind == "TRADE_EXECUTING" and state in _D3_BLOCKING_SYSTEM_STATES)
+        reason_code = f"STATE_{state}" if would_block else "STATE_OK"
+        decision = "ALLOW"
+        enforcement_status = "NOT_ENFORCED"
+        enforcement_action = "ADVISORY_ONLY"
+
+        if db_error:
+            last_read_age = time.time() - cfg.get("ts", 0)
+            if mode == "SHADOW" and last_read_age < _G0_STALE_ALLOW_WINDOW_SECONDS:
+                decision = "ALLOW"
+                reason_code = "DB_ERROR_STALE_CACHE_ALLOW"
+            elif run_kind == "TRADE_EXECUTING":
+                decision = "BLOCK"
+                reason_code = "DB_ERROR_FAIL_CLOSED"
+            else:
+                decision = "ALLOW"
+                reason_code = "DB_ERROR_SCAN_ALLOWED"
+        elif mode == "ENFORCE" and would_block:
+            decision = "BLOCK"
+            enforcement_status = "ENFORCED"
+            enforcement_action = "BLOCKED"
+
+    ledger_event_id = None
+    try:
+        ev = _d3_emit_event(
+            governance_cycle_id=f"G0_{entrypoint}_{uuid.uuid4().hex[:8]}",
+            governance_phase="G0_BOOT_AUTHORIZATION",
+            governance_check_name="g0_authorize_run",
+            governance_function="g0_authorize_run",
+            governance_module="aiem_diagram3_governance",
+            started_at=started_at,
+            completed_at=datetime.datetime.utcnow(),
+            check_result="FAIL" if (would_block or db_error) else "PASS",
+            root_trace_id=root_trace_id,
+            enforcement_action=enforcement_action,
+            enforcement_status=enforcement_status,
+            reason_code=reason_code,
+            reason_detail=(
+                f"entrypoint={entrypoint} run_kind={run_kind} trigger_source={trigger_source} "
+                f"checkpoint_mode={mode} system_state={state} decision={decision} "
+                f"would_block={would_block} db_error={db_error}"
+            ),
+            producer_module="aiem_diagram3_governance",
+            producer_function="g0_authorize_run",
+            is_test_record=bool(ctx_is_test),
+        )
+        ledger_event_id = ev.get("id")
+    except Exception as le:
+        # A ledger-emit failure means this decision is unaudited -- it must
+        # NEVER flip an already-computed BLOCK to ALLOW or vice versa.
+        print(f"[d3_governance] g0_authorize_run ledger emit failed (decision unaffected): {le}")
+        reason_code = f"{reason_code}|LEDGER_EMIT_FAILED"
+
+    return {
+        "decision": decision,
+        "mode": mode,
+        "system_state": state,
+        "would_block": would_block,
+        "reason_code": reason_code,
+        "ledger_event_id": ledger_event_id,
+        "entrypoint": entrypoint,
+        "run_kind": run_kind,
+    }
+
+
+def get_d3_system_state() -> Dict[str, Any]:
+    """Real current row from d3_system_state (singleton id=1)."""
+    with _d3_connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT state, reason, changed_by, changed_at FROM d3_system_state WHERE id = 1")
+            row = cur.fetchone()
+    if not row:
+        return {"state": "NORMAL", "reason": None, "changed_by": None, "changed_at": None, "seeded": False}
+    row = dict(row)
+    row["changed_at"] = str(row["changed_at"])
+    row["seeded"] = True
+    return row
+
+
+def get_d3_checkpoint_config() -> Dict[str, Any]:
+    """Real current rows from d3_checkpoint_config, all 5 checkpoints."""
+    with _d3_connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT checkpoint, mode, updated_by, updated_at, note "
+                "FROM d3_checkpoint_config ORDER BY checkpoint"
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r["updated_at"] = str(r["updated_at"])
+    return {"checkpoints": rows}
+
+
+def set_d3_system_state(*, state: str, reason: str, changed_by: str) -> Dict[str, Any]:
+    """Real DB write to the d3_system_state singleton + append-only history
+    row + ledger event. Immediately invalidates the G0 read cache so the new
+    state is honored on the very next call, not after a stale 5s window."""
+    if state not in _D3_SYSTEM_STATES:
+        raise ValueError(f"invalid state {state!r}; must be one of {_D3_SYSTEM_STATES}")
+    with _d3_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT state FROM d3_system_state WHERE id = 1")
+            row = cur.fetchone()
+            old_state = row[0] if row else None
+            cur.execute(
+                """
+                INSERT INTO d3_system_state (id, state, reason, changed_by, changed_at)
+                VALUES (1, %s, %s, %s, NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                    state = EXCLUDED.state, reason = EXCLUDED.reason,
+                    changed_by = EXCLUDED.changed_by, changed_at = NOW()
+                """,
+                (state, reason, changed_by),
+            )
+            cur.execute(
+                """
+                INSERT INTO d3_governance_config_history
+                    (config_type, target, old_value, new_value, reason, changed_by)
+                VALUES ('SYSTEM_STATE', 'SYSTEM', %s, %s, %s, %s)
+                """,
+                (old_state, state, reason, changed_by),
+            )
+        conn.commit()
+    _g0_read_config(force=True)
+    try:
+        _d3_emit_event(
+            governance_cycle_id=f"D3_SYSTEM_STATE_CHANGE_{uuid.uuid4().hex[:8]}",
+            governance_phase="G0_SYSTEM_STATE_CHANGE",
+            governance_check_name="set_d3_system_state",
+            governance_function="set_d3_system_state",
+            started_at=datetime.datetime.utcnow(),
+            completed_at=datetime.datetime.utcnow(),
+            check_result="PASS",
+            enforcement_action="ADVISORY_ONLY",
+            enforcement_status="NOT_ENFORCED",
+            reason_code="ADMIN_STATE_CHANGE",
+            reason_detail=f"{old_state} -> {state} by {changed_by}: {reason}",
+        )
+    except Exception as e:
+        print(f"[d3_governance] set_d3_system_state ledger emit failed (state change already committed): {e}")
+    return {"old_state": old_state, "new_state": state, "changed_by": changed_by}
+
+
+def set_d3_checkpoint_mode(*, checkpoint: str, mode: str, reason: str,
+                            changed_by: str, confirm: bool = False) -> Dict[str, Any]:
+    """Real DB write to d3_checkpoint_config + append-only history row +
+    ledger event. Moving a checkpoint INTO ENFORCE (from OFF/SHADOW) requires
+    confirm=True -- the kill-switch direction (ENFORCE -> SHADOW/OFF) never
+    requires it, so an operator can always de-escalate fast."""
+    if checkpoint not in _D3_CHECKPOINTS:
+        raise ValueError(f"invalid checkpoint {checkpoint!r}; must be one of {_D3_CHECKPOINTS}")
+    if mode not in _D3_CHECKPOINT_MODES:
+        raise ValueError(f"invalid mode {mode!r}; must be one of {_D3_CHECKPOINT_MODES}")
+    with _d3_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT mode FROM d3_checkpoint_config WHERE checkpoint = %s", (checkpoint,))
+            row = cur.fetchone()
+            old_mode = row[0] if row else None
+            if mode == "ENFORCE" and old_mode != "ENFORCE" and not confirm:
+                raise ValueError(
+                    "moving a checkpoint into ENFORCE requires confirm=true "
+                    "(de-escalating to SHADOW/OFF never requires it)"
+                )
+            cur.execute(
+                """
+                INSERT INTO d3_checkpoint_config (checkpoint, mode, updated_by, updated_at, note)
+                VALUES (%s, %s, %s, NOW(), %s)
+                ON CONFLICT (checkpoint) DO UPDATE SET
+                    mode = EXCLUDED.mode, updated_by = EXCLUDED.updated_by,
+                    updated_at = NOW(), note = EXCLUDED.note
+                """,
+                (checkpoint, mode, changed_by, reason),
+            )
+            cur.execute(
+                """
+                INSERT INTO d3_governance_config_history
+                    (config_type, target, old_value, new_value, reason, changed_by)
+                VALUES ('CHECKPOINT_MODE', %s, %s, %s, %s, %s)
+                """,
+                (checkpoint, old_mode, mode, reason, changed_by),
+            )
+        conn.commit()
+    if checkpoint == "G0":
+        _g0_read_config(force=True)
+    try:
+        _d3_emit_event(
+            governance_cycle_id=f"D3_CHECKPOINT_MODE_CHANGE_{uuid.uuid4().hex[:8]}",
+            governance_phase=f"{checkpoint}_CHECKPOINT_MODE_CHANGE",
+            governance_check_name="set_d3_checkpoint_mode",
+            governance_function="set_d3_checkpoint_mode",
+            started_at=datetime.datetime.utcnow(),
+            completed_at=datetime.datetime.utcnow(),
+            check_result="PASS",
+            enforcement_action="ADVISORY_ONLY",
+            enforcement_status="NOT_ENFORCED",
+            reason_code="ADMIN_MODE_CHANGE",
+            reason_detail=f"{checkpoint}: {old_mode} -> {mode} by {changed_by}: {reason}",
+        )
+    except Exception as e:
+        print(f"[d3_governance] set_d3_checkpoint_mode ledger emit failed (mode change already committed): {e}")
+    return {"checkpoint": checkpoint, "old_mode": old_mode, "new_mode": mode, "changed_by": changed_by}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMMUNICATION BUS SUBSCRIBER — Path A canonical event publisher (P1)
+# ─────────────────────────────────────────────────────────────────────────────
+# Reuses the existing, already-live aiem_communication_bus.CommunicationBus
+# (do NOT build a new bus). aiem_master_orchestrator.execute_stage() already
+# publishes a real StageEvent for every one of the 21 D2 stages on every real
+# live candidate (main.py's _aiem_paper_execute_today -> _d2_run wrapper) --
+# this subscriber is the missing piece that turns those already-real events
+# into canonical, hash-chained d3_governance_event_links rows, closing the
+# "D2 stage events are not routed into governance" gap.
+#
+# This is pure OBSERVATION (Path A). It never blocks, delays, or mutates the
+# event it observes -- it only records it. Active enforcement checkpoints
+# (G0/G2/G3/G4) are separate, later phases that consult this ledger; they are
+# NOT implemented by this subscriber.
+
+_D2_STAGE_EVENT_TYPE_MAP = {
+    "stage_starting":  "D2_STAGE_STARTING",
+    "stage_completed": "D2_STAGE_COMPLETED",
+    "stage_failed":    "D2_STAGE_FAILED",
+}
+
+_D2_STAGE_CHECK_RESULT_MAP = {
+    "stage_starting":  "IN_PROGRESS",
+    "stage_completed": "PASS",
+    "stage_failed":    "FAIL",
+}
+
+_D3_BUS_SUBSCRIBED = False
+_D3_BUS_SUBSCRIBE_LOCK = threading.Lock()
+
+
+def _on_bus_stage_event(event) -> None:
+    """
+    Real subscriber callback registered on the live CommunicationBus (see
+    subscribe_to_bus()). Runs synchronously, in the same thread/call stack as
+    the D2 stage that triggered it (per CommunicationBus's own guarantee),
+    which is what lets contextvar trace_context() propagate correctly here
+    with zero explicit parameter-passing through main.py/aiem_master_orchestrator.
+
+    Never fabricates check_result: it is derived only from the real
+    event_type the orchestrator actually published (stage_starting /
+    stage_completed / stage_failed).
+    """
+    try:
+        ctx = get_trace_context()
+        root_trace_id = (ctx or {}).get("root_trace_id") or event.trace_id
+        is_test = bool((ctx or {}).get("is_test_record", False))
+        ts = event.timestamp
+        idem_key = f"bus:{event.trace_id}:{event.stage_order}:{event.event_type}"
+
+        _d3_emit_event(
+            governance_cycle_id=f"BUS_OBS_{event.trace_id}",
+            governance_phase="D2_BUS_OBSERVATION",
+            governance_check_name=f"stage_{event.stage_order}_{event.stage_name}",
+            governance_function="aiem_communication_bus.StageEvent",
+            started_at=ts,
+            completed_at=ts,
+            check_result=_D2_STAGE_CHECK_RESULT_MAP.get(event.event_type),
+            diagram2_trace_id=event.trace_id,
+            ticker=event.ticker,
+            enforcement_action="ADVISORY_ONLY",
+            enforcement_status="NOT_ENFORCED",
+            reason_code="BUS_STAGE_EVENT",
+            reason_detail=(
+                f"real {event.event_type} observed for D2 stage "
+                f"{event.stage_order} ({event.stage_name}) via CommunicationBus"
+            ),
+            input_payload=event.to_dict(),
+            is_test_record=is_test,
+            governance_module="aiem_diagram3_governance",
+            event_type=_D2_STAGE_EVENT_TYPE_MAP.get(
+                event.event_type, f"D2_{str(event.event_type).upper()}"
+            ),
+            root_trace_id=root_trace_id,
+            producer_module="aiem_master_orchestrator",
+            producer_function="execute_stage",
+            consumer_module="aiem_diagram3_governance",
+            consumer_function="_on_bus_stage_event",
+            idempotency_key=idem_key,
+        )
+    except Exception as _bus_sub_e:
+        # Never let a governance-ledger failure touch the live trading path.
+        # CommunicationBus.publish() also independently wraps this callback
+        # in its own try/except, so this is belt-and-suspenders logging.
+        print(
+            f"[d3_governance] bus subscriber error (non-fatal, event NOT "
+            f"ledgered): {type(_bus_sub_e).__name__}: {_bus_sub_e}"
+        )
+
+
+def subscribe_to_bus() -> bool:
+    """
+    Idempotently register the D3 observer on the process-wide CommunicationBus
+    singleton. Returns True the first time it actually subscribes, False on
+    any subsequent call (already subscribed) -- safe to call from d3_startup()
+    and defensively elsewhere without ever double-subscribing.
+    """
+    global _D3_BUS_SUBSCRIBED
+    with _D3_BUS_SUBSCRIBE_LOCK:
+        if _D3_BUS_SUBSCRIBED:
+            return False
+        import aiem_communication_bus as _abus
+        _abus.get_bus().subscribe(_on_bus_stage_event)
+        _D3_BUS_SUBSCRIBED = True
+        return True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2241,7 +2905,60 @@ def install_d3_routes(app):
 
     def _auth():
         token = os.environ.get("ADMIN_TOKEN", "")
-        return token and request.headers.get("X-Admin-Token") == token
+        got = request.headers.get("X-Admin-Token", "")
+        return bool(token) and bool(got) and hmac.compare_digest(got, token)
+
+    @app.route("/stock-api/admin/d3/g0/status", methods=["GET"])
+    def d3_g0_status():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        try:
+            return jsonify({
+                "system_state": get_d3_system_state(),
+                "checkpoint_config": get_d3_checkpoint_config(),
+                "g0_cache": dict(_G0_CONFIG_CACHE),
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g0/system-state", methods=["POST"])
+    def d3_g0_set_system_state():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+        state = body.get("state")
+        reason = body.get("reason")
+        changed_by = body.get("changed_by") or "ADMIN_API"
+        if not state or not reason:
+            return jsonify({"error": "state and reason are both required"}), 400
+        try:
+            return jsonify(set_d3_system_state(state=state, reason=reason, changed_by=changed_by))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/stock-api/admin/d3/g0/checkpoint-mode", methods=["POST"])
+    def d3_g0_set_checkpoint_mode():
+        if not _auth():
+            return jsonify({"error": "unauthorized"}), 401
+        body = request.get_json(silent=True) or {}
+        checkpoint = body.get("checkpoint")
+        mode = body.get("mode")
+        reason = body.get("reason")
+        changed_by = body.get("changed_by") or "ADMIN_API"
+        confirm = bool(body.get("confirm", False))
+        if not checkpoint or not mode or not reason:
+            return jsonify({"error": "checkpoint, mode, and reason are all required"}), 400
+        try:
+            return jsonify(set_d3_checkpoint_mode(
+                checkpoint=checkpoint, mode=mode, reason=reason,
+                changed_by=changed_by, confirm=confirm,
+            ))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/stock-api/admin/d3/status", methods=["GET"])
     def d3_status():
@@ -2860,10 +3577,52 @@ def check_action_status(action_id: str) -> Dict[str, Any]:
                     (status, detail, action_id),
                 )
             conn.commit()
-        return {"checked": True, "action_id": action_id, "status": status, "detail": detail}
     except Exception as e:
         print(f"[d3_governance] check_action_status FAILED for {action_id}: {e}")
         return {"checked": False, "error": str(e)}
+
+    # P0 (gap G1, ledger-completeness half): the mutable d3_governance_actions
+    # row is now tamper-guarded (trg_d3ga_guard), but until this point ONLY
+    # the initial REQUESTED state was ever captured in the immutable
+    # hash-chained ledger -- the lifecycle resolution (ADVISORY_ACKNOWLEDGED /
+    # NOT_ENFORCED, and any later re-check that flips between the two as
+    # real state changes) was invisible to anyone reading the ledger alone.
+    # Emit a real, linked ledger event for every check so the append-only
+    # history captures the full lifecycle, not just the request. Best-effort:
+    # a ledger-emit failure here must not un-do the real status update above,
+    # it is reported honestly and surfaced to the caller.
+    now = datetime.datetime.utcnow()
+    try:
+        event = _d3_emit_event(
+            governance_cycle_id=f"ACTION_{action_id}",
+            governance_phase=action.get("phase") or "UNKNOWN_PHASE",
+            governance_check_name="check_action_status",
+            governance_function="aiem_diagram3_governance.check_action_status",
+            started_at=now,
+            completed_at=now,
+            check_result=f"ACTION_STATUS_{status}",
+            parent_event_id=str(action.get("governance_event_id")) if action.get("governance_event_id") else None,
+            strategy_id=action.get("target_id") if action.get("target_type") == "strategy" else None,
+            reason_code=action.get("action_type"),
+            reason_detail=detail,
+            enforcement_action=action.get("action_type"),
+            enforcement_status=status,
+            output_payload={"action_id": action_id, "status": status, "detail": detail},
+            is_test_record=bool(action.get("is_test_record")),
+            producer_module="aiem_diagram3_governance",
+            producer_function="check_action_status",
+        )
+        ledger_event_id = event.get("id")
+        ledger_event_hash = event.get("event_hash")
+    except Exception as e:
+        print(f"[d3_governance] check_action_status ledger emit FAILED for {action_id}: {e}")
+        ledger_event_id = None
+        ledger_event_hash = None
+
+    return {
+        "checked": True, "action_id": action_id, "status": status, "detail": detail,
+        "ledger_event_id": ledger_event_id, "ledger_event_hash": ledger_event_hash,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2874,6 +3633,16 @@ def d3_startup():
     """Called from main.py deferred init. Sets up schema and freezes baseline."""
     print("[d3_governance] startup — initializing Diagram 3 Governance Layer v" + _D3_VERSION)
     _d3_init_schema()
+
+    try:
+        subscribed = subscribe_to_bus()
+        print(
+            f"[d3_governance] CommunicationBus subscriber "
+            f"{'registered' if subscribed else 'already registered'} — "
+            f"real D2 StageEvents will be ledgered as they occur (Path A observation)"
+        )
+    except Exception as _sub_e:
+        print(f"[d3_governance] bus subscription FAILED (non-fatal, D2 stage events will NOT be ledgered): {_sub_e}")
 
     result = run_phase0_baseline_freeze(force=False)
     status = result.get("status", "ERROR")

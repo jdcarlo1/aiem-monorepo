@@ -1,0 +1,554 @@
+==================================================
+SECTION 12 — AUTHORITATIVE DIAGRAM 2 ↔ DIAGRAM 3 WIRING MAP
+==================================================
+
+This section is mandatory.
+
+No implementation may invent alternate direct connections.
+
+All Diagram 2 ↔ Diagram 3 communication must use the canonical contracts defined below.
+
+--------------------------------------------------
+A. AUTHORITATIVE COMPONENT OWNERSHIP
+--------------------------------------------------
+
+DIAGRAM 2 OWNS:
+
+1. Stock intake.
+2. Data guards.
+3. Macro and regime analysis.
+4. Discovery.
+5. Technical/options/quant analysis.
+6. Probability engine.
+7. Scoring and synthesis.
+8. Specialist council.
+9. Ordinary trade-risk gate.
+10. Decision creation.
+11. Paper/shadow/live execution request.
+12. Outcome tracking.
+13. Learning proposal creation.
+14. Memory writes.
+
+DIAGRAM 3 OWNS:
+
+1. Architecture-baseline validation.
+2. Approved version registries.
+3. Governance system state.
+4. Critical health and integrity policy.
+5. Governance authorization.
+6. Learning/model/strategy promotion approval.
+7. Quarantine.
+8. Pause.
+9. Rollback.
+10. Recovery and resume.
+11. Governance audit and executive reporting.
+
+DIAGRAM 3 DOES NOT OWN STOCK ANALYSIS.
+
+DIAGRAM 2 DOES NOT OWN GOVERNANCE APPROVAL.
+
+--------------------------------------------------
+B. REQUIRED COMMUNICATION COMPONENTS
+--------------------------------------------------
+
+Create or identify exactly these canonical interfaces:
+
+1. D2_EVENT_PUBLISHER
+   Owned by Diagram 2.
+
+   Responsibility:
+   Publish immutable lifecycle events.
+
+2. D3_EVENT_CONSUMER
+   Owned by Diagram 3.
+
+   Responsibility:
+   Consume Diagram 2 lifecycle events and append them to the governance ledger.
+
+3. D2_GOVERNANCE_CLIENT
+   Owned by Diagram 2.
+
+   Responsibility:
+   Submit synchronous governance authorization requests at mandatory checkpoints.
+
+4. D3_GOVERNANCE_SERVICE
+   Owned by Diagram 3.
+
+   Responsibility:
+   Evaluate policy and return a typed governance decision.
+
+5. D2_GOVERNANCE_ACKNOWLEDGER
+   Owned by Diagram 2.
+
+   Responsibility:
+   Record whether Diagram 2 obeyed the Diagram 3 decision.
+
+6. D3_GOVERNANCE_LEDGER
+   Owned by Diagram 3.
+
+   Responsibility:
+   Store immutable events, requests, decisions, acknowledgements, state changes, and hashes.
+
+No Diagram 2 module may write directly to Diagram 3 tables.
+
+No Diagram 3 module may write directly to Diagram 2 decision or execution tables.
+
+--------------------------------------------------
+C. AUTHORITATIVE DATA FLOW
+--------------------------------------------------
+
+PATH A — ASYNCHRONOUS OBSERVATION FLOW
+
+Diagram 2 phase
+→ D2_EVENT_PUBLISHER
+→ canonical communication bus
+→ D3_EVENT_CONSUMER
+→ schema validation
+→ hash validation
+→ D3_GOVERNANCE_LEDGER
+→ health/performance/drift/reporting processors
+
+PATH B — SYNCHRONOUS ENFORCEMENT FLOW
+
+Diagram 2 protected checkpoint
+→ D2_GOVERNANCE_CLIENT
+→ D3_GOVERNANCE_SERVICE
+→ policy evaluation
+→ typed governance decision
+→ D2_GOVERNANCE_CLIENT
+→ Diagram 2 control flow
+→ D2_GOVERNANCE_ACKNOWLEDGER
+→ canonical communication bus
+→ D3_GOVERNANCE_LEDGER
+
+Diagram 2 must not continue a protected action until it receives a valid decision.
+
+--------------------------------------------------
+D. EXACT STAGE-TO-CHECKPOINT MAP
+--------------------------------------------------
+
+DIAGRAM 2 BOOT / SCHEDULER
+contacts:
+D3_GOVERNANCE_SERVICE at G0.
+
+DIAGRAM 2 DATA-GUARD COMPLETION
+publishes:
+DATA_GUARDS_PASSED or DATA_GUARDS_FAILED.
+
+contacts:
+D3_GOVERNANCE_SERVICE at G1 only for system-wide integrity authorization.
+
+DIAGRAM 2 PRE-DECISION ORCHESTRATOR
+publishes:
+REGIME_COMPLETED
+DISCOVERY_COMPLETED
+ANALYSIS_COMPLETED
+PROBABILITY_COMPLETED
+SYNTHESIS_COMPLETED
+COUNCIL_COMPLETED.
+
+contacts:
+D3_GOVERNANCE_SERVICE at G2 before Decision Engine invocation.
+
+DIAGRAM 2 RISK GATE
+publishes:
+RISK_GATE_PASSED or RISK_GATE_REJECTED.
+
+Rules:
+If rejected, stop.
+Do not contact Diagram 3 to override a Diagram 2 rejection.
+
+DIAGRAM 2 PRE-EXECUTION CONTROLLER
+publishes:
+DECISION_CREATED
+EXECUTION_AUTHORIZATION_REQUESTED.
+
+contacts:
+D3_GOVERNANCE_SERVICE at G3.
+
+Only after:
+Diagram 2 risk gate == PASS
+and
+Diagram 3 decision == ALLOW or ALLOW_WITH_WARNING
+
+may the execution adapter be called.
+
+DIAGRAM 2 OUTCOME TRACKER
+publishes:
+EXECUTION_COMPLETED
+OUTCOME_RECORDED.
+
+Diagram 3 consumes these for performance, drift, health, and reporting.
+
+DIAGRAM 2 LEARNING SYSTEM
+publishes:
+LEARNING_PROPOSED.
+
+contacts:
+D3_GOVERNANCE_SERVICE at G4.
+
+No active model, strategy, threshold, registry, or configuration pointer may change before approval and acknowledgement.
+
+DIAGRAM 2 RECOVERY ORCHESTRATOR
+contacts:
+D3_GOVERNANCE_SERVICE at G5.
+
+No protected operation may resume without RESUME authorization.
+
+--------------------------------------------------
+E. INFORMATION SOURCES USED BY DIAGRAM 3
+--------------------------------------------------
+
+Diagram 3 may use only approved, traceable sources:
+
+1. Diagram 2 lifecycle events.
+2. Diagram 2 execution outcomes.
+3. Diagram 2 learning proposals.
+4. Diagram 1 architecture and registry manifests.
+5. Approved model/strategy/configuration registries.
+6. System health metrics.
+7. Audit-chain state.
+8. Database integrity state.
+9. Vendor/service health.
+10. Governance policies and thresholds.
+11. Version history.
+12. Incident and rollback records.
+
+Diagram 3 must not infer governance state from informal log text alone.
+
+Every governance decision must cite exact source record IDs and hashes.
+
+--------------------------------------------------
+F. REQUEST/RESPONSE CORRELATION
+--------------------------------------------------
+
+Every governance request must contain:
+
+governance_request_id
+trace_id
+root_trace_id
+checkpoint
+source_phase
+requested_action
+architecture_version
+model_version
+strategy_version
+configuration_version
+payload_hash
+request_timestamp_utc
+timeout_ms
+is_test_record
+
+Every governance response must contain:
+
+governance_request_id
+governance_decision_id
+trace_id
+checkpoint
+decision
+blocking
+reason_codes
+policy_version
+decision_hash
+response_timestamp_utc
+
+Every acknowledgement must contain:
+
+governance_request_id
+governance_decision_id
+trace_id
+action_taken
+continued
+blocked
+acknowledged_at
+acknowledgement_hash
+
+All three records must correlate exactly.
+
+--------------------------------------------------
+G. NO-BYPASS ENFORCEMENT
+--------------------------------------------------
+
+Protected Diagram 2 code paths must not call the Decision Engine, execution simulator, live execution adapter, model activator, strategy activator, or resume controller unless a valid Diagram 3 decision exists.
+
+Add explicit guards such as:
+
+require_governance_authorization(checkpoint, trace_id)
+
+The protected operation must be unreachable without the guard.
+
+Static code inspection must prove no alternate bypass path exists.
+
+==================================================
+SECTION 13 — STRICT WIRING VERIFICATION MATRIX
+==================================================
+
+For every Diagram 2 stage, produce a table containing:
+
+Diagram 2 stage
+owner module
+event published
+event consumer
+blocking checkpoint, if any
+governance request function
+governance service handler
+decision returned
+Diagram 2 branch taken
+acknowledgement record
+ledger record
+trace_id
+test result
+
+No stage may be marked PASS solely because code exists.
+
+PASS requires runtime evidence.
+
+--------------------------------------------------
+TEST 1 — COMPONENT REGISTRATION
+--------------------------------------------------
+
+Prove all six communication components are registered and active:
+
+D2_EVENT_PUBLISHER
+D3_EVENT_CONSUMER
+D2_GOVERNANCE_CLIENT
+D3_GOVERNANCE_SERVICE
+D2_GOVERNANCE_ACKNOWLEDGER
+D3_GOVERNANCE_LEDGER
+
+Show:
+
+module path
+class/function name
+startup log
+health result
+version
+configuration
+registration timestamp
+
+--------------------------------------------------
+TEST 2 — PATH A FULL-STAGE DELIVERY
+--------------------------------------------------
+
+Run one labeled end-to-end test trace.
+
+For every required Diagram 2 stage:
+
+1. Show source phase completed.
+2. Show event publisher accepted the event.
+3. Show canonical bus received it.
+4. Show Diagram 3 consumer received it.
+5. Show schema validation passed.
+6. Show ledger insertion.
+7. Show hash-chain linkage.
+8. Show matching trace_id.
+
+Any missing stage is FAIL.
+
+--------------------------------------------------
+TEST 3 — PATH B REQUEST/RESPONSE/ACK
+--------------------------------------------------
+
+For G0, G1, G2, G3, G4, and G5, show:
+
+request created
+request ID
+Diagram 3 handler called
+policy evaluated
+decision returned
+Diagram 2 branch executed
+acknowledgement persisted
+ledger linked
+matching hashes
+
+Any checkpoint without all three records—
+request, decision, acknowledgement—
+is FAIL.
+
+--------------------------------------------------
+TEST 4 — WRONG-DESTINATION NEGATIVE CONTROL
+--------------------------------------------------
+
+Attempt to send a Diagram 2 event to an unauthorized Diagram 3 handler.
+
+Expected:
+
+Rejected by routing/schema policy.
+
+Attempt to call a protected Diagram 2 operation without using D2_GOVERNANCE_CLIENT.
+
+Expected:
+
+Rejected or unreachable.
+
+--------------------------------------------------
+TEST 5 — BROKEN-CONSUMER NEGATIVE CONTROL
+--------------------------------------------------
+
+Disable D3_EVENT_CONSUMER in a controlled test.
+
+Expected:
+
+Path A delivery failure is detected.
+Event remains retryable or enters dead-letter storage.
+No event is silently lost.
+Critical event loss creates a governance incident.
+
+--------------------------------------------------
+TEST 6 — BROKEN-SERVICE NEGATIVE CONTROL
+--------------------------------------------------
+
+Disable D3_GOVERNANCE_SERVICE.
+
+Expected:
+
+Protected Path B calls fail closed.
+No live execution or promotion occurs.
+Diagram 2 records a governance-unavailable block.
+
+--------------------------------------------------
+TEST 7 — TRACE-CORRELATION TEST
+--------------------------------------------------
+
+Create two simultaneous ticker traces.
+
+Expected:
+
+No event, governance request, decision, or acknowledgement crosses between trace IDs.
+
+Show both independent timelines.
+
+--------------------------------------------------
+TEST 8 — ORDERING TEST
+--------------------------------------------------
+
+Deliver events out of order in a controlled test.
+
+Expected:
+
+Diagram 3 detects ordering violation.
+G2 trace-integrity authorization returns BLOCK if a mandatory phase order is invalid.
+
+--------------------------------------------------
+TEST 9 — DUPLICATE DELIVERY TEST
+--------------------------------------------------
+
+Replay the same event ID.
+
+Expected:
+
+Idempotency prevents duplicate semantic processing.
+Ledger preserves evidence of replay attempt.
+No duplicate governance action occurs.
+
+--------------------------------------------------
+TEST 10 — SCHEMA-MISMATCH TEST
+--------------------------------------------------
+
+Send an event missing trace_id, event_type, or payload_hash.
+
+Expected:
+
+Rejected.
+No malformed ledger row.
+Error is traceable.
+
+--------------------------------------------------
+TEST 11 — DECISION-TAMPER TEST
+--------------------------------------------------
+
+Modify a governance decision payload after creation.
+
+Expected:
+
+Hash verification fails.
+Diagram 2 refuses the decision.
+Tamper incident is recorded.
+
+--------------------------------------------------
+TEST 12 — ACKNOWLEDGEMENT-TRUTH TEST
+--------------------------------------------------
+
+Force Diagram 3 to return BLOCK.
+
+Attempt to falsely acknowledge continued=true.
+
+Expected:
+
+Database constraint or validation rejects inconsistency.
+
+Force Diagram 3 to return ALLOW.
+
+Expected:
+
+Acknowledgement accurately records the actual Diagram 2 branch.
+
+--------------------------------------------------
+TEST 13 — COMPLETE PRODUCTION-LIKE TRACE
+--------------------------------------------------
+
+Run one paper/shadow ticker through:
+
+boot authorization
+intake
+data guards
+regime
+discovery
+analysis
+probability
+synthesis
+council
+pre-decision governance
+risk gate
+pre-execution governance
+execution
+outcome
+learning proposal
+learning governance
+memory
+completion
+
+Show one joined timeline containing:
+
+Diagram 2 events
+Diagram 3 requests
+Diagram 3 decisions
+Diagram 2 acknowledgements
+execution result
+outcome
+learning result
+memory result
+all hashes
+all timestamps
+all versions
+all source modules
+
+--------------------------------------------------
+FINAL ACCEPTANCE RULE
+--------------------------------------------------
+
+Do not report Diagram 2 ↔ Diagram 3 wiring as complete unless:
+
+1. Every required stage appears in the wiring matrix.
+2. Path A runtime delivery is proven.
+3. Path B runtime enforcement is proven.
+4. Every request correlates to one decision and one acknowledgement.
+5. No unauthorized direct database connections exist.
+6. No protected bypass paths exist.
+7. Failure modes fail closed.
+8. Concurrent traces remain isolated.
+9. Ordering, duplicate, schema, and tamper tests pass.
+10. One complete production-like trace passes.
+
+Required final verdict format:
+
+PATH A OBSERVATION WIRING: PASS/FAIL
+PATH B ENFORCEMENT WIRING: PASS/FAIL
+DIAGRAM 2 ACKNOWLEDGEMENT: PASS/FAIL
+NO-BYPASS CONTROL: PASS/FAIL
+TRACE INTEGRITY: PASS/FAIL
+FAIL-CLOSED BEHAVIOR: PASS/FAIL
+TAMPER PROTECTION: PASS/FAIL
+END-TO-END INTEGRATION: PASS/FAIL
+
+Include all unresolved gaps.
