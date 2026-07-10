@@ -1,0 +1,77 @@
+# AIEM Verification Directive — Scheduler Health, Same-Day Staleness, G0 Bypass
+
+**Date issued:** 2026-07-10
+**Scope:** Three findings surfaced during D3 governance audit. Each requires independent, falsifiable proof — no narrative summaries, no "should be working," no restating source code as evidence of runtime behavior.
+
+**Standing rule:** Every claim below must be answered with raw terminal output, raw SQL results, or file:line citations from a live-running process (not just grep of source). If the agent cannot produce the artifact, it must say so explicitly rather than substitute a plausible-sounding description.
+
+---
+
+## Finding 1 — `aiem_paper_execute` (9:42 AM cron) appears dead
+
+**Evidence already on record:** `aiem_paper_execution_log` shows exactly 3 rows for ET hour 9 across the entire table history (2026-06-29 → present): 2026-07-01 09:42:00 SUCCESS, 2026-07-01 09:56:49 SKIPPED, 2026-07-02 09:42:01 SKIPPED. No logged row since 2026-07-02 — 8 calendar days with no execution.
+
+**Required proof:**
+
+1. **Is the job actually registered in the live scheduler right now?**
+   Run against the live running process (not source inspection):
+   ```
+   for job in scheduler.get_jobs(): print(job.id, job.next_run_time, job.trigger)
+   ```
+   or equivalent for whatever scheduler library is in use. Paste raw output. I need to see `aiem_paper_execute` in that list with a real `next_run_time`, not `None`.
+
+2. **If it's registered but not firing — why?**
+   Check process uptime / restart history. If the process has been restarted since 7/2 and the job re-registers on boot, show the boot/restart timestamp and confirm whether `add_job(..., replace_existing=True)` actually re-armed it. If the process has NOT restarted since 7/2, that's a different failure mode (job silently dying) — show whatever exception/error logs exist around 09:42 ET on any of the 8 missed days.
+
+3. **Was the 20-trade gate silently blocking it every day?**
+   Show the raw query result for:
+   ```sql
+   SELECT trade_date, COUNT(*) FROM aiem_paper_trades GROUP BY trade_date ORDER BY trade_date DESC LIMIT 10;
+   ```
+   If daily trade counts are consistently under 20, that would explain repeated SKIPPED — but note the log shows **zero rows at all** since 7/2, not repeated SKIPPED rows. A skip still logs a row. Zero rows means the job never ran at all, which is a different and more serious problem. Reconcile this explicitly.
+
+**Rejection criteria:** "The scheduler should be running" or a source-code citation of the `add_job` call is not acceptable. I require live process state or an honest admission that live process state cannot be inspected.
+
+---
+
+## Finding 2 — Same-day staleness is structurally proven; confirm it's not silently worse
+
+**Evidence already on record (accepted as proven):** `_aiem_paper_execute_today()` runs at most once/day at ~9:42 AM; `update_paper_thompson()` for a given day's trades cannot fire before those trades close (16:01 ET same day, earliest). Therefore `sampled_score` at any 9:42 AM run reflects at best the *previous* trading day's close — never same-day. This is structurally forced, not just an absence-of-overlap observation.
+
+**Required proof, given Finding 1 (cron may be dead since 7/2):**
+
+1. For every trade opened between 2026-07-02 and today, show the raw join between `aiem_paper_trades.trade_date` (or open timestamp) and the `sampled_score` / Thompson data it actually used, alongside the timestamp that Thompson data was last updated. I want to see, per trade, the **age in days** between when the score was computed and when the trade using it opened.
+   ```sql
+   SELECT t.id, t.source, t.trade_date, t.entry_time, th.sampled_score, th.updated_at,
+          DATEDIFF(t.entry_time, th.updated_at) AS score_age
+   FROM aiem_paper_trades t
+   LEFT JOIN aiem_paper_thompson th ON <join key>
+   WHERE t.trade_date >= '2026-07-02'
+   ORDER BY t.entry_time;
+   ```
+   (Adjust join to actual schema — cite the real column names used, don't invent them.)
+
+2. If any trades since 7/2 show `sampled_score` as NULL or joined to a Thompson row from before 7/2, that confirms trades have been running on scores over a week stale — not just "yesterday's close" as originally assumed. State plainly whether this is the case.
+
+**Rejection criteria:** Do not reassert the structural proof again — it's accepted. This section is asking for the *empirical consequence* given Finding 1, not a repeat of the logical argument.
+
+---
+
+## Finding 3 — `admin_close_paper_trade` bypasses G0
+
+**Evidence already on record:** Route at `main.py:44424-44475`, confirmed unguarded by G0, callable any time of day by anyone holding `$ADMIN_TOKEN`. This route is the source of the off-schedule execution timestamps observed on 7/8–7/9 (17:32, 20:24–21:32, 22:48 ET), not the 16:01 MTM batch.
+
+**Required proof:**
+
+1. State explicitly: is this route intended as a manual/admin testing backdoor that is *supposed* to bypass governance, or is it a production code path that should be gated like every other execute_stage() entry?
+2. Grep every call site of `admin_close_paper_trade` in the repo (route registration, any internal callers, any scheduled job that hits it) — paste raw grep output, not a summary.
+3. If it's meant to stay ungated: show whatever access control exists on `$ADMIN_TOKEN` (env-only? rotated? who has it?) so the ungated status is at least bounded by something other than "possession of a token."
+4. If it's not meant to stay ungated: this becomes a fix item — do not fix it as part of this directive, just confirm the classification (intentional backdoor vs. gap) with evidence, same as the prior G0 execute_stage() audit did for the 5/6 bypass.
+
+**Rejection criteria:** "It's probably for admin use" is not a classification. I want either a doc/comment/commit message establishing intent, or an explicit statement that no such evidence exists and it must be treated as an unclassified gap.
+
+---
+
+## Deliverable format
+
+One response per finding, in order. Each finding's proof must be pasted raw (terminal/SQL output) before any interpretive text. If a required artifact cannot be produced (e.g., no access to live process), say so explicitly instead of substituting a source-code citation as a stand-in.
