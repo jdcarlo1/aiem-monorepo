@@ -1319,6 +1319,7 @@ import threading as _thr_bso
 _thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
 _DEFERRED_INITS.append(lambda: init_sms_log_table())
 _DEFERRED_INITS.append(lambda: _bull_bear.init_schema() if _bull_bear else None)
+_DEFERRED_INITS.append(lambda: _specialist_council.init_schema() if _specialist_council else None)
 
 # ── Microcap/small-cap call outcome tracking ─────────────────────────────────
 # Stores price_1d/3d/5d and ret_1d/3d/5d on unusual_calls_microcap_log so we
@@ -16164,6 +16165,24 @@ def admin_aiem_v3_discovery():
         return jsonify({"error": str(_e)}), 500
     return Response(__import__("json").dumps({"discovered": len(results), "top": results[:10]},
                                              default=str), mimetype="application/json")
+
+
+@app.route("/stock-api/admin/layer9-run-now", methods=["POST"])
+def admin_layer9_run_now():
+    """
+    POST /stock-api/admin/layer9-run-now
+    Manually (synchronously) triggers the real Layer9 2-hour background scan
+    (_run_layer9_bg_scan) outside its normal APScheduler interval, for
+    on-demand verification. Writes to layer9_scores exactly as the scheduled
+    job does (idempotent UPSERT on ticker/scan_date). Protected by ADMIN_TOKEN.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _run_layer9_bg_scan()
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return jsonify({"status": "layer9_bg_scan executed"})
 
 
 def admin_check_signal_data_availability():
@@ -36250,7 +36269,7 @@ _AIEM_AGENT_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "regime_overlay_check",
-        "description": "Run the full 6-indicator regime check against live DB data and log the result — determines whether conditions favor aggressive or conservative signal weights.",
+        "description": "Run the full 7-indicator regime check against live DB data and log the result — determines whether conditions favor aggressive or conservative signal weights.",
         "parameters": {"type": "object", "properties": {
             "lookback_days": {"type": "integer", "description": "Days of history for regime indicators (default 20)"},
         }},
@@ -36684,9 +36703,10 @@ EXECUTION / PORTFOLIO / LEARNING STACK (paper-only)
 
 20. mkt_build_composite       - combine top discoveries into final weighted rule
 
-  regime_overlay_check   — Run the full 6-indicator market regime check (VIX,
+  regime_overlay_check   — Run the full 7-indicator market regime check (VIX,
                            trend structure, drawdown, breadth, P/C ratio,
-                           regime_monitor flags) and log the result. Returns
+                           PCA absorption ratio, regime_monitor flags) and
+                           log the result. Returns
                            sit_out / reduce_exposure / normal_exposure /
                            full_exposure with a plain-English summary of which
                            indicators drove the call. Run this BEFORE logging
@@ -40529,27 +40549,87 @@ def _aiem_tool_gate_history(limit: int = 50) -> dict:
         return {"error": str(_e)}
 
 
+def _build_pca_returns_matrix(lookback_days: int = 90, top_n: int = 50):
+    """Build a (dates x tickers) daily-return matrix from polygon_market_daily
+    for the C13 PCA / Absorption Ratio indicator (see market_regime_overlay.
+    pca_absorption_indicator). Universe = the top_n tickers by average daily
+    dollar volume over the lookback window (a liquid, non-survivorship-biased
+    slice, not a fixed index list). Returns None (never raises) if there is
+    not enough data -- combine_regime_votes() degrades that to a neutral vote.
+    """
+    import psycopg2 as _pg, pandas as _pd, os as _os
+    try:
+        with _pg.connect(_os.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
+            _cur.execute("""
+                SELECT ticker, AVG(close_price * volume) AS avg_dollar_vol
+                FROM polygon_market_daily
+                WHERE scan_date >= CURRENT_DATE - %s
+                  AND close_price IS NOT NULL AND volume IS NOT NULL
+                GROUP BY ticker
+                ORDER BY avg_dollar_vol DESC
+                LIMIT %s
+            """, (int(lookback_days), int(top_n)))
+            universe = [r[0] for r in _cur.fetchall()]
+            if len(universe) < 10:
+                return None
+
+            _cur.execute("""
+                SELECT scan_date, ticker, close_price
+                FROM polygon_market_daily
+                WHERE scan_date >= CURRENT_DATE - %s
+                  AND ticker = ANY(%s)
+                  AND close_price IS NOT NULL
+                ORDER BY scan_date
+            """, (int(lookback_days), universe))
+            rows = _cur.fetchall()
+        if not rows:
+            return None
+
+        px = _pd.DataFrame(rows, columns=["scan_date", "ticker", "close_price"])
+        pivot = px.pivot_table(index="scan_date", columns="ticker", values="close_price")
+        returns = pivot.pct_change().dropna(how="all")
+        if returns.shape[0] < 20 or returns.shape[1] < 10:
+            return None
+        return returns
+    except Exception:
+        return None
+
+
 def _aiem_tool_regime_overlay_check(lookback_days: int = 60) -> dict:
-    """Run the full 6-indicator regime check against live DB data and log the result."""
+    """Run the full 7-indicator regime check against live DB data and log the result."""
     try:
         import market_regime_overlay as _mro
         import psycopg2 as _pg, pandas as _pd, os as _os
+        _returns_matrix = _build_pca_returns_matrix()
+        # Diagram-2 C8 remediation (2026-07-10): this used to source "close"
+        # from scan_history's AVG(price_chg_pct) -- that column is an average
+        # PERCENT-CHANGE across whatever stocks were scanned that day, not a
+        # price level. Feeding it through .pct_change() (trend_structure,
+        # drawdown, and GARCH all share this same price_history) produced
+        # meaningless "returns of a returns proxy" on only ~12 sparse rows in
+        # 60 calendar days -- nowhere near enough for GARCH(1,1) to converge,
+        # and the "84% drawdown" figure it was producing was never a real
+        # number. Use real SPY daily closes from polygon_market_daily
+        # instead (6,600+ real trading days on file) -- an honest, dense,
+        # real price series every indicator in the ensemble can actually use.
         with _pg.connect(_os.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
             _cur.execute("""
-                SELECT scan_date AS date, AVG(price_chg_pct) AS close
-                FROM scan_history
-                WHERE scan_date >= CURRENT_DATE - %s
-                GROUP BY scan_date ORDER BY scan_date
-            """, (int(lookback_days),))
+                SELECT scan_date AS date, close_price AS close
+                FROM polygon_market_daily
+                WHERE ticker = 'SPY'
+                ORDER BY scan_date DESC
+                LIMIT %s
+            """, (max(int(lookback_days), 260),))
             rows = _cur.fetchall()
         if not rows:
-            return {"error": "no price history in scan_history for regime check"}
-        price_df = _pd.DataFrame(rows, columns=["date", "close"])
+            return {"error": "no SPY price history in polygon_market_daily for regime check"}
+        price_df = _pd.DataFrame(rows, columns=["date", "close"]).sort_values("date").reset_index(drop=True)
         price_df["date"] = _pd.to_datetime(price_df["date"])
         vix_series = _pd.Series([15.0] * len(price_df))
         return _mro.get_weekly_regime_check(
             vix_history=vix_series,
             price_history=price_df,
+            returns_matrix=_returns_matrix,
         )
     except Exception as _e:
         return {"error": str(_e)}
@@ -40574,9 +40654,31 @@ def _aiem_tool_regime_overlay_manual(vix_current: float, vix_20d_avg: float,
             vix_history=vix_hist,
             price_history=price_df,
             put_call_ratio=float(put_call_ratio) if put_call_ratio is not None else None,
+            returns_matrix=_build_pca_returns_matrix(),
         )
     except Exception as _e:
         return {"error": str(_e)}
+
+
+@app.route("/stock-api/admin/regime-overlay-check", methods=["POST"])
+def admin_regime_overlay_check():
+    """
+    POST /stock-api/admin/regime-overlay-check
+    Manually (synchronously) triggers the real regime_overlay_check AIEM tool
+    (_aiem_tool_regime_overlay_check), including the C13 PCA/absorption-ratio
+    indicator built from a live polygon_market_daily returns matrix. Runs the
+    exact same code path an AIEM agent session hits when it calls the
+    regime_overlay_check tool -- logs through decision_logger just like a
+    live agent call would. Protected by ADMIN_TOKEN.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        lookback_days = int(request.get_json(silent=True).get("lookback_days", 60)) if request.get_json(silent=True) else 60
+        result = _aiem_tool_regime_overlay_check(lookback_days=lookback_days)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+    return jsonify(result)
 
 
 def _run_aiem_research_agent(max_iterations=None):
@@ -41432,30 +41534,33 @@ def _aiem_paper_pick_candidates() -> list:
                 pass  # sentiment is additive; never block a pick
 
     # ── Specialist council — weighted multi-signal negotiation ─────────────
+    # Diagram-2 C23 remediation (2026-07-10): now calls the ONE canonical
+    # council factory (specialist_council.run_council) instead of building
+    # SpecialistOpinion objects inline — see specialist_council.py's
+    # "CANONICAL COUNCIL FACTORY" docstring section for why. Vote math is
+    # unchanged (verbatim formulas now live in _build_opinion()).
     if _specialist_council:
         for _sp in _prelim:
             try:
-                _opinions = [
-                    _specialist_council.SpecialistOpinion(
-                        specialist_name="signal_engine",
-                        vote=min(1.0, _sp["score"] / 20.0),
-                        confidence=0.80,
-                        reasoning=f"{_sp['source']}: {_sp.get('detail','')}",
-                        category="options" if _sp["trade_type"] == "CALL_OPTION" else "momentum",
-                    ),
-                    _specialist_council.SpecialistOpinion(
-                        specialist_name="fred_macro",
-                        vote=float(_macro_bias) * 0.5,
-                        confidence=0.65,
-                        reasoning="FRED yield curve + credit spread macro state",
-                        category="macro",
-                    ),
-                ]
-                _wv = _specialist_council.compute_weighted_verdict(_opinions)
-                _mult = 1.0 + (_wv.get("weighted_vote", 0) * 0.20)
+                _council = _specialist_council.run_council(
+                    "candidate_entry",
+                    _sp["ticker"],
+                    {
+                        "signal_engine": {
+                            "score": _sp["score"],
+                            "source": _sp.get("source"),
+                            "detail": _sp.get("detail", ""),
+                            "trade_type": _sp.get("trade_type"),
+                        },
+                        "macro_bias": float(_macro_bias),
+                    },
+                )
+                _mult = 1.0 + (_council.get("weighted_vote", 0) * 0.20)
                 _sp["score"] *= max(0.50, min(1.40, _mult))
-            except Exception:
-                pass  # council is additive; never block a pick
+            except Exception as _exc:
+                print(f'[silent_except:L41476_specialist_council] {type(_exc).__name__}: {_exc}')
+                # council is additive; never block a pick — but log so a dead
+                # council doesn't go unnoticed indefinitely (Diagram-2 lesson)
 
     # ── News catalyst gate — remove tickers with recent high-risk headlines ─
     _ncm_blocked = set()
@@ -43747,28 +43852,29 @@ def _aiem_paper_mark_to_market():
             _pos_entry["macro_bias"] = ("RISK-OFF" if _exit_macro_bias < 0
                                          else "RISK-ON" if _exit_macro_bias > 0 else "NEUTRAL")
 
+            # Diagram-2 C23 remediation (2026-07-10): now calls the ONE
+            # canonical council factory (specialist_council.run_council)
+            # instead of building SpecialistOpinion objects inline — see
+            # specialist_council.py's "CANONICAL COUNCIL FACTORY" docstring
+            # section for why. Gate (_specialist_council and _ind) preserved
+            # verbatim so this stays a no-op exactly when it was before.
             if _specialist_council and _ind:
                 try:
                     _rsi_v = _ind.get("rsi_14")
-                    _opinions = [
-                        _specialist_council.SpecialistOpinion(
-                            specialist_name="technicals",
-                            vote=(-1.0 if (_rsi_v and _rsi_v > 70) else 1.0 if (_rsi_v and _rsi_v < 30) else 0.0),
-                            confidence=0.70,
-                            reasoning=f"RSI {_rsi_v}, CMF {_ind.get('cmf_20')}, overall {_sigs.get('overall')}",
-                            category="momentum",
-                        ),
-                        _specialist_council.SpecialistOpinion(
-                            specialist_name="fred_macro",
-                            vote=float(_exit_macro_bias) * 0.5,
-                            confidence=0.65,
-                            reasoning="FRED yield curve + credit spread macro state",
-                            category="macro",
-                        ),
-                    ]
-                    _wv = _specialist_council.compute_weighted_verdict(_opinions)
+                    _council = _specialist_council.run_council(
+                        "mtm_exit",
+                        _t,
+                        {
+                            "technicals": {
+                                "rsi": _rsi_v,
+                                "cmf": _ind.get("cmf_20"),
+                                "overall": _sigs.get("overall"),
+                            },
+                            "macro_bias": float(_exit_macro_bias),
+                        },
+                    )
                     # -1 = council leans EXIT/bearish, +1 = council leans HOLD/bullish
-                    _pos_entry["specialist_council_score"] = round(_wv.get("weighted_vote", 0), 3)
+                    _pos_entry["specialist_council_score"] = round(_council.get("weighted_vote", 0), 3)
                 except Exception as _exc:
                     print(f'[silent_except:L34811] {type(_exc).__name__}: {_exc}')
 
@@ -54129,7 +54235,7 @@ def _run_layer9_bg_scan():
                 _err_val = _res.get("error")
                 _comps   = _res.get("components", {})
                 _flags   = _res.get("flags", {})
-                _vrp_c   = _comps.get("vrp", {})
+                _vrp_c   = _comps.get("vrp_proxy", {})
                 _amihud_c= _comps.get("illiquidity_penalty", {})
                 try:
                     _cu.execute("""
@@ -61268,7 +61374,7 @@ def _send_gex_options_alert() -> None:
             with _gc.cursor() as _gcu:
                 _gcu.execute("""
                     SELECT DISTINCT ticker FROM unusual_calls_log
-                    WHERE created_at >= NOW() - INTERVAL '5 days'
+                    WHERE last_seen >= NOW() - INTERVAL '5 days'
                     UNION
                     SELECT DISTINCT ticker FROM conviction_stack_watchlist
                     WHERE snap_date >= CURRENT_DATE - 3
@@ -61918,6 +62024,27 @@ def stat_arb_signals_endpoint():
     except Exception as _e:
         print(f"[stat_arb] signals endpoint error: {_e}")
         return jsonify({"signals": [], "count": 0, "days_back": days_back, "error": str(_e)})
+
+
+@app.route("/stock-api/stat-arb/scan-log", methods=["GET"])
+def stat_arb_scan_log_endpoint():
+    """
+    C12 remediation (2026-07-10): run-level liveness audit trail for the
+    stat-arb daily scan job. Unlike /stat-arb/signals (which only ever
+    shows ACTIONABLE non-NEUTRAL rows and is empty on a quiet day), this
+    endpoint shows one row per scan EXECUTION regardless of outcome, so
+    "the job ran today and found nothing actionable" can be proven instead
+    of looking identical to "the scheduled job silently stopped running".
+    GET ?limit=20 (default, max 100).
+    """
+    limit = min(int(request.args.get("limit", 20)), 100)
+    try:
+        import stat_arb_engine as _sae
+        rows = _sae.get_last_scan_log(limit=limit)
+        return jsonify({"runs": rows, "count": len(rows), "limit": limit})
+    except Exception as _e:
+        print(f"[stat_arb] scan-log endpoint error: {_e}")
+        return jsonify({"runs": [], "count": 0, "limit": limit, "error": str(_e)})
 
 
 @app.route("/stock-api/grinder-scan", methods=["GET"])

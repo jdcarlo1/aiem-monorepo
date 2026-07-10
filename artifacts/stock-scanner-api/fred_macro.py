@@ -36,6 +36,31 @@ JSON API later (more series, more metadata), sign up for a free key at
 https://fred.stlouisfed.org/docs/api/api_key.html — instant, no cost,
 no vendor relationship, just registration.
 
+POINT-IN-TIME / VINTAGE INTEGRITY (honest, current limitation — Diagram 2
+C7 remediation, 2026-07-10)
+--------------------------------------------------------------------------
+This module deliberately does NOT implement true point-in-time vintage
+handling. The CSV endpoint above always returns the LATEST-REVISED value
+for every historical date, not the value that was actually known/released
+on that date. FRED does publish a vintage-aware API (ALFRED, via
+`realtime_start`/`realtime_end` params on
+https://api.stlouisfed.org/fred/series/observations), but that endpoint
+requires a free FRED_API_KEY that is not currently provisioned in this
+project's secrets, and building a full historical vintage backfill is a
+separate, larger data-acquisition project, not a one-line fix.
+
+What IS implemented instead, so a genuine limitation is never silently
+mislabeled as full point-in-time integrity: every value persisted to
+`regime_history` is stamped with `recorded_at` (the real wall-clock time
+this process fetched it) and an explicit `vintage='latest_revised'` tag.
+This makes every row honestly self-describing — a reader of the table can
+tell, without guessing, that historical FRED values here are NOT
+as-of-original-release and should not be used as ground truth in a
+backtest that requires point-in-time integrity. A future ALFRED
+integration (once FRED_API_KEY is provisioned) would populate rows with
+`vintage='alfred_realtime'` instead, and both vintages could coexist in
+the same table.
+
 INTEGRATION
 -----------
 Same vote contract as macro_cross_asset.py and market_regime_overlay.py's
@@ -83,6 +108,8 @@ def _init_regime_history() -> None:
                     );
                     CREATE INDEX IF NOT EXISTS idx_regime_history_recorded
                         ON regime_history (recorded_at DESC);
+                    ALTER TABLE regime_history
+                        ADD COLUMN IF NOT EXISTS vintage TEXT NOT NULL DEFAULT 'latest_revised';
                 """)
             conn.commit()
         _REGIME_TABLE_READY = True
@@ -91,8 +118,18 @@ def _init_regime_history() -> None:
 
 
 def _persist_regime_vote(series_id: str, raw_value: float,
-                          vote: int, regime_label: str) -> None:
-    """Insert a single regime vote row into regime_history."""
+                          vote: int, regime_label: str,
+                          vintage: str = "latest_revised") -> None:
+    """
+    Insert a single regime vote row into regime_history.
+
+    `vintage` is an honest, self-describing tag for the C7 point-in-time
+    limitation documented in this module's header: 'latest_revised' means
+    this value is FRED's current-revision figure fetched at `recorded_at`
+    wall-clock time, NOT the value as-originally-released on the series'
+    reference date. A future ALFRED-backed fetch path would pass
+    vintage='alfred_realtime' here instead.
+    """
     if not _DB_AVAILABLE:
         return
     db_url = os.environ.get("DATABASE_URL", "")
@@ -102,9 +139,9 @@ def _persist_regime_vote(series_id: str, raw_value: float,
         with psycopg2.connect(db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO regime_history (series_id, raw_value, vote, regime_label) "
-                    "VALUES (%s, %s, %s, %s)",
-                    (series_id, raw_value, vote, regime_label),
+                    "INSERT INTO regime_history (series_id, raw_value, vote, regime_label, vintage) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (series_id, raw_value, vote, regime_label, vintage),
                 )
             conn.commit()
     except Exception:

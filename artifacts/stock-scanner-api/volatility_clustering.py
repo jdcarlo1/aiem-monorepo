@@ -132,13 +132,25 @@ def garch_regime_indicator(price_history: pd.DataFrame, lookback: int = 252) -> 
      1 (risk-on):  GARCH forecasts falling/low volatility with normal
                    persistence — calm and likely to stay calm
 
-    price_history: DataFrame with a 'Close' column, daily frequency,
-    most recent `lookback` rows used for fitting.
+    price_history: DataFrame with a 'Close' (or 'close') column, daily
+    frequency, most recent `lookback` rows used for fitting.
     """
-    if price_history is None or "Close" not in price_history.columns:
+    # Diagram-2 C8 remediation (2026-07-10): market_regime_overlay.py's own
+    # indicators (vix/trend_structure/drawdown) all build price_history with
+    # a LOWERCASE 'close' column; this function originally required an exact
+    # capitalized 'Close' match, which meant every live call (both AIEM tool
+    # call sites) silently fell through to the neutral "no price history
+    # provided" branch even though real price_history WAS being passed.
+    # Accept either case rather than forcing every caller to rename a column
+    # that every other indicator in this module already relies on as-is.
+    if price_history is None:
+        return {"vote": 0, "reason": "no price history provided for GARCH fit"}
+    _close_col = "Close" if "Close" in price_history.columns else (
+        "close" if "close" in price_history.columns else None)
+    if _close_col is None:
         return {"vote": 0, "reason": "no price history provided for GARCH fit"}
 
-    close = price_history["Close"].squeeze().astype(float)
+    close = price_history[_close_col].squeeze().astype(float)
     if len(close) < lookback:
         lookback = len(close)
     returns = close.iloc[-lookback:].pct_change().dropna()

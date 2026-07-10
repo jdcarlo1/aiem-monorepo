@@ -116,6 +116,27 @@ CREATE INDEX IF NOT EXISTS idx_stat_arb_signals_date
     ON stat_arb_signals(signal_date DESC);
 CREATE INDEX IF NOT EXISTS idx_stat_arb_signals_tickers
     ON stat_arb_signals(ticker_a, ticker_b);
+
+-- C12 remediation (2026-07-10): stat_arb_signals only ever held ACTIONABLE
+-- (non-NEUTRAL) rows, so a day with zero actionable signals looked
+-- byte-for-byte identical to the daily scan job never having run at all —
+-- "ran, found nothing" was indistinguishable from "never executed". This
+-- run-level log table records ONE row every time stat_arb_daily_scan()
+-- executes, regardless of outcome, so liveness can be proven independently
+-- of whether any actionable signal fired that day.
+CREATE TABLE IF NOT EXISTS stat_arb_scan_log (
+    id               SERIAL PRIMARY KEY,
+    scan_time        TIMESTAMPTZ DEFAULT NOW(),
+    pairs_evaluated  INTEGER,
+    pairs_with_data  INTEGER,
+    signals_found    INTEGER,
+    max_abs_zscore   FLOAT,
+    retest_pairs     BOOLEAN DEFAULT FALSE,
+    detail_json      JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_stat_arb_scan_log_time
+    ON stat_arb_scan_log(scan_time DESC);
 """
 
 
@@ -134,7 +155,21 @@ def _init_tables() -> None:
 # PRICE DATA
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> Optional[pd.Series]:
+def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS,
+                   min_rows: int = 60) -> Optional[pd.Series]:
+    """
+    C12 remediation (2026-07-10): `min_rows` used to be hardcoded to 60
+    regardless of the caller's requested `lookback_days`. That's correct
+    for the cointegration test (lookback_days=252 -> plenty of rows), but
+    `compute_current_zscore()` calls this with lookback_days=5, which
+    (even with the +30-day query pad below) can never return 60 rows —
+    it was UNCONDITIONALLY returning None, meaning the live z-score signal
+    generator could never produce a real signal, only "no_recent_prices"
+    errors, no matter how fresh the underlying price data actually was.
+    Callers that only need the latest aligned price (the z-score path)
+    should pass a small min_rows (e.g. 2); the cointegration path keeps
+    the default of 60.
+    """
     try:
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -148,7 +183,7 @@ def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> Optional[p
                 """, (ticker, lookback_days + 30))
                 rows = cur.fetchall()
 
-        if not rows or len(rows) < 60:
+        if not rows or len(rows) < min_rows:
             return None
 
         df = pd.DataFrame([dict(r) for r in rows])
@@ -221,8 +256,8 @@ def compute_current_zscore(
     spread_mean: float,
     spread_std: float,
 ) -> Dict[str, Any]:
-    s_a = _fetch_closes(ticker_a, lookback_days=5)
-    s_b = _fetch_closes(ticker_b, lookback_days=5)
+    s_a = _fetch_closes(ticker_a, lookback_days=5, min_rows=2)
+    s_b = _fetch_closes(ticker_b, lookback_days=5, min_rows=2)
 
     if s_a is None or s_b is None or len(s_a) == 0 or len(s_b) == 0:
         return {"error": "no_recent_prices"}
@@ -325,6 +360,58 @@ def log_signal(signal: Dict[str, Any]) -> None:
         logger.error(f"[stat_arb] log_signal error: {e}")
 
 
+def _log_scan_run(pairs_evaluated: int, pairs_with_data: int,
+                   signals_found: int, max_abs_zscore: Optional[float],
+                   retest_pairs: bool, detail: List[Dict[str, Any]]) -> None:
+    """
+    C12 remediation: record ONE row per stat_arb_daily_scan() execution,
+    unconditionally — even when 0 active pairs exist or 0 signals fire.
+    This is what makes "the job ran today and legitimately found nothing"
+    provable and distinguishable from "the scheduler job silently died".
+    """
+    import json as _json
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO stat_arb_scan_log
+                        (pairs_evaluated, pairs_with_data, signals_found,
+                         max_abs_zscore, retest_pairs, detail_json)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    pairs_evaluated, pairs_with_data, signals_found,
+                    max_abs_zscore, retest_pairs, _json.dumps(detail),
+                ))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[stat_arb] _log_scan_run error: {e}")
+
+
+def get_last_scan_log(limit: int = 20) -> List[Dict[str, Any]]:
+    """C12: expose the run-level audit trail (liveness proof) for the dashboard/admin."""
+    try:
+        with _connect() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, scan_time, pairs_evaluated, pairs_with_data,
+                           signals_found, max_abs_zscore, retest_pairs, detail_json
+                    FROM stat_arb_scan_log
+                    ORDER BY scan_time DESC
+                    LIMIT %s
+                """, (limit,))
+                rows = cur.fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            if hasattr(d.get("scan_time"), "isoformat"):
+                d["scan_time"] = d["scan_time"].isoformat()
+            out.append(d)
+        return out
+    except Exception as e:
+        logger.error(f"[stat_arb] get_last_scan_log error: {e}")
+        return []
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DAILY SCAN
 # ─────────────────────────────────────────────────────────────────────────────
@@ -366,10 +453,14 @@ def stat_arb_daily_scan(
 
     if not db_pairs:
         logger.warning("[stat_arb] no active pairs in DB — run with retest_pairs=True first")
+        _log_scan_run(pairs_evaluated=0, pairs_with_data=0, signals_found=0,
+                      max_abs_zscore=None, retest_pairs=retest_pairs, detail=[])
         return []
 
     logger.info(f"[stat_arb] scoring {len(db_pairs)} active pairs...")
 
+    detail: List[Dict[str, Any]] = []
+    pairs_with_data = 0
     for row in db_pairs:
         signal = compute_current_zscore(
             ticker_a    = row["ticker_a"],
@@ -379,13 +470,24 @@ def stat_arb_daily_scan(
             spread_std  = row["spread_std"],
         )
         if signal.get("error"):
+            detail.append({"ticker_a": row["ticker_a"], "ticker_b": row["ticker_b"],
+                            "error": signal["error"]})
             continue
+        pairs_with_data += 1
         log_signal(signal)
+        detail.append({"ticker_a": signal["ticker_a"], "ticker_b": signal["ticker_b"],
+                        "zscore": signal["zscore"], "direction": signal["direction"],
+                        "signal_strength": signal["signal_strength"]})
         if signal["signal_strength"] != "NONE":
             active_signals.append(signal)
 
     active_signals.sort(key=lambda x: abs(x.get("zscore", 0)), reverse=True)
-    logger.info(f"[stat_arb] scan complete — {len(active_signals)} active signals")
+    max_abs_z = max((abs(d["zscore"]) for d in detail if "zscore" in d), default=None)
+    _log_scan_run(pairs_evaluated=len(db_pairs), pairs_with_data=pairs_with_data,
+                  signals_found=len(active_signals), max_abs_zscore=max_abs_z,
+                  retest_pairs=retest_pairs, detail=detail)
+    logger.info(f"[stat_arb] scan complete — {len(active_signals)} active signals "
+                f"(run logged: {pairs_with_data}/{len(db_pairs)} pairs had data)")
     return active_signals
 
 

@@ -311,6 +311,8 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
         }
 
     except Exception as exc:
+        import traceback as _dbg_tb
+        print(f"[layer9_debug] {ticker} raised: {exc}\n{_dbg_tb.format_exc()}")
         return {**_SAFE_DEFAULT, "ticker": ticker, "error": str(exc)}
 
 
@@ -337,7 +339,7 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
     results = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
-            pool.submit(compute_layer9_score, t, df, _chain_map.get(t)): t
+            pool.submit(compute_layer9_score, t, df, chain_df=_chain_map.get(t)): t
             for t, df in tickers_histories.items()
             if df is not None and not df.empty
         }

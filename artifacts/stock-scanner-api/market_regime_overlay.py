@@ -12,7 +12,7 @@ preserve capital and wait?" It never recommends going short or betting
 against the market — it only ever recommends full exposure, reduced
 exposure, or sitting out entirely.
 
-Combines up to 10 independent indicators, each contributing a vote, so no
+Combines up to 11 independent indicators, each contributing a vote, so no
 single noisy reading can dominate:
 
   1. VIX level & trend          — elevated/rising VIX = bad for new call risk
@@ -33,6 +33,11 @@ single noisy reading can dominate:
                                    broad risk-asset headwind
  10. Sector rotation breadth    — fraction of sector ETFs above 50d SMA;
                                    narrow breadth = late-stage-rally warning
+ 11. PCA absorption ratio       — fraction of cross-sectional return variance
+                                   explained by the top-N principal components
+                                   (Kritzman et al.); high = fragile,
+                                   correlated market, low = stock-picker's
+                                   market (advanced_quant_indicators.py)
 
 Each indicator returns a vote in {-1 (bearish/risk-off), 0 (neutral), 1 (bullish/risk-on)}.
 The combined score and a CLEAR, READABLE explanation of which indicators
@@ -62,6 +67,12 @@ try:
     _MACRO_AVAILABLE = True
 except ImportError:
     _MACRO_AVAILABLE = False
+
+try:
+    from advanced_quant_indicators import absorption_ratio as _absorption_ratio
+    _PCA_AVAILABLE = True
+except ImportError:
+    _PCA_AVAILABLE = False
 
 
 def vix_indicator(vix_history: pd.Series, lookback: int = 20) -> Dict[str, Any]:
@@ -146,6 +157,34 @@ def drawdown_indicator(price_history: pd.DataFrame, lookback_days: int = 60) -> 
     return {"vote": 0, "reason": f"Moderate drawdown ({abs(drawdown_pct):.1f}%) — no strong signal"}
 
 
+def pca_absorption_indicator(returns_matrix: pd.DataFrame, n_factors: int = 5,
+                              high_thresh: float = 0.65, low_thresh: float = 0.35) -> Dict[str, Any]:
+    """Absorption Ratio (Kritzman et al.) systemic-risk vote.
+
+    HIGH absorption (top n_factors principal components explain most of the
+    cross-sectional variance) means the market is trading as one correlated
+    block -- a fragile, "everything moves together" regime where individual
+    stock-picking edges (dark pool, gamma, sweep, etc.) are more likely to
+    get overrun by a broad risk-off wave. LOW absorption means idiosyncratic,
+    stock-specific moves dominate -- a supportive backdrop for signal-driven
+    call selection. This is deliberately ONE advisory vote among several
+    (see combine_regime_votes) -- it can never single-handedly flip the
+    recommendation, matching how every other indicator here is capped.
+    """
+    if returns_matrix is None or returns_matrix.empty or returns_matrix.shape[1] < n_factors + 1:
+        return {"vote": 0, "reason": "insufficient cross-sectional universe for absorption ratio"}
+    try:
+        ar = _absorption_ratio(returns_matrix, n_factors=n_factors)
+    except Exception as _e:
+        return {"vote": 0, "reason": f"absorption ratio unavailable: {_e}"}
+
+    if ar >= high_thresh:
+        return {"vote": -1, "reason": f"Absorption ratio {ar:.2f} (>= {high_thresh}) -- highly correlated/fragile market, idiosyncratic edges more likely to get overrun"}
+    if ar <= low_thresh:
+        return {"vote": 1, "reason": f"Absorption ratio {ar:.2f} (<= {low_thresh}) -- stock-picker's market, idiosyncratic moves dominate"}
+    return {"vote": 0, "reason": f"Absorption ratio {ar:.2f} -- unremarkable systemic-correlation level"}
+
+
 def _build_summary(recommendation: str, votes: List[Dict[str, Any]]) -> str:
     bearish_reasons = [v["reason"] for v in votes if v["vote"] == -1]
     bullish_reasons = [v["reason"] for v in votes if v["vote"] == 1]
@@ -166,6 +205,7 @@ def combine_regime_votes(
     decliners: Optional[pd.Series]             = None,
     put_call_ratio: Optional[float]            = None,
     regime_monitor_flags: Optional[List[Dict[str, Any]]] = None,
+    returns_matrix: Optional[pd.DataFrame]     = None,
 ) -> Dict[str, Any]:
     """Runs all available indicators, combines their votes, and produces a
     clear recommendation. Missing inputs are treated as neutral (vote=0),
@@ -181,6 +221,13 @@ def combine_regime_votes(
 
     if put_call_ratio is not None:
         votes.append({"indicator": "put_call_ratio", **put_call_ratio_indicator(put_call_ratio)})
+
+    if _PCA_AVAILABLE and returns_matrix is not None:
+        try:
+            votes.append({"indicator": "pca_absorption", **pca_absorption_indicator(returns_matrix)})
+        except Exception as _e:
+            votes.append({"indicator": "pca_absorption", "vote": 0,
+                          "reason": f"PCA absorption ratio unavailable: {_e}"})
 
     if regime_monitor_flags:
         critical = [f for f in regime_monitor_flags if f.get("severity") == "critical"]
@@ -241,13 +288,14 @@ def get_weekly_regime_check(
     decliners: Optional[pd.Series]             = None,
     put_call_ratio: Optional[float]            = None,
     regime_monitor_flags: Optional[List[Dict[str, Any]]] = None,
+    returns_matrix: Optional[pd.DataFrame]     = None,
 ) -> Dict[str, Any]:
     """Call this once a week (or before each batch of call recommendations).
     Logs the result through decision_logger so 'sit out' weeks are part of
     your reviewable track record just like trade decisions are."""
     result = combine_regime_votes(
         vix_history, price_history, advancers, decliners,
-        put_call_ratio, regime_monitor_flags,
+        put_call_ratio, regime_monitor_flags, returns_matrix,
     )
 
     dl.log_decision(
@@ -262,5 +310,5 @@ def get_weekly_regime_check(
 
 
 if __name__ == "__main__":
-    print("market_regime_overlay: combines 6 independent indicators into sit-out / reduce / full-exposure call.")
+    print("market_regime_overlay: combines 7 independent indicators into sit-out / reduce / full-exposure call.")
     print("Call get_weekly_regime_check() before sending your weekly email recommendations.")

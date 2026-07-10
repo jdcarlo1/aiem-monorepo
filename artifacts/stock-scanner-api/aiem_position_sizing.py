@@ -744,15 +744,18 @@ def _get_contrarian_context() -> dict:
     # HYG — credit health proxy (via Tradier quote)
     try:
         import urllib.request as _ur, json as _jh
-        _api = os.environ.get("TRADIER_API_TOKEN", "")
+        # Prefer TOKEN_2 (brokerage account, real-time data) matching the canonical
+        # convention used by every other Tradier caller in main.py; TRADIER_API_TOKEN
+        # alone is currently a revoked/invalid token (confirmed via live 401 test).
+        _api = os.environ.get("TRADIER_API_TOKEN_2") or os.environ.get("TRADIER_API_TOKEN", "")
         if _api:
-            req = urllib.request.Request(
+            req = _ur.Request(
                 "https://api.tradier.com/v1/markets/quotes?symbols=HYG",
                 headers={"Authorization": f"Bearer {_api}",
                          "Accept": "application/json"},
             )
-            with urllib.request.urlopen(req, timeout=4) as r:
-                data = json.loads(r.read())
+            with _ur.urlopen(req, timeout=4) as r:
+                data = _jh.loads(r.read())
             q = ((data.get("quotes") or {}).get("quote") or {})
             prev  = float(q.get("prevclose") or 0)
             last  = float(q.get("last") or 0)

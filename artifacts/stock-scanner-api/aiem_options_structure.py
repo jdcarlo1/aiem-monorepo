@@ -14,8 +14,10 @@ _TDC_TTL = 300  # 5-minute chain cache
 
 
 def _td_auth_headers() -> dict:
-    """Return Tradier auth headers from env, prefer primary token."""
-    tok = os.environ.get("TRADIER_API_TOKEN") or os.environ.get("TRADIER_API_TOKEN_2", "")
+    """Return Tradier auth headers from env. Prefer TRADIER_API_TOKEN_2 (brokerage
+    account, real-time data) matching the canonical convention used by every other
+    Tradier caller in main.py; fall back to TRADIER_API_TOKEN if unset."""
+    tok = os.environ.get("TRADIER_API_TOKEN_2") or os.environ.get("TRADIER_API_TOKEN", "")
     if not tok:
         return {}
     return {"Authorization": f"Bearer {tok}", "Accept": "application/json"}
