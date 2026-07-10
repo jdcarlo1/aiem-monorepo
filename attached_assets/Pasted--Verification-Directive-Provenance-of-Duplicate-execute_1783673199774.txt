@@ -1,0 +1,73 @@
+# Verification Directive: Provenance of Duplicate `execute_stage()` Call Sites
+
+## Context
+
+The Step 1 enumeration confirmed 6 real call sites for `.execute_stage(`. Of these, 4 are clustered in `main.py` within a ~250-line span, all calling `_d2_orch_mtm.execute_stage(`:
+
+- `main.py:43186`
+- `main.py:43359`
+- `main.py:43390`
+- `main.py:43431`
+
+Before accepting these as legitimate distinct call sites (e.g., a mutation-testing harness exercising the stage under different mutated conditions), I need proof they are not redundant, dead, or accidentally duplicated code.
+
+## Required Evidence (no narrative summaries — raw output only)
+
+### 1. Full function/method context for each call site
+Run and paste raw output:
+
+```
+sed -n '43150,43450p' main.py
+```
+
+I need to see the enclosing function(s) for all 4 call sites in one contiguous view, with line numbers, so I can see what differs between them.
+
+### 2. Diff the arguments passed at each call site
+For each of the 4 call sites, extract the full call expression (not just the line containing `execute_stage(`, but the complete statement including all arguments, which may span multiple lines). Paste as a labeled block:
+
+```
+--- 43186 ---
+<full call statement>
+
+--- 43359 ---
+<full call statement>
+
+--- 43390 ---
+<full call statement>
+
+--- 43431 ---
+<full call statement>
+```
+
+### 3. Prove each call site is reachable and distinct
+For each of the 4 call sites:
+- What is the enclosing function name and its caller (one level up)?
+- Under what condition/branch does execution reach this specific call (if/elif/else, loop iteration, exception handler, etc.)?
+- Command to show this: `grep -n "^def \|^class " main.py | awk -F: -v line=43186 '$1<line'| tail -3` (repeat for each line number)
+
+### 4. Confirm these are not copy-paste duplicates with no functional difference
+If two or more of the 4 call sites have **identical** arguments and are reachable under the same conditions, that's a red flag for dead/duplicated code, not a mutation-testing pattern. State explicitly: are all 4 reachable in the same execution run, or are they mutually exclusive branches?
+
+### 5. Git blame / history on the block
+```
+git log -p --follow -L 43150,43450:main.py | head -200
+```
+This shows whether these 4 call sites were added together (suggesting intentional mutation variants) or accreted separately over time (suggesting possible copy-paste drift).
+
+### 6. Return value handling
+For each of the 6 call sites total (not just the 4), show what happens to the return value — is it assigned, checked, logged, or silently discarded? This is the same class of bug previously caught in the bull/bear debate module (result computed then discarded), so confirm explicitly for each site:
+
+```
+grep -n -A 5 "execute_stage(" main.py d2_mutation_test.py
+```
+
+## Standard of Acceptance
+
+I will not accept:
+- "These are mutation test variants" as a bare claim
+- Any response that summarizes rather than pastes raw command output
+- Explanations without the actual call statements shown side by side
+
+I will accept:
+- Raw `sed`/`grep`/`git log` output as specified above
+- A clear, evidence-backed answer to: are these 4 call sites functionally distinct, and is each one's return value actually consumed?
