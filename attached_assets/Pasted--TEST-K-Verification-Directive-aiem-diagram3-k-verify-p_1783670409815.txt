@@ -1,0 +1,53 @@
+# TEST K Verification Directive — `aiem_diagram3_k_verify.py`
+
+**Standard for all answers below:** raw terminal output, raw SQL query results, file paths with line numbers, and git diffs only. No narrative summaries, no "this should work," no restating what the code is supposed to do. If a claim can't be backed by pasted evidence, it doesn't count as verified — mark it BLOCKED and say why.
+
+---
+
+## 1. Live-state safety
+
+**1.1** — Paste the schema / any code that reads `d3_system_state` concurrently with this test (other than TEST K itself). For each reader, confirm with a code excerpt (file + line numbers) what it does when it observes `PAUSED` or `RECOVERY_REQUIRED`. Does it reject/queue/log real trade requests during the test window?
+
+**1.2** — Is there a lock, advisory lock, or mutex preventing two concurrent runs of this script (or this script + a cron job) against the same `d3_system_state` row? Show the code, or show a raw terminal output of two overlapping runs and the resulting state.
+
+**1.3** — Kill the process mid-run with `kill -9` (not Ctrl+C, not a Python exception) while state is `PAUSED` or `RECOVERY_REQUIRED`. Paste the raw `SELECT state FROM d3_system_state WHERE id = 1` result immediately after the kill. Does it stay stuck, or is there separate recovery tooling? If stuck, what is the exact manual recovery command?
+
+---
+
+## 2. Baseline freeze idempotency (the bug claimed fixed)
+
+**2.1** — Run `SELECT updated_at, hash FROM d3_architecture_baseline` (or equivalent) immediately before and immediately after a full TEST K run. Paste both raw query results side by side. They must be byte-identical if `force=False` is truly a no-op read.
+
+**2.2** — Show the actual source of `run_phase0_baseline_freeze()` (file + line numbers) for the `force=False` branch specifically — not the `force=True` branch — and confirm it contains no `INSERT`/`UPDATE`/`WRITE` calls in that branch.
+
+**2.3** — What does `force=False` do if no baseline row exists yet (fresh/empty table)? Paste raw output of a run against an empty `d3_architecture_baseline` table. Does it silently create one, or fail loudly with a clear error? (A silent create here would mask a genuinely broken startup sequence elsewhere.)
+
+---
+
+## 3. Does GO actually block, or does it just report that it would?
+
+**3.1** — For each of the three steps (baseline/PAUSED/RECOVERY_REQUIRED), paste the raw printed value of `res.get('mode')` from `_g0_trade_executing` — not the pass/fail summary line, the actual dict contents — confirming `ENFORCE` was live at call time, not `SHADOW` or unset.
+
+**3.2** — Search the codebase for every call site of whatever function actually executes a trade (grep for the real execution function, not just `_g0_trade_executing`). Paste the grep output with file + line numbers. For each call site, confirm it routes through `require_governance_authorization`. Flag any that don't.
+
+---
+
+## 4. Test correctness / false-PASS risk
+
+**4.1** — Paste the full definition of `res.get('decision')` possible values and every condition under which `"BLOCK"` can be returned (file + line numbers). Confirm `ok1_block` / `ok2_block` can only be `True` because of the PAUSED/RECOVERY_REQUIRED state check specifically, not some unrelated gate (rate limit, quota, etc.) that would produce a false PASS.
+
+**4.2** — Run a query against wherever conviction scores / executed-trade counts / P&L are aggregated (name the actual table). Paste raw query results before and after a TEST K run confirming `is_test_record=True` rows are excluded from those aggregates. If they're not excluded, this is a real data-integrity bug, not a nitpick.
+
+---
+
+## 5. Operational
+
+**5.1** — Paste the raw exit code (`echo $?`) after a run with zero failures, and after a run you've deliberately forced to fail (e.g., temporarily break the GO checkpoint). They must differ, and the failure case must be non-zero.
+
+**5.2** — Paste full raw terminal output of one complete successful run start to finish, immediately followed by a second back-to-back run. Confirm both report the same final `state_before == NORMAL` and no drift in checkpoint modes between runs.
+
+---
+
+## Verdict format required
+
+For each numbered item: **VERIFIED** (with pasted evidence inline) or **BLOCKED** (with the specific reason it couldn't be verified — missing table, no access, code doesn't exist, etc.). No item gets marked verified without the raw artifact pasted directly into the response.
