@@ -1161,6 +1161,8 @@ def _td_chain(ticker: str, expiry: str):
             bid = float(o.get("bid")  or 0)
             ask = float(o.get("ask")  or 0)
             mid = (bid + ask) / 2 if bid and ask else float(o.get("last") or 0)
+            _greeks = o.get("greeks") or {}
+            _delta = _greeks.get("delta")
             row = {
                 "strike":            strike,
                 "lastPrice":         mid,
@@ -1168,7 +1170,8 @@ def _td_chain(ticker: str, expiry: str):
                 "ask":               ask,
                 "volume":            int(o.get("volume")              or 0),
                 "openInterest":      int(o.get("open_interest")       or 0),
-                "impliedVolatility": float((o.get("greeks") or {}).get("mid_iv") or 0),
+                "impliedVolatility": float(_greeks.get("mid_iv") or 0),
+                "delta":             float(_delta) if _delta not in (None, "") else None,
                 "inTheMoney":        bool(o.get("in_the_money")       or False),
                 "contractSymbol":    str(o.get("symbol")              or ""),
                 "expiration":        expiry,
@@ -1453,10 +1456,9 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
 
     rows = []
     iv_source = "chain"
-    for pct in depths:
-        target_strike = round(spot * (1 - pct / 100.0), 2)
-        calls["_dist"] = (calls["strike"] - target_strike).abs()
-        row = calls.loc[calls["_dist"].idxmin()]
+
+    def _build_row(row, depth_pct, extra=None):
+        nonlocal iv_source
         strike = float(row["strike"])
         bid, ask = float(row.get("bid") or 0), float(row.get("ask") or 0)
         premium = float(row.get("lastPrice") or 0)
@@ -1470,15 +1472,19 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
             iv_used = hist_iv or 0.0
             iv_source = "historical"
 
+        base = {"depth_pct": depth_pct, "strike": strike}
+        if extra:
+            base.update(extra)
+
         if premium <= 0:
-            rows.append({
-                "depth_pct": pct, "strike": strike, "premium": None,
+            base.update({
+                "premium": None,
                 "expiration_bep": None, "holding_bep": None,
                 "win_probability": None, "iv_used": round(iv_used, 1),
                 "note": "No live quote for this strike right now.",
                 "liquidity": None, "verdict": "NO_QUOTE", "suggested_limit": None,
             })
-            continue
+            return base
 
         expiration_bep = round(strike + premium, 2)
         T_remaining_days = max(dte - hold_days, 0)
@@ -1514,9 +1520,7 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
         verdict = "TRADEABLE" if liquidity["passed"] else "REJECTED_ILLIQUID"
         suggested_limit = round(mid, 2) if (liquidity["passed"] and mid) else None
 
-        rows.append({
-            "depth_pct":       pct,
-            "strike":          strike,
+        base.update({
             "premium":         round(premium, 2),
             "bid":             round(bid, 2),
             "ask":             round(ask, 2),
@@ -1531,6 +1535,33 @@ def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte
             "verdict":         verdict,
             "suggested_limit": suggested_limit,
         })
+        return base
+
+    for pct in depths:
+        target_strike = round(spot * (1 - pct / 100.0), 2)
+        calls["_dist"] = (calls["strike"] - target_strike).abs()
+        sel = calls.loc[calls["_dist"].idxmin()]
+        rows.append(_build_row(sel, pct))
+
+    # ── Delta-targeted deep-ITM row (InstitutionalAEMIProcessor spec):
+    # target_delta=0.80, i.e. select by real option delta from the chain
+    # rather than a flat % distance from spot. Requires Tradier greeks.delta
+    # to be present on the chain; if no calls have delta data (e.g. outside
+    # market hours), this row is honestly omitted rather than faked. ──
+    target_delta = 0.80
+    if "delta" in calls.columns:
+        valid = calls[calls["delta"].notna()]
+        if not valid.empty:
+            valid = valid.copy()
+            valid["_ddist"] = (valid["delta"].astype(float) - target_delta).abs()
+            dsel = valid.loc[valid["_ddist"].idxmin()]
+            actual_delta = float(dsel["delta"])
+            deep_itm_pct = round((1 - float(dsel["strike"]) / spot) * 100, 1)
+            rows.append(_build_row(dsel, deep_itm_pct, extra={
+                "strategy":     "deep_itm_delta_target",
+                "target_delta": target_delta,
+                "delta":        round(actual_delta, 3),
+            }))
 
     return {
         "ticker":         ticker,

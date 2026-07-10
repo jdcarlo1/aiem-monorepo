@@ -12888,6 +12888,9 @@ interface OptionProbRow {
   liquidity?: OptionRowLiquidity | null;
   verdict?: string;
   suggested_limit?: number | null;
+  strategy?: string;
+  delta?: number;
+  target_delta?: number;
 }
 
 interface UnavailableFactor {
@@ -13026,6 +13029,7 @@ function OptionsProbabilityCalculator() {
               <thead>
                 <tr style={{ color: "#5f7a99", textAlign: "left", borderBottom: "1px solid #1c3350" }}>
                   <th style={{ padding: "6px 8px" }}>ITM Depth</th>
+                  <th style={{ padding: "6px 8px" }}>Delta</th>
                   <th style={{ padding: "6px 8px" }}>Strike</th>
                   <th style={{ padding: "6px 8px" }}>Premium</th>
                   <th style={{ padding: "6px 8px" }}>Exp. BEP</th>
@@ -13042,7 +13046,15 @@ function OptionsProbabilityCalculator() {
                   const tradeable = row.verdict === "TRADEABLE";
                   return (
                     <tr key={i} style={{ borderBottom: "1px solid #14213a" }}>
-                      <td style={{ padding: "8px" }}>{row.depth_pct}% ITM</td>
+                      <td style={{ padding: "8px" }}>
+                        {row.depth_pct}% ITM
+                        {row.strategy === "deep_itm_delta_target" && (
+                          <span style={{ display: "block", fontSize: 9, color: "#e8b84b", marginTop: 2 }}>
+                            Δ-target {row.target_delta?.toFixed(2)} (deep ITM)
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "8px", color: "#8fa8c4" }}>{row.delta != null ? row.delta.toFixed(2) : "—"}</td>
                       <td style={{ padding: "8px" }}>${row.strike.toFixed(2)}</td>
                       <td style={{ padding: "8px" }}>{row.premium != null ? `$${row.premium.toFixed(2)}` : "—"}</td>
                       <td style={{ padding: "8px" }}>{row.expiration_bep != null ? `$${row.expiration_bep.toFixed(2)}` : "—"}</td>
