@@ -1,0 +1,129 @@
+import os
+import numpy as np
+import scipy.stats as si
+from datetime import datetime, timedelta
+from polygon import RESTClient
+
+# ==========================================
+# ⚙️ INITIALIZE APIS & CONFIGURATION
+# ==========================================
+# Ensure your Polygon API key is set in your Replit Secrets environment variables
+POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "YOUR_ACTUAL_API_KEY")
+client = RESTClient(api_key=POLYGON_API_KEY)
+
+class AEMIQuantEngine:
+    @staticmethod
+    def get_market_data(ticker):
+        """Fetches live stock spot price and a 45-day historical volatility proxy."""
+        try:
+            # 1. Gather live underlying spot price
+            snapshot = client.get_snapshot_ticker("stocks", ticker)
+            if snapshot and snapshot.day:
+                spot_price = snapshot.day.last_close if snapshot.day.last_close else snapshot.prev_day.close
+            else:
+                spot_price = snapshot.prev_day.close
+
+            # 2. Gather 45 days of aggregate bars to calculate mathematical variance
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=45)
+            bars = client.get_aggs(ticker, 1, "day", start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+            
+            closes = [bar.close for bar in bars if bar.close is not None]
+            if len(closes) < 2:
+                raise ValueError("Insufficient aggregate data returned.")
+                
+            # Log-normal continuous return mapping for annualized volatility proxy
+            log_returns = np.log(np.array(closes[1:]) / np.array(closes[:-1]))
+            historical_annualized_iv = np.std(log_returns) * np.sqrt(252) * 100
+            
+            return spot_price, round(historical_annualized_iv, 2)
+        except Exception as e:
+            print(f"❌ Polygon Data Tunnel Error: {e}")
+            return None, None
+
+    @staticmethod
+    def calculate_probability_at_exit(spot_price, strike_price, iv, days_to_hold, r=0.045):
+        """
+        Calculates the probability of the option remaining ITM at the exact exit window.
+        CRITICAL MATH SHIFT: T uses days_to_hold, NOT days to contract expiration.
+        """
+        sigma = iv / 100.0
+        T = days_to_hold / 365.0  # Time constraint locked to your exact exit horizon
+        
+        if T <= 0 or sigma <= 0:
+            return 100.0 if spot_price > strike_price else 0.0
+            
+        # Log-normal distribution d2 density isolation
+        d2 = (np.log(spot_price / strike_price) + (r - 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        probability = si.norm.cdf(d2) * 100
+        return round(probability, 2)
+
+# ==========================================
+# 🤖 ROBOT INTERACTION & EXECUTION FLOW
+# ==========================================
+def run_aemi_robot():
+    print("🤖 [AEMI Robot]: Initializing data pipelines and mathematical arrays...")
+    
+    # 1. Accept Core Inputs
+    ticker = input("📥 Enter Stock Ticker (e.g., NVDA, TSLA): ").upper().strip()
+    exp_input = input("📥 Enter Option Expiration Date (YYYY-MM-DD): ").strip()
+    
+    # 2. Validate Expiration Guardrail (Must be 7 days or less)
+    try:
+        expiry_date = datetime.strptime(exp_input, "%Y-%m-%d").date()
+        days_to_expiry = (expiry_date - datetime.now().date()).days
+        
+        if days_to_expiry < 0:
+            print("🛑 Execution Refused: Expiration date is in the past.")
+            return
+        elif days_to_expiry > 7:
+            print(f"🛑 Execution Refused: Expiration is {days_to_expiry} days out. Strategy requires 7 days or less.")
+            return
+    except ValueError:
+        print("🛑 Execution Refused: Invalid date format. Use YYYY-MM-DD.")
+        return
+
+    # 3. Accept Hold Window Input (1 or 2 days)
+    try:
+        days_to_hold = int(input("📥 Enter your planned holding duration in days (1 or 2): ") or 2)
+        if days_to_hold not in [1, 2]:
+            print("⚠️ Warning: Strategy optimized for short holding windows. Overriding to 2 days.")
+            days_to_hold = 2
+    except ValueError:
+        days_to_hold = 2
+
+    # 4. Sync Market Variables via Polygon Client
+    spot, iv = AEMIQuantEngine.get_market_data(ticker)
+    if spot is None:
+        print("🛑 Critical Failure: Execution stalled. Could not verify asset variables.")
+        return
+        
+    # Target Delta Matrix Depth Arrays
+    itm_depths = [5, 10, 15]
+    
+    # 5. Output Robot Analytical Summary
+    print("\n" + "="*65)
+    print(f"🤖 AEMI AUTONOMOUS RISK EVALUATION CARD: {ticker}")
+    print("="*65)
+    print(f"📈 Current Spot Price:   ${spot:.2f}")
+    print(f"📅 Contract Expiration:  {expiry_date} ({days_to_expiry} Days Out)")
+    print(f"🕒 Intended Exit Window: After {days_to_hold} Day(s) of Holding (Before Expiry)")
+    print(f"🔥 Annualized Vol Proxy: {iv}%")
+    print("-"*65)
+    print(f"{'STRATEGY':<12} | {'TARGET STRIKE':<15} | {'PROBABILITY AT EXIT':<20}")
+    print("-"*65)
+    
+    for pct in itm_depths:
+        # Mathematical derivation for Call Option strike price at specific ITM depth
+        # To be X% ITM at purchase, the Strike Price must sit exactly X% below current spot
+        target_strike = round(spot * (1 - (pct / 100)), 2)
+        
+        # Run standard deviation math focused strictly on your hold window (days_to_hold)
+        prob = AEMIQuantEngine.calculate_probability_at_exit(spot, target_strike, iv, days_to_hold)
+        
+        print(f"{f'{pct}% ITM':<12} | {f'${target_strike:<14.2f}'} | {f'{prob}%':<20}")
+        
+    print("="*65 + "\n")
+
+if __name__ == "__main__":
+    run_aemi_robot()

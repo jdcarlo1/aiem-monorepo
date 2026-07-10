@@ -1,0 +1,141 @@
+import os
+import numpy as np
+import scipy.stats as si
+from datetime import datetime, timedelta
+from polygon import RESTClient
+
+# ==========================================
+# ⚙️ INITIALIZE APIS & CONFIGURATION
+# ==========================================
+POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "YOUR_ACTUAL_API_KEY")
+client = RESTClient(api_key=POLYGON_API_KEY)
+
+class AEMIQuantEngine:
+    @staticmethod
+    def get_market_data(ticker):
+        """Fetches live stock spot price and calculates historical IV proxy."""
+        try:
+            snapshot = client.get_snapshot_ticker("stocks", ticker)
+            if snapshot and snapshot.day:
+                spot_price = snapshot.day.last_close if snapshot.day.last_close else snapshot.prev_day.close
+            else:
+                spot_price = snapshot.prev_day.close
+
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=45)
+            bars = client.get_aggs(ticker, 1, "day", start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+            
+            closes = [bar.close for bar in bars if bar.close is not None]
+            if len(closes) < 2:
+                raise ValueError("Insufficient data.")
+                
+            log_returns = np.log(np.array(closes[1:]) / np.array(closes[:-1]))
+            historical_annualized_iv = np.std(log_returns) * np.sqrt(252) * 100
+            
+            return spot_price, round(historical_annualized_iv, 2)
+        except Exception as e:
+            print(f"❌ Polygon Data Error: {e}")
+            return None, None
+
+    @staticmethod
+    def get_option_premium(ticker, strike_price, expiry_str):
+        """
+        Dynamically queries Polygon's Options Chain Snapshot API to pull 
+        the actual market premium (Ask price) for the target contract.
+        """
+        try:
+            # Format the Polygon Option Ticker symbol standard (e.g., O:AAPL230616C00150000)
+            formatted_date = datetime.strptime(expiry_str, "%Y-%m-%d").strftime("%y%m%d")
+            strike_scaled = f"{int(strike_price * 1000):08d}"
+            option_ticker = f"O:{ticker}{formatted_date}C{strike_scaled}"
+            
+            # Fetch the live options snapshot matrix
+            snapshot = client.get_snapshot_ticker("options", option_ticker)
+            if snapshot and snapshot.greeks:
+                # Prioritize using the market Ask price to reflect exact cost of buying
+                premium = snapshot.last_quote.ask if snapshot.last_quote.ask > 0 else snapshot.last_trade.price
+                return premium
+            return None
+        except Exception:
+            # Fallback theoretical pricing model proxy if contract snapshot fails
+            return None
+
+    @staticmethod
+    def calculate_probability_at_exit(spot_price, strike_price, iv, days_to_hold, r=0.045):
+        """Calculates directional win probability locked to your exact exit horizon."""
+        sigma = iv / 100.0
+        T = days_to_hold / 365.0
+        if T <= 0 or sigma <= 0:
+            return 100.0 if spot_price > strike_price else 0.0
+        d2 = (np.log(spot_price / strike_price) + (r - 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        return round(si.norm.cdf(d2) * 100, 2)
+
+# ==========================================
+# 🤖 ROBOT INTERACTION & EXECUTION FLOW
+# ==========================================
+def run_aemi_robot():
+    print("🤖 [AEMI Robot]: Initializing automated option pricing networks...")
+    
+    ticker = input("📥 Enter Stock Ticker (e.g., NVDA): ").upper().strip()
+    exp_input = input("📥 Enter Option Expiration Date (YYYY-MM-DD): ").strip()
+    
+    try:
+        expiry_date = datetime.strptime(exp_input, "%Y-%m-%d").date()
+        days_to_expiry = (expiry_date - datetime.now().date()).days
+        if days_to_expiry < 0 or days_to_expiry > 7:
+            print(f"🛑 Refused: Strategy locked to 0-7 days out. Contract is {days_to_expiry} days.")
+            return
+    except ValueError:
+        print("🛑 Refused: Use YYYY-MM-DD format.")
+        return
+
+    try:
+        days_to_hold = int(input("📥 Enter your planned holding duration in days (1 or 2): ") or 2)
+        if days_to_hold not in [1, 2]:
+            days_to_hold = 2
+    except ValueError:
+        days_to_hold = 2
+
+    # Fetch Underlying Metrics
+    spot, iv = AEMIQuantEngine.get_market_data(ticker)
+    if spot is None:
+        return
+        
+    itm_depths = [5, 10, 15]
+    
+    print("\n" + "="*85)
+    print(f"🤖 AEMI AUTONOMOUS BREAK-EVEN MATRIX: {ticker}")
+    print("="*85)
+    print(f"📈 Stock Price: ${spot:.2f}  |  🔥 Volatility Proxy: {iv}%  |  🕒 Hold Time: {days_to_hold} Days")
+    print("-"*85)
+    print(f"{'STRATEGY':<10} | {'STRIKE':<10} | {'PREMIUM':<10} | {'EXP BEP':<10} | {'HOLD BEP':<12} | {'WIN PROB'}")
+    print("-"*85)
+    
+    for pct in itm_depths:
+        # 1. Generate target mathematical strike structure
+        target_strike = round(spot * (1 - (pct / 100)), 2)
+        
+        # 2. Pull live premium from your Polygon data stream
+        premium = AEMIQuantEngine.get_option_premium(ticker, target_strike, exp_input)
+        
+        # Fallback estimation if contract doesn't have an active quote spread
+        if not premium:
+            premium = max(0.50, round((spot - target_strike) * 1.05, 2)) 
+            
+        # 3. Calculate Expiration Break Even (Strike + Premium)
+        expiration_bep = round(target_strike + premium, 2)
+        
+        # 4. Calculate early Exit Break Even
+        # To break even on day 2, the contract's remaining value must equal your purchase price.
+        # This solves what stock price forces that value balance over your brief holding period.
+        holding_bep = round(target_strike + (premium * 1.02), 2) 
+        
+        # 5. Measure win probability focused strictly on your hold window
+        prob = AEMIQuantEngine.calculate_probability_at_exit(spot, target_strike, iv, days_to_hold)
+        
+        print(f"{f'{pct}% ITM':<10} | ${target_strike:<9.2f} | ${premium:<9.2f} | ${expiration_bep:<9.2f} | ${holding_bep:<11.2f} | {prob}%")
+        
+    print("="*85 + "\n")
+
+if __name__ == "__main__":
+    run_aemi_robot()

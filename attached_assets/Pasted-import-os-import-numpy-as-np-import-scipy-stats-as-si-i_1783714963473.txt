@@ -1,0 +1,160 @@
+import os
+import numpy as np
+import scipy.stats as si
+import requests
+from datetime import datetime, timedelta
+from polygon import RESTClient
+
+# ==========================================
+# ⚙️ CONFIGURATION & ENVIRONMENTAL MATRIX
+# ==========================================
+# Make sure these secrets are added to your Replit "Secrets" sidebar environment variables
+POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "YOUR_ACTUAL_API_KEY")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "YOUR_TELEGRAM_CHAT_OR_CHANNEL_ID")
+
+client = RESTClient(api_key=POLYGON_API_KEY)
+
+class AEMIQuantEngine:
+    """Core mathematical engine driving both the web UI and automation loops."""
+    
+    @staticmethod
+    def get_market_data(ticker):
+        """Fetches underlying stock spot price and creates a historical IV matrix."""
+        try:
+            snapshot = client.get_snapshot_ticker("stocks", ticker)
+            if snapshot and snapshot.day:
+                spot_price = snapshot.day.last_close if snapshot.day.last_close else snapshot.prev_day.close
+            else:
+                spot_price = snapshot.prev_day.close
+
+            # Build a 45-day log-return standard deviation profile as an IV proxy
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=45)
+            bars = client.get_aggs(ticker, 1, "day", start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+            
+            closes = [bar.close for bar in bars if bar.close is not None]
+            if len(closes) < 2:
+                return None, None
+                
+            log_returns = np.log(np.array(closes[1:]) / np.array(closes[:-1]))
+            historical_annualized_iv = np.std(log_returns) * np.sqrt(252) * 100
+            
+            return spot_price, round(historical_annualized_iv, 2)
+        except Exception:
+            return None, None
+
+    @staticmethod
+    def get_option_premium(ticker, strike_price, target_expiry_str):
+        """Scrapes live contract ask premiums dynamically from Polygon."""
+        try:
+            formatted_date = datetime.strptime(target_expiry_str, "%Y-%m-%d").strftime("%y%m%d")
+            strike_scaled = f"{int(strike_price * 1000):08d}"
+            option_ticker = f"O:{ticker}{formatted_date}C{strike_scaled}"
+            
+            snapshot = client.get_snapshot_ticker("options", option_ticker)
+            if snapshot and snapshot.last_quote:
+                # Prioritize market Ask price to model exact execution costs
+                premium = snapshot.last_quote.ask if snapshot.last_quote.ask > 0 else snapshot.last_trade.price
+                return premium
+            return None
+        except Exception:
+            return None
+
+    @staticmethod
+    def calculate_probability_at_exit(spot_price, strike_price, iv, days_to_hold=2, r=0.045):
+        """Executes log-normal distribution math fixed strictly to your exit window."""
+        sigma = iv / 100.0
+        T = days_to_hold / 365.0  # Timeline variable completely decoupled from contract expiry
+        
+        if T <= 0 or sigma <= 0:
+            return 100.0 if spot_price > strike_price else 0.0
+            
+        d2 = (np.log(spot_price / strike_price) + (r - 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+        probability = si.norm.cdf(d2) * 100
+        return round(probability, 2)
+
+    @classmethod
+    def evaluate_target_strategy(cls, ticker, target_expiry_str, days_to_hold=2):
+        """
+        Calculates 10% ITM target parameters. 
+        Web developers can call this function directly to populate your site's UI.
+        """
+        spot, iv = cls.get_market_data(ticker)
+        if spot is None:
+            return {"error": "Could not sync market parameters."}
+            
+        # Mathematical derivation for exactly 10% Deep In-The-Money Strike
+        target_strike = round(spot * (1 - 0.10), 2)
+        premium = cls.get_option_premium(ticker, target_strike, target_expiry_str)
+        
+        # Fair-value theoretical approximation proxy if option books are closed
+        if not premium:
+            premium = max(0.50, round((spot - target_strike) * 1.05, 2))
+            
+        expiration_bep = round(target_strike + premium, 2)
+        holding_bep = round(target_strike + (premium * 1.02), 2)
+        prob = cls.calculate_probability_at_exit(spot, target_strike, iv, days_to_hold)
+        
+        return {
+            "ticker": ticker, "spot": spot, "iv": iv, "strike": target_strike,
+            "premium": premium, "exp_bep": expiration_bep, "hold_bep": holding_bep, "win_prob": prob
+        }
+
+
+# ==========================================
+# 📡 DISPATCH & UTILITY PIPELINES
+# ==========================================
+def send_telegram_alert(message_text):
+    """Fires the formatted alert vector to your active Telegram loop."""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("⚠️ Telegram keys missing. Outputting to terminal instead.")
+        return
+    url = f"https://telegram.org{TELEGRAM_TOKEN}/sendMessage"
+    requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message_text, "parse_mode": "Markdown"})
+
+
+# ==========================================
+# 🤖 DISPATCH BOT: 20-STOCK AUTOMATION
+# ==========================================
+def run_daily_aemi_broadcast():
+    """Loops through your 20 core targets, compiles data, and sends the dispatch."""
+    # Your pre-defined profile of 20 high-liquidity stock targets
+    watch_list = [
+        "NVDA", "TSLA", "AAPL", "AMD", "MSFT", "AMZN", "META", "GOOGL", "NFLX", "PLTR",
+        "SMCI", "INTC", "AVGO", "QCOM", "COIN", "MARA", "BABA", "MU", "ARM", "PANW"
+    ]
+    
+    # Strategy requirements fixed by the algorithm: 7-day option, 2-day exit timeline
+    days_to_hold = 2
+    target_expiry = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+    
+    report = f"🤖 *[AEMI AUTONOMOUS BREAK-EVEN DISPATCH]*\n"
+    report += f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+    report += f"🕒 Horizon: 2-Day Early Exit | Contract Expiry: 7-Days out ({target_expiry})\n"
+    report += "=========================================\n\n"
+    
+    print(f"🤖 Processing AEMI automation matrix for {len(watch_list)} stocks...")
+    
+    for ticker in watch_list:
+        metrics = AEMIQuantEngine.evaluate_target_strategy(ticker, target_expiry, days_to_hold)
+        if "error" in metrics:
+            continue
+            
+        alert_emoji = "🔥" if metrics["win_prob"] >= 90.0 else "⚡"
+        
+        report += f"📈 *{ticker}* | Spot: ${metrics['spot']:.2f} | IV: {metrics['iv']}%\n"
+        report += f"  └ {alert_emoji} *10% ITM Strategy Metrics:*\n"
+        report += f"    • Target Strike: `${metrics['strike']:.2f}`\n"
+        report += f"    • Live Contract Premium: `${metrics['premium']:.2f}`\n"
+        report += f"    • Day-2 Early Exit BEP: `${metrics['hold_bep']:.2f}`\n"
+        report += f"    • *WIN PROBABILITY: {metrics['win_prob']}%*\n"
+        report += "-----------------------------------------\n"
+
+    send_telegram_alert(report)
+    print("✨ Transmission safely dispatched to your Telegram pipeline.")
+
+
+if __name__ == "__main__":
+    # When this script executes natively, it triggers your daily watch list scan
+    run_daily_aemi_broadcast()

@@ -1,0 +1,95 @@
+import os
+import numpy as np
+import scipy.stats as si
+from datetime import datetime, timedelta
+from polygon import RESTClient
+
+# ==========================================
+# ⚙️ INITIALIZE APIS & CONFIGURATION
+# ==========================================
+POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "YOUR_ACTUAL_API_KEY")
+client = RESTClient(api_key=POLYGON_API_KEY)
+
+def get_market_data(ticker):
+    """Fetches real-time spot price and calculates a 45-day historical IV proxy."""
+    try:
+        snapshot = client.get_snapshot_ticker("stocks", ticker)
+        if snapshot and snapshot.day:
+            spot_price = snapshot.day.last_close if snapshot.day.last_close else snapshot.prev_day.close
+        else:
+            spot_price = snapshot.prev_day.close
+
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=45)
+        bars = client.get_aggs(ticker, 1, "day", start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+        
+        closes = [bar.close for bar in bars if bar.close is not None]
+        if len(closes) < 2:
+            raise ValueError("Insufficient pricing data.")
+            
+        log_returns = np.log(np.array(closes[1:]) / np.array(closes[:-1]))
+        historical_annualized_iv = np.std(log_returns) * np.sqrt(252) * 100
+        return spot_price, round(historical_annualized_iv, 2)
+    except Exception as e:
+        print(f"❌ Data Fetch Error: {e}")
+        return None, None
+
+def calculate_probability(spot_price, strike_price, iv, days_to_expiry, r=0.045):
+    """Executes log-normal distribution equations to isolate directional probability."""
+    sigma = iv / 100.0
+    T = days_to_expiry / 365.0
+    if T <= 0 or sigma <= 0:
+        return 100.0 if spot_price > strike_price else 0.0
+    d2 = (np.log(spot_price / strike_price) + (r - 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    return round(si.norm.cdf(d2) * 100, 2)
+
+# ==========================================
+# 🤖 ENGINE EXECUTION WORKFLOW
+# ==========================================
+def run_aemi_calculator():
+    print("🤖 [AEMI Engine]: Connecting to Polygon.io Data Tunnels...")
+    ticker = input("📥 Enter Stock Ticker (e.g., AAPL, NVDA): ").upper().strip()
+    
+    # NEW: Capture specific Expiration Date instead of manual days input
+    exp_input = input("📥 Enter Option Expiration Date (YYYY-MM-DD): ").strip()
+    try:
+        expiry_date = datetime.strptime(exp_input, "%Y-%m-%d").date()
+        days_to_expiry = (expiry_date - datetime.now().date()).days
+        if days_to_expiry < 0:
+            print("🛑 Error: Expiration date must be in the future.")
+            return
+    except ValueError:
+        print("🛑 Error: Invalid date format. Please use YYYY-MM-DD.")
+        return
+
+    # Pipeline Processing
+    spot, iv = get_market_data(ticker)
+    if spot is None:
+        print("🛑 Critical Failure: Could not synchronize with Polygon stream.")
+        return
+        
+    # Define target Deep In-The-Money (ITM) percentages to calculate
+    itm_percentages = [5, 10, 15]
+    
+    # Output Terminal Card
+    print("\n" + "="*60)
+    print(f"🎯 AEMI MULTI-DEPTH QUANT CARD: {ticker}")
+    print("="*60)
+    print(f"📈 Current Spot Price:   ${spot}")
+    print(f"🕒 Days to Expiration:   {days_to_expiry} Days ({expiry_date})")
+    print(f"🔥 Current Implied Vol:  {iv}%")
+    print("-"*60)
+    print(f"{'ITM DEPTH':<12} | {'TARGET STRIKE':<15} | {'WIN PROBABILITY':<15}")
+    print("-"*60)
+    
+    for pct in itm_percentages:
+        # Mathematical derivation for Call Option strike price at specific ITM depth
+        # For a Call option to be X% ITM, the Strike Price must be X% below the Spot Price
+        target_strike = round(spot * (1 - (pct / 100)), 2)
+        prob = calculate_probability(spot, target_strike, iv, days_to_expiry)
+        print(f"{f'{pct}% ITM':<12} | {f'${target_strike}':<15} | {f'{prob}%':<15}")
+        
+    print("="*60 + "\n")
+
+if __name__ == "__main__":
+    run_aemi_calculator()

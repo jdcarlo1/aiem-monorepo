@@ -1,0 +1,88 @@
+import os
+import numpy as np
+import scipy.stats as si
+from datetime import datetime, timedelta
+from polygon import RESTClient
+
+# ==========================================
+# ⚙️ INITIALIZE APIS & CONFIGURATION
+# ==========================================
+# Instruct your robot to add your Polygon API key to Replit's "Secrets" environment variables
+POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "YOUR_ACTUAL_API_KEY")
+client = RESTClient(api_key=POLYGON_API_KEY)
+
+def get_market_data(ticker):
+    """
+    Fetches the real-time stock price and general implied volatility metrics 
+    directly from the Polygon.io API endpoints.
+    """
+    try:
+        # 1. Fetch real-time snapshot for current underlying stock price
+        snapshot = client.get_snapshot_ticker("stocks", ticker)
+        spot_price = snapshot.day.last_close if snapshot.day else snapshot.prev_day.close
+        
+        # 2. Query technical indicators or front-month option aggregates for Implied Volatility
+        # Note: If your Polygon plan lacks direct option aggregates, we fallback to a 30-day historical standard deviation proxy.
+        bars = client.get_aggs(ticker, 1, "day", datetime.now() - timedelta(days=45), datetime.now())
+        closes = [bar.close for bar in bars]
+        log_returns = np.log(np.array(closes[1:]) / np.array(closes[:-1]))
+        historical_annualized_iv = np.std(log_returns) * np.sqrt(252) * 100
+        
+        return spot_price, round(historical_annualized_iv, 2)
+    except Exception as e:
+        print(f"❌ Data Fetch Error: {e}")
+        return None, None
+
+def calculate_probability(spot_price, strike_price, iv, days_to_hold=2, r=0.045):
+    """
+    Executes log-normal distribution equations to isolate directional probability.
+    """
+    sigma = iv / 100.0
+    T = days_to_hold / 365.0
+    
+    if T <= 0 or sigma <= 0:
+        return 100.0 if spot_price > strike_price else 0.0
+        
+    # Standard Black-Scholes d2 calculation
+    d2 = (np.log(spot_price / strike_price) + (r - 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    probability = si.norm.cdf(d2) * 100
+    return round(probability, 2)
+
+# ==========================================
+# 🤖 ENGINE EXECUTION WORKFLOW
+# ==========================================
+def run_aemi_calculator():
+    print("🤖 [AEMI Engine]: Connecting to Polygon.io Data Tunnels...")
+    
+    # User Inputs
+    ticker = input("📥 Enter Stock Ticker (e.g., INTC, AMD): ").upper().strip()
+    strike_price = float(input(f"📥 Enter your target Call Option Strike Price: $"))
+    days_to_hold = int(input("📥 Enter target holding duration in days (Default 2): ") or 2)
+    
+    # Pipeline Processing
+    spot, iv = get_market_data(ticker)
+    
+    if spot is None:
+        print("🛑 Critical Failure: Could not synchronize with Polygon stream.")
+        return
+        
+    # Run Math
+    prob = calculate_probability(spot, strike_price, iv, days_to_hold)
+    
+    # Calculate exactly how deep in the money the trade is
+    itm_depth = round(((spot - strike_price) / spot) * 100, 2)
+    
+    # Output Terminal Card
+    print("\n" + "="*50)
+    print(f"🎯 AEMI QUANT DATA CARD: {ticker}")
+    print("="*50)
+    print(f"📈 Current Spot Price:   ${spot}")
+    print(f"🎯 Chosen Option Strike: ${strike_price} ({itm_depth}% Deep ITM)")
+    print(f"🕒 Position Hold Window: {days_to_hold} Days")
+    print(f"🔥 Current Implied Vol:  {iv}%")
+    print("-"*50)
+    print(f"🔮 STATISTICAL WIN PROBABILITY: {prob}%")
+    print("="*50 + "\n")
+
+if __name__ == "__main__":
+    run_aemi_calculator()
