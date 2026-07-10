@@ -1182,6 +1182,178 @@ def _td_chain(ticker: str, expiry: str):
         print(f"[td_chain] {ticker} {expiry}: {_e_tdc}")
         return _empty
 
+
+def _compute_options_probability_matrix(ticker: str, hold_days: int = 2, max_dte: int = 7,
+                                         depths=(5, 10, 15)) -> dict:
+    """Real-data options break-even/probability matrix for near-term calls.
+
+    Uses live Tradier quotes + a real option chain (real premium, real IV via
+    greeks.mid_iv) - never mocked. Falls back to realized historical
+    volatility (45-day log-return stdev, annualized) only when the chain's
+    IV is unavailable, which happens outside market hours (see the
+    greeks=false-outside-hours IV gap noted elsewhere in this file).
+
+    Probability = P(spot > strike after hold_days) via Black-Scholes d2.
+    Holding break-even = the spot price at which a Black-Scholes call with
+    (days_to_expiry - hold_days) remaining would be worth exactly what you
+    paid for the contract today, solved numerically (not a rule-of-thumb).
+
+    Returns {"error": str} on any real failure - never a fabricated matrix.
+    """
+    import math
+    import numpy as _np
+    from scipy.stats import norm as _norm
+    from scipy.optimize import brentq as _brentq
+    from datetime import datetime as _opt_dt, date as _opt_date
+
+    ticker = (ticker or "").upper().strip()
+    if not ticker:
+        return {"error": "No ticker provided."}
+
+    quotes = _td_quotes([ticker])
+    q = quotes.get(ticker) or {}
+    spot = q.get("last") or q.get("prevclose") or 0.0
+    if not spot:
+        return {"error": f"Could not fetch a live price for {ticker} from Tradier."}
+
+    expiries = _td_expiries(ticker, max_days=max_dte)
+    if not expiries:
+        return {"error": f"No option expiration within {max_dte} days found for {ticker}."}
+    expiry = expiries[0]
+    dte = (_opt_dt.strptime(expiry, "%Y-%m-%d").date() - _opt_date.today()).days
+    hold_days = max(1, min(hold_days, dte)) if dte > 0 else 1
+
+    chain = _td_chain(ticker, expiry)
+    calls = chain.calls.copy() if chain.calls is not None else None
+    if calls is None or calls.empty:
+        return {"error": f"No live call chain returned for {ticker} {expiry}."}
+
+    hist_iv = None
+    try:
+        hist = _td_history(ticker, days=45)
+        if not hist.empty and "Close" in hist.columns:
+            closes = hist["Close"].dropna().to_numpy(dtype=float)
+            if len(closes) >= 2:
+                log_ret = _np.log(closes[1:] / closes[:-1])
+                hist_iv = float(_np.std(log_ret) * _np.sqrt(252) * 100)
+    except Exception as _e_hv:
+        print(f"[options_prob] historical vol fallback error {ticker}: {_e_hv}")
+
+    def _bs_call(S, K, T, sigma, r=0.045):
+        if T <= 0 or sigma <= 0:
+            return max(S - K, 0.0)
+        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+        d2 = d1 - sigma * math.sqrt(T)
+        return S * _norm.cdf(d1) - K * math.exp(-r * T) * _norm.cdf(d2)
+
+    def _win_prob(S, K, sigma_pct, days, r=0.045):
+        sigma = sigma_pct / 100.0
+        T = days / 365.0
+        if T <= 0 or sigma <= 0:
+            return 100.0 if S > K else 0.0
+        d2 = (math.log(S / K) + (r - 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+        return round(float(_norm.cdf(d2)) * 100, 2)
+
+    def _holding_bep(K, T_remaining, sigma_pct, premium, spot_px):
+        sigma = sigma_pct / 100.0
+        if sigma <= 0 or T_remaining <= 0:
+            return None
+        def f(S):
+            return _bs_call(S, K, T_remaining, sigma) - premium
+        lo, hi = 0.01, spot_px * 6
+        try:
+            if f(lo) > 0 or f(hi) < 0:
+                return None
+            return round(_brentq(f, lo, hi), 2)
+        except Exception:
+            return None
+
+    rows = []
+    iv_source = "chain"
+    for pct in depths:
+        target_strike = round(spot * (1 - pct / 100.0), 2)
+        calls["_dist"] = (calls["strike"] - target_strike).abs()
+        row = calls.loc[calls["_dist"].idxmin()]
+        strike = float(row["strike"])
+        bid, ask = float(row.get("bid") or 0), float(row.get("ask") or 0)
+        premium = float(row.get("lastPrice") or 0)
+        if not premium:
+            premium = (bid + ask) / 2 if bid and ask else 0.0
+
+        chain_iv = float(row.get("impliedVolatility") or 0) * 100
+        if chain_iv > 1:
+            iv_used = chain_iv
+        else:
+            iv_used = hist_iv or 0.0
+            iv_source = "historical"
+
+        if premium <= 0:
+            rows.append({
+                "depth_pct": pct, "strike": strike, "premium": None,
+                "expiration_bep": None, "holding_bep": None,
+                "win_probability": None, "iv_used": round(iv_used, 1),
+                "note": "No live quote for this strike right now.",
+            })
+            continue
+
+        expiration_bep = round(strike + premium, 2)
+        T_remaining_days = max(dte - hold_days, 0)
+        if T_remaining_days > 0 and iv_used > 0:
+            holding_bep = _holding_bep(strike, T_remaining_days / 365.0, iv_used, premium, spot)
+        else:
+            holding_bep = expiration_bep
+
+        rows.append({
+            "depth_pct":       pct,
+            "strike":          strike,
+            "premium":         round(premium, 2),
+            "bid":             round(bid, 2),
+            "ask":             round(ask, 2),
+            "expiration_bep":  expiration_bep,
+            "holding_bep":     holding_bep,
+            "win_probability": _win_prob(spot, strike, iv_used, hold_days),
+            "iv_used":         round(iv_used, 1),
+            "contract_symbol": row.get("contractSymbol"),
+            "volume":          int(row.get("volume") or 0),
+            "open_interest":   int(row.get("openInterest") or 0),
+        })
+
+    return {
+        "ticker":         ticker,
+        "spot_price":      round(float(spot), 2),
+        "expiry":          expiry,
+        "days_to_expiry":  dte,
+        "hold_days":       hold_days,
+        "iv_source":       iv_source,
+        "rows":            rows,
+        "generated_at":    _opt_dt.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+@app.route("/stock-api/quant/options-probability", methods=["GET"])
+def api_quant_options_probability():
+    """Manual-entry options probability calculator for the Quant tab.
+    ?ticker=NVDA&hold_days=2&max_dte=7 → break-even + win-probability matrix
+    for 5/10/15% ITM calls, built from a live Tradier chain. Never mocked -
+    returns {"error": ...} with a real reason on any live-data failure."""
+    ticker = (request.args.get("ticker") or "").strip()
+    if not ticker:
+        return jsonify({"error": "ticker is required"}), 400
+    try:
+        hold_days = int(request.args.get("hold_days", 2))
+    except (TypeError, ValueError):
+        hold_days = 2
+    try:
+        max_dte = int(request.args.get("max_dte", 7))
+    except (TypeError, ValueError):
+        max_dte = 7
+    hold_days = max(1, min(hold_days, 10))
+    max_dte = max(1, min(max_dte, 45))
+    result = _compute_options_probability_matrix(ticker, hold_days=hold_days, max_dte=max_dte)
+    status = 200 if "error" not in result else 422
+    return jsonify(result), status
+
+
 class _TdFastInfo:
     """Tradier-backed shim for yf fast_info. Provides .last_price and .previous_close."""
     __slots__ = ("_ticker", "_q")

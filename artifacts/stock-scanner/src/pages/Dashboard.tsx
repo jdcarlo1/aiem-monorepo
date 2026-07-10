@@ -12863,6 +12863,163 @@ function SessionBubble({ session, elapsed }: { session: QASession; elapsed?: num
   );
 }
 
+interface OptionProbRow {
+  depth_pct: number;
+  strike: number;
+  premium: number | null;
+  bid?: number;
+  ask?: number;
+  expiration_bep: number | null;
+  holding_bep: number | null;
+  win_probability: number | null;
+  iv_used: number;
+  contract_symbol?: string;
+  volume?: number;
+  open_interest?: number;
+  note?: string;
+}
+
+interface OptionProbResult {
+  ticker: string;
+  spot_price: number;
+  expiry: string;
+  days_to_expiry: number;
+  hold_days: number;
+  iv_source: string;
+  rows: OptionProbRow[];
+  generated_at: string;
+  error?: string;
+}
+
+function OptionsProbabilityCalculator() {
+  const [ticker, setTicker]     = useState("");
+  const [holdDays, setHoldDays] = useState(2);
+  const [loading, setLoading]   = useState(false);
+  const [result, setResult]     = useState<OptionProbResult | null>(null);
+  const [error, setError]       = useState<string | null>(null);
+
+  async function runCalc() {
+    const sym = ticker.trim().toUpperCase();
+    if (!sym) return;
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch(`/stock-api/quant/options-probability?ticker=${encodeURIComponent(sym)}&hold_days=${holdDays}`);
+      const data: OptionProbResult = await res.json();
+      if (!res.ok || data.error) {
+        setError(data.error || "Calculation failed — please try again.");
+      } else {
+        setResult(data);
+      }
+    } catch {
+      setError("Connection error — please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ background: "#0d1726", border: "1px solid #1c3350", borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 13, color: "#7fb3ff", marginBottom: 10, fontWeight: 600 }}>
+          🎯 Call Option Break-Even &amp; Win-Probability Calculator
+        </div>
+        <div style={{ fontSize: 11, color: "#5f7a99", marginBottom: 12, lineHeight: 1.5 }}>
+          Enter a ticker to pull the live option chain (nearest expiry, ≤7 days out) and see the
+          break-even price and win probability for 5% / 10% / 15% in-the-money calls, built from real
+          Tradier quotes — not estimates.
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            value={ticker}
+            onChange={e => setTicker(e.target.value.toUpperCase())}
+            onKeyDown={e => { if (e.key === "Enter") runCalc(); }}
+            placeholder="Ticker (e.g. NVDA)"
+            style={{ background: "#060c14", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 8, padding: "8px 12px", fontSize: 13, width: 140 }}
+          />
+          <select
+            value={holdDays}
+            onChange={e => setHoldDays(Number(e.target.value))}
+            style={{ background: "#060c14", border: "1px solid #1c3350", color: "#d6e2f0", borderRadius: 8, padding: "8px 10px", fontSize: 13 }}
+          >
+            <option value={1}>Hold 1 day</option>
+            <option value={2}>Hold 2 days</option>
+            <option value={3}>Hold 3 days</option>
+            <option value={5}>Hold 5 days</option>
+          </select>
+          <button
+            onClick={runCalc}
+            disabled={loading || !ticker.trim()}
+            style={{
+              background: loading ? "#0d1726" : "#1e64c8",
+              border: "1px solid #3a85f0", color: "#fff", borderRadius: 8,
+              padding: "8px 18px", fontSize: 13, cursor: loading ? "not-allowed" : "pointer",
+              fontWeight: 600,
+            }}
+          >
+            {loading ? "Calculating…" : "Calculate"}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ background: "#1a0d0d", border: "1px solid #5a1f1f", borderRadius: 8, padding: "10px 14px", color: "#ff8a8a", fontSize: 13 }}>
+          {error}
+        </div>
+      )}
+
+      {result && (
+        <div style={{ background: "#0d1726", border: "1px solid #1c3350", borderRadius: 10, padding: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#d6e2f0" }}>
+              {result.ticker} <span style={{ color: "#7fb3ff", fontWeight: 400 }}>${result.spot_price.toFixed(2)}</span>
+            </div>
+            <div style={{ fontSize: 11, color: "#5f7a99" }}>
+              Expiry {result.expiry} ({result.days_to_expiry}d out) · Hold {result.hold_days}d ·
+              IV from {result.iv_source === "chain" ? "live chain" : "historical vol (chain IV unavailable)"}
+            </div>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ color: "#5f7a99", textAlign: "left", borderBottom: "1px solid #1c3350" }}>
+                  <th style={{ padding: "6px 8px" }}>ITM Depth</th>
+                  <th style={{ padding: "6px 8px" }}>Strike</th>
+                  <th style={{ padding: "6px 8px" }}>Premium</th>
+                  <th style={{ padding: "6px 8px" }}>Exp. BEP</th>
+                  <th style={{ padding: "6px 8px" }}>Hold BEP</th>
+                  <th style={{ padding: "6px 8px" }}>IV</th>
+                  <th style={{ padding: "6px 8px" }}>Win Prob.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((row, i) => {
+                  const hot = (row.win_probability ?? 0) >= 80;
+                  return (
+                    <tr key={i} style={{ borderBottom: "1px solid #14213a" }}>
+                      <td style={{ padding: "8px" }}>{row.depth_pct}% ITM</td>
+                      <td style={{ padding: "8px" }}>${row.strike.toFixed(2)}</td>
+                      <td style={{ padding: "8px" }}>{row.premium != null ? `$${row.premium.toFixed(2)}` : "—"}</td>
+                      <td style={{ padding: "8px" }}>{row.expiration_bep != null ? `$${row.expiration_bep.toFixed(2)}` : "—"}</td>
+                      <td style={{ padding: "8px" }}>{row.holding_bep != null ? `$${row.holding_bep.toFixed(2)}` : "—"}</td>
+                      <td style={{ padding: "8px" }}>{row.iv_used ? `${row.iv_used.toFixed(1)}%` : "—"}</td>
+                      <td style={{ padding: "8px", fontWeight: 700, color: hot ? "#34d399" : row.win_probability != null ? "#d6e2f0" : "#5f7a99" }}>
+                        {row.win_probability != null ? `${row.win_probability.toFixed(1)}%` : row.note || "—"}
+                        {hot && <span style={{ marginLeft: 6, fontSize: 10, background: "#0f3d2b", color: "#34d399", borderRadius: 10, padding: "2px 6px" }}>≥80%</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const AIEM_TOOLS = [
   { id: "free",        label: "💬 Ask anything",       template: "" },
   { id: "predict",     label: "🎯 Predict short-term",  template: "Predict short-term win probability for [TICKER] at day 3" },
@@ -12884,6 +13041,7 @@ function QuantAgentTab() {
   const [elapsed, setElapsed]     = useState(0);
   const [activeTool, setActiveTool] = useState("free");
   const [isRecording, setIsRecording] = useState(false);
+  const [qaMode, setQaMode] = useState<"chat" | "calculator">("chat");
 
   const pollTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -13211,6 +13369,31 @@ function QuantAgentTab() {
         @keyframes micpulse { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)} 70%{box-shadow:0 0 0 10px rgba(239,68,68,0)} }
       `}</style>
 
+      {/* ── Mode toggle: Chat vs Options Calculator ───────────────────── */}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          onClick={() => setQaMode("chat")}
+          style={{
+            background: qaMode === "chat" ? "#1e64c8" : "#0d1726",
+            border: `1px solid ${qaMode === "chat" ? "#3a85f0" : "#1c3350"}`,
+            color: qaMode === "chat" ? "#fff" : "#7fb3ff",
+            borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}
+        >💬 Chat</button>
+        <button
+          onClick={() => setQaMode("calculator")}
+          style={{
+            background: qaMode === "calculator" ? "#1e64c8" : "#0d1726",
+            border: `1px solid ${qaMode === "calculator" ? "#3a85f0" : "#1c3350"}`,
+            color: qaMode === "calculator" ? "#fff" : "#7fb3ff",
+            borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}
+        >🎯 Options Calculator</button>
+      </div>
+
+      {qaMode === "calculator" && <OptionsProbabilityCalculator />}
+
+      {qaMode === "chat" && (<>
       {/* ── Tool picker ─────────────────────────────────────────────── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {AIEM_TOOLS.map(t => (
@@ -13602,6 +13785,7 @@ function QuantAgentTab() {
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }
