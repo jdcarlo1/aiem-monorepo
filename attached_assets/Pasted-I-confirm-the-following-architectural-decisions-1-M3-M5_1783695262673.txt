@@ -1,0 +1,83 @@
+I confirm the following architectural decisions:
+
+1. M3 / M5 ROLE MAPPING
+
+Keep the proposed ownership unchanged:
+
+- M5 remains the canonical producer of the DISCOVERED lifecycle state.
+- M5’s Fisher/BH-FDR discovery-time validation is sufficient for producing DISCOVERED.
+- M3 remains the promotion evaluator.
+- Do not swap the M3 and M5 responsibilities.
+
+2. PHASE 8 — ROGUE WRITERS
+
+Yes, include both rogue writers in Phase 8 of this lifecycle remediation:
+
+- aiem_process.py nightly hypothesis auto-promotion
+- main.py signal auto-retirement on detected edge decay
+
+Neither path may continue changing lifecycle state independently of the canonical lifecycle writer and required approval/gating process.
+
+However, do not disable or reroute either production path silently.
+
+MANDATORY EXECUTION CONDITIONS
+
+A. First resolve the current website/application freeze before beginning lifecycle implementation.
+
+The site appears frozen again, despite the previous fix. Diagnose the current production issue separately and provide runtime evidence showing:
+
+- current deployment status
+- application process status
+- web-server health
+- scheduler/worker health
+- database connectivity
+- CPU and memory utilization
+- recent exceptions and restart events
+- whether “Publishing your app” is stuck
+- exact root cause
+- exact remediation performed
+- proof that the public site and backend endpoints are responsive afterward
+
+Do not mix the website-freeze repair with the lifecycle architecture changes.
+
+B. After the site is stable, implement the lifecycle plan strictly one phase at a time.
+
+For every phase:
+
+1. Make only the changes belonging to that phase.
+2. Run the phase-specific tests.
+3. Return actual commands, logs, SQL results, trace IDs, timestamps, affected files, and commit hash.
+4. Prove there was no unauthorized behavior change.
+5. Stop and wait for my approval before proceeding to the next phase.
+
+C. Keep AIEM_LIFECYCLE_ENFORCE disabled during migration, backfill, and shadow-write phases.
+
+No production gating behavior may change until:
+
+- shadow-write parity is proven
+- backfill is verified
+- duplicate and skipped-transition counts are zero
+- provenance hashes re-verify
+- M6 concurrency protection passes
+- both rogue writers are safely rerouted
+- rollback is tested
+- I explicitly authorize enforcement
+
+D. The two rogue writers must not simply be deleted.
+
+For each one, document:
+
+- current trigger
+- current database write
+- current bypass behavior
+- proposed canonical lifecycle transition
+- required predecessor state
+- required approval
+- idempotency key
+- provenance record
+- rollback procedure
+- negative test proving the old direct write can no longer occur after enforcement
+
+E. Before touching lifecycle code, return the website-freeze diagnosis and repair evidence first.
+
+Do not begin Phase 1 of the lifecycle implementation until the current application freeze has been resolved and verified.

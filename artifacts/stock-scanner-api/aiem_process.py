@@ -1607,6 +1607,19 @@ def main():
                 log.error(f"admin: manual grade error: {_e}")
 
         class _H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                # Deployment startup healthcheck hits GET on the service's
+                # base path ("/aiem-process/" -> "/" on this port). Without
+                # this handler, BaseHTTPRequestHandler has no do_GET at all
+                # and replies 501 Unsupported method, which the deploy
+                # health-checker retries ~100x before giving up — this is
+                # what produced the "frozen on publish" symptom.
+                body = b'{"status":"ok"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
             def do_POST(self):
                 if self.path == "/run-scan":
                     _t2.Thread(target=_run_manual_scan, daemon=True).start()
