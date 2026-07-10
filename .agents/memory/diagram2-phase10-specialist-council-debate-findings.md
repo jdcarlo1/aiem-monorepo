@@ -43,3 +43,13 @@ that registry only tracks *inline* main.py tool functions with no dedicated
 module file (see PHASE9_FUNCTIONS pattern). Both Phase 10 tools have real
 module files (owned by other phases), so they don't fit that registry and
 are fully covered by the `aiem_tool_registry` update instead.
+
+## Stage 15 audit-trail mislabel (found 2026-07-10, unfixed)
+The Diagram-2 pipeline trace audit's "stage 15 (specialist_council)" label is
+wrong: that stage actually measures the `bull_bear_debate.py` reuse path, not
+`specialist_council.py`. The real specialist_council weighted-verdict module
+runs unconditionally on all candidates and never fails, so any failure the
+audit trail attributes to "stage 15" is really a bull/bear debate failure.
+**Why it matters:** don't trust "stage 15 failed" to mean specialist_council
+is broken — check which module actually ran before debugging. Fix belongs in
+the trace-audit stage-naming, not in either module itself.

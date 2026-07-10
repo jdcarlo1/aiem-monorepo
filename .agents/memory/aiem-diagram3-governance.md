@@ -49,3 +49,13 @@ All D3 queries must use these exact strings (not lowercase 'open'/'closed').
 - Force re-baseline after architectural changes: `POST /d3/freeze-baseline {"force": true}`
 - Executive summary on demand: `POST /d3/generate-report`
 - Phase 6 learning approval runs automatically — APPROVE requires new_score >= current_score AND n>=100 samples
+
+## Known Gap: No Per-Trace Linkage (confirmed 2026-07-10, unfixed)
+Full schema scan of all 15 `d3_*` tables found zero columns joining a governance
+check/decision to an individual `trace_id` or paper trade. The only trace-adjacent
+data anywhere in D3 is the aggregate `d3_system_health_snapshots.traces_last_24h`
+column plus `COUNT(DISTINCT trace_id)` checks in Phase 12/13 code. D3 can answer
+"is the system healthy" but not "which governance checks applied to trade X".
+**Why it matters:** anyone trying to audit one specific paper trade's full
+governance history cannot do it through D3 today — treat this as a known,
+real limitation, not something already solved by the 15-table schema.
