@@ -375,29 +375,6 @@ def absorption_ratio(returns_matrix: pd.DataFrame, n_factors: int = 5) -> float:
 # 5. OPTIONS / VOL SURFACE (requires a full options chain snapshot)
 # =====================================================================
 
-def gamma_exposure_by_strike(chain: pd.DataFrame, spot_price: float,
-                              contract_multiplier: int = 100) -> pd.DataFrame:
-    """
-    Dealer Gamma Exposure (GEX) estimate by strike.
-
-    Args:
-        chain: pandas DataFrame with columns:
-               ['strike', 'open_interest', 'gamma', 'type']
-        spot_price: current underlying price.
-        contract_multiplier: shares per contract (100 for standard equity).
-
-    Returns:
-        pandas DataFrame indexed by strike with column 'net_gex'.
-    """
-    df = chain.copy()
-    df["sign"] = np.where(df["type"].str.lower() == "call", 1, -1)
-    df["dealer_gex"] = (
-        df["sign"] * df["gamma"] * df["open_interest"]
-        * contract_multiplier * spot_price * spot_price * 0.01
-    )
-    return df.groupby("strike")["dealer_gex"].sum().to_frame("net_gex")
-
-
 def variance_risk_premium(realized_vol: pd.Series, implied_vol: pd.Series) -> pd.Series:
     """
     Variance Risk Premium (VRP) = Implied Vol^2 - Realized Vol^2.

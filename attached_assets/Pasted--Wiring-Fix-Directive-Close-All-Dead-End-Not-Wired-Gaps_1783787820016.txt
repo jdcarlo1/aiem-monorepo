@@ -1,0 +1,72 @@
+# Wiring Fix Directive — Close All Dead-End / Not-Wired Gaps
+
+## Ground rules (apply to every item below)
+
+For each item, you must:
+1. Show the **exact diff** (before/after) of every file you change.
+2. Show **raw grep/ast-grep output** proving the new call site exists and executes in the live pipeline (not a test fixture, not a dev script).
+3. Show the **exact line** where the value is now read inside `_rules_mtm_decision()` or the AI Trades sort key (`stat9_score`/`composite_score` in main.py:50369-50370), whichever is the correct destination for that item.
+4. If a fix requires touching `_rules_mtm_decision()`'s signature or `compute_layer9_score()`'s weighted sum, show the full updated function body, not a snippet.
+5. Do NOT mark anything "done" without pasting the actual terminal output of a fresh `grep -rn "<function_name>"` run AFTER your change, showing the new call site.
+6. No narrative summaries. No "this should now work." Only: diff → grep output → line-numbered proof it's read downstream.
+
+If you cannot find a safe way to wire something in without changing scoring behavior in an unintended way, STOP and flag it back to me with the specific conflict — do not silently skip it or fake a wire.
+
+---
+
+## Group A — Dead functions (zero callers): wire them in or justify deletion
+
+For each of these, either (a) find/create a real call site inside the live pipeline and wire its output into scoring, or (b) if truly unneeded, delete the dead code and its DB table/column, and prove via grep that nothing references it. Do not leave it half-orphaned.
+
+1. **`gamma_exposure_by_strike`** (aiem_options_structure.py) — decide: fold into `_compute_gex` or delete. If keeping, wire its per-strike output into the options structure scan table and confirm a downstream reader exists.
+2. **`skew_velocity`** (advanced_quant_indicators.py) — if intended as a Layer9 component, add it as a new `components["skew_velocity"]` entry in `compute_layer9_score()` following the exact pattern of `vrp_proxy`/`jump_risk` (raw value + score, weighted into `statistical_score`). Otherwise delete.
+3. **`benchmark_comparison.py`** — either schedule it (cron/background job like the Layer9 scanner) and pipe its output into `_rules_mtm_decision()` as a new comparison metric, or delete the file.
+4. **`run_walk_forward()`** (ml_infrastructure/probability_engine) — either call it from the discovery/promotion pipeline as a required gate before hypothesis promotion, or delete it.
+5. **Literature Scanner (`scan_and_save`)** — either add it to the scheduler (same pattern as the Layer9 background scanner, main.py ~55194) and wire its output into a live signal source, or delete.
+6. **Signal Drift Monitor (`compute_drift`, `check_all_active_signals`)** — this one is safety-relevant. Wire it into a scheduled job that runs against all active positions, and make its output gate something (e.g., flag a position for review, or feed into `_rules_mtm_decision()` as a `drift_flag`). Confirm with grep that the scheduler actually invokes it.
+7. **Volume Profile** — this doesn't exist at all. Either implement it as a new indicator following the Layer9 component pattern, or remove any references to it elsewhere in the codebase/docs that imply it exists.
+
+---
+
+## Group B — Computed but not wired to scoring: wire the output into `_rules_mtm_decision()`
+
+**Target function:** `_rules_mtm_decision(pos: dict) -> dict` at main.py:44929. Its current signature explicitly excludes these — you need to add them.
+
+For each, the pattern is: read the value from wherever it's currently stored (DB table or `_tech_ctx`), assign it to a local variable inside `_rules_mtm_decision()`, and use it in at least one `if`/exit-evidence branch (same pattern as `rsi`, `macd_h`, `cmf` currently). Do not just add it to the function signature comment — it must be branched on.
+
+1. **Signal Decay verdict** — currently only reaches `aiem_discovery_outcomes` / module4 gate. Add a read of the latest decay verdict for the position's signal source, and branch on it (e.g., decayed signal → contributes to exit evidence).
+2. **Absorption Ratio** — currently computed in `market_regime_overlay.py` but never read by the sort key. Wire `pca_absorption_indicator`'s output into `_rules_mtm_decision()` as a new input, with a defined threshold behavior (e.g., high absorption → flag correlation risk).
+3. **Benjamini-Hochberg FDR result** — wire `bh_fdr_reject`/`bh_fdr_adjust` output into the decision function: if a signal's underlying hypothesis has been FDR-rejected, that should show up as an exit-evidence input, not just sit in `aiem_signal_discoveries`.
+4. **Out-of-sample overfit check** (`_check_overfit`) — wire the OOS win-rate/return stats into the position's live evaluation, not just the discovery registration record.
+5. **Regime probability** — wire the actual regime probability float into `_rules_mtm_decision()` directly as an argument (not indirect-only via the probability engine). Confirm with grep that it appears as a named parameter and is read.
+6. **GARCH regime persistence** — **this is a sequencing bug, not a missing wire.** Fix: move the GARCH batch computation (`_l9_garch_fit`/`_l9_garch_pers`/`_l9_garch_save`) so it runs BEFORE `batch_layer9_scores` at main.py:55345, not after. Then confirm `garch_regime_log` is read within the same scoring cycle it was written in — prove this with timestamps or a sequence-order grep, not just re-ordering the calls.
+7. **stat_arb z-score / Fisher p-value / PCA absorption** (referenced in the `_rules_mtm_decision()` comment as excluded) — same pattern: add each as a read + branch inside the function.
+
+---
+
+## Group C — The big one: Phase 4 → Phase 5/6 discovery handoff
+
+This is the most important fix. Currently: `discovered_candidates` (Path A) and `_v3_disc`/`_v3_tickers` (Path B) are dead-end / orphaned — neither feeds `_ai_trades_worker` or the Layer9 background scanner, which each build their own independent ticker universes.
+
+**Required fix:**
+1. Decide which path is canonical (A: `aiem_discovery_engine.run_cycle()`, or B: `aiem_v3_discovery.run_discovery()`) — or explicitly keep both but merge their outputs into one shared queue.
+2. Modify `_ai_trades_worker`'s ticker-sourcing logic so it includes tickers from the discovery output (in addition to, or instead of, its own Tradier/Polygon fetch) — with a clear precedence rule (e.g., discovered candidates get priority scan, or are unioned with the existing universe).
+3. Modify the Layer9 background scanner (main.py:55194) similarly, so `unusual_calls_log` + `aiem_paper_trades` ticker sourcing also incorporates discovered candidates.
+4. Prove this with: (a) a diff showing the ticker-sourcing code change, (b) grep showing the discovery table/list is now read at that call site, (c) a live run log or DB query showing a ticker that originated from discovery actually appearing in a paper trade or scored position.
+5. If `discovered_candidates` is meant to remain a human-review-only queue by design (not automatic), say so explicitly and confirm that's an intentional product decision — don't silently leave it broken and call it fixed.
+
+---
+
+## Final verification pass (required after all groups are done)
+
+Run and paste raw output for:
+
+```
+grep -n "stat9_score\|composite_score" main.py
+grep -n "def _rules_mtm_decision" -A 60 main.py
+grep -rn "discovered_candidates\|_v3_disc\|_v3_tickers" main.py aiem_discovery_engine.py aiem_v3_discovery.py
+```
+
+Then produce one final table with columns: `Item | Where it's now read | Line number | Branched on (yes/no) | Grep proof pasted (yes/no)`. Every row must say "yes" in the last two columns, or it isn't done.
+
+Do not mark this directive complete until every item in Groups A, B, and C has a corresponding diff + grep proof pair. Partial completion is fine — just report exactly what's done vs. still open, with the same evidence standard for whatever you did finish.

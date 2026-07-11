@@ -146,3 +146,4 @@
 - [AIEM sizing gate enforcement fix](aiem-sizing-gate-enforcement.md) — fail-closed fix now blocks 9/10 signal sources (only Oversold_Bounce_Uptrend has a real stop function in _STOP_REGISTRY); verified live, 0 default-notional fallbacks
 - [Diagram 2 indicator column names](diagram2-indicator-columns.md) — layer9_scores uses hurst_raw/vpin_raw/amihud_score/vrp_score (NOT hurst_exponent/vpin/amihud_illiquidity/vrp); M6 needs aiem_signal_actions retire record not just status='retired'; CTA lookback_days=365 for 200+ trading days
 - [Dev/prod schema bootstrap](dev-prod-schema-drift.md) — 60-table drift fixed; _run_schema_bootstrap() wired as FIRST _DEFERRED_INIT; 26ms on seeded DB; new tables still need manual addition to dev_schema_bootstrap.sql
+- [Wiring Fix Directive Groups A/B/C](wiring-fix-directive.md) — 7 implemented, 7 flagged; aiem_signal_discoveries has NO signal_name col → B1/B3/B4 unimplementable without bridge col

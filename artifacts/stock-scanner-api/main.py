@@ -16814,6 +16814,24 @@ def _aiem_paper_drift_check():
                 _ok.append(_tag)
             _log_rows.append((_src, round(_wr, 4), _n, _bt_wr, _bt_n, _gap_pp, _verdict, False, None))
 
+        # ── A6: Statistical drift via drift_alarm.check_all_active_signals ──
+        # Supplements gap-based verdicts with Fisher's exact test. Merges any
+        # ALERT rows into _alerts so both tests inform the Telegram message.
+        try:
+            _drift_result = _drift_alarm.check_all_active_signals(_baselines)
+            for _fr in (_drift_result.get("signals_needing_attention") or []):
+                _falert = (f"FISHER {_fr.get('verdict','ALERT')}: "
+                           f"{_fr.get('signal_name','')} "
+                           f"live={_fr.get('live_win_rate',0):.0%} "
+                           f"bt={_fr.get('backtest_win_rate',0):.0%} "
+                           f"p={_fr.get('p_value',1):.4f}")
+                if _falert not in _alerts:
+                    _alerts.append(_falert)
+            print(f"[aiem_drift] Fisher check: "
+                  f"{len(_drift_result.get('signals_needing_attention', []))} needing attention")
+        except Exception as _fa_e:
+            print(f"[aiem_drift] Fisher check skipped: {_fa_e}")
+
         # ── Telegram delivery — alerts only; failure is logged, never fatal ──
         _tg_ok  = False
         _tg_err = None
@@ -44952,9 +44970,63 @@ def _aiem_paper_mark_to_market():
 
             _positions_for_ai.append(_pos_entry)
 
+        # ── 2c. Batch pre-fetch Group B exit-model inputs ─────────────────
+        # All fetched once per cycle from DB so _rules_mtm_decision() below
+        # stays phone-home-free (its "no external calls" contract is preserved).
+        # Each dict defaults to neutral so DB failures never block exit decisions.
+        _b_garch_vote: dict = {}   # ticker → GARCH regime vote (-1/0/+1)
+        _b_garch_pers: dict = {}   # ticker → alpha1+beta1 persistence float
+        _b_pca_var:    dict = {}   # ticker → pca_factor1_var (cross-sec correlation)
+        _b_sarb_z:     dict = {}   # ticker → latest stat-arb z-score
+
+        _b2c_tickers = list({p["ticker"] for p in _positions_for_ai})
+        if _b2c_tickers:
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=4) as _bc, _bc.cursor() as _bcu:
+                    _bcu.execute("""
+                        SELECT DISTINCT ON (ticker)
+                            ticker, vote, alpha1, beta1
+                        FROM garch_regime_log
+                        WHERE ticker = ANY(%s)
+                        ORDER BY ticker, logged_at DESC
+                    """, (_b2c_tickers,))
+                    for _brow in _bcu.fetchall():
+                        _b_garch_vote[_brow[0]] = int(_brow[1] or 0)
+                        _b_garch_pers[_brow[0]] = round(
+                            float((_brow[2] or 0) + (_brow[3] or 0)), 4)
+
+                    _bcu.execute("""
+                        SELECT DISTINCT ON (ticker)
+                            ticker, pca_factor1_var
+                        FROM layer9_scores
+                        WHERE ticker = ANY(%s)
+                        ORDER BY ticker, scan_date DESC
+                    """, (_b2c_tickers,))
+                    for _brow in _bcu.fetchall():
+                        _b_pca_var[_brow[0]] = float(_brow[1] or 0.5)
+
+                    _bcu.execute("""
+                        SELECT DISTINCT ON (ticker_a)
+                            ticker_a, zscore
+                        FROM stat_arb_signals
+                        WHERE ticker_a = ANY(%s)
+                        ORDER BY ticker_a, signal_date DESC
+                    """, (_b2c_tickers,))
+                    for _brow in _bcu.fetchall():
+                        _b_sarb_z[_brow[0]] = float(_brow[1] or 0)
+            except Exception as _b2c_e:
+                print(f"[aiem_paper] step2c pre-fetch skipped: {_b2c_e}")
+
+        for _pfa in _positions_for_ai:
+            _ptk = _pfa["ticker"]
+            _pfa["garch_regime_vote"] = _b_garch_vote.get(_ptk, 0)
+            _pfa["garch_persistence"] = _b_garch_pers.get(_ptk, 0.0)
+            _pfa["pca_factor1_var"]   = _b_pca_var.get(_ptk, 0.5)
+            _pfa["stat_arb_zscore"]   = _b_sarb_z.get(_ptk, 0.0)
+
         # ── 4. Rules-based exit judgment — no external calls ──────────────
-        # All data was already gathered in steps 2/2b above. The rules below
-        # read those numbers directly. AIEM decides; nothing phones home.
+        # All data was already gathered in steps 2/2b/2c above. The rules
+        # below read those numbers directly. AIEM decides; nothing phones home.
         def _rules_mtm_decision(pos: dict) -> dict:
             tech    = pos.get("technicals") or {}
             rsi     = tech.get("rsi_14")
@@ -44965,6 +45037,12 @@ def _aiem_paper_mark_to_market():
             council = float(pos.get("specialist_council_score") or 0.0)
             macro   = (pos.get("macro_bias") or "NEUTRAL").upper()
             days    = pos.get("days_held", 0)
+
+            # ── Group B: pre-fetched quantitative inputs (step 2c) ────────
+            garch_vote = int(pos.get("garch_regime_vote") or 0)
+            garch_pers = float(pos.get("garch_persistence") or 0.0)
+            pca_var    = float(pos.get("pca_factor1_var") or 0.5)
+            sarb_z     = float(pos.get("stat_arb_zscore") or 0.0)
 
             pnl = (pos.get("pnl_pct") if pos.get("pnl_pct") is not None
                    else pos.get("synthetic_option_proxy_pct") or 0.0)
@@ -45001,6 +45079,13 @@ def _aiem_paper_mark_to_market():
                 exit_ev.append(f"RISK-OFF macro; +{pnl:.1f}% gain to lock")
             if prev_rvol < 0.75 and days >= 5:
                 exit_ev.append(f"volume fading rvol={prev_rvol:.2f}x after {days}d")
+            # ── Group B: GARCH / PCA absorption / stat-arb exit triggers ──
+            if garch_vote == -1:
+                exit_ev.append(f"GARCH vol clustering high (persistence={garch_pers:.3f})")
+            if pca_var > 0.70:
+                exit_ev.append(f"high market correlation (pca1_var={pca_var:.2f})")
+            if sarb_z > 2.5:
+                exit_ev.append(f"stat-arb z-score extreme ({sarb_z:.2f}) — reversion risk")
 
             # ── bullish evidence ───────────────────────────────────────────
             if rsi is not None and 40 <= rsi < 68:
@@ -45016,6 +45101,9 @@ def _aiem_paper_mark_to_market():
                 hold_ev.append(f"specialist council bullish ({council:+.2f})")
             if overall == "buy":
                 hold_ev.append("indicator suite: buy")
+            # ── Group B: GARCH low persistence = explosive vol potential ───
+            if garch_vote == 1:
+                hold_ev.append(f"GARCH low-persistence ({garch_pers:.3f}) — vol regime transitioning")
 
             # ── verdict: need 2+ exit signals AND more exit than hold ──────
             if len(exit_ev) >= 2 and len(exit_ev) > len(hold_ev):
@@ -55225,6 +55313,12 @@ def _run_layer9_bg_scan():
             WHERE status = 'OPEN'
               OR closed_at >= NOW() - INTERVAL '7 days'
         """),
+        ("discovered_candidates", """
+            SELECT DISTINCT ticker FROM discovered_candidates
+            WHERE created_at >= NOW() - INTERVAL '14 days'
+              AND status != 'rejected'
+            LIMIT 20
+        """),
     ]
     for _src_name, _src_sql in _l9_sources:
         try:
@@ -55342,9 +55436,12 @@ def _run_layer9_bg_scan():
     if _chain_df_map:
         print(f"[layer9_bg] options chains fetched for {len(_chain_df_map)} tickers (RND enabled)")
 
-    _scores = batch_layer9_scores(_histories, timeout_per=5.0, chain_df_map=_chain_df_map)
-
     # ── 3b. GARCH(1,1) per-ticker persistence into garch_regime_log ──────────
+    # Runs BEFORE batch_layer9_scores so garch_regime_log rows are committed
+    # before layer9_scores rows — both tables' timestamps in the same 2-hour
+    # cycle can then prove same-cycle sequencing (garch logged_at <= layer9
+    # computed_at). compute_layer9_score also fits GARCH inline from history_df
+    # so the ±adjustment is baked into statistical_score regardless of DB state.
     try:
         from volatility_clustering import fit_garch_model as _l9_garch_fit
         from volatility_clustering import get_persistence as _l9_garch_pers
@@ -55369,6 +55466,8 @@ def _run_layer9_bg_scan():
             print(f"[layer9_bg] GARCH fit persisted for {_garch_saved} tickers")
     except Exception as _ge:
         print(f"[layer9_bg] GARCH persistence block skipped: {_ge}")
+
+    _scores = batch_layer9_scores(_histories, timeout_per=5.0, chain_df_map=_chain_df_map)
 
     # ── 3c. Cross-sectional PCA — compute pca_factor1_var from returns matrix ──
     _pca_var_by_ticker: dict = {}

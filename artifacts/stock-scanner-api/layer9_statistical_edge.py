@@ -277,7 +277,34 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             "note": "rolling_vol_proxy_no_options_chain",
         }
 
-        # ── 8. Risk-Neutral Density (conditional on options chain) ────
+        # ── 8. GARCH(1,1) persistence (optional — requires arch) ─────────
+        # Persistence = alpha1 + beta1. High (>0.95): vol is very sticky —
+        # choppy after spikes, cuts directional edge. Low (<0.70): vol
+        # decays fast → regime transitioning, explosive move potential.
+        # Implemented as a ±adjustment (like RND) to avoid weight-sum
+        # distortion when GARCH fitting fails on thin history.
+        garch_adjustment = 0.0
+        try:
+            from volatility_clustering import (
+                fit_garch_model as _garch_fit_fn,
+                get_persistence as _garch_pers_fn,
+            )
+            _gf = _garch_fit_fn(returns)
+            if _gf is not None:
+                _gpers = _safe_float(_garch_pers_fn(_gf), 0.0)
+                flags["garch_persistence"] = round(_gpers, 4)
+                components["garch_persistence"] = {
+                    "raw": round(_gpers, 4),
+                    "score": round(max(0.0, min(100.0, (1.0 - _gpers) * 100.0)), 1),
+                }
+                if _gpers > 0.95:
+                    garch_adjustment = -5.0   # high clustering → choppy, cut edge
+                elif _gpers < 0.70:
+                    garch_adjustment = 3.0    # vol decaying → explosive potential
+        except Exception:
+            pass
+
+        # ── 9. Risk-Neutral Density (conditional on options chain) ────
         # Only computed when chain_df (with 'strike' + 'call_price' cols)
         # is passed in by the caller.  When absent the component is marked
         # unavailable and does NOT participate in weighted scoring.
@@ -299,7 +326,7 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             for k in norm_w
             if k in components
         )
-        final_score = round(float(np.clip(final_score + rnd_adjustment, 0.0, 100.0)), 2)
+        final_score = round(float(np.clip(final_score + rnd_adjustment + garch_adjustment, 0.0, 100.0)), 2)
 
         return {
             "ticker":            ticker,
