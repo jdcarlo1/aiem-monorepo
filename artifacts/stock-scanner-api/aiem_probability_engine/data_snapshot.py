@@ -178,6 +178,37 @@ def build_dataset() -> pd.DataFrame:
         rows.append(row)
 
     df = pd.DataFrame(rows)
+
+    # Post-loop contamination-rate gate.
+    # Scope: this gate is the implementation of the Task 1 post-loop fix approved
+    # for data_snapshot.py. It is NOT "Decision 3" — Decision 3 was the scope
+    # ruling that limited Task 1 to this file and excluded context.py/predict.py.
+    # The 5% threshold is an implementation choice made within that approved scope;
+    # it was not separately approved as a numbered decision. If the threshold needs
+    # explicit sign-off, it should be assigned its own decision number before merge.
+    #
+    # Behaviour: if more than 5% of picks triggered the leakage guard, the training
+    # data is likely corrupted (e.g. a mis-wired as_of_date, a bulk data import with
+    # wrong dates, or a systematic lookback error). Returning a partially-contaminated
+    # DataFrame silently would allow ML training on biased labels. We abort instead.
+    # The 5% threshold is intentionally loose — a handful of edge-case tickers on a
+    # bad weekend bar should not abort a full Sunday retrain — but a systematic error
+    # affecting more than 1 in 20 picks should.
+    # ERROR_CODE=DATA_SNAPSHOT_CONTAMINATION_RATE_EXCEEDED is greppable in logs.
+    if leakage_violations > 0 and len(picks) > 0:
+        _contamination_rate = leakage_violations / len(picks)
+        print(
+            f"[data_snapshot] contamination_rate={_contamination_rate:.1%} "
+            f"({leakage_violations}/{len(picks)} picks triggered leakage guard)"
+        )
+        if _contamination_rate > 0.05:
+            raise RuntimeError(
+                f"DATA_SNAPSHOT_CONTAMINATION_RATE_EXCEEDED: "
+                f"{leakage_violations}/{len(picks)} picks ({_contamination_rate:.1%}) "
+                f"triggered LookaheadViolation. Threshold: 5%. "
+                f"Dataset build aborted — training on contaminated data is not allowed."
+            )
+
     print(f"[data_snapshot] built {len(df)} rows from {len(picks)} picks "
           f"({leakage_violations} dropped for leakage-guard trips)")
     return df

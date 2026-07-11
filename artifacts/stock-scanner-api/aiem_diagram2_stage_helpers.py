@@ -231,6 +231,91 @@ def stage3_lookahead_bias_check(ticker: str, pick: dict, db_url: str = None) -> 
                 "bias_detected": False, "passed": True,
             }
 
+    elif source == "multi_signal":
+        # Decision 1: cache-level scan_date check — FAIL CLOSED on both cases.
+        #
+        # Case A — future scan_date: the cache record claims data from a session
+        # that has not yet closed. Every pick from that payload is contaminated.
+        # RuntimeError raised: ERROR_CODE=MULTI_SIGNAL_CACHE_FUTURE_DATE.
+        #
+        # Case B — missing cache row: if scan_result_cache has no row for
+        # endpoint='multi-signal', provenance is unknown. A pick with
+        # source='multi_signal' MUST have originated from this cache. An absent
+        # row means we cannot distinguish (a) cache cleared after a valid scan
+        # from (b) pick generated from a future-dated scan that has since been
+        # evicted. This is the identical provenance-unknown argument used for
+        # CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE — unknown provenance is a
+        # hard violation in all environments, not a safe pass.
+        # RuntimeError raised: ERROR_CODE=MULTI_SIGNAL_CACHE_MISSING.
+        #
+        # There is NO fallback-to-pass on missing cache. Matches the polygon
+        # pattern: same RuntimeError type, same fail-closed path.
+        try:
+            with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT MAX(scan_date) FROM scan_result_cache WHERE endpoint='multi-signal'"
+                )
+                _ms_row = cur.fetchone()
+        except Exception:
+            _ms_row = None
+
+        if _ms_row is None or _ms_row[0] is None:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
+                f"No row in scan_result_cache for endpoint='multi-signal'. "
+                f"ERROR_CODE=MULTI_SIGNAL_CACHE_MISSING. "
+                f"Pick provenance unknown — cannot verify scan was not future-dated. "
+                f"Fail-closed: same rationale as CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE."
+            )
+        _ms_scan_date = _ms_row[0]
+        if hasattr(_ms_scan_date, "date"):
+            _ms_scan_date = _ms_scan_date.date()
+        if _ms_scan_date > today:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
+                f"scan_result_cache.scan_date={_ms_scan_date} > today={today}. "
+                f"ERROR_CODE=MULTI_SIGNAL_CACHE_FUTURE_DATE. "
+                f"All multi_signal picks from this cache record are contaminated."
+            )
+
+    elif source == "conviction_stack":
+        # Decision 2: per-ticker snap_date check with fail-closed empty-table handling.
+        # conviction_stack_watchlist.snap_date is the scoring sweep data-date (not a
+        # processing timestamp). MAX(snap_date) = NULL means the table has no rows for
+        # this ticker. This is provenance-unknown — same category as G6's
+        # PRICE_PROVENANCE_UNKNOWN_DATE — and is treated as a hard violation in ALL
+        # environments. There is NO dev-only gate: if the table is empty in production
+        # due to an outage, this code raises loudly rather than silently passing.
+        # The structured error code CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE is
+        # greppable across logs and never suppressed without explicit logging.
+        try:
+            with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT MAX(snap_date) FROM conviction_stack_watchlist WHERE ticker=%s",
+                    (str(ticker).upper(),)
+                )
+                _cs_row = cur.fetchone()
+        except Exception:
+            _cs_row = None
+
+        if _cs_row is None or _cs_row[0] is None:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [conviction_stack]: "
+                f"No rows in conviction_stack_watchlist for ticker={ticker}. "
+                f"ERROR_CODE=CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE. "
+                f"Provenance unknown — pick rejected. Fires in ALL environments "
+                f"(dev empty table and production outage are indistinguishable by design)."
+            )
+        _cs_snap_date = _cs_row[0]
+        if hasattr(_cs_snap_date, "date"):
+            _cs_snap_date = _cs_snap_date.date()
+        if _cs_snap_date > today:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [conviction_stack]: "
+                f"conviction_stack_watchlist.snap_date={_cs_snap_date} > today={today}. "
+                f"ERROR_CODE=CONVICTION_FUTURE_SNAP_DATE."
+            )
+
     return {
         "check": "lookahead_bias", "ticker": ticker,
         "source": source, "raw_score": raw_score,
