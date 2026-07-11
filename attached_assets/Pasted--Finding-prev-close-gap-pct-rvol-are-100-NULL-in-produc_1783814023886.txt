@@ -1,0 +1,84 @@
+# Finding: `prev_close`, `gap_pct`, `rvol` are 100% NULL in production
+
+**Table:** `polygon_market_daily`
+**Date verified:** 2026-07-11
+**Severity:** High — affects entire history, including most recent data
+
+---
+
+## Summary
+
+A raw SQL query against the live `polygon_market_daily` table confirms that three columns are **NULL on every single row**:
+
+| Column | Non-null count | Total rows | % populated |
+|---|---|---|---|
+| `prev_close` | 0 | 3,303,187 | 0.0% |
+| `gap_pct` | 0 | 3,303,187 | 0.0% |
+| `rvol` | 0 | 3,303,187 | 0.0% |
+
+Table date range: **2024-07-22 → 2026-07-10** (two full years). All other columns (`open_price`, `high_price`, `low_price`, `close_price`, `volume`, `vwap`, `close_strength`, `range_pct`) are ~100% populated. Only these three are dead.
+
+This rules out any theory involving partial coverage (e.g. "only backfilled/historical rows are missing it") — the most recent scan_date in the table (2026-07-10) is also fully NULL for all three columns.
+
+---
+
+## Code-path review (static analysis) — what looked correct on paper
+
+Four ingest paths write to `polygon_market_daily`:
+
+1. **`spy_historical_backfill.py`** — one-time SPY-only script. Never computes or inserts `rvol` at all (column absent from INSERT).
+2. **`main.py` INSERT #1** — historical Polygon backfill. Inserts `rvol=None` explicitly. The post-insert UPDATE backfill (lines 29979–29996) recomputes `gap_pct` but has no equivalent UPDATE for `rvol`.
+3. **`main.py` INSERT #2** — live nightly Polygon grouped-daily ingest (the "production writer"). This is the **only** path where the row-builder computes `_gap2` and `_rvol2`, and the only `ON CONFLICT DO UPDATE` clause that explicitly refreshes `rvol` (`rvol=EXCLUDED.rvol`) and `gap_pct` on repeat runs.
+4. **`aiem_autonomous.py`** (retry/fallback ingest) — computes `gap` but never computes or passes `rvol`.
+
+Based on static code review alone, INSERT #2 appeared to be the correctly-wired path.
+
+---
+
+## Root cause — confirmed via raw data, contradicts the static review
+
+Despite INSERT #2 having correct-looking logic, its row-builder output collapses to `None` because its **upstream inputs are empty at runtime**:
+
+```python
+_pc    = _prior_close_map.get(_ticker)
+       # -> None (map is empty or missing ticker)
+_gap2  = ((_c - _pc) / _pc * 100) if _pc else None
+       # -> None
+_pvols2 = [_d.get(_ticker,{}).get("v",0) or 0 for _d in prior_days]
+_pvols2 = [v for v in _pvols2 if v > 0]
+       # -> [] (prior_days empty or no volume)
+_rvol2 = (_vol / (sum(_pvols2)/len(_pvols2))) if _pvols2 else None
+       # -> None
+```
+
+`_prior_close_map` and `prior_days` are the two variables feeding this calculation, and they are **not populated with real data at the time INSERT #2 runs** — for every row, in production, for two years.
+
+The post-insert UPDATE backfill in INSERT #1 also never fired: it self-joins on `prev.scan_date < t.scan_date` where `t.prev_close IS NULL`. Since every row has `prev_close IS NULL`, it should have matched and populated on every run, but `prev_close` remains 0% populated — meaning that UPDATE block was never actually committed/executed, despite existing in code.
+
+**Conclusion:** This is not a missing-column or missing-UPDATE-statement bug. The code that *should* work has never received real data to work with, and a separate UPDATE block that should have self-healed the data has apparently never run despite existing in the codebase. Both point to an upstream/execution-level bug, not a SQL-logic bug.
+
+---
+
+## What still needs verification (not yet proven)
+
+1. Where/when `_prior_close_map` and `prior_days` are supposed to be populated (function name + line number).
+2. Raw runtime evidence (print/log output, not narrative) showing these variables are actually empty at the moment INSERT #2's row-builder executes — e.g. `len(_prior_close_map)`, `len(prior_days)` logged immediately before line ~60990.
+3. Whether the INSERT #1 post-insert UPDATE backfill block is actually being reached/executed at all (git blame / execution log), since it should have populated `prev_close` on every run if it ran even once.
+
+---
+
+## Downstream impact to consider
+
+Any AIEM module or signal that depends on `gap_pct` or `rvol` (gap-based signals, relative volume conviction scoring, etc.) has been operating on entirely NULL inputs for these fields across the full two-year history, including current data.
+
+---
+
+## Standing verification requirement for any fix
+
+No task is complete based on description alone. Any claimed fix must include:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash before/after for changed files
+4. Raw SQL query + result set (re-running the NULL-fraction check above against a sample of newly-ingested rows)
+
+Narrative/paraphrased claims of "fixed" or "tested" without pasted evidence are rejected. The agent must explicitly state if it cannot produce evidence.
