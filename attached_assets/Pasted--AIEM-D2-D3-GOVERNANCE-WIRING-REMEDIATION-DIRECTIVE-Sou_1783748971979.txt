@@ -1,0 +1,105 @@
+# AIEM D2↔D3 GOVERNANCE WIRING — REMEDIATION DIRECTIVE
+
+**Source of truth:** `AEIM_D2_D3_GOVERNANCE_CONTRACT.json`
+**Contract sha256:** `2c8197d20d510bc7a4c3badbcf732b987078d74d4368b0bec3286543bed67aab`
+**Contract generated:** 2026-07-10T02:06:10Z
+**Directive issued:** 2026-07-11
+
+This directive is derived directly from the contract you (the agent) generated. It is not a request for a rewrite — it is a checklist to close the gaps the contract itself already documented, with proof required at each step. Do not mark any item complete without the artifact type specified for it.
+
+---
+
+## 1. BASELINE (what the contract already admits)
+
+- **21 canonical D2→D3 events.** Of these: 18 are `NOT_WIRED`, 2 are `PARTIALLY_OBSERVABLE_VIA_TABLE_READ` (`execution.paper_created`, `trace.completed`), 1 is `WIRED_VIA_DIRECT_HOOK` (`outcome.recorded`, via `main.py::_aiem_close_paper_trade_and_run_loop` → `aiem_diagram3_governance.link_paper_trade_close()`).
+- **18 canonical D3 response events.** Of these: 1 is `EMITTED_LIVE` (`governance.observation_recorded`, 9 rows in `d3_governance_event_links`), 17 are `PRODUCIBLE_NOT_YET_OBSERVED` — meaning a mapping rule exists in `_d3_infer_event_type()` but has never actually fired.
+- **Zero events of any kind return through Diagram 1.** Every single event type in the contract carries `"returns_through_diagram1": "NOT_IMPLEMENTED"`. D3's output only reaches the outside world via admin read endpoints (`GET /trace/<id>`, dashboards) — never back into a live D1 process.
+- **No enforcement is ever real.** Every emitted event is `enforcement_action=ADVISORY_ONLY` / `enforcement_status=NOT_ENFORCED`. There is no D2 owner service that can independently acknowledge or act on a D3 governance decision.
+- **Mechanism today is a single in-process function call, not a bus** — no message broker, no pub/sub, single DB.
+
+None of the above is in dispute. This directive exists to change status values, not to re-litigate them.
+
+---
+
+## 2. TIER 1 — GOVERNANCE HAS NO WAY TO ACT (highest priority)
+
+A governance layer whose decisions never reach the trading process is advisory theater, not governance. Before wiring more event *categories*, fix the return path for the ones that already work:
+
+**Required:**
+- A real mechanism by which a D3 governance decision (e.g. a future `governance.strategy_suspended` or `governance.architecture_violation`) can cause a visible state change in a live D1/D2 process — not just a new DB row.
+- If a full return channel is out of scope for this pass, that must be an explicit, dated scope decision Joel signs off on — not a silent gap. Do not let "descoped" apply retroactively to something not yet decided.
+
+**Proof required to close this item:**
+- File/line citation of the new code path.
+- A live test: trigger the condition, show the D1/D2-side state change (log line, DB row, in-memory flag flip) with a timestamp, and show it did NOT exist before the run.
+- SQL query output showing before/after state of any relevant table.
+
+**Rejection criteria:** Any claim of "return path implemented" without a reproducible before/after test showing the D1-side effect is rejected outright.
+
+---
+
+## 3. TIER 2 — WIRE THE CRITICAL TRADE-PATH EVENTS
+
+These are the D2→D3 events that sit directly on the decision path and are currently `NOT_WIRED`:
+
+- `candidate.accepted` / `candidate.rejected`
+- `risk.approved` / `risk.rejected`
+- `decision.created` / `decision.no_trade`
+- `execution.shadow_created` / `execution.failed`
+
+**Required per event type:**
+- A real code path in `aiem_diagram3_governance.py` (or equivalent) that consumes or reacts to the event — not merely a row insert that nothing reads.
+- Explicit statement of mechanism (direct function call is acceptable given the single-monolith constraint; a fake "event bus" abstraction with one subscriber is not better and should not be built for appearances).
+
+**Proof required:**
+- File/line citation of the consumer code.
+- A live trade cycle (paper mode) run end-to-end, with terminal output or logs showing the event firing and being consumed, plus the corresponding DB row.
+- No status may move to `WIRED` based on code existing but unexecuted — it must be `PRODUCIBLE_NOT_YET_OBSERVED` at minimum, per the contract's own vocabulary, until an actual run demonstrates it.
+
+---
+
+## 4. TIER 3 — FORCE THE 17 UNOBSERVED D3 RESPONSE EVENTS TO ACTUALLY FIRE
+
+`_d3_infer_event_type()` already contains mapping rules for these; they have simply never been triggered by a real `governance_phase` + `check_result` combination:
+
+`governance.review_requested`, `governance.policy_approved`, `governance.policy_rejected`, `governance.model_approved`, `governance.model_rejected`, `governance.learning_approved`, `governance.learning_rejected`, `governance.strategy_restricted`, `governance.strategy_suspended`, `governance.change_approved`, `governance.change_rejected`, `governance.rollback_requested`, `governance.rollback_approved`, `governance.rollback_completed`, `governance.architecture_violation`, `governance.security_violation`, `governance.report_generated`.
+
+**Required:**
+- Construct or run the real conditions (not synthetic/mocked check_results) that cause each mapping rule to actually fire at least once.
+- For `governance.report_generated` specifically: run `PHASE_14_EXECUTIVE_REPORTING` at least once post-v2-schema and confirm the row.
+
+**Proof required:**
+- SQL `SELECT` against `d3_governance_event_links` showing the new `event_type` row with a real timestamp, for each event claimed as now-observed.
+- Do not report "should fire" or "logic is correct" as evidence — only an actual row counts.
+
+---
+
+## 5. TIER 4 — ENFORCEMENT STATUS
+
+Every event today is `ADVISORY_ONLY` / `NOT_ENFORCED`. This may be a correct architectural decision for a single-monolith system, but it needs to be a *decision*, documented as such, not a permanent default nobody revisits.
+
+**Required:**
+- A written statement (in the next contract revision) of whether any enforcement will ever be real for this architecture, and if not, why — referencing the "no separate D2 owner microservice" constraint explicitly.
+- If enforcement is intentionally out of scope, this must be stated as a permanent architectural constraint, not folded into the same "descoped for now" language used for things that ARE planned.
+
+---
+
+## 6. UNIVERSAL RULES FOR THIS ROUND
+
+1. **No status upgrades without the specified artifact.** "Wired," "fixed," or "implemented" claims without file/line + live test/query output are rejected on sight.
+2. **One call site is not the same as full coverage.** If an event type has multiple call sites (as governance checks historically have), cite ALL of them, not the first one found.
+3. **Distinguish `WIRED` from `PRODUCIBLE_NOT_YET_OBSERVED` from `EMITTED_LIVE`,** using the contract's own three-tier vocabulary. Do not collapse these into a single "done."
+4. **Regenerate the contract JSON after this pass**, with a new `contract_sha256` and a version bump. The new contract must show a real diff against the current one — any event type whose evidence text is unchanged should keep its current status, not be silently upgraded.
+5. **Failure isolation must be preserved.** Any new consumer code must be wrapped so a D3/governance failure can never block or corrupt the real trade-execution write path — same guarantee as the existing `outcome.recorded` hook.
+
+---
+
+## 7. WHAT "DONE" LOOKS LIKE FOR THIS ROUND
+
+A new `AEIM_D2_D3_GOVERNANCE_CONTRACT` (v2) where:
+- Tier 1 return path exists and is demonstrated, OR is explicitly and permanently scoped out by name.
+- The 8 Tier 2 trade-path events move from `NOT_WIRED` to at least `PARTIALLY_OBSERVABLE` or `WIRED`, each with fresh evidence text (not copy-pasted from v1).
+- At least a majority of the 17 Tier 3 events move from `PRODUCIBLE_NOT_YET_OBSERVED` to `EMITTED_LIVE`, each with a real row.
+- Enforcement status decision is written down, not left as an unexamined default.
+
+Anything short of this, reported as "complete," will be treated the same way the prior premature-completion claims were treated.
