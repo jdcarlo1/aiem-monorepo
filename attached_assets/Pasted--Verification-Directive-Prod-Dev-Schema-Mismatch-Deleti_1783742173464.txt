@@ -1,0 +1,151 @@
+# Verification Directive — Prod/Dev Schema Mismatch (Deletion Warning)
+
+**Trigger:** Deployment warning flagged that a migration would drop the following
+tables from production:
+
+- `aiem_independent_picks` — 97 rows
+- `aiem_ml_predictions` — 229 rows
+- `aiem_health_log` — 256 rows
+- (plus any additional tables surfaced under "View all warnings")
+
+**Status:** Deployment cancelled. No migration has been applied. Do not
+re-attempt deployment until every step below is completed with raw evidence.
+
+---
+
+## Instructions for the agent
+
+### 1. Diagnose — do not fix blind
+
+- Run a schema diff between prod and dev scoped to the three tables above
+  (plus any others from "View all warnings").
+- Paste the actual `CREATE TABLE` statements from **prod** for each table —
+  full column definitions, types, constraints, indexes. Not a paraphrase.
+
+### 2. Explain the root cause
+
+- Check migration history (migration folder + git log, or the ORM's migration
+  tracking table) for each of these tables.
+- State plainly: was each table ever defined in a tracked migration file, or
+  was it created directly against prod outside the normal migration flow?
+- Cite file names and timestamps as evidence, not a narrative summary.
+
+### 3. Do not let the tool auto-resolve by dropping anything
+
+- The fix direction is always: bring **dev** up to match **prod**, never
+  the reverse.
+- Generate a new migration file that creates these tables in dev with the
+  exact same schema as prod.
+
+### 4. Backup before touching anything
+
+- Export a table-specific backup (`pg_dump` or equivalent) of all three prod
+  tables before running any migration anywhere.
+- Report back the backup file paths and row counts. These must match
+  97 / 229 / 256 (or current live counts, whichever is higher).
+
+### 5. Apply in dev only, first
+
+- Run the new migration in **dev only**.
+- Run a fresh schema diff prod vs. dev and paste the raw diff output. Expected
+  result: zero differences for these three tables.
+
+### 6. Re-attempt deployment
+
+- Only after step 5 shows a clean diff, attempt the prod deployment again.
+- Paste the exact deployment warning screen (or explicit confirmation there
+  is none) before proceeding past it.
+
+### 7. Prevent recurrence
+
+- Identify what process allowed a prod table to be created outside tracked
+  migrations.
+- State what safeguard is being added so this can't silently recur on the
+  next deploy (e.g., migration tool configured to flag/exclude untracked
+  prod-only tables rather than defaulting to drop).
+
+---
+
+## Rejection criteria
+
+Reject the agent's "done" report if any of the following are true:
+
+- [ ] No raw `CREATE TABLE` statements were shown for the three tables — only
+      a description of them.
+- [ ] No migration history evidence (file names/timestamps) was provided to
+      explain why dev diverged from prod.
+- [ ] The proposed fix involves dropping or modifying anything in **prod**.
+- [ ] No backup file paths or row counts were provided before the dev
+      migration was run.
+- [ ] The post-migration schema diff was summarized narratively instead of
+      pasted as raw output.
+- [ ] Row counts after backup don't match or exceed 97 / 229 / 256.
+- [ ] No explanation was given for root cause, or no safeguard was proposed
+      to prevent recurrence.
+
+---
+
+## Independent verification checklist (run yourself, don't trust the report)
+
+Run these directly against the databases — SQL results only, no agent
+narration accepted as a substitute.
+
+**A. Confirm current prod row counts (baseline, before anything changes):**
+
+```sql
+SELECT count(*) FROM aiem_independent_picks;
+SELECT count(*) FROM aiem_ml_predictions;
+SELECT count(*) FROM aiem_health_log;
+```
+
+**B. Confirm backup file exists and is non-empty, with matching row counts:**
+
+```bash
+ls -la <backup_file_paths>
+pg_restore -l <backup_file>   # or equivalent listing for your backup format
+```
+
+**C. After migration applied to dev — confirm schema now matches prod:**
+
+```sql
+-- Run against dev and prod separately, diff the output
+SELECT table_name, column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_name IN ('aiem_independent_picks','aiem_ml_predictions','aiem_health_log')
+ORDER BY table_name, ordinal_position;
+```
+
+**D. Confirm prod row counts unchanged after the dev migration:**
+
+```sql
+SELECT count(*) FROM aiem_independent_picks;  -- must equal step A
+SELECT count(*) FROM aiem_ml_predictions;
+SELECT count(*) FROM aiem_health_log;
+```
+
+**E. Re-check for the deletion warning on next deploy attempt:**
+
+- Confirm the deploy overview screen no longer flags these tables for
+  deletion. Screenshot or paste the deployment log output — not a verbal
+  confirmation.
+
+**F. Regression check — confirm no other prod-only tables are still at risk:**
+
+```sql
+-- Tables in prod not present in dev (adjust for your schema name)
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = 'public'
+EXCEPT
+SELECT table_name FROM dblink('dev_connection_string',
+  'SELECT table_name FROM information_schema.tables WHERE table_schema = ''public''')
+  AS t(table_name);
+```
+*(If cross-database query isn't available in your setup, run the two
+`information_schema.tables` queries separately against prod and dev and diff
+the results manually.)*
+
+---
+
+**Sign-off condition:** All checklist items A–F pass with pasted raw output,
+row counts match or exceed baseline, and the schema diff in step C returns
+zero rows. Only then is this closed.
