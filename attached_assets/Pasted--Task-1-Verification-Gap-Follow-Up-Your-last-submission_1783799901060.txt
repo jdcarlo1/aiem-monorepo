@@ -1,0 +1,64 @@
+# Task 1 — Verification Gap Follow-Up
+
+Your last submission (`task1-verification-proof.md`) showed real terminal
+output for test *behavior*, but it did NOT prove the underlying *fix*, and
+it was incomplete. Before this task is marked closed, you must produce the
+following. No narrative summaries. No "already tested" claims. If you
+cannot produce an item, say explicitly: "I cannot produce this evidence."
+
+---
+
+## Standing verification requirement (applies to every item below)
+
+No task is complete based on description alone. For every claim of "fixed"
+or "tested," you must provide:
+1. Raw terminal output of the actual execution (unedited, full).
+2. Exact before/after file diff for every changed file.
+3. sha256 hash (before AND after) for every changed file.
+4. Raw SQL query text + raw result set, for any claim involving the database.
+
+Narrative or paraphrased claims without pasted evidence will be rejected.
+
+---
+
+## Gap 1 — File diff of the actual fix
+
+Show the exact `git diff` (or equivalent before/after diff) for whatever
+file(s) implement the lookahead-bias fix being tested in
+`task1-verification-fixes/test_decisions.py`. We have only seen the test's
+OUTPUT, not what code changed to make it pass.
+
+## Gap 2 — sha256 hashes
+
+Run and paste raw output of:
+```
+sha256sum <each changed file>
+```
+Both BEFORE your fix (from git history / backup) and AFTER. If you cannot
+retrieve a true "before" hash, say so explicitly rather than omitting it.
+
+## Gap 3 — Raw SQL, not narrative
+
+For every place the test output says "DB confirms X" (e.g. "DB confirms
+MAX(scan_date) = 2026-07-12"), paste:
+- The exact SQL query run.
+- The raw result set returned (not a paraphrase).
+
+## Gap 4 — Complete the file, don't truncate
+
+The last submission cut off mid-Decision 3 (data_snapshot contamination-rate
+gate). Paste the FULL remaining contents of `task1-verification-proof.md`,
+including:
+- Any Decisions 4+ that exist.
+- The final PASS/FAIL summary block.
+- The actual exit code (`echo $?` immediately after the test run).
+
+## Gap 5 — Confirm no cherry-picking
+
+State how many total decision/test cases exist in `test_decisions.py`, and
+confirm all of them appear in the proof file. If any were excluded, say
+which ones and why.
+
+---
+
+**Do not respond with "all fixed" or "all tested." Paste the evidence.**
