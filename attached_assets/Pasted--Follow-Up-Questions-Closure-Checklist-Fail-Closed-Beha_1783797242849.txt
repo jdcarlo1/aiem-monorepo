@@ -1,0 +1,59 @@
+# Follow-Up Questions + Closure Checklist — Fail-Closed Behavior Section
+
+**Context:** Before this part of the diagram (D1/D2/D3 fail-closed behavior + the `data_snapshot.py` post-loop gate) can be marked done, the two open inconsistencies below must be resolved with evidence, then the master closure checklist must be satisfied in full.
+
+---
+
+## Standing verification requirement (applies to everything below)
+
+Do not mark anything complete based on description alone. For every claim of "fixed," "resolved," or "confirmed," provide:
+1. Raw terminal output of actual execution (not a summary)
+2. The exact file diff (before/after) for anything changed
+3. sha256 hash of each changed file, before and after
+4. If a database is involved: the actual SQL query and its raw result set
+
+Narrative descriptions or "I checked and it's fine" without pasted evidence will be rejected. If evidence cannot be produced, say so explicitly instead of asserting completion.
+
+---
+
+## Question 1 — D1-B inconsistency (multi_signal empty cache)
+
+Your `data_snapshot.py` diff shows:
+
+```python
+if _ms_row is not None and _ms_row[0] is not None:
+    ... [future-date check that raises]
+```
+
+This means: if there's no cache row at all, the future-date check is skipped entirely and the pick falls through to pass.
+
+Decision 2 explicitly fails closed on missing data (`conviction_stack` empty table), with a code comment justifying why. There is no equivalent comment or justification for `multi_signal`'s missing-cache case.
+
+**Resolve one of the following, with evidence:**
+- (a) Add the same fail-closed justification and change the code so `multi_signal` fails closed on missing cache, matching `conviction_stack`'s treatment. Show the diff, hashes, and a test proving it now raises on missing cache.
+- (b) Give a specific, concrete technical reason why `multi_signal`'s missing-cache case is safe to pass while `conviction_stack`'s missing-table case is not. "It's a different situation" without a concrete mechanism is not acceptable.
+
+---
+
+## Question 2 — Decision 3 mislabeling
+
+The contamination-rate gate code is commented `# Decision 3` — but Decision 3, as approved, was the task-1 scope ruling limiting fixes to `data_snapshot.py`'s post-loop gate (excluding `context.py`/`predict.py`). The contamination-rate threshold (5%) was never part of the three decisions originally signed off on.
+
+**Required answer:**
+- Exactly when and why the contamination-rate gate was added
+- Explicit confirmation it was not silently folded into an already-approved decision number
+- If this is genuinely new scope, it needs its own decision number and approval — not to be retrofitted under "Decision 3"
+
+---
+
+## Master Closure Checklist (only after Q1 and Q2 are resolved)
+
+Before this section of the diagram is marked done, provide a single consolidated response covering all five items below. Each item requires raw evidence — if any cannot be shown, say so explicitly rather than summarizing.
+
+1. **Every decision point in this task and its final fail-open/fail-closed behavior** — a complete list, not a partial one.
+2. **Confirmation that no code path anywhere in this diff can silently pass on missing, stale, or future-dated data without an explicit justification comment next to it.** Show the relevant code for each path.
+3. **Full list of files touched vs. explicitly excluded, with sha256 hashes for both** (before and after).
+4. **The separate ticket reference for the deferred backtest-integrity gap** (`_lookahead_fired` propagation) — confirm it still exists and hasn't been dropped.
+5. **Explicit confirmation that `git status` shows zero changes to any live file** — only the isolation folder should be touched.
+
+**This section is only considered closed once all five items are shown with evidence, not summarized. Once confirmed, we move to the next part of the diagram.**

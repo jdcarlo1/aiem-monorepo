@@ -86,6 +86,8 @@ def stage3_lookahead_bias_check(ticker: str, pick: dict, db_url: str = None) -> 
             }
 
     elif source == "multi_signal":
+        # FAIL CLOSED on both missing cache (MULTI_SIGNAL_CACHE_MISSING) and
+        # future-dated cache (MULTI_SIGNAL_CACHE_FUTURE_DATE). No fallback-to-pass.
         try:
             with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
                 cur.execute(
@@ -95,17 +97,24 @@ def stage3_lookahead_bias_check(ticker: str, pick: dict, db_url: str = None) -> 
         except Exception:
             _ms_row = None
 
-        if _ms_row is not None and _ms_row[0] is not None:
-            _ms_scan_date = _ms_row[0]
-            if hasattr(_ms_scan_date, "date"):
-                _ms_scan_date = _ms_scan_date.date()
-            if _ms_scan_date > today:
-                raise RuntimeError(
-                    f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
-                    f"scan_result_cache.scan_date={_ms_scan_date} > today={today}. "
-                    f"ERROR_CODE=MULTI_SIGNAL_CACHE_FUTURE_DATE. "
-                    f"All multi_signal picks from this cache record are contaminated."
-                )
+        if _ms_row is None or _ms_row[0] is None:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
+                f"No row in scan_result_cache for endpoint='multi-signal'. "
+                f"ERROR_CODE=MULTI_SIGNAL_CACHE_MISSING. "
+                f"Pick provenance unknown — cannot verify scan was not future-dated. "
+                f"Fail-closed: same rationale as CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE."
+            )
+        _ms_scan_date = _ms_row[0]
+        if hasattr(_ms_scan_date, "date"):
+            _ms_scan_date = _ms_scan_date.date()
+        if _ms_scan_date > today:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
+                f"scan_result_cache.scan_date={_ms_scan_date} > today={today}. "
+                f"ERROR_CODE=MULTI_SIGNAL_CACHE_FUTURE_DATE. "
+                f"All multi_signal picks from this cache record are contaminated."
+            )
 
     elif source == "conviction_stack":
         try:
@@ -208,20 +217,22 @@ db_exec("DELETE FROM scan_result_cache WHERE endpoint='multi-signal' AND scan_da
 row = db_query("SELECT COUNT(*) FROM scan_result_cache WHERE endpoint='multi-signal'")
 print(f"[cleanup] Remaining rows for endpoint=multi-signal: {row[0]}")
 
-print(f"\n[test D1-B] Calling stage3 with source='multi_signal', NO cache row (empty table for endpoint) ...")
+print(f"\n[test D1-B] Calling stage3 with source='multi_signal', NO cache row — expect MULTI_SIGNAL_CACHE_MISSING ...")
 try:
     result = stage3_lookahead_bias_check("AAPL", {"source": "multi_signal", "raw_score": 5.0})
-    print(f"[test D1-B] Returned (expected fallback pass): {result}")
-    if result.get("passed") is True:
-        results.append(("D1-B multi_signal empty cache returns passed=True (fallback)", PASS,
-                        f"passed=True as expected when no cache row"))
-    else:
-        results.append(("D1-B multi_signal empty cache returns passed=True (fallback)", FAIL,
-                        f"unexpected result: {result}"))
+    print(f"[test D1-B] UNEXPECTED PASS — returned: {result}")
+    results.append(("D1-B multi_signal missing cache raises MULTI_SIGNAL_CACHE_MISSING (fail-closed)", FAIL,
+                    f"no exception raised, returned {result}"))
 except RuntimeError as e:
-    print(f"[test D1-B] UNEXPECTED RuntimeError: {e}")
-    results.append(("D1-B multi_signal empty cache returns passed=True (fallback)", FAIL,
-                    f"unexpected RuntimeError: {e}"))
+    msg = str(e)
+    print(f"[test D1-B] RuntimeError raised: {msg}")
+    if "MULTI_SIGNAL_CACHE_MISSING" in msg:
+        print(f"[test D1-B] ERROR_CODE=MULTI_SIGNAL_CACHE_MISSING confirmed — fail-closed on missing cache")
+        results.append(("D1-B multi_signal missing cache raises MULTI_SIGNAL_CACHE_MISSING (fail-closed)", PASS,
+                        "error code present, no fallback-to-pass"))
+    else:
+        results.append(("D1-B multi_signal missing cache raises MULTI_SIGNAL_CACHE_MISSING (fail-closed)", FAIL,
+                        f"raised but wrong error code: {msg}"))
 
 
 # ── DECISION 2 TESTS — conviction_stack ───────────────────────────────────────

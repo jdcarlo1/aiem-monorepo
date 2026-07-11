@@ -232,12 +232,24 @@ def stage3_lookahead_bias_check(ticker: str, pick: dict, db_url: str = None) -> 
             }
 
     elif source == "multi_signal":
-        # Decision 1: cache-level scan_date check.
-        # multi_signal picks come from a single scan_result_cache payload — there is no
-        # per-ticker date. The cache record's scan_date is the feature-data date for ALL
-        # tickers in that payload. If it is future-dated, every pick from that cache is
-        # contaminated, so we raise for this candidate. Matches the polygon violation
-        # pattern: same RuntimeError path, same fail-closed behaviour.
+        # Decision 1: cache-level scan_date check — FAIL CLOSED on both cases.
+        #
+        # Case A — future scan_date: the cache record claims data from a session
+        # that has not yet closed. Every pick from that payload is contaminated.
+        # RuntimeError raised: ERROR_CODE=MULTI_SIGNAL_CACHE_FUTURE_DATE.
+        #
+        # Case B — missing cache row: if scan_result_cache has no row for
+        # endpoint='multi-signal', provenance is unknown. A pick with
+        # source='multi_signal' MUST have originated from this cache. An absent
+        # row means we cannot distinguish (a) cache cleared after a valid scan
+        # from (b) pick generated from a future-dated scan that has since been
+        # evicted. This is the identical provenance-unknown argument used for
+        # CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE — unknown provenance is a
+        # hard violation in all environments, not a safe pass.
+        # RuntimeError raised: ERROR_CODE=MULTI_SIGNAL_CACHE_MISSING.
+        #
+        # There is NO fallback-to-pass on missing cache. Matches the polygon
+        # pattern: same RuntimeError type, same fail-closed path.
         try:
             with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
                 cur.execute(
@@ -247,17 +259,24 @@ def stage3_lookahead_bias_check(ticker: str, pick: dict, db_url: str = None) -> 
         except Exception:
             _ms_row = None
 
-        if _ms_row is not None and _ms_row[0] is not None:
-            _ms_scan_date = _ms_row[0]
-            if hasattr(_ms_scan_date, "date"):
-                _ms_scan_date = _ms_scan_date.date()
-            if _ms_scan_date > today:
-                raise RuntimeError(
-                    f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
-                    f"scan_result_cache.scan_date={_ms_scan_date} > today={today}. "
-                    f"ERROR_CODE=MULTI_SIGNAL_CACHE_FUTURE_DATE. "
-                    f"All multi_signal picks from this cache record are contaminated."
-                )
+        if _ms_row is None or _ms_row[0] is None:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
+                f"No row in scan_result_cache for endpoint='multi-signal'. "
+                f"ERROR_CODE=MULTI_SIGNAL_CACHE_MISSING. "
+                f"Pick provenance unknown — cannot verify scan was not future-dated. "
+                f"Fail-closed: same rationale as CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE."
+            )
+        _ms_scan_date = _ms_row[0]
+        if hasattr(_ms_scan_date, "date"):
+            _ms_scan_date = _ms_scan_date.date()
+        if _ms_scan_date > today:
+            raise RuntimeError(
+                f"LOOKAHEAD BIAS DETECTED [multi_signal]: "
+                f"scan_result_cache.scan_date={_ms_scan_date} > today={today}. "
+                f"ERROR_CODE=MULTI_SIGNAL_CACHE_FUTURE_DATE. "
+                f"All multi_signal picks from this cache record are contaminated."
+            )
 
     elif source == "conviction_stack":
         # Decision 2: per-ticker snap_date check with fail-closed empty-table handling.

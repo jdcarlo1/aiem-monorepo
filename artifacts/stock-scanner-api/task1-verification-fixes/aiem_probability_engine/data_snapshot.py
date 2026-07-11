@@ -179,13 +179,21 @@ def build_dataset() -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
 
-    # Contamination-rate gate (Decision 3).
-    # If more than 5% of picks triggered the leakage guard, the training data is
-    # likely corrupted (e.g. a mis-wired as_of_date, a bulk data import with wrong
-    # dates, or a systematic lookback error). Rather than silently returning a
-    # partially-contaminated DataFrame, we abort. The 5% threshold is intentionally
-    # loose — a handful of edge-case tickers on a bad weekend bar should not abort
-    # a full Sunday retrain — but a systematic issue should.
+    # Post-loop contamination-rate gate.
+    # Scope: this gate is the implementation of the Task 1 post-loop fix approved
+    # for data_snapshot.py. It is NOT "Decision 3" — Decision 3 was the scope
+    # ruling that limited Task 1 to this file and excluded context.py/predict.py.
+    # The 5% threshold is an implementation choice made within that approved scope;
+    # it was not separately approved as a numbered decision. If the threshold needs
+    # explicit sign-off, it should be assigned its own decision number before merge.
+    #
+    # Behaviour: if more than 5% of picks triggered the leakage guard, the training
+    # data is likely corrupted (e.g. a mis-wired as_of_date, a bulk data import with
+    # wrong dates, or a systematic lookback error). Returning a partially-contaminated
+    # DataFrame silently would allow ML training on biased labels. We abort instead.
+    # The 5% threshold is intentionally loose — a handful of edge-case tickers on a
+    # bad weekend bar should not abort a full Sunday retrain — but a systematic error
+    # affecting more than 1 in 20 picks should.
     # ERROR_CODE=DATA_SNAPSHOT_CONTAMINATION_RATE_EXCEEDED is greppable in logs.
     if leakage_violations > 0 and len(picks) > 0:
         _contamination_rate = leakage_violations / len(picks)
