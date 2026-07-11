@@ -27,6 +27,8 @@ PASS = "PASS"
 FAIL = "FAIL"
 results = []
 
+NO_CLEANUP = "--no-cleanup" in sys.argv
+
 # ── Inline patched stage3_lookahead_bias_check from the patched file ─────────
 # We inline it here to avoid importing the full module (which has hundreds of
 # module-level dependencies). This is a verbatim copy of the function as it
@@ -212,6 +214,10 @@ except RuntimeError as e:
                         f"raised but ERROR_CODE missing from message: {msg}"))
 
 # Cleanup: remove the future-dated row only (PK includes scan_date)
+# D1 cleanup runs unconditionally even when --no-cleanup is passed.
+# D1-B requires an empty scan_result_cache for endpoint='multi-signal' to fire
+# MULTI_SIGNAL_CACHE_MISSING. Skipping this delete would break D1-B. This is
+# mid-run test setup, not end-of-run evidence cleanup.
 print(f"\n[cleanup] Deleting scan_result_cache row for endpoint='multi-signal', scan_date={tomorrow} ...")
 db_exec("DELETE FROM scan_result_cache WHERE endpoint='multi-signal' AND scan_date=%s", (tomorrow,))
 row = db_query("SELECT COUNT(*) FROM scan_result_cache WHERE endpoint='multi-signal'")
@@ -290,10 +296,14 @@ except RuntimeError as e:
                         f"raised but wrong error code: {msg}"))
 
 # Cleanup
-print(f"\n[cleanup D2-B] Deleting test row for TSLA ...")
-db_exec("DELETE FROM conviction_stack_watchlist WHERE ticker='TSLA' AND label='TEST_FUTURE'")
-row = db_query("SELECT COUNT(*) FROM conviction_stack_watchlist WHERE ticker='TSLA'")
-print(f"[cleanup D2-B] TSLA rows remaining: {row[0]}")
+if not NO_CLEANUP:
+    print(f"\n[cleanup D2-B] Deleting test row for TSLA ...")
+    db_exec("DELETE FROM conviction_stack_watchlist WHERE ticker='TSLA' AND label='TEST_FUTURE'")
+    row = db_query("SELECT COUNT(*) FROM conviction_stack_watchlist WHERE ticker='TSLA'")
+    print(f"[cleanup D2-B] TSLA rows remaining: {row[0]}")
+else:
+    print(f"\n[no-cleanup] SKIPPING cleanup D2-B — row left in conviction_stack_watchlist"
+          f" (ticker='TSLA', label='TEST_FUTURE', snap_date={tomorrow})")
 
 # Test D2-C: today's snap_date → should pass (no violation)
 print(f"\n[setup D2-C] Inserting conviction_stack_watchlist row with snap_date={today} for ticker='GOOG' ...")
@@ -319,7 +329,11 @@ except RuntimeError as e:
                     f"unexpected RuntimeError: {e}"))
 
 # Cleanup D2-C
-db_exec("DELETE FROM conviction_stack_watchlist WHERE ticker='GOOG' AND label='TEST_TODAY'")
+if not NO_CLEANUP:
+    db_exec("DELETE FROM conviction_stack_watchlist WHERE ticker='GOOG' AND label='TEST_TODAY'")
+else:
+    print(f"[no-cleanup] SKIPPING cleanup D2-C — row left in conviction_stack_watchlist"
+          f" (ticker='GOOG', label='TEST_TODAY', snap_date={today})")
 
 
 # ── DECISION 3 TEST — data_snapshot contamination-rate gate ──────────────────
@@ -410,6 +424,22 @@ try:
 except RuntimeError as e:
     results.append(("D3-D 0 violations — gate is not entered", FAIL, f"unexpected: {e}"))
 
+
+# ── NO-CLEANUP INVENTORY ──────────────────────────────────────────────────────
+if NO_CLEANUP:
+    print("\n" + "=" * 70)
+    print("NO-CLEANUP MODE — rows left in database for independent inspection")
+    print("=" * 70)
+    print("  Table: conviction_stack_watchlist")
+    print(f"    Row 1 (D2-B): ticker='TSLA', label='TEST_FUTURE', snap_date={tomorrow}")
+    print(f"    Row 2 (D2-C): ticker='GOOG', label='TEST_TODAY',  snap_date={today}")
+    print("  SQL to query back:")
+    print("    SELECT ticker, snap_date, label, total_pts, conviction_pct, captured_at")
+    print("    FROM conviction_stack_watchlist")
+    print("    WHERE label IN ('TEST_FUTURE', 'TEST_TODAY');")
+    print("  Table: scan_result_cache — CLEANED (required for D1-B test setup, not skippable)")
+    print("  To remove test rows after inspection:")
+    print("    DELETE FROM conviction_stack_watchlist WHERE label IN ('TEST_FUTURE', 'TEST_TODAY');")
 
 # ── SUMMARY ───────────────────────────────────────────────────────────────────
 

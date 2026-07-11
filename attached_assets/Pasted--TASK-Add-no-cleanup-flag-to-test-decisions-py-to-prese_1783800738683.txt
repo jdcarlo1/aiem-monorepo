@@ -1,0 +1,30 @@
+# TASK: Add `--no-cleanup` flag to `test_decisions.py` to preserve DB evidence
+
+## Problem
+
+`test_decisions.py` inserts test rows into two tables, runs confirm queries against them, then deletes those rows in a cleanup step at the end. This means any "raw SQL output" captured from a run reflects a *reproduction*, not the original evidence — the rows are gone by the time anyone can independently inspect them.
+
+## Required change
+
+1. Add a command-line flag `--no-cleanup` (use `argparse` or `sys.argv` check, whichever matches the existing script's convention).
+2. When `--no-cleanup` is passed, skip **every** `DELETE FROM` call at the end of the test run. Locate all cleanup `DELETE FROM` statements in the file and wrap them in a conditional so they only execute when the flag is *not* set.
+3. Default behavior (no flag) must be unchanged — normal CI runs still clean up.
+4. When `--no-cleanup` is used, print a clear line at the end of the run stating which tables/rows were left in place and the exact `WHERE` conditions needed to query them back out (e.g. ticker, test-run ID, timestamp) so they're independently queryable afterward.
+5. Do not alter the insert logic, the confirm-query logic, or any of the 9 existing test cases (D1-A/B, D2-A/B/C, D3-A/B/C/D). This is scoped strictly to the cleanup step.
+
+## Out of scope
+
+Do not touch the contamination-rate threshold (5%) or add any new decision logic — that is a separate open item and is not part of this fix.
+
+---
+
+## STANDING VERIFICATION REQUIREMENT — READ BEFORE MARKING THIS COMPLETE
+
+No task is considered complete based on a description alone. You must provide ALL of the following as pasted evidence:
+
+1. **Raw terminal output** of the test actually being executed with `--no-cleanup` passed — not a summary, the actual console output.
+2. **Exact before/after file diff** for `test_decisions.py` (`git diff` output, not a description of the change).
+3. **sha256 hash before and after** for `test_decisions.py` (`sha256sum test_decisions.py` run pre- and post-edit).
+4. **Raw SQL query + result set** proving the test rows are still present in the database *after* the test run completes when `--no-cleanup` is used — run this as a separate, independent query after the test process has exited, not from within the same test run.
+
+Narrative or paraphrased claims of "fixed" or "tested" without this pasted evidence will be rejected and treated as unverified. If you cannot produce any piece of this evidence, say so explicitly rather than describing what the code "should" do.
