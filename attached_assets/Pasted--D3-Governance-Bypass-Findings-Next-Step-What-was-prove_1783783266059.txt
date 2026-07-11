@@ -1,0 +1,50 @@
+# D3 Governance Bypass — Findings & Next Step
+
+## What was proven (raw evidence, verified in DB)
+
+Two of four mutation endpoints bypass all G0–G6 checkpoints entirely:
+
+- `force-mtm` → `_aiem_paper_mark_to_market`
+- `admin/paper-trade/<id>/close` → `_aiem_close_paper_trade_and_run_loop`
+
+**Live test result:** With `G0 = ENFORCE` and `system_state = PAUSED`, calling `admin/paper-trade/2/close` still succeeded:
+
+```
+fired=true, status=CLOSED_WIN, exit_reason=D3_GOV_BYPASS_TEST
+learning_loop_fired_at was set.
+```
+
+G0 was never consulted. State mutated despite the system being paused and the checkpoint set to enforce.
+
+No documentation — contract, governance spec, code comments, or anywhere else — states this bypass is intentional. The contract/spec only describe D2↔D3 event wiring (what D3 *observes*), not what D3 *gates*. G0 was wired exclusively into `_aiem_paper_execute_today()` (the pick/execute pipeline). The MTM close path and the admin close path were never wired to any governance checkpoint.
+
+## The open question
+
+Is this:
+1. **Intentional** — a manual admin override that should always work regardless of governance state (a human already exercising judgment during an incident shouldn't be blocked by gates meant to restrain the autonomous system), or
+2. **A gap** — these mutation paths should have been gated like everything else and simply were missed.
+
+This is a design decision only you can make — not something the agent can resolve or self-certify.
+
+## Decision-forcing question before you decide
+
+Who/what can actually call these two endpoints?
+
+- If `force-mtm` and `admin/paper-trade/close` are **only ever triggered by you**, manually, through an authenticated admin action — bypassing G0–G6 is defensible as a deliberate "manual override always available" pattern.
+- If they're reachable by anything other than you — another module, a scheduled job, a webhook, or if the admin token could be replayed or leaked — then PAUSED isn't actually a kill switch; it's a kill switch with a side door.
+
+## Directive for the agent (next step)
+
+Paste this to the agent verbatim:
+
+```
+Grep every call site of `_aiem_paper_mark_to_market` and 
+`_aiem_close_paper_trade_and_run_loop` across the entire codebase — 
+including schedulers, cron jobs, webhooks, and any Telegram bot handlers. 
+Paste the raw grep output with file:line for every match. Do not summarize 
+or characterize the results — raw output only.
+```
+
+**If the only caller is your manual admin route:** the bypass is likely fine as-is. Consider adding a warning log when either endpoint fires while `PAUSED`/`ENFORCE` is active, so it's visible in your audit trail even if it's expected behavior.
+
+**If anything automated can reach either endpoint:** this is a real governance gap, not a design choice, and both paths need to be wired into G0–G6 like `_aiem_paper_execute_today()` is.
