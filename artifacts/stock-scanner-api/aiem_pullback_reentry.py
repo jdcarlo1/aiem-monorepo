@@ -1227,12 +1227,13 @@ def register_signal() -> None:
                     INSERT INTO aiem_signal_discoveries
                         (hypothesis_text, conditions_json, status, horizon,
                          invented_indicator, signal_n, signal_win_rate, p_value,
-                         notes, discovered_at)
-                    VALUES (%s,%s::jsonb,'hypothesis',%s,%s,%s,%s,%s,%s,NOW())
+                         notes, signal_name, discovered_at)
+                    VALUES (%s,%s::jsonb,'hypothesis',%s,%s,%s,%s,%s,%s,%s,NOW())
                 """, (_SIGNAL_NAME, json.dumps(conditions), _HORIZON, _INVENTED_INDICATOR,
                       bt_n or None, bt_wr, p_val,
                       f"Module_L panic_exhaustion; SPY_20d_thresh={SPY_20D_PANIC_THRESHOLD}%; "
-                      f"bt_n={bt_n}; wr={bt_wr}; p={p_val}"))
+                      f"bt_n={bt_n}; wr={bt_wr}; p={p_val}",
+                      _SIGNAL_NAME))
             conn.commit()
         print(f"[pullback_reentry] registered {_SIGNAL_NAME}: n={bt_n} wr={bt_wr} p={p_val}")
     except Exception as e:

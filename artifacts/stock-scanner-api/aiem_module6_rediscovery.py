@@ -363,14 +363,14 @@ def run_rediscovery_batch(conn, batch_id: Optional[str] = None) -> dict:
                      baseline_win_rate, baseline_n,
                      edge_broad, p_value, invented_indicator,
                      parent_signal_id, generation, variation_note,
-                     discovered_at)
+                     signal_name, discovered_at)
                 VALUES
                     (%s, %s, %s, 'hypothesis',
                      %s, %s,
                      %s, %s,
                      %s, %s, 'module6_rediscovery',
                      %s, %s, %s,
-                     NOW())
+                     %s, NOW())
                 RETURNING id
             """, (
                 child_hyp,
@@ -380,6 +380,7 @@ def run_rediscovery_batch(conn, batch_id: Optional[str] = None) -> dict:
                 res["ctrl_wr"], res["ctrl_n"],
                 res["delta_wr"], res["p_raw"],
                 parent_id, child_gen, var["variation_note"],
+                var.get("variation_note", "")[:100],
             ))
             new_id = cur.fetchone()[0]
             conn.commit()

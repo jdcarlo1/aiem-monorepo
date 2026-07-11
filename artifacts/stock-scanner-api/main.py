@@ -5714,6 +5714,18 @@ try:
         id="aiem_independent_options_scan",
         replace_existing=True,
     )
+    # GEX + Skew + Term Structure: 10:05 AM ET Mon-Fri
+    # Scans optionable names from unusual_calls_log + conviction_stack_watchlist
+    # for gamma exposure regime, put/call skew, and term structure shape.
+    # Saves results to options_structure_scan — feeds skew_velocity in Layer 9.
+    # lambda defers name lookup to call time — _send_gex_options_alert is defined
+    # later in this file (line ~62700) and is not yet in scope during scheduler setup.
+    _scheduler.add_job(
+        lambda: _send_gex_options_alert(),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),
+        id="gex_options_alert",
+        replace_existing=True,
+    )
     # Loop B - prediction grader: 4:35 PM ET Mon-Fri
     # Grades T+1 / T+3 / T+5 outcomes for Loop B predictions using Tradier history.
     def _run_aiem_grader_job():

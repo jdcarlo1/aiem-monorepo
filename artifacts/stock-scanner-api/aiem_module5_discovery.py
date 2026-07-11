@@ -505,13 +505,13 @@ def run_discovery_batch(conn) -> dict:
                          signal_win_rate, signal_n,
                          baseline_win_rate, baseline_n,
                          edge_broad, oos_edge, p_value,
-                         invented_indicator, discovered_at)
+                         invented_indicator, signal_name, discovered_at)
                     VALUES
                         ('hypothesis', %s::jsonb, %s, %s,
                          %s, %s,
                          %s, %s,
                          %s, %s, %s,
-                         'module5_fisher_bh', NOW())
+                         'module5_fisher_bh', %s, NOW())
                     RETURNING id
                 """, (
                     _json.dumps(r["conditions_json"]),
@@ -524,6 +524,7 @@ def run_discovery_batch(conn) -> dict:
                     round(r["cond_wr"] - r["ctrl_wr"], 2),   # edge_broad
                     round(r["cond_wr"] - r["ctrl_wr"], 2),   # oos_edge (same — this IS the OOS test)
                     r["p_raw"],
+                    r.get("condition_name", r["hypothesis_text"])[:100],
                 ))
                 discovery_id = cur.fetchone()[0]
                 # Add to existing key sets to prevent same-batch duplicates

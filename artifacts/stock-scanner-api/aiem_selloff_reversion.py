@@ -1017,8 +1017,8 @@ def register_signal() -> None:
                     INSERT INTO aiem_signal_discoveries
                         (hypothesis_text, conditions_json, status, horizon,
                          invented_indicator, signal_n, signal_win_rate, p_value,
-                         notes, discovered_at)
-                    VALUES (%s, %s::jsonb, 'hypothesis', %s, %s, %s, %s, %s, %s, NOW())
+                         notes, signal_name, discovered_at)
+                    VALUES (%s, %s::jsonb, 'hypothesis', %s, %s, %s, %s, %s, %s, %s, NOW())
                     """,
                     (
                         "Oversold_Bounce_Uptrend",
@@ -1028,6 +1028,7 @@ def register_signal() -> None:
                         bt_n or None, bt_wr, p_val,
                         f"structural state-machine; Module2=unevaluable_structural; "
                         f"backtest_rows={bt_n}; confirmed_wr={bt_wr}; p={p_val}",
+                        "Oversold_Bounce_Uptrend",
                     ),
                 )
             conn.commit()

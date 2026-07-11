@@ -956,12 +956,12 @@ def register_signal() -> None:
                     INSERT INTO aiem_signal_discoveries
                         (hypothesis_text, conditions_json, status, horizon,
                          invented_indicator, signal_n, signal_win_rate,
-                         signal_avg_ret, p_value, notes, discovered_at)
-                    VALUES (%s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                         signal_avg_ret, p_value, notes, signal_name, discovered_at)
+                    VALUES (%s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 """, (_SIGNAL_NAME, json.dumps(conditions), new_status, _HORIZON,
                       _INVENTED_INDICATOR, bt_n or None,
                       (bt_wr / 100) if bt_wr else None,
-                      bt_ret, p_val, note))
+                      bt_ret, p_val, note, _SIGNAL_NAME))
             conn.commit()
 
         print(f"[squeeze] registered {_SIGNAL_NAME}: "

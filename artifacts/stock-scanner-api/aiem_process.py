@@ -1335,8 +1335,8 @@ def aiem_write_signal_discoveries():
                 INSERT INTO aiem_signal_discoveries
                     (hypothesis_text, conditions_json, horizon,
                      signal_n, signal_win_rate, baseline_win_rate,
-                     edge_broad, status, discovered_at, notes)
-                VALUES (%s, %s::jsonb, %s, %s, %s, %s, %s, %s, NOW(), %s)
+                     edge_broad, status, discovered_at, notes, signal_name)
+                VALUES (%s, %s::jsonb, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
             """, (
                 hypothesis,
                 json.dumps(conditions),
@@ -1347,6 +1347,7 @@ def aiem_write_signal_discoveries():
                 round(stats["gap"] * 100, 2),
                 "hypothesis",
                 f"auto-discovered by aiem_process on {today}",
+                sig,
             ))
             saved += 1
             log.info(f"  saved hypothesis: {sig} (gap={stats['gap']:+.2f})")

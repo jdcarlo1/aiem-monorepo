@@ -1,0 +1,74 @@
+# Fix Directive — Items 3 & 4 (signal_name / skew_velocity)
+
+Paste this to the agent verbatim. Do not accept prose explanations of the fix — only diffs, grep output, and before/after row counts count as proof.
+
+---
+
+## ITEM 3 — `signal_name` column exists but is never populated
+
+**Root cause claimed:** no code path writes `signal_name` via `mkt_save_discovery`.
+
+**What it needs to be wired into:**
+`signal_name` must be set at the moment a discovery row is created — i.e., inside whatever function performs the `INSERT INTO aiem_signal_discoveries` for the live candidate pipeline (this may or may not be `mkt_save_discovery` — that needs to be confirmed, not assumed).
+
+**Fix instructions to give the agent:**
+
+1. Find every place that inserts into `aiem_signal_discoveries`:
+   ```
+   grep -rn "INSERT INTO aiem_signal_discoveries" .
+   grep -rn "def mkt_save_discovery" .
+   grep -rn "mkt_save_discovery(" .
+   ```
+2. For each call site found, paste the surrounding ~15 lines so we can see what arguments are passed in.
+3. Determine: is `signal_name` (a) missing from the function signature, (b) present in the signature but not included in the INSERT column list, or (c) included but always passed as `None`/empty at the call site? These are three different bugs with three different fixes — the agent must identify which one applies, not guess.
+4. Fix the INSERT (or the function call) so `signal_name` is populated from the actual hypothesis/signal identifier already available at that point in the pipeline (it should already exist as a variable — do not invent a new naming scheme without confirming what the rest of the system expects, e.g. check what `decay_verdict`/Layer 9 queries expect signal_name to look like).
+5. Prove it: insert or trigger one real discovery row through the live path, then run:
+   ```sql
+   SELECT id, signal_name, status FROM aiem_signal_discoveries ORDER BY id DESC LIMIT 5;
+   ```
+   Paste the raw output showing a non-NULL `signal_name` on the new row.
+6. Paste the git diff of the fix.
+
+**Proof required from agent:** grep output (step 1), pasted call sites (step 2), diagnosis of which of the 3 failure modes it was (step 3), git diff (step 6), and a post-fix SQL query result showing a populated `signal_name` (step 5). No narrative substitutes for any of these.
+
+---
+
+## ITEM 4 — `skew_velocity` / `options_structure_scan` scanner has no scheduler entry
+
+**Root cause claimed:** the scanner that writes to `options_structure_scan` exists in code but is never invoked, because `main.py` has no scheduled job for it — so the table stays empty and the `skew_velocity` guard (needs ≥5 rows) always fails.
+
+**What it needs to be wired into:**
+The existing job scheduler in `main.py` — the same mechanism used to register the other ~110 scheduled jobs already running (macro engine, regime detection, etc.). This is not a new subsystem; it's a missing registration in an existing one.
+
+**Fix instructions to give the agent:**
+
+1. Find the scanner function that's supposed to populate `options_structure_scan`:
+   ```
+   grep -rn "options_structure_scan" .
+   grep -rn "def.*options_structure" .
+   ```
+2. Find how an existing, working scanner is registered as a scheduled job in `main.py` (pick one you know runs, e.g. the macro engine), and paste that registration block as the reference pattern:
+   ```
+   grep -n "add_job\|scheduler.add" main.py
+   ```
+3. Add the missing registration for the options structure scanner using the same pattern (same scheduler object, comparable interval/cadence — ask what cadence makes sense given how often options structure data should refresh, don't just copy an arbitrary interval).
+4. Confirm the job actually runs: after deploying/restarting, grep the application logs for the job's start/completion log lines, or query:
+   ```sql
+   SELECT COUNT(*), MAX(created_at) FROM options_structure_scan;
+   ```
+   run once before the fix (should show 0 or stale) and again after the scheduler has had one full cycle (should show new rows with a recent timestamp).
+5. Once rows exist, re-run the original `skew_velocity` trace for AAPL and confirm the guard now passes (≥5 rows) and a real (non-guard-failed) value is returned.
+6. Paste the git diff of the `main.py` change.
+
+**Proof required from agent:** grep output (steps 1–2), the diff (step 6), the before/after row-count query (step 4), and a fresh trace log for `skew_velocity` on AAPL showing the guard passing instead of failing (step 5).
+
+---
+
+## Closing criteria for this file
+
+Do not mark items 3–4 resolved until you have, in hand:
+- A git diff for each fix
+- A raw SQL/query result showing the actual data changed (populated signal_name; non-zero, fresh options_structure_scan rows)
+- A re-run of the original failing trace now showing success
+
+Any fix claim missing one of these three pieces of evidence should be sent back for the missing proof — not accepted on narrative alone.

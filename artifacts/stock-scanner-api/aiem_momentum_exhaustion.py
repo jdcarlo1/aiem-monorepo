@@ -980,13 +980,14 @@ def register_signal() -> None:
                     INSERT INTO aiem_signal_discoveries
                         (hypothesis_text, conditions_json, status, horizon,
                          invented_indicator, signal_n, signal_win_rate, p_value,
-                         notes, discovered_at)
-                    VALUES (%s,%s::jsonb,'hypothesis',%s,%s,%s,%s,%s,%s,NOW())
+                         notes, signal_name, discovered_at)
+                    VALUES (%s,%s::jsonb,'hypothesis',%s,%s,%s,%s,%s,%s,%s,NOW())
                 """, (_SIGNAL_NAME, json.dumps(conditions), _HORIZON, _INVENTED_INDICATOR,
                       bt_n or None, bt_wr, p_val,
                       f"Module_M 8-signal stack; min={MIN_SIGNALS_TO_FIRE}; "
                       f"override_when_L={MIN_SIGNALS_OVERRIDE}; "
-                      f"S8=NOT_IMPLEMENTED; bt_n={bt_n}; p={p_val}"))
+                      f"S8=NOT_IMPLEMENTED; bt_n={bt_n}; p={p_val}",
+                      _SIGNAL_NAME))
             conn.commit()
         print(f"[momentum_exhaustion] registered {_SIGNAL_NAME}: n={bt_n} p={p_val}")
     except Exception as e:
