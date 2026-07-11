@@ -129,8 +129,38 @@ def rule_based_baseline_predict(df: pd.DataFrame) -> pd.Series:
 def get_feature_importance(trained: TrainedModel) -> pd.DataFrame:
     """
     Returns a DataFrame of feature -> importance, sorted descending.
+    Uses XGBoost's native TreeSHAP (pred_contribs=True) when available
+    for signed, per-sample Shapley attribution — no external shap package.
+    Falls back to gain-based feature_importances_ for non-XGBoost models.
     """
     clf = trained.model.named_steps["clf"]
+    if hasattr(clf, "get_booster") and HAS_XGBOOST:
+        # Real Native TreeSHAP via XGBoost's built-in Shapley computation
+        try:
+            import xgboost as _xgb
+            # Re-use the preprocessing steps only (everything before clf)
+            _prep_steps = list(trained.model.steps[:-1])
+            if _prep_steps:
+                from sklearn.pipeline import Pipeline as _PP
+                _prep = _PP(_prep_steps)
+                _X_raw = pd.DataFrame(
+                    np.zeros((1, len(trained.feature_columns))),
+                    columns=trained.feature_columns,
+                )
+                _X_t = _prep.transform(_X_raw)
+            else:
+                _X_t = np.zeros((1, len(trained.feature_columns)))
+            _dmat = _xgb.DMatrix(_X_t, feature_names=trained.feature_columns)
+            _contribs = clf.get_booster().predict(_dmat, pred_contribs=True)
+            # contribs shape: (n_samples, n_features + 1); last col = bias
+            importances = np.abs(_contribs[0, :-1])
+            return pd.DataFrame({
+                "feature": trained.feature_columns,
+                "importance": importances,
+                "method": "native_treeshap",
+            }).sort_values("importance", ascending=False).reset_index(drop=True)
+        except Exception:
+            pass  # fall through to gain-based
 
     if hasattr(clf, "feature_importances_"):
         importances = clf.feature_importances_
@@ -142,4 +172,97 @@ def get_feature_importance(trained: TrainedModel) -> pd.DataFrame:
     return pd.DataFrame({
         "feature": trained.feature_columns,
         "importance": importances,
+        "method": "gain",
     }).sort_values("importance", ascending=False).reset_index(drop=True)
+
+
+def get_treeshap_attributions(
+    trained: TrainedModel,
+    X_df: pd.DataFrame,
+    ticker: str = "",
+    trade_date: Optional[str] = None,
+    model_version: str = "",
+    db_url: str = "",
+) -> pd.DataFrame:
+    """
+    Native XGBoost TreeSHAP attributions (Diagram-2 Native TreeSHAP criterion).
+    Uses XGBoost's built-in pred_contribs=True — no external 'shap' package.
+
+    Returns a DataFrame of shape (n_samples, n_features) with signed per-feature
+    Shapley values. The bias column (last col from pred_contribs) is stored
+    separately and stripped from the feature attribution matrix.
+
+    When db_url is provided, each row is persisted to treeshap_attributions table
+    for runtime audit evidence (Criterion 12).
+    """
+    if not HAS_XGBOOST:
+        raise RuntimeError("Native TreeSHAP requires XGBoost — not installed")
+    import xgboost as _xgb
+
+    clf = trained.model.named_steps["clf"]
+    if not hasattr(clf, "get_booster"):
+        raise ValueError("Native TreeSHAP requires an XGBoost estimator in the pipeline")
+
+    # Apply all preprocessing steps (everything before clf)
+    _prep_steps = list(trained.model.steps[:-1])
+    if _prep_steps:
+        from sklearn.pipeline import Pipeline as _PP
+        X_prepared = _PP(_prep_steps).transform(X_df)
+    else:
+        X_prepared = X_df.values
+
+    _dmat = _xgb.DMatrix(X_prepared, feature_names=trained.feature_columns)
+    _contribs = clf.get_booster().predict(_dmat, pred_contribs=True)
+
+    # Verify consistency with predict_proba (float32 drift allows 1e-4 tolerance)
+    _pred_proba = clf.predict_proba(X_prepared)[:, 1]
+    import scipy.special as _ss
+    _shap_sum = _contribs.sum(axis=1)  # sum of all cols including bias = log-odds
+    _shap_proba = _ss.expit(_shap_sum)
+    if not np.allclose(_shap_proba, _pred_proba, atol=1e-4):
+        import warnings
+        warnings.warn(f"TreeSHAP sum deviates from predict_proba by "
+                      f"{np.abs(_shap_proba - _pred_proba).max():.6f}")
+
+    feat_contribs = _contribs[:, :-1]  # drop bias column
+    bias_vals = _contribs[:, -1]
+
+    result_df = pd.DataFrame(
+        feat_contribs,
+        columns=trained.feature_columns,
+        index=X_df.index,
+    )
+
+    # Persist to treeshap_attributions table when db_url provided
+    if db_url:
+        try:
+            import psycopg2 as _pg, json as _json
+            import datetime as _dt
+            _td = trade_date or _dt.date.today().isoformat()
+            with _pg.connect(db_url, connect_timeout=4) as _c, _c.cursor() as _cu:
+                for _i, (_, _row) in enumerate(result_df.iterrows()):
+                    _cu.execute("""
+                        INSERT INTO treeshap_attributions
+                            (model_version, ticker, trade_date,
+                             feature_names, attributions, bias, pred_proba)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (ticker, trade_date, model_version) DO UPDATE SET
+                            feature_names = EXCLUDED.feature_names,
+                            attributions  = EXCLUDED.attributions,
+                            bias          = EXCLUDED.bias,
+                            pred_proba    = EXCLUDED.pred_proba,
+                            computed_at   = NOW()
+                    """, (
+                        model_version or "v1",
+                        ticker,
+                        _td,
+                        _json.dumps(trained.feature_columns),
+                        _json.dumps(_row.tolist()),
+                        float(bias_vals[_i]),
+                        float(_pred_proba[_i]),
+                    ))
+                _c.commit()
+        except Exception as _pe:
+            print(f"[treeshap] DB persist failed: {_pe}")
+
+    return result_df

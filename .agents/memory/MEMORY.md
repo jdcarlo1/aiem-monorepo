@@ -1,3 +1,4 @@
+- [Layer9 universe build bugs](layer9-universe-build-bugs.md) — 3 bugs fixed: shared try/except killed all sources; Yahoo breaker gated Tradier-only scanner; 2-3d lookbacks empty on weekends; _TD_BREAKER is a dict → use .get("tripped")
 - [First-candle intraday capture](aiem-firstcandle-module.md) — aiem_firstcandle.py: 9:36 AM captures 9:30-9:35 Tradier 5-min bar + 4:45 PM fills day_close/day_win; aiem_first_candle_data table; path to 70%+ same-day signal once ~4-6wk of data accumulates
 - [AIEM vs website scan architecture](aiem-vs-website-scan-architecture.md) — AIEM process owns ALL scheduled full-universe scans + Telegram digests; main.py (website) keeps only live per-request calculators; shared DB table is the handoff point
 - [Deep ITM options-calculator spec resolution](deep-itm-options-calculator.md) — 3 pasted files gave conflicting "deep ITM" specs (flat 10%, delta=0.80, catalyst-only); resolved by adding delta-targeted row alongside existing depth rows

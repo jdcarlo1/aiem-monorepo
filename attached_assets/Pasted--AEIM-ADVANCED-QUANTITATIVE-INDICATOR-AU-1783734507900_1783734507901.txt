@@ -1,0 +1,1551 @@
+============================================================
+AEIM ADVANCED QUANTITATIVE INDICATOR
+AUTHORITATIVE WIRING, REMEDIATION, AND LIVE VERIFICATION
+
+PURPOSE
+
+Audit, remediate, and prove the production wiring of every advanced
+quantitative indicator in AEIM Diagram 2.
+
+This is not a narrative review.
+
+This is not permission to create fake modules, placeholder functions,
+mock calculations, synthetic traces, hard-coded outputs, or alternate
+architecture merely to obtain a PASS result.
+
+The objective is to establish, with real code and real runtime evidence,
+that every advanced quantitative indicator:
+
+1. Exists in the production codebase.
+2. Has one canonical implementation.
+3. Has one canonical architectural owner.
+4. Is registered in the authoritative Module Registry or Tool Registry.
+5. Initializes successfully.
+6. Receives authorized upstream inputs.
+7. Executes real quantitative logic.
+8. Produces a structured output.
+9. Has its output consumed by an authorized downstream component.
+10. Contributes only where architecturally authorized.
+11. Cannot directly bypass synthesis, governance, or risk controls.
+12. Produces traceable provenance and runtime evidence.
+13. Runs at the correct cadence.
+14. Fails closed when required data or dependencies are unavailable.
+15. Is protected against fabricated success and silent fallback.
+
+Do not return a generalized statement that the indicators are wired.
+
+Each named indicator must receive an individual evidence record.
+
+============================================================
+SECTION 1 — NON-NEGOTIABLE ARCHITECTURAL FLOW
+
+The canonical Diagram 2 flow is:
+
+AEIM Self-Scan / Authorized Candidate Intake
+→ Point-in-Time and Data Quality Guards
+→ Macro and Market Regime Context
+→ Discovery and Hypothesis Selection
+→ Technical, Options, Microstructure, and Quantitative Analysis
+→ Probability Engine
+→ Scoring and Pre-Recommendation Synthesis
+→ Specialist Council
+→ Pre-Decision Risk Gate
+→ G2 Governance Check
+→ Decision Engine
+→ Paper/Shadow Execution or Authorized No-Execution Record
+→ Outcome Tracking and Attribution
+→ Safe Learning
+→ Memory
+→ Feedback to Master Orchestrator
+
+No advanced quantitative indicator may communicate directly with:
+
+1. The Decision Engine.
+2. The execution layer.
+3. The broker adapter.
+4. Telegram alert dispatch.
+5. Position creation.
+6. Order creation.
+7. Diagram 3 governance mutation controls.
+
+Indicators provide evidence.
+
+They do not independently authorize trades.
+
+============================================================
+SECTION 2 — CANONICAL OWNERSHIP RULES
+
+Each indicator must have exactly one canonical owner.
+
+Permitted owners include:
+
+A. Data Guard Layer
+B. Macro/Regime Layer
+C. Discovery/Hypothesis Layer
+D. Technical Analysis Layer
+E. Options/Microstructure Layer
+F. Quantitative/Statistical Edge Layer
+G. Probability Engine
+H. Scoring/Synthesis Layer
+I. Learning and Signal-Lifecycle Layer
+
+A second implementation may exist only when explicitly classified as:
+
+1. A versioned replacement awaiting approval.
+2. A test-only implementation.
+3. A research-only implementation.
+4. A deprecated implementation that cannot execute in production.
+
+Two active production implementations of the same indicator are prohibited.
+
+============================================================
+SECTION 3 — AUTHORITATIVE INDICATOR WIRING MAP
+
+For each indicator below, locate the real production implementation and
+wire it according to the stated contract.
+
+Do not rename an existing implementation merely to match this list.
+
+Where a functionally equivalent implementation already exists, document
+the mapping and prove equivalence.
+
+⸻
+
+1. POINT-IN-TIME DATA GUARD
+
+⸻
+
+Canonical owner:
+Data Guard Layer
+
+Authorized upstream inputs:
+
+* Raw market data
+* Fundamental data
+* Options data
+* Macro data
+* Candidate timestamp
+* Data-source timestamp
+* Query timestamp
+* Ingestion timestamp
+
+Required responsibilities:
+
+* Prevent future-data leakage.
+* Verify that every feature was available at decision time.
+* Reject lookahead-contaminated records.
+* Record source and observation timestamps.
+* Mark stale or unavailable data.
+* Fail closed for critical missing timestamps.
+
+Authorized downstream consumers:
+
+* Macro/Regime Layer
+* Discovery Layer
+* Technical Analysis Layer
+* Options/Microstructure Layer
+* Quantitative Layer
+* Probability Engine
+
+Prohibited behavior:
+
+* Allowing unverified data to enter any model.
+* Silently substituting current data for historical decision-time data.
+* Returning PASS without inspecting timestamps.
+
+⸻
+
+2. THOMPSON SAMPLING
+
+⸻
+
+Canonical owner:
+Discovery/Hypothesis Selection or Safe Learning Layer
+
+Authorized upstream inputs:
+
+* Eligible hypothesis identifiers
+* Historical trial counts
+* Success/failure outcomes
+* Posterior parameters
+* Regime context
+* Confidence and minimum-sample requirements
+* Exploration constraints
+
+Required output:
+
+* Selected hypothesis or strategy candidate
+* Posterior parameters before selection
+* Sampled score
+* Selection probability
+* Exploration/exploitation classification
+* Supporting trace identifiers
+
+Authorized downstream consumers:
+
+* Active Hypothesis Selection
+* Discovery Engine
+* Safe Learning evaluation
+* Scoring/Synthesis only through the selected hypothesis record
+
+Prohibited behavior:
+
+* Directly selecting a stock for execution.
+* Directly calling the Decision Engine.
+* Updating posterior values without verified outcome data.
+* Learning from unresolved trades.
+* Using fabricated successes or failures.
+
+⸻
+
+3. XGBOOST PROBABILITY MODEL
+
+⸻
+
+Canonical owner:
+Probability Engine
+
+Authorized upstream inputs:
+
+* Guard-approved feature vector
+* Macro/regime outputs
+* Discovery outputs
+* Technical outputs
+* Options/microstructure outputs
+* Quantitative/statistical outputs
+* Feature schema version
+* Model version
+
+Required output:
+
+* Raw model score
+* Calibrated probability, when calibration is implemented
+* Model version
+* Feature schema hash
+* Feature names and values
+* Missing-feature status
+* Prediction timestamp
+* Trace ID
+
+Authorized downstream consumers:
+
+* Native TreeSHAP explainer
+* Probability aggregator
+* Scoring/Synthesis Layer
+
+Prohibited behavior:
+
+* Direct Decision Engine access.
+* Direct Telegram alert creation.
+* Unversioned production model loading.
+* Silent feature-order changes.
+* Silent zero-filling of critical missing features.
+
+⸻
+
+4. NATIVE TREESHAP
+
+⸻
+
+Canonical owner:
+Probability Engine explanation component
+
+Authorized upstream inputs:
+
+* Exact XGBoost model used for the prediction
+* Exact feature vector used for the prediction
+* Prediction ID
+* Model version
+* Feature schema version
+
+Required output:
+
+* Base value
+* Per-feature SHAP contribution
+* Ranked positive contributors
+* Ranked negative contributors
+* Additivity or consistency check
+* Explanation ID linked to prediction ID
+
+Authorized downstream consumers:
+
+* Scoring/Synthesis
+* Audit/Observability
+* Executive reporting
+* Model monitoring
+
+Prohibited behavior:
+
+* Explaining a different model than the prediction model.
+* Explaining a reconstructed or modified feature vector.
+* Producing generic feature importance as a substitute for local SHAP.
+* Directly modifying the trade decision.
+
+⸻
+
+5. BENJAMINI-HOCHBERG FALSE DISCOVERY RATE
+    BH-FDR
+
+⸻
+
+Canonical owner:
+Quantitative/Statistical Edge Layer
+
+Authorized upstream inputs:
+
+* Complete family of p-values from the applicable hypothesis test batch
+* Hypothesis identifiers
+* Test-family identifier
+* Desired false discovery rate
+* Sample-size metadata
+
+Required output:
+
+* Original p-values
+* Ranked p-values
+* Adjusted q-values or rejection thresholds
+* Accepted/rejected hypothesis status
+* Test-family ID
+* FDR configuration
+
+Authorized downstream consumers:
+
+* Hypothesis Registry
+* Active Hypothesis Selection
+* Statistical Edge Layer
+* Scoring/Synthesis through validated statistical evidence
+
+Prohibited behavior:
+
+* Applying BH-FDR to only selected favorable p-values.
+* Mixing unrelated test families without documentation.
+* Treating statistical significance as execution authorization.
+* Omitting rejected hypotheses from the audit trail.
+
+⸻
+
+6. GARCH(1,1)
+
+⸻
+
+Canonical owner:
+Quantitative/Statistical Edge or Risk Feature Layer
+
+Authorized upstream inputs:
+
+* Point-in-time historical returns
+* Required lookback window
+* Sampling frequency
+* Data quality status
+* Regime context, when authorized
+
+Required output:
+
+* Conditional variance
+* Conditional volatility
+* Model parameters
+* Convergence status
+* Lookback window
+* Data timestamp
+* Fit diagnostics
+
+Authorized downstream consumers:
+
+* Volatility feature aggregator
+* Scoring/Synthesis
+* Pre-Decision Risk Gate through an approved volatility contract
+
+Prohibited behavior:
+
+* Direct trade approval or rejection.
+* Using future returns.
+* Returning volatility from a failed fit without a visible failure status.
+* Silent fallback to a constant without provenance.
+
+⸻
+
+7. JUMP DETECTION
+
+⸻
+
+Canonical owner:
+Quantitative/Statistical Edge Layer
+
+Authorized upstream inputs:
+
+* Guard-approved returns
+* Intraday or daily price series
+* Volatility estimate
+* Timestamped observation window
+* Configured jump threshold or statistical test
+
+Required output:
+
+* Jump detected status
+* Jump direction
+* Jump magnitude
+* Test statistic
+* Threshold
+* Confidence or p-value
+* Observation window
+
+Authorized downstream consumers:
+
+* Quantitative feature aggregator
+* Regime/risk context where contractually authorized
+* Scoring/Synthesis
+
+Prohibited behavior:
+
+* Direct execution blocking unless passed through the Risk Gate contract.
+* Relabeling ordinary volatility as a jump without test evidence.
+
+⸻
+
+8. STATISTICAL ARBITRAGE ENGINE
+
+⸻
+
+Canonical owner:
+Quantitative/Statistical Edge Layer
+
+Authorized upstream inputs:
+
+* Eligible instrument universe
+* Point-in-time synchronized prices
+* Pair or basket definitions
+* Cointegration or stationarity results
+* Spread history
+* Transaction-cost assumptions
+* Liquidity constraints
+
+Required output:
+
+* Pair or basket ID
+* Spread value
+* Z-score
+* Half-life
+* Cointegration or stationarity evidence
+* Entry/exit research signal
+* Confidence
+* Data timestamps
+
+Authorized downstream consumers:
+
+* Quantitative feature aggregator
+* Scoring/Synthesis
+* Research and backtesting systems
+
+Prohibited behavior:
+
+* Direct order placement.
+* Treating correlation alone as cointegration.
+* Using unsynchronized price histories.
+* Ignoring transaction costs or liquidity.
+
+⸻
+
+9. GAMMA EXPOSURE — GEX
+
+⸻
+
+Canonical owner:
+Options/Microstructure Layer
+
+Authorized upstream inputs:
+
+* Options chain
+* Open interest
+* Strike
+* Expiration
+* Call/put classification
+* Underlying price
+* Implied volatility
+* Contract multiplier
+* Observation timestamp
+
+Required output:
+
+* Aggregate GEX
+* Call GEX
+* Put GEX
+* Zero-gamma level, when implemented
+* Major gamma levels
+* Expiration coverage
+* Data completeness status
+
+Authorized downstream consumers:
+
+* Options structure aggregator
+* Market-structure analysis
+* Scoring/Synthesis
+
+Prohibited behavior:
+
+* Using undocumented sign conventions.
+* Combining stale and current chains.
+* Directly commanding execution.
+* Returning GEX without showing chain coverage and timestamp.
+
+⸻
+
+10. PUT/CALL SKEW
+
+⸻
+
+Canonical owner:
+Options/Microstructure Layer
+
+Authorized upstream inputs:
+
+* Point-in-time options chain
+* Comparable strikes or delta buckets
+* Comparable expirations
+* Implied volatility values
+* Liquidity filters
+
+Required output:
+
+* Put IV
+* Call IV
+* Skew value
+* Delta or strike convention
+* Expiration
+* Interpretation classification
+* Data-quality status
+
+Authorized downstream consumers:
+
+* Options structure aggregator
+* Scoring/Synthesis
+* Risk context where authorized
+
+Prohibited behavior:
+
+* Comparing incompatible maturities or delta buckets.
+* Using missing or illiquid quotes without disclosure.
+
+⸻
+
+11. OPTIONS TERM STRUCTURE
+
+⸻
+
+Canonical owner:
+Options/Microstructure Layer
+
+Authorized upstream inputs:
+
+* Implied volatility by expiration
+* Expiration dates
+* Underlying price
+* Liquidity filters
+* Point-in-time timestamp
+
+Required output:
+
+* Near-term IV
+* Longer-term IV
+* Term slope
+* Contango/backwardation classification
+* Expiration set
+* Data completeness status
+
+Authorized downstream consumers:
+
+* Options feature aggregator
+* Scoring/Synthesis
+* Volatility regime analysis when contractually authorized
+
+Prohibited behavior:
+
+* Mixing timestamps.
+* Comparing expirations with unusable liquidity.
+* Direct execution decisions.
+
+⸻
+
+12. CTA TRIGGER LEVELS
+
+⸻
+
+Canonical owner:
+Technical/Quantitative Analysis Layer
+
+Authorized upstream inputs:
+
+* Point-in-time price history
+* Volatility estimate
+* Trend horizon configuration
+* Moving-average or breakout rules
+* Current position assumptions, if modeled
+
+Required output:
+
+* Estimated buy trigger
+* Estimated sell trigger
+* Trend state
+* Distance to trigger
+* Calculation configuration
+* Confidence or model limitation
+
+Authorized downstream consumers:
+
+* Technical feature aggregator
+* Scoring/Synthesis
+* Specialist Council evidence packet
+
+Prohibited behavior:
+
+* Claiming knowledge of proprietary CTA positioning without evidence.
+* Presenting estimates as confirmed institutional orders.
+* Direct order creation.
+
+⸻
+
+13. HURST EXPONENT
+
+⸻
+
+Canonical owner:
+Quantitative/Statistical Edge Layer
+
+Authorized upstream inputs:
+
+* Guard-approved price or return series
+* Lookback window
+* Minimum observation count
+* Calculation method
+
+Required output:
+
+* Hurst estimate
+* Persistence, randomness, or mean-reversion classification
+* Lookback window
+* Method
+* Confidence or reliability status
+
+Authorized downstream consumers:
+
+* Strategy suitability evaluator
+* Quantitative feature aggregator
+* Scoring/Synthesis
+
+Prohibited behavior:
+
+* Using too few observations without a failure flag.
+* Treating the estimate as certain.
+* Directly selecting a trade.
+
+⸻
+
+14. AMIHUD ILLIQUIDITY
+
+⸻
+
+Canonical owner:
+Quantitative/Microstructure Layer
+
+Authorized upstream inputs:
+
+* Absolute returns
+* Dollar volume
+* Point-in-time historical bars
+* Lookback configuration
+* Corporate-action-adjusted data where required
+
+Required output:
+
+* Amihud illiquidity value
+* Lookback window
+* Observation count
+* Missing-volume status
+* Relative liquidity classification
+
+Authorized downstream consumers:
+
+* Liquidity feature aggregator
+* Scoring/Synthesis
+* Pre-Decision Risk Gate through the approved liquidity contract
+
+Prohibited behavior:
+
+* Dividing by invalid or zero dollar volume without a failure status.
+* Direct execution authorization.
+
+⸻
+
+15. CORWIN-SCHULTZ SPREAD ESTIMATOR
+
+⸻
+
+Canonical owner:
+Quantitative/Microstructure Layer
+
+Authorized upstream inputs:
+
+* High and low prices
+* Consecutive observation windows
+* Valid adjusted price series
+* Required sample count
+
+Required output:
+
+* Estimated bid-ask spread
+* Calculation window
+* Validity status
+* Data exceptions
+* Relative spread classification
+
+Authorized downstream consumers:
+
+* Liquidity and transaction-cost feature aggregator
+* Scoring/Synthesis
+* Risk Gate through approved cost/liquidity fields
+
+Prohibited behavior:
+
+* Returning a valid estimate from invalid high/low data.
+* Silent negative-value corrections without provenance.
+
+⸻
+
+16. VARIANCE RISK PREMIUM
+
+⸻
+
+Canonical owner:
+Options/Quantitative Layer
+
+Authorized upstream inputs:
+
+* Implied variance estimate
+* Realized variance estimate
+* Matching horizon
+* Point-in-time data
+* Options liquidity status
+
+Required output:
+
+* Implied variance
+* Realized variance
+* Variance risk premium
+* Horizon
+* Interpretation
+* Data-quality status
+
+Authorized downstream consumers:
+
+* Volatility feature aggregator
+* Scoring/Synthesis
+* Regime analysis when authorized
+
+Prohibited behavior:
+
+* Comparing mismatched horizons.
+* Using future realized variance.
+* Direct trade execution.
+
+⸻
+
+17. RISK-NEUTRAL DENSITY
+
+⸻
+
+Canonical owner:
+Options/Quantitative Layer
+
+Authorized upstream inputs:
+
+* Point-in-time option prices
+* Strike grid
+* Consistent expiration
+* Interest rate/dividend assumptions
+* Cleaned and arbitrage-checked option surface
+
+Required output:
+
+* Estimated distribution
+* Moments or quantiles
+* Tail probabilities
+* Method
+* Expiration
+* Surface-quality status
+* Numerical stability status
+
+Authorized downstream consumers:
+
+* Options probability features
+* Tail-risk analysis
+* Scoring/Synthesis
+
+Prohibited behavior:
+
+* Presenting risk-neutral probabilities as physical probabilities without labeling.
+* Producing a distribution from an invalid surface without failure status.
+* Directly approving a trade.
+
+⸻
+
+18. PCA FACTOR DECOMPOSITION
+
+⸻
+
+Canonical owner:
+Quantitative/Statistical Edge Layer
+
+Authorized upstream inputs:
+
+* Point-in-time feature or return matrix
+* Standardization method
+* Training window
+* Instrument universe
+* Missing-data policy
+
+Required output:
+
+* Principal components
+* Explained variance
+* Factor loadings
+* Transformation version
+* Training window
+* Schema hash
+
+Authorized downstream consumers:
+
+* Factor feature aggregator
+* Probability Engine, only under a versioned schema
+* Scoring/Synthesis
+* Risk concentration analysis
+
+Prohibited behavior:
+
+* Fitting PCA using future observations.
+* Changing feature order silently.
+* Using an unversioned transformation in production.
+
+⸻
+
+19. VPIN
+
+⸻
+
+Canonical owner:
+Microstructure/Quantitative Layer
+
+Authorized upstream inputs:
+
+* Trade or volume-bucket data
+* Buy/sell classification method
+* Bucket-size configuration
+* Observation timestamps
+* Liquidity checks
+
+Required output:
+
+* VPIN estimate
+* Bucket count
+* Classification method
+* Toxicity level
+* Data coverage
+* Reliability status
+
+Authorized downstream consumers:
+
+* Microstructure feature aggregator
+* Scoring/Synthesis
+* Risk Gate through approved liquidity/toxicity fields
+
+Prohibited behavior:
+
+* Claiming VPIN from data that cannot support the selected method.
+* Hiding approximations.
+* Direct execution control.
+
+⸻
+
+20. PATTERN DISCOVERY ENGINE
+
+⸻
+
+Canonical owner:
+Discovery/Hypothesis Layer
+
+Authorized upstream inputs:
+
+* Guard-approved historical data
+* Feature catalog
+* Research universe
+* Statistical validation rules
+* Regime context
+* Duplicate-pattern checks
+
+Required output:
+
+* Pattern or hypothesis ID
+* Pattern definition
+* Discovery window
+* Supporting statistics
+* Out-of-sample status
+* Duplication status
+* Research lifecycle status
+
+Authorized downstream consumers:
+
+* Hypothesis Registry
+* BH-FDR validation
+* Active Hypothesis Selection
+* Research/backtesting
+
+Prohibited behavior:
+
+* Activating a pattern in production before validation.
+* Sending a discovered pattern directly to the Decision Engine.
+* Rediscovering an existing pattern under a new name.
+
+⸻
+
+21. SIGNAL DECAY DETECTION
+
+⸻
+
+Canonical owner:
+Learning and Signal-Lifecycle Layer
+
+Authorized upstream inputs:
+
+* Historical predictions
+* Realized outcomes
+* Signal version
+* Regime segmentation
+* Performance baseline
+* Minimum sample requirements
+
+Required output:
+
+* Decay status
+* Performance before/after
+* Statistical evidence
+* Regime-specific results
+* Recommended lifecycle action
+* Confidence
+* Sample size
+
+Authorized downstream consumers:
+
+* Signal Lifecycle Manager
+* Diagram 3 governance reporting
+* Safe Learning
+* Model review queue
+
+Prohibited behavior:
+
+* Automatically rewriting production logic.
+* Disabling a signal without the authorized governance process.
+* Evaluating unresolved outcomes as final.
+
+⸻
+
+22. REDISCOVERY ENGINE
+
+⸻
+
+Canonical owner:
+Discovery/Learning Layer
+
+Authorized upstream inputs:
+
+* Retired or decayed hypothesis records
+* Current market regime
+* New data window
+* Prior failure reasons
+* Duplication registry
+* Validation requirements
+
+Required output:
+
+* Rediscovery candidate ID
+* Relationship to prior signal
+* Material differences
+* New supporting evidence
+* Validation status
+* Governance status
+
+Authorized downstream consumers:
+
+* Hypothesis Registry
+* Research validation queue
+* Diagram 3 governance review
+
+Prohibited behavior:
+
+* Reactivating a signal solely because it was renamed.
+* Bypassing out-of-sample testing.
+* Direct production activation.
+
+⸻
+
+23. SELF-INVALIDATING SIGNAL LIFECYCLE
+
+⸻
+
+Canonical owner:
+Learning and Signal-Lifecycle Layer
+
+Authorized upstream inputs:
+
+* Signal performance
+* Expected validity conditions
+* Regime dependencies
+* Invalidation thresholds
+* Sample-size requirements
+* Outcome records
+
+Required output:
+
+* Active, watch, degraded, suspended, retired, or research-only state
+* Triggering evidence
+* Effective timestamp
+* Version
+* Governance authorization
+* Reinstatement requirements
+
+Authorized downstream consumers:
+
+* Active Hypothesis Selection
+* Module Registry activation state
+* Diagram 3 governance
+* Audit and executive reporting
+
+Prohibited behavior:
+
+* Deleting historical evidence.
+* Automatically modifying production code.
+* Reactivating a retired signal without validation and governance approval.
+
+============================================================
+SECTION 4 — REQUIRED PIPELINE CONNECTIONS
+
+Every indicator output must travel through an explicit typed or structured
+contract.
+
+The minimum permitted pattern is:
+
+indicator implementation
+→ indicator result object
+→ canonical owner/aggregator
+→ synthesis evidence packet
+→ Specialist Council
+→ Risk Gate
+→ G2
+→ Decision Engine
+
+The result object must include at minimum:
+
+* indicator_name
+* canonical_indicator_id
+* implementation_module
+* implementation_function
+* implementation_version
+* trace_id
+* candidate_id
+* ticker or instrument ID
+* event_time
+* calculation_time
+* input_source_ids
+* input_timestamp range
+* configuration version
+* calculation status
+* output value or structured result
+* confidence or reliability status
+* failure reason
+* upstream component
+* downstream consumer
+* schema version
+* code hash
+
+No downstream component may consume an undocumented dictionary,
+untracked global variable, temporary file, unversioned cache value, or
+database record with no provenance linkage.
+
+============================================================
+SECTION 5 — REGISTRY VERIFICATION
+
+For every named indicator, return:
+
+1. Canonical indicator name.
+2. Canonical indicator ID.
+3. Production module path.
+4. Production class or function.
+5. Owning Diagram 2 phase.
+6. Registry name.
+7. Registry entry.
+8. Enabled/disabled state.
+9. Initialization result.
+10. Dependency list.
+11. Configuration source.
+12. Code SHA-256.
+13. Duplicate search result.
+14. Deprecated implementation list.
+15. Scheduler or invocation owner.
+
+A registry entry alone is not proof of execution.
+
+An import alone is not proof of execution.
+
+A function definition alone is not proof of execution.
+
+============================================================
+SECTION 6 — LIVE RUNTIME VERIFICATION
+
+Run at least one real paper/shadow candidate through the complete pipeline.
+
+Use real authorized market data.
+
+A manually injected real ticker may be used when the market is closed,
+but calculations must still use authentic point-in-time data and must be
+clearly labeled as a manual paper/shadow verification run.
+
+For every indicator that is applicable to the candidate, prove:
+
+1. The indicator was invoked.
+2. The real implementation function executed.
+3. Inputs were received.
+4. Input timestamps passed the data guards.
+5. The calculation completed or failed visibly.
+6. A structured result was produced.
+7. The result was emitted to the communication/audit bus.
+8. The canonical downstream component consumed it.
+9. Synthesis acknowledged it.
+10. No direct Decision Engine connection occurred.
+11. The same trace ID followed the complete path.
+12. Code and configuration versions were recorded.
+
+For an indicator that is not applicable, return:
+
+* NOT_APPLICABLE
+* Exact reason
+* Applicability rule
+* Evidence that the indicator was evaluated for applicability
+* Proof that NOT_APPLICABLE was not used to hide missing wiring
+
+============================================================
+SECTION 7 — REQUIRED EVIDENCE FOR EACH INDICATOR
+
+Return one evidence packet per indicator containing:
+
+A. STATIC CODE EVIDENCE
+
+* File path
+* Relevant line range
+* Class/function signature
+* Registration code
+* Upstream call site
+* Downstream consumption site
+* Schema definition
+* Error handling
+* Test file
+* Code SHA-256
+
+B. RUNTIME EVIDENCE
+
+* trace_id
+* root_trace_id
+* candidate_id
+* ticker
+* event timestamp
+* invocation timestamp
+* completion timestamp
+* duration
+* real input summary
+* output summary
+* execution status
+* downstream acknowledgement
+* audit event ID
+* database record ID, when applicable
+* code hash
+* configuration version
+
+C. WIRING EVIDENCE
+
+* Authorized upstream component
+* Actual upstream component observed
+* Authorized downstream component
+* Actual downstream component observed
+* Communication mechanism
+* Contract/schema name
+* PASS or FAIL
+
+D. CONSUMPTION EVIDENCE
+
+It is not enough to prove that an output was created.
+
+Show the exact downstream code that:
+
+1. Received the output.
+2. Validated its schema.
+3. Stored or aggregated it.
+4. Used it in synthesis, risk, monitoring, or learning.
+5. Recorded the consumption event.
+
+E. FAILURE-CONTROL EVIDENCE
+
+Show what happens when:
+
+* Input data is missing.
+* Input data is stale.
+* A required timestamp is absent.
+* The calculation throws an exception.
+* The output schema is invalid.
+* The downstream consumer is unavailable.
+* The registry entry is disabled.
+* A duplicate active implementation exists.
+
+============================================================
+SECTION 8 — NEGATIVE CONTROLS
+
+Run controlled negative tests.
+
+At minimum test:
+
+1. Future timestamp contamination.
+2. Stale options chain.
+3. Missing feature required by XGBoost.
+4. TreeSHAP model-version mismatch.
+5. BH-FDR incomplete p-value family.
+6. GARCH convergence failure.
+7. Insufficient Hurst observations.
+8. Zero or invalid volume for Amihud.
+9. Invalid high/low series for Corwin-Schultz.
+10. Mismatched horizons for variance risk premium.
+11. Invalid options surface for risk-neutral density.
+12. PCA feature-schema mismatch.
+13. Insufficient microstructure data for VPIN.
+14. Thompson Sampling outcome update without a resolved outcome.
+15. Signal reactivation without governance authorization.
+16. Attempted direct indicator-to-Decision-Engine call.
+17. Attempted direct indicator-to-execution call.
+18. Duplicate active implementation.
+
+For each test return:
+
+* negative_test_id
+* injected condition
+* expected behavior
+* actual behavior
+* error or rejection code
+* audit event
+* PASS or FAIL
+
+A safe negative control must not place any real trade.
+
+============================================================
+SECTION 9 — BYPASS AND DIRECT-CALL AUDIT
+
+Search the entire production codebase for any advanced indicator that:
+
+* Imports the Decision Engine.
+* Calls the Decision Engine.
+* Imports execution.py or execution_simulator.py.
+* Calls broker adapters.
+* Creates an order.
+* Sends a Telegram trade alert directly.
+* Writes final trade approval status.
+* Circumvents the Risk Gate.
+* Circumvents G2.
+* Circumvents synthesis.
+* Mutates governance state.
+
+Return all matches with:
+
+* File path
+* Line number
+* Calling function
+* Called component
+* Whether authorized
+* Remediation performed
+
+All unauthorized paths must be removed or disabled before PASS.
+
+============================================================
+SECTION 10 — SCHEDULER AND CADENCE AUDIT
+
+For every indicator, document whether it runs:
+
+* Per candidate
+* Per pipeline run
+* Intraday scheduled
+* End of day
+* Overnight
+* Weekly
+* Model-retraining cadence
+* Outcome-resolution cadence
+* Event driven
+* Research only
+
+Return:
+
+* Scheduler name
+* Job ID
+* Trigger
+* Time zone
+* Frequency
+* Entry point
+* Locking behavior
+* Overlap protection
+* Retry behavior
+* Failure logging
+* Last real run
+* Next scheduled run
+
+Prove that the same indicator is not unintentionally executed by
+multiple schedulers.
+
+============================================================
+SECTION 11 — REMEDIATION RULES
+
+When incorrect wiring is found:
+
+1. Identify the defect.
+2. Identify the architectural rule violated.
+3. Identify all affected files.
+4. Preserve the existing canonical architecture.
+5. Correct the upstream connection.
+6. Correct the downstream connection.
+7. Add or correct the structured contract.
+8. Add provenance fields.
+9. Add visible failure handling.
+10. Add or update tests.
+11. Re-run static verification.
+12. Re-run runtime verification.
+13. Re-run negative controls.
+14. Return before-and-after evidence.
+
+Do not solve wiring defects by creating parallel replacement pipelines.
+
+Do not add fake adapters whose only purpose is to make a test pass.
+
+Do not classify a broken component as research-only unless that was its
+existing authorized classification.
+
+Do not mark an indicator disabled merely to avoid remediation.
+
+============================================================
+SECTION 12 — REQUIRED INDICATOR MATRIX
+
+Return a matrix with one row for every indicator:
+
+* Point-in-Time Data Guard
+* Thompson Sampling
+* XGBoost
+* Native TreeSHAP
+* BH-FDR
+* GARCH(1,1)
+* Jump Detection
+* Statistical Arbitrage Engine
+* Gamma Exposure
+* Put/Call Skew
+* Options Term Structure
+* CTA Trigger Levels
+* Hurst Exponent
+* Amihud Illiquidity
+* Corwin-Schultz Spread Estimator
+* Variance Risk Premium
+* Risk-Neutral Density
+* PCA Factor Decomposition
+* VPIN
+* Pattern Discovery Engine
+* Signal Decay Detection
+* Rediscovery Engine
+* Self-Invalidating Signal Lifecycle
+
+Required columns:
+
+1. Indicator
+2. Exists
+3. Canonical implementation
+4. Owner
+5. Registry status
+6. Initializes
+7. Authorized upstream
+8. Actual upstream
+9. Input valid
+10. Executes
+11. Output produced
+12. Authorized downstream
+13. Actual downstream
+14. Output consumed
+15. Provenance complete
+16. Runtime evidence
+17. Negative control
+18. Scheduler verified
+19. Duplicate-free
+20. Bypass-free
+21. Final status
+22. Defect ID
+23. Remediation status
+
+Permitted final statuses:
+
+* PASS
+* PARTIAL
+* FAIL
+* NOT_IMPLEMENTED
+* NOT_APPLICABLE
+* BLOCKED
+
+Do not convert PARTIAL, FAIL, NOT_IMPLEMENTED, or BLOCKED into PASS.
+
+============================================================
+SECTION 13 — FINAL END-TO-END PROOF
+
+After all applicable remediation is complete, run one final real
+paper/shadow candidate through Diagram 2.
+
+Return the full ordered trace:
+
+1. Candidate intake
+2. Point-in-time guard
+3. Staleness validation
+4. Lookahead validation
+5. Macro/regime
+6. Discovery
+7. Thompson Sampling or active hypothesis selection
+8. Technical analysis
+9. Options and microstructure analysis
+10. Quantitative/statistical analysis
+11. Applicable advanced indicators
+12. XGBoost probability
+13. Native TreeSHAP
+14. Scoring/synthesis
+15. Specialist Council
+16. Pre-Decision Risk Gate
+17. G2 governance check
+18. Decision Engine
+19. Paper/shadow execution or no-execution record
+20. Outcome tracking registration
+21. Learning registration
+22. Memory/audit registration
+
+Return:
+
+* ticker
+* candidate_id
+* root_trace_id
+* child trace IDs
+* prediction_id
+* explanation_id
+* synthesis_id
+* council_id
+* risk_gate_id
+* governance_decision_id
+* decision_id
+* execution_plan_id
+* execution or no-execution record ID
+* outcome tracking ID
+* learning event ID
+* memory event ID
+* audit chain
+* ordered timestamps
+* module order
+* indicator order
+* code hashes
+* configuration versions
+
+Prove that:
+
+1. The Decision Engine executed only after synthesis, council, risk, and G2.
+2. No indicator directly called the Decision Engine.
+3. No indicator directly called execution.
+4. Every applicable indicator output was consumed.
+5. Every unavailable or failed indicator was visible.
+6. The final decision obeyed all gates.
+7. The audit chain connects intake through final outcome registration.
+
+============================================================
+SECTION 14 — FINAL RESPONSE FORMAT
+
+Return the following sections in this exact order:
+
+1. EXECUTIVE RESULT
+2. INDICATOR MATRIX
+3. CANONICAL OWNERSHIP MAP
+4. UPSTREAM/DOWNSTREAM WIRING MAP
+5. STATIC CODE EVIDENCE
+6. LIVE RUNTIME EVIDENCE
+7. OUTPUT CONSUMPTION EVIDENCE
+8. NEGATIVE-CONTROL RESULTS
+9. BYPASS AUDIT
+10. DUPLICATE-IMPLEMENTATION AUDIT
+11. SCHEDULER/CADENCE AUDIT
+12. DEFECT LIST
+13. REMEDIATION CHANGES
+14. FINAL END-TO-END TRACE
+15. UNRESOLVED ITEMS
+16. FINAL VERDICT
+
+The final verdict must be one of:
+
+PASS
+
+All named indicators are correctly implemented, registered, wired,
+executed, consumed, traceable, bypass-free, duplicate-free, and verified
+with real runtime evidence.
+
+PARTIAL
+
+Some indicators are correctly wired, but one or more requirements remain
+unproven or incomplete.
+
+FAIL
+
+One or more indicators are incorrectly wired, bypass controls, produce
+unconsumed output, use fabricated evidence, or fail mandatory controls.
+
+BLOCKED
+
+Verification cannot be completed because required real data,
+dependencies, runtime access, or production components are unavailable.
+
+============================================================
+SECTION 15 — PROHIBITED RESPONSE PATTERNS
+
+Do not respond with:
+
+* “Everything appears to be wired correctly.”
+* “The architecture is complete.”
+* “Tests pass.”
+* “All indicators are integrated.”
+* “The system is production ready.”
+
+unless the complete evidence required above is included.
+
+Screenshots of source code alone are insufficient.
+
+Screenshots of a PASS summary alone are insufficient.
+
+Unit tests alone are insufficient.
+
+Registry entries alone are insufficient.
+
+Generated JSON with no underlying runtime event is insufficient.
+
+A trace created by a verification script that does not invoke the real
+production functions is insufficient.
+
+No narrative claim may override missing evidence.
+
+============================================================
+FINAL COMMAND
+
+Begin with discovery and mapping.
+
+Do not mark anything PASS until the actual production implementation,
+upstream wiring, downstream consumption, runtime execution, provenance,
+negative controls, scheduler ownership, bypass protection, and duplicate
+status have all been proven.
+
+Where a defect exists, remediate the real production wiring and rerun the
+complete applicable verification.
+
+Return the complete evidence package, not a summary-only response.

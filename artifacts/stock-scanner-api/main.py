@@ -54782,6 +54782,10 @@ def _init_layer9_scores_table():
                     tail_score        FLOAT,
                     vrp_score         FLOAT,
                     amihud_score      FLOAT,
+                    cs_spread_raw     FLOAT,
+                    rnd_skew          FLOAT,
+                    rnd_available     BOOLEAN DEFAULT FALSE,
+                    pca_factor1_var   FLOAT,
                     error             TEXT,
                     UNIQUE (ticker, scan_date)
                 )
@@ -54790,6 +54794,17 @@ def _init_layer9_scores_table():
                 CREATE INDEX IF NOT EXISTS layer9_scores_computed_at_idx
                 ON layer9_scores (computed_at DESC)
             """)
+            # Backfill: add columns to existing tables (idempotent)
+            for _col_sql in [
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS cs_spread_raw   FLOAT",
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS rnd_skew        FLOAT",
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS rnd_available   BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS pca_factor1_var FLOAT",
+            ]:
+                try:
+                    _cu.execute(_col_sql)
+                except Exception:
+                    pass
             _c.commit()
         print("[layer9_bg] table ready")
     except Exception as _e:
@@ -54902,59 +54917,58 @@ def _run_layer9_bg_scan():
     _l9_start = _l9dt.datetime.now(_ET)
     print(f"[layer9_bg] scan started at {_l9_start.strftime('%H:%M ET')}")
 
-    # ── 1. Build universe ──────────────────────────────────────────────────
+    # ── 1. Build universe (each source isolated — one bad table never kills rest) ──
     _universe = set()
-    try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=4,
-                               options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
-
-            # Top gap/volume tickers from today's Polygon scan
-            _cu.execute("""
-                SELECT ticker FROM polygon_rvol_scan
-                WHERE scan_date >= CURRENT_DATE - INTERVAL '2 days'
-                ORDER BY (rvol * ABS(gap_pct)) DESC LIMIT 60
-            """)
-            for (_t,) in _cu.fetchall(): _universe.add(_t)
-
-            # Unusual calls flow (most active by premium, last 3 days)
-            _cu.execute("""
-                SELECT DISTINCT ticker FROM unusual_calls_log
-                WHERE last_seen >= NOW() - INTERVAL '3 days'
-                  AND prem >= 100000
-                ORDER BY ticker LIMIT 60
-            """)
-            for (_t,) in _cu.fetchall(): _universe.add(_t)
-
-            # Conviction stack
-            _cu.execute("""
-                SELECT DISTINCT ticker FROM conviction_stack_watchlist
-                WHERE snap_date >= CURRENT_DATE - INTERVAL '3 days'
-                  AND total_pts >= 5
-            """)
-            for (_t,) in _cu.fetchall(): _universe.add(_t)
-
-            # Recent AI short call picks
-            _cu.execute("""
-                SELECT DISTINCT ticker FROM ai_short_calls_log
-                WHERE trade_date >= CURRENT_DATE - INTERVAL '2 days'
-            """)
-            for (_t,) in _cu.fetchall(): _universe.add(_t)
-
-            # Open paper trades (want fresh scores for live positions)
-            _cu.execute("""
-                SELECT DISTINCT ticker FROM aiem_paper_trades
-                WHERE status = 'OPEN'
-            """)
-            for (_t,) in _cu.fetchall(): _universe.add(_t)
-
-    except Exception as _ue:
-        print(f"[layer9_bg] universe build error: {_ue}")
+    _l9_sources = [
+        ("polygon_rvol_scan", """
+            SELECT ticker FROM polygon_rvol_scan
+            WHERE scan_date >= CURRENT_DATE - INTERVAL '7 days'
+            ORDER BY (rvol * ABS(gap_pct)) DESC LIMIT 60
+        """),
+        ("unusual_calls_log", """
+            SELECT DISTINCT ticker FROM unusual_calls_log
+            WHERE last_seen >= NOW() - INTERVAL '7 days'
+              AND prem >= 100000
+            ORDER BY ticker LIMIT 60
+        """),
+        ("conviction_stack_watchlist", """
+            SELECT DISTINCT ticker FROM conviction_stack_watchlist
+            WHERE snap_date >= CURRENT_DATE - INTERVAL '7 days'
+              AND total_pts >= 5
+        """),
+        ("ai_short_calls_log", """
+            SELECT DISTINCT ticker FROM ai_short_calls_log
+            WHERE trade_date >= CURRENT_DATE - INTERVAL '7 days'
+        """),
+        ("aiem_paper_trades", """
+            SELECT DISTINCT ticker FROM aiem_paper_trades
+            WHERE status = 'OPEN'
+              OR closed_at >= NOW() - INTERVAL '7 days'
+        """),
+    ]
+    for _src_name, _src_sql in _l9_sources:
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                                   options="-c statement_timeout=5000") as _c, _c.cursor() as _cu:
+                _cu.execute(_src_sql)
+                _added = 0
+                for (_t,) in _cu.fetchall():
+                    _universe.add(_t)
+                    _added += 1
+        except Exception as _ue:
+            print(f"[layer9_bg] {_src_name} skipped: {_ue}")
 
     # Sanitise: letters only, 1-6 chars
     _universe = {t for t in _universe if t and t.isalpha() and len(t) <= 6}
     if not _universe:
-        print("[layer9_bg] empty universe — skipping")
-        return
+        # Fallback: always-liquid benchmark universe so layer9 never stays empty
+        # (weekends, fresh deploys, or days before the Polygon 8:35 AM scan runs)
+        _universe = {
+            "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD",
+            "SMCI", "PLTR", "MARA", "COIN", "IONQ", "RIVN", "SOFI", "HOOD",
+            "RKLB", "UPST", "CRWD", "DKNG",
+        }
+        print(f"[layer9_bg] DB sources empty — using fallback liquid universe ({len(_universe)} tickers)")
 
     print(f"[layer9_bg] universe = {len(_universe)} tickers")
 
@@ -54963,10 +54977,10 @@ def _run_layer9_bg_scan():
     _tickers_list = sorted(_universe)
     for _t in _tickers_list:
         try:
-            if _yf_breaker_open():   # respect the global circuit breaker
-                print("[layer9_bg] circuit breaker open — pausing")
-                import time as _l9time; _l9time.sleep(30)
-                if _yf_breaker_open(): break
+            if _TD_BREAKER.get("tripped", False):   # respect the Tradier circuit breaker (not Yahoo)
+                print("[layer9_bg] Tradier circuit breaker tripped — pausing 90s")
+                import time as _l9time; _l9time.sleep(90)
+                if _TD_BREAKER.get("tripped", False): break
             _df = _td_history(_t, days=120)
             if _df is not None and not _df.empty and len(_df) >= 30:
                 _histories[_t] = _df
@@ -55063,13 +55077,17 @@ def _run_layer9_bg_scan():
                 _vrp_c   = _comps.get("vrp_proxy", {})
                 _amihud_c= _comps.get("illiquidity_penalty", {})
                 try:
+                    _illiq_c  = _comps.get("illiquidity_penalty", {})
+                    _rnd_c    = _comps.get("rnd_component", {})
                     _cu.execute("""
                         INSERT INTO layer9_scores
                             (ticker, computed_at, scan_date,
                              statistical_score, regime,
                              hurst_raw, vpin_raw, jump_detected,
-                             entropy_score, tail_score, vrp_score, amihud_score, error)
-                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                             entropy_score, tail_score, vrp_score, amihud_score,
+                             cs_spread_raw, rnd_skew, rnd_available,
+                             error)
+                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (ticker, scan_date) DO UPDATE SET
                             computed_at       = EXCLUDED.computed_at,
                             statistical_score = EXCLUDED.statistical_score,
@@ -55081,18 +55099,24 @@ def _run_layer9_bg_scan():
                             tail_score        = EXCLUDED.tail_score,
                             vrp_score         = EXCLUDED.vrp_score,
                             amihud_score      = EXCLUDED.amihud_score,
+                            cs_spread_raw     = EXCLUDED.cs_spread_raw,
+                            rnd_skew          = EXCLUDED.rnd_skew,
+                            rnd_available     = EXCLUDED.rnd_available,
                             error             = EXCLUDED.error
                     """, (
                         _t, _today,
                         float(_res.get("statistical_score", 50.0)) if not _err_val else None,
                         _res.get("regime"),
-                        float(_comps.get("hurst_regime",       {}).get("raw", 0.5)),
-                        float(_comps.get("vpin_toxicity",      {}).get("raw", 0.3)),
+                        float(_comps.get("hurst_regime",    {}).get("raw", 0.5)),
+                        float(_comps.get("vpin_toxicity",   {}).get("raw", 0.3)),
                         bool(_flags.get("jump_detected", False)),
-                        float(_comps.get("entropy_clarity",    {}).get("score", 50.0)),
-                        float(_comps.get("tail_risk",          {}).get("score", 50.0)),
-                        float(_vrp_c.get("score", 50.0))    if _vrp_c    else None,
-                        float(_amihud_c.get("score", 50.0)) if _amihud_c else None,
+                        float(_comps.get("entropy_clarity", {}).get("score", 50.0)),
+                        float(_comps.get("tail_risk",       {}).get("score", 50.0)),
+                        float(_vrp_c.get("score", 50.0))          if _vrp_c    else None,
+                        float(_amihud_c.get("score", 50.0))       if _amihud_c else None,
+                        float(_illiq_c.get("raw_cs_spread", 0.0)) if _illiq_c  else None,
+                        float(_rnd_c.get("rnd_skew", 0.0))        if _rnd_c.get("available") else None,
+                        bool(_rnd_c.get("available", False)),
                         _err_val,
                     ))
                     if _err_val:
@@ -62347,6 +62371,73 @@ def _send_bullish_reversal_combo_alert() -> None:
     except Exception as _e:
         import traceback
         print(f"[bullish_reversal_combo] error: {_e}\n{traceback.format_exc()}")
+
+
+@app.route("/stock-api/admin/run-council-now", methods=["POST"])
+def admin_run_council_now():
+    """
+    POST /stock-api/admin/run-council-now
+    Manually trigger one Specialist Council run on a given ticker so the
+    aiem_specialist_council_runs table can be verified end-to-end without
+    waiting for paper trading to cycle.
+
+    Body (JSON, all optional):
+      ticker  : str  — default "NVDA"
+      context : str  — "candidate_entry" (default) or "mtm_exit"
+
+    Returns the run result dict including council_run_id (the persisted DB row id).
+    """
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        _body = request.get_json(silent=True) or {}
+        _ticker = str(_body.get("ticker", "NVDA")).upper().strip()
+        _ctx = str(_body.get("context", "candidate_entry"))
+        if _ctx not in ("candidate_entry", "mtm_exit"):
+            return jsonify({"error": "context must be candidate_entry or mtm_exit"}), 400
+        if _specialist_council is None:
+            return jsonify({"error": "specialist_council module not loaded"}), 500
+
+        # Build minimal inputs — specialists that need data they can't derive will abstain
+        # (abstentions are valid evidence rows, not failures)
+        # macro_bias is a float: -1.0 (full bear) to +1.0 (full bull); 0.0 = neutral
+        _inputs = {
+            "macro_bias": 0.0,
+            "signal_engine": {
+                "signal_name": "admin_test",
+                "signal_score": 0.55,
+                "rvol": 1.8,
+                "gap_pct": 2.1,
+            },
+            "fred_macro": {
+                "macro_regime": "NEUTRAL",
+                "vix": 18.0,
+            },
+            "technicals": {
+                "rsi": 52.0,
+                "macd_bullish": True,
+                "above_20d_ma": True,
+            },
+        }
+        _result = _specialist_council.run_council(
+            context=_ctx,
+            ticker=_ticker,
+            inputs=_inputs,
+            trace_id="admin_manual_test",
+        )
+        # Serialise opinions (SpecialistOpinion objects are not JSON-serialisable)
+        _result_out = {k: v for k, v in _result.items() if k != "opinions"}
+        _result_out["opinions"] = [
+            {"specialist_name": o.specialist_name, "vote": o.vote,
+             "confidence": o.confidence, "reasoning": o.reasoning}
+            for o in (_result.get("opinions") or [])
+        ]
+        return jsonify({"status": "ok", "council_run_id": _result.get("council_run_id"),
+                        "result": _result_out})
+    except Exception as _e:
+        import traceback as _tb
+        return jsonify({"error": str(_e), "traceback": _tb.format_exc()}), 500
 
 
 @app.route("/stock-api/admin/run-gex-options", methods=["POST"])
