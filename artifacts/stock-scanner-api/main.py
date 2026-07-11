@@ -18144,6 +18144,49 @@ def _get_bigcat_gap_candidates() -> list:
         return []
 
 
+def _s7c_dedup_check() -> bool:
+    """Return True if S7c email was already sent today (DB-backed via owner_email_log)."""
+    import psycopg2 as _pg2_s7c
+    from datetime import datetime as _dt_s7c
+    _today = _dt_s7c.now(_ET_TZ).date()
+    try:
+        with _pg2_s7c.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute(
+                "SELECT 1 FROM owner_email_log "
+                "WHERE kind=%s AND slot=%s AND sent_date=%s LIMIT 1",
+                ("bigcat_gap", "09:45", _today),
+            )
+            return _cur.fetchone() is not None
+    except Exception as _e:
+        print(f"[bigcat_gap] dedup check error: {_e}")
+        return False  # fail-open: let the scheduler attempt the send
+
+
+def _s7c_mark_sent() -> None:
+    """Mark S7c as sent today in owner_email_log (idempotent, survives restarts)."""
+    _owner_claim_slot("bigcat_gap", "09:45")
+
+
+def _s7c_clear_sent() -> bool:
+    """Delete today's S7c dedup row (admin force-run only). Returns True if a row was removed."""
+    import psycopg2 as _pg2_s7c
+    from datetime import datetime as _dt_s7c
+    _today = _dt_s7c.now(_ET_TZ).date()
+    try:
+        with _pg2_s7c.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute(
+                "DELETE FROM owner_email_log "
+                "WHERE kind=%s AND slot=%s AND sent_date=%s",
+                ("bigcat_gap", "09:45", _today),
+            )
+            _deleted = _cur.rowcount > 0
+            _c.commit()
+        return _deleted
+    except Exception as _e:
+        print(f"[bigcat_gap] clear sent error: {_e}")
+        return False
+
+
 def _send_bigcat_gap_email() -> None:
     """
     9:45 AM Mon-Fri: S7c★ BigCatDay+InsideDay+Gap alert email.
@@ -18159,8 +18202,8 @@ def _send_bigcat_gap_email() -> None:
 
         _today_iso = _et_today_iso()
 
-        # Dedup: only send once per day
-        if getattr(app, "_bigcat_gap_sent", None) == _today_iso:
+        # Dedup: only send once per day (DB-backed — survives deploys/restarts)
+        if _s7c_dedup_check():
             print("[bigcat_gap] already sent today — skipping")
             return
 
@@ -18263,7 +18306,7 @@ def _send_bigcat_gap_email() -> None:
                  f"{'...' if _cnt > 3 else ''} — BigCatDay+Gap [{_date_str.split('·')[0].strip()}]")
         _ok = send_email_raw(_OWNER_EMAIL, _subj, _html)
         if _ok:
-            app._bigcat_gap_sent = _today_iso
+            _s7c_mark_sent()
         print(f"[bigcat_gap] email sent={_ok} triggers={[t['ticker'] for t in _triggers]}")
     except Exception as _e_bcm:
         import traceback as _tb_bcm
@@ -18484,12 +18527,13 @@ def admin_s7c_smoke_check():
     except Exception as _e_g3:
         _report["gate_3_live_candidates"] = {"error": str(_e_g3), "query_executed_ok": False}
 
-    # ── Dedup state ────────────────────────────────────────────────────────────
+    # ── Dedup state (DB-backed) ───────────────────────────────────────────────
     _today_iso = _et_today_iso()
     _report["dedup_flag"] = {
         "today_iso":          _today_iso,
-        "already_sent_today": getattr(app, "_bigcat_gap_sent", None) == _today_iso,
-        "note": "If True, email was already sent today — worker will no-op at 9:45 AM",
+        "already_sent_today": _s7c_dedup_check(),
+        "source":             "owner_email_log (kind=bigcat_gap, slot=09:45)",
+        "note": "If True, email was already sent today — worker will no-op at 9:45 AM (survives deploys)",
     }
 
     # ── Overall verdict ───────────────────────────────────────────────────────
@@ -18507,12 +18551,12 @@ def admin_s7c_smoke_check():
 def admin_s7c_force_run():
     """
     Force-run the S7c★ BigCatDay+InsideDay+Gap alert email, bypassing the
-    in-memory dedup flag.  Use this to confirm the full SMTP send path is
+    DB dedup row.  Use this to confirm the full SMTP send path is
     alive after a deploy, or to test the email template at any time.
 
     Behaviour:
-    - Clears app._bigcat_gap_sent so _send_bigcat_gap_email() does not
-      skip on "already sent today".
+    - Removes today's dedup row from owner_email_log so _send_bigcat_gap_email()
+      does not skip on "already sent today" (DB-backed, survives deploys).
     - Calls _send_bigcat_gap_email() synchronously (not in a thread) so
       the result is available in the response.
     - If the send succeeds, _send_bigcat_gap_email() re-sets the dedup
@@ -18537,15 +18581,15 @@ def admin_s7c_force_run():
     _old_stdout = _sys_fr.stdout
     _sys_fr.stdout = _buf
 
-    _dedup_before = getattr(app, "_bigcat_gap_sent", None)
+    _dedup_before = _s7c_dedup_check()
     try:
-        # Bypass dedup — clear the flag so the function always runs
-        app._bigcat_gap_sent = None
+        # Bypass dedup — remove today's DB row so the function always runs
+        _s7c_clear_sent()
 
         # Run synchronously so we capture the outcome before responding
         _send_bigcat_gap_email()
 
-        _dedup_after = getattr(app, "_bigcat_gap_sent", None)
+        _dedup_after = _s7c_dedup_check()
     finally:
         _sys_fr.stdout = _old_stdout
 
@@ -18553,7 +18597,7 @@ def admin_s7c_force_run():
 
     # Determine what happened from the dedup flag and log output
     _sent = (
-        _dedup_after is not None          # function set the flag = email went out
+        _dedup_after                       # DB row now exists = email went out
         and "[bigcat_gap] email sent=True" in _logs
     )
     _no_candidates = "no inside-day candidates" in _logs
