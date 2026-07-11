@@ -1,0 +1,29 @@
+# VERIFICATION DEMAND — READ BEFORE RESPONDING
+
+This is not a formatting request. This is a compliance requirement for a production financial trading system that is being audited before real capital is deployed against it. This system will be used to make trading decisions. If it is broken and you tell me it works, that is not a bug report problem — that is a real financial loss and legal liability problem for me, the business owner. I need you to treat this with the seriousness it deserves.
+
+**You have twice now responded with a summary of a file instead of the file's actual contents.** That stops now. A description of what a file contains is not the file. A statement that output "ends with EXIT_CODE: 0" is not the output. This is the third request for the same evidence. There will not be a fourth — if this comes back as another summary, I will treat it as confirmation that the underlying claims cannot be substantiated, and I will proceed accordingly.
+
+## What "verbatim" means, explicitly
+
+- Copy-paste the actual characters from the file into your response inside a code block.
+- Do not describe, paraphrase, bullet-point, or summarize any of it.
+- Do not tell me a section "contains X" — show me the section.
+- If a file is too long for one message, paste it in full across multiple messages, in order, with no content skipped or condensed.
+
+## Required in this response — nothing else, no other section closures, no moving on until this is delivered
+
+**1. Full raw contents of `task1-verification-proof.md`**
+All 202 lines, verbatim, in a code block. Including the actual terminal stdout/stderr from the test run — the real lines of text the terminal printed, not a description that they exist or that they ended a certain way.
+
+**2. Full raw contents of `.local/tasks/backtest-integrity-gap.md`**
+Verbatim, in a code block, in full.
+
+**3. Proof for the "zero grep matches" claim**
+You told me the lookahead-violation gap in `context.py` / `predict.py` doesn't touch the live paper-trade path, and that this was "confirmed" by grep. I need:
+- The exact grep command you ran
+- The complete raw output of that command (including if it returned nothing — show the empty result, don't just tell me it was empty)
+
+## If you cannot produce any of this
+
+Say so directly: "I do not have this output" or "This was not captured." That is an acceptable answer. A summary standing in for evidence is not.
