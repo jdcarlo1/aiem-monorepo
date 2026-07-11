@@ -1,0 +1,63 @@
+# Task 1 — Fail-Closed Behavior Fixes: Verification Directive
+
+**Scope:** `multi_signal` future-date handling, `conviction_stack` empty-table handling, and the `data_snapshot.py` post-loop gate. This directive governs implementation, isolation, and proof-of-completion. No file outside the isolated folder is to be touched under this task.
+
+---
+
+## 0. Isolation requirement (non-negotiable)
+
+- Do all work in a separate folder/branch: `task1-verification-fixes/`
+- Do NOT edit files in the live/main codebase directly.
+- Do NOT merge, deploy, or mark this task complete until Joel has reviewed the diff.
+- Deliverable at the end: full `git diff`, file tree, and sha256 hashes of every changed file (before and after).
+
+---
+
+## Decision 1 — `multi_signal` fail behavior
+
+**Rule:** If the cache record's `scan_date` is in the future relative to the run, raise `RuntimeError` for that candidate. Do not silently skip. Do not pass with a caveat.
+
+**Required proof:**
+- Code diff showing the raised exception and where it's caught (if anywhere) upstream.
+- A test run where a future `scan_date` is artificially injected, showing the RuntimeError actually fires — raw terminal output, not a description.
+- Confirm this matches the existing `polygon` violation-handling pattern (cite the matching code path).
+
+---
+
+## Decision 2 — `conviction_stack` when 0 rows in table
+
+**Rule:** Fail-closed. If `conviction_stack` generated a pick but `conviction_stack_watchlist` has 0 rows for that ticker (`MAX(snap_date)` returns NULL), treat as provenance-unknown — same category as `PRICE_PROVENANCE_UNKNOWN_DATE` in G6.
+
+**Hard requirement — no free-text exception messages:**
+- Must raise/log a distinct, structured, greppable error code (e.g. `CONVICTION_PROVENANCE_UNKNOWN_EMPTY_TABLE`), not a prose note buried in an exception message.
+- Must be gated to dev/empty-table conditions through an explicit environment or state check — NOT just "table happens to be empty." An empty table in production from a real outage must NOT be waved off the same way.
+
+**Required proof:**
+- Show the exact code path where the dev-only condition is evaluated, and prove it cannot silently evaluate true in production (e.g. what breaks/fails loudly if this runs in prod with an empty table due to an outage).
+- SQL query result showing `conviction_stack_watchlist` row count = 0 in dev, and the resulting error code being raised in a real run.
+- Confirm no other code path can catch and suppress this error code without logging it.
+
+---
+
+## Decision 3 — Task 1 scope confirmation
+
+**Rule:** Task 1 is limited to the `data_snapshot.py` post-loop gate only. Fixing `context.py` and `predict.py` catch sites is explicitly OUT of scope for this task (it does not affect live paper trading protection).
+
+**Required action, not just a note:**
+- Create a separate, tracked task/ticket for the backtest-integrity gap (where `_lookahead_fired` propagates through the backtest pipeline). Do not leave this as a verbal mention — it must exist as its own item so it isn't lost.
+- Confirm in writing which files were touched under Task 1 and which were explicitly excluded.
+
+---
+
+## Final delivery checklist (must all be true before this task is marked done)
+
+- [ ] All changes live only in `task1-verification-fixes/`
+- [ ] Full git diff provided
+- [ ] sha256 hashes (before/after) for every changed file
+- [ ] Raw terminal output proving Decision 1's RuntimeError fires on a future scan_date
+- [ ] Raw SQL output proving Decision 2's structured error code fires on empty table in dev
+- [ ] Proof (not description) that Decision 2's dev-gate cannot evaluate true in production
+- [ ] Separate ticket created for the backtest-integrity/`_lookahead_fired` gap
+- [ ] No merge/deploy has occurred — awaiting Joel's review of the diff
+
+**Do not self-certify any item above as complete. Provide evidence for each. Narrative summaries are not acceptable in place of raw output.**
