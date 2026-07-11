@@ -1,0 +1,51 @@
+# VERIFICATION DIRECTIVE — Lookahead Bias Guard Enforcement
+**Session nonce:** LKG-{{DATE}}-{{RANDOM4}}  
+**Issued by:** Joel (owner)  
+**Priority:** BLOCKING — this is not a cosmetic audit
+
+## Why this matters
+This is my business. AIEM makes real trading decisions. If these guards don't actually stop lookahead-biased picks from being scored or acted on, that's not a code-quality nitpick — it's a live risk of trading on information that wouldn't have existed at decision time. If this ships broken and I find out later, that's real financial and reputational exposure for me. I need hard evidence, not a summary, before I consider this closed.
+
+## Standing rule
+Do not tell me something "passes," "is safe," "is guaranteed by architecture," or "doesn't need a check because of design" without pasting the actual raw output that proves it. If you cannot produce the raw evidence, say so explicitly — do not paraphrase around the gap.
+
+---
+
+## Task 1 — `assert_no_future_leakage` swallow audit
+**Claim to verify:** All 8 catch sites for `LookaheadViolation` (`data_snapshot.py:155`, `context.py:272/277/282`, `predict.py:323/328/333`, `main.py:22479`) swallow the exception instead of re-raising, meaning a leakage violation never halts execution — it only logs/skips/tags.
+
+**Required evidence:**
+1. Run `grep -rn "except LookaheadViolation" .` across the full repo and paste the raw terminal output. Confirm the count is exactly 8, or tell me the real number.
+2. For each hit, paste the actual function body (not a paraphrase) showing what happens after the catch — does it `continue`, `return`, set a dict key, or `raise`?
+3. Confirm via git blame or file timestamp whether any of these 8 sites have been modified since this audit started.
+4. State explicitly: is there ANY code path where a `LookaheadViolation` propagates far enough to block a trade decision or scoring output? If yes, show the exact file:line and the call chain. If no, say "no such path exists" — don't say "it's handled."
+
+## Task 2 — `evaluate_live_candidate_pit` / ENFORCE mode dead-branch audit
+**Claim to verify:** The `if mode == "ENFORCE" and would_block: decision = "BLOCK"` branch at `aiem_diagram3_governance.py:2271` cannot execute in production because `mode` defaults to `"SHADOW"` and there's a comment saying it's intentionally never auto-promoted.
+
+**Required evidence:**
+1. Run `grep -rn "mode.*=.*ENFORCE\|cfg\[.mode.\]\|cfg.get(.mode.)" .` and paste raw output — show me every place `mode` is set or read.
+2. Query the actual production config table/row (SQL, not a description) that stores this `cfg` value right now. Paste the raw query and raw result.
+3. Confirm: is there any admin UI, env var, migration, or script anywhere in the codebase that CAN set mode to `"ENFORCE"`? If yes, show it and tell me if it's ever been invoked (check logs/git history). If no, say so plainly.
+4. If this branch is truly dead, tell me what — if anything — is actually stopping a flagged/blocked-worthy pick from being acted on today. Don't answer "the ENFORCE gate" if the gate never fires.
+
+## Task 3 — `stage3_lookahead_bias_check` non-polygon blind spot
+**Claim to verify:** For non-polygon sources, lines 234-239 return `passed=True` unconditionally with no `scan_date` comparison, while polygon sources (lines 220-221) do check `scan_date > today` and raise.
+
+**Required evidence:**
+1. Paste the full function body of `stage3_lookahead_bias_check` from the live file, with line numbers, unedited.
+2. Run a real test (not a hypothetical) where you feed it a non-polygon pick with a `scan_date` set in the future (tomorrow's date) and paste the raw returned dict. I expect to see whether `passed` is `True` even though the date is in the future.
+3. Tell me exactly which data sources in production are routed as "non-polygon" right now — list them by name, sourced from actual config/code, not assumption.
+4. If non-polygon sources really do get a free pass, tell me what fraction (rough %, with source) of live picks currently come from non-polygon sources. That tells me how exposed I actually am.
+
+---
+
+## Rejection criteria (read before responding)
+I will reject and ask you to redo the work if you:
+- Summarize instead of pasting raw terminal/SQL/git output
+- Say something "should" work or is "guaranteed by design" without a test proving it under current config
+- Self-grade anything as PASS without showing the exact evidence I asked for
+- Skip any of the numbered items above, even if you think it's redundant
+
+## Final ask
+End your response with a one-line honest verdict for each of the 3 tasks: **ACTUALLY ENFORCED**, **PARTIALLY ENFORCED (state the gap)**, or **NOT ENFORCED**. No hedging language.
