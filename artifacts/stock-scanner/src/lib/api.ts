@@ -2569,7 +2569,7 @@ export interface WashoutCompleteResult {
 }
 
 export function fetchWashoutComplete(): Promise<WashoutCompleteResult> {
-  return fetchJson<WashoutCompleteResult>("/stock-api/momentum-washout-complete");
+  return fetchJson<WashoutCompleteResult>("/momentum-washout-complete");
 }
 
 export interface CandlestickConfluenceSignal {
@@ -2593,5 +2593,5 @@ export interface CandlestickConfluenceResult {
 }
 
 export function fetchCandlestickConfluence(): Promise<CandlestickConfluenceResult> {
-  return fetchJson<CandlestickConfluenceResult>("/stock-api/candlestick-confluence");
+  return fetchJson<CandlestickConfluenceResult>("/candlestick-confluence");
 }

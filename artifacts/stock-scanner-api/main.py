@@ -15581,7 +15581,7 @@ def _run_nightly_flow_precompute():
             _cu.execute("""
                 SELECT DISTINCT ticker FROM (
                     SELECT ticker FROM unusual_calls_log
-                    WHERE logged_at >= NOW() - INTERVAL '30 days'
+                    WHERE last_seen >= NOW() - INTERVAL '30 days'
                     UNION ALL
                     SELECT ticker FROM ai_short_calls_log
                     WHERE trade_date >= CURRENT_DATE - 30
@@ -30435,9 +30435,9 @@ def _send_aiem_daily_digest() -> None:
 
     try:
         send_email_raw(
-            to_email=os.environ.get("OWNER_EMAIL", os.environ.get("SMTP_FROM", "")),
-            subject=f"🤖 AIEM Daily Digest — {today_sig} findings · {today_et.strftime('%b %d')}",
-            html_body=html,
+            os.environ.get("OWNER_EMAIL", os.environ.get("SMTP_FROM", "")),
+            f"🤖 AIEM Daily Digest — {today_sig} findings · {today_et.strftime('%b %d')}",
+            html,
         )
         print(f"[aiem_digest] sent — {today_sig} findings today, {delta_str} vs yesterday")
     except Exception as _se:
@@ -54896,6 +54896,7 @@ except Exception as _aattr_import_e:
     print(f"[attribution] import failed at registration time: {_aattr_import_e}")
 
 _DEFERRED_INITS.append(lambda: _init_candlestick_confluence_table())
+_DEFERRED_INITS.append(lambda: globals().get("reconcile_orphaned_sessions", lambda: None)())
 
 
 def _run_layer9_bg_scan():

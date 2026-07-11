@@ -1,0 +1,531 @@
+REJECTED — THIS IS NOT ACCEPTABLE PRODUCTION VERIFICATION
+
+The screenshots provided are a presentation-layer PASS report. They do not
+prove that the real AEIM production implementations executed, were wired
+correctly, or consumed real market data.
+
+Do not generate another dashboard, HTML report, Markdown table, screenshot,
+or manually constructed PASS matrix.
+
+The current submission is rejected for the following reasons:
+
+1. The trace ID contains the date 20260711, which must be explained and
+   reconciled with the actual server clock, database clock, application
+   clock, and test execution time.
+
+2. The report states:
+
+   stages_resolved=17/21
+
+   but marks the related stage PASS.
+
+   A system with only 17 of 21 stages resolved cannot be represented as a
+   complete PASS without identifying the four unresolved stages.
+
+3. The trace starts with:
+
+   scanner_signals
+
+   This conflicts with the currently required AEIM self-scan architecture.
+   AEIM must scan Polygon independently unless scanner_signals is explicitly
+   documented as an authorized optional input that does not control or
+   replace AEIM self-scan.
+
+4. The required G2 governance gate is absent between:
+
+   risk_gate
+   → decision_engine
+
+   The required order is:
+
+   specialist_council
+   → pre_decision_risk_gate
+   → G2_governance_gate
+   → decision_engine
+   → paper_shadow_execution
+
+5. The report says:
+
+   decision=EXECUTE
+   type=CALL
+   price=$211.50
+
+   but then says:
+
+   no_order_created=true
+
+   This is not execution proof. It is only a simulated decision record.
+
+6. Values such as:
+
+   hurst=0.52
+   vpin=0.21
+   amihud=0.0003
+   jump=false
+   prob_score=68.0
+   confidence=0.71
+
+   are unsupported summary values.
+
+   No evidence was provided showing:
+   - the source market-data rows
+   - timestamps
+   - data provider
+   - input window
+   - production function invoked
+   - calculation parameters
+   - raw output
+   - output schema
+   - database record
+   - downstream consumer
+   - calculation code hash
+
+7. The displayed provenance hashes are not sufficient.
+
+   A hash chain is not proof unless you provide:
+   - the full untruncated hash for every stage
+   - prev_hash
+   - input_hash
+   - output_hash
+   - canonical serialized input
+   - canonical serialized output
+   - exact hashing code
+   - database row IDs
+   - independent verification command
+   - verification output proving every link recomputes exactly
+
+8. The submission does not include the required individual evidence for all
+   advanced indicators.
+
+9. The submission does not include:
+   - static call-site proof
+   - downstream consumption proof
+   - negative controls
+   - scheduler proof
+   - duplicate implementation audit
+   - bypass audit
+   - registry ownership proof
+   - real raw logs
+   - database evidence
+   - exact execution commands
+
+DO NOT MARK THIS TASK COMPLETE.
+
+============================================================
+REQUIRED REMEDIATION
+============================================================
+
+Run a genuine production-code verification using the actual AEIM files,
+database, scheduler, event bus, model artifacts, and paper/shadow execution
+components.
+
+Do not create a new verification-only pipeline.
+
+Do not hard-code values.
+
+Do not construct PASS rows manually.
+
+Do not insert fabricated audit records.
+
+Do not use mocked indicator outputs.
+
+Do not use a script that simulates the stage names without calling the real
+production implementations.
+
+============================================================
+PART A — IDENTIFY THE REPORT GENERATOR
+============================================================
+
+First provide the exact source of the screenshots.
+
+Return:
+
+1. Full file path that generated the report.
+2. Function or class that generated it.
+3. Exact command that was run.
+4. Git diff for every file created or changed for this report.
+5. Whether the report values came from:
+   - real production calls
+   - database rows
+   - hard-coded dictionaries
+   - fixtures
+   - mocks
+   - synthetic data
+   - manually inserted records
+6. Exact source line for each displayed value.
+7. Exact source line that assigned each PASS status.
+8. Exact SQL queries used to retrieve the records.
+9. Exact database row IDs used.
+10. Exact creation timestamps for those rows.
+
+Search the report-generator code for:
+
+PASS
+hurst
+vpin
+amihud
+jump
+prob_score
+confidence
+NVDA
+211.50
+82.4
+79.1
+72.0
+71.0
+0.52
+0.21
+0.0003
+
+Return every match with file path and line number.
+
+If any displayed value is hard-coded, manually inserted, mocked, or generated
+only for the report, mark the previous verification INVALID.
+
+============================================================
+PART B — RAW PRODUCTION CALL TRACE
+============================================================
+
+Run one real manual paper/shadow candidate through the actual production
+entry point.
+
+Provide the exact shell command.
+
+The command must invoke the same production entry point used by normal AEIM
+operation.
+
+Capture an unedited raw log file.
+
+The raw log must show:
+
+- process ID
+- hostname
+- server timestamp
+- timezone
+- git commit
+- Python executable
+- environment
+- entry-point file
+- root_trace_id
+- candidate_id
+- ticker
+- every real module path
+- every real function invoked
+- function start timestamp
+- function completion timestamp
+- input record IDs
+- output record IDs
+- exception status
+- downstream acknowledgement
+- final paper/shadow result
+
+Provide the raw log as a downloadable file or complete text output.
+
+Screenshots are not sufficient.
+
+============================================================
+PART C — DATABASE PROOF
+============================================================
+
+For the same root_trace_id, provide direct SQL output from the production
+database.
+
+Return the actual SQL commands and unedited results for:
+
+1. Candidate intake record.
+2. Point-in-time validation record.
+3. Data-staleness record.
+4. Macro/regime record.
+5. Discovery/hypothesis record.
+6. Technical-analysis record.
+7. Options-analysis record.
+8. Quantitative-indicator records.
+9. Probability prediction record.
+10. TreeSHAP explanation record.
+11. Synthesis record.
+12. Specialist Council record.
+13. Risk Gate record.
+14. G2 governance record.
+15. Decision record.
+16. Paper/shadow execution or no-execution record.
+17. Outcome-registration record.
+18. Learning-registration record.
+19. Memory-registration record.
+20. Audit/provenance records.
+
+Every row must include:
+
+- primary key
+- root_trace_id
+- candidate_id
+- ticker
+- created_at
+- source timestamp
+- module
+- function
+- status
+- input hash
+- output hash
+- previous provenance hash
+- provenance hash
+- code version
+- configuration version
+
+============================================================
+PART D — FULL HASH RECOMPUTATION
+============================================================
+
+Provide all full hashes without truncation.
+
+For every stage return:
+
+- stage order
+- full previous hash
+- full input hash
+- full output hash
+- full stage hash
+- canonical input payload
+- canonical output payload
+
+Provide an independent verification script that reads the existing database
+rows and recomputes the complete chain.
+
+The verification script must not create or modify records.
+
+Return:
+
+- exact command
+- stdout
+- stderr
+- exit code
+
+Then perform a negative tamper test on a copied dataset, not production:
+
+1. Change one output value.
+2. Recompute the chain.
+3. Prove verification fails at the changed stage.
+4. Restore the copy.
+5. Prove verification passes.
+
+============================================================
+PART E — ADVANCED INDICATOR PROOF
+============================================================
+
+For every advanced indicator, provide an individual record:
+
+- Point-in-Time Data Guard
+- Thompson Sampling
+- XGBoost
+- Native TreeSHAP
+- BH-FDR
+- GARCH(1,1)
+- Jump Detection
+- Statistical Arbitrage Engine
+- Gamma Exposure
+- Put/Call Skew
+- Options Term Structure
+- CTA Trigger Levels
+- Hurst Exponent
+- Amihud Illiquidity
+- Corwin-Schultz Spread Estimator
+- Variance Risk Premium
+- Risk-Neutral Density
+- PCA Factor Decomposition
+- VPIN
+- Pattern Discovery Engine
+- Signal Decay Detection
+- Rediscovery Engine
+- Self-Invalidating Signal Lifecycle
+
+For each indicator show:
+
+1. Production file path.
+2. Production class/function.
+3. Exact registry entry.
+4. Canonical owning phase.
+5. Exact upstream call site.
+6. Actual input records.
+7. Input timestamps.
+8. Exact computation parameters.
+9. Exact raw result.
+10. Exact downstream consumption site.
+11. Downstream acknowledgement.
+12. Database/audit record ID.
+13. Code SHA-256.
+14. Scheduler or invocation owner.
+15. Negative-control result.
+16. Duplicate search result.
+17. Bypass search result.
+18. PASS, PARTIAL, FAIL, NOT_IMPLEMENTED, or NOT_APPLICABLE.
+
+An indicator may be marked PASS only when the real production function and
+real downstream consumer are both proven.
+
+============================================================
+PART F — VERIFY THE ACTUAL NUMBERS
+============================================================
+
+For the values displayed in the rejected report, independently prove each
+one.
+
+For Hurst:
+
+- input price series
+- observation count
+- date range
+- algorithm
+- parameters
+- calculated value before rounding
+- production function output
+
+For VPIN:
+
+- data granularity
+- trade or volume-bucket source
+- buy/sell classification method
+- bucket size
+- bucket count
+- raw calculation
+- approximation disclosure
+
+For Amihud:
+
+- daily returns
+- dollar volume
+- lookback dates
+- each intermediate value
+- mean calculation
+- raw output before rounding
+
+For jump detection:
+
+- return series
+- volatility estimate
+- test statistic
+- threshold
+- p-value or confidence
+- exact reason jump=false
+
+For XGBoost:
+
+- model artifact path
+- model SHA-256
+- model version
+- complete feature names in order
+- complete feature values
+- missing-feature report
+- raw margin
+- raw probability
+- calibration method
+- calibrated probability
+- prediction ID
+
+For TreeSHAP:
+
+- exact model artifact
+- exact feature vector
+- base value
+- every SHAP value
+- additivity check
+- explanation ID
+
+For Thompson Sampling:
+
+- hypothesis/arm ID
+- alpha before
+- beta before
+- sampled value
+- random seed handling
+- posterior source rows
+- selected arm
+- reason the displayed multiplier was applied
+
+============================================================
+PART G — REQUIRED NEGATIVE CONTROLS
+============================================================
+
+Run and prove:
+
+1. Future data rejected.
+2. Stale data rejected.
+3. Missing XGBoost feature rejected.
+4. TreeSHAP model mismatch rejected.
+5. GARCH convergence failure visible.
+6. Insufficient Hurst data rejected.
+7. Invalid Amihud volume rejected.
+8. Insufficient VPIN data rejected.
+9. Thompson outcome update blocked before outcome resolution.
+10. Direct quant-indicator-to-Decision-Engine call blocked.
+11. Direct quant-indicator-to-execution call blocked.
+12. Missing G2 governance event blocks Decision Engine.
+13. Broken provenance link fails verification.
+14. Duplicate production implementation is detected.
+
+Return exact commands, raw output, and exit codes.
+
+============================================================
+PART H — CORRECT REQUIRED PIPELINE
+============================================================
+
+The final verified order must be:
+
+AEIM Polygon self-scan
+→ AEIM intake
+→ point-in-time/staleness/lookahead guards
+→ Master Orchestrator
+→ Module Registry
+→ Tool Registry
+→ Communication Bus
+→ Macro/Regime
+→ Discovery/Hypothesis Selection
+→ Technical Analysis
+→ Options/Microstructure
+→ Quantitative/Statistical Edge
+→ Probability Engine
+→ Scoring/Synthesis
+→ Specialist Council
+→ Pre-Decision Risk Gate
+→ G2 Governance Gate
+→ Decision Engine
+→ Paper/Shadow Execution or authorized no-execution record
+→ Outcome Tracking
+→ Safe Learning
+→ Memory
+→ Feedback to Master Orchestrator
+
+If scanner_signals remains present, explain whether it is:
+
+- legacy
+- website-only
+- optional supplemental input
+- an unauthorized dependency
+
+Prove AEIM can operate without scanner_signals.
+
+============================================================
+FINAL RESPONSE REQUIREMENT
+============================================================
+
+Do not return another screenshot-only report.
+
+Return:
+
+1. Raw code references.
+2. Exact commands.
+3. Unedited terminal output.
+4. Direct SQL output.
+5. Full hashes.
+6. Raw logs.
+7. Indicator-by-indicator evidence.
+8. Negative-control results.
+9. Defects found.
+10. Code changes made.
+11. Remaining unresolved items.
+12. Honest final verdict.
+
+The current verification status is:
+
+FAIL — INVALID EVIDENCE
+
+It may not be changed to PASS until all evidence above is supplied and can be
+independently recomputed from the real production code and database.
