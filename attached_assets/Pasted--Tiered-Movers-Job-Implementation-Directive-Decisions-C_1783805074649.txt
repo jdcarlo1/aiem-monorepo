@@ -1,0 +1,82 @@
+# Tiered Movers Job — Implementation Directive
+
+## Decisions Confirmed
+
+**Q1 — Tier breakpoints: Decision A**
+Use the existing system's tiers as-is:
+- Nano: <$300M
+- Small: $300M–$2B
+- Mid: $2B–$10B
+- Large: $10B+
+
+Do not add a 5th tier. Do not drop the sub-$300M band.
+
+**Q2 — Market cap data source: Option A**
+Polygon Fundamentals API via `POLYGON_API_KEY`. Batch call to
+`/v3/reference/tickers` with market_cap filter, nightly backfill + daily refresh.
+
+## Scope of Work
+
+Proceed with:
+- New table
+- Enrichment module
+- Per-tier discovery loop
+- Ticker bridge fix (`discovered_candidates` → `daily_market_movers`)
+- Scheduler registration at 17:10 ET
+
+---
+
+## Standing Evidence Requirement
+
+No task is marked complete based on description alone. For every change, provide:
+
+1. Raw terminal output of actual execution (not a summary)
+2. Exact before/after file diff
+3. sha256 hash before/after for every changed file
+4. Raw SQL query + full result set for any DB-touching claim — including the
+   `daily_fundamentals_snapshot` row count and the `polygon_market_daily`
+   overlap numbers cited during planning. Re-run those queries live and paste
+   fresh output.
+
+Narrative or paraphrased claims of "fixed," "tested," "confirmed," or
+"verified" without pasted evidence are rejected. If evidence cannot be
+produced for a given claim, say so explicitly rather than asserting it.
+
+Also required: re-run and paste raw output for the "candlestick pattern tool
+confirmed EXISTS" claim — show the actual file/function definition, not just
+a memory reference.
+
+---
+
+## Sample Trace Required After Implementation
+
+Before declaring this feature complete, run one real ticker through the full
+pipeline and paste the trail at every stage:
+
+1. **Ticker selection** — which ticker was picked (pick one from each tier if
+   possible, or at minimum one mid/small-cap that will actually flow through
+   discovery), and the raw SQL that selected it.
+
+2. **Market cap tier assignment** — raw market cap value pulled from Polygon,
+   and which tier it landed in (Nano/Small/Mid/Large), with the actual
+   comparison logic shown.
+
+3. **Feature enrichment** — the full row (or JSONB blob) written to
+   `feature_snapshot` for that ticker, showing which fields are populated and
+   which are NULL, with the raw SQL SELECT confirming it's actually in the
+   table.
+
+4. **Candlestick pattern check** — raw output showing whether any pattern
+   fired for that ticker's OHLCV that day, or confirmation none did.
+
+5. **Discovery engine** — did this ticker generate a hypothesis/candidate?
+   Show the raw row in `daily_market_movers` or `discovered_candidates`, or
+   explain why it didn't qualify.
+
+6. **Scheduler confirmation** — timestamp showing the 17:10 ET job actually
+   fired and processed this ticker (not a projected/simulated time).
+
+Every step needs raw output — table name, exact query, exact result. If the
+ticker drops out at any stage (e.g., no candlestick pattern, doesn't clear a
+threshold), that's fine — just show *why* with the actual data, not a summary
+saying "processed successfully."

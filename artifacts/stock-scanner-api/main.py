@@ -2098,6 +2098,17 @@ def _init_discovery_cycle_tables():
 _DEFERRED_INITS.append(_init_discovery_cycle_tables)
 
 
+def _init_daily_market_movers_tables():
+    try:
+        import daily_market_movers as _dmm
+        _dmm.init_tables()
+        print("[market_movers] tables ready")
+    except Exception as _e:
+        print(f"[market_movers] table init error: {_e}")
+
+_DEFERRED_INITS.append(_init_daily_market_movers_tables)
+
+
 def _init_diagram2_trace_audit_schema():
     try:
         import aiem_diagram2_trace_audit as _ad2
@@ -2574,6 +2585,46 @@ def _dc_module1_gp_weekly_job() -> None:
         print(f"[gp_evolution] error (non-fatal): {_gp_e}")
 
 
+def _daily_tiered_movers_job() -> None:
+    """
+    17:10 ET Mon-Fri: capture today's top-100 winners and bottom-100 losers
+    per market cap tier (Nano/Small/Mid/Large), enrich with every DB-resident
+    indicator, and upsert into daily_market_movers for the discovery engine.
+    Runs 20 min before _discovery_cycle_job so fresh data is always available.
+    """
+    try:
+        import daily_market_movers as _dmm
+        import threading as _dmm_thr
+        import os as _dmm_os
+        _dmm_api_key = _dmm_os.environ.get("POLYGON_API_KEY", "")
+        def _run():
+            try:
+                result = _dmm.run_daily_tiered_movers_job(top_n=100, api_key=_dmm_api_key)
+                print(f"[market_movers] completed: {result}")
+            except Exception as _ex:
+                print(f"[market_movers] bg thread error: {_ex}")
+        t = _dmm_thr.Thread(target=_run, daemon=True, name="daily_tiered_movers")
+        t.start()
+        print("[market_movers] daily tiered movers job started in background")
+    except Exception as _e:
+        print(f"[market_movers] job launch error: {_e}")
+
+
+def _refresh_market_cap_cache_job() -> None:
+    """23:00 ET nightly: refresh Polygon market cap data for all active US stocks."""
+    try:
+        import daily_market_movers as _dmm
+        import os as _os
+        _api_key = _os.environ.get("POLYGON_API_KEY", "")
+        if not _api_key:
+            print("[market_movers] nightly cap refresh skipped — POLYGON_API_KEY not set")
+            return
+        result = _dmm.refresh_market_cap_cache(_api_key)
+        print(f"[market_movers] nightly cap refresh: {result}")
+    except Exception as _e:
+        print(f"[market_movers] cap refresh error: {_e}")
+
+
 def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
     """
     Module 6 — Autonomous Discovery Cycle job.
@@ -2656,6 +2707,15 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
     except Exception as _e:
         error_msg = str(_e)
         print(f"[discovery_cycle] run_id={run_id} engine error: {_e}")
+
+    # WL cycle: per-tier win/loss indicator testing against labeled mover data
+    # Runs after run_cycle() so the two sub-cycles share the same scheduler slot.
+    # Non-fatal: WL failure never blocks Module 3 SGD or Module 4 critique.
+    try:
+        _wl_result = _de.get_discovery_engine().run_tiered_wl_cycle()
+        print(f"[discovery_cycle] WL cycle: {_wl_result}")
+    except Exception as _wl_e:
+        print(f"[discovery_cycle] WL cycle error (non-fatal): {_wl_e}")
 
     # Module 3: SGD weight update from this cycle's OOS results
     if result and not error_msg:
@@ -7333,6 +7393,27 @@ try:
     # Catch-up: run at startup after a 45s delay (after preload finishes)
     import threading as _ec_boot_thr
     _ec_boot_thr.Timer(120.0, _populate_earnings_calendar).start()
+
+    # ── Daily Tiered Movers — 17:10 ET (20 min before discovery cycle) ──────
+    # Captures top-100 winners + bottom-100 losers per market cap tier from
+    # polygon_market_daily and enriches with all DB-resident indicators.
+    # Feeds _discovery_cycle_job's run_tiered_wl_cycle() at 17:30 ET.
+    _scheduler.add_job(
+        _daily_tiered_movers_job,
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=10, timezone=_ET),
+        id="daily_tiered_movers",
+        replace_existing=True,
+    )
+    # ── Nightly market cap cache — 23:00 ET ───────────────────────────────────
+    # Refreshes ticker_market_cap_cache from Polygon /v3/reference/tickers.
+    # The 17:10 job reads from this cache, not from Polygon live.
+    _scheduler.add_job(
+        _refresh_market_cap_cache_job,
+        CronTrigger(hour=23, minute=0, timezone=_ET),
+        id="market_cap_cache_refresh",
+        replace_existing=True,
+    )
+    print("[market_movers] scheduled — movers: Mon-Fri 17:10 ET | cap cache: 23:00 ET")
 
     # ── MODULE 6: Autonomous Discovery Cycle ─────────────────────────────────
     # Real cadence: Mon–Fri 17:30 ET — 15 min after aiem_write_signal_discoveries
@@ -55375,11 +55456,15 @@ def _run_layer9_bg_scan():
             WHERE status = 'OPEN'
               OR closed_at >= NOW() - INTERVAL '7 days'
         """),
-        ("discovered_candidates", """
-            SELECT DISTINCT ticker FROM discovered_candidates
-            WHERE created_at >= NOW() - INTERVAL '14 days'
-              AND status != 'rejected'
-            LIMIT 20
+        # TICKER BRIDGE FIX: discovered_candidates has no ticker column (it stores
+        # statistical hypotheses, not individual tickers). Replaced with
+        # daily_market_movers which holds the most recent day's biggest movers
+        # — exactly the tickers most worth scoring with Layer 9.
+        ("daily_market_movers", """
+            SELECT DISTINCT ticker FROM daily_market_movers
+            WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
+            ORDER BY ABS(pct_change) DESC
+            LIMIT 40
         """),
     ]
     for _src_name, _src_sql in _l9_sources:

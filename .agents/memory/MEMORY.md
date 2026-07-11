@@ -1,3 +1,4 @@
+- [Daily Tiered Movers system](daily-tiered-movers.md) — daily_market_movers.py; Polygon single-ticker endpoint is the only source for market_cap; cache NULL = uncached; DELETE-before-insert pattern; close_price>=2.0 LAG filter can span multi-day gaps
 - [Dev/prod schema drift root cause](dev-prod-schema-drift.md) — inline CREATE TABLE IF NOT EXISTS (no ORM) causes silent drift; dev_schema_bootstrap.sql at migrations/ is the fix; run after any dev DB reset before deploy
 - [Layer9 universe build bugs](layer9-universe-build-bugs.md) — 3 bugs fixed: shared try/except killed all sources; Yahoo breaker gated Tradier-only scanner; 2-3d lookbacks empty on weekends; _TD_BREAKER is a dict → use .get("tripped")
 - [First-candle intraday capture](aiem-firstcandle-module.md) — aiem_firstcandle.py: 9:36 AM captures 9:30-9:35 Tradier 5-min bar + 4:45 PM fills day_close/day_win; aiem_first_candle_data table; path to 70%+ same-day signal once ~4-6wk of data accumulates

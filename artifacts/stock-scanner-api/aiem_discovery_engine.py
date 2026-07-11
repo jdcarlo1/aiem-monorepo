@@ -51,6 +51,127 @@ _MIN_IS_TRADES           = 50    # minimum in-sample occurrences
 # conservative than the data window justifies. 2pp is the minimum floor below
 # which we have no reason to promote a signal for human review.
 _MIN_EDGE_OVER_BASELINE  = 2.0   # pp above all-stock OOS baseline win rate
+
+# ── Win/Loss (WL) cycle constants — per-tier labeled movers learning loop ────
+# Lower min-n than the main cycle: WL baseline is exactly 50% by construction
+# (equal winners and losers), so the statistical bar is cleaner. We need fewer
+# observations to detect a real 55%+ win rate above that fixed baseline.
+_WL_MIN_IS_TRADES        = 40
+_WL_MIN_OOS_TRADES       = 20
+_WL_MIN_EDGE             = 5.0   # pp above 50% baseline to be interesting
+_WL_OOS_DAYS             = 30    # calendar days reserved for OOS
+_WL_OVERFIT_GAP          = 20.0  # pp: IS_WR - OOS_WR cap
+
+# Templates that use only OHLCV-derived features (available for ALL ~7K tickers).
+# Templates using sparse features (layer9_score, conviction_pts, etc.) will fail
+# the _WL_MIN_IS_TRADES gate early on and pass once enough labeled days accumulate.
+# Tier-specific exclusion is handled in run_tiered_wl_cycle (options keys skipped
+# for nano tier). The "requires_options" flag marks templates excluded for nano.
+_WL_HYPOTHESIS_TEMPLATES = [
+    # ── OHLCV-derived (universal coverage) ───────────────────────────────────
+    {"id": "WL01", "requires_options": False,
+     "description": "Strong close (≥0.75 of range) → winner",
+     "rule": {"close_strength": ("gte", 0.75)}},
+    {"id": "WL02", "requires_options": False,
+     "description": "Wide range ≥4% → more likely winner than loser",
+     "rule": {"range_pct": ("gte", 0.04)}},
+    {"id": "WL03", "requires_options": False,
+     "description": "Bullish candlestick pattern → winner",
+     "rule": {"has_bullish_candle": ("gte", 1)}},
+    {"id": "WL04", "requires_options": False,
+     "description": "Bearish candlestick pattern → loser",
+     "rule": {"has_bearish_candle": ("gte", 1)}},
+    {"id": "WL05", "requires_options": False,
+     "description": "Strong close ≥0.70 AND range ≥3% → winner",
+     "rule": {"close_strength": ("gte", 0.70), "range_pct": ("gte", 0.03)}},
+    {"id": "WL06", "requires_options": False,
+     "description": "Weak close ≤0.30 (near low) → loser",
+     "rule": {"close_strength": ("lte", 0.30)}},
+    {"id": "WL07", "requires_options": False,
+     "description": "Doji candle (indecision) → no edge",
+     "rule": {"has_doji": ("gte", 1)}},
+    {"id": "WL08", "requires_options": False,
+     "description": "High volume ≥1M AND strong close ≥0.70 → winner",
+     "rule": {"volume": ("gte", 1_000_000), "close_strength": ("gte", 0.70)}},
+    # ── Sparse DB indicators (fire only for watchlist-covered tickers) ────────
+    {"id": "WL09", "requires_options": False,
+     "description": "Layer 9 statistical score ≥60 → winner",
+     "rule": {"statistical_score": ("gte", 60.0)}},
+    {"id": "WL10", "requires_options": False,
+     "description": "Layer 9 statistical score ≥65 → winner",
+     "rule": {"statistical_score": ("gte", 65.0)}},
+    {"id": "WL11", "requires_options": False,
+     "description": "Conviction score ≥5 pts → winner",
+     "rule": {"conviction_pts": ("gte", 5.0)}},
+    {"id": "WL12", "requires_options": False,
+     "description": "Low VPIN ≤0.25 (low toxicity) → winner",
+     "rule": {"vpin_raw": ("lte", 0.25)}},
+    {"id": "WL13", "requires_options": False,
+     "description": "Layer 9 ≥55 AND conviction ≥3 pts → winner",
+     "rule": {"statistical_score": ("gte", 55.0), "conviction_pts": ("gte", 3.0)}},
+    # ── Options-dependent (skipped for nano tier) ─────────────────────────────
+    {"id": "WL14", "requires_options": True,
+     "description": "Unusual call premium ≥$200K (7d) → winner",
+     "rule": {"prem_7d": ("gte", 200_000)}},
+    {"id": "WL15", "requires_options": True,
+     "description": "GEX ≥0 (positive gamma exposure, dealers long) → winner",
+     "rule": {"gex_m": ("gte", 0.0)}},
+    {"id": "WL16", "requires_options": True,
+     "description": "Put/call skew negative (calls dominate flow) → winner",
+     "rule": {"pc_skew_pp": ("lte", -0.02)}},
+]
+
+
+def _compute_wl_stats(
+    rows: List[Dict],
+    rule: Dict[str, Tuple[str, float]],
+) -> Dict[str, Any]:
+    """
+    Win/Loss variant of _compute_stats. Win = is_winner is True.
+    Baseline win rate = 50% by construction (equal winners and losers selected).
+    """
+    signal_rows = [r for r in rows if _apply_rule(r, rule)]
+    baseline_n  = len(rows)
+    n = len(signal_rows)
+    if n == 0:
+        return {"n": 0, "win_rate": None, "avg_return": None,
+                "baseline_wr": 50.0, "baseline_n": baseline_n}
+
+    wins    = sum(1 for r in signal_rows if r.get("is_winner"))
+    returns = [float(r.get("pct_change") or 0.0) for r in signal_rows if r.get("is_winner")]
+    win_rate   = 100.0 * wins / n
+    avg_return = sum(returns) / len(returns) if returns else 0.0
+
+    return {
+        "n":           n,
+        "win_rate":    round(win_rate, 2),
+        "avg_return":  round(avg_return, 4),
+        "baseline_wr": 50.0,
+        "baseline_n":  baseline_n,
+    }
+
+
+def _check_overfit_wl(
+    is_wr: Optional[float],
+    oos_wr: Optional[float],
+    is_n: int,
+    oos_n: int,
+) -> Tuple[bool, str]:
+    """Overfit check for WL cycle with WL-specific thresholds."""
+    if is_wr is None or oos_wr is None:
+        return True, "insufficient_data"
+    if is_n < _WL_MIN_IS_TRADES:
+        return True, f"insufficient_is: {is_n} trades (need {_WL_MIN_IS_TRADES})"
+    if oos_n < _WL_MIN_OOS_TRADES:
+        return True, f"insufficient_oos: {oos_n} trades (need {_WL_MIN_OOS_TRADES})"
+    gap = is_wr - oos_wr
+    if gap > _WL_OVERFIT_GAP:
+        return True, f"overfit: IS={is_wr:.1f}% OOS={oos_wr:.1f}% gap={gap:.1f}pp"
+    if oos_wr < (50.0 + _WL_MIN_EDGE):
+        return True, f"no_edge: OOS={oos_wr:.1f}% below {50.0+_WL_MIN_EDGE:.1f}% WL floor"
+    return False, ""
+
+
 #
 # Date windows: polygon_market_daily has complete non-NULL features only from
 # 2026-04-07 onward (~6,500 tickers/day with gap_pct + rvol + close_strength).
@@ -648,6 +769,122 @@ class DiscoveryEngine:
                 "test_window":  f"{_TEST_START}→{_TEST_END}",
                 "results":   results,
             }
+
+    # ── Per-tier Win/Loss learning cycle ─────────────────────────────────
+
+    def run_tiered_wl_cycle(self) -> Dict[str, Any]:
+        """
+        Per-tier Win/Loss (WL) learning cycle.
+
+        Consumes labeled data from daily_market_movers (direction='winner'/'loser'),
+        tests _WL_HYPOTHESIS_TEMPLATES separately within each market cap tier, and
+        saves candidates to discovered_candidates tagged with the tier via candidate_id
+        prefix "wl_{tier}_{template_id}" and hypothesis_text "[TIER CAP] ...".
+
+        Called from _discovery_cycle_job (17:30 ET) after run_cycle() completes.
+        daily_market_movers is populated 20 min earlier by _daily_tiered_movers_job
+        (17:10 ET), ensuring fresh data is always available.
+
+        IS/OOS split: rows older than _WL_OOS_DAYS calendar days → IS;
+        most recent _WL_OOS_DAYS → OOS. Tier must have min_days=5 of data or
+        get_wl_rows_for_engine returns [] and the tier is skipped this cycle.
+
+        Options-dependent templates (requires_options=True) are skipped for the
+        Nano Cap tier — confirmed intentional; Nano stocks have no listed options.
+
+        Tier → candidate_id encoding (no market_cap_tier column in discovered_candidates):
+          nano  → "wl_nano_{id}"   | hypothesis_text prefix: "[NANO CAP] ..."
+          small → "wl_small_{id}"  | "[SMALL CAP] ..."
+          mid   → "wl_mid_{id}"    | "[MID CAP] ..."
+          large → "wl_large_{id}"  | "[LARGE CAP] ..."
+        """
+        import datetime as _dt
+        _TIERS = ("nano", "small", "mid", "large")
+        total_proposed = 0
+        total_rejected = 0
+        tier_summary   = {}
+
+        oos_cutoff = (
+            _dt.date.today() - _dt.timedelta(days=_WL_OOS_DAYS)
+        ).strftime("%Y-%m-%d")
+
+        try:
+            from daily_market_movers import get_wl_rows_for_engine
+        except ImportError as _ie:
+            return {"error": f"daily_market_movers import failed: {_ie}",
+                    "proposed": 0, "rejected": 0}
+
+        for tier in _TIERS:
+            rows = get_wl_rows_for_engine(tier=tier, min_days=5)
+            if not rows:
+                tier_summary[tier] = "skipped_insufficient_days"
+                continue
+
+            is_rows  = [r for r in rows if r["scan_date"] <  oos_cutoff]
+            oos_rows = [r for r in rows if r["scan_date"] >= oos_cutoff]
+
+            tier_proposed = 0
+            tier_rejected = 0
+
+            templates = _WL_HYPOTHESIS_TEMPLATES
+            if tier == "nano":
+                templates = [t for t in templates if not t.get("requires_options")]
+
+            for tmpl in templates:
+                rule = tmpl["rule"]
+
+                is_stats  = _compute_wl_stats(is_rows,  rule)
+                oos_stats = _compute_wl_stats(oos_rows, rule)
+
+                is_wr  = is_stats.get("win_rate")
+                oos_wr = oos_stats.get("win_rate")
+                is_n   = is_stats.get("n", 0)
+                oos_n  = oos_stats.get("n", 0)
+
+                overfit, reason = _check_overfit_wl(is_wr, oos_wr, is_n, oos_n)
+
+                status       = "rejected" if overfit else "pending"
+                candidate_id = f"wl_{tier}_{tmpl['id']}"
+                overfit_gap  = round((is_wr or 0.0) - (oos_wr or 0.0), 2)
+
+                _save_candidate({
+                    "candidate_id":    candidate_id,
+                    "hypothesis_text": f"[{tier.upper()} CAP] {tmpl['description']}",
+                    "feature_rule":    rule,
+                    "holding_period":  "1d",
+                    "is_wr":           is_wr,
+                    "oos_wr":          oos_wr,
+                    "is_n":            is_n,
+                    "oos_n":           oos_n,
+                    "oos_avg_return":  oos_stats.get("avg_return"),
+                    "baseline_wr":     50.0,
+                    "overfit_gap":     overfit_gap,
+                    "status":          status,
+                    "rejection_reason":reason if overfit else None,
+                    "train_window":    f"before {oos_cutoff}",
+                    "test_window":     f"{oos_cutoff}→present",
+                })
+
+                if overfit:
+                    tier_rejected += 1
+                else:
+                    tier_proposed += 1
+
+            tier_summary[tier] = {
+                "is_rows":  len(is_rows),
+                "oos_rows": len(oos_rows),
+                "proposed": tier_proposed,
+                "rejected": tier_rejected,
+            }
+            total_proposed += tier_proposed
+            total_rejected += tier_rejected
+
+        return {
+            "proposed":    total_proposed,
+            "rejected":    total_rejected,
+            "by_tier":     tier_summary,
+            "oos_cutoff":  oos_cutoff,
+        }
 
     # ── Candidate management ──────────────────────────────────────────────
 
