@@ -1,0 +1,105 @@
+VERIFICATION DIRECTIVE #2 — Scheduled MTM Path Proof
+Session nonce: MANUAL-E2E-MTM-2026-07-11T[FILL IN CURRENT TIME]Z
+
+CONTEXT
+The prior directive (MANUAL-E2E-2026-07-11T14:54:00Z) proved the admin close
+endpoint (/stock-api/admin/paper-trade/<id>/close) correctly writes exit_reason
+after the schema fix. That endpoint calls _aiem_close_paper_trade_and_run_loop()
+DIRECTLY. It was NEVER routed through _aiem_paper_mark_to_market(), which is the
+function the scheduled 16:01 job actually calls. The claim that the scheduled
+path "would have hit the same bug and is now fixed" is an inference, not a test.
+This directive closes that gap.
+
+REJECTION CRITERIA (same standard as before — no exceptions)
+- No narrative summaries substituted for raw output.
+- No self-graded PASS/FAIL. I will grade it from the raw data you show me.
+- Every claim must be backed by: raw terminal output, raw SQL SELECT result, or
+  a git diff / sha256 hash. If you cannot produce the raw artifact, say so
+  explicitly — do not paraphrase around it.
+- If _aiem_paper_mark_to_market() cannot be safely triggered in isolation,
+  say so and propose exactly what would be needed, instead of declaring success.
+
+STEP 1 — Insert a second synthetic OPEN trade
+Raw INSERT statement + RETURNING id. Then raw
+SELECT * FROM aiem_paper_trades WHERE id = <new_id>
+immediately after insert (full row, not summarized).
+
+STEP 2 — Trigger the SCHEDULED path specifically
+Identify and call _aiem_paper_mark_to_market() itself (or the smallest real
+entry point above it that a human wouldn't call directly) — NOT the admin
+close endpoint. Show:
+- The exact function/endpoint/command invoked
+- Raw stdout/stderr or raw JSON response
+- Whether it needs price data / market hours conditions to actually reach the
+  exit logic for the synthetic trade — if so, state what was mocked/forced and why
+
+STEP 3 — Raw SELECT proof
+SELECT * FROM aiem_paper_trades WHERE id = <new_id>
+after the run. Confirm exit_reason is populated (not null, no error).
+
+STEP 4 — Governance checkpoint check
+SELECT * FROM aiem_governance_log (or equivalent) for any row tied to this
+run's timestamp/trace_id. State plainly whether this scheduled path DOES pass
+through a G0 (or other) checkpoint, unlike the admin path. Raw row only —
+no interpretation layered on top without showing the row it's based on.
+
+STEP 5 — Cleanup
+Raw DELETE statements + row counts, same as before.
+
+DELIVERABLE: Raw output only, in the order above. If any step fails, show the
+raw failure and stop — do not route around it silently.
+
+
+---
+
+
+VERIFICATION DIRECTIVE #3 — G0 Governance Bypass on Admin Endpoints
+Session nonce: MANUAL-GOV-2026-07-11T[FILL IN CURRENT TIME]Z
+
+CONTEXT
+Directive #1 found that /stock-api/admin/paper-trade/<id>/close calls
+_aiem_close_paper_trade_and_run_loop() directly, bypassing
+_aiem_paper_execute_today() and therefore never touching the G0 governance
+checkpoint — even while the system state is PAUSED / mode=ENFORCE. The agent
+characterized this as "expected" without confirming it against any documented
+design decision. That is not proof, that is an assumption. This directive
+requires the agent to answer with evidence, not judgment calls.
+
+REJECTION CRITERIA
+- Same standard: raw output, raw code, raw docs/config — no narrative
+  substitution, no self-certification.
+- "This is expected" is not an acceptable answer on its own. It must be backed
+  by either (a) a code comment / design doc / governance spec that explicitly
+  scopes G0–G6 to the scheduled pipeline only, or (b) an admission that no such
+  documentation exists and this is an undocumented gap.
+
+STEP 1 — List every admin-facing endpoint that can mutate paper trade state
+(open, close, backfill, force-exit, override, etc). For each one:
+- File path + line number of the route definition
+- Which internal function it calls
+- Whether that function passes through ANY governance checkpoint (G0–G6) —
+  show the actual call chain (raw grep/code excerpt), not a claim
+
+STEP 2 — Pull the governance spec/design intent
+grep or cat the actual documentation, docstring, or comment (if any exists)
+that states whether admin-triggered state mutations are INTENDED to be exempt
+from G0–G6, or whether G0–G6 is supposed to gate ALL state mutations
+regardless of entry point. Show raw file contents. If nothing exists, say
+"no such documentation found" — do not infer intent.
+
+STEP 3 — Test the actual bypass under ENFORCE/PAUSED
+With system state confirmed PAUSED and mode=ENFORCE (raw SELECT proving this
+first), call the admin close endpoint on a synthetic trade and show the raw
+result. Confirm: does it succeed and mutate state despite PAUSED, yes or no,
+with raw proof either way.
+
+STEP 4 — Answer directly (not a workaround)
+Given Steps 1–3, state plainly: is this bypass a deliberate design decision
+(admin override is meant to work regardless of governance state) or an
+unaddressed gap (any state mutation should be gated)? If the agent cannot
+answer this with evidence, it must say "I cannot determine this without a
+decision from Joel" rather than assert an answer.
+
+DELIVERABLE: Raw output only. This directive is about closing a decision gap,
+not just a bug — do not let the agent close it out as "fixed" without an
+explicit answer to Step 4.
