@@ -1,0 +1,97 @@
+# D1 → D2 → D3 WIRING VERIFICATION DIRECTIVE
+**Session nonce:** `f477010ca32bd93d`
+**Issued:** 2026-07-11
+**Standard:** Prove it, don't tell me. No summaries. No self-grading. Raw output only.
+
+---
+
+## HOW TO USE THIS FILE
+Paste this whole file into the agent chat as one message. Tell the agent:
+> "Answer every section below in order. Do not skip a section. Do not summarize a section instead of answering it. If a section cannot be completed, say exactly what's blocking it — do not substitute a narrative for the missing evidence."
+
+Any response that violates the REJECTION CRITERIA at the bottom should be treated as a failed verification, not a completed one — send it back.
+
+---
+
+## SECTION 0 — PROVENANCE / NONCE CHECK (do this first, every time)
+Before any other work, the agent must:
+1. Echo the nonce above back to you verbatim: `f477010ca32bd93d`
+2. Run `date -u` and paste the raw output (proves the response is live, not cached/replayed)
+3. Run `sha256sum` on every file it is about to modify, BEFORE touching them, and paste the raw hash output
+
+If the agent cannot or will not do this, stop — do not proceed to Section 1.
+
+---
+
+## SECTION 1 — RECONCILE THE 1→8 DISCREPANCY
+The v1 contract showed ~1 of 21 D2→D3 events genuinely `WIRED`. The v2 contract claims 8 of 21. Tonight's logged work only touched D3-side response events, not the D2→D3 pipeline.
+
+**Required, for each of the 8 events now marked `WIRED`:**
+- Exact file path and line number of the code that wires it
+- `git diff` or `git log -p` showing when that wiring was added (not just that it exists now)
+- If it predates tonight's session: the commit hash and date it was actually added, so we know the v1 audit simply missed it — not that the count was invented
+
+**Rejection trigger:** any answer that lists the 8 without file/line/commit evidence for each one individually.
+
+---
+
+## SECTION 2 — UNIT TEST METHOD PROOF (the 13 "fired" event types)
+For each of the 13 event types marked as unit-tested tonight:
+- Paste the exact test script or command used
+- Confirm in the pasted code that the test calls `_d3_emit_event()` (the real function) rather than issuing a raw `INSERT INTO d3_governance_event_links`
+- Paste the raw stdout/stderr from running it, not a description of what it did
+
+**Rejection trigger:** "we fired it through an isolated test call" without the actual test code and its raw output.
+
+---
+
+## SECTION 3 — TEST vs REAL PROVENANCE IN THE LEDGER
+1. Is there a column (e.g. `source`, `test_mode`, `is_synthetic`) on `d3_governance_event_links` that distinguishes rows created by unit tests from rows created by real trade/governance activity?
+2. If no such column exists, add one now, and backfill it correctly for all 38 existing rows (mark which of the 13 were test-inserted).
+3. Paste the raw `SELECT` showing the schema change and the backfilled values.
+
+**Rejection trigger:** "the rows are real" without a way to programmatically tell test rows from production rows going forward.
+
+---
+
+## SECTION 4 — `governance.model_approved` SPECIAL CASE
+This is the one event type that cannot occur naturally right now (0 production models deployed → REJECT path always fires). Confirm:
+- The exact unit test used to force `model_approved`
+- Its raw output
+- Explicit confirmation this required a synthetic/mocked "approved model" condition (not a quiet change to `run_phase5_models()`'s real approval logic to make it always pass)
+
+**Rejection trigger:** if the real approval logic was altered to make `model_approved` easier to trigger in production, rather than only triggered under test.
+
+---
+
+## SECTION 5 — RAW LEDGER DUMP
+Run and paste the full raw output of:
+```sql
+SELECT id, event_type, source, created_at, check_result, governance_phase
+FROM d3_governance_event_links
+ORDER BY created_at;
+```
+All 38 rows, unredacted, unsummarized.
+
+---
+
+## SECTION 6 — THE ACTUAL D1→D2→D3 WIRING WORK (today's build)
+This is the constructive part — once Sections 0–5 are answered and verified, use them as the baseline for real wiring, not a fresh unverified claim:
+
+1. **List the 13 D2→D3 events still `NOT_WIRED`** (from the original contract) and propose, for each, the specific code location where a real emit call would go (which function, which trigger condition).
+2. **Confirm the mechanism honestly**: are we building a real event bus, or another direct in-process function call like `outcome.recorded`? State which, and why. Don't let "wired" mean two different things across events.
+3. **For every new wire added today**, before marking it `WIRED`:
+   - `git diff` of the change
+   - Raw output of the trigger actually firing in a real (non-test) code path, OR explicit unit-test evidence per Section 2's standard
+   - sha256 of the modified file, before and after
+4. **State plainly what remains `ADVISORY_ONLY` / `NOT_ENFORCED`** after today's work — do not let "wired" get conflated with "enforced." Wiring D2→D3 so D3 observes more is not the same as D3 being able to block a trade. If enforcement is still out of scope today, say so explicitly in the contract, the same honest way v1 scoped out the full event bus.
+
+---
+
+## REJECTION CRITERIA (apply to every section above)
+Reject and send back any response that:
+- Substitutes a narrative summary for the requested raw output (diff, hash, SQL result, terminal output)
+- Reports a count or status change without itemized evidence for each item in that count
+- Self-grades as PASS/complete without the underlying evidence attached
+- Uses vague verbs ("fired," "confirmed," "verified") without the artifact that proves it
+- Silently changes production logic to make a test easier to pass, rather than isolating the test

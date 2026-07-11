@@ -1093,6 +1093,9 @@ def _d3_infer_event_type(governance_phase: str, check_result: Optional[str]) -> 
         "D2_DECISION_NO_TRADE":        "decision.no_trade",
         "D2_EXECUTION_SHADOW_CREATED": "execution.shadow_created",
         "D2_EXECUTION_FAILED":         "execution.failed",
+        "D2_DATA_GUARD_PASSED":        "data_guard.passed",   # [S6-1] wired 2026-07-11
+        "D2_DATA_GUARD_FAILED":        "data_guard.failed",   # [S6-2] wired 2026-07-11
+        "D2_OUTCOME_RECORDED":         "outcome.recorded",    # [S6-3] wired 2026-07-11
     }
     if governance_phase in _D2_CANONICAL_PHASES:
         return _D2_CANONICAL_PHASES[governance_phase]
@@ -1164,6 +1167,9 @@ def emit_d2_pipeline_event(
         "decision.no_trade":        "D2_DECISION_NO_TRADE",
         "execution.shadow_created": "D2_EXECUTION_SHADOW_CREATED",
         "execution.failed":         "D2_EXECUTION_FAILED",
+        "data_guard.passed":        "D2_DATA_GUARD_PASSED",   # [S6-1]
+        "data_guard.failed":        "D2_DATA_GUARD_FAILED",   # [S6-2]
+        "outcome.recorded":         "D2_OUTCOME_RECORDED",    # [S6-3]
     }
     phase = _PHASE_MAP.get(event_type)
     if not phase:

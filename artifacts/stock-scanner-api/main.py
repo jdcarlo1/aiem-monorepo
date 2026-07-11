@@ -42994,6 +42994,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                 if _ks_reason:
                     print(f"[aiem_paper] KILL SWITCH HALTED — no trades today: {_ks_reason}")
                     _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "kill_switch", "reason": _ks_reason})
+                    try:  # [S6-2 data_guard.failed — kill_switch]
+                        import aiem_diagram3_governance as _d3ev_dg_ks
+                        _d3ev_dg_ks.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=kill_switch reason={_ks_reason}")
+                    except Exception:
+                        pass
                     _log_finish("SKIPPED", _trades=0, _err=f"kill_switch: {_ks_reason}")
                     return
                 _ks_outcome = "CLEAR"
@@ -43015,6 +43020,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                 )
                 print(f"[aiem_paper] DAILY LOSS LIMIT HALTED — no trades today: {_dll_reason}")
                 _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "daily_loss_limit", "reason": _dll_reason})
+                try:  # [S6-2 data_guard.failed — daily_loss_limit]
+                    import aiem_diagram3_governance as _d3ev_dg_dll
+                    _d3ev_dg_dll.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=daily_loss_limit reason={_dll_reason}")
+                except Exception:
+                    pass
                 _log_finish("SKIPPED", _trades=0, _err=f"daily_loss_limit: {_dll_reason}")
                 return
         except Exception as _dlle:
@@ -43033,6 +43043,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                 _pcr_reason = "; ".join(_pcr_result.get("warnings") or []) or "concentration risk flagged"
                 print(f"[aiem_paper] PORTFOLIO CONCENTRATION RISK HALTED — no new trades today: {_pcr_reason}")
                 _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "portfolio_correlation_risk", "reason": _pcr_reason})
+                try:  # [S6-2 data_guard.failed — portfolio_correlation_risk]
+                    import aiem_diagram3_governance as _d3ev_dg_pcr
+                    _d3ev_dg_pcr.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=portfolio_correlation_risk reason={_pcr_reason}")
+                except Exception:
+                    pass
                 _log_finish("SKIPPED", _trades=0, _err=f"portfolio_correlation_risk: {_pcr_reason}")
                 return
         except Exception as _pcre:
@@ -43052,6 +43067,13 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
             "portfolio_correlation_risk": _pcr_outcome,
         }
         _dg_bus_publish("DATA_GUARDS_PASSED", _dg_outcomes)
+        try:  # [S6-1 data_guard.passed]
+            import aiem_diagram3_governance as _d3ev_dg_pass
+            _d3ev_dg_pass.emit_d2_pipeline_event(
+                "data_guard.passed",
+                reason=f"ks={_ks_outcome} dll={_dll_outcome} pcr={_pcr_outcome}")
+        except Exception:
+            pass
 
         # ── G1 data-guard-completion checkpoint (Path B P3.6) ─────────────────
         # Real DB-backed governance check, once per batch, right after the
@@ -44717,6 +44739,13 @@ def _aiem_close_paper_trade_and_run_loop(
                 )
             except Exception as _d3_link_e:
                 print(f"[d3_governance] link_paper_trade_close error (non-fatal) for trade {_id}: {_d3_link_e}")
+            try:  # [S6-3 outcome.recorded]
+                import aiem_diagram3_governance as _d3ev_or
+                _d3ev_or.emit_d2_pipeline_event(
+                    "outcome.recorded", ticker=_t, paper_trade_id=int(_id),
+                    reason=f"pnl={_pnl:.2f} pnl_pct={_pnl_pct:.2f} source={_src} exit={exit_reason}")
+            except Exception:
+                pass
 
             return {"fired": True, "trade_id": _id, "ticker": _t,
                     "mode": mode, "status": status,
