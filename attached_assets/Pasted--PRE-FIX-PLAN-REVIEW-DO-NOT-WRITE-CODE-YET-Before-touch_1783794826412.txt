@@ -1,0 +1,52 @@
+# PRE-FIX PLAN REVIEW — DO NOT WRITE CODE YET
+
+Before touching any code, explain your fix plan for each of the three failed
+verification tasks below. I want your reasoning and intended approach in
+plain language first. No code changes until I approve the plan.
+
+For EACH task, answer:
+
+1. **What is actually broken** — in your own words, not a copy of the audit
+   verdict. Show me you understand the mechanism, not just the symptom.
+2. **Where exactly** — file(s) and line number(s) / function name(s) involved.
+3. **What you intend to change** — specific, e.g. "replace `except: pass`
+   with `except LeakageViolation: raise` and route to `halt_trade()`" — not
+   "I'll add proper error handling."
+4. **What could break as a result** — what else calls this code path, and
+   what happens if the fix changes behavior for those callers.
+5. **How you will test it** — what specific input/scenario proves the fix
+   works, and what raw output (terminal, SQL, git diff) you will show me as
+   evidence. No self-graded PASS/FAIL summaries.
+
+---
+
+## Task 1 — `assert_no_future_leakage` (NOT ENFORCED)
+
+All 8 catch sites currently swallow the violation with no re-raise and no
+path to a BLOCK or halted trade. Walk me through your plan to make this
+actually enforce — including how you'll confirm all 8 sites are fixed, not
+just the first one you find.
+
+## Task 2 — `evaluate_live_candidate_pit` / dead-branch at line 2271
+
+The branch itself is proven to fire (3 admin-route reverts today), but all
+7 checkpoints (G0–G6) are in SHADOW mode, so nothing blocks picks in
+production. Walk me through your plan to flip these to ENFORCE — including
+rollback plan if ENFORCE mode causes unexpected halts, and how you'll prove
+each of the 7 checkpoints is actually enforcing (not just that the config
+flag says ENFORCE).
+
+## Task 3 — `stage3_lookahead_bias_check` (non-Polygon blind spot)
+
+Only 2 of 9 paper-trade sources (`gap_volume`, `flow_streak`) get a
+scan_date check; the other 7 don't, and a non-Polygon pick with a future
+feature date currently passes when it shouldn't. Walk me through your plan
+to extend the existing check pattern to the other 7 sources — including
+which source you'll use as the template and how you'll test each of the 7
+individually.
+
+---
+
+**Do not proceed to implementation until I respond with approval for each
+plan.** If any plan is vague, unclear on failure modes, or skips the testing
+step, say so yourself rather than waiting for me to catch it.
