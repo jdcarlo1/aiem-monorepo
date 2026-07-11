@@ -1,0 +1,46 @@
+# VERIFICATION DIRECTIVE — Monday Auto-Trigger Proof
+
+**Session nonce:** `MON-AUTOTRIGGER-{insert timestamp when sending}`
+
+## Claim Under Test
+"On Monday (market open), a paper trade will automatically go through the full close → learning loop cycle without manual intervention."
+
+**Rule: You must NOT declare this true or false in prose. You must produce the following raw evidence only.**
+
+---
+
+## 1. Scheduler/Trigger Source
+- Show the exact file + line number where `_aiem_close_paper_trade_and_run_loop()` is registered to a scheduler, cron job, event listener, or market-hours trigger.
+- Paste the raw code block (not a description of it).
+- If no such registration exists, state explicitly: **"NO AUTOMATIC TRIGGER FOUND"** — do not infer one exists because it "should."
+
+## 2. Call Graph Proof
+- Run a grep/search across the entire codebase for every call site of `_aiem_close_paper_trade_and_run_loop`.
+- Paste raw grep output showing file:line for every result.
+- For each call site, show the calling function and what triggers *that* function (job scheduler config, `@app.route`, cron entry, manual endpoint, etc.)
+
+## 3. Historical Execution Evidence
+- Query `aiem_paper_execution_log` and any related tables for any row where `learning_loop_fired_at` is non-null.
+- Paste raw SQL query + raw output. If zero rows, state row count = 0.
+
+## 4. Scheduler Job Registry
+- If the system uses APScheduler, cron, Celery beat, or similar — dump the actual registered job list at runtime (not the intended config, the live registry).
+- Paste raw output.
+
+## 5. Monday-Specific Dry Run (if market is open by session time)
+- If it's possible to trigger a dry-run/simulated close without waiting for a real trade, run it and paste:
+  - Raw terminal output of the function executing
+  - Resulting row(s) in `aiem_paper_trades`, `signal_trust_weights`, `aiem_paper_thompson`
+  - sha256 of any files touched, before/after
+
+---
+
+## Rejection Criteria
+Any response using phrases like "this will work," "the system is designed to," "should trigger automatically," or a narrative summary instead of raw output is an **automatic FAIL**. Re-run and resubmit with raw evidence only.
+
+## Pass Criteria
+A named, verifiable trigger mechanism (cron schedule, event listener, etc.) is shown in code, AND grep confirms it's the only path to that function, AND either historical evidence of prior firing OR a live dry-run proves it executes end-to-end.
+
+---
+
+*Standard: prove it, don't tell me. Raw terminal output, SQL results, git diffs, and sha256 hashes only.*
