@@ -258,3 +258,9 @@ id = "iPDTM27aFx-RnT7O7qBvG"
 uri = "file://.local/DIAGRAM2_AUDIT_FINAL_REPORT.md"
 type = "text"
 title = "Diagram 2 Wiring Audit — Final Report"
+
+[[outputs]]
+id = "gYMg3uhhptfkvbjSRfAXq"
+uri = "file://stockscanner_source_20260711.zip"
+type = "unspecified"
+title = "StockScanner Source Code — 2026-07-11T04:40Z"
