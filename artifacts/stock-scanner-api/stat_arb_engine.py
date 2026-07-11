@@ -155,6 +155,42 @@ def _init_tables() -> None:
 # PRICE DATA
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _fetch_closes_tradier(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> Optional[pd.Series]:
+    """
+    Tradier daily-history fallback for _fetch_closes.
+    Used when polygon_market_daily has insufficient history (e.g. during
+    initial backfill which processes 8,626 tickers at ~250 per startup cycle).
+    """
+    try:
+        import urllib.request as _ur, json as _json, datetime as _dt
+        token = os.environ.get("TRADIER_API_TOKEN_2", "") or os.environ.get("TRADIER_API_TOKEN", "")
+        if not token:
+            return None
+        start = (_dt.date.today() - _dt.timedelta(days=lookback_days + 30)).isoformat()
+        url = (f"https://api.tradier.com/v1/markets/history"
+               f"?symbol={ticker}&interval=daily&start={start}&session_filter=open")
+        req = _ur.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        })
+        with _ur.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read())
+        history = (data.get("history") or {}).get("day") or []
+        if not history:
+            return None
+        if isinstance(history, dict):
+            history = [history]
+        df = pd.DataFrame(history)
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date").sort_index()
+        if "close" not in df.columns:
+            return None
+        return df["close"].astype(float).dropna()
+    except Exception as _e:
+        logger.warning(f"[stat_arb] Tradier fallback failed for {ticker}: {_e}")
+        return None
+
+
 def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS,
                    min_rows: int = 60) -> Optional[pd.Series]:
     """
@@ -169,11 +205,15 @@ def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS,
     Callers that only need the latest aligned price (the z-score path)
     should pass a small min_rows (e.g. 2); the cointegration path keeps
     the default of 60.
+
+    Data source priority:
+    1. polygon_market_daily (primary — full history when backfill is complete)
+    2. Tradier daily history (fallback during backfill or when polygon data is sparse)
     """
+    # ── Primary: polygon_market_daily ──────────────────────────────────────
     try:
         with _connect() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                # NOTE: use (%s * INTERVAL '1 day') — cannot parameterize inside INTERVAL '...'
                 cur.execute("""
                     SELECT scan_date::date AS date, close_price AS close
                     FROM polygon_market_daily
@@ -183,17 +223,22 @@ def _fetch_closes(ticker: str, lookback_days: int = LOOKBACK_DAYS,
                 """, (ticker, lookback_days + 30))
                 rows = cur.fetchall()
 
-        if not rows or len(rows) < min_rows:
-            return None
-
-        df = pd.DataFrame([dict(r) for r in rows])
-        df["date"] = pd.to_datetime(df["date"])
-        df = df.set_index("date").sort_index()
-        return df["close"].dropna()
+        if rows and len(rows) >= min_rows:
+            df = pd.DataFrame([dict(r) for r in rows])
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date").sort_index()
+            return df["close"].dropna()
 
     except Exception as e:
-        logger.error(f"[stat_arb] price fetch failed for {ticker}: {e}")
-        return None
+        logger.error(f"[stat_arb] polygon price fetch failed for {ticker}: {e}")
+
+    # ── Fallback: Tradier daily history ────────────────────────────────────
+    series = _fetch_closes_tradier(ticker, lookback_days)
+    if series is not None and len(series) >= min_rows:
+        logger.info(f"[stat_arb] {ticker}: using Tradier fallback ({len(series)} rows)")
+        return series
+
+    return None
 
 
 def _align_series(s_a: pd.Series, s_b: pd.Series) -> Tuple[pd.Series, pd.Series]:

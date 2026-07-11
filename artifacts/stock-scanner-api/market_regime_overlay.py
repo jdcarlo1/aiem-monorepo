@@ -58,6 +58,8 @@ import decision_logger as dl
 
 try:
     from volatility_clustering import garch_regime_indicator as _garch_indicator
+    from volatility_clustering import fit_garch_model as _garch_fit
+    from volatility_clustering import persist_garch_result as _garch_persist
     _GARCH_AVAILABLE = True
 except ImportError:
     _GARCH_AVAILABLE = False
@@ -206,6 +208,8 @@ def combine_regime_votes(
     put_call_ratio: Optional[float]            = None,
     regime_monitor_flags: Optional[List[Dict[str, Any]]] = None,
     returns_matrix: Optional[pd.DataFrame]     = None,
+    ticker: str                                = "",
+    db_url: str                                = "",
 ) -> Dict[str, Any]:
     """Runs all available indicators, combines their votes, and produces a
     clear recommendation. Missing inputs are treated as neutral (vote=0),
@@ -240,7 +244,20 @@ def combine_regime_votes(
 
     if _GARCH_AVAILABLE:
         try:
-            votes.append({"indicator": "garch_vol", **_garch_indicator(price_history)})
+            _garch_result = _garch_indicator(price_history)
+            votes.append({"indicator": "garch_vol", **_garch_result})
+            # Persist GARCH fit parameters to garch_regime_log (Criterion 12 — runtime audit evidence)
+            if db_url and ticker:
+                try:
+                    _close_col = "Close" if "Close" in price_history.columns else (
+                        "close" if "close" in price_history.columns else None)
+                    if _close_col:
+                        _rets = price_history[_close_col].astype(float).pct_change().dropna()
+                        _fitted = _garch_fit(_rets)
+                        _garch_persist(_fitted, ticker=ticker, db_url=db_url,
+                                       regime_vote=_garch_result.get("vote", 0))
+                except Exception:
+                    pass
         except Exception as _e:
             votes.append({"indicator": "garch_vol", "vote": 0,
                           "reason": f"GARCH unavailable: {_e}"})

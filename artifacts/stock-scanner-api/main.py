@@ -55064,6 +55064,55 @@ def _run_layer9_bg_scan():
 
     _scores = batch_layer9_scores(_histories, timeout_per=5.0, chain_df_map=_chain_df_map)
 
+    # ── 3b. GARCH(1,1) per-ticker persistence into garch_regime_log ──────────
+    try:
+        from volatility_clustering import fit_garch_model as _l9_garch_fit
+        from volatility_clustering import get_persistence as _l9_garch_pers
+        from volatility_clustering import persist_garch_result as _l9_garch_save
+        _garch_saved = 0
+        for _gt, _gdf in _histories.items():
+            try:
+                _gc_col = "close" if "close" in _gdf.columns else ("Close" if "Close" in _gdf.columns else None)
+                if not _gc_col or len(_gdf) < 60:   # 60 trading days min (matches fit_garch_model)
+                    continue
+                _grets  = _gdf[_gc_col].astype(float).pct_change().dropna()
+                _gfit   = _l9_garch_fit(_grets)
+                if _gfit is None:
+                    continue
+                _gpers  = _l9_garch_pers(_gfit) or 0.0
+                _gvote  = -1 if _gpers > 0.95 else (1 if _gpers < 0.70 else 0)
+                _l9_garch_save(_gfit, ticker=_gt, db_url=_DB_URL, regime_vote=_gvote)
+                _garch_saved += 1
+            except Exception:
+                pass
+        if _garch_saved:
+            print(f"[layer9_bg] GARCH fit persisted for {_garch_saved} tickers")
+    except Exception as _ge:
+        print(f"[layer9_bg] GARCH persistence block skipped: {_ge}")
+
+    # ── 3c. Cross-sectional PCA — compute pca_factor1_var from returns matrix ──
+    _pca_var_by_ticker: dict = {}
+    try:
+        from advanced_quant_indicators import pca_factor_decomposition as _pca_fn
+        # Build aligned returns matrix (tickers × days)
+        _ret_series = {}
+        for _pt, _pdf in _histories.items():
+            _c_col = "close" if "close" in _pdf.columns else ("Close" if "Close" in _pdf.columns else None)
+            if _c_col and len(_pdf) >= 20:
+                _ret_series[_pt] = _pdf[_c_col].astype(float).pct_change().dropna()
+        if len(_ret_series) >= 3:
+            import pandas as _l9pd_pca
+            _ret_df = _l9pd_pca.DataFrame(_ret_series).dropna(how="any")
+            if len(_ret_df) >= 10:
+                _pca_result = _pca_fn(_ret_df)
+                _factor1_var = _pca_result.get("explained_variance_ratio", [None])[0]
+                if _factor1_var is not None:
+                    for _pt in _ret_series:
+                        _pca_var_by_ticker[_pt] = float(_factor1_var)
+                    print(f"[layer9_bg] PCA factor1 variance={_factor1_var:.4f} ({len(_ret_series)} tickers)")
+    except Exception as _pca_e:
+        print(f"[layer9_bg] PCA computation skipped: {_pca_e}")
+
     # ── 4. Upsert into layer9_scores table ────────────────────────────────
     _today = _l9dt.datetime.now(_ET).date()
     _upserted = 0
@@ -55079,15 +55128,16 @@ def _run_layer9_bg_scan():
                 try:
                     _illiq_c  = _comps.get("illiquidity_penalty", {})
                     _rnd_c    = _comps.get("rnd_component", {})
+                    _pca1_var = _pca_var_by_ticker.get(_t)
                     _cu.execute("""
                         INSERT INTO layer9_scores
                             (ticker, computed_at, scan_date,
                              statistical_score, regime,
                              hurst_raw, vpin_raw, jump_detected,
                              entropy_score, tail_score, vrp_score, amihud_score,
-                             cs_spread_raw, rnd_skew, rnd_available,
+                             cs_spread_raw, rnd_skew, rnd_available, pca_factor1_var,
                              error)
-                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (ticker, scan_date) DO UPDATE SET
                             computed_at       = EXCLUDED.computed_at,
                             statistical_score = EXCLUDED.statistical_score,
@@ -55102,6 +55152,7 @@ def _run_layer9_bg_scan():
                             cs_spread_raw     = EXCLUDED.cs_spread_raw,
                             rnd_skew          = EXCLUDED.rnd_skew,
                             rnd_available     = EXCLUDED.rnd_available,
+                            pca_factor1_var   = EXCLUDED.pca_factor1_var,
                             error             = EXCLUDED.error
                     """, (
                         _t, _today,
@@ -55117,6 +55168,7 @@ def _run_layer9_bg_scan():
                         float(_illiq_c.get("raw_cs_spread", 0.0)) if _illiq_c  else None,
                         float(_rnd_c.get("rnd_skew", 0.0))        if _rnd_c.get("available") else None,
                         bool(_rnd_c.get("available", False)),
+                        _pca1_var,
                         _err_val,
                     ))
                     if _err_val:

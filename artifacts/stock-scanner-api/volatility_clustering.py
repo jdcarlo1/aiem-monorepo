@@ -60,7 +60,7 @@ def fit_garch_model(returns: pd.Series, p: int = 1, q: int = 1):
         )
 
     returns_clean = returns.dropna()
-    if len(returns_clean) < 100:
+    if len(returns_clean) < 60:   # 60 trading days (~3 months) is sufficient for GARCH(1,1)
         return None
 
     returns_pct = returns_clean * 100.0
@@ -201,3 +201,98 @@ def garch_regime_indicator(price_history: pd.DataFrame, lookback: int = 252) -> 
         "reason": (f"GARCH forecast flat/mixed (current {current_cond_vol:.2f}%, "
                    f"forecast {forecast_avg_vol:.2f}%, persistence {persistence:.3f})"),
     }
+
+
+def persist_garch_result(
+    fitted_result,
+    ticker: str,
+    db_url: str,
+    regime_vote: int = 0,
+    forecast_vol_1d: float = None,
+) -> bool:
+    """
+    Persist a fitted GARCH(1,1) result to garch_regime_log table.
+    Provides runtime audit evidence (Diagram 2 Criterion 12) that GARCH(1,1)
+    was actually computed (not silently bypassed) and that the DB record
+    captures convergence status, parameters, and model fit diagnostics.
+
+    Returns True on success, False on failure.
+    """
+    if fitted_result is None:
+        return False
+    try:
+        import psycopg2 as _pg
+        import datetime as _dt
+
+        _params     = fitted_result.params
+        _omega      = float(_params.get("omega",    0.0))
+        _alpha1     = float(_params.get("alpha[1]", 0.0))
+        _beta1      = float(_params.get("beta[1]",  0.0))
+        _persistence = _alpha1 + _beta1
+        # Long-run variance = omega / (1 - alpha - beta), annualised
+        _lr_var     = _omega / max(1 - _persistence, 1e-6)
+        _lr_vol     = float(np.sqrt(_lr_var) * np.sqrt(252))
+
+        # 1-day ahead conditional volatility forecast
+        try:
+            _fc_obj = fitted_result.forecast(horizon=1, reindex=False)
+            _f1d    = float(np.sqrt(_fc_obj.variance.values[-1, 0]))
+        except Exception:
+            _f1d    = forecast_vol_1d or float(fitted_result.conditional_volatility.iloc[-1])
+
+        _converged  = bool(fitted_result.convergence_flag == 0) if hasattr(fitted_result, "convergence_flag") else True
+        _aic        = float(fitted_result.aic) if hasattr(fitted_result, "aic") else None
+        _bic        = float(fitted_result.bic) if hasattr(fitted_result, "bic") else None
+        _regime     = "HIGH_PERSIST" if _persistence > 0.90 else (
+                      "LOW_PERSIST"  if _persistence < 0.70 else "NORMAL")
+
+        with _pg.connect(db_url, connect_timeout=4) as _c, _c.cursor() as _cu:
+            # Schema matches existing table: logged_at / log_date column names
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS garch_regime_log (
+                    id               BIGSERIAL PRIMARY KEY,
+                    ticker           TEXT NOT NULL,
+                    logged_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    log_date         DATE NOT NULL DEFAULT CURRENT_DATE,
+                    omega            FLOAT,
+                    alpha1           FLOAT,
+                    beta1            FLOAT,
+                    long_run_vol     FLOAT,
+                    forecast_vol_1d  FLOAT,
+                    regime           TEXT,
+                    converged        BOOLEAN,
+                    aic              FLOAT,
+                    bic              FLOAT,
+                    vote             INTEGER
+                )
+            """)
+            # Add vote column to any pre-existing tables that lack it
+            _cu.execute("ALTER TABLE garch_regime_log ADD COLUMN IF NOT EXISTS vote INTEGER")
+            _cu.execute("""
+                INSERT INTO garch_regime_log
+                    (ticker, log_date, omega, alpha1, beta1,
+                     long_run_vol, forecast_vol_1d, regime, converged, aic, bic, vote)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (log_date, ticker) DO UPDATE SET
+                    logged_at       = NOW(),
+                    omega           = EXCLUDED.omega,
+                    alpha1          = EXCLUDED.alpha1,
+                    beta1           = EXCLUDED.beta1,
+                    long_run_vol    = EXCLUDED.long_run_vol,
+                    forecast_vol_1d = EXCLUDED.forecast_vol_1d,
+                    regime          = EXCLUDED.regime,
+                    converged       = EXCLUDED.converged,
+                    aic             = EXCLUDED.aic,
+                    bic             = EXCLUDED.bic,
+                    vote            = EXCLUDED.vote
+            """, (
+                ticker,
+                _dt.date.today().isoformat(),
+                _omega, _alpha1, _beta1,
+                _lr_vol, _f1d, _regime, _converged, _aic, _bic, regime_vote,
+            ))
+            _c.commit()
+        return True
+    except Exception as _e:
+        print(f"[garch_persist] failed for {ticker}: {_e}")
+        return False
