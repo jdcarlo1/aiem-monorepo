@@ -1,0 +1,74 @@
+# AIEM VERIFICATION DIRECTIVE — ZERO TOLERANCE
+**Date:** July 10, 2026
+**Status:** MANDATORY — supersedes prior narrative claims
+**Context:** A prior fabrication has already been admitted (fabricated rows were deleted from `aiem_diagram2_trace_audit`). That is not a one-off mistake to wave past. It means every unverified claim in the last audit is now suspect by default, not just the one that got caught.
+
+---
+
+## GROUND RULES — READ FIRST
+
+1. **No narrative claims. Ever.** "Fixed," "verified," "now returns," "table created" are not evidence. They are assertions. Every claim below must be backed by raw output pasted directly from the terminal/DB, not summarized, not paraphrased, not described.
+2. **One fabrication voids the whole report.** If any single claim in your response is later found to be unsupported, fabricated, or inferred rather than executed, the entire verification pass is rejected and must be redone from scratch — no partial credit.
+3. **Show the command AND the output.** Not one or the other. I need to see exactly what was run and exactly what came back, unedited.
+4. **If something cannot be verified yet (e.g., market closed, no candidates), say so explicitly and show the query that proves it — do not omit it and do not round it up to "verified."**
+
+---
+
+## CRYPTOGRAPHIC PROOF-OF-LIVENESS PROTOCOL
+
+To make sure what I'm reading is a live, real execution against the actual system right now — not reused output from a previous run, not a plausible-sounding reconstruction — every verification step below must be wrapped in this protocol:
+
+**Nonce for this directive:** `AIEM-20260710-JR-7f3a1c`
+
+For each verification item, run:
+
+```bash
+echo "NONCE:AIEM-20260710-JR-7f3a1c" && <the actual verification command> && echo "NONCE:AIEM-20260710-JR-7f3a1c"
+```
+
+Then compute and paste the SHA-256 hash of the full combined output block (both nonce lines + everything in between, exact bytes, no edits):
+
+```bash
+sha256sum
+```
+
+**Rejection criteria for this section:**
+- Missing nonce lines → rejected, re-run required.
+- Hash that does not match when I independently recompute it from the pasted output → rejected, treated as fabrication.
+- Any output block that doesn't start and end with the nonce exactly as given → rejected.
+
+This doesn't require any special crypto infrastructure — it just makes it computationally trivial for me to catch copy-pasted, reused, or invented output, since the nonce is fresh and unpredictable to anything that isn't actually executing against the live system right now.
+
+---
+
+## REQUIRED VERIFICATIONS (in order)
+
+### 1. Confirm `polygon_rvol_scan` table fix is real, not just claimed
+- Raw SQL proving the table exists NOW: `\d polygon_rvol_scan` or equivalent schema dump.
+- Raw output showing `_init_polygon_rvol_scan_table()` is actually registered in `_DEFERRED_INITS` — paste the literal list/array, not a description of it.
+- Row count query result post-fix.
+- **Rejected if:** you tell me it's "created" without a schema dump and row count from this session.
+
+### 2. Confirm the Stage 15 / Stage 19 dict-return fix is consumed downstream, not just returned
+- File + line citation of the code that reads the `{"evaluated": False, "reason": "batch_limited", ...}` dict.
+- Raw trace/log output showing what actually happens when that dict is received — does it get stored, does it block scoring, does it get silently dropped like the Thompson sampler was?
+- **Rejected if:** you only show me the return statement again. I already have that. I need the consumer.
+
+### 3. Resolve the stage-count discrepancy (23 real stages vs. 21 in spec)
+- Confirm whether the spec document itself has been updated to 23, with a diff or file timestamp.
+- If not updated, state that explicitly — do not let this silently drift into the next audit cycle.
+
+### 4. Source 9 (`washout_ignition`) and Source 11 (`aiem_v3_discovery`) chain dependencies
+- Raw query showing discovery id=9's current validation status.
+- Confirmation of what specifically has to happen (which upstream table needs rows) before source 11 can be invoked at all.
+- State plainly: these will NOT be validated by Monday's trace unless upstream sources 1-10 actually produce candidates. Do not let a clean Monday run get reported as "all sources verified" if 9 and 11 never fired.
+
+---
+
+## FINAL REQUIREMENT
+
+At the end of your response, include a single explicit line:
+
+**"Every claim above is backed by output pasted in this response, generated during this session, verified against nonce `AIEM-20260710-JR-7f3a1c`."**
+
+If you cannot truthfully say that, do not say it. Tell me what's missing instead. An honest "I could not verify X" is acceptable. A confident claim that turns out to be false is not — and given what already happened once, it will be treated as fabrication, not error.
