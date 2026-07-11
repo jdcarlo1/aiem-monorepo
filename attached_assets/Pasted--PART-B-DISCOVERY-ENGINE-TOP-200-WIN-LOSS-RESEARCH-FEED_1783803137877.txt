@@ -1,0 +1,40 @@
+═══════════════════════════════════════════
+PART B — DISCOVERY ENGINE TOP-200 WIN/LOSS RESEARCH FEED (NEW FEATURE)
+═══════════════════════════════════════════
+
+GOAL: Every trading day, after close, DiscoveryEngine must pull the top 100 
+gainers and bottom 100 losers by % price change across the full scanned 
+universe, treat this as labeled data (winners vs. losers), and compute/pull 
+the existing indicator set for all 200 tickers. It should run statistical 
+tests to find which indicators (and combinations) actually separate winners 
+from losers, accumulating this analysis day over day so it gets 
+progressively better at identifying high-win-rate indicator combinations 
+(goal: 80%+ over time through iteration, not a single day's snapshot).
+
+Build the following:
+
+1. NEW SCHEDULED JOB — daily_top200_movers_job
+   - Runs once daily after market close, before or feeding into the 
+     existing _discovery_cycle_job (Mon-Fri 17:30 ET) — show me the current 
+     job schedule first and confirm no collision
+   - Pulls top 100 gainers and bottom 100 losers by % price change from the 
+     full scanned universe that day (confirm exact source: is this every 
+     ticker with volume/price data available that day, or is there an 
+     existing "full scan universe" list already used elsewhere in the 
+     system? Show me.)
+   - Store in new table: daily_market_movers (date, ticker, pct_change, 
+     rank, direction ['winner'/'loser'])
+
+2. FEATURE ENRICHMENT — ALL 200 TICKERS
+   - For each of the 200 tickers, pull the existing computed features 
+     already available in the system (do not recompute from scratch — 
+     reuse existing functions): 8-layer conviction score components, 
+     options flow layers, Layer 9 statistical edge indicators, sector 
+     relative strength, regime context
+   - Store as a JSONB blob per ticker per day: 
+     daily_market_movers.feature_snapshot
+   - This runs entirely within AIEM's own logic — no external LLM/AI API 
+     calls, so no per-call AI cost. Confirm runtime for enriching 200 
+     tickers completes comfortably before the next scheduled job, and flag 
+     if any single data provider call (options chain pulls especially) 
+     risks hitting rate limits at this volume

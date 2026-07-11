@@ -1,0 +1,88 @@
+DIRECTIVE — RESOLVE UNKNOWNS + BUILD DISCOVERY ENGINE WIN/LOSS RESEARCH FEED
+
+═══════════════════════════════════════════
+PART A — RESOLVE 4 REMAINING UNKNOWNS
+═══════════════════════════════════════════
+
+For each item below, trace the FULL call chain from data source to 
+compute_layer9_score (or state definitively it does not reach it). 
+Do not classify as UNKNOWN again — pick WIRED or NOT WIRED and prove it.
+
+1. Statistical Arbitrage (stat_arb_engine.py)
+2. Engle-Granger / Cointegration (test_cointegration)
+3. PCA (pca_factor_decomposition, called in _run_layer9_bg_scan)
+4. Absorption Ratio (market_regime_overlay.py only)
+
+For each: show the exact function that would need to call it to reach 
+compute_layer9_score, confirm whether that call exists (grep + line number), 
+and if it does NOT reach scoring, state what it DOES feed instead (if anything) 
+or confirm it's dead weight.
+
+═══════════════════════════════════════════
+PART B — DISCOVERY ENGINE WIN/LOSS RESEARCH FEED (NEW FEATURE)
+═══════════════════════════════════════════
+
+GOAL: Every trading day, DiscoveryEngine should automatically pull the day's 
+biggest winners and losers (full market, not just watchlist), gather 
+everything already computed about them (8-layer conviction scores, options 
+flow, technicals, sector context — reuse existing feature functions, do not 
+rebuild), and use that as real labeled data to generate and test hypotheses 
+about what separates winners from losers. This replaces/extends the current 
+abstract-template-only input to run_cycle().
+
+Build the following:
+
+1. NEW SCHEDULED JOB — daily_winners_losers_job
+   - Runs once daily after market close (pick a time that doesn't collide 
+     with existing jobs — show me the current job schedule first)
+   - Pulls top N gainers and bottom N losers by % price change across the 
+     full scanned universe (not just watchlist) for that trading day
+   - Store in a new table: daily_market_movers (date, ticker, pct_change, 
+     rank, direction ['winner'/'loser'])
+
+2. FEATURE ENRICHMENT
+   - For each ticker in daily_market_movers, pull the existing computed 
+     features already available in the system (do not recompute from 
+     scratch): 8-layer conviction score components, options flow layers, 
+     Layer 9 statistical edge indicators, sector relative strength, 
+     regime context
+   - Store as a JSONB blob per ticker per day, e.g. 
+     daily_market_movers.feature_snapshot
+
+3. WIRE INTO DISCOVERY ENGINE
+   - Modify DiscoveryEngine.run_cycle() (or add a new entry point) to accept 
+     this labeled winner/loser dataset as an input alongside templates
+   - The engine should generate hypotheses of the form "candidates with 
+     [feature X above/below threshold] were disproportionately winners vs 
+     losers" and test them statistically against this real labeled data 
+     (not just synthetic templates)
+   - Hypotheses that pass should still go through the existing 
+     is_wr/oos_wr/overfit_gap validation already in discovered_candidates
+
+4. FIX THE EXISTING TICKER BRIDGE BUG WHILE YOU'RE IN THIS AREA
+   - main.py:55378's SELECT DISTINCT ticker FROM discovered_candidates fails 
+     silently because that table has no ticker column
+   - Now that discovered_candidates (or a new companion table) will have 
+     real ticker-labeled data from part B, fix this bridge so validated 
+     hypotheses CAN influence the live Phase 5/6 scanning universe
+   - Show me the before/after logic for how a hypothesis becomes an actual 
+     ticker filter
+
+5. SCHEDULING SANITY CHECK
+   - Confirm this new job doesn't conflict with the existing 
+     _discovery_cycle_job (Mon-Fri 17:30 ET) — should it run before, after, 
+     or feed into it?
+
+═══════════════════════════════════════════
+STANDING VERIFICATION REQUIREMENT (applies to everything above)
+═══════════════════════════════════════════
+No task is complete based on description alone. You must provide:
+(1) raw terminal output of actual execution
+(2) exact before/after file diff
+(3) sha256 hash before/after for changed files
+(4) raw SQL query + result set for any DB claim (e.g. "job ran" must be 
+    backed by an actual row with a real timestamp, not a description)
+
+Narrative or paraphrased claims of "fixed," "wired," or "tested" without 
+pasted evidence are rejected. If you cannot produce evidence for any point 
+above, say so explicitly rather than describing it.
