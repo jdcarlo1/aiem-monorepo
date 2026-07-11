@@ -24852,8 +24852,13 @@ def _mkt_init_tables():
                     discovered_at     TIMESTAMP DEFAULT NOW(),
                     confirmed_at      TIMESTAMP,
                     invented_indicator TEXT,
-                    notes             TEXT
+                    notes             TEXT,
+                    signal_name       VARCHAR(100)
                 )
+            """)
+            cur.execute("""
+                ALTER TABLE aiem_signal_discoveries
+                ADD COLUMN IF NOT EXISTS signal_name VARCHAR(100)
             """)
         # Also ensure aiem_test_ledger exists (used by mkt_required_pvalue Bonferroni tracking)
         try:
@@ -26029,7 +26034,8 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                               edge_tight=None, signal_n=None, p_value=None,
                               signal_win_rate=None, baseline_win_rate=None,
                               signal_avg_ret=None, oos_edge=None,
-                              horizon="next_day", notes="", hypothesis_id=None):
+                              horizon="next_day", notes="", hypothesis_id=None,
+                              signal_name=None):
     """Save a validated signal discovery to the aiem_signal_discoveries table.
     HARD GATES (will block save if not met):
       1. oos_edge must be provided and > 0  → proves mkt_validate_oos was run
@@ -26201,14 +26207,14 @@ def _mkt_tool_save_discovery(conditions=None, hypothesis_text="", edge_broad=Non
                 INSERT INTO aiem_signal_discoveries
                     (hypothesis_text, conditions_json, horizon, signal_n, signal_win_rate,
                      signal_avg_ret, edge_broad, edge_tight, p_value, oos_edge,
-                     baseline_win_rate, status, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'validated', %s)
+                     baseline_win_rate, status, notes, signal_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'validated', %s, %s)
                 RETURNING id
             """, (
                 hypothesis_text, _j.dumps(conditions), horizon,
                 signal_n, signal_win_rate, signal_avg_ret,
                 edge_broad, edge_tight, p_value, oos_edge,
-                baseline_win_rate, notes
+                baseline_win_rate, notes, signal_name
             ))
             disc_id = cur.fetchone()[0]
         return {
@@ -35632,6 +35638,7 @@ _AIEM_AGENT_TOOLS = [
             "signal_avg_ret": {"type": "number"},
             "oos_edge": {"type": "number"},
             "notes": {"type": "string"},
+            "signal_name": {"type": "string", "description": "Signal source name — must match aiem_paper_trades.signal_source exactly (e.g. 'unusual_calls', 'gap_volume', 'conviction_stack'). Populates the B1/B3/B4 decay-verdict and OOS-overfit lookup in the MTM exit engine."},
         }, "required": ["conditions", "hypothesis_text"]}
     }},
     {"type": "function", "function": {
@@ -45017,12 +45024,45 @@ def _aiem_paper_mark_to_market():
             except Exception as _b2c_e:
                 print(f"[aiem_paper] step2c pre-fetch skipped: {_b2c_e}")
 
+        # ── 2c-b: Signal source → decay verdict / p-value / OOS edge (B1/B3/B4) ──
+        _b_decay_verd: dict = {}   # signal_name → decay_verdict str
+        _b_disc_p:     dict = {}   # signal_name → p_value float
+        _b_disc_oos:   dict = {}   # signal_name → oos_edge float
+
+        _b2c_srcs = list({p.get("signal_source", "") for p in _positions_for_ai
+                          if p.get("signal_source")})
+        if _b2c_srcs:
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=4) as _bsc, _bsc.cursor() as _bscu:
+                    _bscu.execute("""
+                        SELECT DISTINCT ON (sd.signal_name)
+                            sd.signal_name,
+                            ado.decay_verdict,
+                            sd.p_value,
+                            sd.oos_edge
+                        FROM aiem_signal_discoveries sd
+                        LEFT JOIN aiem_discovery_outcomes ado ON ado.discovery_id = sd.id
+                        WHERE sd.signal_name = ANY(%s)
+                        ORDER BY sd.signal_name, ado.created_at DESC NULLS LAST
+                    """, (_b2c_srcs,))
+                    for _brow in _bscu.fetchall():
+                        _nm = _brow[0]
+                        _b_decay_verd[_nm] = (_brow[1] or "").upper()
+                        _b_disc_p[_nm]     = float(_brow[2] or 1.0)
+                        _b_disc_oos[_nm]   = float(_brow[3] or 0.0)
+            except Exception as _b2cb_e:
+                print(f"[aiem_paper] step2c-b signal_name fetch skipped: {_b2cb_e}")
+
         for _pfa in _positions_for_ai:
             _ptk = _pfa["ticker"]
+            _psr = _pfa.get("signal_source", "")
             _pfa["garch_regime_vote"] = _b_garch_vote.get(_ptk, 0)
             _pfa["garch_persistence"] = _b_garch_pers.get(_ptk, 0.0)
             _pfa["pca_factor1_var"]   = _b_pca_var.get(_ptk, 0.5)
             _pfa["stat_arb_zscore"]   = _b_sarb_z.get(_ptk, 0.0)
+            _pfa["signal_decay_verd"] = _b_decay_verd.get(_psr, "")
+            _pfa["signal_disc_p"]     = _b_disc_p.get(_psr, 1.0)
+            _pfa["signal_disc_oos"]   = _b_disc_oos.get(_psr, 0.0)
 
         # ── 4. Rules-based exit judgment — no external calls ──────────────
         # All data was already gathered in steps 2/2b/2c above. The rules
@@ -45038,11 +45078,14 @@ def _aiem_paper_mark_to_market():
             macro   = (pos.get("macro_bias") or "NEUTRAL").upper()
             days    = pos.get("days_held", 0)
 
-            # ── Group B: pre-fetched quantitative inputs (step 2c) ────────
-            garch_vote = int(pos.get("garch_regime_vote") or 0)
-            garch_pers = float(pos.get("garch_persistence") or 0.0)
-            pca_var    = float(pos.get("pca_factor1_var") or 0.5)
-            sarb_z     = float(pos.get("stat_arb_zscore") or 0.0)
+            # ── Group B: pre-fetched quantitative inputs (step 2c / 2c-b) ───
+            garch_vote  = int(pos.get("garch_regime_vote") or 0)
+            garch_pers  = float(pos.get("garch_persistence") or 0.0)
+            pca_var     = float(pos.get("pca_factor1_var") or 0.5)
+            sarb_z      = float(pos.get("stat_arb_zscore") or 0.0)
+            decay_verd  = (pos.get("signal_decay_verd") or "").upper()   # B1
+            disc_p      = float(pos.get("signal_disc_p") or 1.0)         # B3
+            disc_oos    = float(pos.get("signal_disc_oos") or 0.0)       # B4
 
             pnl = (pos.get("pnl_pct") if pos.get("pnl_pct") is not None
                    else pos.get("synthetic_option_proxy_pct") or 0.0)
@@ -45086,6 +45129,13 @@ def _aiem_paper_mark_to_market():
                 exit_ev.append(f"high market correlation (pca1_var={pca_var:.2f})")
             if sarb_z > 2.5:
                 exit_ev.append(f"stat-arb z-score extreme ({sarb_z:.2f}) — reversion risk")
+            # ── B1/B3/B4: signal decay / FDR p-value / OOS overfit ────────
+            if decay_verd == "DECAYING":
+                exit_ev.append("signal source decaying (decay_verdict=DECAYING)")
+            if 0.0 < disc_p < 1.0 and disc_p > 0.10:
+                exit_ev.append(f"signal p-value weak ({disc_p:.3f} > 0.10 threshold)")
+            if disc_oos < 0:
+                exit_ev.append(f"signal OOS edge negative ({disc_oos:+.2f}pp) — potential overfit")
 
             # ── bullish evidence ───────────────────────────────────────────
             if rsi is not None and 40 <= rsi < 68:
@@ -55467,7 +55517,7 @@ def _run_layer9_bg_scan():
     except Exception as _ge:
         print(f"[layer9_bg] GARCH persistence block skipped: {_ge}")
 
-    _scores = batch_layer9_scores(_histories, timeout_per=5.0, chain_df_map=_chain_df_map)
+    _scores = batch_layer9_scores(_histories, timeout_per=5.0, chain_df_map=_chain_df_map, db_url=_DB_URL)
 
     # ── 3c. Cross-sectional PCA — compute pca_factor1_var from returns matrix ──
     _pca_var_by_ticker: dict = {}

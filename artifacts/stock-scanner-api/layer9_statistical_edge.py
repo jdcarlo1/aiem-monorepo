@@ -114,7 +114,8 @@ def compute_rnd_component(chain_df: "pd.DataFrame", r: float = 0.05,
 
 def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                           lookback: int = 60,
-                          chain_df: "pd.DataFrame | None" = None) -> dict:
+                          chain_df: "pd.DataFrame | None" = None,
+                          db_url: "str | None" = None) -> dict:
     """
     Compute the Layer 9 Statistical Edge sub-score (0-100) for one ticker.
 
@@ -318,6 +319,37 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             rnd_skew = rnd_result.get("rnd_skew", 0.0)
             rnd_adjustment = 5.0 if rnd_skew > 0 else -5.0
 
+        # ── 10. Skew velocity (options_structure_scan pc_skew_pp history) ──
+        # Rate-of-change of the put/call skew over trailing trading days.
+        # Rising skew = growing put demand = bearish. Falling = unwind = bullish.
+        # Follows vrp_proxy / jump_risk pattern: raw value → score → weighted.
+        # BACKFILL LAG: first usable after ≥5 days of daily pc_skew_pp rows for
+        # this ticker exist in options_structure_scan. Data accumulates from the
+        # nightly options structure scan. Column set = options_structure_scan.pc_skew_pp.
+        if db_url:
+            try:
+                import psycopg2 as _sv_pg
+                from advanced_quant_indicators import skew_velocity as _sv_fn
+                with _sv_pg.connect(db_url, connect_timeout=3) as _svc, _svc.cursor() as _svcu:
+                    _svcu.execute("""
+                        SELECT pc_skew_pp FROM options_structure_scan
+                        WHERE ticker = %s AND pc_skew_pp IS NOT NULL
+                        ORDER BY scan_date DESC LIMIT 30
+                    """, (ticker,))
+                    _sv_rows = [float(r[0]) for r in _svcu.fetchall()]
+                if len(_sv_rows) >= 5:
+                    _sv_series = pd.Series(list(reversed(_sv_rows)))  # oldest→newest
+                    _sv_val = float(_sv_fn(_sv_series, window=5).iloc[-1])
+                    flags["skew_velocity"] = round(_sv_val, 5)
+                    _sv_score = min(100.0, max(0.0, 50.0 - _sv_val * 2000.0))
+                    components["skew_velocity"] = {
+                        "raw": round(_sv_val, 5),
+                        "score": round(_sv_score, 1),
+                    }
+                    weights["skew_velocity"] = 0.09  # conditional — absent = weight not wasted
+            except Exception:
+                pass
+
         # ── Compute weighted final score ─────────────────────────────
         weight_sum  = sum(weights.values())
         norm_w      = {k: v / weight_sum for k, v in weights.items()}
@@ -344,7 +376,8 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
 
 
 def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
-                        chain_df_map: dict = None) -> dict:
+                        chain_df_map: dict = None,
+                        db_url: "str | None" = None) -> dict:
     """
     Compute Layer 9 scores for a batch of tickers in parallel.
 
@@ -366,7 +399,7 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
     results = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
-            pool.submit(compute_layer9_score, t, df, chain_df=_chain_map.get(t)): t
+            pool.submit(compute_layer9_score, t, df, chain_df=_chain_map.get(t), db_url=db_url): t
             for t, df in tickers_histories.items()
             if df is not None and not df.empty
         }

@@ -1,0 +1,103 @@
+# Wiring Fix Directive — Verification Rejection & Cryptographic Proof Requirement
+
+**Status of all 7 "Implemented" items: REJECTED — unverified.**
+
+A description in a table is not proof. Every item below must be resubmitted with cryptographic evidence that it came from a live execution of *my* AIEM codebase — not a narrative, not a mocked test, not a fabricated log.
+
+---
+
+## 1. Why this was rejected
+
+The prior submission gave narrative descriptions (A1, A4, A6, B6, B2+B5+B7, Group C marked "Implemented") with no diffs, no grep output, no execution proof. Per the original directive's ground rules, this does not count as done. Nothing is accepted as complete without:
+
+1. The exact diff (before/after) of every file changed
+2. Raw `grep -rn` output, run **after** the change, proving the new call site exists
+3. The specific line number where the value is read inside `_rules_mtm_decision()` or the sort key (`stat9_score` / `composite_score`, main.py:50369–50370)
+4. If `_rules_mtm_decision()`'s signature or `compute_layer9_score()`'s weighted sum changed — the full updated function body, not a snippet
+5. No narrative summaries. No "this should now work now." Diff → grep output → line-numbered proof it's read downstream. That's it.
+
+---
+
+## 2. Cryptographic proof-of-origin (mandatory, all items)
+
+Because prior claims have turned out to be fabricated, every piece of evidence below must be independently verifiable as coming from a genuine execution against my live codebase — not invented, not copy-pasted from a template, not run against a stub.
+
+For **every** diff, grep output, or log you submit, provide all of the following in the same message:
+
+**a. Session nonce**
+At the start of this verification pass, I will give you a nonce value. Every terminal command you run must `echo` that nonce immediately before the command output, e.g.:
+```
+echo "NONCE:<value-I-give-you>" && grep -rn "discovered_candidates" main.py
+```
+Output with no nonce line, or a nonce that doesn't match what I gave you, is rejected outright.
+
+**b. File hash before and after each change**
+For every file you touch, run and paste:
+```
+sha256sum <filename>
+```
+before the edit and again after. I will independently pull the file myself and hash it to confirm the after-hash matches. A hash you assert without me being able to reproduce it independently is not proof.
+
+**c. Git evidence**
+```
+git diff --stat
+git log -1 --format="%H %ad" -- <filename>
+```
+paste the actual commit hash and timestamp for each changed file. If you are not committing changes, say so explicitly — "no git tracking used" is an acceptable answer, but silence on this is not.
+
+**d. Live DB query, not a described result**
+Anywhere the directive requires proof of data (e.g., `garch_regime_log` / `layer9_scores` timestamps, `signal_name` backfill, discovered-ticker-to-paper-trade lineage), paste the actual `psql` (or equivalent) query **and** its raw output — row values, column names, timestamps included. A summary of "I checked and it's there" is rejected.
+
+**e. Timestamp cross-check**
+Any claim about execution order (e.g., B6's GARCH-before-Layer9 sequencing) must include real wall-clock timestamps pulled from the database or logs from the same run — not source-code position, which proves nothing about runtime order.
+
+If you cannot produce any of (a)–(e) for a given item, say explicitly: **"I cannot produce this evidence"** — do not substitute a narrative or partial proof and call it done.
+
+---
+
+## 3. Per-item resubmission requirements
+
+### Claimed "Implemented" — resubmit with full evidence per §1 and §2
+
+| Item | What must be proven |
+|---|---|
+| **A1** — `gamma_exposure_by_strike` | Diff of deletion in `advanced_quant_indicators.py`; diff of `_compute_gex` + `_gamma_flip_pr...` addition in `aiem_options_structure.py`; grep proving no remaining references to the deleted function; grep + line number proving the new function's output is read downstream. |
+| **A4** — `run_walk_forward()` tombstone | Diff showing the file now contains only the reactivation guide; grep proving zero live callers remain (`grep -rn "run_walk_forward"` across the full repo, not just one file). |
+| **A6** — Drift monitor scheduling | Grep proving `_drift_alarm.check_all_active_sig...` is called inside `_aiem_paper_drift_check()`; scheduler registration line number showing the 4:35 PM job; DB or log evidence the job actually ran at that time, not just that it's registered. |
+| **B6** — GARCH sequencing | Diff of the reorder; grep proving `_l9_garch_fit/_pers/_save` now precede `batch_layer9_scores` at main.py:55345; **real timestamps** from `garch_regime_log` and `layer9_scores` for the same cycle proving write-before-read at runtime, not just source order. |
+| **B2+B5+B7** — MTM pre-fetch + exit branches | Full updated body of `_aiem_paper_mark_to_market()` and `_rules_mtm_decision()`; grep proving `pos.get()` reads for each of the 3 new exit branches and 1 hold branch; a live (or paper) trade log showing at least one of these branches actually firing. |
+| **Group C** — discovery handoff | Explicit statement of which path is canonical (A or B) with the actual docstring/comment proving "no auto-deployment" is an intentional decision, not an excuse; grep proving Layer9 bg scanner reads `discovered_candidates` (`_l9_sources`, 14-day window, `status != 'rejected'`, LIMIT 20) at the specific call site; line number where it's consumed. |
+
+### Flagged back — build these, following the instructions below, then submit with the same evidence standard
+
+**A2 — `skew_velocity`**
+- Add a `put_skew_history(ticker, date, put_skew_25d)` table (or column set).
+- In the existing nightly job that writes `options_structure_scan`, add an insert appending that day's `put_skew_25d` to history.
+- In `compute_layer9_score()`, query the trailing N days from `put_skew_history` as a `pd.Series`, compute a velocity/rate-of-change, then follow the exact `vrp_proxy`/`jump_risk` pattern: raw value → score → weighted into `statistical_score`.
+- Expect a backfill lag before this is usable — state that explicitly, don't hide it.
+- Proof required: diff, grep on the new component in `compute_layer9_score()`, DB query showing `put_skew_history` populating over multiple days.
+
+**A5 — Literature Scanner `scan_and_save`**
+- Choose a search provider (Tavily or SerpAPI), get an API key, store as a secret — tell me which one and confirm the secret is stored (not the key value itself).
+- Write a wrapper: `def search_fn(query): return <provider>.search(query)`.
+- Pass it: `literature_scanner.scan_and_save(search_fn=search_fn)`.
+- Register it in the scheduler using the exact same `add_job()` pattern as the Layer9 bg scanner (main.py ~55194).
+- Proof required: diff, grep confirming the scheduler line references the new function, one live run log showing a non-empty result set.
+
+**B1/B3/B4 — signal_name bridge (Signal Decay, BH-FDR, OOS Overfit)**
+- Add the column: `ALTER TABLE aiem_signal_discoveries ADD COLUMN IF NOT EXISTS signal_name VARCHAR(100)`.
+- Update whatever code creates new discovery rows to populate `signal_name` from the same value used for `aiem_paper_trades.signal_source` (e.g., `"unusual_calls"`) at insert time — a nullable column that's never filled is the same bug in a new spot.
+- Wire the join inside `_rules_mtm_decision()`: look up decay verdict / BH-FDR rejection status by joining `aiem_paper_trades.signal_source = aiem_signal_discoveries.signal_name`, and branch on it (decayed or FDR-rejected → contributes to exit evidence).
+- Proof required: diff, grep on the insert function proving `signal_name` is populated (not just added), grep + line number showing the join and branch inside `_rules_mtm_decision()`.
+
+**A7 / A3 — already confirmed working, no action needed**
+- These were correctly identified as not broken (Volume Profile/POC exists inline; `benchmark_comparison.py` is already called). Do not modify working code. Just re-confirm with the same grep commands as before, one more time, in this verification pass, so it's in the record with a nonce attached.
+
+---
+
+## 4. Final table — required before this is marked complete
+
+| Item | Where it's now read | Line number | Branched on (yes/no) | Grep proof pasted (yes/no) | Nonce matched (yes/no) | Hash verified (yes/no) |
+|---|---|---|---|---|---|---|
+
+Every row must say "yes" in the last four columns, or the item is not done. Partial completion is fine — report exactly what's finished vs. still open, with the same evidence standard applied to whatever is submitted.
