@@ -1,0 +1,57 @@
+TASK — Wire four unused signals into compute_layer9_score
+
+Each of these currently computes a real value but never reaches 
+compute_layer9_score. Wire them in as inputs to the Layer 9 score, 
+not just as separate DB columns.
+
+1. STAT ARB (stat_arb_engine.py / test_cointegration())
+   Currently: only writes to stat_arb_pairs (coint_pvalue, hedge_ratio) 
+   via register_pair(). Never reaches Layer 9.
+   Required: pull coint_pvalue (and/or hedge_ratio) for the relevant 
+   ticker pair into compute_layer9_score as an input parameter, and 
+   fold it into the composite score with an explicit, named weight — 
+   not silently averaged in.
+
+2. PCA (pca_factor_decomposition())
+   Currently: runs AFTER compute_layer9_score returns (main.py ~55622), 
+   writes pca_factor1_var to the same row via a separate UPSERT — 
+   never passed INTO the scoring function itself.
+   Required: either (a) reorder so pca_factor_decomposition runs BEFORE 
+   compute_layer9_score and its output is passed in as an argument, or 
+   (b) if reordering is impractical, add a second-pass reconciliation 
+   step that re-scores/adjusts statistical_score once pca_factor1_var 
+   lands, and document why a two-pass design was chosen instead of 
+   reordering.
+
+3. ABSORPTION RATIO (advanced_quant_indicators.absorption_ratio(), 
+   surfaced via market_regime_overlay.pca_absorption_indicator())
+   Currently: only reaches paper-trade exit logic and the AIEM regime 
+   tool. Never touches layer9_statistical_edge.py at all.
+   Required: import absorption_ratio (or its regime-overlay wrapper 
+   output) into layer9_statistical_edge.py and add it as a named input 
+   to compute_layer9_score.
+
+4. [Confirm scope] — the audit's 4th flagged item was Scheduling, which 
+   was found to have NO CONFLICT and needs no fix. If there's a 4th 
+   actual code item beyond stat_arb/PCA/absorption that also needs 
+   wiring, name it explicitly before starting — do not assume and do 
+   not silently skip it.
+
+For each of the three (or four) items above, after implementing:
+- State the exact new weight/contribution each signal has in the 
+  final statistical_score formula.
+- Confirm whether this changes historical/backtested Layer 9 scores 
+  for existing rows, and whether those rows need to be recomputed.
+
+────────────────────────────────────────
+STANDING VERIFICATION BLOCK — applies to this task and all future ones
+No task is complete based on description alone. You must provide:
+(1) raw terminal output of actual execution,
+(2) exact before/after file diff for every changed file,
+(3) sha256 hash before/after for every changed file,
+(4) raw SQL query + full result set for any database claim (e.g. 
+    confirming the new inputs are populated in layer9_scores after 
+    the change).
+Narrative or paraphrased claims of "fixed," "wired," or "tested" 
+without pasted evidence are rejected. If you cannot produce the 
+requested evidence, say so explicitly.

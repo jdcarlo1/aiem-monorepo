@@ -10,6 +10,16 @@ Integration contract with main.py:
   - Returns a dict with 'statistical_score' (0-100) and 'components'.
   - All exceptions are caught internally; returns a safe default on failure.
   - No DB writes, no HTTP calls — pure in-process computation.
+
+Cross-sectional inputs (pca_factor1_var, absorption_ratio_val):
+  - Computed upstream in _run_layer9_bg_scan BEFORE batch_layer9_scores
+    is called, so they are available at score time.
+  - absorption_ratio uses _absorption_ratio_fn from advanced_quant_indicators.
+
+Stat-arb input (stat_arb_coint_pvalue):
+  - Sourced from stat_arb_pairs DB table (Engle-Granger test_cointegration
+    result stored by register_pair()). Queried once per bg_scan cycle and
+    passed in via stat_arb_coint_map.
 """
 
 import math
@@ -29,6 +39,7 @@ try:
         shannon_entropy,
         variance_risk_premium,
         risk_neutral_density,
+        absorption_ratio as _absorption_ratio_fn,
     )
     _INDICATORS_AVAILABLE = True
 except ImportError:
@@ -38,6 +49,10 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────────────
 # Weights — must sum to 1.0. Tuned for the existing 8-layer universe.
 # illiquidity_penalty is INVERTED before merging (high illiquidity = bad).
+# Conditional adjustments (rnd, garch, stat_arb, pca, absorption_ratio)
+# do NOT carry fixed weights — they apply bounded ±point adjustments on
+# top of the weighted composite so sparse/cross-sectional signals cannot
+# distort the base score when absent.
 # ──────────────────────────────────────────────────────────────────────
 _WEIGHTS = {
     "hurst_regime":        0.18,   # tradeable regime (trend OR mean-rev)
@@ -47,8 +62,12 @@ _WEIGHTS = {
     "entropy_clarity":     0.14,   # low entropy = clean pattern
     "illiquidity_penalty": 0.18,   # Amihud + Roll (INVERTED: thin = bad)
     "vrp_proxy":           0.09,   # variance risk premium via rolling vol differential
-    # rnd_component is conditional (requires options chain_df) and does not
-    # carry a fixed weight — when present it adjusts the final score by ±5.
+    # skew_velocity is conditional (requires options_structure_scan history) — weight added inline
+    # rnd_component is conditional (requires options chain_df) — ±5 adjustment, not weighted
+    # garch_persistence is conditional (requires arch package) — ±5 adjustment, not weighted
+    # stat_arb_cointegration is conditional (from stat_arb_pairs) — ±4 adjustment, not weighted
+    # pca_factor1 is cross-sectional (passed in pre-computed) — ±4 adjustment, not weighted
+    # absorption_ratio is cross-sectional (passed in pre-computed) — ±5 adjustment, not weighted
 }
 
 _SAFE_DEFAULT = {
@@ -115,7 +134,10 @@ def compute_rnd_component(chain_df: "pd.DataFrame", r: float = 0.05,
 def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                           lookback: int = 60,
                           chain_df: "pd.DataFrame | None" = None,
-                          db_url: "str | None" = None) -> dict:
+                          db_url: "str | None" = None,
+                          stat_arb_coint_pvalue: "float | None" = None,
+                          pca_factor1_var: "float | None" = None,
+                          absorption_ratio_val: "float | None" = None) -> dict:
     """
     Compute the Layer 9 Statistical Edge sub-score (0-100) for one ticker.
 
@@ -126,6 +148,17 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
                     Minimum ~60 rows recommended; returns safe default
                     with fewer than 30 rows.
         lookback:   Window for rolling indicator calcs (default 60 bars).
+        stat_arb_coint_pvalue: Engle-Granger p-value from stat_arb_pairs
+                    for this ticker's best active pair (None if not in any pair).
+                    <0.05 → +4pt, <0.15 → +2pt, else 0.
+        pca_factor1_var: Cross-sectional PC1 variance fraction computed by
+                    pca_factor_decomposition() across the full batch BEFORE
+                    this call. Same value for all tickers in the batch.
+                    >=0.60 → -4pt (systemic), <0.35 → +4pt (idiosyncratic).
+        absorption_ratio_val: Kritzman absorption ratio from
+                    advanced_quant_indicators.absorption_ratio() computed
+                    alongside PCA before this call. Same value for all tickers.
+                    >0.75 → -5pt (fragile), <0.35 → +5pt (stock-picker's market).
 
     Returns:
         dict:
@@ -350,6 +383,74 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             except Exception:
                 pass
 
+        # ── 11. Stat Arb cointegration p-value (from stat_arb_pairs table) ──
+        # Source: stat_arb_engine.test_cointegration() → register_pair() →
+        # stat_arb_pairs.coint_pvalue. Queried once per bg_scan cycle for all
+        # active pairs; best (lowest) p-value per ticker passed in here.
+        # Named weight: bounded ±4-point adjustment.
+        #   <0.05 → +4  (strong cointegration: high mean-reversion predictability)
+        #   <0.15 → +2  (moderate cointegration)
+        #   else  →  0  (no cointegration signal available for this ticker)
+        stat_arb_adjustment = 0.0
+        if stat_arb_coint_pvalue is not None:
+            _sap = _safe_float(stat_arb_coint_pvalue, 1.0)
+            if _sap < 0.05:
+                stat_arb_adjustment = 4.0
+            elif _sap < 0.15:
+                stat_arb_adjustment = 2.0
+            components["stat_arb_cointegration"] = {
+                "raw_coint_pvalue": round(_sap, 4),
+                "adjustment":       stat_arb_adjustment,
+                "note": "Engle-Granger p-value from stat_arb_pairs; <0.05→+4, <0.15→+2, else 0",
+            }
+
+        # ── 12. PCA factor1 variance (cross-sectional, passed in pre-computed) ──
+        # Source: advanced_quant_indicators.pca_factor_decomposition(returns_matrix)
+        # called in _run_layer9_bg_scan BEFORE batch_layer9_scores so the value is
+        # available at score time (not post-hoc). Cross-sectional: same value for
+        # all tickers in the batch.
+        # pca_factor1_var ∈ [0,1]: fraction of cross-sectional return variance
+        # explained by the first principal component.
+        # Named weight: bounded ±4-point adjustment.
+        #   >=0.60 → -4  (one factor dominates: systemic risk, low idiosyncratic edge)
+        #   <0.35  → +4  (low PC1 share: stock-picker's market)
+        #   else   →  0
+        pca_adjustment = 0.0
+        if pca_factor1_var is not None:
+            _pca = _safe_float(pca_factor1_var, 0.5)
+            if _pca >= 0.60:
+                pca_adjustment = -4.0
+            elif _pca < 0.35:
+                pca_adjustment = 4.0
+            components["pca_factor1"] = {
+                "raw":        round(_pca, 4),
+                "adjustment": pca_adjustment,
+                "note": "cross-sectional PC1 variance share; >=0.60→-4, <0.35→+4, else 0",
+            }
+
+        # ── 13. Absorption Ratio (Kritzman et al., via _absorption_ratio_fn) ──
+        # Source: advanced_quant_indicators.absorption_ratio(returns_matrix) called
+        # in _run_layer9_bg_scan alongside PCA BEFORE batch_layer9_scores. The
+        # import _absorption_ratio_fn is declared at module level above so this
+        # module owns the dependency even though the value is passed pre-computed.
+        # Fraction of total cross-sectional variance in top N principal components.
+        # Named weight: bounded ±5-point adjustment (same scale as RND).
+        #   >0.75 → -5  (highly correlated/fragile: idiosyncratic edges overrun)
+        #   <0.35 → +5  (idiosyncratic market: stock-picking environment)
+        #   else  →  0
+        absorption_adjustment = 0.0
+        if absorption_ratio_val is not None:
+            _ar = _safe_float(absorption_ratio_val, 0.5)
+            if _ar > 0.75:
+                absorption_adjustment = -5.0
+            elif _ar < 0.35:
+                absorption_adjustment = 5.0
+            components["absorption_ratio"] = {
+                "raw":        round(_ar, 4),
+                "adjustment": absorption_adjustment,
+                "note": "Kritzman absorption ratio; >0.75→-5, <0.35→+5, else 0",
+            }
+
         # ── Compute weighted final score ─────────────────────────────
         weight_sum  = sum(weights.values())
         norm_w      = {k: v / weight_sum for k, v in weights.items()}
@@ -358,7 +459,11 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
             for k in norm_w
             if k in components
         )
-        final_score = round(float(np.clip(final_score + rnd_adjustment + garch_adjustment, 0.0, 100.0)), 2)
+        final_score = round(float(np.clip(
+            final_score + rnd_adjustment + garch_adjustment
+            + stat_arb_adjustment + pca_adjustment + absorption_adjustment,
+            0.0, 100.0,
+        )), 2)
 
         return {
             "ticker":            ticker,
@@ -377,7 +482,10 @@ def compute_layer9_score(ticker: str, history_df: "pd.DataFrame",
 
 def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
                         chain_df_map: dict = None,
-                        db_url: "str | None" = None) -> dict:
+                        db_url: "str | None" = None,
+                        stat_arb_coint_map: "dict | None" = None,
+                        pca_factor1_var: "float | None" = None,
+                        absorption_ratio_val: "float | None" = None) -> dict:
     """
     Compute Layer 9 scores for a batch of tickers in parallel.
 
@@ -389,17 +497,32 @@ def batch_layer9_scores(tickers_histories: dict, timeout_per: float = 3.0,
                       have 'strike' and 'call_price' columns (call mid-price).
                       Tickers missing from this map get chain_df=None (RND
                       component will be skipped for them — not an error).
+        stat_arb_coint_map: optional {ticker: coint_pvalue} from stat_arb_pairs.
+                      Built once per bg_scan cycle by querying active pairs.
+        pca_factor1_var: cross-sectional PC1 variance fraction (same value for
+                      all tickers in the batch). Computed BEFORE this call in
+                      _run_layer9_bg_scan step 3c.
+        absorption_ratio_val: Kritzman absorption ratio (same for all tickers).
+                      Computed alongside PCA in _run_layer9_bg_scan step 3c.
 
     Returns:
         {ticker: result_dict} mapping.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as _TE
 
-    _chain_map = chain_df_map or {}
+    _chain_map    = chain_df_map or {}
+    _stat_arb_map = stat_arb_coint_map or {}
     results = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
-            pool.submit(compute_layer9_score, t, df, chain_df=_chain_map.get(t), db_url=db_url): t
+            pool.submit(
+                compute_layer9_score, t, df,
+                chain_df=_chain_map.get(t),
+                db_url=db_url,
+                stat_arb_coint_pvalue=_stat_arb_map.get(t),
+                pca_factor1_var=pca_factor1_var,
+                absorption_ratio_val=absorption_ratio_val,
+            ): t
             for t, df in tickers_histories.items()
             if df is not None and not df.empty
         }

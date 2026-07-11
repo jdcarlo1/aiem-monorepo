@@ -55278,6 +55278,8 @@ def _init_layer9_scores_table():
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS rnd_skew        FLOAT",
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS rnd_available   BOOLEAN DEFAULT FALSE",
                 "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS pca_factor1_var FLOAT",
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS stat_arb_coint_pvalue FLOAT",
+                "ALTER TABLE layer9_scores ADD COLUMN IF NOT EXISTS absorption_ratio_val  FLOAT",
             ]:
                 try:
                     _cu.execute(_col_sql)
@@ -55614,13 +55616,19 @@ def _run_layer9_bg_scan():
     except Exception as _ge:
         print(f"[layer9_bg] GARCH persistence block skipped: {_ge}")
 
-    _scores = batch_layer9_scores(_histories, timeout_per=5.0, chain_df_map=_chain_df_map, db_url=_DB_URL)
-
-    # ── 3c. Cross-sectional PCA — compute pca_factor1_var from returns matrix ──
-    _pca_var_by_ticker: dict = {}
+    # ── 3c. Cross-sectional PCA + Absorption Ratio (run BEFORE batch_layer9_scores) ──
+    # Both signals are cross-sectional: one value per batch, passed INTO the scoring
+    # function so they affect statistical_score at compute time, not post-hoc.
+    # Reorder reason: pca_factor_decomposition and absorption_ratio both need the full
+    # aligned returns matrix (all tickers × days) which is already built here.
+    _pca_factor1_var_scalar:   "float | None" = None   # same for all tickers in batch
+    _absorption_ratio_scalar:  "float | None" = None   # same for all tickers in batch
+    _pca_var_by_ticker: dict = {}                       # kept for upsert column write
     try:
-        from advanced_quant_indicators import pca_factor_decomposition as _pca_fn
-        # Build aligned returns matrix (tickers × days)
+        from advanced_quant_indicators import (
+            pca_factor_decomposition as _pca_fn,
+            absorption_ratio as _ar_fn,
+        )
         _ret_series = {}
         for _pt, _pdf in _histories.items():
             _c_col = "close" if "close" in _pdf.columns else ("Close" if "Close" in _pdf.columns else None)
@@ -55630,14 +55638,54 @@ def _run_layer9_bg_scan():
             import pandas as _l9pd_pca
             _ret_df = _l9pd_pca.DataFrame(_ret_series).dropna(how="any")
             if len(_ret_df) >= 10:
-                _pca_result = _pca_fn(_ret_df)
+                # PCA — PC1 variance fraction
+                _pca_result  = _pca_fn(_ret_df)
                 _factor1_var = _pca_result.get("explained_variance_ratio", [None])[0]
                 if _factor1_var is not None:
+                    _pca_factor1_var_scalar = float(_factor1_var)
                     for _pt in _ret_series:
-                        _pca_var_by_ticker[_pt] = float(_factor1_var)
+                        _pca_var_by_ticker[_pt] = _pca_factor1_var_scalar
                     print(f"[layer9_bg] PCA factor1 variance={_factor1_var:.4f} ({len(_ret_series)} tickers)")
+                # Absorption Ratio — Kritzman systemic risk measure (same matrix)
+                try:
+                    _absorption_ratio_scalar = float(_ar_fn(_ret_df))
+                    print(f"[layer9_bg] absorption_ratio={_absorption_ratio_scalar:.4f} ({len(_ret_series)} tickers)")
+                except Exception as _are:
+                    print(f"[layer9_bg] absorption_ratio failed: {_are}")
     except Exception as _pca_e:
-        print(f"[layer9_bg] PCA computation skipped: {_pca_e}")
+        print(f"[layer9_bg] PCA/absorption computation skipped: {_pca_e}")
+
+    # ── 3d. Stat Arb cointegration p-values (from stat_arb_pairs table) ────
+    # Build {ticker: best_coint_pvalue} for every ticker that appears in an
+    # active pair. Both legs of each pair get the p-value so either side
+    # benefits from the cointegration signal inside compute_layer9_score.
+    _stat_arb_coint_map: dict = {}
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _sarc, _sarc.cursor() as _sarcu:
+            _sarcu.execute("""
+                SELECT ticker, MIN(coint_pvalue) AS best_coint_pvalue
+                FROM (
+                    SELECT ticker_a AS ticker, coint_pvalue
+                    FROM stat_arb_pairs WHERE is_active = true
+                    UNION ALL
+                    SELECT ticker_b AS ticker, coint_pvalue
+                    FROM stat_arb_pairs WHERE is_active = true
+                ) _sarb
+                GROUP BY ticker
+            """)
+            for _sarrow in _sarcu.fetchall():
+                _stat_arb_coint_map[_sarrow[0]] = float(_sarrow[1])
+        if _stat_arb_coint_map:
+            print(f"[layer9_bg] stat_arb coint_pvalue loaded for {len(_stat_arb_coint_map)} tickers: {list(_stat_arb_coint_map.items())[:5]}")
+    except Exception as _sare:
+        print(f"[layer9_bg] stat_arb coint_pvalue load skipped: {_sare}")
+
+    _scores = batch_layer9_scores(
+        _histories, timeout_per=5.0, chain_df_map=_chain_df_map, db_url=_DB_URL,
+        stat_arb_coint_map=_stat_arb_coint_map if _stat_arb_coint_map else None,
+        pca_factor1_var=_pca_factor1_var_scalar,
+        absorption_ratio_val=_absorption_ratio_scalar,
+    )
 
     # ── 4. Upsert into layer9_scores table ────────────────────────────────
     _today = _l9dt.datetime.now(_ET).date()
@@ -55655,6 +55703,8 @@ def _run_layer9_bg_scan():
                     _illiq_c  = _comps.get("illiquidity_penalty", {})
                     _rnd_c    = _comps.get("rnd_component", {})
                     _pca1_var = _pca_var_by_ticker.get(_t)
+                    _sarb_c   = _comps.get("stat_arb_cointegration", {})
+                    _ar_c     = _comps.get("absorption_ratio", {})
                     _cu.execute("""
                         INSERT INTO layer9_scores
                             (ticker, computed_at, scan_date,
@@ -55662,24 +55712,27 @@ def _run_layer9_bg_scan():
                              hurst_raw, vpin_raw, jump_detected,
                              entropy_score, tail_score, vrp_score, amihud_score,
                              cs_spread_raw, rnd_skew, rnd_available, pca_factor1_var,
+                             stat_arb_coint_pvalue, absorption_ratio_val,
                              error)
-                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (ticker, scan_date) DO UPDATE SET
-                            computed_at       = EXCLUDED.computed_at,
-                            statistical_score = EXCLUDED.statistical_score,
-                            regime            = EXCLUDED.regime,
-                            hurst_raw         = EXCLUDED.hurst_raw,
-                            vpin_raw          = EXCLUDED.vpin_raw,
-                            jump_detected     = EXCLUDED.jump_detected,
-                            entropy_score     = EXCLUDED.entropy_score,
-                            tail_score        = EXCLUDED.tail_score,
-                            vrp_score         = EXCLUDED.vrp_score,
-                            amihud_score      = EXCLUDED.amihud_score,
-                            cs_spread_raw     = EXCLUDED.cs_spread_raw,
-                            rnd_skew          = EXCLUDED.rnd_skew,
-                            rnd_available     = EXCLUDED.rnd_available,
-                            pca_factor1_var   = EXCLUDED.pca_factor1_var,
-                            error             = EXCLUDED.error
+                            computed_at           = EXCLUDED.computed_at,
+                            statistical_score     = EXCLUDED.statistical_score,
+                            regime                = EXCLUDED.regime,
+                            hurst_raw             = EXCLUDED.hurst_raw,
+                            vpin_raw              = EXCLUDED.vpin_raw,
+                            jump_detected         = EXCLUDED.jump_detected,
+                            entropy_score         = EXCLUDED.entropy_score,
+                            tail_score            = EXCLUDED.tail_score,
+                            vrp_score             = EXCLUDED.vrp_score,
+                            amihud_score          = EXCLUDED.amihud_score,
+                            cs_spread_raw         = EXCLUDED.cs_spread_raw,
+                            rnd_skew              = EXCLUDED.rnd_skew,
+                            rnd_available         = EXCLUDED.rnd_available,
+                            pca_factor1_var       = EXCLUDED.pca_factor1_var,
+                            stat_arb_coint_pvalue = EXCLUDED.stat_arb_coint_pvalue,
+                            absorption_ratio_val  = EXCLUDED.absorption_ratio_val,
+                            error                 = EXCLUDED.error
                     """, (
                         _t, _today,
                         float(_res.get("statistical_score", 50.0)) if not _err_val else None,
@@ -55689,12 +55742,14 @@ def _run_layer9_bg_scan():
                         bool(_flags.get("jump_detected", False)),
                         float(_comps.get("entropy_clarity", {}).get("score", 50.0)),
                         float(_comps.get("tail_risk",       {}).get("score", 50.0)),
-                        float(_vrp_c.get("score", 50.0))          if _vrp_c    else None,
-                        float(_amihud_c.get("score", 50.0))       if _amihud_c else None,
-                        float(_illiq_c.get("raw_cs_spread", 0.0)) if _illiq_c  else None,
-                        float(_rnd_c.get("rnd_skew", 0.0))        if _rnd_c.get("available") else None,
+                        float(_vrp_c.get("score", 50.0))                if _vrp_c    else None,
+                        float(_amihud_c.get("score", 50.0))             if _amihud_c else None,
+                        float(_illiq_c.get("raw_cs_spread", 0.0))       if _illiq_c  else None,
+                        float(_rnd_c.get("rnd_skew", 0.0))              if _rnd_c.get("available") else None,
                         bool(_rnd_c.get("available", False)),
                         _pca1_var,
+                        float(_sarb_c.get("raw_coint_pvalue"))           if _sarb_c.get("raw_coint_pvalue") is not None else None,
+                        float(_ar_c.get("raw"))                          if _ar_c.get("raw") is not None else None,
                         _err_val,
                     ))
                     if _err_val:
