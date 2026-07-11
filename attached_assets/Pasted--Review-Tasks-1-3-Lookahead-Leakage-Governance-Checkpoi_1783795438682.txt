@@ -1,0 +1,51 @@
+# Review: Tasks 1–3 (Lookahead Leakage / Governance Checkpoints / PIT Bias Check)
+
+Overall: this is a legitimate improvement over past sessions — you're stopping and flagging unverified assumptions *before* writing code instead of claiming completion. Approved in direction on all three tasks, but none of them are done. Each needs the specific raw proof already promised before I'll accept it as fixed.
+
+---
+
+## Task 1 — `assert_no_future_leakage` (8 catch sites)
+
+Splitting training-path vs. live-path behavior is correct. Re-raising in `data_snapshot.py:155` would abort the entire `build_dataset()` call over a single contaminated row — the post-loop contamination-rate gate (>5% → abort) is the right fix there, no change to `continue`.
+
+**Blocking gap:** the fix for `context.py:272/277/282` and `predict.py:323/328/333` depends entirely on one unverified fact — whether `predict.py` is actually called inside `_aiem_paper_pick_candidates()` or `_aiem_paper_execute_today()`. If it isn't, these catch sites only affect backtest integrity, not live trades, and the fix scope should shrink accordingly.
+
+**Do not proceed on this half of Task 1 until you show:**
+- Raw `grep`/call-chain output (not a summary) proving whether `predict.py` sits in the live paper-trade path.
+
+---
+
+## Task 2 — G0–G6 governance checkpoints (SHADOW vs ENFORCE)
+
+Good instinct: **do not** flip all 7 checkpoints to ENFORCE at once. G0 ENFORCE can block the entire paper-execute run in PAUSED/RECOVERY_REQUIRED state — a blind flip risks halting all paper trading. G6-only (the point-in-time/staleness guard) is the correct scoped first target, since it's the one relevant to the lookahead/PIT concern.
+
+Also correctly flagged: if price data is stale pre-market (e.g., last price is Friday's on Monday before the 8:35am Polygon scan), G6-ENFORCE could false-block legitimate picks. Needs a check on `price_source_scan_date is None` behavior before enabling.
+
+**Before accepting Task 2 as done, require all 5 proof artifacts:**
+1. Raw JSON response from `POST /stock-api/admin/d3/g0/checkpoint-mode` + updated `d3_checkpoint_config` row via SQL
+2. Raw returned dict from `_evaluate_g6_decision` showing `decision: "BLOCK"` on a simulated future-dated pick
+3. `d3_governance_event_links` ledger row confirming a BLOCKED entry
+4. Actual execution log row from `_aiem_paper_execute_today()` showing `status=BLOCKED_G6` (or equivalent)
+5. Your explicit sign-off on ENFORCE vs. revert-to-SHADOW after all of the above
+
+G0–G5 stay in SHADOW until each has its own tested scenario — no simultaneous flip.
+
+---
+
+## Task 3 — `stage3_lookahead_bias_check` (blind for 7 of 9 sources)
+
+Confirmed live: non-polygon sources return `passed: True` without any DB lookup. The polygon-path pattern (query `polygon_rvol_scan.scan_date`, compare to today, raise if future-dated) is the right template to extend.
+
+**Blocking gap:** table/column mapping is only confirmed for `layer9`, `oi_buildup`, `unusual_calls`, `washout_ignition`. For **`multi_signal`, `aiem_ai`, and `conviction_stack`** the mapping is a guess — not verified against actual schema. Do not let it write code against guessed table/column names.
+
+**Require before any code is written:**
+- Actual schema output (`information_schema.columns` or `\d tablename`) for the 3 unresolved sources
+- Explicit confirmation of what `conviction_stack_watchlist.last_scored` represents — a processing timestamp (scoring time) vs. an actual feature/data date. These have different failure modes and the ambiguity could silently produce false passes either way.
+- If any source has no clean single feature-date table, it must say so explicitly and propose fail-closed vs. pass-with-caveat for you to decide — not silently default to `passed: True`.
+
+**Also hold it to:** its own admission that the naive `elif` chain (7 serial DB connections, 4s timeout each, 28s worst case) needs to be batched into fewer queries — don't let it ship the version it just sketched.
+
+---
+
+## Bottom line
+All three directions are approved. Nothing is approved as *complete*. Gate every task on the specific raw evidence listed above — grep output, SQL rows, raw dicts, ledger entries, execution logs — not narrative claims of success.
