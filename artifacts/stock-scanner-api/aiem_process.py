@@ -45,6 +45,7 @@ import pytz
 import psycopg2
 import psycopg2.extras
 import aiem_optprob
+import aiem_firstcandle
 
 # ── Socket-liveness default for every psycopg2.connect() in this process ────
 # connect_timeout alone only bounds the initial TCP/SSL handshake, not a
@@ -1596,6 +1597,7 @@ def main():
     # the Tradier rate limiter at the same moment.
     # 4:10 PM digest sends ONE Telegram message with the day's top-20.
     aiem_optprob.init_optprob_table(DB_URL)
+    aiem_firstcandle.init_firstcandle_table(DB_URL)
 
     def _optprob_scan_job(label: str = "segment"):
         aiem_optprob.run_optprob_deep_itm_scan(
@@ -1624,6 +1626,30 @@ def main():
         replace_existing=True,
     )
     log.info("[aiem_optprob] 6 segment scans (10:35-15:35 ET) + digest (16:10 ET) scheduled")
+
+    # ── First-candle capture + outcome fill ───────────────────────────────────
+    # 9:36 AM: first 5-min candle has just closed — capture OHLCV for every
+    #          morning gap-up stock so AIEM can build the intraday dataset.
+    # 4:45 PM: market settled — fill day_close / day_win on today's rows.
+    def _firstcandle_capture_job():
+        aiem_firstcandle.run_firstcandle_capture(db_url=DB_URL)
+
+    def _firstcandle_outcome_job():
+        aiem_firstcandle.run_firstcandle_outcome_fill(db_url=DB_URL)
+
+    sched.add_job(
+        _firstcandle_capture_job,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=36, timezone=ET),
+        id="aiem_firstcandle_capture",
+        replace_existing=True,
+    )
+    sched.add_job(
+        _firstcandle_outcome_job,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=ET),
+        id="aiem_firstcandle_outcome",
+        replace_existing=True,
+    )
+    log.info("[aiem_firstcandle] first-candle capture (9:36 AM) + outcome fill (4:45 PM) scheduled")
 
     # ── Admin HTTP server (port 5055) for manual scan triggers ──────────────
     def _run_manual_scan():
@@ -1687,15 +1713,17 @@ def main():
 
     sched.start()
 
-    log.info("Scheduler running — 16 jobs:")
+    log.info("Scheduler running — 18 jobs:")
     log.info("  6:55 AM               warm-up (Polygon full snapshot)")
     log.info("  7:00–9:15 every 15m   premarket scan + funnel")
     log.info("  9:30–10:30 every  5m  open watcher + Telegram alert (primary)")
+    log.info("  9:36 AM               first-candle capture (gap-up universe, Tradier 5-min bar)")
     log.info("  11:00–3:30 every 15m  open watcher catch-up net (idempotent)")
     log.info("  10:35–15:35 every hr  deep-ITM options-prob scan (6 segments, own Tradier chain)")
     log.info("  4:10 PM               deep-ITM options-prob digest (top-20 Telegram)")
     log.info("  4:30 PM               grade T1 outcomes")
     log.info("  4:35 PM               grade T3/T5 outcomes")
+    log.info("  4:45 PM               first-candle outcome fill (day_close / day_win)")
     log.info("  4:45 PM               find missed runners")
     log.info("  5:00 PM               pattern gap analysis")
     log.info("  5:15 PM               write signal discoveries")

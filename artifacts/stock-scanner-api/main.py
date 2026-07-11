@@ -6212,7 +6212,7 @@ try:
             print(f"[scheduler] bigcat_gap error: {_e_bcg}")
     _scheduler.add_job(
         _run_bigcat_gap_alert,
-        CronTrigger(day_of_week="mon-fri", hour=10, minute=4, timezone=_ET),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
         id="bigcat_gap_alert",
         replace_existing=True,
     )
