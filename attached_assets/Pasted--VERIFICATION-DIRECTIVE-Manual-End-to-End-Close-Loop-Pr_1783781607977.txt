@@ -1,0 +1,92 @@
+# VERIFICATION DIRECTIVE — Manual End-to-End Close/Loop Proof
+
+**Session nonce:** `MANUAL-E2E-2026-07-11T[INSERT CURRENT UTC TIME]Z`
+
+**Rules for this task:**
+- Do NOT summarize the outcome in prose only.
+- Do NOT claim "success," "verified," "complete," or similar language without raw output attached.
+- Paste raw SQL query results, raw function return values, and raw logs for every step below — not narrative descriptions of what they show.
+- If any step fails, blocks, or errors, state that plainly and paste the raw error/block message. Do not reframe a failure or block as a pass.
+
+---
+
+## Step 1 — Insert a synthetic OPEN trade
+
+Insert one row into `aiem_paper_trades` with:
+- `status = 'OPEN'`
+- a clearly synthetic ticker (e.g. `TESTQQQ`)
+- all NOT NULL columns populated with plausible values
+- `signal_source = 'manual_e2e_verification_test'`
+
+Paste:
+1. The raw `INSERT` statement executed
+2. The raw result of `SELECT * FROM aiem_paper_trades WHERE id = <new_id>` immediately after insert
+
+---
+
+## Step 2 — Call the real close/loop function (not a mock)
+
+Call `_aiem_close_paper_trade_and_run_loop()` directly — the actual production function, same code path, not a rewritten test stub — with:
+- `trade_id = <new_id>`
+- `status = 'CLOSED_WIN'` (or appropriate closed status)
+- `mode = "close"`
+
+This must be done via one of:
+- A Python shell attached to the actual running process, OR
+- The existing admin HTTP endpoint (`/stock-api/admin/paper-trade/<trade_id>/close`) with the `X-Admin-Token` header
+
+State explicitly which method was used.
+
+---
+
+## Step 3 — Prove governance didn't silently block it
+
+Paste the raw result of:
+
+```sql
+SELECT * FROM aiem_paper_execution_log ORDER BY started_at DESC LIMIT 1;
+```
+
+taken **after** Step 2 completes. If `status = 'BLOCKED_GO'` or anything other than a genuinely completed state, say so explicitly.
+
+---
+
+## Step 4 — Prove downstream writes actually happened
+
+Paste raw `SELECT` results, taken **before and after** Step 2, for each of the following:
+
+```sql
+SELECT * FROM aiem_paper_trades WHERE id = <new_id>;
+
+SELECT COUNT(*) FROM signal_trust_weights;
+
+SELECT COUNT(*) FROM aiem_paper_thompson WHERE sampled_score IS NOT NULL;
+
+SELECT COUNT(*) FROM aiem_paper_trades WHERE learning_loop_fired_at IS NOT NULL;
+```
+
+Report before/after counts side by side for each query.
+
+---
+
+## Step 5 — Clean up
+
+Delete the synthetic test row(s) created in Step 1. Paste the raw `DELETE` statement and confirmation of rows affected.
+
+---
+
+## Rejection Criteria
+
+Any response that:
+- Uses the words "successfully executed," "verified," "complete," "confirmed working," or similar **without** the corresponding raw query/log output attached
+- Substitutes a narrative summary for raw output
+- Uses a mock, stub, or simplified re-implementation of the function instead of calling the real one
+- Omits before/after row counts for Step 4
+
+...is rejected on sight and must be redone from Step 1.
+
+---
+
+## Context note (for the agent)
+
+The last entry in `aiem_paper_execution_log` shows a prior canary test (`phase2_gO_canary_test`) that was blocked with `status='BLOCKED_GO'` due to a `STATE_PAUSED` governance checkpoint in `ENFORCE` mode. If this manual call is blocked the same way, that is itself important verification information — it means governance is currently gating *all* real executions, not just the scheduled ones. Report this outcome exactly as it occurs; a governance block is not a failure of this test, it's a valid result of it.

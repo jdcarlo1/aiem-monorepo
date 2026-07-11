@@ -42110,6 +42110,7 @@ def _init_aiem_paper_trades_table():
             # ever run once per trade, no matter which code path (autonomous
             # MTM exit, manual/admin close, or backfill) triggers the close.
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS learning_loop_fired_at TIMESTAMPTZ")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS exit_reason TEXT")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
