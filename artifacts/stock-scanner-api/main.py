@@ -1719,8 +1719,27 @@ app._nfmc_cache_ts = None
 app._nfmc_generating = False
 app._nfmc_lock = _threading.Lock()
 
+# ── Schema bootstrap — runs FIRST on every boot ────────────────────────────
+def _run_schema_bootstrap():
+    import os as _os, time as _btime, psycopg2 as _bpg
+    _sql_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                              "migrations", "dev_schema_bootstrap.sql")
+    _t0 = _btime.time()
+    try:
+        with open(_sql_path) as _f:
+            _sql = _f.read()
+        _bc = _bpg.connect(_os.environ["DATABASE_URL"], connect_timeout=10)
+        _bc.autocommit = True
+        with _bc.cursor() as _cur:
+            _cur.execute(_sql)
+        _bc.close()
+        print(f"[schema_bootstrap] OK — {round((_btime.time()-_t0)*1000)}ms", flush=True)
+    except Exception as _be:
+        print(f"[schema_bootstrap] ERROR: {_be}", flush=True)
+
 # ── init DB & scheduler ──────────────────────────────────────────────────────
 _DEFERRED_INITS = []  # filled by module-level stubs below; run in bg thread before app.run()
+_DEFERRED_INITS.append(_run_schema_bootstrap)
 _DEFERRED_INITS.append(lambda: init_db())
 _DEFERRED_INITS.append(lambda: init_score_history_table())
 _DEFERRED_INITS.append(lambda: composite_scan.init_composite_table())
