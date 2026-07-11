@@ -1,0 +1,51 @@
+# DIRECTIVE — Commit Working Tree + Re-Verify (A2, B1/B3/B4)
+
+## Context
+Your own evidence in this session shows:
+
+- Prior commit `67232e39` (Sat Jul 11 16:55:11 2026 +0000) contains: A1, A4, A6, B6, B2+B5+B7, Group C.
+- **A2 (`skew_velocity`) and B1/B3/B4 (signal_name bridge) are UNCOMMITTED working-tree changes** sitting on top of `67232e39`.
+- The SHA-256 hashes you reported for `main.py`, `layer9_statistical_edge.py`, etc. are snapshots of the *current uncommitted working tree*, not of any commit.
+
+This means: if the container restarts, redeploys, or is reset before a commit happens, **A2 and B1/B3/B4 are lost** — no git history will show they ever existed, and the hashes you gave me become unverifiable against nothing.
+
+## Required actions — in order
+
+### 1. Commit the working tree now
+Run and paste raw output:
+```
+git add -A
+git commit -m "A2: skew_velocity wiring; B1/B3/B4: signal_name bridge"
+git log -1 --format="%H %ad" --date=iso
+```
+
+### 2. Re-hash post-commit
+For each of the 5 files below, compute SHA-256 **after** the commit above and paste raw terminal output (not summarized):
+```
+sha256sum main.py layer9_statistical_edge.py advanced_quant_indicators.py walk_forward.py aiem_options_structure.py
+```
+These must be new hashes tied to the new commit SHA from step 1 — not the pre-session hashes you already gave me.
+
+### 3. Confirm the commit actually contains the diffs claimed
+Paste raw output of:
+```
+git show --stat HEAD
+git diff 67232e39 HEAD -- layer9_statistical_edge.py | head -80
+git diff 67232e39 HEAD -- main.py | grep -n "signal_name\|signal_decay_verd\|signal_disc_p\|signal_disc_oos"
+```
+
+### 4. Outstanding items from prior review — do not mark closed without this evidence
+- **A2 backfill-lag claim**: the docstring says "first usable after ≥5 days of daily pc_skew_pp rows." Run and paste output of the actual row-count query against `options_structure_scan.pc_skew_pp` for at least one live ticker — do not accept the docstring comment as proof of behavior.
+- **B1/B3/B4 signal_name population**: paste output of:
+  ```sql
+  SELECT count(*), count(signal_name) FROM aiem_signal_discoveries;
+  ```
+  A documented tool parameter is not proof of populated data — I need the count.
+- **B1/B3/B4 join-failure behavior**: construct one test case where `signal_name` is NULL or mismatched against `signal_source`, and paste the resulting `_pfa` dict values plus whatever (if anything) gets logged. I need to confirm a broken join doesn't silently look identical to "no exit needed."
+
+## Rejection criteria
+I will not accept:
+- Narrative summaries in place of raw terminal/SQL output
+- Hashes or diffs not tied to an actual commit SHA
+- "Should work" or "this confirms X" language without the underlying output pasted
+- Any of A2/B1/B3/B4 marked "complete" until steps 1–4 above are all satisfied with raw evidence

@@ -45037,13 +45037,13 @@ def _aiem_paper_mark_to_market():
                     _bscu.execute("""
                         SELECT DISTINCT ON (sd.signal_name)
                             sd.signal_name,
-                            ado.decay_verdict,
+                            sa.decay_verdict,
                             sd.p_value,
                             sd.oos_edge
                         FROM aiem_signal_discoveries sd
-                        LEFT JOIN aiem_discovery_outcomes ado ON ado.discovery_id = sd.id
+                        LEFT JOIN aiem_signal_actions sa ON sa.discovery_id = sd.id
                         WHERE sd.signal_name = ANY(%s)
-                        ORDER BY sd.signal_name, ado.created_at DESC NULLS LAST
+                        ORDER BY sd.signal_name, sa.approved_at DESC NULLS LAST
                     """, (_b2c_srcs,))
                     for _brow in _bscu.fetchall():
                         _nm = _brow[0]
