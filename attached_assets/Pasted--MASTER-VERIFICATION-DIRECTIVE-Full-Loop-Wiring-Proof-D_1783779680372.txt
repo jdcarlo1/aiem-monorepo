@@ -1,0 +1,128 @@
+# MASTER VERIFICATION DIRECTIVE
+## Full-Loop Wiring Proof: Diagram 1 → Diagram 2 → Diagram 3 → back to Diagram 1
+
+**Issued by:** Joel
+**Purpose:** Prove — with raw, unfalsifiable evidence — that the entire AIEM pipeline is wired end-to-end across all three diagrams, that governance decisions actually change execution (not just get logged), and that the loop closes back to the start.
+
+---
+
+## 0. RULES OF EVIDENCE (apply to every section below)
+
+These rules override any instinct to summarize or reassure. Any response that violates them is rejected outright and must be redone.
+
+1. **No self-grading.** Never write "PASS," "verified," "confirmed working," or similar in prose. Only paste raw output (terminal output, SQL results, diffs, hashes). I will decide what passes.
+2. **No narrative substitution.** Do not describe what code "does." Show the code and show it executing.
+3. **Nonce required.** Generate a fresh nonce for this session: `MASTERVERIFY_<YYYYMMDD>_<6 random alphanumeric chars>`. Every DB row produced as evidence in this session must contain this nonce in its `reason` or equivalent field, so I can tell fresh evidence from stale/cached output.
+4. **Every claim needs a source.** Every count, every "X calls Y," every "this is wired" must be followed immediately by the grep result, DB query, or code snippet that proves it — not asserted first and "shown later."
+5. **Ground truth is the code, not the diagrams.** Do not consult the diagram documents to determine what should exist. Grep the actual codebase. If the diagrams and the code disagree, report the disagreement — do not silently reconcile them in your explanation.
+6. **sha256 every file you touch**, before and after, for every section that involves an edit.
+7. **git diff, new lines only**, for every section that involves an edit.
+8. **If something is not wired, say so explicitly** in a dedicated "GAPS FOUND" line at the end of each section. Do not bury a gap in a paragraph. Do not fix it silently before reporting it — report it first, then propose the fix separately.
+
+---
+
+## SECTION A — GROUND TRUTH INVENTORY (no interpretation, just enumeration)
+
+Before any wiring claims, produce three raw inventories by grepping the actual repo:
+
+**A1. Diagram 1 outputs.** Every place in the D1 orchestration code where a signal, decision, score, or result is computed and either (a) returned, (b) written to a variable that leaves its function scope, or (c) passed into another module. File:line for each.
+
+**A2. Diagram 2 events.** Every unique string literal passed as the `event_type` argument to `emit_d2_pipeline_event()` (or whatever the actual emit function is called) anywhere in the repo. File:line for each call site.
+
+**A3. Diagram 3 checkpoints.** Every governance gate/checkpoint (G0–G6) in the code — the actual function or conditional block that evaluates a gate, not just its name in a diagram. File:line for each.
+
+**Output required:** three plain lists, nothing else. No commentary yet.
+
+---
+
+## SECTION B — D1 → D2: DOES EVERY D1 OUTPUT ACTUALLY REACH AN EVENT?
+
+For every item in inventory A1:
+
+1. Trace forward from that output to the nearest `emit_d2_pipeline_event()` call (or show that none exists).
+2. If one exists: write a unit test that exercises the *real code path* (not a direct call to the emit function) and produces that event. Paste the raw DB row that results, including the nonce.
+3. If none exists: state this plainly under a `GAPS FOUND — D1 OUTPUTS NEVER REACHING D2` heading. This is the exact class of bug you found before (Thompson sampler write-only pattern, sizing gate computed-not-enforced) — do not let the agent smooth this over.
+
+---
+
+## SECTION C — D2 → D3: DOES EVERY RELEVANT EVENT ACTUALLY TRIGGER A GOVERNANCE CHECKPOINT?
+
+For every item in inventory A2 that is supposed to feed a governance gate (per your own knowledge of the system, not the diagram):
+
+1. Show the code where D3 reads/subscribes to that event (polling query, event listener, direct function call — whatever the actual mechanism is).
+2. Unit test: fire the D2 event through its real path, then prove the corresponding G0–G6 checkpoint evaluated — raw row from the governance/checkpoint table, with nonce, showing `check_result`, `governance_phase`, `governance_function`, `created_at`.
+3. `GAPS FOUND — D2 EVENTS NEVER REACHING D3` heading for anything that logs but is never read by governance logic.
+
+---
+
+## SECTION D — D3 → D1: DOES A GOVERNANCE DECISION ACTUALLY CHANGE WHAT D1 DOES NEXT?
+
+This is the most important section. Logging a REJECT/SUSPEND/RESTRICT/HALT is not the same as enforcing it. Prove enforcement, not logging.
+
+For every governance outcome type (APPROVE, REJECT, SUSPEND, RESTRICT, DEFER, HALT — whatever your actual set is):
+
+1. Show the exact code in D1's orchestration loop that **reads** the governance result before proceeding (not just a log line — a conditional that branches behavior).
+2. Write an integration test that forces a REJECT/SUSPEND/HALT outcome, then proves — with raw output, not description — that:
+   - the D1 loop actually skipped, blocked, or altered the action in question, AND
+   - a control run with an APPROVE outcome allowed the action to proceed normally.
+   Show both runs side by side.
+3. `GAPS FOUND — GOVERNANCE DECISIONS NOT ENFORCED` heading for any outcome type that is written to the DB but does not measurably change D1's behavior. Name the specific gate.
+
+---
+
+## SECTION E — ONE CONTINUOUS END-TO-END TRACE
+
+All prior sections test wiring piecewise. This section proves it's actually one connected chain, not three disconnected proofs stitched together in a report.
+
+1. Trigger a single, real (paper) trade cycle from the actual entry point of D1.
+2. Let it run uninterrupted through D2 event emission and D3 governance evaluation, back to whatever D1 does with the result.
+3. Pull every DB row generated by this single cycle, across every table touched (D1 decision log, D2 pipeline events, D3 governance events, outcome table) and present them **in one combined list sorted by timestamp**, not grouped by diagram. Every row must share a common identifier (trade id, correlation id, or the session nonce) proving they belong to the same cycle.
+4. Annotate each row inline with which diagram/layer it belongs to (D1/D2/D3), so the full path is readable top to bottom as one sequence.
+
+---
+
+## SECTION F — LOOP CLOSURE
+
+Prove the loop actually closes — that D3's outcome from Section E feeds back into D1's *next* decision (adaptive weighting, Thompson sampling update, position sizing adjustment, kill-switch state, whatever your actual feedback mechanism is), rather than the system just starting the next cycle fresh with no memory of the governance outcome.
+
+1. Identify the specific state (DB row, in-memory variable, config flag) that is supposed to carry the outcome from cycle N into cycle N+1.
+2. Run two consecutive cycles. Show that state's value after cycle N, and show it being read/used at the start of cycle N+1.
+3. `GAPS FOUND — LOOP DOES NOT CLOSE` if cycle N+1 starts with no trace of cycle N's governance outcome.
+
+---
+
+## SECTION G — CRYPTOGRAPHIC VERIFICATION
+
+1. sha256 of every file touched in this entire session, BEFORE any edits made today.
+2. sha256 of every file touched, AFTER all edits.
+3. Full git diff (new lines only) for every touched file, in the order the edits were made.
+4. Confirm every file that shows a hash change also shows a corresponding diff — and vice versa (no diff without a hash change, no hash change without a visible diff).
+
+---
+
+## SECTION H — COUNT RECONCILIATION
+
+1. `SELECT event_type, COUNT(*) FROM <D2 event table> GROUP BY event_type` — full raw output.
+2. `SELECT event_type / check_result, COUNT(*) FROM <D3 governance table> GROUP BY ...` — full raw output.
+3. Compare both against inventory A2/A3. Explicitly list:
+   - any event type present in code with zero DB rows (never actually fires)
+   - any DB rows with no corresponding code path (orphaned, legacy, or from a source you didn't grep)
+4. If any count in this session's output differs from a previously-reported count (like the 38 vs. 42 discrepancy found in the last session), state the difference and the reason — do not silently update the number without flagging it.
+
+---
+
+## FINAL REJECTION CRITERIA (agent must self-check before sending)
+
+Before submitting the response, confirm none of the following are true. If any are true, do not submit — go back and fix it:
+
+- [ ] Any section contains the word "verified," "confirmed," "wired correctly," or "PASS" without an immediately preceding raw output block proving it
+- [ ] Any DB row shown is missing the session nonce
+- [ ] Any gap found was fixed before being reported (gaps must be reported first, as found, then optionally fixed in a separate follow-up)
+- [ ] Section E's rows are grouped by diagram instead of sorted by timestamp as one sequence
+- [ ] Section D shows only the REJECT/HALT case without a side-by-side APPROVE control case
+- [ ] Any file hash changed without a matching diff shown, or vice versa
+
+---
+
+**Nonce for this session:** _______________________ (fill in before starting)
+**Date/time started:** _______________________
