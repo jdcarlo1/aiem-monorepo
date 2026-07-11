@@ -386,3 +386,23 @@ around.
 - Executive summary on demand: `POST /d3/generate-report`
 - Phase 6 learning approval: APPROVE requires new_score >= current_score AND n>=100 samples
 - To request a governance decision and track its (advisory) status: `request_governance_action()` then `check_action_status()` — never assume a status of "ENFORCED" is possible, the DB will reject it
+
+## D2↔D3 Enforcement-Contradiction Directive — COMPLETE (2026-07-11)
+All 5 phases of the enforcement-contradiction verification protocol are done:
+
+**Phase 0:** set_d3_checkpoint_mode() flip/revert round-trip confirmed; de-escalation needs no confirm, escalation requires confirm=True; PAUSED→NORMAL requires g5_authorize_resume() not raw set_d3_system_state().
+
+**Phase 1:** 13 `enforcement_status="ENFORCED"` write sites annotated "# Descriptive only — does not gate execution." in aiem_diagram3_governance.py. sha256 at time of edit: 4168635e...
+
+**Phase 2:** G0 canary (9-step): ENFORCE+PAUSED→BLOCKED_G0 in aiem_paper_execution_log; SHADOW+PAUSED→would_block=True advisory; restored NORMAL/SHADOW.
+
+**Phase 3:** _d3_infer_event_type() extended with _D2_CANONICAL_PHASES dict (8 D2 phases → event types); emit_d2_pipeline_event() public API added; 8 emit calls wired in main.py at [T2-1] through [T2-8] decision points.
+
+**Phase 4:** All 18 D3 response event types now have ≥1 row in d3_governance_event_links (38 total rows). Added _d3_emit_event() calls to run_phase14_executive_report/run_phase5_models/run_phase6_learning_approval/log_change. Extended _d3_infer_event_type() with rollback_approved (PHASE_9 + "APPROV"), change_rejected (PHASE_7 + "REJECT"), policy_approved/rejected (new PHASE_10_POLICY_GOVERNANCE). 5 OBSERVED_LIVE + 13 LOGIC_VERIFIED_VIA_UNIT_TEST.
+
+**Phase 5:** Contract regenerated as v2. sha256=a48f8193d801de01bca7d7af4563dc82949abea977f9f2dbf3d3dc7137b0bb01. v1 sha256 preserved. 8/21 D2→D3 events WIRED, 13 NOT_IMPLEMENTED (honest). Checkpoint states: all SHADOW. System state: NORMAL.
+
+**governance.py sha256 at Phase 4/5 completion:** 3d37bc78598f81425cf9d40d4233784b5cd998ae6f3df75de20482f1ac32ec9a
+**main.py sha256 at completion:** 76e7145270ea4ab2fb0cf287a34e23f48cb04373c328d768a08fc1afc3fac351
+
+**Why durable:** 13 D2→D3 NOT_IMPLEMENTED events (data_guard/analysis/probability/synthesis/execution.paper_created/outcome/performance/learning/model.retraining/strategy.degradation/trace) are real unwired gaps — don't claim them WIRED without adding emit_d2_pipeline_event() calls at the corresponding D2 logic points in main.py/aiem_autonomous.py.

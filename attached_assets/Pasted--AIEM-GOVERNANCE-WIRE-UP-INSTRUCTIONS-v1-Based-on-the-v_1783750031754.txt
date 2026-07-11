@@ -1,0 +1,116 @@
+# AIEM GOVERNANCE — WIRE-UP INSTRUCTIONS (v1)
+
+Based on the verified findings (protocol responses, 2026-07-11): the code is more real than the original contract implied, but three specific things are broken or missing. This is the fix order. Do not skip ahead — each phase depends on the safety rail built in the phase before it, and this is a live paper-trading system, so cutovers are staged, not flipped all at once.
+
+---
+
+## PHASE 0 — SAFETY RAILS (do this before touching anything else)
+
+1. Before any mode change, confirm the kill switch and rollback path work:
+   - Identify the exact call to revert a checkpoint from ENFORCE back to SHADOW (should be the same `set_d3_checkpoint_mode()` function, opposite direction).
+   - Prove it works in isolation first: flip a checkpoint to ENFORCE, then immediately flip it back to SHADOW, and confirm via `sed -n` / DB query that the mode value actually changed both times, with timestamps.
+2. Confirm failure isolation still holds: any new code from Phases 2–4 must be wrapped so a governance/event-emit failure can never block or corrupt the real trade-execution write path (same guarantee as the existing `outcome.recorded` hook).
+3. Do not move more than one checkpoint (G0–G6) to ENFORCE per session. One canary at a time.
+
+**Proof required:** sha256 + line citation of the mode-set function, and a raw before/after DB read showing a mode flip and revert.
+
+---
+
+## PHASE 1 — FIX THE DECORATIVE `enforcement_status` FIELD
+
+**Problem confirmed:** `enforcement_status = "ENFORCED"` / `enforcement_action = "BLOCKED"` is written at 13 locations but nothing reads it back — the real gate everywhere is `decision.get("...") == "BLOCK"`. The field is cosmetic and misleading to anyone reading the DB later (including future audits).
+
+**Fix — pick one, not both:**
+
+**Option A (recommended): Make the field truthful, not functional.**
+Rename it at all 13 write sites to something that can't be mistaken for a live gate, e.g. `enforcement_status_if_enforce_mode` or `simulated_enforcement_status`. Add a one-line comment at each site: `# Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.` This is the low-risk fix: no behavior change, just stops the field from lying by omission.
+
+**Option B: Make the field real.**
+Add an explicit read-back check derived from the same field, e.g.:
+```python
+if enforcement_status == "ENFORCED" and decision != "BLOCK":
+    raise GovernanceInconsistencyError(...)
+```
+This adds a consistency guard between the status label and the actual decision, so if they ever diverge (a real bug class), it's caught immediately instead of silently drifting. Higher engineering value, but only do this if Phase 0 rollback proof is solid, since it introduces a new failure mode to test.
+
+**Proof required for either option:** grep output showing all 13 sites updated identically, plus one live run showing the new comment/check present and not breaking the existing BLOCK/ALLOW behavior.
+
+---
+
+## PHASE 2 — SHADOW → ENFORCE CUTOVER, ONE CHECKPOINT AT A TIME
+
+Order: **G0 first** (already has a confirmed real BLOCK path and no bypass), then G1–G4, G6, then G5 last (G5 needs its own confirmation it isn't hardcoded to anything, per the earlier docstring mixup).
+
+**For G0, exact sequence:**
+1. `POST /stock-api/admin/d3/g0/set-checkpoint-mode` with `mode=ENFORCE`.
+2. Force the known-bad condition that should trigger a BLOCK.
+3. Run `_aiem_paper_execute_today`.
+4. Query `aiem_paper_execution_log` for a `BLOCKED_G0` row — paste the raw row.
+5. Confirm in `aiem_paper_trades` that **no trade was written** for that cycle.
+6. Switch back: `mode=SHADOW`.
+7. Run the exact same bad condition again.
+8. Confirm this time it does **not** block — trade proceeds (or would-proceed log entry appears) — proving the gate discriminates on mode, not coincidence.
+9. Only after 5–8 pass: leave G0 in ENFORCE permanently (your call whether you want it live or back to SHADOW — the point of this phase is proof it works, not a mandate to leave it on).
+
+Repeat this exact 9-step sequence per checkpoint before moving to the next one. Do not batch multiple checkpoints into one test.
+
+**Proof required per checkpoint:** all 9 steps' raw output, not summarized.
+
+---
+
+## PHASE 3 — WIRE THE 8 MISSING TIER 2 EVENT EMITS
+
+These canonical event names don't appear anywhere in the code today: `candidate.accepted`, `candidate.rejected`, `risk.approved`, `risk.rejected`, `decision.created`, `decision.no_trade`, `execution.shadow_created`, `execution.failed`.
+
+**Instruction:** at each of the 8 corresponding decision points in the pipeline (wherever the code currently decides candidate accept/reject, risk approve/reject, etc.), add one explicit call:
+
+```python
+_d3_emit_event(
+    event_type="candidate.accepted",   # exact canonical name per event
+    payload_json=json.dumps({...real decision context...}),
+    source_stage=<stage name>,
+)
+```
+
+Use the **same insert path** as the existing `governance.observation_recorded` writes into `d3_governance_event_links` — don't invent a second table or mechanism. This keeps it consistent with what's already proven to work, and keeps it a direct in-process call (not a fake event-bus abstraction), matching the honest "single monolith" scope from the original contract.
+
+**Do this one event type at a time.** For each:
+1. Cite the exact decision point (file/line) where the emit call is added.
+2. Run one real paper cycle that should trigger it.
+3. SQL query showing the new row with a real timestamp.
+4. Confirm no change to the existing trade-execution behavior (failure-isolated, per Phase 0).
+
+---
+
+## PHASE 4 — FORCE THE 17 UNOBSERVED TIER 3 D3 RESPONSE EVENTS
+
+The mapping rules already exist in `_d3_infer_event_type()`; they've simply never seen the `governance_phase` + `check_result` combination that triggers them.
+
+**Instruction:** for each of the 17 event types, identify the exact `governance_phase` + `check_result` pair the mapping rule requires (this is readable directly from `_d3_infer_event_type()` — cite the line for each). Then construct or run the real condition needed to produce that pair — do not mock or hand-craft a fake check_result just to force a row; run the actual phase logic under conditions that legitimately produce that result.
+
+Priority order (do the ones with real near-term relevance first):
+1. `governance.report_generated` — run `PHASE_14_EXECUTIVE_REPORTING` at least once.
+2. `governance.review_requested`, `governance.policy_approved/rejected`, `governance.model_approved/rejected`, `governance.learning_approved/rejected` — these fire from routine governance cycles; identify why they haven't run yet in the normal cadence and whether the cadence itself is broken.
+3. `governance.strategy_restricted/suspended`, `governance.architecture_violation`, `governance.security_violation` — these are meant to be rare/exceptional. Do not force artificial violations on the live system; instead confirm the trigger logic is correct via code review + a **isolated unit test**, not a live event, and mark status as `LOGIC_VERIFIED_VIA_UNIT_TEST` rather than fabricating a live occurrence.
+4. `governance.change_approved/rejected`, `governance.rollback_requested/approved/completed` — these should fire the next time an actual governance change or rollback happens; don't force one artificially just to check a box.
+
+**Proof required:** for categories 1–2, a real DB row per event type with timestamp. For category 3, a unit test file + passing output, explicitly not a live-system trigger. For category 4, either a real row or an honest `PRODUCIBLE_NOT_YET_OBSERVED` carry-forward with a note on what real-world trigger would produce it.
+
+---
+
+## PHASE 5 — REGENERATE THE CONTRACT (v2)
+
+After Phases 1–4:
+- Regenerate `AEIM_D2_D3_GOVERNANCE_CONTRACT.json` as v2, new `contract_sha256`.
+- Every status change from v1→v2 must cite fresh evidence (new file/line, new DB row, new git commit) — do not carry forward v1's evidence text under a new status label.
+- Any item not actually fixed stays at its honest v1 status. This round does not need to close every gap — it needs every status to be **true**, per the same standard as before.
+- Explicitly state in the contract which checkpoints are now in ENFORCE vs still SHADOW, and why (canary sequencing, not oversight).
+
+---
+
+## RULES THAT CARRY OVER FROM THE VERIFICATION PROTOCOL
+
+- No status upgrade without file/line + live test/query output.
+- No claim accepted from a narrative summary — raw command output only.
+- One phase at a time, checked off before the next begins.
+- Any contradiction with a previous claim gets reconciled explicitly (git diff or admitted process error) before proceeding — same as Claim D in the last round.

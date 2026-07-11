@@ -1083,6 +1083,19 @@ def _d3_infer_event_type(governance_phase: str, check_result: Optional[str]) -> 
     approve/reject/restrict decision get a more specific type, and only when
     check_result actually says so.
     """
+    # D2 trade-pipeline canonical events (Phase 3 wiring — Tier 2 gap closure)
+    _D2_CANONICAL_PHASES = {
+        "D2_CANDIDATE_ACCEPTED":       "candidate.accepted",
+        "D2_CANDIDATE_REJECTED":       "candidate.rejected",
+        "D2_RISK_APPROVED":            "risk.approved",
+        "D2_RISK_REJECTED":            "risk.rejected",
+        "D2_DECISION_CREATED":         "decision.created",
+        "D2_DECISION_NO_TRADE":        "decision.no_trade",
+        "D2_EXECUTION_SHADOW_CREATED": "execution.shadow_created",
+        "D2_EXECUTION_FAILED":         "execution.failed",
+    }
+    if governance_phase in _D2_CANONICAL_PHASES:
+        return _D2_CANONICAL_PHASES[governance_phase]
     cr = (check_result or "").upper()
     if governance_phase == "PHASE_6_LEARNING_APPROVAL":
         if "REJECT" in cr:
@@ -1103,6 +1116,8 @@ def _d3_infer_event_type(governance_phase: str, check_result: Optional[str]) -> 
     if governance_phase == "PHASE_9_ROLLBACK_MANAGEMENT":
         if cr == "PENDING":
             return "governance.rollback_requested"
+        if "APPROV" in cr:
+            return "governance.rollback_approved"
         if cr in ("PASS", "OK", "COMPLETED"):
             return "governance.rollback_completed"
     if governance_phase == "PHASE_12_SECURITY_GOVERNANCE" and cr not in ("PASS", "OK"):
@@ -1112,8 +1127,65 @@ def _d3_infer_event_type(governance_phase: str, check_result: Optional[str]) -> 
     if governance_phase == "PHASE_14_EXECUTIVE_REPORTING":
         return "governance.report_generated"
     if governance_phase == "PHASE_7_CHANGE_MANAGEMENT":
-        return "governance.change_approved"  # log_change() only records already-applied, non-vetoable changes
+        if "REJECT" in cr:
+            return "governance.change_rejected"
+        return "governance.change_approved"
+    if governance_phase == "PHASE_10_POLICY_GOVERNANCE":
+        if "REJECT" in cr:
+            return "governance.policy_rejected"
+        if "APPROVE" in cr or cr in ("PASS", "OK"):
+            return "governance.policy_approved"
     return "governance.observation_recorded"
+
+def emit_d2_pipeline_event(
+    event_type: str,
+    *,
+    ticker: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    paper_trade_id: Optional[int] = None,
+    reason: Optional[str] = None,
+) -> None:
+    """
+    Public emit for D2 trade-pipeline canonical events into d3_governance_event_links.
+    Failure-isolated — NEVER raises. Use at the 8 canonical decision points in
+    _aiem_paper_pick_candidates() and _aiem_paper_execute_today() (Phase 3 wiring).
+
+    event_type must be one of:
+      candidate.accepted, candidate.rejected, risk.approved, risk.rejected,
+      decision.created, decision.no_trade, execution.shadow_created, execution.failed
+    """
+    import uuid as _p3_uuid
+    _PHASE_MAP = {
+        "candidate.accepted":       "D2_CANDIDATE_ACCEPTED",
+        "candidate.rejected":       "D2_CANDIDATE_REJECTED",
+        "risk.approved":            "D2_RISK_APPROVED",
+        "risk.rejected":            "D2_RISK_REJECTED",
+        "decision.created":         "D2_DECISION_CREATED",
+        "decision.no_trade":        "D2_DECISION_NO_TRADE",
+        "execution.shadow_created": "D2_EXECUTION_SHADOW_CREATED",
+        "execution.failed":         "D2_EXECUTION_FAILED",
+    }
+    phase = _PHASE_MAP.get(event_type)
+    if not phase:
+        print(f"[d3_governance] emit_d2_pipeline_event: unknown event_type {event_type!r}")
+        return
+    try:
+        now = datetime.datetime.utcnow()
+        _d3_emit_event(
+            governance_cycle_id=f"D2_PIPELINE_{_p3_uuid.uuid4().hex[:8]}",
+            governance_phase=phase,
+            governance_check_name=f"d2_pipeline.{event_type}",
+            governance_function="emit_d2_pipeline_event",
+            started_at=now,
+            completed_at=now,
+            check_result="PASS",
+            ticker=ticker,
+            governance_trace_id=trace_id,
+            paper_trade_id=paper_trade_id,
+            reason_detail=reason,
+        )
+    except Exception as _p3_e:
+        print(f"[d3_governance] emit_d2_pipeline_event {event_type!r} failed (non-fatal): {_p3_e}")
 
 
 def _d3_environment() -> str:
@@ -1461,6 +1533,7 @@ def _evaluate_g0_decision(run_kind: str) -> Dict[str, Any]:
                 reason_codes = ["DB_ERROR_SCAN_ALLOWED"]
         elif mode == "ENFORCE" and would_block:
             decision = "BLOCK"
+            # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
             enforcement_status = "ENFORCED"
             enforcement_action = "BLOCKED"
 
@@ -1588,12 +1661,14 @@ def _evaluate_g1_decision(run_kind: str) -> Dict[str, Any]:
                 would_block = True
             if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
                 decision = "BLOCK"
+                # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
                 enforcement_status = "ENFORCED"
                 enforcement_action = "BLOCKED"
         else:
             reason_codes = reason_codes + ["BASELINE_OK"]
             if mode == "ENFORCE" and would_block:
                 decision = "BLOCK"
+                # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
                 enforcement_status = "ENFORCED"
                 enforcement_action = "BLOCKED"
 
@@ -1768,6 +1843,7 @@ def _evaluate_g2_decision(run_kind: str, trace_id: Optional[str]) -> Dict[str, A
             would_block = True
         if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
             decision = "BLOCK"
+            # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
             enforcement_status = "ENFORCED"
             enforcement_action = "BLOCKED"
     else:
@@ -1778,6 +1854,7 @@ def _evaluate_g2_decision(run_kind: str, trace_id: Optional[str]) -> Dict[str, A
                 would_block = True
             if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
                 decision = "BLOCK"
+                # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
                 enforcement_status = "ENFORCED"
                 enforcement_action = "BLOCKED"
         elif not completeness["ok"]:
@@ -1787,12 +1864,14 @@ def _evaluate_g2_decision(run_kind: str, trace_id: Optional[str]) -> Dict[str, A
                 would_block = True
             if mode == "ENFORCE" and run_kind == "TRADE_EXECUTING":
                 decision = "BLOCK"
+                # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
                 enforcement_status = "ENFORCED"
                 enforcement_action = "BLOCKED"
         else:
             reason_codes = reason_codes + ["STAGES_COMPLETE"]
             if mode == "ENFORCE" and would_block:
                 decision = "BLOCK"
+                # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
                 enforcement_status = "ENFORCED"
                 enforcement_action = "BLOCKED"
 
@@ -2031,6 +2110,7 @@ def _evaluate_g3_decision(run_kind: str, diagram2_risk_result: Optional[str],
             decision = "BLOCK"
             reason_codes = ["DB_ERROR_FAIL_CLOSED"]
             would_block = True
+            # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
             enforcement_status = "ENFORCED"
             enforcement_action = "BLOCKED"
         else:
@@ -2092,6 +2172,7 @@ def _evaluate_g3_decision(run_kind: str, diagram2_risk_result: Optional[str],
     enforcement_action = "ADVISORY_ONLY"
     if mode == "ENFORCE" and would_block:
         decision = "BLOCK"
+        # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
         enforcement_status = "ENFORCED"
         enforcement_action = "BLOCKED"
 
@@ -2183,6 +2264,7 @@ def _evaluate_g6_decision(run_kind: str, candidate_ticker: Optional[str],
         enforcement_action = "ADVISORY_ONLY"
         if mode == "ENFORCE" and would_block:
             decision = "BLOCK"
+            # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
             enforcement_status = "ENFORCED"
             enforcement_action = "BLOCKED"
 
@@ -2403,6 +2485,7 @@ def _evaluate_g4_decision(run_kind: str,
             decision = "BLOCK"
             reason_codes = ["DB_ERROR_FAIL_CLOSED"]
             would_block = True
+            # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
             enforcement_status = "ENFORCED"
             enforcement_action = "BLOCKED"
         else:
@@ -2475,6 +2558,7 @@ def _evaluate_g4_decision(run_kind: str,
     enforcement_action = "ADVISORY_ONLY"
     if mode == "ENFORCE" and would_block:
         decision = "BLOCK"
+        # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
         enforcement_status = "ENFORCED"
         enforcement_action = "BLOCKED"
 
@@ -2646,6 +2730,7 @@ def _evaluate_g5_decision(run_kind: str, target_state: Optional[str]) -> Dict[st
     enforcement_action = "ADVISORY_ONLY"
     if mode == "ENFORCE" and would_block:
         decision = "BLOCK"
+        # Descriptive only — does not gate execution. Real gate is decision=="BLOCK" above.
         enforcement_status = "ENFORCED"
         enforcement_action = "BLOCKED"
 
@@ -4088,6 +4173,19 @@ def run_phase5_models() -> Dict[str, Any]:
         errors.append(f"db_write: {e}")
         proposals = []
 
+    _p5_cr = "APPROVE" if models else "REJECT"
+    try:
+        _ts5 = datetime.datetime.utcnow()
+        _d3_emit_event(
+            governance_cycle_id=f"PHASE5_{uuid.uuid4().hex[:8]}",
+            governance_phase="PHASE_5_MODEL_GOVERNANCE",
+            governance_check_name="model_governance",
+            governance_function="run_phase5_models",
+            started_at=_ts5, completed_at=_ts5,
+            check_result=_p5_cr,
+        )
+    except Exception:
+        pass
     return {
         "phase": "PHASE_5_MODEL_GOVERNANCE",
         "status": "PASS" if not errors else "PARTIAL",
@@ -4202,6 +4300,22 @@ def run_phase6_learning_approval() -> Dict[str, Any]:
     except Exception as e:
         return {"phase": "PHASE_6_LEARNING_APPROVAL", "status": "ERROR", "error": str(e)}
 
+    _p6_decisions = [a.get("decision", "") for a in approvals]
+    _p6_cr = ("REJECT" if "REJECT" in _p6_decisions
+               else "APPROVE" if "APPROVE" in _p6_decisions
+               else "DEFER" if _p6_decisions else "NO_PROPOSALS")
+    try:
+        _ts6 = datetime.datetime.utcnow()
+        _d3_emit_event(
+            governance_cycle_id=f"PHASE6_{uuid.uuid4().hex[:8]}",
+            governance_phase="PHASE_6_LEARNING_APPROVAL",
+            governance_check_name="learning_approval",
+            governance_function="run_phase6_learning_approval",
+            started_at=_ts6, completed_at=_ts6,
+            check_result=_p6_cr,
+        )
+    except Exception:
+        pass
     return {
         "phase": "PHASE_6_LEARNING_APPROVAL",
         "status": "PASS",
@@ -4243,6 +4357,18 @@ def log_change(module: str, reason: str, expected_impact: str,
                 )
                 row = cur.fetchone()
             conn.commit()
+        try:
+            _ts_lc = datetime.datetime.utcnow()
+            _d3_emit_event(
+                governance_cycle_id=f"PHASE7_{uuid.uuid4().hex[:8]}",
+                governance_phase="PHASE_7_CHANGE_MANAGEMENT",
+                governance_check_name="log_change",
+                governance_function="log_change",
+                started_at=_ts_lc, completed_at=_ts_lc,
+                check_result="LOGGED",
+            )
+        except Exception:
+            pass
         return {"status": "LOGGED", "id": row["id"], "logged_at": str(row["logged_at"])}
     except Exception as e:
         return {"status": "ERROR", "error": str(e)}
@@ -4855,6 +4981,18 @@ def run_phase14_executive_report() -> Dict[str, Any]:
     except Exception as e:
         report["db_write_error"] = str(e)
 
+    try:
+        _ts14 = datetime.datetime.utcnow()
+        _d3_emit_event(
+            governance_cycle_id=f"PHASE14_{uuid.uuid4().hex[:8]}",
+            governance_phase="PHASE_14_EXECUTIVE_REPORTING",
+            governance_check_name="executive_report",
+            governance_function="run_phase14_executive_report",
+            started_at=_ts14, completed_at=_ts14,
+            check_result="PASS",
+        )
+    except Exception:
+        pass
     return {
         "phase": "PHASE_14_EXECUTIVE_REPORTING",
         "status": "PASS",

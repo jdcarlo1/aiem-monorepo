@@ -42675,6 +42675,13 @@ def _aiem_paper_pick_candidates() -> list:
                     _ntrade_risk   = _ob_res.get("risk_ok", True)
                     print(f"[gate] {_fp['ticker']} BLOCKED — NO_TRADE "
                           f"(edge={_ntrade_why}, regime_ok={_ntrade_regime}, risk_ok={_ntrade_risk})")
+                    try:  # [T2-2 decision.no_trade]
+                        import aiem_diagram3_governance as _d3ev_p3b
+                        _d3ev_p3b.emit_d2_pipeline_event(
+                            "decision.no_trade", ticker=_fp.get("ticker"),
+                            reason=f"edge={_ntrade_why} regime_ok={_ntrade_regime}")
+                    except Exception:
+                        pass
                     continue
                 elif _decision == "REDUCE_SIZE":
                     _fp["score"] = round(_fp["score"] * 0.70, 4)
@@ -42691,6 +42698,13 @@ def _aiem_paper_pick_candidates() -> list:
                 )
                 if not _cg_res.get("approved", True):
                     print(f"[gate] {_fp['ticker']} BLOCKED — correlation: {_cg_res['reason']}")
+                    try:  # [T2-3 candidate.rejected]
+                        import aiem_diagram3_governance as _d3ev_p3c
+                        _d3ev_p3c.emit_d2_pipeline_event(
+                            "candidate.rejected", ticker=_fp.get("ticker"),
+                            reason=f"gate=correlation reason={_cg_res.get('reason','?')}")
+                    except Exception:
+                        pass
                     continue
             except Exception as _cg_e:
                 print(f"[gate] CorrelationGuard error for {_fp['ticker']}: {_cg_e}")
@@ -42727,6 +42741,13 @@ def _aiem_paper_pick_candidates() -> list:
                 print(f"[gate] EventRiskFilter error for {_fp['ticker']}: {_erf_e}")
 
             _gated.append(_fp)
+            try:  # [T2-1 candidate.accepted]
+                import aiem_diagram3_governance as _d3ev_p3a
+                _d3ev_p3a.emit_d2_pipeline_event(
+                    "candidate.accepted", ticker=_fp.get("ticker"),
+                    reason=f"source={_fp.get('source','?')} score={_fp.get('score',0):.3f}")
+            except Exception:
+                pass
 
         _n_blocked = len(_final) - len(_gated)
         if _n_blocked:
@@ -43639,6 +43660,13 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                         status="PASS",
                     )
                     _atrace.flush()
+                    try:  # [T2-6 decision.created]
+                        import aiem_diagram3_governance as _d3ev_p3f
+                        _d3ev_p3f.emit_d2_pipeline_event(
+                            "decision.created", ticker=_t,
+                            reason=f"source={pick.get('source','?')} fill={_fill_price:.2f} type={_trade_type}")
+                    except Exception:
+                        pass
                 except Exception as _ae:
                     print(f"[aiem_audit] trace error for {_t} (non-fatal): {_ae}")
                     _audit_trace_id = None
@@ -43905,6 +43933,13 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                     # G3 runs per-candidate INSIDE the per-ticker loop, exactly
                     # like G2 — a BLOCK skips only THIS candidate. No lock is
                     # acquired/released in this branch, so `continue` is safe.
+                    try:  # [T2-4 risk.rejected]
+                        import aiem_diagram3_governance as _d3ev_p3d
+                        _d3ev_p3d.emit_d2_pipeline_event(
+                            "risk.rejected", ticker=_t,
+                            reason=f"G3 BLOCK reason_code={_g3_result.get('reason_code','?')}")
+                    except Exception:
+                        pass
                     continue
                 else:
                     if _g3_result.get("would_block"):
@@ -43922,6 +43957,14 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                             )
                         except Exception as _g3_ack_e:
                             print(f"[aiem_paper] G3 ack (ALLOW) failed, non-fatal: {_g3_ack_e}")
+
+                try:  # [T2-5 risk.approved]
+                    import aiem_diagram3_governance as _d3ev_p3e
+                    _d3ev_p3e.emit_d2_pipeline_event(
+                        "risk.approved", ticker=_t,
+                        reason=f"G3 ALLOW mode={_g3_result.get('mode','?')}")
+                except Exception:
+                    pass
 
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
@@ -43947,6 +43990,13 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                 )
                 rows_inserted += 1
                 _c.commit()  # commit before Hook 4 — supervisor opens a new connection; must see the row
+                try:  # [T2-7 execution.shadow_created]
+                    import aiem_diagram3_governance as _d3ev_p3g
+                    _d3ev_p3g.emit_d2_pipeline_event(
+                        "execution.shadow_created", ticker=_t,
+                        reason=f"source={pick.get('source','?')} fill={_fill_price:.2f} notional={_notional:.0f}")
+                except Exception:
+                    pass
                 # ── Supervisor Hook 4: paper trade opened ─────────────────────
                 _h4_tr = None  # reset every iteration — avoids leaking a stale trade id
                                 # from a previous ticker into this ticker's Diagram 2 stage 18
@@ -44075,6 +44125,12 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
             print(f"[aiem_paper] {rows_inserted} positions entered — view details on website (Telegram suppressed)")
     except Exception as _e:
         print(f"[aiem_paper] execute error: {_e}")
+        try:  # [T2-8 execution.failed]
+            import aiem_diagram3_governance as _d3ev_p3h
+            _d3ev_p3h.emit_d2_pipeline_event(
+                "execution.failed", reason=f"execute error: {_e}")
+        except Exception:
+            pass
         _log_finish("FAILED", _err=str(_e))
     finally:
         _AIEM_PAPER_LOCK.release()
