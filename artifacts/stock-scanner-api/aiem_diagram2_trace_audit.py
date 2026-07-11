@@ -1,7 +1,7 @@
 """
 aiem_diagram2_trace_audit.py
 -----------------------------
-Runtime trace audit for the 21-stage Diagram 2 pipeline, per the user's
+Runtime trace audit for the 23-stage Diagram 2 pipeline, per the user's
 "FINAL DIAGRAM 2 REMEDIATION" authorization. Every real candidate that
 flows through AEIMMasterOrchestrator.execute_stage() gets one row per
 stage here, with input/output hashes AND the full serialized payload_json,

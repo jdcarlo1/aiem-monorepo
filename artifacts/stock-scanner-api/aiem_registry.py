@@ -434,9 +434,9 @@ EXCLUDED_SAFETY_TOOLS = {
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# DIAGRAM 2 — 21-STAGE RUNTIME MAP (Final Diagram 2 Remediation)
+# DIAGRAM 2 — 23-STAGE RUNTIME MAP (Final Diagram 2 Remediation)
 # ─────────────────────────────────────────────────────────────────────────
-# This is the ONLY place the 21 canonical Diagram 2 stage names + their
+# This is the ONLY place the 23 canonical Diagram 2 stage names + their
 # owning module_phase live. AEIMMasterOrchestrator.execute_stage() calls
 # get_module_for_stage() below to CONSULT this at runtime (a real SELECT
 # against aiem_module_registry, not a hardcoded call) before running each
@@ -465,6 +465,8 @@ DIAGRAM2_STAGE_MAP = {
     19: ("bull_bear_debate",           "Bull/Bear Debate",                10, "bull_bear_debate.persist_debate"),
     20: ("post_trade_analytics",       "Post-Trade Analytics",            14, "_aiem_paper_mark_to_market"),
     21: ("learning_feedback",          "Learning Feedback",               15, "aiem_closed_loop_learning (thompson/trust/EMA update)"),
+    22: ("feedback_loop",              "Feedback Loop",                   15, "_rl_pipeline_bg (aiem_rl_engine.run_full_rl_pipeline async)"),
+    23: ("memory",                     "Memory",                          15, "aiem_v3_learning.attribute_trade + update_strategy_memory"),
 }
 
 
