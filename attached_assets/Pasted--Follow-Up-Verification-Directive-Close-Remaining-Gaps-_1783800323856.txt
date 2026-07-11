@@ -1,0 +1,77 @@
+# Follow-Up Verification Directive — Close Remaining Gaps
+
+Paste this to the agent verbatim.
+
+---
+
+Your last response left 5 "Gaps" only partially closed. Gap 1 was not shown at all,
+and Gaps 4 and 5 asserted conclusions ("shown in the previous tool call," "None were
+excluded") without the actual raw output attached to this response. Assertions about
+what a prior tool call showed are not evidence — paste it again, now, in this response.
+
+## Standing evidence requirement (applies to every item below)
+
+No claim is accepted based on description alone. For each gap you must provide:
+1. Raw terminal output of the actual command executed (not a summary of it)
+2. Exact before/after file diff (unified diff format, real path)
+3. sha256 hash before AND after for every file changed
+4. Raw SQL query text + full raw result set (not paraphrased) for anything touching the database
+5. If you cannot produce one of the above for a given item, say so explicitly — do not omit it silently and do not describe what the evidence "would show"
+
+## Item 1 — Gap 1 (not yet provided)
+
+State what Gap 1 was, and provide full evidence per the standing requirement above.
+If Gap 1 has already been resolved in an earlier message I haven't seen, re-paste that
+evidence here rather than referencing it.
+
+## Item 2 — Gap 3, reproduction vs. original (clarification required)
+
+You stated the original test rows were deleted by cleanup and that the SQL shown was a
+*reproduction* using identical insert parameters, run just now — not the literal output
+of the original test run.
+
+Confirm explicitly: is this pattern (test writes rows, cleanup deletes them, verification
+re-inserts with identical params to reproduce output) used anywhere else in this codebase's
+test suite? If yes, list every location (file:line) where cleanup deletes rows before they
+can be independently verified, since this destroys the original evidence trail every time.
+Recommend either (a) disabling cleanup during verification runs, or (b) capturing raw output
+to a log file at test time, so future verification doesn't depend on reproduction.
+
+## Item 3 — Gap 4, file completeness (raw output required)
+
+Re-run and paste the full raw output of:
+```
+cat -n <path to data_snapshot.py or the relevant test file>
+```
+Do not summarize which lines contain what — paste the actual numbered output showing:
+- Line count
+- The exact lines containing "ALL 9 TESTS PASSED" and "EXIT_CODE: 0"
+- Confirmation there is no Decision 4+ block (show the tail of the file, not a description of it)
+
+## Item 4 — Gap 5, test case enumeration (raw output required)
+
+Re-run and paste the full raw output of:
+```
+grep -n "results.append(" <test file path>
+grep -n -A2 "TEST SUMMARY" <test file path>
+```
+This must show all 25 append() calls and the full TEST SUMMARY block (lines ~99-107),
+not a paraphrase of what it contains. Confirm the count of PASS vs FAIL-branch results
+directly from this output.
+
+## Item 5 — sha256 chain of custody
+
+For the two sha256 hashes already provided (before/after for `aiem_diagram2_stage_helpers.py`
+and `data_snapshot.py`), show the git log entries for both commits referenced (`bfcfaff` and
+`7f6ecd1`) so I can confirm these are real, dated commits in this repo's history and not
+fabricated commit hashes:
+```
+git log -1 --format="%H %ad %s" bfcfaff
+git log -1 --format="%H %ad %s" 7f6ecd1
+```
+
+---
+
+**Rejection criteria:** Any item answered with narrative summary instead of pasted raw
+output is rejected and must be redone. "I already showed this" is not an answer — paste
+it again in this response.
