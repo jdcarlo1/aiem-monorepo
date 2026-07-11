@@ -15,8 +15,55 @@ CTA Score: 0-3 (count of MAs price is above)
   0 = MAX SHORT — all CTAs short, selling pressure exhausted
   
 Trigger Level: the nearest MA that price would need to cross to flip CTA positioning.
+
+Data source priority:
+  1. polygon_market_daily (primary — 8,626 tickers when backfill complete)
+  2. Tradier daily history (fallback during backfill when polygon has < min_days rows)
 """
 import os
+
+
+# ── Curated key tickers for Tradier fallback ───────────────────────────────
+# Used when polygon_market_daily backfill is still running (32/252 days).
+# Covers major ETFs, mega-caps, and common institutional momentum names.
+_TRADIER_FALLBACK_TICKERS = [
+    "SPY", "QQQ", "IWM", "DIA", "GLD", "TLT", "HYG",
+    "NVDA", "AAPL", "MSFT", "META", "GOOGL", "AMZN", "TSLA",
+    "AMD", "INTC", "AMAT", "LRCX", "MU", "SMCI",
+    "JPM", "BAC", "GS", "C",
+    "XOM", "CVX",
+    "SOFI", "PLTR", "RIVN", "RKLB", "UPST", "COIN",
+]
+
+
+def _fetch_tradier_closes(ticker: str, lookback_days: int = 365) -> list:
+    """
+    Fetch daily close prices from Tradier for CTA MA computation.
+    Returns list of floats (oldest→newest) or [] on failure.
+    Uses TOKEN_2 (live brokerage) → TOKEN fallback, matching main.py convention.
+    """
+    try:
+        import urllib.request as _ur, json as _json, datetime as _dt
+        token = (os.environ.get("TRADIER_API_TOKEN_2", "")
+                 or os.environ.get("TRADIER_API_TOKEN", ""))
+        if not token:
+            return []
+        start = (_dt.date.today() - _dt.timedelta(days=lookback_days)).isoformat()
+        url = (f"https://api.tradier.com/v1/markets/history"
+               f"?symbol={ticker}&interval=daily&start={start}&session_filter=open")
+        req = _ur.Request(url, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        })
+        with _ur.urlopen(req, timeout=8) as resp:
+            data = _json.loads(resp.read())
+        history = (data.get("history") or {}).get("day") or []
+        if isinstance(history, dict):
+            history = [history]
+        return [float(d["close"]) for d in history if d.get("close")]
+    except Exception as _e:
+        print(f"[cta_triggers] Tradier fallback failed for {ticker}: {_e}")
+        return []
 
 
 def init_db(conn):
@@ -54,23 +101,119 @@ def _sma(closes: list, period: int) -> float | None:
     return sum(closes[-period:]) / period
 
 
+def _compute_cta_for_ticker(ticker: str, closes: list, today: str) -> dict | None:
+    """
+    Core CTA computation for a single ticker given its closes list.
+    Returns result dict or None if insufficient data.
+    """
+    if len(closes) < 200:
+        return None
+
+    spot = closes[-1]
+    if spot <= 0:
+        return None
+
+    sma50  = _sma(closes, 50)
+    sma100 = _sma(closes, 100)
+    sma200 = _sma(closes, 200)
+
+    if sma50 is None or sma200 is None:
+        return None
+
+    above_50  = spot > sma50  if sma50  else None
+    above_100 = spot > sma100 if sma100 else None
+    above_200 = spot > sma200 if sma200 else None
+
+    cta_score = sum([
+        1 if above_50  else 0,
+        1 if above_100 else 0,
+        1 if above_200 else 0,
+    ])
+
+    if cta_score == 3:
+        cta_label = "MAX_LONG"
+    elif cta_score == 2:
+        cta_label = "MOSTLY_LONG"
+    elif cta_score == 1:
+        cta_label = "MOSTLY_SHORT"
+    else:
+        cta_label = "MAX_SHORT"
+
+    ma_levels = [
+        ("SMA50",  sma50),
+        ("SMA100", sma100),
+        ("SMA200", sma200),
+    ]
+    ma_levels = [(name, val) for name, val in ma_levels if val is not None]
+    if ma_levels:
+        nearest = min(ma_levels, key=lambda x: abs(spot - x[1]))
+        trigger_ma    = nearest[0]
+        trigger_price = round(nearest[1], 2)
+        trigger_pct   = round(abs(spot - nearest[1]) / spot * 100, 2)
+    else:
+        trigger_ma = trigger_price = trigger_pct = None
+
+    cross_label = None
+    days_since_cross = None
+    if len(closes) >= 210:
+        prev_closes = closes[:-1]
+        for lag in range(1, 11):
+            if len(prev_closes) < lag + 200:
+                break
+            prev_sma50  = _sma(prev_closes[:-lag+1] if lag > 1 else prev_closes, 50)
+            prev_sma200 = _sma(prev_closes[:-lag+1] if lag > 1 else prev_closes, 200)
+            if prev_sma50 is None or prev_sma200 is None:
+                break
+            if sma50 > sma200 and prev_sma50 <= prev_sma200:
+                cross_label = "GOLDEN_CROSS"
+                days_since_cross = lag
+                break
+            elif sma50 < sma200 and prev_sma50 >= prev_sma200:
+                cross_label = "DEATH_CROSS"
+                days_since_cross = lag
+                break
+
+    return {
+        "ticker":           ticker,
+        "scan_date":        today,
+        "close_price":      round(spot, 2),
+        "sma_50":           round(sma50, 2)  if sma50  else None,
+        "sma_100":          round(sma100, 2) if sma100 else None,
+        "sma_200":          round(sma200, 2) if sma200 else None,
+        "above_50":         above_50,
+        "above_100":        above_100,
+        "above_200":        above_200,
+        "cta_score":        cta_score,
+        "cta_label":        cta_label,
+        "trigger_price":    trigger_price,
+        "trigger_ma":       trigger_ma,
+        "trigger_pct_away": trigger_pct,
+        "cross_50_200":     cross_label,
+        "days_since_cross": days_since_cross,
+    }
+
+
 def compute_cta_triggers_bulk(conn, min_days: int = 210, top_n: int = 500) -> list:
     """
-    Compute CTA trigger levels for all tickers with sufficient history in polygon_market_daily.
-    Returns list of result dicts, sorted by trigger_pct_away ascending (nearest trigger first).
-    
-    Args:
-        conn: psycopg2 connection
-        min_days: minimum trading days required for 200d MA
-        top_n: maximum number of tickers to process
+    Compute CTA trigger levels for tickers with sufficient price history.
+
+    Data source priority:
+    1. polygon_market_daily: use all tickers with >= min_days rows (full universe
+       once backfill is complete — 8,626 tickers with 252 days each).
+    2. Tradier fallback: when polygon has < min_days rows for any ticker (e.g.
+       during initial backfill when only 32/252 days are available), fetch 280
+       days from Tradier for _TRADIER_FALLBACK_TICKERS (curated 32-ticker list
+       covering major ETFs and institutional momentum names).
+
+    Returns list of result dicts sorted by trigger_pct_away ascending.
     """
     from datetime import date as _d
     today = _d.today().isoformat()
     results = []
 
+    # ── Primary: polygon_market_daily ──────────────────────────────────────
     try:
         with conn.cursor() as cur:
-            # Get tickers with enough history (need 200+ days for 200d MA)
             cur.execute("""
                 SELECT ticker
                 FROM polygon_market_daily
@@ -81,124 +224,44 @@ def compute_cta_triggers_bulk(conn, min_days: int = 210, top_n: int = 500) -> li
             """, (min_days, top_n))
             tickers = [row[0] for row in cur.fetchall()]
 
-            if not tickers:
-                return []
+        if tickers:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ticker, scan_date, close_price
+                    FROM polygon_market_daily
+                    WHERE ticker = ANY(%s)
+                      AND close_price > 0
+                    ORDER BY ticker, scan_date
+                """, (tickers,))
+                rows = cur.fetchall()
 
-            # Fetch last 210 closes per ticker in one query
-            cur.execute("""
-                SELECT ticker, scan_date, close_price
-                FROM polygon_market_daily
-                WHERE ticker = ANY(%s)
-                  AND close_price > 0
-                ORDER BY ticker, scan_date
-            """, (tickers,))
-            rows = cur.fetchall()
+            from collections import defaultdict
+            ticker_closes: dict = defaultdict(list)
+            for ticker, scan_date, close in rows:
+                ticker_closes[ticker].append(float(close))
 
-        # Group by ticker
-        from collections import defaultdict
-        ticker_closes: dict = defaultdict(list)
-        for ticker, scan_date, close in rows:
-            ticker_closes[ticker].append(float(close))
-
-        for ticker, closes in ticker_closes.items():
-            if len(closes) < min_days:
-                continue
-
-            spot = closes[-1]
-            if spot <= 0:
-                continue
-
-            sma50  = _sma(closes, 50)
-            sma100 = _sma(closes, 100)
-            sma200 = _sma(closes, 200)
-
-            if sma50 is None or sma200 is None:
-                continue
-
-            above_50  = spot > sma50  if sma50  else None
-            above_100 = spot > sma100 if sma100 else None
-            above_200 = spot > sma200 if sma200 else None
-
-            # CTA score: each MA price is above = +1
-            cta_score = sum([
-                1 if above_50  else 0,
-                1 if above_100 else 0,
-                1 if above_200 else 0,
-            ])
-
-            # CTA label
-            if cta_score == 3:
-                cta_label = "MAX_LONG"
-            elif cta_score == 2:
-                cta_label = "MOSTLY_LONG"
-            elif cta_score == 1:
-                cta_label = "MOSTLY_SHORT"
-            else:
-                cta_label = "MAX_SHORT"
-
-            # Nearest trigger: which MA is price closest to?
-            ma_levels = [
-                ("SMA50",  sma50),
-                ("SMA100", sma100),
-                ("SMA200", sma200),
-            ]
-            ma_levels = [(name, val) for name, val in ma_levels if val is not None]
-            if ma_levels:
-                nearest = min(ma_levels, key=lambda x: abs(spot - x[1]))
-                trigger_ma    = nearest[0]
-                trigger_price = round(nearest[1], 2)
-                trigger_pct   = round(abs(spot - nearest[1]) / spot * 100, 2)
-            else:
-                trigger_ma = trigger_price = trigger_pct = None
-
-            # Golden/Death Cross: 50d vs 200d crossover detection
-            # Check recent crossover using last 10 days
-            cross_label = None
-            days_since_cross = None
-            if len(closes) >= 210:
-                prev_closes = closes[:-1]
-                for lag in range(1, 11):
-                    if len(prev_closes) < lag + 200:
-                        break
-                    prev_spot   = prev_closes[-lag]
-                    prev_sma50  = _sma(prev_closes[:-lag+1] if lag > 1 else prev_closes, 50)
-                    prev_sma200 = _sma(prev_closes[:-lag+1] if lag > 1 else prev_closes, 200)
-                    if prev_sma50 is None or prev_sma200 is None:
-                        break
-                    # Current 50>200 but previously 50<200 = golden cross
-                    if sma50 > sma200 and prev_sma50 <= prev_sma200:
-                        cross_label = "GOLDEN_CROSS"
-                        days_since_cross = lag
-                        break
-                    # Current 50<200 but previously 50>200 = death cross
-                    elif sma50 < sma200 and prev_sma50 >= prev_sma200:
-                        cross_label = "DEATH_CROSS"
-                        days_since_cross = lag
-                        break
-
-            results.append({
-                "ticker":           ticker,
-                "scan_date":        today,
-                "close_price":      round(spot, 2),
-                "sma_50":           round(sma50, 2)  if sma50  else None,
-                "sma_100":          round(sma100, 2) if sma100 else None,
-                "sma_200":          round(sma200, 2) if sma200 else None,
-                "above_50":         above_50,
-                "above_100":        above_100,
-                "above_200":        above_200,
-                "cta_score":        cta_score,
-                "cta_label":        cta_label,
-                "trigger_price":    trigger_price,
-                "trigger_ma":       trigger_ma,
-                "trigger_pct_away": trigger_pct,
-                "cross_50_200":     cross_label,
-                "days_since_cross": days_since_cross,
-            })
+            for ticker, closes in ticker_closes.items():
+                r = _compute_cta_for_ticker(ticker, closes, today)
+                if r:
+                    results.append(r)
 
     except Exception as _e:
-        print(f"[cta_triggers] compute error: {_e}")
+        print(f"[cta_triggers] polygon compute error: {_e}")
 
-    # Sort by nearest trigger first
+    # ── Fallback: Tradier for curated tickers when polygon data is sparse ──
+    if not results:
+        print("[cta_triggers] polygon_market_daily insufficient — using Tradier fallback")
+        for ticker in _TRADIER_FALLBACK_TICKERS:
+            closes = _fetch_tradier_closes(ticker, lookback_days=365)
+            if len(closes) < 200:
+                print(f"[cta_triggers] {ticker}: only {len(closes)} Tradier rows, skip")
+                continue
+            r = _compute_cta_for_ticker(ticker, closes, today)
+            if r:
+                results.append(r)
+                print(f"[cta_triggers] {ticker}: score={r['cta_score']} {r['cta_label']} "
+                      f"trigger={r['trigger_ma']} {r['trigger_pct_away']:.1f}% away")
+
     results.sort(key=lambda x: x.get("trigger_pct_away") or 999)
     return results
 
