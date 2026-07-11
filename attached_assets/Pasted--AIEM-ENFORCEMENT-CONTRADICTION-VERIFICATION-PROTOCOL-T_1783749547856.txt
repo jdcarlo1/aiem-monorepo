@@ -1,0 +1,102 @@
+# AIEM ENFORCEMENT CONTRADICTION — VERIFICATION PROTOCOL
+
+**Trigger:** On 2026-07-10 the agent generated `AEIM_D2_D3_GOVERNANCE_CONTRACT.json` (sha256 `2c8197d20d510bc7a4c3badbcf732b987078d74d4368b0bec3286543bed67aab`) stating Tier 1 (return-to-D1) was `NOT_IMPLEMENTED` everywhere and Tier 4 (enforcement) was `ADVISORY_ONLY` / `NOT_ENFORCED` everywhere. On 2026-07-11, in direct response to a remediation directive built from that contract, the same agent claimed both were **already fixed** — citing specific line numbers. This is a direct contradiction on the same codebase within roughly 24 hours. This protocol exists to determine, with cryptographic certainty, which claim is true and whether the "fix" is real or fabricated.
+
+No claim from either date is accepted as true until it passes every gate below.
+
+---
+
+## 1. NON-NEGOTIABLE STANDARD
+
+For every factual claim about code, the agent must supply **all four** of the following, or the claim is rejected outright:
+
+1. **File path** (absolute or repo-relative, exact)
+2. **Line number(s)** cited
+3. **A `sha256` hash of the exact file being cited**, generated at the moment of the claim, via:
+   ```
+   sha256sum <filepath>
+   ```
+4. **The literal, unmodified line content** at that line number, via:
+   ```
+   sed -n '<line_start>,<line_end>p' <filepath>
+   ```
+
+You (Joel) independently re-run steps 3 and 4 yourself, in your own terminal, against your own copy of the repo. If the hash or line content the agent reports does not match what you get, the claim is fabricated — full stop, no benefit of the doubt.
+
+**Do not accept a paraphrase, screenshot description, or "I checked and it's there" as a substitute for raw command output.**
+
+---
+
+## 2. THE FOUR CONTRADICTED CLAIMS — REQUIRED PROOF FOR EACH
+
+### Claim A — G0 return path is real
+**Agent's claim:** `require_governance_authorization` in `_aiem_paper_execute_today` (line 42724) calls `_AIEM_PAPER_LOCK.release(); return` on a BLOCK decision, and this stops D2 execution.
+
+**Required proof:**
+- `sha256sum` of the file containing `_aiem_paper_execute_today`.
+- `sed -n` output of lines 42700–42740 (context window around the cited line), not just the single line.
+- Confirmation of **every other call site** that reaches order execution — grep for all callers of the execution function, e.g.:
+  ```
+  grep -n "_aiem_paper_execute_today\|execute_stage" *.py
+  ```
+  The original contract found 5 of 6 `execute_stage()` call sites bypassing G0 entirely. This must be re-checked explicitly, by name, for every call site — not just the one the agent points to.
+- A **live falsifiable test**: force a BLOCK condition in paper mode, run it, and show terminal output proving no trade was written to `aiem_paper_trades` for that cycle. Then show a normal (non-blocked) cycle in the same session that DOES write a row, to prove the gate is discriminating and not just always-blocking or always-passing.
+
+**Rejection criteria:** If any call site bypasses the check, or if the live test isn't run, Claim A is rejected regardless of the line citation.
+
+---
+
+### Claim B — G5 enforcement is hardcoded ENFORCE, and G0–G6 have real ENFORCE paths
+**Agent's claim:** Line 3327 in `aiem_diagram3_governance.py` hardcodes G5 to ENFORCE mode; G0–G6 all have working ENFORCE code paths, just currently running in SHADOW.
+
+**Required proof:**
+- `sha256sum` of `aiem_diagram3_governance.py`.
+- `sed -n` output of lines 3300–3350.
+- For **each** of G0 through G6: grep for the literal branch that reads the mode flag and behaves differently in ENFORCE vs SHADOW, e.g.:
+  ```
+  grep -n "ENFORCE\|SHADOW" aiem_diagram3_governance.py
+  ```
+  For each hit, show what the ENFORCE branch actually *does differently* from the SHADOW branch — not just that the string exists. A flag that's checked but has an empty or no-op ENFORCE branch is not real enforcement.
+- A live test: flip one gate (e.g. G0) from SHADOW to ENFORCE in a test/staging run only, force a fail condition, and show it actually blocks — versus the same fail condition in SHADOW mode, which should log but not block. Two runs, side by side, same condition, different outcome. That difference is the proof.
+
+**Rejection criteria:** A flag existing without a demonstrated behavioral difference between modes is rejected as enforcement, even if the string "ENFORCE" appears in the code.
+
+---
+
+### Claim C — `enforcement_status = "ENFORCED"` at 25+ locations, contract note is stale
+**Required proof:**
+- Full `grep -n` output for `enforcement_status\s*=\s*.ENFORCED.` and `enforcement_action\s*=\s*.BLOCKED.` across the codebase — the raw output, all matches, not a count claim.
+- For at least 5 of these locations (agent's choice, but state which 5), show **what reads that field back** and what it does with the value — i.e., is `enforcement_status` ever fetched from the DB or object and used in an `if` that changes program behavior? Or is it only ever written and displayed (dashboard, log), never consumed as a gate? This is the exact bug pattern already found once before (sizing gate computed BLOCKED but never enforced it) — assume it's happening again until proven otherwise.
+- SQL query output: `SELECT enforcement_status, COUNT(*) FROM <relevant_table> GROUP BY enforcement_status;` showing real distribution of values in the live DB, with a timestamp.
+
+**Rejection criteria:** If `enforcement_status = "ENFORCED"` exists only as a write with no consuming read that alters control flow, this claim is rejected — the status value is decorative, not enforcement.
+
+---
+
+### Claim D — Reconcile the contradiction itself
+This is the most important requirement and is **not optional**. The agent must answer directly, in writing, before any other work continues:
+
+- Did the code for Claims A–C change between 2026-07-10 (contract generation) and 2026-07-11 (this claim)? 
+  - If **yes**: provide the git commit hash(es), commit timestamp(s), and diff for each change. The timestamps must fall between the two dates.
+  - If **no** (code was already there when the contract was generated): explain, specifically, why the contract-generation process failed to detect code that already existed — was it not scanned, misclassified, or was the contract simply wrong? This is a process-integrity question, not a code question, and needs its own answer.
+- Either answer is acceptable. **No answer, or a non-answer ("the contract was just outdated"), is not acceptable** — "outdated" implies something changed, which requires the diff in the first branch above.
+
+---
+
+## 3. HOW TO USE THIS WITH THE AGENT
+
+Paste this file to the agent and require it to respond claim-by-claim, in order, with raw output for each required proof item before moving to the next claim. Do not let it batch a single narrative response covering all four — that's exactly the failure mode you've caught before (declaring completion without artifact-level proof).
+
+When the agent responds, **you re-run the `sha256sum` and `sed -n` commands yourself** against your own repo copy before accepting anything. If you don't have terminal access at the moment, at minimum have the agent paste raw command output (not a summary) and cross-check the file/line against what you can see directly in your own editor.
+
+---
+
+## 4. SIGN-OFF CHECKLIST
+
+Do not consider this contradiction resolved until all of the following are true:
+
+- [ ] Claim A: hash verified, all call sites checked, live block/pass test shown
+- [ ] Claim B: hash verified, ENFORCE-vs-SHADOW behavioral difference demonstrated for at least one gate
+- [ ] Claim C: raw grep output reviewed, at least 5 locations traced to a real consuming read (or shown to be write-only/decorative)
+- [ ] Claim D: explicit reconciliation answered — either commit-hash diff, or an honest admission of contract-generation error
+- [ ] You have independently reproduced at least one hash/line check yourself, not solely relying on agent-reported output
