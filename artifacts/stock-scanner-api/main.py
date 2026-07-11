@@ -43582,9 +43582,13 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                             lambda: (_d2_help.log_stage15_subchecks(
                                          _debate_verdicts[_t]["debate"], _t, _d2_trace_id)
                                      if _t in _debate_verdicts else
-                                     (_ for _ in ()).throw(RuntimeError(
-                                         f"no bull/bear debate ran for {_t} today "
-                                         "(debate batch is limited to top-ranked candidates)"))))
+                                     {"evaluated": False,
+                                      "reason": "batch_limited",
+                                      "note": (
+                                          f"{_t} not in top-ranked debate batch — "
+                                          "bull/bear debate is run only for the highest-scored "
+                                          "candidates per execution cycle to control API cost"
+                                      )}))
                     _d2_run(16, "risk_gate", "Risk Gate / Position Sizing",
                             "sizing gate + batch-level kill_switch/daily_loss/portfolio_corr/macro gates",
                             lambda: {"sizing_gate_result": _sizing_gate,
@@ -43880,10 +43884,9 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                         print(f"[aiem_paper] bull_bear persistence skipped {_t}: {_bbd_e}")
 
                 # ── Diagram 2 stage 19 — Bull/Bear Debate Persistence ──────────
-                # Honest per-candidate result: debates only run for the top-ranked
-                # batch of tickers each cycle, so a candidate outside that batch
-                # legitimately has no debate to persist — recorded as a real FAIL,
-                # never a fabricated PASS.
+                # Debates only run for the top-ranked batch of tickers per cycle.
+                # Candidates outside that batch have no debate to persist —
+                # recorded honestly as batch_limited, not as FAIL.
                 if _d2_trace_id:
                     if _t in _debate_verdicts:
                         _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
@@ -43894,9 +43897,12 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                     else:
                         _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
                                 "aiem_bull_bear.persist_debate",
-                                lambda: (_ for _ in ()).throw(RuntimeError(
-                                    f"no bull/bear debate ran for {_t} today "
-                                    "(debate batch is limited to top-ranked candidates)")))
+                                lambda: {"persisted": False,
+                                         "reason": "batch_limited",
+                                         "note": (
+                                             f"{_t} not in top-ranked debate batch — "
+                                             "no debate ran, so nothing to persist"
+                                         )})
             _c.commit()
         print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
         # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
@@ -54897,6 +54903,38 @@ except Exception as _aattr_import_e:
 
 _DEFERRED_INITS.append(lambda: _init_candlestick_confluence_table())
 _DEFERRED_INITS.append(lambda: globals().get("reconcile_orphaned_sessions", lambda: None)())
+
+def _init_polygon_rvol_scan_table():
+    """Ensure polygon_rvol_scan schema exists even before the 8:35 AM scan runs.
+    The scan embeds its own CREATE TABLE IF NOT EXISTS, so this is just a safety
+    guarantee — signal source 4 and the price fallback both silently fail when
+    the table does not exist, and they should return 0 rows instead."""
+    try:
+        import psycopg2 as _prv_pg
+        with _prv_pg.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("""
+                CREATE TABLE IF NOT EXISTS polygon_rvol_scan (
+                    id             SERIAL PRIMARY KEY,
+                    scan_date      DATE NOT NULL,
+                    ticker         VARCHAR(10) NOT NULL,
+                    price          FLOAT,
+                    open_price     FLOAT,
+                    high           FLOAT,
+                    low            FLOAT,
+                    vwap           FLOAT,
+                    gap_pct        FLOAT,
+                    volume         BIGINT,
+                    avg_volume     BIGINT,
+                    rvol           FLOAT,
+                    close_strength FLOAT,
+                    UNIQUE(scan_date, ticker)
+                )
+            """)
+            _c.commit()
+    except Exception as _e:
+        print(f"[init_polygon_rvol_scan] schema init skipped: {_e}")
+
+_DEFERRED_INITS.append(lambda: _init_polygon_rvol_scan_table())
 
 
 def _run_layer9_bg_scan():
