@@ -1,0 +1,109 @@
+═══════════════════════════════════════════
+PART B — DISCOVERY ENGINE MARKET-CAP-SEGMENTED WIN/LOSS RESEARCH FEED (NEW FEATURE)
+═══════════════════════════════════════════
+
+GOAL: Every trading day, after close, DiscoveryEngine must pull the top 100 
+gainers and bottom 100 losers by % price change WITHIN EACH of the 
+following market cap tiers separately: Nano Cap, Small Cap, Mid Cap, Large 
+Cap (800 tickers/day total: 100 winners + 100 losers × 4 tiers). Treat this 
+as labeled data (winners vs. losers, tagged by tier), and compute/pull 
+EVERY available indicator and metric already built into this system for 
+all 800 tickers — this includes but is not limited to: 8-layer conviction 
+score components, options flow layers (unusual options activity, gamma 
+exposure, put/call skew, etc. — SEE EXCEPTION BELOW for Nano Cap), Layer 9 
+statistical edge indicators, sector relative strength, regime context, 
+candlestick/chart pattern recognition, and any other existing module or 
+tool in the codebase that produces a signal on a ticker. Do not hand-pick a 
+subset — inventory everything available and use all of it. Run statistical 
+tests SEPARATELY PER TIER to find which indicators (and combinations) 
+separate winners from losers WITHIN that market cap tier specifically — a 
+pattern that works for nano caps may not work for large caps, so tiers must 
+not be blended together in the analysis. Accumulate this per-tier analysis 
+day over day so each tier progressively develops its own high-win-rate 
+indicator combinations (goal: 80%+ over time through iteration, not a 
+single day's snapshot).
+
+Build the following:
+
+1. NEW SCHEDULED JOB — daily_tiered_movers_job
+   - Runs once daily after market close, before or feeding into the 
+     existing _discovery_cycle_job (Mon-Fri 17:30 ET) — show me the current 
+     job schedule first and confirm no collision
+   - Confirm exact market cap tier definitions to use (standard breakpoints, 
+     e.g. Nano <$50M, Small $300M-$2B, Mid $2B-$10B, Large >$10B — show me 
+     what source/breakpoints you'll use and let me confirm)
+   - Confirm exact source universe: is there an existing "full scan 
+     universe" list already tagged by market cap elsewhere in the system? 
+     Show me.
+   - For EACH tier, pull top 100 gainers and bottom 100 losers by % price 
+     change that day
+   - Store in new table: daily_market_movers (date, ticker, pct_change, 
+     rank, direction ['winner'/'loser'], market_cap_tier)
+
+2. FULL METRIC INVENTORY AND ENRICHMENT — ALL 800 TICKERS
+   - FIRST: produce a complete inventory of every existing indicator, 
+     signal, tool, or module already in this codebase that computes 
+     something meaningful about a ticker (8-layer conviction components, 
+     Layer 9 indicators, options flow metrics, sector/regime context, 
+     candlestick/chart pattern detection if it exists anywhere in the 
+     system, stat arb signals, anything else found in Part A's audit or 
+     elsewhere). Show me this list before building the enrichment step.
+   - For each of the 800 tickers, pull/compute every item from that 
+     inventory (do not recompute from scratch — reuse existing functions)
+   - CANDLESTICK PATTERNS: if candlestick/chart pattern recognition already 
+     exists anywhere in the codebase, wire it in here. If it does NOT 
+     exist, do not silently skip it — tell me explicitly that it's missing 
+     and I'll decide whether to build it now or defer it.
+   - OPTIONS-BASED METRICS EXCEPTION FOR NANO CAP: Nano Cap stocks 
+     typically have no listed options market. For the Nano Cap tier, skip 
+     all options-flow-dependent metrics (GEX, skew, unusual options 
+     activity, etc.) rather than pulling null/zero placeholder values — 
+     confirm in your output which specific metrics were excluded for Nano 
+     Cap and why, so it's clear this is an intentional gap, not a bug. All 
+     other tiers (Small, Mid, Large Cap) must include full options-based 
+     analysis, including unusual options activity specifically.
+   - Store as a JSONB blob per ticker per day: 
+     daily_market_movers.feature_snapshot
+   - This runs entirely within AIEM's own logic — no external LLM/AI API 
+     calls, so no per-call AI cost. Confirm runtime for enriching 800 
+     tickers (with the full metric inventory, minus options for Nano Cap) 
+     completes comfortably before the next scheduled job, and flag if any 
+     single data provider call (options chain pulls especially) risks 
+     hitting rate limits at this volume. If 800/day is genuinely unworkable, 
+     report the specific constraint (exact rate limit hit, exact runtime 
+     overage) — do not silently reduce the number or drop metrics without 
+     telling me first.
+
+3. WIRE INTO DISCOVERY ENGINE AS A CONTINUOUS, PER-TIER LEARNING LOOP
+   - Modify DiscoveryEngine.run_cycle() (or add a new entry point) to 
+     consume the daily 800-ticker ranked, feature-enriched, tier-tagged 
+     dataset
+   - The engine should statistically test each indicator (and combinations, 
+     including candlestick patterns and options-flow metrics where 
+     applicable per tier) SEPARATELY WITHIN EACH market_cap_tier — e.g. 
+     "does indicator X's distribution differ significantly between winners 
+     and losers, within Nano Cap only / within Large Cap only" etc. Do NOT 
+     blend tiers together in a single combined test, and do not treat 
+     Nano Cap's missing options metrics as a fill-in-zero — those tests 
+     simply don't run for that tier.
+   - This must accumulate across days, per tier — show me exactly how prior 
+     days' results inform or refine future hypothesis generation per tier 
+     (rolling window? decay? a running win-rate per indicator combination 
+     per tier stored somewhere? Show me the table/field.)
+   - Hypotheses that pass should go through the existing is_wr/oos_wr/
+     overfit_gap validation already in discovered_candidates, tagged by 
+     which tier they apply to, before being trusted
+
+4. FIX THE EXISTING TICKER BRIDGE BUG WHILE YOU'RE IN THIS AREA
+   - main.py:55378's SELECT DISTINCT ticker FROM discovered_candidates 
+     fails silently because that table has no ticker column
+   - Now that real ticker-labeled, tier-tagged data exists (from Part B), 
+     fix this bridge so validated hypotheses CAN influence the live 
+     Phase 5/6 scanning universe, respecting tier where relevant
+   - Show me the before/after logic for how a validated hypothesis becomes 
+     an actual ticker filter
+
+5. SCHEDULING SANITY CHECK
+   - Confirm this new job doesn't conflict with the existing 
+     _discovery_cycle_job — should it run before, after, or feed directly 
+     into it as its data source?
