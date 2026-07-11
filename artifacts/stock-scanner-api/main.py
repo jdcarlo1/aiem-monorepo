@@ -18503,6 +18503,95 @@ def admin_s7c_smoke_check():
     return jsonify(_report)
 
 
+@app.route("/stock-api/admin/s7c-force-run", methods=["POST"])
+def admin_s7c_force_run():
+    """
+    Force-run the S7c★ BigCatDay+InsideDay+Gap alert email, bypassing the
+    in-memory dedup flag.  Use this to confirm the full SMTP send path is
+    alive after a deploy, or to test the email template at any time.
+
+    Behaviour:
+    - Clears app._bigcat_gap_sent so _send_bigcat_gap_email() does not
+      skip on "already sent today".
+    - Calls _send_bigcat_gap_email() synchronously (not in a thread) so
+      the result is available in the response.
+    - If the send succeeds, _send_bigcat_gap_email() re-sets the dedup
+      flag to today as normal; if it fails or finds no qualifying tickers
+      the flag is left cleared (so the scheduled 9:45 AM job can still
+      fire for real).
+
+    Auth: X-Admin-Token header required (same token as all admin routes).
+    Empty token is rejected even if ADMIN_TOKEN is unset.
+    """
+    import os as _os_fr, hmac as _hmac_fr
+    import io as _io_fr, logging as _log_fr
+
+    _tok_have = request.headers.get("X-Admin-Token", "")
+    _tok_want = _os_fr.environ.get("ADMIN_TOKEN", "")
+    if not _tok_have or not _tok_want or not _hmac_fr.compare_digest(_tok_have, _tok_want):
+        return jsonify({"error": "unauthorized"}), 403
+
+    # Capture stdout so we can surface _send_bigcat_gap_email()'s print lines
+    import sys as _sys_fr
+    _buf = _io_fr.StringIO()
+    _old_stdout = _sys_fr.stdout
+    _sys_fr.stdout = _buf
+
+    _dedup_before = getattr(app, "_bigcat_gap_sent", None)
+    try:
+        # Bypass dedup — clear the flag so the function always runs
+        app._bigcat_gap_sent = None
+
+        # Run synchronously so we capture the outcome before responding
+        _send_bigcat_gap_email()
+
+        _dedup_after = getattr(app, "_bigcat_gap_sent", None)
+    finally:
+        _sys_fr.stdout = _old_stdout
+
+    _logs = _buf.getvalue().strip()
+
+    # Determine what happened from the dedup flag and log output
+    _sent = (
+        _dedup_after is not None          # function set the flag = email went out
+        and "[bigcat_gap] email sent=True" in _logs
+    )
+    _no_candidates = "no inside-day candidates" in _logs
+    _no_triggers   = "none gapping" in _logs
+    _smtp_missing  = "smtp not configured" in _logs.lower() or (
+        not _logs  # completely silent = smtp_configured() returned False
+    )
+
+    if _sent:
+        _status = "sent"
+        _note   = "Email delivered — SMTP send path is confirmed end-to-end."
+    elif _no_candidates:
+        _status = "no_candidates"
+        _note   = ("No inside-day candidates in DB for today. "
+                   "The SMTP path was not exercised — try again on a day "
+                   "with polygon_market_daily data covering yesterday.")
+    elif _no_triggers:
+        _status = "no_triggers"
+        _note   = ("Candidates found but none are gapping ≥3% right now. "
+                   "Email not sent. Re-run during market hours when live "
+                   "Tradier quotes confirm a qualifying gap.")
+    elif _smtp_missing:
+        _status = "smtp_not_configured"
+        _note   = "SMTP credentials missing — configure EMAIL_* env vars."
+    else:
+        _status = "unknown"
+        _note   = "Unexpected result — see logs field for details."
+
+    return jsonify({
+        "endpoint":      "s7c-force-run",
+        "status":        _status,
+        "note":          _note,
+        "dedup_before":  _dedup_before,
+        "dedup_after":   _dedup_after,
+        "logs":          _logs,
+    })
+
+
 # ── 5-Layer Conviction System ──────────────────────────────────────────────────
 # Combines all deterministic squeeze signals into one unified score per ticker.
 # 8+ points out of 10 → ~90% probability the stock is being positioned for a squeeze.
