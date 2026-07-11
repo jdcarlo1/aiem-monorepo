@@ -1,0 +1,73 @@
+Verification File 2 of 4 — Phases 4–6 (Discovery → Statistical → Technical/Options)
+REVISED — Anti-Fabrication Version
+
+## Scope
+
+**Phase 4 — Discovery Engine:** Discovery Engine, Hypothesis Registry, Active Hypothesis Selection, Literature Scanner, Signal Drift Monitor, Thompson Sampling (research allocation)
+
+**Phase 5 — Quantitative & Statistical Analysis:** GARCH, VPIN, Hurst Exponent, Bipower Jump, Variance Risk Premium, Risk Neutral Density, Statistical Arbitrage, Engle-Granger, Cointegration, PCA, Absorption Ratio, Fisher's Exact Test, Benjamini-Hochberg FDR, Walk-Forward Validation, Out-of-Sample Testing, Signal Decay, Monte Carlo, Bayesian Statistics, Regime Probability Models
+
+**Phase 6 — Technical & Options Analysis:** VWAP, CTA Levels, Options Structure, Gamma Exposure, Put/Call Skew, Volume Profile, RSI, Momentum, Gap Analysis, Pullback, Breakout, Short Squeeze, Trend, Relative Strength
+
+---
+
+## Directive — paste to the agent verbatim
+
+This is the largest batch — do it in three passes (Phase 4, then Phase 5, then Phase 6) rather than one combined dump, so each pass's output can be checked before moving to the next.
+
+### Step 0 — Prove you are auditing current code
+
+Before any table, paste the output of:
+
+```
+git rev-parse HEAD
+git status --short
+```
+
+If any file you audit below is uncommitted or dirty, say so explicitly. If you cannot run these commands, say CANNOT VERIFY CODE STATE — do not proceed to the tables until this is resolved.
+
+### Step 0.5 — Ground-truth scoring signature (Phase 5 only)
+
+Before the Phase 5 table, paste the full, exact function signature (all parameters, all dict keys if it accepts a dict/kwargs) of the Phase 8 scoring/synthesis function, with file:line. This is pasted once, at the top, as ground truth — every "wired to scoring" claim in the Phase 5 table will be checked against this exact signature, not re-asserted per row.
+
+### Anti-fabrication rule (applies to every row, every phase)
+
+For every item, show the **exact command** you ran (grep/ast-grep, with full flags) immediately before its raw output. A row is invalid if the command isn't shown — "I searched for X" without the literal command does not count.
+
+If a search returns no results, or the result is ambiguous, you must write **NOT FOUND** or **CANNOT VERIFY** in the relevant cell. Do not fill a cell with a plausible-sounding answer inferred from naming conventions, comments, or how the system "should" work. A guess dressed as a finding is a worse failure than an honest gap.
+
+### Table — required for every item in Phase 4, 5, and 6
+
+Every row must be backed by raw grep/ast-grep output pasted immediately above or below the row — no row may be filled from memory or summary.
+
+| Item | Command run | Defined at (file:line) | Every call site (file:line) | Return value: assigned to a variable or discarded? | If assigned — what downstream function/module reads that variable, with exact line? If never read again, say DEAD-END. | Is this called from inside the live candidate pipeline (Diagram 2) or from a separate/orphaned path? |
+|---|---|---|---|---|---|---|
+
+### Phase 5 — additional required column
+
+For each Phase 5 item, also answer: is this indicator's numeric output actually passed as an input argument into the Phase 8 scoring/synthesis function (per the Step 0.5 signature), or does it only get written to a log/DB table that scoring never reads?
+
+- Show the exact argument name or dict key that carries this indicator's value, matched against the Step 0.5 signature.
+- If you cannot find it in that signature or an inputs dict, say **NOT WIRED TO SCORING** and show what the scoring function's signature actually contains instead (don't just say "not found" — show the mismatch).
+
+### Phase 4 — additional required confirmation
+
+Confirm whether the Discovery Engine's output (the list/ranking of candidate tickers) actually becomes the input that Phase 5/6 iterate over.
+
+- Show the exact variable handoff: the line where Phase 4 returns its candidate list, and the line where Phase 5 or 6 consumes it as a loop/iteration source.
+- If Phase 5/6 instead pull tickers from a separate hardcoded list or a different query, say **DISCONNECTED** and show both sources side by side.
+
+### Format rules
+
+- Do not write summary prose.
+- Output only: commands, raw output, and completed tables.
+- No narrative claims of "verified," "confirmed working," or "tested" without the raw output/table row directly substantiating it.
+- If any step cannot be completed with real evidence, say so explicitly rather than skipping it silently.
+
+---
+
+## What a passing result looks like
+
+- No Phase 5 indicator is "NOT WIRED TO SCORING" — a statistical engine that computes a number nobody uses in the final decision is exactly the write-only pattern already found in the Thompson sampler bug.
+- Phase 4's candidate list is confirmed as the actual iteration source for Phase 5/6, not a parallel, unconnected list.
+- Every row has its command shown, and every claim of "wired" or "connected" is traceable to the Step 0.5 ground-truth signature or an explicit line-level handoff — not inferred.
