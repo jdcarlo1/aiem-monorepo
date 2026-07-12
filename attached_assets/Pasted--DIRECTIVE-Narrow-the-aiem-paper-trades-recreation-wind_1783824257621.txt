@@ -1,0 +1,72 @@
+# DIRECTIVE — Narrow the aiem_paper_trades recreation window
+
+## Context (do not re-litigate, just build on it)
+Prior session proved via sequence/stats mismatch (last_value=2, is_called=True,
+n_tup_ins=2 vs. a previously-inserted trade_id=195) that the current
+`aiem_paper_trades` table is NOT the same relation that held id=195. No DROP
+TABLE appears anywhere in that session's 33,293-line transcript. This session's
+job is to find whatever additional evidence CAN narrow down when/how the
+recreation happened — not to re-prove the discontinuity itself.
+
+## STANDING VERIFICATION RULES (apply to every item below)
+No task or finding is accepted based on description alone. Every claim must
+include, as applicable:
+1. Raw terminal output of the actual command executed (not paraphrased)
+2. Exact before/after file diff for any file touched
+3. sha256 hash before/after for any changed file
+4. Raw SQL query + full result set for any database claim
+Narrative statements like "confirmed," "verified," "checked" without pasted
+evidence are rejected. If evidence cannot be produced, say so explicitly —
+do not fill the row with a plausible-sounding claim.
+
+---
+
+## PART 1 — Backup table forensics
+
+`dev_schema_bootstrap.sql` line 419 references
+`aiem_paper_trades_backup_20260709`. Investigate it directly:
+
+1. Does `aiem_paper_trades_backup_20260709` currently exist? Raw SQL:
+   `SELECT * FROM pg_class WHERE relname = 'aiem_paper_trades_backup_20260709';`
+2. If it exists: row count, OID, and its own sequence state (if it has one) —
+   same method as used for the main table (`n_tup_ins`, `last_value`,
+   `is_called`).
+3. Does its row count or max id overlap with, precede, or follow the id=195
+   trade? Raw SQL showing `MAX(id)`, `MIN(id)`, `COUNT(*)` from the backup
+   table.
+4. Does the backup table contain a row with `trade_id=195` or
+   `trace_id='WIRETEST-CLOSE-43984a29'`? Direct SQL lookup, paste full result
+   (or explicit empty result).
+5. File stat on `dev_schema_bootstrap.sql` itself: full `stat` output
+   (not just mtime), plus sha256 of the file as it currently exists.
+6. `git log --all --follow -- dev_schema_bootstrap.sql` — full history of the
+   file, not just the single commit already found. Paste raw output.
+
+## PART 2 — Replit deployment / rollback history
+
+1. Check whether Replit exposes any deployment history via CLI or accessible
+   config/log files in the workspace (e.g. `.replit`, `replit.nix`,
+   `.config/replit/`, deployment logs under `/home/runner` or similar). List
+   exact paths checked and raw output of each, including "not found" results.
+2. If a Replit CLI or API token is available in this environment, attempt to
+   query deployment/rollback history programmatically. Paste the raw command
+   and raw response. If no such access exists, state that explicitly — do not
+   guess at what Replit's dashboard might show.
+3. Check for any `.git` reflog entries (`git reflog show --all`) that might
+   correspond to database rollback scripts being run, even if the DB
+   operations themselves aren't in git history.
+
+## PART 3 — Cross-reference timeline
+
+Build one table, one row per data point, columns:
+| Evidence source | Timestamp (raw, with timezone) | What it shows | Consistent with main-table recreation before, during, or after this timestamp? |
+
+Rows must include at minimum: dev_schema_bootstrap.sql commit (already known,
+re-cite with hash), dev_schema_bootstrap.sql file mtime, backup table
+existence check, backup table row/id data, any deployment log entries found.
+
+No summary or conclusion sentences. No "this proves the exact time" language
+unless a specific piece of raw evidence directly states a timestamp for the
+recreation event itself. If the window still cannot be narrowed beyond what
+prior sessions established, say so explicitly as the final line, with no
+padding.
