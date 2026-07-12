@@ -6,12 +6,20 @@ One-shot builder + reporter for the AIEM Module Registry / Tool Registry.
 Run directly:  python3 aiem_registry_build.py
 
 What it does (in order):
-  1. init_schema() -- creates aiem_module_registry / aiem_tool_registry if
-     not already present (idempotent).
-  2. Populates aiem_module_registry from aiem_registry.MODULE_PHASE_MAP,
-     confirming on-disk file existence for every single row (no assumed
-     rows -- if a file doesn't exist, file_exists_confirmed=False and it
-     is reported, never silently dropped).
+  0. preflight_check() -- queries information_schema to confirm either all
+     three tables are MISSING (first-run) or all exist with the EXACT column
+     set expected by this schema version. Refuses to proceed if any table
+     exists with a stale or mismatched column set.
+  1. init_schema() -- creates aiem_module_registry / aiem_tool_registry /
+     aiem_function_registry if not already present (idempotent after preflight).
+  2. Populates aiem_module_registry by unioning MODULE_PHASE_MAP and
+     AEIM_MODULES (Fix 1). Assigns registry_source to one of:
+       MODULE_PHASE_MAP  -- file in MODULE_PHASE_MAP only
+       AIEM_MODULES      -- file in AEIM_MODULES only (no MPM entry)
+       BOTH              -- file in both, fields consistent
+       CONFLICT          -- file in both, authoritative fields disagree
+     A runtime basename-collision guard (Fix 3) blocks the build if any
+     basename in AEIM_MODULES maps to 2+ different stage_names.
   3. Populates aiem_tool_registry by cross-referencing:
        - real registered AI tools from main.py's _build_aiem_tool_map()
        - aiem_registry.PHASE_TOOLS (owning phase, per spec text)
@@ -41,9 +49,118 @@ import aiem_registry as reg
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
+EXPECTED_MODULE_COLUMNS = {
+    "module_id", "module_name", "stage_name", "module_file", "module_phase",
+    "module_phase_name", "owned_tools", "required_inputs", "produced_outputs",
+    "upstream_modules", "downstream_modules", "verification_required",
+    "audit_log_enabled", "execution_status", "last_verified_date",
+    "verified_by_command", "verification_result", "verification_version",
+    "ownership_note", "ownership_status", "file_exists_confirmed",
+    "registry_source", "created_at", "updated_at",
+}
+EXPECTED_TOOL_COLUMNS = {
+    "tool_id", "tool_name", "owning_module_or_phase", "owning_module",
+    "tool_verification_level", "tool_type", "required_inputs", "produced_outputs",
+    "can_run_independently", "requires_market_data", "requires_options_data",
+    "requires_historical_data", "requires_trade_history", "writes_audit_log",
+    "excluded_from_autonomous_use", "exclusion_reason", "alias_of",
+    "dependency_notes", "registered_in_tool_map", "verification_status",
+    "last_verified_date", "verified_by_command", "verification_result",
+    "verification_version", "created_at", "updated_at",
+}
+EXPECTED_FUNCTION_COLUMNS = {
+    "function_row_id", "file_name", "function_name", "purpose", "inputs",
+    "outputs", "upstream_dependencies", "downstream_dependencies",
+    "owning_phase", "owning_phase_name", "owning_module", "is_inline",
+    "verification_status", "verification_evidence", "verified_by_command",
+    "last_verified_date", "verification_version", "created_at", "updated_at",
+}
+TABLE_EXPECTED_COLUMNS = {
+    "aiem_module_registry":   EXPECTED_MODULE_COLUMNS,
+    "aiem_tool_registry":     EXPECTED_TOOL_COLUMNS,
+    "aiem_function_registry": EXPECTED_FUNCTION_COLUMNS,
+}
+
 
 def _connect():
     return reg._connect()
+
+
+def preflight_check(conn):
+    """
+    Fix 4: Guard against replay against a partially-migrated DB.
+
+    Queries information_schema.tables then information_schema.columns.
+
+    - All three tables MISSING  → first-run path; proceed.
+    - All existing tables have ALL expected columns exactly → safe upsert; proceed.
+    - Any existing table has a MISSING column  → REFUSE (sys.exit 1) with
+      explicit list of missing columns and resolution instructions.
+
+    This function NEVER silently partial-applies. It either passes cleanly or
+    exits with a non-zero code and a human-readable explanation.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name IN (
+                  'aiem_module_registry',
+                  'aiem_tool_registry',
+                  'aiem_function_registry'
+              )
+        """)
+        existing_tables = {row[0] for row in cur.fetchall()}
+
+    print(f"[preflight] information_schema.tables check:")
+    for t in sorted(TABLE_EXPECTED_COLUMNS.keys()):
+        print(f"  {t}: {'EXISTS' if t in existing_tables else 'MISSING'}")
+
+    if not existing_tables:
+        print("[preflight] All three tables MISSING — first-run path. Proceeding.")
+        return
+
+    problems = []
+    for table_name in sorted(TABLE_EXPECTED_COLUMNS.keys()):
+        if table_name not in existing_tables:
+            continue
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+            """, (table_name,))
+            actual_cols = {row[0] for row in cur.fetchall()}
+        expected_cols = TABLE_EXPECTED_COLUMNS[table_name]
+        missing_cols = expected_cols - actual_cols
+        extra_cols = actual_cols - expected_cols
+        if missing_cols:
+            problems.append({
+                "table": table_name,
+                "missing": sorted(missing_cols),
+                "extra": sorted(extra_cols),
+            })
+        else:
+            print(f"[preflight] {table_name}: column set matches expected "
+                  f"({len(actual_cols)} columns). Safe to upsert.")
+
+    if problems:
+        print("\n[preflight] REFUSING TO PROCEED — column set mismatch detected:")
+        for p in problems:
+            print(f"  {p['table']}:")
+            print(f"    MISSING columns: {p['missing']}")
+            if p["extra"]:
+                print(f"    EXTRA columns:   {p['extra']}")
+        print("\nResolution (choose one):")
+        print("  1. Add each missing column via ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...")
+        print("  2. DROP the mismatched table(s) and re-run (loses existing rows).")
+        print("  3. Do not re-run this script until the schema is updated.")
+        sys.exit(1)
+
+    print("[preflight] All existing tables have the expected column set. "
+          "Proceeding with ON CONFLICT upsert.")
 
 
 def get_real_registered_tools():
@@ -68,13 +185,61 @@ def get_real_registered_tools():
 
 
 def build_module_rows():
+    """
+    Fix 1: Union MODULE_PHASE_MAP and AEIM_MODULES by file basename.
+    Fix 3: Fail explicitly if any AIEM_MODULES basename maps to 2+ stage_names.
+
+    Assigns registry_source to one of four documented states:
+      MODULE_PHASE_MAP  -- file basename in MODULE_PHASE_MAP only
+      AEIM_MODULES      -- file basename in AIEM_MODULES only (no MPM entry)
+      BOTH              -- file in both dicts, no field-level disagreement
+      CONFLICT          -- file in both dicts, authoritative fields disagree
+
+    With current data (all AIEM_MODULES basenames are a subset of MPM):
+      - AIEM_MODULES count will be 0 (structurally reachable, currently empty)
+      - CONFLICT count will be 0 (AEIM_MODULES carries no phase data to contradict)
+    Both are reported explicitly by main() rather than omitted.
+    """
+    import aiem_master_orchestrator as _amo
+
+    # --- Fix 3: Build basename→stage_name lookup; fail on any collision ---
+    aiem_by_basename = {}
+    collision_map = {}
+    for stage_name, val in _amo.AEIM_MODULES.items():
+        for part in val.split('+'):
+            bn = os.path.basename(part.strip())
+            if bn in aiem_by_basename and aiem_by_basename[bn] != stage_name:
+                collision_map.setdefault(bn, {aiem_by_basename[bn]}).add(stage_name)
+            else:
+                aiem_by_basename[bn] = stage_name
+    if collision_map:
+        msg = "AIEM_MODULES basename collision(s) detected — BUILD BLOCKED:\n"
+        for bn, stages in sorted(collision_map.items()):
+            msg += f"  {bn!r} appears under stage_names: {sorted(stages)}\n"
+        msg += "Resolve the collision in AIEM_MODULES before re-running."
+        raise RuntimeError(msg)
+
+    # --- Primary pass: iterate MODULE_PHASE_MAP (full paths, no dedup risk) ---
+    mpm_basenames_seen = set()
     rows = []
+
     for module_file, phase in sorted(reg.MODULE_PHASE_MAP.items()):
+        bn = os.path.basename(module_file)
+        mpm_basenames_seen.add(bn)
         abs_path = os.path.join(REPO_ROOT, module_file)
         exists = os.path.isfile(abs_path)
-        module_name = os.path.basename(module_file).replace(".py", "")
+        module_name = bn.replace(".py", "")
+        stage_name = aiem_by_basename.get(bn)
+
+        if stage_name is not None:
+            registry_source = "BOTH"
+        else:
+            registry_source = "MODULE_PHASE_MAP"
+
         rows.append({
             "module_name": module_name,
+            "stage_name": stage_name,
+            "registry_source": registry_source,
             "module_file": module_file,
             "module_phase": phase,
             "module_phase_name": reg.PHASE_NAMES.get(phase),
@@ -86,6 +251,31 @@ def build_module_rows():
             ),
             "file_exists_confirmed": exists,
         })
+
+    # --- Secondary pass: AIEM_MODULES-only entries (basename not in any MPM path) ---
+    # With current data this yields 0 rows. The path is structurally present so
+    # registry_source='AIEM_MODULES' is reachable if the dicts ever diverge.
+    for bn, stage_name in sorted(aiem_by_basename.items()):
+        if bn in mpm_basenames_seen:
+            continue
+        module_name = bn.replace(".py", "")
+        abs_path = os.path.join(REPO_ROOT, bn)
+        exists = os.path.isfile(abs_path)
+        rows.append({
+            "module_name": module_name,
+            "stage_name": stage_name,
+            "registry_source": "AIEM_MODULES",
+            "module_file": bn,
+            "module_phase": None,
+            "module_phase_name": None,
+            "ownership_note": (
+                f"AIEM_MODULES-only entry: stage_name={stage_name!r}; "
+                "not present in MODULE_PHASE_MAP — phase assignment unknown"
+            ),
+            "ownership_status": "PENDING_REVIEW",
+            "file_exists_confirmed": exists,
+        })
+
     return rows
 
 
@@ -152,20 +342,25 @@ def upsert_modules(conn, rows):
         for r in rows:
             cur.execute("""
                 INSERT INTO aiem_module_registry
-                    (module_name, module_file, module_phase, module_phase_name,
-                     ownership_note, ownership_status, file_exists_confirmed,
+                    (module_name, stage_name, module_file, module_phase,
+                     module_phase_name, ownership_note, ownership_status,
+                     file_exists_confirmed, registry_source,
                      verification_required, execution_status, verification_result)
-                VALUES (%(module_name)s, %(module_file)s, %(module_phase)s, %(module_phase_name)s,
-                        %(ownership_note)s, %(ownership_status)s, %(file_exists_confirmed)s, TRUE,
+                VALUES (%(module_name)s, %(stage_name)s, %(module_file)s,
+                        %(module_phase)s, %(module_phase_name)s,
+                        %(ownership_note)s, %(ownership_status)s,
+                        %(file_exists_confirmed)s, %(registry_source)s, TRUE,
                         'PENDING_VERIFICATION', 'PENDING_VERIFICATION')
                 ON CONFLICT (module_name) DO UPDATE SET
-                    module_file = EXCLUDED.module_file,
-                    module_phase = EXCLUDED.module_phase,
-                    module_phase_name = EXCLUDED.module_phase_name,
-                    ownership_note = EXCLUDED.ownership_note,
-                    ownership_status = EXCLUDED.ownership_status,
+                    stage_name           = EXCLUDED.stage_name,
+                    module_file          = EXCLUDED.module_file,
+                    module_phase         = EXCLUDED.module_phase,
+                    module_phase_name    = EXCLUDED.module_phase_name,
+                    ownership_note       = EXCLUDED.ownership_note,
+                    ownership_status     = EXCLUDED.ownership_status,
                     file_exists_confirmed = EXCLUDED.file_exists_confirmed,
-                    updated_at = now()
+                    registry_source      = EXCLUDED.registry_source,
+                    updated_at           = now()
             """, r)
     conn.commit()
 
@@ -187,16 +382,16 @@ def upsert_tools(conn, rows):
                         %(registered_in_tool_map)s, %(verified_by_command)s,
                         'PENDING_VERIFICATION', 'PENDING_VERIFICATION')
                 ON CONFLICT (tool_name) DO UPDATE SET
-                    owning_module_or_phase = EXCLUDED.owning_module_or_phase,
-                    tool_type = EXCLUDED.tool_type,
-                    can_run_independently = EXCLUDED.can_run_independently,
+                    owning_module_or_phase       = EXCLUDED.owning_module_or_phase,
+                    tool_type                    = EXCLUDED.tool_type,
+                    can_run_independently        = EXCLUDED.can_run_independently,
                     excluded_from_autonomous_use = EXCLUDED.excluded_from_autonomous_use,
-                    exclusion_reason = EXCLUDED.exclusion_reason,
-                    alias_of = EXCLUDED.alias_of,
-                    dependency_notes = EXCLUDED.dependency_notes,
-                    registered_in_tool_map = EXCLUDED.registered_in_tool_map,
-                    verified_by_command = EXCLUDED.verified_by_command,
-                    updated_at = now()
+                    exclusion_reason             = EXCLUDED.exclusion_reason,
+                    alias_of                     = EXCLUDED.alias_of,
+                    dependency_notes             = EXCLUDED.dependency_notes,
+                    registered_in_tool_map       = EXCLUDED.registered_in_tool_map,
+                    verified_by_command          = EXCLUDED.verified_by_command,
+                    updated_at                   = now()
             """, r)
     conn.commit()
 
@@ -216,13 +411,19 @@ def main():
     print("AIEM REGISTRY BUILD -- start", dt.datetime.now().isoformat())
     print("=" * 70)
 
+    conn = _connect()
+    try:
+        preflight_check(conn)
+    except SystemExit:
+        conn.close()
+        raise
+
     reg.init_schema()
 
     module_rows = build_module_rows()
     real_tools, tool_source = get_real_registered_tools()
     tool_rows = build_tool_rows(real_tools)
 
-    conn = _connect()
     try:
         upsert_modules(conn, module_rows)
         upsert_tools(conn, tool_rows)
@@ -240,7 +441,19 @@ def main():
             cli_count = cur.fetchone()["n"]
             cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE tool_type = 'alias_mapped'")
             alias_count = cur.fetchone()["n"]
-            cur.execute("SELECT module_phase, COUNT(*) AS n FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase")
+            cur.execute("""
+                SELECT registry_source, count(*) AS n
+                FROM aiem_module_registry
+                GROUP BY registry_source
+                ORDER BY registry_source
+            """)
+            source_counts = cur.fetchall()
+            cur.execute("""
+                SELECT module_phase, COUNT(*) AS n
+                FROM aiem_module_registry
+                GROUP BY module_phase
+                ORDER BY module_phase
+            """)
             per_phase = cur.fetchall()
 
         missing_files = missing_from_spec_report()
@@ -254,12 +467,42 @@ def main():
         print(f"tools with tool_type=cli_verification_command: {cli_count}")
         print(f"tools with tool_type=alias_mapped: {alias_count}")
         print(f"tool source used: {tool_source}")
-        print("modules per phase:")
+        print()
+        print("-- registry_source distribution (all four states) --")
+        seen_sources = {}
+        for row in source_counts:
+            seen_sources[row["registry_source"]] = row["n"]
+            print(f"  registry_source={row['registry_source']!r}: {row['n']}")
+        for state in ("MODULE_PHASE_MAP", "AIEM_MODULES", "BOTH", "CONFLICT"):
+            if state not in seen_sources:
+                print(f"  registry_source={state!r}: 0  (structurally reachable; no rows with this state in current data)")
+        print()
+        print("-- modules per phase --")
         for row in per_phase:
-            print(f"  Phase {row['module_phase']} ({reg.PHASE_NAMES.get(row['module_phase'])}): {row['n']}")
+            phase_val = row["module_phase"]
+            phase_label = reg.PHASE_NAMES.get(phase_val, "unknown") if phase_val is not None else "None (AIEM_MODULES-only)"
+            print(f"  Phase {phase_val} ({phase_label}): {row['n']}")
         print()
         print("-- missing_from_spec (spec filename, not found on disk) --")
-        print(json.dumps(missing_files, indent=2) if missing_files else "[] (none -- all 195 spec-named files exist on disk)")
+        print(json.dumps(missing_files, indent=2) if missing_files else "[] (none -- all spec-named files exist on disk)")
+
+        print()
+        print("-- DISCREPANCY FLAG D1 (Fix 5 — decision required): deep_rl stage spans two phases --")
+        print("  deep_rl_policy.py    -> module_phase=15 (Learning & Adaptation Loop)")
+        print("  rl_position_sizer.py -> module_phase=11 (Risk Gate & Position Sizing)")
+        print("  Both rows carry stage_name='deep_rl'.")
+        print("  Current schema: module_phase is per-file, which correctly models this.")
+        print("  Decision required: confirm that per-file phase tracking (not per-stage)")
+        print("  is the intended design, OR instruct whether a single canonical phase")
+        print("  should be assigned to the stage_name='deep_rl' rows.")
+
+        print()
+        print("-- DISCREPANCY FLAG D3 (Fix 6 — decision required): main.py phase assignment --")
+        print("  main.py is assigned module_phase=1 (Orchestration Layer) in MODULE_PHASE_MAP.")
+        print("  main.py is the Flask application server, not a discrete AIEM module.")
+        print("  It is NOT represented in AIEM_MODULES (registry_source='MODULE_PHASE_MAP').")
+        print("  Decision required: should main.py appear in aiem_module_registry at all,")
+        print("  and if so, is phase 1 the correct assignment for it?")
 
     finally:
         conn.close()

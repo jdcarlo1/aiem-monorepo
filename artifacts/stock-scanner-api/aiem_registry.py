@@ -48,8 +48,9 @@ DDL = """
 CREATE TABLE IF NOT EXISTS aiem_module_registry (
     module_id               SERIAL PRIMARY KEY,
     module_name             TEXT UNIQUE NOT NULL,
+    stage_name              TEXT,
     module_file             TEXT NOT NULL,
-    module_phase            INTEGER NOT NULL,
+    module_phase            INTEGER,
     module_phase_name       TEXT,
     owned_tools             TEXT[],
     required_inputs         TEXT,
@@ -66,43 +67,39 @@ CREATE TABLE IF NOT EXISTS aiem_module_registry (
     ownership_note          TEXT,
     ownership_status        TEXT NOT NULL DEFAULT 'CONFIRMED',
     file_exists_confirmed   BOOLEAN NOT NULL DEFAULT FALSE,
+    registry_source         TEXT NOT NULL DEFAULT 'MODULE_PHASE_MAP',
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-ALTER TABLE aiem_module_registry ADD COLUMN IF NOT EXISTS ownership_status TEXT NOT NULL DEFAULT 'CONFIRMED';
-
 CREATE TABLE IF NOT EXISTS aiem_tool_registry (
-    tool_id                     SERIAL PRIMARY KEY,
-    tool_name                   TEXT UNIQUE NOT NULL,
-    owning_module_or_phase      TEXT,
-    owning_module               TEXT,
-    tool_verification_level     TEXT NOT NULL DEFAULT 'phase_only',
-    tool_type                   TEXT NOT NULL DEFAULT 'ai_callable_tool',
-    required_inputs             TEXT,
-    produced_outputs            TEXT,
-    can_run_independently       BOOLEAN,
-    requires_market_data        BOOLEAN,
-    requires_options_data       BOOLEAN,
-    requires_historical_data    BOOLEAN,
-    requires_trade_history      BOOLEAN,
-    writes_audit_log            BOOLEAN,
+    tool_id                      SERIAL PRIMARY KEY,
+    tool_name                    TEXT UNIQUE NOT NULL,
+    owning_module_or_phase       TEXT,
+    owning_module                TEXT,
+    tool_verification_level      TEXT NOT NULL DEFAULT 'phase_only',
+    tool_type                    TEXT NOT NULL DEFAULT 'ai_callable_tool',
+    required_inputs              TEXT,
+    produced_outputs             TEXT,
+    can_run_independently        BOOLEAN,
+    requires_market_data         BOOLEAN,
+    requires_options_data        BOOLEAN,
+    requires_historical_data     BOOLEAN,
+    requires_trade_history       BOOLEAN,
+    writes_audit_log             BOOLEAN,
     excluded_from_autonomous_use BOOLEAN NOT NULL DEFAULT FALSE,
-    exclusion_reason            TEXT,
-    alias_of                    TEXT,
-    dependency_notes            TEXT,
-    registered_in_tool_map      BOOLEAN NOT NULL DEFAULT FALSE,
-    verification_status         TEXT NOT NULL DEFAULT 'PENDING_VERIFICATION',
-    last_verified_date          TIMESTAMPTZ,
-    verified_by_command         TEXT,
-    verification_result         TEXT NOT NULL DEFAULT 'PENDING_VERIFICATION',
-    verification_version        INTEGER NOT NULL DEFAULT 0,
-    created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
+    exclusion_reason             TEXT,
+    alias_of                     TEXT,
+    dependency_notes             TEXT,
+    registered_in_tool_map       BOOLEAN NOT NULL DEFAULT FALSE,
+    verification_status          TEXT NOT NULL DEFAULT 'PENDING_VERIFICATION',
+    last_verified_date           TIMESTAMPTZ,
+    verified_by_command          TEXT,
+    verification_result          TEXT NOT NULL DEFAULT 'PENDING_VERIFICATION',
+    verification_version         INTEGER NOT NULL DEFAULT 0,
+    created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
-ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS owning_module TEXT;
-ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS tool_verification_level TEXT NOT NULL DEFAULT 'phase_only';
 
 CREATE TABLE IF NOT EXISTS aiem_function_registry (
     function_row_id          SERIAL PRIMARY KEY,

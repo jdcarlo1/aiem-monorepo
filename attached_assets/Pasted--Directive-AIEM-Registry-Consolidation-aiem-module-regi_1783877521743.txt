@@ -1,0 +1,73 @@
+# Directive: AIEM Registry Consolidation (aiem_module_registry / aiem_tool_registry / aiem_function_registry)
+
+## Standing verification block (mandatory for every task below)
+No task is complete based on description alone. For every change, provide:
+1. Raw terminal output of actual execution (not paraphrased).
+2. Exact before/after file diff for every changed file.
+3. sha256 hash before/after for every changed file.
+4. Raw SQL query text + full result set for anything touching the database.
+5. **SQLGREP verification**: for every claim about row counts, column values, or table existence, provide the exact `grep`-filtered output of a raw `SELECT` or `information_schema` query — not a summary, not a row count you computed in your head. Example acceptable form:
+   ```
+   $ psql -c "SELECT registry_source, count(*) FROM aiem_module_registry GROUP BY registry_source;" | grep -E "MODULE_PHASE_MAP|AIEM_MODULES|BOTH|CONFLICT"
+   ```
+   If a claimed value (e.g. "no rows have registry_source = CONFLICT") cannot be shown via a grep'd raw query result, state explicitly that you cannot produce that evidence — do not assert it narratively.
+
+If you cannot produce any required evidence item, say so explicitly. Narrative or paraphrased claims of "fixed," "verified," or "no rows exist" without pasted grep/SQL output are rejected and will be treated as a protocol violation.
+
+## Standing DATA IMMUTABILITY rule
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test," "synthetic," or "cleanup" — without explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+---
+
+## Fix 1 — Make `registry_source` actually reach all four documented states
+
+The DDL comment for `aiem_module_registry` documents `registry_source` as one of: `MODULE_PHASE_MAP / AIEM_MODULES / BOTH / CONFLICT`. Current `build_module_rows()` logic only assigns two of these (`BOTH` or `MODULE_PHASE_MAP`), because it only ever iterates `MODULE_PHASE_MAP.items()`.
+
+**Required change:** `build_module_rows()` must independently iterate `AEIM_MODULES` as well as `MODULE_PHASE_MAP`, and union the two key sets (by basename) before building rows. Assign:
+- `MODULE_PHASE_MAP` — file present in MODULE_PHASE_MAP only
+- `AIEM_MODULES` — file present in AEIM_MODULES only
+- `BOTH` — file present in both, phase assignments consistent
+- `CONFLICT` — file present in both, but phase assignments (or other authoritative fields) disagree
+
+**Evidence required:** raw SQLGREP output of `SELECT registry_source, count(*) FROM aiem_module_registry GROUP BY registry_source` after population, showing all four values are structurally reachable (even if some counts are 0 — but state explicitly if a value is 0 rather than omitting it).
+
+## Fix 2 — Prove exhaustiveness: no module can be silently dropped
+
+Before running the build, provide raw counts (via SQLGREP-style grep on script output, not narrative) for:
+- Total distinct basenames in `MODULE_PHASE_MAP`
+- Total distinct basenames in `AEIM_MODULES` (after splitting any `+`-joined multi-file entries)
+- Count of basenames in `AEIM_MODULES` that do NOT appear in `MODULE_PHASE_MAP` (this is the set that fix 1's new iteration branch must catch)
+- Count of basenames in `MODULE_PHASE_MAP` that do NOT appear in `AEIM_MODULES`
+
+These four numbers must be shown as raw command output, not asserted. If any AEIM_MODULES-only basenames exist, confirm by SQLGREP that they produced rows with `registry_source = 'AIEM_MODULES'` after the build ran — do not just assert the code "would" handle it.
+
+## Fix 3 — Basename collision check in the reverse lookup
+
+`_stage_by_basename[bn] = stage_name` keys purely on `os.path.basename()`. Before trusting this dict, run a check across all AEIM_MODULES entries (after splitting `+`-joined multi-file values) for any basename collision — i.e., the same basename appearing under two different `stage_name` values in different subdirectories.
+
+**Evidence required:** raw grep output confirming zero collisions, or a list of any collisions found. If collisions exist, do not silently let the last one win — flag it and stop for my review.
+
+## Fix 4 — Guard against replay against a populated DB
+
+`CREATE TABLE IF NOT EXISTS` is a no-op if the table already exists — meaning if this script or `dev_schema_bootstrap.sql` is ever re-run against a DB where these three tables already exist (even partially, from an earlier partial run), the new columns (`stage_name`, `registry_source`, `owning_module`, `tool_verification_level`) will silently never get added.
+
+**Required:** confirm via raw SQLGREP query (`information_schema.columns`) that this specific script only ever runs against DB state where these tables are confirmed MISSING first. Add an explicit pre-flight check to `aiem_registry_build.py` that queries `information_schema.tables` first, and refuses to proceed (with a clear message, no silent partial-apply) if any of the three tables already exist with a different column set than what this migration expects.
+
+## Fix 5 — D1 (deep_rl two-phase span) is a modeling decision, not a discrepancy to log and move past
+
+`deep_rl_policy.py` (phase 15) and `rl_position_sizer.py` (phase 11) share `stage_name = 'deep_rl'`. Do not resolve this automatically. Flag it explicitly in the discrepancy report as requiring my decision on whether `module_phase` should be tracked per-file only (current schema already supports this, since each row is one file) rather than per-stage.
+
+## Fix 6 — D3 (main.py phase assignment) requires my explicit decision
+
+You flagged this yourself as "debatable." Do not assign a default phase to `main.py` in MODULE_PHASE_MAP without my sign-off. Present the discrepancy and wait.
+
+---
+
+## Execution order
+1. Implement Fix 1–4 in `aiem_registry_build.py` and the DDL in `aiem_registry.py`.
+2. Provide the exhaustiveness evidence from Fix 2 and collision-check evidence from Fix 3 **before** running the build.
+3. Only after I approve that evidence, run `python3 aiem_registry_build.py`.
+4. Provide the full standing verification block (raw terminal output, sha256 before/after, full SQLGREP'd SELECT results) for the actual populated tables.
+5. Do not touch `dev_schema_bootstrap.sql`'s CREATE TABLE removal until Fix 4's pre-flight guard is confirmed working against a test scenario where the tables already exist (prove it refuses to silently proceed).
+
+Do not proceed past any of these steps without my explicit approval at each checkpoint.
