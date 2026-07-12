@@ -1,0 +1,67 @@
+# DIRECTIVE — Fix `aiem_signal_discoveries` Schema Bug + Establish Remediation Backlog
+
+## PRIORITY 1 — Blocking bug (fix this first, alone, before anything else)
+
+`_oos_baseline` query against `aiem_signal_discoveries.oos_edge` fails with:
+**"created_at col missing."**
+
+This breaks Stage 9 OOS/edge-filter evidence collection, which means we cannot
+currently trust ANY downstream claim about OOS gating.
+
+Required:
+1. Run `\d aiem_signal_discoveries` (or equivalent schema inspection) and paste
+   the raw output showing actual columns.
+2. Paste the exact failing query from `_oos_baseline`.
+3. State whether `created_at` was ever a column (check migration history) or
+   was never created.
+4. Propose the fix (ALTER TABLE vs. query fix to use an existing timestamp
+   column) — **do NOT apply it yet.**
+
+## PRIORITY 2 — Do not fix anything else yet
+
+Given the volume of findings across the Phase 8 / Stat Arb / NVDA loop audits,
+produce a **single remediation backlog table** ranking every "NOT IN Phase 8,"
+"BG-SCAN-ONLY," "YES* (capability-check-only)," and "0 trace rows" finding by:
+
+- Whether it's a hard bug (broken/missing wiring) vs. a design gap (works as
+  a separate job, not the orchestrator loop)
+- Blast radius (affects one indicator vs. affects the debate/ensemble
+  signal_context broadly)
+- Effort estimate
+
+**Do not write or modify any code for Priority 2 items until I review and
+approve the ranked list.**
+
+---
+
+## STANDING RULES (apply to all work above)
+
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash before/after for any changed files
+4. Raw SQL query + result set for anything database-related
+
+Narrative or paraphrased claims of "fixed" or "tested" without pasted evidence
+are rejected. If you cannot produce the evidence, say so explicitly — do not
+substitute a summary.
+
+**DATA IMMUTABILITY:** You may never delete, truncate, drop, or overwrite any
+row, table, or file — including anything you created yourself or label
+"test," "synthetic," or "cleanup" — without my explicit prior approval in
+this session. State what you want to delete and why, wait for approval, then
+log it. Any unapproved deletion is a protocol violation to report, not
+self-correct.
+
+---
+
+## Two questions I need answered before you touch anything
+
+1. **Are you going to try to fix everything in this one file/session right
+   now?** Confirm you understand: Priority 1 is a single isolated fix.
+   Priority 2 is a list only — no code changes.
+
+2. **List format check:** before you build the Priority 2 backlog table,
+   confirm the columns you'll use (e.g., Item / Hard Bug vs. Design Gap /
+   Blast Radius / Effort Estimate) so I can approve the template before you
+   fill it in.
