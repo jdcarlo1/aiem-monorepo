@@ -1,0 +1,178 @@
+===========================================================
+AIEM — DIRECTIVE 6 (MERGED) DIAGRAM 1 — MASTER ORCHESTRATION
+COMPLETE ARCHITECTURAL VERIFICATION — STRICT EVIDENCE MODE
+PURPOSE
+This directive verifies that Diagram 1 (D1) is the single authoritative orchestration layer for the entire AIEM architecture.
+This is NOT an implementation task. Do NOT rewrite architecture. Do NOT fabricate evidence. Do NOT mock execution. Do NOT summarize in
+place of evidence.
+Return only production evidence in the exact formats required below.
+===========================================================
+STANDING VERIFICATION BLOCK (applies to every section)
+No item in this directive is considered PASS based on description alone. For every claim, you must provide, inline with that claim:
+1. RAW TERMINAL OUTPUT of the actual command/execution used — paste it verbatim, not paraphrased.
+2. EXACT BEFORE/AFTER FILE DIFF for any file touched or referenced.
+3. SHA256 HASH (before and after) for any file involved.
+4. RAW SQL QUERY TEXT + FULL UNEDITED RESULT SET for any DB-backed claim (registries, schedulers, event bus, audit chain, etc.)
+If any of these four cannot be produced for a given item, you must explicitly say so in that section — do not substitute a narrative description
+("this is wired," "this passes," "this is confirmed") in place of pasted evidence.
+Grep evidence specifically means: the exact grep/rg command run, and its full raw stdout — file paths and line numbers included, not a
+reformatted table.
+===========================================================
+STANDING DATA IMMUTABILITY RULE (applies to every section, especially
+Section E and Section M)
+You may not delete, truncate, drop, or overwrite any row, table, or file — including data you create yourself during this directive, and
+including anything you label "test," "synthetic," "injected," or "cleanup" — without my explicit prior approval in this session.
+Before any deletion: state exactly what you want to delete and why, and wait for my approval. After approval: log what was deleted, when,
+and under what approval.
+Any unapproved deletion, truncation, or overwrite — including of data you injected for a negative control test in Section M — is a protocol
+violation to be reported to me, not silently self-corrected.
+===========================================================
+STANDING TEST-ISOLATION REQUIREMENT (applies to Section E and Section
+M)
+Any injected candidate, fake trace, invalid registry entry, duplicate scheduler, duplicate module, duplicate tool, or invalid governance
+decision used for testing in Section E or Section M must run in a transactionally isolated context (rollback-safe transaction or
+duplicate/shadow database) so that it cannot affect live trading data, live schedulers, or production tables. Before running any Section E or
+Section M test, state explicitly how isolation is achieved for that specific test, and provide evidence (e.g. the transaction wrapper, the
+isolated DB connection string pattern, or equivalent) that the isolation was actually in effect during the test — not just asserted after the
+fact.
+===========================================================
+
+SECTION A — MASTER OWNERSHIP
+Verify:
+1. D1 is the ONLY component permitted to orchestrate the complete AIEM pipeline.
+2. No D2 component independently launches a full pipeline.
+3. No D3 component bypasses D1.
+4. No scheduler directly starts downstream modules.
+5. No specialist module launches itself.
+6. No cron job bypasses D1.
+7. No APScheduler job bypasses D1.
+8. No background worker bypasses D1.
+9. No Telegram command bypasses D1.
+10. No REST endpoint bypasses D1.
+Return grep evidence per the Standing Verification Block above for each of the 10 items — one grep command + raw output per item, not a
+combined summary.
+===========================================================
+SECTION B — BOOT SEQUENCE
+Verify startup order. D1 must initialize, in this order:
+Registry → Configuration → Secrets → Feature Flags → Module Registry → Tool Registry → Schedulers → Event Bus → Audit Layer → Diagram
+2 → Diagram 3 → Paper Pipeline → Background Services
+Return actual startup log timestamps from a real boot (raw log output), showing each stage firing in this order. If any stage is out of order,
+missing, or unverifiable, state that explicitly rather than reordering the evidence to match the expected sequence.
+===========================================================
+SECTION C — REGISTRY VALIDATION
+For every registered component, verify:
+Exists
+Imports
+Instantiates
+Registers
+Is enabled
+No duplicate registration
+No orphan registration
+No dead registration
+Return the canonical registry as a raw SQL result set or raw in-memory dump (with the command used to produce it).
+===========================================================
+SECTION D — MODULE OWNERSHIP
+Verify every production module has exactly ONE owner. No duplicate owners, no conflicting owners, no orphan modules.
+Return a table with columns: module | owner | phase | diagram — sourced from raw grep/registry output, not typed from memory.
+===========================================================
+SECTION E — PIPELINE CONTROL (test-isolated — see Standing Test-Isolation
+Requirement above)
+Inject one paper candidate in an isolated test context.
+Verify:
+D1 starts the pipeline.
+Every downstream stage receives the same trace_id.
+Pipeline order cannot change.
+No skipped stages.
+No duplicated stages.
+No unauthorized stages.
+Return the complete trace as a raw SQL result set (or log dump) showing trace_id propagation stage by stage, plus confirmation of isolation
+per the Standing Test-Isolation Requirement.
+===========================================================
+SECTION F — DIAGRAM 3 GOVERNANCE
+Verify D1 receives and correctly handles each of these D3 verdicts: APPROVE, PAUSE, QUARANTINE, ROLLBACK, STOP.
+For each verdict, prove — with raw evidence, not narrative:
+received
+processed
+enforced
+acknowledged
+logged
+Expected enforcement per verdict:
+APPROVE → pipeline continues
+PAUSE → pipeline stops
+QUARANTINE → candidate quarantined
+ROLLBACK → rollback executed
+STOP → scheduler halted
+Note: this section overlaps with the pending negative-control BLOCK test for VERIFIED SHADOW status. If any verdict type has not yet been
+tested end-to-end, say so explicitly rather than inferring it from code structure alone.
+===========================================================
+SECTION G — SCHEDULER INVENTORY
+Return every scheduler as a raw table/SQL result set with columns: scheduler_id | job_name | module | enabled | next_run | last_run |
+execution_count | owner | diagram
+Verify: no duplicate jobs, no dead jobs, no disabled production jobs, no orphan schedulers, no scheduler bypasses D1.
+State the total scheduler count found and compare it explicitly against the previously reported "110+ scheduled jobs" figure — flag any
+discrepancy.
+===========================================================
+SECTION H — EVENT BUS
+Verify every production event with a raw result set showing: producer | consumer | timestamp | trace_id | event_name | delivery success |
+retry count | dead letter
+Confirm: no lost events, no duplicate events, no unconsumed events.
+===========================================================
+SECTION I — ERROR HANDLING
+Search the entire D1 codebase (raw grep, full output) for:
+bare except
+except Exception
+pass (as a silent handler)
+silent fallback
+ignored exceptions
+return success after failure
+log-only exceptions
+For every hit, state whether it terminates the failure correctly or silently swallows it — this is the same failure class already found elsewhere
+in the codebase (Thompson sampler, sizing gate, dead run_full_cycle() ), so treat every hit as a candidate defect until proven otherwise.
+===========================================================
+SECTION J — CONFIGURATION
+Verify: single configuration source, no duplicate configs, no conflicting configs, environment variables loaded, feature flags loaded, correct
+production/paper mode flag state.
+Return raw config dump/grep evidence.
+===========================================================
+SECTION K — AUDIT CHAIN
+Verify every stage logs: trace_id, parent_trace_id, module, timestamp, sha256, decision, status.
+Confirm no broken audit chain — return a raw SQL result set tracing one full pipeline run stage-by-stage by trace_id.
+===========================================================
+SECTION L — SECURITY
+Verify: no module dynamically loads unknown code, no unauthorized imports, secrets never logged, API keys protected, no debug mode
+enabled in production.
+Return raw grep evidence for each.
+===========================================================
+SECTION M — NEGATIVE CONTROLS (test-isolated — see Standing Test-Isolation
+Requirement above)
+Attempt each of the following, in an isolated test context, and report the actual raw result of each attempt:
+Start Diagram 2 directly.
+Start Diagram 3 directly.
+Start Decision Engine directly.
+Start Paper Execution directly.
+Inject a fake trace.
+Inject an invalid registry entry.
+Inject a duplicate scheduler.
+Inject a duplicate module.
+Inject a duplicate tool.
+Inject an invalid governance decision.
+Expected: D1 rejects every attempt. For any attempt that is NOT rejected, this is a critical finding — report it prominently, do not bury it in the
+summary.
+Confirm and log the cleanup of all injected test artifacts per the Standing Data Immutability Rule (state what was injected, get approval
+before any deletion, log the outcome).
+===========================================================
+SECTION N — PERFORMANCE
+Measure and return raw output for: boot time, registry load time, pipeline latency, scheduler latency, event latency, memory usage, CPU
+usage.
+===========================================================
+SECTION O — FINAL ARCHITECTURAL CERTIFICATION
+D1 may be marked PASS only if ALL of the following are true, each with evidence already provided in Sections A–N above (no new evidence
+introduced here):
+✓ Sole orchestrator ✓ Sole scheduler authority ✓ Registry complete ✓ No orphan modules ✓ No duplicate ownership ✓ No scheduler
+bypass ✓ No event loss ✓ Diagram 3 enforcement verified (per verdict type) ✓ Pipeline order immutable ✓ Complete provenance ✓
+Complete audit chain ✓ Complete trace continuity ✓ Complete exception handling ✓ Negative controls passed ✓ All test injections isolated
+and cleaned up per approval
+Return ONE final verdict only: PASS / FAIL / BLOCKED.
+If BLOCKED or FAIL, state which specific section(s) caused it — do not issue a blanket narrative explanation. If any section could not produce
+the required evidence type, the overall verdict cannot be PASS regardless of how the rest of the sections looked.
+Do not include narrative summaries in place of evidence anywhere in this response.
