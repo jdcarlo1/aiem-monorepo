@@ -1,0 +1,28 @@
+# Directive: Implement `upsert_functions()` to populate `aiem_function_registry`
+
+## Context
+
+Step 4 verification confirmed `aiem_module_registry` (194 rows) and `aiem_tool_registry` (222 rows) are fully populated and match the pre-build dry-run exactly. `aiem_function_registry` exists with correct schema but has 0 rows — the build script has `upsert_modules()` and `upsert_tools()` but no `upsert_functions()` call. This directive closes that gap.
+
+## Task
+
+1. Locate the function inventory source this table is meant to be populated from (likely analogous to how `MODULE_PHASE_MAP` / `aiem_registry.py` fed the module and tool registries — identify the equivalent source for functions before writing code).
+2. Write `upsert_functions()` following the same pattern as the existing `upsert_modules()` and `upsert_tools()` — same conflict handling, same `ownership_status` / `registry_source` logic where applicable.
+3. Call `upsert_functions()` from the build script in the same place the other two upserts run.
+4. Do a dry-run first: report predicted row count, breakdown by `ownership_status` (CONFIRMED / PENDING_REVIEW / any other status), and flag any ambiguous cases the same way the module registry build did — do not silently resolve ambiguities.
+5. Wait for explicit confirmation before running the live insert.
+6. After the live insert, re-run the full Check 1–9 verification pass across **all three** registry tables (`aiem_module_registry`, `aiem_tool_registry`, `aiem_function_registry`) together, so the entire registry is confirmed in one consolidated pass rather than function registry being verified in isolation.
+
+## Standing verification block (required for every step above)
+
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. Sha256 hash before/after for any changed files
+4. Raw SQL query + full result set for any database step
+
+Narrative or paraphrased claims of "fixed" or "populated" without pasted evidence are rejected. State explicitly if you cannot produce a required evidence item.
+
+## Standing DATA IMMUTABILITY rule
+
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test," "synthetic," or "cleanup" — without explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
