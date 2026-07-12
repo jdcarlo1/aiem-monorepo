@@ -1,111 +1,81 @@
-#!/usr/bin/env bash
-# verified_run.sh — hash-chained, tamper-evident evidence wrapper
-# Usage: ./tools/verified_run.sh "your command here"
+#!/bin/bash
+# verified_run.sh
 #
-# For every evidence-producing command, run it through this wrapper.
-# It will:
-#   1. Execute the command exactly as given (via bash -c)
-#   2. Capture full stdout+stderr and exit code
-#   3. Compute a SHA-256 hash chaining the previous entry's hash
-#   4. Append one JSON line to tools/evidence_chain.log (append-only)
-#   5. Save raw output to tools/evidence_chain_outputs/<N>.txt
-#   6. Print entry metadata + raw output back to the caller
+# Usage: ./verified_run.sh "<command to run>"
 #
-# Hash schema: sha256(prev_entry_hash|timestamp|command|output_hash|exit_code)
-# where output_hash = sha256(raw output bytes)
-# and prev_entry_hash = 64-zero genesis for the first entry.
+# Wraps a command execution in a tamper-evident, append-only hash chain.
+# Each log entry's hash depends on the previous entry's hash, so altering
+# or deleting any past entry breaks the chain from that point forward.
+#
+# This does NOT prove the command was run by an honest process — an agent
+# with filesystem access could still choose not to use this script and
+# fabricate a log by hand. What it DOES do: make it much harder to quietly
+# edit or backdate a SINGLE entry after the fact without the whole chain
+# visibly breaking, and it gives Joel a mechanical, non-narrative way to
+# check consistency himself or hand to Claude to check.
 
-set -uo pipefail
+set -euo pipefail
 
-TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export VR_LOG_FILE="$TOOLS_DIR/evidence_chain.log"
-export VR_OUTPUT_DIR="$TOOLS_DIR/evidence_chain_outputs"
+LOG_FILE="${VERIFIED_LOG_FILE:-./evidence_chain.log}"
+CMD="$1"
 
-mkdir -p "$VR_OUTPUT_DIR"
-
-if [ $# -eq 0 ]; then
-    echo "Usage: $0 <command>" >&2
-    exit 1
+if [ -z "$CMD" ]; then
+  echo "Usage: $0 \"<command>\"" >&2
+  exit 1
 fi
 
-export VR_COMMAND="$*"
-export VR_TIMESTAMP
-VR_TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+# Get previous hash (or genesis value if log is empty/doesn't exist)
+if [ -f "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
+  PREV_HASH=$(tail -n 1 "$LOG_FILE" | python3 -c "import sys,json; print(json.load(sys.stdin)['entry_hash'])")
+else
+  PREV_HASH="GENESIS_0000000000000000000000000000000000000000000000000000000000"
+fi
 
-# Determine entry number and previous hash via Python (handles missing/empty log)
-VR_META="$(python3 -c "
-import json, os, sys
-log = os.environ['VR_LOG_FILE']
-if os.path.isfile(log):
-    with open(log) as f:
-        lines = [l.strip() for l in f if l.strip()]
-    n = len(lines) + 1
-    prev = json.loads(lines[-1])['entry_hash'] if lines else '0' * 64
-else:
-    n = 1
-    prev = '0' * 64
-print(n)
-print(prev)
-")"
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6NZ")
+if [ -f "$LOG_FILE" ]; then
+  SEQ=$(( $(wc -l < "$LOG_FILE") + 1 ))
+else
+  SEQ=1
+fi
 
-export VR_ENTRY_NUM
-VR_ENTRY_NUM="$(echo "$VR_META" | head -1)"
-export VR_PREV_HASH
-VR_PREV_HASH="$(echo "$VR_META" | tail -1)"
-export VR_OUTPUT_FILE="${VR_OUTPUT_DIR}/${VR_ENTRY_NUM}.txt"
-
-# Execute the command; capture stdout+stderr together; preserve exit code
+# Execute the actual command, capture stdout+stderr combined, and exit code
 set +e
-bash -c "$VR_COMMAND" >"$VR_OUTPUT_FILE" 2>&1
-export VR_EXIT_CODE=$?
+OUTPUT=$(eval "$CMD" 2>&1)
+EXIT_CODE=$?
 set -e
 
-# Compute hashes, write log entry, and print result — all in Python so JSON
-# serialisation is safe regardless of special characters in the command string.
+OUTPUT_SHA256=$(printf '%s' "$OUTPUT" | sha256sum | awk '{print $1}')
+
+# Canonical string that gets hashed to produce this entry's hash.
+# Order matters and must never change, or old entries become unverifiable.
+CANONICAL="${PREV_HASH}|${SEQ}|${TIMESTAMP}|${CMD}|${EXIT_CODE}|${OUTPUT_SHA256}"
+ENTRY_HASH=$(printf '%s' "$CANONICAL" | sha256sum | awk '{print $1}')
+
+# Write the log entry as a single JSON line (append-only)
 python3 -c "
-import json, hashlib, os
-
-command     = os.environ['VR_COMMAND']
-timestamp   = os.environ['VR_TIMESTAMP']
-entry_num   = int(os.environ['VR_ENTRY_NUM'])
-prev_hash   = os.environ['VR_PREV_HASH']
-exit_code   = int(os.environ['VR_EXIT_CODE'])
-output_file = os.environ['VR_OUTPUT_FILE']
-log_file    = os.environ['VR_LOG_FILE']
-
-with open(output_file, 'rb') as f:
-    raw = f.read()
-output_hash = hashlib.sha256(raw).hexdigest()
-
-hash_input  = f'{prev_hash}|{timestamp}|{command}|{output_hash}|{exit_code}'
-entry_hash  = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
-
+import json
 entry = {
-    'entry_num':         entry_num,
-    'timestamp':         timestamp,
-    'command':           command,
-    'exit_code':         exit_code,
-    'output_file':       output_file,
-    'output_hash':       output_hash,
-    'prev_entry_hash':   prev_hash,
-    'hash_input_schema': 'sha256(prev_entry_hash|timestamp|command|output_hash|exit_code)',
-    'entry_hash':        entry_hash,
+    'seq': $SEQ,
+    'timestamp_utc': '$TIMESTAMP',
+    'command': '''$CMD''',
+    'exit_code': $EXIT_CODE,
+    'output_sha256': '$OUTPUT_SHA256',
+    'prev_hash': '$PREV_HASH',
+    'entry_hash': '$ENTRY_HASH'
 }
+print(json.dumps(entry))
+" >> "$LOG_FILE"
 
-with open(log_file, 'a') as f:
-    f.write(json.dumps(entry) + '\n')
+# Also persist full raw output alongside, keyed by seq + output hash,
+# so the output can be inspected later without re-running the command.
+RAW_DIR="${LOG_FILE%.log}_raw"
+mkdir -p "$RAW_DIR"
+printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
 
-with open(output_file) as f:
-    output = f.read()
-
-print(f'=== verified_run entry #{entry_num} ===')
-print(f'timestamp:        {timestamp}')
-print(f'command:          {command}')
-print(f'exit_code:        {exit_code}')
-print(f'output_hash:      {output_hash}')
-print(f'prev_entry_hash:  {prev_hash}')
-print(f'entry_hash:       {entry_hash}')
-print('=== raw output ===')
-print(output, end='')
-print(f'=== end entry #{entry_num} ===')
-"
+echo "--- verified_run: entry #$SEQ logged ---"
+echo "command:      $CMD"
+echo "exit_code:    $EXIT_CODE"
+echo "output_sha256: $OUTPUT_SHA256"
+echo "entry_hash:   $ENTRY_HASH"
+echo "--- raw output follows ---"
+echo "$OUTPUT"
