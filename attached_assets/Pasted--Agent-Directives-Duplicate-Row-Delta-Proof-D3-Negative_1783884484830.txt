@@ -1,0 +1,71 @@
+# Agent Directives — Duplicate-Row Delta Proof + D3 Negative-Control Gate
+
+---
+
+## DIRECTIVE A: Duplicate-Row Evidence for the 34-Row Delta
+
+Before this task is marked complete, produce evidence that the 34-row gap between
+the dry-run count (1,727) and the live `aiem_function_registry` count (1,693) is
+exclusively same-file function redefinitions caught by the UNIQUE constraint — not
+silently dropped or lost rows.
+
+**Required:**
+
+1. Re-run the dry-run scan and dump it to a temp table or file (not just an
+   in-memory count).
+2. Run a query that diffs the dry-run set against the live table on the
+   registry's unique key, returning the exact 34 rows that exist in dry-run but
+   not in live.
+3. For each of those 34 rows, show the `file_name` + `function_name` pair, and
+   confirm via `grep -n` or AST dump that the same file contains another
+   definition with the same name (i.e., prove it's a redefinition, not a
+   different file's function that got dropped).
+4. Paste the raw SQL, the raw result set (all 34 rows), and the raw terminal
+   output. No paraphrasing of "these are all duplicates" — show the rows.
+
+---
+
+## DIRECTIVE B: D3 Negative-Control Gate (Directive 4 Follow-Through)
+
+Execute the negative-control test for D3. Deliberately construct a scenario
+that forces D3 to compute a BLOCK verdict, and prove that verdict would have
+halted the paper Decision Engine, with zero effect on live trading.
+
+**Required evidence:**
+
+1. Show the exact input/condition used to force BLOCK, and the raw D3 output
+   (verdict + reasoning), not a summary.
+2. Show the code path or log trace proving that if this BLOCK verdict were
+   enforced, `_aiem_paper_execute_today()` would halt before executing — trace
+   from D3 verdict → D1 → D2 → Decision Engine, not just "D3 said BLOCK."
+3. Confirm via test-mode DB isolation (transactional rollback or duplicate DB,
+   per `D3_directive4_test_mode_isolation.md`) that this test ran in an
+   isolated environment and touched zero live trading tables.
+4. Paste the raw terminal output of the full test run, the before/after state
+   of any test-mode DB objects created, and confirm cleanup (or lack thereof)
+   per the data immutability rule below.
+5. State explicitly whether this satisfies the VERIFIED SHADOW gate criteria,
+   and if not, what remains.
+
+---
+
+## STANDING VERIFICATION BLOCK (applies to both directives)
+
+No task is complete based on description alone. Agent must provide:
+
+1. Raw terminal output of actual execution.
+2. Exact before/after file diff.
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set if a database is involved.
+
+Narrative or paraphrased claims of "fixed" or "tested" without pasted evidence
+are rejected. Agent must explicitly state if it cannot produce a required
+evidence item.
+
+## STANDING DATA IMMUTABILITY RULE (applies to both directives)
+
+Agent may never delete, truncate, drop, or overwrite any row, table, or
+file — including data it created itself or labels "test," "synthetic," or
+"cleanup" — without explicit prior approval in that session. Agent must state
+what it wants to delete and why, wait for approval, then log it. Any
+unapproved deletion is a protocol violation to report, not self-correct.
