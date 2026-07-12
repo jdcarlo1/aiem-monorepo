@@ -1,0 +1,58 @@
+# Standing Directive — Evidence Chain Protocol
+
+## Effective immediately, for all future verification/evidence-producing work
+
+Joel has identified a gap in the existing verification protocol: raw terminal output, sha256 hashes, and SQL result sets are strong evidence, but they are still self-reported by you, in the same session where you are being evaluated. There is currently no mechanism that lets Joel (or anyone) detect if a piece of evidence was edited, backdated, or fabricated after the fact, independent of trusting your report.
+
+This directive adds a hash-chained, tamper-evident logging layer on top of the existing standing verification block. It does not replace anything in the standing verification block — it supplements it.
+
+## What you must do going forward
+
+Two scripts are provided: `verified_run.sh` and `verify_chain.sh`. Install them in the project (e.g., under a `tools/` or `scripts/` directory) and confirm their sha256 hashes match what's below before first use.
+
+**For every command that produces evidence** (test runs, SQL queries, diffs generated via shell commands, hash computations, harness executions — anything that would currently go into a "raw terminal output" or "raw SQL result set" requirement) — run it through the wrapper instead of running it directly:
+
+```bash
+./verified_run.sh "your command here"
+```
+
+This will:
+1. Execute the command exactly as given
+2. Capture the full output and exit code
+3. Compute a hash of this entry that incorporates the previous entry's hash (a hash chain)
+4. Append the entry as a single JSON line to `evidence_chain.log` (append-only — never edit or delete lines from this file)
+5. Print the entry's metadata and the raw output back to you, to paste into your response as usual
+
+**Do not hand-construct log entries.** Do not edit `evidence_chain.log` directly. Do not re-run a command and manually paste a "corrected" entry — if a command needs to be re-run because of an error, that's a new entry in the chain, not a retroactive edit. If you make a mistake, say so explicitly and log the correction as a new entry; the chain is append-only by design so mistakes and corrections both stay visible.
+
+## What this changes about your reporting
+
+- In addition to whatever narrative summary you give, always report the current tail entry's `entry_hash` after a batch of evidence-producing work, so Joel can independently confirm the log's current state matches what you're claiming.
+- If asked, paste the full contents of `evidence_chain.log` (or the relevant range of lines) — do not summarize it.
+- Run `./verify_chain.sh evidence_chain.log` yourself before declaring any directive complete, and paste its output. If it reports `CHAIN BROKEN`, stop and report that immediately — do not attempt to silently fix or regenerate the log.
+
+## What this does NOT solve — be honest about this if asked
+
+This chain proves internal consistency: if any past entry's command, output, or exit code is altered, or an entry is deleted, the chain breaks visibly from that point forward. That is a real, mechanical guarantee — recomputing SHA-256 hashes is not something that can be faked by rephrasing or narrative persuasion.
+
+It does **not** prove:
+- That you actually ran `verified_run.sh` at all, rather than hand-writing log entries with correct-looking hashes (this is technically preventable only by Joel or an external process controlling execution, which isn't the case here)
+- That the database being queried is Joel's real production system rather than some other environment
+- Anything about work done before this directive was adopted
+
+Because of this, Joel will periodically spot-check by re-running a sampled command from the log himself, directly in his own session, and comparing output. This is expected and is not a sign of distrust in any specific instance — it's the actual backstop that makes the rest of this meaningful.
+
+## Data immutability rule still applies
+
+`evidence_chain.log` and its accompanying raw-output directory are subject to the standing data immutability rule: no deletion, truncation, or rewriting of any line or file, ever, without Joel's explicit prior approval in that session.
+
+---
+
+## Reference: script hashes at time of issuance
+
+Confirm these match what you install before first use. If they don't match, stop and flag it rather than proceeding — request the correct files.
+
+- `verified_run.sh` — implements the wrapper described above
+- `verify_chain.sh` — recomputes and validates the full chain from scratch
+
+(Compute and report the sha256 of each script file once installed, as your first logged entry, so Joel has a baseline.)
