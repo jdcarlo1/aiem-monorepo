@@ -49,6 +49,11 @@ import aiem_registry as reg
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
+# D3 decision: main.py is the Flask server / infrastructure entry point, NOT a
+# discrete AIEM pipeline module. Confirmed no upstream/downstream references to
+# it exist in MODULE_PHASE_MAP, AEIM_MODULES, or any module dependency strings.
+MPM_EXCLUDE = {"main.py"}
+
 EXPECTED_MODULE_COLUMNS = {
     "module_id", "module_name", "stage_name", "module_file", "module_phase",
     "module_phase_name", "owned_tools", "required_inputs", "produced_outputs",
@@ -186,55 +191,107 @@ def get_real_registered_tools():
 
 def build_module_rows():
     """
-    Fix 1: Union MODULE_PHASE_MAP and AEIM_MODULES by file basename.
-    Fix 3: Fail explicitly if any AIEM_MODULES basename maps to 2+ stage_names.
+    Union MODULE_PHASE_MAP and AEIM_MODULES by file basename.
 
     Assigns registry_source to one of four documented states:
-      MODULE_PHASE_MAP  -- file basename in MODULE_PHASE_MAP only
-      AEIM_MODULES      -- file basename in AIEM_MODULES only (no MPM entry)
-      BOTH              -- file in both dicts, no field-level disagreement
-      CONFLICT          -- file in both dicts, authoritative fields disagree
+      MODULE_PHASE_MAP  -- basename in MPM only (no AEIM entry)
+      AEIM_MODULES      -- basename in AEIM_MODULES only (no MPM entry);
+                           module_phase is NULL. With current data: 0 rows.
+      BOTH              -- basename in both dicts, single unambiguous MPM path
+      CONFLICT          -- basename appears at 2+ distinct full paths in MPM
+                           (directory collision = ambiguous phase assignment);
+                           one row produced, all paths in ownership_note.
+                           With current data: 0 rows.
 
-    With current data (all AIEM_MODULES basenames are a subset of MPM):
-      - AIEM_MODULES count will be 0 (structurally reachable, currently empty)
-      - CONFLICT count will be 0 (AEIM_MODULES carries no phase data to contradict)
-    Both are reported explicitly by main() rather than omitted.
+    Exclusions (MPM_EXCLUDE): main.py is the Flask server / infrastructure entry
+    point, not a discrete AIEM pipeline module. No upstream/downstream references
+    to main.py were found in MODULE_PHASE_MAP, AEIM_MODULES, or any dependency
+    strings -- exclusion is safe.
+
+    Fix 3 (AEIM_MODULES collision guard): if any basename maps to 2+ stage_names
+    inside AEIM_MODULES, raises RuntimeError -- build does not proceed.
+
+    All four registry_source states verified with synthetic in-memory tests
+    (no DB writes, no file mutations). See pre-build checkpoint for raw output.
     """
     import aiem_master_orchestrator as _amo
 
-    # --- Fix 3: Build basename→stage_name lookup; fail on any collision ---
+    # Fix 3: AEIM_MODULES collision guard
     aiem_by_basename = {}
     collision_map = {}
     for stage_name, val in _amo.AEIM_MODULES.items():
-        for part in val.split('+'):
+        for part in val.split("+"):
             bn = os.path.basename(part.strip())
             if bn in aiem_by_basename and aiem_by_basename[bn] != stage_name:
                 collision_map.setdefault(bn, {aiem_by_basename[bn]}).add(stage_name)
             else:
                 aiem_by_basename[bn] = stage_name
     if collision_map:
-        msg = "AIEM_MODULES basename collision(s) detected — BUILD BLOCKED:\n"
+        msg = "AEIM_MODULES basename collision(s) detected -- BUILD BLOCKED:\n"
         for bn, stages in sorted(collision_map.items()):
             msg += f"  {bn!r} appears under stage_names: {sorted(stages)}\n"
-        msg += "Resolve the collision in AIEM_MODULES before re-running."
+        msg += "Resolve the collision in AEIM_MODULES before re-running."
         raise RuntimeError(msg)
 
-    # --- Primary pass: iterate MODULE_PHASE_MAP (full paths, no dedup risk) ---
-    mpm_basenames_seen = set()
+    # Build mpm_by_basename: basename -> list of (path, phase) tuples.
+    # Multiple entries for same basename = CONFLICT (directory collision).
+    # MPM_EXCLUDE applied here; excluded basenames produce no rows.
+    mpm_by_basename = {}
+    for module_file, phase in reg.MODULE_PHASE_MAP.items():
+        bn = os.path.basename(module_file)
+        if bn in MPM_EXCLUDE:
+            continue
+        mpm_by_basename.setdefault(bn, []).append((module_file, phase))
+
+    all_basenames = set(mpm_by_basename.keys()) | set(aiem_by_basename.keys())
     rows = []
 
-    for module_file, phase in sorted(reg.MODULE_PHASE_MAP.items()):
-        bn = os.path.basename(module_file)
-        mpm_basenames_seen.add(bn)
-        abs_path = os.path.join(REPO_ROOT, module_file)
-        exists = os.path.isfile(abs_path)
+    for bn in sorted(all_basenames):
+        in_aiem = bn in aiem_by_basename
+        mpm_entries = mpm_by_basename.get(bn, [])
+        in_mpm = len(mpm_entries) > 0
         module_name = bn.replace(".py", "")
         stage_name = aiem_by_basename.get(bn)
 
-        if stage_name is not None:
+        if in_mpm and len(mpm_entries) > 1:
+            # CONFLICT: same basename at multiple MPM paths (ambiguous phase).
+            # One row produced; all conflicting paths recorded in ownership_note.
+            module_file, phase = mpm_entries[0]
+            all_paths = [p for p, _ in mpm_entries]
+            all_phases = [ph for _, ph in mpm_entries]
+            ownership_note = (
+                f"CONFLICT: {bn!r} appears at {len(mpm_entries)} paths "
+                f"with phases={all_phases} paths={all_paths}"
+            )
+            registry_source = "CONFLICT"
+            ownership_status = "PENDING_REVIEW"
+        elif in_mpm and in_aiem:
+            module_file, phase = mpm_entries[0]
             registry_source = "BOTH"
-        else:
+            base_note = reg.OWNERSHIP_NOTES.get(module_file)
+            ownership_note = base_note
+            ownership_status = (
+                "PENDING_REVIEW" if "AUTO-RESOLVED" in (base_note or "") else "CONFIRMED"
+            )
+        elif in_mpm:
+            module_file, phase = mpm_entries[0]
             registry_source = "MODULE_PHASE_MAP"
+            base_note = reg.OWNERSHIP_NOTES.get(module_file)
+            ownership_note = base_note
+            ownership_status = (
+                "PENDING_REVIEW" if "AUTO-RESOLVED" in (base_note or "") else "CONFIRMED"
+            )
+        else:
+            # AEIM_MODULES-only: basename not in any MPM path.
+            # module_phase = NULL (no MPM phase exists for this basename).
+            module_file = bn
+            phase = None
+            registry_source = "AEIM_MODULES"
+            ownership_note = (
+                f"AEIM_MODULES-only: stage_name={stage_name!r}; "
+                "not present in MODULE_PHASE_MAP -- phase assignment unknown"
+            )
+            ownership_status = "PENDING_REVIEW"
 
         rows.append({
             "module_name": module_name,
@@ -242,38 +299,10 @@ def build_module_rows():
             "registry_source": registry_source,
             "module_file": module_file,
             "module_phase": phase,
-            "module_phase_name": reg.PHASE_NAMES.get(phase),
-            "ownership_note": reg.OWNERSHIP_NOTES.get(module_file),
-            "ownership_status": (
-                "PENDING_REVIEW"
-                if "AUTO-RESOLVED" in (reg.OWNERSHIP_NOTES.get(module_file) or "")
-                else "CONFIRMED"
-            ),
-            "file_exists_confirmed": exists,
-        })
-
-    # --- Secondary pass: AIEM_MODULES-only entries (basename not in any MPM path) ---
-    # With current data this yields 0 rows. The path is structurally present so
-    # registry_source='AIEM_MODULES' is reachable if the dicts ever diverge.
-    for bn, stage_name in sorted(aiem_by_basename.items()):
-        if bn in mpm_basenames_seen:
-            continue
-        module_name = bn.replace(".py", "")
-        abs_path = os.path.join(REPO_ROOT, bn)
-        exists = os.path.isfile(abs_path)
-        rows.append({
-            "module_name": module_name,
-            "stage_name": stage_name,
-            "registry_source": "AIEM_MODULES",
-            "module_file": bn,
-            "module_phase": None,
-            "module_phase_name": None,
-            "ownership_note": (
-                f"AIEM_MODULES-only entry: stage_name={stage_name!r}; "
-                "not present in MODULE_PHASE_MAP — phase assignment unknown"
-            ),
-            "ownership_status": "PENDING_REVIEW",
-            "file_exists_confirmed": exists,
+            "module_phase_name": reg.PHASE_NAMES.get(phase) if phase is not None else None,
+            "ownership_note": ownership_note,
+            "ownership_status": ownership_status,
+            "file_exists_confirmed": os.path.isfile(os.path.join(REPO_ROOT, module_file)),
         })
 
     return rows
