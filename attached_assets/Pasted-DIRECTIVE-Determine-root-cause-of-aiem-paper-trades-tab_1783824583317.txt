@@ -1,0 +1,46 @@
+DIRECTIVE: Determine root cause of aiem_paper_trades table recreation
+
+CONTEXT: Evidence already confirms aiem_paper_trades was recreated between
+~2026-07-10 and 2026-07-12T02:38:13 UTC. dev_schema_bootstrap.sql has been
+ruled out as the mechanism (it only creates a backup table, not the main
+table). Your job now is to find the actual mechanism — not to re-confirm
+the recreation happened.
+
+TASK 1 — Find the schema-defining file
+- Search the entire repo for every CREATE TABLE statement (or ORM model /
+  migration) that defines aiem_paper_trades (the main table, not the
+  backup). Use grep/ripgrep across all .sql, .py, and migration directories.
+- For each match, report: file path, line number, and the CREATE TABLE
+  statement or model definition verbatim.
+- For each file found, run `stat` to get birth/modify timestamps, and
+  compute sha256. Report whether any of these files' birth/modify
+  timestamps fall inside the 07-10 to 07-12T02:38:13 UTC window.
+- If the app uses an ORM (e.g. SQLAlchemy `Base.metadata.create_all()` or
+  `db.create_all()`), check whether that call runs automatically on app
+  startup/deploy. Quote the exact line of code and its file location.
+
+TASK 2 — Check for migration-on-boot behavior
+- Search for any startup script, entrypoint, or deploy hook (Procfile,
+  main.py, app.py, wsgi.py, .replit run command, etc.) that could trigger
+  table creation or recreation on deploy/restart.
+- Quote the exact relevant lines and their file paths.
+- State explicitly whether such a mechanism exists or not — do not infer,
+  show the code.
+
+TASK 3 — Flag what requires Replit support
+- Confirm again (do not re-run — just state) that deployment/rollback logs
+  for the 07-10 to 07-12T02:38:13 UTC window are not accessible from this
+  shell.
+- Draft the exact question I should submit to Replit support to request
+  deployment/rollback history for this window, including my repl name,
+  the timestamp window, and the table name.
+
+STANDING VERIFICATION REQUIREMENT (applies to all 3 tasks above):
+No task is complete based on description alone. You must provide:
+(1) Raw terminal output of the actual command executed (not a summary).
+(2) Exact before/after file diff, if any file was viewed or modified.
+(3) sha256 hash (before/after) for any file referenced as evidence.
+(4) Raw SQL query + full result set, if a database is involved.
+Narrative or paraphrased claims of "found" or "confirmed" without pasted
+raw evidence will be rejected. If you cannot produce evidence for a claim,
+say so explicitly instead of asserting it.
