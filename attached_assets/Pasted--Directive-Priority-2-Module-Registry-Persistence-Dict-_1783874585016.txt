@@ -1,0 +1,79 @@
+# Directive: Priority 2 — Module Registry Persistence + Dict Reconciliation
+
+## Scope
+This directive covers ONLY the module registry persistence layer that
+execute_stage() reads from. It does NOT touch D3 verdict enforcement
+(that is Priority 3, separate directive). It does NOT touch
+aiem_process.py (out of scope, confirmed separate sibling system).
+It does NOT reroute any scheduler jobs, daemon threads, or REST
+endpoints through D1.
+
+## Background (confirmed by prior audit — do not re-litigate)
+- D1's real production integration point is execute_stage(), called from
+  main.py's D2 loop at the previously-confirmed line numbers.
+- There are currently two in-memory registry dicts that may disagree.
+- No persistent DB-backed registry exists yet — registration is in-memory
+  only, meaning it does not survive restarts and cannot be audited
+  independently of process state.
+
+## Task 1 — Confirm current state (do this FIRST, before any DDL)
+Before writing any schema or code, report back with:
+1. The exact names, file locations, and line numbers of BOTH in-memory
+   registry dicts.
+2. A raw dump (printed structure, not paraphrased) of both dicts as
+   populated in a live/running state.
+3. Every call site that writes to either dict (grep output, not summary).
+4. Any existing table that resembles a registry (grep schema/migrations
+   for anything named registry, module_registry, stage_registry, etc.)
+   so we don't duplicate or collide with something that already exists.
+
+Do not proceed to Task 2 until this is reported with raw evidence.
+
+## Task 2 — Schema
+Propose a DDL for a new table (working name: aiem_module_registry) that
+captures at minimum: stage/module identifier, registration source,
+registered_at timestamp, and whatever fields both in-memory dicts
+currently track. Show me the proposed CREATE TABLE statement before
+applying it. Do not apply DDL until I approve the schema.
+
+## Task 3 — Population
+Once schema is approved:
+- Apply the DDL.
+- Wire population from execute_stage()'s existing registration calls so
+  new registrations write to the DB table going forward.
+- Do NOT delete, drop, or migrate-away either existing in-memory dict as
+  part of this step — they continue running in parallel for now.
+
+## Task 4 — Reconciliation
+- Add a reconciliation check that compares the two in-memory dicts
+  against each other AND against the new DB table.
+- Any discrepancy must be flagged explicitly (logged with both
+  conflicting values, not silently resolved or defaulted).
+- Do not auto-resolve discrepancies by picking one source as
+  "authoritative" without flagging it to me first.
+
+## Standing verification block (applies to every sub-task above)
+No task is complete based on description alone. For each of Tasks 1-4,
+provide:
+1. Raw terminal output of actual execution (not paraphrased).
+2. Exact before/after file diff for any file changed.
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set for anything touching the database
+   (including the Task 1 dict dumps and the Task 4 discrepancy log).
+
+If any of these four items cannot be produced, state that explicitly —
+do not substitute a narrative description instead.
+
+## Standing DATA IMMUTABILITY rule
+You may not delete, truncate, drop, or overwrite any row, table, or file
+— including anything you created yourself or label "test," "synthetic,"
+or "cleanup" — without my explicit prior approval in this session.
+State what you want to delete and why, wait for my approval, then log
+it. Any unapproved deletion is a protocol violation to report to me,
+not something to self-correct.
+
+## Out of scope reminder
+Do not touch: D3 verdict enforcement logic, aiem_process.py, any
+scheduler job routing, run_full_cycle(), or _aiem_paper_execute_today()'s
+execution flow. If you believe any of those need to change to complete
+this directive, stop and flag it to me rather than proceeding.
