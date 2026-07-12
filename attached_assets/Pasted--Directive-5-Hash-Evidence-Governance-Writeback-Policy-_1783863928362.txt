@@ -1,0 +1,37 @@
+# Directive 5 — Hash Evidence + Governance Writeback Policy Decision
+
+**Context:** Directive 4 (test-mode DB isolation for `_aiem_paper_execute_today()`) is functionally complete. The BLOCK-path negative-control test passed: `aiem_paper_execution_log` and `aiem_paper_trades` counts were identical before/after, `_blc.rollback()` is unconditional on `_test_mode=True`, and no code path reaches `_blc.commit()` on that branch. Two items remain open before this closes out.
+
+---
+
+## Item 1 — Missing sha256 evidence
+
+The standing verification block requires a sha256 hash pair (before/after) for any changed file. The Directive 4 evidence included a code diff and raw terminal/SQL output, but no hash pair for `main.py`.
+
+**Required:**
+1. Run `sha256sum main.py` and capture the hash **before** any Directive 4 edits were made (from git history, a backup, or the pre-edit version if still available).
+2. Run `sha256sum main.py` on the **current** file.
+3. Paste both hashes, plus the exact command used to generate them.
+4. If the pre-edit hash cannot be reproduced (e.g., no backup exists), state that explicitly rather than omitting it — per the standing rule, an agent must say when it cannot produce a required evidence item.
+
+---
+
+## Item 2 — Governance table writeback policy
+
+Directive 4 asked for test-mode isolation via "transactional rollback or duplicate DB." In practice, the rollback was applied only to `aiem_paper_execution_log` and `aiem_paper_trades`. The rows written to `d3_governance_decisions` and `d3_governance_requests` during the test were **not** rolled back — they were committed permanently to production tables, flagged `is_test_record=True`.
+
+This is a reasonable design (it preserves an audit trail of the negative-control test), but it wasn't what the directive specified, and it means test-generated rows now live permanently in production governance tables.
+
+**Required — answer explicitly, do not proceed silently:**
+1. Confirm this was an intentional design choice and explain the reasoning (e.g., governance decisions/requests are meant to be permanently auditable regardless of test status).
+2. Confirm there is no future code path where an `is_test_record=True` row in `d3_governance_decisions` or `d3_governance_requests` could be mistaken for a real governance event (e.g., in dashboards, alerting, or downstream aggregation logic).
+3. State whether this writeback behavior should be the standing policy for all future test-mode runs against D3, or whether these two tables should also get rollback/duplicate-DB isolation in a later revision.
+
+Per the standing DATA IMMUTABILITY rule: do not delete, modify, or reclassify the existing test rows (`GDEC_GO_2d32f681f9c643e9b7d5829dc47cde84`, `GREQ_GO_ac7b7fc1fe3e4c128ac3f218d07d3ae6`) without explicit approval in this session.
+
+---
+
+## Reminder — standing rules apply
+
+- No task is complete based on description alone: raw terminal output, exact file diffs, sha256 hashes, and raw SQL result sets are required for every claim.
+- No row, table, or file may be deleted, truncated, or overwritten — including test/synthetic data — without explicit prior approval in this session.
