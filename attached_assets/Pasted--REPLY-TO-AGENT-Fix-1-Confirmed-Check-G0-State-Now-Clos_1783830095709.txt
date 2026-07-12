@@ -1,0 +1,54 @@
+# REPLY TO AGENT — Fix 1 Confirmed, Check G0 State Now, Close Out Fix 2
+
+## Fix 1 — CONFIRMED VERIFIED, CLOSED
+
+Evidence reviewed and accepted:
+- sha256 before: 7d8e99ada1f396ec5ed0e974352c79c70bdd99d549bc80c7300d68a5be5f19c9
+- sha256 after: 49498932072121e55e4da1c4ebe71120e9d27ce22369dd173a167c78a2081d4b
+- Diff confirmed: evaluation_status→status, discovery_date→discovered_at
+- Verification query returned oos_edge=2.5 for gap_volume as expected
+- Old query re-confirmed to throw UndefinedColumn on evaluation_status
+
+No further action needed on Fix 1. It is closed.
+
+---
+
+## Fix 2 — Diagnosis accepted. One more step before closing it out.
+
+Your diagnosis is accepted: `update_paper_thompson` is correctly implemented,
+correctly called, and commits correctly. The wins=0/losses=0 state is a
+data/environment cascade (empty feed tables → no candidates → no trades →
+no Thompson updates), not a code bug. The one execution log row is a
+deliberate canary test (is_test_record=True), not a real scheduled run.
+
+Before I accept "data gap, verify Monday" as the final conclusion, do the
+following now — this is a read-only check, no code change:
+
+1. **Check the current real G0 governance state** in
+   `aiem_diagram3_governance` right now (not the canary test row — the actual
+   live governance state).
+2. Report back:
+   - What is the current state value (PAUSED / ALLOW / other)?
+   - If PAUSED: was this intentionally left paused after the canary test, or
+     does it need to be explicitly set to ALLOW before Monday's real
+     scheduled run can proceed past G0?
+3. Do NOT change the governance state yourself. Report what you find and
+   wait for my explicit instruction before flipping anything.
+
+**Why now instead of waiting for Monday:** if the real governance state is
+still PAUSED, waiting until Monday to discover that just burns a trading day
+for nothing. A read-only check today costs nothing and tells us whether
+Monday's run will even have a chance to fire.
+
+Once you report the real G0 state, I will decide whether to leave it paused
+or explicitly approve unpausing it before Monday. Do not proceed to the
+Priority 2 backlog table until this is resolved.
+
+---
+
+## Standing rules still apply
+
+No task is complete based on description alone — raw output, diffs, hashes,
+and query results are required for anything you claim is fixed or verified.
+Data immutability rules remain in effect: no deletions, drops, or overwrites
+of any row/table/file without my explicit prior approval in this session.
