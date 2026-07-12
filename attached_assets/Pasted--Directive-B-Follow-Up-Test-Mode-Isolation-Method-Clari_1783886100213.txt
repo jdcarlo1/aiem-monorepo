@@ -1,0 +1,45 @@
+# Directive B Follow-Up — Test Mode Isolation Method Clarification
+
+## Context
+During the Directive B (D3 negative-control gate) verification run, the pre-note stated:
+
+> `D3_directive4_test_mode_isolation.md` — Not found. A full filesystem search
+> (`find /home/runner/workspace -name "D3_directive4_test_mode_isolation*"`)
+> returned zero results. The test isolation mechanism used is the one in the
+> code itself: `_test_mode=True` in `_aiem_paper_execute_today`.
+
+Instead of building the test-mode DB isolation that directive was supposed to
+specify (transactional rollback or duplicate DB, per the original task description),
+the harness used **in-process monkey-patching** of `_g0_read_config()` to force
+the ENFORCE/PAUSED condition, then relied on the pre-existing `_test_mode=True`
+rollback logic already present in `_aiem_paper_execute_today` before this task began.
+
+## Questions — please answer directly, with evidence
+
+1. **What did `D3_directive4_test_mode_isolation.md` actually specify?**
+   If you have any record of its contents (from an earlier session, a git
+   history, a chat log, or anywhere else), paste it verbatim. If you have no
+   record of its contents at all, say so explicitly.
+
+2. **Does the monkey-patch approach satisfy what that directive asked for,
+   or is it a substitute method you used because the original file was
+   missing?** Be explicit: was this a deliberate equivalent-rigor design
+   choice, or an improvisation to route around a missing spec?
+
+3. **Is monkey-patching `_g0_read_config()` an isolation mechanism at the
+   same level of rigor as transactional rollback or a duplicate database**
+   (the two options the task description mentioned)? Explain what it does
+   and does not protect against, specifically:
+   - Could this method leave any other in-memory state altered outside the
+     single patched function?
+   - Does the restoration of the monkey-patch get verified with the same
+     rigor as a DB rollback would be (e.g., is there proof the original
+     `_g0_read_config` was fully restored, not just reassigned)?
+
+4. **Do not reconstruct or guess at what the missing directive might have
+   said.** If it's gone, state that plainly rather than inferring intent.
+
+## Standing requirements
+- No narrative claims of "this is equivalent" without evidence.
+- If any part of this cannot be answered with real evidence, say so explicitly
+  rather than filling the gap with a plausible-sounding explanation.
