@@ -1,0 +1,61 @@
+# DIRECTIVE 4 — Build Test-Mode DB Isolation to Verify Live BLOCK Halt
+
+## Context
+Prior session (Directive 3) proved via in-process monkeypatch that `require_governance_authorization()`
+correctly computes `decision=BLOCK` when G0 is in ENFORCE+PAUSED, and that this persists correctly to
+`d3_governance_decisions`. That test did NOT call `_aiem_paper_execute_today()` end-to-end, because doing
+so unsafely would write real rows to `aiem_paper_execution_log` and `aiem_paper_trades` against the live
+production DB. This directive is to build the missing safety infrastructure so that full end-to-end halt
+verification can be run without any risk to production data.
+
+## Objective
+Enable a safe, repeatable test that proves `_aiem_paper_execute_today()` actually halts execution at the
+BLOCK check (main.py ~line 43075) and writes zero real trade/execution rows when G0 is BLOCKED — using
+EITHER of the two options below (your choice, state which you picked and why):
+
+**Option A — Test-mode flag with transactional rollback**
+- Add a `test_mode: bool = False` parameter to `_aiem_paper_execute_today()`.
+- When `test_mode=True`, all DB writes in that call path must occur inside a single transaction that is
+  explicitly rolled back at the end of the function (never committed), regardless of success/failure.
+- Must cover every write in the function: `aiem_paper_execution_log`, `aiem_paper_trades`, any governance
+  acknowledgment calls, everything.
+- Must be impossible to accidentally leave `test_mode=True` code path connected to a `commit()`.
+
+**Option B — Pre-production duplicate DB**
+- Stand up a duplicate schema/DB that the test script targets via a separate `DATABASE_URL` env var
+  (e.g. `TEST_DATABASE_URL`), fully isolated from the production `DATABASE_URL`.
+- Test script must explicitly assert it is connected to the test DB (e.g. check a marker table or DB name)
+  before running, and abort if it detects it's pointed at production.
+
+Pick whichever is faster to implement correctly and lower-risk given the current codebase structure.
+
+## What the test must ultimately produce as evidence
+1. Live G0 checkpoint config forced to ENFORCE+PAUSED (via test mode/DB, not touching live prod config).
+2. Full call into `_aiem_paper_execute_today()`.
+3. Raw terminal output showing the function exits at the BLOCK check with `status='BLOCKED_GO'`.
+4. Proof that zero rows were written to production `aiem_paper_execution_log` / `aiem_paper_trades`
+   (row counts before == row counts after, on the REAL production tables).
+5. If Option A: proof the transaction was rolled back (e.g. re-query test DB/table showing no persisted row).
+   If Option B: proof production `DATABASE_URL` was never touched during the run.
+
+## Standing verification requirements (apply to this directive and all future work)
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution (not paraphrased, not summarized).
+2. Exact before/after file diff for any file changed.
+3. sha256 hash before and after for any changed file.
+4. Raw SQL query + full result set for any DB claim made.
+
+Narrative or paraphrased claims of "fixed," "tested," "passed," or "verified" without the above pasted
+evidence are rejected. If you cannot produce the evidence for any reason, say so explicitly rather than
+describing what should have happened.
+
+## Standing data immutability rule
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created
+yourself or that you label "test," "synthetic," or "cleanup" — without my explicit prior approval in this
+session. If you want to delete or clean up anything (including old test rows), state exactly what you want
+to delete and why, then wait for my approval before doing it, then log what you did. Any unapproved
+deletion is a protocol violation you must report to me, not silently self-correct.
+
+## Deliverable
+When done, report back with: which option you chose and why, the code diff, the hashes, and the full raw
+evidence trail described above for the end-to-end BLOCK halt test.

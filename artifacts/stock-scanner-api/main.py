@@ -42994,7 +42994,7 @@ def _is_trading_day(d=None):
         return _d.weekday() < 5
 
 
-def _aiem_paper_execute_today(trigger_source: str = "unknown"):
+def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool = False):
     """
     9:35 AM ET: pick top 20, fetch live prices, record positions.
     Skips non-NYSE trading days (weekends + holidays) and any day where
@@ -43005,6 +43005,13 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
     scheduled run from a restart-triggered catch-up attempt after the fact —
     added 2026-07-09 because a day's worth of stuck catch-up rows made it
     impossible to tell whether the real 9:42 AM cron ever fired.
+
+    _test_mode=True (never set by the scheduler or any production caller):
+    All DB writes on the BLOCK path are explicitly rolled back — not committed —
+    so the function can be called end-to-end for governance BLOCK verification
+    without persisting any row to production tables.  Governance ack calls are
+    tagged is_test_record=True.  A commit() cannot be reached on the BLOCK path
+    when _test_mode=True because the rollback() call is unconditional.
     """
     import datetime as _apdt
     _today = _apdt.datetime.now(_ET).date()
@@ -43063,7 +43070,8 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
 
     if _g0_result.get("decision") == "BLOCK":
         print(f"[aiem_paper] G0 BLOCKED this run — {_g0_result.get('reason_code')} "
-              f"(system_state={_g0_result.get('system_state')}, checkpoint_mode={_g0_result.get('mode')})")
+              f"(system_state={_g0_result.get('system_state')}, checkpoint_mode={_g0_result.get('mode')})"
+              + (" [TEST_MODE: BLOCKED_G0 row will rollback, not commit]" if _test_mode else ""))
         try:
             with _psycopg2.connect(_DB_URL, connect_timeout=4) as _blc, _blc.cursor() as _blcu:
                 _blcu.execute(
@@ -43071,7 +43079,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                     "VALUES ('BLOCKED_G0', %s, %s)",
                     (trigger_source, f"G0 governance checkpoint blocked this run: {_g0_result.get('reason_code')}"),
                 )
-                _blc.commit()
+                if _test_mode:
+                    _blc.rollback()
+                    print("[aiem_paper][TEST_MODE] BLOCKED_G0 INSERT rolled back — zero production rows written")
+                else:
+                    _blc.commit()
         except Exception as _ble:
             print(f"[aiem_paper] BLOCKED_G0 log error: {_ble}")
         if _g0_gdid:
@@ -43082,7 +43094,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown"):
                     continued=False,
                     blocked=True,
                     acknowledged_by="_aiem_paper_execute_today",
-                    is_test_record=False,
+                    is_test_record=_test_mode,
                 )
             except Exception as _g0_ack_e:
                 print(f"[aiem_paper] G0 ack (BLOCK) failed, non-fatal: {_g0_ack_e}")
@@ -63169,6 +63181,80 @@ def admin_run_bullish_reversal_combo():
     import threading as _brc_thr
     _brc_thr.Thread(target=_send_bullish_reversal_combo_alert, daemon=True).start()
     return jsonify({"status": "ok", "message": "Bullish reversal combo scan triggered"})
+
+
+@app.route("/stock-api/admin/test-block-halt", methods=["POST"])
+def admin_test_block_halt():
+    """Admin-only: end-to-end BLOCK halt test for Directive 4 verification.
+
+    Monkeypatches _g0_read_config in-process so G0 appears as ENFORCE+PAUSED
+    without touching d3_checkpoint_config or d3_system_state in the DB.
+    Calls _aiem_paper_execute_today(test_mode=True) so the BLOCKED_G0 INSERT
+    is rolled back rather than committed — proving halt without any production
+    write. Returns a structured JSON result with governance_decision_id and
+    evidence fields so the test script can verify them independently.
+
+    NEVER callable by the scheduler or any production path — admin token required.
+    _test_mode=True ensures no commit() can be reached on the BLOCK path.
+    """
+    import time as _tbh_time
+    _tok = request.headers.get("X-Admin-Token", "")
+    if _tok != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+
+    import aiem_diagram3_governance as _d3_tbh
+    _orig_g0_read = _d3_tbh._g0_read_config
+    _orig_cp_read = _d3_tbh._read_checkpoint_config
+    _patch_ts     = _tbh_time.time()
+
+    def _fake_g0_read(force=False):
+        return {"ts": _patch_ts, "mode": "ENFORCE", "state": "PAUSED", "error": None}
+
+    def _fake_cp_read(checkpoint, force=False):
+        if checkpoint == "G0":
+            return {"ts": _patch_ts, "mode": "ENFORCE", "state": "PAUSED", "error": None}
+        return _orig_cp_read(checkpoint, force=force)
+
+    _log_lines = []
+
+    import io, sys
+    _orig_stdout = sys.stdout
+    _buf         = io.StringIO()
+
+    class _Tee:
+        def write(self, s):
+            _orig_stdout.write(s)
+            _buf.write(s)
+            _log_lines.append(s)
+        def flush(self):
+            _orig_stdout.flush()
+
+    try:
+        _d3_tbh._g0_read_config         = _fake_g0_read
+        _d3_tbh._read_checkpoint_config  = _fake_cp_read
+        sys.stdout = _Tee()
+
+        _aiem_paper_execute_today(
+            trigger_source="admin_block_halt_test",
+            _test_mode=True,
+        )
+
+    finally:
+        sys.stdout                       = _orig_stdout
+        _d3_tbh._g0_read_config         = _orig_g0_read
+        _d3_tbh._read_checkpoint_config  = _orig_cp_read
+
+    captured = _buf.getvalue()
+    halted   = "[TEST_MODE] BLOCKED_G0 INSERT rolled back" in captured
+    blocked  = "G0 BLOCKED this run" in captured
+
+    return jsonify({
+        "status":             "ok",
+        "blocked":            blocked,
+        "halted_rollback":    halted,
+        "test_mode_active":   True,
+        "captured_log":       captured.strip().splitlines(),
+    })
 
 
 def _send_candlestick_confluence_alert() -> None:
