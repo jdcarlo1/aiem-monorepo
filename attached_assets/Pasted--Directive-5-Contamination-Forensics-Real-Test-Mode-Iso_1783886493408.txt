@@ -1,0 +1,153 @@
+# Directive 5 — Contamination Forensics + Real Test-Mode Isolation Spec
+
+## Context (why this directive exists)
+The prior task (Directive 4 / negative-control test) was executed without a
+real spec file — `D3_directive4_test_mode_isolation.md` does not exist and
+never has (confirmed: zero filesystem hits, zero git history, no transcript
+content beyond the filename being referenced). In its absence, the agent
+improvised a monkey-patch of `_g0_read_config` instead of stopping and
+reporting the missing spec as blocking.
+
+That monkey-patch only intercepted a config **read**. It did not intercept
+DB **writes**. As a result, `require_governance_authorization` was called
+with `is_test_record=False` (the hardcoded production value in
+`_aiem_paper_execute_today`), and the test run **wrote 3 permanent rows**
+to production governance tables:
+- `d3_governance_requests`
+- `d3_governance_event_links`
+- `d3_governance_decisions`
+
+All three rows are flagged `is_test_record=FALSE` even though they
+originated from a forced/fabricated test scenario, and are immutable by
+trigger.
+
+This directive has two parts. Do not skip either. Do not combine or
+shortcut the steps below.
+
+---
+
+## STANDING RULES (apply to everything in this directive)
+
+**Verification block:** No task is complete based on description alone.
+For every step below, provide: (1) raw terminal output of actual
+execution, (2) exact before/after file diff for any changed files, (3)
+sha256 hash before/after for any changed files, (4) raw SQL query text
+plus the full raw result set for any DB step. Narrative claims of "done,"
+"fixed," or "verified" without pasted evidence are rejected. If you
+cannot produce a required evidence item, say so explicitly — do not
+substitute a description.
+
+**Data immutability rule:** You may not delete, truncate, drop, update,
+or overwrite any row, table, or file — including rows you believe you
+created yourself, and including anything you'd label "test," "synthetic,"
+or "cleanup" — without my explicit prior approval given in this session.
+State exactly what you want to change and why, wait for my approval,
+then log what was done. Any unapproved write, including an
+"annotation" or "flag" update, is a protocol violation to report, not to
+self-correct.
+
+**If any required file, spec, or piece of context is missing:** stop and
+report it as a blocking gap. Do not reconstruct, guess, or improvise a
+substitute mechanism. Improvisation is what caused this incident.
+
+---
+
+## PART A — Identify and report the contaminated rows (read-only, no writes)
+
+Goal: produce a precise, evidence-backed inventory of exactly what was
+written during the flawed test run. No deletion, no update, no flagging
+yet — this part is read-only.
+
+1. Run and paste raw output for each of the following (adjust WHERE
+   clauses only as needed to scope to the test run's timeframe/session,
+   state your scoping logic explicitly):
+
+   ```sql
+   SELECT * FROM d3_governance_requests
+   WHERE is_test_record = FALSE
+   ORDER BY created_at DESC
+   LIMIT 20;
+
+   SELECT * FROM d3_governance_event_links
+   WHERE is_test_record = FALSE
+   ORDER BY created_at DESC
+   LIMIT 20;
+
+   SELECT * FROM d3_governance_decisions
+   WHERE is_test_record = FALSE
+   ORDER BY created_at DESC
+   LIMIT 20;
+   ```
+
+2. From that output, identify the exact primary keys / row IDs and
+   timestamps of the 3 rows written by the flawed test run (one per
+   table, per the earlier report — confirm it's actually 3 and not more
+   by checking timestamps against when the test script executed).
+
+3. For each of those 3 rows, paste the full row contents (all columns)
+   so there's a permanent record of exactly what's contaminated.
+
+4. State explicitly: do these rows have any foreign-key relationships to
+   other tables (e.g. referenced by downstream analytics, D1 audit
+   trails, performance reporting)? Run the relevant query to check, and
+   paste raw output. This determines blast radius.
+
+5. Do NOT modify, flag, annotate, or delete anything in this part. Just
+   report.
+
+**Deliverable for Part A:** a report with the 3 exact row identifiers,
+full row contents, and any FK/downstream exposure findings, entirely
+backed by pasted raw SQL output.
+
+---
+
+## PART B — Real test-mode isolation spec (before any future negative-control test is attempted)
+
+Goal: define an isolation mechanism that actually satisfies "would have
+halted the paper Decision Engine without touching live trading or
+production audit tables" — and that intercepts writes, not just reads.
+
+Choose **one** of the two mechanisms below. Do not invent a third
+(e.g. another monkey-patch) without stopping to get approval first.
+
+**Option 1 — Transactional rollback around the full test invocation**
+- Wrap the entire `_aiem_paper_execute_today()` test invocation in a
+  single DB transaction (`BEGIN` before, `ROLLBACK` after — not commit).
+- This must cover every write path touched during the run, including
+  `d3_governance_requests`, `d3_governance_event_links`,
+  `d3_governance_decisions`, and any other table the call chain touches
+  — not just the one function that was patched last time.
+- Prove coverage: paste the query used to confirm zero rows exist
+  post-rollback in all affected tables, run immediately after the
+  rollback.
+
+**Option 2 — Duplicate/isolated test database**
+- Point the test run's DB connection at a separate schema or database
+  instance so all writes land there, not in production tables.
+- Prove isolation: paste connection-string/config diff showing the test
+  run's target differs from production, and paste a query against the
+  *production* tables immediately after the test run showing zero new
+  rows.
+
+For whichever option you choose, before running the actual
+negative-control test, produce and paste:
+- The exact code change implementing the isolation (diff + sha256
+  before/after).
+- A dry run showing the isolation mechanism actually intercepts a write
+  (not just a read) — e.g. attempt a write inside the isolated context,
+  then prove it either rolled back or landed in the separate target.
+
+Only after that proof is provided should the actual negative-control
+test (forcing a BLOCK verdict and tracing it through D1→D2→Decision
+Engine) be attempted.
+
+---
+
+## What NOT to do
+- Do not treat Part A as an opportunity to also clean up, flag, or
+  annotate the rows — that requires my explicit approval first, as a
+  separate step after you report findings.
+- Do not re-run the negative-control test until Part B's isolation
+  mechanism is built and proven per the criteria above.
+- Do not report either part as complete without the pasted raw
+  evidence required by the standing verification block.
