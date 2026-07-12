@@ -1,0 +1,76 @@
+# DIRECTIVE — Diagram 3 SHADOW → ENFORCEMENT Status: Evidence Required
+
+Provide evidence answering the following. Do not answer with a narrative summary — every claim below must be backed by pasted raw output.
+
+## 1. Is SHADOW mode an intentionally deferred phase, or an unimplemented feature?
+
+Search the codebase, comments, docstrings, commit messages, and any planning/roadmap files for explicit references to a SHADOW → ENFORCEMENT transition, a feature flag, a config toggle, or a milestone marker (e.g. `ENFORCEMENT_ENABLED`, `GOVERNANCE_MODE`, `SHADOW_MODE = True`, etc.).
+
+```
+grep -rn "SHADOW\|ENFORCEMENT\|enforcement_mode\|shadow_mode" . --include="*.py" --include="*.md" --include="*.txt"
+```
+
+- If a config flag or mode switch exists, show it (file + line) and state what value it is currently set to and where that value is set (hardcoded, env var, DB row, etc.).
+- If no such flag or switch exists anywhere in the codebase, state that explicitly: this would mean enforcement is not a deferred phase but a genuinely unbuilt code path — `decision == "BLOCK"` logic does not exist anywhere that would actually halt execution.
+
+## 2. If enforcement is implemented (even if currently disabled): prove it works via a paper-mode negative-control test
+
+- Identify the exact code path where a `BLOCK` decision, if returned, would need to stop the Decision Engine from proceeding (file + line + function).
+- Design and run a controlled test: force a governance checkpoint (G0–G6) to return `decision == "BLOCK"` in paper-trading mode only, and show:
+  - The exact mechanism used to force the BLOCK (e.g., monkeypatch, test flag, manual DB row insert) — must not touch live trading config.
+  - Raw runtime log output showing the BLOCK decision was returned.
+  - Raw runtime log output showing the Decision Engine halted / did not execute a trade as a result.
+  - Raw audit/governance DB query + result showing the BLOCK decision was persisted with correct metadata (checkpoint, timestamp, decision_id).
+  - Confirmation (with evidence, not assertion) that no live trading process, account, or order was affected by this test.
+- If you cannot construct this test without touching live trading, state that explicitly and explain what would be required to run it safely, rather than skipping it.
+
+## 3. If enforcement is NOT implemented
+
+- State this plainly: no code change should be attempted without my explicit approval. Do not write, enable, or wire any enforcement logic in this session.
+- If there is a documented roadmap milestone for when enforcement should be built, cite it (file, doc, comment) with exact text. If none exists, say so.
+
+## Context — the intended governance progression (do not treat this as a wiring bug)
+
+The designed rollout for Diagram 3 is staged, not a single on/off switch:
+
+```
+SHADOW → VERIFIED SHADOW → PAPER ENFORCEMENT → FULL ENFORCEMENT
+```
+
+- In **SHADOW**, Diagram 3 receives real pipeline data and computes ALLOW/PAUSE/QUARANTINE/BLOCK verdicts, but the verdict cannot stop anything. This is correct and expected while validating that governance decisions are accurate and don't produce false blocks.
+- **VERIFIED SHADOW** is the stage where a negative-control test (forcing a BLOCK and confirming it *would have* stopped execution, without actually enforcing) proves the mechanism works.
+- **PAPER ENFORCEMENT** is where Diagram 3 can actually halt the paper Decision Engine on a BLOCK, without affecting live trading.
+- Full enforcement follows once paper enforcement is validated.
+
+The permanent target architecture is:
+
+```
+Diagram 3 produces governance verdict
+        ↓
+Diagram 1 validates and enforces it
+        ↓
+Diagram 2 acknowledges and obeys it
+        ↓
+Decision Engine may proceed only after approval
+```
+
+Diagram 3 should never directly modify stock scores, indicators, probabilities, or individual trade logic — enforcement, once live, flows through Diagram 1, not around it.
+
+**The question this directive answers is not "should SHADOW mode be flipped to ENFORCEMENT" — it should not be, without passing the negative-control test first.** The question is: where in this progression is the system actually sitting today, with evidence, and has the negative-control test been run yet.
+
+---
+
+## Standing verification requirement (applies to this and all future tasks)
+
+No task is complete based on description alone. You must provide:
+
+1. Raw terminal output of actual execution (not paraphrased)
+2. Exact before/after file diff for any changed file
+3. sha256 hash before/after for any changed file
+4. Raw SQL query + result set if a database is involved
+
+Narrative or paraphrased claims of "fixed," "tested," "confirmed," or "works" without pasted evidence are rejected. If you cannot produce evidence for something, say so explicitly rather than describing it as done.
+
+## Standing data immutability rule
+
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data or code you created yourself or label as "test," "synthetic," "cleanup," or a "negative control" — without my explicit prior approval in this session. This includes any temporary flag flips or monkeypatches used to run the negative-control test in item 2. State what you want to change and why, then wait for my approval before touching anything. Any unapproved deletion or modification is a protocol violation to report, not self-correct.
