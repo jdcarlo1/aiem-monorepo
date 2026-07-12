@@ -1,0 +1,41 @@
+# AIEM Module Registry — Decisions D1 & D2, and Fixes for F4/F5/F6
+
+## Decision D1 — What is `module_name`?
+
+**Resolution: Option D1-A.** `module_name` = file basename without extension (e.g. `aiem_macro_engine`), matching what `aiem_registry_build.py` already derives.
+
+**Reasoning:** MODULE_PHASE_MAP is the larger, authoritative source (195 entries vs. 59 AIEM_MODULES stages), and file-level granularity is what the verification workflow actually operates on — file paths, line numbers, diffs, hashes. Add `stage_name` as a separate, nullable bridging column (as already proposed) for the 59 AIEM_MODULES entries. Leave `stage_name` NULL for the 135 MPM-only entries that have no AIEM_MODULES stage.
+
+## Decision D2 — `deep_rl` split: one row or two?
+
+**Resolution: Option D2-A.** Two separate rows, one per file:
+- `deep_rl_policy.py` → phase 15, `stage_name = 'deep_rl'`
+- `rl_position_sizer.py` → phase 11, `stage_name = 'deep_rl'`
+
+**Reasoning:** This matches MODULE_PHASE_MAP exactly and preserves the real phase distinction found in Finding F3 — collapsing it into one row (Option D2-B) would hide that these two files live in genuinely different functional layers (Learning & Adaptation vs. Risk Gate & Position Sizing).
+
+## Fix for F4 / F6 — DDL discrepancy between the two existing DDL sources
+
+Use `aiem_registry.py`'s DDL (lines 48 / 75 / 107) as the **sole authoritative source** for all three `CREATE TABLE` statements (`aiem_module_registry`, `aiem_tool_registry`, `aiem_function_registry`). This version has the `UNIQUE` constraint on `module_name` that `dev_schema_bootstrap.sql` is missing.
+
+- Do **not** let `dev_schema_bootstrap.sql` run against these three tables at all.
+- If it currently defines these tables anywhere in setup/bootstrap scripts, either:
+  - patch it to match `aiem_registry.py`'s DDL exactly (including the UNIQUE constraint), **or**
+  - remove the duplicate definitions from it entirely,
+  so there is only one source of truth going forward.
+
+## Fix for F5 — population path
+
+Confirmed: do not attempt to wire live registration into `execute_stage()` — it correctly only reads from the registry and should stay that way.
+
+Population should happen via a corrected, run-once `aiem_registry_build.py`, updated for the D1/D2 schema decisions above, executed manually after the tables exist. `execute_stage()`'s read-only behavior is unchanged.
+
+## Standing requirement before any DDL is applied
+
+Per standing verification protocol:
+
+1. Show the exact final `CREATE TABLE` statements for all three tables, plus a dry-run/plan output, **before** executing anything. No `CREATE TABLE` runs until explicitly approved in this session.
+2. After approval and execution, provide the standard evidence block:
+   - Raw terminal output of actual execution
+   - sha256 hash before/after for any changed files
+   - The actual `SELECT` result set from `information_schema.tables` confirming all three tables now exist
