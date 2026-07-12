@@ -1,0 +1,39 @@
+# Fix 4 Verification Directive — Two-Implementation Reconciliation
+
+Your Fix 4 change only added a docstring to `_h_specialist_council` asserting that it and `specialist_council.run_council()` are "not competing implementations." A comment asserting this is not proof. You need to show it.
+
+## What to produce
+
+**1. Call-site inventory for `run_council(`**
+Run and paste raw output:
+```
+grep -rn "run_council(" --include="*.py" .
+```
+For each result, state: which file, which line, what calls it (function/module), and what it does with the return value (assigned to what variable, passed to what downstream consumer).
+
+**2. Call-site inventory for the orchestrator inline debate path**
+Run and paste raw output:
+```
+grep -rn "arbitrate_evidence\|_h_specialist_council" --include="*.py" .
+```
+Same breakdown: file, line, caller, what happens to the return value.
+
+**3. Confirm no overlap in consumers**
+State explicitly, with line numbers, whether any single downstream function reads output from BOTH paths. If yes, explain how that's reconciled (or admit it's not and this is a real conflict, not a documentation issue).
+
+**4. Confirm both are actually invoked in a live run**
+Paste raw terminal output from an actual run (not a description) showing both paths executing — e.g., log lines, print statements, or a debugger trace — for the same ticker in the same cycle, OR evidence they run in genuinely separate cycles/contexts (e.g., one only during backtest, one only live).
+
+## Standing verification requirements (apply to this and all future tasks)
+
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution (not paraphrased/narrated).
+2. Exact before/after file diff.
+3. sha256 hash before and after for every changed file.
+4. Raw SQL query + result set, if a database is involved.
+
+Narrative claims like "fixed" or "tested" without pasted evidence are rejected. If you cannot produce the evidence, say so explicitly — do not substitute a summary.
+
+## Standing data immutability rule
+
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test," "synthetic," or "cleanup" — without my explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
