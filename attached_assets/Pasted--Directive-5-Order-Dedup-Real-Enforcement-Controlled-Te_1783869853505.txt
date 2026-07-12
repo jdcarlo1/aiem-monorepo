@@ -1,0 +1,57 @@
+# Directive 5 — Order Dedup: Real Enforcement + Controlled Test
+
+## Context / Why
+
+Audit confirmed the following is currently TRUE (not a hypothesis — verify again yourself before touching anything):
+
+- There is **no unique constraint** on `(ticker, trade_date)` in `aiem_paper_trades`.
+- The `ON CONFLICT DO NOTHING` clause found in the insert path is a **no-op** because there is no constraint for it to conflict against. A duplicate order currently inserts silently as a second row.
+- `order_dedup.py` exists in the codebase but is **not called** anywhere in the live paper-execution path (`_aiem_paper_execute_today()` or wherever the real entry point is — confirm, don't assume).
+- `aiem_paper_trades` currently has **0 rows** (G0 deployed Sat July 11, 2026; no trading day has occurred yet). This means zero migration risk right now — there is no existing duplicate data to reconcile before adding a constraint. This will not remain true once trading starts, so this should be done before that happens.
+
+## Task
+
+### Part A — Add real enforcement
+
+1. Add a genuine `UNIQUE(ticker, trade_date)` constraint on `aiem_paper_trades` at the database level.
+   - If a broker/account dimension is relevant (e.g., multiple accounts could legitimately hold the same ticker on the same date), confirm the correct uniqueness key with the actual schema and trading model before applying — do not assume `(ticker, trade_date)` is complete if it isn't.
+2. Wire `order_dedup.py` (or equivalent logic) into the actual live paper-execution call path as an app-level pre-check that runs BEFORE the insert is attempted — not just relying on the DB constraint to catch it after the fact.
+3. When a duplicate is caught (either by the pre-check or by the DB constraint), emit a governance event/log entry so D3 has visibility into the fact that a duplicate attempt occurred and was blocked. Do not let it fail silently.
+
+### Part B — Controlled duplicate-insert test
+
+Approved test approach:
+- Use a synthetic ticker `DEDUP_TEST` and date `2099-01-01` (clearly out-of-band, cannot collide with real trading data).
+- Attempt to insert the same `(DEDUP_TEST, 2099-01-01)` trade twice through the real code path (not a hand-crafted SQL insert that bypasses the app logic — it must go through the actual execution path being tested).
+- Capture and report:
+  - Whether the first insert succeeded.
+  - Whether the second insert was rejected/blocked, and at which layer (app pre-check vs DB constraint).
+  - The governance event/log entry generated (if any) for the blocked duplicate.
+- **Do not delete the `DEDUP_TEST` rows without asking first.** State that they exist and are ready for cleanup, then wait for explicit approval before running the DELETE. Log the approval and the deletion when it happens.
+
+## Standing verification block (applies to this entire directive)
+
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution (not paraphrased).
+2. Exact before/after file diff for every file changed.
+3. sha256 hash before/after for every changed file.
+4. Raw SQL query text + full result set for every database check or change (schema check, constraint creation, insert attempts, row counts).
+
+Narrative or paraphrased claims of "fixed," "tested," "working," or "wired" without pasted evidence are rejected. If you cannot produce a required evidence item, say so explicitly rather than omitting it.
+
+## Standing DATA IMMUTABILITY rule (applies to this entire directive)
+
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself, and including anything labeled "test," "synthetic," or "cleanup" — without my explicit prior approval in this session.
+
+Before any deletion: state exactly what you want to delete and why, and wait for my approval. Log the approval and the action once it happens. This applies directly to the `DEDUP_TEST` rows created in Part B.
+
+Any unapproved deletion is a protocol violation to report immediately, not to self-correct or quietly undo.
+
+## Report format
+
+Structure your final report as:
+1. Schema change made (constraint DDL, before/after schema query result).
+2. Code change made (file diff, sha256 before/after).
+3. Test execution (Part B): raw output of both insert attempts, DB state after each, governance event captured.
+4. Explicit statement of what evidence (if any) you could not produce, and why.
+5. `DEDUP_TEST` row status: present / pending approval for deletion — do not delete without my go-ahead.

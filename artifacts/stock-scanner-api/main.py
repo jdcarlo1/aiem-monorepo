@@ -44184,6 +44184,38 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 except Exception:
                     pass
 
+                # ── Order dedup pre-check [A7 enforcement] ───────────────────
+                # Application-layer gate runs BEFORE the INSERT.  If (ticker,
+                # trade_date) already exists in aiem_paper_trades the duplicate
+                # is caught here, a D3 data_guard.failed event is emitted, and
+                # the candidate is skipped via `continue`.
+                # DB constraint aiem_paper_trades_ticker_date_unique is the
+                # second safety net in case this check is ever bypassed.
+                _cu.execute(
+                    "SELECT id FROM aiem_paper_trades "
+                    "WHERE ticker=%s AND trade_date=%s LIMIT 1",
+                    (_t, _today)
+                )
+                _dedup_existing = _cu.fetchone()
+                if _dedup_existing:
+                    print(f"[aiem_paper] ORDER_DEDUP_BLOCKED {_t}: "
+                          f"row id={_dedup_existing[0]} already exists for "
+                          f"{_today} — skipping duplicate")
+                    try:
+                        import aiem_diagram3_governance as _d3ev_dedup
+                        _d3ev_dedup.emit_d2_pipeline_event(
+                            "data_guard.failed", ticker=_t,
+                            reason=(f"gate=order_dedup duplicate "
+                                    f"row_id={_dedup_existing[0]} "
+                                    f"ticker={_t} date={_today}"))
+                    except Exception:
+                        pass
+                    _dg_bus_publish(
+                        "DATA_GUARDS_FAILED",
+                        {"gate": "order_dedup",
+                         "reason": f"duplicate trade id={_dedup_existing[0]}"})
+                    continue
+
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
                         (trade_date, ticker, trade_type, entry_price, quantity,
@@ -44195,7 +44227,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                          pre_sizing_model, audit_trace_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
                             %s,%s,%s,%s,%s,%s,%s,FALSE,%s)
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
                 """, (_today, _t, _trade_type, _fill_price, _qty,
                       _notional, pick["source"], pick.get("detail",""),
                       _hold_days, _fill_price,
