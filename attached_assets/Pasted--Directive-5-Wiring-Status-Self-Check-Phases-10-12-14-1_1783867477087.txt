@@ -1,0 +1,45 @@
+# Directive 5 — Wiring Status Self-Check (Phases 10/12/14/15 + Final E2E Trace)
+
+## Purpose
+Before any further remediation work, report the current wiring status of Phase 10 (Risk), Phase 12 (Execution), Phase 14 (Learning), and Phase 15 (Memory) tools, plus the Section 13 Final End-to-End trace. This is a status check, not a fix request. I need to know what you can actually see and prove right now — not what you believe should be true.
+
+## STANDING VERIFICATION BLOCK (applies to every claim below)
+
+No item is "wired" or "verified" based on description alone. For every claim you make, you must provide:
+
+1. Raw terminal output of the actual grep/ast-grep/execution used to check it
+2. Exact before/after file diff (if anything was touched — it should not be)
+3. sha256 hash of any file you inspected, if you're asserting its current state
+4. Raw SQL query + full result set, if a database claim is involved
+
+If you cannot produce one of these for a given item, you must explicitly write "CANNOT VERIFY — missing [X]" instead of describing it in prose.
+
+## STANDING DATA IMMUTABILITY RULE
+
+You may not delete, truncate, drop, or overwrite any row, table, or file — including anything you created yourself or label "test," "synthetic," or "cleanup" — without my explicit prior approval in this session. If you believe something needs to be deleted, state what and why, then wait. Do not self-correct by deleting first.
+
+## Part A — Wiring status table
+
+For every item in Phase 10 (risk gates: kill switch, daily loss limit, position reconciler, order dedup, portfolio correlation risk, sizing gate, and any others), Phase 12 (execution), Phase 14 (learning), and Phase 15 (memory), produce this exact table, backed by raw grep/ast-grep output per row:
+
+| Item | Defined at (file:line) | Every call site (file:line) | Return value: assigned or discarded? | If assigned — downstream reader, exact line, or DEAD-END | Reachable from live candidate pipeline, or only from a separate/unused path? |
+|---|---|---|---|---|---|
+
+**Phase 10 specific requirement:** for each risk gate, show the exact if / raise / return where its result actually blocks or allows a trade. A check that computes pass/fail but is never branched on is NOT a functioning gate — flag it explicitly as NON-ENFORCING. This is the same pattern already caught once with the sizing gate; I need to know if it or anything like it still exists anywhere in these four phases.
+
+**No summary prose in Part A. Commands, raw output, tables only.**
+
+## Part B — Can you currently see the full wire?
+
+Answer directly, with evidence, not narrative:
+
+1. Can you currently trace a real candidate through all 21 steps of the pipeline (intake → learning registration) end-to-end, with an actual value handed from each step to the next?
+2. Which of the 21 steps, if any, currently lack a shown handoff (i.e., the step "ran" but you can't show its output feeding the next step's input)?
+3. Of the four phases in this directive (10/12/14/15), which ones are you fully confident are wired into the live D1→D2→D3 path today, versus which ones you are not certain about?
+4. List anything in these four phases you have NOT yet checked, so I know the boundary of what this report actually covers.
+
+## What a passing report looks like
+
+- No NON-ENFORCING gates left unflagged in Phase 10.
+- Every table row backed by pasted raw output, not description.
+- Part B answered plainly — including "I don't know" or "cannot verify" where true. A confident-sounding narrative with no pasted evidence is a failing report, not a passing one.
