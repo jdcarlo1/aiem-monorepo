@@ -1,0 +1,98 @@
+# Directive: D1 (Master Orchestrator) Remediation
+
+**Source:** Full architectural audit of `aiem_master_orchestrator.py` (Sections A–O), plus separate order-dedup verification session. This directive consolidates every confirmed finding into a prioritized fix list. Do not begin work on any item until you have read this entire directive.
+
+---
+
+## STANDING RULES (apply to every item below, every session)
+
+**Verification block — required for every task:**
+No task is complete based on description alone. For every change you claim to have made, you must provide:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash before/after for any changed files
+4. Raw SQL query + full result set if a database is involved
+
+Narrative or paraphrased claims of "fixed" or "tested" without pasted evidence are rejected. If you cannot produce a required evidence item, state that explicitly — do not substitute a description.
+
+**Data immutability — required for every task:**
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test," "synthetic," or "cleanup" — without my explicit prior approval in that session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+**No narrative self-report.** "Wired," "confirmed," "cleaned up," or "should work now" are not acceptable completion statements without the evidence above attached in the same message.
+
+---
+
+## PRIORITY 1 — Define D1's actual role (blocking everything else)
+
+**Finding:** D1 is not the sole orchestrator of live execution. `run_full_cycle()` is never called by the live paper-execution pipeline (`_aiem_paper_execute_today()` in `main.py`, 600+ lines, self-contained). 164 scheduled jobs (150 in `main.py` APScheduler + 14 in `aiem_process.py` BlockingScheduler), 11 daemon threads, and at least 2 REST endpoints (`/force-execute`, `/admin/aiem-process/run-scan`) all launch pipeline logic without going through D1. D1 is also not imported at server boot — it's lazily imported inside `_aiem_paper_execute_today()`.
+
+**Task:** Do not write any code yet. Produce a written recommendation covering:
+- Option A: Make D1 the real single gate — every scheduler, thread, and REST endpoint that currently launches pipeline logic directly is rerouted through `run_full_cycle()` (or an equivalent single entry point). Estimate scope/risk.
+- Option B: Formally redefine D1's role as a research/analysis pipeline that runs in parallel to live execution, not in control of it. Document this as the intentional architecture and update any spec/memory files that currently claim otherwise.
+
+Wait for my decision before proceeding to Priority 2–6, since several depend on which option is chosen.
+
+---
+
+## PRIORITY 2 — Materialize the module/tool registry in the database
+
+**Finding:** `aiem_module_registry` and `aiem_tool_registry` do not exist in the database — the DDL is defined in `aiem_registry.py` but was never applied. `get_registry()` returns `None`. Two separate, unreconciled in-memory registries exist instead: D1's own `AEIM_MODULES` dict (52 entries) and `aiem_registry.py`'s `MODULE_PHASE_MAP` (195 entries). Module ownership shows 12 co-owners for "Phase 1," contradicting any single-owner design intent. This gap is also the root cause of the Section I "Line 411" silent fallback (see Priority 4).
+
+**Task:**
+1. Apply the existing DDL for `aiem_module_registry` and `aiem_tool_registry` to the database.
+2. Reconcile the two in-memory registries (`AEIM_MODULES` and `MODULE_PHASE_MAP`) into the new DB tables as the single source of truth. Flag every discrepancy between the two in-memory sources rather than silently picking one.
+3. Resolve or explicitly document the 12 co-owners of Phase 1 — either assign one canonical owner per the "exactly ONE owner" requirement, or formally revise that requirement.
+4. Provide evidence: DDL execution output, row counts before/after, and a diff of the reconciliation logic.
+
+---
+
+## PRIORITY 3 — Wire D1 → D3 verdict handling
+
+**Finding:** D1 has zero references to `aiem_diagram3_governance` anywhere in the file. D1 never imports D3 and never calls any D3 function. Zero handling exists for any of the 5 D3 verdict types (APPROVE, PAUSE, QUARANTINE, ROLLBACK, STOP) — confirmed "received: NO / processed: NO" for all five. `d3_strategy_registry` and `d3_rollback_registry` both have 0 rows; no end-to-end test evidence exists for any verdict type. This is a direct blocker for PAPER ENFORCEMENT, which requires D1 to actually act on a D3 BLOCK verdict.
+
+**Task:**
+1. Implement a real code path in D1 (or the actual live entry point, per the Priority 1 decision) that receives a D3 verdict and processes it — for all 5 verdict types, not just BLOCK.
+2. Confirm D3 never reaches into D2 to directly mutate indicators/signals — verdicts must flow D3 → D1 (or equivalent gate) → D2 acknowledges, never D3 → D2 directly.
+3. Provide evidence for each of the 5 verdict types independently: a forced verdict of that type, raw trace showing it was received and processed, and confirmation of the resulting system behavior (e.g., a forced BLOCK actually halts execution; a forced APPROVE does not).
+
+---
+
+## PRIORITY 4 — Fix the silent fallback at Section I Line 411
+
+**Finding:** In `execute_stage()`, a registry lookup failure silently converts to `{found: False}` and the stage executes anyway — it does not block or flag the failure. This is a "fails open" pattern: a failure to verify module ownership is currently treated as equivalent to "verified, no owner conflict," rather than as a blocking condition. This will likely self-resolve once Priority 2 is done and a real registry exists to check against, but must be explicitly re-verified.
+
+**Task:**
+1. After Priority 2 is complete, re-test this exact code path with the real registry in place.
+2. If a registry lookup still fails for any reason, the stage must NOT execute silently — it must raise, quarantine, or otherwise block, with the failure logged and surfaced (not silently passed).
+3. Also address the related Line 540–541 finding: Polygon RVOL supplemental data load failures are silently swallowed and a "PARTIAL" result is returned without flagging the enrichment failure. This should be logged as a visible degraded-data flag on the result, not silently dropped.
+
+---
+
+## PRIORITY 5 — Add real trace_id/packet_id propagation
+
+**Finding:** `packet.audit` entries only contain `{timestamp, module, status, output_keys, output}` — no `packet_id` or `trace_id` field. Trace continuity currently only exists implicitly, via being on the same in-memory `AEIMTradePacket` object. This breaks the moment anything persists to DB or crosses a process boundary. `aiem_diagram2_trace_audit` has 0 rows — no full pipeline run has ever been recorded end-to-end in the DB.
+
+**Task:**
+1. Add explicit `trace_id` (and `packet_id` if distinct) fields to every audit entry written by `_run()`/`execute_stage()`, not just implicit continuity via object identity.
+2. Run one full pipeline cycle end-to-end and confirm via raw SQL query that `aiem_diagram2_trace_audit` contains a complete, trace_id-linked record of all stages for that run.
+3. Provide the raw SQL result set as evidence — do not describe it, show it.
+
+---
+
+## PRIORITY 6 — Lower priority / cleanup items
+
+Address these after Priorities 1–5, or in parallel if they don't conflict:
+
+1. **Event bus persistence.** `aiem_bus_transfer_log` and `d3_bus_events` do not exist in the DB — the bus (`aiem_communication_bus.py`) is in-process only, with no dead-letter queue and no retry mechanism. Decide whether persistence is required for your current rollout stage; if yes, implement and provide before/after schema evidence.
+2. **Boot sequence.** The documented sequence (Registry → Configuration → Secrets → Feature Flags → Module Registry → Tool Registry → Schedulers → Event Bus → Audit Layer → Diagram 2 → Diagram 3 → Paper Pipeline → Background Services) does not exist as ordered, logged stages anywhere in the code. Either implement it as explicit, logged boot stages, or update the documentation/memory files to reflect the actual deferred-init sequence (schema bootstrap → DB table inits → auditor → V3 schema) as the accepted design.
+3. **Position reconciler.** Confirmed not wired — the function exists but queries the wrong table (`ai_stock_picks` instead of `aiem_paper_trades`) and would be incorrect even if connected. This requires an explicit decision from me: wire it to a real broker API, or formally retire the spec requirement. Do not act on this without that decision.
+4. **Scheduler count discrepancy.** Confirmed 164 total scheduled jobs (150 + 14) against a previously documented "110+" figure — a gap of 54. Provide a reconciliation: is this drift since the figure was set, or was the original count wrong? No code change required, just a factual accounting.
+
+---
+
+## What NOT to do
+
+- Do not mark any item complete without the evidence specified in the Standing Rules.
+- Do not delete, drop, or truncate any table or row — including ones you create for testing — without asking first and receiving explicit approval in that session.
+- Do not silently pick one of the two in-memory registries as "the" source of truth in Priority 2 — surface every discrepancy for review.
+- Do not proceed past Priority 1 until you have my decision on D1's role.
