@@ -1,0 +1,38 @@
+# Directive: Verify `is_test_record = FALSE` Fix and Investigate D2_EVENT_PUBLISHER Status Flip
+
+## Context
+The recent fix adding `WHERE is_test_record = FALSE` to health-check queries across the six D3 governance tables changed `D2_EVENT_PUBLISHER` status from `ACTIVE` to `NO_EVENTS_OBSERVED_YET`. This means the prior "ACTIVE" status was produced entirely by test rows — zero real D2 publisher events have ever been recorded. Before this is accepted as closed, the following four items must be verified with evidence.
+
+## Required Items
+
+### 1. Full SHA256 hashes
+Provide the complete 64-character sha256 hash (not truncated) for both files, before and after the fix:
+- `aiem_diagram3_governance.py`
+- `generate_d3_manifests.py`
+
+### 2. Justify the chain-integrity exception at line 1071
+The predecessor hash lookup at `aiem_diagram3_governance.py:1071` was carved out as exempt from the `is_test_record = FALSE` filter.
+- State explicitly why this lookup needs visibility into test rows.
+- Confirm whether a test-record row can ever become the "predecessor" hash link for a real production record in the chain. If yes, explain why that's acceptable or propose a fix so test/real chains cannot cross.
+
+### 3. Confirm `total_acks = 0` is a true zero, not a wiring gap
+`total_acks` was 0 both before and after the fix (no change from test-row removal).
+- Confirm via raw SQL that this is because no acknowledgments have occurred yet under SHADOW mode (expected), not because the acks pipeline is itself uninstrumented or silently not counting real acks.
+- Show the raw query and full result set used to confirm this.
+
+### 4. Confirm the standing rule is persisted, not just stated
+The response claims the `is_test_record = FALSE` requirement is "now documented in project memory."
+- Show the actual file path and diff where this rule was written.
+- Confirm this is a persistent artifact a future agent session will read (e.g., a rules/README/config file checked into the repo or project memory system), not just a statement made in this chat.
+
+## Standing Verification Block (required for every item above)
+For each of the four items, provide:
+1. Raw terminal output of actual execution (not paraphrased).
+2. Exact before/after file diff, where applicable.
+3. Sha256 hash before/after for any changed files.
+4. Raw SQL query plus full result set for any database claim.
+
+Narrative or paraphrased claims of "confirmed" or "verified" without pasted evidence are rejected. If any evidence item cannot be produced, state that explicitly rather than omitting it.
+
+## Standing Data Immutability Rule
+No row, table, or file — including test/synthetic/cleanup-labeled data — may be deleted, truncated, dropped, or overwritten without explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
