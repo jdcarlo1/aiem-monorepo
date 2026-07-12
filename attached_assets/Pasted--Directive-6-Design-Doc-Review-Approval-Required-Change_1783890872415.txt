@@ -1,0 +1,37 @@
+# Directive 6 — Design Doc Review: Approval + Required Changes
+
+**To:** Replit Agent
+**Re:** D3_directive6_enforce_fix_and_paper_enforcement.md — Item 3 (PAPER ENFORCEMENT design doc)
+**Date:** July 12, 2026
+
+---
+
+## Status of Items 1 & 2
+
+Items 1 (bare-return bug fix) and 2 (harness re-run to clean PASS) are **verified and closed**. Evidence reviewed and accepted:
+- Diff scoped exactly to the BLOCK-path `return` statement, sha256 before/after confirmed, `awk` scan confirmed zero remaining bare returns in the function.
+- Harness re-run produced `[FULL-TEST VERDICT] PASS`, with raw SQL delta confirming `d3_test_isolation` tables incremented correctly and `public` schema showed zero movement across all 9 tables checked.
+
+No further action needed on items 1 or 2.
+
+## Item 3 (Design Doc) — Conditionally Approved
+
+The design is thorough and correctly scoped as design-only. Before any PAPER ENFORCEMENT code is written, make these two changes to the design and confirm back:
+
+### 1. Fix the data-deletion language
+The design doc's cleanup step currently reads: *"delete the test paper trade row (pre-approved per Standing Data Immutability rule)."*
+
+This is **incorrect** and must be corrected. The Standing Data Immutability rule requires **explicit approval in that session**, not a standing blanket pre-approval written into a doc. Strike that phrasing. At the actual time of deletion, state what you want to delete and why, and wait for my explicit approval in that session before deleting anything — including test rows created by this test itself.
+
+### 2. Turn the flagged operational risk into a real guard, not just a note
+You correctly flagged that if the governance state machine is left in a blocking state (`PAUSED`, `RESTRICTED`, etc.) without an intentional reason, ENFORCE mode would silently halt paper trading with only the `aiem_paper_execution_log` row as evidence.
+
+Before writing the PAPER ENFORCEMENT integration code, add this as an actual pre-ENFORCE checklist **guard/alert** — not just documentation. Specifically:
+- (a) A check that confirms governance state is `NORMAL` before the ENFORCE switch is made (or an explicit, logged reason if it isn't).
+- (b) An actual alerting path (even a simple one — log line, Telegram notification, etc.) that fires when a `BLOCKED_GO` row is written to the exec_log, so a silent halt doesn't go unnoticed.
+
+## Next Step
+
+Once both changes above are reflected in the design (or implemented as guards), reply with the updated design and I'll review before you begin PAPER ENFORCEMENT implementation. Do not begin writing the enforcement integration code until I confirm.
+
+The standing verification block and data immutability rule continue to apply to all work in this directive.
