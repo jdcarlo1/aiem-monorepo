@@ -1,0 +1,62 @@
+# Discovery Engine — Go-Live Status & Remaining Follow-Up
+
+**Last updated:** 2026-07-11 (evening)
+**Purpose:** Track what's confirmed done vs. what still needs real evidence over the coming week. Do not mark any remaining item complete without pasting the actual evidence requested — no narrative summaries.
+
+---
+
+## ✅ Confirmed done (with real evidence already provided)
+
+| Task | Status | Evidence |
+|---|---|---|
+| Deployment type = Reserved VM | ✅ Done | `.replit` config: `deploymentTarget = "gce"` (Google Compute Engine VM) |
+| Scheduler lives in main process, survives restarts | ✅ Done | `_scheduler.start()` called unconditionally in `main.py` at boot, no separate script. Live startup log (2026-07-12 00:15) confirms all 4 jobs registered, including missed-day check |
+| Missed-day alerting implemented and tested | ✅ Done | Simulated test: deleted a day's rows → check ran → real Telegram alert fired (`ok=True`) → rows restored → re-ran check → correctly printed "OK, 800 rows present" with no false alert. Also correctly skips alerting on real holidays (checks `polygon_market_daily` too, to distinguish "no data because holiday" from "data missing because job broke") |
+
+**Scheduler registration confirmed (`main.py` lines 7477–7484):** missed-day check runs Mon–Fri 17:50 ET — 40 minutes after the 17:10 ET movers job, giving the background thread time to finish.
+
+---
+
+## ⏳ Remaining — cannot be evidenced yet, needs real elapsed time
+
+**Do not mark any of these "done" based on code review alone. Each requires waiting for the actual scheduled time to pass, then pasting the real output.**
+
+### Task 3 — Confirm the job fires on its next real scheduled run
+- **Check after:** Monday, July 14, 2026, any time after 17:10 ET
+- **What to paste:** raw log output showing:
+  ```
+  [market_movers] daily tiered movers job started in background
+  [market_movers] completed: {"scan_date": "2026-07-14", ...}
+  ```
+- **Then paste** the SQL result showing a new row for `2026-07-14` with `total_rows = 800` (200 per tier).
+
+### Task 4 — Confirm 3 consecutive real trading days of data
+- **Check after:** Wednesday, July 16, 2026, after market close
+- **Run this exact query and paste the raw output:**
+  ```sql
+  SELECT scan_date, COUNT(*) AS total_rows
+  FROM daily_market_movers
+  WHERE scan_date >= CURRENT_DATE - INTERVAL '5 days'
+  GROUP BY scan_date
+  ORDER BY scan_date DESC;
+  ```
+- **Expected:** three rows — Mon July 14, Tue July 15, Wed July 16 — each with `total_rows = 800`. Any missing date or wrong count means the job did not run cleanly that day and needs investigation before this task is marked done.
+
+### Task 6 — Confirm the discovery cycle finally produces its first output
+- **Check after:** Friday, July 18, 2026 (requires 5 consecutive trading days of `daily_market_movers` data — earliest possible date assuming Mon–Fri all run clean)
+- **Run this exact query and paste the raw output:**
+  ```sql
+  SELECT * FROM discovery_cycle_log ORDER BY id DESC LIMIT 5;
+  ```
+- **Expected:** at least one row now exists (currently 0 rows — the `min_days=5` gate in `get_wl_rows_for_engine()` has never been satisfied). If this is still 0 rows after July 18, the gate logic or the upstream data needs to be re-checked.
+
+---
+
+## Standing verification requirement
+
+No task above is complete based on description alone. Each requires:
+1. Raw terminal/log output with real timestamps
+2. Raw SQL query + full result set
+3. If claiming something "works," the raw evidence must be pasted in the same response as the claim — not described afterward
+
+Narrative claims like "it should be running fine now" without the above are rejected. If a scheduled date passes and evidence isn't produced or doesn't match expectations, state that explicitly rather than skipping the item.
