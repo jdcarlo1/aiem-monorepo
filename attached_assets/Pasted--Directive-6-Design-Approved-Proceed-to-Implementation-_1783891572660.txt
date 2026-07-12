@@ -1,0 +1,55 @@
+# Directive 6 — Design Approved. Proceed to Implementation.
+
+**To:** Replit Agent
+**Re:** PAPER ENFORCEMENT — Guards A & B + Implementation Kickoff
+**Date:** July 12, 2026
+
+---
+
+## Status
+
+Both requested changes to the design have been reviewed and are correct:
+
+- **Change 1 (data-deletion language):** Approved as written. No standing pre-approval for deletions — state the specific row(s) and reason at cleanup time, wait for explicit session approval before deleting anything.
+- **Change 2 (Guards A & B):** Approved as designed, with one required fix before you start building (below).
+
+## Required fix before implementation: Guard B exception handling
+
+Guard B's current design swallows all exceptions silently:
+
+```python
+except Exception:
+    pass  # delivery failure must never affect lock release or return value
+```
+
+The *intent* is correct — a Telegram outage must never be able to affect the BLOCK path's behavior, lock release, or return value. Non-fatal is the right call. But silent is not. As written, if the Telegram alert fails, there will be zero record that an alert was even attempted, and a real BLOCKED_GO event could go unnoticed indefinitely.
+
+**Fix:** log the exception without raising it or affecting control flow:
+
+```python
+except Exception as e:
+    print(f"[Guard B] Telegram alert failed: {e}")  # non-fatal, but must be visible in logs
+```
+
+Same non-fatal guarantee, but now failure is visible instead of invisible.
+
+## Cleared to proceed
+
+With that one change, you are cleared to begin implementation in this order:
+
+1. **Implement Guard A** (state-NORMAL pre-switch check) exactly as designed — refuses to update the mode column if state != NORMAL, logs `enforce_switch_blocked` event on refusal, logs `enforce_switch_completed` on success.
+2. **Implement Guard B** (BLOCKED_GO Telegram alert) with the corrected exception handling above.
+3. **Run Guard A**, confirm governance state = NORMAL.
+4. **Update DB config**: `mode=SHADOW` → `mode=ENFORCE`.
+5. **Run the canary test** to confirm Guard B fires correctly on the first BLOCKED_GO event, and confirm the "alert failed" log path also works (e.g. by temporarily breaking the Telegram call and confirming a visible log line, not a silent no-op).
+6. **Run the full paired BLOCK/ALLOW negative-control test** as designed: real production DB, temporary `ENFORCE+PAUSED` config, mocked `_aiem_paper_pick_candidates()` returning one candidate, mocked `_is_trading_day` → True.
+   - BLOCK run: confirm `aiem_paper_trades` count unchanged.
+   - ALLOW run: confirm `aiem_paper_trades` count +1.
+   - Cleanup: state exactly which row(s) you want to delete and why, then stop and wait for my explicit approval before deleting anything.
+
+## Standing requirements (unchanged)
+
+- Standing verification block applies to every step above: raw terminal output, exact before/after diffs, sha256 hashes for changed files, raw SQL result sets wherever a database is touched. No narrative "fixed" or "tested" claims without pasted evidence.
+- Standing Data Immutability rule applies: no deletion of any row — test, synthetic, or otherwise — without stating what and why, and waiting for my explicit approval in that session first.
+
+Report back with full evidence after step 6. Do not flip the production `mode=SHADOW → ENFORCE` switch as a permanent state until I've reviewed that evidence — step 4 above happens *inside* the test procedure only, and should be restored to `SHADOW` afterward unless I explicitly instruct otherwise.

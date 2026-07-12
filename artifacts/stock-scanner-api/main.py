@@ -43098,6 +43098,21 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 )
             except Exception as _g0_ack_e:
                 print(f"[aiem_paper] G0 ack (BLOCK) failed, non-fatal: {_g0_ack_e}")
+        # Guard B — BLOCKED_G0 Telegram alert. Non-fatal: a Telegram outage
+        # must never affect the lock release or return value. Failure is
+        # logged visibly (not swallowed silently) so a real halt is never
+        # invisible. Skipped entirely in _test_mode to avoid firing real
+        # alerts during test runs.
+        if not _test_mode:
+            try:
+                _tg_send(
+                    f"\U0001f6a8 [D3-G0 BLOCK] Paper trading halted \u2014 no trades placed today.\n"
+                    f"State: {_g0_result.get('system_state')} | Mode: {_g0_result.get('mode')}\n"
+                    f"Trigger: {trigger_source} | Decision: {_g0_gdid or 'N/A'}",
+                    signal_source="governance",
+                )
+            except Exception as _g0_tg_e:
+                print(f"[Guard B] Telegram alert failed: {_g0_tg_e}")
         _AIEM_PAPER_LOCK.release()
         return {
             "blocked": True,

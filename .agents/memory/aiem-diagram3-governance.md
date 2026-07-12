@@ -406,3 +406,34 @@ All 5 phases of the enforcement-contradiction verification protocol are done:
 **main.py sha256 at completion:** 76e7145270ea4ab2fb0cf287a34e23f48cb04373c328d768a08fc1afc3fac351
 
 **Why durable:** 13 D2→D3 NOT_IMPLEMENTED events (data_guard/analysis/probability/synthesis/execution.paper_created/outcome/performance/learning/model.retraining/strategy.degradation/trace) are real unwired gaps — don't claim them WIRED without adding emit_d2_pipeline_event() calls at the corresponding D2 logic points in main.py/aiem_autonomous.py.
+
+## Directive 6 PAPER ENFORCEMENT — COMPLETE (2026-07-12)
+
+Guards A & B shipped + negative-control test PASS (9s, exit 0).
+
+**Guard A (`check_g0_enforce_preconditions()`)** in `aiem_diagram3_governance.py`:
+- Called before any `set_d3_checkpoint_mode(G0, ENFORCE, confirm=True)`.
+- REFUSED path (state ≠ NORMAL): writes `config_history` + ledger event `reason_code=enforce_switch_blocked`, returns `{"ok": False}`.
+- CLEARED path (state == NORMAL): writes `config_history` + ledger event `reason_code=enforce_switch_cleared`, returns `{"ok": True}`.
+- **config_type constraint**: `d3_governance_config_history.config_type` CHECK only allows `'SYSTEM_STATE'` or `'CHECKPOINT_MODE'` — any new audit rows from Guard A or similar pre-check functions must use one of these two values, never a custom string like `'ENFORCE_SWITCH_CHECK'`.
+
+**Guard B** in `main.py` BLOCK path (line ~43108-43115):
+- Fires `_tg_send(BLOCKED_G0 alert)` after the G0 ack, before lock release.
+- Skipped when `_test_mode=True`.
+- Exception logged as `[Guard B] Telegram alert failed: <e>` — never silently swallowed.
+- sha256 at completion: `162063eb5be8fb835567456470ccff054e800837d9dca7ce806a4a002f1674ea`
+
+**Enforcement test script** (`d3_directive6_enforcement_govtest.py`):
+- Imports only `aiem_diagram3_governance` (not `main.py`) — fast, no staleness-guard restart loop.
+- **Critical test-environment rule**: importing `main.py` as a subprocess in Replit bash cannot complete cleanly. The staleness guard starts watching the test file itself, APScheduler starts running, and the Replit shell kills the process as "indefinite" (server-like process). Always test enforcement by calling `require_governance_authorization()` directly from `aiem_diagram3_governance`, NOT by importing `main.py` in a fresh subprocess.
+
+**`d3_governance_decisions` real columns** (no `mode` or `system_state` — those are in the ledger/event rows, not the decision table):
+`id`, `governance_decision_id`, `governance_request_id`, `trace_id`, `checkpoint`, `decision`, `blocking`, `reason_codes`, `policy_version`, `decision_hash`, `ledger_event_id`, `is_test_record`, `response_timestamp_utc`
+
+**Test results (DB evidence, 2026-07-12 ~21:46 UTC):**
+- Step 3 (Guard A CLEARED): config_history 14→15, ledger event `enforce_switch_cleared` present ✓
+- Step 4 (ENFORCE+PAUSED DB writes): verified in `d3_checkpoint_config` + `d3_system_state` ✓
+- Step 5a (BLOCK): `decision=BLOCK blocking=True reasons=['STATE_PAUSED']` governance_decision_id=GDEC_G0_60c52... ✓, paper_trades unchanged 1→1 ✓
+- Step 4r (restore): G0 mode=SHADOW state=NORMAL DB-verified ✓
+- Step 6 (ALLOW): `decision=ALLOW mode=SHADOW would_block=False reasons=['STATE_OK']` ✓
+- Final: config_history +4, d3_governance_decisions +3, d3_governance_event_links +7, paper_trades unchanged

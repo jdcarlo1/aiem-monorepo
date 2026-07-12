@@ -3466,6 +3466,109 @@ def g5_authorize_resume(*, target_state: str, reason: str, changed_by: str,
     return result
 
 
+def check_g0_enforce_preconditions() -> Dict[str, Any]:
+    """Guard A: verifies governance state = NORMAL before G0 mode can be
+    switched to ENFORCE. Returns {"ok": True, ...} if safe to proceed, or
+    {"ok": False, "reason": ..., ...} if the switch must be refused.
+
+    Always writes a governance config history row and a ledger event recording
+    the check outcome so there is always an audit trail of who checked and
+    when, regardless of pass/fail.
+
+    Call this immediately before set_d3_checkpoint_mode(checkpoint='G0',
+    mode='ENFORCE', confirm=True). If ok=False, do NOT proceed with the mode
+    update — the switch is refused and must not happen.
+    """
+    cfg = _g0_read_config(force=True)
+    state = cfg.get("state") or "NORMAL"
+    mode_now = cfg.get("mode") or "SHADOW"
+    now = datetime.datetime.utcnow()
+
+    if state != "NORMAL":
+        detail = (
+            f"state={state} is not NORMAL — switch to G0 ENFORCE refused; "
+            f"resolve the governance state first, then re-run this check"
+        )
+        try:
+            with _d3_connect() as _ga_conn:
+                with _ga_conn.cursor() as _ga_cur:
+                    _ga_cur.execute(
+                        """
+                        INSERT INTO d3_governance_config_history
+                            (config_type, target, old_value, new_value, reason, changed_by)
+                        VALUES ('CHECKPOINT_MODE', 'G0', %s, 'SWITCH_REFUSED', %s,
+                                'check_g0_enforce_preconditions')
+                        """,
+                        (state, detail),
+                    )
+                _ga_conn.commit()
+        except Exception as _ga_e:
+            print(f"[Guard A] config_history audit write failed (non-fatal): {_ga_e}")
+        try:
+            _d3_emit_event(
+                governance_cycle_id=f"D3_G0_ENFORCE_SWITCH_BLOCKED_{uuid.uuid4().hex[:8]}",
+                governance_phase="G0_ENFORCE_SWITCH_GUARD",
+                governance_check_name="check_g0_enforce_preconditions",
+                governance_function="check_g0_enforce_preconditions",
+                started_at=now,
+                completed_at=datetime.datetime.utcnow(),
+                check_result="FAIL",
+                enforcement_action="SWITCH_REFUSED",
+                enforcement_status="ENFORCED",
+                reason_code="enforce_switch_blocked",
+                reason_detail=detail,
+            )
+        except Exception as _ga_ee:
+            print(f"[Guard A] ledger emit failed (non-fatal): {_ga_ee}")
+        print(f"[Guard A] REFUSED — {detail}")
+        return {
+            "ok": False,
+            "reason": "enforce_switch_blocked",
+            "state": state,
+            "mode": mode_now,
+            "message": detail,
+        }
+
+    # state == NORMAL — safe to proceed with the ENFORCE switch
+    detail = (
+        f"state={state} mode={mode_now} — preconditions met, "
+        f"safe to call set_d3_checkpoint_mode(G0, ENFORCE, confirm=True)"
+    )
+    try:
+        with _d3_connect() as _ga_conn_c:
+            with _ga_conn_c.cursor() as _ga_cur_c:
+                _ga_cur_c.execute(
+                    """
+                    INSERT INTO d3_governance_config_history
+                        (config_type, target, old_value, new_value, reason, changed_by)
+                    VALUES ('CHECKPOINT_MODE', 'G0', %s, 'SWITCH_CLEARED', %s,
+                            'check_g0_enforce_preconditions')
+                    """,
+                    (mode_now, detail),
+                )
+            _ga_conn_c.commit()
+    except Exception as _ga_ch_e:
+        print(f"[Guard A] cleared config_history audit write failed (non-fatal): {_ga_ch_e}")
+    try:
+        _d3_emit_event(
+            governance_cycle_id=f"D3_G0_ENFORCE_SWITCH_CLEARED_{uuid.uuid4().hex[:8]}",
+            governance_phase="G0_ENFORCE_SWITCH_GUARD",
+            governance_check_name="check_g0_enforce_preconditions",
+            governance_function="check_g0_enforce_preconditions",
+            started_at=now,
+            completed_at=datetime.datetime.utcnow(),
+            check_result="PASS",
+            enforcement_action="SWITCH_CLEARED",
+            enforcement_status="NOT_ENFORCED",
+            reason_code="enforce_switch_cleared",
+            reason_detail=detail,
+        )
+    except Exception as _ga_ce:
+        print(f"[Guard A] cleared ledger emit failed (non-fatal): {_ga_ce}")
+    print(f"[Guard A] CLEARED — {detail}")
+    return {"ok": True, "state": state, "mode": mode_now, "message": detail}
+
+
 def set_d3_checkpoint_mode(*, checkpoint: str, mode: str, reason: str,
                             changed_by: str, confirm: bool = False) -> Dict[str, Any]:
     """Real DB write to d3_checkpoint_config + append-only history row +
