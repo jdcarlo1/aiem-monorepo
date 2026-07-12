@@ -1,0 +1,42 @@
+# Follow-Up Verification — Table Recreation & Delete-Scan Claims
+
+Two claims in your last summary are inferences, not direct evidence. Before I accept them, provide proof per the standard below.
+
+## Standing verification requirement (applies to every item below)
+
+No task or finding is accepted based on description/narrative alone. For each claim you must provide:
+1. **Raw terminal output** of the actual command/query executed (not paraphrased)
+2. **Exact before/after file diff** where a file is involved
+3. **sha256 hash before/after** for any changed file
+4. **Raw SQL query + full result set** for any database claim
+
+If you cannot produce this evidence for a given item, say so explicitly. Do not restate the conclusion as if it were proof.
+
+---
+
+## Q6 — Prove the table was actually recreated (not just inferred from absence)
+
+Your evidence was: `pg_attribute` returned zero dropped-column records, and you concluded from that negative result that `aiem_paper_trades` was dropped and recreated between 2026-07-10 and 2026-07-12.
+
+An empty result proving something is *absent* is not the same as proving an event *happened*. Provide:
+
+1. The current table's OID: `SELECT oid FROM pg_class WHERE relname = 'aiem_paper_trades';`
+2. Any available prior OID for this table (from logs, a checkpoint, or a prior session's query output) so we can confirm the OID actually changed.
+3. `pg_stat_user_tables` or `pg_class.relcreated`-equivalent timestamp evidence if available, or the Postgres log lines showing a `DROP TABLE` / `CREATE TABLE` for `aiem_paper_trades`.
+4. Git log / diff on `dev_schema_bootstrap.sql` showing when and how it was last applied, with commit hash and timestamp.
+5. Replit deployment/checkpoint history (raw list, not summarized) covering 2026-07-10 through 2026-07-12, so we can correlate a specific event to the recreation.
+
+If none of this is available, say explicitly: "I cannot produce direct evidence of the recreation event — my conclusion is inferred from the absence of dropped-column records, not confirmed by a logged event."
+
+## Q7 — Prove the delete-scan actually covered a full-table unconditional delete/truncate
+
+Your evidence was a transcript search for `DRIFTTEST%`-tagged rows, which only found two targeted, conditional deletes (L21025, L21027). This does not by itself rule out a bare `DELETE FROM aiem_paper_trades;` or `TRUNCATE aiem_paper_trades;` with no WHERE clause, since those wouldn't reference `DRIFTTEST%` at all.
+
+Provide:
+
+1. The exact search command/regex you ran (raw, verbatim) — not a description of it.
+2. Confirmation of what log/transcript source it searched (full session history vs. a subset) and the date range covered.
+3. A second, independent search specifically for `TRUNCATE` and `DELETE FROM aiem_paper_trades` (case-insensitive, no WHERE-clause filter) across the same full range, with raw output.
+4. If Postgres logging is enabled, the raw `pg_stat_statements` or query log entries for any DELETE/TRUNCATE against this table in the relevant window.
+
+If full session coverage can't be confirmed, say so explicitly rather than stating "no bulk delete was found."
