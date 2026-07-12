@@ -71,6 +71,7 @@ ZSCORE_EXIT    = 0.5
 LOOKBACK_DAYS  = 252
 MIN_PVALUE     = 0.05
 HEDGE_WINDOW   = 60
+RETIRE_PVALUE  = 0.30   # p > 0.30 on weekly retest → pair retired immediately
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -352,6 +353,62 @@ def compute_current_zscore(
 # PAIR REGISTRY
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _retire_broken_pairs(retest_results: Dict[Tuple[str, str], Dict[str, Any]]) -> List[str]:
+    """
+    Called after a full cointegration retest round.
+    For every pair whose Engle-Granger p-value exceeds RETIRE_PVALUE (0.30),
+    set is_active=FALSE and update coint_pvalue + last_tested in the DB.
+    Also updates coint_pvalue for non-retired pairs that did NOT pass the
+    is_cointegrated gate (so the DB always reflects the true current p-value,
+    not the stale value from the last passing test).
+    Returns a list of human-readable strings naming every retired pair.
+    """
+    retired: List[str] = []
+    if not retest_results:
+        return retired
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            for (ticker_a, ticker_b), result in retest_results.items():
+                pval = result.get("pvalue")
+                if pval is None:
+                    continue
+                if pval > RETIRE_PVALUE:
+                    cur.execute(
+                        """
+                        UPDATE stat_arb_pairs
+                        SET is_active    = FALSE,
+                            coint_pvalue = %s,
+                            last_tested  = NOW()
+                        WHERE ticker_a = %s AND ticker_b = %s
+                        """,
+                        (pval, ticker_a, ticker_b),
+                    )
+                    if cur.rowcount > 0:
+                        retired.append(f"{ticker_a}/{ticker_b} (p={pval:.4f})")
+                        logger.info(
+                            f"[stat_arb] RETIRED {ticker_a}/{ticker_b}: "
+                            f"p={pval:.4f} > RETIRE_PVALUE={RETIRE_PVALUE}"
+                        )
+                else:
+                    # Pair failed is_cointegrated gate (p > MIN_PVALUE=0.05) but is
+                    # below retirement threshold — update the p-value so the DB is
+                    # current, but keep is_active unchanged (pair stays active with
+                    # a degraded p-value; Layer 9 will naturally score it lower).
+                    if not result.get("is_cointegrated"):
+                        cur.execute(
+                            """
+                            UPDATE stat_arb_pairs
+                            SET coint_pvalue = %s, last_tested = NOW()
+                            WHERE ticker_a = %s AND ticker_b = %s
+                            """,
+                            (pval, ticker_a, ticker_b),
+                        )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[stat_arb] _retire_broken_pairs error: {e}")
+    return retired
+
+
 def register_pair(ticker_a: str, ticker_b: str, test_result: Dict[str, Any]) -> None:
     if not test_result.get("is_cointegrated"):
         return
@@ -475,13 +532,18 @@ def stat_arb_daily_scan(
 
     if retest_pairs:
         logger.info(f"[stat_arb] running cointegration tests on {len(pairs)} pairs...")
+        _retest_results: Dict[Tuple[str, str], Dict[str, Any]] = {}
         for ticker_a, ticker_b in pairs:
             result = test_cointegration(ticker_a, ticker_b)
+            _retest_results[(ticker_a, ticker_b)] = result
             if result.get("is_cointegrated"):
                 register_pair(ticker_a, ticker_b, result)
                 logger.info(f"[stat_arb] ✓ {ticker_a}/{ticker_b} p={result['pvalue']} β={result['hedge_ratio']}")
             else:
                 logger.info(f"[stat_arb] ✗ {ticker_a}/{ticker_b} p={result.get('pvalue', 'N/A')}")
+        _retired = _retire_broken_pairs(_retest_results)
+        if _retired:
+            logger.info(f"[stat_arb] retired {len(_retired)} pair(s) this retest: {_retired}")
 
     try:
         with _connect() as conn:

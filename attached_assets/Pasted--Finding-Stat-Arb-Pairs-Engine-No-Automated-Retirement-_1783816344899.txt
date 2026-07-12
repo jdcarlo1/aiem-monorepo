@@ -1,0 +1,78 @@
+# Finding: Stat Arb Pairs Engine — No Automated Retirement, Static Universe
+
+**Table:** `stat_arb_pairs`
+**Date verified:** 2026-07-11/12
+**Severity:** Medium-High — active positions/signals can be built on structurally broken pairs indefinitely, with only a soft penalty rather than exclusion
+
+---
+
+## Summary
+
+The stat arb (pairs trading) engine currently tracks exactly **3 hardcoded pairs**: XOM/CVX, JPM/BAC, META/GOOGL — all verified active against Polygon (real, common stock, not delisted). Two scheduled jobs run correctly:
+
+| Job | Schedule | Purpose |
+|---|---|---|
+| `stat_arb_daily_scan` | Mon–Fri 9:10 AM ET | Computes daily z-scores off `polygon_market_daily` (pure SQL, no external API calls) |
+| `stat_arb_weekly_retest` | Sunday 15:00 ET | Re-runs Engle-Granger cointegration tests on all `DEFAULT_PAIRS` |
+
+Both are correctly wired and scheduled (confirmed via raw code at `main.py` lines 5894–5930).
+
+**The structural problem is what happens *between* and *after* those retests.**
+
+---
+
+## Root cause: `is_active` is write-once-true, with no automated retirement path
+
+- `stat_arb_engine.py` line 372: the upsert's `ON CONFLICT DO UPDATE` sets `is_active = TRUE` on every run, unconditionally.
+- **There is no code path anywhere in the codebase that ever sets `is_active = FALSE`.** The only way a pair becomes inactive is a manual SQL statement (`UPDATE stat_arb_pairs SET is_active = FALSE WHERE ...`) run by hand.
+- The weekly retest only updates cointegration statistics (`coint_pvalue`, `hedge_ratio`, `spread_mean`, `spread_std`, `last_tested`) — it does **not** touch `is_active`, even when a pair's p-value comes back showing the cointegration relationship has broken down.
+- **Consequence:** a pair whose statistical relationship no longer holds remains `is_active = TRUE` forever, and continues to be picked up by every downstream consumer that filters on `WHERE is_active = TRUE` (confirmed at 8 separate call sites across `stat_arb_engine.py`, `daily_market_movers.py`, and `main.py`).
+
+## Downstream impact: soft penalty, not hard exclusion
+
+- `layer9_statistical_edge.py` and the Layer 9 score builder in `main.py` read `is_active` and `coint_pvalue`, but only apply a **penalty** if `coint_pvalue >= 0.15` — a broken pair is down-weighted, not excluded.
+- Practical effect: a pair that has statistically failed can keep contributing to Layer 9 scores indefinitely, at reduced (not zero) weight, with no mechanism to ever fully retire it short of manual intervention.
+
+## Pair universe is static
+
+- All candidate pairs live in `DEFAULT_PAIRS`, hardcoded inside `stat_arb_engine.py`.
+- There is no discovery process that proposes new candidate pairs — the universe has been fixed at 3 pairs (XOM/CVX, JPM/BAC, META/GOOGL) since inception, verified in the live `stat_arb_pairs` table (3 total rows, 3 active rows).
+
+## Clarification on the META/GOOGL timestamp
+
+- `last_tested = 2026-07-11 06:07:08 UTC` was initially flagged as close to the weekly retest window, but on inspection this is the **startup bootstrap run** (fires once at service start), not the scheduled Sunday 15:00 ET retest, which has not fired yet as of this check. Worth re-confirming after the next Sunday 15:00 ET run passes, to make sure the bootstrap run isn't masking whether the real scheduled retest is executing.
+
+---
+
+## Directive for the agent
+
+**Do not mark any of the following as "fixed" or "done" based on description. Each item requires pasted, verifiable evidence.**
+
+### Task A — Add an automated retirement mechanism
+- Decide and implement a rule for when a pair should be automatically retired (set `is_active = FALSE`) — e.g., if `coint_pvalue` exceeds a hard threshold (say 0.15 or a value you specify) for N consecutive weekly retests, or immediately on a single retest above a higher "broken" threshold (e.g. 0.30).
+- Modify `stat_arb_weekly_retest` (or add a follow-up step) to apply this rule and actually write `is_active = FALSE` when triggered.
+- Paste the exact code change (file + line numbers), and the before/after `is_active` state for a test case (can be simulated by temporarily lowering a threshold or manually degrading a pair's stats, then confirming the retest correctly flips it to inactive).
+
+### Task B — Decide: soft penalty vs. hard exclusion in Layer 9
+- Determine whether a pair should still contribute (even at reduced weight) once its cointegration is broken, or whether it should be hard-excluded from Layer 9 scoring the moment `is_active = FALSE`.
+- If hard exclusion is preferred, update `layer9_statistical_edge.py` and the `main.py` score builder to exclude rather than merely penalize.
+- Paste the exact code change and a before/after example showing a broken pair's contribution to a Layer 9 score.
+
+### Task C — Confirm the real weekly retest is firing (not just the bootstrap run)
+- After the next Sunday 15:00 ET has passed, paste raw log output showing `[scheduler] stat_arb weekly cointegration retest started`, and the raw SQL result of `SELECT ticker_a, ticker_b, last_tested FROM stat_arb_pairs;` showing `last_tested` updated to the Sunday 15:00 ET timestamp (not the earlier bootstrap timestamp).
+
+### Task D — Decide whether the pair universe should expand
+- Confirm whether 3 hardcoded pairs is intentional (a deliberate, curated small universe) or whether a pair-discovery process should be added to propose new candidates automatically (e.g., scanning correlated sector pairs for cointegration periodically).
+- No code change required unless you decide expansion is wanted — but document the decision either way so it isn't silently assumed to be "TODO."
+
+---
+
+## Standing verification requirement
+
+No task above is complete based on description alone. Must provide:
+1. Raw terminal/log output of actual execution
+2. Exact code diff with file name + line numbers
+3. Raw SQL query + full result set showing before/after state
+4. If claiming something "works," the raw evidence must be pasted in the same response — not described afterward
+
+Narrative/paraphrased claims like "the pair will now retire automatically" without the above are rejected.
