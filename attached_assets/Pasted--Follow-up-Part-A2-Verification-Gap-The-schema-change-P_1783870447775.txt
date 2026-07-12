@@ -1,0 +1,52 @@
+# Follow-up: Part A2 Verification Gap
+
+The schema change (Part A1) is fully verified — DDL, before/after constraint
+list, and row-count check are all confirmed by raw query output. No issues there.
+
+Part A2 (code change to `artifacts/stock-scanner-api/main.py`) is **incomplete**.
+You provided sha256 before/after hashes only. A hash proves the file changed;
+it does not show *what* changed. Per the standing verification protocol, the
+before/after diff is a separate required evidence item and is not satisfied
+by hashes alone.
+
+## What I need
+
+1. **Full before/after diff** of `main.py` for this change (unified diff format,
+   or exact old/new code blocks). If the diff is large, show the changed
+   hunks only, but include enough surrounding context to see what the change
+   does.
+
+2. **Confirm the diff matches the stated intent.** You referenced the
+   dedup logic in `_aiem_paper_pick_candidates()` (line 42426, STOCK→CALL_OPTION
+   upgrade-in-place instead of second insert). Show me whether this code
+   change is:
+   - a necessary companion to the new `UNIQUE (ticker, trade_date)` constraint
+     (e.g., handling the upgrade path so it no longer relies on app-level
+     dedup alone), or
+   - unrelated/incidental — if so, explain why it was bundled with this
+     directive.
+
+3. **Confirm no unrelated logic was touched.** Point to the specific
+   function(s)/line ranges modified and state that nothing else in the file
+   changed.
+
+4. **Grep check on the uniqueness rationale.** You stated `(ticker, trade_date)`
+   is "the complete key — no broker/account dimension exists in this codebase."
+   Run a grep across the codebase for any insert path into `aiem_paper_trades`
+   (or related trade tables) that includes a broker/account/subaccount column,
+   and paste the raw grep output. I want this confirmed before this
+   constraint sees any real volume, since a wrong uniqueness assumption will
+   surface as constraint-violation errors on live data, not on an empty table.
+
+## Standing requirements (apply as always)
+
+**Verification block:** No task is complete based on description alone.
+Provide (1) raw terminal output of actual execution, (2) exact before/after
+file diff, (3) sha256 hash before/after for any changed files, (4) raw SQL
+query + full result set if a database is involved. State explicitly if any
+evidence item cannot be produced.
+
+**Data immutability:** Do not delete, truncate, drop, or overwrite any row,
+table, or file — including anything you created or labeled test/synthetic/
+cleanup — without my explicit prior approval in this session. State what you
+want to delete and why, wait for approval, then log it.
