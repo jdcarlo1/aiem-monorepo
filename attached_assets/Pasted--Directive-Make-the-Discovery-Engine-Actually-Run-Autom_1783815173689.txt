@@ -1,0 +1,75 @@
+# Directive: Make the Discovery Engine Actually Run Automatically, Every Day
+
+**Context:** The code for the tiered daily movers job (100 best + 100 worst per market cap tier) and the discovery cycle is correct. The problem is NOT the logic — it's that the process has only executed once (2026-07-10) instead of daily. Root cause: the deployment was never running continuously ("sitting there, never connected" — likely a dev/preview session that only runs while open, not a persistent deployment).
+
+**Goal:** Confirm the app is now on a deployment type that stays running 24/7, and prove — with real evidence — that the scheduled jobs will actually fire every day going forward, not just that they're registered in code.
+
+Do not report any item below as "done" or "confirmed" without pasting the actual evidence requested.
+
+---
+
+## Task 1 — Confirm deployment type
+
+- State exactly what kind of Replit deployment this app is currently running on (e.g. Development/preview only, Autoscale, Reserved VM, "Always On"). Paste the actual deployment settings/config, not a description.
+- If it is currently anything other than a persistent deployment (Reserved VM or equivalent that runs whether or not you have the browser/editor open), **this is the fix that must happen first** — everything else is pointless until this is true.
+- Paste confirmation (screenshot description, config file, or deployment dashboard state) that it has been switched to a persistent/always-on deployment.
+
+## Task 2 — Confirm the scheduler actually survives restarts and stays alive
+
+- Show the scheduler registration code (APScheduler, cron, etc.) and confirm it is started as part of the main app process that the persistent deployment runs — not a separate script that has to be manually launched.
+- Paste the startup log from the current live deployment showing the same `[market_movers] scheduled` and `[discovery_cycle] scheduled` lines seen before, but timestamped from the deployment's actual persistent process (not a temporary dev session).
+
+## Task 3 — Prove it fires on the next scheduled time, in real time
+
+- After Task 1 and 2 are done, wait for (or note) the next scheduled run time (17:10 ET for movers, 17:30 ET for discovery_cycle) and paste the **real-time raw log output** showing the job actually executing at that time — not a manual trigger, not a simulated run.
+- Immediately after, paste the raw SQL result of:
+  ```sql
+  SELECT scan_date, COUNT(*) AS total_rows,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'nano')  AS nano,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'small') AS small,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'mid')   AS mid,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'large') AS large
+  FROM daily_market_movers
+  WHERE scan_date = CURRENT_DATE
+  GROUP BY scan_date;
+  ```
+  confirming a new row appeared for that day with the expected 800-row total (200/tier).
+
+## Task 4 — Confirm consecutive days, not just one more lucky run
+
+- Do not consider this fixed after a single successful run. Wait for at least 3 consecutive trading days and paste the raw SQL result of:
+  ```sql
+  SELECT scan_date, COUNT(*) AS total_rows
+  FROM daily_market_movers
+  WHERE scan_date >= CURRENT_DATE - INTERVAL '5 days'
+  GROUP BY scan_date
+  ORDER BY scan_date DESC;
+  ```
+  showing an unbroken run of consecutive trading days with ~800 rows each.
+
+## Task 5 — Add missed-day alerting (currently does not exist)
+
+- Currently, if a day is skipped, there is total silence — no Telegram, no email, no DB flag (confirmed in prior audit).
+- Add a lightweight daily check (can piggyback on an existing scheduled job) that verifies a row exists in `daily_market_movers` for the current trading day by a certain time, and sends a Telegram alert (or your preferred channel) if it's missing.
+- Paste the new code, the exact schedule for this check, and — once implemented — a test where you manually disable the movers job, confirm the alert fires, then re-enable it.
+
+## Task 6 — Confirm the discovery_cycle statistical loop starts accumulating data
+
+- Once Task 4 shows consecutive days of real data, confirm `discovery_cycle_log` finally gets its first row (it requires `min_days=5` of history — this can only happen after 5 consecutive real days of `daily_market_movers` data).
+- Paste the raw SQL:
+  ```sql
+  SELECT * FROM discovery_cycle_log ORDER BY id DESC LIMIT 5;
+  ```
+  once it's expected to have fired, to confirm it actually did.
+
+---
+
+## Standing verification requirement (applies to every task above)
+
+No task is complete based on description alone. Must provide:
+1. Raw terminal/log output of actual execution (real timestamps, not paraphrased)
+2. Exact config/code with file name + line numbers for any change made
+3. Raw SQL query + full result set for anything touching the database
+4. If claiming something "works" or "is fixed," the raw evidence must be pasted in the same response — not described afterward, and not based on a single one-off run
+
+Narrative/paraphrased claims like "it's deployed now and should run fine" are rejected. The agent must explicitly state if it cannot produce evidence for any item, and must not mark Task 4 or Task 6 complete until multiple consecutive real days of data are shown.

@@ -2610,6 +2610,64 @@ def _daily_tiered_movers_job() -> None:
         print(f"[market_movers] job launch error: {_e}")
 
 
+def _movers_missed_day_check_job() -> None:
+    """
+    17:50 ET Mon-Fri: verify daily_market_movers has rows for today.
+    Fires 40 minutes after _daily_tiered_movers_job (17:10 ET), giving the bg
+    thread ample time to finish.  Sends a Telegram alert when rows are missing
+    AND polygon_market_daily already has today's data (confirming it was a real
+    trading day, not a holiday).  No alert on holidays or genuine data gaps.
+    """
+    import pytz as _mm_pytz
+    import psycopg2 as _mm_pg
+    from datetime import datetime as _mm_dt
+    try:
+        _mm_ET   = _mm_pytz.timezone("US/Eastern")
+        _mm_today = _mm_dt.now(tz=_mm_ET).date()
+
+        with _mm_pg.connect(os.environ["DATABASE_URL"], connect_timeout=5) as _mm_conn, \
+             _mm_conn.cursor() as _mm_cur:
+
+            # Check 1: did daily_market_movers run today?
+            _mm_cur.execute(
+                "SELECT COUNT(*) FROM daily_market_movers WHERE scan_date = %s",
+                (_mm_today,)
+            )
+            movers_count = _mm_cur.fetchone()[0]
+
+            if movers_count > 0:
+                print(f"[movers_check] {_mm_today}: OK — {movers_count} rows present")
+                return
+
+            # Check 2: did polygon_market_daily receive data today?
+            # (Confirms it was actually a trading day, not a holiday)
+            _mm_cur.execute(
+                "SELECT COUNT(*) FROM polygon_market_daily WHERE scan_date = %s",
+                (_mm_today,)
+            )
+            polygon_count = _mm_cur.fetchone()[0]
+
+        if polygon_count == 0:
+            print(f"[movers_check] {_mm_today}: polygon_market_daily also empty — "
+                  f"treating as holiday/non-trading day, no alert")
+            return
+
+        # Real trading day + movers job did NOT produce rows → alert
+        msg = (
+            f"⚠️ MISSED DAY ALERT — daily_market_movers\n"
+            f"Date: {_mm_today}\n"
+            f"daily_market_movers rows: 0\n"
+            f"polygon_market_daily rows today: {polygon_count:,}\n"
+            f"The 17:10 ET tiered movers job ran (polygon data exists) but "
+            f"produced no rows. Check [market_movers] logs immediately."
+        )
+        print(f"[movers_check] {_mm_today}: MISSING — sending Telegram alert")
+        _tg_send(msg, signal_source="movers_missed_day", alert_class="INFO")
+
+    except Exception as _mm_e:
+        print(f"[movers_check] error during check: {_mm_e}")
+
+
 def _refresh_market_cap_cache_job() -> None:
     """23:00 ET nightly: refresh Polygon market cap data for all active US stocks."""
     try:
@@ -7413,7 +7471,14 @@ try:
         id="market_cap_cache_refresh",
         replace_existing=True,
     )
-    print("[market_movers] scheduled — movers: Mon-Fri 17:10 ET | cap cache: 23:00 ET")
+    # ── Missed-day alert — 17:50 ET (40 min after movers job, ample finish time)
+    _scheduler.add_job(
+        _movers_missed_day_check_job,
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=50, timezone=_ET),
+        id="movers_missed_day_check",
+        replace_existing=True,
+    )
+    print("[market_movers] scheduled — movers: Mon-Fri 17:10 ET | missed-day check: 17:50 ET | cap cache: 23:00 ET")
 
     # ── MODULE 6: Autonomous Discovery Cycle ─────────────────────────────────
     # Real cadence: Mon–Fri 17:30 ET — 15 min after aiem_write_signal_discoveries
