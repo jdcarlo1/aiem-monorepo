@@ -1,0 +1,95 @@
+# DIRECTIVE: Phase 10 — Complete ML Ensemble Wiring & Score-to-Decision Pipeline
+
+## Framing (read this first)
+
+This is not a "find the bug" task. The audit below shows several outputs get
+computed but are never connected to the next stage. That almost certainly means
+this integration was simply never finished — not that it was built and then
+wired incorrectly. There is no existing "wrong" connection to diagnose or debug;
+there is a missing connection to build.
+
+Do not go searching the existing code for what "went wrong" in the wiring, and
+do not report having found a mistake in prior wiring logic unless you can prove
+it with a diff showing the original (different, working) intended connection.
+The correct task here is additive: build the connection that was never built,
+using the verification standard below to prove it now actually exists and works.
+
+## Problem Statement (from prior audit, verified via grep + live run)
+
+1. `deep_rl`, `momentum_model`, `gaussian_process`, `online_learning`, and `alpha_model`
+   return `score=None` in `_h_ensemble_combiner` because their output dicts don't contain
+   the exact keys `"score"`, `"probability"`, or `"combined_score"` — only `rvol_signal`,
+   `layer9_statistical_edge`, `meta_trust_signal`, and `specialist_council` pass the filter.
+
+2. `packet.ensemble["combined"]` (the aggregate ML score) is written once at
+   `aiem_master_orchestrator.py:1155` and never read again anywhere in the file —
+   confirmed via:
+   ```
+   awk 'NR>=1173' aiem_master_orchestrator.py | grep -n "packet\.ensemble"
+   ```
+   which returns empty.
+
+3. `_h_specialist_council` does NOT consume the ensemble combiner's output — it
+   independently recomputes a verdict from `packet.debate`.
+
+4. `_h_final_decision` gates trades only on `macro_ok`, `kill_ok`, `loss_ok`, `errors_ok`
+   — it never reads any conviction/combined score.
+
+## Required Fixes
+
+### 1. Diagnose each non-contributing model individually
+For `deep_rl`, `momentum_model`, `gaussian_process`, `online_learning`, `alpha_model`:
+paste the actual dict keys each one returns (via raw print/log output, not description).
+Identify the real key name holding the predictive value in each case.
+
+### 2. Fix the key-matching logic
+Fix `_h_ensemble_combiner` so it captures the real output key from each model, instead
+of only accepting `"score"/"probability"/"combined_score"`. Do not just add more
+accepted key names blindly — confirm each mapping is semantically correct (e.g. don't
+accidentally pull a confidence interval bound instead of a point estimate).
+
+### 3. Wire `packet.ensemble["combined"]` into the decision path
+Either:
+- (a) pass it into `_h_specialist_council` as an input the council actually weighs
+  alongside its own debate-based verdict, and/or
+- (b) add it as an explicit gate/input in `_h_final_decision` alongside the existing
+  safety checks
+
+State which approach was chosen and why.
+
+### 4. Reconcile the two scoring systems
+The inline orchestrator council and the canonical `specialist_council.run_council()`
+currently diverge. State explicitly whether the canonical version is being deprecated,
+merged, or left as dead code — don't leave two live, disagreeing implementations
+without an explanation.
+
+## Standing Rules (apply throughout)
+
+### Verification Standard
+No task is complete based on description alone. Must provide:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash before/after for changed files
+4. Raw SQL query + result set if a database is involved
+
+Narrative/paraphrased claims of "fixed" or "tested" without pasted evidence are
+rejected. If evidence can't be produced, say so explicitly — don't substitute a
+description.
+
+### Data Immutability
+You may never delete, truncate, drop, or overwrite any row, table, or file —
+including data you created yourself or label "test"/"synthetic"/"cleanup" —
+without my explicit prior approval in this session. You must state what you
+want to delete and why, wait for approval, then log it. Any unapproved deletion
+is a protocol violation to report, not self-correct.
+
+## Final Proof Required
+
+A live run (same NVDA-style test as before) showing the new `combined_score`
+calculation with all contributing models now populated, plus a grep confirming
+that score is actually read downstream by the decision handler — not just written
+and abandoned again.
+
+Additionally: re-run the exact same NVDA ticker test from before the fix and after
+the fix, and show both `combined_score` outputs side by side so the numerical
+change from the fix can be verified directly.

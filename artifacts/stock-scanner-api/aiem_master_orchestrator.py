@@ -1130,14 +1130,40 @@ class AEIMMasterOrchestrator:
     # ================================================================
 
     def _h_ensemble_combiner(self, packet: AEIMTradePacket) -> Dict:
+        # Fix 2 (Phase 10): per-model score extractors replace the generic
+        # "score"/"probability"/"combined_score" key search, which silently skipped
+        # ml_engine (key: probability_up), alpha_model (key: alpha_prob), and
+        # momentum_model (key: setup_prob).
+        #
+        # Models intentionally excluded — no usable directional score:
+        #   gaussian_process → stub metadata only (no trained model live)
+        #   deep_rl          → position_action is categorical (HOLD/ADD/EXIT), not a score
+        #   online_learning  → version/metadata only, no directional probability
+        def _p2s(v: Optional[float]) -> Optional[float]:
+            """Scale a 0.0-1.0 probability to the 0-100 range."""
+            return float(v) * 100.0 if v is not None else None
+
+        _EXTRACTORS = {
+            "rvol_signal":             lambda v: v.get("score"),
+            "layer9_statistical_edge": lambda v: v.get("score"),
+            "meta_trust_signal":       lambda v: v.get("score"),
+            "ml_engine":      lambda v: v.get("probability_up"),       # already 0-100
+            "alpha_model":    lambda v: _p2s(v.get("alpha_prob")),     # 0.0-1.0 → 0-100
+            "momentum_model": lambda v: _p2s(v.get("setup_prob")),     # 0.0-1.0 → 0-100
+        }
+
         scores    = {}
         win_rates = {}
         for key, val in packet.ml_prediction.items():
-            if isinstance(val, dict):
-                s = val.get("score") or val.get("probability") or val.get("combined_score")
-                if s is not None:
-                    scores[key]    = float(s)
-                    win_rates[key] = float(packet.scanner_signal.get("backtest_wr", 0.55) or 0.55)
+            if not isinstance(val, dict):
+                continue
+            extractor = _EXTRACTORS.get(key)
+            if extractor is None:
+                continue  # gaussian_process / deep_rl / online_learning: no usable score
+            s = extractor(val)
+            if s is not None:
+                scores[key]    = float(s)
+                win_rates[key] = float(packet.scanner_signal.get("backtest_wr", 0.55) or 0.55)
 
         # #14: integrate specialist_council verdict (#13 reorder ensures it runs before us)
         # weighted_vote is in [-1, +1]; map to [0, 100] for the weighted average
@@ -1156,6 +1182,23 @@ class AEIMMasterOrchestrator:
         return combined
 
     def _h_specialist_council(self, packet: AEIMTradePacket) -> Dict:
+        # Fix 4 (Phase 10) — reconciliation of two specialist-council implementations:
+        #
+        # 1. THIS method (orchestrator inline path):
+        #    Reads packet.debate entries with a weighted_vote key (currently
+        #    bull_bear_debate after the #14 bridge fix), then calls
+        #    aiem_v3_orchestrator.arbitrate_evidence() to weight by regime.
+        #    Scope: this shadow packet pipeline only (candidate evaluation).
+        #
+        # 2. specialist_council.run_council() (canonical production path):
+        #    Uses COUNCIL_REGISTRY — seats signal_engine + fred_macro (entry)
+        #    or technicals + fred_macro (MTM exit). Called from main.py at lines
+        #    42709, 45119, 63121 in the real Diagram 2 per-ticker stage execution.
+        #
+        # These are NOT competing implementations — they run in different execution
+        # contexts and serve different purposes. run_council() is NOT dead code.
+        # Neither is deprecated. Changes to production council membership belong in
+        # run_council(); changes to shadow debate aggregation belong here.
         regime   = packet.macro.get("regime", "NEUTRAL")
         opinions = []
         for key, val in packet.debate.items():
@@ -1326,15 +1369,38 @@ class AEIMMasterOrchestrator:
         kill_ok   = not packet.risk.get("kill_switch_active", False)
         loss_ok   = not packet.risk.get("daily_loss_breached", False)
         errors_ok = len(packet.errors) < 5
-        approved  = macro_ok and kill_ok and loss_ok and errors_ok
+
+        # Fix 3 (Phase 10): wire packet.ensemble["combined"] into the decision path.
+        # Approach (b) chosen over (a) — routing combined_score into _h_specialist_council
+        # would create a feedback loop: the council verdict already feeds INTO combined_score
+        # via _h_ensemble_combiner (#14). Approach (b) adds it as an independent gate at
+        # the final decision boundary with zero circular dependency.
+        # Threshold 30.0: rejects only when the ensemble is strongly consensus-against.
+        # Fail-open (score_ok=True) when combined_score is None so missing ML data never
+        # silently blocks valid signals from reaching a paper trade.
+        _ensemble = packet.ensemble.get("combined") or {}
+        _cs = _ensemble.get("combined_score") if isinstance(_ensemble, dict) else None
+        score_ok  = (_cs is None) or (float(_cs) >= 30.0)
+
+        approved  = macro_ok and kill_ok and loss_ok and errors_ok and score_ok
+
+        if not approved:
+            if not score_ok:
+                _reason = f"combined_score {_cs:.1f} below floor of 30.0"
+            else:
+                _reason = "One or more safety gates failed"
+        else:
+            _reason = "All gates passed"
 
         packet.final_decision = {
-            "decision":    "PAPER_TRADE" if approved else "REJECT",
-            "approved":    approved,
-            "macro_gate":  macro_ok,
-            "risk_gate":   kill_ok and loss_ok,
-            "error_count": len(packet.errors),
-            "reason":      "All gates passed" if approved else "One or more gates failed",
+            "decision":       "PAPER_TRADE" if approved else "REJECT",
+            "approved":       approved,
+            "macro_gate":     macro_ok,
+            "risk_gate":      kill_ok and loss_ok,
+            "score_gate":     score_ok,
+            "combined_score": _cs,
+            "error_count":    len(packet.errors),
+            "reason":         _reason,
         }
         return self._std_out("decision_engine",
             "PASS" if packet.final_decision.get("approved") else "FAIL",
