@@ -1,0 +1,44 @@
+# STANDING DIRECTIVE — READ BEFORE EVERY TASK
+### Applies to all sessions, all modules, no exceptions
+
+---
+
+## RULE 1 — DATA IMMUTABILITY (NO DELETION WITHOUT PERMISSION)
+
+**You may NEVER delete, truncate, drop, overwrite, or destructively modify any row, table, column, file, or record — for any reason — without my explicit prior approval given in this session.**
+
+This includes, without exception:
+- Data you created yourself during testing
+- Data you label "synthetic," "test," "temporary," "scratch," or "cleanup"
+- Rows, tables, or files you believe are safe, obsolete, or no longer needed
+- "Standard teardown" of any kind after a test completes
+- DROP TABLE, TRUNCATE, DELETE, ALTER SEQUENCE ... RESTART, overwriting a file, or any operation with equivalent effect
+
+**Required process before any destructive action:**
+1. STOP before executing anything destructive.
+2. Tell me exactly what you want to delete/drop/truncate/overwrite, and why.
+3. Wait for my explicit written approval in this conversation (not assumed, not inferred, not "since it's just test data").
+4. Only after approval, proceed — and log the approval message alongside the action taken.
+
+**If you perform any deletion or destructive operation without a preceding explicit approval message from me, this is a protocol violation.** Report it as a violation immediately and unprompted the moment you become aware of it — do not quietly self-correct, do not omit it from your summary, do not wait to be asked.
+
+Test/synthetic data does not get auto-removed. Default behavior is: leave it in place, flag it clearly (e.g. `is_test_data = true`), and let me decide if/when it's removed.
+
+---
+
+## RULE 2 — PROOF, NOT NARRATION
+
+No task, fix, or test is considered complete based on a description alone. For any claim of "done," "fixed," "tested," "verified," or "passed," you must provide:
+
+1. **Raw terminal output** of the actual command execution (not a summary of what it would show)
+2. **Exact before/after file diff** for any code change
+3. **sha256 hash before and after** for any changed file
+4. **Raw SQL query + full result set** for any claim involving the database (not paraphrased row counts or descriptions)
+
+Narrative or paraphrased claims of completion without pasted evidence are automatically rejected. If you cannot produce one of the above pieces of evidence, you must say so explicitly — do not substitute a description, an estimate, or a self-graded PASS/FAIL in its place.
+
+---
+
+## WHY THIS EXISTS
+
+Both rules exist because of documented incidents where fixes were declared complete without evidence, and where test/synthetic data was deleted as "routine cleanup" — destroying evidence needed for an active audit, without authorization. These rules are not optional or context-dependent. They apply even if the action seems obviously safe, obviously helpful, or obviously routine.
