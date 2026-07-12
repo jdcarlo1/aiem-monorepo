@@ -344,9 +344,9 @@ class OverfitDetector:
                         SELECT oos_edge
                         FROM aiem_signal_discoveries
                         WHERE signal_name ILIKE %s
-                          AND evaluation_status = 'validated'
+                          AND status = 'validated'
                           AND oos_edge IS NOT NULL
-                        ORDER BY discovery_date DESC
+                        ORDER BY discovered_at DESC
                         LIMIT 1
                     """, (f"%{signal_source}%",))
                     row = cur.fetchone()

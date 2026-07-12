@@ -1,0 +1,64 @@
+# REPLY TO AGENT — Approve Fix 1, Confirm Priority 2 Template, Hold on Rows
+
+## Fix 1 — APPROVED
+
+Your diagnosis is correct and matches the evidence you provided (real schema
+dump, real CREATE TABLE statement, real failing query lines). Proceed with
+the two-line fix in `aiem_edge_filter.py:347-349`:
+
+- `evaluation_status` → `status`
+- `discovery_date` → `discovered_at`
+
+Apply the fix now. Once applied, provide full verification evidence per the
+standing rules:
+1. Raw terminal output of the fix being applied
+2. Exact before/after diff of the changed lines
+3. sha256 hash before/after for `aiem_edge_filter.py`
+4. Run the verification query you already proposed and paste the raw result
+   — confirm it returns `oos_edge = 2.5` for row id=5 as expected
+
+Do not mark this complete without that evidence.
+
+---
+
+## Priority 2 Column Template — APPROVED (use this version)
+
+Use these columns for the 39-row backlog table:
+
+| Finding Category | Hard Bug vs. Design Gap | Blast Radius | Effort |
+|---|---|---|---|
+
+Definitions (for your reference, already agreed):
+- **Finding Category**: one of `capability-check-only` / `BG-SCAN-ONLY` /
+  `NOT-IN-Phase8` / `0-trace-rows` / `wrong-packet-field` /
+  `offline-utility-only`
+- **Hard Bug vs. Design Gap**: **Hard Bug** = wired but broken/misfiring
+  (wrong column, wrong packet field, silent exception). **Design Gap** =
+  works correctly in a separate pipeline but was not designed to feed the
+  orchestrator loop.
+- **Blast Radius**: **1** = isolated to one indicator, no downstream effect.
+  **2** = affects bull_bear_debate inputs (debate→specialist_council chain).
+  **3** = blocks multiple downstream stages (Stage 8 ensemble, Stage 9 edge
+  gate, or paper pick sourcing).
+- **Effort**: **S** = 1 line/rename. **M** = 1–10 lines, one file. **L** =
+  multi-file, new wiring, or new packet field.
+
+---
+
+## HOLD — Do not fill in the 39 rows yet
+
+Do NOT populate the Priority 2 backlog table yet. Move on to Fix 2 (the dead
+Thompson sampler / Bayesian statistics investigation) next, using the same
+standard: full diagnosis with raw evidence, proposed fix only, no code
+applied until I approve it.
+
+Once Fix 2 is diagnosed and I've approved its fix, then come back to Priority
+2 and fill in all 39 rows using the approved column template above.
+
+Sequence:
+1. Fix 1 — apply now, provide evidence (per above)
+2. Fix 2 — diagnose only, propose fix, wait for approval
+3. Priority 2 backlog table — fill in only after Fix 2 is approved and applied
+
+Standing rules (evidence requirements, data immutability) from the original
+directive still apply to everything above.

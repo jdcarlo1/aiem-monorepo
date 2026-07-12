@@ -1,0 +1,82 @@
+# DIRECTIVE — Fix These TWO Things Only Right Now
+
+Do not touch anything else. No indicator wiring, no backlog table yet. Just
+these two fixes, verified one at a time, in order.
+
+---
+
+## FIX 1 — `aiem_signal_discoveries` Schema Bug
+
+`_oos_baseline` query against `aiem_signal_discoveries.oos_edge` fails with:
+**"created_at col missing."**
+
+This breaks Stage 9 OOS/edge-filter evidence collection.
+
+Required steps:
+1. Run `\d aiem_signal_discoveries` (or equivalent schema inspection) and
+   paste the raw output showing actual columns.
+2. Paste the exact failing query from `_oos_baseline`.
+3. State whether `created_at` was ever a column (check migration history) or
+   was never created.
+4. Propose the fix (ALTER TABLE vs. rewriting the query to use an existing
+   timestamp column) — do NOT apply it yet. Wait for my approval on the
+   approach before touching the schema or the query.
+5. Once approved, apply the fix and provide full verification evidence
+   (see Standing Rules below).
+
+---
+
+## FIX 2 — Dead Thompson Sampler / Bayesian Statistics
+
+`aiem_paper_thompson` shows **wins=0, losses=0, alpha=1.0, beta=1.0** across
+ALL sources and ALL tickers — a uniform, untouched Beta(1,1) distribution.
+This means the Thompson sampler has never actually adapted, ever, despite
+being "wired" in code.
+
+Required steps:
+1. Find and paste the exact function responsible for updating this table on
+   trade close (e.g. `update_paper_thompson` or equivalent) — full source,
+   not a paraphrase.
+2. Trace whether this function is actually being called anywhere in the paper
+   trading close/settlement path. Paste the call site(s), or state clearly if
+   none exist.
+3. If it IS being called: identify why the update isn't persisting (e.g.
+   wrong table, transaction not committed, exception being silently
+   swallowed, wrong ticker/source key). Paste the actual error or diff
+   showing the bug.
+4. If it is NOT being called anywhere: state that plainly — this is a wiring
+   gap, not a silent failure, and the fix is different (need to call it from
+   the correct trade-close event).
+5. Propose the fix — do NOT apply it yet. Wait for my approval.
+6. Once approved, apply the fix and provide full verification evidence.
+
+---
+
+## STANDING RULES (apply to both fixes above)
+
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash before/after for any changed files
+4. Raw SQL query + result set for anything database-related
+
+Narrative or paraphrased claims of "fixed" or "tested" without pasted evidence
+are rejected. If you cannot produce the evidence, say so explicitly — do not
+substitute a summary.
+
+**DATA IMMUTABILITY:** You may never delete, truncate, drop, or overwrite any
+row, table, or file — including anything you created yourself or label
+"test," "synthetic," or "cleanup" — without my explicit prior approval in
+this session. State what you want to delete and why, wait for approval, then
+log it. Any unapproved deletion is a protocol violation to report, not
+self-correct.
+
+---
+
+## SEQUENCE
+
+1. Fix 1 first, fully verified, before starting Fix 2.
+2. Fix 2 second, fully verified.
+3. Stop. Do not proceed to the indicator wiring priority plan or the
+   remediation backlog table until I confirm both fixes are verified and
+   tell you to continue.
