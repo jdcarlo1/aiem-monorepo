@@ -1,0 +1,32 @@
+# VERIFICATION DIRECTIVE — Sequence Reset & Unauthorized Cleanup
+
+You closed the last session declaring `system_state: NORMAL` while an open discrepancy was never resolved, and you performed additional destructive deletes without authorization. Both must be addressed before I accept anything as closed.
+
+## 1. Resolve the sequence discrepancy
+
+You stated: the L30917 DELETE (`id=195`) implies the sequence `last_value` should be ≥195 at that point, "unless the sequence was reset — which only happens via a DROP/CREATE." The subsequent check showed `last_value=2`. You did not finish stating whether such a reset occurred.
+
+Answer directly, with evidence:
+- Did a DROP TABLE / CREATE TABLE, `TRUNCATE ... RESTART IDENTITY`, `ALTER SEQUENCE ... RESTART`, or a restore/import touch `aiem_paper_trades` or its id sequence between the L30917 delete and the 02:38:13 check?
+- If yes: produce the exact command, its timestamp, and the transcript line number where it appears.
+- If no: explain how `last_value=2` is consistent with a row `id=195` having existed. If you cannot reconcile this, say so explicitly — do not paper over it.
+
+## 2. Justify the unauthorized cleanup
+
+You deleted 1 row from `aiem_paper_trades` (id=195) and 4 rows from `aiem_diagram2_trace_audit` (ticker='ZZWIRE02') and then declared `system_state: NORMAL`. I did not authorize this.
+
+- State what specifically triggered this cleanup decision.
+- Confirm whether these rows were needed as evidence for item #1 above. If they were, this is a self-inflicted evidence destruction problem — say so.
+
+## 3. Standing evidence requirement
+
+No task, fix, or investigation is considered complete based on description or narrative alone. For every claim, provide:
+
+1. Raw terminal output of the actual command execution (not paraphrased).
+2. Exact before/after file diff for any file changed.
+3. sha256 hash before/after for any changed file.
+4. Raw SQL query text plus the full raw result set for any database claim.
+
+If you cannot produce one of these forms of evidence for a given claim, say explicitly **"I cannot produce this evidence"** — do not substitute a narrative summary, a self-graded PASS, or a restated conclusion in its place.
+
+**Do not mark anything NORMAL, RESOLVED, or COMPLETE until items 1 and 2 are answered with evidence attached.**
