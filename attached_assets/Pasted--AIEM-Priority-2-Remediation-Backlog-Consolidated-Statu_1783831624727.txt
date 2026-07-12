@@ -1,0 +1,117 @@
+# AIEM Priority 2 Remediation Backlog — Consolidated
+
+**Status context:** Fix 2 (G0 governance checkpoint) is verified clear — `mode=SHADOW`, `state=NORMAL` → `decision=ALLOW` for all real runs. No code change needed there. This backlog is the 39-item audit the agent flagged as ready to work once G0 was confirmed clear.
+
+**Totals: 39 items — 8 Hard Bugs, 31 Design Gaps**
+
+| Part | Category | Items | Hard Bugs | Design Gaps |
+|---|---|---|---|---|
+| A | NOT-IN-Phase8 | 15 | 1 (#11) | 14 |
+| B | wrong-packet-field / 0-trace-rows | 8 | 6 (#16–21) | 2 (#22–23) |
+| C | BG-SCAN-ONLY | 7 | 1 (#24) | 6 |
+| D | capability-check-only / offline-utility-only | 9 | 0 | 9 |
+
+---
+
+## Part A — NOT-IN-Phase8 (15 items)
+*Signal/handler computes a value but the combiner/orchestrator never reads it — component exists in code but isn't wired into the live decision path.*
+
+| # | Stage | Description |
+|---|---|---|
+| 1 | 3 | Technical/ml_prediction signal computed but `technical_score` never reaches combiner |
+| 2 | 3 | Options structure (GEX + put/call skew) written to `packet.options`; combiner is blind to options context |
+| 3 | 4 | `_h_cta_triggers` → `cta_score` written to `packet.technical["cta_triggers"]`, not read by combiner/ml_prediction |
+| 4 | 4 | `_h_momentum_exhaustion` signal → `packet.technical["momentum_exhaustion"]`; combiner never sees it |
+| 5 | 4 | `_h_pullback_reentry` signal → `packet.technical["pullback_reentry"]`; combiner never sees it |
+| 6 | 4 | `_h_selloff_reversion` (atr_pct, rsi, sma20) → `packet.technical["selloff_reversion"]`; combiner never sees it |
+| 7 | 4 | `_h_short_squeeze` (si_pct, dtc) → `packet.technical["short_squeeze"]`; combiner never sees it |
+| 8 | 5 | `_h_layer9_static` writes to `packet.microstructure`, not `ml_prediction`; Layer 9 score excluded from ensemble |
+| 9 | 5 | `_h_vwap_indicator` (price_vs_vwap_pct) → `packet.statistical["vwap"]`; combiner never sees it |
+| 10 | 5 | `_h_premarket_gap` (gap_pct/squeeze_sub) → `packet.statistical["premarket_gap"]`; combiner never sees it |
+| 11 | 7 | **[Hard Bug]** `_h_meta_learning_trust` adjusted_candidates → `packet.ensemble["meta_trust"]`; combiner reads `ml_prediction` not `ensemble["meta_trust"]` — trust value silently discarded |
+| 12 | 7 | `_h_adversarial_critique` → `packet.debate["adversarial_critique"]`; combiner runs before specialist_council reads debate — critique never contributes to `combined_score` |
+| 13 | 7 | `_h_bull_bear_debate` → `packet.debate["bull_bear"]`; read only by specialist_council, which runs *after* combiner — debate verdict never feeds into `combined_score` |
+| 14 | 8 | `_h_specialist_council` verdict → `packet.ensemble["specialist_council"]`; runs in parallel with combiner — the two Stage 8 outputs (`combined_score` + specialist_council) are never integrated into one final score before `final_decision` |
+| 15 | 7 | `_h_intelligence_layer` → `packet.ensemble["intelligence_layer"]` (model_loaded: True/False only); no numeric score — combiner cannot use it |
+
+## Part B — wrong-packet-field / 0-trace-rows (8 items)
+*Hardcoded literals, mismatched column names, and empty persistence tables that silently corrupt audit trails or disable live gates.*
+
+| # | Stage | Description |
+|---|---|---|
+| 16 | 9 | **[Hard Bug — FIXED, sha256 confirmed]** `aiem_edge_filter._oos_baseline` queried `evaluation_status`/`discovery_date` — neither column exists; silent `UndefinedColumn` swallowed by bare `except`; OOS baseline always `None`; Stage 9 edge gate permanently disabled |
+| 17 | 11 | **[Hard Bug]** Stages 16+17 (`risk_gate`, `decision_engine`) write hardcoded `"CLEAR"` literals into `aiem_diagram2_trace_audit` instead of live-computed gate results; real rejection reason is stdout-only; trace audit falsely records every candidate as passing all gates |
+| 18 | 6 | **[Hard Bug]** `_h_gaussian_process` writes `{"module":..., "status":"available"}` into `ml_prediction["gaussian_process"]` — no numeric score/probability/combined_score key; combiner receives `None` for this source every run |
+| 19 | 6 | **[Hard Bug]** `_h_deep_rl` writes `{"position_action":"HOLD","policy_loaded":False}` into `ml_prediction["deep_rl"]` — no numeric score key; combiner receives `None` |
+| 20 | 6 | **[Hard Bug]** `_h_online_learning` writes `{"model_loaded":False,"version_count":0}` into `ml_prediction["online_learning"]` — no numeric score key; combiner receives `None` |
+| 21 | 3 | **[Hard Bug]** `options_structure_scan` table has 0 rows total; `_h_options_structure` calls `compute_options_structure()` and wires into `packet.options`, but GEX/skew/term-structure numeric values are never confirmed persisted; `job_heartbeats` has no entry for the GEX job |
+| 22 | 12 | `aiem_paper_trades.audit_trace_id` — NULL for `CLOSED_AIEM` rows (only 6/95 non-NULL in 30-day window); D2 trace cannot be joined to paper trade by `audit_trace_id`; ticker+trade_date is the undocumented workaround |
+| 23 | 12 | `aiem_bus_transfer_log` — near-dead legacy duplicate of `aiem_diagram2_trace_audit`; 0 real writes in 30-day window; caused a false-FAIL conclusion in this audit session by pulling legacy data instead of real trace rows |
+
+## Part C — BG-SCAN-ONLY (7 items)
+*Real computation happens in a scheduled background job, but the per-ticker orchestrator call at runtime is only a capability/metadata check — the live packet never gets the real verdict.*
+
+| # | Stage | Description |
+|---|---|---|
+| 24 | 5 | **[Hard Bug]** `layer9_scores` batch scanner: 100% error across 751 real rows (hurst_raw always fallback, vpin_raw always 0.5, vrp_score/amihud_score always 0.3, two distinct error strings across all rows); `compute_layer9_score()` never completes successfully in the scheduled path |
+| 25 | 1 | `polygon_rvol_scan` — 8:35 AM ET scan populates an 11K-ticker RVOL table; `_h_market_data_intake` pulls from Tradier/Polygon OHLCV APIs and never reads `polygon_rvol_scan`; RVOL (the strongest validated signal feature) is excluded from every orchestrator packet |
+| 26 | 2 | `signal_drift_monitor` — `drift_check_log` populated by scheduled weekly batch; `_h_signal_drift_monitor` produces a status dict from in-process data, not the live drift log; real drift verdicts never enter the packet |
+| 27 | 2 | `module2_decay` per-ticker `run_full_cycle` call — real decay evaluation (C3 PASS) is weekly-scheduled; per-ticker orchestrator call is only a metadata/capability check; no real decay verdict enters the packet on a live run |
+| 28 | 2 | `module5_discovery` per-ticker call — real 75-test Fisher grid (C6 PASS) is weekly-scheduled; per-ticker orchestrator call is a capability check only |
+| 29 | 2 | `module6_rediscovery` per-ticker call — real variation testing (C4 PASS) is weekly-scheduled; per-ticker orchestrator call is a capability check only |
+| 30 | 2 | `module7_sector_rotation` per-ticker call — sector rotation is a market-wide batch job; per-ticker orchestrator call at best does a DB sector-context lookup; no live rotation computation |
+
+## Part D — capability-check-only / offline-utility-only (9 items)
+*Handler either only interrogates module availability (no real computation or scored output), or is reachable exclusively via the AIEM chat tool and never from `run_full_cycle`.*
+
+| # | Stage | Description |
+|---|---|---|
+| 31 | 5 | `_h_stat_tests` — checks `hasattr(self._st, "run_fisher_test")` and `bonferroni_adjusted_alpha()`; output is metadata counts only, no numeric score written to any packet field the combiner reads |
+| 32 | 5 | `_h_intraday_continuation` — hardcoded `status:"available"`; requires intraday feature "DataFrame"; `scan_end_of_day_candidates()` never called from the orchestrator on a live run; no scored output |
+| 33 | 2 | `_h_module4_gate` — admin-approval-gated, no CronTrigger; per-`run_full_cycle` call checks gate state only; never produces a real scored signal contributing to `packet.ml_prediction` or combiner inputs |
+| 34 | 2 | `_h_hypothesis_registry` — registers/counts active hypotheses into `packet.statistical`; audit/metadata store only, no scored signal contribution to combiner or bull_bear |
+| 35 | 2 | `_h_active_hypothesis_selection` — selects which hypothesis to test next; no real-time score contribution to `packet.ml_prediction` or bull_bear inputs on a live orchestrator call |
+| 36 | 2 | `_h_literature_scanner` — offline research tool; handler returns a capability dict only; no scheduled caller and no scored signal output on any live path |
+| 37 | 5 | Walk-forward validation (C5) — `walk_forward_splits()` reachable only via `_aiem_tool_walk_forward_validate` AIEM chat tool; `aiem_module3_promotion` does not gate on walk-forward results; zero confirmed scheduled invocations |
+| 38 | 3 | Options term structure (C16) — `run_divergence_scan()` / `vix_term_structure_divergence()` chat-tool-only; zero scheduled callers; `term_ratio`/`term_tag` columns in `options_structure_scan` never populated (table has 0 rows) |
+| 39 | 6 | Causal discovery + Gaussian Process signal search (C26/C27) — real PC-algorithm and sklearn GP implementations exist but are not registered in `DIAGRAM2_STAGE_MAP` and are not dispatched by `run_full_cycle`; reachable only as a named AIEM chat tool call |
+
+---
+
+## Highest-priority items by blast radius (per audit agent)
+
+- **Blast 3 + Hard Bug:** #11 (meta_learning_trust silently discarded), #16 (OOS baseline disabled — already FIXED), #24 (Layer 9 batch 100% failure)
+- **Blast 3 + Design Gap:** #8 (Layer 9 excluded from ensemble), #13 (bull_bear debate never reaches combined_score), #14 (dual Stage 8 paths never integrated), #25 (polygon_rvol_scan RVOL excluded from packet)
+
+---
+
+## Fix directive — top blast-radius items (#8, #11, #13, #14, #24, #25)
+
+Paste this to the Replit agent as-is.
+
+> **Task: Fix the following 6 highest-blast-radius items from the Priority 2 remediation backlog. Work one item at a time, in this order: #24, #25, #8, #13, #14, #11. Do not move to the next item until the current one is verified per the standing evidence requirements below.**
+>
+> **Item #24 — Layer 9 batch scanner 100% failure.** `compute_layer9_score()` never completes successfully in the scheduled path; hurst_raw always returns fallback, vpin_raw and vrp_score/amihud_score always return placeholder constants (0.5 / 0.3), and two distinct error strings appear across all 751 real rows. Find and fix the root cause of the exception(s) so the function completes and returns real computed values across a live batch run.
+>
+> **Item #25 — polygon_rvol_scan excluded from every packet.** The 8:35 AM ET scan populates an 11K-ticker RVOL table, but `_h_market_data_intake` never reads it. Wire `_h_market_data_intake` (or the correct handler) to read from `polygon_rvol_scan` and write RVOL into the packet field the combiner actually consumes.
+>
+> **Item #8 — Layer 9 score excluded from ensemble.** `_h_layer9_static` writes to `packet.microstructure` instead of `packet.ml_prediction`. Fix the write target so the combiner's ensemble step actually receives and uses the Layer 9 score.
+>
+> **Item #13 — bull_bear debate never reaches combined_score.** `_h_bull_bear_debate` writes to `packet.debate["bull_bear"]`, but specialist_council (the only reader) runs after the combiner. Either reorder execution so specialist_council/debate resolves before the combiner runs, or add a mechanism for the debate verdict to feed into `combined_score`.
+>
+> **Item #14 — dual Stage 8 paths never integrated.** `combined_score` (from the combiner) and `specialist_council` verdict run in parallel but are never merged into one final score before `final_decision`. Design and implement the integration point — specify how the two scores should be weighted/combined — and verify `final_decision` reflects both.
+>
+> **Item #11 — meta_learning_trust silently discarded.** `_h_meta_learning_trust` writes adjusted candidate weights to `packet.ensemble["meta_trust"]`, but the combiner reads from `packet.ml_prediction`, not `packet.ensemble["meta_trust"]`. Fix the combiner's read path (or the write path — confirm which is correct given system design intent) so meta-learning trust adjustments actually take effect.
+>
+> ---
+> **STANDING VERIFICATION REQUIREMENT (applies to every item above):**
+> No task is complete based on description alone. For each item, you must provide:
+> 1. Raw terminal output of actual execution (not paraphrased)
+> 2. Exact before/after file diff
+> 3. sha256 hash before and after for every changed file
+> 4. Raw SQL query + result set, if a database is involved
+>
+> Narrative or paraphrased claims of "fixed" or "tested" without pasted evidence will be rejected. If you cannot produce the required evidence for any item, say so explicitly rather than declaring it done.
+>
+> **STANDING DATA IMMUTABILITY RULE:**
+> You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test"/"synthetic"/"cleanup" — without my explicit prior approval in this session. If you believe something needs to be deleted, state what and why, then wait for my approval before acting. Log any approved deletion. Any unapproved deletion is a protocol violation to report immediately, not self-correct.

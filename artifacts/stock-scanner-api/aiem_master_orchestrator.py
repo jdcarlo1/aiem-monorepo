@@ -508,6 +508,37 @@ class AEIMMasterOrchestrator:
             "rows":          rows,
             "bars_loaded":   len(rows),
         }
+        try:
+            conn_r = _db_conn_dict()
+            cur_r  = conn_r.cursor()
+            cur_r.execute("""
+                SELECT rvol, gap_pct, close_strength
+                FROM polygon_rvol_scan
+                WHERE ticker = %s
+                ORDER BY scan_date DESC
+                LIMIT 1
+            """, (packet.ticker,))
+            _rvol_row = cur_r.fetchone()
+            conn_r.close()
+            if _rvol_row and _rvol_row.get("rvol") is not None:
+                _rvol = float(_rvol_row["rvol"])
+                _gap  = float(_rvol_row.get("gap_pct") or 0.0)
+                _cs   = float(_rvol_row.get("close_strength") or 0.5)
+                packet.market_data["rvol"]           = _rvol
+                packet.market_data["gap_pct"]        = _gap
+                packet.market_data["close_strength"] = _cs
+                # use polygon_rvol (not rvol) to survive packet.technical.update() in _h_v3_technical
+                packet.technical["polygon_rvol"]     = _rvol
+                packet.technical["polygon_gap_pct"]  = _gap
+                packet.technical["close_strength"]   = _cs
+                _rvol_score = min(100.0, max(0.0, 50.0 + (_rvol - 1.0) * 10.0))
+                packet.ml_prediction["rvol_signal"] = {
+                    "score":  round(_rvol_score, 2),
+                    "rvol":   _rvol,
+                    "source": "polygon_rvol_scan",
+                }
+        except Exception:
+            pass
         _ev = {"ticker": packet.ticker, "bars_loaded": len(rows),
                "current_price": packet.market_data.get("current_price"), "source": packet.source}
         return self._std_out("candidate_intake", "PASS" if rows else "PARTIAL",
@@ -840,10 +871,24 @@ class AEIMMasterOrchestrator:
         if len(rows) >= 30:
             df = pd.DataFrame(rows[::-1])
             df.columns = [c.lower() for c in df.columns]
+            df = df.rename(columns={
+                "close_price": "Close",
+                "open_price":  "Open",
+                "high_price":  "High",
+                "low_price":   "Low",
+                "volume":      "Volume",
+            })
             result = self._l9.compute_layer9_score(packet.ticker, df)
         else:
             result = {"error": "insufficient_bars", "bars": len(rows)}
         packet.microstructure = result
+        _score = result.get("statistical_score") if isinstance(result, dict) else None
+        if _score is not None:
+            packet.ml_prediction["layer9_statistical_edge"] = {
+                "score":  float(_score),
+                "regime": result.get("regime", "unknown"),
+                "source": "layer9_statistical_edge",
+            }
         return result
 
     def _h_stat_tests(self, packet: AEIMTradePacket) -> Dict:
@@ -1021,6 +1066,17 @@ class AEIMMasterOrchestrator:
             "regime":              regime,
         }
         packet.ensemble["meta_trust"] = out
+        # #11: write trust-adjusted probability into ml_prediction so ensemble combiner uses it
+        if weighted and isinstance(weighted, list) and weighted[0]:
+            _adj = (weighted[0].get("adjusted_probability")
+                    or weighted[0].get("adjusted_win_rate")
+                    or weighted[0].get("probability"))
+            if _adj is not None:
+                packet.ml_prediction["meta_trust_signal"] = {
+                    "score":          min(100.0, max(0.0, float(_adj) * 100.0)),
+                    "context_bucket": context_bucket,
+                    "source":         "meta_learning_trust",
+                }
         return out
 
     def _h_intelligence_layer(self, packet: AEIMTradePacket) -> Dict:
@@ -1074,6 +1130,14 @@ class AEIMMasterOrchestrator:
                 if s is not None:
                     scores[key]    = float(s)
                     win_rates[key] = float(packet.scanner_signal.get("backtest_wr", 0.55) or 0.55)
+
+        # #14: integrate specialist_council verdict (#13 reorder ensures it runs before us)
+        # weighted_vote is in [-1, +1]; map to [0, 100] for the weighted average
+        _sc = packet.ensemble.get("specialist_council", {})
+        _sc_vote = _sc.get("weighted_vote") if isinstance(_sc, dict) else None
+        if _sc_vote is not None:
+            scores["specialist_council"]    = min(100.0, max(0.0, (float(_sc_vote) + 1.0) * 50.0))
+            win_rates["specialist_council"] = 0.60
 
         if scores:
             combined = self._ec.simple_weighted_average(scores, win_rates)
@@ -1637,9 +1701,10 @@ class AEIMMasterOrchestrator:
         self._run(packet, "intelligence_layer",          self._h_intelligence_layer)
         self._run(packet, "adversarial_critique",        self._h_adversarial_critique)
         self._run(packet, "bull_bear_debate",            self._h_bull_bear_debate)
-        # Stage 8 — ensemble
-        self._run(packet, "ensemble_combiner",           self._h_ensemble_combiner)
+        # Stage 8 — ensemble (#13: specialist_council now runs before ensemble_combiner
+        # so the debate verdict is available as an input when the combiner runs)
         self._run(packet, "specialist_council",          self._h_specialist_council)
+        self._run(packet, "ensemble_combiner",           self._h_ensemble_combiner)
         # Stage 9 — supervisor + edge filter
         self._run(packet, "supervisor",                  self._h_supervisor)
         self._run(packet, "edge_filter",                 self._h_edge_filter)
