@@ -1,0 +1,19 @@
+## Decisions on D1 and D3
+
+**D1 (deep_rl):** Confirmed — per-file phase tracking is the intended design. Keep `deep_rl_policy.py` at phase 15 and `rl_position_sizer.py` at phase 11 as two separate rows, both under `stage_name='deep_rl'`. Do not collapse this into a single canonical phase. This is correct because a "stage" spanning two pipeline phases is a real property of the system, not an error to normalize away.
+
+**D3 (main.py):** Exclude `main.py` from `aiem_module_registry`. It is the Flask server / infrastructure entry point, not a discrete AIEM module in the D1/D2/D3 pipeline sense. Before implementing the exclusion, confirm via grep/SQLGREP that no other AIEM module currently references `main.py` as an upstream or downstream dependency anywhere in `MODULE_PHASE_MAP`, `AEIM_MODULES`, or the codebase generally. If a dependency does exist, flag it back to me before excluding — don't silently drop a referenced entry.
+
+## Required before I approve running the build
+
+Two code paths — `registry_source='AIEM_MODULES'` and `registry_source='CONFLICT'` — are structurally present but have never actually executed, since current data produces 0 rows for both. "Structurally reachable" is not the same as "verified working." Before I sign off on running `python3 aiem_registry_build.py` against the real database:
+
+1. **Synthetic test for the AIEM_MODULES-only path:** Temporarily add one fake AEIM_MODULES entry with a basename that does NOT exist in MODULE_PHASE_MAP. Run `build_module_rows()` (dry-run, no DB write) and confirm via raw output that the row is produced with `registry_source='AIEM_MODULES'` and the correct fields populated (including `module_phase` as NULL, since that's the case this branch exists for).
+
+2. **Synthetic test for the CONFLICT path:** Temporarily add a fake entry that exists in both MODULE_PHASE_MAP and AEIM_MODULES but with disagreeing phase assignments. Confirm via raw output that the row is produced with `registry_source='CONFLICT'` rather than silently defaulting to `BOTH`.
+
+3. **Remove all synthetic test data** after the test completes, per the standing data immutability rule — state explicitly what was added and that it was removed, with before/after evidence.
+
+4. **Confirm no downstream consumer assumes `module_phase` is always non-null.** `module_phase` changed from `NOT NULL` to nullable to support the AIEM_MODULES-only path. Grep the codebase for any code that reads `module_phase` from these tables and confirm none of it will break or misbehave on a NULL value. If any does, flag it — do not silently patch it without telling me first.
+
+Once all four items above are shown with raw evidence (not narrative), present the full checkpoint again and I'll approve the actual build run against the live database.
