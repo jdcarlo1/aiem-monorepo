@@ -1,0 +1,64 @@
+# Verification Directive: Discovery Engine — Daily Automated Run Across Market Cap Tiers
+
+**Goal:** Confirm whether the discovery engine that is supposed to surface the 100 best and 100 worst stock picks per day — across small-cap, nano-cap, mid-cap, and large-cap — is actually (a) wired up correctly and (b) running automatically every day, with real evidence, not a description.
+
+Do not report any item below as "working" or "confirmed" without pasting the actual evidence requested. If you cannot produce the evidence for an item, say so explicitly.
+
+---
+
+## Item 1 — Does the scheduled job exist at all?
+
+- Find every scheduler registration (cron string, `schedule.every(...)`, APScheduler job, Replit "Scheduled Deployment," systemd timer, etc.) that triggers the discovery/scan job.
+- Paste the exact scheduling code with file name + line numbers.
+- Paste the exact cron expression or interval, and state in plain terms when it actually fires (e.g. "6:00 AM ET daily, Mon–Fri").
+
+## Item 2 — Does the job cover all four market cap tiers?
+
+- Show the code that defines/filters the universe into small-cap, nano-cap, mid-cap, and large-cap buckets (market cap thresholds used, e.g. nano <$50M, small $50M–$2B, mid $2B–$10B, large >$10B — whatever your actual thresholds are).
+- Confirm whether this is one job that loops over all four tiers, or four separate jobs. Paste the code either way.
+- If it's four separate jobs, confirm all four are actually scheduled (not just one or two) — paste each scheduling registration.
+
+## Item 3 — Does it actually produce 100 best + 100 worst per tier (or per day — clarify which)?
+
+- Paste the exact ranking/sorting/selection logic that picks the top 100 and bottom 100.
+- Paste the code that writes these results somewhere (DB table, file, API response) — table name, INSERT/write statement, file name.
+
+## Item 4 — Real evidence that it has actually been running, not just correctly coded
+
+- Raw SQL query against whatever table stores the daily picks, grouped by date, for the last 14 calendar days:
+  ```sql
+  SELECT scan_date, COUNT(*) AS total_rows,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'nano')  AS nano,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'small') AS small,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'mid')   AS mid,
+         COUNT(*) FILTER (WHERE market_cap_tier = 'large') AS large
+  FROM <discovery_results_table>
+  WHERE scan_date >= CURRENT_DATE - INTERVAL '14 days'
+  GROUP BY scan_date
+  ORDER BY scan_date DESC;
+  ```
+  (Adjust table/column names to match the real schema — paste the real schema first if column names differ.)
+- This should show: one row per trading day, with roughly 200 rows written per tier per day (100 best + 100 worst), for every trading day in the last 2 weeks. Any missing dates or wrong counts = the job did not run correctly that day.
+- Paste the raw output. Do not summarize it as "looks good" — show the actual rows.
+
+## Item 5 — Confirm today's / yesterday's run specifically
+
+- Paste raw log output (with real timestamps) from the most recent scheduled run showing the job started, completed, and how many rows it wrote.
+- Cross-check that timestamp against Item 4's SQL result for that date — do the counts match what the log claims?
+
+## Item 6 — Failure handling
+
+- What happens if the job fails partway through (e.g. one tier's API call errors out)? Does it silently skip that tier, retry, or alert? Paste the actual error-handling code.
+- Is there any alerting (Telegram, email, log flag) if a day is missed entirely? If not, say so explicitly — "no alerting exists" is a valid and useful answer.
+
+---
+
+## Standing verification requirement
+
+No item above is complete based on description alone. Each requires:
+1. Raw terminal output of actual execution (not paraphrased)
+2. Exact code with file name + line numbers
+3. Raw SQL query + full result set (not row counts summarized in prose)
+4. If claiming something "works," the raw evidence must be pasted in the same response — not described afterward
+
+Narrative claims like "yes, it's scheduled and running fine" without the above are rejected. State explicitly if any piece of evidence cannot be produced.
