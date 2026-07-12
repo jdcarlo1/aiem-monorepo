@@ -1,0 +1,83 @@
+# COMBINED DIRECTIVE — WIRING + IMPACT TEST AND LOOP PARTICIPATION TEST
+
+Paste this whole document to the agent.
+
+Pick one real ticker currently live in the system today. State which one and why. Use the SAME ticker for every part below.
+
+---
+
+## PART A — WIRING CHECK (all 39 items, one pass)
+
+Build one table covering every item below. Do not group or summarize — one row each.
+
+**Phase 4:** Discovery Engine, Hypothesis Registry, Active Hypothesis Selection, Literature Scanner, Signal Drift Monitor, Thompson Sampling
+
+**Phase 5:** GARCH, VPIN, Hurst Exponent, Bipower Jump, Variance Risk Premium, Risk Neutral Density, Statistical Arbitrage, Engle-Granger, Cointegration, PCA, Absorption Ratio, Fisher's Exact Test, Benjamini-Hochberg FDR, Walk-Forward Validation, Out-of-Sample Testing, Signal Decay, Monte Carlo, Bayesian Statistics, Regime Probability Models
+
+**Phase 6:** VWAP, CTA Levels, Options Structure, Gamma Exposure, Put/Call Skew, Volume Profile, RSI, Momentum, Gap Analysis, Pullback, Breakout, Short Squeeze, Trend, Relative Strength
+
+**Columns:**
+| Item | What triggered it for THIS ticker (file:line + raw log proof) | Output value produced | Where output is consumed next (file:line) | Present inside Phase 8 scoring function's actual inputs? Y/N with proof |
+
+- If N, write NOT WIRED TO SCORING.
+- If an item never fires for this ticker, write NOT INVOKED — do not omit the row.
+
+---
+
+## PART B — IMPACT TEST (only items marked Y in Part A)
+
+For each item confirmed wired to scoring, run the same ticker twice — once with its real computed value, once with that value zeroed/removed, all other inputs held the same — and report:
+
+| Item | Weight/coefficient in scoring code (literal value) | Score WITH real value | Score WITH value zeroed | Delta (points and %) | Raw output of both runs |
+
+Items marked NOT WIRED TO SCORING in Part A: list as N/A here, no need to re-test.
+
+---
+
+## PART C — FINAL DECISION
+
+State the system's actual decision for this ticker (buy/pass/reject/size) with file:line where it was produced.
+
+List which G0–G6 governance checkpoints it passed through, in order, pass/fail each, and SHADOW vs ENFORCE mode with the raw config value.
+
+---
+
+## PART D — LOOP PARTICIPATION TEST (same 39 items, same ticker)
+
+For each of the 39 items above, prove whether it is actually invoked when this ticker passes through the loop mechanism — not whether the function exists in the codebase, not whether it runs somewhere in a batch job. Three possible answers only: **FIRES PER-TICKER**, **CONDITIONAL — DID NOT FIRE**, **UNIVERSE-LEVEL LOOKUP**. No other category is allowed.
+
+**Table columns (one row per item, 39 rows total):**
+| Item | Invocation Scope | Raw log line proving THIS ticker triggered it (ticker, timestamp, function name) | file:line where it's called | If CONDITIONAL: precondition checked + its actual value for this ticker | If UNIVERSE-LEVEL: paste the universe list used this run + file:line of the join/lookup that pulls this ticker's value back out | Output value produced for this ticker | Where that output is consumed next (file:line) | Feeds Phase 8 scoring? Y/N |
+
+**Definitions (agent must self-classify using these, not guess):**
+
+- **FIRES PER-TICKER** = the function is called with this ticker's symbol as an explicit input, every loop pass, unconditionally.
+- **CONDITIONAL** = the function only runs if a precondition is met (e.g. gap % threshold, float/short-interest threshold). Must show the precondition check and its true/false result for this ticker. "Did not fire" is a legitimate answer here — but only with the check logged.
+- **UNIVERSE-LEVEL** = the function runs on a basket/cross-section, not this ticker alone (e.g. PCA, Cointegration, Engle-Granger, Absorption Ratio, Statistical Arbitrage, Regime Probability). This ticker's "involvement" means it was a member of the universe the calc ran over, AND its resulting value was joined back to its row. Both must be shown, or the answer is "not actually participating for this ticker" regardless of what the function does for other tickers.
+
+If a function's involvement cannot be proven with a log line naming this ticker specifically, the row must say **NOT PROVEN** — not "yes" and not a guess.
+
+---
+
+## RULES (apply to all parts above)
+
+- No summary prose anywhere. No "fully wired," "working as designed," "actively participating," or similar conclusion sentences. Tables and numbers/log lines only.
+- Every row/claim needs raw evidence: terminal output, exact SQL query + result set, real loop-run log line with this ticker's symbol and timestamp, or file diff/sha256 hash for touched code.
+- "Confirmed," "tested," "verified," "participates" without pasted evidence = rejected. If evidence can't be produced, say so explicitly instead of filling in the row.
+
+---
+
+## STANDING VERIFICATION REQUIREMENT (applies to this and all future tasks)
+
+No task is complete based on description alone. Every claim of "fixed," "tested," "verified," or "confirmed" must include:
+
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash (before/after) for any changed files
+4. Raw SQL query + result set, if a database is involved
+
+Narrative or paraphrased claims without pasted evidence are rejected. If the agent cannot produce evidence for any item, it must say so explicitly rather than filling in the row.
+
+## STANDING DATA IMMUTABILITY RULE (applies to this and all future tasks)
+
+The agent may never delete, truncate, drop, or overwrite any row, table, or file — including data it created itself or labels "test," "synthetic," or "cleanup" — without explicit prior approval in that session. The agent must state what it wants to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
