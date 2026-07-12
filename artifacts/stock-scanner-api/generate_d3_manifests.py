@@ -151,13 +151,13 @@ def main():
     )
     d3_event_link_columns = [dict(r) for r in cur.fetchall()]
 
-    cur.execute("SELECT DISTINCT event_type FROM d3_governance_event_links ORDER BY 1")
+    cur.execute("SELECT DISTINCT event_type FROM d3_governance_event_links WHERE is_test_record = FALSE ORDER BY 1")
     d3_event_types_actually_emitted = [r["event_type"] for r in cur.fetchall() if r["event_type"]]
 
-    cur.execute("SELECT DISTINCT event_schema_version FROM d3_governance_event_links ORDER BY 1")
+    cur.execute("SELECT DISTINCT event_schema_version FROM d3_governance_event_links WHERE is_test_record = FALSE ORDER BY 1")
     d3_schema_versions_present = [r["event_schema_version"] for r in cur.fetchall()]
 
-    cur.execute("SELECT COUNT(*) AS n FROM d3_governance_event_links")
+    cur.execute("SELECT COUNT(*) AS n FROM d3_governance_event_links WHERE is_test_record = FALSE")
     d3_event_link_row_count = cur.fetchone()["n"]
 
     cur.close()

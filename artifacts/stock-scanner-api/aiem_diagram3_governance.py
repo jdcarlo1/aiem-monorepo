@@ -2003,6 +2003,7 @@ def _g3_check_unresolved_actions() -> Dict[str, Any]:
                 cur.execute(
                     "SELECT action_id, action_type FROM d3_governance_actions "
                     "WHERE status = 'REQUESTED' "
+                    "  AND is_test_record = FALSE "
                     "  AND (action_type ILIKE %s OR action_type ILIKE %s OR action_type ILIKE %s) "
                     "ORDER BY requested_at DESC LIMIT 10",
                     ("%QUARANTINE%", "%CRITICAL%", "%PAUSE%"),
@@ -3202,15 +3203,15 @@ def _seed_governance_components() -> Dict[str, Any]:
             with conn.cursor() as cur:
                 cur.execute("SET LOCAL statement_timeout = '5s'")
                 cur.execute("SELECT COUNT(*) FROM d3_governance_event_links "
-                            "WHERE producer_module = 'aiem_master_orchestrator'")
+                            "WHERE producer_module = 'aiem_master_orchestrator' AND is_test_record = FALSE")
                 d2_publisher_events = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM d3_governance_event_links")
+                cur.execute("SELECT COUNT(*) FROM d3_governance_event_links WHERE is_test_record = FALSE")
                 total_ledger_events = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM d3_governance_requests")
+                cur.execute("SELECT COUNT(*) FROM d3_governance_requests WHERE is_test_record = FALSE")
                 total_requests = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM d3_governance_decisions")
+                cur.execute("SELECT COUNT(*) FROM d3_governance_decisions WHERE is_test_record = FALSE")
                 total_decisions = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(*) FROM d3_governance_acks")
+                cur.execute("SELECT COUNT(*) FROM d3_governance_acks WHERE is_test_record = FALSE")
                 total_acks = cur.fetchone()[0]
 
             health = {
@@ -5574,7 +5575,8 @@ def install_d3_routes(app):
         status = request.args.get("status")
         action_type = request.args.get("action_type")
         limit = int(request.args.get("limit", 50))
-        clauses, params = [], []
+        include_test = request.args.get("include_test", "false").lower() == "true"
+        clauses, params = ([] if include_test else ["is_test_record = FALSE"]), []
         if status:
             clauses.append("status = %s")
             params.append(status)

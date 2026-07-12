@@ -1,0 +1,23 @@
+# Directive 5 — Decision: Governance Table Test-Mode Policy
+
+## Decision
+**Approved: Option A.** Test governance rows (`is_test_record=True`) stay committed permanently in the live D3 governance tables (`d3_governance_requests`, `d3_governance_decisions`, `d3_governance_acks`, `d3_governance_event_links`, `d3_governance_actions`, and the ledger). They are NOT rolled back, deleted, or reclassified. Paper-trade rows from the same test may continue to be rolled back as already implemented.
+
+## Reasoning (for the record)
+1. The governance tables are an append-only audit ledger. A row proving "governance was invoked and correctly returned BLOCK" is evidence the system works — deleting it destroys that evidence rather than protecting anything.
+2. `is_test_record=True` is already the established isolation convention (G3/G5/J verify scripts), so this test followed existing practice rather than inventing a new one.
+3. Rolling back governance rows would require new two-connection coordination (D3's `_d3_connect()` vs. the paper-trade connection) that doesn't exist yet, for a problem the flag already solves at negligible cost.
+
+## Condition attached — this directive is NOT closed until both are done
+
+**1. Fix the line-3211 health check.**
+`aiem_diagram3_governance.py:3211` currently runs `SELECT COUNT(*) FROM d3_governance_requests` / `d3_governance_decisions` unfiltered, so test rows inflate the `DECISIONS_RECORDED` binary indicator. Add `WHERE is_test_record = FALSE` to both queries. Provide the diff and updated line numbers as evidence per the standing verification block.
+
+**2. Add a standing rule, not a one-time fix.**
+Every current and future query, dashboard, health check, or aggregation that reads any of the six D3 governance tables must explicitly filter `is_test_record = FALSE` unless it is a verification/test script by design (e.g. `aiem_diagram3_j_verify.py`, `g3_verify.py`, `g5_verify.py`, `k_verify.py`). Agent must:
+- Grep every current read site against these six tables and confirm each one either filters correctly or is an approved test/verify script.
+- Flag any new code that reads these tables without the filter as a protocol violation, not something to silently fix.
+
+## Standing rules still in effect
+- **Verification block:** every claim above needs raw terminal output, before/after diff, sha256 where a file changed, and raw SQL result sets where a DB claim is made. Counts alone are not sufficient — I want the actual filtered vs. unfiltered row-level proof this time.
+- **Data immutability rule:** no deletion of governance rows, test or otherwise, without my explicit approval in-session. This decision explicitly does NOT authorize deleting anything — it authorizes leaving the test rows as they are.
