@@ -1,0 +1,55 @@
+# FOLLOW-UP — LIVE DB STATE VERIFICATION (stat_arb_pairs)
+
+Paste this whole thing to the agent. This does NOT require new code. Code for
+Task A and the retirement logic is accepted as proven. This is a data-state
+check only.
+
+## TASK 1 — Current live state
+Run this exact query against the live production database right now, not
+against any test/synthetic connection:
+
+```sql
+SELECT ticker_a, ticker_b, coint_pvalue, is_active, last_tested
+FROM stat_arb_pairs
+ORDER BY ticker_a, ticker_b;
+```
+
+Paste the raw result set (all rows, not a subset). Include the timestamp at
+which the query was run.
+
+## TASK 2 — Confirm no test contamination
+State explicitly: was this table touched by the synthetic BEFORE/AFTER
+retirement test run earlier in this session?
+- If yes: paste the exact restore step that was executed (the SQL used to
+  restore, or confirmation the restore ran against a separate
+  test/transaction scope that never touched the live table).
+- If no: state that the synthetic test ran in an isolated
+  transaction/connection/schema and cite the file:line or connection string
+  proving isolation.
+
+## TASK 3 — Row-for-row comparison
+Compare Task 1's result set against the original BEFORE snapshot from the
+earlier synthetic test (JPM/BAC coint_p=0.0, META/GOOGL coint_p=0.0128,
+XOM/CVX coint_p=0.0234, all is_active=True, last_tested=2026-07-11
+06:07:08.xxx). State row-by-row whether each matches, and if any row differs,
+show the diff and explain why (e.g. real weekly retest fired, real market
+data updated the value) with evidence — not a bare assertion.
+
+## RULES
+- No summary language ("DB is clean," "state confirmed," "restored
+  successfully") without the pasted raw query result backing it.
+- If the agent cannot produce a live query result right now (e.g. no DB
+  access in this context), it must say so explicitly rather than
+  reconstructing an answer from memory of the earlier test output.
+
+## STANDING VERIFICATION REQUIREMENT (applies here and to all future tasks)
+No task is complete based on description alone. Every claim of "fixed,"
+"tested," "verified," or "confirmed" must include:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash (before/after) for any changed files
+4. Raw SQL query + result set, if a database is involved
+
+Narrative or paraphrased claims without pasted evidence are rejected. If the
+agent cannot produce evidence, it must say so explicitly rather than filling
+in the row.
