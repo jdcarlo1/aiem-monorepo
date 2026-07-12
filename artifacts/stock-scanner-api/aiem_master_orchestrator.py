@@ -1112,6 +1112,14 @@ class AEIMMasterOrchestrator:
             "ml":           packet.ml_prediction,
         }
         result = self._bb.run_bull_bear_debate(packet.ticker, signal_context)
+        # Bridge fix: synthesize_debate() emits verdict (BUY/LEAN_BUY/NEUTRAL/LEAN_AVOID/AVOID)
+        # + confidence, but _h_specialist_council expects weighted_vote in [-1, +1].
+        # Inject it so specialist_council can treat bull_bear as a voter input.
+        _VERDICT_SIGN = {"BUY": 1.0, "LEAN_BUY": 0.5, "NEUTRAL": 0.0,
+                         "LEAN_AVOID": -0.5, "AVOID": -1.0}
+        _v = str(result.get("verdict", "NEUTRAL")).upper()
+        _c = float(result.get("confidence", 0.5) or 0.5)
+        result["weighted_vote"] = round(_VERDICT_SIGN.get(_v, 0.0) * _c, 4)
         packet.debate["bull_bear"] = result
         return result
 

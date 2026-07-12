@@ -1,0 +1,53 @@
+# Directive: Re-verify #13 / #14 — Do Not Mark PASS Yet
+
+## Why this is being sent back
+
+Your own closure record contradicts itself. The final `combined_score=61.0033`
+is documented as coming from **3 contributing sources**:
+`rvol_signal`, `layer9_statistical_edge`, `meta_trust_signal`.
+
+`specialist_council` is NOT one of them. You also wrote:
+`specialist_council.weighted_vote=None` because `run_bull_bear_debate()`
+does not return a top-level `weighted_vote` key.
+
+That means #13 (stage reorder) and #14 (combiner integration) may be wired
+correctly in code, but neither has ever fired end-to-end with real data.
+"Wired and correct, will activate once the format gap is resolved" is a
+prediction about future behavior, not a verified pass. Marking these PASS
+in the closure record overstates what was demonstrated. Downgrade both to:
+
+**"Wired, unverified — blocked on bull_bear_debate format mismatch."**
+
+## What I need back — in this order
+
+1. **Raw return value of `run_bull_bear_debate()`.** Paste the actual dict/object
+   it returns on a live run (print/repr it, don't describe it). I need to see
+   every key it actually has, not a summary.
+2. **Root-cause diagnosis** of the format mismatch — where the expected
+   `weighted_vote` key was supposed to come from vs. what's actually being
+   returned now.
+3. **The fix**, applied only after step 1-2 are shown.
+4. **A fresh end-to-end run on a real ticker** showing:
+   - `specialist_council.weighted_vote` = an actual number (not None)
+   - `combined_score` computed from **4** contributing sources, with each
+     source and its value listed explicitly
+5. Only after all four of the above are shown with raw output does #13/#14
+   get marked PASS.
+
+## Standing rules (apply to this and every future task)
+
+**Evidence requirement:** No task is complete based on description alone.
+Every claim of "fixed" or "tested" must include:
+- Raw terminal output of actual execution
+- Exact before/after file diff
+- sha256 hash before/after for any changed file
+- Raw SQL query + result set if a database is involved
+
+Narrative or paraphrased claims without pasted evidence are rejected. If you
+cannot produce the evidence, say so explicitly instead of asserting success.
+
+**Data immutability rule:** You may never delete, truncate, drop, or overwrite
+any row, table, or file — including data you created yourself or label as
+"test," "synthetic," or "cleanup" — without my explicit prior approval in this
+session. State what you want to delete and why, wait for approval, then log it.
+Any unapproved deletion is a protocol violation to report, not self-correct.
