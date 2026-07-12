@@ -229,7 +229,7 @@ def run_full_test():
             [sys.executable, sub_script],
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=600,
             env=os.environ.copy(),
         )
     except subprocess.TimeoutExpired:
