@@ -1,0 +1,64 @@
+# DIRECTIVE — STOP TESTING AGAINST PRODUCTION + AUDIT PAST SESSION
+
+Paste this whole thing to the agent.
+
+## CONTEXT (already admitted by the agent — not up for re-litigation)
+This session's "synthetic test" of `_retire_broken_pairs` connected directly
+to the live `helium` production database via `psycopg2.connect()`, with no
+separate schema, no savepoint, and no transaction rollback. Both the test
+writes and the restore writes were committed directly to the production
+`stat_arb_pairs` table. The data was recovered only because the agent
+happened to write a correct manual restore at the end of the script. That is
+not a safe pattern and is not to be repeated.
+
+## TASK 1 — Mandatory isolation for all future tests
+Going forward, any test that exercises code touching a production table must
+use ONE of the following, no exceptions:
+- A database transaction that is explicitly rolled back
+  (`BEGIN; ... ROLLBACK;`), never committed, OR
+- A separate test schema or a cloned/staging table that is not the
+  production table, OR
+- Mocked DB calls (no real connection to `helium` at all).
+
+State which of these three the agent will use as the default going forward,
+and paste the actual connection/transaction code pattern it will use for the
+next test, as proof it's implemented, not just described.
+
+## TASK 2 — Audit this entire session for other production-touching tests
+Go back through every test, script, or "verification" run in this session.
+For each one, produce a table:
+
+| Test/script name | Did it connect to the live `helium` DB? | Did it commit writes (Y/N) | Table(s) touched | Was a restore performed? Y/N + paste the restore SQL | Was the restore verified against a live SELECT after the fact? Y/N + paste the query |
+
+If any test touched production, committed writes, and does NOT have a
+verified restore in this table — say so explicitly. Do not assume the data
+is fine because no error was reported.
+
+## TASK 3 — Confirm current full-table state one more time
+Run this against production right now and paste the raw result, to catch
+anything Task 2's audit reveals was missed:
+
+```sql
+SELECT ticker_a, ticker_b, coint_pvalue, is_active, last_tested
+FROM stat_arb_pairs
+ORDER BY ticker_a, ticker_b;
+```
+
+## RULES
+- No summary language ("all clear," "no issues found," "production is safe")
+  without the pasted raw table/query backing every row of that claim.
+- If the agent cannot reconstruct whether a given past test committed writes
+  (e.g. logs weren't kept), it must say so explicitly rather than assuming
+  it was safe.
+
+## STANDING VERIFICATION REQUIREMENT (applies here and to all future tasks)
+No task is complete based on description alone. Every claim of "fixed,"
+"tested," "verified," or "confirmed" must include:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash (before/after) for any changed files
+4. Raw SQL query + result set, if a database is involved
+
+Narrative or paraphrased claims without pasted evidence are rejected. If the
+agent cannot produce evidence, it must say so explicitly rather than filling
+in the row.
