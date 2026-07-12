@@ -1,0 +1,46 @@
+# Directive 9 — Diagram 1 Selection Criteria, Readiness Check, and Discovery Cross-Write
+
+## Context
+
+Diagram 1 (the master orchestrator/loop mechanism) was fixed today, per Joel. Directive 8 confirmed no governance bypass exists in the execution path, and that the real scheduled run (`scheduled_942`) has never completed end-to-end historically — consistent with Diagram 1 not being correctly wired until today.
+
+Before treating the fix as done, I need a clear picture of how the system is actually supposed to behave once it runs for real, and confirmation that today's fix is genuinely ready for tomorrow's scheduled run.
+
+## What I need from you
+
+### 1. What determines which stocks go through Diagram 1 — the real selection criteria
+
+- Once Diagram 1 (`run_full_cycle` / the master orchestrator) is correctly wired and actually running, what determines which tickers it processes? Is there a fixed watchlist, a universe scan, specific metrics/indicator thresholds, or some combination?
+- Paste the actual code (with line numbers) that defines the ticker universe or selection criteria for Diagram 1 specifically — this is a different question from Directive 7/8's candidate-selection pipeline (`_aiem_paper_pick_candidates`), which we already confirmed bypasses Diagram 1 entirely. This question is about Diagram 1's own intake, independent of that other pipeline.
+- If there are specific metric/indicator thresholds gating entry into Diagram 1, list them explicitly with the actual gate values (not paraphrased).
+
+### 2. Is the looping mechanism actually ready to run starting tomorrow?
+
+- Confirm, with evidence: is today's Diagram 1 fix fully deployed and active in the running application right now (not just committed to a file)?
+- Is the APScheduler job (`scheduled_942`, mon-fri 9:42am ET) still correctly registered and pointing at the fixed code path?
+- Are there any known blockers, unhandled exceptions, or untested edge cases in the fixed code that could cause tomorrow's run to fail partway through? Be honest and specific — if you haven't tested the full path end-to-end yet, say so plainly rather than assuming it will work.
+- If possible without waiting for the actual scheduled time, run a manual dry/test invocation of the fixed Diagram 1 path today and report the raw result — did it complete successfully?
+
+### 3. Estimate: how many stocks will realistically pass through Diagram 1 per day?
+
+- Based on the actual selection criteria/thresholds found in step 1, give a real (not guessed) estimate of typical daily throughput. If possible, back this into an actual historical query — e.g., how many tickers would have qualified against these exact thresholds on a recent sample of trading days — rather than a purely theoretical estimate.
+
+### 4. Where do all processed stocks get stored?
+
+- For every stock that goes through Diagram 1, identify every table it gets written to along the way (signal tables, trace audit tables, scoring tables, etc.) — with actual table names and what gets written to each, not a general description.
+
+### 5. Do these stocks also flow into "discovery" — cross-check against Joel's intended design
+
+- Joel has stated he set up the system so that stocks processed through Diagram 1 should also flow into a "discovery" mechanism (e.g., `aiem_signal_discoveries`, `aiem_v3_discovery`, or similar — confirm the actual table/module name, don't assume).
+- Confirm with grep/code evidence: does the current (post-fix) Diagram 1 code path actually write to or trigger the discovery table/module? If yes, show the exact call site and what gets written. If no, this is an important gap to report — say so plainly and do not assume it's intentional or unintentional; just report what the code actually does.
+
+## Standing rules apply
+
+- **Verification block**: raw terminal output including raw grep output for all code-location and call-chain claims, exact diffs for anything already changed today (the Diagram 1 fix itself), sha256 hashes for any touched files, raw SQL + full result sets for any table/estimate claims.
+- **Evidence chain protocol**: run every evidence-producing command through `./tools/verified_run.sh "<command>"` from the project root. Run `./tools/verify_chain.sh` before declaring this directive complete and paste its full output plus the tail `entry_hash`.
+- **Data immutability**: no deletion, truncation, or overwrite of any row/table/file without explicit prior approval in this session.
+- **This is primarily an investigation and readiness check, not new development.** If step 5 reveals discovery isn't wired, do not fix it as part of this directive — report it with full evidence and stop. We'll decide together whether and how to wire it.
+
+## What happens next
+
+This directive determines two things: (1) whether tomorrow's scheduled run is genuinely likely to succeed, and (2) whether the discovery cross-write Joel intended actually exists in the code as built. If either answer is uncertain or negative, that becomes the priority to resolve before relying on tomorrow's run as a real test.
