@@ -1,0 +1,148 @@
+# Directive 6 — Fix Bare-Return Bug, Re-Verify, Scope PAPER ENFORCEMENT
+
+## Context
+
+Directive 5's negative-control test substantively PASSED: the BLOCK verdict was
+computed correctly on the real production G0 path
+(`_aiem_paper_execute_today()` → `require_governance_authorization()` →
+`_evaluate_g0_decision()`), isolation held (all D3 deltas confined to
+`d3_test_isolation` schema, zero movement in `public`), and
+`aiem_paper_trades` was confirmed untouched.
+
+However, the test harness itself reported `[VERDICT] FAIL`. Root cause: a bare
+`return` statement at `main.py` line 43100, in the BLOCK path of
+`_aiem_paper_execute_today()`, which returns `None` instead of a status dict.
+This means:
+
+- The harness's check `isinstance(result, dict) and result.get("blocked") is
+  True` fails against `None` — a harness/return-value mismatch, not a real
+  isolation failure.
+- More importantly: **any real caller of `_aiem_paper_execute_today()` that
+  inspects the return value for block status or reason codes currently gets
+  nothing back on a BLOCK.** This is a live "computed but not consumed" gap,
+  consistent with the failure class already tracked across the 39-item
+  backlog.
+
+This directive fixes that bug, re-confirms a clean PASS, and scopes (not yet
+builds) PAPER ENFORCEMENT.
+
+---
+
+## Item 1 — Fix the bare-return bug
+
+**File:** `main.py`, inside `_aiem_paper_execute_today()`, BLOCK path (around
+line 43086–43100, immediately after the `acknowledge_governance_decision()`
+call and its `except` block).
+
+**Current code (approximate, confirm exact lines before editing):**
+
+```python
+except Exception as _g0_ack_e:
+    print(...)
+_AIEM_PAPER_LOCK.release()
+return                      # ← bare return, yields None
+```
+
+**Required fix:** Return a status dict that mirrors what `_g0_result` already
+contains, so callers can see the block outcome. Suggested minimal shape:
+
+```python
+_AIEM_PAPER_LOCK.release()
+return {
+    "blocked": True,
+    "decision": _g0_result.get("decision"),
+    "reason_codes": _g0_result.get("reason_codes"),
+    "mode": _g0_result.get("mode"),
+    "system_state": _g0_result.get("system_state"),
+    "governance_decision_id": _g0_gdid,
+}
+```
+
+Do not change anything else in this function. Do not touch the ALLOW path,
+the `_g0_read_config` patch mechanism, the `_is_trading_day` guard, or any
+other governance logic. This is a single-return-statement fix.
+
+## Item 2 — Re-run the harness to confirm a clean PASS
+
+After the Item 1 fix, re-run the exact same negative-control test:
+
+```
+python3 d3_negctl_harness.py --full-test
+```
+
+Under the same test-mode DB isolation conditions as Directive 5 (transactional
+rollback / duplicate schema — whichever mechanism was used last time).
+
+**Evidence required (standing verification block applies):**
+1. Raw terminal output of the full run, including the `[VERDICT]` line.
+2. Before/after file diff of `main.py` showing only the Item 1 change.
+3. sha256 hash of `main.py` before and after the edit.
+4. Raw SQL: pre/post row counts for all D3 tables in both `d3_test_isolation`
+   and `public` schemas (same query pattern as Directive 5), confirming
+   `public` still shows zero movement.
+5. Explicit statement of the harness's final verdict (PASS or FAIL) and, if
+   still FAIL, the exact reason — do not paraphrase.
+
+**Standing DATA IMMUTABILITY rule applies**: no deletion, truncation, or
+overwrite of any row/table/file — including test/synthetic rows — without
+explicit approval in this session, logged before acting.
+
+Do not proceed to Item 3 until Item 2 returns a clean PASS with full evidence.
+
+---
+
+## Item 3 — Scope PAPER ENFORCEMENT (design only, no implementation yet)
+
+PAPER ENFORCEMENT is the next D3 rollout stage: D3 must actually halt the
+paper Decision Engine on a BLOCK verdict, not merely compute what would have
+happened. This is new integration work, not a test, and is a materially
+different capability than VERIFIED SHADOW — D3 goes from observing to
+intervening for the first time.
+
+**Deliverable for this item: a written design document, not code.** Cover:
+
+1. **Where does the halt actually happen?** Identify the exact point in
+   `_aiem_paper_execute_today()` (or wherever the paper Decision Engine
+   proceeds toward a trade) where a BLOCK verdict must stop execution before
+   any paper trade is placed — not just before the function returns.
+2. **What does "halted" mean operationally?** Confirm whether existing code
+   already stops before any trade-placing logic on BLOCK (the current
+   short-circuit may already do this in SHADOW too, since SHADOW never
+   enforces but the trade-placing code may be later in the function) — or
+   whether a BLOCK verdict today still allows downstream code to run in some
+   code path. This needs a raw code-path trace, not narrative assumption.
+3. **Rollback/skip path.** What happens to in-flight state (open DB
+   transactions, partially-built order objects, in-memory candidate state)
+   when a halt occurs mid-cycle. Confirm nothing is left in an inconsistent
+   state.
+4. **How the negative-control test changes for PAPER ENFORCEMENT.** Directive
+   5/6 proved D3 *would have* blocked. PAPER ENFORCEMENT's test must prove a
+   forced BLOCK during a live-config (non-test-mode, but still paper trading)
+   run actually prevents a paper trade from being placed — i.e., an
+   end-to-end test where, absent the fix, a trade would have gone through,
+   and with the fix, it doesn't.
+5. **Blast radius check.** Confirm explicitly that none of this touches live
+   brokerage execution (out of scope — confirmed future work, not part of
+   this system yet) and that PAPER ENFORCEMENT changes are additive/isolated
+   from D1's other responsibilities (no changes to D1's non-governance
+   scheduling/coordination logic).
+
+Do not write or modify any enforcement code yet. This item is design and
+code-path evidence gathering only. A follow-up directive will authorize
+implementation once the design is reviewed.
+
+---
+
+## Standing rules (apply to all items above)
+
+**Verification block:** No task is complete based on description alone.
+Provide (1) raw terminal output, (2) exact before/after file diff, (3) sha256
+hash before/after for changed files, (4) raw SQL query + full result set
+where a database is involved. State explicitly if any evidence item cannot be
+produced — do not substitute narrative claims.
+
+**Data immutability:** Never delete, truncate, drop, or overwrite any row,
+table, or file — including test/synthetic data — without explicit prior
+approval in this session. State what you want to delete and why, wait for
+approval, then log it. Any unapproved deletion is a protocol violation to
+report, not self-correct.

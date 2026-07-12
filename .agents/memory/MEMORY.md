@@ -156,3 +156,4 @@
 - [Directive 4 _test_mode flag](directive4-test-mode.md) — _aiem_paper_execute_today(_test_mode=True) rolls back BLOCKED_G0 INSERT instead of committing; is_test_record passed to governance ack; never set by scheduler or production callers
 - [D3 governance table is_test_record filter rule](d3-test-record-filter-rule.md) — all production reads on six D3 tables need WHERE is_test_record=FALSE; chain hash lookup at line 1071 is the sole exempt exception (must see all rows for chain continuity)
 - [Function registry AST source](function-registry-ast-source.md) — aiem_function_registry populated by AST scan of MODULE_PHASE_MAP files (not a static dict); no static function inventory analog to MODULE_PHASE_MAP/PHASE_TOOLS exists
+- [Diagram 3 PAPER ENFORCEMENT design](d3-paper-enforcement-design.md) — G0 halt already complete (line 43001-43112); ENFORCE = DB config change only; BLOCK/ALLOW paired test design; blast radius zero vs live execution

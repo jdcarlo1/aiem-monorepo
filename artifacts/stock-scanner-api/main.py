@@ -43099,7 +43099,14 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
             except Exception as _g0_ack_e:
                 print(f"[aiem_paper] G0 ack (BLOCK) failed, non-fatal: {_g0_ack_e}")
         _AIEM_PAPER_LOCK.release()
-        return
+        return {
+            "blocked": True,
+            "decision": _g0_result.get("decision"),
+            "reason_codes": _g0_result.get("reason_codes"),
+            "mode": _g0_result.get("mode"),
+            "system_state": _g0_result.get("system_state"),
+            "governance_decision_id": _g0_gdid,
+        }
     else:
         if _g0_result.get("would_block"):
             print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "
