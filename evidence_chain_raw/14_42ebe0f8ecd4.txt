@@ -1,0 +1,3 @@
+ id | ticker | trade_date | signal_source | status | created_at | audit_trace_id 
+----+--------+------------+---------------+--------+------------+----------------
+(0 rows)

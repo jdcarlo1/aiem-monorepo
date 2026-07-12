@@ -1,0 +1,39 @@
+      column_name      |        data_type         
+-----------------------+--------------------------
+ id                    | bigint
+ id                    | bigint
+ governance_request_id | text
+ governance_request_id | text
+ trace_id              | text
+ trace_id              | text
+ root_trace_id         | text
+ root_trace_id         | text
+ checkpoint            | text
+ checkpoint            | text
+ source_phase          | text
+ source_phase          | text
+ requested_action      | text
+ requested_action      | text
+ entrypoint            | text
+ entrypoint            | text
+ run_kind              | text
+ run_kind              | text
+ trigger_source        | text
+ trigger_source        | text
+ architecture_version  | text
+ architecture_version  | text
+ model_version         | text
+ model_version         | text
+ strategy_version      | text
+ strategy_version      | text
+ configuration_version | text
+ configuration_version | text
+ payload_hash          | text
+ payload_hash          | text
+ timeout_ms            | integer
+ timeout_ms            | integer
+ is_test_record        | boolean
+ is_test_record        | boolean
+ request_timestamp_utc | timestamp with time zone
+ request_timestamp_utc | timestamp with time zone
+(36 rows)

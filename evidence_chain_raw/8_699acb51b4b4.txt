@@ -1,0 +1,3 @@
+ERROR:  column "ticker" does not exist
+LINE 1: SELECT id, ticker, requested_at, mode, outcome, decision_rea...
+                   ^

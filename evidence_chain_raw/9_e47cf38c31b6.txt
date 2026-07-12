@@ -1,0 +1,3 @@
+ERROR:  column "entry_date" does not exist
+LINE 1: SELECT id, ticker, entry_date, source, status, created_at FR...
+                           ^

@@ -1,0 +1,43 @@
+# Directive 8 — Candidate Selection → Governance → Execution Path Verification
+
+## Context
+
+Directive 7 established, with raw grep and SQL evidence, that `_aiem_paper_pick_candidates()` never calls `run_full_cycle()`. NVDA qualified as a candidate through two independent table-read sources (`polygon_rvol_scan`, `ai_trade_log`), entirely bypassing the orchestrator. This is confirmed structural, not a bug.
+
+**The open question this raises:** candidate *selection* is a separate pipeline from the orchestrator. Does candidate *execution* — what happens after a ticker like NVDA is selected — still route through D3 governance (the same `_aiem_paper_execute_today` → `require_governance_authorization` → `_evaluate_g0_decision` path verified in Directive 6), or does the selection pipeline's independence from `run_full_cycle` also mean it bypasses governance entirely?
+
+This matters directly: if a candidate can be selected via `polygon_rvol_scan` or `ai_trade_log` and then executed without ever passing through G0, the entire D3 SHADOW/VERIFIED SHADOW verification work from Directive 6 would not actually cover this candidate-selection path — it would only cover whatever path Directive 6's test harness specifically exercised.
+
+## What I need from you
+
+### 1. Trace what happens to a candidate after `_aiem_paper_pick_candidates()` returns it
+
+- Paste the raw grep output showing every caller of `_aiem_paper_pick_candidates()` — where is its return value consumed?
+- Follow that consumer forward: does it lead to `_aiem_paper_execute_today()`, or some other execution path?
+- Provide line numbers and exact call chain, not a description of the chain.
+
+### 2. Confirm (or disprove) that G0 governance sits between selection and execution
+
+- Is there any code path where a selected candidate (e.g., NVDA via the polygon_rvol_scan or ai_trade_log route) can reach an actual paper trade WITHOUT passing through `require_governance_authorization` / `_evaluate_g0_decision`?
+- If such a path exists, show it explicitly with grep + line numbers. If it does not exist, show the grep evidence proving every execution path funnels through the same G0 check.
+
+### 3. Empirical check — did NVDA specifically pass through G0 last cycle?
+
+- Query `d3_governance_requests` / `d3_governance_decisions` for any entry where the candidate/ticker is NVDA, in the same time window as the polygon_rvol_scan and ai_trade_log rows already found in Directive 7.
+- Raw SQL + full result set. If no matching governance row exists for NVDA in that window, that is itself an important finding — say so plainly rather than omitting it.
+
+### 4. If NVDA was selected but never governed — explain why
+
+- If step 3 shows NVDA was selected as a candidate but no corresponding G0 governance decision exists, determine why: was NVDA never actually executed (selection ≠ execution, so no trade was attempted)? Or was it executed without a governance check?
+- This distinction matters a lot — "selected but not yet executed" is benign; "executed without governance" is a real gap.
+
+## Standing rules apply
+
+- **Verification block**: raw terminal output including raw grep output for all call-chain claims, exact diffs (if any tracing code is added — do NOT fix anything), sha256 hashes for any touched files, raw SQL + full result sets.
+- **Evidence chain protocol**: run every evidence-producing command through `./tools/verified_run.sh "<command>"` from the project root. Run `./tools/verify_chain.sh` before declaring this directive complete and paste its full output plus the tail `entry_hash`.
+- **Data immutability**: no deletion, truncation, or overwrite of any row/table/file without explicit prior approval in this session.
+- **This is an investigation, not a fix.** Do not modify `_aiem_paper_pick_candidates()`, `_aiem_paper_execute_today()`, or any governance code as part of this directive. If you find a real gap (candidates executing without governance), report it with full evidence and stop. We decide the fix together.
+
+## What happens next
+
+If this confirms every execution path — regardless of which selection source triggered it — passes through the same G0 governance check, that closes a real and important gap in your understanding of D3's actual coverage. If it reveals a bypass, that becomes the next priority fix, ranked above any further PAPER ENFORCEMENT work, since an ungoverned execution path would undermine the entire premise of D3 as a safety layer.

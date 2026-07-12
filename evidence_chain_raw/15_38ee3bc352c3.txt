@@ -1,0 +1,6 @@
+ checkpoint | decision | blocking |    response_timestamp_utc     |            trigger_source            |        entrypoint         
+------------+----------+----------+-------------------------------+--------------------------------------+---------------------------
+ G0         | ALLOW    | f        | 2026-07-12 21:46:47.351951+00 | directive6_allow_6                   | _aiem_paper_execute_today
+ G0         | BLOCK    | t        | 2026-07-12 21:46:45.061904+00 | directive6_block_5a                  | _aiem_paper_execute_today
+ G0         | BLOCK    | t        | 2026-07-12 19:44:04.103864+00 | directive_b_exact_harness_2026_07_12 | _aiem_paper_execute_today
+(3 rows)

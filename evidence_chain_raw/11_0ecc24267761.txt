@@ -1,0 +1,73 @@
+         column_name         |        data_type         
+-----------------------------+--------------------------
+ id                          | integer
+ id                          | integer
+ trade_date                  | date
+ trade_date                  | date
+ ticker                      | text
+ ticker                      | text
+ trade_type                  | text
+ trade_type                  | text
+ entry_price                 | numeric
+ entry_price                 | numeric
+ quantity                    | numeric
+ quantity                    | numeric
+ notional                    | numeric
+ notional                    | numeric
+ signal_source               | text
+ signal_source               | text
+ signal_detail               | text
+ signal_detail               | text
+ hold_days_max               | integer
+ hold_days_max               | integer
+ status                      | text
+ status                      | text
+ exit_price                  | numeric
+ exit_price                  | numeric
+ exit_date                   | date
+ exit_date                   | date
+ pnl                         | numeric
+ pnl                         | numeric
+ pnl_pct                     | numeric
+ pnl_pct                     | numeric
+ last_price                  | numeric
+ last_price                  | numeric
+ created_at                  | timestamp with time zone
+ created_at                  | timestamp with time zone
+ updated_at                  | timestamp with time zone
+ updated_at                  | timestamp with time zone
+ needs_review                | boolean
+ needs_review                | boolean
+ review_reason               | text
+ review_reason               | text
+ strike                      | numeric
+ strike                      | numeric
+ expiry                      | text
+ expiry                      | text
+ audit_trace_id              | text
+ audit_trace_id              | text
+ entry_score                 | numeric
+ entry_score                 | numeric
+ thompson_multiplier_applied | numeric
+ thompson_multiplier_applied | numeric
+ thompson_sampled_score      | numeric
+ thompson_sampled_score      | numeric
+ thompson_signal_source      | text
+ thompson_signal_source      | text
+ learning_loop_fired_at      | timestamp with time zone
+ learning_loop_fired_at      | timestamp with time zone
+ pre_sizing_model            | boolean
+ exit_reason                 | text
+ pre_sizing_model            | boolean
+ sizing_stop_price           | numeric
+ sizing_stop_price           | numeric
+ sizing_stop_basis           | text
+ sizing_stop_basis           | text
+ sizing_risk_pct             | numeric
+ sizing_risk_pct             | numeric
+ sizing_log_id               | bigint
+ sizing_log_id               | bigint
+ sizing_gate_result          | text
+ exit_reason                 | text
+ sizing_gate_result          | text
+(70 rows)

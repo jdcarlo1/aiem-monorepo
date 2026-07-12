@@ -1,0 +1,29 @@
+      column_name       |        data_type         
+------------------------+--------------------------
+ id                     | bigint
+ id                     | bigint
+ governance_decision_id | text
+ governance_decision_id | text
+ governance_request_id  | text
+ governance_request_id  | text
+ trace_id               | text
+ trace_id               | text
+ checkpoint             | text
+ checkpoint             | text
+ decision               | text
+ decision               | text
+ blocking               | boolean
+ blocking               | boolean
+ reason_codes           | jsonb
+ reason_codes           | jsonb
+ policy_version         | text
+ policy_version         | text
+ decision_hash          | text
+ decision_hash          | text
+ ledger_event_id        | bigint
+ ledger_event_id        | bigint
+ is_test_record         | boolean
+ is_test_record         | boolean
+ response_timestamp_utc | timestamp with time zone
+ response_timestamp_utc | timestamp with time zone
+(26 rows)

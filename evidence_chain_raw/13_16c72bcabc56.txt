@@ -1,0 +1,12 @@
+ checkpoint |            entrypoint             |                  trigger_source                  |     request_timestamp_utc     | is_test_record 
+------------+-----------------------------------+--------------------------------------------------+-------------------------------+----------------
+ G0         | _aiem_paper_execute_today         | directive6_allow_6                               | 2026-07-12 21:46:47.351951+00 | f
+ G0         | _aiem_paper_execute_today         | directive6_block_5a                              | 2026-07-12 21:46:45.061904+00 | f
+ G0         | _aiem_paper_execute_today         | directive_b_exact_harness_2026_07_12             | 2026-07-12 19:44:04.103864+00 | f
+ G0         | DIRECTIVE_B_negative_control_test | directive_b_test_2026_07_12                      | 2026-07-12 19:35:53.170688+00 | t
+ G0         | d4_standalone_block_test          | d4_test_script                                   | 2026-07-12 06:51:08.831241+00 | t
+ G0         | negative_control_test             | nc_test_monkeypatch                              | 2026-07-12 06:31:43.158086+00 | t
+ G0         | masterverify_section_d            | MASTERVERIFY_20260711_K3X9PQ_ALLOW_SHADOW_NORMAL | 2026-07-11 14:29:44.017664+00 | t
+ G0         | _aiem_paper_execute_today         | phase2_g0_canary_test_shadow                     | 2026-07-11 06:15:34.321238+00 | t
+ G0         | _aiem_paper_execute_today         | phase2_g0_canary_test                            | 2026-07-11 06:15:34.173813+00 | t
+(9 rows)
