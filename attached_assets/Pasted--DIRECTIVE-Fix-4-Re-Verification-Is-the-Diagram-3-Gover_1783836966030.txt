@@ -1,0 +1,73 @@
+# DIRECTIVE — Fix 4 Re-Verification: Is the Diagram 3 Governance Layer Actually Receiving Data?
+
+## Context — do not skip
+
+The documented architecture is:
+
+- **Diagram 3** (Governance/Executive Layer) governs Diagram 1. It receives system health, audit, learning, and performance information **after processing**, and issues governance decisions (approve, pause, quarantine, rollback) back to Diagram 1.
+- **Diagram 1** (Master Orchestrator) is the only orchestrator that starts, schedules, and coordinates the trading pipeline. It carries out Diagram 3's decisions.
+- **Diagram 2** (Trading & Analysis Pipeline) runs independently under Diagram 1's coordination.
+- Diagram 3 does **not** reach into Diagram 2 directly, and does **not** bypass Diagram 1. This separation is intentional.
+
+This is the correct target architecture. The question is **not** whether `_h_specialist_council()` / `run_full_cycle()` should be merged into the live `run_council()` production path — they should NOT be, by design. The question is whether the Diagram 3 governance layer is actually functioning at all, given that its only known code path (`run_full_cycle()` → `_h_specialist_council()`) was found to have **zero call sites in main.py**.
+
+If Diagram 3 is supposed to receive real post-processing data and issue real governance decisions, but its only entry point is never invoked, then **the governance layer is inert** — not "intentionally separated," but non-functional. That is a different and more serious finding than what was previously accepted.
+
+## 1. Full-repo grep, not just main.py
+
+Run and paste raw output for each:
+
+```
+grep -rn "run_full_cycle(" . --include="*.py"
+grep -rn "_h_specialist_council(" . --include="*.py"
+grep -rn "AEIMMasterOrchestrator(" . --include="*.py"
+grep -rn "execute_stage(" . --include="*.py"
+```
+
+For every hit, state: file, line, enclosing function, and whether that enclosing function is itself ever called from a live entrypoint (main.py, a scheduled job, a worker process, deploy config, Procfile, replit.nix run command, etc.).
+
+## 2. Check non-Python entrypoints
+
+Search any deploy/process config for references to `run_full_cycle` or a script that runs `aiem_master_orchestrator.py` directly:
+
+```
+grep -rn "run_full_cycle\|aiem_master_orchestrator" .replit Procfile *.yaml *.yml *.json 2>/dev/null
+```
+
+Paste raw output even if empty.
+
+## 3. Trace `execute_stage()` fully
+
+You confirmed `execute_stage()` on the `AEIMMasterOrchestrator` singleton runs in production (used for Diagram 2 tracing). Show the complete call chain from `execute_stage()` — every function it calls, recursively. Confirm whether this chain ever reaches `run_full_cycle()`, `_h_specialist_council()`, or any other Diagram 3 governance decision point (approve/pause/quarantine/rollback logic). If it does not, show exactly where the chain stops short of governance.
+
+## 4. Find the actual Diagram 3 governance entry point — if one exists
+
+Given the architecture requires Diagram 3 to receive post-processing data and issue real governance decisions to Diagram 1:
+
+- Search for **any** code path that feeds system health / audit / learning / performance data into a governance decision function and routes a decision (approve/pause/quarantine/rollback) back to Diagram 1's orchestration logic.
+- If `run_full_cycle()` is the only such path and it's never called: state this explicitly as "Diagram 3 governance layer has no live entry point — architecture is unimplemented at the wiring level, not merely isolated."
+- If a **different** function serves this role in production (one we haven't traced yet), identify it by file + line and show its full call chain from a live entrypoint to confirm it is actually invoked.
+
+## 5. No self-graded conclusions
+
+Do not conclude "this is fine because it matches the intended design" — isolation from Diagram 2 matching the design does not mean the governance layer is functioning. Those are two separate questions. Answer both explicitly:
+
+1. Is Diagram 3 properly isolated from directly mutating Diagram 2? (separation question)
+2. Is Diagram 3 actually receiving data and issuing governance decisions to Diagram 1 through some live, invoked code path? (functioning question)
+
+---
+
+## Standing verification requirement (applies to this and all future tasks)
+
+No task is complete based on description alone. You must provide:
+
+1. Raw terminal output of actual execution (not paraphrased)
+2. Exact before/after file diff for any changed file
+3. sha256 hash before/after for any changed file
+4. Raw SQL query + result set if a database is involved
+
+Narrative or paraphrased claims of "fixed," "tested," or "confirmed" without pasted evidence are rejected. If you cannot produce evidence for something, say so explicitly rather than describing it as done.
+
+## Standing data immutability rule
+
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data or code you created yourself or label as "test," "synthetic," "dead," or "cleanup" — without my explicit prior approval in this session. If, after this audit, you believe any code should be removed or rewired, state what you want to change and why, then wait for my approval before touching anything. Any unapproved deletion is a protocol violation to report, not self-correct.
