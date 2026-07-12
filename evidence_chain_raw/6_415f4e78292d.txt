@@ -1,0 +1,4 @@
+ id | ticker | direction | setup_type | conviction | trade_date |          created_at           
+----+--------+-----------+------------+------------+------------+-------------------------------
+  2 | NVDA   | BULLISH   | LONG CALL  | HIGH       | 2026-07-11 | 2026-07-11 06:01:42.552967+00
+(1 row)

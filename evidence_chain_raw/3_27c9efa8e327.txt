@@ -1,0 +1,27 @@
+                                            Table "public.layer9_scores"
+        Column         |           Type           | Collation | Nullable |                  Default                  
+-----------------------+--------------------------+-----------+----------+-------------------------------------------
+ id                    | bigint                   |           | not null | nextval('layer9_scores_id_seq'::regclass)
+ ticker                | text                     |           | not null | 
+ computed_at           | timestamp with time zone |           | not null | now()
+ scan_date             | date                     |           | not null | CURRENT_DATE
+ statistical_score     | double precision         |           |          | 
+ regime                | text                     |           |          | 
+ hurst_raw             | double precision         |           |          | 
+ vpin_raw              | double precision         |           |          | 
+ jump_detected         | boolean                  |           |          | 
+ entropy_score         | double precision         |           |          | 
+ tail_score            | double precision         |           |          | 
+ vrp_score             | double precision         |           |          | 
+ amihud_score          | double precision         |           |          | 
+ cs_spread_raw         | double precision         |           |          | 
+ rnd_skew              | double precision         |           |          | 
+ rnd_available         | boolean                  |           |          | false
+ pca_factor1_var       | double precision         |           |          | 
+ error                 | text                     |           |          | 
+ stat_arb_coint_pvalue | double precision         |           |          | 
+ absorption_ratio_val  | double precision         |           |          | 
+Indexes:
+    "layer9_scores_pkey" PRIMARY KEY, btree (id)
+    "layer9_scores_computed_at_idx" btree (computed_at DESC)
+    "layer9_scores_ticker_scan_date_key" UNIQUE CONSTRAINT, btree (ticker, scan_date)

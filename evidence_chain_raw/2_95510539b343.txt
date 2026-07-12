@@ -1,0 +1,3 @@
+ERROR:  column "score" does not exist
+LINE 1: SELECT ticker, score, composite_score, hurst_raw, vpin_raw, ...
+                       ^
