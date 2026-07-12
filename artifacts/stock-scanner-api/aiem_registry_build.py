@@ -35,6 +35,7 @@ What it does (in order):
 Nothing in this script touches trading logic. It only records structure.
 """
 
+import ast
 import os
 import sys
 import json
@@ -366,6 +367,88 @@ def build_tool_rows(real_registered_tools):
     return rows
 
 
+def build_function_rows():
+    """
+    AST-scan every file in MODULE_PHASE_MAP (excluding MPM_EXCLUDE).
+
+    For each Python def statement found:
+      file_name      : MODULE_PHASE_MAP key (relative path as stored in the map,
+                       e.g. 'aiem_probability_engine/daily_picks.py')
+      function_name  : AST node.name — all defs included, including dunders
+                       (FLAG A confirmed: dunders included)
+      is_inline      : True when parent AST node is ClassDef or FunctionDef/
+                       AsyncFunctionDef (class methods + nested closures);
+                       False for module-level defs
+                       (FLAG B confirmed: this mapping)
+      owning_phase   : phase from MODULE_PHASE_MAP
+      owning_phase_name : PHASE_NAMES[owning_phase]
+      owning_module  : basename stem of file_name (e.g. 'daily_picks')
+      purpose, inputs, outputs, upstream_dependencies,
+      downstream_dependencies : NULL — no static data source exists for these
+                       fields; left for future annotation
+
+    Files that fail to parse (syntax errors) are skipped and reported in the
+    build output — they do not block the build.
+    Files with 0 defs produce 0 rows — correct, not an error (FLAG C confirmed).
+    main.py excluded by MPM_EXCLUDE, same as module registry (FLAG D confirmed).
+
+    UNIQUE key: (file_name, function_name). Duplicate function names in the same
+    file are legal in Python (redefinition); AST walk visits both — if they share
+    (file_name, function_name) the ON CONFLICT clause in upsert_functions keeps
+    the later-visited row's is_inline value (last-writer wins, both are identical
+    names so the distinction is cosmetic).
+    """
+    rows = []
+    parse_failures = []
+
+    for mpm_key, phase in sorted(reg.MODULE_PHASE_MAP.items(), key=lambda kv: (kv[1], kv[0])):
+        if os.path.basename(mpm_key) in MPM_EXCLUDE:
+            continue
+        abs_path = os.path.join(REPO_ROOT, mpm_key)
+        if not os.path.isfile(abs_path):
+            continue  # already captured by missing_from_spec_report(); skip silently
+
+        try:
+            source = open(abs_path, encoding="utf-8", errors="replace").read()
+            tree = ast.parse(source, filename=mpm_key)
+        except SyntaxError as exc:
+            parse_failures.append((mpm_key, f"SyntaxError line {exc.lineno}: {exc.msg}"))
+            continue
+        except Exception as exc:
+            parse_failures.append((mpm_key, f"ParseError: {exc}"))
+            continue
+
+        # Assign _parent to every node so is_inline can check parent type.
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                child._parent = node
+        tree._parent = None
+
+        owning_module = os.path.splitext(os.path.basename(mpm_key))[0]
+        phase_name    = reg.PHASE_NAMES.get(phase)
+
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            parent    = getattr(node, "_parent", None)
+            is_inline = isinstance(parent, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            rows.append({
+                "file_name":        mpm_key,
+                "function_name":    node.name,
+                "is_inline":        is_inline,
+                "owning_phase":     phase,
+                "owning_phase_name": phase_name,
+                "owning_module":    owning_module,
+            })
+
+    if parse_failures:
+        print(f"[build_function_rows] WARNING: {len(parse_failures)} file(s) failed to parse:")
+        for fname, err in parse_failures:
+            print(f"  {fname}: {err}")
+
+    return rows, parse_failures
+
+
 def upsert_modules(conn, rows):
     with conn.cursor() as cur:
         for r in rows:
@@ -425,6 +508,27 @@ def upsert_tools(conn, rows):
     conn.commit()
 
 
+def upsert_functions(conn, rows):
+    with conn.cursor() as cur:
+        for r in rows:
+            cur.execute("""
+                INSERT INTO aiem_function_registry
+                    (file_name, function_name, is_inline,
+                     owning_phase, owning_phase_name, owning_module,
+                     verification_status)
+                VALUES (%(file_name)s, %(function_name)s, %(is_inline)s,
+                        %(owning_phase)s, %(owning_phase_name)s, %(owning_module)s,
+                        'PENDING_VERIFICATION')
+                ON CONFLICT (file_name, function_name) DO UPDATE SET
+                    is_inline         = EXCLUDED.is_inline,
+                    owning_phase      = EXCLUDED.owning_phase,
+                    owning_phase_name = EXCLUDED.owning_phase_name,
+                    owning_module     = EXCLUDED.owning_module,
+                    updated_at        = now()
+            """, r)
+    conn.commit()
+
+
 def missing_from_spec_report():
     """Compare the spec's raw filename mentions against repo reality."""
     missing = []
@@ -452,16 +556,20 @@ def main():
     module_rows = build_module_rows()
     real_tools, tool_source = get_real_registered_tools()
     tool_rows = build_tool_rows(real_tools)
+    function_rows, fn_parse_failures = build_function_rows()
 
     try:
         upsert_modules(conn, module_rows)
         upsert_tools(conn, tool_rows)
+        upsert_functions(conn, function_rows)
 
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
             module_count = cur.fetchone()["n"]
             cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry")
             tool_count = cur.fetchone()["n"]
+            cur.execute("SELECT COUNT(*) AS n FROM aiem_function_registry")
+            function_count = cur.fetchone()["n"]
             cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry WHERE file_exists_confirmed = FALSE")
             missing_count = cur.fetchone()["n"]
             cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE excluded_from_autonomous_use = TRUE")
@@ -484,13 +592,30 @@ def main():
                 ORDER BY module_phase
             """)
             per_phase = cur.fetchall()
+            cur.execute("""
+                SELECT owning_phase, COUNT(*) AS n
+                FROM aiem_function_registry
+                GROUP BY owning_phase
+                ORDER BY owning_phase
+            """)
+            fn_per_phase = cur.fetchall()
+            cur.execute("SELECT COUNT(*) AS n FROM aiem_function_registry WHERE is_inline = TRUE")
+            fn_inline_count = cur.fetchone()["n"]
+            cur.execute("SELECT COUNT(*) AS n FROM aiem_function_registry WHERE is_inline = FALSE")
+            fn_toplevel_count = cur.fetchone()["n"]
+            cur.execute("""
+                SELECT COUNT(DISTINCT owning_module) AS n
+                FROM aiem_function_registry
+            """)
+            fn_module_count = cur.fetchone()["n"]
 
         missing_files = missing_from_spec_report()
 
         print()
         print("-- RAW DB VERIFICATION OUTPUT --")
-        print(f"aiem_module_registry row count: {module_count}")
-        print(f"aiem_tool_registry row count:   {tool_count}")
+        print(f"aiem_module_registry row count:   {module_count}")
+        print(f"aiem_tool_registry row count:     {tool_count}")
+        print(f"aiem_function_registry row count: {function_count}")
         print(f"modules with file_exists_confirmed=FALSE: {missing_count}")
         print(f"tools with excluded_from_autonomous_use=TRUE: {excluded_count}")
         print(f"tools with tool_type=cli_verification_command: {cli_count}")
@@ -514,6 +639,22 @@ def main():
         print()
         print("-- missing_from_spec (spec filename, not found on disk) --")
         print(json.dumps(missing_files, indent=2) if missing_files else "[] (none -- all spec-named files exist on disk)")
+        print()
+        print("-- aiem_function_registry summary --")
+        print(f"  total rows:                    {function_count}")
+        print(f"  top-level defs (is_inline=F):  {fn_toplevel_count}")
+        print(f"  nested/method (is_inline=T):   {fn_inline_count}")
+        print(f"  distinct owning_module values: {fn_module_count}")
+        print(f"  parse failures (skipped):      {len(fn_parse_failures)}")
+        if fn_parse_failures:
+            for fname, err in fn_parse_failures:
+                print(f"    {fname}: {err}")
+        print()
+        print("-- aiem_function_registry rows by phase --")
+        for row in fn_per_phase:
+            phase_val = row["owning_phase"]
+            phase_label = reg.PHASE_NAMES.get(phase_val, "unknown") if phase_val is not None else "None"
+            print(f"  Phase {phase_val} ({phase_label}): {row['n']}")
 
         print()
         print("-- DISCREPANCY FLAG D1 (Fix 5 — decision required): deep_rl stage spans two phases --")
