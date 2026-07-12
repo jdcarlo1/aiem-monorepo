@@ -1,0 +1,48 @@
+# Directive 7 — NVDA Candidate Selection vs. run_full_cycle Investigation
+
+## Context
+
+Prior audit work (Phase 8 Participation Audit, Stat Arb Sunday Retest Audit, NVDA Loop Participation Audit) established the following, confirmed via raw SQL:
+
+- `aiem_diagram2_trace_audit WHERE ticker='NVDA'` returns **0 rows**. Diagram 1's `run_full_cycle('NVDA')` has never executed.
+- Everything that looked like a live NVDA signal (GARCH, VPIN, Hurst, Bipower, VRP, PCA, Absorption Ratio, Regime) actually came from `_run_layer9_bg_scan`, a separate background job running every 2 hours via APScheduler, writing to `layer9_scores` — NOT the real orchestrator loop.
+- Of the 39 quantitative indicators audited: only #38 (Relative Strength) is DIRECT into `ensemble_combiner`; 20 are INDIRECT (reach `signal_context` in principle, but most have never produced a real NVDA value); 18 are NOT IN Phase 8 at all.
+- Confirmed broken: #20 OOS Testing has a hard schema bug (`aiem_signal_discoveries.created_at` column missing, blocks Stage 9 edge-filter evidence collection). #06 Thompson Sampling / #24 Bayesian Statistics are confirmed completely inert (wins=0, losses=0, zero adaptation, for any ticker).
+
+**The open question, unresolved:** if `run_full_cycle('NVDA')` never ran, how did `_aiem_paper_pick_candidates()` select NVDA as a candidate? Does it call `run_full_cycle` and silently fail, or does candidate selection use a different/earlier code path entirely?
+
+This is a separate track from the D3 governance rollout (Directive 6) — do not conflate the two.
+
+## What I need from you
+
+### 1. Trace the actual call path of `_aiem_paper_pick_candidates()`
+
+- Paste the full function body (or the relevant grep'd excerpt with line numbers) of `_aiem_paper_pick_candidates()`.
+- Identify every function it calls that could plausibly populate ticker eligibility/scoring — not by description, by grep output showing the actual call sites and line numbers.
+- Explicitly confirm: does this function call `run_full_cycle()` anywhere in its call chain? Yes/no, with the grep evidence either way.
+
+### 2. If it does NOT call run_full_cycle — find the real path
+
+- Identify what data source it actually reads from to decide NVDA is eligible (raw SQL table names, raw file/module names — not paraphrased).
+- Trace that data source back to its origin. Is it `layer9_scores` (the background job)? Some other table? A hardcoded/default list? A stale cache?
+- Provide a raw SQL query + full result set showing what NVDA-specific data existed in that source table at/before the candidate-selection timestamp you're investigating.
+
+### 3. If it DOES call run_full_cycle — explain the silent failure
+
+- If `run_full_cycle('NVDA')` is called but `aiem_diagram2_trace_audit` shows 0 rows for NVDA, there is a silent failure somewhere between the call and the trace-audit write.
+- Locate where the failure occurs (exception swallowed? early return? condition never met?). Paste the actual code and, if possible, reproduce the failure with real terminal output — not a theoretical explanation.
+
+### 4. Cross-check against the Layer 9 background job
+
+- Confirm via raw SQL whether `layer9_scores` for NVDA has non-null values, and what timestamp(s) they were written.
+- State plainly whether `_aiem_paper_pick_candidates()` reads from `layer9_scores` directly or indirectly (e.g., via `signal_context`, `packet.technical`, etc.) — with grep/line evidence, not description.
+
+## Standing rules apply
+
+- **Verification block**: every claim above requires raw terminal output, exact diffs (if any code needs to change to add logging/tracing — do NOT fix anything yet, just trace), sha256 hashes for any files touched, and raw SQL + full result sets. No narrative-only claims.
+- **Data immutability**: no deletion, truncation, or overwrite of any row/table/file — including test data — without explicit prior approval in this session.
+- **This is an investigation, not a fix.** Do not modify `_aiem_paper_pick_candidates()`, `run_full_cycle()`, or any related candidate-selection code as part of this directive. If you identify a bug, report it with evidence and stop — do not silently patch it. We will decide the fix together once the mechanism is understood.
+
+## What happens next
+
+Once you report back with the traced call path and raw evidence, we'll decide together whether this is a genuine bug (candidate selection bypassing the real signal pipeline) or an intentional/legacy fallback path that needs to be either wired properly or explicitly deprecated.
