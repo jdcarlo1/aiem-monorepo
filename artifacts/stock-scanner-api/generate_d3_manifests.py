@@ -122,7 +122,7 @@ def main():
         "SELECT module_phase, COUNT(*) AS module_count "
         "FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase"
     )
-    phase_counts = {str(r["module_phase"]): r["module_count"] for r in cur.fetchall()}
+    phase_counts = {str(r["module_phase"]): r["module_count"] for r in cur.fetchall() if r["module_phase"] is not None}
 
     cur.execute(
         "SELECT execution_status, COUNT(*) AS n FROM aiem_module_registry "

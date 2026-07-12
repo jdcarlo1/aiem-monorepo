@@ -1,0 +1,56 @@
+# Directive: Registry Build Finalization — Patch, Verify, Build, Confirm
+
+## Standing verification block (applies to every step below)
+No task is complete based on description alone. For each step you must provide:
+1. Raw terminal output of actual execution
+2. Exact before/after file diff
+3. sha256 hash before/after for any changed files
+4. Raw SQL query + full result set if a database is involved
+
+Narrative or paraphrased claims of "fixed" or "tested" without pasted evidence are rejected. If you cannot produce a required evidence item, say so explicitly — do not skip it silently.
+
+## Standing DATA IMMUTABILITY rule
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test," "synthetic," or "cleanup" — without my explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+---
+
+## Step 1 — Patch `generate_d3_manifests.py:125`
+Fix the nullable `module_phase` issue in the `phase_counts` dict comprehension. Apply this guard:
+
+```python
+if r["module_phase"] is not None
+```
+
+**Required evidence:**
+- Before/after diff of the exact lines changed
+- sha256 of `generate_d3_manifests.py` before and after
+- Rerun of the `phase_counts` check and raw output confirming no `"None"` string key appears in the result
+
+Do not proceed to Step 2 until this evidence is provided and I confirm it.
+
+## Step 2 — Confirm checkpoint
+Once Step 1 evidence is reviewed and I explicitly confirm, you may proceed. Do not assume confirmation — wait for it.
+
+## Step 3 — Run the live build
+Execute:
+
+```
+python3 aiem_registry_build.py
+```
+
+against the live database.
+
+**Required evidence:**
+- Full raw terminal output of the run (no truncation of errors or warnings)
+- Confirmation of exit status
+
+## Step 4 — Post-build verification
+Provide raw SQL query + full result set from `aiem_module_registry`:
+- Total row count
+- A spot-check of several `registry_source='BOTH'` rows
+- A spot-check of any `registry_source='CONFLICT'` rows (state count if zero)
+- Confirm no unexpected `NULL` or `"None"`-string phase values exist post-build
+
+---
+
+**Reminder:** This build is registry/build metadata (D1/D2 module-phase mapping). It is separate from the AIEM D3 governance negative-control test (SHADOW → VERIFIED SHADOW). Do not conflate the two in status reporting.
