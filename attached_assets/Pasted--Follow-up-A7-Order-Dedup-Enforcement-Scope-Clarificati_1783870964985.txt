@@ -1,0 +1,59 @@
+# Follow-up: A7 Order-Dedup Enforcement — Scope Clarification
+
+The Part A2 diff, sha256 chain, line-42426 check, and both grep outputs
+(broker/account columns, INSERT paths) are all verified and accepted.
+
+One thing in the diff needs clarification before I consider this commit
+fully closed: it does more than support the new `UNIQUE (ticker, trade_date)`
+constraint. It adds a new application-layer gate inside
+`_aiem_paper_execute_today()` — a `SELECT` check for an existing
+`(ticker, trade_date)` row, and if found, it emits a `data_guard.failed`
+event through `aiem_diagram3_governance`, publishes a `DATA_GUARDS_FAILED`
+bus message, and then `continue`s (skips that candidate).
+
+The commit is also labeled `[A7 enforcement]` and includes a new memory
+file, `.agents/memory/order-dedup-enforcement.md`, plus a reference to
+`attached_assets/Pasted--Directive-5-...txt`.
+
+## What I need clarified
+
+1. **Where did "A7" and this enforcement behavior come from?** Was this
+   scoped by a Directive 5 I gave in an earlier session, or did you
+   introduce it on your own initiative while implementing the Part A2
+   constraint? State which, explicitly.
+
+2. **Confirm the control flow, in your own words plus the actual code
+   lines.** As I read it: D2 (`_aiem_paper_execute_today`) makes the skip
+   decision itself via `continue`, and D3 (`aiem_diagram3_governance`) is
+   only *notified* after the fact via `emit_d2_pipeline_event`. D3 does not
+   make or return the skip decision. Confirm this is accurate, or correct
+   me with the exact lines that show otherwise.
+
+3. **Show the full contents of `.agents/memory/order-dedup-enforcement.md`**
+   as it exists right now — I want to see what you're persisting to memory
+   about this behavior, not a summary of it.
+
+4. **Confirm this gate is SHADOW-safe.** Since D3 is still in SHADOW mode
+   system-wide, confirm this new skip behavior does not depend on any D3
+   verdict to function — i.e., it would behave identically with D3
+   completely disconnected. If it does depend on D3 in any way, explain
+   exactly how, with code lines.
+
+5. **Any prior occurrence of this skip firing.** Run a check (log grep or
+   query) for whether `ORDER_DEDUP_BLOCKED` or `data_guard.failed` /
+   `DATA_GUARDS_FAILED` has fired even once since this code went live, and
+   show the raw output either way (including "no rows"/"no matches" if
+   that's the result).
+
+## Standing requirements (apply as always)
+
+**Verification block:** No task is complete based on description alone.
+Provide (1) raw terminal output of actual execution, (2) exact before/after
+file diff, (3) sha256 hash before/after for any changed files, (4) raw SQL
+query + full result set if a database is involved. State explicitly if any
+evidence item cannot be produced.
+
+**Data immutability:** Do not delete, truncate, drop, or overwrite any row,
+table, or file — including anything you created or labeled test/synthetic/
+cleanup — without my explicit prior approval in this session. State what you
+want to delete and why, wait for approval, then log it.
