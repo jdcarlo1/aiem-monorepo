@@ -1,0 +1,62 @@
+Verification File 3 of 4 — Phases 7–9 (ML/Probability → Scoring → Specialist Council)
+Wiring Verification Audit — not a claim-check, a ground-truth map of what's actually connected.
+
+## STANDING EVIDENCE REQUIREMENT (applies to every item below)
+No task or answer is complete based on description alone. For every claim, you must provide:
+1. Raw terminal output of actual execution (not paraphrased)
+2. Exact before/after file diff (if any code is touched)
+3. sha256 hash before/after for any changed files
+4. Raw SQL query + full result set, if a database is involved
+
+Narrative or paraphrased claims of "fixed," "verified," or "wired correctly" without pasted evidence are rejected. If you cannot produce the evidence for something, you must explicitly say so — do not substitute a summary.
+
+## STANDING DATA IMMUTABILITY RULE
+You may never delete, truncate, drop, or overwrite any row, table, or file — including anything you created yourself or consider "test," "synthetic," or "cleanup" data — without my explicit prior approval in this session. If something needs to be removed, state exactly what and why, then wait for approval before acting, then log it. Any unapproved deletion is a protocol violation to report immediately, not to self-correct or paper over.
+
+## Scope
+- **Phase 7 — Machine Learning & Probability:** XGBoost, TreeSHAP, Probability Engine, Ensemble Models, Confidence Estimation, Meta Models
+- **Phase 8 — Scoring & Synthesis:** Scoring Engine, Ensemble Combiner, Analytics, Correlation, Recommendation Synthesis, Evaluation Metrics
+- **Phase 9 — Specialist Council:** [NAME EVERY SPECIALIST AGENT/MODULE HERE BEFORE SENDING — e.g. bull/bear debate, sector specialist, macro specialist, etc. Do not leave this open; an unnamed scope lets the agent choose what counts.]
+
+---
+
+## Directive — paste to the agent verbatim
+
+For every item listed in the Scope above, produce a table with these exact columns. Every row must be backed by raw grep/ast-grep output — no row filled from memory or summary.
+
+| Item | Defined at (file:line) | Every call site (file:line) | Return value: assigned or discarded? | If assigned — downstream reader, with exact line, or DEAD-END |
+|---|---|---|---|---|
+
+### Question 0 — catch-all (answer this first)
+List every function call in Phase 8 and Phase 9 whose argument value originates from a Phase 7 or Phase 8 return value — including any not named elsewhere in this directive. For each one, give the exact call site (file:line), the exact source of the argument (file:line of the originating return), and state whether it is a named parameter or a positional/implicit pass-through. This question exists specifically to surface wiring that was not anticipated in questions 1–4 below. Do not skip it or fold it into the other answers.
+
+### Question 1 — Phase 7 → Phase 8
+Does Phase 7's XGBoost/Probability Engine output (a probability or confidence score) get passed as an input argument into Phase 8's Scoring Engine function?
+- Show the Scoring Engine's full function signature and identify which argument carries it.
+- If there are multiple candidate score-like variables in Phase 7 (raw, calibrated, ensemble-weighted, etc.), enumerate ALL of them and state which ones actually reach the Scoring Engine and which don't.
+- If not found in the signature, say **NOT WIRED** and show what the signature actually contains.
+
+### Question 2 — TreeSHAP downstream use
+Does TreeSHAP's output (feature attributions) get used anywhere downstream — e.g. surfaced in the final recommendation, logged for audit, or fed into the Specialist Council's reasoning? Or is it computed and discarded?
+- Show the call site and whatever consumes it, or say **DEAD-END**.
+
+### Question 3 — Phase 8 → Phase 9
+Does Phase 8's final synthesized score/recommendation actually become the input that Phase 9's Specialist Council debates/reviews?
+- Show the exact variable passed from Phase 8's return statement into whatever function kicks off the Council.
+- Enumerate all score-like variables in the Scoring Engine's return statement (not just the one you think is "the" output) and state which one, if any, the Council actually receives.
+- If the Council instead recomputes its own score from raw data rather than receiving Phase 8's output, say **RECOMPUTED INDEPENDENTLY** and show both code paths.
+
+### Question 4 — Phase 9 → downstream
+Does the Specialist Council's output (bull/bear debate result, consensus, etc.) actually get read by anything downstream (Phase 10 risk gate, decision engine), or is it logged and ignored?
+- This is the same pattern as the previously-found bull/bear debate result being discarded — check it explicitly and show the exact line where the Council's return value is (or isn't) consumed.
+
+---
+
+Do not write summary prose. Output only commands, raw output, and completed tables/answers. Any claim of completion without the standing evidence (terminal output, diff, sha256, SQL) above will be rejected and sent back.
+
+## What a passing result looks like
+- Question 0 surfaces at least one wiring path not already named in Questions 1–4, or explicitly states "none found" with the grep command used to check.
+- Phase 7 outputs feed Phase 8's function signature by name, not just by being present somewhere in a log.
+- Phase 8's output is the literal input to Phase 9, not a recomputed duplicate.
+- Phase 9's output is read downstream — not the same "computed but discarded" pattern already caught once with the bull/bear debate.
+- All evidence is raw and pasted in full — no narrative substitutes.
