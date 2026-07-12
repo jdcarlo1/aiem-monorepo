@@ -1,0 +1,40 @@
+# Verification Directive: aiem_paper_trades / Empty Tables Anomaly
+
+## Context
+Your last audit reported that 6 of 8 governance/trade tables have **zero rows total**, including `aiem_paper_trades`, which should be accumulating real paper trade picks over time. You also flagged that entry [70]'s cleanup script ran:
+
+```sql
+WHERE id = 195 AND is_test_data = true
+```
+
+against `aiem_paper_trades` — but that column does not exist in the current schema. That query should have thrown a hard error, not silently succeeded.
+
+None of this is resolved by your summary. Answer the questions below with evidence, not narrative.
+
+## Questions you must answer
+
+1. **What database is this connection actually pointed at?**
+   - Run `SELECT current_database();` and `SELECT inet_server_addr(), inet_server_port();`
+   - Paste raw output.
+
+2. **Is this dev, or production?**
+   - State explicitly which environment this connection targets and how you determined that.
+
+3. **Why does `aiem_paper_trades` have 0 rows if it should be actively accumulating live paper trades?**
+   - Either explain the specific event that caused it to be empty (reset, migration, wrong DB), or confirm it has never had real data in this environment.
+
+4. **What actually happened when entry [70]'s cleanup query ran?**
+   - Did it error out (`column "is_test_data" does not exist`)? Did it run against a different schema/table version where that column existed? Was it ever actually executed at all?
+   - Paste the raw execution log/output from that session if available, not a paraphrase.
+
+5. **Sanity check: pick 2–3 tables that should hold real, non-test production data (not part of the 8 audited tables) and report their row counts.**
+   - This is to confirm we are not looking at a freshly reset or wrong database entirely.
+
+## Standing evidence requirement (applies to every answer above)
+No answer is accepted based on description alone. For each item you must provide:
+1. Raw terminal output of the actual query execution
+2. Exact before/after file diff (if any file/config was touched)
+3. sha256 hash before/after for any changed files
+4. Raw SQL query text + full result set for any database claim
+
+Narrative or paraphrased claims of "fixed," "confirmed," "clean," or "tested" without pasted evidence are rejected. If you cannot produce evidence for any item, say so explicitly — do not substitute a summary.
