@@ -1,0 +1,48 @@
+# Directive 6 — Evidence Verification (Strict)
+
+## Context
+
+You have reported that Directive 6 items 1–2 are complete:
+1. Fixed the bare `return` bug at `main.py` line 43100 in the BLOCK path of `_aiem_paper_execute_today()` (now returns a proper status dict instead of `None`).
+2. Re-ran the negative-control harness and got `[ENFORCEMENT VERDICT] PASS`.
+
+You also reported fixing two additional bugs found during testing:
+3. Guard A's CLEARED path was not writing a `d3_governance_config_history` row (only the REFUSED path was).
+4. Both the CLEARED and REFUSED paths were inserting an invalid `config_type` value (`ENFORCE_SWITCH_CHECK`) that violates the CHECK constraint on `config_type` — corrected to `CHECKPOINT_MODE`.
+
+**None of this is accepted as complete based on narrative alone.** Per the standing verification protocol, every claim above requires raw evidence. Do not summarize, paraphrase, or describe results — paste the actual output.
+
+## Required evidence (all four items, no exceptions)
+
+### 1. Raw terminal output of the final harness run
+Paste the full, unedited terminal output of the run that produced `[ENFORCEMENT VERDICT] PASS`, including exit code, timing, and any preceding log lines from that run. Not a re-summarized version — copy/paste the actual console output.
+
+### 2. Exact before/after file diffs
+For **both** changed files:
+- `main.py` (line 43100 area — the bare `return` fix)
+- `aiem_diagram3_governance.py` (the CLEARED-path `config_history` INSERT fix, and the `config_type` value fix on both CLEARED and REFUSED paths)
+
+Provide the actual diff output (`git diff` or equivalent unified diff format) for each file, not a description of what changed.
+
+### 3. sha256 hashes before and after
+For both files listed above, provide the sha256 hash of the file **before** your edits and **after** your edits. If you did not capture the "before" hash, state that explicitly rather than omitting it silently.
+
+### 4. Raw SQL query + full result set
+Run and paste the raw output of a SQL query that:
+- Filters to this specific test run's timestamp/session (not just "recent rows")
+- Shows the `d3_governance_config_history` row(s) written by the CLEARED path, confirming `config_type = 'CHECKPOINT_MODE'` (not the old invalid value)
+- Shows the corresponding `d3_governance_decisions`, `d3_governance_requests`, and `d3_governance_event_links` rows from this same test run
+- Confirms these rows landed in the test/isolated schema only, and that `public` schema / `aiem_paper_trades` show zero row movement, consistent with the isolation guarantee already established
+
+Paste the query text and the full raw result set (not row counts alone, not a summary).
+
+## Explicit non-negotiables
+
+- If any of the four evidence items cannot be produced, **state that plainly** ("I cannot produce item X because...") rather than substituting a narrative description or partial evidence.
+- Do not proceed to any further work on PAPER ENFORCEMENT (including the item 3 design-only scoping document) until this evidence has been reviewed and explicitly approved.
+- Confirm explicitly: has any PAPER ENFORCEMENT-related code (not the design doc — actual code) been touched since Directive 6 was issued? Answer yes/no directly.
+- Data immutability rule remains in effect: no deletion, truncation, or overwrite of any row/table/file — including test/synthetic data — without prior explicit approval in this session.
+
+## What happens next
+
+Once this evidence is posted and reviewed, we will move to the NVDA candidate-selection wiring track (the open question of how `_aiem_paper_pick_candidates()` selected NVDA as a candidate given `run_full_cycle('NVDA')` has never executed). That is a separate, parallel track from D3 governance rollout — do not conflate the two or let one block review of the other.
