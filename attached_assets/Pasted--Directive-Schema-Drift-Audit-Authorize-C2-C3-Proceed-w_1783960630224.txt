@@ -1,0 +1,42 @@
+# Directive: Schema Drift Audit — Authorize C2/C3, Proceed with Group D, Hold C1
+
+## Decisions
+
+**C1 (aiem_supervisor_signal_health) — HOLD, not authorized.**
+Do not attempt any fix yet. You've correctly identified that a fix here requires knowing prod's actual current schema, which you cannot safely guess. Do not generate or run any DROP/CREATE against this table in dev or prod.
+
+Before any fix is attempted, Joel will decide between:
+- (a) granting you read-only access to the prod DB to inspect the real schema, or
+- (b) extracting prod's actual column list via the Replit migration preview SQL (what Replit *thinks* prod has vs. what it tried to create).
+
+Report back only with findings/options — no schema changes.
+
+**C2 (aiem_verify_link_tokens) — AUTHORIZED.**
+Proceed with:
+```sql
+ALTER TABLE aiem_verify_link_tokens ADD PRIMARY KEY (token);
+```
+Run in dev only. Confirmed safe: dev table is empty (0 rows), bootstrap-created, and this brings dev in line with what main.py already defines for prod.
+
+**C3 (aiem_predictions) — AUTHORIZED.**
+Proceed with:
+```sql
+ALTER TABLE aiem_predictions ALTER COLUMN ticker TYPE TEXT;
+ALTER TABLE aiem_predictions ALTER COLUMN confidence_score TYPE double precision;
+```
+Run in dev only. Confirmed safe: dev table is empty (0 rows). This brings dev's types in line with prod (TEXT / double precision) and avoids the truncation/precision-corruption risk you flagged if the mismatched dev schema were ever pushed to prod as-is.
+
+**Group D (ask_email_processed_uids, spy_daily_cache) — PROCEED, read-only.**
+Go ahead now with the read-only investigation: search `aiem_process.py` and the probability engine files for `CREATE TABLE` definitions for these two tables, and compare against dev's current (bootstrap-created) schema. No authorization needed for this step since it's read-only. Report back what you find, including whether either table's prod origin can be confirmed or remains unknown.
+
+---
+
+## Standing requirements (apply to all of the above)
+
+**Verification block:** No task is complete based on description alone. Provide: (1) raw terminal output of actual execution, including raw grep output for any claim about code locations or whether a CREATE TABLE/pattern exists — never paraphrase what grep would show; (2) exact before/after file diff where applicable; (3) sha256 hash before/after for any changed files; (4) raw SQL query + full result set for the ALTER statements above (confirm dev row count = 0 before running, and confirm final schema state after). Narrative claims of "fixed," "found," or "confirmed" without pasted raw evidence are rejected.
+
+**Data Immutability Rule:** No deletion, truncation, drop, or overwrite of any row/table/file — including test/synthetic data — without Joel's explicit prior approval in-session. The C2/C3 ALTER statements above are pre-approved as written; do not substitute DROP/recreate approaches without separately flagging and getting approval.
+
+**Evidence Chain Protocol:** Run all evidence-producing commands through `verified_run.sh`, validate with `verify_chain.sh` before declaring anything complete, and paste that script's output.
+
+**Scope reminder:** C1 remains untouched. Do not run any DDL against `aiem_supervisor_signal_health` in dev or prod until Joel confirms the read-only prod access vs. migration-preview-SQL approach.
