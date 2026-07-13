@@ -42977,6 +42977,44 @@ def _aiem_paper_pick_candidates() -> list:
     except Exception as _sup_cr_e:
         print(f"[supervisor] hook2_candidate_ranking skipped (non-fatal): {_sup_cr_e}")
 
+    # ── Phase 1 candidate intake: persist to aiem_candidate_pipeline ──────
+    # Every candidate that passes all gates is written with
+    # status='PENDING_FULL_ANALYSIS'. Diagram 1 (run_full_cycle) will claim
+    # PENDING rows via atomic UPDATE in Phase 2 (not yet built).
+    # ON CONFLICT (ticker, candidate_date) DO NOTHING preserves any row
+    # already advanced past PENDING (e.g. CLAIMED_BY_DIAGRAM1).
+    import datetime as _cpi_dt
+    _cpi_today = _cpi_dt.datetime.now(_ET).date()
+    if _final:
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _cpic, \
+                    _cpic.cursor() as _cpicu:
+                for _cpi_cand in _final:
+                    _cpicu.execute(
+                        "INSERT INTO aiem_candidate_pipeline"
+                        " (ticker, candidate_date, score, raw_score, trade_type,"
+                        "  source, detail, status)"
+                        " VALUES (%s, %s, %s, %s, %s, %s, %s,"
+                        " 'PENDING_FULL_ANALYSIS')"
+                        " ON CONFLICT (ticker, candidate_date) DO NOTHING",
+                        (
+                            _cpi_cand.get("ticker"),
+                            _cpi_today,
+                            float(_cpi_cand.get("score") or 0),
+                            float(_cpi_cand.get("raw_score") or 0),
+                            _cpi_cand.get("trade_type"),
+                            _cpi_cand.get("source"),
+                            str(_cpi_cand.get("detail", ""))[:500],
+                        ),
+                    )
+                _cpic.commit()
+            print(
+                f"[candidate_intake] {len(_final)} candidates written to"
+                f" aiem_candidate_pipeline (status=PENDING_FULL_ANALYSIS)"
+            )
+        except Exception as _cpie:
+            print(f"[candidate_intake] pipeline write skipped (non-fatal): {_cpie}")
+
     return _final
 
 

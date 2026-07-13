@@ -1,0 +1,24 @@
+                                         Table "public.aiem_candidate_pipeline"
+     Column     |           Type           | Collation | Nullable |                       Default                       
+----------------+--------------------------+-----------+----------+-----------------------------------------------------
+ id             | bigint                   |           | not null | nextval('aiem_candidate_pipeline_id_seq'::regclass)
+ ticker         | text                     |           | not null | 
+ candidate_date | date                     |           | not null | CURRENT_DATE
+ score          | double precision         |           |          | 
+ raw_score      | double precision         |           |          | 
+ trade_type     | text                     |           |          | 
+ source         | text                     |           |          | 
+ detail         | text                     |           |          | 
+ status         | text                     |           | not null | 'PENDING_FULL_ANALYSIS'::text
+ inserted_at    | timestamp with time zone |           | not null | now()
+ claimed_at     | timestamp with time zone |           |          | 
+ completed_at   | timestamp with time zone |           |          | 
+ error_msg      | text                     |           |          | 
+ paper_trade_id | integer                  |           |          | 
+ is_test_record | boolean                  |           | not null | false
+Indexes:
+    "aiem_candidate_pipeline_pkey" PRIMARY KEY, btree (id)
+    "aiem_candidate_pipeline_candidate_date_status_idx" btree (candidate_date, status)
+    "aiem_candidate_pipeline_ticker_candidate_date_key" UNIQUE CONSTRAINT, btree (ticker, candidate_date)
+Check constraints:
+    "aiem_candidate_pipeline_status_check" CHECK (status = ANY (ARRAY['PENDING_FULL_ANALYSIS'::text, 'CLAIMED_BY_DIAGRAM1'::text, 'FULL_ANALYSIS_RUNNING'::text, 'FULL_ANALYSIS_COMPLETED'::text, 'FAILED'::text, 'RETRY_PENDING'::text, 'QUARANTINED'::text]))

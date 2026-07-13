@@ -1,0 +1,3 @@
+ERROR:  new row for relation "aiem_candidate_pipeline" violates check constraint "aiem_candidate_pipeline_status_check"
+DETAIL:  Failing row contains (2, BAD_TICKER, 2026-07-13, null, null, null, null, null, INVALID_STATUS, 2026-07-13 03:48:10.695395+00, null, null, null, null, f).
+EXIT:1

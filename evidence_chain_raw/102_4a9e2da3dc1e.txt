@@ -1,0 +1,5 @@
+INSERT 0 1
+ id |   ticker    | candidate_date | score | trade_type |  source   |        status         |          inserted_at          
+----+-------------+----------------+-------+------------+-----------+-----------------------+-------------------------------
+  1 | TEST_TICKER | 2026-07-13     |   9.5 | STOCK      | unit_test | PENDING_FULL_ANALYSIS | 2026-07-13 03:47:57.296279+00
+(1 row)

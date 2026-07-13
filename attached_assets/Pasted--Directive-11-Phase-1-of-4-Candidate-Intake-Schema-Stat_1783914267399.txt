@@ -1,0 +1,55 @@
+# Directive 11 (Phase 1 of 4): Candidate Intake — Schema & Status Fields
+
+## MANDATORY GATE — DO NOT SKIP
+
+Before touching any code, the agent must complete this checkpoint and paste the output:
+
+1. Confirm Directive 10 has been run to completion. Paste the actual Directive 10 evidence output (raw grep/SQL/terminal results) showing whether any existing connective mechanism (queue, status flag, event bus, scheduled intake job) already links `_aiem_paper_pick_candidates()` to `run_full_cycle()`.
+2. State explicitly: "Directive 10 found: [existing mechanism / no existing mechanism]" based on that evidence — not from memory or assumption.
+3. If Directive 10 has NOT been run, or its evidence cannot be produced, STOP HERE. Do not proceed with Phase 1. Report back that the prerequisite is unmet.
+
+This directive builds on whatever Directive 10 finds. If a partial mechanism already exists, Phase 1's schema must extend it, not duplicate or replace it. Do not assume a blank slate.
+
+## Scope of Phase 1 (this directive only)
+
+This phase covers schema and status-field design ONLY. It does NOT include the intake job, atomic claiming, or negative controls — those are Phases 2–4, sent separately after this phase is verified.
+
+## Required design
+
+1. Authoritative mechanism = durable DB-backed polling/pull by Diagram 1, not an event. Diagram 1 is the source of truth.
+2. An optional `CANDIDATE_READY` event may exist only as a low-latency accelerator — never the sole delivery path, since events get missed on restarts. Do not build this yet unless Phase 1 schema naturally supports it later.
+3. Candidate status lifecycle (add as a column or dedicated table, agent's choice, but must be atomic-transition safe):
+   `PENDING_FULL_ANALYSIS → CLAIMED_BY_DIAGRAM1 → FULL_ANALYSIS_RUNNING → FULL_ANALYSIS_COMPLETED / FAILED → RETRY_PENDING / QUARANTINED`
+4. The connector/intake logic must live in a SEPARATE component owned by Diagram 1 (e.g. `Diagram1CandidateIntake` / `intake_pending_candidates()`) — NOT buried inside `_aiem_paper_pick_candidates()`. That function must only select/persist candidates and must never call `run_full_cycle()` directly.
+
+## Deliverables for this phase
+
+1. Schema change: add the status lifecycle field(s) to whatever table `_aiem_paper_pick_candidates()` writes to (or a new linked table — agent's choice, state which and why).
+2. No polling job yet. No atomic claiming yet. This phase only adds the schema and confirms `_aiem_paper_pick_candidates()` writes `PENDING_FULL_ANALYSIS` as the initial status on every new candidate row, and nothing else changes behavior.
+3. Confirm via evidence that existing candidate-selection behavior is unchanged except for the new status field being populated — no other side effects.
+
+## Standing Verification Block (required)
+
+1. Raw terminal output of actual execution — including raw grep output for any code-location or call-chain claim. Never paraphrase what grep would show.
+2. Exact before/after file diff for every file changed.
+3. SHA256 hash before/after for every changed file.
+4. Raw SQL: schema before (`\d tablename` or equivalent) and after, plus a sample of newly-inserted rows showing the status field populated correctly.
+
+If any evidence item cannot be produced, state that explicitly.
+
+## Evidence Chain Protocol
+
+Run all evidence-producing commands through `verified_run.sh`. Validate with `verify_chain.sh` and paste its output before declaring this phase complete.
+
+Note: this protocol proves internal log consistency only — it does not by itself prove commands were genuinely executed against the real production DB. Joel should periodically spot-check by independently re-running a sampled command himself.
+
+## Data Immutability Rule
+
+No existing row, table, or file — including data the agent created itself or labels "test," "synthetic," or "cleanup" — may be deleted, truncated, dropped, or overwritten without explicit prior approval in this session. State what you want to delete (if anything) and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Constraints
+
+- Do not build Phase 2 (intake job / atomic claiming) in this directive. Stop after Phase 1 deliverables and report back.
+- Do not touch `run_full_cycle()` itself in this phase.
+- Do not declare this phase "production-ready" — it is schema groundwork only.
+- PAPER ENFORCEMENT and full candidate flow remain separate, later milestones.

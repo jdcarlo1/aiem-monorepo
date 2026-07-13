@@ -1,0 +1,12 @@
+91158f52068be45174c6da3117a12e1974bfc0ce8f964a11db8ae6330c38a7c4  artifacts/stock-scanner-api/main.py
+---NEW_CODE_GREP---
+42980:    # ── Phase 1 candidate intake: persist to aiem_candidate_pipeline ──────
+42982:    # status='PENDING_FULL_ANALYSIS'. Diagram 1 (run_full_cycle) will claim
+42994:                        "INSERT INTO aiem_candidate_pipeline"
+42998:                        " 'PENDING_FULL_ANALYSIS')"
+43012:                f"[candidate_intake] {len(_final)} candidates written to"
+43013:                f" aiem_candidate_pipeline (status=PENDING_FULL_ANALYSIS)"
+43016:            print(f"[candidate_intake] pipeline write skipped (non-fatal): {_cpie}")
+43727:                        next_module="aiem_candidate_intake",
+43731:                    # Stage 2 — aiem_candidate_intake
+43733:                        "aiem_candidate_intake",
