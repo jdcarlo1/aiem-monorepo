@@ -1,0 +1,10 @@
+                            Table "public.job_heartbeats"
+        Column        |            Type             | Collation | Nullable | Default 
+----------------------+-----------------------------+-----------+----------+---------
+ job_name             | character varying(80)       |           | not null | 
+ last_success         | timestamp without time zone |           |          | 
+ last_attempt         | timestamp without time zone |           |          | 
+ last_error           | text                        |           |          | 
+ consecutive_failures | integer                     |           |          | 0
+Indexes:
+    "job_heartbeats_pkey" PRIMARY KEY, btree (job_name)

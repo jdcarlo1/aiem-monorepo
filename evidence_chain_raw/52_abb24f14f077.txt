@@ -1,0 +1,3 @@
+ checkpoint | entrypoint | trigger_source | request_timestamp_utc | is_test_record 
+------------+------------+----------------+-----------------------+----------------
+(0 rows)

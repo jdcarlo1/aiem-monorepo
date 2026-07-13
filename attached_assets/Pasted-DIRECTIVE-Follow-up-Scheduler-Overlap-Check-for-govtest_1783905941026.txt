@@ -1,0 +1,51 @@
+DIRECTIVE — Follow-up: Scheduler Overlap Check for govtest.py ENFORCE/PAUSED Window
+
+CONTEXT
+d3_directive6_enforcement_govtest.py wrote mode=ENFORCE, state=PAUSED directly
+to the live production governance config table, then reverted to
+mode=SHADOW, state=NORMAL. DB evidence:
+
+  - G0 flipped to ENFORCE/PAUSED, changed_by=directive6_govtest
+  - Restored via reason=G5_AUTHORIZED_RESUME: directive6_govtest_restore
+  - updated_at window: 2026-07-12 21:46:45.949178+00 → 21:46:46.970639+00
+  - Total window: approximately 1 second
+
+TASK — single check, no code changes
+Confirm whether any of the production scheduled jobs (APScheduler, 110+ jobs)
+executed, or attempted to read governance state, during this window.
+
+1. Grep the scheduler/job log (or whatever table/log APScheduler writes to,
+   e.g. apscheduler_jobs execution log, or application log) for any job
+   start/end timestamps that fall within:
+     2026-07-12 21:46:45.949178+00  to  2026-07-12 21:46:46.970639+00
+   (pad by a few seconds on each side, e.g. 21:46:43 to 21:46:49, to catch
+   near-misses)
+
+2. If any job ran in that window, identify which job and whether it called
+   require_governance_authorization() or read d3_checkpoint_config during
+   that time.
+
+3. Report back plainly: either "no jobs ran in this window" or "job X ran,
+   here is what it read/did."
+
+STANDING VERIFICATION BLOCK (required for this task)
+No task is complete based on description alone. Provide:
+  1. Raw terminal output / raw log or SQL query output showing the actual
+     job-log search — not a paraphrase of what the log contains.
+  2. If any job overlapped: the raw log lines for that job showing its
+     start/end time and any governance-related calls it made.
+  3. If a database query was used to check this, paste the raw SQL query
+     and full result set.
+Narrative claims like "confirmed no overlap" or "checked, all clear" without
+pasted raw evidence are rejected. If you cannot produce a required evidence
+item, say so explicitly.
+
+EVIDENCE CHAIN PROTOCOL
+Run all evidence-producing commands through verified_run.sh and validate
+with verify_chain.sh before declaring this complete. Paste the
+verify_chain.sh output.
+
+NOTE ON SCOPE
+This is a quick sanity check, not a new audit track. If it comes back clean,
+no further action is needed. This does not need to happen before anything
+else — it's just closing the loop on the govtest.py production flip.

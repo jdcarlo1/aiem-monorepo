@@ -1,0 +1,3 @@
+ id | status | trigger_source | started_at | finished_at | trades_inserted 
+----+--------+----------------+------------+-------------+-----------------
+(0 rows)

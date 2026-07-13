@@ -1,0 +1,6 @@
+ checkpoint |        entrypoint         |   trigger_source    |     request_timestamp_utc     | is_test_record 
+------------+---------------------------+---------------------+-------------------------------+----------------
+ G0         | _aiem_paper_execute_today | directive6_block_5a | 2026-07-12 21:46:45.061904+00 | f
+ G5         | g5_authorize_resume       | ADMIN               | 2026-07-12 21:46:46.908942+00 | f
+ G0         | _aiem_paper_execute_today | directive6_allow_6  | 2026-07-12 21:46:47.351951+00 | f
+(3 rows)
