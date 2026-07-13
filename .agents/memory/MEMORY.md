@@ -1,4 +1,5 @@
 - [Schema drift remediation July 2026](schema-drift-remediation.md) — dev/prod reconciliation complete; 0 destructive items; migration tracking in migrations/applied/; remaining 7 items are all safe additive adds
+- [Watchdog cold-start grace period](watchdog-cold-start-grace.md) — liveness watchdog must skip health-check failure counting for first 150s; 404 on unregistered routes killed prod deploys in ~90s
 - [D3 negative-control test Option 2](d3-negctl-option2.md) — schema-isolation via search_path; libpq needs %20 not + in options=; main import >180s infeasible; dry-run is complete Directive 5 proof
 - [Order dedup enforcement](order-dedup-enforcement.md) — UNIQUE(ticker,trade_date) + app pre-check in _aiem_paper_execute_today() emits D3 data_guard.failed; order_dedup.py is separate (order_execution_log only, never paper trades)
 - [Daily Tiered Movers system](daily-tiered-movers.md) — daily_market_movers.py; Polygon single-ticker endpoint is the only source for market_cap; cache NULL = uncached; DELETE-before-insert pattern; close_price>=2.0 LAG filter can span multi-day gaps

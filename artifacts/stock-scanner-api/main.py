@@ -346,12 +346,18 @@ _LW_MAX_THREADS = 400
 _LW_MAX_RSS_PCT = 70.0
 
 _LW_MAX_VM_PRESSURE_PCT = 90.0
+# Cold-start grace: main.py is 20k+ lines; prod imports (numpy/pandas/sklearn/
+# xgboost/psycopg2/...) take 60-120s before @app.route decorators are all
+# registered. Without a grace period the watchdog fires os._exit(1) after 3×30s
+# = 90s of 404s from an unregistered route, killing the process mid promote.
+_LW_STARTUP_GRACE_SECS = 150
 
 def _liveness_watchdog_loop():
     import time as _lw_time
     import sys as _lw_sys
     import urllib.request as _lw_urllib
     import faulthandler as _lw_faulthandler
+    _lw_boot_time = _lw_time.time()
     consecutive_failures = 0
     url = f"http://127.0.0.1:{PORT}/stock-api/"
     while True:
@@ -400,6 +406,12 @@ def _liveness_watchdog_loop():
             _lw_sys.stdout.flush()
             _lw_sys.stderr.flush()
             os._exit(1)
+        # During cold-start grace, skip health-check failure counting.
+        # Flask routes aren't all registered until Python finishes executing
+        # the full 20k-line file; probing before that returns 404, not 200.
+        if _lw_time.time() - _lw_boot_time < _LW_STARTUP_GRACE_SECS:
+            consecutive_failures = 0
+            continue
         try:
             with _lw_urllib.urlopen(url, timeout=10) as resp:
                 if resp.status == 200:
