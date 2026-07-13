@@ -1,0 +1,79 @@
+                                             Table "public.aiem_diagram2_trace_audit"
+         Column          |           Type           | Collation | Nullable |                        Default                        
+-------------------------+--------------------------+-----------+----------+-------------------------------------------------------
+ id                      | bigint                   |           | not null | nextval('aiem_diagram2_trace_audit_id_seq'::regclass)
+ trace_id                | text                     |           | not null | 
+ ticker                  | text                     |           | not null | 
+ paper_trade_id          | bigint                   |           |          | 
+ stage_order             | integer                  |           | not null | 
+ stage_name              | text                     |           | not null | 
+ component_name          | text                     |           | not null | 
+ runtime_function        | text                     |           | not null | 
+ status                  | text                     |           | not null | 
+ started_at              | timestamp with time zone |           | not null | 
+ completed_at            | timestamp with time zone |           | not null | now()
+ input_hash              | text                     |           |          | 
+ output_hash             | text                     |           |          | 
+ payload_json            | jsonb                    |           |          | 
+ evidence_pointer        | text                     |           |          | 
+ error_message           | text                     |           |          | 
+ root_trace_id           | text                     |           |          | 
+ candidate_id            | text                     |           |          | 
+ provenance_parent_hash  | text                     |           |          | 
+ provenance_hash         | text                     |           |          | 
+ reason_codes            | jsonb                    |           |          | 
+ terminal_status         | text                     |           |          | 
+ rejected_at_stage_order | integer                  |           |          | 
+ rejected_at_stage_name  | text                     |           |          | 
+ rejecting_component     | text                     |           |          | 
+ human_readable_reason   | text                     |           |          | 
+ last_successful_stage   | integer                  |           |          | 
+ no_order_created        | boolean                  |           |          | 
+Indexes:
+    "aiem_diagram2_trace_audit_pkey" PRIMARY KEY, btree (id)
+    "aiem_d2_root_trace_idx" btree (root_trace_id)
+    "aiem_d2_terminal_idx" btree (terminal_status) WHERE terminal_status IS NOT NULL
+    "aiem_d2_ticker_idx" btree (ticker, started_at DESC)
+    "aiem_d2_trace_idx" btree (trace_id)
+    "aiem_diagram2_trace_audit_trace_id_stage_order_key" UNIQUE CONSTRAINT, btree (trace_id, stage_order)
+Check constraints:
+    "aiem_d2_terminal_status_chk" CHECK (terminal_status IS NULL OR (terminal_status = ANY (ARRAY['REJECTED'::text, 'BLOCKED'::text])))
+    "aiem_diagram2_trace_audit_status_check" CHECK (status = ANY (ARRAY['PASS'::text, 'FAIL'::text]))
+
+                                            Table "public.aiem_signal_discoveries"
+       Column       |            Type             | Collation | Nullable |                       Default                       
+--------------------+-----------------------------+-----------+----------+-----------------------------------------------------
+ id                 | integer                     |           | not null | nextval('aiem_signal_discoveries_id_seq'::regclass)
+ hypothesis_text    | text                        |           |          | 
+ conditions_json    | jsonb                       |           | not null | 
+ horizon            | character varying(20)       |           |          | 'next_day'::character varying
+ signal_n           | integer                     |           |          | 
+ signal_win_rate    | double precision            |           |          | 
+ signal_avg_ret     | double precision            |           |          | 
+ baseline_n         | integer                     |           |          | 
+ baseline_win_rate  | double precision            |           |          | 
+ baseline_avg_ret   | double precision            |           |          | 
+ edge_broad         | double precision            |           |          | 
+ edge_tight         | double precision            |           |          | 
+ p_value            | double precision            |           |          | 
+ oos_edge           | double precision            |           |          | 
+ status             | character varying(20)       |           |          | 'new'::character varying
+ discovered_at      | timestamp without time zone |           |          | now()
+ confirmed_at       | timestamp without time zone |           |          | 
+                                          Table "public.aiem_discovery_memory"
+      Column      |           Type           | Collation | Nullable |                      Default                      
+------------------+--------------------------+-----------+----------+---------------------------------------------------
+ id               | bigint                   |           | not null | nextval('aiem_discovery_memory_id_seq'::regclass)
+ discovery_date   | date                     |           | not null | 
+ session_id       | text                     |           | not null | 
+ ticker           | text                     |           | not null | 
+ discovery_type   | text                     |           | not null | 
+ raw_signal       | jsonb                    |           | not null | 
+ confidence       | numeric(5,3)             |           |          | 
+ promoted_to_pick | boolean                  |           | not null | false
+ promotion_reason | text                     |           |          | 
+ created_at       | timestamp with time zone |           | not null | now()
+Indexes:
+    "aiem_discovery_memory_pkey" PRIMARY KEY, btree (id)
+    "idx_aiem_disc_mem_date" btree (discovery_date)
+    "idx_aiem_disc_mem_ticker" btree (ticker)

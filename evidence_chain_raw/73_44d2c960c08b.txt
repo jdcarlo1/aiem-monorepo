@@ -1,0 +1,3 @@
+ERROR:  column "ticker" does not exist
+LINE 1: SELECT checkpoint, entrypoint, trigger_source, ticker, reque...
+                                                       ^

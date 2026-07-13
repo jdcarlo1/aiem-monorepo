@@ -1,0 +1,20 @@
+                                            Table "public.d3_governance_requests"
+        Column         |           Type           | Collation | Nullable |                      Default                       
+-----------------------+--------------------------+-----------+----------+----------------------------------------------------
+ id                    | bigint                   |           | not null | nextval('d3_governance_requests_id_seq'::regclass)
+ governance_request_id | text                     |           | not null | 
+ trace_id              | text                     |           |          | 
+ root_trace_id         | text                     |           |          | 
+ checkpoint            | text                     |           | not null | 
+ source_phase          | text                     |           |          | 
+ requested_action      | text                     |           |          | 
+ entrypoint            | text                     |           | not null | 
+ run_kind              | text                     |           | not null | 
+ trigger_source        | text                     |           |          | 
+ architecture_version  | text                     |           |          | 
+ model_version         | text                     |           |          | 
+ strategy_version      | text                     |           |          | 
+ configuration_version | text                     |           |          | 
+ payload_hash          | text                     |           |          | 
+ timeout_ms            | integer                  |           |          | 
+ is_test_record        | boolean                  |           | not null | false

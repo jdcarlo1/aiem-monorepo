@@ -1,0 +1,3 @@
+ERROR:  column "trade_date" does not exist
+LINE 1: SELECT COUNT(*) as cnt, MAX(trade_date) as latest_date FROM ...
+                                    ^

@@ -1,0 +1,3 @@
+ERROR:  column "discovered_at" does not exist
+LINE 1: SELECT COUNT(*) as cnt, MAX(discovered_at) as latest FROM di...
+                                    ^

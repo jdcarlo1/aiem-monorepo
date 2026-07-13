@@ -1,0 +1,5 @@
+ checkpoint |     entrypoint      |      trigger_source      |     request_timestamp_utc     
+------------+---------------------+--------------------------+-------------------------------
+ G5         | g5_authorize_resume | ADMIN_API                | 2026-07-11 15:12:11.086131+00
+ G5         | g5_authorize_resume | phase2_g0_canary_cleanup | 2026-07-11 06:16:10.134326+00
+(2 rows)

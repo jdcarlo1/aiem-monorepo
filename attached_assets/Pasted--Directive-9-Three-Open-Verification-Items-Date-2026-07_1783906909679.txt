@@ -1,0 +1,76 @@
+# Directive 9 — Three Open Verification Items
+
+Date: 2026-07-12
+
+This directive covers three separate, independent open items. Complete them in order. Do not skip evidence steps. Do not declare any item "done" without pasting the required raw evidence below.
+
+---
+
+## STANDING VERIFICATION BLOCK (applies to every item in this directive)
+
+No task is complete based on description alone. For each item below, you must provide:
+1. Raw terminal output of actual execution — including raw `grep` output for any claim about code locations, call chains, or whether a function/pattern exists. Never paraphrase what grep would show; paste it.
+2. Exact before/after file diff for any file you change.
+3. SHA256 hash before/after for any changed file.
+4. Raw SQL query + full result set for any claim involving the database.
+
+Narrative or paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence will be rejected. If you cannot produce one of these evidence items for a given step, say so explicitly — do not omit it silently.
+
+## EVIDENCE CHAIN PROTOCOL
+
+Run all evidence-producing commands through `verified_run.sh` (hash-chained append-only logging wrapper) instead of running them directly. Before declaring this directive complete, run `verify_chain.sh` and paste its full output. This proves internal log consistency only — it does not by itself prove commands ran against the real production DB. Joel may independently spot-check by re-running a sampled command himself.
+
+## DATA IMMUTABILITY RULE
+
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test," "synthetic," or "cleanup" — without Joel's explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+---
+
+## ITEM 1 — PAPER ENFORCEMENT Design Doc Status
+
+**Question:** Was a design doc for PAPER ENFORCEMENT (D3 actually halting the paper Decision Engine on a BLOCK verdict) ever produced, per item 3 of Directive 6?
+
+**Required evidence:**
+- Raw `find` / `grep` output searching the repo and any docs/notes directories for anything referencing "PAPER ENFORCEMENT" design, spec, or plan.
+- If found: paste the file path, last-modified timestamp, and full contents (or a clear excerpt if very long).
+- If not found: state clearly "no such document exists" and confirm via the negative search output (not just narrative).
+
+**Do NOT** begin writing a new design doc or any integration code for PAPER ENFORCEMENT in this directive — this item is a status check only.
+
+---
+
+## ITEM 2 — NVDA End-to-End Run Confirmation
+
+**Background:** Directive 8 confirmed root cause — Diagram 1 (master orchestrator loop) was not correctly wired until that directive's fix. Root cause is confirmed; the fix itself is not yet proven to have closed the gap.
+
+**Required evidence — confirm a real scheduled or manually-triggered run now completes end-to-end for at least one ticker:**
+1. Raw SQL: candidate selection evidence (e.g. `polygon_rvol_scan`, `ai_trade_log`, or equivalent) showing a ticker was selected as a candidate AFTER the D1 fix.
+2. Raw SQL + terminal output: confirmation that `run_full_cycle()` (or whatever the corrected D1 entry point is) actually executed for that ticker — e.g. a new row in `aiem_diagram2_trace_audit` with a timestamp after the fix.
+3. Raw SQL: confirmation the candidate passed all governance gates (G0→G1→macro→G6→G2→G3) — same query pattern used in Directive 8.
+4. Raw SQL: a new row actually landing in `aiem_paper_trades` (not just `aiem_paper_execution_log`) — full row contents, with `inserted_at`/equivalent timestamp after the D1 fix.
+5. If no new row exists yet because no scheduled run has fired since the fix: state this explicitly, and either (a) confirm the next scheduled run time, or (b) if Joel authorizes it, manually trigger one run and capture the same evidence live.
+
+**Do NOT** manually trigger a run without first checking whether one has already occurred naturally — check first, trigger only if needed and only with explicit go-ahead noted in your response.
+
+---
+
+## ITEM 3 — Discovery/Movers → Signal Ledger Reconciliation
+
+**Background:** Confirmed via raw DB evidence: `daily_market_movers` gets populated by the daily tiered movers job (main.py:7460-7465, 800 rows/day), and 20 minutes later `run_tiered_wl_cycle()` reads it via `get_wl_rows_for_engine()` and runs statistical learning on the labeled data. Unverified: whether that learned output ever writes into `aiem_signal_discoveries` (the validated signal ledger).
+
+**Required evidence:**
+1. Raw `grep` output on `run_tiered_wl_cycle()` and its full call chain — trace every write target inside this function and anything it calls.
+2. For each write target found, raw SQL confirming whether `aiem_signal_discoveries` receives any INSERT/UPDATE originating from this path.
+3. If `aiem_signal_discoveries` is NOT touched by this path: identify raw-evidence-backed answer to where the "learned" output actually goes (e.g. `aiem_discovery_memory`, a different table, or nowhere / dead-ended).
+4. Raw SQL: row counts and most recent timestamps for `aiem_discovery_memory`, `daily_market_movers`, and `aiem_signal_discoveries` to establish whether all three are currently active, stale, or orphaned relative to each other.
+
+---
+
+## Completion Checklist
+
+Before declaring this directive complete, confirm in your response:
+- [ ] Item 1: doc found/not found, with raw search evidence
+- [ ] Item 2: end-to-end run evidence OR explicit statement that no run has occurred yet + next step
+- [ ] Item 3: full call-chain trace + raw SQL on all 3 tables
+- [ ] `verify_chain.sh` output pasted, chain valid
+- [ ] Any evidence item you could not produce, explicitly flagged as such

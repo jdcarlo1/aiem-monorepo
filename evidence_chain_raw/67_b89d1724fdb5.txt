@@ -1,0 +1,3 @@
+ trace_id | ticker | stage_order | stage_name | status | terminal_status | started_at | completed_at 
+----------+--------+-------------+------------+--------+-----------------+------------+--------------
+(0 rows)

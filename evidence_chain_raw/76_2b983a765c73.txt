@@ -1,0 +1,25 @@
+2058:def _init_discovery_cycle_tables():
+2065:                CREATE TABLE IF NOT EXISTS discovery_cycle_config (
+2072:                CREATE TABLE IF NOT EXISTS discovery_cycle_log (
+2086:                INSERT INTO discovery_cycle_config (key, value) VALUES
+2094:        print("[discovery_cycle] tables ready")
+2096:        print(f"[discovery_cycle] table init error: {_e}")
+2098:_DEFERRED_INITS.append(_init_discovery_cycle_tables)
+2146:    """Read a single key from discovery_cycle_config. Returns '' on miss."""
+2151:            _cur.execute("SELECT value FROM discovery_cycle_config WHERE key=%s", (key,))
+2160:    """Upsert a key into discovery_cycle_config."""
+2166:                INSERT INTO discovery_cycle_config (key, value, updated_at)
+2174:        print(f"[discovery_cycle] cfg_set error key={key!r}: {_e}")
+2206:        print(f"[discovery_cycle] Module2 Thompson top-{len(_top)}: "
+2210:        print(f"[discovery_cycle] Module2 ranking error (original order): {_m2e}")
+2219:    calls online_learning.propose_update() to refine a 'discovery_cycle_weights'
+2248:            print(f"[discovery_cycle] Module3 SGD skip — only {len(_X_rows)} row(s)")
+2257:        _live = _ol3.get_live_model("discovery_cycle_signal_weights")
+2264:            model_name="discovery_cycle_signal_weights",
+2273:            notes=f"discovery_cycle run_id={run_id}",
+2275:        print(f"[discovery_cycle] Module3 SGD: accepted={_upd.get('accepted')} "
+2279:        print(f"[discovery_cycle] Module3 SGD error (non-fatal): {_m3e}")
+2310:        print(f"[discovery_cycle] Module4 adversarial critique: "
+2327:            print(f"[discovery_cycle] Module4 {_r.get('template_id')}: "
+2343:                print(f"[discovery_cycle] Module4 {_r.get('template_id')}: "
+2347:        print(f"[discovery_cycle] Module4 critique error (non-fatal): {_m4e}")

@@ -1,0 +1,3 @@
+ERROR:  column "created_at" does not exist
+LINE 1: SELECT COUNT(*) as cnt, MAX(created_at) as latest FROM aiem_...
+                                    ^

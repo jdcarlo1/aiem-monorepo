@@ -1,0 +1,3 @@
+775:    def run_tiered_wl_cycle(self) -> Dict[str, Any]:
+939:          3. Add a signal entry to aiem_signal_discoveries with a hypothesis_id.
+978:            f"  2. Register in aiem_signal_discoveries with hypothesis_id\n"

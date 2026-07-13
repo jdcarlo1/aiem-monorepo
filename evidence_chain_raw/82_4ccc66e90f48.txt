@@ -1,0 +1,26 @@
+
+    _scheduler.add_job(
+        _run_v3_verification,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=55, timezone=_ET),
+        id="v3_verification_daily",
+        replace_existing=True,
+    )
+
+    # Pushed from 9:35 → 9:42 so it doesn't fire simultaneously with the
+    # 9:36 unusual-calls market-open scan (heaviest Yahoo job of the day).
+    _scheduler.add_job(
+        lambda: _aiem_paper_execute_today(trigger_source="scheduled_942"),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=42, timezone=_ET),
+        id="aiem_paper_execute",
+        replace_existing=True,
+    )
+
+    # ── Watchdog: alert owner if the 9:42 AM paper-trading run never
+    # produced a terminal log row for today. This is the safety net so a
+    # silent failure (crash, exception swallowed upstream, missed cron
+    # fire) is never discovered a day later — it fires a Telegram alert
+    # within ~35 minutes of the scheduled run instead.
+    def _aiem_paper_heartbeat_check():
+        import datetime as _hbdt
+        _today = _hbdt.datetime.now(_ET).date()
+        if not _is_trading_day(_today):

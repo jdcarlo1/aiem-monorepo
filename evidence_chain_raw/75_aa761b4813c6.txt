@@ -1,0 +1,8 @@
+ cnt | latest_scan_date 
+-----+------------------
+ 800 | 2026-07-10
+(1 row)
+
+ERROR:  column "created_at" does not exist
+LINE 1: ... daily_market_movers; SELECT COUNT(*) as cnt, MAX(created_at...
+                                                             ^

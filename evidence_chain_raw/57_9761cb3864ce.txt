@@ -1,0 +1,4 @@
+ id |   ticker   | trade_date | signal_source | status | entry_price | notional |          created_at           
+----+------------+------------+---------------+--------+-------------+----------+-------------------------------
+  3 | DEDUP_TEST | 2099-01-01 | test_source   | OPEN   |     10.0000 |    10.00 | 2026-07-12 15:28:57.492449+00
+(1 row)

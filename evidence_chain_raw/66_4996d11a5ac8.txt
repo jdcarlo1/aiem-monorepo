@@ -1,0 +1,22 @@
+                                          Table "public.daily_market_movers"
+      Column      |           Type           | Collation | Nullable |                     Default                     
+------------------+--------------------------+-----------+----------+-------------------------------------------------
+ id               | bigint                   |           | not null | nextval('daily_market_movers_id_seq'::regclass)
+ scan_date        | date                     |           | not null | 
+ ticker           | text                     |           | not null | 
+ pct_change       | numeric(10,4)            |           |          | 
+ close_price      | numeric(12,4)            |           |          | 
+ rank             | integer                  |           |          | 
+ direction        | text                     |           | not null | 
+ market_cap_tier  | text                     |           | not null | 
+ feature_snapshot | jsonb                    |           |          | 
+ created_at       | timestamp with time zone |           | not null | now()
+Indexes:
+    "daily_market_movers_pkey" PRIMARY KEY, btree (id)
+    "daily_market_movers_scan_date_ticker_direction_key" UNIQUE CONSTRAINT, btree (scan_date, ticker, direction)
+    "idx_dmm_direction" btree (direction, scan_date DESC)
+    "idx_dmm_scan_date" btree (scan_date DESC)
+    "idx_dmm_tier" btree (market_cap_tier, scan_date DESC)
+Check constraints:
+    "daily_market_movers_direction_check" CHECK (direction = ANY (ARRAY['winner'::text, 'loser'::text]))
+    "daily_market_movers_market_cap_tier_check" CHECK (market_cap_tier = ANY (ARRAY['nano'::text, 'small'::text, 'mid'::text, 'large'::text]))

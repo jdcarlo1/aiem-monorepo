@@ -1,0 +1,3 @@
+ERROR:  column "run_date" does not exist
+LINE 1: SELECT id, ticker, run_date, phase_reached, governance_resul...
+                           ^

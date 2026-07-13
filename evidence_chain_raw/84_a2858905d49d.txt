@@ -1,0 +1,3 @@
+ id | candidate_id | hypothesis_text | status | oos_wr | oos_n | proposed_at 
+----+--------------+-----------------+--------+--------+-------+-------------
+(0 rows)

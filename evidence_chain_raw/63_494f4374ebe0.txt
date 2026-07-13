@@ -1,0 +1,19 @@
+2756:        import aiem_discovery_engine as _de
+2760:        result = _de.get_discovery_engine().run_cycle(templates=_dc_ranked)
+2773:        _wl_result = _de.get_discovery_engine().run_tiered_wl_cycle()
+37177:        "description": "Return a summary of the DiscoveryEngine review queue: pending/rejected/promoted candidate counts, last run time, and backtest window dates.",
+40203:        import aiem_discovery_engine as _de
+40204:        return _de.get_discovery_engine().status()
+40217:        import aiem_discovery_engine as _de
+40218:        result = _de.get_discovery_engine().run_cycle()
+40230:        import aiem_discovery_engine as _de
+40231:        rows = _de.get_discovery_engine().list_candidates(
+40241:        import aiem_discovery_engine as _de
+40242:        cand = _de.get_discovery_engine().get_candidate(str(candidate_id))
+40252:        import aiem_discovery_engine as _de
+40253:        return _de.get_discovery_engine().reject_candidate(str(candidate_id), str(reason))
+40264:        import aiem_discovery_engine as _de
+40265:        return _de.get_discovery_engine().promote_candidate(str(candidate_id), str(notes))
+55475:    import aiem_discovery_engine as _aiem_de_mod
+55477:    print("[discovery_engine] deferred schema init registered")
+55479:    print(f"[discovery_engine] import failed at registration time: {_de_import_e}")

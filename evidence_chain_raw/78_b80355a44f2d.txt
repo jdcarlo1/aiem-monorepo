@@ -1,0 +1,20 @@
+                                          Table "public.discovered_candidates"
+      Column      |           Type           | Collation | Nullable |                      Default                      
+------------------+--------------------------+-----------+----------+---------------------------------------------------
+ id               | integer                  |           | not null | nextval('discovered_candidates_id_seq'::regclass)
+ candidate_id     | text                     |           | not null | 
+ hypothesis_text  | text                     |           | not null | 
+ feature_rule     | jsonb                    |           | not null | 
+ holding_period   | text                     |           | not null | '1d'::text
+ is_wr            | numeric(6,2)             |           |          | 
+ oos_wr           | numeric(6,2)             |           |          | 
+ is_n             | integer                  |           |          | 
+ oos_n            | integer                  |           |          | 
+ oos_avg_return   | numeric(10,6)            |           |          | 
+ baseline_wr      | numeric(6,2)             |           |          | 
+ overfit_gap      | numeric(6,2)             |           |          | 
+ status           | text                     |           | not null | 'pending'::text
+ rejection_reason | text                     |           |          | 
+ train_window     | text                     |           |          | 
+ test_window      | text                     |           |          | 
+ proposed_at      | timestamp with time zone |           | not null | now()
