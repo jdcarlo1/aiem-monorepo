@@ -66,6 +66,41 @@ def _make_safe_pg_connect(_orig_connect):
     return _safe
 psycopg2.connect = _make_safe_pg_connect(psycopg2.connect)
 
+# ── Early health server — bind port 5055 immediately ────────────────────────
+# The production deploy health checker probes this port during startup.
+# Without this early bind the port is unavailable for ~60-120 s while
+# the main() function runs all its setup code, causing health-check failures
+# and a stuck promote phase.  The full admin server (with POST /run-scan etc.)
+# starts later in main(); if it finds port 5055 already taken it logs a
+# warning and exits gracefully — the GET health check is served by this thread.
+_AIEM_PROCESS_PORT = int(os.environ.get("AIEM_PROCESS_PORT", "5055"))
+
+def _start_process_health_server():
+    import socketserver
+    from http.server import BaseHTTPRequestHandler
+    class _H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b'{"status":"ok"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        def log_message(self, *a):
+            pass
+    class _S(socketserver.TCPServer):
+        allow_reuse_address = True
+    try:
+        srv = _S(("0.0.0.0", _AIEM_PROCESS_PORT), _H)
+        threading.Thread(target=srv.serve_forever, daemon=True,
+                         name="aiem-process-health").start()
+    except Exception as _he:
+        import sys as _sys
+        print(f"[aiem-process] early health server: {_he}", file=_sys.stderr)
+
+_start_process_health_server()
+# ────────────────────────────────────────────────────────────────────────────
+
 ET = pytz.timezone("US/Eastern")
 
 # ─────────────────────────────────────────────────────────────
