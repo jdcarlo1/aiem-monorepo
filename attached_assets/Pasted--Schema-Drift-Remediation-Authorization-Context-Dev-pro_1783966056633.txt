@@ -1,0 +1,72 @@
+# Schema Drift Remediation — Authorization
+
+**Context:** Dev/prod schema comparison surfaced significant drift (288 dev tables vs. 281 prod tables, 32 tables with differences, 7 dev-only tables). Root cause: schema changes have been applied directly to prod at runtime for months and never reflected back into dev.
+
+**Status:** Reviewed. Approving most groups below. One group is held pending a code check.
+
+---
+
+## APPROVED — proceed in this order
+
+**Group A — Create 7 new tables in prod**
+No prod data at risk (empty tables created). Proceed.
+
+**Group 1A — Drop `aiem_supervisor_signal_health` from dev**
+This is confirmed to be an orphaned duplicate created directly in dev, not tracked in Replit's migration history. Prod's real copy (5 rows) is untouched. Approved per the Data Immutability Rule — logging this as an explicit approved deletion of a dev-only artifact, not prod data.
+
+**Group 2 — Add missing columns to dev**
+Prevents Replit from dropping columns from 1,554+ prod rows on next publish. Proceed.
+
+**Group 3 — Add missing primary keys to dev**
+Prevents Replit from dropping PKs from 36,000+ prod rows. Dev tables are empty, so no duplicate-key risk. Proceed.
+
+**Group 4 — Add missing UNIQUE constraints to dev**
+Dev tables are empty or already satisfy the constraint. Proceed.
+
+**Group 5 — Fix type/nullable mismatches in dev**
+Dev-only changes, zero prod rows touched. Proceed.
+
+**Group 6 — No action required**
+Columns only in dev get added to prod automatically and safely by Replit. Confirm this happens as part of the eventual publish; no separate action needed now.
+
+---
+
+## HELD — do not execute yet
+
+**Group 1B — Restructure `morning_watchlist` in dev**
+This is a structural rewrite (drop `id`/SERIAL PK, change `ticker` to varchar, make `ticker` the PK, add `notes` column), not a purely additive fix. Before I authorize this one:
+
+1. Run a raw grep across the full dev codebase for any reference to `morning_watchlist.id` or `morning_watchlist_pkey` (application code, queries, joins, ORM models — not just migrations).
+2. Paste the raw grep output (or explicitly state "no matches found" with the exact command run).
+3. Wait for my explicit go-ahead on 1B specifically before touching it.
+
+Dev currently has 0 rows in this table, so there's no data-loss risk — the concern is purely whether any dev-side code assumes the old `id`-based schema.
+
+---
+
+## Standing requirements — apply to every group above
+
+**Verification block (required for each group):**
+1. Raw terminal output of actual execution — including raw grep output for any claim about what exists or doesn't; no paraphrasing.
+2. Exact before/after schema diff (DDL or `information_schema` query results) for each table touched.
+3. sha256 hash before/after for any changed files (migration scripts, etc.).
+4. Raw SQL query + full result set for row counts before and after each group.
+
+**Evidence Chain Protocol (required for each group):**
+Run all evidence-producing commands through `verified_run.sh`, validate with `verify_chain.sh`, and paste that script's output before declaring any group complete. This proves internal log consistency only, not that commands ran against the real production DB — I'll spot-check independently.
+
+**Data Immutability Rule:**
+No deletion, drop, or overwrite beyond what's explicitly approved above. Any additional deletion needs separate explicit approval first, logged before execution.
+
+Report back group-by-group as each completes, in sequence — not all at once at the end.
+
+---
+
+## Part 2 — Migration Tracking Proposal
+
+Approved as described:
+1. Timestamped migration SQL files written to `artifacts/stock-scanner-api/migrations/applied/` at time of change (format `YYYYMMDD_HHMMSS_<description>.sql`).
+2. `artifacts/stock-scanner-api/migrations/verify_drift.sh` — condensed version of the `information_schema` comparison, run before every future publish attempt.
+3. Cadence: run `verify_drift.sh` at the end of every build session before marking it complete; report the diff count and list any pending items if > 0.
+
+Proceed with building this alongside the remediation groups above.
