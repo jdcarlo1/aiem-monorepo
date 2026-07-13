@@ -1,0 +1,49 @@
+ iso_gr 
+--------
+      5
+(1 row)
+
+ iso_gd 
+--------
+      5
+(1 row)
+
+ iso_gel 
+---------
+       5
+(1 row)
+
+ iso_ga 
+--------
+      3
+(1 row)
+
+ pub_gr 
+--------
+     13
+(1 row)
+
+ pub_gd 
+--------
+     13
+(1 row)
+
+ pub_gel 
+---------
+     125
+(1 row)
+
+ pub_ga 
+--------
+      2
+(1 row)
+
+ paper_trades 
+--------------
+            1
+(1 row)
+
+ exec_log 
+----------
+        1
+(1 row)

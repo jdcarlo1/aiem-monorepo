@@ -1,0 +1,96 @@
+{
+  "verdict": "PASS",
+  "timestamp_utc": "2026-07-13T00:32:54.398158Z",
+  "call_result": "{'blocked': True, 'decision': 'BLOCK', 'reason_codes': ['STATE_PAUSED'], 'mode': 'ENFORCE', 'system_state': 'PAUSED', 'governance_decision_id': 'GDEC_G0_b44bd1d2291a4cf9bd162ef9d901031a'}",
+  "blocked_ok": true,
+  "checks": [
+    {
+      "table": "d3_test_isolation.d3_governance_requests",
+      "pre": 4,
+      "post": 5,
+      "delta": 1,
+      "expect": ">=1",
+      "ok": true
+    },
+    {
+      "table": "d3_test_isolation.d3_governance_event_links",
+      "pre": 4,
+      "post": 5,
+      "delta": 1,
+      "expect": ">=1",
+      "ok": true
+    },
+    {
+      "table": "d3_test_isolation.d3_governance_decisions",
+      "pre": 4,
+      "post": 5,
+      "delta": 1,
+      "expect": ">=1",
+      "ok": true
+    },
+    {
+      "table": "public.d3_governance_requests",
+      "pre": 13,
+      "post": 13,
+      "delta": 0,
+      "expect": "==0",
+      "ok": true
+    },
+    {
+      "table": "public.d3_governance_event_links",
+      "pre": 125,
+      "post": 125,
+      "delta": 0,
+      "expect": "==0",
+      "ok": true
+    },
+    {
+      "table": "public.d3_governance_decisions",
+      "pre": 13,
+      "post": 13,
+      "delta": 0,
+      "expect": "==0",
+      "ok": true
+    },
+    {
+      "table": "public.d3_governance_acks",
+      "pre": 2,
+      "post": 2,
+      "delta": 0,
+      "expect": "==0",
+      "ok": true
+    },
+    {
+      "table": "public.aiem_paper_trades",
+      "pre": 1,
+      "post": 1,
+      "delta": 0,
+      "expect": "==0",
+      "ok": true
+    }
+  ],
+  "pre": {
+    "d3_test_isolation.d3_governance_requests": 4,
+    "d3_test_isolation.d3_governance_event_links": 4,
+    "d3_test_isolation.d3_governance_decisions": 4,
+    "d3_test_isolation.d3_governance_acks": 2,
+    "public.d3_governance_requests": 13,
+    "public.d3_governance_event_links": 125,
+    "public.d3_governance_decisions": 13,
+    "public.d3_governance_acks": 2,
+    "public.aiem_paper_trades": 1,
+    "public.aiem_paper_execution_log": 1
+  },
+  "post": {
+    "d3_test_isolation.d3_governance_requests": 5,
+    "d3_test_isolation.d3_governance_event_links": 5,
+    "d3_test_isolation.d3_governance_decisions": 5,
+    "d3_test_isolation.d3_governance_acks": 3,
+    "public.d3_governance_requests": 13,
+    "public.d3_governance_event_links": 125,
+    "public.d3_governance_decisions": 13,
+    "public.d3_governance_acks": 2,
+    "public.aiem_paper_trades": 1,
+    "public.aiem_paper_execution_log": 1
+  }
+}

@@ -1,0 +1,1 @@
+SERVER_STOP: killing stock-api PID 106 at 2026-07-13T00:30:58Z to free memory for full-test subprocess. Will restart immediately after.
