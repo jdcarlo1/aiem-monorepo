@@ -73,13 +73,38 @@ def _start_process_health_server():
         print(f"[aiem-process] early health server error: {_he}", file=sys.stderr, flush=True)
 
 _start_process_health_server()
-# ── Now safe to do slow imports ───────────────────────────────────────────────
 
-import pytz
-import psycopg2
-import psycopg2.extras
-import aiem_optprob
-import aiem_firstcandle
+# ── Production startup stagger — yield CPU to stock-api during cold boot ──────
+# The production VM is an e2-small: 0.5 vCPU shared across ALL services that
+# start simultaneously.  stock-api must import numpy/pandas/sklearn/xgboost
+# (lines 68-142 of main.py) before its werkzeug health server binds — roughly
+# 90-120 s on 0.5 vCPU.  If aiem_optprob's scipy/numpy imports run at the same
+# time, both processes share 0.25 vCPU each, doubling stock-api's startup time
+# so it misses the 175 s promote-phase health-check timeout.
+# Sleeping here costs nothing — the health server above is already serving 200
+# on port 5055, so the promote-phase prober for THIS service passes immediately.
+# After the sleep, stock-api's Flask server is up and the full 0.5 vCPU is ours.
+if os.environ.get("REPLIT_DEPLOYMENT"):
+    print("[aiem-process] production cold-start: sleeping 100 s to yield CPU to stock-api", flush=True)
+    time.sleep(100)
+
+# ── Slow imports — wrapped so a failure can never kill the health server ───────
+try:
+    import pytz
+    import psycopg2
+    import psycopg2.extras
+    import aiem_optprob
+    import aiem_firstcandle
+    print("[aiem-process] all slow imports loaded ✓", flush=True)
+except Exception as _slow_import_err:
+    import traceback as _tb
+    print(f"[aiem-process] CRITICAL: slow import failed — {_slow_import_err}", flush=True)
+    _tb.print_exc()
+    # Stay alive so the health server thread (daemon=True) keeps running.
+    # The deploy can promote; the service will be non-functional until restarted.
+    print("[aiem-process] health server still running — deploy will promote; fix import and redeploy", flush=True)
+    while True:
+        time.sleep(3600)
 
 # ── Socket-liveness default for every psycopg2.connect() in this process ────
 def _make_safe_pg_connect(_orig_connect):
