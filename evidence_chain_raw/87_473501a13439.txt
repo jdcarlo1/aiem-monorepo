@@ -1,0 +1,13 @@
+          governance_request_id           | checkpoint |            entrypoint             |                  trigger_source                  |     request_timestamp_utc     | is_test_record 
+------------------------------------------+------------+-----------------------------------+--------------------------------------------------+-------------------------------+----------------
+ GREQ_G0_15fbd0ffe801485f8728424e9855a3c3 | G0         | _aiem_paper_execute_today         | directive6_allow_6                               | 2026-07-12 21:46:47.351951+00 | f
+ GREQ_G5_3469128faf6b4aeeae775b457da42501 | G5         | g5_authorize_resume               | ADMIN                                            | 2026-07-12 21:46:46.908942+00 | f
+ GREQ_G0_385f25b2e3d74b7784228ef3e287b7b2 | G0         | _aiem_paper_execute_today         | directive6_block_5a                              | 2026-07-12 21:46:45.061904+00 | f
+ GREQ_G0_7d94c60100c34e809829ac8d37e0922c | G0         | _aiem_paper_execute_today         | directive_b_exact_harness_2026_07_12             | 2026-07-12 19:44:04.103864+00 | f
+ GREQ_G0_fde622ee5d984683905b123ac934c112 | G0         | DIRECTIVE_B_negative_control_test | directive_b_test_2026_07_12                      | 2026-07-12 19:35:53.170688+00 | t
+ GREQ_G0_ac7b7fc1fe3e4c128ac3f218d07d3ae6 | G0         | d4_standalone_block_test          | d4_test_script                                   | 2026-07-12 06:51:08.831241+00 | t
+ GREQ_G0_e14961a071cc4aeb873ff001b0d35241 | G0         | negative_control_test             | nc_test_monkeypatch                              | 2026-07-12 06:31:43.158086+00 | t
+ GREQ_G5_9c0c05204a174913bee03f3a02c7c5ed | G5         | g5_authorize_resume               | ADMIN_API                                        | 2026-07-11 15:12:11.086131+00 | f
+ GREQ_G5_9fc40d30c5ec459d9af5091114de768b | G5         | g5_authorize_resume               | ADMIN                                            | 2026-07-11 14:30:24.397675+00 | f
+ GREQ_G0_f908d07d3e584b18b2d3045a1caa01ac | G0         | masterverify_section_d            | MASTERVERIFY_20260711_K3X9PQ_ALLOW_SHADOW_NORMAL | 2026-07-11 14:29:44.017664+00 | t
+(10 rows)

@@ -1,0 +1,4 @@
+ id |   status   |    trigger_source     | trades_inserted |                                               error_msg                                               |          started_at           |          finished_at          
+----+------------+-----------------------+-----------------+-------------------------------------------------------------------------------------------------------+-------------------------------+-------------------------------
+  1 | BLOCKED_G0 | phase2_g0_canary_test |                 | G0 governance checkpoint blocked: ['STATE_PAUSED'] (mode=ENFORCE, state=PAUSED) [is_test_record=True] | 2026-07-11 06:15:34.161947+00 | 2026-07-11 06:15:34.188997+00
+(1 row)

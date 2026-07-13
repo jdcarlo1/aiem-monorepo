@@ -1,0 +1,57 @@
+# Directive: Verify D1/D2/D3 Status Claims Before Any Action
+
+## Context
+
+You just reported the following claims in chat, with no supporting evidence attached:
+
+1. D3 Governance is "Fully wired — runs on every execution"
+2. D1 Master Orchestrator's `run_full_cycle` in `aiem_master_orchestrator.py` is "never called by the paper trading pipeline"
+3. D2 Trace has "0 rows in `aiem_diagram2_trace_audit`... because D1 isn't called"
+4. `scheduled_942` "has never successfully completed a run — zero record in the execution log"
+5. You then asked whether to fix the D1 connection now or wait and observe tomorrow's 9:42 AM run.
+
+**None of these claims are accepted as-is.** Narrative claims of "wired," "never called," "0 rows," or "never completed" without pasted raw evidence are rejected per standing protocol. Do not propose or begin any build/fix work until this directive is completed and evidence is reviewed.
+
+## What I need — one item per claim
+
+For each of the 4 claims above, produce:
+
+**Claim 1 (D3 fully wired):**
+- Raw grep output showing every call site that invokes D3 governance functions in the current codebase (not a paraphrase of what grep would show — the actual command and actual output).
+- Raw SQL query + full result set showing D3 governance decision rows with recent timestamps, proving it actually ran recently.
+
+**Claim 2 (D1 never called):**
+- Raw grep output: `grep -rn "run_full_cycle" --include="*.py" .` (or equivalent) across the ENTIRE codebase, not just the orchestrator file itself. Show every caller, or show that there are none.
+- If any caller exists, show the full call chain (file + line number) from that caller up to what invokes it.
+
+**Claim 3 (D2 trace 0 rows):**
+- Raw SQL: `SELECT COUNT(*) FROM aiem_diagram2_trace_audit;` and the actual result.
+- If 0, also show: `SELECT COUNT(*) FROM aiem_diagram2_trace_audit WHERE ticker = 'NVDA';` for comparison against prior findings.
+
+**Claim 4 (scheduled_942 never completed):**
+- Raw SQL query against whatever table constitutes "the execution log" (name it explicitly), full result set, filtered to `scheduled_942` or equivalent job ID.
+- State the exact table/column names used so the query can be independently verified.
+
+## Standing Verification Block (required for every item above)
+
+No claim is accepted based on description alone. You must provide:
+1. Raw terminal output of actual execution — including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists. Never paraphrase what grep would show.
+2. Exact before/after file diff (if any file is touched — none should be touched in this directive, it is diagnostic only).
+3. SHA256 hash before/after for any changed files (N/A here — no changes expected).
+4. Raw SQL query + full result set for any database claim.
+
+If you cannot produce a required evidence item, say so explicitly. Do not substitute a narrative explanation.
+
+## Evidence Chain Protocol
+
+Run all evidence-producing commands through `verified_run.sh` instead of running them directly. Validate the resulting log with `verify_chain.sh` and paste that script's output before declaring this directive complete.
+
+## Explicit constraints
+
+- **Do not modify, fix, delete, or "clean up" anything in this directive.** This is diagnostic only — evidence gathering, no changes.
+- Do not propose next steps or offer to build the D1 fix yet. Report findings only. I will decide the next step once I see the raw evidence.
+- If the raw evidence contradicts what you reported in chat (e.g., D1 actually IS called somewhere, or the execution log shows different results), say so plainly — do not reconcile or smooth over the discrepancy narratively.
+
+## Why this matters
+
+This determines whether tomorrow's 9:42 AM run is diagnostic-worthy as a "first real run" or whether the prior Directive 8 fix already changed this picture and the chat report is stale. I'm not making a build decision off narrative claims.

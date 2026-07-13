@@ -1,0 +1,36 @@
+4311:                import aiem_diagram3_governance as _d3_g0_pot
+4312:                _g0_pot_result = _d3_g0_pot.require_governance_authorization(
+4330:            # PERSIST_FAILED from require_governance_authorization -- neither
+42863:                        import aiem_diagram3_governance as _d3ev_p3b
+42886:                        import aiem_diagram3_governance as _d3ev_p3c
+42929:                import aiem_diagram3_governance as _d3ev_p3a
+43050:        import aiem_diagram3_governance as _d3_g0
+43051:        _g0_result = _d3_g0.require_governance_authorization(
+43216:                        import aiem_diagram3_governance as _d3ev_dg_ks
+43242:                    import aiem_diagram3_governance as _d3ev_dg_dll
+43265:                    import aiem_diagram3_governance as _d3ev_dg_pcr
+43289:            import aiem_diagram3_governance as _d3ev_dg_pass
+43306:            import aiem_diagram3_governance as _d3_g1
+43307:            _g1_result = _d3_g1.require_governance_authorization(
+43477:                # BLOCKED). See aiem_diagram3_governance._evaluate_g6_decision for
+43480:                    import aiem_diagram3_governance as _d3gov_g6
+43482:                    _g6_result = _d3gov_g6.require_governance_authorization(
+43904:                        import aiem_diagram3_governance as _d3ev_p3f
+43926:                    import aiem_diagram3_governance as _d3_gov_ctx
+43936:                            # governance ledger row (see aiem_diagram3_governance gap G2 fix).
+44058:                    import aiem_diagram3_governance as _d3_g2
+44059:                    _g2_result = _d3_g2.require_governance_authorization(
+44133:                    import aiem_diagram3_governance as _d3_g3
+44134:                    _g3_result = _d3_g3.require_governance_authorization(
+44177:                        import aiem_diagram3_governance as _d3ev_p3d
+44202:                    import aiem_diagram3_governance as _d3ev_p3e
+44227:                        import aiem_diagram3_governance as _d3ev_dedup
+44266:                    import aiem_diagram3_governance as _d3ev_p3g
+44401:            import aiem_diagram3_governance as _d3ev_p3h
+44978:            # this hot path); see aiem_diagram3_governance.link_paper_trade_close.
+44980:                import aiem_diagram3_governance as _d3_gov_close
+44993:                import aiem_diagram3_governance as _d3ev_or
+55496:    import aiem_diagram3_governance as _d3_gov
+63259:    import aiem_diagram3_governance as _d3_tbh
+63940:            import aiem_diagram3_governance as _d3_g4
+63941:            _g4_result = _d3_g4.require_governance_authorization(

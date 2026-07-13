@@ -1,0 +1,3 @@
+ERROR:  column "created_at" does not exist
+LINE 1: ...atus, trigger_source, trades_inserted, error_msg, created_at...
+                                                             ^
