@@ -10,19 +10,7 @@ process.on('unhandledRejection', (err) => {
   logger.error({ err }, 'Unhandled rejection — continuing');
 });
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+const port = Number(process.env["PORT"] || 8080);
 
 async function initStripe() {
   const databaseUrl = process.env.DATABASE_URL;
