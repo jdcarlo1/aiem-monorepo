@@ -359,16 +359,20 @@ def _fetch_todays_picks(pick_type: str):
         # Stock floor = 6.5 (avg historical = 7.06; excludes bottom-tier speculative picks).
         # Options floor = 6.5 (all historical options ≥ 6.2; keeps only genuine flow signals).
         _INDEP_THRESH = 7.5
-        cur.execute("""
-            SELECT pick_type, ticker, confidence_score, rationale,
-                   option_strike, option_expiry, hold_days_max
-            FROM aiem_independent_picks
-            WHERE pick_date = %s AND pick_type = %s
-              AND confidence_score >= 7.5
-            ORDER BY confidence_score DESC NULLS LAST
-            LIMIT 20
-        """, (date.today(), pick_type))
-        rows = cur.fetchall()
+        try:
+            cur.execute("""
+                SELECT pick_type, ticker, confidence_score, rationale,
+                       option_strike, option_expiry, hold_days_max
+                FROM aiem_independent_picks
+                WHERE pick_date = %s AND pick_type = %s
+                  AND confidence_score >= 7.5
+                ORDER BY confidence_score DESC NULLS LAST
+                LIMIT 20
+            """, (date.today(), pick_type))
+            rows = cur.fetchall()
+        except Exception as _tbl_err:
+            log.warning(f"aiem_independent_picks query failed ({_tbl_err}) — going straight to fallback")
+            rows = []
         if rows:
             return rows
 
@@ -922,8 +926,41 @@ def main():
         conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
         _ensure_notifier_log_table(conn)
         log.info("aiem_notifier_log table ready")
+        # Ensure aiem_independent_picks table always exists so queries never
+        # crash with UndefinedTable before the fallback code can run.
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS aiem_independent_picks (
+                id SERIAL PRIMARY KEY,
+                pick_date DATE NOT NULL,
+                pick_type VARCHAR(20) NOT NULL,
+                ticker VARCHAR(10) NOT NULL,
+                rank INTEGER,
+                confidence_score NUMERIC(5,2),
+                rationale TEXT,
+                features JSONB,
+                entry_price NUMERIC(12,4),
+                option_strike NUMERIC(10,2),
+                option_expiry DATE,
+                hold_days_max INTEGER DEFAULT 5,
+                status VARCHAR(20) DEFAULT 'open',
+                exit_price NUMERIC(12,4),
+                exit_date DATE,
+                pnl_pct NUMERIC(8,4),
+                direction_correct BOOLEAN,
+                source VARCHAR(40) DEFAULT 'aiem_independent_polygon',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_aiem_indep_picks_date_type
+            ON aiem_independent_picks (pick_date, pick_type)
+        """)
+        conn.commit()
+        log.info("aiem_independent_picks table ready")
     except Exception as e:
-        log.error(f"could not ensure aiem_notifier_log table at startup: {e}")
+        log.error(f"could not ensure tables at startup: {e}")
     finally:
         if conn:
             conn.close()

@@ -1936,6 +1936,45 @@ def _init_byok_columns():
         print(f"[byok] _init_byok_columns error: {_e}")
 _DEFERRED_INITS.append(_init_byok_columns)
 _DEFERRED_INITS.append(lambda: _aiem_auditor_startup_check())
+
+def _ensure_aiem_independent_picks_table():
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c:
+            with _c.cursor() as _cur:
+                _cur.execute("""
+                    CREATE TABLE IF NOT EXISTS aiem_independent_picks (
+                        id SERIAL PRIMARY KEY,
+                        pick_date DATE NOT NULL,
+                        pick_type VARCHAR(20) NOT NULL,
+                        ticker VARCHAR(10) NOT NULL,
+                        rank INTEGER,
+                        confidence_score NUMERIC(5,2),
+                        rationale TEXT,
+                        features JSONB,
+                        entry_price NUMERIC(12,4),
+                        option_strike NUMERIC(10,2),
+                        option_expiry DATE,
+                        hold_days_max INTEGER DEFAULT 5,
+                        status VARCHAR(20) DEFAULT 'open',
+                        exit_price NUMERIC(12,4),
+                        exit_date DATE,
+                        pnl_pct NUMERIC(8,4),
+                        direction_correct BOOLEAN,
+                        source VARCHAR(40) DEFAULT 'aiem_independent_polygon',
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                _cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_aiem_indep_picks_date_type
+                    ON aiem_independent_picks (pick_date, pick_type)
+                """)
+            _c.commit()
+        print("[startup] aiem_independent_picks table ready", flush=True)
+    except Exception as _e:
+        print(f"[startup] aiem_independent_picks table init error: {_e}", flush=True)
+
+_DEFERRED_INITS.append(_ensure_aiem_independent_picks_table)
 _DEFERRED_INITS.append(lambda: _mkt_start_continuous_loop())
 
 # ── AIEM v3 Phase 1: ensure all 12 v3 schema tables exist ────────────────────
@@ -15120,7 +15159,7 @@ try:
     _pg2_orig_connect = _psycopg2.connect
 
     _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(
-        minconn=2, maxconn=25, dsn=_DB_URL,
+        minconn=4, maxconn=45, dsn=_DB_URL,
         connect_timeout=5,
         keepalives=1, keepalives_idle=10,
         keepalives_interval=5, keepalives_count=3,
@@ -15165,7 +15204,7 @@ try:
         return conn
     _PG_POOL._connect = _ptypes.MethodType(_pool_direct_connect, _PG_POOL)
 
-    print("[db] connection pool ready (min=2 max=25)")
+    print("[db] connection pool ready (min=4 max=45)")
 except Exception as _pool_init_err:
     print(f"[db] pool init failed — falling back to direct connections: {_pool_init_err}")
 
@@ -49454,9 +49493,52 @@ def premarket():
     out = {"gainers": gainers, "losers": losers, "scanned": len(tickers)}
     if gainers or losers:
         app._pm_cache = out; app._pm_cache_ts = _pdt.now()
-    elif _cache:
+        return jsonify(out)
+    # No live data (weekend, market closed, or all fetches failed) —
+    # fall back to the most recent polygon_market_daily session.
+    if _cache:
         return jsonify({**_cache, "stale": True})
-    return jsonify(out)
+    try:
+        import psycopg2 as _pm_pg
+        with _pm_pg.connect(os.environ["DATABASE_URL"], connect_timeout=4) as _pm_c:
+            with _pm_c.cursor() as _pm_cur:
+                _pm_cur.execute("""
+                    SELECT MAX(scan_date) FROM polygon_market_daily
+                """)
+                _latest_date = (_pm_cur.fetchone() or [None])[0]
+                if _latest_date:
+                    _pm_cur.execute("""
+                        SELECT ticker, close_price, prev_close,
+                               ROUND(((close_price-prev_close)/NULLIF(prev_close,0)*100)::numeric,2) AS chg,
+                               rvol
+                        FROM polygon_market_daily
+                        WHERE scan_date = %s
+                          AND prev_close > 0 AND close_price > 0
+                        ORDER BY ABS((close_price-prev_close)/NULLIF(prev_close,0)) DESC
+                        LIMIT 40
+                    """, (_latest_date,))
+                    _rows = _pm_cur.fetchall()
+                    _db_gainers = [
+                        {"ticker": r[0], "price": float(r[1]), "prev_close": float(r[2]),
+                         "change_pct": float(r[3]), "vol_ratio": float(r[4]) if r[4] else 0}
+                        for r in _rows if r[3] and float(r[3]) > 0
+                    ][:10]
+                    _db_losers = [
+                        {"ticker": r[0], "price": float(r[1]), "prev_close": float(r[2]),
+                         "change_pct": float(r[3]), "vol_ratio": float(r[4]) if r[4] else 0}
+                        for r in _rows if r[3] and float(r[3]) < 0
+                    ][:10]
+                    if _db_gainers or _db_losers:
+                        _db_out = {"gainers": _db_gainers, "losers": _db_losers,
+                                   "scanned": len(_rows), "stale": True,
+                                   "stale_date": str(_latest_date),
+                                   "note": f"Market closed — showing last session ({_latest_date})"}
+                        app._pm_cache = _db_out; app._pm_cache_ts = _pdt.now()
+                        return jsonify(_db_out)
+    except Exception as _pm_e:
+        print(f"[premarket] db fallback error: {_pm_e}")
+    return jsonify({"gainers": [], "losers": [], "scanned": 0, "stale": True,
+                    "note": "Market closed — no data available"})
 
 
 @app.route("/stock-api/darkpool", methods=["GET"])

@@ -1367,6 +1367,99 @@ def aiem_write_signal_discoveries():
 
 
 # ─────────────────────────────────────────────────────────────
+# JOB 8: WEEKEND SUMMARY  (9:30 AM Sat & Sun)
+# Re-delivers the most recent weekday's top AIEM picks so you
+# never miss a morning review even when markets are closed.
+# ─────────────────────────────────────────────────────────────
+def aiem_weekend_summary():
+    """Send the most recent weekday's top AIEM picks at 9:30 AM on weekends."""
+    now_et = datetime.now(ET)
+    # Dedup: only fire once per weekend day
+    today_str = now_et.strftime("%Y-%m-%d")
+    try:
+        conn = _db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM signal_fire_log WHERE fire_date=%s AND signal_name='WEEKEND_SUMMARY' AND ticker='DAILY_SUMMARY'",
+            (now_et.date(),)
+        )
+        if cur.fetchone():
+            conn.close()
+            return
+        conn.close()
+    except Exception as _e:
+        log.warning(f"weekend_summary dedup check error: {_e}")
+
+    try:
+        conn = _db()
+        cur = conn.cursor()
+        # Get most recent weekday's predictions
+        cur.execute("""
+            SELECT DISTINCT prediction_date FROM aiem_process_predictions
+            WHERE prediction_date < CURRENT_DATE
+              AND EXTRACT(DOW FROM prediction_date) BETWEEN 1 AND 5
+            ORDER BY prediction_date DESC LIMIT 1
+        """)
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            log.info("weekend_summary: no recent predictions found")
+            return
+        pred_date = row[0]
+
+        cur.execute("""
+            SELECT ticker, confidence_score, signal_basis, predicted_move_pct, reasoning
+            FROM aiem_process_predictions
+            WHERE prediction_date = %s
+            ORDER BY confidence_score DESC
+            LIMIT 20
+        """, (pred_date,))
+        picks = cur.fetchall()
+        conn.close()
+    except Exception as _e:
+        log.error(f"weekend_summary DB error: {_e}")
+        return
+
+    if not picks:
+        log.info("weekend_summary: no picks for most recent weekday")
+        return
+
+    day_name = pred_date.strftime("%a %b %-d")
+    lines = [
+        f"📅 Weekend Preview — AIEM Top Picks ({day_name})",
+        f"AIEM's own reasoning on raw data — no pre-scored input",
+        f"{'─' * 30}",
+    ]
+    for i, (ticker, conf, sig, move, reason) in enumerate(picks, 1):
+        conf_f = float(conf) if conf else 0
+        move_f = float(move) if move else 0
+        lines.append(
+            f"#{i} ${ticker}  conf={conf_f:.0f}  move={move_f:+.1f}%"
+            + (f"  [{sig}]" if sig else "")
+        )
+    lines.append(f"{'─' * 30}")
+    lines.append("⚠️ Market is closed — these are {}'s picks for context.".format(day_name))
+    lines.append("Next live alert: Monday 9:30 AM ET")
+
+    msg = "\n".join(lines)
+    try:
+        _tg(msg)
+        # Record in signal_fire_log to prevent duplicate sends
+        conn = _db()
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO signal_fire_log (fire_date, signal_name, ticker, logged_at)
+               VALUES (%s, 'WEEKEND_SUMMARY', 'DAILY_SUMMARY', NOW())
+               ON CONFLICT DO NOTHING""",
+            (now_et.date(),)
+        )
+        conn.commit()
+        conn.close()
+        log.info(f"weekend_summary: sent {len(picks)} picks from {pred_date}")
+    except Exception as _e:
+        log.error(f"weekend_summary send error: {_e}")
+
+
 # JOB 7: NIGHTLY LEARN  (6:00 PM)
 # Update signal trust weights from the last 30 days of outcomes
 # THIS IS WHERE AIEM GETS SMARTER EVERY DAY

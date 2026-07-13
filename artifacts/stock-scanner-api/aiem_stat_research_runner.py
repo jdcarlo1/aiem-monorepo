@@ -428,6 +428,22 @@ def main():
 
     while True:
         try:
+            # Pause during 7:30–10:30 AM ET Mon–Fri (morning burst window).
+            # Background threads in main.py all compete for pool connections
+            # during this window. Staying off the DB during peak keeps the
+            # pool free for live user-facing requests.
+            now_utc = datetime.datetime.utcnow()
+            now_et_h = (now_utc.hour - 4) % 24  # rough ET offset (EDT)
+            now_et_m = now_utc.minute
+            now_et_mins = now_et_h * 60 + now_et_m
+            is_weekday = now_utc.weekday() < 5  # Mon=0 … Fri=4
+            in_peak = is_weekday and (450 <= now_et_mins <= 630)  # 7:30–10:30 AM ET
+            if in_peak:
+                wake_mins = 630 - now_et_mins + 5
+                log.info("Peak morning window — sleeping %d min to keep pool free.", wake_mins)
+                time.sleep(wake_mins * 60)
+                continue
+
             log.info("=== EOD battery cycle start ===")
             eod_result = run_eod_battery(batch_size=50)
 
