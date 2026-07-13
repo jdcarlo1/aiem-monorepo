@@ -1,0 +1,4 @@
+ total_rows | test_rows_remaining 
+------------+---------------------
+          0 |                   0
+(1 row)

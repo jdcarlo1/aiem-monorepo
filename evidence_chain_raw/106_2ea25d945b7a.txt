@@ -1,0 +1,3 @@
+ERROR:  aiem_candidate_pipeline write_contract: INSERT with status=CLAIMED_BY_DIAGRAM1 rejected — only PENDING_FULL_ANALYSIS is a legal insert status. Writer: _aiem_paper_pick_candidates only.
+CONTEXT:  PL/pgSQL function aiem_candidate_pipeline_transition_guard() line 29 at RAISE
+EXIT_CODE:1

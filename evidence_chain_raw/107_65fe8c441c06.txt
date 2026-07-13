@@ -1,0 +1,16 @@
+BEGIN;
+INSERT INTO aiem_candidate_pipeline
+    (ticker, candidate_date, status, is_test_record)
+VALUES
+    ('PHASE2_UPDTEST', CURRENT_DATE, 'PENDING_FULL_ANALYSIS', true);
+UPDATE aiem_candidate_pipeline
+    SET status = 'FULL_ANALYSIS_COMPLETED'
+    WHERE ticker = 'PHASE2_UPDTEST';
+ROLLBACK;
+---EXECUTING---
+BEGIN
+INSERT 0 1
+psql:/tmp/phase2_update_test.sql:8: ERROR:  aiem_candidate_pipeline write_contract: transition PENDING_FULL_ANALYSIS->FULL_ANALYSIS_COMPLETED rejected — not a legal status transition. See trigger aiem_candidate_pipeline_transition_guard for legal transitions.
+CONTEXT:  PL/pgSQL function aiem_candidate_pipeline_transition_guard() line 50 at RAISE
+ROLLBACK
+EXIT_CODE:0

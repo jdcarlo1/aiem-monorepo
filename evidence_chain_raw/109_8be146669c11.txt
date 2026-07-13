@@ -1,0 +1,8 @@
+--- INSERT refs ---
+42980:    # ── Phase 1 candidate intake: persist to aiem_candidate_pipeline ──────
+42994:                        "INSERT INTO aiem_candidate_pipeline"
+43013:                f" aiem_candidate_pipeline (status=PENDING_FULL_ANALYSIS)"
+--- UPDATE on table anywhere in main.py ---
+NONE
+--- DELETE on table anywhere in main.py ---
+NONE

@@ -1,0 +1,68 @@
+CREATE OR REPLACE FUNCTION aiem_candidate_pipeline_transition_guard()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+/*
+  Directive 11 Phase 2 — Write Contract Enforcement
+  ─────────────────────────────────────────────────────────────────────────
+  Legal status transitions and owning component:
+
+  Writer                         From                       To
+  ─────────────────────────────────────────────────────────────────────────
+  _aiem_paper_pick_candidates    (new INSERT)            →  PENDING_FULL_ANALYSIS
+  Diagram1CandidateIntake        PENDING_FULL_ANALYSIS   →  CLAIMED_BY_DIAGRAM1
+  Diagram1CandidateIntake        CLAIMED_BY_DIAGRAM1     →  FULL_ANALYSIS_RUNNING
+  Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  FULL_ANALYSIS_COMPLETED
+  Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  FAILED
+  Diagram1CandidateIntake        FAILED                  →  RETRY_PENDING
+  Diagram1CandidateIntake        RETRY_PENDING           →  PENDING_FULL_ANALYSIS  (requeue)
+  Diagram1CandidateIntake        RETRY_PENDING           →  QUARANTINED            (max retries)
+
+  Any other INSERT status or UPDATE transition is rejected by this trigger.
+  Phase 3 will implement Diagram1CandidateIntake; this trigger enforces
+  the write contract before that component exists.
+  ─────────────────────────────────────────────────────────────────────────
+*/
+BEGIN
+    -- INSERT guard: only PENDING_FULL_ANALYSIS is a legal insert status.
+    -- Structural enforcement that _aiem_paper_pick_candidates() is the
+    -- sole legal INSERT writer: no other status value can reach the table.
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.status != 'PENDING_FULL_ANALYSIS' THEN
+            RAISE EXCEPTION
+                'aiem_candidate_pipeline write_contract: INSERT with status=% '
+                'rejected — only PENDING_FULL_ANALYSIS is a legal insert status. '
+                'Writer: _aiem_paper_pick_candidates only.',
+                NEW.status;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    -- UPDATE guard: only legal transitions (listed above) are allowed.
+    -- No-op if status column is not being changed.
+    IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+        IF NOT (
+            (OLD.status = 'PENDING_FULL_ANALYSIS'  AND NEW.status = 'CLAIMED_BY_DIAGRAM1'    ) OR
+            (OLD.status = 'CLAIMED_BY_DIAGRAM1'    AND NEW.status = 'FULL_ANALYSIS_RUNNING'  ) OR
+            (OLD.status = 'FULL_ANALYSIS_RUNNING'  AND NEW.status = 'FULL_ANALYSIS_COMPLETED') OR
+            (OLD.status = 'FULL_ANALYSIS_RUNNING'  AND NEW.status = 'FAILED'                 ) OR
+            (OLD.status = 'FAILED'                 AND NEW.status = 'RETRY_PENDING'          ) OR
+            (OLD.status = 'RETRY_PENDING'          AND NEW.status = 'PENDING_FULL_ANALYSIS'  ) OR
+            (OLD.status = 'RETRY_PENDING'           AND NEW.status = 'QUARANTINED'            )
+        ) THEN
+            RAISE EXCEPTION
+                'aiem_candidate_pipeline write_contract: transition %->% '
+                'rejected — not a legal status transition. '
+                'See trigger aiem_candidate_pipeline_transition_guard for legal transitions.',
+                OLD.status, NEW.status;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER aiem_candidate_pipeline_transition_check
+BEFORE INSERT OR UPDATE ON aiem_candidate_pipeline
+FOR EACH ROW EXECUTE FUNCTION aiem_candidate_pipeline_transition_guard();
+---EXECUTING---
+CREATE FUNCTION
+CREATE TRIGGER

@@ -1,0 +1,5 @@
+               trigger_name               | event_manipulation | action_timing | action_orientation 
+------------------------------------------+--------------------+---------------+--------------------
+ aiem_candidate_pipeline_transition_check | INSERT             | BEFORE        | ROW
+ aiem_candidate_pipeline_transition_check | UPDATE             | BEFORE        | ROW
+(2 rows)
