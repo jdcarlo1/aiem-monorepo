@@ -1,0 +1,3 @@
+ERROR:  column "table_schema" does not exist
+LINE 1: SELECT table_schema, table_name, (SELECT COUNT(*) FROM publi...
+               ^

@@ -1,0 +1,1 @@
+FULL-TEST-RESULT: subprocess OOM-killed during main.py import. Harness log 0 bytes. No VERDICT line produced. Progress stopped at socket.bind intercept. No result JSON written.

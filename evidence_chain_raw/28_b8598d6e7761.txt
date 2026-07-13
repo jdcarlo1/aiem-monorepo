@@ -1,0 +1,16 @@
+                    signal_source="governance",
+                )
+            except Exception as _g0_tg_e:
+                print(f"[Guard B] Telegram alert failed: {_g0_tg_e}")
+        _AIEM_PAPER_LOCK.release()
+        return {
+            "blocked": True,
+            "decision": _g0_result.get("decision"),
+            "reason_codes": _g0_result.get("reason_codes"),
+            "mode": _g0_result.get("mode"),
+            "system_state": _g0_result.get("system_state"),
+            "governance_decision_id": _g0_gdid,
+        }
+    else:
+        if _g0_result.get("would_block"):
+            print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "

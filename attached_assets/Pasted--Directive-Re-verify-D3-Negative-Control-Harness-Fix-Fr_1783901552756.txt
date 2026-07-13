@@ -1,0 +1,64 @@
+# Directive — Re-verify D3 Negative-Control Harness Fix (Fresh Evidence)
+
+## Context
+A prior session reportedly fixed a bug where `_aiem_paper_execute_today()`'s BLOCK
+path had a bare `return` (returning `None` instead of a status dict), which caused
+`d3_negctl_harness.py --full-test`'s own verdict check to report FAIL even though
+the underlying G0 governance logic was working correctly (confirmed via raw
+pre/post SQL row counts in that prior session).
+
+That evidence is not available in this thread. Do not treat the fix as confirmed
+based on narrative recall — produce fresh, current evidence for all of the below.
+
+## Task
+1. **Locate the current state of the fix.**
+   - Run `verified_run.sh -- grep -n "return" main.py | sed -n '/_aiem_paper_execute_today/,+80p'`
+     (or equivalent) to show the current BLOCK-path return statement.
+   - State plainly: does the function currently return a status dict, or still a
+     bare `return` / `None`? Paste the raw grep output — do not paraphrase.
+
+2. **Re-run the harness fresh, right now.**
+   - Run `verified_run.sh -- python d3_negctl_harness.py --full-test`
+   - Paste the full raw terminal output, including the final `[VERDICT]` line.
+   - If it does not say `[VERDICT] PASS`, say so plainly — do not soften it.
+
+3. **Show the diff, if a fix was applied in this session or a prior one.**
+   - If a diff exists from when the bare-return was fixed, paste the exact
+     before/after diff and sha256 hashes (before/after) for the changed file.
+   - If no diff is available (e.g., it happened in an unlogged prior session),
+     explicitly say "no diff available for this change" rather than fabricating one.
+
+4. **Confirm test isolation held.**
+   - Raw SQL: row counts in `d3_governance_requests`, `d3_governance_decisions`,
+     `d3_governance_event_links`, `d3_governance_acks` in both the test schema
+     (`d3_test_isolation`) and `public` schema, before and after this run.
+   - Confirm `public` schema and `aiem_paper_trades` show zero movement.
+
+5. **Explicitly state current stage.**
+   - Is VERIFIED SHADOW now fully closed (clean PASS + isolation confirmed), or
+     still open pending something? State which.
+   - Reminder: VERIFIED SHADOW passing does NOT mean PAPER ENFORCEMENT exists.
+     PAPER ENFORCEMENT requires new integration work (D3 actually halting the
+     paper Decision Engine), which is separate and has not been implemented.
+
+## Standing verification block (required for every claim above)
+No task is complete based on description alone. For every claim, provide:
+1. Raw terminal output of actual execution — including raw grep output for any
+   claim about code locations, call chains, or whether a function/pattern exists.
+   Never paraphrase what grep would show.
+2. Exact before/after file diff (if applicable).
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set for any database claim.
+Narrative or paraphrased claims of "fixed," "tested," "found," or "confirmed"
+without pasted raw evidence are rejected. State explicitly if you cannot produce
+a required evidence item — do not fill the gap with a description instead.
+
+## Evidence chain protocol
+Run all evidence-producing commands through `verified_run.sh` (hash-chained
+append-only logging wrapper, sha256 72824bfe...24abd) instead of running them
+directly. Validate the log with `verify_chain.sh` (sha256 7294abeb...1fbec7)
+before declaring this directive complete, and paste that script's full output.
+
+Note: the evidence chain proves internal log consistency only — not that
+commands were genuinely executed against the real production DB. Joel may
+spot-check by independently re-running a sampled command himself.

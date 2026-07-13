@@ -1,0 +1,53 @@
+[ISOLATION] DATABASE_URL rewritten: search_path=d3_test_isolation,public injected
+[ISOLATION] options fragment: -c search_path=d3_test_isolation,public
+[ISOLATION] Probe connection search_path='d3_test_isolation,public', current_schema='d3_test_isolation'
+[CONDITION] _g0_read_config patched → {mode: ENFORCE, state: PAUSED}
+
+======================================================================
+DRY-RUN PROOF: single require_governance_authorization call
+======================================================================
+
+[COUNTS — PRE-CALL]
+  d3_test_isolation:
+    requests     = 3
+    event_links  = 3
+    decisions    = 3
+    acks         = 2
+  public:
+    requests     = 13
+    event_links  = 125
+    decisions    = 13
+    acks         = 2
+
+[CALL] require_governance_authorization(checkpoint=G0, entrypoint=_aiem_paper_execute_today, run_kind=TRADE_EXECUTING, trigger_source=directive5_dryrun)
+[RESULT] {'decision': 'BLOCK', 'mode': 'ENFORCE', 'system_state': 'PAUSED', 'would_block': True, 'blocking': True, 'checkpoint': 'G0', 'reason_code': 'STATE_PAUSED', 'reason_codes': ['STATE_PAUSED'], 'ledger_event_id': 7, 'governance_request_id': 'GREQ_G0_25a27988a2d84bd594ce2193f1a13960', 'governance_decision_id': 'GDEC_G0_d39cded6dd5540379853877d1669dc65', 'entrypoint': '_aiem_paper_execute_today', 'run_kind': 'TRADE_EXECUTING', 'persist_error': None}
+
+[COUNTS — POST-CALL]
+  d3_test_isolation:
+    requests     = 4
+    event_links  = 4
+    decisions    = 4
+    acks         = 2
+  public:
+    requests     = 13
+    event_links  = 125
+    decisions    = 13
+    acks         = 2
+
+[DELTA]
+  d3_test_isolation.requests    : +1
+  d3_test_isolation.event_links : +1
+  d3_test_isolation.decisions   : +1
+  d3_test_isolation.acks        : 0
+  public.requests    : 0
+  public.event_links : 0
+  public.decisions   : 0
+  public.acks        : 0
+
+[NEWEST TEST ROW in d3_test_isolation.d3_governance_requests]
+  governance_request_id : GREQ_G0_25a27988a2d84bd594ce2193f1a13960
+  trigger_source        : directive5_dryrun
+  is_test_record        : False
+  request_timestamp_utc : 2026-07-13 00:14:59.234826+00:00
+
+[DRY-RUN VERDICT] PASS — isolation confirmed
