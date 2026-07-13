@@ -12756,7 +12756,6 @@ const TOOL_LABELS: Record<string, string> = {
   mkt_test_signal:              "Testing signal hypothesis",
   mkt_compute_market_regime:    "Computing market regime",
   mkt_layer9_score:             "Computing statistical edge score",
-  mkt_screen_by_indicator:      "Screening indicators",
   mkt_get_ticker_detail:        "Fetching ticker detail",
   query_aiem_paper_trades:      "Reviewing paper trades",
   query_aiem_picks:             "Retrieving AIEM picks",
