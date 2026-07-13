@@ -24,6 +24,15 @@ if [ -z "$CMD" ]; then
   exit 1
 fi
 
+# Acquire exclusive lock for the entire script so concurrent invocations
+# serialize on PREV_HASH/SEQ read and log append. Without this lock two
+# concurrent calls read the same PREV_HASH and SEQ, both compute seq=N,
+# and the second writer produces a duplicate entry that breaks the chain.
+# FD 9 is reserved for the lock; do not use it inside commands passed here.
+LOCK_FILE="${LOG_FILE}.lock"
+exec 9>"$LOCK_FILE"
+flock -x 9
+
 # Get previous hash (or genesis value if log is empty/doesn't exist)
 if [ -f "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
   PREV_HASH=$(tail -n 1 "$LOG_FILE" | python3 -c "import sys,json; print(json.load(sys.stdin)['entry_hash'])")
