@@ -1,0 +1,22 @@
+91158f52068be45174c6da3117a12e1974bfc0ce8f964a11db8ae6330c38a7c4  artifacts/stock-scanner-api/main.py
+6071d0f02000d59cea768872ff2a1f81373fc91b261631508551e31a4358b654  artifacts/stock-scanner-api/diagram1_candidate_intake.py
+59620b5d31c3e82f240501594aafb3cc529242547013b113a1254c5cc8f15d62  /tmp/p3_schema.sql
+--- pre-schema columns ---
+  column_name   |        data_type         
+----------------+--------------------------
+ id             | bigint
+ ticker         | text
+ candidate_date | date
+ score          | double precision
+ raw_score      | double precision
+ trade_type     | text
+ source         | text
+ detail         | text
+ status         | text
+ inserted_at    | timestamp with time zone
+ claimed_at     | timestamp with time zone
+ completed_at   | timestamp with time zone
+ error_msg      | text
+ paper_trade_id | integer
+ is_test_record | boolean
+(15 rows)

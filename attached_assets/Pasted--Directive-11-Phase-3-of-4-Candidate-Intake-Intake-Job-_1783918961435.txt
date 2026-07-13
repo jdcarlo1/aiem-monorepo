@@ -1,0 +1,48 @@
+# Directive 11 (Phase 3 of 4): Candidate Intake — Intake Job & Atomic Claiming
+
+## MANDATORY GATE — DO NOT SKIP
+Do not start this phase until Phase 2 (write contract) has been verified complete: paste the Phase 2 evidence chain output (verify_chain.sh), the enforced transition guard definition, and the raw output showing an illegal transition was rejected. If that evidence is not available or Phase 2 has not run, STOP HERE and report back.
+
+## Purpose
+Phase 1 built the schema. Phase 2 enforced the write contract. Phase 3 builds the actual connective mechanism: a separate, Diagram-1-owned component that polls for pending candidates, atomically claims them, and invokes run_full_cycle() — closing the gap between candidate selection and actual analysis.
+
+## Required design
+1. Authoritative mechanism = durable DB-backed polling/pull by Diagram 1. This is the source of truth. Do NOT build this as event-driven only.
+2. Build a SEPARATE component — Diagram1CandidateIntake with an intake_pending_candidates() entry point. This must NOT live inside or be called from _aiem_paper_pick_candidates(). It is owned by Diagram 1 and scheduled/invoked independently.
+3. Atomic claiming: use SELECT ... FOR UPDATE SKIP LOCKED (or an equivalent compare-and-swap on the status field) so that two concurrent intake runs can never claim the same candidate. Prove this — a single claim query, not read-then-write.
+4. On claim: transition PENDING_FULL_ANALYSIS → CLAIMED_BY_DIAGRAM1 → FULL_ANALYSIS_RUNNING, then invoke run_full_cycle() for that candidate.
+5. On completion: transition to FULL_ANALYSIS_COMPLETED or FAILED. On FAILED, transition to RETRY_PENDING with a backoff delay before re-queueing, up to a max retry count, after which transition to QUARANTINED.
+6. An optional CANDIDATE_READY event MAY be added as a low-latency accelerator that triggers an out-of-cycle poll — but polling must still run on its own schedule regardless of whether the event fires, since events can be missed on restart. If you don't build this in Phase 3, state that explicitly and confirm polling alone is sufficient for now.
+7. Stale claim recovery: if a candidate has been CLAIMED_BY_DIAGRAM1 or FULL_ANALYSIS_RUNNING for longer than a defined timeout (state the value chosen and why), the intake job must detect and recover it (back to RETRY_PENDING or PENDING_FULL_ANALYSIS) rather than leaving it stuck forever.
+8. **Idempotency guarantee:** the same candidate_id must never cause run_full_cycle() to execute more than once for the same claim/attempt — including across a process restart, a retry after stale-claim recovery, or a duplicate poll trigger. Implement this with a durable, unique attempt identifier (e.g., a claim/attempt id or idempotency key tied to candidate_id + attempt number, checked/set atomically as part of the same transaction that performs the claim) so that recovering a stale claim or re-running the intake job cannot invoke run_full_cycle() twice for what is logically the same attempt. A new *attempt* (post-retry, after transitioning back to RETRY_PENDING/PENDING_FULL_ANALYSIS) is expected to run again — the guarantee is against duplicate execution for the same attempt, not against legitimate retries.
+
+## Deliverables for this phase
+1. Diagram1CandidateIntake.intake_pending_candidates() implemented and scheduled.
+2. Atomic claim query proven safe under concurrency (see verification below).
+3. Full status lifecycle wired: claim → run → complete/fail → retry/quarantine.
+4. Stale claim recovery implemented and demonstrated.
+5. Idempotency mechanism implemented and demonstrated (see verification below).
+6. Confirm _aiem_paper_pick_candidates() was NOT modified to call run_full_cycle() directly — it still only selects/persists candidates.
+
+## Standing Verification Block (required)
+1. Raw terminal output of actual execution — including raw grep output for any code-location or call-chain claim (e.g., grep confirming _aiem_paper_pick_candidates() contains no call to run_full_cycle). Never paraphrase what grep would show.
+2. Exact before/after file diff for every file changed.
+3. SHA256 hash before/after for every changed file.
+4. Raw SQL: before/after showing a real candidate's status transitioning through the full lifecycle for at least one row, plus the atomic claim query itself.
+5. Concurrency proof: run two simultaneous intake calls against the same pending candidate (in a test/dev context per the immutability rule below) and show only one claims it — paste the raw output of both attempts.
+6. **Idempotency proof:** for a single claimed attempt, force a restart or a duplicate trigger of the intake job (or otherwise re-invoke the intake path) against that same in-flight candidate/attempt, and show via raw SQL + raw terminal output that run_full_cycle() executed exactly once for that attempt — not twice. Separately, show a genuine retry (new attempt after RETRY_PENDING) is still permitted to run again, to demonstrate the guard blocks duplicates without blocking legitimate retries.
+
+If any evidence item cannot be produced, state that explicitly.
+
+## Evidence Chain Protocol
+Run all evidence-producing commands through verified_run.sh. Validate with verify_chain.sh and paste its output before declaring this phase complete.
+
+Note: this protocol proves internal log consistency only — it does not by itself prove commands were genuinely executed against the real production DB. Joel should periodically spot-check by independently re-running a sampled command himself.
+
+## Data Immutability Rule
+No existing row, table, or file — including data the agent created itself or labels "test," "synthetic," or "cleanup" — may be deleted, truncated, dropped, or overwritten without explicit prior approval in this session. For any test candidates inserted to prove concurrency, retry, or idempotency behavior: state what will be inserted, get approval, and log cleanup. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Constraints
+- Do not build the negative-control test suite in this directive — that is Phase 4.
+- Do not run this against live trading — paper/simulation candidates only.
+- Do not declare this phase "production-ready" until Phase 4's negative controls pass.

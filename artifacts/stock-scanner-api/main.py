@@ -1758,6 +1758,7 @@ _thr_bso.Thread(target=_backfill_signal_outcomes, daemon=True).start()
 _DEFERRED_INITS.append(lambda: init_sms_log_table())
 _DEFERRED_INITS.append(lambda: _bull_bear.init_schema() if _bull_bear else None)
 _DEFERRED_INITS.append(lambda: _specialist_council.init_schema() if _specialist_council else None)
+_DEFERRED_INITS.append(lambda: __import__('diagram1_candidate_intake').get_intake().ensure_schema())
 
 def _init_optprob_deep_itm_table():
     """DB table backing the full-universe deep-ITM options-probability scan
@@ -16540,6 +16541,29 @@ try:
                        "IntervalTrigger(30min, 10:00-15:30 ET guard) id=stock_pe_scan")
 except Exception as _e_spe:
     print(f"[stock_pe] scheduler error: {_e_spe}")
+
+
+try:
+    from apscheduler.triggers.interval import IntervalTrigger as _CITrigger
+
+    def _run_candidate_intake():
+        try:
+            import diagram1_candidate_intake as _d1ci
+            _d1ci.get_intake().intake_pending_candidates()
+        except Exception as _d1ci_e:
+            print(f"[candidate_intake] poll error: {_d1ci_e}")
+
+    _scheduler.add_job(
+        _run_candidate_intake,
+        _CITrigger(minutes=2, timezone=_ET),
+        id="candidate_intake_poll",
+        replace_existing=True,
+    )
+    print("[candidate_intake] poll scheduled every 2 min (Diagram1CandidateIntake)")
+    _log_startup_event("candidate_intake_scheduled",
+                       "IntervalTrigger(2min) id=candidate_intake_poll")
+except Exception as _e_ci:
+    print(f"[candidate_intake] scheduler registration error: {_e_ci}")
 
 
 @app.route("/stock-api/admin/check-stock-pe", methods=["POST"])

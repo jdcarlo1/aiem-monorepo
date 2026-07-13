@@ -1,0 +1,159 @@
+=== schema SQL being applied ===
+-- ── Phase 3 schema additions ─────────────────────────────────────────────
+-- Three new columns for idempotency and backoff tracking.
+ALTER TABLE aiem_candidate_pipeline
+    ADD COLUMN IF NOT EXISTS attempt_number INTEGER     NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS attempt_id     TEXT,
+    ADD COLUMN IF NOT EXISTS retry_after    TIMESTAMPTZ;
+
+-- ── Phase 3 trigger update ────────────────────────────────────────────────
+-- Adds two stale-recovery transitions to the original 7:
+--   CLAIMED_BY_DIAGRAM1   → RETRY_PENDING  (claim stuck > 30 min)
+--   FULL_ANALYSIS_RUNNING → RETRY_PENDING  (run stuck  > 30 min)
+-- All 7 original transitions remain unchanged.
+CREATE OR REPLACE FUNCTION aiem_candidate_pipeline_transition_guard()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+/*
+  Directive 11 — Write Contract Enforcement (Phase 3 update)
+  ─────────────────────────────────────────────────────────────────────────
+  Writer                         From                       To
+  ─────────────────────────────────────────────────────────────────────────
+  _aiem_paper_pick_candidates    (new INSERT)            →  PENDING_FULL_ANALYSIS
+  Diagram1CandidateIntake        PENDING_FULL_ANALYSIS   →  CLAIMED_BY_DIAGRAM1
+  Diagram1CandidateIntake        CLAIMED_BY_DIAGRAM1     →  FULL_ANALYSIS_RUNNING
+  Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  FULL_ANALYSIS_COMPLETED
+  Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  FAILED
+  Diagram1CandidateIntake        FAILED                  →  RETRY_PENDING
+  Diagram1CandidateIntake        RETRY_PENDING           →  PENDING_FULL_ANALYSIS  (requeue)
+  Diagram1CandidateIntake        RETRY_PENDING           →  QUARANTINED            (max retries)
+  -- Phase 3 stale-recovery (new):
+  Diagram1CandidateIntake        CLAIMED_BY_DIAGRAM1     →  RETRY_PENDING   (stale claim)
+  Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  RETRY_PENDING   (stale run)
+  ─────────────────────────────────────────────────────────────────────────
+*/
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.status != 'PENDING_FULL_ANALYSIS' THEN
+            RAISE EXCEPTION
+                'aiem_candidate_pipeline write_contract: INSERT with status=% '
+                'rejected — only PENDING_FULL_ANALYSIS is a legal insert status. '
+                'Writer: _aiem_paper_pick_candidates only.',
+                NEW.status;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN
+        IF NOT (
+            (OLD.status = 'PENDING_FULL_ANALYSIS' AND NEW.status = 'CLAIMED_BY_DIAGRAM1'    ) OR
+            (OLD.status = 'CLAIMED_BY_DIAGRAM1'   AND NEW.status = 'FULL_ANALYSIS_RUNNING'  ) OR
+            (OLD.status = 'CLAIMED_BY_DIAGRAM1'   AND NEW.status = 'RETRY_PENDING'          ) OR
+            (OLD.status = 'FULL_ANALYSIS_RUNNING' AND NEW.status = 'FULL_ANALYSIS_COMPLETED') OR
+            (OLD.status = 'FULL_ANALYSIS_RUNNING' AND NEW.status = 'FAILED'                 ) OR
+            (OLD.status = 'FULL_ANALYSIS_RUNNING' AND NEW.status = 'RETRY_PENDING'          ) OR
+            (OLD.status = 'FAILED'                AND NEW.status = 'RETRY_PENDING'          ) OR
+            (OLD.status = 'RETRY_PENDING'         AND NEW.status = 'PENDING_FULL_ANALYSIS'  ) OR
+            (OLD.status = 'RETRY_PENDING'         AND NEW.status = 'QUARANTINED'            )
+        ) THEN
+            RAISE EXCEPTION
+                'aiem_candidate_pipeline write_contract: transition %->% '
+                'rejected — not a legal status transition. '
+                'See trigger aiem_candidate_pipeline_transition_guard for legal transitions.',
+                OLD.status, NEW.status;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+=== EXECUTING ===
+psql:/tmp/p3_schema.sql:6: NOTICE:  column "attempt_number" of relation "aiem_candidate_pipeline" already exists, skipping
+psql:/tmp/p3_schema.sql:6: NOTICE:  column "attempt_id" of relation "aiem_candidate_pipeline" already exists, skipping
+psql:/tmp/p3_schema.sql:6: NOTICE:  column "retry_after" of relation "aiem_candidate_pipeline" already exists, skipping
+ALTER TABLE
+CREATE FUNCTION
+=== post-apply columns ===
+  column_name   |        data_type         
+----------------+--------------------------
+ id             | bigint
+ ticker         | text
+ candidate_date | date
+ score          | double precision
+ raw_score      | double precision
+ trade_type     | text
+ source         | text
+ detail         | text
+ status         | text
+ inserted_at    | timestamp with time zone
+ claimed_at     | timestamp with time zone
+ completed_at   | timestamp with time zone
+ error_msg      | text
+ paper_trade_id | integer
+ is_test_record | boolean
+ attempt_number | integer
+ attempt_id     | text
+ retry_after    | timestamp with time zone
+(18 rows)
+
+=== post-apply trigger ===
+                                        pg_get_functiondef                                        
+--------------------------------------------------------------------------------------------------
+ CREATE OR REPLACE FUNCTION public.aiem_candidate_pipeline_transition_guard()                    +
+  RETURNS trigger                                                                                +
+  LANGUAGE plpgsql                                                                               +
+ AS $function$                                                                                   +
+ /*                                                                                              +
+   Directive 11 — Write Contract Enforcement (Phase 3 update)                                    +
+   ─────────────────────────────────────────────────────────────────────────                     +
+   Writer                         From                       To                                  +
+   ─────────────────────────────────────────────────────────────────────────                     +
+   _aiem_paper_pick_candidates    (new INSERT)            →  PENDING_FULL_ANALYSIS               +
+   Diagram1CandidateIntake        PENDING_FULL_ANALYSIS   →  CLAIMED_BY_DIAGRAM1                 +
+   Diagram1CandidateIntake        CLAIMED_BY_DIAGRAM1     →  FULL_ANALYSIS_RUNNING               +
+   Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  FULL_ANALYSIS_COMPLETED             +
+   Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  FAILED                              +
+   Diagram1CandidateIntake        FAILED                  →  RETRY_PENDING                       +
+   Diagram1CandidateIntake        RETRY_PENDING           →  PENDING_FULL_ANALYSIS  (requeue)    +
+   Diagram1CandidateIntake        RETRY_PENDING           →  QUARANTINED            (max retries)+
+   -- Phase 3 stale-recovery (new):                                                              +
+   Diagram1CandidateIntake        CLAIMED_BY_DIAGRAM1     →  RETRY_PENDING   (stale claim)       +
+   Diagram1CandidateIntake        FULL_ANALYSIS_RUNNING   →  RETRY_PENDING   (stale run)         +
+   ─────────────────────────────────────────────────────────────────────────                     +
+ */                                                                                              +
+ BEGIN                                                                                           +
+     IF TG_OP = 'INSERT' THEN                                                                    +
+         IF NEW.status != 'PENDING_FULL_ANALYSIS' THEN                                           +
+             RAISE EXCEPTION                                                                     +
+                 'aiem_candidate_pipeline write_contract: INSERT with status=% '                 +
+                 'rejected — only PENDING_FULL_ANALYSIS is a legal insert status. '              +
+                 'Writer: _aiem_paper_pick_candidates only.',                                    +
+                 NEW.status;                                                                     +
+         END IF;                                                                                 +
+         RETURN NEW;                                                                             +
+     END IF;                                                                                     +
+                                                                                                 +
+     IF TG_OP = 'UPDATE' AND OLD.status IS DISTINCT FROM NEW.status THEN                         +
+         IF NOT (                                                                                +
+             (OLD.status = 'PENDING_FULL_ANALYSIS' AND NEW.status = 'CLAIMED_BY_DIAGRAM1'    ) OR+
+             (OLD.status = 'CLAIMED_BY_DIAGRAM1'   AND NEW.status = 'FULL_ANALYSIS_RUNNING'  ) OR+
+             (OLD.status = 'CLAIMED_BY_DIAGRAM1'   AND NEW.status = 'RETRY_PENDING'          ) OR+
+             (OLD.status = 'FULL_ANALYSIS_RUNNING' AND NEW.status = 'FULL_ANALYSIS_COMPLETED') OR+
+             (OLD.status = 'FULL_ANALYSIS_RUNNING' AND NEW.status = 'FAILED'                 ) OR+
+             (OLD.status = 'FULL_ANALYSIS_RUNNING' AND NEW.status = 'RETRY_PENDING'          ) OR+
+             (OLD.status = 'FAILED'                AND NEW.status = 'RETRY_PENDING'          ) OR+
+             (OLD.status = 'RETRY_PENDING'         AND NEW.status = 'PENDING_FULL_ANALYSIS'  ) OR+
+             (OLD.status = 'RETRY_PENDING'         AND NEW.status = 'QUARANTINED'            )   +
+         ) THEN                                                                                  +
+             RAISE EXCEPTION                                                                     +
+                 'aiem_candidate_pipeline write_contract: transition %->% '                      +
+                 'rejected — not a legal status transition. '                                    +
+                 'See trigger aiem_candidate_pipeline_transition_guard for legal transitions.',  +
+                 OLD.status, NEW.status;                                                         +
+         END IF;                                                                                 +
+     END IF;                                                                                     +
+                                                                                                 +
+     RETURN NEW;                                                                                 +
+ END;                                                                                            +
+ $function$                                                                                      +
+ 
+(1 row)

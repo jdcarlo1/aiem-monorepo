@@ -1,0 +1,2 @@
+PRE_APPROVAL_RECORD
+Authorized: D11-P3: schema additions attempt_number/attempt_id/retry_after + trigger stale-recovery transitions 2026-07-13

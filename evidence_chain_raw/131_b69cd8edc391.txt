@@ -1,0 +1,24 @@
+=== post-edit SHA256 ===
+b17b26e1b9e9de1c74deb3cdabf25bf98c94ede6e36638d7b5c1d6113a3b8457  artifacts/stock-scanner-api/main.py
+6071d0f02000d59cea768872ff2a1f81373fc91b261631508551e31a4358b654  artifacts/stock-scanner-api/diagram1_candidate_intake.py
+
+=== deferred init line (expect diagram1_candidate_intake) ===
+1761:_DEFERRED_INITS.append(lambda: __import__('diagram1_candidate_intake').get_intake().ensure_schema())
+16551:            import diagram1_candidate_intake as _d1ci
+
+=== scheduler job block (expect candidate_intake_poll) ===
+1761:_DEFERRED_INITS.append(lambda: __import__('diagram1_candidate_intake').get_intake().ensure_schema())
+16549:    def _run_candidate_intake():
+16551:            import diagram1_candidate_intake as _d1ci
+16554:            print(f"[candidate_intake] poll error: {_d1ci_e}")
+16557:        _run_candidate_intake,
+16559:        id="candidate_intake_poll",
+16562:    print("[candidate_intake] poll scheduled every 2 min (Diagram1CandidateIntake)")
+16563:    _log_startup_event("candidate_intake_scheduled",
+16564:                       "IntervalTrigger(2min) id=candidate_intake_poll")
+16566:    print(f"[candidate_intake] scheduler registration error: {_e_ci}")
+43036:                f"[candidate_intake] {len(_final)} candidates written to"
+43040:            print(f"[candidate_intake] pipeline write skipped (non-fatal): {_cpie}")
+43751:                        next_module="aiem_candidate_intake",
+43755:                    # Stage 2 — aiem_candidate_intake
+43757:                        "aiem_candidate_intake",
