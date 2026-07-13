@@ -1,0 +1,421 @@
+============================================================
+DIRECTIVE 11 (PHASE 4 OF 4)
+CANDIDATE INTAKE — NEGATIVE CONTROLS & FINAL ACCEPTANCE PROOF
+============================================================
+
+MANDATORY GATE — DO NOT SKIP
+
+Do not start this phase until Phase 3 (Intake Job & Atomic Claiming) has been verified complete.
+
+Before beginning, paste ALL of the following:
+
+• Phase 3 verify_chain.sh output
+• Concurrency proof
+• Raw SQL showing one real candidate transitioning through the complete lifecycle
+
+If this evidence is unavailable or Phase 3 has not successfully completed:
+
+STOP HERE.
+
+Do not continue.
+
+============================================================
+PURPOSE
+============================================================
+
+Phases 1–3 established:
+
+• Database schema
+• State transition contract
+• Intake mechanism
+
+Phase 4 proves the mechanism is actually correct under real failure conditions and produces the final production acceptance proof.
+
+This is not a code-generation exercise.
+
+This is a proof exercise.
+
+============================================================
+REQUIRED NEGATIVE CONTROLS
+ALL SIX ARE MANDATORY
+============================================================
+
+For EACH control provide:
+
+1. Test setup
+2. Expected behavior
+3. Actual observed runtime result
+
+Do NOT describe what should happen.
+
+Return actual execution evidence.
+
+------------------------------------------------------------
+CONTROL 1
+Duplicate Claim
+------------------------------------------------------------
+
+Two intake workers simultaneously attempt to claim the same
+PENDING_FULL_ANALYSIS candidate.
+
+Expected:
+
+Exactly one worker successfully claims it.
+
+The second worker must receive:
+
+• zero updated rows
+or
+• clean no-op
+
+No duplicate ownership.
+
+------------------------------------------------------------
+CONTROL 2
+Orchestrator Failure
+------------------------------------------------------------
+
+Force run_full_cycle() to throw an exception or terminate
+after the candidate has already been claimed.
+
+Expected transition:
+
+CLAIMED_BY_DIAGRAM1
+
+↓
+
+FULL_ANALYSIS_RUNNING
+
+↓
+
+FAILED
+
+↓
+
+RETRY_PENDING
+
+Candidate must NOT remain stuck in
+FULL_ANALYSIS_RUNNING forever.
+
+------------------------------------------------------------
+CONTROL 3
+Missed Event
+------------------------------------------------------------
+
+If an optional CANDIDATE_READY event exists:
+
+Simulate that the event never fires.
+
+Expected:
+
+Scheduled polling must still discover
+and process the candidate.
+
+If the event architecture was never implemented:
+
+Mark
+
+N/A
+
+and explain why.
+
+------------------------------------------------------------
+CONTROL 4
+Duplicate Event
+------------------------------------------------------------
+
+Fire the same
+
+CANDIDATE_READY
+
+event twice
+(or poll twice simultaneously).
+
+Expected:
+
+Second trigger detects:
+
+already claimed
+already running
+or already completed
+
+and exits cleanly.
+
+run_full_cycle()
+
+must execute
+
+EXACTLY ONCE.
+
+------------------------------------------------------------
+CONTROL 5
+Restart Recovery
+------------------------------------------------------------
+
+Terminate the intake worker after the candidate reaches:
+
+CLAIMED_BY_DIAGRAM1
+
+or
+
+FULL_ANALYSIS_RUNNING
+
+Restart the intake service.
+
+Expected:
+
+Previously claimed candidate is:
+
+Recovered
+
+Requeued
+
+or
+
+Quarantined
+
+according to Phase 3 recovery rules.
+
+No silent loss.
+
+------------------------------------------------------------
+CONTROL 6
+Stale Claim Recovery
+------------------------------------------------------------
+
+Artificially leave a candidate in:
+
+FULL_ANALYSIS_RUNNING
+
+past the timeout threshold.
+
+No worker may actually be processing it.
+
+Expected:
+
+Next intake cycle detects the stale claim.
+
+Recovery follows the timeout policy defined in Phase 3.
+
+============================================================
+FINAL ACCEPTANCE PROOF
+============================================================
+
+Show ONE REAL candidate flowing through the COMPLETE lifecycle.
+
+Not mocked.
+
+Not fabricated.
+
+Not manually updated.
+
+Not synthetic.
+
+The actual runtime must produce:
+
+CANDIDATE_SELECTED
+
+↓
+
+PENDING_FULL_ANALYSIS
+
+↓
+
+CLAIMED_BY_DIAGRAM1
+
+↓
+
+FULL_ANALYSIS_RUNNING
+
+↓
+
+FULL_ANALYSIS_COMPLETED
+
+OR
+
+FAILED
+
+↓
+
+RETRY_PENDING
+
+↓
+
+FULL_ANALYSIS_COMPLETED
+
+run_full_cycle()
+
+must genuinely execute.
+
+Its downstream output must land wherever production normally writes it
+(for example:
+
+aiem_paper_trades
+
+or equivalent).
+
+Manual insertion of completed rows is NOT accepted.
+
+============================================================
+STANDING VERIFICATION BLOCK
+============================================================
+
+Return ALL of the following:
+
+1.
+
+Raw terminal output
+
+for every control test
+
+and
+
+the final acceptance run.
+
+Include:
+
+• raw grep output
+• raw execution output
+• raw call-chain evidence
+
+Never paraphrase grep results.
+
+------------------------------------------------------------
+
+2.
+
+Exact before/after diff
+
+for every file changed.
+
+------------------------------------------------------------
+
+3.
+
+SHA256 hashes
+
+before and after
+
+for every changed file.
+
+------------------------------------------------------------
+
+4.
+
+Raw SQL
+
+for:
+
+• all six control tests
+
+and
+
+• the final acceptance proof
+
+Show every state transition.
+
+If any evidence cannot be produced,
+
+state that explicitly.
+
+============================================================
+EVIDENCE CHAIN PROTOCOL
+============================================================
+
+Execute every evidence-producing command through:
+
+verified_run.sh
+
+After execution:
+
+Run:
+
+verify_chain.sh
+
+Paste the complete output.
+
+Do NOT declare:
+
+Directive 11 complete
+
+until the verification chain has been returned.
+
+IMPORTANT
+
+verify_chain.sh only proves log consistency.
+
+It does NOT independently prove execution occurred
+against the production database.
+
+Joel may independently rerun sampled commands.
+
+============================================================
+DATA IMMUTABILITY RULE
+============================================================
+
+No existing:
+
+• row
+• table
+• file
+
+—including anything labeled:
+
+• test
+• synthetic
+• cleanup
+
+may be:
+
+• deleted
+• dropped
+• truncated
+• overwritten
+
+without explicit approval from Joel.
+
+Before executing any destructive action:
+
+State:
+
+• exactly what will be created
+• exactly what will be terminated
+• why it is required
+
+Obtain approval.
+
+After testing:
+
+Document cleanup.
+
+Any unauthorized deletion is a protocol violation.
+
+============================================================
+CONSTRAINTS
+============================================================
+
+• Paper/simulation only.
+
+• No live trading.
+
+• Do NOT declare:
+
+Directive 11 COMPLETE
+
+or
+
+Candidate Intake Production Ready
+
+unless:
+
+✓ All six negative controls pass
+
+AND
+
+✓ Final acceptance proof is successfully produced.
+
+Partial success is NOT sufficient.
+
+============================================================
+END OF DIRECTIVE 11 — PHASE 4
+============================================================
