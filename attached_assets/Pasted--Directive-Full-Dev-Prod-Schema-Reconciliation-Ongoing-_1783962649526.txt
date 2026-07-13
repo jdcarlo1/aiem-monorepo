@@ -1,0 +1,82 @@
+# Directive: Full Dev/Prod Schema Reconciliation + Ongoing Migration Tracking
+
+## Context / Problem Statement
+
+Deployment has now failed 3 times in a row on schema migration conflicts. Each time,
+a conflict is shown, "fixed," and publish is attempted again — only for a *new*
+conflict to appear. This is not 3 separate bugs. It is accumulated schema drift
+between the dev and production databases built up over months of development,
+being surfaced one item at a time by Replit's migration checker instead of all at
+once. Piecemeal fixing must stop. This directive requires two things: (1) a single
+complete reconciliation, and (2) a standing practice so drift cannot silently
+reaccumulate.
+
+**Do not click "Copy your development database schema & data to production."**
+That option blindly overwrites production data with dev schema and would violate
+the Data Immutability Rule below (e.g. it would delete the `gamma_score` column
+from `ai_short_calls_log`, which has 487 rows of real data, without approval).
+
+---
+
+## Part 1: One-Time Full Reconciliation (must be completed before next publish attempt)
+
+1. Produce the **complete** diff between the dev database schema and the production
+   database schema — every table, every column, every constraint, every primary key
+   change — in a single document. Not the next item the migration UI happens to show.
+   A full `information_schema` comparison, not a screen-by-screen walkthrough.
+2. For every item in that diff, state explicitly:
+   - What the difference is
+   - Whether applying it to production is safe as-is, or requires a default value /
+     backfill / manual intervention (e.g. adding a NOT NULL column to a table with
+     830 existing rows, changing a primary key on `ticker_lifecycle`)
+   - Row count of any table being altered or any column being dropped
+3. Flag every destructive operation (column drop, table drop, PK change) separately
+   and do NOT include a proposed resolution that executes any of them. Deletions
+   require Joel's explicit prior approval per the Data Immutability Rule below —
+   list them for Joel to decide, do not resolve them yourself.
+4. For `aiem_supervisor_signal_health` specifically: confirm via raw query whether
+   it already exists in production, and if so, why the migration is attempting a
+   CREATE rather than treating it as already present.
+5. Present the full list + resolutions to Joel for review before any migration is
+   re-applied or publish is attempted again.
+
+## Part 2: Ongoing Migration Tracking (prevents this from recurring)
+
+1. From this point forward, every schema change made in dev (new table, new column,
+   altered constraint) must be captured as a **tracked migration artifact** at the
+   time it's made — not left to accumulate silently until the next publish attempt.
+2. Establish a regular cadence (propose one to Joel — e.g. weekly, or at the end of
+   each build session) to apply accumulated dev migrations to production in small,
+   reviewed batches, rather than in one large batch discovered at deploy time.
+3. Before proposing any future publish, run the full dev-vs-prod diff check
+   (per Part 1, step 1) proactively and report the result, even if it's empty —
+   so Joel never again discovers drift only at the point of a failed deployment.
+
+---
+
+## Standing Requirements (apply to this and all future directives)
+
+### Verification Block
+No task is complete based on description alone. Must provide: (1) raw terminal
+output of actual execution, including raw grep/query output for any claim about
+schema state, table existence, or column state — never paraphrase what a query
+would show; (2) exact before/after schema diff; (3) sha256 hash before/after for
+any changed migration files; (4) raw SQL query + full result set for any claim
+about production database state. Narrative/paraphrased claims of "fixed," "resolved,"
+or "confirmed" without pasted raw evidence are rejected. The agent must explicitly
+say if it cannot produce evidence.
+
+### Data Immutability Rule
+The agent may never delete, truncate, drop, or overwrite any row, table, or column
+— including anything it labels "safe," "unused," or "cleanup" — without Joel's
+explicit prior approval in that session. This explicitly includes the `gamma_score`
+column drop and any primary key changes surfaced in the migration warnings. The
+agent must state what it wants to change and why, wait for approval, then log it.
+Any unapproved change is a protocol violation to report, not self-correct.
+
+### Evidence Chain Protocol
+All evidence-producing commands must run through `verified_run.sh` rather than
+directly, and be validated with `verify_chain.sh` before this directive is declared
+complete, with that script's output pasted. This proves internal log consistency
+only — not that commands ran against the real production DB — so Joel should
+independently spot-check by re-running a sampled command himself.
