@@ -1,0 +1,76 @@
+# DIRECTIVE — Item A: Why `discovered_candidates` Has Zero Rows Ever
+
+## Background / Why This Directive Exists
+
+Confirmed via raw SQL in prior sessions:
+- `daily_market_movers` is active and healthy: 800 rows/day (100 winners + 100 losers × 4 market-cap tiers), latest scan date 2026-07-10.
+- `run_tiered_wl_cycle()` reads from `daily_market_movers`, computes IS/OOS win-rate statistics per `_WL_HYPOTHESIS_TEMPLATES`, and calls `_save_candidate()` for each template — which is supposed to write to the `discovered_candidates` table.
+- `discovered_candidates` has **0 rows, ever** — despite this cycle running daily on 800 fresh rows of labeled data.
+
+This means either:
+(a) The win-rate/OOS filter is legitimately strict and correctly rejecting every single candidate every day (working as intended, just conservative), or
+(b) There is a logic bug in `_save_candidate()` or the threshold comparison that is silently rejecting everything regardless of the actual stats (e.g. wrong comparison operator, wrong column reference, inverted condition, unit mismatch).
+
+This directive exists to determine which of these two is true, with evidence — not to fix anything yet.
+
+---
+
+## Task
+
+### Step 1 — Locate and read `_save_candidate()` in full
+
+Find the function definition (grep for `def _save_candidate`) and paste the full function body. Identify:
+- What threshold(s) it checks against (e.g. win rate, OOS cutoff, sample size, overfit gap).
+- The exact comparison operators used (`>`, `>=`, `<`, `<=`, `==`).
+- What determines `proposed` vs `rejected` in the summary dict `run_tiered_wl_cycle()` returns.
+
+### Step 2 — Run `run_tiered_wl_cycle()` (or extract its most recent real output) and capture the actual computed stats
+
+For the most recent real run (or by re-running it if safe to do so — confirm with Joel first if this would write any new data, per the Data Immutability rule below), capture:
+- The actual win-rate/OOS numbers computed per tier/template.
+- The `proposed`, `rejected`, `by_tier`, and `oos_cutoff` values from the returned summary dict.
+- Paste this raw, not paraphrased.
+
+### Step 3 — Compare Step 1's threshold logic against Step 2's actual numbers
+
+For at least 3 rejected candidates (or all of them if there are few), show the actual computed win-rate/OOS value next to the threshold it was compared against, and state explicitly whether the rejection is:
+- **Correct** — the candidate genuinely failed the stated threshold, or
+- **A bug** — the candidate should have passed by the stated threshold's own logic, but got rejected anyway (e.g. due to a wrong operator, wrong variable reference, or a comparison against the wrong column).
+
+### Step 4 — Direct answer
+
+State explicitly: **Is the zero-candidate result a legitimately strict filter working as intended, or a logic bug silently rejecting everything?**
+
+If a bug is found, identify the exact line and the exact nature of the bug (do not fix it yet — this directive is diagnostic only, unless Joel has separately authorized a fix in the same message).
+
+---
+
+## STANDING VERIFICATION BLOCK (required for every claim in this directive)
+
+No task is complete based on description alone. For every claim made in this directive's response, the agent must provide:
+
+1. Raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists (never paraphrase what grep would show).
+2. Exact before/after file diff (if any files are changed — none should be changed in this directive, it is investigation-only, unless explicitly authorized).
+3. Sha256 hash before/after for any changed files (N/A if no files changed — state this explicitly).
+4. Raw SQL query + full result set for any database-related claim.
+
+Narrative or paraphrased claims of "found," "confirmed," "rejected," or "bug" without pasted raw evidence are rejected. The agent must explicitly state if it cannot produce a required evidence item.
+
+## EVIDENCE CHAIN PROTOCOL (required)
+
+All evidence-producing commands must be run through `verified_run.sh` (the hash-chained append-only logging wrapper, sha256 `72824bfe...24abd`) instead of run directly. The log must be validated with `verify_chain.sh` (sha256 `7294abeb...1fbec7`) before this directive is declared complete, with that script's output pasted in full. Run commands sequentially, not in parallel, to avoid the concurrent-write chain-break issue seen in a prior session.
+
+## DATA IMMUTABILITY RULE (standing)
+
+No row, table, or file may be deleted, truncated, dropped, or overwritten — including test/synthetic/cleanup data — without Joel's explicit prior approval in this session. If re-running `run_tiered_wl_cycle()` would write new rows, state this explicitly and wait for approval before doing so. State what you want to run/write and why, wait for approval, then log it. Any unapproved write or deletion is a protocol violation to report, not self-correct.
+
+---
+
+## Deliverable
+
+A single response containing:
+1. Full `_save_candidate()` function body (raw grep/view output)
+2. Raw actual computed win-rate/OOS stats from the most recent real run
+3. Side-by-side comparison of at least 3 rejected candidates against the threshold logic
+4. A direct answer: legitimately strict filter, or logic bug (with exact line/nature if a bug)
+5. `verify_chain.sh` output confirming the evidence chain is intact
