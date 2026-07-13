@@ -1,0 +1,33 @@
+# Directive: Diagnose Deployment "Failed to Start" Error
+
+## Context
+Reserved VM deployment builds successfully but fails to start (5th consecutive failed deploy). Runtime activity logs (LIVENESS-WATCHDOG, poll_ask_sms, job_health) look normal, but those are NOT the boot error — they're from a previous run or unrelated to the crash. The actual boot stack trace has not yet been captured.
+
+Deployment type confirmed: **Reserved VM** (not Autoscale), so the issue is not the stateless/Autoscale mismatch with persistent background jobs/schedulers.
+
+## Task
+
+1. Open the failed deployment's **"View logs"** link on the red failure banner itself (not the general Logs tab) and paste the full raw boot/crash stack trace — the actual exception, not a paraphrase.
+
+2. Investigate and report on each of the following, with raw evidence for each:
+   - **Missing secrets in deployment environment**: grep for all `os.environ[...]` / `os.getenv(...)` calls used during startup (DB connection, Polygon, Tradier, Telegram, etc.), and confirm via raw output whether each required key is present in the *deployment* environment specifically (not just the dev workspace — these do not carry over automatically).
+   - **DB connection/pool init**: raw output of the connection attempt at boot, including any pool size limits vs. what Reserved VM allows.
+   - **Scheduled job/watchdog registration order**: grep to confirm whether `app.listen()` / port binding happens *before* the ~110 scheduled jobs and watchdogs are registered, or after. If a job initializer throws before the port opens, the deploy health check will report "failed to start" even though most of the app is fine.
+   - **Port binding**: confirm the app binds to `process.env.PORT` (or equivalent) on `0.0.0.0`, and confirm this happens early in the boot sequence, not after heavy initialization.
+
+3. Identify the specific line/exception causing the crash and propose a fix. Do not apply any fix until Joel has reviewed the raw evidence and approved the proposed change.
+
+## Verification Block (required for completion)
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists — never paraphrase what grep would show.
+2. Exact before/after file diff (if any change is proposed/made).
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set if a database is involved.
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. If you cannot produce evidence for any item, say so explicitly.
+
+## Data Immutability Rule (required)
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol (required)
+Run all evidence-producing commands through `verified_run.sh` instead of running them directly, and validate the log with `verify_chain.sh` before declaring this directive complete. Paste that script's output. This proves internal log consistency only — not that commands were genuinely executed against the real production environment; Joel may independently spot-check by re-running a sampled command himself.

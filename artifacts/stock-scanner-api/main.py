@@ -152,6 +152,23 @@ app = Flask(__name__)
 def _startup_health():
     return {"status": "ok"}, 200
 
+# ── True early port bind ──────────────────────────────────────────────────────
+# MUST be HERE — immediately after health routes, before ALL heavy local imports
+# (scanner, portfolio, backtest, multiday_runner, etc.) which each pull in
+# numpy/pandas/sklearn/xgboost. On a cold production container those imports
+# take 60-120s. The Replit promote-phase health prober times out at 2m55s, so
+# we must open the port NOW, not after the imports complete.
+PORT = int(os.environ.get("STOCK_API_PORT", 5050))
+import threading as _early_bind_thr
+from werkzeug.serving import make_server as _wz_make_server
+_wz_srv = _wz_make_server("0.0.0.0", PORT, app, threaded=True)
+_wz_srv_thr = _early_bind_thr.Thread(target=_wz_srv.serve_forever, daemon=False, name="flask-main")
+_wz_srv_thr.start()
+# Flask 2.x raises AssertionError when @app.route is called after the first request.
+# Patch it out — Flask's url_map IS updated correctly; this is only a dev-convenience guard.
+app._check_setup_finished = lambda f_name: None
+print(f"[startup] Flask port {PORT} bound immediately — healthchecks pass during route loading", flush=True)
+
 from aiem_security import (
     init_security as _init_security,
     is_blocked as _aiem_is_blocked,
@@ -248,30 +265,10 @@ _init_security(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
 CORS(app)
 
-# ── Early port bind ───────────────────────────────────────────────────────────
-# Flask's @app.route decorators span 46K lines (~20-30s to load in prod).
-# The deployment platform's port-detection timeout kills the process before that.
-# Fix: bind the port NOW and serve requests immediately. Routes added later are
-# visible to this running server because Flask's url_map is shared — new
-# @app.route decorators register on the same map, live, without restart.
-PORT = int(os.environ.get("STOCK_API_PORT", 5050))
-
 @app.route("/stock-api/", methods=["GET"])
 @app.route("/stock-api", methods=["GET"])
 def health_root():
     return jsonify({"status": "ok"}), 200
-
-import threading as _early_bind_thr
-from werkzeug.serving import make_server as _wz_make_server
-_wz_srv = _wz_make_server("0.0.0.0", PORT, app, threaded=True)
-_wz_srv_thr = _early_bind_thr.Thread(target=_wz_srv.serve_forever, daemon=False, name="flask-main")
-_wz_srv_thr.start()
-# Flask 2.x raises AssertionError when @app.route is called after the first request.
-# We start the server early intentionally, so patch that safety guard out.
-# Flask's url_map IS updated correctly on each decorator call — the check is
-# only a developer-convenience assertion, not a routing mechanism.
-app._check_setup_finished = lambda f_name: None
-print(f"[startup] Flask port {PORT} bound immediately — healthchecks pass during route loading", flush=True)
 
 # ── Fix #11: staleness guard (restart-on-commit gap) ─────────────────────────
 # Detects when this running process's source file has changed on disk since
