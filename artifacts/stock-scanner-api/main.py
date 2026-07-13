@@ -142,6 +142,16 @@ from multiday_runner import (
 )
 
 app = Flask(__name__)
+
+# Health endpoint registered immediately after app creation — before any other
+# routes, heavy imports, or deferred inits — so the Replit promote-phase health
+# prober gets HTTP 200 from the very first second of startup.
+# Also handles GET / (the platform default probe when no explicit path is set).
+@app.route("/stock-api/health", methods=["GET"])
+@app.route("/", methods=["GET"])
+def _startup_health():
+    return {"status": "ok"}, 200
+
 from aiem_security import (
     init_security as _init_security,
     is_blocked as _aiem_is_blocked,

@@ -41,6 +41,9 @@ run = "python /home/runner/workspace/artifacts/stock-scanner-api/main.py"
 [services.production]
 run = "python /home/runner/workspace/artifacts/stock-scanner-api/main.py"
 
+[services.production.health.startup]
+path = "/stock-api/health"
+
 [services.env]
 STOCK_API_PORT = "5050"
 
