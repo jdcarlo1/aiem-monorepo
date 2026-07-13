@@ -345,7 +345,7 @@ def _lw_read_proc_status():
 _LW_MAX_THREADS = 400
 _LW_MAX_RSS_PCT = 70.0
 
-_LW_MAX_VM_PRESSURE_PCT = 82.0
+_LW_MAX_VM_PRESSURE_PCT = 90.0
 
 def _liveness_watchdog_loop():
     import time as _lw_time

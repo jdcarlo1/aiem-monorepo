@@ -1,6 +1,8 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgSchema, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
 
-export const affiliatesTable = pgTable("affiliates", {
+import { nclexSchema } from "./questions";
+
+export const affiliatesTable = nclexSchema.table("affiliates", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
   name: text("name").notNull(),

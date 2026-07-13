@@ -1,8 +1,10 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgSchema, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const sessionsTable = pgTable("sessions", {
+import { nclexSchema } from "./questions";
+
+export const sessionsTable = nclexSchema.table("sessions", {
   id: serial("id").primaryKey(),
   sessionId: text("session_id").notNull().unique(),
   questionsAnswered: integer("questions_answered").notNull().default(0),
@@ -20,7 +22,7 @@ export const insertSessionSchema = createInsertSchema(sessionsTable).omit({ id: 
 export type InsertSession = z.infer<typeof insertSessionSchema>;
 export type Session = typeof sessionsTable.$inferSelect;
 
-export const answersTable = pgTable("answers", {
+export const answersTable = nclexSchema.table("answers", {
   id: serial("id").primaryKey(),
   sessionId: text("session_id").notNull(),
   questionId: integer("question_id").notNull(),

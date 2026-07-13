@@ -1,4 +1,6 @@
-CREATE TABLE "questions" (
+CREATE SCHEMA "nclex";
+--> statement-breakpoint
+CREATE TABLE "nclex"."questions" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"question_number" integer NOT NULL,
 	"category" text NOT NULL,
@@ -11,7 +13,7 @@ CREATE TABLE "questions" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "answers" (
+CREATE TABLE "nclex"."answers" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"session_id" text NOT NULL,
 	"question_id" integer NOT NULL,
@@ -20,7 +22,7 @@ CREATE TABLE "answers" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "sessions" (
+CREATE TABLE "nclex"."sessions" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"session_id" text NOT NULL,
 	"questions_answered" integer DEFAULT 0 NOT NULL,
@@ -35,7 +37,7 @@ CREATE TABLE "sessions" (
 	CONSTRAINT "sessions_session_id_unique" UNIQUE("session_id")
 );
 --> statement-breakpoint
-CREATE TABLE "affiliates" (
+CREATE TABLE "nclex"."affiliates" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"code" text NOT NULL,
 	"name" text NOT NULL,

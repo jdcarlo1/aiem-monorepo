@@ -1,8 +1,10 @@
-import { pgTable, text, serial, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgSchema, text, serial, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const questionsTable = pgTable("questions", {
+export const nclexSchema = pgSchema("nclex");
+
+export const questionsTable = nclexSchema.table("questions", {
   id: serial("id").primaryKey(),
   questionNumber: integer("question_number").notNull(),
   category: text("category").notNull(),

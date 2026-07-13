@@ -1,12 +1,12 @@
 {
-  "id": "ac8ea28d-e64d-4594-ae28-986cf7ea49b6",
+  "id": "0f496c6a-12df-4846-a09a-a3a2f460d8b7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.questions": {
+    "nclex.questions": {
       "name": "questions",
-      "schema": "",
+      "schema": "nclex",
       "columns": {
         "id": {
           "name": "id",
@@ -79,9 +79,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.answers": {
+    "nclex.answers": {
       "name": "answers",
-      "schema": "",
+      "schema": "nclex",
       "columns": {
         "id": {
           "name": "id",
@@ -129,9 +129,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.sessions": {
+    "nclex.sessions": {
       "name": "sessions",
-      "schema": "",
+      "schema": "nclex",
       "columns": {
         "id": {
           "name": "id",
@@ -220,9 +220,9 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.affiliates": {
+    "nclex.affiliates": {
       "name": "affiliates",
-      "schema": "",
+      "schema": "nclex",
       "columns": {
         "id": {
           "name": "id",
@@ -281,7 +281,9 @@
     }
   },
   "enums": {},
-  "schemas": {},
+  "schemas": {
+    "nclex": "nclex"
+  },
   "sequences": {},
   "roles": {},
   "policies": {},
