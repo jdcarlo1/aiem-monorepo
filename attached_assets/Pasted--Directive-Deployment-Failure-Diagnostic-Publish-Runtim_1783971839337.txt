@@ -1,0 +1,29 @@
+# Directive: Deployment Failure Diagnostic (Publish/Runtime Crash)
+
+## Context
+The last two deployment attempts built successfully but failed to start in production ("There was an issue publishing your artifact... failed to start... usually caused by a runtime error"). All 4 pre-deploy checks passed; the deployment/runtime step is what's failing.
+
+## Task — DIAGNOSTIC ONLY, NO FIXES YET
+
+1. Open the deployment logs for the two most recent failed deployment attempts and paste the **raw, complete log output** — the actual stack trace / error text from the moment the app tried to start, not a summary or paraphrase of it.
+
+2. Answer each of these directly, with evidence:
+   - What is the exact run/start command configured for this deployment (paste the relevant line(s) from `.replit` or deployment config)?
+   - Does the app bind to `process.env.PORT`, or a hardcoded port? Paste the actual line of code where the server starts listening.
+   - Are all environment variables/secrets that the app needs at startup (DB connection strings, API keys, etc.) present in the **deployment's** secrets store specifically — not just the dev environment? List which ones are required and confirm presence/absence for each via raw output (not narrative claim).
+   - Is there any code path on startup (e.g., DB connect, migration check) that could throw before error handling is in place? If so, quote it.
+
+3. Do NOT modify, restart, or redeploy anything yet. This is a read-only diagnostic pass.
+
+## Verification Block (required)
+- Raw terminal/log output for all of the above — no paraphrasing.
+- If any of the four items above cannot be answered with direct evidence, explicitly say so rather than guessing.
+
+## Evidence Chain Protocol
+- Run any commands through `verified_run.sh` and validate with `verify_chain.sh`, pasting that output.
+
+## Data Immutability Rule
+- No deletion, truncation, or overwrite of any row, table, or file without Joel's explicit prior approval in this session.
+
+---
+Once this diagnostic comes back with the real log text and the four answers above, we'll draft a targeted fix directive — not before.
