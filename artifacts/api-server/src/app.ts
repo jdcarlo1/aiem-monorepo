@@ -14,6 +14,12 @@ import { WebhookHandlers } from "./webhookHandlers";
 
 const app: Express = express();
 
+// Health check registered first — before all middleware and other routes —
+// so the Replit promote-phase prober gets 200 from the first second of startup.
+app.get('/api/healthz', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.post(
   '/api/stripe/webhook',
   express.raw({ type: 'application/json' }),
