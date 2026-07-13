@@ -41,38 +41,12 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, date
 
-import pytz
-import psycopg2
-import psycopg2.extras
-import aiem_optprob
-import aiem_firstcandle
-
-# ── Socket-liveness default for every psycopg2.connect() in this process ────
-# connect_timeout alone only bounds the initial TCP/SSL handshake, not a
-# recv()/send() on an already-established connection. If the DB's TCP path
-# dies silently (no clean FIN/RST), a raw connect() with no keepalives can
-# block this process's single-threaded scheduler loop forever. See
-# .agents/memory/db-pool-liveness-watchdog.md for the full incident history —
-# this mirrors the fix applied to main.py's global psycopg2.connect patch.
-def _make_safe_pg_connect(_orig_connect):
-    def _safe(*_pa, **_pk):
-        _pk.setdefault("connect_timeout", 10)
-        _pk.setdefault("keepalives", 1)
-        _pk.setdefault("keepalives_idle", 10)
-        _pk.setdefault("keepalives_interval", 5)
-        _pk.setdefault("keepalives_count", 3)
-        _pk.setdefault("tcp_user_timeout", 30000)
-        return _orig_connect(*_pa, **_pk)
-    return _safe
-psycopg2.connect = _make_safe_pg_connect(psycopg2.connect)
-
-# ── Early health server — bind port 5055 immediately ────────────────────────
-# The production deploy health checker probes this port during startup.
-# Without this early bind the port is unavailable for ~60-120 s while
-# the main() function runs all its setup code, causing health-check failures
-# and a stuck promote phase.  The full admin server (with POST /run-scan etc.)
-# starts later in main(); if it finds port 5055 already taken it logs a
-# warning and exits gracefully — the GET health check is served by this thread.
+# ── Early health server — must start BEFORE slow imports (aiem_optprob etc.) ─
+# aiem_optprob imports scipy/numpy/sklearn which take 30-60 s on a cold
+# production container.  Replit's promote-phase prober fires immediately on
+# startup; if the port is silent during that window the deploy fails.
+# All the code here uses only stdlib (already imported above), so this thread
+# is live in < 1 s — well before any heavy import blocks the main thread.
 _AIEM_PROCESS_PORT = int(os.environ.get("AIEM_PROCESS_PORT", "5055"))
 
 def _start_process_health_server():
@@ -94,12 +68,31 @@ def _start_process_health_server():
         srv = _S(("0.0.0.0", _AIEM_PROCESS_PORT), _H)
         threading.Thread(target=srv.serve_forever, daemon=True,
                          name="aiem-process-health").start()
+        print(f"[aiem-process] health server listening on :{_AIEM_PROCESS_PORT}", flush=True)
     except Exception as _he:
-        import sys as _sys
-        print(f"[aiem-process] early health server: {_he}", file=_sys.stderr)
+        print(f"[aiem-process] early health server error: {_he}", file=sys.stderr, flush=True)
 
 _start_process_health_server()
-# ────────────────────────────────────────────────────────────────────────────
+# ── Now safe to do slow imports ───────────────────────────────────────────────
+
+import pytz
+import psycopg2
+import psycopg2.extras
+import aiem_optprob
+import aiem_firstcandle
+
+# ── Socket-liveness default for every psycopg2.connect() in this process ────
+def _make_safe_pg_connect(_orig_connect):
+    def _safe(*_pa, **_pk):
+        _pk.setdefault("connect_timeout", 10)
+        _pk.setdefault("keepalives", 1)
+        _pk.setdefault("keepalives_idle", 10)
+        _pk.setdefault("keepalives_interval", 5)
+        _pk.setdefault("keepalives_count", 3)
+        _pk.setdefault("tcp_user_timeout", 30000)
+        return _orig_connect(*_pa, **_pk)
+    return _safe
+psycopg2.connect = _make_safe_pg_connect(psycopg2.connect)
 
 ET = pytz.timezone("US/Eastern")
 

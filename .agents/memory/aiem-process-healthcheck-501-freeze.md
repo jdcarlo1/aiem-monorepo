@@ -33,3 +33,18 @@ as its own `[[services]]` entry (own `localPort` + `paths`), always give it a tr
 `[services.<name>.production.health.startup]` path if the default `GET /` isn't
 appropriate. Grep deployment logs for `healthcheck failed` + `exhausting all attempts`
 as the first move when a user reports a deploy "freeze" on a multi-service VM artifact.
+
+## July 2026 — slow-import timing bug (root cause of repeated deploy failures)
+
+The early health server was placed AFTER `import aiem_optprob` and `import aiem_firstcandle`
+in aiem_process.py. On a cold production container those imports take 30-60 s.
+Replit's promote-phase prober fires immediately on startup, got no response during
+that window, and killed the deploy every time.
+
+**Fix**: moved `_start_process_health_server()` call to BEFORE the slow imports —
+right after the stdlib imports (os, sys, threading etc.) at line ~45. The health
+server thread now binds and serves in <1 s before aiem_optprob even starts loading.
+
+**Rule**: Any service that has slow imports (scipy, sklearn, pandas, xgboost) MUST
+start its health server using ONLY stdlib (already imported), before ANY third-party
+import runs. Even 10 seconds of silence at startup can kill a deploy.
