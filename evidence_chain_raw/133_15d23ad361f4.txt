@@ -1,0 +1,19 @@
+=== INSERTING 4 test rows ===
+ id |  ticker   |        status         | score | candidate_date | is_test_record |          inserted_at          
+----+-----------+-----------------------+-------+----------------+----------------+-------------------------------
+ 16 | CONCTEST  | PENDING_FULL_ANALYSIS |    50 | 2026-07-13     | t              | 2026-07-13 05:33:03.554967+00
+ 17 | CONCTEST2 | PENDING_FULL_ANALYSIS |    80 | 2026-07-13     | t              | 2026-07-13 05:33:03.554967+00
+ 18 | IDEMPTEST | PENDING_FULL_ANALYSIS |    60 | 2026-07-13     | t              | 2026-07-13 05:33:03.554967+00
+ 19 | STALETEST | PENDING_FULL_ANALYSIS |    48 | 2026-07-13     | t              | 2026-07-13 05:33:03.554967+00
+(4 rows)
+
+INSERT 0 4
+
+=== BEFORE-STATE: all 4 rows ===
+ id |  ticker   |        status         | score | attempt_number | attempt_id | claimed_at | retry_after | is_test_record 
+----+-----------+-----------------------+-------+----------------+------------+------------+-------------+----------------
+ 16 | CONCTEST  | PENDING_FULL_ANALYSIS |    50 |              0 |            |            |             | t
+ 17 | CONCTEST2 | PENDING_FULL_ANALYSIS |    80 |              0 |            |            |             | t
+ 18 | IDEMPTEST | PENDING_FULL_ANALYSIS |    60 |              0 |            |            |             | t
+ 19 | STALETEST | PENDING_FULL_ANALYSIS |    48 |              0 |            |            |             | t
+(4 rows)

@@ -1,0 +1,48 @@
+============================================================
+PROOF 3 — STALE CLAIM RECOVERY
+============================================================
+
+Step 1 — Before-state:
+  candidate_id = 19
+  ticker       = STALETEST
+  status       = PENDING_FULL_ANALYSIS
+  claimed_at   = None  (NULL — not yet claimed)
+  inserted_at  = 2026-07-13 05:33:03.554967+00:00
+
+Step 2 — Claimed normally:
+  status       = CLAIMED_BY_DIAGRAM1
+  attempt_id   = 094a4475-a25b-43b0-b4a7-b2c34e871e1d
+  claimed_at   = 2026-07-13 05:33:24.096798+00:00  (NOW())
+
+Step 3 — Force claimed_at to 31 min ago:
+  forced claimed_at = 2026-07-13 05:02:24.107056+00:00
+
+Step 4 — Stuck state:
+  status           = CLAIMED_BY_DIAGRAM1
+  claimed_at       = 2026-07-13 05:02:24.107056+00:00
+  now_ts           = 2026-07-13 05:33:24.228942+00:00
+  stuck_duration   = 0:31:00.121886  (> 30 min threshold)
+
+Step 5 — Stale-recovery SQL executed:
+  rows_updated     = 1
+  id               = 19
+  ticker           = STALETEST
+  new_status       = RETRY_PENDING
+  error_msg        = stale-claim recovery: stuck in CLAIMED_BY_DIAGRAM1 > 30 min (possible crash/restart)
+  attempt_number   = 1
+  attempt_id       = 094a4475-a25b-43b0-b4a7-b2c34e871e1d  (preserved for audit)
+  stale_claimed_at = 2026-07-13 05:02:24.107056+00:00
+
+Step 6 — After-state:
+  candidate_id   = 19
+  ticker         = STALETEST
+  status         = RETRY_PENDING
+  attempt_number = 1
+  attempt_id     = 094a4475-a25b-43b0-b4a7-b2c34e871e1d
+  claimed_at     = 2026-07-13 05:02:24.107056+00:00  (preserved — stale timestamp)
+  retry_after    = None
+  error_msg      = stale-claim recovery: stuck in CLAIMED_BY_DIAGRAM1 > 30 min (possible crash/restart)
+
+PASS: CLAIMED_BY_DIAGRAM1 → RETRY_PENDING via stale-recovery SQL
+PASS: transition gated on claimed_at < NOW() - 30 min (stuck_duration > threshold)
+PASS: stale claimed_at (2026-07-13 05:02:24.107056+00:00) preserved in row for audit

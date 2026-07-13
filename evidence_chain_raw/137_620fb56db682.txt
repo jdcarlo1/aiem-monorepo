@@ -1,0 +1,41 @@
+============================================================
+PROOF 2 — IDEMPOTENCY GATE
+============================================================
+
+Step 1 — Atomic claim:
+  candidate_id   = 18
+  ticker         = IDEMPTEST
+  status         = CLAIMED_BY_DIAGRAM1
+  attempt_number = 1
+  attempt_id     = bd54a7ec-70ce-4cef-a138-5d7621bdee18  (AID1)
+  claimed_at     = 2026-07-13 05:33:22.665609+00:00
+
+Step 2 — _transition_to_running(AID1) [should succeed]:
+  rows_updated   = 1
+  returned_id    = 18
+  gate_passed    = True
+  → run_full_cycle() WOULD be called now
+
+Step 3 — _transition_to_running(AID1) retry [should FAIL — already RUNNING]:
+  rows_updated   = 0
+  gate_passed    = False
+  → run_full_cycle() would NOT be called (idempotency enforced)
+
+Step 4 — _transition_to_running(AID2≠AID1) [should FAIL — wrong attempt_id]:
+  AID2           = b691279b-933d-4459-aa06-8e93005b05ec
+  rows_updated   = 0
+  gate_passed    = False
+  → run_full_cycle() would NOT be called (wrong attempt_id blocked)
+
+Step 5 — Final DB state:
+  candidate_id   = 18
+  ticker         = IDEMPTEST
+  status         = FULL_ANALYSIS_RUNNING
+  attempt_number = 1
+  attempt_id     = bd54a7ec-70ce-4cef-a138-5d7621bdee18  (AID1)
+  claimed_at     = 2026-07-13 05:33:22.665609+00:00
+
+PASS: status=FULL_ANALYSIS_RUNNING (exactly 1 transition succeeded)
+PASS: stored attempt_id = AID1 (unchanged by AID2 attempt)
+PASS: _transition_to_running guards at 3 levels: status-check + attempt_id-check + RETURNING row-count
+PASS: run_full_cycle() called AT MOST ONCE — both duplicate gates returned 0 rows

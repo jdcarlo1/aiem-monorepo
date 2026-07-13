@@ -1,0 +1,35 @@
+============================================================
+PROOF 1 — ATOMIC CLAIM CONCURRENCY RESULTS
+============================================================
+
+  [WORKER_B]
+    pid          = 771
+    tid          = 140667921102528
+    attempt_id   = 6f1e6196-37ac-48ce-87a2-56d1b784739e
+    elapsed_ms   = 14.4
+    RESULT       = LOST (0 rows updated — SKIP LOCKED fired)
+
+  [WORKER_A]
+    pid          = 771
+    tid          = 140667929495232
+    attempt_id   = d268f88c-6331-4ed1-9d4e-e6da97e0188d
+    elapsed_ms   = 25.5
+    RESULT       = WON
+    candidate_id = 16
+    ticker       = CONCTEST
+    score        = 50.0
+    attempt_no   = 1
+    stored_aid   = d268f88c-6331-4ed1-9d4e-e6da97e0188d
+    claimed_at   = 2026-07-13 05:33:12.568185+00:00
+
+  winners = ['WORKER_A']  (count=1)
+  losers  = ['WORKER_B']   (count=1)
+
+  POST-RACE DB STATE (test_p3_concurrency rows):
+        id  ticker        status                     att#   attempt_id                            claimed_at
+        16  CONCTEST      CLAIMED_BY_DIAGRAM1            1  d268f88c-6331-4ed1-9d4e-e6da97e0188d  2026-07-13 05:33:12.568185+00:00
+        17  CONCTEST2     PENDING_FULL_ANALYSIS          0                                        None
+
+PASS: exactly 1 winner, 1 loser — SKIP LOCKED enforced atomicity
+PASS: stored attempt_id matches winner's attempt_id (d268f88c-6331-4ed1-9d4e-e6da97e0188d)
+PASS: losing worker did not execute candidate (result=None, 0 rows updated)

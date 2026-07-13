@@ -1,0 +1,2 @@
+PRE_APPROVAL_RECORD
+Authorized: D11-P3 APPROVED-BY-JOEL: idempotency gate proof 2026-07-13

@@ -1,0 +1,26 @@
+=== PRE-CLEANUP: all test_p3 rows and their final states ===
+ id |  ticker   |       source        |        status         | attempt_number |              attempt_id              |          claimed_at           | retry_after |                                      error_msg                                       | is_test_record 
+----+-----------+---------------------+-----------------------+----------------+--------------------------------------+-------------------------------+-------------+--------------------------------------------------------------------------------------+----------------
+ 16 | CONCTEST  | test_p3_concurrency | CLAIMED_BY_DIAGRAM1   |              1 | d268f88c-6331-4ed1-9d4e-e6da97e0188d | 2026-07-13 05:33:12.568185+00 |             |                                                                                      | t
+ 17 | CONCTEST2 | test_p3_concurrency | PENDING_FULL_ANALYSIS |              0 |                                      |                               |             |                                                                                      | t
+ 18 | IDEMPTEST | test_p3_idempotency | FULL_ANALYSIS_RUNNING |              1 | bd54a7ec-70ce-4cef-a138-5d7621bdee18 | 2026-07-13 05:33:22.665609+00 |             |                                                                                      | t
+ 19 | STALETEST | test_p3_stale       | RETRY_PENDING         |              1 | 094a4475-a25b-43b0-b4a7-b2c34e871e1d | 2026-07-13 05:02:24.107056+00 |             | stale-claim recovery: stuck in CLAIMED_BY_DIAGRAM1 > 30 min (possible crash/restart) | t
+(4 rows)
+
+
+=== EXECUTING DELETE ===
+ id |  ticker   |       source        |        status         
+----+-----------+---------------------+-----------------------
+ 17 | CONCTEST2 | test_p3_concurrency | PENDING_FULL_ANALYSIS
+ 16 | CONCTEST  | test_p3_concurrency | CLAIMED_BY_DIAGRAM1
+ 18 | IDEMPTEST | test_p3_idempotency | FULL_ANALYSIS_RUNNING
+ 19 | STALETEST | test_p3_stale       | RETRY_PENDING
+(4 rows)
+
+DELETE 4
+
+=== POST-CLEANUP VERIFICATION: expect 0 rows ===
+ remaining_test_rows 
+---------------------
+                   0
+(1 row)
