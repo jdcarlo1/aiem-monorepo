@@ -1,0 +1,49 @@
+# URGENT Directive: Pause and Produce Evidence — Schema Drift / 45-Table Drop Risk
+
+## Context
+You have identified that 45 production tables do not exist in the dev schema, and that the failed `bigserial` migration was the only thing preventing a migration from dropping all 45 of them from production. You have proposed a 3-part plan (revert NCLEX tables to `public` in dev, backfill dev with bootstrap SQL for the missing 45 tables, fix two bigint→integer mismatches) and have been executing multiple steps in sequence, ending with "All fixes confirmed."
+
+**Stop. Do not run, regenerate, or apply any migration against production. Do not proceed to any further step.** Before anything else happens, you must report back with the raw evidence below.
+
+---
+
+## Required Evidence (respond with this before taking any further action)
+
+**1. Confirm production has not been touched**
+- Raw output proving no DDL (CREATE/ALTER/DROP) has been executed against the production database at any point during this session.
+- If any command was run against production, state exactly what, when, and its result — do not omit or summarize this.
+
+**2. The full table inventory, not a paraphrase**
+- Raw list of the 45 tables that exist in production but not in dev.
+- Raw list of the 84 tables you mentioned as "not in bootstrap" — clarify what this set is and how it relates to the 45.
+- Raw list of the two confirmed bigint→integer mismatches, including table name, column name, and current type in both dev and prod.
+- For each of the above, paste the actual query used and its full raw result set — not a count or a summary.
+
+**3. Root cause, not just a fix**
+- Explain, with grep/file evidence, exactly how/when the NCLEX tables ended up in a separate `nclex` schema in dev while production has them (and 44 others) under `public`. What migration, script, or manual action caused this divergence?
+- Confirm this is schema drift between dev/prod, and not evidence that dev's bootstrap SQL or `drizzle.config.ts` `tablesFilter` is misconfigured in some other way that could cause similar surprises later.
+
+**4. Full current state of the plan**
+- List every file already modified so far in this session (schema files, drizzle.config.ts, migration files) with a before/after diff for each — do not say "reverted" or "fixed" without the diff.
+- State clearly whether the bootstrap SQL has actually been run against dev yet, and if so, paste the raw output.
+- State clearly whether a new migration has been generated, and if so, paste its full SQL — do not run it against anything yet.
+
+## What happens next
+Once the above is provided, Joel will review before authorizing any further step, including generating a new migration to run against production. Do not treat "all fixes confirmed" as sufficient — that phrase without pasted raw evidence is rejected per standing protocol.
+
+---
+
+## Verification Block (required)
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists — never paraphrase what grep would show.
+2. Exact before/after file diffs for every file touched this session.
+3. Sha256 hash before/after for changed files.
+4. Raw SQL query + full result set for every database claim above.
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. If you cannot produce evidence for something, say so explicitly.
+
+## Data Immutability Rule (required)
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in this session. This explicitly includes running any migration against production that would DROP any of the 45 tables, `eod_outcomes`, or anything else. State what you want to change and why, wait for approval, then log it. Any unapproved deletion or destructive migration is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol (required)
+Run all evidence-producing commands through `verified_run.sh` instead of running them directly, and validate the log with `verify_chain.sh` before declaring this directive complete. Paste that script's output. This proves internal log consistency only — not that commands were genuinely executed against the real production DB — so Joel may independently spot-check by re-running a sampled command himself.
