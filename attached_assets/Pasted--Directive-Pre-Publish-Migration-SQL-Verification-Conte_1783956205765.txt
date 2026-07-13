@@ -1,0 +1,24 @@
+# Directive: Pre-Publish Migration SQL Verification
+
+## Context
+Six production tables (`aiem_health_log`, `aiem_ml_predictions`, `aiem_prediction_outcomes`, `aiem_predictions`, `aiem_probability_engine_live_queries`, `aiem_research_hypotheses`) were previously absent from the dev DB, which caused Replit's deployment diff to generate DROP TABLE statements for them. A dev schema bootstrap was run and raw psql confirmed all 6 tables now exist in dev. Before clicking the final Publish confirm button, the DROP TABLE check must be re-run against the **current, live** migration SQL — not the migration SQL that was checked earlier in this session — because the migration diff can regenerate between checks.
+
+## Task
+1. Open the current deployment/publish screen and scroll to the generated migration SQL panel (the one that will actually execute on confirm).
+2. Run a fresh grep against that exact SQL content: `grep -ic "drop table"` — do not reuse or reference the earlier grep result from this session.
+3. Paste the raw grep output (not a paraphrase of it).
+4. Separately, paste the full list of `CREATE TABLE` statement names found in the same migration SQL, so it's clear exactly what will run.
+5. Explicitly confirm whether any of the 6 tables listed above appear in a DROP TABLE statement. If any do, STOP — do not click confirm — and report immediately with the raw SQL excerpt showing the DROP statement.
+6. If the grep result is 0 and no DROP TABLE statements reference the 6 tables, state that explicitly and confirm the migration is safe to submit — but do not click confirm yourself; wait for Joel's go-ahead.
+
+## Verification block (required)
+No task is complete based on description alone. Provide:
+- Raw terminal/grep output of the actual check performed in step 2–3, not a paraphrase.
+- The full raw list of CREATE TABLE statement names from step 4.
+- If any DROP TABLE is found, the exact raw SQL line(s) containing it.
+
+## Data Immutability Rule (required)
+Agent may not delete, truncate, drop, or overwrite any row, table, or file — including anything it created or labels "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in this session. This applies directly here: do not click the final Publish/confirm button as part of this directive. Report findings and wait.
+
+## Evidence Chain Protocol (required)
+Run the grep command through `verified_run.sh` rather than directly, and validate with `verify_chain.sh` before declaring this directive complete. Paste that script's output.
