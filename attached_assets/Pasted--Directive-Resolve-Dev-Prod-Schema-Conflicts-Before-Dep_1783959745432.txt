@@ -1,0 +1,44 @@
+# Directive: Resolve Dev/Prod Schema Conflicts Before Deployment Retry
+
+## Context
+Deployment is currently blocked. Bootstrap SQL fixed the "45 tables missing from prod" risk, but surfaced a new issue: some of the 60 tables were created in dev with column types that don't match what production's inline `CREATE TABLE IF NOT EXISTS` in `main.py` actually produced. Confirmed example: `aiem_supervisor_signal_health` — dev has `total_trades`/`wins` as INTEGER, prod has them as BIGINT. Attempting to reconcile this triggered `relation "aiem_supervisor_signal_health" already exists`, which correctly halted the deploy.
+
+Separately, the agent has flagged 4 tables where it wants to change primary keys: `ask_email_processed_uids`, `aiem_verify_link_tokens`, `morning_watchlist`, `spy_daily_cache`. This is a materially higher-risk action than fixing column types — a failed mid-run PK alter can leave a live table with no primary key.
+
+**Nothing gets executed against production until Joel explicitly approves each part below.**
+
+## Task 1: Column type reconciliation (lower risk)
+1. Query the exact column types of every conflicting table in dev.
+2. Query the exact column types production's `main.py` inline `CREATE TABLE IF NOT EXISTS` actually produces for the same tables.
+3. Produce a diff table: table name | column | dev type | prod type | proposed fix.
+4. Rewrite the bootstrap SQL so it matches production's types exactly — dev conforms to prod, not the other way around.
+5. Do NOT execute this SQL yet. Present it as a dry run for review.
+
+## Task 2: New table (safe path)
+- `aiem_intraday_grid_state` is confirmed new — no prod conflict. This CREATE TABLE may proceed independently since it does not touch any existing table or data.
+
+## Task 3: Primary key changes (high risk — dry run only)
+For each of the 4 flagged tables (`ask_email_processed_uids`, `aiem_verify_link_tokens`, `morning_watchlist`, `spy_daily_cache`):
+1. Paste the exact ALTER/CREATE statement intended.
+2. State explicitly whether it runs inside a single transaction that rolls back atomically on any failure. If not wrapped in a transaction, explain why and propose how to make it safe.
+3. State current row count and whether the table has live production traffic reading/writing to it during the deploy window.
+4. Do NOT execute. This is dry-run review only until Joel gives explicit per-table go-ahead.
+
+## Verification Block (required for every claim of completion)
+- Raw terminal output of actual execution, including raw grep/SQL output for any claim about schema, column types, or existing definitions — never paraphrase.
+- Exact before/after diff of the bootstrap SQL file.
+- sha256 hash before/after for any changed SQL/migration file.
+- Raw SQL query + full result set for every schema comparison (dev and prod, side by side).
+- Narrative claims ("fixed," "verified," "matches now") without pasted raw evidence are rejected. State explicitly if evidence cannot be produced.
+
+## Data Immutability Rule
+No deletion, DROP, TRUNCATE, or overwrite of any row, table, or file — including anything created this session or labeled "test"/"bootstrap" — without Joel's explicit prior approval in this session. State what you want to delete/alter and why, wait for approval, then log it. Any unapproved destructive action is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol
+Run all evidence-producing commands through `verified_run.sh` rather than directly. Validate the log with `verify_chain.sh` before declaring any part of this directive complete, and paste that script's output. This proves internal log consistency only — Joel will independently spot-check by re-running a sampled command himself.
+
+## Sequencing
+1. Complete Task 1 (dry run diff + rewritten SQL) and Task 3 (dry run statements + transaction safety answer) fully before any execution.
+2. Present both dry runs together for review.
+3. Wait for explicit per-task go-ahead. Do not bundle approval — Task 1 and Task 3 may be approved separately.
+4. Only after approval, execute in the approved scope, through `verified_run.sh`, then validate via `verify_chain.sh`.
