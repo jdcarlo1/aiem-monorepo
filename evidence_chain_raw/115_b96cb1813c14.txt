@@ -1,0 +1,2 @@
+PRE_APPROVAL_RECORD
+Authorized: Joel D11-P2 sign-off addition: full transition audit + negative tests 2026-07-13

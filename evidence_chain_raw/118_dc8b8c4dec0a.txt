@@ -1,0 +1,95 @@
+\set ON_ERROR_STOP 0
+\echo '=========================================='
+\echo 'ATOMICITY PROOF'
+\echo '=========================================='
+
+\echo '--- ATOM-A: BEGIN + legal transition + COMMIT -> row persists ---'
+SELECT id, status AS status_before_commit FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+BEGIN;
+UPDATE aiem_candidate_pipeline
+   SET status='CLAIMED_BY_DIAGRAM1', claimed_at=NOW()
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE
+   AND status='PENDING_FULL_ANALYSIS';
+SELECT id, status AS status_inside_txn FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+COMMIT;
+SELECT id, status AS status_after_commit FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+
+\echo '--- ATOM-B: BEGIN + legal transition + ROLLBACK -> row reverts ---'
+SELECT id, status AS status_before_rollback FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+BEGIN;
+UPDATE aiem_candidate_pipeline
+   SET status='FULL_ANALYSIS_RUNNING'
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE
+   AND status='CLAIMED_BY_DIAGRAM1';
+SELECT id, status AS status_inside_txn FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+ROLLBACK;
+SELECT id, status AS status_after_rollback FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+
+\echo '--- ATOM-C: trigger RAISE EXCEPTION in autocommit -> auto-rollback -> row unchanged ---'
+SELECT id, status AS status_before_illegal FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+UPDATE aiem_candidate_pipeline
+   SET status='FULL_ANALYSIS_COMPLETED'
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+SELECT id, status AS status_after_illegal FROM aiem_candidate_pipeline
+ WHERE ticker='P2T_ATOM' AND candidate_date=CURRENT_DATE;
+---EXECUTING---
+==========================================
+ATOMICITY PROOF
+==========================================
+--- ATOM-A: BEGIN + legal transition + COMMIT -> row persists ---
+ id | status_before_commit  
+----+-----------------------
+ 13 | PENDING_FULL_ANALYSIS
+(1 row)
+
+BEGIN
+UPDATE 1
+ id |  status_inside_txn  
+----+---------------------
+ 13 | CLAIMED_BY_DIAGRAM1
+(1 row)
+
+COMMIT
+ id | status_after_commit 
+----+---------------------
+ 13 | CLAIMED_BY_DIAGRAM1
+(1 row)
+
+--- ATOM-B: BEGIN + legal transition + ROLLBACK -> row reverts ---
+ id | status_before_rollback 
+----+------------------------
+ 13 | CLAIMED_BY_DIAGRAM1
+(1 row)
+
+BEGIN
+UPDATE 1
+ id |   status_inside_txn   
+----+-----------------------
+ 13 | FULL_ANALYSIS_RUNNING
+(1 row)
+
+ROLLBACK
+ id | status_after_rollback 
+----+-----------------------
+ 13 | CLAIMED_BY_DIAGRAM1
+(1 row)
+
+--- ATOM-C: trigger RAISE EXCEPTION in autocommit -> auto-rollback -> row unchanged ---
+ id | status_before_illegal 
+----+-----------------------
+ 13 | CLAIMED_BY_DIAGRAM1
+(1 row)
+
+psql:/tmp/p2t_atomicity.sql:39: ERROR:  aiem_candidate_pipeline write_contract: transition CLAIMED_BY_DIAGRAM1->FULL_ANALYSIS_COMPLETED rejected — not a legal status transition. See trigger aiem_candidate_pipeline_transition_guard for legal transitions.
+CONTEXT:  PL/pgSQL function aiem_candidate_pipeline_transition_guard() line 50 at RAISE
+ id | status_after_illegal 
+----+----------------------
+ 13 | CLAIMED_BY_DIAGRAM1
+(1 row)

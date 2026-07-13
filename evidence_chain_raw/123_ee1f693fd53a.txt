@@ -1,0 +1,28 @@
+\echo '=== CLEANUP: DELETE all test rows ==='
+DELETE FROM aiem_candidate_pipeline
+ WHERE ticker LIKE 'P2T_%' AND candidate_date=CURRENT_DATE AND is_test_record=TRUE
+RETURNING id AS trace_id, ticker, status AS final_status_at_delete;
+SELECT COUNT(*) AS remaining_test_rows
+  FROM aiem_candidate_pipeline
+ WHERE ticker LIKE 'P2T_%' AND candidate_date=CURRENT_DATE AND is_test_record=TRUE;
+---EXECUTING---
+=== CLEANUP: DELETE all test rows ===
+ trace_id |  ticker   | final_status_at_delete  
+----------+-----------+-------------------------
+       13 | P2T_ATOM  | CLAIMED_BY_DIAGRAM1
+        5 | P2T_CHAIN | FULL_ANALYSIS_COMPLETED
+       10 | P2T_N3    | FULL_ANALYSIS_COMPLETED
+       14 | P2T_CONC  | FULL_ANALYSIS_RUNNING
+        8 | P2T_N1    | PENDING_FULL_ANALYSIS
+        9 | P2T_N2    | PENDING_FULL_ANALYSIS
+       11 | P2T_N4    | PENDING_FULL_ANALYSIS
+       12 | P2T_N5    | PENDING_FULL_ANALYSIS
+        6 | P2T_FAIL  | PENDING_FULL_ANALYSIS
+        7 | P2T_QUAR  | QUARANTINED
+(10 rows)
+
+DELETE 10
+ remaining_test_rows 
+---------------------
+                   0
+(1 row)

@@ -1,0 +1,32 @@
+\echo '=== D11-P2 TRANSITION AUDIT: SETUP ==='
+INSERT INTO aiem_candidate_pipeline
+    (ticker, candidate_date, status, source, is_test_record)
+VALUES
+    ('P2T_CHAIN', CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_transition_audit', TRUE),
+    ('P2T_FAIL',  CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_transition_audit', TRUE),
+    ('P2T_QUAR',  CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_transition_audit', TRUE),
+    ('P2T_N1',    CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_neg_tests',        TRUE),
+    ('P2T_N2',    CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_neg_tests',        TRUE),
+    ('P2T_N3',    CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_neg_tests',        TRUE),
+    ('P2T_N4',    CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_neg_tests',        TRUE),
+    ('P2T_N5',    CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_neg_tests',        TRUE),
+    ('P2T_ATOM',  CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_atomicity',        TRUE),
+    ('P2T_CONC',  CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_concurrent',       TRUE)
+RETURNING id AS trace_id, ticker, status AS initial_status, inserted_at;
+---EXECUTING---
+=== D11-P2 TRANSITION AUDIT: SETUP ===
+ trace_id |  ticker   |    initial_status     |          inserted_at          
+----------+-----------+-----------------------+-------------------------------
+        5 | P2T_CHAIN | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+        6 | P2T_FAIL  | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+        7 | P2T_QUAR  | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+        8 | P2T_N1    | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+        9 | P2T_N2    | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+       10 | P2T_N3    | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+       11 | P2T_N4    | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+       12 | P2T_N5    | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+       13 | P2T_ATOM  | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+       14 | P2T_CONC  | PENDING_FULL_ANALYSIS | 2026-07-13 04:49:23.389791+00
+(10 rows)
+
+INSERT 0 10

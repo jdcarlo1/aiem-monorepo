@@ -1,0 +1,27 @@
+=== N7: CONCURRENT UPDATE — two sessions race on same row ===
+Step 1: P2T_CONC to CLAIMED_BY_DIAGRAM1
+UPDATE 1
+
+Step 2: Session 1 acquires row lock, updates to FULL_ANALYSIS_RUNNING, holds 1s.
+        Session 2 starts 0.3s later, blocks on lock, then gets 0 rows (WHERE stale).
+BEGIN
+UPDATE 1
+ pg_sleep 
+----------
+ 
+(1 row)
+
+COMMIT
+=== SESSION_1_DONE ===
+BEGIN
+UPDATE 0
+COMMIT
+=== SESSION_2_DONE ===
+
+Step 3: Final state — must be exactly 1 row in FULL_ANALYSIS_RUNNING
+ id |  ticker  |        status         
+----+----------+-----------------------
+ 14 | P2T_CONC | FULL_ANALYSIS_RUNNING
+(1 row)
+
+=== CONCURRENT TEST COMPLETE ===

@@ -1,0 +1,193 @@
+\echo '=========================================='
+\echo 'POSITIVE TRANSITION AUDIT  (all 7 legal transitions)'
+\echo '=========================================='
+
+\echo '--- T1: PENDING_FULL_ANALYSIS -> CLAIMED_BY_DIAGRAM1 ---'
+WITH upd AS (
+    UPDATE aiem_candidate_pipeline
+       SET status = 'CLAIMED_BY_DIAGRAM1', claimed_at = NOW()
+     WHERE ticker = 'P2T_CHAIN' AND candidate_date = CURRENT_DATE
+       AND status = 'PENDING_FULL_ANALYSIS'
+    RETURNING id, status AS new_status, source, claimed_at AS ts
+)
+SELECT upd.id AS trace_id,
+       'PENDING_FULL_ANALYSIS'::text AS previous_status,
+       upd.new_status,
+       upd.source AS owning_component,
+       upd.ts AS timestamp
+FROM upd;
+
+\echo '--- T2: CLAIMED_BY_DIAGRAM1 -> FULL_ANALYSIS_RUNNING ---'
+WITH upd AS (
+    UPDATE aiem_candidate_pipeline
+       SET status = 'FULL_ANALYSIS_RUNNING'
+     WHERE ticker = 'P2T_CHAIN' AND candidate_date = CURRENT_DATE
+       AND status = 'CLAIMED_BY_DIAGRAM1'
+    RETURNING id, status AS new_status, source, NOW() AS ts
+)
+SELECT upd.id AS trace_id,
+       'CLAIMED_BY_DIAGRAM1'::text AS previous_status,
+       upd.new_status,
+       upd.source AS owning_component,
+       upd.ts AS timestamp
+FROM upd;
+
+\echo '--- T3: FULL_ANALYSIS_RUNNING -> FULL_ANALYSIS_COMPLETED ---'
+WITH upd AS (
+    UPDATE aiem_candidate_pipeline
+       SET status = 'FULL_ANALYSIS_COMPLETED', completed_at = NOW()
+     WHERE ticker = 'P2T_CHAIN' AND candidate_date = CURRENT_DATE
+       AND status = 'FULL_ANALYSIS_RUNNING'
+    RETURNING id, status AS new_status, source, completed_at AS ts
+)
+SELECT upd.id AS trace_id,
+       'FULL_ANALYSIS_RUNNING'::text AS previous_status,
+       upd.new_status,
+       upd.source AS owning_component,
+       upd.ts AS timestamp
+FROM upd;
+
+-- Advance P2T_FAIL to RUNNING via legal path before T4
+UPDATE aiem_candidate_pipeline SET status='CLAIMED_BY_DIAGRAM1', claimed_at=NOW()
+ WHERE ticker='P2T_FAIL' AND candidate_date=CURRENT_DATE AND status='PENDING_FULL_ANALYSIS';
+UPDATE aiem_candidate_pipeline SET status='FULL_ANALYSIS_RUNNING'
+ WHERE ticker='P2T_FAIL' AND candidate_date=CURRENT_DATE AND status='CLAIMED_BY_DIAGRAM1';
+
+\echo '--- T4: FULL_ANALYSIS_RUNNING -> FAILED ---'
+WITH upd AS (
+    UPDATE aiem_candidate_pipeline
+       SET status = 'FAILED'
+     WHERE ticker = 'P2T_FAIL' AND candidate_date = CURRENT_DATE
+       AND status = 'FULL_ANALYSIS_RUNNING'
+    RETURNING id, status AS new_status, source, NOW() AS ts
+)
+SELECT upd.id AS trace_id,
+       'FULL_ANALYSIS_RUNNING'::text AS previous_status,
+       upd.new_status,
+       upd.source AS owning_component,
+       upd.ts AS timestamp
+FROM upd;
+
+\echo '--- T5: FAILED -> RETRY_PENDING ---'
+WITH upd AS (
+    UPDATE aiem_candidate_pipeline
+       SET status = 'RETRY_PENDING'
+     WHERE ticker = 'P2T_FAIL' AND candidate_date = CURRENT_DATE
+       AND status = 'FAILED'
+    RETURNING id, status AS new_status, source, NOW() AS ts
+)
+SELECT upd.id AS trace_id,
+       'FAILED'::text AS previous_status,
+       upd.new_status,
+       upd.source AS owning_component,
+       upd.ts AS timestamp
+FROM upd;
+
+\echo '--- T6: RETRY_PENDING -> PENDING_FULL_ANALYSIS (requeue) ---'
+WITH upd AS (
+    UPDATE aiem_candidate_pipeline
+       SET status = 'PENDING_FULL_ANALYSIS'
+     WHERE ticker = 'P2T_FAIL' AND candidate_date = CURRENT_DATE
+       AND status = 'RETRY_PENDING'
+    RETURNING id, status AS new_status, source, NOW() AS ts
+)
+SELECT upd.id AS trace_id,
+       'RETRY_PENDING'::text AS previous_status,
+       upd.new_status,
+       upd.source AS owning_component,
+       upd.ts AS timestamp
+FROM upd;
+
+-- Advance P2T_QUAR to RETRY_PENDING via full legal path before T7
+UPDATE aiem_candidate_pipeline SET status='CLAIMED_BY_DIAGRAM1', claimed_at=NOW()
+ WHERE ticker='P2T_QUAR' AND candidate_date=CURRENT_DATE AND status='PENDING_FULL_ANALYSIS';
+UPDATE aiem_candidate_pipeline SET status='FULL_ANALYSIS_RUNNING'
+ WHERE ticker='P2T_QUAR' AND candidate_date=CURRENT_DATE AND status='CLAIMED_BY_DIAGRAM1';
+UPDATE aiem_candidate_pipeline SET status='FAILED'
+ WHERE ticker='P2T_QUAR' AND candidate_date=CURRENT_DATE AND status='FULL_ANALYSIS_RUNNING';
+UPDATE aiem_candidate_pipeline SET status='RETRY_PENDING'
+ WHERE ticker='P2T_QUAR' AND candidate_date=CURRENT_DATE AND status='FAILED';
+
+\echo '--- T7: RETRY_PENDING -> QUARANTINED (max-retries path) ---'
+WITH upd AS (
+    UPDATE aiem_candidate_pipeline
+       SET status = 'QUARANTINED'
+     WHERE ticker = 'P2T_QUAR' AND candidate_date = CURRENT_DATE
+       AND status = 'RETRY_PENDING'
+    RETURNING id, status AS new_status, source, NOW() AS ts
+)
+SELECT upd.id AS trace_id,
+       'RETRY_PENDING'::text AS previous_status,
+       upd.new_status,
+       upd.source AS owning_component,
+       upd.ts AS timestamp
+FROM upd;
+
+\echo '--- FINAL STATE after all 7 positive transitions ---'
+SELECT id AS trace_id, ticker,
+       status AS final_status,
+       source AS owning_component,
+       COALESCE(completed_at, claimed_at, inserted_at) AS last_ts
+  FROM aiem_candidate_pipeline
+ WHERE ticker IN ('P2T_CHAIN','P2T_FAIL','P2T_QUAR')
+   AND candidate_date = CURRENT_DATE
+ ORDER BY ticker;
+---EXECUTING---
+==========================================
+POSITIVE TRANSITION AUDIT  (all 7 legal transitions)
+==========================================
+--- T1: PENDING_FULL_ANALYSIS -> CLAIMED_BY_DIAGRAM1 ---
+ trace_id |    previous_status    |     new_status      |    owning_component     |           timestamp           
+----------+-----------------------+---------------------+-------------------------+-------------------------------
+        5 | PENDING_FULL_ANALYSIS | CLAIMED_BY_DIAGRAM1 | D11_P2_transition_audit | 2026-07-13 04:49:24.652366+00
+(1 row)
+
+--- T2: CLAIMED_BY_DIAGRAM1 -> FULL_ANALYSIS_RUNNING ---
+ trace_id |   previous_status   |      new_status       |    owning_component     |           timestamp           
+----------+---------------------+-----------------------+-------------------------+-------------------------------
+        5 | CLAIMED_BY_DIAGRAM1 | FULL_ANALYSIS_RUNNING | D11_P2_transition_audit | 2026-07-13 04:49:24.801477+00
+(1 row)
+
+--- T3: FULL_ANALYSIS_RUNNING -> FULL_ANALYSIS_COMPLETED ---
+ trace_id |    previous_status    |       new_status        |    owning_component     |           timestamp           
+----------+-----------------------+-------------------------+-------------------------+-------------------------------
+        5 | FULL_ANALYSIS_RUNNING | FULL_ANALYSIS_COMPLETED | D11_P2_transition_audit | 2026-07-13 04:49:24.806072+00
+(1 row)
+
+UPDATE 1
+UPDATE 1
+--- T4: FULL_ANALYSIS_RUNNING -> FAILED ---
+ trace_id |    previous_status    | new_status |    owning_component     |           timestamp           
+----------+-----------------------+------------+-------------------------+-------------------------------
+        6 | FULL_ANALYSIS_RUNNING | FAILED     | D11_P2_transition_audit | 2026-07-13 04:49:24.826873+00
+(1 row)
+
+--- T5: FAILED -> RETRY_PENDING ---
+ trace_id | previous_status |  new_status   |    owning_component     |           timestamp           
+----------+-----------------+---------------+-------------------------+-------------------------------
+        6 | FAILED          | RETRY_PENDING | D11_P2_transition_audit | 2026-07-13 04:49:24.834285+00
+(1 row)
+
+--- T6: RETRY_PENDING -> PENDING_FULL_ANALYSIS (requeue) ---
+ trace_id | previous_status |      new_status       |    owning_component     |           timestamp           
+----------+-----------------+-----------------------+-------------------------+-------------------------------
+        6 | RETRY_PENDING   | PENDING_FULL_ANALYSIS | D11_P2_transition_audit | 2026-07-13 04:49:24.842586+00
+(1 row)
+
+UPDATE 1
+UPDATE 1
+UPDATE 1
+UPDATE 1
+--- T7: RETRY_PENDING -> QUARANTINED (max-retries path) ---
+ trace_id | previous_status | new_status  |    owning_component     |           timestamp           
+----------+-----------------+-------------+-------------------------+-------------------------------
+        7 | RETRY_PENDING   | QUARANTINED | D11_P2_transition_audit | 2026-07-13 04:49:24.958841+00
+(1 row)
+
+--- FINAL STATE after all 7 positive transitions ---
+ trace_id |  ticker   |      final_status       |    owning_component     |            last_ts            
+----------+-----------+-------------------------+-------------------------+-------------------------------
+        5 | P2T_CHAIN | FULL_ANALYSIS_COMPLETED | D11_P2_transition_audit | 2026-07-13 04:49:24.806072+00
+        6 | P2T_FAIL  | PENDING_FULL_ANALYSIS   | D11_P2_transition_audit | 2026-07-13 04:49:24.812789+00
+        7 | P2T_QUAR  | QUARANTINED             | D11_P2_transition_audit | 2026-07-13 04:49:24.84932+00
+(3 rows)

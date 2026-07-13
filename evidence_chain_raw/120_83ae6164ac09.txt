@@ -1,0 +1,123 @@
+\set ON_ERROR_STOP 0
+\echo '=========================================='
+\echo 'NEGATIVE TESTS  (all must leave row unchanged)'
+\echo '=========================================='
+
+\echo '--- N1: SKIP_FORWARD: PENDING_FULL_ANALYSIS -> FULL_ANALYSIS_RUNNING ---'
+SELECT id, status AS before_N1 FROM aiem_candidate_pipeline WHERE ticker='P2T_N1' AND candidate_date=CURRENT_DATE;
+UPDATE aiem_candidate_pipeline SET status='FULL_ANALYSIS_RUNNING' WHERE ticker='P2T_N1' AND candidate_date=CURRENT_DATE;
+SELECT id, status AS after_N1 FROM aiem_candidate_pipeline WHERE ticker='P2T_N1' AND candidate_date=CURRENT_DATE;
+
+\echo '--- N2: SKIP_ALL: PENDING_FULL_ANALYSIS -> FULL_ANALYSIS_COMPLETED ---'
+SELECT id, status AS before_N2 FROM aiem_candidate_pipeline WHERE ticker='P2T_N2' AND candidate_date=CURRENT_DATE;
+UPDATE aiem_candidate_pipeline SET status='FULL_ANALYSIS_COMPLETED' WHERE ticker='P2T_N2' AND candidate_date=CURRENT_DATE;
+SELECT id, status AS after_N2 FROM aiem_candidate_pipeline WHERE ticker='P2T_N2' AND candidate_date=CURRENT_DATE;
+
+-- N3: Backward — advance N3 to COMPLETED, then try COMPLETED -> PENDING (backward)
+UPDATE aiem_candidate_pipeline SET status='CLAIMED_BY_DIAGRAM1', claimed_at=NOW() WHERE ticker='P2T_N3' AND candidate_date=CURRENT_DATE AND status='PENDING_FULL_ANALYSIS';
+UPDATE aiem_candidate_pipeline SET status='FULL_ANALYSIS_RUNNING' WHERE ticker='P2T_N3' AND candidate_date=CURRENT_DATE AND status='CLAIMED_BY_DIAGRAM1';
+UPDATE aiem_candidate_pipeline SET status='FULL_ANALYSIS_COMPLETED', completed_at=NOW() WHERE ticker='P2T_N3' AND candidate_date=CURRENT_DATE AND status='FULL_ANALYSIS_RUNNING';
+\echo '--- N3: BACKWARD: FULL_ANALYSIS_COMPLETED -> PENDING_FULL_ANALYSIS ---'
+SELECT id, status AS before_N3 FROM aiem_candidate_pipeline WHERE ticker='P2T_N3' AND candidate_date=CURRENT_DATE;
+UPDATE aiem_candidate_pipeline SET status='PENDING_FULL_ANALYSIS' WHERE ticker='P2T_N3' AND candidate_date=CURRENT_DATE;
+SELECT id, status AS after_N3 FROM aiem_candidate_pipeline WHERE ticker='P2T_N3' AND candidate_date=CURRENT_DATE;
+
+\echo '--- N4: INVALID_STATUS: PENDING -> BOGUS_STATUS (CHECK constraint) ---'
+SELECT id, status AS before_N4 FROM aiem_candidate_pipeline WHERE ticker='P2T_N4' AND candidate_date=CURRENT_DATE;
+UPDATE aiem_candidate_pipeline SET status='BOGUS_STATUS' WHERE ticker='P2T_N4' AND candidate_date=CURRENT_DATE;
+SELECT id, status AS after_N4 FROM aiem_candidate_pipeline WHERE ticker='P2T_N4' AND candidate_date=CURRENT_DATE;
+
+\echo '--- N5: NULL_STATUS: PENDING -> NULL (NOT NULL constraint) ---'
+SELECT id, status AS before_N5 FROM aiem_candidate_pipeline WHERE ticker='P2T_N5' AND candidate_date=CURRENT_DATE;
+UPDATE aiem_candidate_pipeline SET status=NULL WHERE ticker='P2T_N5' AND candidate_date=CURRENT_DATE;
+SELECT id, status AS after_N5 FROM aiem_candidate_pipeline WHERE ticker='P2T_N5' AND candidate_date=CURRENT_DATE;
+
+\echo '--- N6: DUPLICATE_INSERT: same ticker+candidate_date (UNIQUE constraint) ---'
+SELECT id, ticker, status FROM aiem_candidate_pipeline WHERE ticker='P2T_N4' AND candidate_date=CURRENT_DATE;
+INSERT INTO aiem_candidate_pipeline (ticker, candidate_date, status, source, is_test_record)
+VALUES ('P2T_N4', CURRENT_DATE, 'PENDING_FULL_ANALYSIS', 'D11_P2_dup_attempt', TRUE);
+SELECT COUNT(*) AS rows_for_P2T_N4 FROM aiem_candidate_pipeline WHERE ticker='P2T_N4' AND candidate_date=CURRENT_DATE;
+---EXECUTING---
+==========================================
+NEGATIVE TESTS  (all must leave row unchanged)
+==========================================
+--- N1: SKIP_FORWARD: PENDING_FULL_ANALYSIS -> FULL_ANALYSIS_RUNNING ---
+ id |       before_n1       
+----+-----------------------
+  8 | PENDING_FULL_ANALYSIS
+(1 row)
+
+psql:/tmp/p2t_negative.sql:8: ERROR:  aiem_candidate_pipeline write_contract: transition PENDING_FULL_ANALYSIS->FULL_ANALYSIS_RUNNING rejected — not a legal status transition. See trigger aiem_candidate_pipeline_transition_guard for legal transitions.
+CONTEXT:  PL/pgSQL function aiem_candidate_pipeline_transition_guard() line 50 at RAISE
+ id |       after_n1        
+----+-----------------------
+  8 | PENDING_FULL_ANALYSIS
+(1 row)
+
+--- N2: SKIP_ALL: PENDING_FULL_ANALYSIS -> FULL_ANALYSIS_COMPLETED ---
+ id |       before_n2       
+----+-----------------------
+  9 | PENDING_FULL_ANALYSIS
+(1 row)
+
+psql:/tmp/p2t_negative.sql:13: ERROR:  aiem_candidate_pipeline write_contract: transition PENDING_FULL_ANALYSIS->FULL_ANALYSIS_COMPLETED rejected — not a legal status transition. See trigger aiem_candidate_pipeline_transition_guard for legal transitions.
+CONTEXT:  PL/pgSQL function aiem_candidate_pipeline_transition_guard() line 50 at RAISE
+ id |       after_n2        
+----+-----------------------
+  9 | PENDING_FULL_ANALYSIS
+(1 row)
+
+UPDATE 1
+UPDATE 1
+UPDATE 1
+--- N3: BACKWARD: FULL_ANALYSIS_COMPLETED -> PENDING_FULL_ANALYSIS ---
+ id |        before_n3        
+----+-------------------------
+ 10 | FULL_ANALYSIS_COMPLETED
+(1 row)
+
+psql:/tmp/p2t_negative.sql:22: ERROR:  aiem_candidate_pipeline write_contract: transition FULL_ANALYSIS_COMPLETED->PENDING_FULL_ANALYSIS rejected — not a legal status transition. See trigger aiem_candidate_pipeline_transition_guard for legal transitions.
+CONTEXT:  PL/pgSQL function aiem_candidate_pipeline_transition_guard() line 50 at RAISE
+ id |        after_n3         
+----+-------------------------
+ 10 | FULL_ANALYSIS_COMPLETED
+(1 row)
+
+--- N4: INVALID_STATUS: PENDING -> BOGUS_STATUS (CHECK constraint) ---
+ id |       before_n4       
+----+-----------------------
+ 11 | PENDING_FULL_ANALYSIS
+(1 row)
+
+psql:/tmp/p2t_negative.sql:27: ERROR:  aiem_candidate_pipeline write_contract: transition PENDING_FULL_ANALYSIS->BOGUS_STATUS rejected — not a legal status transition. See trigger aiem_candidate_pipeline_transition_guard for legal transitions.
+CONTEXT:  PL/pgSQL function aiem_candidate_pipeline_transition_guard() line 50 at RAISE
+ id |       after_n4        
+----+-----------------------
+ 11 | PENDING_FULL_ANALYSIS
+(1 row)
+
+--- N5: NULL_STATUS: PENDING -> NULL (NOT NULL constraint) ---
+ id |       before_n5       
+----+-----------------------
+ 12 | PENDING_FULL_ANALYSIS
+(1 row)
+
+psql:/tmp/p2t_negative.sql:32: ERROR:  null value in column "status" of relation "aiem_candidate_pipeline" violates not-null constraint
+DETAIL:  Failing row contains (12, P2T_N5, 2026-07-13, null, null, null, D11_P2_neg_tests, null, null, 2026-07-13 04:49:23.389791+00, null, null, null, null, t).
+ id |       after_n5        
+----+-----------------------
+ 12 | PENDING_FULL_ANALYSIS
+(1 row)
+
+--- N6: DUPLICATE_INSERT: same ticker+candidate_date (UNIQUE constraint) ---
+ id | ticker |        status         
+----+--------+-----------------------
+ 11 | P2T_N4 | PENDING_FULL_ANALYSIS
+(1 row)
+
+psql:/tmp/p2t_negative.sql:38: ERROR:  duplicate key value violates unique constraint "aiem_candidate_pipeline_ticker_candidate_date_key"
+DETAIL:  Key (ticker, candidate_date)=(P2T_N4, 2026-07-13) already exists.
+ rows_for_p2t_n4 
+-----------------
+               1
+(1 row)

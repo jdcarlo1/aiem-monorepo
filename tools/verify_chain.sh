@@ -8,6 +8,9 @@
 # comparing it to what's stored. Run this yourself (or paste the log to
 # Claude and ask it to check) — do NOT rely on the agent to tell you the
 # chain is valid; that defeats the purpose.
+#
+# Implementation: single Python process reads all entries in one pass.
+# The hash algorithm and canonical format are identical to verified_run.sh.
 
 set -euo pipefail
 
@@ -18,77 +21,73 @@ if [ ! -f "$LOG_FILE" ]; then
   exit 1
 fi
 
-PREV_HASH="GENESIS_0000000000000000000000000000000000000000000000000000000000"
-LINE_NUM=0
-FAIL=0
-BREAK_COUNT=0
+python3 - "$LOG_FILE" << 'PYEOF'
+import sys, json, hashlib
 
-while IFS= read -r LINE; do
-  LINE_NUM=$((LINE_NUM + 1))
+log_file = sys.argv[1]
+prev_hash = "GENESIS_0000000000000000000000000000000000000000000000000000000000"
+fail = False
+break_count = 0
+line_num = 0
 
-  SEQ=$(echo "$LINE" | python3 -c "import sys,json; print(json.load(sys.stdin)['seq'])")
-  TIMESTAMP=$(echo "$LINE" | python3 -c "import sys,json; print(json.load(sys.stdin)['timestamp_utc'])")
-  CMD=$(echo "$LINE" | python3 -c "import sys,json; print(json.load(sys.stdin)['command'])")
-  EXIT_CODE=$(echo "$LINE" | python3 -c "import sys,json; print(json.load(sys.stdin)['exit_code'])")
-  OUTPUT_SHA256=$(echo "$LINE" | python3 -c "import sys,json; print(json.load(sys.stdin)['output_sha256'])")
-  STORED_PREV_HASH=$(echo "$LINE" | python3 -c "import sys,json; print(json.load(sys.stdin)['prev_hash'])")
-  STORED_ENTRY_HASH=$(echo "$LINE" | python3 -c "import sys,json; print(json.load(sys.stdin)['entry_hash'])")
+with open(log_file) as f:
+    for raw in f:
+        raw = raw.strip()
+        if not raw:
+            continue
+        line_num += 1
+        e = json.loads(raw)
+        seq           = e['seq']
+        timestamp     = e['timestamp_utc']
+        cmd           = e['command']
+        exit_code     = e['exit_code']
+        output_sha256 = e['output_sha256']
+        stored_prev   = e['prev_hash']
+        stored_hash   = e['entry_hash']
 
-  if [ "$STORED_PREV_HASH" != "$PREV_HASH" ]; then
-    # Continuity break — prev_hash does not match the preceding entry's hash.
-    # This is caused by a concurrent write race condition (two invocations both
-    # read the same PREV_HASH/SEQ before either appended). The flock fix in
-    # verified_run.sh prevents this for all future entries.
-    #
-    # Recovery: verify the break entry's own hash using its stored prev_hash.
-    # If internally valid, the entry was genuinely logged (not forged) — it
-    # simply restarts from a stale anchor. Continue validation from here.
-    BREAK_COUNT=$((BREAK_COUNT + 1))
-    echo "BREAK at line $LINE_NUM (seq=$SEQ): prev_hash mismatch — chain continuity gap."
-    echo "  expected prev_hash: $PREV_HASH"
-    echo "  stored  prev_hash:  $STORED_PREV_HASH"
-    echo "  Cause: concurrent-write race condition (pre-dates flock fix)."
-    CANONICAL_BRK="${STORED_PREV_HASH}|${SEQ}|${TIMESTAMP}|${CMD}|${EXIT_CODE}|${OUTPUT_SHA256}"
-    RECOMPUTED_BRK=$(printf '%s' "$CANONICAL_BRK" | sha256sum | awk '{print $1}')
-    if [ "$RECOMPUTED_BRK" = "$STORED_ENTRY_HASH" ]; then
-      echo "  Entry is internally valid. Restarting sub-chain from this entry."
-      PREV_HASH="$STORED_ENTRY_HASH"
-      continue
-    else
-      echo "  FATAL: break entry is also internally invalid — possible tampering."
-      FAIL=1
-      break
-    fi
-  fi
+        if stored_prev != prev_hash:
+            break_count += 1
+            print(f"BREAK at line {line_num} (seq={seq}): prev_hash mismatch — chain continuity gap.")
+            print(f"  expected prev_hash: {prev_hash}")
+            print(f"  stored  prev_hash:  {stored_prev}")
+            print("  Cause: concurrent-write race condition (pre-dates flock fix).")
+            canonical_brk = f"{stored_prev}|{seq}|{timestamp}|{cmd}|{exit_code}|{output_sha256}"
+            recomputed_brk = hashlib.sha256(canonical_brk.encode()).hexdigest()
+            if recomputed_brk == stored_hash:
+                print("  Entry is internally valid. Restarting sub-chain from this entry.")
+                prev_hash = stored_hash
+                continue
+            else:
+                print("  FATAL: break entry is also internally invalid — possible tampering.")
+                fail = True
+                break
 
-  CANONICAL="${PREV_HASH}|${SEQ}|${TIMESTAMP}|${CMD}|${EXIT_CODE}|${OUTPUT_SHA256}"
-  RECOMPUTED_HASH=$(printf '%s' "$CANONICAL" | sha256sum | awk '{print $1}')
+        canonical   = f"{prev_hash}|{seq}|{timestamp}|{cmd}|{exit_code}|{output_sha256}"
+        recomputed  = hashlib.sha256(canonical.encode()).hexdigest()
 
-  if [ "$RECOMPUTED_HASH" != "$STORED_ENTRY_HASH" ]; then
-    echo "FAIL at line $LINE_NUM (seq=$SEQ): entry_hash does not match recomputed hash."
-    echo "  This entry's fields were altered after being logged, OR the log was hand-edited."
-    echo "  stored entry_hash:     $STORED_ENTRY_HASH"
-    echo "  recomputed entry_hash: $RECOMPUTED_HASH"
-    FAIL=1
-    break
-  fi
+        if recomputed != stored_hash:
+            print(f"FAIL at line {line_num} (seq={seq}): entry_hash does not match recomputed hash.")
+            print("  This entry's fields were altered after being logged, OR the log was hand-edited.")
+            print(f"  stored entry_hash:     {stored_hash}")
+            print(f"  recomputed entry_hash: {recomputed}")
+            fail = True
+            break
 
-  echo "OK  seq=$SEQ  entry_hash=${STORED_ENTRY_HASH:0:16}...  cmd: $CMD"
-  PREV_HASH="$STORED_ENTRY_HASH"
-done < "$LOG_FILE"
+        print(f"OK  seq={seq}  entry_hash={stored_hash[:16]}...  cmd: {cmd}")
+        prev_hash = stored_hash
 
-echo ""
-if [ "$FAIL" -eq 0 ]; then
-  if [ "$BREAK_COUNT" -gt 0 ]; then
-    echo "=== CHAIN VALID WITH $BREAK_COUNT DOCUMENTED BREAK(S): all $LINE_NUM entries verified. ==="
-    echo "    Each break entry is internally valid; gap caused by pre-flock race condition."
-    echo "    Entries after each break form a valid sub-chain. flock fix prevents recurrence."
-  else
-    echo "=== CHAIN VALID: all $LINE_NUM entries verified, no tampering detected in the log structure. ==="
-  fi
-  echo "NOTE: this confirms internal consistency of the log only. It does NOT prove the"
-  echo "commands were actually executed as claimed, or that Joel is running this against"
-  echo "his real production database. Spot-check by re-running a sampled command yourself."
-else
-  echo "=== CHAIN BROKEN at line $LINE_NUM. The log is not trustworthy past this point. ==="
-fi
+print()
+if not fail:
+    if break_count > 0:
+        print(f"=== CHAIN VALID WITH {break_count} DOCUMENTED BREAK(S): all {line_num} entries verified. ===")
+        print("    Each break entry is internally valid; gap caused by pre-flock race condition.")
+        print("    Entries after each break form a valid sub-chain. flock fix prevents recurrence.")
+    else:
+        print(f"=== CHAIN VALID: all {line_num} entries verified, no tampering detected in the log structure. ===")
+    print("NOTE: this confirms internal consistency of the log only. It does NOT prove the")
+    print("commands were actually executed as claimed, or that Joel is running this against")
+    print("his real production database. Spot-check by re-running a sampled command yourself.")
+else:
+    print(f"=== CHAIN BROKEN at line {line_num}. The log is not trustworthy past this point. ===")
+    sys.exit(1)
+PYEOF
