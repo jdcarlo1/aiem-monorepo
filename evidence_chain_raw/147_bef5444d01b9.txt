@@ -1,0 +1,47 @@
+2026-07-13 06:04:04,659 [diagram1_candidate_intake] INFO [intake] id=21 attempt=1 → RETRY_PENDING (backoff=60s): TestError: run_full_cycle() — forced orchestrator failure (Control 2)
+============================================================
+CONTROL 2 — ORCHESTRATOR FAILURE
+============================================================
+
+  [BEFORE (PENDING)]
+    id              = 21
+    ticker          = NC2_ORCHFAIL
+    status          = PENDING_FULL_ANALYSIS
+    attempt_number  = 0
+    attempt_id      = None
+    retry_after     = None
+    error_msg       = None
+
+  [STEP 2 — CLAIMED]
+    candidate_id   = 21
+    attempt_id     = 66565b9c-988a-4f37-94fd-248790934854
+    attempt_number = 1
+    status         = CLAIMED_BY_DIAGRAM1
+
+  [STEP 3 — FULL_ANALYSIS_RUNNING (before failure)]
+    id              = 21
+    ticker          = NC2_ORCHFAIL
+    status          = FULL_ANALYSIS_RUNNING
+    attempt_number  = 1
+    attempt_id      = 66565b9c-988a-4f37-94fd-248790934854
+    retry_after     = None
+    error_msg       = None
+
+  [STEP 4 — FORCING run_full_cycle() FAILURE]
+    injected error = TestError: run_full_cycle() — forced orchestrator failure (Control 2)
+    returned final_status = RETRY_PENDING
+
+  [STEP 5 — AFTER FAILURE (RETRY_PENDING)]
+    id              = 21
+    ticker          = NC2_ORCHFAIL
+    status          = RETRY_PENDING
+    attempt_number  = 1
+    attempt_id      = 66565b9c-988a-4f37-94fd-248790934854
+    retry_after     = 2026-07-13 06:05:04.530430+00:00
+    error_msg       = TestError: run_full_cycle() — forced orchestrator failure (Control 2)
+
+PASS: PENDING → CLAIMED_BY_DIAGRAM1 → FULL_ANALYSIS_RUNNING → FAILED → RETRY_PENDING
+PASS: candidate NOT stuck in FULL_ANALYSIS_RUNNING
+PASS: error_msg preserved: TestError: run_full_cycle() — forced orchestrator failure (Control 2)
+PASS: retry_after set: 2026-07-13 06:05:04.530430+00:00
+PASS: two-commit pattern executed (RUNNING→FAILED commit, FAILED→RETRY_PENDING commit)

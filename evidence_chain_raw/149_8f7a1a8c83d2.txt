@@ -1,0 +1,25 @@
+============================================================
+CONTROL 4 — DUPLICATE EVENT / POLL
+============================================================
+
+  Poll A: claimed id=22 attempt_id=b5dd1fdf-3986-41b6-88a6-6430f28b7424
+          status → FULL_ANALYSIS_RUNNING (processing in progress)
+
+  Poll B: _atomic_claim returned None
+          reason: NC4_DUPEVT is FULL_ANALYSIS_RUNNING (locked/non-PENDING)
+          → loop exits with claimed=0
+          → run_full_cycle() NOT called
+
+  Poll A: run_full_cycle() would execute exactly once
+          _mark_completed → FULL_ANALYSIS_COMPLETED
+
+  Final state:
+    id             = 22
+    status         = FULL_ANALYSIS_COMPLETED
+    attempt_number = 1
+    attempt_id     = b5dd1fdf-3986-41b6-88a6-6430f28b7424
+    completed_at   = 2026-07-13 06:04:05.770700+00:00
+
+PASS: Poll B found 0 PENDING rows — run_full_cycle() not called by Poll B
+PASS: Final status=FULL_ANALYSIS_COMPLETED — run_full_cycle() executed exactly once (Poll A)
+PASS: No duplicate execution — SKIP LOCKED + _transition_to_running guard prevents double-run

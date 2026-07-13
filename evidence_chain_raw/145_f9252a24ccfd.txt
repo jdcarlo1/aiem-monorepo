@@ -1,0 +1,26 @@
+============================================================
+CONTROL 1 — DUPLICATE CLAIM
+============================================================
+
+  [WORKER_A]  pid=2645  tid=140163675588288  ms=155.62
+    attempt_id (sent) = 71f4a1fb-709c-4233-9277-86107a2f4ac4
+    RESULT            = LOST  (0 rows updated — SKIP LOCKED)
+
+  [WORKER_B]  pid=2645  tid=140163667195584  ms=187.28
+    attempt_id (sent) = ae5fec26-9d23-4a12-99e2-6d683daa39b3
+    RESULT            = WON
+    candidate_id      = 20
+    ticker            = NC1_DUPCLM
+    attempt_number    = 1
+    stored attempt_id = ae5fec26-9d23-4a12-99e2-6d683daa39b3
+    claimed_at        = 2026-07-13 06:04:03.104900+00:00
+
+  winners=['WORKER_B'] (count=1)
+  losers =['WORKER_A']  (count=1)
+
+  POST-RACE DB STATE:
+    id=20 ticker=NC1_DUPCLM status=CLAIMED_BY_DIAGRAM1 att#=1 aid=ae5fec26-9d23-4a12-99e2-6d683daa39b3 claimed_at=2026-07-13 06:04:03.104900+00:00
+
+PASS: exactly 1 winner, 1 loser — SKIP LOCKED enforced
+PASS: stored attempt_id matches winner's sent attempt_id
+PASS: losing worker received 0 rows — no duplicate ownership

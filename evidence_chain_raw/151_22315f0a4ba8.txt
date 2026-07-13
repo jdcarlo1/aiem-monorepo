@@ -1,0 +1,56 @@
+============================================================
+CONTROL 5 — RESTART RECOVERY (CLAIMED_BY_DIAGRAM1)
+============================================================
+
+  [BEFORE]
+    id              = 23
+    ticker          = NC5_RESTART
+    status          = PENDING_FULL_ANALYSIS
+    attempt_number  = 0
+    attempt_id      = None
+    claimed_at      = None
+    now_ts          = 2026-07-13 06:04:07.167378+00:00
+    retry_after     = None
+    error_msg       = None
+
+  [STEP 2 — CLAIMED] Worker terminates here (crash simulation)
+    candidate_id   = 23
+    attempt_id     = 928a2153-d71e-448a-a03b-b6ec668e917b
+    claimed_at     = 2026-07-13 06:04:07.167378+00:00  ← this is NOW()
+
+  [STEP 3 — FORCE claimed_at to 31 min ago]
+    forced claimed_at = 2026-07-13 05:33:07.448639+00:00
+
+  [STEP 4 — STUCK STATE (service has been restarted, recovery fires)]
+    id              = 23
+    ticker          = NC5_RESTART
+    status          = CLAIMED_BY_DIAGRAM1
+    attempt_number  = 1
+    attempt_id      = 928a2153-d71e-448a-a03b-b6ec668e917b
+    claimed_at      = 2026-07-13 05:33:07.448639+00:00
+    now_ts          = 2026-07-13 06:04:07.454675+00:00
+    retry_after     = None
+    error_msg       = None
+    stuck_duration = 0:31:00.006036  (> 30 min threshold)
+
+  [STEP 5 — STALE RECOVERY]
+    rows_updated   = 1
+    new_status     = RETRY_PENDING
+    error_msg      = stale-claim recovery: stuck in CLAIMED_BY_DIAGRAM1 > 30 min (possible crash/restart)
+    attempt_id     = 928a2153-d71e-448a-a03b-b6ec668e917b  (preserved)
+    stale_claimed  = 2026-07-13 05:33:07.448639+00:00
+
+  [AFTER (RETRY_PENDING)]
+    id              = 23
+    ticker          = NC5_RESTART
+    status          = RETRY_PENDING
+    attempt_number  = 1
+    attempt_id      = 928a2153-d71e-448a-a03b-b6ec668e917b
+    claimed_at      = 2026-07-13 05:33:07.448639+00:00
+    now_ts          = 2026-07-13 06:04:07.462580+00:00
+    retry_after     = None
+    error_msg       = stale-claim recovery: stuck in CLAIMED_BY_DIAGRAM1 > 30 min (possible crash/restart)
+
+PASS: CLAIMED_BY_DIAGRAM1 → RETRY_PENDING after 30-min timeout
+PASS: No silent loss — row recovered to RETRY_PENDING (not ABANDONED)
+PASS: attempt_id preserved for audit trail

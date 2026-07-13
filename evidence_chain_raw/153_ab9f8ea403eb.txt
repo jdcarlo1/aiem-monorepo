@@ -1,0 +1,54 @@
+============================================================
+CONTROL 6 — STALE FULL_ANALYSIS_RUNNING RECOVERY
+============================================================
+
+  [BEFORE]
+    id              = 24
+    ticker          = NC6_STLRUN
+    status          = PENDING_FULL_ANALYSIS
+    attempt_number  = 0
+    attempt_id      = None
+    claimed_at      = None
+    now_ts          = 2026-07-13 06:04:08.366951+00:00
+    retry_after     = None
+    error_msg       = None
+
+  [STEP 2] claimed id=24 attempt_id=7b8636e2-ea8a-4646-bbab-d87ac28e2396
+           transitioned CLAIMED → FULL_ANALYSIS_RUNNING
+
+  [STEP 3] Forced claimed_at → 2026-07-13 05:33:08.382475+00:00 (31 min ago)
+           No worker is actually processing the row
+
+  [STEP 4 — STUCK IN FULL_ANALYSIS_RUNNING (stale)]
+    id              = 24
+    ticker          = NC6_STLRUN
+    status          = FULL_ANALYSIS_RUNNING
+    attempt_number  = 1
+    attempt_id      = 7b8636e2-ea8a-4646-bbab-d87ac28e2396
+    claimed_at      = 2026-07-13 05:33:08.382475+00:00
+    now_ts          = 2026-07-13 06:04:08.394599+00:00
+    retry_after     = None
+    error_msg       = None
+    stuck_duration = 0:31:00.012124  (> 30 min threshold)
+
+  [STEP 5 — STALE RECOVERY for FULL_ANALYSIS_RUNNING]
+    rows_updated   = 1
+    prev_status    = FULL_ANALYSIS_RUNNING  (the new Phase 3 transition)
+    new_status     = RETRY_PENDING
+    error_msg      = stale-claim recovery: stuck in FULL_ANALYSIS_RUNNING > 30 min (possible crash/restart)
+    stale_at       = 2026-07-13 05:33:08.382475+00:00
+
+  [AFTER (RETRY_PENDING)]
+    id              = 24
+    ticker          = NC6_STLRUN
+    status          = RETRY_PENDING
+    attempt_number  = 1
+    attempt_id      = 7b8636e2-ea8a-4646-bbab-d87ac28e2396
+    claimed_at      = 2026-07-13 05:33:08.382475+00:00
+    now_ts          = 2026-07-13 06:04:08.438063+00:00
+    retry_after     = None
+    error_msg       = stale-claim recovery: stuck in FULL_ANALYSIS_RUNNING > 30 min (possible crash/restart)
+
+PASS: FULL_ANALYSIS_RUNNING → RETRY_PENDING after 30-min timeout
+PASS: FULL_ANALYSIS_RUNNING → RETRY_PENDING trigger transition (Phase 3 addition) confirmed
+PASS: No silent loss — stuck RUNNING row recovered without manual intervention

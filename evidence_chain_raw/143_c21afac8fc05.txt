@@ -1,0 +1,21 @@
+=== INSERTING 5 Phase 4 control test rows ===
+ id |    ticker    |        status         | score | candidate_date | is_test_record |          inserted_at          
+----+--------------+-----------------------+-------+----------------+----------------+-------------------------------
+ 20 | NC1_DUPCLM   | PENDING_FULL_ANALYSIS |    55 | 2026-07-13     | t              | 2026-07-13 06:03:10.582333+00
+ 21 | NC2_ORCHFAIL | PENDING_FULL_ANALYSIS |    60 | 2026-07-13     | t              | 2026-07-13 06:03:10.582333+00
+ 22 | NC4_DUPEVT   | PENDING_FULL_ANALYSIS |    58 | 2026-07-13     | t              | 2026-07-13 06:03:10.582333+00
+ 23 | NC5_RESTART  | PENDING_FULL_ANALYSIS |    52 | 2026-07-13     | t              | 2026-07-13 06:03:10.582333+00
+ 24 | NC6_STLRUN   | PENDING_FULL_ANALYSIS |    50 | 2026-07-13     | t              | 2026-07-13 06:03:10.582333+00
+(5 rows)
+
+INSERT 0 5
+
+=== BEFORE-STATE: all 5 rows ===
+ id |    ticker    |        status         | score | attempt_number | attempt_id | claimed_at | retry_after | is_test_record |          inserted_at          
+----+--------------+-----------------------+-------+----------------+------------+------------+-------------+----------------+-------------------------------
+ 20 | NC1_DUPCLM   | PENDING_FULL_ANALYSIS |    55 |              0 |            |            |             | t              | 2026-07-13 06:03:10.582333+00
+ 21 | NC2_ORCHFAIL | PENDING_FULL_ANALYSIS |    60 |              0 |            |            |             | t              | 2026-07-13 06:03:10.582333+00
+ 22 | NC4_DUPEVT   | PENDING_FULL_ANALYSIS |    58 |              0 |            |            |             | t              | 2026-07-13 06:03:10.582333+00
+ 23 | NC5_RESTART  | PENDING_FULL_ANALYSIS |    52 |              0 |            |            |             | t              | 2026-07-13 06:03:10.582333+00
+ 24 | NC6_STLRUN   | PENDING_FULL_ANALYSIS |    50 |              0 |            |            |             | t              | 2026-07-13 06:03:10.582333+00
+(5 rows)
