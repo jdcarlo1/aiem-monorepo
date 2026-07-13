@@ -1,0 +1,38 @@
+commit 8af96663729634ce4b117c9402ee3112029a4286
+Author: Replit Agent <agent@replit.com>
+Date:   Wed Jul 8 01:28:56 2026 +0000
+
+    Add master orchestrator to wire all AIEM modules in sequence
+    
+    Introduce the AEIMMasterOrchestrator class for orchestrating AIEM modules, defining the AEIMTradePacket structure, and managing pipeline execution with error logging and verification.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: 952dc3ab-5b9c-4661-9793-8f98dd5c1fba
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/gk1iNQV
+    Replit-Helium-Checkpoint-Created: true
+
+ .../stock-scanner-api/aiem_master_orchestrator.py  | 1353 ++++++++++++++++++++
+ ...Purpose-Wire-all-AEIM-modules_1783473020009.txt |  622 +++++++++
+ 2 files changed, 1975 insertions(+)
+---
+commit 021efc7e1eb28b59aab38cf16faa040dec19b7a7
+Author: Replit Agent <agent@replit.com>
+Date:   Sun Jul 12 05:37:15 2026 +0000
+
+    Improve ML model integration and decision-making logic
+    
+    Update ensemble combiner to correctly extract scores from various models and integrate the combined score into the final decision-making process.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: c1eeda11-4406-4a16-9ffa-bc10452e9d62
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/EXO7Xt3
+    Replit-Helium-Checkpoint-Created: true
+
+ .../stock-scanner-api/aiem_master_orchestrator.py  | 90 +++++++++++++++++---
+ ...te-ML-Ensemble-Wiring-Score-t_1783834359029.txt | 95 ++++++++++++++++++++++
+ ...-Ensemble-Wiring-Score-to-Dec_1783834139183.txt | 81 ++++++++++++++++++
+ 3 files changed, 254 insertions(+), 12 deletions(-)

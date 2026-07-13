@@ -1,0 +1,17 @@
+1447:            function_name   = "run_full_cycle",
+1714:    def run_full_cycle(
+1883:    result = orch.run_full_cycle(
+---EXECUTE_STAGE_CALLS_IN_MAIN---
+43915:                # Real control-plane pass through AEIMMasterOrchestrator.execute_stage()
+43934:                            # scoped to just this one execute_stage() call so it can never
+43938:                                return _d2_orch.execute_stage(
+43958:                            "AEIMMasterOrchestrator.execute_stage",
+44701:                    _d2_orch_mtm.execute_stage(
+44884:                    _d2_orch_mtm.execute_stage(
+44915:                    _d2_orch_mtm.execute_stage(
+44956:                    _d2_orch_mtm.execute_stage(
+---TRACE_AUDIT_TABLE---
+ count 
+-------
+     0
+(1 row)

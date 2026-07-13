@@ -1,0 +1,54 @@
+# Directive 10: Diagnostic — Candidate Intake Connection + Directive 8 Reconciliation
+
+## Purpose
+
+Before any new build work starts, establish ground truth on two things:
+1. Does ANY mechanism currently connect `_aiem_paper_pick_candidates()` to Diagram 1's `run_full_cycle()`?
+2. What did Directive 8's "fix" actually change, and why does today's fresh grep still show zero external callers of `run_full_cycle`?
+
+Do not build anything in this directive. Diagnostic only.
+
+## Part A — Reconcile Directive 8
+
+Today's grep (entry #88 in the evidence chain) confirms `run_full_cycle` has 3 hits, all inside `aiem_master_orchestrator.py` itself, and zero callers in `main.py`, `aiem_autonomous.py`, or anywhere else in the workspace. This contradicts the earlier conclusion from the Directive 8 session that D1's wiring issue was fixed.
+
+Required:
+1. Pull the actual file diff / commit history for whatever was changed during or after Directive 8. Show exact before/after for any file touched.
+2. State plainly: did that change touch the `run_full_cycle` calling path at all? If yes, show where. If no, state explicitly what it did fix instead (e.g., gating logic, candidate selection, logging) so we understand what "fixed" referred to.
+3. Do not reconcile narratively — show the diff and let it speak for itself. If no diff/commit record exists for the claimed Directive 8 fix, say so explicitly; that itself is a finding.
+
+## Part B — Current-state diagnostic on candidate intake
+
+Determine whether ANY connective mechanism exists anywhere in the codebase linking `_aiem_paper_pick_candidates()` to `run_full_cycle()`. This includes checking for:
+- A queue (any message queue, task queue, or job queue reference)
+- A DB status flag pattern (e.g., column values like `PENDING_FULL_ANALYSIS`, `READY`, `QUEUED`)
+- An event bus mechanism (e.g., anything resembling `CANDIDATE_READY`, pub/sub, signal/listener patterns)
+- A scheduled intake job (any APScheduler job, cron job, or polling loop that reads candidate output and triggers analysis)
+
+For each of the 4 mechanism types above, provide:
+- Raw grep output (exact command + exact output) searching the entire workspace, not just one file
+- If hits are found: show the full call chain from that mechanism to `run_full_cycle`, or show that the chain is incomplete/dead-ends
+- If no hits: state that explicitly — do not infer absence from a narrow search; show the grep command used and its empty result
+
+## Explicit framing
+
+The correct question is NOT "does the picker call run_full_cycle() directly" — a direct call is not required by design. The correct question is: **can any candidate reach execution without a completed, traceable run_full_cycle()?** If yes, that is a wiring defect regardless of which mechanism (or lack thereof) allows it. Report findings against this framing.
+
+## Standing Verification Block (required for every item above)
+
+1. Raw terminal output of actual execution — including raw grep output for any code-location or call-chain claim. Never paraphrase what grep would show.
+2. Exact before/after file diff for anything referenced from Directive 8 (no new changes should be made in this directive itself).
+3. SHA256 hash before/after for any files whose diff is shown.
+4. Raw SQL query + full result set for any database claim (e.g., if checking for a status-flag column, show the actual schema query and column list).
+
+If any evidence item cannot be produced, state that explicitly rather than substituting a narrative claim.
+
+## Evidence Chain Protocol
+
+Run all evidence-producing commands through `verified_run.sh`. Validate with `verify_chain.sh` and paste its output before declaring this directive complete.
+
+## Constraints
+
+- No code changes, no fixes, no "cleanup" in this directive — diagnostic only, per standing data immutability rule.
+- Do not propose the build plan yet. Report findings only. Directive 11 (the build) will follow once this comes back and is reviewed.
+- If findings contradict anything previously reported as fixed or working, state the contradiction plainly. Do not smooth it over.
