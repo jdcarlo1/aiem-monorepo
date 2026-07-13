@@ -657,7 +657,7 @@ def _get_regime_context() -> str:
 # 7. Main job entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_daily_tiered_movers_job(top_n: int = 100, api_key: str = "") -> Dict[str, Any]:
+def run_daily_tiered_movers_job(top_n: int = 100, api_key: str = "", for_date=None) -> Dict[str, Any]:
     """
     Main entry point for the 17:10 ET Mon-Fri scheduler job.
 
@@ -688,7 +688,10 @@ def run_daily_tiered_movers_job(top_n: int = 100, api_key: str = "") -> Dict[str
 
     try:
         # ── Step 1: Most recent trading date ─────────────────────────────────
-        scan_date = _get_most_recent_trading_date(conn)
+        if for_date is not None:
+            scan_date = for_date if isinstance(for_date, date) else date.fromisoformat(str(for_date))
+        else:
+            scan_date = _get_most_recent_trading_date(conn)
         if not scan_date:
             return {"error": "polygon_market_daily is empty"}
 

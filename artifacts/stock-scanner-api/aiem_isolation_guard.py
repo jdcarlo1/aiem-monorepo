@@ -45,6 +45,7 @@ import threading
 
 ENTRY_POINTS = [
     "_mkt_indicator_grid_battery",
+    "_mkt_intraday_grid_battery",
     "_mkt_continuous_research_loop",
     "_mkt_research_loop_allowed",
     "_mkt_start_continuous_loop",

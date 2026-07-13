@@ -1936,6 +1936,7 @@ def _init_byok_columns():
         print(f"[byok] _init_byok_columns error: {_e}")
 _DEFERRED_INITS.append(_init_byok_columns)
 _DEFERRED_INITS.append(lambda: _aiem_auditor_startup_check())
+_DEFERRED_INITS.append(lambda: _mkt_start_continuous_loop())
 
 # ── AIEM v3 Phase 1: ensure all 12 v3 schema tables exist ────────────────────
 def _init_aiem_v3_schema():
@@ -7480,6 +7481,49 @@ try:
         replace_existing=True,
     )
     print("[market_movers] scheduled — movers: Mon-Fri 17:10 ET | missed-day check: 17:50 ET | cap cache: 23:00 ET")
+
+    # ── Startup catch-up: backfill any missed daily_market_movers days ────────
+    # Fires 90s after boot so preload completes first. Runs for every trading
+    # day in polygon_market_daily that is missing from daily_market_movers.
+    # This ensures a restart never silently loses historical labeled data.
+    def _movers_startup_catchup():
+        import psycopg2 as _msc_pg, time as _msc_t
+        try:
+            _msc_t.sleep(90)
+            with _msc_pg.connect(os.environ["DATABASE_URL"], connect_timeout=5) as _msc_conn, \
+                 _msc_conn.cursor() as _msc_cur:
+                _msc_cur.execute("""
+                    SELECT DISTINCT p.scan_date
+                    FROM polygon_market_daily p
+                    WHERE p.scan_date >= CURRENT_DATE - INTERVAL '60 days'
+                      AND p.scan_date NOT IN (SELECT DISTINCT scan_date FROM daily_market_movers)
+                      AND p.scan_date < CURRENT_DATE
+                    ORDER BY p.scan_date
+                """)
+                _missed = [row[0] for row in _msc_cur.fetchall()]
+            if not _missed:
+                print("[market_movers] startup catch-up: no missed days — all good")
+                return
+            print(f"[market_movers] startup catch-up: backfilling {len(_missed)} missed days: "
+                  f"{[str(d) for d in _missed]}")
+            import daily_market_movers as _msc_dmm
+            _msc_api_key = os.environ.get("POLYGON_API_KEY", "")
+            for _d in _missed:
+                try:
+                    _r = _msc_dmm.run_daily_tiered_movers_job(
+                        top_n=100, api_key=_msc_api_key, for_date=_d)
+                    print(f"[market_movers] catch-up {_d}: inserted={_r.get('inserted','?')} "
+                          f"elapsed={_r.get('elapsed_s','?'):.1f}s")
+                except Exception as _de:
+                    print(f"[market_movers] catch-up {_d} error: {_de}")
+                _msc_t.sleep(3)
+            print(f"[market_movers] startup catch-up complete — {len(_missed)} days backfilled")
+        except Exception as _msc_e:
+            print(f"[market_movers] startup catch-up error: {_msc_e}")
+
+    import threading as _msc_thr
+    _msc_thr.Thread(target=_movers_startup_catchup, daemon=True,
+                    name="movers-startup-catchup").start()
 
     # ── MODULE 6: Autonomous Discovery Cycle ─────────────────────────────────
     # Real cadence: Mon–Fri 17:30 ET — 15 min after aiem_write_signal_discoveries
@@ -30434,6 +30478,260 @@ def _mkt_indicator_grid_battery(batch_size=15, refresh_days=10):
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# INTRADAY SAME-DAY RESEARCH BATTERY
+# Tests premarket + first-candle indicators against same-day outcome (day_win).
+# Runs inside the continuous loop alongside the EOD indicator battery.
+# Data source: aiem_first_candle_data (captured at 9:36 AM + 4:45 PM ET daily).
+# Outcome: day_win = stock closed above open price on the same day.
+# No OpenAI tokens used — pure Fisher's exact test statistics only.
+# ──────────────────────────────────────────────────────────────────────────
+
+def _mkt_ensure_intraday_grid_state_table():
+    import psycopg2 as _eigt_pg
+    try:
+        with _eigt_pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_intraday_grid_state (
+                    cell_key        TEXT PRIMARY KEY,
+                    description     TEXT,
+                    conditions      JSONB,
+                    last_tested_at  TIMESTAMPTZ,
+                    last_n          INTEGER,
+                    last_p_value    NUMERIC(12,8),
+                    last_win_rate   NUMERIC(8,4),
+                    last_baseline   NUMERIC(8,4)
+                )
+            """)
+            _c.commit()
+    except Exception as _e:
+        print(f"[intraday_grid] schema init error: {_e}")
+
+
+def _mkt_intraday_grid_cells():
+    """Define hypothesis cells for same-day research.
+    Each cell is (key, description, sql_where_clause, expected_direction).
+    All cells use day_win as the outcome (closed above open = win).
+    """
+    cells = [
+        # Premarket gap cells
+        ("gap_ge2",   "Premarket gap ≥2%",       "premarket_gap_pct >= 2",    "bullish"),
+        ("gap_ge3",   "Premarket gap ≥3%",       "premarket_gap_pct >= 3",    "bullish"),
+        ("gap_ge5",   "Premarket gap ≥5%",       "premarket_gap_pct >= 5",    "bullish"),
+        ("gap_ge8",   "Premarket gap ≥8%",       "premarket_gap_pct >= 8",    "bullish"),
+        ("gap_ge10",  "Premarket gap ≥10%",      "premarket_gap_pct >= 10",   "bullish"),
+        ("gap_ge15",  "Premarket gap ≥15%",      "premarket_gap_pct >= 15",   "bullish"),
+        ("gap_lt0",   "Premarket gap negative",  "premarket_gap_pct < 0",     "bearish"),
+        ("gap_n2n0",  "Small gap -2% to 0%",     "premarket_gap_pct BETWEEN -2 AND 0", "bearish"),
+        # RVOL cells
+        ("rvol_ge15", "Premarket RVOL ≥1.5x",   "premarket_rvol >= 1.5",     "bullish"),
+        ("rvol_ge2",  "Premarket RVOL ≥2x",     "premarket_rvol >= 2",       "bullish"),
+        ("rvol_ge3",  "Premarket RVOL ≥3x",     "premarket_rvol >= 3",       "bullish"),
+        ("rvol_ge5",  "Premarket RVOL ≥5x",     "premarket_rvol >= 5",       "bullish"),
+        # First candle direction
+        ("fc_up",     "First candle up",          "first_candle_direction = 'up'",   "bullish"),
+        ("fc_down",   "First candle down",        "first_candle_direction = 'down'", "bearish"),
+        ("fc_flat",   "First candle flat",        "first_candle_direction = 'flat'", "neutral"),
+        # Gap held
+        ("gap_held",  "Gap held at open",         "gap_held = TRUE",           "bullish"),
+        ("gap_fade",  "Gap faded at open",        "gap_held = FALSE",          "bearish"),
+        # First candle size
+        ("fc_rng_ge2","First candle range ≥2%",  "first_candle_range_pct >= 2",  "bullish"),
+        ("fc_rng_ge3","First candle range ≥3%",  "first_candle_range_pct >= 3",  "bullish"),
+        ("fc_rng_lt1","First candle range <1% (tight)", "first_candle_range_pct < 1", "neutral"),
+        # Prior close strength
+        ("pcs_ge07",  "Prior close strength ≥0.7 (closed near high)", "prior_close_strength >= 0.7", "bullish"),
+        ("pcs_lt03",  "Prior close strength <0.3 (closed near low)",  "prior_close_strength < 0.3",  "bearish"),
+        # Combos
+        ("gap5_rvol2",       "Gap ≥5% + RVOL ≥2x",
+         "premarket_gap_pct >= 5 AND premarket_rvol >= 2",           "bullish"),
+        ("gap5_fc_up",       "Gap ≥5% + first candle up",
+         "premarket_gap_pct >= 5 AND first_candle_direction = 'up'", "bullish"),
+        ("gap5_held",        "Gap ≥5% + gap held",
+         "premarket_gap_pct >= 5 AND gap_held = TRUE",               "bullish"),
+        ("rvol3_fc_up",      "RVOL ≥3x + first candle up",
+         "premarket_rvol >= 3 AND first_candle_direction = 'up'",    "bullish"),
+        ("gap3_rvol2_fc_up", "Gap ≥3% + RVOL ≥2x + first candle up",
+         "premarket_gap_pct >= 3 AND premarket_rvol >= 2 AND first_candle_direction = 'up'", "bullish"),
+        ("gap5_held_fc_up",  "Gap ≥5% + held + first candle up",
+         "premarket_gap_pct >= 5 AND gap_held = TRUE AND first_candle_direction = 'up'",    "bullish"),
+        ("pcs_gap3",         "Prior close strong + gap ≥3%",
+         "prior_close_strength >= 0.7 AND premarket_gap_pct >= 3",   "bullish"),
+        ("rvol2_tight_fc",   "RVOL ≥2x + tight first candle (<1%)",
+         "premarket_rvol >= 2 AND first_candle_range_pct < 1",       "bullish"),
+    ]
+    return cells
+
+
+def _mkt_intraday_grid_battery(batch_size=10, refresh_days=1):
+    """Run Fisher's exact test on same-day intraday hypothesis cells.
+    Tests each premarket/first-candle condition against day_win outcome.
+    Runs purely from aiem_first_candle_data — no API calls, no OpenAI.
+    Refresh_days=1 so every cell is retested daily as new data arrives.
+    """
+    import datetime as _igd, json as _igj, psycopg2 as _igpg
+    try:
+        from scipy.stats import fisher_exact as _fisher
+    except ImportError:
+        print("[intraday_grid] scipy not available — skip")
+        return {"status": "skip", "reason": "scipy missing"}
+
+    _mkt_ensure_intraday_grid_state_table()
+    all_cells = _mkt_intraday_grid_cells()
+
+    # Load current state
+    try:
+        with _igpg.connect(os.environ["DATABASE_URL"]) as _conn, _conn.cursor() as _cur:
+            _cur.execute("SELECT cell_key, last_tested_at FROM aiem_intraday_grid_state")
+            _state = {r[0]: r[1] for r in _cur.fetchall()}
+    except Exception as _e:
+        print(f"[intraday_grid] state load error: {_e}")
+        _state = {}
+
+    # Load settled outcome data (day_win not null)
+    try:
+        with _igpg.connect(os.environ["DATABASE_URL"]) as _conn2, _conn2.cursor() as _cur2:
+            _cur2.execute("""
+                SELECT COUNT(*) as total,
+                       SUM(CASE WHEN day_win THEN 1 ELSE 0 END) as wins
+                FROM aiem_first_candle_data
+                WHERE day_win IS NOT NULL
+            """)
+            _row = _cur2.fetchone()
+            total_n = _row[0] or 0
+            total_wins = _row[1] or 0
+    except Exception as _e:
+        print(f"[intraday_grid] baseline load error: {_e}")
+        return {"status": "error", "reason": str(_e)}
+
+    if total_n < 10:
+        print(f"[intraday_grid] only {total_n} settled rows — need ≥10 to test, skipping")
+        return {"status": "idle", "reason": f"insufficient data: {total_n} rows",
+                "total_rows": total_n}
+
+    baseline_wr = (total_wins / total_n * 100) if total_n > 0 else 50.0
+
+    # Find due cells
+    now = _igd.datetime.now()
+    due = []
+    for key, desc, where_sql, direction in all_cells:
+        last = _state.get(key)
+        if last is None or (now - last).days >= refresh_days:
+            due.append((key, desc, where_sql, direction, last is None))
+
+    if not due:
+        return {"status": "idle", "reason": "all intraday cells fresh",
+                "total_cells": len(all_cells), "total_rows": total_n}
+
+    due.sort(key=lambda x: (not x[4], _state.get(x[0]) or _igd.datetime.min))
+    batch = due[:batch_size]
+
+    tested, findings = [], []
+
+    for key, desc, where_sql, direction, is_new in batch:
+        try:
+            with _igpg.connect(os.environ["DATABASE_URL"]) as _conn3, _conn3.cursor() as _cur3:
+                _cur3.execute(f"""
+                    SELECT
+                        SUM(CASE WHEN day_win THEN 1 ELSE 0 END)::INT AS cond_wins,
+                        SUM(CASE WHEN NOT day_win THEN 1 ELSE 0 END)::INT AS cond_losses,
+                        COUNT(*)::INT AS cond_n
+                    FROM aiem_first_candle_data
+                    WHERE day_win IS NOT NULL AND ({where_sql})
+                """)
+                _r = _cur3.fetchone()
+                cond_wins, cond_losses, cond_n = (_r[0] or 0), (_r[1] or 0), (_r[2] or 0)
+
+            if cond_n < 5:
+                # Not enough data for this cell yet — mark as tested to avoid spin
+                _save_intraday_state(key, desc, where_sql, cond_n, 1.0, 0.0, baseline_wr)
+                continue
+
+            cond_wr = cond_wins / cond_n * 100 if cond_n > 0 else 0
+            ctrl_wins  = total_wins  - cond_wins
+            ctrl_losses = (total_n - total_wins) - cond_losses
+            table = [[cond_wins, cond_losses], [ctrl_wins, ctrl_losses]]
+            _, p_value = _fisher(table)
+
+            edge_pp = cond_wr - baseline_wr
+            result = {
+                "key": key, "description": desc, "direction": direction,
+                "n": cond_n, "win_rate_pct": round(cond_wr, 2),
+                "baseline_wr_pct": round(baseline_wr, 2),
+                "edge_pp": round(edge_pp, 2), "p_value": round(p_value, 6),
+            }
+            tested.append(result)
+
+            _save_intraday_state(key, desc, where_sql, cond_n, p_value, cond_wr, baseline_wr)
+
+            # Significance threshold: p<0.05, n>=10, edge >=3pp
+            if p_value < 0.05 and cond_n >= 10 and abs(edge_pp) >= 3.0:
+                findings.append(result)
+
+        except Exception as _te:
+            print(f"[intraday_grid] test error ({desc}): {_te}")
+
+    # Save significant findings
+    if findings:
+        try:
+            _combined = "\n".join(
+                _igj.dumps({
+                    "type": "intraday_same_day_finding",
+                    "description": f["description"],
+                    "condition": f["key"],
+                    "n": f["n"],
+                    "win_rate_pct": f["win_rate_pct"],
+                    "baseline_wr_pct": f["baseline_wr_pct"],
+                    "edge_pp": f["edge_pp"],
+                    "p_value": f["p_value"],
+                    "found_at": _igd.datetime.now().isoformat(),
+                })
+                for f in findings
+            )
+            _conf = "HIGH" if min(f["p_value"] for f in findings) < 0.01 else "MEDIUM"
+            with _igpg.connect(os.environ["DATABASE_URL"]) as _conn4, _conn4.cursor() as _cur4:
+                _cur4.execute("""
+                    INSERT INTO aiem_research_insights (research_date, findings, confidence)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (research_date) DO UPDATE SET
+                        findings = aiem_research_insights.findings || E'\\n' || EXCLUDED.findings
+                """, (_igd.date.today(), _combined, _conf))
+                _conn4.commit()
+        except Exception as _fe:
+            print(f"[intraday_grid] finding save error: {_fe}")
+
+    print(f"[intraday_grid] tested {len(tested)}/{len(batch)} cells "
+          f"(total data: {total_n} rows, baseline WR={baseline_wr:.1f}%), "
+          f"{len(findings)} significant findings")
+    return {
+        "status": "ok", "tested": len(tested), "due_remaining": len(due) - len(batch),
+        "total_cells": len(all_cells), "total_rows": total_n,
+        "baseline_wr_pct": round(baseline_wr, 2), "findings": len(findings),
+        "top": sorted(tested, key=lambda x: x["p_value"])[:5] if tested else [],
+    }
+
+
+def _save_intraday_state(key, desc, where_sql, n, p, wr, baseline):
+    import psycopg2 as _sis_pg, json as _sis_j
+    try:
+        with _sis_pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+            _cur.execute("""
+                INSERT INTO aiem_intraday_grid_state
+                    (cell_key, description, conditions, last_tested_at,
+                     last_n, last_p_value, last_win_rate, last_baseline)
+                VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s)
+                ON CONFLICT (cell_key) DO UPDATE SET
+                    last_tested_at = NOW(),
+                    last_n         = EXCLUDED.last_n,
+                    last_p_value   = EXCLUDED.last_p_value,
+                    last_win_rate  = EXCLUDED.last_win_rate,
+                    last_baseline  = EXCLUDED.last_baseline
+            """, (key, desc, _sis_j.dumps({"sql": where_sql}), n, p, wr, baseline))
+            _c.commit()
+    except Exception as _e:
+        print(f"[intraday_grid] state save error ({key}): {_e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Continuous scheduler (T5) — runs the free indicator grid nights/weekends,
 # pausing only during the daily production window when the site's own scan
 # jobs (8:35 AM Polygon RVOL scan + 9:30 AM-4:30 PM intraday tabs) are
@@ -30499,6 +30797,19 @@ def _mkt_continuous_research_loop():
                 _crl_t.sleep(1800)
             else:
                 _crl_t.sleep(300)
+            # ── Intraday same-day research (runs every loop iteration) ────────
+            # Tests premarket gap/RVOL/first-candle conditions against day_win.
+            # Refresh_days=1 so cells retest daily as new aiem_first_candle_data
+            # rows accumulate. Pure Fisher stats — zero OpenAI tokens.
+            try:
+                _intraday_result = _mkt_intraday_grid_battery(batch_size=10)
+                if _intraday_result.get("total_rows", 0) > 0:
+                    print(f"[intraday_grid] {_intraday_result.get('tested',0)} cells tested, "
+                          f"{_intraday_result.get('findings',0)} findings, "
+                          f"{_intraday_result.get('total_rows',0)} settled rows, "
+                          f"baseline WR={_intraday_result.get('baseline_wr_pct',0):.1f}%")
+            except Exception as _ige:
+                print(f"[intraday_grid] loop error: {_ige}")
         except Exception as _cle:
             print(f"[mkt_continuous_loop] error: {_cle}")
             _crl_t.sleep(300)
