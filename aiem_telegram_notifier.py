@@ -1051,6 +1051,18 @@ def main():
     #     replace_existing=True,
     # )
 
+    def _nightly_notifier_reset():
+        log.info("[NIGHTLY-RESET] 3:04 AM ET scheduled memory reset — exiting cleanly for platform restart")
+        import sys as _s; _s.stdout.flush()
+        import os as _o; _o._exit(0)
+
+    scheduler.add_job(
+        _nightly_notifier_reset,
+        CronTrigger(hour=3, minute=4, timezone=ET),
+        id="nightly_notifier_reset",
+        replace_existing=True,
+    )
+
     log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 10:30 AM options, Mon-Fri (3:00 PM RVOL combo PAUSED - see code comment)")
     try:
         scheduler.start()

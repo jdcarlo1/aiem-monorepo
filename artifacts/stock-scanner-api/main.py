@@ -298,11 +298,14 @@ else:
 # exits so the platform (Reserved VM) restarts it automatically — turning a
 # manual-redeploy-required, all-day outage into an ~1 minute automatic blip.
 def _lw_read_proc_status():
-    """Best-effort (thread_count, rss_bytes, rss_pct_of_total) from /proc. Never
-    raises — resource-starvation detection must not itself be a new crash risk."""
+    """Best-effort (thread_count, rss_bytes, rss_pct_of_total, vm_pressure_pct)
+    from /proc. Never raises — resource-starvation detection must not itself be
+    a new crash risk. vm_pressure_pct = (MemTotal-MemAvailable)/MemTotal across
+    ALL processes on this VM, not just this one."""
     threads_n = None
     rss_bytes = None
     rss_pct = None
+    vm_pressure_pct = None
     try:
         threads_n = threading.active_count()
     except Exception:
@@ -317,16 +320,20 @@ def _lw_read_proc_status():
         pass
     try:
         mem_total_kb = None
+        mem_available_kb = None
         with open("/proc/meminfo") as _f:
             for _line in _f:
                 if _line.startswith("MemTotal:"):
                     mem_total_kb = int(_line.split()[1])
-                    break
+                elif _line.startswith("MemAvailable:"):
+                    mem_available_kb = int(_line.split()[1])
         if mem_total_kb and rss_bytes:
             rss_pct = (rss_bytes / (mem_total_kb * 1024)) * 100
+        if mem_total_kb and mem_available_kb is not None:
+            vm_pressure_pct = ((mem_total_kb - mem_available_kb) / mem_total_kb) * 100
     except Exception:
         pass
-    return threads_n, rss_bytes, rss_pct
+    return threads_n, rss_bytes, rss_pct, vm_pressure_pct
 
 
 # Resource-starvation thresholds (see .agents/memory/db-pool-liveness-watchdog.md):
@@ -338,6 +345,8 @@ def _lw_read_proc_status():
 _LW_MAX_THREADS = 400
 _LW_MAX_RSS_PCT = 70.0
 
+_LW_MAX_VM_PRESSURE_PCT = 82.0
+
 def _liveness_watchdog_loop():
     import time as _lw_time
     import sys as _lw_sys
@@ -347,12 +356,13 @@ def _liveness_watchdog_loop():
     url = f"http://127.0.0.1:{PORT}/stock-api/"
     while True:
         _lw_time.sleep(30)
-        threads_n, rss_bytes, rss_pct = _lw_read_proc_status()
+        threads_n, rss_bytes, rss_pct, vm_pressure_pct = _lw_read_proc_status()
         rss_mb = (rss_bytes / (1024 * 1024)) if rss_bytes else None
         rss_mb_str = f"{rss_mb:.1f}" if rss_mb is not None else "unknown"
         rss_pct_str = f"{rss_pct:.1f}%" if rss_pct is not None else "unknown"
+        vm_str = f"{vm_pressure_pct:.1f}%" if vm_pressure_pct is not None else "unknown"
         print(f"[LIVENESS-WATCHDOG] threads={threads_n} rss_mb={rss_mb_str} "
-              f"rss_pct={rss_pct_str}", flush=True)
+              f"rss_pct={rss_pct_str} vm_pressure={vm_str}", flush=True)
         if threads_n is not None and threads_n > _LW_MAX_THREADS:
             print("=" * 78, flush=True)
             print(f"[LIVENESS-WATCHDOG] CRITICAL: thread count {threads_n} > {_LW_MAX_THREADS} — "
@@ -368,8 +378,21 @@ def _liveness_watchdog_loop():
         if rss_pct is not None and rss_pct > _LW_MAX_RSS_PCT:
             print("=" * 78, flush=True)
             print(f"[LIVENESS-WATCHDOG] CRITICAL: RSS {rss_pct:.1f}% of total VM memory > "
-                  f"{_LW_MAX_RSS_PCT}% — process is close to OOM-killing the whole VM (all co-located "
-                  f"artifacts). Force-exiting now for a clean, fast restart instead.", flush=True)
+                  f"{_LW_MAX_RSS_PCT}% — this process alone is close to OOM. "
+                  f"Force-exiting now for a clean, fast restart instead.", flush=True)
+            try:
+                _lw_faulthandler.dump_traceback(file=_lw_sys.stderr)
+            except Exception:
+                pass
+            _lw_sys.stdout.flush()
+            _lw_sys.stderr.flush()
+            os._exit(1)
+        if vm_pressure_pct is not None and vm_pressure_pct > _LW_MAX_VM_PRESSURE_PCT:
+            print("=" * 78, flush=True)
+            print(f"[LIVENESS-WATCHDOG] CRITICAL: total VM memory pressure {vm_pressure_pct:.1f}% > "
+                  f"{_LW_MAX_VM_PRESSURE_PCT}% — ALL processes combined (stock-api + aiem-process + "
+                  f"notifier + api-server) are consuming too much RAM. Force-exiting this process so "
+                  f"the platform restarts it and frees memory before OOM kills the whole VM.", flush=True)
             try:
                 _lw_faulthandler.dump_traceback(file=_lw_sys.stderr)
             except Exception:
@@ -16092,6 +16115,30 @@ try:
     print("[layer9_bg] 2-hour background scan scheduled (AI Short Calls + paper trades only)")
 except Exception as _e_l9_sched:
     print(f"[layer9_bg] scheduler error: {_e_l9_sched}")
+
+# ── Nightly 3 AM memory reset — exits cleanly so platform restarts fresh ─────
+# All six processes on this VM accumulate memory leaks through the day.
+# A clean exit at 3 AM (market closed, no scans running) gives each process
+# a fresh start with ~370 MB instead of building toward 2 GB and OOM-crashing.
+# The vm_pressure watchdog above is the emergency catch; this is the prevention.
+try:
+    def _nightly_memory_reset():
+        import sys as _nmr_sys
+        print("[NIGHTLY-RESET] 3:00 AM ET scheduled memory reset — exiting cleanly "
+              "for platform auto-restart", flush=True)
+        _nmr_sys.stdout.flush()
+        _nmr_sys.stderr.flush()
+        os._exit(0)
+
+    _scheduler.add_job(
+        _nightly_memory_reset,
+        CronTrigger(hour=3, minute=0, timezone=_ET),
+        id="nightly_memory_reset",
+        replace_existing=True,
+    )
+    print("[nightly-reset] 3:00 AM ET daily memory reset scheduled (prevents daily OOM crash)")
+except Exception as _e_nmr:
+    print(f"[nightly-reset] scheduler error: {_e_nmr}")
 
 
 # ── Panic Exhaustion Monitor — daily 4:30 PM ET ───────────────────────────────

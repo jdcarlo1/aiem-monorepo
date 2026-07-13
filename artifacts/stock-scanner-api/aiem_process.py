@@ -1683,6 +1683,16 @@ def main():
                   CronTrigger(day_of_week="mon-fri", hour=18, minute=0),
                   id="aiem_nightly_learn", replace_existing=True)
 
+    def _nightly_process_reset():
+        log.info("[NIGHTLY-RESET] 3:02 AM ET scheduled memory reset — exiting cleanly for platform restart")
+        import sys as _s; _s.stdout.flush()
+        import os as _o; _o._exit(0)
+
+    sched.add_job(_nightly_process_reset,
+                  CronTrigger(hour=3, minute=2),
+                  id="aiem_process_nightly_reset", replace_existing=True)
+    log.info("[nightly-reset] 3:02 AM ET daily memory reset scheduled for aiem-process")
+
     # ── Deep-ITM Options Probability scan (AIEM-owned, fully independent) ───
     # Full ~6,635-ticker options-active universe, pre-filtered to
     # avg_vol_30d>=2M via polygon_market_daily (zero extra API calls).
