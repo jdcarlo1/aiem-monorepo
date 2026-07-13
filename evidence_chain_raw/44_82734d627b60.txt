@@ -1,0 +1,4 @@
+ERROR:  column "created_at" does not exist
+LINE 1: SELECT checkpoint, mode, created_at FROM d3_checkpoint_confi...
+                                 ^
+HINT:  Perhaps you meant to reference the column "d3_checkpoint_config.updated_at".

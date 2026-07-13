@@ -1,0 +1,13 @@
+                        Table "public.d3_system_state"
+   Column   |           Type           | Collation | Nullable |    Default     
+------------+--------------------------+-----------+----------+----------------
+ id         | integer                  |           | not null | 1
+ state      | text                     |           | not null | 'NORMAL'::text
+ reason     | text                     |           |          | 
+ changed_by | text                     |           |          | 
+ changed_at | timestamp with time zone |           | not null | now()
+Indexes:
+    "d3_system_state_pkey" PRIMARY KEY, btree (id)
+Check constraints:
+    "d3_system_state_id_check" CHECK (id = 1)
+    "d3_system_state_state_check" CHECK (state = ANY (ARRAY['NORMAL'::text, 'DEGRADED'::text, 'RESTRICTED'::text, 'PAUSED'::text, 'RECOVERY_REQUIRED'::text, 'ROLLBACK_IN_PROGRESS'::text]))

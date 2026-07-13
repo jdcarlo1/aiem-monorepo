@@ -1,0 +1,102 @@
+   97 artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py
+  243 artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py
+  241 artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py
+  581 total
+---
+"""
+Directive 6 PAPER ENFORCEMENT harness.
+Step 3: Guard A check (direct import — no heavy subprocess needed).
+Steps 4-6: delegates to d3_directive6_enforcement_subprocess.py.
+"""
+import os, sys, subprocess, datetime, psycopg2
+
+sys.stdout.reconfigure(line_buffering=True)
+
+DB  = os.environ["DATABASE_URL"]
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+def _q(sql, *args):
+    with psycopg2.connect(DB, connect_timeout=4) as c, c.cursor() as cu:
+        cu.execute(sql, args)
+        return cu.fetchone()[0]
+
+print(f"=== Directive 6 PAPER ENFORCEMENT Harness ===")
+print(f"Start: {datetime.datetime.utcnow().isoformat()}Z")
+
+# ─── STEP 3: Guard A check (direct import — no subprocess) ───────────────
+print("\n=== STEP 3: Guard A — check_g0_enforce_preconditions() ===")
+sys.path.insert(0, HERE)
+import aiem_diagram3_governance as _d3
+
+_pre_cfghist_3 = _q("SELECT COUNT(*) FROM d3_governance_config_history")
+_pre_mode_3    = _q("SELECT mode  FROM d3_checkpoint_config WHERE checkpoint='G0'")
+_pre_state_3   = _q("SELECT state FROM d3_system_state WHERE id=1")
+print(f"[PRE-3] G0 mode={_pre_mode_3}  state={_pre_state_3}  "
+      f"config_history={_pre_cfghist_3}")
+
+_ga = _d3.check_g0_enforce_preconditions()
+print(f"[3] Guard A result: {_ga}")
+
+assert _ga["ok"] is True,         f"Guard A not CLEARED: {_ga}"
+assert _ga["state"] == "NORMAL",  f"state not NORMAL: {_ga['state']}"
+print(f"[3] ok={_ga['ok']}  state={_ga['state']}  mode={_ga['mode']} ✓")
+
+_post_cfghist_3 = _q("SELECT COUNT(*) FROM d3_governance_config_history")
+assert _post_cfghist_3 > _pre_cfghist_3, \
+    f"[3] Guard A did not write a config_history row"
+print(f"[3] d3_governance_config_history: {_pre_cfghist_3} → {_post_cfghist_3} "
+      f"(+{_post_cfghist_3 - _pre_cfghist_3}) ✓")
+
+# Verify the ledger event was also written
+_ledger_count = _q(
+    "SELECT COUNT(*) FROM d3_governance_event_links "
+    "WHERE governance_check_name='check_g0_enforce_preconditions' "
+    "AND reason_code='enforce_switch_cleared'"
+)
+print(f"[3] d3_governance_event_links 'enforce_switch_cleared' rows: {_ledger_count}")
+assert _ledger_count >= 1, "[3] no enforce_switch_cleared event found in ledger"
+print(f"[3] ledger event present ✓")
+print(f"[3] Guard A CLEARED → safe to proceed with ENFORCE switch ✓")
+
+# ─── STEPS 4-6: Subprocess ───────────────────────────────────────────────
+print("\n=== STEPS 4-6: subprocess (d3_directive6_enforcement_subprocess.py) ===")
+_subprocess_file = os.path.join(HERE, "d3_directive6_enforcement_subprocess.py")
+
+_proc = subprocess.run(
+    [sys.executable, _subprocess_file],
+    capture_output=True,
+    text=True,
+    timeout=600,
+    env={**os.environ},
+)
+
+print("─── SUBPROCESS STDOUT ───")
+print(_proc.stdout)
+if _proc.stderr.strip():
+    print("─── SUBPROCESS STDERR ───")
+    print(_proc.stderr)
+
+if _proc.returncode != 0:
+    print(f"[FAIL] subprocess exit code: {_proc.returncode}")
+    sys.exit(1)
+
+# ─── Post-subprocess assertions ───────────────────────────────────────────
+print("─── POST-SUBPROCESS VERIFICATION ───")
+
+assert "[ENFORCEMENT VERDICT] PASS" in _proc.stdout, \
+    "Did not find [ENFORCEMENT VERDICT] PASS in subprocess stdout"
+print("[ENFORCEMENT VERDICT] confirmed ✓")
+
+assert "[Guard B] Telegram alert failed: d6_forced_test_failure" in _proc.stdout, \
+    "Failed-alert log line not found in subprocess stdout"
+print("[Guard B] failed-alert log path confirmed ✓")
+
+# Confirm DB was restored to SHADOW+NORMAL after the test
+_final_mode  = _q("SELECT mode  FROM d3_checkpoint_config WHERE checkpoint='G0'")
+_final_state = _q("SELECT state FROM d3_system_state WHERE id=1")
+assert _final_mode  == "SHADOW", f"G0 mode not restored: {_final_mode}"
+assert _final_state == "NORMAL", f"system_state not restored: {_final_state}"
+print(f"DB restored: G0 mode={_final_mode}  state={_final_state} ✓")
+
+print(f"\n[FULL-TEST VERDICT] PASS — subprocess exit 0")
+print(f"End: {datetime.datetime.utcnow().isoformat()}Z")

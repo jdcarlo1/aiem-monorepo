@@ -1,0 +1,49 @@
+# DIRECTIVE — PAPER ENFORCEMENT Design-Doc Status Check
+**Date issued:** July 13, 2026
+**Scope:** Confirm whether the PAPER ENFORCEMENT design doc referenced as "item 3 of Directive 6" actually exists, and if so, whether it represents a plan only or any started implementation. This is a status-confirmation task, not an implementation task. Do NOT write any PAPER ENFORCEMENT code in this directive — scope is verification only.
+
+---
+
+## Background
+VERIFIED SHADOW has just been closed (negative-control test passed, evidence chain valid, 35 entries). The next stage in the D3 rollout is PAPER ENFORCEMENT — the point where D3 can actually halt the paper Decision Engine on a BLOCK verdict. Prior session notes reference a "PAPER ENFORCEMENT design-doc" as item 3 of an earlier Directive 6, but its current status has never been independently confirmed with raw evidence. This directive closes that gap.
+
+## Task 1 — Locate the design doc
+- Search the repo/workspace for any file matching the PAPER ENFORCEMENT design doc referenced in Directive 6 item 3 (by filename, by content — grep for "PAPER ENFORCEMENT", "paper enforcement", "D3 enforcement", etc.)
+- Provide raw `grep`/`find` output showing what was searched and what matched (or didn't).
+- If found: provide the file path, last-modified timestamp, and full contents (or a raw `cat`/`wc -l` if long, with the actual file pasted, not paraphrased).
+- If not found: state explicitly "no such file exists" and show the raw search commands/output that support that conclusion — do not infer from memory or prior conversation.
+
+## Task 2 — Determine implementation status
+- Independent of whether a design doc exists, check whether ANY code currently exists that would actually let D3 halt/block the paper Decision Engine (as opposed to just computing a verdict).
+- Specifically: grep for any call site where a D3 verdict (BLOCK/PAUSE/QUARANTINE) is checked and used to prevent `_aiem_paper_execute_today()` (or any paper trade execution path) from proceeding, OUTSIDE of the test harness (`d3_negctl_harness.py` / `d3_negctl_fulltest_subprocess.py`).
+- Paste raw grep output for this search. If nothing is found, state that explicitly.
+- Answer plainly: does live/production paper trading code currently have ANY enforcement hook wired in, or does the verdict currently go nowhere except the test harness and D3's own logging/audit tables?
+
+## Task 3 — Reconcile with Directive 6
+- If Directive 6 itself (or its evidence chain entries) still exist in logs/history, pull the actual item 3 text as originally written, verbatim, so we can compare "what was planned" vs. "what exists now."
+- Note any discrepancy between what Directive 6 asked for and what Task 1/Task 2 found.
+
+---
+
+## STANDING VERIFICATION BLOCK (required for this directive)
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution, including raw `grep`/`find` output for any claim about code locations, call chains, or whether a function/pattern/file exists — never paraphrase what grep would show.
+2. Exact before/after file diff (not applicable if no files are changed — but if that's the case, explicitly state "no files changed, no diff applicable").
+3. SHA256 hash before/after for any changed files.
+4. Raw SQL query + full result set if a database is involved.
+
+Narrative or paraphrased claims of "found," "confirmed," "exists," or "doesn't exist" without pasted raw evidence are rejected. If you cannot produce a required evidence item, say so explicitly rather than omitting it.
+
+## STANDING DATA IMMUTABILITY RULE
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test," "synthetic," or "cleanup" — without Joel's explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct. (This task should not require any deletions — it's read-only investigation.)
+
+## STANDING EVIDENCE CHAIN PROTOCOL
+Run all evidence-producing commands through `verified_run.sh` instead of running them directly, and validate the log with `verify_chain.sh` before declaring this directive complete — paste that script's output. This proves internal log consistency only, not that commands were genuinely executed against the real production environment; Joel may spot-check by independently re-running a sampled command himself.
+
+---
+
+## Deliverable
+A short final status statement answering exactly one of these three, with evidence attached:
+- **(a)** Design doc exists, describes a plan, no implementation started.
+- **(b)** Design doc exists, and some enforcement code has already been started/wired (describe exactly what, with grep evidence).
+- **(c)** No design doc exists at all; PAPER ENFORCEMENT is an unstarted track with no artifacts.

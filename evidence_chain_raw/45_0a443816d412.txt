@@ -1,0 +1,14 @@
+ checkpoint |  mode  |          updated_at           
+------------+--------+-------------------------------
+ G0         | SHADOW | 2026-07-12 21:46:45.949178+00
+ G1         | SHADOW | 2026-07-11 06:00:45.16722+00
+ G2         | SHADOW | 2026-07-11 06:00:45.16722+00
+ G3         | SHADOW | 2026-07-11 06:00:45.16722+00
+ G4         | SHADOW | 2026-07-11 06:00:45.16722+00
+ G5         | SHADOW | 2026-07-11 06:00:45.16722+00
+ G6         | SHADOW | 2026-07-11 06:00:45.16722+00
+(7 rows)
+
+ERROR:  column "updated_at" does not exist
+LINE 1: ...ckpoint_config ORDER BY checkpoint; SELECT state, updated_at...
+                                                             ^

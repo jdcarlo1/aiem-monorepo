@@ -1,0 +1,33 @@
+4312:                _g0_pot_result = _d3_g0_pot.require_governance_authorization(
+4336:                print(f"[scheduler] premarket_open_tracker G0 BLOCKED this tick — "
+4344:                            action_taken="TICK_SKIPPED_G0_BLOCK",
+4351:                        print(f"[scheduler] premarket_open_tracker G0 ack (BLOCK) failed, "
+43051:        _g0_result = _d3_g0.require_governance_authorization(
+43059:        print(f"[aiem_paper] G0 checkpoint itself raised — fail-closed BLOCK: {_g0e}")
+43060:        _g0_result = {"decision": "BLOCK", "reason_code": f"G0_CHECK_EXCEPTION:{_g0e}",
+43069:    _g0_gdid = _g0_result.get("governance_decision_id")
+43071:    if _g0_result.get("decision") == "BLOCK":
+43072:        print(f"[aiem_paper] G0 BLOCKED this run — {_g0_result.get('reason_code')} "
+43073:              f"(system_state={_g0_result.get('system_state')}, checkpoint_mode={_g0_result.get('mode')})"
+43079:                    "VALUES ('BLOCKED_G0', %s, %s)",
+43080:                    (trigger_source, f"G0 governance checkpoint blocked this run: {_g0_result.get('reason_code')}"),
+43084:                    print("[aiem_paper][TEST_MODE] BLOCKED_G0 INSERT rolled back — zero production rows written")
+43088:            print(f"[aiem_paper] BLOCKED_G0 log error: {_ble}")
+43093:                    action_taken="RUN_BLOCKED_G0",
+43100:                print(f"[aiem_paper] G0 ack (BLOCK) failed, non-fatal: {_g0_ack_e}")
+43109:                    f"\U0001f6a8 [D3-G0 BLOCK] Paper trading halted \u2014 no trades placed today.\n"
+43110:                    f"State: {_g0_result.get('system_state')} | Mode: {_g0_result.get('mode')}\n"
+43119:            "decision": _g0_result.get("decision"),
+43120:            "reason_codes": _g0_result.get("reason_codes"),
+43121:            "mode": _g0_result.get("mode"),
+43122:            "system_state": _g0_result.get("system_state"),
+43126:        if _g0_result.get("would_block"):
+43127:            print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "
+43128:                  f"(ledger_event_id={_g0_result.get('ledger_event_id')})")
+43307:            _g1_result = _d3_g1.require_governance_authorization(
+43482:                    _g6_result = _d3gov_g6.require_governance_authorization(
+44059:                    _g2_result = _d3_g2.require_governance_authorization(
+44134:                    _g3_result = _d3_g3.require_governance_authorization(
+63302:    halted   = "[TEST_MODE] BLOCKED_G0 INSERT rolled back" in captured
+63303:    blocked  = "G0 BLOCKED this run" in captured
+63941:            _g4_result = _d3_g4.require_governance_authorization(

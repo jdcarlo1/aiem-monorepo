@@ -1,0 +1,8 @@
+/home/runner/workspace/.agents/memory/aiem-sizing-gate-enforcement.md
+/home/runner/workspace/.agents/memory/d3-paper-enforcement-design.md
+/home/runner/workspace/.agents/memory/order-dedup-enforcement.md
+/home/runner/workspace/.agents/memory/risk-gate-enforcement-gaps.md
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py
+/home/runner/workspace/artifacts/stock-scanner-api/tests/test_sizing_gate_enforcement.py

@@ -1,0 +1,10 @@
+3469:def check_g0_enforce_preconditions() -> Dict[str, Any]:
+3500:                                'check_g0_enforce_preconditions')
+3511:                governance_check_name="check_g0_enforce_preconditions",
+3512:                governance_function="check_g0_enforce_preconditions",
+3518:                reason_code="enforce_switch_blocked",
+3526:            "reason": "enforce_switch_blocked",
+3545:                            'check_g0_enforce_preconditions')
+3556:            governance_check_name="check_g0_enforce_preconditions",
+3557:            governance_function="check_g0_enforce_preconditions",
+3563:            reason_code="enforce_switch_cleared",

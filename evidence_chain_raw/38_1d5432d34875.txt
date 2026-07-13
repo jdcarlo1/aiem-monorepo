@@ -1,0 +1,30 @@
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:2:Directive 6 PAPER ENFORCEMENT — subprocess.
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:3:Called by d3_directive6_enforcement_harness.py.
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:70:    reason="directive6_block_test: temporary PAUSED for enforcement verification",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:71:    changed_by="directive6_test",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:77:    reason="directive6_block_test: temporary ENFORCE for enforcement verification",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:78:    changed_by="directive6_test",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:93:_r5a = _main._aiem_paper_execute_today(trigger_source="directive6_block_5a")
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:107:    "WHERE status='BLOCKED_G0' AND trigger_source='directive6_block_5a'"
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:130:_r5b = _main._aiem_paper_execute_today(trigger_source="directive6_block_5b")
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:156:    reason="directive6_test_restore: restoring SHADOW after block test",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:157:    changed_by="directive6_test",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:164:    reason="directive6_test_restore: restoring NORMAL after block test",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:165:    changed_by="directive6_test",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:184:    "source":     "directive6_test",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:198:_r6 = _main._aiem_paper_execute_today(trigger_source="directive6_allow_6")
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py:2:Directive 6 PAPER ENFORCEMENT harness.
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py:4:Steps 4-6: delegates to d3_directive6_enforcement_subprocess.py.
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py:18:print(f"=== Directive 6 PAPER ENFORCEMENT Harness ===")
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py:57:print("\n=== STEPS 4-6: subprocess (d3_directive6_enforcement_subprocess.py) ===")
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py:58:_subprocess_file = os.path.join(HERE, "d3_directive6_enforcement_subprocess.py")
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:2:Directive 6 PAPER ENFORCEMENT — governance-layer test.
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:33:print(f"=== Directive 6 PAPER ENFORCEMENT — governance-layer test ===")
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:53:    reason="directive6_govtest: temporary PAUSED for enforcement verification",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:54:    changed_by="directive6_govtest",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:60:    reason="directive6_govtest: temporary ENFORCE for enforcement verification",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:61:    changed_by="directive6_govtest",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:81:    trigger_source="directive6_block_5a",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:82:    payload={"ticker": "TEST_D6_BLOCK", "trigger": "directive6_govtest_step5a"},
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:113:            acknowledged_by="directive6_govtest",
+/home/runner/workspace/artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py:178:    reason="directive6_govtest_restore: restoring SHADOW after block test",
