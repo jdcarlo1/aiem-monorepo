@@ -1,0 +1,121 @@
+# Directive: Diagnostic — discovered_candidates & aiem_discovery_memory
+
+**Date:** July 14, 2026
+**Context:** Two smaller open items, not yet drafted as directives, flagged in
+prior sessions. This is diagnostic only — no code changes authorized under
+this directive.
+
+---
+
+## Item A — discovered_candidates has 0 rows despite 800 rows/day flowing in
+
+`run_tiered_wl_cycle()` writes 800 rows/day to `daily_market_movers`
+(confirmed working, CronTrigger mon-fri 17:10 ET). The discovery engine runs
+20 minutes later. But `discovered_candidates` has 0 rows. Determine: is this
+a legitimately strict filter (working as intended), or a logic bug (candidates
+are being dropped somewhere they shouldn't be)?
+
+### Required diagnostic steps
+
+1. **Confirm current row count and full history**, not just "0 now":
+   ```sql
+   SELECT COUNT(*) AS total, MIN(created_at) AS earliest, MAX(created_at) AS latest
+   FROM discovered_candidates;
+   ```
+
+2. **Trace the exact function(s) between `daily_market_movers` and
+   `discovered_candidates`.** Grep for every function that reads from
+   `daily_market_movers` and every function that writes to
+   `discovered_candidates`. Paste raw grep output — do not paraphrase.
+
+3. **Identify the filter logic** applied in that path (thresholds, conditions,
+   any `WHERE` clauses or in-code filtering). Paste the actual filter
+   conditions verbatim from the source.
+
+4. **Run the filter logic manually against a sample of yesterday's 800 rows**
+   from `daily_market_movers` and report how many would pass. If 0 pass,
+   show the specific values that fail the filter and by how much (e.g.,
+   "conviction score 0.31, threshold requires ≥0.60 — closest miss was 0.58").
+
+5. **Determine verdict**: strict-filter-working-as-intended vs. logic bug.
+   State which, and state the evidence that supports the determination —
+   not a narrative conclusion alone.
+
+---
+
+## Item B — aiem_discovery_memory fully orphaned
+
+`aiem_discovery_memory` has 0 rows, all time, and no references were found
+in `aiem_discovery_engine.py` in a prior session. Determine: dead schema
+(safe to note as unused) vs. missed wire-up (something was supposed to write
+to this table and doesn't).
+
+### Required diagnostic steps
+
+1. **Full-codebase grep** for `aiem_discovery_memory` across every file, not
+   just `aiem_discovery_engine.py`. Paste raw grep output in full — every
+   hit, every file, every line number.
+
+2. **For each hit found**, classify it: table creation/DDL, read, write,
+   comment/dead reference, or test-only reference.
+
+3. **If zero write references exist anywhere in the codebase**: check git
+   history / any available prior commit references for whether this table
+   was ever intentionally wired and later removed, or whether it was created
+   speculatively and never connected. State which, with evidence (e.g., a
+   commit message, a comment in code, or explicit "no evidence found either
+   way").
+
+4. **Determine verdict**: dead schema vs. missed wire-up. If missed wire-up,
+   identify what should be writing to it (do not implement the fix under
+   this directive — diagnostic only).
+
+---
+
+## Scope boundary
+
+**This directive is diagnostic only.** No code changes, no filter threshold
+adjustments, and no new write paths may be implemented as part of this work.
+If either investigation surfaces a clear fix, describe it and stop — a
+separate directive will be drafted for implementation after Joel reviews the
+findings.
+
+---
+
+## Verification Block (required for completion)
+
+1. **Raw terminal output** for all commands, including raw grep output for
+   any claim about code locations, call chains, or whether a
+   function/pattern/table reference exists — never paraphrase what grep
+   would show.
+2. **Raw SQL query + full result set** for every query run.
+3. **sha256 hash** — not applicable unless files are touched; note if no
+   files were changed.
+4. Narrative/paraphrased claims of "confirmed," "found," or "determined"
+   without pasted raw evidence are rejected. The agent must explicitly say
+   if it cannot produce evidence for any point.
+
+## Data Immutability Rule
+
+The agent may never delete, truncate, drop, or overwrite any row, table, or
+file — including data it created itself or labels "test"/"synthetic"/
+"cleanup" — without Joel's explicit prior approval in that session. Must
+state what it wants to delete and why, wait for approval, then log it. Any
+unapproved deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol
+
+All evidence-producing commands must run through `verified_run.sh` instead
+of running them directly, and the log must be validated with
+`verify_chain.sh` before declaring this directive complete — paste that
+script's output. This proves internal log consistency only, not that
+commands were genuinely executed against the real production DB — Joel may
+spot-check with an independently re-run sampled command.
+
+---
+
+## Status
+
+**OPEN — not yet run.** Independent of the Directive 11 Phase 4 / Stage 13
+work and does not need to wait for tomorrow's 9:42 AM ET paper-trade cycle.
+Can be worked in parallel.
