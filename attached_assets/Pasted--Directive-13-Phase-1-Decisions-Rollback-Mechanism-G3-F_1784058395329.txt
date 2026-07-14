@@ -1,0 +1,66 @@
+# Directive 13 — Phase 1: Decisions + Rollback Mechanism + G3 Flip
+
+## Context
+Phase 0 (diagnostic) is complete and confirmed the following via raw code and live DB evidence:
+- `decision = "ALLOW"` is the unconditional default in `_evaluate_g3_decision()` (aiem_diagram3_governance.py:2177). The only path to `decision = "BLOCK"` is `mode == "ENFORCE" and would_block` (line 2180).
+- All 5 checkpoints (G0, G1, G6, G2, G3) call the identical `require_governance_authorization()` pattern, gated by a single per-checkpoint config flag in `d3_checkpoint_config`.
+- The downstream `continue` branch at main.py:17892 already handles a real BLOCK correctly — it was built for ENFORCE mode and has never been exercised in production.
+- Guard A is not a named construct in code (just an unnamed `would_block` assignment). Guard B (Telegram alert, main.py:16835) is real but structurally unreachable in SHADOW mode.
+- Neither guard can stop a trade today. QUARANTINE does not exist as a verdict.
+- 3 of 9 unregistered strategy sources (gap_volume, unusual_calls, aiem_v3_discovery) were approved in `d3_strategy_registry` at 15:30 UTC. 6 remain unregistered: sweep, oi_buildup, washout_ignition, layer9_stat, squeeze_reversion, premarket_open_trader.
+
+## Scope of Phase 1
+This phase covers **G3 only**. G0, G1, G6, G2 are explicitly out of scope until Phase 3.
+
+## Task 1 — Resolve the 6 unregistered strategy sources
+Before flipping G3 to ENFORCE, Joel must decide the fate of: sweep, oi_buildup, washout_ignition, layer9_stat, squeeze_reversion, premarket_open_trader.
+
+Agent instructions:
+- Do NOT auto-approve any of these sources. Present Joel with what's known about each source's paper performance/history (query `d3_governance_decisions` and any relevant performance tables for each source name) so he can decide per-source: approve into `d3_strategy_registry`, or accept that it will be hard-blocked once G3 is in ENFORCE.
+- Wait for Joel's explicit decision on each of the 6 sources before proceeding to Task 3.
+- Log Joel's decision for each source (approved / accepted-as-blocked) with timestamp.
+
+## Task 2 — Build the rollback mechanism
+Build a way to instantly revert G3 from ENFORCE back to SHADOW without a code change or deploy.
+
+Requirements:
+- A single DB row update (mirroring the flip mechanism itself) must be sufficient to roll back, e.g.:
+  ```sql
+  UPDATE d3_checkpoint_config SET mode='SHADOW', updated_by='directive13_rollback' WHERE checkpoint='G3';
+  ```
+- Confirm via raw test that after this rollback update, `_evaluate_g3_decision()` immediately returns to unconditional ALLOW behavior with no caching/staleness delay. If there IS a caching layer that could delay rollback taking effect, this must be identified and reported before proceeding — do not proceed with the flip in Task 3 until rollback is proven instant.
+- Document the exact rollback command in a clearly labeled section of the completion report so Joel can use it himself without needing to ask the agent.
+
+## Task 3 — Flip G3 to ENFORCE
+Only after Task 1 decisions are logged and Task 2 rollback is proven:
+```sql
+UPDATE d3_checkpoint_config SET mode='ENFORCE', updated_by='directive13' WHERE checkpoint='G3';
+```
+- Confirm via raw SQL query of `d3_checkpoint_config` that the row now shows `mode='ENFORCE'` for checkpoint G3.
+- Do NOT run a live paper cycle yet. Verification of real BLOCK/ALLOW behavior under ENFORCE is Phase 2, not this phase.
+- This phase ends once the flip is confirmed at the DB level. No trading cycle should be triggered as part of this directive.
+
+---
+
+## Verification Block (required for every task above)
+No task is complete based on description alone. For each task, the agent must provide:
+1. Raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists — never paraphrase what grep would show.
+2. Exact before/after file diff for any code changed.
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set for any DB check (including the `d3_checkpoint_config` confirmation in Task 3).
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. The agent must explicitly say if it cannot produce evidence for any claim.
+
+## Data Immutability Rule
+The agent may never delete, truncate, drop, or overwrite any row, table, or file — including data it created itself or labels "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in that session. The agent must state what it wants to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol
+All evidence-producing commands in this directive must be run through `verified_run.sh`, not run directly. The agent must validate the resulting log with `verify_chain.sh` before declaring any task or this directive complete, and must paste that script's raw output. This supplements, not replaces, the raw-evidence Verification Block above. Note: this proves internal log consistency only — not that commands were genuinely executed against the real production DB. Joel should periodically spot-check by independently re-running a sampled command himself.
+
+---
+
+## Definition of done for Phase 1
+- All 6 unregistered strategy sources have a logged decision from Joel.
+- Rollback mechanism is built and proven instant via raw test evidence.
+- G3 is confirmed in ENFORCE mode via raw SQL query.
+- No trading cycle has been run yet under ENFORCE — that begins in Phase 2.
