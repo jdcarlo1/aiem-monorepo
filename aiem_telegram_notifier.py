@@ -796,6 +796,298 @@ def _update_trifecta_status(today, status: str):
         log.warning(f"[trifecta] status update error: {e}")
 
 
+def _update_notifier_status(send_date, brief_type: str, status: str):
+    """Generic notifier log status updater."""
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+        cur  = conn.cursor()
+        cur.execute("""
+            UPDATE aiem_notifier_log SET status=%s, updated_at=NOW()
+            WHERE send_date=%s AND brief_type=%s
+        """, (status, send_date, brief_type))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning(f"[notifier-log] status update error ({brief_type}): {e}")
+
+
+# ─────────────────────────────────────────────────────────────
+# 8:50 AM  AIEM PATTERN ENGINE — Multi-day momentum & reversal
+#
+# Nine backtested patterns discovered by AIEM on polygon_market_daily.
+# All computed from last 35 trading days of OHLCV data. Fires premarket
+# so user can enter at today's open. Only sends when ≥1 pattern has hits.
+# Idempotent via aiem_notifier_log brief_type='pattern_engine'.
+#
+# Patterns (sorted by win rate):
+#   ROC-12 < -10%              — 10d 81.82% / 5d 75.07% / 3d 63.05%
+#   High ATR >3% + momentum    — 5d  74.47%
+#   High ATR >3%               — 10d 75.0%
+#   10-day momentum positive   — 5d  73.87% / 10d 70.85%
+#   Williams %R + MFI oversold — 5d  72.01% / 3d 65.22%
+#   MACD bearish + ADX >25     — 10d 71.53%
+#   Washout RSI+Stoch+Will     — 10d 67.82%
+#   Stoch + CCI oversold       — 5d  67.09%
+#   CMF outflow + MACD bearish — 5d  66.65%
+# ─────────────────────────────────────────────────────────────
+def send_pattern_engine_alert():
+    """8:50 AM ET Mon-Fri — AIEM Pattern Engine multi-day signals."""
+    today = date.today()
+    conn  = None
+
+    # ── Idempotency claim ─────────────────────────────────────────────────
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO aiem_notifier_log (send_date, brief_type, claimed_at, status)
+            VALUES (%s, 'pattern_engine', NOW(), 'claimed')
+            ON CONFLICT (send_date, brief_type) DO NOTHING
+        """, (today,))
+        conn.commit()
+        cur.execute("""
+            SELECT status FROM aiem_notifier_log
+            WHERE send_date=%s AND brief_type='pattern_engine'
+        """, (today,))
+        row = cur.fetchone()
+        if row and row[0] != "claimed":
+            log.info(f"[pattern-engine] already sent ({row[0]}), skipping")
+            return
+    except Exception as e:
+        log.warning(f"[pattern-engine] DB claim error: {e}")
+        return
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+    # ── Pull last 35 trading days of OHLCV ───────────────────────────────
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=15)
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT scan_date FROM polygon_market_daily
+            ORDER BY scan_date DESC LIMIT 35
+        """)
+        dates = [r[0] for r in cur.fetchall()]
+        if not dates:
+            log.warning("[pattern-engine] no data in polygon_market_daily")
+            _update_notifier_status(today, 'pattern_engine', 'no_data')
+            return
+        latest_date = dates[0]
+        min_date    = dates[-1]
+
+        cur.execute("""
+            SELECT ticker, scan_date,
+                   close_price, high_price, low_price, volume
+            FROM polygon_market_daily
+            WHERE scan_date >= %s
+              AND close_price > 1.0
+              AND volume     > 100000
+            ORDER BY ticker, scan_date
+        """, (min_date,))
+        rows = cur.fetchall()
+    except Exception as e:
+        log.warning(f"[pattern-engine] DB fetch error: {e}")
+        _update_notifier_status(today, 'pattern_engine', f'db_error={e}')
+        return
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
+
+    if not rows:
+        _update_notifier_status(today, 'pattern_engine', 'no_data')
+        return
+
+    # ── Compute indicators with pandas ───────────────────────────────────
+    try:
+        import pandas as _pd
+        import numpy  as _np
+
+        df = _pd.DataFrame(rows, columns=['ticker','scan_date','close','high','low','volume'])
+        df = df.sort_values(['ticker','scan_date'])
+
+        # Drop tickers with < 27 rows (need 26 for MACD + 1 diff)
+        counts = df.groupby('ticker').size()
+        df = df[df['ticker'].isin(counts[counts >= 27].index)].copy()
+
+        def _compute(g):
+            g = g.sort_values('scan_date').copy()
+            c, h, l, v = g['close'], g['high'], g['low'], g['volume']
+
+            # ROC 12-day
+            g['roc12'] = (c - c.shift(12)) / (c.shift(12) + 1e-9) * 100
+
+            # ATR% 14 (H-L range proxy / close)
+            g['atr_pct'] = (h - l).rolling(14).mean() / (c + 1e-9) * 100
+
+            # 10-day momentum (signed price change)
+            g['mom10'] = c - c.shift(10)
+
+            # Williams %R 14
+            h14 = h.rolling(14).max()
+            l14 = l.rolling(14).min()
+            g['willr'] = (h14 - c) / (h14 - l14 + 1e-9) * -100
+
+            # Typical price
+            tp = (h + l + c) / 3
+
+            # MFI 14
+            mf      = tp * v
+            pos_mf  = mf.where(tp > tp.shift(1), 0.0)
+            neg_mf  = mf.where(tp < tp.shift(1), 0.0)
+            pmf14   = pos_mf.rolling(14).sum()
+            nmf14   = neg_mf.rolling(14).sum()
+            g['mfi'] = 100 - (100 / (1 + pmf14 / (nmf14 + 1e-9)))
+
+            # RSI 14
+            delta    = c.diff()
+            gain     = delta.where(delta > 0, 0.0)
+            loss     = (-delta).where(delta < 0, 0.0)
+            avg_gain = gain.ewm(com=13, adjust=False).mean()
+            avg_loss = loss.ewm(com=13, adjust=False).mean()
+            g['rsi'] = 100 - (100 / (1 + avg_gain / (avg_loss + 1e-9)))
+
+            # Stoch %K 14
+            g['stoch'] = (c - l14) / (h14 - l14 + 1e-9) * 100
+
+            # MACD (12,26,9) — bearish when macd < signal
+            ema12       = c.ewm(span=12, adjust=False).mean()
+            ema26       = c.ewm(span=26, adjust=False).mean()
+            macd        = ema12 - ema26
+            g['macd']   = macd
+            g['macd_sig'] = macd.ewm(span=9, adjust=False).mean()
+
+            # ADX 14
+            tr   = _pd.concat([h-l, (h-c.shift(1)).abs(), (l-c.shift(1)).abs()], axis=1).max(axis=1)
+            h_d  = h - h.shift(1)
+            l_d  = l.shift(1) - l
+            dm_p = h_d.where((h_d > l_d) & (h_d > 0), 0.0)
+            dm_n = l_d.where((l_d > h_d) & (l_d > 0), 0.0)
+            atr14    = tr.ewm(alpha=1/14, adjust=False).mean()
+            di_p     = dm_p.ewm(alpha=1/14, adjust=False).mean() / (atr14 + 1e-9) * 100
+            di_n     = dm_n.ewm(alpha=1/14, adjust=False).mean() / (atr14 + 1e-9) * 100
+            dx       = (di_p - di_n).abs() / (di_p + di_n + 1e-9) * 100
+            g['adx'] = dx.ewm(alpha=1/14, adjust=False).mean()
+
+            # CCI 20
+            tp_m20   = tp.rolling(20).mean()
+            tp_mad20 = tp.rolling(20).apply(lambda x: (x - x.mean()).abs().mean(), raw=True)
+            g['cci'] = (tp - tp_m20) / (0.015 * tp_mad20 + 1e-9)
+
+            # CMF 20
+            mfv      = ((c - l) - (h - c)) / (h - l + 1e-9) * v
+            g['cmf'] = mfv.rolling(20).sum() / (v.rolling(20).sum() + 1e-9)
+
+            return g
+
+        df = df.groupby('ticker', group_keys=False).apply(_compute)
+
+        # Only evaluate the most recent date
+        latest = df[df['scan_date'] == latest_date].dropna(
+            subset=['roc12','atr_pct','mom10','willr','mfi','rsi','stoch',
+                    'macd','macd_sig','adx','cci','cmf']
+        ).copy()
+
+    except Exception as e:
+        log.warning(f"[pattern-engine] indicator compute error: {e}")
+        _update_notifier_status(today, 'pattern_engine', f'compute_error={e}')
+        return
+
+    if latest.empty:
+        log.info(f"[pattern-engine] no valid indicators for {latest_date}")
+        _update_notifier_status(today, 'pattern_engine', f'no_latest date={latest_date}')
+        return
+
+    # ── Apply pattern conditions ──────────────────────────────────────────
+    patterns_found = []
+
+    def _hit(mask, label, horizon, wr, emoji, sort_col, ascending=True, limit=8):
+        sub = latest[mask]
+        if sub.empty:
+            return
+        tickers = sub.sort_values(sort_col, ascending=ascending)['ticker'].head(limit).tolist()
+        patterns_found.append((emoji, label, horizon, wr, tickers))
+
+    # 1. ROC-12 < -10% (deeply oversold) — 81.82% WR 10d
+    _hit(latest['roc12'] < -10,
+         "12-Day ROC < -10%  (Deeply Oversold)",
+         "5-10d hold", "75-82% WR", "🔴", 'roc12', ascending=True)
+
+    # 2. High ATR >3% + 10d momentum positive — 74.47% WR 5d
+    _hit((latest['atr_pct'] > 3) & (latest['mom10'] > 0),
+         "High ATR >3% + Momentum Positive",
+         "5d hold", "74.5% WR", "🟠", 'atr_pct', ascending=False)
+
+    # 3. High ATR >3% + momentum flat/negative — 75.0% WR 10d
+    _hit((latest['atr_pct'] > 3) & (latest['mom10'] <= 0),
+         "High ATR >3%  (Momentum Neutral/Negative)",
+         "10d hold", "75.0% WR", "🟠", 'atr_pct', ascending=False)
+
+    # 4. 10-day momentum positive, low ATR — 73.87% WR 5d
+    _hit((latest['mom10'] > 0) & (latest['atr_pct'] <= 3),
+         "10-Day Momentum Positive  (Steady)",
+         "5-10d hold", "71-74% WR", "🟢", 'mom10', ascending=False)
+
+    # 5. Williams %R + MFI both oversold — 72.01% WR 5d
+    _hit((latest['willr'] < -80) & (latest['mfi'] < 20),
+         "Williams %R + MFI Oversold",
+         "3-5d hold", "65-72% WR", "🔵", 'willr', ascending=True)
+
+    # 6. MACD bearish + ADX trending >25 — 71.53% WR 10d
+    _hit((latest['macd'] < latest['macd_sig']) & (latest['adx'] > 25),
+         "MACD Bearish + ADX Trending (>25)",
+         "10d hold", "71.5% WR", "🟣", 'adx', ascending=False)
+
+    # 7. Washout — RSI + Stoch + Williams all oversold — 67.82% WR 10d
+    _hit((latest['rsi'] < 30) & (latest['stoch'] < 20) & (latest['willr'] < -80),
+         "Washout — RSI + Stoch + Williams All Oversold",
+         "10d hold", "67.8% WR", "⚫", 'rsi', ascending=True)
+
+    # 8. Stoch + CCI both oversold — 67.09% WR 5d
+    _hit((latest['stoch'] < 20) & (latest['cci'] < -100),
+         "Stoch + CCI Oversold",
+         "5d hold", "67.1% WR", "🟤", 'cci', ascending=True)
+
+    # 9. CMF outflow + MACD bearish — 66.65% WR 5d
+    _hit((latest['cmf'] < 0) & (latest['macd'] < latest['macd_sig']),
+         "CMF Outflow + MACD Bearish",
+         "5d hold", "66.7% WR", "🟤", 'cmf', ascending=True)
+
+    if not patterns_found:
+        log.info("[pattern-engine] no pattern hits today — silent skip")
+        _update_notifier_status(today, 'pattern_engine', 'sent_empty ok=True (no hits)')
+        return
+
+    # ── Build and send Telegram message ───────────────────────────────────
+    lines = [
+        f"📊 AIEM PATTERN ENGINE — {latest_date.strftime('%a %b %-d')}",
+        "Multi-day reversal & momentum signals",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "",
+    ]
+    total_stocks = 0
+    for emoji, label, horizon, wr, tickers in patterns_found:
+        total_stocks += len(tickers)
+        ticker_str = "  ".join(tickers[:6])
+        extra = f"  +{len(tickers)-6} more" if len(tickers) > 6 else ""
+        lines.append(f"{emoji} {label}  |  {wr}  |  {horizon}")
+        lines.append(f"   {ticker_str}{extra}")
+        lines.append("")
+
+    lines.append(f"Patterns: {len(patterns_found)}  |  Stocks: {total_stocks}")
+    lines.append(f"Based on {latest_date.strftime('%b %-d')} close data")
+    lines.append("⚠️ Multi-day holds — not same-day trades")
+
+    msg = "\n".join(lines)
+    ok = _tg_send(msg, signal_source="aiem_pattern_engine", alert_class="SIGNAL")
+    log.info(f"[pattern-engine] alert sent ok={ok} patterns={len(patterns_found)} stocks={total_stocks}")
+    _update_notifier_status(today, 'pattern_engine',
+                            f"sent_ok={ok} patterns={len(patterns_found)} stocks={total_stocks}")
+
+
 # ─────────────────────────────────────────────────────────────
 # 3:00 PM RVOL / GAP / CLOSE-STRENGTH COMBO BRIEF
 # Read-only w.r.t. polygon_market_daily (written by main.py's 8:35 AM
@@ -1299,6 +1591,12 @@ def main():
         id="aiem_trifecta_signal_alert",
         replace_existing=True,
     )
+    scheduler.add_job(
+        send_pattern_engine_alert,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=50, timezone=ET),
+        id="aiem_pattern_engine_alert",
+        replace_existing=True,
+    )
     # PAUSED 2026-07-09 — see comment above _catchup's rvol_combo block for why.
     # scheduler.add_job(
     #     send_rvol_combo_alert,
@@ -1319,7 +1617,7 @@ def main():
         replace_existing=True,
     )
 
-    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll)")
+    log.info("AIEM Telegram Notifier started — 8:50 AM PATTERN ENGINE + 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll)")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
