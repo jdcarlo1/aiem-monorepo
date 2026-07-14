@@ -7748,6 +7748,48 @@ try:
                             print("[startup_catchup] module still loading after 600s — will run at next 9:35 AM schedule")
                     except Exception as _e_pt:
                         print(f"[startup_catchup] paper trading catch-up error: {_e_pt}")
+            elif _dow < 5 and _hour_et >= 16:
+                # ── After-hours restart: recovery window has closed ────────────
+                # APScheduler misfire_grace_time=600s only helps if the scheduler
+                # itself was running (merely delayed).  A full VM crash means the
+                # 9:42 AM CronTrigger never fired.  Replaying after 4 PM is unsafe
+                # (stale prices, EOD position conflicts).  Previously this branch
+                # was completely silent — now we write an explicit SKIPPED audit
+                # record so no scheduled run can ever be silently missed.
+                _missed_paper_ah = False
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_sk, \
+                         _c_sk.cursor() as _cur_sk:
+                        _cur_sk.execute(
+                            "SELECT 1 FROM aiem_paper_trades WHERE trade_date=%s LIMIT 1",
+                            (_today_et,)
+                        )
+                        if not _cur_sk.fetchone():
+                            _missed_paper_ah = True
+                except Exception as _sk_chk_e:
+                    print(f"[startup_catchup] after-hours trade-check error: {_sk_chk_e}")
+                if _missed_paper_ah:
+                    print(f"[startup_catchup] AFTER-HOURS RESTART: no paper trades for "
+                          f"{_today_et} and hour={_hour_et} >= 16 — "
+                          f"recovery window closed; writing SKIPPED audit record")
+                    try:
+                        import aiem_scheduler_audit as _sched_audit_sk
+                        import datetime as _sa_sk_dt
+                        _sched_time_sk = _et_tz_su.localize(
+                            _sa_sk_dt.datetime(
+                                _now_et.year, _now_et.month, _now_et.day, 9, 42, 0
+                            )
+                        )
+                        _sched_audit_sk.write_audit(
+                            _DB_URL, _sched_time_sk, None, "SKIPPED",
+                            f"server restarted at hour={_hour_et} ET; "
+                            f"recovery window (09:00–15:59 ET) has closed; "
+                            f"9:42 AM scheduled run was missed; "
+                            f"replay unsafe (stale data / EOD position conflicts)",
+                            "startup_catchup", None, None,
+                        )
+                    except Exception as _sa_sk_e:
+                        print(f"[startup_catchup] SKIPPED audit write error: {_sa_sk_e}")
         except Exception as _e_su:
             print(f"[startup_catchup] error: {_e_su}")
 
@@ -16884,6 +16926,29 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
             _lc.commit()
     except Exception as _le:
         print(f"[aiem_paper] exec log start error: {_le}")
+
+    # ── Scheduler run audit — one record per invocation ───────────────────
+    # status=EXECUTED for scheduled_942/admin; RECOVERED for startup_catchup.
+    # Written BEFORE any trading logic so a crash mid-run is still audited.
+    # Fail-safe: any exception here is non-fatal and never affects trade flow.
+    try:
+        import aiem_scheduler_audit as _sched_audit
+        import datetime as _sa_dt
+        _sched_time = _ET.localize(
+            _sa_dt.datetime(_today.year, _today.month, _today.day, 9, 42, 0)
+        )
+        _sched_audit_status = (
+            "RECOVERED" if trigger_source == "startup_catchup" else "EXECUTED"
+        )
+        _sched_audit.write_audit(
+            _DB_URL, _sched_time, _sa_dt.datetime.now(_ET),
+            _sched_audit_status,
+            f"trigger_source={trigger_source} exec_log_id={_exec_id}",
+            trigger_source, _exec_id,
+            trace_id=f"exec_{_exec_id}" if _exec_id else None,
+        )
+    except Exception as _sched_audit_e:
+        print(f"[aiem_paper] scheduler audit write error (non-fatal): {_sched_audit_e}")
 
     def _log_finish(_status, _trades=None, _err=None):
         if not _exec_id:
