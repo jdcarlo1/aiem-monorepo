@@ -1,0 +1,57 @@
+# Directive 13 — Phase 2: G3 ENFORCE Verification
+
+## Context
+Phase 1 flipped G3 to ENFORCE mode via a DB row update (`d3_checkpoint_config`), built and proved an instant rollback mechanism, and resolved the fate of the 6 previously-unregistered strategy sources. G0, G1, G6, and G2 remain in SHADOW mode and are out of scope for this phase.
+
+This phase exists to prove — with live evidence, not description — that G3 in ENFORCE mode behaves correctly under real paper trading conditions before any other checkpoint is touched.
+
+## Task 1 — Confirm current state before running anything
+- Raw SQL query of `d3_checkpoint_config` to reconfirm G3 is still `mode='ENFORCE'` (guard against any drift since Phase 1).
+- Raw SQL query of `d3_strategy_registry` to confirm the state of all 9 previously-unregistered/registered strategy sources reflects Joel's Phase 1 decisions.
+
+## Task 2 — Run one live paper cycle with G3 in ENFORCE
+- Run a normal paper trading cycle (same path as the existing FAP process) with G3 live in ENFORCE mode.
+- Do not modify any other checkpoint's mode for this run.
+- Capture the full raw output of the run, not a summary.
+
+## Task 3 — Verify BLOCK behavior is real
+For any candidate that should be blocked under ENFORCE (e.g. a source Joel chose not to approve in Phase 1, or any other `would_block=True` condition):
+- Confirm via raw SQL query of `d3_governance_decisions` that `decision='BLOCK'` was actually written for that candidate.
+- Confirm via raw grep/log output that the `continue` branch at `main.py:17892` was actually taken (candidate skipped) — not just that the DB row shows BLOCK.
+- Confirm no trade record exists for that candidate in the paper execution log (raw SQL against the relevant trade/execution table).
+
+## Task 4 — Verify ALLOW behavior is unaffected
+For candidates that should pass G3 normally:
+- Confirm via raw SQL that `decision='ALLOW'` (or `ALLOW_WITH_WARNING`) was written as expected.
+- Confirm the candidate proceeded to trade execution normally, same as it would have under SHADOW.
+- This guards against a regression where ENFORCE mode accidentally blocks candidates it shouldn't.
+
+## Task 5 — Verify Guard B (Telegram alert) fires correctly
+- If any BLOCK occurred during the test run, confirm via raw log output that the Guard B Telegram alert at `main.py:16835` fired and contains the correct state/mode/trigger information.
+- If no BLOCK occurred during this run, report that Guard B could not be exercised and state whether a synthetic/controlled test candidate is needed to verify it (do **NOT** create synthetic test data without Joel's explicit approval per the Data Immutability Rule below).
+
+## Task 6 — Compare against SHADOW-mode baseline
+- Pull the most recent SHADOW-mode paper run's `d3_governance_decisions` rows for G3 and compare `would_block` values against this run's actual `decision` values.
+- Confirm that every candidate that would have been blocked in SHADOW (`would_block=True`) was actually blocked in this ENFORCE run, and every candidate that wouldn't have been blocked still executed normally.
+
+## Verification Block (required for every task above)
+No task is complete based on description alone. For each task, the agent must provide:
+1. Raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists — never paraphrase what grep would show.
+2. Exact before/after file diff for any code changed (none expected this phase — flag immediately if any code change becomes necessary).
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set for every DB claim in Tasks 1, 3, 4, and 6.
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. The agent must explicitly say if it cannot produce evidence for any claim.
+
+## Data Immutability Rule
+The agent may never delete, truncate, drop, or overwrite any row, table, or file — including data it created itself or labels "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in that session. The agent must state what it wants to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol
+All evidence-producing commands in this directive must be run through `verified_run.sh`, not run directly. The agent must validate the resulting log with `verify_chain.sh` before declaring any task or this directive complete, and must paste that script's raw output. This supplements, not replaces, the raw-evidence Verification Block above. Note: this proves internal log consistency only — not that commands were genuinely executed against the real production DB. Joel should periodically spot-check by independently re-running a sampled command himself.
+
+## Definition of done for Phase 2
+- One full live paper cycle has run with G3 in ENFORCE.
+- Every BLOCK and every ALLOW from that run is verified against raw DB/log evidence, not description.
+- Guard B's behavior on an actual BLOCK is confirmed (or explicitly flagged as unverified if no BLOCK occurred).
+- G3's ENFORCE-mode behavior is shown to match its SHADOW-mode predictions exactly (no regressions).
+- If any discrepancy is found, this phase halts and reports back to Joel rather than proceeding — do not continue to Phase 3 planning with an unresolved discrepancy.
