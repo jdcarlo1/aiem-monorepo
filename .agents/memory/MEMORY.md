@@ -1,5 +1,5 @@
 - [Schema drift remediation July 2026](schema-drift-remediation.md) — dev/prod reconciliation complete; 0 destructive items; migration tracking in migrations/applied/; remaining 7 items are all safe additive adds
-- [Deploy health-check boot order](deploy-health-boot-order.md) — make_server() MUST be before all heavy local imports (lines 68-127) not after; wrong placement = 60-120s before port opens = promote timeout; also: api-server needs GET /api/healthz in Express app.ts
+- [Deploy health-check boot order](deploy-health-boot-order.md) — make_server() before heavy imports; aiem-process health server before slow imports + 100s prod stagger; PRIMARY FIX = upsize Reserved VM before adding new heavy services
 - [Watchdog cold-start grace period](watchdog-cold-start-grace.md) — liveness watchdog must skip health-check failure counting for first 150s; 404 on unregistered routes killed prod deploys in ~90s
 - [D3 negative-control test Option 2](d3-negctl-option2.md) — schema-isolation via search_path; libpq needs %20 not + in options=; main import >180s infeasible; dry-run is complete Directive 5 proof
 - [Order dedup enforcement](order-dedup-enforcement.md) — UNIQUE(ticker,trade_date) + app pre-check in _aiem_paper_execute_today() emits D3 data_guard.failed; order_dedup.py is separate (order_execution_log only, never paper trades)
