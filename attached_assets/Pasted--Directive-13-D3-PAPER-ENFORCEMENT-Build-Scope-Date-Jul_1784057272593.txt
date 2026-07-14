@@ -1,0 +1,75 @@
+# Directive 13 — D3 PAPER ENFORCEMENT: Build & Scope
+
+**Date:** July 14, 2026
+**Status:** New build — this is NOT a flag flip. SHADOW → VERIFIED SHADOW is closed. PAPER ENFORCEMENT has never been built and does not exist in the codebase yet.
+
+**Precondition confirmed closed:** Directive 12's `d3_strategy_registry` is implemented and functioning correctly — real table, populated via `run_phase4_strategy()`, 4 approved sources active, and `UNAPPROVED_STRATEGY:<source>` correctly still fires in SHADOW mode for the 6 unapproved sources (`sweep`, `oi_buildup`, `washout_ignition`, `layer9_stat`, `squeeze_reversion`, `premarket_open_trader`). This directive builds on top of that confirmed state.
+
+---
+
+## Phase 0 — Diagnostic (required before any code changes)
+
+Before writing any enforcement code, answer these and paste raw evidence for each:
+
+1. **Where does D3's SHADOW verdict currently get computed and logged?** Give the exact file/line for the function that produces ALLOW/PAUSE/QUARANTINE/BLOCK, and show the raw code.
+2. **Where does the live paper-execution path call into D3, if at all?** Confirm via grep whether `_aiem_paper_execute_today()` / `execute_stage()` currently reference the D3 verdict function in any way (even just logging it). Paste raw grep output — do not paraphrase.
+3. **What does Guard A (state=NORMAL pre-check) and Guard B (Telegram alert on BLOCKED_GO) currently do mechanically?** Confirm whether either of these guards is capable of stopping a trade today, or whether they only alert/observe.
+4. **For a BLOCK or QUARANTINE verdict today, does anything downstream of D3 change behavior, or does the trade proceed regardless?** Show the raw trace for one example if available.
+5. **Confirm the current handling of `UNAPPROVED_STRATEGY` sources in the live paper path** — do trades from `sweep`, `oi_buildup`, etc. currently execute normally (verdict logged but not acted on)? Confirm with raw evidence, not narrative.
+
+Do not proceed to Phase 1 until Phase 0 answers are delivered with raw evidence and reviewed.
+
+---
+
+## Phase 1 — Design decision (requires Joel's explicit sign-off before code)
+
+Based on Phase 0 findings, propose (do not implement) answers to:
+
+- **Which verdicts actually block a paper trade under PAPER ENFORCEMENT?** Recommend a mapping, e.g.:
+  - `BLOCK` → trade does not execute
+  - `QUARANTINE` → trade does not execute, logged for review
+  - `PAUSE` → trade delayed / retried next cycle
+  - `ALLOW` → proceeds normally
+- **Should `UNAPPROVED_STRATEGY` sources be hard-blocked under PAPER ENFORCEMENT, or continue in SHADOW (logged, not blocked) until each source is formally approved via `run_phase4_strategy()`?** State the tradeoff clearly — this determines whether `sweep`, `oi_buildup`, `washout_ignition`, `layer9_stat`, `squeeze_reversion`, and `premarket_open_trader` stop trading in paper the moment this ships.
+- **Rollback plan** — how does PAPER ENFORCEMENT get disabled instantly if it misbehaves (a single flag/env var, not a code revert)?
+
+Stop here and present this design back to Joel for approval before writing enforcement code.
+
+---
+
+## Phase 2 — Implementation (only after Phase 1 sign-off)
+
+- Wire the approved verdict → action mapping into the live paper-execution path at the point(s) identified in Phase 0.
+- Ensure the block/pause/quarantine action is atomic with the existing G0→G1→macro→G6→G2→G3 gate chain (Directive 8 confirmed all 4 callers of `_aiem_paper_execute_today()` funnel through this identical chain — do not create a second, divergent enforcement path).
+- Idempotency: a single verdict must not be double-applied (e.g., a QUARANTINE that fires twice logging two blocks for one candidate).
+- Preserve all existing SHADOW logging exactly as-is — PAPER ENFORCEMENT adds an action on top of the verdict, it does not replace or reduce the observability that already exists.
+
+---
+
+## Phase 3 — Testing (negative controls required)
+
+Test against real or clearly-labeled synthetic data, at minimum:
+
+1. One candidate that should resolve to `ALLOW` — confirm it executes normally.
+2. One candidate that should resolve to `BLOCK` or `QUARANTINE` — confirm it does NOT execute, and confirm the reason is logged.
+3. One candidate from an `UNAPPROVED_STRATEGY` source — confirm behavior matches the Phase 1 decision exactly (either hard-blocked or still SHADOW-only, per what was approved).
+4. Confirm the rollback flag actually disables enforcement (verdict still computed and logged, but no blocking action taken) when toggled.
+
+---
+
+## Standing requirements (apply to all phases above)
+
+**Verification Block:** No task is complete based on description alone. Every claim requires: (1) raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists — never paraphrase what grep would show; (2) exact before/after file diff; (3) sha256 hash before/after for changed files; (4) raw SQL query + full result set if a database is involved. Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. If evidence cannot be produced, say so explicitly.
+
+**Data Immutability Rule:** No deletion, truncation, drop, or overwrite of any row, table, or file — including data the agent created itself or labels "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in that session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+**Evidence Chain Protocol:** Run all evidence-producing commands through `verified_run.sh` instead of running them directly, and validate the log with `verify_chain.sh` before declaring any phase complete — paste that script's output. This supplements, not replaces, the raw-evidence verification block above.
+
+---
+
+## Do not
+
+- Do not skip Phase 0/1 and jump to implementation.
+- Do not assume the block/pause/quarantine mapping — it must be explicitly approved.
+- Do not touch the `test_source` fixture row in `d3_strategy_registry` (id=4) — that is a separate, pending item awaiting Joel's decision, unrelated to this directive.
+- Do not close this directive on a narrative claim — a real test-cycle trace showing at least one blocked and one allowed paper trade is required.
