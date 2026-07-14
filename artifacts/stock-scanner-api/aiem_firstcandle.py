@@ -126,12 +126,21 @@ def _td_first_candle(ticker: str, trade_date: date) -> dict | None:
 
 def _get_morning_universe(db_url: str, trade_date: date) -> list:
     """
-    Build the capture universe from two sources:
-      1. polygon_rvol_scan  — gap >= 2%, rvol >= 2x, price $2-$150 (top 80)
-      2. aiem_independent_picks — today's stock picks
+    Build the capture universe for intraday pattern research.
 
-    Also joins polygon_market_daily for prior-day close_strength / rvol.
-    Returns list of dicts, capped at 100 tickers to manage API rate limits.
+    Primary source: polygon_market_daily — the full 11,000-stock daily scan
+    populated at 8:35 AM ET.  We query the MOST RECENT scan_date rather than
+    today's date to avoid the date-mismatch bug where the scan stores
+    scan_date=yesterday but the query looked for scan_date=today.
+
+    Selects top 200 stocks by RVOL (≥1.5x) with price $2-$200 and volume
+    ≥100K — the active universe most likely to have premarket + intraday
+    pattern signal.  This is orders of magnitude larger than the old
+    polygon_rvol_scan source (which only had 1-13 tickers due to a 3% gap
+    filter + wrong scan_date).
+
+    Secondary source: aiem_independent_picks (today's AI picks, always added).
+    Returns list of dicts, capped at 200 tickers.
     """
     import psycopg2
 
@@ -141,41 +150,41 @@ def _get_morning_universe(db_url: str, trade_date: date) -> list:
     try:
         with psycopg2.connect(db_url) as conn, conn.cursor() as cur:
 
-            # Source 1: polygon_rvol_scan — premarket gap + RVOL universe
+            # Source 1: polygon_market_daily — top movers by prior-day RVOL.
+            # Uses MAX(scan_date) so it always finds the most recent data,
+            # even if the 8:35 AM scan stored yesterday's date as scan_date.
             cur.execute("""
-                SELECT p.ticker,
-                       p.gap_pct        AS gap,
-                       p.rvol           AS rvol,
-                       m.close_strength AS prior_cs,
-                       m.rvol           AS prior_rvol
-                FROM polygon_rvol_scan p
-                LEFT JOIN LATERAL (
-                    SELECT close_strength, rvol
-                    FROM polygon_market_daily
-                    WHERE ticker   = p.ticker
-                      AND scan_date < %s::date
-                    ORDER BY scan_date DESC
-                    LIMIT 1
-                ) m ON true
-                WHERE p.scan_date    = %s::date
-                  AND p.gap_pct     >= 2.0
-                  AND p.rvol        >= 2.0
-                  AND p.close_price BETWEEN 2 AND 150
-                ORDER BY p.rvol DESC
-                LIMIT 80
-            """, (date_str, date_str))
-
+                SELECT
+                    m.ticker,
+                    m.gap_pct        AS gap,
+                    m.rvol           AS rvol,
+                    m.close_strength AS prior_cs,
+                    m.close_price    AS prior_close,
+                    m.volume         AS prior_vol
+                FROM polygon_market_daily m
+                WHERE m.scan_date = (
+                    SELECT MAX(scan_date) FROM polygon_market_daily
+                )
+                  AND m.rvol        >= 1.5
+                  AND m.close_price BETWEEN 2.0 AND 200.0
+                  AND m.volume      >= 100000
+                ORDER BY m.rvol DESC
+                LIMIT 200
+            """)
             for row in cur.fetchall():
-                ticker, gap, rvol, prior_cs, prior_rvol = row
+                ticker, gap, rvol, prior_cs, prior_close, prior_vol = row
                 results[ticker] = {
                     "ticker":               ticker,
                     "premarket_gap_pct":    float(gap or 0),
                     "premarket_rvol":       float(rvol or 0),
-                    "prior_close_strength": float(prior_cs)   if prior_cs   is not None else None,
-                    "prior_rvol":           float(prior_rvol) if prior_rvol is not None else None,
+                    "prior_close_strength": float(prior_cs)    if prior_cs    is not None else None,
+                    "prior_rvol":           float(rvol or 0),
+                    "prior_close":          float(prior_close) if prior_close is not None else None,
                 }
 
-            # Source 2: today's independent stock picks (may overlap with above)
+            print(f"{_LOG} universe source1 (polygon_market_daily): {len(results)} tickers")
+
+            # Source 2: today's independent stock picks (always include)
             try:
                 cur.execute("""
                     SELECT p.ticker,
@@ -185,14 +194,14 @@ def _get_morning_universe(db_url: str, trade_date: date) -> list:
                     LEFT JOIN LATERAL (
                         SELECT close_strength, rvol
                         FROM polygon_market_daily
-                        WHERE ticker    = p.ticker
-                          AND scan_date < %s::date
+                        WHERE ticker   = p.ticker
                         ORDER BY scan_date DESC
                         LIMIT 1
                     ) m ON true
                     WHERE p.pick_date = %s::date
                       AND p.pick_type = 'stock'
-                """, (date_str, date_str))
+                """, (date_str,))
+                added = 0
                 for row in cur.fetchall():
                     ticker, prior_cs, prior_rvol = row
                     if ticker not in results:
@@ -202,7 +211,11 @@ def _get_morning_universe(db_url: str, trade_date: date) -> list:
                             "premarket_rvol":       None,
                             "prior_close_strength": float(prior_cs)   if prior_cs   is not None else None,
                             "prior_rvol":           float(prior_rvol) if prior_rvol is not None else None,
+                            "prior_close":          None,
                         }
+                        added += 1
+                if added:
+                    print(f"{_LOG} universe source2 (aiem_independent_picks): +{added} tickers")
             except Exception:
                 pass  # aiem_independent_picks may not exist yet
 
@@ -210,8 +223,8 @@ def _get_morning_universe(db_url: str, trade_date: date) -> list:
         print(f"{_LOG} universe query error: {exc}")
         return []
 
-    universe = list(results.values())[:100]
-    print(f"{_LOG} universe: {len(universe)} tickers for {date_str}")
+    universe = list(results.values())[:200]
+    print(f"{_LOG} universe total: {len(universe)} tickers for {date_str}")
     return universe
 
 
@@ -304,8 +317,16 @@ def run_firstcandle_capture(db_url: str) -> None:
                      "down" if (o - c) >  0.001 * o else "flat")
         rng_pct   = round((h - l) / o * 100, 3) if o else None
 
+        # Compute real premarket gap: prior day's close → today's open.
+        # This is the true premarket move, not yesterday's intraday gap_pct.
+        prior_close = entry.get("prior_close")
+        real_gap_pct = None
+        if prior_close and prior_close > 0 and o > 0:
+            real_gap_pct = round((o - prior_close) / prior_close * 100, 3)
+
         return {
             **entry,
+            "premarket_gap_pct":      real_gap_pct,   # override with real gap
             "open_price":             round(o, 4),
             "first_candle_high":      round(h, 4),
             "first_candle_low":       round(l, 4),
