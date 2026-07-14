@@ -635,6 +635,168 @@ def send_independent_options_picks_brief():
 
 
 # ─────────────────────────────────────────────────────────────
+# 9:37 AM  TRIFECTA AIEM SIGNALS
+# Gap-down >10% scanner — three backtested tiers by volume:
+#   Tier 1: gap dn >10% + Vol >5M  →  +9.1% avg (buy open, sell close)
+#   Tier 2: gap dn >10% + Vol >1M  →  +6.1% avg
+#   Tier 3: gap dn >10% (any vol)  →  +4.2% avg
+# Source: aiem_first_candle_data (written by first-candle module at 9:36 AM)
+#   premarket_gap_pct   — gap at open vs prior close
+#   first_candle_volume — 9:30-9:35 volume, used to estimate daily volume tier
+# Volume tier thresholds (first-candle ≈ 8-12% of daily volume):
+#   Tier 1 proxy: first_candle_volume >= 400,000  (→ ~5M+ full-day)
+#   Tier 2 proxy: first_candle_volume >= 80,000   (→ ~1M+ full-day)
+#   Tier 3: everything else that gapped down >10%
+# Fires only when ≥1 hit exists. Idempotent via aiem_notifier_log 'trifecta'.
+# ─────────────────────────────────────────────────────────────
+def send_trifecta_signal_alert():
+    """9:37 AM ET Mon-Fri — scan for Gap-Down >10% Trifecta AIEM Signals."""
+    today = date.today()
+    conn  = None
+
+    # ── Idempotency claim ─────────────────────────────────────────────────
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        cur  = conn.cursor()
+        cur.execute("""
+            INSERT INTO aiem_notifier_log (send_date, brief_type, claimed_at, status)
+            VALUES (%s, 'trifecta', NOW(), 'claimed')
+            ON CONFLICT (send_date, brief_type) DO NOTHING
+        """, (today,))
+        conn.commit()
+        cur.execute("""
+            SELECT status FROM aiem_notifier_log
+            WHERE send_date = %s AND brief_type = 'trifecta'
+        """, (today,))
+        row = cur.fetchone()
+        if row and row[0] != "claimed":
+            log.info(f"[trifecta] already sent today ({row[0]}), skipping")
+            return
+    except Exception as e:
+        log.warning(f"[trifecta] DB claim error: {e}")
+        return
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # ── Query first-candle data ───────────────────────────────────────────
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT ticker, premarket_gap_pct, first_candle_volume,
+                   open_price, first_candle_high, first_candle_low,
+                   first_candle_close, prior_rvol
+            FROM aiem_first_candle_data
+            WHERE scan_date = %s
+              AND premarket_gap_pct <= -10
+            ORDER BY premarket_gap_pct ASC
+        """, (today,))
+        hits = cur.fetchall()
+    except Exception as e:
+        log.warning(f"[trifecta] DB query error: {e}")
+        _update_status("failed", f"db_error={e}")
+        return
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    if not hits:
+        log.info("[trifecta] No gap-down >10% stocks found today — no alert sent")
+        _update_trifecta_status(today, "sent_empty ok=True (no hits)")
+        return
+
+    # ── Classify into three tiers ─────────────────────────────────────────
+    TIER1_VOL = 400_000   # proxy for >5M full-day volume
+    TIER2_VOL = 80_000    # proxy for >1M full-day volume
+
+    tier1, tier2, tier3 = [], [], []
+    for (ticker, gap_pct, vol, open_px, hi, lo, cl, prior_rvol) in hits:
+        vol = vol or 0
+        entry = {
+            "ticker":     ticker,
+            "gap_pct":    float(gap_pct or 0),
+            "vol":        int(vol),
+            "open_px":    float(open_px or 0),
+            "hi":         float(hi or 0),
+            "lo":         float(lo or 0),
+            "cl":         float(cl or 0),
+            "prior_rvol": float(prior_rvol or 0),
+        }
+        if vol >= TIER1_VOL:
+            tier1.append(entry)
+        elif vol >= TIER2_VOL:
+            tier2.append(entry)
+        else:
+            tier3.append(entry)
+
+    # ── Build message ─────────────────────────────────────────────────────
+    def _fmt_row(e):
+        vol_str = f"{e['vol']/1_000_000:.1f}M" if e['vol'] >= 1_000_000 else f"{e['vol']/1_000:.0f}K"
+        return (f"  • {e['ticker']:<6}  gap {e['gap_pct']:+.1f}%  "
+                f"vol {vol_str}  open ${e['open_px']:.2f}")
+
+    lines = [
+        f"🎯 TRIFECTA AIEM SIGNALS — {today.strftime('%a %b %-d')}",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "Gap Down >10%  |  Buy at open, sell at close",
+        "Backtest: buy 9:30 AM open price",
+        "",
+    ]
+
+    if tier1:
+        lines.append(f"🔴 TIER 1 — Gap >10% + Vol >5M  [+9.1% avg backtest]")
+        for e in tier1[:6]:
+            lines.append(_fmt_row(e))
+        lines.append("")
+
+    if tier2:
+        lines.append(f"🟠 TIER 2 — Gap >10% + Vol >1M  [+6.1% avg backtest]")
+        for e in tier2[:6]:
+            lines.append(_fmt_row(e))
+        lines.append("")
+
+    if tier3:
+        lines.append(f"🟡 TIER 3 — Gap >10% (any vol)  [+4.2% avg backtest]")
+        for e in tier3[:6]:
+            lines.append(_fmt_row(e))
+        lines.append("")
+
+    total = len(tier1) + len(tier2) + len(tier3)
+    lines.append(f"Total hits: {total}  |  T1={len(tier1)} T2={len(tier2)} T3={len(tier3)}")
+    lines.append("⚠️ Rare signal — trade with 3% stop-loss")
+
+    msg = "\n".join(lines)
+
+    ok = _tg_send(msg, signal_source="trifecta_aiem_signal",
+                  alert_class="SIGNAL")
+    log.info(f"[trifecta] Sent alert for {total} hits — ok={ok}")
+    _update_trifecta_status(today, f"sent_ok={ok} hits={total} "
+                                   f"t1={len(tier1)} t2={len(tier2)} t3={len(tier3)}")
+
+
+def _update_trifecta_status(today, status: str):
+    try:
+        conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+        cur  = conn.cursor()
+        cur.execute("""
+            UPDATE aiem_notifier_log SET status=%s, updated_at=NOW()
+            WHERE send_date=%s AND brief_type='trifecta'
+        """, (status, today))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.warning(f"[trifecta] status update error: {e}")
+
+
+# ─────────────────────────────────────────────────────────────
 # 3:00 PM RVOL / GAP / CLOSE-STRENGTH COMBO BRIEF
 # Read-only w.r.t. polygon_market_daily (written by main.py's 8:35 AM
 # Polygon grouped-daily scan). This process only SELECTs from it and never
@@ -967,6 +1129,94 @@ def main():
 
     _start_health_server()
 
+    # ── aiem-process watchdog ────────────────────────────────────────────────
+    # Polls every 2 min to verify aiem_process.py is alive.  If it has been
+    # dead for 2 consecutive checks (≥4 min) OUTSIDE the 3:00-3:10 AM ET
+    # nightly reset window, fires a Telegram alert and spawns it directly.
+    # This guards against the platform failing to auto-restart after the
+    # nightly os._exit(0) at 3:02 AM.
+    def _aiem_process_watchdog():
+        import subprocess as _sp, time as _wtime, sys as _wsys
+        _AIEM_SCRIPT   = "/home/runner/workspace/artifacts/stock-scanner-api/aiem_process.py"
+        _CHECK_SECS    = 120        # poll interval
+        _MISS_THRESHOLD = 2         # consecutive misses before action
+        _ALERT_COOLDOWN = 1800      # 30 min between repeated alerts
+        _GRACE_START   = (3, 0)     # ET hour, minute — start of reset window
+        _GRACE_END     = (3, 10)    # ET hour, minute — end of reset window
+
+        def _alive():
+            try:
+                r = _sp.run(["pgrep", "-f", "aiem_process.py"],
+                             capture_output=True, text=True)
+                return bool(r.stdout.strip())
+            except Exception:
+                return True   # fail-open on pgrep error
+
+        def _in_grace():
+            now = datetime.now(ET)
+            cur  = now.hour * 60 + now.minute
+            return (_GRACE_START[0]*60 + _GRACE_START[1]) <= cur <= (_GRACE_END[0]*60 + _GRACE_END[1])
+
+        def _spawn():
+            try:
+                p = _sp.Popen(
+                    [_wsys.executable, _AIEM_SCRIPT],
+                    stdout=open("/tmp/aiem_process_watchdog_spawn.log", "a"),
+                    stderr=_sp.STDOUT,
+                    close_fds=True,
+                    start_new_session=True,
+                )
+                log.warning(f"[aiem-watchdog] Spawned aiem_process.py PID={p.pid}")
+                return p.pid
+            except Exception as _e:
+                log.error(f"[aiem-watchdog] spawn failed: {_e}")
+                return None
+
+        misses     = 0
+        last_alert = 0.0
+        _wtime.sleep(30)   # let the notifier fully boot before first check
+        log.info("[aiem-watchdog] thread started")
+
+        while True:
+            try:
+                if _alive():
+                    if misses:
+                        log.info(f"[aiem-watchdog] aiem-process back alive after {misses} miss(es)")
+                    misses = 0
+                elif _in_grace():
+                    log.info("[aiem-watchdog] aiem-process absent — inside nightly reset window, skipping")
+                    misses = 0
+                else:
+                    misses += 1
+                    log.warning(f"[aiem-watchdog] aiem-process NOT found (miss {misses}/{_MISS_THRESHOLD})")
+                    if misses >= _MISS_THRESHOLD:
+                        import time as _t2
+                        now_ts = _t2.time()
+                        if now_ts - last_alert >= _ALERT_COOLDOWN:
+                            _tg_send(
+                                "⚠️ <b>AIEM-PROCESS IS DOWN</b>\n"
+                                "━━━━━━━━━━━━━━━━━━━━\n"
+                                f"Detected at {datetime.now(ET).strftime('%I:%M %p ET on %a %b %d')}\n"
+                                f"Down ≥{misses * _CHECK_SECS // 60} min outside nightly reset window.\n\n"
+                                "Attempting automatic restart now…\n"
+                                "Stock pick scans and Telegram alerts may have been delayed."
+                            )
+                            last_alert = now_ts
+                        pid = _spawn()
+                        misses = 0
+                        _wtime.sleep(15)
+                        if pid and _alive():
+                            _tg_send(f"✅ <b>aiem-process restarted</b> (PID {pid}) — scans resuming.")
+                        elif pid:
+                            _tg_send("❌ <b>aiem-process restart FAILED</b> — manual intervention needed.\nRestart the aiem-process workflow in Replit.")
+            except Exception as _we:
+                log.error(f"[aiem-watchdog] loop error: {_we}")
+            _wtime.sleep(_CHECK_SECS)
+
+    threading.Thread(target=_aiem_process_watchdog, daemon=True,
+                     name="aiem-process-watchdog").start()
+    # ────────────────────────────────────────────────────────────────────────
+
     # ── Startup catch-up ────────────────────────────────────────────────────
     # If this process restarts after the scheduled send time (e.g. due to a
     # redeploy during the auditor or any other restart), fire missed briefs
@@ -1043,6 +1293,12 @@ def main():
         id="aiem_independent_options_picks_notifier",
         replace_existing=True,
     )
+    scheduler.add_job(
+        send_trifecta_signal_alert,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=37, timezone=ET),
+        id="aiem_trifecta_signal_alert",
+        replace_existing=True,
+    )
     # PAUSED 2026-07-09 — see comment above _catchup's rvol_combo block for why.
     # scheduler.add_job(
     #     send_rvol_combo_alert,
@@ -1063,7 +1319,7 @@ def main():
         replace_existing=True,
     )
 
-    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 10:30 AM options, Mon-Fri (3:00 PM RVOL combo PAUSED - see code comment)")
+    log.info("AIEM Telegram Notifier started — 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll)")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
