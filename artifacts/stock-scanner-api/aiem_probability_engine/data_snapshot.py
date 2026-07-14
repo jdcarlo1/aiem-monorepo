@@ -214,6 +214,59 @@ def build_dataset() -> pd.DataFrame:
     return df
 
 
+def build_single_row_for_ticker(ticker: str, as_of_date=None) -> pd.DataFrame:
+    """
+    Fallback dataset builder for tickers not present in ai_short_calls_log.
+    Reads polygon_market_daily only. Options features (vol_oi, otm_pct,
+    days_out, conviction_score, gamma_score, dark_pool_score, squeeze_score,
+    sector_heat_score) are set to NaN and will be imputed by the trained
+    model's fitted SimpleImputer(strategy='median').
+
+    Returns a single-row DataFrame in the same column layout as build_dataset()
+    so it can be passed into pipeline.predict_proba(). Label columns (label_Nd,
+    ret_Nd) are not populated — this is a live-scoring path, not training-data.
+
+    Confirmed 2026-07-14: ai_short_calls_log has 0 rows total; polygon_market_daily
+    carries all D2 pipeline candidates from gap_volume/unusual_calls/aiem_v3_discovery.
+    polygon_market_daily date column is scan_date (not trade_date).
+    """
+    import datetime as _dt
+    if as_of_date is None:
+        as_of_date = _dt.date.today()
+    sql = """
+        SELECT ticker, scan_date, close_price, volume, rvol, gap_pct
+        FROM polygon_market_daily
+        WHERE ticker = %s AND scan_date <= %s
+        ORDER BY scan_date ASC
+    """
+    with psycopg2.connect(DB_URL) as conn:
+        hist = pd.read_sql_query(sql, conn, params=(ticker, str(as_of_date)))
+    if hist.empty:
+        return pd.DataFrame()
+    hist["scan_date"] = pd.to_datetime(hist["scan_date"]).dt.date
+    trade_date = hist["scan_date"].max()
+    try:
+        pit_feat = _pit_features(hist, trade_date)
+    except Exception:
+        return pd.DataFrame()
+    row = {
+        "pick_id": None,
+        "ticker": ticker,
+        "trade_date": trade_date,
+        "vol_oi": np.nan,
+        "otm_pct": np.nan,
+        "days_out": np.nan,
+        "conviction_score": np.nan,
+        "day_of_week": float(pd.Timestamp(trade_date).dayofweek),
+        "gamma_score": np.nan,
+        "dark_pool_score": np.nan,
+        "squeeze_score": np.nan,
+        "sector_heat_score": np.nan,
+        **pit_feat,
+    }
+    return pd.DataFrame([row])
+
+
 def _tier_coverage_report(df: pd.DataFrame) -> None:
     print("\n--- Tier / label coverage (non-null counts) ---")
     for col in TIER1_FEATURE_COLUMNS:

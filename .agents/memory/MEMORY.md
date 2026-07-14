@@ -1,3 +1,4 @@
+- [Probability Engine polygon fallback](probability-engine-polygon-fallback.md) — ai_short_calls_log has 0 rows total; live_query.py polygon fallback wired for stage 13; all options features imputed; scan_date is polygon_market_daily's date col
 - [mkt backfill blocking module load](mkt-backfill-blocking-load.md) — _mkt_backfill_indicators_all() was inline at module level → 4-min load block; moved to daemon thread; _MODULE_FULLY_LOADED gate pattern for startup_catchup + admin endpoints
 - [Telegram tab alert architecture](telegram-tab-alerts.md) — 18 tab briefs in aiem_telegram_notifier.py; AIEM scans Polygon directly (grouped daily + top-400 options chains); DB-first fallback pattern; all 26 jobs confirmed live
 - [D12b workflow-only lesson](d12b-workflow-lesson.md) — setsid/nohup die on bash exit; configureWorkflow() is the only durable Replit background process mechanism

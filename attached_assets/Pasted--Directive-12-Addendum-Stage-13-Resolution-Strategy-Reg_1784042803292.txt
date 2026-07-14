@@ -1,0 +1,48 @@
+# Directive 12 — Addendum: Stage 13 Resolution & Strategy Registry Approval
+
+**Date:** July 14, 2026
+**Scope:** Resolves Item 2 (MISSING_STAGES:13) and Item 3 (UNAPPROVED_STRATEGY) from Directive 12. Item 1 (paper_trade_id write-back) remains parked pending D11 Phase 3 confirmation — do not touch it in this pass.
+
+---
+
+## Decision 1 — Stage 13 = probability_engine (registry is authoritative)
+
+`aiem_registry.py` was deliberately consolidated as the sole source of truth for module/tool/function/stage definitions. The orchestrator's internal `stage_13_learning` label is treated as the legacy/unreconciled name, not the correct one. Fix the orchestrator side to match the registry — do not change the registry to match the orchestrator.
+
+**Before making any change, diagnose and report (raw grep/output only, no paraphrase):**
+
+1. Is `stage_13_learning` in the orchestrator actually the same pipeline step as `probability_engine`, just mislabeled — or is it a genuinely separate process (a real "learning loop") that happens to share the number 13 by accident?
+   - If mislabeled only: rename the orchestrator's emission from `stage_13_learning` to `stage_13_probability_engine` so it matches `_g2_mandatory_check_names()`.
+   - If genuinely separate: the "learning loop" must be assigned a different, unused stage number in the registry, and stage 13 must be reserved exclusively for the probability engine. Do not proceed with a renumbering until you've confirmed no other stage number references depend on 13 staying "learning loop." Report what you find; do not renumber silently.
+
+2. Fix the data-source mismatch in `live_query.py` (Diagram2Stage13 candidate sourcing): it currently reads only `ai_short_calls_log`, which is empty for today's real candidates. Wire it to read from wherever the daily candidates actually land — confirmed today as `gap_volume`, `unusual_calls`, and `aiem_v3_discovery` output. Confirm via raw SQL that this is the correct join before writing the fix, since the correct source table may differ across candidate types.
+
+3. After both fixes, run a real cycle and confirm via raw SQL that `aiem_probability_engine_predictions` (or the correct target table) receives non-zero rows, and that the G2 check no longer reports `MISSING_STAGES:13`.
+
+---
+
+## Decision 2 — Strategy registry: APPROVED
+
+**Approved.** Register `gap_volume`, `unusual_calls`, and `aiem_v3_discovery` via `run_phase4_strategy()`, which derives stats from actual trade history rather than fabricated values.
+
+- Execute `run_phase4_strategy()` for all three signal sources.
+- Confirm via raw SQL that each source now has a row in `d3_strategy_registry` with `approval_status = 'approved'` and `status = 'active'`.
+- Paste the raw SELECT showing all three new/updated rows in full (all columns), not a summary.
+- Do not hand-write an `INSERT` — use `run_phase4_strategy()` as the mechanism, since it's the one that pulls real trade-derived stats.
+
+---
+
+## Standing requirements (apply to this addendum in full)
+
+**Verification block:** No task is complete based on description alone. Provide: (1) raw terminal output for every execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists; (2) exact before/after file diff for any code change; (3) sha256 hash before/after for changed files; (4) raw SQL query + full result set for any database claim. Narrative claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. State explicitly if evidence cannot be produced.
+
+**Data Immutability Rule:** No deletion, truncation, drop, or overwrite of any row, table, or file — including data you created yourself or label "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in-session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+**Evidence Chain Protocol:** Run all evidence-producing commands through `verified_run.sh`, not directly. Validate with `verify_chain.sh` before declaring this addendum complete, and paste that script's raw output. This proves internal log consistency only, not that commands ran against the real production DB — Joel may spot-check independently.
+
+---
+
+## Explicitly out of scope for this addendum
+
+- Item 1 (paper_trade_id write-back) — stays parked until D11 Phase 3 is confirmed with real evidence, to avoid the join-key collision risk already flagged.
+- Any renumbering of stages other than 13, or any other registry changes not named above.

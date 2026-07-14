@@ -301,6 +301,98 @@ def _select_conflict_row(std_df: pd.DataFrame, models: dict, raw_df: pd.DataFram
     return best_row
 
 
+_POLYGON_FALLBACK_NOTE = (
+    "POLYGON_FALLBACK: ai_short_calls_log has no row for this ticker. "
+    "Score computed from polygon_market_daily only. Options features "
+    "(vol_oi, otm_pct, days_out, conviction_score, gamma_score, "
+    "dark_pool_score, squeeze_score, sector_heat_score) not available; "
+    "imputed with training-set median by the fitted pipeline's "
+    "SimpleImputer(strategy='median'). Probability score is real but "
+    "reflects only market/volume features, not options positioning."
+)
+
+
+def _polygon_fallback_score(ticker: str, models: dict, entries: dict) -> dict:
+    """
+    Minimal probability score for a ticker absent from ai_short_calls_log.
+    Reads polygon_market_daily for market features; all options features
+    are NaN (imputed by the fitted pipeline). No per-layer TreeSHAP
+    attribution is computed (requires a full population for z-scores).
+    Returns a signed, logged envelope with polygon_fallback=True and a
+    prominent disclosure warning.
+    """
+    from data_snapshot import build_single_row_for_ticker
+    raw_df = build_single_row_for_ticker(ticker)
+    if raw_df.empty:
+        return {"error": f"polygon_market_daily has no rows for ticker={ticker!r} — "
+                          "cannot score this ticker via either ai_short_calls_log "
+                          "or polygon_market_daily fallback"}
+
+    today = _et_today()
+    headline_h = _nearest_horizon_to_friday(today)
+    if headline_h not in models:
+        headline_h = max(models.keys())
+
+    trained = models[headline_h]
+    feature_cols = trained.feature_columns
+
+    row = raw_df.iloc[0]
+    X = pd.DataFrame([{col: (float(row[col])
+                             if col in row.index and not pd.isna(row[col])
+                             else float("nan"))
+                        for col in feature_cols}])
+
+    all_horizons = {}
+    for h, m in models.items():
+        try:
+            p = float(m.model.predict_proba(X)[:, 1][0])
+            all_horizons[str(h)] = {"probability": round(p, 4), "top_layer": None}
+        except Exception as _he:
+            all_horizons[str(h)] = {"error": str(_he)}
+
+    headline_prob = all_horizons.get(str(headline_h), {}).get("probability")
+
+    trade_date = row["trade_date"]
+    warnings_list = [_POLYGON_FALLBACK_NOTE]
+    if pd.Timestamp(trade_date).date() != today:
+        warnings_list.append(
+            f"STALENESS: polygon_market_daily last row is {trade_date}, not today "
+            f"({today}) — most recent available market data used."
+        )
+
+    payload = {
+        "ticker": ticker,
+        "strike": None,
+        "expiry": None,
+        "as_of_date": str(trade_date),
+        "query_generated_at": str(today),
+        "probability_score": headline_prob,
+        "probability_horizon_days": headline_h,
+        "contributing_layer": None,
+        "contributing_layer_raw_value": None,
+        "contributing_layer_signed_contribution": None,
+        "model_version": model_registry.version_string_for_entries(entries),
+        "pit_status": "live_unsettled_polygon_only",
+        "pit_status_note": (
+            "Polygon-only fallback: ai_short_calls_log has 0 rows. Score uses "
+            "polygon_market_daily market features only; options features imputed "
+            "with training-set medians. Not written to aiem_probability_engine_predictions."
+        ),
+        "polygon_fallback": True,
+        "all_horizons": all_horizons,
+        "layers": [],
+        "layer_conflict": None,
+        "warnings": warnings_list,
+        "mode": "ticker_polygon_fallback",
+    }
+
+    envelope = sign_payload(payload)
+    verify_result = verify_payload(envelope, max_age_seconds=3600)
+    _log_live_query(ticker, trade_date, "ticker_polygon_fallback",
+                    payload["model_version"], payload, envelope, verify_result)
+    return {"envelope": envelope, "self_verify": verify_result}
+
+
 def _select_null_row(std_df: pd.DataFrame, raw_df: pd.DataFrame) -> pd.Series:
     """Most recent row where at least one Tier-2 layer is NULL in the
     SOURCE table (not just imputed downstream) - per config.py's verified
@@ -319,6 +411,11 @@ def _select_null_row(std_df: pd.DataFrame, raw_df: pd.DataFrame) -> pd.Series:
 def run_live_query(ticker: str = None, mode: str = "auto") -> dict:
     raw_df = build_dataset()
     if raw_df.empty:
+        if ticker and mode == "ticker":
+            _models_early, _entries_early = _load_latest_models()
+            if not _models_early:
+                return {"error": "no trained models found via model_registry.get_latest() - run train.py first"}
+            return _polygon_fallback_score(ticker, _models_early, _entries_early)
         return {"error": "no dataset available from ai_short_calls_log/polygon_market_daily"}
     std_df = add_standardized_features(raw_df)
 
@@ -329,9 +426,7 @@ def run_live_query(ticker: str = None, mode: str = "auto") -> dict:
     if mode == "ticker":
         target = _select_ticker_row(std_df, ticker)
         if target is None:
-            return {"error": f"no ai_short_calls_log rows found for ticker={ticker!r} - cannot compute a live "
-                              f"score for a ticker this pipeline has no data on (this engine re-ranks EXISTING "
-                              f"scanner candidates, it does not run its own independent live scan)"}
+            return _polygon_fallback_score(ticker, models, entries)
     elif mode == "find-conflict":
         headline_h = 2 if 2 in models else next(iter(models))
         target = _select_conflict_row(std_df, models, raw_df, headline_h)
