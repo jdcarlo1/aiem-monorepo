@@ -1,3 +1,4 @@
+- [D12b workflow-only lesson](d12b-workflow-lesson.md) — setsid/nohup die on bash exit; configureWorkflow() is the only durable Replit background process mechanism
 - [Schema drift remediation July 2026](schema-drift-remediation.md) — dev/prod reconciliation complete; 0 destructive items; migration tracking in migrations/applied/; remaining 7 items are all safe additive adds
 - [Deploy health-check boot order](deploy-health-boot-order.md) — make_server() before heavy imports; aiem-process health server before slow imports + 100s prod stagger; PRIMARY FIX = upsize Reserved VM before adding new heavy services
 - [Watchdog cold-start grace period](watchdog-cold-start-grace.md) — liveness watchdog must skip health-check failure counting for first 150s; 404 on unregistered routes killed prod deploys in ~90s

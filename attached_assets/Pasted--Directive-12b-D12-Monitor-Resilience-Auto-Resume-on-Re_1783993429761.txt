@@ -1,0 +1,92 @@
+# Directive 12b — D12 Monitor Resilience / Auto-Resume on Restart
+
+## Context
+The D12 monitor (`d12_monitor.py`, currently PID 945) is running an overnight
+observation schedule (2:58 AM–7:10 AM ET) tracking the aiem-process 3:02 AM
+reset. If the container/server restarts at any point during this window, the
+monitor must not simply relaunch from scratch — it needs to resume correctly
+based on what's already been captured and what time it is now.
+
+## Problem with a naive restart
+A plain "relaunch on boot" approach is insufficient because:
+- If restart happens *before* 3:02 AM, re-running the pre-reset baseline
+  capture is fine, but re-running it a second time creates duplicate/confusing
+  evidence entries.
+- If restart happens *after* 3:02 AM but before 7:10 AM, a fresh-start monitor
+  would miss the actual reset event it exists to observe — defeating the
+  purpose of tonight's run.
+- Any restart is itself a relevant fact (was the container down during the
+  reset window? for how long?) and needs to appear in the evidence chain, not
+  be silently absorbed.
+
+## Required design
+
+1. **Persistent state file** (e.g. `.local/d12_state.json`), updated after
+   each capture step, recording:
+   - Which schedule steps have been completed (baseline, poll window, reset
+     detection, warmup scan, final verdict) with timestamps.
+   - Last known daemon PID and last heartbeat time.
+
+2. **Resume logic on startup**: On every launch (whether the very first
+   launch or a relaunch after a crash/restart), the monitor must:
+   - Read the state file if it exists.
+   - Compare current time against the schedule table to determine which
+     steps are still pending.
+   - Skip steps already marked complete; do not re-run them.
+   - If current time has already passed a step that was never marked
+     complete (e.g., container was down 3:00–3:15 AM), log this explicitly
+     as a **gap** — do not fabricate a retroactive observation for a window
+     that was actually missed.
+
+3. **External watchdog**: A lightweight second process or cron-style check
+   (independent of the monitor itself, so it survives even if the monitor
+   process dies outright) that:
+   - Checks whether the monitor is alive at reasonable intervals.
+   - Relaunches it if not, passing through to the resume logic above.
+   - Logs every relaunch event (timestamp, evidence of why — crash log tail,
+     signal received, etc.) as its own evidence-chain entry.
+
+4. **Open item for the agent to confirm and report back on**: what the actual
+   Replit deployment type is for this workload (Reserved VM / Autoscale /
+   plain workflow), since this determines whether a full container restart
+   is even possible mid-run, and what mechanism (if any) Replit provides to
+   re-trigger a process on restart versus needing our own watchdog to be the
+   only line of defense.
+
+## Verification block (required)
+No task is complete based on description alone. Must provide:
+1. Raw terminal output of actual execution, including raw grep output for
+   any claim about code locations, call chains, or whether a function/pattern
+   exists — never paraphrase what grep would show.
+2. Exact before/after file diff for any new/modified files.
+3. sha256 hash before/after for changed files.
+4. Raw SQL query + full result set if a database is involved.
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed"
+without pasted raw evidence are rejected. Agent must explicitly state if it
+cannot produce evidence for any of the above.
+
+## Data Immutability Rule (required)
+Agent may never delete, truncate, drop, or overwrite any row, table, or file
+— including data it created itself or labels "test"/"synthetic"/"cleanup" —
+without Joel's explicit prior approval in that session. Must state what it
+wants to delete and why, wait for approval, then log it. Any unapproved
+deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol (required)
+All evidence-producing commands must run through `verified_run.sh` instead
+of directly, validated with `verify_chain.sh` before declaring this directive
+complete — paste that script's output. This proves internal log consistency
+only, not that commands were genuinely executed against the real production
+environment; Joel may independently spot-check by re-running a sampled
+command himself.
+
+## Deliverable
+Given the tight timeline (reset window is tonight, ~5–6 hours away as of this
+directive), agent should prioritize:
+1. State file + resume logic (highest priority — protects tonight's run).
+2. Watchdog process (protects against total daemon death).
+3. Confirmation of deployment type (informational, can follow after #1/#2 if
+   time-constrained).
+
+Report back with raw evidence for whatever is completed before the window
+begins, and explicitly flag anything not completed in time.
