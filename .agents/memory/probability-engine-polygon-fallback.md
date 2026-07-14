@@ -16,12 +16,34 @@ The probability engine (`aiem_probability_engine/data_snapshot.py:40`) reads tra
 - `live_query.py`: Added `_polygon_fallback_score()` + two trigger points (early-exit when raw_df.empty + ticker-mode when _select_ticker_row returns None).
 - Polygon fallback returns `pit_status='live_unsettled_polygon_only'`, `polygon_fallback=True`.
 
+## CRITICAL: _polygon_fallback_score() return structure (nested envelope!)
+`_polygon_fallback_score()` does NOT return `{"polygon_fallback": True, ...}` at the top level.
+It wraps the result via `sign_payload()` and returns: `{"envelope": {...}, "self_verify": {...}}`.
+`polygon_fallback=True` is nested at `result["envelope"]["payload"]["polygon_fallback"]`.
+
+**Correct check pattern:**
+```python
+_fb_payload = (result.get("envelope") or {}).get("payload") or {}
+if _fb_payload.get("polygon_fallback") or _fb_payload.get("mode") == "ticker_polygon_fallback":
+    # fallback is active
+```
+
+`"ticker_polygon_fallback"` is the unique discriminator stored in `mode` inside the payload.
+**Never** check `result.get("polygon_fallback")` — it will always be None/False (wrong level).
+
+## Option C hard-exclude (2026-07-14, current state)
+`run_probability_engine_for_ticker` in `aiem_diagram2_stage_helpers.py` detects the nested
+fallback and returns `{"status": "SKIP", "numeric_score_emitted": False, ...}`.
+This causes `execute_stage` to record `status="PASS"` → Stage 13 "present" in D3 governance
+→ MISSING_STAGES:13 clears on next paper trade cycle (tomorrow 9:42 AM ET).
+Handler test: 5/5 PASS. Downstream check: 0 consumers of Stage 13 numeric score.
+
 ## Known behavior until root cause is fixed
-- All D2 stage 13 scores use polygon fallback → identical 0.4473 across all tickers (non-discriminating).
-- 100% of `aiem_candidate_pipeline` rows trigger the fallback (confirmed by SQL, last 30 days, all sources).
-- Open decision for Joel: allow / flag / hard-exclude fallback scores from paper trade decisions (Options A/B/C).
+- All D2 stage 13 entries return SKIP (not a score) when fallback active.
+- 100% of `aiem_candidate_pipeline` rows trigger the fallback (all sources, confirmed by SQL).
+- Open decision for Joel: re-wire probability engine to read `aiem_candidate_pipeline`.
 
 ## How to apply
 - `polygon_market_daily` date column = `scan_date` (not trade_date).
 - Scores signed + logged via `_log_live_query()` but NOT written to `aiem_probability_engine_predictions` (pit_status prevents it).
-- Item 3 (MISSING_STAGES:13 clear) cannot be confirmed until after next paper trade cycle (tomorrow 9:42 AM ET). Before-state locked in evidence chain at ITEM3:trace_audit_before.
+- Item 3 (MISSING_STAGES:13 clear) confirmed after next paper trade cycle (tomorrow 9:42 AM ET).

@@ -1,0 +1,97 @@
+# Directive: Stage 13 Polygon Fallback — Hard-Exclude (Option C)
+
+**Date:** July 14, 2026
+**Context:** Directive 11 Phase 4 remediation, Item 2 (open decision)
+**Decision:** Option C — Hard-exclude
+
+---
+
+## Background
+
+`ai_short_calls_log` has 0 rows across all 12 date/source combinations checked
+(100% fallback rate). In this state, Stage 13 returns the identical degenerate
+score of 0.4473 (median-imputed XGBoost output when all options features are
+NaN) for every paper-trade candidate. This is not a signal — it is a constant
+masquerading as one, and it currently flows through to downstream stages
+unflagged.
+
+## Decision
+
+**Stage 13 must hard-exclude itself from the candidate's decision path when
+the polygon fallback is active** (i.e., when `ai_short_calls_log` has no row
+for the ticker/date in question).
+
+### Required behavior
+
+- When `ai_short_calls_log` fallback triggers, Stage 13 returns
+  `status="SKIP"` instead of a numeric score.
+- Paper trade evaluation proceeds using the remaining stages, **without**
+  Stage 13 input, when SKIP is returned.
+- Stage 13 must NOT emit 0.4473 (or any other imputed placeholder) as if it
+  were a real score under fallback conditions.
+
+### Code change location
+
+- `run_phase4_stage13...` (exact function/file to be confirmed by agent via
+  grep before editing — do not assume the name/path from memory).
+
+### What must NOT happen
+
+- No silent fallback to the old behavior (Option A) at any point.
+- No partial rollout — SKIP behavior must apply uniformly, not just to a
+  subset of candidates or sources.
+- No change to the `ai_short_calls_log` write path itself as part of this
+  directive — that is a separate, already-identified item (scanner
+  eventually producing real picks). This directive only changes what Stage 13
+  does when the log has no row.
+
+### Downstream check required
+
+Before declaring this complete, the agent must confirm — with raw evidence,
+not narrative — that no downstream stage assumes Stage 13 always returns a
+numeric score. If any downstream consumer breaks on `status="SKIP"`, that
+must be reported, not silently patched around.
+
+---
+
+## Verification Block (required for completion)
+
+No task is complete based on description alone. The agent must provide:
+
+1. **Raw terminal output** of actual execution, including raw grep output for
+   any claim about code locations, call chains, or whether a function/pattern
+   exists — never paraphrase what grep would show.
+2. **Exact before/after file diff** for the changed function(s).
+3. **sha256 hash before/after** for changed files.
+4. **Raw SQL query + full result set** demonstrating: (a) a candidate under
+   fallback conditions now returns SKIP from Stage 13, and (b) that candidate's
+   paper-trade decision was made without a Stage 13 numeric score.
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed"
+without pasted raw evidence are rejected. The agent must explicitly say if it
+cannot produce evidence for any point above.
+
+## Data Immutability Rule
+
+The agent may never delete, truncate, drop, or overwrite any row, table, or
+file — including data it created itself or labels "test"/"synthetic"/
+"cleanup" — without Joel's explicit prior approval in that session. The agent
+must state what it wants to delete and why, wait for approval, then log it.
+Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol
+
+All evidence-producing commands must run through `verified_run.sh` instead of
+running them directly, and the log must be validated with `verify_chain.sh`
+before declaring this directive complete — paste that script's output. This
+supplements, not replaces, the raw-evidence verification block above. Note:
+this proves internal log consistency only, not that commands were genuinely
+executed against the real production DB — Joel may spot-check with an
+independently re-run sampled command.
+
+---
+
+## Status
+
+**OPEN — not yet implemented.** This directive documents the decision only.
+Implementation, verification, and evidence chain closure are pending.

@@ -638,7 +638,7 @@ def check_layer9_freshness(ticker: str, db_url: str = None) -> dict:
     }
 
 
-# ── Stage 13 — Probability Engine (unchanged) ────────────────────────────────
+# ── Stage 13 — Probability Engine (Option C hard-exclude 2026-07-14) ─────────
 
 def run_probability_engine_for_ticker(ticker: str) -> dict:
     """Stage 13 — Probability Engine. Calls the REAL production adapter,
@@ -649,11 +649,38 @@ def run_probability_engine_for_ticker(ticker: str) -> dict:
     row there — that is a real, honest FAIL for this stage, not a bug in
     this wiring. mode="ticker" is used (never "auto"/"find-*") so the
     Probability Engine actually evaluates the injected candidate and is
-    never bypassed with a substitute row."""
+    never bypassed with a substitute row.
+
+    Option C (2026-07-14): when ai_short_calls_log has no row for this
+    ticker, run_live_query returns polygon_fallback=True with a degenerate
+    median-imputed score of 0.4473 (identical across all tickers — not a
+    signal). Hard-exclude: return status=SKIP so execute_stage records
+    PASS (stage present, not MISSING) without emitting a numeric score.
+    Paper trade proceeds using remaining stages without Stage 13 input."""
     from aiem_probability_engine.live_query import run_live_query
     result = run_live_query(ticker=ticker, mode="ticker")
     if isinstance(result, dict) and result.get("error"):
         raise RuntimeError(f"probability_engine: {result['error']}")
+    # Hard-exclude when polygon fallback is active (Option C, 2026-07-14).
+    # _polygon_fallback_score() wraps its result as {"envelope": {...}, "self_verify": {...}};
+    # polygon_fallback=True is nested inside envelope["payload"], not at the top level.
+    # mode="ticker_polygon_fallback" is the unique discriminator for this path.
+    # Return SKIP so execute_stage records PASS (stage present, not MISSING)
+    # without emitting the degenerate median-imputed score.
+    _fb_payload = (result.get("envelope") or {}).get("payload") or {}
+    if (isinstance(_fb_payload, dict) and
+            (_fb_payload.get("polygon_fallback") or
+             _fb_payload.get("mode") == "ticker_polygon_fallback")):
+        return {
+            "status": "SKIP",
+            "reason": (
+                "polygon_fallback_active: ai_short_calls_log has no row for "
+                "this ticker — Stage 13 hard-excluded per Option C (2026-07-14). "
+                "Numeric score suppressed; paper trade proceeds without Stage 13 input."
+            ),
+            "polygon_fallback": True,
+            "numeric_score_emitted": False,
+        }
     return result
 
 
