@@ -1,0 +1,77 @@
+# Directive: Verify aiem-process Registration Claim + Fix GARCH Persistence Constraint
+
+## Part 1 — Verify the aiem-process Production Registration Claim
+
+You've stated that `aiem-process` (which runs `aiem_morning_scan`,
+`aiem_prediction_grader`, `aiem_continuous_research`, `polygon_daily_scan`)
+was never registered as a production service — only existed as a dev
+workflow — and that you've now added it to `artifact.toml`. This is a
+significant claim and must be confirmed with raw evidence before it's
+accepted as the root cause of the STALE/NEVER RUN alerts.
+
+Provide, in order:
+
+1. **Raw diff of `artifact.toml`** — exact before/after, showing
+   `aiem-process` missing from the production services section previously,
+   and present now. Paste the actual diff output, not a description of it.
+
+2. **Raw confirmation `aiem-process` is now actually running** on the
+   current live deployment — a process list, or a fresh heartbeat/log
+   entry with a timestamp from after this deploy went live (not "will run
+   tomorrow morning" — evidence it registered/started now).
+
+3. **Reconcile this with prior log evidence.** Production logs previously
+   showed `[LIVENESS-WATCHDOG]` and similar entries attributed to source
+   `User`, deployment `7430059a`. If `aiem-process` was never registered
+   as a production service, explain raw-evidence-backed what process was
+   actually generating those log lines. Do not hand-wave this — if there's
+   a discrepancy, say so explicitly rather than reconciling it narratively.
+
+4. State explicitly whether this fix has been tested end-to-end yet, or
+   whether "will run automatically starting tonight/tomorrow" is a
+   prediction rather than a confirmed, observed result.
+
+## Part 2 — Fix GARCH Persistence Constraint (Authorized)
+
+The error `[garch_persist] failed for CHTR: there is no unique or exclusion
+constraint matching the ON CONFLICT specification` indicates a missing
+database constraint. You are authorized to fix this. Requirements:
+
+1. Paste the **exact SQL** you intend to run to add the missing unique/
+   exclusion constraint (table name, column(s), constraint type) before
+   executing it.
+2. Confirm this is purely additive (adding a constraint) and does not
+   require deleting, modifying, or truncating any existing rows. If
+   existing rows would violate the new constraint (duplicates), stop and
+   report that — do not deduplicate or delete anything without separate
+   explicit approval, per the Data Immutability Rule below.
+3. After applying the fix, provide a raw follow-up log line showing
+   `garch_persist` succeeding for at least one real ticker (e.g. CHTR)
+   post-fix — not a claim that it "should now work."
+
+---
+
+## Verification Block (required)
+No task is complete based on description alone. Provide raw terminal
+output, raw grep output for any code/config claim, exact before/after
+diffs, sha256 hashes for changed files, and raw SQL + full result sets for
+any database claim. Narrative claims of "fixed," "confirmed," or "should
+work now" without evidence attached are rejected.
+
+## Data Immutability Rule
+No deletion, truncation, or overwrite of any row, table, or file —
+including anything labeled test/synthetic/cleanup — without Joel's
+explicit prior approval in this session. State what you want to change
+and why, wait for approval, then log it. This applies specifically to any
+duplicate rows discovered while adding the GARCH constraint.
+
+## Evidence Chain Protocol
+Run all evidence-producing commands through `verified_run.sh` and validate
+with `verify_chain.sh` before declaring either part of this directive
+complete. Paste that script's output.
+
+## Explicitly Out of Scope
+- No claiming the aiem-process fix is confirmed working based on
+  prediction alone — only on observed evidence.
+- No deleting or modifying existing GARCH/CHTR rows without separate
+  approval.

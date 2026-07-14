@@ -268,6 +268,25 @@ def persist_garch_result(
             """)
             # Add vote column to any pre-existing tables that lack it
             _cu.execute("ALTER TABLE garch_regime_log ADD COLUMN IF NOT EXISTS vote INTEGER")
+            # Ensure the UNIQUE(log_date, ticker) constraint required by ON CONFLICT exists.
+            # Pre-check for duplicates first — if any exist, stop and report rather than
+            # silently failing or deduplicating (Data Immutability Rule).
+            _cu.execute("""
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM garch_regime_log
+                    GROUP BY log_date, ticker HAVING COUNT(*) > 1
+                ) _dup_sub
+            """)
+            _dup_ct = _cu.fetchone()[0]
+            if _dup_ct > 0:
+                raise Exception(
+                    f"UNIQUE(log_date, ticker) index blocked: {_dup_ct} duplicate "
+                    f"(log_date, ticker) group(s) found — manual dedup required before retrying"
+                )
+            _cu.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS garch_regime_log_date_ticker_uidx
+                    ON garch_regime_log (log_date, ticker)
+            """)
             _cu.execute("""
                 INSERT INTO garch_regime_log
                     (ticker, log_date, omega, alpha1, beta1,
