@@ -17972,6 +17972,54 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                          "reason": f"duplicate trade id={_dedup_existing[0]}"})
                     continue
 
+                # ── Position cap live-count gate (atomic, advisory-locked) ──────────
+                # The position sizer's max_positions check (compute_position_size,
+                # above) read open_count via its OWN separate psycopg2 connection
+                # (_get_paper_equity_metrics, aiem_position_sizing.py line 648).
+                # Between that read and this INSERT there is a window where another
+                # concurrent invocation could commit a row and fill the last slot.
+                # This gate re-reads the count on _cu (the SAME connection and
+                # transaction as the INSERT below) under pg_advisory_xact_lock so
+                # only one caller can hold this section at a time.  The lock is
+                # transaction-scoped and released automatically by _c.commit() /
+                # _c.rollback() — no explicit release is needed.
+                # Fail-closed: any exception blocks the trade (same policy as G3).
+                _pcl_cap = (
+                    getattr(_pos_sizer, "_MAX_CONCURRENT_POSITIONS", None)
+                    if _pos_sizer else None
+                )
+                if _pcl_cap is not None:
+                    try:
+                        _cu.execute("SELECT pg_advisory_xact_lock(7625310052)")
+                        _cu.execute(
+                            "SELECT COUNT(*) FROM aiem_paper_trades "
+                            "WHERE status='OPEN' AND pre_sizing_model=FALSE"
+                        )
+                        _pcl_live = int(_cu.fetchone()[0])
+                        if _pcl_live >= _pcl_cap:
+                            print(f"[aiem_paper] POSITION_CAP_LIVE_BLOCKED {_t}: "
+                                  f"live_open={_pcl_live} >= cap={_pcl_cap} "
+                                  f"(advisory-lock confirmed — skipping candidate)")
+                            try:
+                                import aiem_diagram3_governance as _d3ev_pcl
+                                _d3ev_pcl.emit_d2_pipeline_event(
+                                    "data_guard.failed", ticker=_t,
+                                    reason=(f"gate=position_cap_live "
+                                            f"live_count={_pcl_live} "
+                                            f"cap={_pcl_cap}"))
+                            except Exception:
+                                pass
+                            _dg_bus_publish(
+                                "DATA_GUARDS_FAILED",
+                                {"gate": "position_cap_live",
+                                 "reason": (f"live_open={_pcl_live} "
+                                            f">= cap={_pcl_cap}")})
+                            continue
+                    except Exception as _pcl_e:
+                        print(f"[aiem_paper] POSITION_CAP_LIVE_BLOCKED {_t}: "
+                              f"advisory-lock or count failed — fail-closed: {_pcl_e}")
+                        continue
+
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
                         (trade_date, ticker, trade_type, entry_price, quantity,
