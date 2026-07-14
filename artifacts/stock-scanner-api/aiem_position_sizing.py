@@ -85,6 +85,7 @@ _OVERNIGHT_HOLD_ALLOWED: Dict[str, bool] = {
     "multi_signal":            False,
     "oi_buildup":              False,
     "layer9_stat":             False,
+    "aiem_v3_discovery":       False,
 }
 
 
@@ -261,19 +262,94 @@ def _stop_oversold_bounce(signal_row: dict) -> dict:
     }
 
 
+def _stop_pct_below_entry(stop_pct: float, basis_label: str):
+    """
+    Factory: returns a stop function that places the stop N% below entry price.
+    Used for momentum/flow signals where the thesis invalidation point is a
+    fixed drawdown from entry rather than a named support level.
+    """
+    def _fn(signal_row: dict) -> dict:
+        entry = float(signal_row.get("entry_price") or signal_row.get("close_price") or 0)
+        if not entry or entry <= 0:
+            return {"defined": False, "stop_basis": f"{basis_label}_MISSING_ENTRY_PRICE"}
+        stop_price = round(entry * (1.0 - stop_pct), 4)
+        if stop_price <= 0 or stop_price >= entry:
+            return {"defined": False, "stop_basis": f"{basis_label}_STOP_ABOVE_OR_AT_ENTRY"}
+        return {
+            "defined": True,
+            "stop_price": stop_price,
+            "stop_distance_pct": round(stop_pct * 100, 4),
+            "stop_basis": f"{basis_label}_{stop_pct*100:.0f}pct_below_entry_{round(entry, 4)}",
+        }
+    return _fn
+
+
+def _stop_gap_volume(signal_row: dict) -> dict:
+    """
+    gap_volume thesis: stock gapped up with extreme relative volume.
+    Thesis is invalidated if price fills the gap (drops ~8% from entry).
+    If prev_close is available, use that as the natural stop level.
+    """
+    entry = float(signal_row.get("entry_price") or signal_row.get("close_price") or 0)
+    if not entry or entry <= 0:
+        return {"defined": False, "stop_basis": "gap_volume_MISSING_ENTRY_PRICE"}
+    prev_close = signal_row.get("prev_close") or signal_row.get("previous_close")
+    if prev_close:
+        prev = float(prev_close)
+        if 0 < prev < entry:
+            stop_price = round(prev * (1.0 - _STOP_BUFFER_BELOW_SUPPORT), 4)
+            dist_pct   = round((entry - stop_price) / entry * 100, 4)
+            return {
+                "defined": True,
+                "stop_price": stop_price,
+                "stop_distance_pct": dist_pct,
+                "stop_basis": f"gap_volume_below_prev_close_{round(prev, 4)}_buf_0.5pct",
+            }
+    stop_pct = 0.08
+    stop_price = round(entry * (1.0 - stop_pct), 4)
+    return {
+        "defined": True,
+        "stop_price": stop_price,
+        "stop_distance_pct": round(stop_pct * 100, 4),
+        "stop_basis": f"gap_volume_8pct_below_entry_{round(entry, 4)}",
+    }
+
+
 # Registry: add a stop function for each signal source as its thesis is defined.
 # Per spec §3: no fallback to generic % — if source not here, trade is skipped.
 _STOP_REGISTRY = {
+    # ── Defined (thesis-based support or ATR) ────────────────────────────────
     "Oversold_Bounce_Uptrend": _stop_oversold_bounce,
-    "washout_ignition":        None,   # to be defined when module thesis is specified
-    "conviction_stack":        None,
-    "sweep":                   None,
-    "unusual_calls":           None,
-    "gap_volume":              None,
-    "aiem_ai":                 None,
-    "multi_signal":            None,
-    "oi_buildup":              None,
-    "layer9_stat":             None,
+
+    # gap_volume: gap thesis invalidated below prev-close (8% fallback)
+    "gap_volume":              _stop_gap_volume,
+
+    # unusual_calls: institutional call sweep; 7% drawdown invalidates flow thesis
+    "unusual_calls":           _stop_pct_below_entry(0.07, "unusual_calls"),
+
+    # aiem_v3_discovery: AI multi-factor discovery; 8% conservative stop
+    "aiem_v3_discovery":       _stop_pct_below_entry(0.08, "aiem_v3_discovery"),
+
+    # washout_ignition: capitulation reversal; wide 10% stop (reversal can shake)
+    "washout_ignition":        _stop_pct_below_entry(0.10, "washout_ignition"),
+
+    # conviction_stack: multi-signal confluence; 6% tight stop
+    "conviction_stack":        _stop_pct_below_entry(0.06, "conviction_stack"),
+
+    # sweep: breakout sweep; 5% below entry is below the breakout level
+    "sweep":                   _stop_pct_below_entry(0.05, "sweep"),
+
+    # aiem_ai: AIEM AI recommendation; 8% conservative stop
+    "aiem_ai":                 _stop_pct_below_entry(0.08, "aiem_ai"),
+
+    # multi_signal: multiple confirming signals; 7% stop
+    "multi_signal":            _stop_pct_below_entry(0.07, "multi_signal"),
+
+    # oi_buildup: OI accumulation; 8% stop (position-building thesis)
+    "oi_buildup":              _stop_pct_below_entry(0.08, "oi_buildup"),
+
+    # layer9_stat: statistical edge signal; 7% stop
+    "layer9_stat":             _stop_pct_below_entry(0.07, "layer9_stat"),
 }
 
 

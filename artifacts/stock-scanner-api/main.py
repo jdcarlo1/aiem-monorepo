@@ -7733,8 +7733,19 @@ try:
                     print(f"[startup_catchup] no paper trades for {_today_et} — running catch-up pick session")
                     _time_su.sleep(20)   # let other catch-ups settle first
                     try:
-                        _aiem_paper_execute_today(trigger_source="startup_catchup")
-                        print(f"[startup_catchup] paper trading catch-up complete")
+                        # Wait for _MODULE_FULLY_LOADED (set at the very last line of main.py)
+                        # so ALL function definitions are in globals before we call the function.
+                        # _aiem_paper_execute_today is now defined early (~line 16731) but its
+                        # dependencies (_is_trading_day, etc.) are defined later.
+                        for _pet_attempt in range(60):  # wait up to 600s (10 min) for full load
+                            if globals().get("_MODULE_FULLY_LOADED"):
+                                break
+                            _time_su.sleep(10)
+                        if globals().get("_MODULE_FULLY_LOADED"):
+                            _aiem_paper_execute_today(trigger_source="startup_catchup")
+                            print(f"[startup_catchup] paper trading catch-up complete")
+                        else:
+                            print("[startup_catchup] module still loading after 600s — will run at next 9:35 AM schedule")
                     except Exception as _e_pt:
                         print(f"[startup_catchup] paper trading catch-up error: {_e_pt}")
         except Exception as _e_su:
@@ -16713,6 +16724,1439 @@ try:
                        "IntervalTrigger(2min) id=candidate_intake_poll")
 except Exception as _e_ci:
     print(f"[candidate_intake] scheduler registration error: {_e_ci}")
+
+
+
+
+def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool = False):
+    """
+    9:35 AM ET: pick top 20, fetch live prices, record positions.
+    Skips non-NYSE trading days (weekends + holidays) and any day where
+    today's trades are already entered.
+
+    trigger_source identifies WHO called this (scheduled_942 / startup_catchup /
+    admin_force / unknown) so the execution log can distinguish a genuine
+    scheduled run from a restart-triggered catch-up attempt after the fact —
+    added 2026-07-09 because a day's worth of stuck catch-up rows made it
+    impossible to tell whether the real 9:42 AM cron ever fired.
+
+    _test_mode=True (never set by the scheduler or any production caller):
+    All DB writes on the BLOCK path are explicitly rolled back — not committed —
+    so the function can be called end-to-end for governance BLOCK verification
+    without persisting any row to production tables.  Governance ack calls are
+    tagged is_test_record=True.  A commit() cannot be reached on the BLOCK path
+    when _test_mode=True because the rollback() call is unconditional.
+    """
+    import datetime as _apdt
+    _today = _apdt.datetime.now(_ET).date()
+
+    if not _is_trading_day(_today):
+        print(f"[aiem_paper] skipping — not a NYSE trading day ({_today.strftime('%A %Y-%m-%d')})")
+        return
+
+    if not _AIEM_PAPER_LOCK.acquire(blocking=False):
+        print("[aiem_paper] already executing — concurrent call rejected")
+        # Previously a fully silent no-op (print only, no DB trace). Now writes
+        # an honest SKIPPED_LOCK_HELD row so "did it run, fail, or never fire"
+        # is never ambiguous again — this is the exact gap that made the
+        # 9:42 AM 2026-07-09 run unverifiable after the fact.
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _llc, _llc.cursor() as _llcu:
+                _llcu.execute(
+                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                    "VALUES ('SKIPPED_LOCK_HELD', %s, %s)",
+                    (trigger_source, "concurrent call rejected — _AIEM_PAPER_LOCK already held"),
+                )
+                _llc.commit()
+        except Exception as _lle:
+            print(f"[aiem_paper] lock-contention log error: {_lle}")
+        return
+
+    # ── G0 boot-authorization checkpoint (Path B P3) ─────────────────────────
+    # Real DB-backed governance check, once per invocation, BEFORE any
+    # trade-executing work begins. While the G0 checkpoint is in SHADOW mode
+    # (the only mode it runs in today) this can never actually block a run —
+    # it only records what an ENFORCE-mode gate would have done. A real
+    # ENFORCE-mode BLOCK (or a fail-closed BLOCK on an unrecovered governance
+    # DB error) releases the lock and writes an honest BLOCKED_G0 row rather
+    # than silently returning, matching the SKIPPED_LOCK_HELD precedent above.
+    try:
+        import aiem_diagram3_governance as _d3_g0
+        _g0_result = _d3_g0.require_governance_authorization(
+            checkpoint="G0",
+            entrypoint="_aiem_paper_execute_today",
+            run_kind="TRADE_EXECUTING",
+            trigger_source=trigger_source,
+            is_test_record=False,
+        )
+    except Exception as _g0e:
+        print(f"[aiem_paper] G0 checkpoint itself raised — fail-closed BLOCK: {_g0e}")
+        _g0_result = {"decision": "BLOCK", "reason_code": f"G0_CHECK_EXCEPTION:{_g0e}",
+                      "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                      "governance_decision_id": None}
+
+    # Acknowledge whatever G0 decided (D2_GOVERNANCE_ACKNOWLEDGER, Section
+    # 12F). Skipped entirely when governance_decision_id is None (synthetic
+    # fail-closed dict above, or a real PERSIST_FAILED — neither has a real
+    # decision row). Wrapped so an ack failure NEVER alters trade flow —
+    # in particular it must never skip the lock release below.
+    _g0_gdid = _g0_result.get("governance_decision_id")
+
+    if _g0_result.get("decision") == "BLOCK":
+        print(f"[aiem_paper] G0 BLOCKED this run — {_g0_result.get('reason_code')} "
+              f"(system_state={_g0_result.get('system_state')}, checkpoint_mode={_g0_result.get('mode')})"
+              + (" [TEST_MODE: BLOCKED_G0 row will rollback, not commit]" if _test_mode else ""))
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _blc, _blc.cursor() as _blcu:
+                _blcu.execute(
+                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                    "VALUES ('BLOCKED_G0', %s, %s)",
+                    (trigger_source, f"G0 governance checkpoint blocked this run: {_g0_result.get('reason_code')}"),
+                )
+                if _test_mode:
+                    _blc.rollback()
+                    print("[aiem_paper][TEST_MODE] BLOCKED_G0 INSERT rolled back — zero production rows written")
+                else:
+                    _blc.commit()
+        except Exception as _ble:
+            print(f"[aiem_paper] BLOCKED_G0 log error: {_ble}")
+        if _g0_gdid:
+            try:
+                _d3_g0.acknowledge_governance_decision(
+                    governance_decision_id=_g0_gdid,
+                    action_taken="RUN_BLOCKED_G0",
+                    continued=False,
+                    blocked=True,
+                    acknowledged_by="_aiem_paper_execute_today",
+                    is_test_record=_test_mode,
+                )
+            except Exception as _g0_ack_e:
+                print(f"[aiem_paper] G0 ack (BLOCK) failed, non-fatal: {_g0_ack_e}")
+        # Guard B — BLOCKED_G0 Telegram alert. Non-fatal: a Telegram outage
+        # must never affect the lock release or return value. Failure is
+        # logged visibly (not swallowed silently) so a real halt is never
+        # invisible. Skipped entirely in _test_mode to avoid firing real
+        # alerts during test runs.
+        if not _test_mode:
+            try:
+                _tg_send(
+                    f"\U0001f6a8 [D3-G0 BLOCK] Paper trading halted \u2014 no trades placed today.\n"
+                    f"State: {_g0_result.get('system_state')} | Mode: {_g0_result.get('mode')}\n"
+                    f"Trigger: {trigger_source} | Decision: {_g0_gdid or 'N/A'}",
+                    signal_source="governance",
+                )
+            except Exception as _g0_tg_e:
+                print(f"[Guard B] Telegram alert failed: {_g0_tg_e}")
+        _AIEM_PAPER_LOCK.release()
+        return {
+            "blocked": True,
+            "decision": _g0_result.get("decision"),
+            "reason_codes": _g0_result.get("reason_codes"),
+            "mode": _g0_result.get("mode"),
+            "system_state": _g0_result.get("system_state"),
+            "governance_decision_id": _g0_gdid,
+        }
+    else:
+        if _g0_result.get("would_block"):
+            print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "
+                  f"(ledger_event_id={_g0_result.get('ledger_event_id')})")
+        if _g0_gdid:
+            try:
+                _d3_g0.acknowledge_governance_decision(
+                    governance_decision_id=_g0_gdid,
+                    action_taken="PROCEEDING_WITH_RUN",
+                    continued=True,
+                    blocked=False,
+                    acknowledged_by="_aiem_paper_execute_today",
+                    is_test_record=False,
+                )
+            except Exception as _g0_ack_e:
+                print(f"[aiem_paper] G0 ack (ALLOW) failed, non-fatal: {_g0_ack_e}")
+
+    _exec_id = None
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
+            _lcu.execute(
+                "INSERT INTO aiem_paper_execution_log (status, trigger_source) VALUES ('RUNNING', %s) RETURNING id",
+                (trigger_source,),
+            )
+            _exec_id = _lcu.fetchone()[0]
+            _lc.commit()
+    except Exception as _le:
+        print(f"[aiem_paper] exec log start error: {_le}")
+
+    def _log_finish(_status, _trades=None, _err=None):
+        if not _exec_id:
+            return
+        try:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
+                _lcu.execute(
+                    "UPDATE aiem_paper_execution_log "
+                    "SET finished_at=NOW(), status=%s, trades_inserted=%s, error_msg=%s "
+                    "WHERE id=%s",
+                    (_status, _trades, _err, _exec_id),
+                )
+                _lc.commit()
+        except Exception as _le:
+            print(f"[aiem_paper] exec log finish error: {_le}")
+
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE trade_date = %s", (_today,))
+            if _cu.fetchone()[0] >= 20:
+                print(f"[aiem_paper] already executed for {_today}, skipping")
+                _log_finish("SKIPPED", _trades=0)
+                return
+
+        picks = _aiem_paper_pick_candidates()
+        if not picks:
+            print("[aiem_paper] no candidates found today")
+            _log_finish("NO_CANDIDATES", _trades=0)
+            return
+        _tg_entry_lines = []  # collect for consolidated Telegram
+
+        # ── Data-guard bus publish helper (Section 12 wiring gap fix) ────────
+        # kill_switch/daily_loss_limit/portfolio_correlation_risk previously
+        # only printed/logged their outcome — the Communication Bus (Diagram 2
+        # stage 3, "data_guards") never heard about it. Batch-level (ticker=
+        # None, one shared trace id for this run) since these are once-per-
+        # run checks, not per-ticker. Never raises: a bus outage must never
+        # affect trading.
+        import uuid as _dg_uuid
+        _dg_trace_id = f"DATA_GUARDS_{_today.isoformat()}_{_dg_uuid.uuid4().hex[:8]}"
+
+        def _dg_bus_publish(event_type, payload):
+            try:
+                import aiem_communication_bus as _dg_abus
+                _dg_abus.get_bus().publish(_dg_abus.StageEvent(
+                    trace_id=_dg_trace_id, ticker=None, stage_order=3,
+                    stage_name="data_guards", event_type=event_type,
+                    component_name="_aiem_paper_execute_today", payload=payload,
+                ))
+            except Exception as _dg_be:
+                print(f"[aiem_paper] data_guards bus publish warning (non-fatal): {_dg_be}")
+
+        # ── Kill-switch gate (spec §7, aiem_position_sizing) ─────────────────
+        # Checked BEFORE fetching quotes or placing any position.
+        _ks_outcome = "SKIPPED_NO_POS_SIZER"
+        if _pos_sizer:
+            try:
+                from kill_switch import _is_currently_halted as _ks_halted
+                _ks_reason = _ks_halted()
+                if _ks_reason:
+                    print(f"[aiem_paper] KILL SWITCH HALTED — no trades today: {_ks_reason}")
+                    _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "kill_switch", "reason": _ks_reason})
+                    try:  # [S6-2 data_guard.failed — kill_switch]
+                        import aiem_diagram3_governance as _d3ev_dg_ks
+                        _d3ev_dg_ks.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=kill_switch reason={_ks_reason}")
+                    except Exception:
+                        pass
+                    _log_finish("SKIPPED", _trades=0, _err=f"kill_switch: {_ks_reason}")
+                    return
+                _ks_outcome = "CLEAR"
+            except Exception as _kse:
+                print(f"[aiem_paper] kill_switch check warning (proceeding): {_kse}")
+                _ks_outcome = f"ERRORED_OPEN:{_kse}"
+
+        # ── Daily loss limit gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
+        # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
+        # daily_loss_limit.py fails closed (halt_trading=True) if ACCOUNT_VALUE_BASELINE is
+        # not configured, so this can legitimately halt trading until that env var is set.
+        _dll_outcome = "CLEAR"
+        try:
+            _dll_result = _daily_loss_check(_DB_URL)
+            if _dll_result.get("halt_trading"):
+                _dll_reason = _dll_result.get("reason") or (
+                    f"loss_pct={_dll_result.get('loss_pct')} <= "
+                    f"-{_dll_result.get('loss_limit_pct')}"
+                )
+                print(f"[aiem_paper] DAILY LOSS LIMIT HALTED — no trades today: {_dll_reason}")
+                _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "daily_loss_limit", "reason": _dll_reason})
+                try:  # [S6-2 data_guard.failed — daily_loss_limit]
+                    import aiem_diagram3_governance as _d3ev_dg_dll
+                    _d3ev_dg_dll.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=daily_loss_limit reason={_dll_reason}")
+                except Exception:
+                    pass
+                _log_finish("SKIPPED", _trades=0, _err=f"daily_loss_limit: {_dll_reason}")
+                return
+        except Exception as _dlle:
+            print(f"[aiem_paper] daily_loss_limit check warning (proceeding): {_dlle}")
+            _dll_outcome = f"ERRORED_OPEN:{_dlle}"
+
+        # ── Portfolio correlation risk gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
+        # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
+        # portfolio_correlation_risk.py has no halt_trading field of its own — a flagged
+        # concentration on the CURRENT open book (>=3 open positions in one correlation
+        # group) halts today's NEW trade batch so no more correlated risk is added on top.
+        _pcr_outcome = "CLEAR"
+        try:
+            _pcr_result = _portfolio_corr_risk(_DB_URL)
+            if _pcr_result.get("concentration_risk_flag"):
+                _pcr_reason = "; ".join(_pcr_result.get("warnings") or []) or "concentration risk flagged"
+                print(f"[aiem_paper] PORTFOLIO CONCENTRATION RISK HALTED — no new trades today: {_pcr_reason}")
+                _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "portfolio_correlation_risk", "reason": _pcr_reason})
+                try:  # [S6-2 data_guard.failed — portfolio_correlation_risk]
+                    import aiem_diagram3_governance as _d3ev_dg_pcr
+                    _d3ev_dg_pcr.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=portfolio_correlation_risk reason={_pcr_reason}")
+                except Exception:
+                    pass
+                _log_finish("SKIPPED", _trades=0, _err=f"portfolio_correlation_risk: {_pcr_reason}")
+                return
+        except Exception as _pcre:
+            print(f"[aiem_paper] portfolio_correlation_risk check warning (proceeding): {_pcre}")
+            _pcr_outcome = f"ERRORED_OPEN:{_pcre}"
+
+        # All three real D2 data guards cleared, OR errored open with a
+        # warning (same fail-open convention each already had individually
+        # before G1 existed — G1 does not change that behavior, it only
+        # observes and records it honestly). Per-gate outcome payload for
+        # G1's own audit trail reflects what ACTUALLY happened on this run
+        # (CLEAR / ERRORED_OPEN:<exception> / SKIPPED_NO_POS_SIZER) — never
+        # a fabricated blanket "CLEAR" regardless of real outcome.
+        _dg_outcomes = {
+            "kill_switch": _ks_outcome,
+            "daily_loss_limit": _dll_outcome,
+            "portfolio_correlation_risk": _pcr_outcome,
+        }
+        _dg_bus_publish("DATA_GUARDS_PASSED", _dg_outcomes)
+        try:  # [S6-1 data_guard.passed]
+            import aiem_diagram3_governance as _d3ev_dg_pass
+            _d3ev_dg_pass.emit_d2_pipeline_event(
+                "data_guard.passed",
+                reason=f"ks={_ks_outcome} dll={_dll_outcome} pcr={_pcr_outcome}")
+        except Exception:
+            pass
+
+        # ── G1 data-guard-completion checkpoint (Path B P3.6) ─────────────────
+        # Real DB-backed governance check, once per batch, right after the
+        # three real D2 data guards above have all cleared. G1 does NOT
+        # re-decide those three outcomes — it evaluates D3's OWN integrity
+        # (checkpoint mode/system state, same skeleton as G0) plus a NEW
+        # architecture-baseline-hash comparison, and carries the three real
+        # outcomes above as an audit payload. While G1 is in SHADOW mode
+        # (the only mode it runs in today) this can never actually block a
+        # run — it only records what an ENFORCE-mode gate would have done.
+        try:
+            import aiem_diagram3_governance as _d3_g1
+            _g1_result = _d3_g1.require_governance_authorization(
+                checkpoint="G1",
+                entrypoint="_aiem_paper_execute_today",
+                run_kind="TRADE_EXECUTING",
+                source_phase="data_guards",
+                trigger_source=trigger_source,
+                payload={"data_guard_outcomes": _dg_outcomes, "trace_id": _dg_trace_id},
+                is_test_record=False,
+            )
+        except Exception as _g1e:
+            print(f"[aiem_paper] G1 checkpoint itself raised — fail-closed BLOCK: {_g1e}")
+            _g1_result = {"decision": "BLOCK", "reason_code": f"G1_CHECK_EXCEPTION:{_g1e}",
+                          "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                          "governance_decision_id": None}
+
+        _g1_gdid = _g1_result.get("governance_decision_id")
+
+        if _g1_result.get("decision") == "BLOCK":
+            print(f"[aiem_paper] G1 BLOCKED this run — {_g1_result.get('reason_code')} "
+                  f"(system_state={_g1_result.get('system_state')}, checkpoint_mode={_g1_result.get('mode')})")
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=4) as _blc1, _blc1.cursor() as _blcu1:
+                    _blcu1.execute(
+                        "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
+                        "VALUES ('BLOCKED_G1', %s, %s)",
+                        (trigger_source, f"G1 governance checkpoint blocked this run: {_g1_result.get('reason_code')}"),
+                    )
+                    _blc1.commit()
+            except Exception as _ble1:
+                print(f"[aiem_paper] BLOCKED_G1 log error: {_ble1}")
+            if _g1_gdid:
+                try:
+                    _d3_g1.acknowledge_governance_decision(
+                        governance_decision_id=_g1_gdid,
+                        action_taken="RUN_BLOCKED_G1",
+                        continued=False,
+                        blocked=True,
+                        acknowledged_by="_aiem_paper_execute_today",
+                        is_test_record=False,
+                    )
+                except Exception as _g1_ack_e:
+                    print(f"[aiem_paper] G1 ack (BLOCK) failed, non-fatal: {_g1_ack_e}")
+            # NOTE: unlike the G0 BLOCK branch above (which runs BEFORE the
+            # outer try/finally at ~41845/42728 and therefore must release
+            # the lock itself), this G1 BLOCK branch runs INSIDE that same
+            # try/finally — the finally already calls
+            # _AIEM_PAPER_LOCK.release() unconditionally on any return path.
+            # An explicit release here would double-release the lock and
+            # raise RuntimeError('release unlocked lock') from the finally,
+            # escaping as an unhandled exception (architect-caught bug,
+            # fixed same session before any real G1 BLOCK could hit prod).
+            return
+        else:
+            if _g1_result.get("would_block"):
+                print(f"[aiem_paper] G1 SHADOW: would have blocked this run — {_g1_result.get('reason_code')} "
+                      f"(ledger_event_id={_g1_result.get('ledger_event_id')})")
+            if _g1_gdid:
+                try:
+                    _d3_g1.acknowledge_governance_decision(
+                        governance_decision_id=_g1_gdid,
+                        action_taken="PROCEEDING_WITH_RUN",
+                        continued=True,
+                        blocked=False,
+                        acknowledged_by="_aiem_paper_execute_today",
+                        is_test_record=False,
+                    )
+                except Exception as _g1_ack_e:
+                    print(f"[aiem_paper] G1 ack (ALLOW) failed, non-fatal: {_g1_ack_e}")
+
+        # ── AIEM v3 Macro Gate (Phase 2) ──────────────────────────────────────
+        # Hard block if macro regime is BEAR_SEVERE (score < 20).
+        # Uses 9:00 AM pre-computed snapshot from DB; falls back to live fetch.
+        # Fail-safe: if macro engine errors, trading proceeds with a warning.
+        _macro_snap = None
+        try:
+            import aiem_macro_engine as _ame
+            _macro_allowed, _macro_snap = _ame.get_macro_gate()
+            if not _macro_allowed:
+                _block_msg = (
+                    f"MACRO GATE BLOCKED — regime={_macro_snap.regime} "
+                    f"score={_macro_snap.macro_score:.0f}/100 "
+                    f"(threshold={_ame._BLOCK_BELOW}) — no trades today"
+                )
+                print(f"[aiem_paper] {_block_msg}")
+                # Log each candidate as BLOCK_MACRO in decision history
+                for _bp in picks:
+                    try:
+                        _ame.log_decision(
+                            _bp["ticker"], "BLOCK_MACRO", _macro_snap,
+                            block_reason=_block_msg,
+                        )
+                    except Exception:
+                        pass
+                _log_finish("SKIPPED", _trades=0, _err=_block_msg)
+                return
+            print(f"[aiem_paper] macro gate PASS — {_macro_snap.summary_line()}")
+        except Exception as _macro_e:
+            print(f"[aiem_paper] macro gate error (proceeding): {_macro_e}")
+
+        tickers = [p["ticker"] for p in picks]
+        quotes  = _td_quotes(tickers)
+
+        # ── Bull/bear debate for top 3 picks (GPT vs Claude adversarial) ──
+        _debate_verdicts: dict = {}
+        if _bull_bear and picks:
+            for _top in picks[:3]:
+                _tt = _top["ticker"]
+                _tq = quotes.get(_tt) or {}
+                _tp = float(_tq.get("last") or 0)
+                if _tp > 0:
+                    try:
+                        _ctx = {
+                            "price": _tp, "trade_type": _top["trade_type"],
+                            "signal_source": _top["source"],
+                            "signal_detail": _top.get("detail", ""),
+                            "score": round(_top["score"], 2),
+                        }
+                        _deb = _bull_bear.run_bull_bear_debate(_tt, _ctx)
+                        _verd = (_deb.get("synthesis") or {}).get("verdict", "CONFLICTED")
+                        _debate_verdicts[_tt] = {"verdict": _verd, "debate": _deb, "context": _ctx}
+                        print(f"[aiem_paper] bull_bear {_tt}: {_verd}")
+                    except Exception as _bbe:
+                        print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
+
+        rows_inserted = 0
+        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            for pick in picks:
+                _t    = pick["ticker"]
+                _audit_trace_id = None
+                # REMEDIATION S2 ("AUTHORITATIVE MASTER REMEDIATION" directive
+                # P0-4): a trace_id must exist for THIS candidate before any
+                # gate can reject it, so a rejection can be recorded as an
+                # explicit terminal row instead of silently `continue`-ing
+                # with zero audit trace anywhere. This is generated once per
+                # candidate iteration and is independent of _audit_trace_id
+                # (aiem_pipeline_audit, a different legacy audit system) and
+                # of _d2_trace_id (assigned later, reused via `_audit_trace_id
+                # or ...` for candidates that pass every gate).
+                import uuid as _d2_uuid_early
+                _d2_trace_id_early = str(_d2_uuid_early.uuid4())
+                _q    = quotes.get(_t) or {}
+                _price = float(_q.get("last") or _q.get("bid") or 0)
+                _price_source = "live_quote" if _price > 0 else None
+                _price_source_scan_date = None
+                if _price <= 0:
+                    # fallback: try polygon
+                    try:
+                        _pg_row = None
+                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _c2, _c2.cursor() as _cu2:
+                            _cu2.execute("SELECT price, scan_date FROM polygon_rvol_scan WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1", (_t,))
+                            _pg_row = _cu2.fetchone()
+                        if _pg_row:
+                            _price = float(_pg_row[0])
+                            _price_source = "polygon_fallback"
+                            _price_source_scan_date = _pg_row[1]
+                    except Exception as _exc:
+                        print(f"[silent_except:L31766] {type(_exc).__name__}: {_exc}")
+                if _price <= 0:
+                    continue
+
+                # ── G6: Point-in-Time Guard (Diagram 2 remediation spec step 3) ──
+                # SHADOW-only, fail-OPEN: audits the price provenance just resolved
+                # above (the polygon_rvol_scan fallback has no date filter and can
+                # silently return a stale prior-session price). In SHADOW mode
+                # (the only mode it runs in today) _evaluate_g6_decision can never
+                # return BLOCK, so the check below is provably unreachable right
+                # now -- it exists so that if an admin ever flips G6 to ENFORCE,
+                # the checkpoint's verdict actually gates the candidate instead of
+                # being a silently-discarded audit-only side effect (which would
+                # make the audit trail lie about candidates it claims were
+                # BLOCKED). See aiem_diagram3_governance._evaluate_g6_decision for
+                # the fail-open contract and why G6 alone is exempt from it.
+                try:
+                    import aiem_diagram3_governance as _d3gov_g6
+                    _now_et_date_g6 = _dt.now(_ET_TZ).date()
+                    _g6_result = _d3gov_g6.require_governance_authorization(
+                        checkpoint="G6",
+                        entrypoint="_aiem_paper_execute_today",
+                        run_kind="TRADE_EXECUTING",
+                        source_phase="PRICE_RESOLUTION",
+                        trigger_source=trigger_source,
+                        payload={"ticker": _t, "price": _price, "price_source": _price_source},
+                        candidate_trace_id=_d2_trace_id_early,
+                        candidate_ticker=_t,
+                        is_test_record=False,
+                        pit_price_source=_price_source,
+                        pit_price_source_scan_date=_price_source_scan_date,
+                        pit_now_et_date=_now_et_date_g6,
+                    )
+                except Exception as _g6_exc:
+                    print(f"[aiem_paper] G6 PIT guard check failed (fail-open, continuing): {_g6_exc}")
+                    _g6_result = None
+
+                if _g6_result and _g6_result.get("decision") == "BLOCK":
+                    print(f"[aiem_paper] G6 BLOCKED candidate {_t} — {_g6_result.get('reason_code')} "
+                          f"(system_state={_g6_result.get('system_state')}, checkpoint_mode={_g6_result.get('mode')})")
+                    _g6_gdid = _g6_result.get("governance_decision_id")
+                    if _g6_gdid:
+                        try:
+                            _d3gov_g6.acknowledge_governance_decision(
+                                governance_decision_id=_g6_gdid,
+                                action_taken="CANDIDATE_SKIPPED_G6",
+                                continued=False,
+                                blocked=True,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g6_ack_e:
+                            print(f"[aiem_paper] G6 ack (BLOCK) failed, non-fatal: {_g6_ack_e}")
+                    # No lock is acquired/released in this branch (same as G2),
+                    # so `continue` here is safe.
+                    continue
+                elif _g6_result and _g6_result.get("would_block"):
+                    print(f"[aiem_paper] G6 SHADOW: would have blocked candidate {_t} — {_g6_result.get('reason_code')} "
+                          f"(ledger_event_id={_g6_result.get('ledger_event_id')})")
+
+                # ── Execution realism: apply half-spread slippage BEFORE persisting ──
+                # No live bid/ask available at write time (Tradier market-data only,
+                # Polygon prev-close only). _NANO_CAP_SPREAD_PCT is the auditor-approved
+                # default; change that constant — not this code — to adjust.
+                _mid_price = _price
+                try:
+                    import execution_simulator as _exec_sim
+                    _slip = _exec_sim.fixed_spread_slippage(
+                        _mid_price, "long", _NANO_CAP_SPREAD_PCT
+                    )
+                    _fill_price      = _slip["fill_price"]
+                    _spread_pct_used = _NANO_CAP_SPREAD_PCT
+                except Exception as _slip_exc:
+                    print(f"[aiem_paper] slippage calc failed, using mid: {_slip_exc}")
+                    _fill_price      = _mid_price
+                    _spread_pct_used = None
+
+                _notional  = 1000.0
+                _trade_type = pick["trade_type"]
+
+                # ── Position sizing (spec §2-5, aiem_position_sizing) ─────────
+                # compute_position_size() returns PARAMS_NOT_CONFIRMED only when
+                # _pos_sizer failed to import / is not wired (module-not-deployed
+                # bypass). All Q1-Q5 params are confirmed as of 2026-07-04, so a
+                # live call can never itself return PARAMS_NOT_CONFIRMED — it is
+                # kept as an ALLOWED pass-through (default $1000 notional) purely
+                # to represent "sizing subsystem not deployed", never a live
+                # block decision. Every other non-APPROVED gate_result (including
+                # SIZING_ERROR on an unexpected exception) is a real block: no
+                # default-notional fallback, no trade insertion for that pick.
+                # AIEM VERIFICATION DIRECTIVE 2026-07-09 Part 1 — fail-closed fix.
+                _sizing_stop       = None
+                _sizing_stop_basis = None
+                _sizing_risk_pct   = None
+                _sizing_gate       = "PARAMS_NOT_CONFIRMED"
+                if _pos_sizer:
+                    try:
+                        _sz = _pos_sizer.compute_position_size(
+                            ticker=_t,
+                            signal_source=pick["source"],
+                            conviction_score=float(pick.get("score") or 0),
+                            entry_price=_fill_price,
+                            signal_row=pick,
+                        )
+                        _sizing_gate = _sz.get("gate_result", "UNKNOWN")
+                        if _sizing_gate == "APPROVED":
+                            _notional = _sz["calculated_notional"]
+                        elif _sizing_gate not in ("PARAMS_NOT_CONFIRMED",):
+                            print(f"[aiem_paper] sizing gate {_sizing_gate} for {_t}: "
+                                  f"{_sz.get('gate_detail','')}")
+                        _sizing_stop       = _sz.get("calculated_stop_price")
+                        _sizing_stop_basis = _sz.get("stop_basis")
+                        _sizing_risk_pct   = _sz.get("risk_pct_used")
+                    except Exception as _se:
+                        _sizing_gate = "SIZING_ERROR"
+                        print(f"[aiem_paper] sizing error for {_t} — SIZING_ERROR, "
+                              f"blocking trade (fail-closed, no $1000 default): {_se}")
+
+                # ── Sizing gate enforcement (fail-closed allowlist) ─────────
+                # Only APPROVED (real sizer pass) and PARAMS_NOT_CONFIRMED
+                # (sizer not deployed) may proceed to trade insertion.
+                # Every other gate_result — CONVICTION_BELOW_MIN, NO_STOP_DEFINED,
+                # STOP_UNDEFINED, POSITION_TOO_SMALL, kill_switch, max_positions,
+                # max_sector_positions, daily_loss, SIZING_ERROR, or any future/
+                # unknown value — skips this candidate entirely. No stage 1-15
+                # PipelineTrace/_d2_run rows are opened for a blocked pick (D2
+                # stage wiring only starts after this gate); the sizing
+                # decision itself is already durably logged by
+                # aiem_position_sizing._log_sizing_decision() into
+                # aiem_position_sizing_log for every gate_result, including this
+                # one. REMEDIATION S2 (P0-4, "AUTHORITATIVE MASTER REMEDIATION"
+                # directive): additionally write one explicit terminal REJECTED
+                # row to aiem_diagram2_trace_audit using _d2_trace_id_early, so
+                # this candidate is never silently invisible from the Diagram 2
+                # trace surface — every candidate now resolves to either 17
+                # PASS stages + an order, or exactly one terminal row.
+                if _sizing_gate not in ("APPROVED", "PARAMS_NOT_CONFIRMED"):
+                    print(f"[aiem_paper] SIZING_GATE_BLOCKED {_t}: gate={_sizing_gate} "
+                          f"— skipping trade insertion (no default notional fallback)")
+                    try:
+                        import aiem_diagram2_trace_audit as _ad2_term
+                        _ad2_term.record_terminal(
+                            trace_id=_d2_trace_id_early,
+                            ticker=_t,
+                            terminal_status="REJECTED",
+                            rejected_at_stage_order=16,
+                            rejected_at_stage_name="risk_gate",
+                            rejecting_component="aiem_position_sizing.compute_position_size",
+                            human_readable_reason=(
+                                f"Position sizing gate returned {_sizing_gate} "
+                                f"(not APPROVED/PARAMS_NOT_CONFIRMED) — "
+                                f"{_sz.get('gate_detail', '') if '_sz' in dir() else ''}"
+                            ),
+                            reason_codes=[_sizing_gate],
+                            last_successful_stage=None,
+                        )
+                    except Exception as _term_e:
+                        print(f"[aiem_paper] record_terminal (sizing reject) failed, non-fatal: {_term_e}")
+                    continue
+
+                if _trade_type == "CALL_OPTION":
+                    # Paper options: record $1000 notional as premium spent,
+                    # 1 contract for tracking purposes
+                    _qty       = 1.0
+                    _hold_days = 3
+                elif _trade_type == "ETF":
+                    _qty       = round(_notional / _fill_price, 4)
+                    _hold_days = 5
+                else:  # STOCK
+                    _qty       = round(_notional / _fill_price, 4)
+                    _hold_days = 5
+
+                # ── Pipeline audit: create trace + log AIEM decision steps ──
+                try:
+                    import aiem_pipeline_audit as _apa
+                    _atrace = _apa.PipelineTrace(_t)
+                    _audit_trace_id = _atrace.trace_id
+                    # Backfill audit_trace_id into aiem_candidate_rankings for this ticker today
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _cr_bfc, \
+                                _cr_bfc.cursor() as _cr_bfcu:
+                            _cr_bfcu.execute("""
+                                UPDATE aiem_candidate_rankings
+                                SET audit_trace_id = %s
+                                WHERE audit_trace_id IS NULL
+                                  AND ticker = %s
+                                  AND created_at::date = CURRENT_DATE
+                            """, (_audit_trace_id, _t))
+                            _cr_bfc.commit()
+                    except Exception:
+                        pass
+                    # ── Supervisor Hook 1: scanner alert → AIEM intake ────────
+                    try:
+                        import aiem_supervisor as _asup_h1
+                        _asup_h1.supervisor_on_scanner_alert(
+                            audit_trace_id=_audit_trace_id,
+                            ticker=_t,
+                            signal_source=pick.get("source", ""),
+                            scanner_score=pick.get("score"),
+                            scanner_reason=pick.get("detail", ""),
+                        )
+                    except Exception as _sup_h1_e:
+                        print(f"[supervisor] hook1_scanner_alert skipped: {_sup_h1_e}")
+                    _debate_v = _debate_verdicts.get(_t, "N/A")
+                    _raw_sc      = float(pick.get("raw_score") or pick.get("score") or 0)
+                    _fin_sc      = float(pick.get("score") or 0)
+                    _dm_lbl      = float(pick.get("drift_mult") or 1.0)
+                    _tw_lbl      = float(pick.get("trust_mult") or 1.0)
+                    _th_sc_diag  = pick.get("thompson_sampled_score")
+                    _th_lbl_diag = float(pick.get("thompson_multiplier") or 1.0)
+                    _th_src_diag = str(pick.get("thompson_signal_source") or pick.get("source", ""))
+                    # Stage 1 — signal_received
+                    _atrace.log_step(
+                        "signal_received",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"scanner_table={pick['source']} "
+                            f"raw_score={_raw_sc:.2f}"
+                        ),
+                        output_summary=(
+                            f"ticker={_t} trade_type={_trade_type} "
+                            f"fill_price={_fill_price}"
+                        ),
+                        next_module="aiem_candidate_intake",
+                        decision_authority="stock_scanner",
+                        status="PASS",
+                    )
+                    # Stage 2 — aiem_candidate_intake
+                    _atrace.log_step(
+                        "aiem_candidate_intake",
+                        function_name="_aiem_paper_execute_today",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} source={pick['source']} "
+                            f"bull_bear={_debate_v} "
+                            f"kill_switch=CLEAR circuit_breaker=CLEAR "
+                            f"sizing_gate={_sizing_gate}"
+                        ),
+                        output_summary=(
+                            f"candidate accepted fill=${_fill_price:.2f} "
+                            f"notional=${_notional:.0f}"
+                        ),
+                        next_module="duplicate_filter_check",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 3 — duplicate_filter_check
+                    _atrace.log_step(
+                        "duplicate_filter_check",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=(
+                            f"passed dedup gate — highest-score source "
+                            f"for {_t} retained (raw_score={_raw_sc:.2f})"
+                        ),
+                        next_module="market_context_loaded",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 4 — market_context_loaded
+                    _atrace.log_step(
+                        "market_context_loaded",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t}",
+                        output_summary=(
+                            f"FRED macro loaded; drift_check_log queried; "
+                            f"drift_mult={_dm_lbl:.4f} for source={pick['source']}"
+                        ),
+                        next_module="module_scores_generated",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 5 — module_scores_generated
+                    _atrace.log_step(
+                        "module_scores_generated",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=(
+                            f"raw_score={_raw_sc:.4f} source={pick['source']} "
+                            f"detail={str(pick.get('detail',''))[:100]}"
+                        ),
+                        next_module="candidate_ranking_created",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 6 — candidate_ranking_created
+                    _atrace.log_step(
+                        "candidate_ranking_created",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} raw_score={_raw_sc:.4f}",
+                        output_summary=(
+                            f"final_adjusted_score={_fin_sc:.4f} written to "
+                            f"aiem_candidate_rankings (run_id=aiem_{pick.get('source','')})"
+                        ),
+                        next_module="trust_weights_applied",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 7 — trust_weights_applied
+                    _atrace.log_step(
+                        "trust_weights_applied",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} source={pick['source']} "
+                            f"trust_mult={_tw_lbl:.4f}"
+                        ),
+                        output_summary=(
+                            f"score after trust gate: "
+                            f"{_raw_sc:.4f} × {_tw_lbl:.4f} = "
+                            f"{round(_raw_sc * _tw_lbl, 4):.4f}"
+                        ),
+                        next_module="drift_gate_checked",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 8 — drift_gate_checked
+                    _drift_verdict_lbl = (
+                        "ALERT_UNDERPERFORMING" if _dm_lbl < 0.5
+                        else "INSUFFICIENT_DATA" if _dm_lbl < 1.0
+                        else "OK"
+                    )
+                    _atrace.log_step(
+                        "drift_gate_checked",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} source={pick['source']} "
+                            f"drift_mult={_dm_lbl:.4f}"
+                        ),
+                        output_summary=(
+                            f"verdict={_drift_verdict_lbl} "
+                            f"drift_mult={_dm_lbl:.4f} applied"
+                        ),
+                        next_module="thompson_sampler_checked",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 9 — thompson_sampler_checked (read current alpha/beta state)
+                    _th_summary = "no thompson record for this source yet"
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _thc, \
+                                _thc.cursor() as _thcu:
+                            _thcu.execute(
+                                "SELECT alpha, beta FROM aiem_paper_thompson "
+                                "WHERE signal_source=%s",
+                                (pick.get("source", ""),)
+                            )
+                            _thr = _thcu.fetchone()
+                            if _thr:
+                                _th_a, _th_b = float(_thr[0]), float(_thr[1])
+                                _th_s = _th_a / (_th_a + _th_b) if (_th_a + _th_b) > 0 else 0.5
+                                _th_summary = (
+                                    f"alpha={_th_a:.2f} beta={_th_b:.2f} "
+                                    f"sampled_score={_th_s:.4f}"
+                                )
+                    except Exception:
+                        pass
+                    _atrace.log_step(
+                        "thompson_sampler_checked",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=_th_summary,
+                        next_module="rl_weight_checked",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 10 — rl_weight_checked
+                    _rl_summary = "no live RL weights"
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _rlc, \
+                                _rlc.cursor() as _rlcu:
+                            _rlcu.execute(
+                                "SELECT n_updates, created_at FROM rl_strategy_weights "
+                                "WHERE is_live=TRUE ORDER BY created_at DESC LIMIT 1"
+                            )
+                            _rlr = _rlcu.fetchone()
+                            if _rlr:
+                                _rl_summary = (
+                                    f"live_weights=YES n_updates={_rlr[0]} "
+                                    f"last_trained={str(_rlr[1])[:10]}"
+                                )
+                    except Exception:
+                        pass
+                    _atrace.log_step(
+                        "rl_weight_checked",
+                        function_name="_aiem_paper_pick_candidates",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=f"ticker={_t} source={pick['source']}",
+                        output_summary=_rl_summary,
+                        next_module="final_aiem_decision",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    # Stage 11 — final_aiem_decision
+                    _atrace.log_step(
+                        "final_aiem_decision",
+                        function_name="_aiem_paper_execute_today",
+                        file_name="main.py",
+                        source_system="stock_scanner",
+                        processing_system="AIEM",
+                        input_summary=(
+                            f"ticker={_t} price={_fill_price} "
+                            f"type={_trade_type} source={pick['source']}"
+                        ),
+                        output_summary=(
+                            "EXECUTE — writing to aiem_paper_trades "
+                            "[decision_system=AIEM, not stock_scanner]"
+                        ),
+                        next_module="outcome_recorded",
+                        decision_authority="AIEM",
+                        status="PASS",
+                    )
+                    _atrace.flush()
+                    try:  # [T2-6 decision.created]
+                        import aiem_diagram3_governance as _d3ev_p3f
+                        _d3ev_p3f.emit_d2_pipeline_event(
+                            "decision.created", ticker=_t,
+                            reason=f"source={pick.get('source','?')} fill={_fill_price:.2f} type={_trade_type}")
+                    except Exception:
+                        pass
+                except Exception as _ae:
+                    print(f"[aiem_audit] trace error for {_t} (non-fatal): {_ae}")
+                    _audit_trace_id = None
+
+                # ── Diagram 2 runtime wiring (Final Diagram 2 Remediation) ──
+                # Real control-plane pass through AEIMMasterOrchestrator.execute_stage()
+                # for stages 1-17 of the 21-stage live candidate path. Uses the SAME
+                # trace_id as the legacy 13-stage audit above (falls back to a fresh
+                # uuid4 only if that trace failed to initialize). Each stage call is
+                # individually isolated so one honest FAIL never blocks the rest.
+                try:
+                    import uuid as _d2_uuid
+                    import aiem_master_orchestrator as _amo
+                    import aiem_registry as _d2_areg
+                    import aiem_communication_bus as _d2_abus
+                    import aiem_diagram2_stage_helpers as _d2_help
+                    import aiem_diagram3_governance as _d3_gov_ctx
+
+                    _d2_trace_id = _audit_trace_id or str(_d2_uuid.uuid4())
+                    _d2_orch = _amo.get_orchestrator()
+
+                    def _d2_run(stage_order, stage_name, display, runtime_fn_name, fn, *fargs):
+                        try:
+                            # trace_context: real root_trace_id for this ticker's D2 run,
+                            # scoped to just this one execute_stage() call so it can never
+                            # leak into a different ticker/stage's bus-subscriber-derived
+                            # governance ledger row (see aiem_diagram3_governance gap G2 fix).
+                            with _d3_gov_ctx.trace_context(root_trace_id=_d2_trace_id, is_test_record=False):
+                                return _d2_orch.execute_stage(
+                                    _d2_trace_id, _t, stage_order, stage_name, display,
+                                    runtime_fn_name, fn, *fargs, paper_trade_id=None,
+                                )
+                        except Exception as _d2_stage_e:
+                            print(f"[diagram2] stage {stage_order} ({stage_name}) FAILED for {_t}: {_d2_stage_e}")
+                            return None
+
+                    _d2_run(1, "scanner_signals", "Scanner Signals",
+                            "_aiem_paper_pick_candidates",
+                            lambda: {"source": pick["source"], "raw_score": _raw_sc,
+                                     "detail": str(pick.get("detail", ""))[:200]})
+                    _d2_run(2, "aeim_intake", "AEIM Intake",
+                            "_aiem_paper_execute_today",
+                            lambda: {"ticker": _t, "trade_type": _trade_type,
+                                     "fill_price": _fill_price, "notional": _notional})
+                    _d2_run(3, "data_guards", "Data Guards",
+                            "_aiem_paper_execute_today (kill_switch/daily_loss/portfolio_corr gates)",
+                            lambda: _d2_help.stage3_data_guards_subchecks(_t, pick, _d2_trace_id))
+                    _d2_run(4, "master_orchestrator", "Master Orchestrator",
+                            "AEIMMasterOrchestrator.execute_stage",
+                            lambda: {"orchestrator_singleton_id": id(_d2_orch), "active": True})
+                    _d2_run(5, "module_registry", "Module Registry",
+                            "aiem_registry.get_module_for_stage",
+                            lambda: {
+                                "stages_resolved": sum(
+                                    1 for _i in range(1, 22)
+                                    if _d2_areg.get_module_for_stage(_i).get("found")
+                                ),
+                                "total_stages": 21,
+                            })
+                    _d2_run(6, "tool_registry", "Tool Registry",
+                            "aiem_registry.get_tool",
+                            lambda: _d2_areg.get_tool("run_bull_bear_debate"))
+                    _d2_run(7, "communication_bus", "Communication Bus",
+                            "aiem_communication_bus.CommunicationBus.recent_events",
+                            lambda: {"events_so_far": len(_d2_abus.get_bus().recent_events(_d2_trace_id))})
+                    _d2_run(8, "macro_regime", "Macro / Regime",
+                            "aiem_macro_engine (get_macro_gate — reused batch-level snapshot)",
+                            lambda: ({"regime": _macro_snap.regime, "macro_score": _macro_snap.macro_score}
+                                     if _macro_snap else {"macro_snap": None,
+                                     "note": "macro engine errored upstream, batch proceeded per fail-safe"}))
+                    _d2_run(9, "discovery", "Discovery",
+                            "discovery_cycle_log (global cycle freshness)",
+                            _d2_help.check_discovery_cycle_freshness, _t)
+                    _d2_run(10, "technical_signal", "Technical Signal",
+                            "module_scores_generated (technical component)",
+                            lambda: _d2_help.technical_signal_subchecks(pick, _raw_sc, _t, _d2_trace_id))
+                    _d2_run(11, "options_smart_money", "Options / Smart Money",
+                            "module_scores_generated (options component)",
+                            lambda: {"source": pick["source"],
+                                     "note": "options/smart-money contribution embedded in unified raw_score"})
+                    _d2_run(12, "quant_stat_edge", "Quant / Statistical Edge",
+                            "layer9_scores (global scanner freshness)",
+                            _d2_help.check_layer9_freshness, _t)
+                    _d2_run(13, "probability_engine", "Probability Engine",
+                            "aiem_probability_engine.live_query.run_live_query(mode='ticker')",
+                            _d2_help.run_probability_engine_for_ticker, _t)
+                    _d2_run(14, "scoring_synthesis", "Scoring / Synthesis",
+                            "candidate_ranking_created + trust_weights_applied + drift_gate_checked",
+                            lambda: {"raw_score": _raw_sc, "trust_mult": _tw_lbl,
+                                     "drift_mult": _dm_lbl, "final_score": _fin_sc,
+                                     "thompson_sampled_score": _th_sc_diag,
+                                     "thompson_multiplier": _th_lbl_diag,
+                                     "thompson_signal_source": _th_src_diag})
+                    _d2_run(15, "specialist_council", "Specialist Council / Bull-Bear",
+                            "aiem_bull_bear.run_bull_bear_debate (reused batch-level debate)",
+                            lambda: (_d2_help.log_stage15_subchecks(
+                                         _debate_verdicts[_t]["debate"], _t, _d2_trace_id)
+                                     if _t in _debate_verdicts else
+                                     {"evaluated": False,
+                                      "reason": "batch_limited",
+                                      "note": (
+                                          f"{_t} not in top-ranked debate batch — "
+                                          "bull/bear debate is run only for the highest-scored "
+                                          "candidates per execution cycle to control API cost"
+                                      )}))
+                    _d2_run(16, "risk_gate", "Risk Gate / Position Sizing",
+                            "sizing gate + batch-level kill_switch/daily_loss/portfolio_corr/macro gates",
+                            lambda: {"sizing_gate_result": _sizing_gate,
+                                     "sizing_stop_price": _sizing_stop,
+                                     "sizing_risk_pct": _sizing_risk_pct,
+                                     "kill_switch": "CLEAR", "daily_loss_limit": "CLEAR",
+                                     "portfolio_correlation": "CLEAR"})
+                    _d2_run(17, "decision_engine", "Decision Engine",
+                            "_aiem_paper_execute_today (final_aiem_decision)",
+                            lambda: {"decision": "EXECUTE", "ticker": _t,
+                                     "price": _fill_price, "type": _trade_type})
+                except Exception as _d2_e:
+                    print(f"[diagram2_wiring] setup error for {_t} (non-fatal, legacy pipeline unaffected): {_d2_e}")
+                    _d2_trace_id = None
+
+                # ── Supervisor Hook 3: AIEM final decision logged ─────────────
+                if _audit_trace_id:
+                    try:
+                        import aiem_supervisor as _asup_h3
+                        _asup_h3.supervisor_on_final_decision(
+                            audit_trace_id=_audit_trace_id,
+                            ticker=_t,
+                            trade_id=None,
+                            decision="EXECUTE",
+                            confidence_score=pick.get("score"),
+                            decision_reason=pick.get("detail", ""),
+                            signal_source=pick.get("source"),
+                        )
+                    except Exception as _sup_h3_e:
+                        print(f"[supervisor] hook3_final_decision skipped: {_sup_h3_e}")
+
+                # ── G2 pre-decision trace-integrity checkpoint (Path B P4) ────
+                # Real per-CANDIDATE DB-backed check, immediately before THIS
+                # candidate's trade is inserted into aiem_paper_trades.
+                # Confirms every mandatory D2 stage (1-17) was actually
+                # observed via the real CommunicationBus for _d2_trace_id.
+                # While G2 is in SHADOW mode (the only mode it runs in today)
+                # this can never actually skip a candidate — it only records
+                # what an ENFORCE-mode gate would have done. A BLOCK skips
+                # only THIS ticker (`continue`) — it must never abort the
+                # whole batch or touch _AIEM_PAPER_LOCK (held once per batch
+                # by the caller, not per-candidate; untouched by this branch).
+                try:
+                    import aiem_diagram3_governance as _d3_g2
+                    _g2_result = _d3_g2.require_governance_authorization(
+                        checkpoint="G2",
+                        entrypoint="_aiem_paper_execute_today",
+                        run_kind="TRADE_EXECUTING",
+                        source_phase="decision_engine",
+                        trigger_source=trigger_source,
+                        payload={"ticker": _t, "diagram2_trace_id": _d2_trace_id},
+                        candidate_trace_id=_d2_trace_id,
+                        candidate_ticker=_t,
+                        is_test_record=False,
+                    )
+                except Exception as _g2e:
+                    print(f"[aiem_paper] G2 checkpoint itself raised for {_t} — fail-closed BLOCK: {_g2e}")
+                    _g2_result = {"decision": "BLOCK", "reason_code": f"G2_CHECK_EXCEPTION:{_g2e}",
+                                  "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                                  "governance_decision_id": None}
+
+                _g2_gdid = _g2_result.get("governance_decision_id")
+
+                if _g2_result.get("decision") == "BLOCK":
+                    print(f"[aiem_paper] G2 BLOCKED candidate {_t} — {_g2_result.get('reason_code')} "
+                          f"(system_state={_g2_result.get('system_state')}, checkpoint_mode={_g2_result.get('mode')})")
+                    if _g2_gdid:
+                        try:
+                            _d3_g2.acknowledge_governance_decision(
+                                governance_decision_id=_g2_gdid,
+                                action_taken="CANDIDATE_SKIPPED_G2",
+                                continued=False,
+                                blocked=True,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g2_ack_e:
+                            print(f"[aiem_paper] G2 ack (BLOCK) failed, non-fatal: {_g2_ack_e}")
+                    # G2 runs per-candidate INSIDE the per-ticker loop — unlike
+                    # G0/G1's once-per-batch BLOCK (which returns from the
+                    # whole function), a G2 BLOCK skips only THIS candidate.
+                    # No lock is acquired/released in this branch, so
+                    # `continue` is safe and cannot double-release anything.
+                    continue
+                else:
+                    if _g2_result.get("would_block"):
+                        print(f"[aiem_paper] G2 SHADOW: would have blocked candidate {_t} — {_g2_result.get('reason_code')} "
+                              f"(ledger_event_id={_g2_result.get('ledger_event_id')})")
+                    if _g2_gdid:
+                        try:
+                            _d3_g2.acknowledge_governance_decision(
+                                governance_decision_id=_g2_gdid,
+                                action_taken="PROCEEDING_WITH_CANDIDATE",
+                                continued=True,
+                                blocked=False,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g2_ack_e:
+                            print(f"[aiem_paper] G2 ack (ALLOW) failed, non-fatal: {_g2_ack_e}")
+
+                # ── G3 pre-execution governance authorization (Path B P5) ──────
+                # Real per-CANDIDATE check, immediately before THIS candidate's
+                # trade is inserted into aiem_paper_trades. diagram2_risk_result
+                # is the real upstream sizing-gate verdict for this candidate —
+                # by construction it is always "PASS" here (any other
+                # _sizing_gate value already `continue`d above, before G2 even
+                # ran), but it is still computed and passed explicitly rather
+                # than assumed, so G3's D2_RISK_REJECTED short-circuit is a real
+                # structural guarantee, not a value nobody ever checks.
+                # execution_mode="PAPER" is this system's only real execution
+                # mode (no live broker adapter exists anywhere in this
+                # codebase). strategy_version=pick["source"] is checked against
+                # d3_strategy_registry; model_version is honestly None (no
+                # pick source in this function attaches a per-candidate model
+                # version today).
+                _g3_diagram2_risk_result = "PASS" if _sizing_gate in ("APPROVED", "PARAMS_NOT_CONFIRMED") else "REJECT"
+                try:
+                    import aiem_diagram3_governance as _d3_g3
+                    _g3_result = _d3_g3.require_governance_authorization(
+                        checkpoint="G3",
+                        entrypoint="_aiem_paper_execute_today",
+                        run_kind="TRADE_EXECUTING",
+                        source_phase="decision_engine",
+                        trigger_source=trigger_source,
+                        payload={"ticker": _t, "diagram2_trace_id": _d2_trace_id,
+                                 "sizing_gate": _sizing_gate},
+                        candidate_trace_id=_d2_trace_id,
+                        candidate_ticker=_t,
+                        diagram2_risk_result=_g3_diagram2_risk_result,
+                        execution_mode="PAPER",
+                        strategy_version=pick["source"],
+                        model_version=None,
+                        is_test_record=False,
+                    )
+                except Exception as _g3e:
+                    print(f"[aiem_paper] G3 checkpoint itself raised for {_t} — fail-closed BLOCK: {_g3e}")
+                    _g3_result = {"decision": "BLOCK", "reason_code": f"G3_CHECK_EXCEPTION:{_g3e}",
+                                  "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
+                                  "governance_decision_id": None}
+
+                _g3_gdid = _g3_result.get("governance_decision_id")
+
+                if _g3_result.get("decision") == "BLOCK":
+                    print(f"[aiem_paper] G3 BLOCKED candidate {_t} — {_g3_result.get('reason_code')} "
+                          f"(system_state={_g3_result.get('system_state')}, checkpoint_mode={_g3_result.get('mode')})")
+                    if _g3_gdid:
+                        try:
+                            _d3_g3.acknowledge_governance_decision(
+                                governance_decision_id=_g3_gdid,
+                                action_taken="CANDIDATE_SKIPPED_G3",
+                                continued=False,
+                                blocked=True,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g3_ack_e:
+                            print(f"[aiem_paper] G3 ack (BLOCK) failed, non-fatal: {_g3_ack_e}")
+                    # G3 runs per-candidate INSIDE the per-ticker loop, exactly
+                    # like G2 — a BLOCK skips only THIS candidate. No lock is
+                    # acquired/released in this branch, so `continue` is safe.
+                    try:  # [T2-4 risk.rejected]
+                        import aiem_diagram3_governance as _d3ev_p3d
+                        _d3ev_p3d.emit_d2_pipeline_event(
+                            "risk.rejected", ticker=_t,
+                            reason=f"G3 BLOCK reason_code={_g3_result.get('reason_code','?')}")
+                    except Exception:
+                        pass
+                    continue
+                else:
+                    if _g3_result.get("would_block"):
+                        print(f"[aiem_paper] G3 SHADOW: would have blocked candidate {_t} — {_g3_result.get('reason_code')} "
+                              f"(ledger_event_id={_g3_result.get('ledger_event_id')})")
+                    if _g3_gdid:
+                        try:
+                            _d3_g3.acknowledge_governance_decision(
+                                governance_decision_id=_g3_gdid,
+                                action_taken="PROCEEDING_WITH_CANDIDATE",
+                                continued=True,
+                                blocked=False,
+                                acknowledged_by="_aiem_paper_execute_today",
+                                is_test_record=False,
+                            )
+                        except Exception as _g3_ack_e:
+                            print(f"[aiem_paper] G3 ack (ALLOW) failed, non-fatal: {_g3_ack_e}")
+
+                try:  # [T2-5 risk.approved]
+                    import aiem_diagram3_governance as _d3ev_p3e
+                    _d3ev_p3e.emit_d2_pipeline_event(
+                        "risk.approved", ticker=_t,
+                        reason=f"G3 ALLOW mode={_g3_result.get('mode','?')}")
+                except Exception:
+                    pass
+
+                # ── Order dedup pre-check [A7 enforcement] ───────────────────
+                # Application-layer gate runs BEFORE the INSERT.  If (ticker,
+                # trade_date) already exists in aiem_paper_trades the duplicate
+                # is caught here, a D3 data_guard.failed event is emitted, and
+                # the candidate is skipped via `continue`.
+                # DB constraint aiem_paper_trades_ticker_date_unique is the
+                # second safety net in case this check is ever bypassed.
+                _cu.execute(
+                    "SELECT id FROM aiem_paper_trades "
+                    "WHERE ticker=%s AND trade_date=%s LIMIT 1",
+                    (_t, _today)
+                )
+                _dedup_existing = _cu.fetchone()
+                if _dedup_existing:
+                    print(f"[aiem_paper] ORDER_DEDUP_BLOCKED {_t}: "
+                          f"row id={_dedup_existing[0]} already exists for "
+                          f"{_today} — skipping duplicate")
+                    try:
+                        import aiem_diagram3_governance as _d3ev_dedup
+                        _d3ev_dedup.emit_d2_pipeline_event(
+                            "data_guard.failed", ticker=_t,
+                            reason=(f"gate=order_dedup duplicate "
+                                    f"row_id={_dedup_existing[0]} "
+                                    f"ticker={_t} date={_today}"))
+                    except Exception:
+                        pass
+                    _dg_bus_publish(
+                        "DATA_GUARDS_FAILED",
+                        {"gate": "order_dedup",
+                         "reason": f"duplicate trade id={_dedup_existing[0]}"})
+                    continue
+
+                _cu.execute("""
+                    INSERT INTO aiem_paper_trades
+                        (trade_date, ticker, trade_type, entry_price, quantity,
+                         notional, signal_source, signal_detail, hold_days_max,
+                         last_price, status, strike, expiry,
+                         mid_price, fill_price, spread_pct_used,
+                         sizing_stop_price, sizing_stop_basis,
+                         sizing_risk_pct, sizing_gate_result,
+                         pre_sizing_model, audit_trace_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
+                            %s,%s,%s,%s,%s,%s,%s,FALSE,%s)
+                    ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
+                """, (_today, _t, _trade_type, _fill_price, _qty,
+                      _notional, pick["source"], pick.get("detail",""),
+                      _hold_days, _fill_price,
+                      pick.get("strike"), pick.get("expiry"),
+                      _mid_price, _fill_price, _spread_pct_used,
+                      _sizing_stop, _sizing_stop_basis,
+                      _sizing_risk_pct, _sizing_gate, _audit_trace_id))
+                _tg_entry_lines.append(
+                    f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
+                )
+                rows_inserted += 1
+                _c.commit()  # commit before Hook 4 — supervisor opens a new connection; must see the row
+                try:  # [T2-7 execution.shadow_created]
+                    import aiem_diagram3_governance as _d3ev_p3g
+                    _d3ev_p3g.emit_d2_pipeline_event(
+                        "execution.shadow_created", ticker=_t,
+                        reason=f"source={pick.get('source','?')} fill={_fill_price:.2f} notional={_notional:.0f}")
+                except Exception:
+                    pass
+                # ── Supervisor Hook 4: paper trade opened ─────────────────────
+                _h4_tr = None  # reset every iteration — avoids leaking a stale trade id
+                                # from a previous ticker into this ticker's Diagram 2 stage 18
+                if _audit_trace_id:
+                    try:
+                        import aiem_supervisor as _asup_h4
+                        _cu.execute(
+                            "SELECT id FROM aiem_paper_trades "
+                            "WHERE ticker=%s AND trade_date=%s AND status='OPEN' LIMIT 1",
+                            (_t, _today)
+                        )
+                        _h4_tr = _cu.fetchone()
+                        if _h4_tr:
+                            _asup_h4.supervisor_on_paper_trade_opened(
+                                audit_trace_id=_audit_trace_id,
+                                trade_id=_h4_tr[0],
+                                ticker=_t,
+                                signal_source=pick["source"],
+                                entry_price=_fill_price,
+                            )
+                    except Exception as _sup_h4_e:
+                        print(f"[supervisor] hook4_paper_trade_opened skipped: {_sup_h4_e}")
+
+                # ── Stage 14 paper_trade_id backfill + Thompson fields on trade row ──
+                # Stage 14 (scoring_synthesis) is executed in the Stages 1-17 block
+                # BEFORE the INSERT, so paper_trade_id=None at write time.
+                # Now that we have the real trade id from Hook 4, patch both:
+                #   (a) aiem_diagram2_trace_audit stage_order=14 → paper_trade_id
+                #   (b) aiem_paper_trades → entry_score + three Thompson columns
+                # This is the same pattern used for Stage 18 (also needs the trade id).
+                if _d2_trace_id and _h4_tr:
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _th_fix_c, \
+                                _th_fix_c.cursor() as _th_fix_cu:
+                            _th_fix_cu.execute(
+                                "UPDATE aiem_diagram2_trace_audit "
+                                "SET paper_trade_id = %s "
+                                "WHERE trace_id = %s AND stage_order = 14",
+                                (_h4_tr[0], _d2_trace_id)
+                            )
+                            _th_fix_cu.execute(
+                                "UPDATE aiem_paper_trades "
+                                "SET entry_score                 = %s, "
+                                "    thompson_multiplier_applied = %s, "
+                                "    thompson_sampled_score      = %s, "
+                                "    thompson_signal_source      = %s "
+                                "WHERE id = %s",
+                                (_fin_sc, _th_lbl_diag, _th_sc_diag, _th_src_diag, _h4_tr[0])
+                            )
+                            _th_fix_c.commit()
+                        print(
+                            f"[thompson-gate] stage14 patched — "
+                            f"paper_trade_id={_h4_tr[0]} trace={_d2_trace_id} "
+                            f"th_mult={_th_lbl_diag:.4f} entry_score={_fin_sc:.4f}"
+                        )
+                    except Exception as _th_fix_e:
+                        print(f"[thompson-gate] stage14 patch error (non-fatal): {_th_fix_e}")
+
+                # ── Diagram 2 stage 18 — Paper / Shadow Execution ──────────────
+                # Wired here (not in the stage 1-17 block above) because it needs
+                # the REAL row id from the INSERT that just happened.
+                if _d2_trace_id:
+                    _d2_run(18, "paper_shadow_execution", "Paper / Shadow Execution",
+                            "INSERT INTO aiem_paper_trades",
+                            lambda: {"trade_id": _h4_tr[0] if _h4_tr else None,
+                                     "ticker": _t, "trade_type": _trade_type,
+                                     "fill_price": _fill_price, "notional": _notional,
+                                     "status": "OPEN"})
+
+                # ── Bull/Bear debate persistence (Diagram 2 closure — item 3) ──
+                _bbd_id, _bbd_trade_id = None, None  # reset every iteration
+                if _audit_trace_id and _t in _debate_verdicts:
+                    try:
+                        _cu.execute(
+                            "SELECT id FROM aiem_paper_trades "
+                            "WHERE ticker=%s AND trade_date=%s AND status='OPEN' "
+                            "ORDER BY id DESC LIMIT 1",
+                            (_t, _today)
+                        )
+                        _bbd_row = _cu.fetchone()
+                        _bbd_trade_id = _bbd_row[0] if _bbd_row else None
+                        _bbd_entry = _debate_verdicts[_t]
+                        _bbd_id = _bull_bear.persist_debate(
+                            _t, _bbd_entry["context"], _bbd_entry["debate"],
+                            trace_id=_audit_trace_id, paper_trade_id=_bbd_trade_id,
+                        )
+                        if _bbd_id:
+                            print(f"[aiem_paper] bull_bear persisted id={_bbd_id} trace={_audit_trace_id} trade={_bbd_trade_id}")
+                    except Exception as _bbd_e:
+                        print(f"[aiem_paper] bull_bear persistence skipped {_t}: {_bbd_e}")
+
+                # ── Diagram 2 stage 19 — Bull/Bear Debate Persistence ──────────
+                # Debates only run for the top-ranked batch of tickers per cycle.
+                # Candidates outside that batch have no debate to persist —
+                # recorded honestly as batch_limited, not as FAIL.
+                if _d2_trace_id:
+                    if _t in _debate_verdicts:
+                        _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
+                                "aiem_bull_bear.persist_debate",
+                                lambda: {"persisted_id": _bbd_id, "paper_trade_id": _bbd_trade_id}
+                                        if _bbd_id else (_ for _ in ()).throw(RuntimeError(
+                                            f"persist_debate did not return an id for {_t}")))
+                    else:
+                        _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
+                                "aiem_bull_bear.persist_debate",
+                                lambda: {"persisted": False,
+                                         "reason": "batch_limited",
+                                         "note": (
+                                             f"{_t} not in top-ranked debate batch — "
+                                             "no debate ran, so nothing to persist"
+                                         )})
+            _c.commit()
+        print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
+        # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
+        # Runs inside _aiem_paper_execute_today(), not deferred to EOD batch.
+        if rows_inserted > 0:
+            try:
+                _aiem_paper_flag_fills(trade_date_from=_today)
+            except Exception as _ff_e:
+                print(f"[aiem_paper] flag_fills write-time error (non-blocking): {_ff_e}")
+        _log_finish("SUCCESS", _trades=rows_inserted)
+        # Paper trades Telegram disabled — positions are on the website.
+        # (The Telegram notification was sending 15 noisy positions including
+        # demoted gap_volume stocks and irrelevant large-cap AI picks.)
+        if _tg_entry_lines and rows_inserted > 0:
+            print(f"[aiem_paper] {rows_inserted} positions entered — view details on website (Telegram suppressed)")
+    except Exception as _e:
+        print(f"[aiem_paper] execute error: {_e}")
+        try:  # [T2-8 execution.failed]
+            import aiem_diagram3_governance as _d3ev_p3h
+            _d3ev_p3h.emit_d2_pipeline_event(
+                "execution.failed", reason=f"execute error: {_e}")
+        except Exception:
+            pass
+        _log_finish("FAILED", _err=str(_e))
+    finally:
+        _AIEM_PAPER_LOCK.release()
+
+
+@app.route("/stock-api/admin/run-paper-today", methods=["POST"])
+def admin_run_paper_today():
+    """Manually trigger _aiem_paper_execute_today() — safe to call any time market is open."""
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 403
+    if not globals().get("_MODULE_FULLY_LOADED"):
+        return jsonify({"error": "module still initializing — try again in 30s"}), 503
+    import threading as _thr_rpt
+    def _run():
+        try:
+            _aiem_paper_execute_today(trigger_source="admin_run_paper_today")
+        except Exception as _e:
+            print(f"[admin_run_paper_today] error: {_e}")
+    _thr_rpt.Thread(target=_run, daemon=True).start()
+    return jsonify({"status": "triggered", "note": "paper execution running — check DB in ~60s"})
 
 
 @app.route("/stock-api/admin/check-stock-pe", methods=["POST"])
@@ -30235,20 +31679,29 @@ def _polygon_backfill_historical():
     _bth.Thread(target=_run, daemon=True, name="polygon-backfill").start()
 
 
-# ── Startup: init tables + launch historical backfill ────────────────────
-try:
-    _mkt_init_tables()
-except Exception as _mkt_e:
-    print(f"[mkt_init] {_mkt_e}")
-try:
-    _polygon_backfill_historical()
-except Exception as _bf_e:
-    print(f"[backfill] startup error: {_bf_e}")
-try:
-    _mkt_init_indicator_table()
-    _mkt_backfill_indicators_all()
-except Exception as _mkti_e:
-    print(f"[mkt_indicators] startup error: {_mkti_e}")
+# ── Startup: init tables + launch historical backfill (background) ────────
+# _mkt_backfill_indicators_all() computes indicators for 12K+ stocks and
+# blocks the module loading thread for several minutes when run inline.
+# Running in a daemon thread lets the module reach _MODULE_FULLY_LOADED
+# quickly so startup_catchup and paper-trading can execute on time.
+def _bg_mkt_startup_inits():
+    try:
+        _mkt_init_tables()
+    except Exception as _mkt_e:
+        print(f"[mkt_init] {_mkt_e}")
+    try:
+        _polygon_backfill_historical()
+    except Exception as _bf_e:
+        print(f"[backfill] startup error: {_bf_e}")
+    try:
+        _mkt_init_indicator_table()
+        _mkt_backfill_indicators_all()
+    except Exception as _mkti_e:
+        print(f"[mkt_indicators] startup error: {_mkti_e}")
+
+import threading as _bg_mkt_thr
+_bg_mkt_thr.Thread(target=_bg_mkt_startup_inits, daemon=True,
+                   name="mkt-startup-inits").start()
 # NOTE: _mkt_start_continuous_loop() is defined further down in this file
 # (after _mkt_indicator_grid_battery/_mkt_continuous_research_loop), so it is
 # invoked right after its own definition below, not here - calling it this
@@ -43472,1418 +44925,6 @@ def _is_trading_day(d=None):
         return _d.weekday() < 5
 
 
-def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool = False):
-    """
-    9:35 AM ET: pick top 20, fetch live prices, record positions.
-    Skips non-NYSE trading days (weekends + holidays) and any day where
-    today's trades are already entered.
-
-    trigger_source identifies WHO called this (scheduled_942 / startup_catchup /
-    admin_force / unknown) so the execution log can distinguish a genuine
-    scheduled run from a restart-triggered catch-up attempt after the fact —
-    added 2026-07-09 because a day's worth of stuck catch-up rows made it
-    impossible to tell whether the real 9:42 AM cron ever fired.
-
-    _test_mode=True (never set by the scheduler or any production caller):
-    All DB writes on the BLOCK path are explicitly rolled back — not committed —
-    so the function can be called end-to-end for governance BLOCK verification
-    without persisting any row to production tables.  Governance ack calls are
-    tagged is_test_record=True.  A commit() cannot be reached on the BLOCK path
-    when _test_mode=True because the rollback() call is unconditional.
-    """
-    import datetime as _apdt
-    _today = _apdt.datetime.now(_ET).date()
-
-    if not _is_trading_day(_today):
-        print(f"[aiem_paper] skipping — not a NYSE trading day ({_today.strftime('%A %Y-%m-%d')})")
-        return
-
-    if not _AIEM_PAPER_LOCK.acquire(blocking=False):
-        print("[aiem_paper] already executing — concurrent call rejected")
-        # Previously a fully silent no-op (print only, no DB trace). Now writes
-        # an honest SKIPPED_LOCK_HELD row so "did it run, fail, or never fire"
-        # is never ambiguous again — this is the exact gap that made the
-        # 9:42 AM 2026-07-09 run unverifiable after the fact.
-        try:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _llc, _llc.cursor() as _llcu:
-                _llcu.execute(
-                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
-                    "VALUES ('SKIPPED_LOCK_HELD', %s, %s)",
-                    (trigger_source, "concurrent call rejected — _AIEM_PAPER_LOCK already held"),
-                )
-                _llc.commit()
-        except Exception as _lle:
-            print(f"[aiem_paper] lock-contention log error: {_lle}")
-        return
-
-    # ── G0 boot-authorization checkpoint (Path B P3) ─────────────────────────
-    # Real DB-backed governance check, once per invocation, BEFORE any
-    # trade-executing work begins. While the G0 checkpoint is in SHADOW mode
-    # (the only mode it runs in today) this can never actually block a run —
-    # it only records what an ENFORCE-mode gate would have done. A real
-    # ENFORCE-mode BLOCK (or a fail-closed BLOCK on an unrecovered governance
-    # DB error) releases the lock and writes an honest BLOCKED_G0 row rather
-    # than silently returning, matching the SKIPPED_LOCK_HELD precedent above.
-    try:
-        import aiem_diagram3_governance as _d3_g0
-        _g0_result = _d3_g0.require_governance_authorization(
-            checkpoint="G0",
-            entrypoint="_aiem_paper_execute_today",
-            run_kind="TRADE_EXECUTING",
-            trigger_source=trigger_source,
-            is_test_record=False,
-        )
-    except Exception as _g0e:
-        print(f"[aiem_paper] G0 checkpoint itself raised — fail-closed BLOCK: {_g0e}")
-        _g0_result = {"decision": "BLOCK", "reason_code": f"G0_CHECK_EXCEPTION:{_g0e}",
-                      "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
-                      "governance_decision_id": None}
-
-    # Acknowledge whatever G0 decided (D2_GOVERNANCE_ACKNOWLEDGER, Section
-    # 12F). Skipped entirely when governance_decision_id is None (synthetic
-    # fail-closed dict above, or a real PERSIST_FAILED — neither has a real
-    # decision row). Wrapped so an ack failure NEVER alters trade flow —
-    # in particular it must never skip the lock release below.
-    _g0_gdid = _g0_result.get("governance_decision_id")
-
-    if _g0_result.get("decision") == "BLOCK":
-        print(f"[aiem_paper] G0 BLOCKED this run — {_g0_result.get('reason_code')} "
-              f"(system_state={_g0_result.get('system_state')}, checkpoint_mode={_g0_result.get('mode')})"
-              + (" [TEST_MODE: BLOCKED_G0 row will rollback, not commit]" if _test_mode else ""))
-        try:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _blc, _blc.cursor() as _blcu:
-                _blcu.execute(
-                    "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
-                    "VALUES ('BLOCKED_G0', %s, %s)",
-                    (trigger_source, f"G0 governance checkpoint blocked this run: {_g0_result.get('reason_code')}"),
-                )
-                if _test_mode:
-                    _blc.rollback()
-                    print("[aiem_paper][TEST_MODE] BLOCKED_G0 INSERT rolled back — zero production rows written")
-                else:
-                    _blc.commit()
-        except Exception as _ble:
-            print(f"[aiem_paper] BLOCKED_G0 log error: {_ble}")
-        if _g0_gdid:
-            try:
-                _d3_g0.acknowledge_governance_decision(
-                    governance_decision_id=_g0_gdid,
-                    action_taken="RUN_BLOCKED_G0",
-                    continued=False,
-                    blocked=True,
-                    acknowledged_by="_aiem_paper_execute_today",
-                    is_test_record=_test_mode,
-                )
-            except Exception as _g0_ack_e:
-                print(f"[aiem_paper] G0 ack (BLOCK) failed, non-fatal: {_g0_ack_e}")
-        # Guard B — BLOCKED_G0 Telegram alert. Non-fatal: a Telegram outage
-        # must never affect the lock release or return value. Failure is
-        # logged visibly (not swallowed silently) so a real halt is never
-        # invisible. Skipped entirely in _test_mode to avoid firing real
-        # alerts during test runs.
-        if not _test_mode:
-            try:
-                _tg_send(
-                    f"\U0001f6a8 [D3-G0 BLOCK] Paper trading halted \u2014 no trades placed today.\n"
-                    f"State: {_g0_result.get('system_state')} | Mode: {_g0_result.get('mode')}\n"
-                    f"Trigger: {trigger_source} | Decision: {_g0_gdid or 'N/A'}",
-                    signal_source="governance",
-                )
-            except Exception as _g0_tg_e:
-                print(f"[Guard B] Telegram alert failed: {_g0_tg_e}")
-        _AIEM_PAPER_LOCK.release()
-        return {
-            "blocked": True,
-            "decision": _g0_result.get("decision"),
-            "reason_codes": _g0_result.get("reason_codes"),
-            "mode": _g0_result.get("mode"),
-            "system_state": _g0_result.get("system_state"),
-            "governance_decision_id": _g0_gdid,
-        }
-    else:
-        if _g0_result.get("would_block"):
-            print(f"[aiem_paper] G0 SHADOW: would have blocked this run — {_g0_result.get('reason_code')} "
-                  f"(ledger_event_id={_g0_result.get('ledger_event_id')})")
-        if _g0_gdid:
-            try:
-                _d3_g0.acknowledge_governance_decision(
-                    governance_decision_id=_g0_gdid,
-                    action_taken="PROCEEDING_WITH_RUN",
-                    continued=True,
-                    blocked=False,
-                    acknowledged_by="_aiem_paper_execute_today",
-                    is_test_record=False,
-                )
-            except Exception as _g0_ack_e:
-                print(f"[aiem_paper] G0 ack (ALLOW) failed, non-fatal: {_g0_ack_e}")
-
-    _exec_id = None
-    try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
-            _lcu.execute(
-                "INSERT INTO aiem_paper_execution_log (status, trigger_source) VALUES ('RUNNING', %s) RETURNING id",
-                (trigger_source,),
-            )
-            _exec_id = _lcu.fetchone()[0]
-            _lc.commit()
-    except Exception as _le:
-        print(f"[aiem_paper] exec log start error: {_le}")
-
-    def _log_finish(_status, _trades=None, _err=None):
-        if not _exec_id:
-            return
-        try:
-            with _psycopg2.connect(_DB_URL, connect_timeout=4) as _lc, _lc.cursor() as _lcu:
-                _lcu.execute(
-                    "UPDATE aiem_paper_execution_log "
-                    "SET finished_at=NOW(), status=%s, trades_inserted=%s, error_msg=%s "
-                    "WHERE id=%s",
-                    (_status, _trades, _err, _exec_id),
-                )
-                _lc.commit()
-        except Exception as _le:
-            print(f"[aiem_paper] exec log finish error: {_le}")
-
-    try:
-        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
-            _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE trade_date = %s", (_today,))
-            if _cu.fetchone()[0] >= 20:
-                print(f"[aiem_paper] already executed for {_today}, skipping")
-                _log_finish("SKIPPED", _trades=0)
-                return
-
-        picks = _aiem_paper_pick_candidates()
-        if not picks:
-            print("[aiem_paper] no candidates found today")
-            _log_finish("NO_CANDIDATES", _trades=0)
-            return
-        _tg_entry_lines = []  # collect for consolidated Telegram
-
-        # ── Data-guard bus publish helper (Section 12 wiring gap fix) ────────
-        # kill_switch/daily_loss_limit/portfolio_correlation_risk previously
-        # only printed/logged their outcome — the Communication Bus (Diagram 2
-        # stage 3, "data_guards") never heard about it. Batch-level (ticker=
-        # None, one shared trace id for this run) since these are once-per-
-        # run checks, not per-ticker. Never raises: a bus outage must never
-        # affect trading.
-        import uuid as _dg_uuid
-        _dg_trace_id = f"DATA_GUARDS_{_today.isoformat()}_{_dg_uuid.uuid4().hex[:8]}"
-
-        def _dg_bus_publish(event_type, payload):
-            try:
-                import aiem_communication_bus as _dg_abus
-                _dg_abus.get_bus().publish(_dg_abus.StageEvent(
-                    trace_id=_dg_trace_id, ticker=None, stage_order=3,
-                    stage_name="data_guards", event_type=event_type,
-                    component_name="_aiem_paper_execute_today", payload=payload,
-                ))
-            except Exception as _dg_be:
-                print(f"[aiem_paper] data_guards bus publish warning (non-fatal): {_dg_be}")
-
-        # ── Kill-switch gate (spec §7, aiem_position_sizing) ─────────────────
-        # Checked BEFORE fetching quotes or placing any position.
-        _ks_outcome = "SKIPPED_NO_POS_SIZER"
-        if _pos_sizer:
-            try:
-                from kill_switch import _is_currently_halted as _ks_halted
-                _ks_reason = _ks_halted()
-                if _ks_reason:
-                    print(f"[aiem_paper] KILL SWITCH HALTED — no trades today: {_ks_reason}")
-                    _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "kill_switch", "reason": _ks_reason})
-                    try:  # [S6-2 data_guard.failed — kill_switch]
-                        import aiem_diagram3_governance as _d3ev_dg_ks
-                        _d3ev_dg_ks.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=kill_switch reason={_ks_reason}")
-                    except Exception:
-                        pass
-                    _log_finish("SKIPPED", _trades=0, _err=f"kill_switch: {_ks_reason}")
-                    return
-                _ks_outcome = "CLEAR"
-            except Exception as _kse:
-                print(f"[aiem_paper] kill_switch check warning (proceeding): {_kse}")
-                _ks_outcome = f"ERRORED_OPEN:{_kse}"
-
-        # ── Daily loss limit gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
-        # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
-        # daily_loss_limit.py fails closed (halt_trading=True) if ACCOUNT_VALUE_BASELINE is
-        # not configured, so this can legitimately halt trading until that env var is set.
-        _dll_outcome = "CLEAR"
-        try:
-            _dll_result = _daily_loss_check(_DB_URL)
-            if _dll_result.get("halt_trading"):
-                _dll_reason = _dll_result.get("reason") or (
-                    f"loss_pct={_dll_result.get('loss_pct')} <= "
-                    f"-{_dll_result.get('loss_limit_pct')}"
-                )
-                print(f"[aiem_paper] DAILY LOSS LIMIT HALTED — no trades today: {_dll_reason}")
-                _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "daily_loss_limit", "reason": _dll_reason})
-                try:  # [S6-2 data_guard.failed — daily_loss_limit]
-                    import aiem_diagram3_governance as _d3ev_dg_dll
-                    _d3ev_dg_dll.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=daily_loss_limit reason={_dll_reason}")
-                except Exception:
-                    pass
-                _log_finish("SKIPPED", _trades=0, _err=f"daily_loss_limit: {_dll_reason}")
-                return
-        except Exception as _dlle:
-            print(f"[aiem_paper] daily_loss_limit check warning (proceeding): {_dlle}")
-            _dll_outcome = f"ERRORED_OPEN:{_dlle}"
-
-        # ── Portfolio correlation risk gate (Joel sign-off, AIEM WIRING REMEDIATION Part 1 item 2) ──
-        # Checked BEFORE fetching quotes or placing any position, same pattern as kill_switch.
-        # portfolio_correlation_risk.py has no halt_trading field of its own — a flagged
-        # concentration on the CURRENT open book (>=3 open positions in one correlation
-        # group) halts today's NEW trade batch so no more correlated risk is added on top.
-        _pcr_outcome = "CLEAR"
-        try:
-            _pcr_result = _portfolio_corr_risk(_DB_URL)
-            if _pcr_result.get("concentration_risk_flag"):
-                _pcr_reason = "; ".join(_pcr_result.get("warnings") or []) or "concentration risk flagged"
-                print(f"[aiem_paper] PORTFOLIO CONCENTRATION RISK HALTED — no new trades today: {_pcr_reason}")
-                _dg_bus_publish("DATA_GUARDS_FAILED", {"gate": "portfolio_correlation_risk", "reason": _pcr_reason})
-                try:  # [S6-2 data_guard.failed — portfolio_correlation_risk]
-                    import aiem_diagram3_governance as _d3ev_dg_pcr
-                    _d3ev_dg_pcr.emit_d2_pipeline_event("data_guard.failed", reason=f"gate=portfolio_correlation_risk reason={_pcr_reason}")
-                except Exception:
-                    pass
-                _log_finish("SKIPPED", _trades=0, _err=f"portfolio_correlation_risk: {_pcr_reason}")
-                return
-        except Exception as _pcre:
-            print(f"[aiem_paper] portfolio_correlation_risk check warning (proceeding): {_pcre}")
-            _pcr_outcome = f"ERRORED_OPEN:{_pcre}"
-
-        # All three real D2 data guards cleared, OR errored open with a
-        # warning (same fail-open convention each already had individually
-        # before G1 existed — G1 does not change that behavior, it only
-        # observes and records it honestly). Per-gate outcome payload for
-        # G1's own audit trail reflects what ACTUALLY happened on this run
-        # (CLEAR / ERRORED_OPEN:<exception> / SKIPPED_NO_POS_SIZER) — never
-        # a fabricated blanket "CLEAR" regardless of real outcome.
-        _dg_outcomes = {
-            "kill_switch": _ks_outcome,
-            "daily_loss_limit": _dll_outcome,
-            "portfolio_correlation_risk": _pcr_outcome,
-        }
-        _dg_bus_publish("DATA_GUARDS_PASSED", _dg_outcomes)
-        try:  # [S6-1 data_guard.passed]
-            import aiem_diagram3_governance as _d3ev_dg_pass
-            _d3ev_dg_pass.emit_d2_pipeline_event(
-                "data_guard.passed",
-                reason=f"ks={_ks_outcome} dll={_dll_outcome} pcr={_pcr_outcome}")
-        except Exception:
-            pass
-
-        # ── G1 data-guard-completion checkpoint (Path B P3.6) ─────────────────
-        # Real DB-backed governance check, once per batch, right after the
-        # three real D2 data guards above have all cleared. G1 does NOT
-        # re-decide those three outcomes — it evaluates D3's OWN integrity
-        # (checkpoint mode/system state, same skeleton as G0) plus a NEW
-        # architecture-baseline-hash comparison, and carries the three real
-        # outcomes above as an audit payload. While G1 is in SHADOW mode
-        # (the only mode it runs in today) this can never actually block a
-        # run — it only records what an ENFORCE-mode gate would have done.
-        try:
-            import aiem_diagram3_governance as _d3_g1
-            _g1_result = _d3_g1.require_governance_authorization(
-                checkpoint="G1",
-                entrypoint="_aiem_paper_execute_today",
-                run_kind="TRADE_EXECUTING",
-                source_phase="data_guards",
-                trigger_source=trigger_source,
-                payload={"data_guard_outcomes": _dg_outcomes, "trace_id": _dg_trace_id},
-                is_test_record=False,
-            )
-        except Exception as _g1e:
-            print(f"[aiem_paper] G1 checkpoint itself raised — fail-closed BLOCK: {_g1e}")
-            _g1_result = {"decision": "BLOCK", "reason_code": f"G1_CHECK_EXCEPTION:{_g1e}",
-                          "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
-                          "governance_decision_id": None}
-
-        _g1_gdid = _g1_result.get("governance_decision_id")
-
-        if _g1_result.get("decision") == "BLOCK":
-            print(f"[aiem_paper] G1 BLOCKED this run — {_g1_result.get('reason_code')} "
-                  f"(system_state={_g1_result.get('system_state')}, checkpoint_mode={_g1_result.get('mode')})")
-            try:
-                with _psycopg2.connect(_DB_URL, connect_timeout=4) as _blc1, _blc1.cursor() as _blcu1:
-                    _blcu1.execute(
-                        "INSERT INTO aiem_paper_execution_log (status, trigger_source, error_msg) "
-                        "VALUES ('BLOCKED_G1', %s, %s)",
-                        (trigger_source, f"G1 governance checkpoint blocked this run: {_g1_result.get('reason_code')}"),
-                    )
-                    _blc1.commit()
-            except Exception as _ble1:
-                print(f"[aiem_paper] BLOCKED_G1 log error: {_ble1}")
-            if _g1_gdid:
-                try:
-                    _d3_g1.acknowledge_governance_decision(
-                        governance_decision_id=_g1_gdid,
-                        action_taken="RUN_BLOCKED_G1",
-                        continued=False,
-                        blocked=True,
-                        acknowledged_by="_aiem_paper_execute_today",
-                        is_test_record=False,
-                    )
-                except Exception as _g1_ack_e:
-                    print(f"[aiem_paper] G1 ack (BLOCK) failed, non-fatal: {_g1_ack_e}")
-            # NOTE: unlike the G0 BLOCK branch above (which runs BEFORE the
-            # outer try/finally at ~41845/42728 and therefore must release
-            # the lock itself), this G1 BLOCK branch runs INSIDE that same
-            # try/finally — the finally already calls
-            # _AIEM_PAPER_LOCK.release() unconditionally on any return path.
-            # An explicit release here would double-release the lock and
-            # raise RuntimeError('release unlocked lock') from the finally,
-            # escaping as an unhandled exception (architect-caught bug,
-            # fixed same session before any real G1 BLOCK could hit prod).
-            return
-        else:
-            if _g1_result.get("would_block"):
-                print(f"[aiem_paper] G1 SHADOW: would have blocked this run — {_g1_result.get('reason_code')} "
-                      f"(ledger_event_id={_g1_result.get('ledger_event_id')})")
-            if _g1_gdid:
-                try:
-                    _d3_g1.acknowledge_governance_decision(
-                        governance_decision_id=_g1_gdid,
-                        action_taken="PROCEEDING_WITH_RUN",
-                        continued=True,
-                        blocked=False,
-                        acknowledged_by="_aiem_paper_execute_today",
-                        is_test_record=False,
-                    )
-                except Exception as _g1_ack_e:
-                    print(f"[aiem_paper] G1 ack (ALLOW) failed, non-fatal: {_g1_ack_e}")
-
-        # ── AIEM v3 Macro Gate (Phase 2) ──────────────────────────────────────
-        # Hard block if macro regime is BEAR_SEVERE (score < 20).
-        # Uses 9:00 AM pre-computed snapshot from DB; falls back to live fetch.
-        # Fail-safe: if macro engine errors, trading proceeds with a warning.
-        _macro_snap = None
-        try:
-            import aiem_macro_engine as _ame
-            _macro_allowed, _macro_snap = _ame.get_macro_gate()
-            if not _macro_allowed:
-                _block_msg = (
-                    f"MACRO GATE BLOCKED — regime={_macro_snap.regime} "
-                    f"score={_macro_snap.macro_score:.0f}/100 "
-                    f"(threshold={_ame._BLOCK_BELOW}) — no trades today"
-                )
-                print(f"[aiem_paper] {_block_msg}")
-                # Log each candidate as BLOCK_MACRO in decision history
-                for _bp in picks:
-                    try:
-                        _ame.log_decision(
-                            _bp["ticker"], "BLOCK_MACRO", _macro_snap,
-                            block_reason=_block_msg,
-                        )
-                    except Exception:
-                        pass
-                _log_finish("SKIPPED", _trades=0, _err=_block_msg)
-                return
-            print(f"[aiem_paper] macro gate PASS — {_macro_snap.summary_line()}")
-        except Exception as _macro_e:
-            print(f"[aiem_paper] macro gate error (proceeding): {_macro_e}")
-
-        tickers = [p["ticker"] for p in picks]
-        quotes  = _td_quotes(tickers)
-
-        # ── Bull/bear debate for top 3 picks (GPT vs Claude adversarial) ──
-        _debate_verdicts: dict = {}
-        if _bull_bear and picks:
-            for _top in picks[:3]:
-                _tt = _top["ticker"]
-                _tq = quotes.get(_tt) or {}
-                _tp = float(_tq.get("last") or 0)
-                if _tp > 0:
-                    try:
-                        _ctx = {
-                            "price": _tp, "trade_type": _top["trade_type"],
-                            "signal_source": _top["source"],
-                            "signal_detail": _top.get("detail", ""),
-                            "score": round(_top["score"], 2),
-                        }
-                        _deb = _bull_bear.run_bull_bear_debate(_tt, _ctx)
-                        _verd = (_deb.get("synthesis") or {}).get("verdict", "CONFLICTED")
-                        _debate_verdicts[_tt] = {"verdict": _verd, "debate": _deb, "context": _ctx}
-                        print(f"[aiem_paper] bull_bear {_tt}: {_verd}")
-                    except Exception as _bbe:
-                        print(f"[aiem_paper] debate skipped {_tt}: {_bbe}")
-
-        rows_inserted = 0
-        with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
-            for pick in picks:
-                _t    = pick["ticker"]
-                _audit_trace_id = None
-                # REMEDIATION S2 ("AUTHORITATIVE MASTER REMEDIATION" directive
-                # P0-4): a trace_id must exist for THIS candidate before any
-                # gate can reject it, so a rejection can be recorded as an
-                # explicit terminal row instead of silently `continue`-ing
-                # with zero audit trace anywhere. This is generated once per
-                # candidate iteration and is independent of _audit_trace_id
-                # (aiem_pipeline_audit, a different legacy audit system) and
-                # of _d2_trace_id (assigned later, reused via `_audit_trace_id
-                # or ...` for candidates that pass every gate).
-                import uuid as _d2_uuid_early
-                _d2_trace_id_early = str(_d2_uuid_early.uuid4())
-                _q    = quotes.get(_t) or {}
-                _price = float(_q.get("last") or _q.get("bid") or 0)
-                _price_source = "live_quote" if _price > 0 else None
-                _price_source_scan_date = None
-                if _price <= 0:
-                    # fallback: try polygon
-                    try:
-                        _pg_row = None
-                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _c2, _c2.cursor() as _cu2:
-                            _cu2.execute("SELECT price, scan_date FROM polygon_rvol_scan WHERE ticker=%s ORDER BY scan_date DESC LIMIT 1", (_t,))
-                            _pg_row = _cu2.fetchone()
-                        if _pg_row:
-                            _price = float(_pg_row[0])
-                            _price_source = "polygon_fallback"
-                            _price_source_scan_date = _pg_row[1]
-                    except Exception as _exc:
-                        print(f"[silent_except:L31766] {type(_exc).__name__}: {_exc}")
-                if _price <= 0:
-                    continue
-
-                # ── G6: Point-in-Time Guard (Diagram 2 remediation spec step 3) ──
-                # SHADOW-only, fail-OPEN: audits the price provenance just resolved
-                # above (the polygon_rvol_scan fallback has no date filter and can
-                # silently return a stale prior-session price). In SHADOW mode
-                # (the only mode it runs in today) _evaluate_g6_decision can never
-                # return BLOCK, so the check below is provably unreachable right
-                # now -- it exists so that if an admin ever flips G6 to ENFORCE,
-                # the checkpoint's verdict actually gates the candidate instead of
-                # being a silently-discarded audit-only side effect (which would
-                # make the audit trail lie about candidates it claims were
-                # BLOCKED). See aiem_diagram3_governance._evaluate_g6_decision for
-                # the fail-open contract and why G6 alone is exempt from it.
-                try:
-                    import aiem_diagram3_governance as _d3gov_g6
-                    _now_et_date_g6 = _dt.now(_ET_TZ).date()
-                    _g6_result = _d3gov_g6.require_governance_authorization(
-                        checkpoint="G6",
-                        entrypoint="_aiem_paper_execute_today",
-                        run_kind="TRADE_EXECUTING",
-                        source_phase="PRICE_RESOLUTION",
-                        trigger_source=trigger_source,
-                        payload={"ticker": _t, "price": _price, "price_source": _price_source},
-                        candidate_trace_id=_d2_trace_id_early,
-                        candidate_ticker=_t,
-                        is_test_record=False,
-                        pit_price_source=_price_source,
-                        pit_price_source_scan_date=_price_source_scan_date,
-                        pit_now_et_date=_now_et_date_g6,
-                    )
-                except Exception as _g6_exc:
-                    print(f"[aiem_paper] G6 PIT guard check failed (fail-open, continuing): {_g6_exc}")
-                    _g6_result = None
-
-                if _g6_result and _g6_result.get("decision") == "BLOCK":
-                    print(f"[aiem_paper] G6 BLOCKED candidate {_t} — {_g6_result.get('reason_code')} "
-                          f"(system_state={_g6_result.get('system_state')}, checkpoint_mode={_g6_result.get('mode')})")
-                    _g6_gdid = _g6_result.get("governance_decision_id")
-                    if _g6_gdid:
-                        try:
-                            _d3gov_g6.acknowledge_governance_decision(
-                                governance_decision_id=_g6_gdid,
-                                action_taken="CANDIDATE_SKIPPED_G6",
-                                continued=False,
-                                blocked=True,
-                                acknowledged_by="_aiem_paper_execute_today",
-                                is_test_record=False,
-                            )
-                        except Exception as _g6_ack_e:
-                            print(f"[aiem_paper] G6 ack (BLOCK) failed, non-fatal: {_g6_ack_e}")
-                    # No lock is acquired/released in this branch (same as G2),
-                    # so `continue` here is safe.
-                    continue
-                elif _g6_result and _g6_result.get("would_block"):
-                    print(f"[aiem_paper] G6 SHADOW: would have blocked candidate {_t} — {_g6_result.get('reason_code')} "
-                          f"(ledger_event_id={_g6_result.get('ledger_event_id')})")
-
-                # ── Execution realism: apply half-spread slippage BEFORE persisting ──
-                # No live bid/ask available at write time (Tradier market-data only,
-                # Polygon prev-close only). _NANO_CAP_SPREAD_PCT is the auditor-approved
-                # default; change that constant — not this code — to adjust.
-                _mid_price = _price
-                try:
-                    import execution_simulator as _exec_sim
-                    _slip = _exec_sim.fixed_spread_slippage(
-                        _mid_price, "long", _NANO_CAP_SPREAD_PCT
-                    )
-                    _fill_price      = _slip["fill_price"]
-                    _spread_pct_used = _NANO_CAP_SPREAD_PCT
-                except Exception as _slip_exc:
-                    print(f"[aiem_paper] slippage calc failed, using mid: {_slip_exc}")
-                    _fill_price      = _mid_price
-                    _spread_pct_used = None
-
-                _notional  = 1000.0
-                _trade_type = pick["trade_type"]
-
-                # ── Position sizing (spec §2-5, aiem_position_sizing) ─────────
-                # compute_position_size() returns PARAMS_NOT_CONFIRMED only when
-                # _pos_sizer failed to import / is not wired (module-not-deployed
-                # bypass). All Q1-Q5 params are confirmed as of 2026-07-04, so a
-                # live call can never itself return PARAMS_NOT_CONFIRMED — it is
-                # kept as an ALLOWED pass-through (default $1000 notional) purely
-                # to represent "sizing subsystem not deployed", never a live
-                # block decision. Every other non-APPROVED gate_result (including
-                # SIZING_ERROR on an unexpected exception) is a real block: no
-                # default-notional fallback, no trade insertion for that pick.
-                # AIEM VERIFICATION DIRECTIVE 2026-07-09 Part 1 — fail-closed fix.
-                _sizing_stop       = None
-                _sizing_stop_basis = None
-                _sizing_risk_pct   = None
-                _sizing_gate       = "PARAMS_NOT_CONFIRMED"
-                if _pos_sizer:
-                    try:
-                        _sz = _pos_sizer.compute_position_size(
-                            ticker=_t,
-                            signal_source=pick["source"],
-                            conviction_score=float(pick.get("score") or 0),
-                            entry_price=_fill_price,
-                            signal_row=pick,
-                        )
-                        _sizing_gate = _sz.get("gate_result", "UNKNOWN")
-                        if _sizing_gate == "APPROVED":
-                            _notional = _sz["calculated_notional"]
-                        elif _sizing_gate not in ("PARAMS_NOT_CONFIRMED",):
-                            print(f"[aiem_paper] sizing gate {_sizing_gate} for {_t}: "
-                                  f"{_sz.get('gate_detail','')}")
-                        _sizing_stop       = _sz.get("calculated_stop_price")
-                        _sizing_stop_basis = _sz.get("stop_basis")
-                        _sizing_risk_pct   = _sz.get("risk_pct_used")
-                    except Exception as _se:
-                        _sizing_gate = "SIZING_ERROR"
-                        print(f"[aiem_paper] sizing error for {_t} — SIZING_ERROR, "
-                              f"blocking trade (fail-closed, no $1000 default): {_se}")
-
-                # ── Sizing gate enforcement (fail-closed allowlist) ─────────
-                # Only APPROVED (real sizer pass) and PARAMS_NOT_CONFIRMED
-                # (sizer not deployed) may proceed to trade insertion.
-                # Every other gate_result — CONVICTION_BELOW_MIN, NO_STOP_DEFINED,
-                # STOP_UNDEFINED, POSITION_TOO_SMALL, kill_switch, max_positions,
-                # max_sector_positions, daily_loss, SIZING_ERROR, or any future/
-                # unknown value — skips this candidate entirely. No stage 1-15
-                # PipelineTrace/_d2_run rows are opened for a blocked pick (D2
-                # stage wiring only starts after this gate); the sizing
-                # decision itself is already durably logged by
-                # aiem_position_sizing._log_sizing_decision() into
-                # aiem_position_sizing_log for every gate_result, including this
-                # one. REMEDIATION S2 (P0-4, "AUTHORITATIVE MASTER REMEDIATION"
-                # directive): additionally write one explicit terminal REJECTED
-                # row to aiem_diagram2_trace_audit using _d2_trace_id_early, so
-                # this candidate is never silently invisible from the Diagram 2
-                # trace surface — every candidate now resolves to either 17
-                # PASS stages + an order, or exactly one terminal row.
-                if _sizing_gate not in ("APPROVED", "PARAMS_NOT_CONFIRMED"):
-                    print(f"[aiem_paper] SIZING_GATE_BLOCKED {_t}: gate={_sizing_gate} "
-                          f"— skipping trade insertion (no default notional fallback)")
-                    try:
-                        import aiem_diagram2_trace_audit as _ad2_term
-                        _ad2_term.record_terminal(
-                            trace_id=_d2_trace_id_early,
-                            ticker=_t,
-                            terminal_status="REJECTED",
-                            rejected_at_stage_order=16,
-                            rejected_at_stage_name="risk_gate",
-                            rejecting_component="aiem_position_sizing.compute_position_size",
-                            human_readable_reason=(
-                                f"Position sizing gate returned {_sizing_gate} "
-                                f"(not APPROVED/PARAMS_NOT_CONFIRMED) — "
-                                f"{_sz.get('gate_detail', '') if '_sz' in dir() else ''}"
-                            ),
-                            reason_codes=[_sizing_gate],
-                            last_successful_stage=None,
-                        )
-                    except Exception as _term_e:
-                        print(f"[aiem_paper] record_terminal (sizing reject) failed, non-fatal: {_term_e}")
-                    continue
-
-                if _trade_type == "CALL_OPTION":
-                    # Paper options: record $1000 notional as premium spent,
-                    # 1 contract for tracking purposes
-                    _qty       = 1.0
-                    _hold_days = 3
-                elif _trade_type == "ETF":
-                    _qty       = round(_notional / _fill_price, 4)
-                    _hold_days = 5
-                else:  # STOCK
-                    _qty       = round(_notional / _fill_price, 4)
-                    _hold_days = 5
-
-                # ── Pipeline audit: create trace + log AIEM decision steps ──
-                try:
-                    import aiem_pipeline_audit as _apa
-                    _atrace = _apa.PipelineTrace(_t)
-                    _audit_trace_id = _atrace.trace_id
-                    # Backfill audit_trace_id into aiem_candidate_rankings for this ticker today
-                    try:
-                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _cr_bfc, \
-                                _cr_bfc.cursor() as _cr_bfcu:
-                            _cr_bfcu.execute("""
-                                UPDATE aiem_candidate_rankings
-                                SET audit_trace_id = %s
-                                WHERE audit_trace_id IS NULL
-                                  AND ticker = %s
-                                  AND created_at::date = CURRENT_DATE
-                            """, (_audit_trace_id, _t))
-                            _cr_bfc.commit()
-                    except Exception:
-                        pass
-                    # ── Supervisor Hook 1: scanner alert → AIEM intake ────────
-                    try:
-                        import aiem_supervisor as _asup_h1
-                        _asup_h1.supervisor_on_scanner_alert(
-                            audit_trace_id=_audit_trace_id,
-                            ticker=_t,
-                            signal_source=pick.get("source", ""),
-                            scanner_score=pick.get("score"),
-                            scanner_reason=pick.get("detail", ""),
-                        )
-                    except Exception as _sup_h1_e:
-                        print(f"[supervisor] hook1_scanner_alert skipped: {_sup_h1_e}")
-                    _debate_v = _debate_verdicts.get(_t, "N/A")
-                    _raw_sc      = float(pick.get("raw_score") or pick.get("score") or 0)
-                    _fin_sc      = float(pick.get("score") or 0)
-                    _dm_lbl      = float(pick.get("drift_mult") or 1.0)
-                    _tw_lbl      = float(pick.get("trust_mult") or 1.0)
-                    _th_sc_diag  = pick.get("thompson_sampled_score")
-                    _th_lbl_diag = float(pick.get("thompson_multiplier") or 1.0)
-                    _th_src_diag = str(pick.get("thompson_signal_source") or pick.get("source", ""))
-                    # Stage 1 — signal_received
-                    _atrace.log_step(
-                        "signal_received",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=(
-                            f"scanner_table={pick['source']} "
-                            f"raw_score={_raw_sc:.2f}"
-                        ),
-                        output_summary=(
-                            f"ticker={_t} trade_type={_trade_type} "
-                            f"fill_price={_fill_price}"
-                        ),
-                        next_module="aiem_candidate_intake",
-                        decision_authority="stock_scanner",
-                        status="PASS",
-                    )
-                    # Stage 2 — aiem_candidate_intake
-                    _atrace.log_step(
-                        "aiem_candidate_intake",
-                        function_name="_aiem_paper_execute_today",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=(
-                            f"ticker={_t} source={pick['source']} "
-                            f"bull_bear={_debate_v} "
-                            f"kill_switch=CLEAR circuit_breaker=CLEAR "
-                            f"sizing_gate={_sizing_gate}"
-                        ),
-                        output_summary=(
-                            f"candidate accepted fill=${_fill_price:.2f} "
-                            f"notional=${_notional:.0f}"
-                        ),
-                        next_module="duplicate_filter_check",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 3 — duplicate_filter_check
-                    _atrace.log_step(
-                        "duplicate_filter_check",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=f"ticker={_t} source={pick['source']}",
-                        output_summary=(
-                            f"passed dedup gate — highest-score source "
-                            f"for {_t} retained (raw_score={_raw_sc:.2f})"
-                        ),
-                        next_module="market_context_loaded",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 4 — market_context_loaded
-                    _atrace.log_step(
-                        "market_context_loaded",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=f"ticker={_t}",
-                        output_summary=(
-                            f"FRED macro loaded; drift_check_log queried; "
-                            f"drift_mult={_dm_lbl:.4f} for source={pick['source']}"
-                        ),
-                        next_module="module_scores_generated",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 5 — module_scores_generated
-                    _atrace.log_step(
-                        "module_scores_generated",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=f"ticker={_t} source={pick['source']}",
-                        output_summary=(
-                            f"raw_score={_raw_sc:.4f} source={pick['source']} "
-                            f"detail={str(pick.get('detail',''))[:100]}"
-                        ),
-                        next_module="candidate_ranking_created",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 6 — candidate_ranking_created
-                    _atrace.log_step(
-                        "candidate_ranking_created",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=f"ticker={_t} raw_score={_raw_sc:.4f}",
-                        output_summary=(
-                            f"final_adjusted_score={_fin_sc:.4f} written to "
-                            f"aiem_candidate_rankings (run_id=aiem_{pick.get('source','')})"
-                        ),
-                        next_module="trust_weights_applied",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 7 — trust_weights_applied
-                    _atrace.log_step(
-                        "trust_weights_applied",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=(
-                            f"ticker={_t} source={pick['source']} "
-                            f"trust_mult={_tw_lbl:.4f}"
-                        ),
-                        output_summary=(
-                            f"score after trust gate: "
-                            f"{_raw_sc:.4f} × {_tw_lbl:.4f} = "
-                            f"{round(_raw_sc * _tw_lbl, 4):.4f}"
-                        ),
-                        next_module="drift_gate_checked",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 8 — drift_gate_checked
-                    _drift_verdict_lbl = (
-                        "ALERT_UNDERPERFORMING" if _dm_lbl < 0.5
-                        else "INSUFFICIENT_DATA" if _dm_lbl < 1.0
-                        else "OK"
-                    )
-                    _atrace.log_step(
-                        "drift_gate_checked",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=(
-                            f"ticker={_t} source={pick['source']} "
-                            f"drift_mult={_dm_lbl:.4f}"
-                        ),
-                        output_summary=(
-                            f"verdict={_drift_verdict_lbl} "
-                            f"drift_mult={_dm_lbl:.4f} applied"
-                        ),
-                        next_module="thompson_sampler_checked",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 9 — thompson_sampler_checked (read current alpha/beta state)
-                    _th_summary = "no thompson record for this source yet"
-                    try:
-                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _thc, \
-                                _thc.cursor() as _thcu:
-                            _thcu.execute(
-                                "SELECT alpha, beta FROM aiem_paper_thompson "
-                                "WHERE signal_source=%s",
-                                (pick.get("source", ""),)
-                            )
-                            _thr = _thcu.fetchone()
-                            if _thr:
-                                _th_a, _th_b = float(_thr[0]), float(_thr[1])
-                                _th_s = _th_a / (_th_a + _th_b) if (_th_a + _th_b) > 0 else 0.5
-                                _th_summary = (
-                                    f"alpha={_th_a:.2f} beta={_th_b:.2f} "
-                                    f"sampled_score={_th_s:.4f}"
-                                )
-                    except Exception:
-                        pass
-                    _atrace.log_step(
-                        "thompson_sampler_checked",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=f"ticker={_t} source={pick['source']}",
-                        output_summary=_th_summary,
-                        next_module="rl_weight_checked",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 10 — rl_weight_checked
-                    _rl_summary = "no live RL weights"
-                    try:
-                        with _psycopg2.connect(_DB_URL, connect_timeout=2) as _rlc, \
-                                _rlc.cursor() as _rlcu:
-                            _rlcu.execute(
-                                "SELECT n_updates, created_at FROM rl_strategy_weights "
-                                "WHERE is_live=TRUE ORDER BY created_at DESC LIMIT 1"
-                            )
-                            _rlr = _rlcu.fetchone()
-                            if _rlr:
-                                _rl_summary = (
-                                    f"live_weights=YES n_updates={_rlr[0]} "
-                                    f"last_trained={str(_rlr[1])[:10]}"
-                                )
-                    except Exception:
-                        pass
-                    _atrace.log_step(
-                        "rl_weight_checked",
-                        function_name="_aiem_paper_pick_candidates",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=f"ticker={_t} source={pick['source']}",
-                        output_summary=_rl_summary,
-                        next_module="final_aiem_decision",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    # Stage 11 — final_aiem_decision
-                    _atrace.log_step(
-                        "final_aiem_decision",
-                        function_name="_aiem_paper_execute_today",
-                        file_name="main.py",
-                        source_system="stock_scanner",
-                        processing_system="AIEM",
-                        input_summary=(
-                            f"ticker={_t} price={_fill_price} "
-                            f"type={_trade_type} source={pick['source']}"
-                        ),
-                        output_summary=(
-                            "EXECUTE — writing to aiem_paper_trades "
-                            "[decision_system=AIEM, not stock_scanner]"
-                        ),
-                        next_module="outcome_recorded",
-                        decision_authority="AIEM",
-                        status="PASS",
-                    )
-                    _atrace.flush()
-                    try:  # [T2-6 decision.created]
-                        import aiem_diagram3_governance as _d3ev_p3f
-                        _d3ev_p3f.emit_d2_pipeline_event(
-                            "decision.created", ticker=_t,
-                            reason=f"source={pick.get('source','?')} fill={_fill_price:.2f} type={_trade_type}")
-                    except Exception:
-                        pass
-                except Exception as _ae:
-                    print(f"[aiem_audit] trace error for {_t} (non-fatal): {_ae}")
-                    _audit_trace_id = None
-
-                # ── Diagram 2 runtime wiring (Final Diagram 2 Remediation) ──
-                # Real control-plane pass through AEIMMasterOrchestrator.execute_stage()
-                # for stages 1-17 of the 21-stage live candidate path. Uses the SAME
-                # trace_id as the legacy 13-stage audit above (falls back to a fresh
-                # uuid4 only if that trace failed to initialize). Each stage call is
-                # individually isolated so one honest FAIL never blocks the rest.
-                try:
-                    import uuid as _d2_uuid
-                    import aiem_master_orchestrator as _amo
-                    import aiem_registry as _d2_areg
-                    import aiem_communication_bus as _d2_abus
-                    import aiem_diagram2_stage_helpers as _d2_help
-                    import aiem_diagram3_governance as _d3_gov_ctx
-
-                    _d2_trace_id = _audit_trace_id or str(_d2_uuid.uuid4())
-                    _d2_orch = _amo.get_orchestrator()
-
-                    def _d2_run(stage_order, stage_name, display, runtime_fn_name, fn, *fargs):
-                        try:
-                            # trace_context: real root_trace_id for this ticker's D2 run,
-                            # scoped to just this one execute_stage() call so it can never
-                            # leak into a different ticker/stage's bus-subscriber-derived
-                            # governance ledger row (see aiem_diagram3_governance gap G2 fix).
-                            with _d3_gov_ctx.trace_context(root_trace_id=_d2_trace_id, is_test_record=False):
-                                return _d2_orch.execute_stage(
-                                    _d2_trace_id, _t, stage_order, stage_name, display,
-                                    runtime_fn_name, fn, *fargs, paper_trade_id=None,
-                                )
-                        except Exception as _d2_stage_e:
-                            print(f"[diagram2] stage {stage_order} ({stage_name}) FAILED for {_t}: {_d2_stage_e}")
-                            return None
-
-                    _d2_run(1, "scanner_signals", "Scanner Signals",
-                            "_aiem_paper_pick_candidates",
-                            lambda: {"source": pick["source"], "raw_score": _raw_sc,
-                                     "detail": str(pick.get("detail", ""))[:200]})
-                    _d2_run(2, "aeim_intake", "AEIM Intake",
-                            "_aiem_paper_execute_today",
-                            lambda: {"ticker": _t, "trade_type": _trade_type,
-                                     "fill_price": _fill_price, "notional": _notional})
-                    _d2_run(3, "data_guards", "Data Guards",
-                            "_aiem_paper_execute_today (kill_switch/daily_loss/portfolio_corr gates)",
-                            lambda: _d2_help.stage3_data_guards_subchecks(_t, pick, _d2_trace_id))
-                    _d2_run(4, "master_orchestrator", "Master Orchestrator",
-                            "AEIMMasterOrchestrator.execute_stage",
-                            lambda: {"orchestrator_singleton_id": id(_d2_orch), "active": True})
-                    _d2_run(5, "module_registry", "Module Registry",
-                            "aiem_registry.get_module_for_stage",
-                            lambda: {
-                                "stages_resolved": sum(
-                                    1 for _i in range(1, 22)
-                                    if _d2_areg.get_module_for_stage(_i).get("found")
-                                ),
-                                "total_stages": 21,
-                            })
-                    _d2_run(6, "tool_registry", "Tool Registry",
-                            "aiem_registry.get_tool",
-                            lambda: _d2_areg.get_tool("run_bull_bear_debate"))
-                    _d2_run(7, "communication_bus", "Communication Bus",
-                            "aiem_communication_bus.CommunicationBus.recent_events",
-                            lambda: {"events_so_far": len(_d2_abus.get_bus().recent_events(_d2_trace_id))})
-                    _d2_run(8, "macro_regime", "Macro / Regime",
-                            "aiem_macro_engine (get_macro_gate — reused batch-level snapshot)",
-                            lambda: ({"regime": _macro_snap.regime, "macro_score": _macro_snap.macro_score}
-                                     if _macro_snap else {"macro_snap": None,
-                                     "note": "macro engine errored upstream, batch proceeded per fail-safe"}))
-                    _d2_run(9, "discovery", "Discovery",
-                            "discovery_cycle_log (global cycle freshness)",
-                            _d2_help.check_discovery_cycle_freshness, _t)
-                    _d2_run(10, "technical_signal", "Technical Signal",
-                            "module_scores_generated (technical component)",
-                            lambda: _d2_help.technical_signal_subchecks(pick, _raw_sc, _t, _d2_trace_id))
-                    _d2_run(11, "options_smart_money", "Options / Smart Money",
-                            "module_scores_generated (options component)",
-                            lambda: {"source": pick["source"],
-                                     "note": "options/smart-money contribution embedded in unified raw_score"})
-                    _d2_run(12, "quant_stat_edge", "Quant / Statistical Edge",
-                            "layer9_scores (global scanner freshness)",
-                            _d2_help.check_layer9_freshness, _t)
-                    _d2_run(13, "probability_engine", "Probability Engine",
-                            "aiem_probability_engine.live_query.run_live_query(mode='ticker')",
-                            _d2_help.run_probability_engine_for_ticker, _t)
-                    _d2_run(14, "scoring_synthesis", "Scoring / Synthesis",
-                            "candidate_ranking_created + trust_weights_applied + drift_gate_checked",
-                            lambda: {"raw_score": _raw_sc, "trust_mult": _tw_lbl,
-                                     "drift_mult": _dm_lbl, "final_score": _fin_sc,
-                                     "thompson_sampled_score": _th_sc_diag,
-                                     "thompson_multiplier": _th_lbl_diag,
-                                     "thompson_signal_source": _th_src_diag})
-                    _d2_run(15, "specialist_council", "Specialist Council / Bull-Bear",
-                            "aiem_bull_bear.run_bull_bear_debate (reused batch-level debate)",
-                            lambda: (_d2_help.log_stage15_subchecks(
-                                         _debate_verdicts[_t]["debate"], _t, _d2_trace_id)
-                                     if _t in _debate_verdicts else
-                                     {"evaluated": False,
-                                      "reason": "batch_limited",
-                                      "note": (
-                                          f"{_t} not in top-ranked debate batch — "
-                                          "bull/bear debate is run only for the highest-scored "
-                                          "candidates per execution cycle to control API cost"
-                                      )}))
-                    _d2_run(16, "risk_gate", "Risk Gate / Position Sizing",
-                            "sizing gate + batch-level kill_switch/daily_loss/portfolio_corr/macro gates",
-                            lambda: {"sizing_gate_result": _sizing_gate,
-                                     "sizing_stop_price": _sizing_stop,
-                                     "sizing_risk_pct": _sizing_risk_pct,
-                                     "kill_switch": "CLEAR", "daily_loss_limit": "CLEAR",
-                                     "portfolio_correlation": "CLEAR"})
-                    _d2_run(17, "decision_engine", "Decision Engine",
-                            "_aiem_paper_execute_today (final_aiem_decision)",
-                            lambda: {"decision": "EXECUTE", "ticker": _t,
-                                     "price": _fill_price, "type": _trade_type})
-                except Exception as _d2_e:
-                    print(f"[diagram2_wiring] setup error for {_t} (non-fatal, legacy pipeline unaffected): {_d2_e}")
-                    _d2_trace_id = None
-
-                # ── Supervisor Hook 3: AIEM final decision logged ─────────────
-                if _audit_trace_id:
-                    try:
-                        import aiem_supervisor as _asup_h3
-                        _asup_h3.supervisor_on_final_decision(
-                            audit_trace_id=_audit_trace_id,
-                            ticker=_t,
-                            trade_id=None,
-                            decision="EXECUTE",
-                            confidence_score=pick.get("score"),
-                            decision_reason=pick.get("detail", ""),
-                            signal_source=pick.get("source"),
-                        )
-                    except Exception as _sup_h3_e:
-                        print(f"[supervisor] hook3_final_decision skipped: {_sup_h3_e}")
-
-                # ── G2 pre-decision trace-integrity checkpoint (Path B P4) ────
-                # Real per-CANDIDATE DB-backed check, immediately before THIS
-                # candidate's trade is inserted into aiem_paper_trades.
-                # Confirms every mandatory D2 stage (1-17) was actually
-                # observed via the real CommunicationBus for _d2_trace_id.
-                # While G2 is in SHADOW mode (the only mode it runs in today)
-                # this can never actually skip a candidate — it only records
-                # what an ENFORCE-mode gate would have done. A BLOCK skips
-                # only THIS ticker (`continue`) — it must never abort the
-                # whole batch or touch _AIEM_PAPER_LOCK (held once per batch
-                # by the caller, not per-candidate; untouched by this branch).
-                try:
-                    import aiem_diagram3_governance as _d3_g2
-                    _g2_result = _d3_g2.require_governance_authorization(
-                        checkpoint="G2",
-                        entrypoint="_aiem_paper_execute_today",
-                        run_kind="TRADE_EXECUTING",
-                        source_phase="decision_engine",
-                        trigger_source=trigger_source,
-                        payload={"ticker": _t, "diagram2_trace_id": _d2_trace_id},
-                        candidate_trace_id=_d2_trace_id,
-                        candidate_ticker=_t,
-                        is_test_record=False,
-                    )
-                except Exception as _g2e:
-                    print(f"[aiem_paper] G2 checkpoint itself raised for {_t} — fail-closed BLOCK: {_g2e}")
-                    _g2_result = {"decision": "BLOCK", "reason_code": f"G2_CHECK_EXCEPTION:{_g2e}",
-                                  "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
-                                  "governance_decision_id": None}
-
-                _g2_gdid = _g2_result.get("governance_decision_id")
-
-                if _g2_result.get("decision") == "BLOCK":
-                    print(f"[aiem_paper] G2 BLOCKED candidate {_t} — {_g2_result.get('reason_code')} "
-                          f"(system_state={_g2_result.get('system_state')}, checkpoint_mode={_g2_result.get('mode')})")
-                    if _g2_gdid:
-                        try:
-                            _d3_g2.acknowledge_governance_decision(
-                                governance_decision_id=_g2_gdid,
-                                action_taken="CANDIDATE_SKIPPED_G2",
-                                continued=False,
-                                blocked=True,
-                                acknowledged_by="_aiem_paper_execute_today",
-                                is_test_record=False,
-                            )
-                        except Exception as _g2_ack_e:
-                            print(f"[aiem_paper] G2 ack (BLOCK) failed, non-fatal: {_g2_ack_e}")
-                    # G2 runs per-candidate INSIDE the per-ticker loop — unlike
-                    # G0/G1's once-per-batch BLOCK (which returns from the
-                    # whole function), a G2 BLOCK skips only THIS candidate.
-                    # No lock is acquired/released in this branch, so
-                    # `continue` is safe and cannot double-release anything.
-                    continue
-                else:
-                    if _g2_result.get("would_block"):
-                        print(f"[aiem_paper] G2 SHADOW: would have blocked candidate {_t} — {_g2_result.get('reason_code')} "
-                              f"(ledger_event_id={_g2_result.get('ledger_event_id')})")
-                    if _g2_gdid:
-                        try:
-                            _d3_g2.acknowledge_governance_decision(
-                                governance_decision_id=_g2_gdid,
-                                action_taken="PROCEEDING_WITH_CANDIDATE",
-                                continued=True,
-                                blocked=False,
-                                acknowledged_by="_aiem_paper_execute_today",
-                                is_test_record=False,
-                            )
-                        except Exception as _g2_ack_e:
-                            print(f"[aiem_paper] G2 ack (ALLOW) failed, non-fatal: {_g2_ack_e}")
-
-                # ── G3 pre-execution governance authorization (Path B P5) ──────
-                # Real per-CANDIDATE check, immediately before THIS candidate's
-                # trade is inserted into aiem_paper_trades. diagram2_risk_result
-                # is the real upstream sizing-gate verdict for this candidate —
-                # by construction it is always "PASS" here (any other
-                # _sizing_gate value already `continue`d above, before G2 even
-                # ran), but it is still computed and passed explicitly rather
-                # than assumed, so G3's D2_RISK_REJECTED short-circuit is a real
-                # structural guarantee, not a value nobody ever checks.
-                # execution_mode="PAPER" is this system's only real execution
-                # mode (no live broker adapter exists anywhere in this
-                # codebase). strategy_version=pick["source"] is checked against
-                # d3_strategy_registry; model_version is honestly None (no
-                # pick source in this function attaches a per-candidate model
-                # version today).
-                _g3_diagram2_risk_result = "PASS" if _sizing_gate in ("APPROVED", "PARAMS_NOT_CONFIRMED") else "REJECT"
-                try:
-                    import aiem_diagram3_governance as _d3_g3
-                    _g3_result = _d3_g3.require_governance_authorization(
-                        checkpoint="G3",
-                        entrypoint="_aiem_paper_execute_today",
-                        run_kind="TRADE_EXECUTING",
-                        source_phase="decision_engine",
-                        trigger_source=trigger_source,
-                        payload={"ticker": _t, "diagram2_trace_id": _d2_trace_id,
-                                 "sizing_gate": _sizing_gate},
-                        candidate_trace_id=_d2_trace_id,
-                        candidate_ticker=_t,
-                        diagram2_risk_result=_g3_diagram2_risk_result,
-                        execution_mode="PAPER",
-                        strategy_version=pick["source"],
-                        model_version=None,
-                        is_test_record=False,
-                    )
-                except Exception as _g3e:
-                    print(f"[aiem_paper] G3 checkpoint itself raised for {_t} — fail-closed BLOCK: {_g3e}")
-                    _g3_result = {"decision": "BLOCK", "reason_code": f"G3_CHECK_EXCEPTION:{_g3e}",
-                                  "mode": "UNKNOWN", "system_state": "UNKNOWN", "would_block": True,
-                                  "governance_decision_id": None}
-
-                _g3_gdid = _g3_result.get("governance_decision_id")
-
-                if _g3_result.get("decision") == "BLOCK":
-                    print(f"[aiem_paper] G3 BLOCKED candidate {_t} — {_g3_result.get('reason_code')} "
-                          f"(system_state={_g3_result.get('system_state')}, checkpoint_mode={_g3_result.get('mode')})")
-                    if _g3_gdid:
-                        try:
-                            _d3_g3.acknowledge_governance_decision(
-                                governance_decision_id=_g3_gdid,
-                                action_taken="CANDIDATE_SKIPPED_G3",
-                                continued=False,
-                                blocked=True,
-                                acknowledged_by="_aiem_paper_execute_today",
-                                is_test_record=False,
-                            )
-                        except Exception as _g3_ack_e:
-                            print(f"[aiem_paper] G3 ack (BLOCK) failed, non-fatal: {_g3_ack_e}")
-                    # G3 runs per-candidate INSIDE the per-ticker loop, exactly
-                    # like G2 — a BLOCK skips only THIS candidate. No lock is
-                    # acquired/released in this branch, so `continue` is safe.
-                    try:  # [T2-4 risk.rejected]
-                        import aiem_diagram3_governance as _d3ev_p3d
-                        _d3ev_p3d.emit_d2_pipeline_event(
-                            "risk.rejected", ticker=_t,
-                            reason=f"G3 BLOCK reason_code={_g3_result.get('reason_code','?')}")
-                    except Exception:
-                        pass
-                    continue
-                else:
-                    if _g3_result.get("would_block"):
-                        print(f"[aiem_paper] G3 SHADOW: would have blocked candidate {_t} — {_g3_result.get('reason_code')} "
-                              f"(ledger_event_id={_g3_result.get('ledger_event_id')})")
-                    if _g3_gdid:
-                        try:
-                            _d3_g3.acknowledge_governance_decision(
-                                governance_decision_id=_g3_gdid,
-                                action_taken="PROCEEDING_WITH_CANDIDATE",
-                                continued=True,
-                                blocked=False,
-                                acknowledged_by="_aiem_paper_execute_today",
-                                is_test_record=False,
-                            )
-                        except Exception as _g3_ack_e:
-                            print(f"[aiem_paper] G3 ack (ALLOW) failed, non-fatal: {_g3_ack_e}")
-
-                try:  # [T2-5 risk.approved]
-                    import aiem_diagram3_governance as _d3ev_p3e
-                    _d3ev_p3e.emit_d2_pipeline_event(
-                        "risk.approved", ticker=_t,
-                        reason=f"G3 ALLOW mode={_g3_result.get('mode','?')}")
-                except Exception:
-                    pass
-
-                # ── Order dedup pre-check [A7 enforcement] ───────────────────
-                # Application-layer gate runs BEFORE the INSERT.  If (ticker,
-                # trade_date) already exists in aiem_paper_trades the duplicate
-                # is caught here, a D3 data_guard.failed event is emitted, and
-                # the candidate is skipped via `continue`.
-                # DB constraint aiem_paper_trades_ticker_date_unique is the
-                # second safety net in case this check is ever bypassed.
-                _cu.execute(
-                    "SELECT id FROM aiem_paper_trades "
-                    "WHERE ticker=%s AND trade_date=%s LIMIT 1",
-                    (_t, _today)
-                )
-                _dedup_existing = _cu.fetchone()
-                if _dedup_existing:
-                    print(f"[aiem_paper] ORDER_DEDUP_BLOCKED {_t}: "
-                          f"row id={_dedup_existing[0]} already exists for "
-                          f"{_today} — skipping duplicate")
-                    try:
-                        import aiem_diagram3_governance as _d3ev_dedup
-                        _d3ev_dedup.emit_d2_pipeline_event(
-                            "data_guard.failed", ticker=_t,
-                            reason=(f"gate=order_dedup duplicate "
-                                    f"row_id={_dedup_existing[0]} "
-                                    f"ticker={_t} date={_today}"))
-                    except Exception:
-                        pass
-                    _dg_bus_publish(
-                        "DATA_GUARDS_FAILED",
-                        {"gate": "order_dedup",
-                         "reason": f"duplicate trade id={_dedup_existing[0]}"})
-                    continue
-
-                _cu.execute("""
-                    INSERT INTO aiem_paper_trades
-                        (trade_date, ticker, trade_type, entry_price, quantity,
-                         notional, signal_source, signal_detail, hold_days_max,
-                         last_price, status, strike, expiry,
-                         mid_price, fill_price, spread_pct_used,
-                         sizing_stop_price, sizing_stop_basis,
-                         sizing_risk_pct, sizing_gate_result,
-                         pre_sizing_model, audit_trace_id)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
-                            %s,%s,%s,%s,%s,%s,%s,FALSE,%s)
-                    ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
-                """, (_today, _t, _trade_type, _fill_price, _qty,
-                      _notional, pick["source"], pick.get("detail",""),
-                      _hold_days, _fill_price,
-                      pick.get("strike"), pick.get("expiry"),
-                      _mid_price, _fill_price, _spread_pct_used,
-                      _sizing_stop, _sizing_stop_basis,
-                      _sizing_risk_pct, _sizing_gate, _audit_trace_id))
-                _tg_entry_lines.append(
-                    f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
-                )
-                rows_inserted += 1
-                _c.commit()  # commit before Hook 4 — supervisor opens a new connection; must see the row
-                try:  # [T2-7 execution.shadow_created]
-                    import aiem_diagram3_governance as _d3ev_p3g
-                    _d3ev_p3g.emit_d2_pipeline_event(
-                        "execution.shadow_created", ticker=_t,
-                        reason=f"source={pick.get('source','?')} fill={_fill_price:.2f} notional={_notional:.0f}")
-                except Exception:
-                    pass
-                # ── Supervisor Hook 4: paper trade opened ─────────────────────
-                _h4_tr = None  # reset every iteration — avoids leaking a stale trade id
-                                # from a previous ticker into this ticker's Diagram 2 stage 18
-                if _audit_trace_id:
-                    try:
-                        import aiem_supervisor as _asup_h4
-                        _cu.execute(
-                            "SELECT id FROM aiem_paper_trades "
-                            "WHERE ticker=%s AND trade_date=%s AND status='OPEN' LIMIT 1",
-                            (_t, _today)
-                        )
-                        _h4_tr = _cu.fetchone()
-                        if _h4_tr:
-                            _asup_h4.supervisor_on_paper_trade_opened(
-                                audit_trace_id=_audit_trace_id,
-                                trade_id=_h4_tr[0],
-                                ticker=_t,
-                                signal_source=pick["source"],
-                                entry_price=_fill_price,
-                            )
-                    except Exception as _sup_h4_e:
-                        print(f"[supervisor] hook4_paper_trade_opened skipped: {_sup_h4_e}")
-
-                # ── Stage 14 paper_trade_id backfill + Thompson fields on trade row ──
-                # Stage 14 (scoring_synthesis) is executed in the Stages 1-17 block
-                # BEFORE the INSERT, so paper_trade_id=None at write time.
-                # Now that we have the real trade id from Hook 4, patch both:
-                #   (a) aiem_diagram2_trace_audit stage_order=14 → paper_trade_id
-                #   (b) aiem_paper_trades → entry_score + three Thompson columns
-                # This is the same pattern used for Stage 18 (also needs the trade id).
-                if _d2_trace_id and _h4_tr:
-                    try:
-                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _th_fix_c, \
-                                _th_fix_c.cursor() as _th_fix_cu:
-                            _th_fix_cu.execute(
-                                "UPDATE aiem_diagram2_trace_audit "
-                                "SET paper_trade_id = %s "
-                                "WHERE trace_id = %s AND stage_order = 14",
-                                (_h4_tr[0], _d2_trace_id)
-                            )
-                            _th_fix_cu.execute(
-                                "UPDATE aiem_paper_trades "
-                                "SET entry_score                 = %s, "
-                                "    thompson_multiplier_applied = %s, "
-                                "    thompson_sampled_score      = %s, "
-                                "    thompson_signal_source      = %s "
-                                "WHERE id = %s",
-                                (_fin_sc, _th_lbl_diag, _th_sc_diag, _th_src_diag, _h4_tr[0])
-                            )
-                            _th_fix_c.commit()
-                        print(
-                            f"[thompson-gate] stage14 patched — "
-                            f"paper_trade_id={_h4_tr[0]} trace={_d2_trace_id} "
-                            f"th_mult={_th_lbl_diag:.4f} entry_score={_fin_sc:.4f}"
-                        )
-                    except Exception as _th_fix_e:
-                        print(f"[thompson-gate] stage14 patch error (non-fatal): {_th_fix_e}")
-
-                # ── Diagram 2 stage 18 — Paper / Shadow Execution ──────────────
-                # Wired here (not in the stage 1-17 block above) because it needs
-                # the REAL row id from the INSERT that just happened.
-                if _d2_trace_id:
-                    _d2_run(18, "paper_shadow_execution", "Paper / Shadow Execution",
-                            "INSERT INTO aiem_paper_trades",
-                            lambda: {"trade_id": _h4_tr[0] if _h4_tr else None,
-                                     "ticker": _t, "trade_type": _trade_type,
-                                     "fill_price": _fill_price, "notional": _notional,
-                                     "status": "OPEN"})
-
-                # ── Bull/Bear debate persistence (Diagram 2 closure — item 3) ──
-                _bbd_id, _bbd_trade_id = None, None  # reset every iteration
-                if _audit_trace_id and _t in _debate_verdicts:
-                    try:
-                        _cu.execute(
-                            "SELECT id FROM aiem_paper_trades "
-                            "WHERE ticker=%s AND trade_date=%s AND status='OPEN' "
-                            "ORDER BY id DESC LIMIT 1",
-                            (_t, _today)
-                        )
-                        _bbd_row = _cu.fetchone()
-                        _bbd_trade_id = _bbd_row[0] if _bbd_row else None
-                        _bbd_entry = _debate_verdicts[_t]
-                        _bbd_id = _bull_bear.persist_debate(
-                            _t, _bbd_entry["context"], _bbd_entry["debate"],
-                            trace_id=_audit_trace_id, paper_trade_id=_bbd_trade_id,
-                        )
-                        if _bbd_id:
-                            print(f"[aiem_paper] bull_bear persisted id={_bbd_id} trace={_audit_trace_id} trade={_bbd_trade_id}")
-                    except Exception as _bbd_e:
-                        print(f"[aiem_paper] bull_bear persistence skipped {_t}: {_bbd_e}")
-
-                # ── Diagram 2 stage 19 — Bull/Bear Debate Persistence ──────────
-                # Debates only run for the top-ranked batch of tickers per cycle.
-                # Candidates outside that batch have no debate to persist —
-                # recorded honestly as batch_limited, not as FAIL.
-                if _d2_trace_id:
-                    if _t in _debate_verdicts:
-                        _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
-                                "aiem_bull_bear.persist_debate",
-                                lambda: {"persisted_id": _bbd_id, "paper_trade_id": _bbd_trade_id}
-                                        if _bbd_id else (_ for _ in ()).throw(RuntimeError(
-                                            f"persist_debate did not return an id for {_t}")))
-                    else:
-                        _d2_run(19, "bull_bear_persistence", "Bull/Bear Debate Persistence",
-                                "aiem_bull_bear.persist_debate",
-                                lambda: {"persisted": False,
-                                         "reason": "batch_limited",
-                                         "note": (
-                                             f"{_t} not in top-ranked debate batch — "
-                                             "no debate ran, so nothing to persist"
-                                         )})
-            _c.commit()
-        print(f"[aiem_paper] executed {rows_inserted} paper trades for {_today}")
-        # ── Flag fills synchronously at write time (Step 4 audit requirement) ──
-        # Runs inside _aiem_paper_execute_today(), not deferred to EOD batch.
-        if rows_inserted > 0:
-            try:
-                _aiem_paper_flag_fills(trade_date_from=_today)
-            except Exception as _ff_e:
-                print(f"[aiem_paper] flag_fills write-time error (non-blocking): {_ff_e}")
-        _log_finish("SUCCESS", _trades=rows_inserted)
-        # Paper trades Telegram disabled — positions are on the website.
-        # (The Telegram notification was sending 15 noisy positions including
-        # demoted gap_volume stocks and irrelevant large-cap AI picks.)
-        if _tg_entry_lines and rows_inserted > 0:
-            print(f"[aiem_paper] {rows_inserted} positions entered — view details on website (Telegram suppressed)")
-    except Exception as _e:
-        print(f"[aiem_paper] execute error: {_e}")
-        try:  # [T2-8 execution.failed]
-            import aiem_diagram3_governance as _d3ev_p3h
-            _d3ev_p3h.emit_d2_pipeline_event(
-                "execution.failed", reason=f"execute error: {_e}")
-        except Exception:
-            pass
-        _log_finish("FAILED", _err=str(_e))
-    finally:
-        _AIEM_PAPER_LOCK.release()
 
 
 def _aiem_paper_flag_fills(trade_date_from=None):
@@ -67381,6 +67422,10 @@ def admin_scheduler_jobs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+# Set AFTER all module-level definitions complete — startup_catchup waits for this flag
+# before calling _aiem_paper_execute_today so all dependencies are guaranteed to exist.
+_MODULE_FULLY_LOADED = True
 
 if __name__ == "__main__":
     # Server is already bound and running in _wz_srv_thr (started near top of file).

@@ -1226,7 +1226,7 @@ def _aiem_tab_scan(force: bool = False):
     """
     global _TAB_CACHE, _TAB_CACHE_DATE, _TAB_SCAN_RUNNING
 
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     with _TAB_CACHE_LOCK:
         if not force and _TAB_CACHE_DATE == today and _TAB_CACHE:
             return
@@ -1433,7 +1433,7 @@ def _aiem_tab_scan(force: bool = False):
 
 def _get_tab(key: str) -> list:
     """Return tab data from cache, triggering scan if stale/missing."""
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     with _TAB_CACHE_LOCK:
         ready = (_TAB_CACHE_DATE == today and bool(_TAB_CACHE))
     if not ready:
@@ -1453,7 +1453,7 @@ def run_aiem_tab_scan_job():
 # OI BUILDUP  ·  8:55 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_oi_buildup_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "oi_buildup"):
         return
     try:
@@ -1486,7 +1486,7 @@ def send_oi_buildup_brief():
 # TODAY'S PICKS (S1B · S1C · S1D)  ·  9:40 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_todays_picks_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "todays_picks"):
         return
     picks = _get_tab("todays_picks")
@@ -1508,7 +1508,7 @@ def send_todays_picks_brief():
 # GAMMA SQUEEZE  ·  9:50 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_gamma_squeeze_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "gamma_squeeze"):
         return
     db_rows = []
@@ -1541,7 +1541,7 @@ def send_gamma_squeeze_brief():
 # HIGH CONVICTION CALLS  ·  9:45 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_hc_calls_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "hc_calls"):
         return
     db_rows = []
@@ -1574,7 +1574,7 @@ def send_hc_calls_brief():
 # UNUSUAL CALLS  ·  10:00 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_unusual_calls_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "unusual_calls"):
         return
     db_rows = []
@@ -1607,7 +1607,7 @@ def send_unusual_calls_brief():
 # HIGH CONVICTION ETFs  ·  10:05 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_hc_etfs_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "hc_etfs"):
         return
     rows = _get_tab("hc_etfs")
@@ -1626,7 +1626,7 @@ def send_hc_etfs_brief():
 # FAR-OTM SWEEP RADAR  ·  10:10 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_sweep_radar_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "sweep_radar"):
         return
     rows = _get_tab("sweep_radar")
@@ -1645,7 +1645,7 @@ def send_sweep_radar_brief():
 # MICRO / SMALL CAP CALLS  ·  10:20 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_microcap_calls_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "microcap_calls"):
         return
     db_rows = []
@@ -1679,7 +1679,7 @@ def send_microcap_calls_brief():
 # 8-LAYER CONVICTION STACK  ·  10:25 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_conviction_stack_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "conviction_stack"):
         return
     db_rows = []
@@ -1714,7 +1714,7 @@ def send_conviction_stack_brief():
 # SMART MONEY PRESSURE  ·  10:35 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_smart_money_pressure_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "smart_money_pressure"):
         return
     rows = _get_tab("smart_money_pressure")
@@ -1734,7 +1734,7 @@ def send_smart_money_pressure_brief():
 # INSIDER RADAR  ·  10:40 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_insider_radar_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "insider_radar"):
         return
     db_rows = []
@@ -1769,7 +1769,7 @@ def send_insider_radar_brief():
 # DARK POOL  ·  10:50 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_dark_pool_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "dark_pool"):
         return
     rows = []
@@ -1800,7 +1800,7 @@ def send_dark_pool_brief():
 # BULL FLOW  ·  11:00 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_bull_flow_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "bull_flow"):
         return
     db_rows = []
@@ -1833,7 +1833,7 @@ def send_bull_flow_brief():
 # PERSISTENCE  ·  11:05 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_persistence_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "persistence"):
         return
     rows = _get_tab("persistence")
@@ -1855,7 +1855,7 @@ def send_persistence_brief():
 # FLOW STREAK (Accumulation Streak)  ·  11:10 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_flow_streak_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "flow_streak"):
         return
     rows = _get_tab("flow_streak")
@@ -1877,7 +1877,7 @@ def send_flow_streak_brief():
 # ACCUMULATION LEADERS / STEADY GRINDERS  ·  11:15 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_steady_grinders_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "steady_grinders"):
         return
     db_rows = []
@@ -1917,7 +1917,7 @@ def send_steady_grinders_brief():
 # WHALE BLOCKS  ·  11:20 AM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_whale_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "whale"):
         return
     db_rows = []
@@ -1950,7 +1950,7 @@ def send_whale_brief():
 # EOD CALL SWEEP  ·  4:35 PM
 # ─────────────────────────────────────────────────────────────────────────────
 def send_eod_sweep_brief():
-    today = _datetime.now(ET).date()
+    today = datetime.now(ET).date()
     if not _claim_tab(today, "eod_sweep"):
         return
     db_rows = []
@@ -2630,7 +2630,7 @@ def main():
                      signal_source="db_backup", alert_class="ERROR")
             return
         import datetime as _dtb
-        _ts   = _datetime.now(ET).strftime("%Y%m%d_%H%M")
+        _ts   = _dtb.now(ET).strftime("%Y%m%d_%H%M")
         _out  = os.path.join(_backup_dir, f"aiem_db_{_ts}.sql.gz")
         _pg   = "/nix/store/bgwr5i8jf8jpg75rr53rz3fqv5k8yrwp-postgresql-16.10/bin/pg_dump"
         if not os.path.exists(_pg):
