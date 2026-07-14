@@ -1950,18 +1950,21 @@ def _g3_check_model_approval(model_version: Optional[str]) -> Dict[str, Any]:
     Real, bounded check against d3_model_governance for whether
     `model_version` names a currently deployment_status='active' model.
 
-    model_version=None is reported as MODEL_VERSION_NOT_TRACKED rather than
-    silently skipped/approved. This is expected to fire for essentially
-    every candidate today: none of the current pick sources in
-    _aiem_paper_pick_candidates attach a per-candidate model_version (the
-    unrelated `model_versions` table owned by online_learning.py tracks a
-    conviction-scoring model, not a per-trade-candidate one) -- an honest,
-    pre-existing gap this checkpoint surfaces in SHADOW mode rather than
-    papering over with a fabricated default version.
+    model_version=None is reported as MODEL_VERSION_NOT_TRACKED_ADVISORY and
+    treated as ok=True (advisory-only, does not set would_block). None of the
+    current pick sources in _aiem_paper_pick_candidates attach a per-candidate
+    model_version (the unrelated `model_versions` table owned by
+    online_learning.py tracks a conviction-scoring model, not a
+    per-trade-candidate one). The gap remains visible in reason_codes as
+    MODEL_VERSION_NOT_TRACKED_ADVISORY; it just does not block trades on its
+    own until a real per-trade model versioning system is wired in.
+
+    Joel-approved deviation from Phase 2 no-code-change assumption --
+    Finding 1, model_version exemption (Directive 13 Phase 2, 2026-07-14).
     """
     if not model_version:
-        return {"ok": False, "error": None, "found": False,
-                "reason": "MODEL_VERSION_NOT_TRACKED"}
+        return {"ok": True, "error": None, "found": False,
+                "reason": "MODEL_VERSION_NOT_TRACKED_ADVISORY"}
     try:
         with _d3_connect() as conn:
             with conn.cursor() as cur:

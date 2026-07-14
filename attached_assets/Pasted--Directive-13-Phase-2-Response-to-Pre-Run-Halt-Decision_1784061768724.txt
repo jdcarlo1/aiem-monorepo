@@ -1,0 +1,35 @@
+# Directive 13 — Phase 2: Response to Pre-Run Halt
+
+## Decision on Finding 1: Option A — Exempt `model_version=None` from blocking
+
+Approved. Implement the change to `_g3_check_model_approval()` so that `model_version=None` returns:
+
+```python
+{"ok": True, "reason": "MODEL_VERSION_NOT_TRACKED_ADVISORY"}
+```
+
+instead of `ok=False`. The check becomes informational-only when no version is tracked — approved strategies proceed. `MODEL_VERSION_NOT_TRACKED_ADVISORY` (or equivalent) must still appear in `reason_codes` so the gap remains visible; it just must not set `would_block=True` on its own.
+
+**This is a scoped, mid-directive code change and must be treated as its own logged deviation, not folded silently into Phase 2:**
+- Exact before/after diff of the changed function in `aiem_diagram3_governance.py`.
+- sha256 hash before/after for the changed file.
+- Explicit log entry: "Joel-approved deviation from Phase 2 no-code-change assumption — Finding 1, model_version exemption."
+- This still runs through `verified_run.sh` / `verify_chain.sh` per the standing Evidence Chain Protocol.
+
+Only after this change is made, verified, and logged should Task 2 (the live paper cycle) proceed.
+
+## Decision on Finding 2: Guard B — mark as documented-unverifiable
+
+Do not skip Task 5. Instead, document in the Phase 2 report:
+- Guard B (`main.py:16835` Telegram alert) fires only inside the G0 BLOCK conditional.
+- G3 blocks use a `continue` at `main.py:17892` — per-candidate skip, no batch halt, no Telegram notification.
+- There is currently no Telegram notification path for a G3-level BLOCK anywhere in the codebase.
+- Phase 2 Task 5 as originally written cannot be satisfied by a G3 ENFORCE run; this is a real, standing gap — not a phase-2-specific issue — and should be tracked as a follow-up item (G3-level Guard B coverage), separate from Directive 13.
+
+## Path forward
+
+1. Implement and verify the Finding 1 code change (with full evidence + logged deviation, as above).
+2. Resume Directive 13 Phase 2 at Task 2 with G3 in ENFORCE and the model-version check now advisory-only.
+3. Complete Tasks 3–6 as originally scoped.
+4. Include the Finding 2 documentation (not a fix) in the final Phase 2 report.
+5. If any further discrepancy surfaces, halt again and report back — do not proceed to Phase 3 planning with anything unresolved.
