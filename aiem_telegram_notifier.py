@@ -1088,7 +1088,903 @@ def send_pattern_engine_alert():
                             f"sent_ok={ok} patterns={len(patterns_found)} stocks={total_stocks}")
 
 
-# ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# AIEM INDEPENDENT TAB SCAN ENGINE
+# ───────────────────────────────────────────────────────────────────────────
+# AIEM scans Polygon directly — no dependency on main.py DB writes.
+# One master scan at 9:35 AM populates _TAB_CACHE for all 18 morning alerts.
+# Every send function falls back to the DB if cache is empty, and falls back
+# to a "no data" message if both are empty — never crashes.
+# ═══════════════════════════════════════════════════════════════════════════
+
+import json as _json_mod
+import threading as _thr
+from concurrent.futures import ThreadPoolExecutor as _TPE
+from datetime import timedelta as _td
+from collections import Counter as _Counter
+
+_POLY_KEY          = os.environ.get("POLYGON_API_KEY", "")
+_TAB_CACHE: dict   = {}
+_TAB_CACHE_DATE    = None
+_TAB_CACHE_LOCK    = _thr.Lock()
+_TAB_SCAN_RUNNING  = False
+
+_ETF_SET = {
+    "SPY","QQQ","IWM","DIA","GLD","TLT","XLF","XLK","XLE","XLV","XLI",
+    "XLU","XLRE","XLC","XLY","XLP","XLB","SMH","ARKK","SOXX","XBI","IBB",
+    "MSTR","SOXL","TQQQ","SQQQ","SPXL","UPRO","IYR","HYG","LQD","EEM",
+    "FXI","KWEB","EWZ","USO","GDX","GDXJ","COIN",
+}
+
+
+def _poly_req(path: str, timeout: int = 12) -> dict:
+    if not _POLY_KEY:
+        return {}
+    sep = "&" if "?" in path else "?"
+    url = f"https://api.polygon.io{path}{sep}apiKey={_POLY_KEY}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "AIEM-Notifier/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return _json_mod.loads(r.read().decode("utf-8", errors="replace"))
+    except Exception as e:
+        log.debug(f"[poly_req] {path[:70]} → {e}")
+        return {}
+
+
+def _poly_grouped_daily(date_str: str) -> list:
+    d = _poly_req(f"/v2/aggs/grouped/locale/us/market/stocks/{date_str}?adjusted=true&include_otc=false")
+    return d.get("results", [])
+
+
+def _poly_options_for_ticker(ticker: str, spot: float, today_date) -> list:
+    d = _poly_req(
+        f"/v3/snapshot/options/{ticker}?contract_type=call&limit=250&sort=volume&order=desc",
+        timeout=12,
+    )
+    out = []
+    for r in d.get("results", []):
+        detail  = r.get("details", {})
+        day_d   = r.get("day", {})
+        strike  = float(detail.get("strike_price", 0) or 0)
+        expiry  = detail.get("expiration_date", "") or ""
+        vol     = int(day_d.get("volume", 0) or 0)
+        oi      = int(r.get("open_interest", 0) or 0)
+        iv      = float(r.get("implied_volatility", 0) or 0)
+        last_px = float(day_d.get("close", 0) or day_d.get("vwap", 0) or 0)
+        if vol < 10 or strike <= 0 or not expiry:
+            continue
+        vol_oi  = round(vol / oi, 1) if oi > 0 else 0.0
+        otm_pct = round((strike - spot) / spot * 100, 1) if spot > 0 else 0.0
+        prem_m  = (round(vol * last_px / 1_000_000, 3)
+                   if last_px > 0
+                   else round(vol * max(strike - spot, 0.5) / 1_000_000, 3))
+        try:
+            from datetime import date as _dt_d
+            days_out = max(0, (_dt_d.fromisoformat(expiry) - today_date).days)
+        except Exception:
+            days_out = 0
+        if days_out < 0:
+            continue
+        if   days_out <= 3:    urgency = "EXPIRING"
+        elif days_out <= 14:   urgency = "NEAR"
+        elif days_out <= 45:   urgency = "SHORT"
+        else:                  urgency = "LONG"
+        if otm_pct > 40 and vol_oi >= 5 and prem_m >= 0.2:
+            urgency = "FAR"
+        out.append({
+            "ticker": ticker, "price": spot, "strike": strike,
+            "expiry": expiry, "days_out": days_out,
+            "volume": vol, "oi": oi, "vol_oi": vol_oi,
+            "prem_m": prem_m, "otm_pct": otm_pct,
+            "iv_pct": round(iv * 100, 1), "urgency": urgency,
+            "is_etf": ticker in _ETF_SET,
+        })
+    return out
+
+
+def _prior_td(d):
+    dd = d - _td(days=1)
+    while dd.weekday() >= 5:
+        dd -= _td(days=1)
+    return dd
+
+
+def _cs(b: dict) -> float:
+    c, l, h = b.get("c", 0), b.get("l", 0), b.get("h", 0)
+    if h <= l:
+        return 0.5
+    return round((c - l) / (h - l), 3)
+
+
+def _fmt_call(c: dict) -> str:
+    return (f"${c['ticker']} ${c['strike']:.0f}C {c['expiry']} "
+            f"| {c['vol_oi']:.1f}x | ${c['prem_m']:.2f}M | {c['otm_pct']:+.0f}% | {c['urgency']}")
+
+
+def _claim_tab(today, brief_type: str) -> bool:
+    try:
+        with psycopg2.connect(DATABASE_URL) as _conn:
+            cur = _conn.cursor()
+            cur.execute(
+                "INSERT INTO aiem_notifier_log (send_date, brief_type, claimed_at, status) "
+                "VALUES (%s, %s, NOW(), 'claimed') ON CONFLICT (send_date, brief_type) DO NOTHING",
+                (today, brief_type),
+            )
+            _conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        log.error(f"[claim_tab] {brief_type}: {e}")
+        return False
+
+
+def _aiem_tab_scan(force: bool = False):
+    """
+    AIEM independent full-market Polygon scan.
+    Pulls grouped daily bars + top 400 tickers' call chains.
+    Populates _TAB_CACHE with structured data for all 18 tab alerts.
+    Runs once per trading day at 9:35 AM; idempotent.
+    """
+    global _TAB_CACHE, _TAB_CACHE_DATE, _TAB_SCAN_RUNNING
+
+    today = _datetime.now(ET).date()
+    with _TAB_CACHE_LOCK:
+        if not force and _TAB_CACHE_DATE == today and _TAB_CACHE:
+            return
+        if _TAB_SCAN_RUNNING:
+            return
+        _TAB_SCAN_RUNNING = True
+
+    try:
+        log.info("[tab-scan] ▶ AIEM independent Polygon market scan starting …")
+
+        # ── Grouped daily bars ────────────────────────────────────────────────
+        date_str = today.strftime("%Y-%m-%d")
+        bars = _poly_grouped_daily(date_str)
+        if len(bars) < 500:
+            prev = _prior_td(today)
+            date_str = prev.strftime("%Y-%m-%d")
+            bars = _poly_grouped_daily(date_str)
+            log.info(f"[tab-scan] today sparse, fell back to {date_str} ({len(bars)} bars)")
+
+        prev2_str  = _prior_td(_prior_td(today)).strftime("%Y-%m-%d")
+        bars_prev  = _poly_grouped_daily(prev2_str)
+        prev_v_map = {b.get("T", ""): int(b.get("v", 0) or 0) for b in bars_prev if b.get("T")}
+
+        bar_map: dict = {}
+        for b in bars:
+            t = b.get("T", "")
+            if not t or "." in t or len(t) > 5:
+                continue
+            price = float(b.get("c", 0) or 0)
+            if price < 1.0:
+                continue
+            vol   = int(b.get("v", 0) or 0)
+            pv    = prev_v_map.get(t, vol or 1)
+            rvol  = round(vol / pv, 2) if pv > 0 else 1.0
+            b_enr = dict(b)
+            b_enr.update({
+                "ticker": t, "price": price, "volume": vol, "rvol": rvol,
+                "close_strength": _cs(b), "is_etf": t in _ETF_SET,
+            })
+            bar_map[t] = b_enr
+
+        log.info(f"[tab-scan] {len(bar_map)} stocks loaded from {date_str}")
+
+        # ── Options scan — top 400 by volume ─────────────────────────────────
+        top400 = sorted(bar_map.values(), key=lambda x: x["volume"], reverse=True)[:400]
+        log.info(f"[tab-scan] querying options for {len(top400)} tickers …")
+        all_calls: list = []
+
+        def _scan_one(stock):
+            return _poly_options_for_ticker(stock["ticker"], stock["price"], today)
+
+        with _TPE(max_workers=10) as pool:
+            for contracts in pool.map(_scan_one, top400, timeout=60):
+                if contracts:
+                    all_calls.extend(contracts)
+
+        log.info(f"[tab-scan] {len(all_calls)} call contracts collected")
+
+        cache: dict = {
+            "scan_date": today, "bar_date": date_str,
+            "total_tickers": len(bar_map), "total_calls": len(all_calls),
+        }
+
+        # ── Tab buckets ───────────────────────────────────────────────────────
+
+        cache["unusual_calls"] = sorted(
+            [c for c in all_calls if c["vol_oi"] >= 2.0 and c["prem_m"] >= 0.1 and not c["is_etf"]],
+            key=lambda x: x["vol_oi"], reverse=True)[:15]
+
+        cache["hc_calls"] = sorted(
+            [c for c in all_calls if c["vol_oi"] >= 5.0 and c["prem_m"] >= 0.5 and not c["is_etf"]],
+            key=lambda x: x["vol_oi"] * x["prem_m"], reverse=True)[:12]
+
+        cache["whale"] = sorted(
+            [c for c in all_calls if c["prem_m"] >= 1.0 and c["vol_oi"] >= 3.0],
+            key=lambda x: x["prem_m"], reverse=True)[:12]
+
+        cache["hc_etfs"] = sorted(
+            [c for c in all_calls if c["is_etf"] and c["prem_m"] >= 0.5 and c["vol_oi"] >= 3.0],
+            key=lambda x: x["prem_m"], reverse=True)[:12]
+
+        cache["sweep_radar"] = sorted(
+            [c for c in all_calls if c["urgency"] == "FAR"],
+            key=lambda x: x["vol_oi"], reverse=True)[:12]
+
+        cache["microcap"] = sorted(
+            [c for c in all_calls if c["price"] <= 20 and c["vol_oi"] >= 3.0 and not c["is_etf"]],
+            key=lambda x: x["vol_oi"], reverse=True)[:12]
+
+        cache["bull_flow"] = sorted(
+            [c for c in all_calls if c["vol_oi"] >= 2.0 and c["volume"] >= 300 and not c["is_etf"]],
+            key=lambda x: x["volume"], reverse=True)[:12]
+
+        # Persistence — tickers with 3+ active call strikes (broad positioning)
+        tcounts = _Counter(c["ticker"] for c in all_calls if c["vol_oi"] >= 2.0)
+        persist_rows = []
+        for t, cnt in tcounts.most_common(20):
+            if cnt < 3:
+                break
+            best = dict(max((c for c in all_calls if c["ticker"] == t), key=lambda x: x["vol_oi"]))
+            best["strike_count"] = cnt
+            persist_rows.append(best)
+        cache["persistence"] = persist_rows[:12]
+
+        # Insider radar — high OTM, large prem, quiet ticker, not ETF
+        def _ins_score(c):
+            s = 0
+            if c["otm_pct"] >= 20:  s += 3
+            if c["prem_m"]  >= 0.5: s += 2
+            if c["vol_oi"]  >= 10:  s += 2
+            if c["volume"]  >= 1000: s += 1
+            if c["days_out"] <= 30:  s += 1
+            return s
+        ins_cands = [c for c in all_calls if c["otm_pct"] >= 15 and c["prem_m"] >= 0.1 and not c["is_etf"]]
+        for c in ins_cands:
+            c["ins_score"] = _ins_score(c)
+        cache["insider_radar"] = sorted(ins_cands, key=lambda x: x["ins_score"], reverse=True)[:12]
+
+        cache["gamma_squeeze"] = sorted(
+            [c for c in all_calls if c["vol_oi"] >= 5.0 and c["volume"] >= 500
+             and c["price"] >= 5 and not c["is_etf"]],
+            key=lambda x: x["vol_oi"], reverse=True)[:12]
+
+        cache["oi_buildup"] = sorted(
+            [c for c in all_calls if c["oi"] >= 1000 and c["vol_oi"] >= 3.0],
+            key=lambda x: x["oi"], reverse=True)[:15]
+
+        # Flow streak — high close-strength + high RVOL
+        cache["flow_streak"] = sorted(
+            [b for b in bar_map.values()
+             if b["close_strength"] >= 0.65 and b.get("rvol", 0) >= 1.5 and b["volume"] >= 300_000],
+            key=lambda x: x["close_strength"] * x.get("rvol", 1), reverse=True)[:15]
+
+        # Steady grinders — sweep-confirmed + high close strength
+        call_tk_set = {c["ticker"] for c in all_calls if c["vol_oi"] >= 2.0}
+        grinders = []
+        for b in cache["flow_streak"]:
+            t = b["ticker"]
+            if t in call_tk_set:
+                best_c = max((c for c in all_calls if c["ticker"] == t), key=lambda x: x["vol_oi"], default=None)
+                if best_c:
+                    row = dict(b)
+                    row.update({"vol_oi": best_c["vol_oi"], "prem_m": best_c["prem_m"],
+                                "strike": best_c["strike"], "expiry": best_c["expiry"]})
+                    grinders.append(row)
+        cache["steady_grinders"] = grinders[:12]
+
+        # 8-Layer conviction stack — multi-signal score per ticker
+        tsig: dict = {}
+        for c in all_calls:
+            t = c["ticker"]
+            if t not in tsig:
+                tsig[t] = {"ticker": t, "price": c["price"], "pts": 0, "layers": []}
+            info = tsig[t]
+            b    = bar_map.get(t, {})
+            if c["vol_oi"] >= 5 and "L1_OI" not in info["layers"]:
+                info["pts"] += 2; info["layers"].append("L1_OI")
+            if c["vol_oi"] >= 3 and c["prem_m"] >= 0.2 and "L2_SWEEP" not in info["layers"]:
+                info["pts"] += 2; info["layers"].append("L2_SWEEP")
+            if c["urgency"] == "FAR" and "L7_FAR" not in info["layers"]:
+                info["pts"] += 2; info["layers"].append("L7_FAR")
+            if b.get("close_strength", 0) >= 0.7 and "CS" not in info["layers"]:
+                info["pts"] += 2; info["layers"].append("CS")
+            if b.get("rvol", 0) >= 2.0 and "RVOL" not in info["layers"]:
+                info["pts"] += 2; info["layers"].append("RVOL")
+        stk = sorted(tsig.values(), key=lambda x: x["pts"], reverse=True)
+        cache["conviction_stack"]     = stk[:15]
+        cache["smart_money_pressure"] = [x for x in stk if x["pts"] >= 6][:10]
+
+        # Today's picks — probability engine DB
+        picks = []
+        try:
+            with psycopg2.connect(DATABASE_URL) as _pc:
+                cur = _pc.cursor()
+                cur.execute(
+                    "SELECT rank, ticker, score, prob_up_1d, prob_up_2d, prob_up_3d, confidence, regime_tag "
+                    "FROM aiem_probability_engine_daily_picks WHERE pick_date=%s ORDER BY rank LIMIT 10",
+                    (today,))
+                picks = [dict(zip(["rank","ticker","score","p1d","p2d","p3d","conf","regime"], r))
+                         for r in cur.fetchall()]
+        except Exception as e:
+            log.debug(f"[tab-scan] todays_picks DB: {e}")
+        cache["todays_picks"] = picks
+
+        cache["eod_sweep"]  = []
+        cache["dark_pool"]  = []
+
+        with _TAB_CACHE_LOCK:
+            _TAB_CACHE      = cache
+            _TAB_CACHE_DATE = today
+
+        log.info(
+            f"[tab-scan] ✅ Cache ready — unusual={len(cache['unusual_calls'])} "
+            f"hc={len(cache['hc_calls'])} whale={len(cache['whale'])} "
+            f"streak={len(cache['flow_streak'])} grinders={len(cache['steady_grinders'])}"
+        )
+
+    except Exception as e:
+        log.error(f"[tab-scan] FATAL: {e}", exc_info=True)
+    finally:
+        with _TAB_CACHE_LOCK:
+            _TAB_SCAN_RUNNING = False
+
+
+def _get_tab(key: str) -> list:
+    """Return tab data from cache, triggering scan if stale/missing."""
+    today = _datetime.now(ET).date()
+    with _TAB_CACHE_LOCK:
+        ready = (_TAB_CACHE_DATE == today and bool(_TAB_CACHE))
+    if not ready:
+        t = _thr.Thread(target=_aiem_tab_scan, daemon=True)
+        t.start()
+        t.join(timeout=300)
+    return _TAB_CACHE.get(key, [])
+
+
+def run_aiem_tab_scan_job():
+    """9:35 AM — pre-warm cache for all morning tab briefs."""
+    log.info("[tab-scan-job] ▶ scheduler triggered")
+    _thr.Thread(target=_aiem_tab_scan, daemon=True).start()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OI BUILDUP  ·  8:55 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_oi_buildup_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "oi_buildup"):
+        return
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, strike, expiry, oi, otm_pct, days_out, iv "
+                "FROM oi_daily_snapshot WHERE snapshot_date=%s ORDER BY oi DESC LIMIT 12",
+                (_prior_td(today),))
+            db_rows = cur.fetchall()
+    except Exception:
+        db_rows = []
+    rows = _get_tab("oi_buildup")
+    lines = [f"📈 OI BUILDUP — {today.strftime('%b %-d, %Y')}",
+             "Smart money pre-loading OTM calls 1-3 days before the move",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows[:12]:
+            lines.append(f"${r[0]} ${r[2]:.0f}C {r[3]} | OI={r[4]:,} | {r[5]:+.0f}% OTM | IV={r[7]:.0f}%")
+    elif rows:
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. ${c['ticker']} ${c['strike']:.0f}C {c['expiry']} | OI={c['oi']:,} | {c['vol_oi']:.1f}x | {c['otm_pct']:+.0f}%")
+    else:
+        lines.append("⚠️ No OI buildup signals — snapshot captures at 4:30 PM daily")
+    ok = _tg_send("\n".join(lines), signal_source="oi_buildup_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "oi_buildup", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TODAY'S PICKS (S1B · S1C · S1D)  ·  9:40 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_todays_picks_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "todays_picks"):
+        return
+    picks = _get_tab("todays_picks")
+    lines = [f"⚡ TODAY'S PICKS (S1B·S1C·S1D) — {today.strftime('%b %-d, %Y')}",
+             "AIEM Probability Engine · Buy at 9:30 AM open · results at close",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for p in picks[:10]:
+        lines.append(
+            f"#{p['rank']} ${p['ticker']} | Score={p['score']:.1f} "
+            f"| P1d={p['p1d']:.0%} P2d={p['p2d']:.0%} P3d={p['p3d']:.0%} | {p.get('regime','—')}"
+        )
+    if not picks:
+        lines.append("⚠️ No picks yet — probability scan runs 7:00–9:15 AM ET")
+    ok = _tg_send("\n".join(lines), signal_source="todays_picks_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "todays_picks", f"sent_ok={ok} picks={len(picks)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAMMA SQUEEZE  ·  9:50 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_gamma_squeeze_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "gamma_squeeze"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, fir, fsd, call_volume, vol_oi, top_strike, top_strike_expiry, score "
+                "FROM gamma_pressure_alerts WHERE alert_date=%s ORDER BY fir DESC LIMIT 12", (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"⚡ GAMMA SQUEEZE — {today.strftime('%b %-d, %Y')}",
+             "FIR>2% = market makers legally forced to buy float shares",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(f"${r[0]} ${r[1]:.2f} | FIR={r[2]:.1f}% | FSD={r[3]:.2f} | {r[4]:,} call vol | Score={r[8]:.0f}")
+    else:
+        rows = _get_tab("gamma_squeeze")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. {_fmt_call(c)}")
+        if not rows:
+            lines.append("⚠️ No gamma squeeze setups today (8:45 AM text covers yesterday's)")
+    ok = _tg_send("\n".join(lines), signal_source="gamma_squeeze_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "gamma_squeeze", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HIGH CONVICTION CALLS  ·  9:45 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_hc_calls_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "hc_calls"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, score, conviction, total_prem_m, max_vol_oi, avg_iv, rank "
+                "FROM conviction_calls_snapshot WHERE snap_date=%s ORDER BY rank LIMIT 12", (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"🎯 HIGH CONVICTION CALLS — {today.strftime('%b %-d, %Y')}",
+             "Vol/OI≥5 · Prem≥$500K · Multi-strike institutional positioning",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(f"#{r[7]} ${r[0]} @ ${r[1]:.2f} | {r[4]:.2f}M prem | {r[5]:.1f}x VOI | IV={r[6]:.0f}% | {r[3]}")
+    else:
+        rows = _get_tab("hc_calls")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. {_fmt_call(c)}")
+        if not rows:
+            lines.append("⚠️ No high conviction signals today")
+    ok = _tg_send("\n".join(lines), signal_source="hc_calls_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "hc_calls", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UNUSUAL CALLS  ·  10:00 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_unusual_calls_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "unusual_calls"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, strike, expiry, days_out, vol_oi, prem, otm_pct, urgency "
+                "FROM unusual_calls_log WHERE last_seen::date=%s ORDER BY vol_oi DESC LIMIT 12", (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"📊 UNUSUAL CALLS — {today.strftime('%b %-d, %Y')}",
+             "Vol/OI≥2 · Prem≥$100K · Sorted by conviction",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(f"${r[0]} @ ${r[1]:.2f} | ${r[2]:.0f}C {r[3]} | {r[5]:.1f}x | ${r[6]/1e6:.2f}M | {r[7]:+.0f}% | {r[8]}")
+    else:
+        rows = _get_tab("unusual_calls")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. {_fmt_call(c)}")
+        if not rows:
+            lines.append("⚠️ No unusual call signals today")
+    ok = _tg_send("\n".join(lines), signal_source="unusual_calls_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "unusual_calls", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HIGH CONVICTION ETFs  ·  10:05 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_hc_etfs_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "hc_etfs"):
+        return
+    rows = _get_tab("hc_etfs")
+    lines = [f"🔥 HC ETFs — {today.strftime('%b %-d, %Y')}",
+             f"ETF-only bullish call activity · Sorted by premium · {len(rows)} signals",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for i, c in enumerate(rows[:12], 1):
+        lines.append(f"{i}. {_fmt_call(c)}")
+    if not rows:
+        lines.append("⚠️ No ETF signals today")
+    ok = _tg_send("\n".join(lines), signal_source="hc_etfs_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "hc_etfs", f"sent_ok={ok} rows={len(rows)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FAR-OTM SWEEP RADAR  ·  10:10 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_sweep_radar_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "sweep_radar"):
+        return
+    rows = _get_tab("sweep_radar")
+    lines = [f"🔭 FAR-OTM SWEEP RADAR — {today.strftime('%b %-d, %Y')}",
+             ">40% OTM · Vol/OI≥5 · Prem≥$200K · Directional conviction bets (prob of innocence <3%)",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for i, c in enumerate(rows[:12], 1):
+        lines.append(f"{i}. ${c['ticker']} ${c['strike']:.0f}C {c['expiry']} | {c['vol_oi']:.1f}x | ${c['prem_m']:.2f}M | {c['otm_pct']:+.0f}% OTM")
+    if not rows:
+        lines.append("⚠️ No far-OTM sweeps today")
+    ok = _tg_send("\n".join(lines), signal_source="sweep_radar_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "sweep_radar", f"sent_ok={ok} rows={len(rows)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MICRO / SMALL CAP CALLS  ·  10:20 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_microcap_calls_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "microcap_calls"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, strike, expiry, days_out, vol_oi, prem, otm_pct, urgency, cap_tier "
+                "FROM unusual_calls_microcap_log WHERE last_seen::date=%s ORDER BY vol_oi DESC LIMIT 12",
+                (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"🔬 MICRO/SMALL CAP CALLS — {today.strftime('%b %-d, %Y')}",
+             "≤$2B mkt cap universe · Lower thresholds · Leverage plays",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(f"${r[0]} @ ${r[1]:.2f} | ${r[2]:.0f}C {r[3]} | {r[5]:.1f}x | ${r[6]/1e6:.2f}M | {r[7]:+.0f}% | {r[8]} | {r[9]}")
+    else:
+        rows = _get_tab("microcap")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. {_fmt_call(c)}")
+        if not rows:
+            lines.append("⚠️ No micro/small cap signals today")
+    ok = _tg_send("\n".join(lines), signal_source="microcap_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "microcap_calls", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8-LAYER CONVICTION STACK  ·  10:25 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_conviction_stack_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "conviction_stack"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, total_pts, label, layers "
+                "FROM conviction_stack_watchlist WHERE snap_date=%s ORDER BY total_pts DESC LIMIT 12",
+                (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"🎯 8-LAYER CONVICTION — {today.strftime('%b %-d, %Y')}",
+             "8+/10 pts = ~90% probability of explosive move",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(f"${r[0]} @ ${r[1]:.2f} | {r[2]}/10 pts | {r[3]}")
+    else:
+        rows = _get_tab("conviction_stack")
+        for i, c in enumerate(rows[:12], 1):
+            layers = " + ".join(c.get("layers", []))
+            lines.append(f"{i}. ${c['ticker']} @ ${c['price']:.2f} | {c['pts']}/10 | {layers}")
+        if not rows:
+            lines.append("⚠️ No conviction stack setups today")
+    ok = _tg_send("\n".join(lines), signal_source="conviction_stack_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "conviction_stack", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SMART MONEY PRESSURE  ·  10:35 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_smart_money_pressure_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "smart_money_pressure"):
+        return
+    rows = _get_tab("smart_money_pressure")
+    lines = [f"🔥 SMART MONEY PRESSURE — {today.strftime('%b %-d, %Y')}",
+             f"4+ independent layers converging · {len(rows)} extreme setups",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for i, c in enumerate(rows[:10], 1):
+        layers = " + ".join(c.get("layers", []))
+        lines.append(f"{i}. ${c['ticker']} @ ${c['price']:.2f} | {c['pts']}/10 | {layers}")
+    if not rows:
+        lines.append("⚠️ No extreme smart money pressure today")
+    ok = _tg_send("\n".join(lines), signal_source="smart_money_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "smart_money_pressure", f"sent_ok={ok} rows={len(rows)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INSIDER RADAR  ·  10:40 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_insider_radar_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "insider_radar"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, suspicion_score, prem, strike, expiry, vol_oi, days_to_earnings, verdict "
+                "FROM insider_alerts WHERE detected_at::date=%s ORDER BY suspicion_score DESC LIMIT 12",
+                (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"🕵️ INSIDER RADAR — {today.strftime('%b %-d, %Y')}",
+             "SEC-style detection · Rarity + Size + Vol/OI + Earnings proximity",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            dte = f" | {r[6]}d→earnings" if r[6] and r[6] <= 90 else ""
+            lines.append(f"${r[0]} | Score={r[1]} | ${r[2]/1e6:.2f}M | ${r[3]:.0f}C {r[4]} | {r[5]:.1f}x{dte} | {r[7]}")
+    else:
+        rows = _get_tab("insider_radar")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. ${c['ticker']} @ ${c['price']:.2f} | Score={c.get('ins_score',0)} | {_fmt_call(c)}")
+        if not rows:
+            lines.append("⚠️ No suspicious insider-like activity today")
+    ok = _tg_send("\n".join(lines), signal_source="insider_radar_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "insider_radar", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DARK POOL  ·  10:50 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_dark_pool_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "dark_pool"):
+        return
+    rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, dark_pool_pct, dark_pool_signal, score "
+                "FROM steady_grinder_scan WHERE scan_date >= %s "
+                "AND dark_pool_pct IS NOT NULL ORDER BY dark_pool_pct DESC LIMIT 15",
+                (_prior_td(today),))
+            rows = [dict(zip(["ticker","price","dp_pct","dp_signal","score"], r))
+                    for r in cur.fetchall()]
+    except Exception as e:
+        log.debug(f"[dark_pool] DB: {e}")
+    lines = [f"🌑 DARK POOL RADAR — {today.strftime('%b %-d, %Y')}",
+             "Off-exchange short volume (FINRA) · High DP% = institutional accumulation in the dark",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for i, r in enumerate(rows[:12], 1):
+        lines.append(f"{i}. ${r['ticker']} @ ${r['price']:.2f} | DP={r['dp_pct']:.1f}% | {r.get('dp_signal','—')} | Score={r.get('score',0):.0f}")
+    if not rows:
+        lines.append("⚠️ Dark pool data populated by EOD scan — check website tab for live data")
+    ok = _tg_send("\n".join(lines), signal_source="dark_pool_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "dark_pool", f"sent_ok={ok} rows={len(rows)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BULL FLOW  ·  11:00 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_bull_flow_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "bull_flow"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, strike, expiry, call_volume, vol_oi_ratio, premium, stock_price, conviction "
+                "FROM call_sweep_log WHERE sweep_date=%s ORDER BY vol_oi_ratio DESC LIMIT 12", (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"🐂 BULL FLOW — {today.strftime('%b %-d, %Y')}",
+             "Call sweeps · High Vol/OI · Directional bullish conviction",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(f"${r[0]} ${r[1]:.0f}C {r[2]} | {r[3]:,} vol | {r[4]:.1f}x | ${r[5]/1e6:.2f}M | @ ${r[6]:.2f} | {r[7]}")
+    else:
+        rows = _get_tab("bull_flow")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. {_fmt_call(c)}")
+        if not rows:
+            lines.append("⚠️ No bull flow signals today")
+    ok = _tg_send("\n".join(lines), signal_source="bull_flow_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "bull_flow", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PERSISTENCE  ·  11:05 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_persistence_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "persistence"):
+        return
+    rows = _get_tab("persistence")
+    lines = [f"📌 PERSISTENCE — {today.strftime('%b %-d, %Y')}",
+             "Tickers with 3+ active call strikes today = broad institutional positioning",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for i, c in enumerate(rows[:12], 1):
+        lines.append(
+            f"{i}. ${c['ticker']} @ ${c['price']:.2f} | {c.get('strike_count',0)} strikes "
+            f"| best {c['vol_oi']:.1f}x | ${c['prem_m']:.2f}M"
+        )
+    if not rows:
+        lines.append("⚠️ No persistent positioning detected today")
+    ok = _tg_send("\n".join(lines), signal_source="persistence_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "persistence", f"sent_ok={ok} rows={len(rows)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FLOW STREAK (Accumulation Streak)  ·  11:10 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_flow_streak_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "flow_streak"):
+        return
+    rows = _get_tab("flow_streak")
+    lines = [f"📊 FLOW STREAK — {today.strftime('%b %-d, %Y')}",
+             "Consecutive days of net institutional buying · CS≥65% + RVOL≥1.5x",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    for i, b in enumerate(rows[:12], 1):
+        lines.append(
+            f"{i}. ${b['ticker']} @ ${b['price']:.2f} "
+            f"| CS={b['close_strength']:.0%} | RVOL={b.get('rvol',0):.1f}x | {b['volume']:,.0f} vol"
+        )
+    if not rows:
+        lines.append("⚠️ No accumulation streak signals today")
+    ok = _tg_send("\n".join(lines), signal_source="flow_streak_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "flow_streak", f"sent_ok={ok} rows={len(rows)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ACCUMULATION LEADERS / STEADY GRINDERS  ·  11:15 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_steady_grinders_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "steady_grinders"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, price, d1_close_pos, d2_close_pos, higher_low, score "
+                "FROM steady_grinder_scan WHERE scan_date=%s ORDER BY score DESC LIMIT 12", (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"⚙️ ACCUMULATION LEADERS — {today.strftime('%b %-d, %Y')}",
+             "Institutional shakeout → reentry · ⚡ Sweep confirms the run · 76% WR",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(
+                f"${r[0]} @ ${r[1]:.2f} | CS1={r[2]:.0%} CS2={r[3]:.0%} "
+                f"| HL={'✓' if r[4] else '✗'} | Score={r[5]:.0f}"
+            )
+    else:
+        rows = _get_tab("steady_grinders")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(
+                f"{i}. ${c['ticker']} @ ${c['price']:.2f} "
+                f"| CS={c['close_strength']:.0%} | RVOL={c.get('rvol',0):.1f}x "
+                f"| {c.get('vol_oi',0):.1f}x VOI"
+            )
+        if not rows:
+            lines.append("⚠️ No accumulation leaders today")
+    ok = _tg_send("\n".join(lines), signal_source="steady_grinders_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "steady_grinders", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WHALE BLOCKS  ·  11:20 AM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_whale_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "whale"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, direction, strike, expiry, days_out, prem_m, volume, otm_pct, tier "
+                "FROM whale_blocks WHERE first_seen::date=%s ORDER BY prem_m DESC LIMIT 12", (today,))
+            db_rows = cur.fetchall()
+    except Exception:
+        pass
+    lines = [f"🐳 WHALE BLOCKS — {today.strftime('%b %-d, %Y')}",
+             "Prem≥$1M · Vol/OI≥3 · Institutional-scale directional bets",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            lines.append(f"${r[0]} {r[1]} ${r[2]:.0f}C {r[3]} | ${r[5]:.1f}M | {r[6]:,} vol | {r[7]:+.0f}% OTM | {r[8]}")
+    else:
+        rows = _get_tab("whale")
+        for i, c in enumerate(rows[:12], 1):
+            lines.append(f"{i}. ${c['ticker']} ${c['strike']:.0f}C {c['expiry']} | ${c['prem_m']:.2f}M | {c['vol_oi']:.1f}x | {c['otm_pct']:+.0f}% OTM")
+        if not rows:
+            lines.append("⚠️ No whale blocks today")
+    ok = _tg_send("\n".join(lines), signal_source="whale_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "whale", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EOD CALL SWEEP  ·  4:35 PM
+# ─────────────────────────────────────────────────────────────────────────────
+def send_eod_sweep_brief():
+    today = _datetime.now(ET).date()
+    if not _claim_tab(today, "eod_sweep"):
+        return
+    db_rows = []
+    try:
+        with psycopg2.connect(DATABASE_URL) as _c:
+            cur = _c.cursor()
+            cur.execute(
+                "SELECT ticker, score, grade, num_strikes, total_prem_m, max_vol_oi, avg_iv, price_at_signal "
+                "FROM eod_sweep_log WHERE signal_date=%s ORDER BY score DESC LIMIT 12", (today,))
+            db_rows = cur.fetchall()
+        if not db_rows:
+            cur2 = _c.cursor()
+            cur2.execute(
+                "SELECT ticker, price, strike, expiry, vol_oi, prem, otm_pct, urgency "
+                "FROM unusual_calls_log WHERE last_seen::date=%s "
+                "AND last_seen::time > '14:00:00' ORDER BY vol_oi DESC LIMIT 12", (today,))
+            db_rows = [("*"+r[0], None, "EOD", 1, r[5]/1e6 if r[5] else 0, r[4], 0, r[1])
+                       for r in cur2.fetchall()]
+    except Exception:
+        pass
+    lines = [f"🌆 EOD CALL SWEEP — {today.strftime('%b %-d, %Y')}",
+             "Late-session smart money · Signals detected after 2:00 PM ET",
+             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"]
+    if db_rows:
+        for r in db_rows:
+            score_str = f"Score={r[1]:.0f} {r[2]}" if r[1] is not None else r[2]
+            lines.append(f"${r[0]} @ ${r[7]:.2f} | {score_str} | {r[3]} strikes | ${r[4]:.2f}M | {r[5]:.1f}x VOI")
+    else:
+        lines.append("⚠️ No EOD sweep signals detected today")
+    ok = _tg_send("\n".join(lines), signal_source="eod_sweep_tab", alert_class="SIGNAL")
+    _update_notifier_status(today, "eod_sweep", f"sent_ok={ok}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 3:00 PM RVOL / GAP / CLOSE-STRENGTH COMBO BRIEF
 # Read-only w.r.t. polygon_market_daily (written by main.py's 8:35 AM
 # Polygon grouped-daily scan). This process only SELECTs from it and never
@@ -1604,6 +2500,121 @@ def main():
     #     id="aiem_rvol_combo_alert",
     #     replace_existing=True,
     # )
+
+    # ── TAB SCAN ENGINE: master scan at 9:35 AM warms cache for all 18 alerts ──
+    scheduler.add_job(
+        run_aiem_tab_scan_job,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=35, timezone=ET),
+        id="aiem_tab_scan_job", replace_existing=True,
+    )
+    # ── OI Buildup  8:55 AM ─────────────────────────────────────────────────
+    scheduler.add_job(
+        send_oi_buildup_brief,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=55, timezone=ET),
+        id="aiem_oi_buildup_brief", replace_existing=True,
+    )
+    # ── Today's Picks (S1B·S1C·S1D)  9:40 AM ───────────────────────────────
+    scheduler.add_job(
+        send_todays_picks_brief,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=40, timezone=ET),
+        id="aiem_todays_picks_brief", replace_existing=True,
+    )
+    # ── HC Calls  9:45 AM ───────────────────────────────────────────────────
+    scheduler.add_job(
+        send_hc_calls_brief,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=ET),
+        id="aiem_hc_calls_brief", replace_existing=True,
+    )
+    # ── Gamma Squeeze  9:50 AM ──────────────────────────────────────────────
+    scheduler.add_job(
+        send_gamma_squeeze_brief,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=50, timezone=ET),
+        id="aiem_gamma_squeeze_brief", replace_existing=True,
+    )
+    # ── Unusual Calls  10:00 AM ─────────────────────────────────────────────
+    scheduler.add_job(
+        send_unusual_calls_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=0, timezone=ET),
+        id="aiem_unusual_calls_brief", replace_existing=True,
+    )
+    # ── HC ETFs  10:05 AM ───────────────────────────────────────────────────
+    scheduler.add_job(
+        send_hc_etfs_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=ET),
+        id="aiem_hc_etfs_brief", replace_existing=True,
+    )
+    # ── Far-OTM Sweep Radar  10:10 AM ───────────────────────────────────────
+    scheduler.add_job(
+        send_sweep_radar_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=10, timezone=ET),
+        id="aiem_sweep_radar_brief", replace_existing=True,
+    )
+    # ── Micro/Small Cap Calls  10:20 AM ─────────────────────────────────────
+    scheduler.add_job(
+        send_microcap_calls_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=20, timezone=ET),
+        id="aiem_microcap_calls_brief", replace_existing=True,
+    )
+    # ── 8-Layer Conviction Stack  10:25 AM ──────────────────────────────────
+    scheduler.add_job(
+        send_conviction_stack_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=25, timezone=ET),
+        id="aiem_conviction_stack_brief", replace_existing=True,
+    )
+    # ── Smart Money Pressure  10:35 AM ──────────────────────────────────────
+    scheduler.add_job(
+        send_smart_money_pressure_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=35, timezone=ET),
+        id="aiem_smart_money_brief", replace_existing=True,
+    )
+    # ── Insider Radar  10:40 AM ─────────────────────────────────────────────
+    scheduler.add_job(
+        send_insider_radar_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=40, timezone=ET),
+        id="aiem_insider_radar_brief", replace_existing=True,
+    )
+    # ── Dark Pool  10:50 AM ─────────────────────────────────────────────────
+    scheduler.add_job(
+        send_dark_pool_brief,
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=50, timezone=ET),
+        id="aiem_dark_pool_brief", replace_existing=True,
+    )
+    # ── Bull Flow  11:00 AM ─────────────────────────────────────────────────
+    scheduler.add_job(
+        send_bull_flow_brief,
+        CronTrigger(day_of_week="mon-fri", hour=11, minute=0, timezone=ET),
+        id="aiem_bull_flow_brief", replace_existing=True,
+    )
+    # ── Persistence  11:05 AM ───────────────────────────────────────────────
+    scheduler.add_job(
+        send_persistence_brief,
+        CronTrigger(day_of_week="mon-fri", hour=11, minute=5, timezone=ET),
+        id="aiem_persistence_brief", replace_existing=True,
+    )
+    # ── Flow Streak  11:10 AM ───────────────────────────────────────────────
+    scheduler.add_job(
+        send_flow_streak_brief,
+        CronTrigger(day_of_week="mon-fri", hour=11, minute=10, timezone=ET),
+        id="aiem_flow_streak_brief", replace_existing=True,
+    )
+    # ── Accumulation Leaders / Steady Grinders  11:15 AM ────────────────────
+    scheduler.add_job(
+        send_steady_grinders_brief,
+        CronTrigger(day_of_week="mon-fri", hour=11, minute=15, timezone=ET),
+        id="aiem_steady_grinders_brief", replace_existing=True,
+    )
+    # ── Whale Blocks  11:20 AM ──────────────────────────────────────────────
+    scheduler.add_job(
+        send_whale_brief,
+        CronTrigger(day_of_week="mon-fri", hour=11, minute=20, timezone=ET),
+        id="aiem_whale_brief", replace_existing=True,
+    )
+    # ── EOD Call Sweep  4:35 PM ─────────────────────────────────────────────
+    scheduler.add_job(
+        send_eod_sweep_brief,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=ET),
+        id="aiem_eod_sweep_brief", replace_existing=True,
+    )
 
     def _nightly_db_backup():
         """2:58 AM — pg_dump the entire database to a compressed file.

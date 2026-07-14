@@ -1,3 +1,4 @@
+- [Telegram tab alert architecture](telegram-tab-alerts.md) — 18 tab briefs in aiem_telegram_notifier.py; AIEM scans Polygon directly (grouped daily + top-400 options chains); DB-first fallback pattern; all 26 jobs confirmed live
 - [D12b workflow-only lesson](d12b-workflow-lesson.md) — setsid/nohup die on bash exit; configureWorkflow() is the only durable Replit background process mechanism
 - [Schema drift remediation July 2026](schema-drift-remediation.md) — dev/prod reconciliation complete; 0 destructive items; migration tracking in migrations/applied/; remaining 7 items are all safe additive adds
 - [Deploy health-check boot order](deploy-health-boot-order.md) — make_server() before heavy imports; aiem-process health server before slow imports + 100s prod stagger; PRIMARY FIX = upsize Reserved VM before adding new heavy services
