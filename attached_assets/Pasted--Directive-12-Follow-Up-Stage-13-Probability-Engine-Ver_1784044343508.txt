@@ -1,0 +1,42 @@
+# Directive 12 Follow-Up: Stage 13 Probability Engine — Verification Gaps
+
+**Date:** July 14, 2026
+**Context:** Follow-up to the Stage 13 (`run_probability_engine_for_ticker`) polygon fallback fix. The fix is implemented and passing 5/5 on the handler test, but three items need to be closed out before this is accepted as verified evidence for Directive 12 / the FAP run.
+
+---
+
+## Item 1 — `ai_short_calls_log` is completely empty (0 rows, not just today)
+
+The polygon fallback was built to handle the case where a ticker isn't found in `ai_short_calls_log`. But confirm: is this table supposed to be populated by an upstream job that isn't running/wired, or is it structurally expected to be sparse/empty at this stage of the pipeline?
+
+**Task:** Grep the codebase for all writers to `ai_short_calls_log`. Report:
+1. Raw grep output showing every INSERT/UPDATE reference to this table.
+2. Whether any writer job is scheduled and whether it has ever fired (check scheduler config + last-run timestamp if available).
+3. A one-line determination: "upstream gap — needs separate directive" vs. "expected to be empty at this stage, not a bug" — with the evidence line that supports the call, not just a narrative claim.
+
+## Item 2 — Fallback produces a degenerate signal (identical scores across tickers)
+
+All 3 test tickers returned the same probability score (0.4473) because options features are NaN-imputed to the training median whenever the fallback triggers. This is honest behavior (no fabrication) but it means every ticker hitting this path currently gets a non-discriminating score — functionally a stub rather than a real signal.
+
+**Task:** Determine and report:
+1. How often the fallback path is expected to trigger in real paper-trading conditions (i.e., how often will `ai_short_calls_log` actually have a matching row vs. not, once/if Item 1 is resolved) — raw query against real recent candidate flow, not an estimate.
+2. Whether a Stage 13 output built entirely on median-imputed features should be allowed to influence paper trade decisions, or whether it should be flagged/excluded until real options data is available. State this as an open decision for Joel, not something to silently ship.
+
+## Item 3 — "Will clear on next paper trade execution cycle" is a prediction, not evidence
+
+Per standing verification protocol, this claim must be confirmed against a real subsequent cycle, not accepted as stated.
+
+**Task:** After the next paper trade execution cycle runs:
+1. Re-query for `MISSING_STAGES:13` occurrences and paste the raw SQL + result set (before/after comparison).
+2. Confirm via `verified_run.sh` / `verify_chain.sh` per the Evidence Chain Protocol.
+3. If it did NOT clear, report that plainly — do not reframe as still-in-progress.
+
+---
+
+## Standing Requirements (apply to all three items above)
+
+**Verification block:** No task is complete based on description alone. Provide: (1) raw terminal output of actual execution, including raw grep output for any claim about code locations or whether a function/pattern exists — never paraphrase what grep would show; (2) exact before/after file diff where applicable; (3) sha256 hash before/after for any changed files; (4) raw SQL query + full result set for any database claim. Narrative claims of "fixed," "confirmed," or "resolved" without pasted raw evidence are rejected.
+
+**Data Immutability Rule:** No deletion, truncation, or overwrite of any row/table/file — including test/synthetic data — without Joel's explicit prior approval in-session. State what you want to delete and why, wait for approval, then log it.
+
+**Evidence Chain Protocol:** Run all evidence-producing commands through `verified_run.sh`, validate with `verify_chain.sh` before declaring any item complete, and paste that script's output.
