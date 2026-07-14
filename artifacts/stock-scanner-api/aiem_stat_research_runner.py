@@ -477,65 +477,179 @@ def _tg_send(msg: str):
 
 def _historical_backtest_cells():
     """
-    Indicator cells for the historical polygon_market_daily backtest.
-    Dataset columns available: premarket_gap_pct, current_rvol, prior_cs,
-    prior_rvol, prior_gap_pct, close_price, volume, day_win.
+    Every indicator cell tested against polygon_market_daily history.
+    Columns in the temp table: premarket_gap_pct, current_rvol, prior_cs,
+    prior_rvol, prior_gap_pct, prior_range_pct, vol_accel, close_price, volume.
+    Outcomes (tested separately): day_win, big3, big5, big10.
     """
-    return [
-        # Premarket gap size
-        ("hb_gap_ge2",          "Gap up ≥2%",                   "premarket_gap_pct >= 2"),
-        ("hb_gap_ge5",          "Gap up ≥5%",                   "premarket_gap_pct >= 5"),
-        ("hb_gap_ge10",         "Gap up ≥10%",                  "premarket_gap_pct >= 10"),
-        ("hb_gap_ge20",         "Gap up ≥20%",                  "premarket_gap_pct >= 20"),
-        ("hb_gap_1_3",          "Gap 1–3%",                     "premarket_gap_pct BETWEEN 1 AND 3"),
-        ("hb_gap_3_5",          "Gap 3–5%",                     "premarket_gap_pct BETWEEN 3 AND 5"),
-        ("hb_gap_5_10",         "Gap 5–10%",                    "premarket_gap_pct BETWEEN 5 AND 10"),
-        ("hb_gap_lt0",          "Gap negative",                 "premarket_gap_pct < 0"),
-        ("hb_gap_lt_5",         "Gap down >5%",                 "premarket_gap_pct < -5"),
-        # RVOL tiers
-        ("hb_rvol_ge2",         "RVOL ≥2x",                     "current_rvol >= 2"),
-        ("hb_rvol_ge3",         "RVOL ≥3x",                     "current_rvol >= 3"),
-        ("hb_rvol_ge5",         "RVOL ≥5x",                     "current_rvol >= 5"),
-        ("hb_rvol_ge10",        "RVOL ≥10x",                    "current_rvol >= 10"),
-        ("hb_rvol_2_5",         "RVOL 2–5x",                    "current_rvol BETWEEN 2 AND 5"),
-        ("hb_rvol_5_10",        "RVOL 5–10x",                   "current_rvol BETWEEN 5 AND 10"),
-        # Prior close strength
-        ("hb_pcs_str",          "Prior day closed strong ≥0.7", "prior_cs >= 0.7"),
-        ("hb_pcs_weak",         "Prior day closed weak <0.3",   "prior_cs < 0.3"),
-        ("hb_pcs_mid",          "Prior day closed mid 0.3–0.7", "prior_cs BETWEEN 0.3 AND 0.7"),
-        # Price tier
-        ("hb_px_2_5",           "Price $2–5 (micro-cap)",       "close_price BETWEEN 2 AND 5"),
-        ("hb_px_5_15",          "Price $5–15 (small)",          "close_price BETWEEN 5 AND 15"),
-        ("hb_px_15_50",         "Price $15–50 (mid)",           "close_price BETWEEN 15 AND 50"),
-        ("hb_px_ge50",          "Price ≥$50 (large)",           "close_price >= 50"),
-        # Volume tiers
-        ("hb_vol_1m",           "Volume ≥1M shares",            "volume >= 1000000"),
-        ("hb_vol_5m",           "Volume ≥5M shares",            "volume >= 5000000"),
-        # Prior day indicators
-        ("hb_prev_rvol_ge3",    "Prior day RVOL ≥3x",           "prior_rvol >= 3"),
-        ("hb_prev_gap_ge5",     "Prior day gap ≥5%",            "prior_gap_pct >= 5"),
-        ("hb_prev_gap_neg",     "Prior day gap negative",       "prior_gap_pct < 0"),
-        # Power combos
-        ("hb_gap5_rv3",         "Gap≥5% + RVOL≥3x",
-         "premarket_gap_pct >= 5 AND current_rvol >= 3"),
-        ("hb_gap10_rv2",        "Gap≥10% + RVOL≥2x",
-         "premarket_gap_pct >= 10 AND current_rvol >= 2"),
-        ("hb_gap5_str",         "Gap≥5% + prior strong",
-         "premarket_gap_pct >= 5 AND prior_cs >= 0.7"),
-        ("hb_gap5_rv3_str",     "Gap≥5% + RVOL≥3x + prior strong",
-         "premarket_gap_pct >= 5 AND current_rvol >= 3 AND prior_cs >= 0.7"),
-        ("hb_gap3_rv2",         "Gap≥3% + RVOL≥2x",
-         "premarket_gap_pct >= 3 AND current_rvol >= 2"),
-        ("hb_rv5_gap3",         "RVOL≥5x + Gap≥3%",
-         "current_rvol >= 5 AND premarket_gap_pct >= 3"),
-        ("hb_rv10_any",         "RVOL≥10x (any gap)",           "current_rvol >= 10"),
-        ("hb_gap_neg_rv3",      "Gap down + RVOL≥3x (fade)",
-         "premarket_gap_pct < -2 AND current_rvol >= 3"),
-        ("hb_prev_str_gap5",    "Prior strong + today gap≥5%",
-         "prior_cs >= 0.7 AND premarket_gap_pct >= 5"),
-        ("hb_gap20_micro",      "Gap≥20% micro-cap ($2–10)",
-         "premarket_gap_pct >= 20 AND close_price BETWEEN 2 AND 10"),
+    # ── Premarket gap fine-grained bins ──────────────────────────────────────
+    gap_bins = [
+        ("gap_lt_10",    "Gap DOWN >10%",               "premarket_gap_pct < -10"),
+        ("gap_n10_n5",   "Gap down 5–10%",              "premarket_gap_pct BETWEEN -10 AND -5"),
+        ("gap_n5_n2",    "Gap down 2–5%",               "premarket_gap_pct BETWEEN -5 AND -2"),
+        ("gap_n2_0",     "Gap down 0–2%",               "premarket_gap_pct BETWEEN -2 AND 0"),
+        ("gap_0_1",      "Gap flat 0–1%",               "premarket_gap_pct BETWEEN 0 AND 1"),
+        ("gap_1_2",      "Gap up 1–2%",                 "premarket_gap_pct BETWEEN 1 AND 2"),
+        ("gap_2_3",      "Gap up 2–3%",                 "premarket_gap_pct BETWEEN 2 AND 3"),
+        ("gap_3_5",      "Gap up 3–5%",                 "premarket_gap_pct BETWEEN 3 AND 5"),
+        ("gap_5_10",     "Gap up 5–10%",                "premarket_gap_pct BETWEEN 5 AND 10"),
+        ("gap_10_20",    "Gap up 10–20%",               "premarket_gap_pct BETWEEN 10 AND 20"),
+        ("gap_20_50",    "Gap up 20–50%",               "premarket_gap_pct BETWEEN 20 AND 50"),
+        ("gap_ge50",     "Gap up 50%+ (catalyst/halt)", "premarket_gap_pct >= 50"),
+        ("gap_ge2",      "Gap up ≥2% (any)",            "premarket_gap_pct >= 2"),
+        ("gap_ge5",      "Gap up ≥5% (any)",            "premarket_gap_pct >= 5"),
+        ("gap_ge10",     "Gap up ≥10% (any)",           "premarket_gap_pct >= 10"),
+        ("gap_ge20",     "Gap up ≥20% (any)",           "premarket_gap_pct >= 20"),
+        ("gap_lt0",      "Gap negative (any)",          "premarket_gap_pct < 0"),
     ]
+
+    # ── RVOL fine-grained tiers ───────────────────────────────────────────────
+    rvol_bins = [
+        ("rvol_1_15",  "RVOL 1–1.5x (slight uptick)",  "current_rvol BETWEEN 1 AND 1.5"),
+        ("rvol_15_2",  "RVOL 1.5–2x",                  "current_rvol BETWEEN 1.5 AND 2"),
+        ("rvol_2_3",   "RVOL 2–3x",                    "current_rvol BETWEEN 2 AND 3"),
+        ("rvol_3_5",   "RVOL 3–5x",                    "current_rvol BETWEEN 3 AND 5"),
+        ("rvol_5_10",  "RVOL 5–10x",                   "current_rvol BETWEEN 5 AND 10"),
+        ("rvol_10_20", "RVOL 10–20x",                  "current_rvol BETWEEN 10 AND 20"),
+        ("rvol_ge20",  "RVOL 20x+ (explosive)",        "current_rvol >= 20"),
+        ("rvol_ge2",   "RVOL ≥2x",                     "current_rvol >= 2"),
+        ("rvol_ge5",   "RVOL ≥5x",                     "current_rvol >= 5"),
+        ("rvol_ge10",  "RVOL ≥10x",                    "current_rvol >= 10"),
+    ]
+
+    # ── Prior close strength (where did it close in its range?) ──────────────
+    pcs_bins = [
+        ("pcs_vweak",  "Prior close VERY weak (<0.1)",    "prior_cs < 0.1"),
+        ("pcs_weak",   "Prior close weak (0.1–0.3)",      "prior_cs BETWEEN 0.1 AND 0.3"),
+        ("pcs_nlow",   "Prior close neutral-low (0.3–0.5)","prior_cs BETWEEN 0.3 AND 0.5"),
+        ("pcs_nhigh",  "Prior close neutral-high (0.5–0.7)","prior_cs BETWEEN 0.5 AND 0.7"),
+        ("pcs_str",    "Prior close strong (0.7–0.9)",    "prior_cs BETWEEN 0.7 AND 0.9"),
+        ("pcs_vstr",   "Prior close VERY strong (0.9+)",  "prior_cs >= 0.9"),
+        ("pcs_ge07",   "Prior close ≥0.7 (any strong)",   "prior_cs >= 0.7"),
+        ("pcs_lt03",   "Prior close <0.3 (any weak)",     "prior_cs < 0.3"),
+    ]
+
+    # ── Price tiers ───────────────────────────────────────────────────────────
+    px_bins = [
+        ("px_2_3",   "Price $2–3 (penny)",        "close_price BETWEEN 2 AND 3"),
+        ("px_3_5",   "Price $3–5 (micro)",        "close_price BETWEEN 3 AND 5"),
+        ("px_5_10",  "Price $5–10 (small-low)",   "close_price BETWEEN 5 AND 10"),
+        ("px_10_20", "Price $10–20 (small)",      "close_price BETWEEN 10 AND 20"),
+        ("px_20_50", "Price $20–50 (mid)",        "close_price BETWEEN 20 AND 50"),
+        ("px_50_100","Price $50–100 (large)",     "close_price BETWEEN 50 AND 100"),
+        ("px_ge100", "Price $100+ (mega)",        "close_price >= 100"),
+        ("px_2_10",  "Price $2–10 (micro/small)", "close_price BETWEEN 2 AND 10"),
+    ]
+
+    # ── Volume tiers ──────────────────────────────────────────────────────────
+    vol_bins = [
+        ("vol_100_500k", "Volume 100K–500K (light)",  "volume BETWEEN 100000 AND 500000"),
+        ("vol_500k_1m",  "Volume 500K–1M",            "volume BETWEEN 500000 AND 1000000"),
+        ("vol_1m_5m",    "Volume 1M–5M",              "volume BETWEEN 1000000 AND 5000000"),
+        ("vol_5m_10m",   "Volume 5M–10M (heavy)",     "volume BETWEEN 5000000 AND 10000000"),
+        ("vol_ge10m",    "Volume 10M+ (explosive)",   "volume >= 10000000"),
+        ("vol_ge1m",     "Volume ≥1M",                "volume >= 1000000"),
+        ("vol_ge5m",     "Volume ≥5M",                "volume >= 5000000"),
+    ]
+
+    # ── Prior day characteristics ─────────────────────────────────────────────
+    prior_bins = [
+        ("prev_gap_ge5",     "Prior day gap up 5%+",       "prior_gap_pct >= 5"),
+        ("prev_gap_ge10",    "Prior day gap up 10%+",      "prior_gap_pct >= 10"),
+        ("prev_gap_lt_5",    "Prior day gap DOWN 5%+",     "prior_gap_pct < -5"),
+        ("prev_gap_pos",     "Prior day gap positive",     "prior_gap_pct > 0"),
+        ("prev_gap_neg",     "Prior day gap negative",     "prior_gap_pct < 0"),
+        ("prev_range_tight", "Prior day tight range <1%",  "prior_range_pct < 1"),
+        ("prev_range_norm",  "Prior day normal range 1–3%","prior_range_pct BETWEEN 1 AND 3"),
+        ("prev_range_wide",  "Prior day wide range 3–5%",  "prior_range_pct BETWEEN 3 AND 5"),
+        ("prev_range_vwide", "Prior day VERY wide range 5%+","prior_range_pct >= 5"),
+        ("prev_rvol_ge2",    "Prior day RVOL ≥2x",         "prior_rvol >= 2"),
+        ("prev_rvol_ge3",    "Prior day RVOL ≥3x",         "prior_rvol >= 3"),
+        ("prev_rvol_ge5",    "Prior day RVOL ≥5x",         "prior_rvol >= 5"),
+        ("vol_accel",        "Volume accelerating (today > prior)", "vol_accel = TRUE"),
+        ("vol_decel",        "Volume decelerating (today < prior)", "vol_accel = FALSE"),
+    ]
+
+    # ── Power combos ──────────────────────────────────────────────────────────
+    combos = [
+        ("gap3_rv2",          "Gap≥3% + RVOL≥2x",
+         "premarket_gap_pct >= 3 AND current_rvol >= 2"),
+        ("gap5_rv2",          "Gap≥5% + RVOL≥2x",
+         "premarket_gap_pct >= 5 AND current_rvol >= 2"),
+        ("gap5_rv3",          "Gap≥5% + RVOL≥3x",
+         "premarket_gap_pct >= 5 AND current_rvol >= 3"),
+        ("gap5_rv5",          "Gap≥5% + RVOL≥5x",
+         "premarket_gap_pct >= 5 AND current_rvol >= 5"),
+        ("gap10_rv2",         "Gap≥10% + RVOL≥2x",
+         "premarket_gap_pct >= 10 AND current_rvol >= 2"),
+        ("gap10_rv5",         "Gap≥10% + RVOL≥5x",
+         "premarket_gap_pct >= 10 AND current_rvol >= 5"),
+        ("gap20_rv2",         "Gap≥20% + RVOL≥2x",
+         "premarket_gap_pct >= 20 AND current_rvol >= 2"),
+        ("gap5_pcs_str",      "Gap≥5% + prior strong",
+         "premarket_gap_pct >= 5 AND prior_cs >= 0.7"),
+        ("gap5_rv3_pcs",      "Gap≥5% + RVOL≥3x + prior strong",
+         "premarket_gap_pct >= 5 AND current_rvol >= 3 AND prior_cs >= 0.7"),
+        ("gap5_tight",        "Gap≥5% + tight prior range (coil)",
+         "premarket_gap_pct >= 5 AND prior_range_pct < 1"),
+        ("gap10_micro",       "Gap≥10% + micro-cap ($2–5)",
+         "premarket_gap_pct >= 10 AND close_price BETWEEN 2 AND 5"),
+        ("gap20_micro",       "Gap≥20% + micro-cap ($2–5)",
+         "premarket_gap_pct >= 20 AND close_price BETWEEN 2 AND 5"),
+        ("gap50_micro",       "Gap≥50% + micro-cap (halt play)",
+         "premarket_gap_pct >= 50 AND close_price BETWEEN 2 AND 10"),
+        ("rv10_gap3",         "RVOL≥10x + Gap≥3%",
+         "current_rvol >= 10 AND premarket_gap_pct >= 3"),
+        ("rv10_gap5",         "RVOL≥10x + Gap≥5%",
+         "current_rvol >= 10 AND premarket_gap_pct >= 5"),
+        ("rv5_pcs_str",       "RVOL≥5x + prior strong",
+         "current_rvol >= 5 AND prior_cs >= 0.7"),
+        ("gap5_vol_accel",    "Gap≥5% + vol accelerating",
+         "premarket_gap_pct >= 5 AND vol_accel = TRUE"),
+        ("rv5_vol_accel",     "RVOL≥5x + vol accelerating",
+         "current_rvol >= 5 AND vol_accel = TRUE"),
+        ("gap_neg_rv3",       "Gap DOWN 2%+ + RVOL≥3x (squeeze)",
+         "premarket_gap_pct < -2 AND current_rvol >= 3"),
+        ("gap5_rv3_vol1m",    "Gap≥5% + RVOL≥3x + Vol≥1M",
+         "premarket_gap_pct >= 5 AND current_rvol >= 3 AND volume >= 1000000"),
+        ("gap10_rv3_micro",   "Gap≥10% + RVOL≥3x + micro",
+         "premarket_gap_pct >= 10 AND current_rvol >= 3 AND close_price BETWEEN 2 AND 5"),
+        ("pcs_vstr_gap3",     "Prior VERY strong + gap 3%+",
+         "prior_cs >= 0.9 AND premarket_gap_pct >= 3"),
+        ("tight_gap5_rv2",    "Coil: tight prior + gap 5%+ + RVOL 2x",
+         "prior_range_pct < 1 AND premarket_gap_pct >= 5 AND current_rvol >= 2"),
+        ("prev_str_gap5",     "2-day momentum: prior strong + gap 5%+",
+         "prior_cs >= 0.7 AND premarket_gap_pct >= 5"),
+        ("prev_weak_gap5",    "Reversal: prior weak + gap 5%+",
+         "prior_cs < 0.3 AND premarket_gap_pct >= 5"),
+        ("rv10_micro",        "RVOL≥10x + micro-cap ($2–5)",
+         "current_rvol >= 10 AND close_price BETWEEN 2 AND 5"),
+        ("gap10_vol5m",       "Gap≥10% + Vol≥5M (institutional)",
+         "premarket_gap_pct >= 10 AND volume >= 5000000"),
+        ("gap5_rv5_vol1m",    "Gap≥5%+RVOL≥5x+Vol≥1M (full setup)",
+         "premarket_gap_pct >= 5 AND current_rvol >= 5 AND volume >= 1000000"),
+        ("prev_rvol5_gap3",   "Prior RVOL≥5x + today gap≥3% (follow-through)",
+         "prior_rvol >= 5 AND premarket_gap_pct >= 3"),
+        ("tight_rv5",         "Tight prior range + RVOL≥5x",
+         "prior_range_pct < 1 AND current_rvol >= 5"),
+    ]
+
+    cells = []
+    for k, d, w in gap_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in rvol_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in pcs_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in px_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in vol_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in prior_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in combos:
+        cells.append(("hb_" + k, d, w))
+    return cells
 
 
 _HIST_LAST_RUN_DATE = None  # track to avoid re-running same day
@@ -543,33 +657,81 @@ _HIST_LAST_RUN_DATE = None  # track to avoid re-running same day
 
 def _ensure_hist_grid_table(conn):
     with conn.cursor() as cur:
+        # Recreate with composite PK (cell_key, outcome_type).
+        # If an old single-column PK table exists, drop and rebuild it —
+        # this is safe because the backtest regenerates all rows every run.
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS aiem_historical_pattern_grid (
-                cell_key        TEXT PRIMARY KEY,
-                description     TEXT,
-                n_signal        INTEGER,
-                n_total         INTEGER,
-                wr_signal       FLOAT,
-                wr_baseline     FLOAT,
-                p_value         FLOAT,
-                odds_ratio      FLOAT,
-                passes_bonf     BOOLEAN,
-                days_covered    INTEGER,
-                last_tested_at  TIMESTAMPTZ DEFAULT NOW()
-            )
+            DO $$
+            DECLARE
+                pk_col_count int;
+            BEGIN
+                SELECT array_length(conkey, 1)
+                INTO pk_col_count
+                FROM pg_constraint
+                WHERE conrelid = 'aiem_historical_pattern_grid'::regclass
+                  AND contype = 'p'
+                LIMIT 1;
+
+                IF pk_col_count IS NULL THEN
+                    -- table doesn't exist yet
+                    CREATE TABLE aiem_historical_pattern_grid (
+                        cell_key        TEXT,
+                        outcome_type    TEXT,
+                        description     TEXT,
+                        n_signal        INTEGER,
+                        n_total         INTEGER,
+                        wr_signal       FLOAT,
+                        wr_baseline     FLOAT,
+                        p_value         FLOAT,
+                        odds_ratio      FLOAT,
+                        passes_bonf     BOOLEAN,
+                        days_covered    INTEGER,
+                        last_tested_at  TIMESTAMPTZ DEFAULT NOW(),
+                        PRIMARY KEY (cell_key, outcome_type)
+                    );
+                ELSIF pk_col_count = 1 THEN
+                    -- old single-column PK — drop and rebuild
+                    DROP TABLE aiem_historical_pattern_grid;
+                    CREATE TABLE aiem_historical_pattern_grid (
+                        cell_key        TEXT,
+                        outcome_type    TEXT,
+                        description     TEXT,
+                        n_signal        INTEGER,
+                        n_total         INTEGER,
+                        wr_signal       FLOAT,
+                        wr_baseline     FLOAT,
+                        p_value         FLOAT,
+                        odds_ratio      FLOAT,
+                        passes_bonf     BOOLEAN,
+                        days_covered    INTEGER,
+                        last_tested_at  TIMESTAMPTZ DEFAULT NOW(),
+                        PRIMARY KEY (cell_key, outcome_type)
+                    );
+                END IF;
+                -- If pk_col_count = 2, table already has the right composite PK.
+            END $$
         """)
         conn.commit()
 
 
 def run_historical_backtest():
     """
-    Backtest every indicator cell against 365 days of polygon_market_daily.
+    Test every indicator cell against ALL available polygon_market_daily history.
 
-    Uses LAG() window function to compute per-stock per-day:
-      premarket_gap_pct = (today_open − yesterday_close) / yesterday_close × 100
-      current_rvol      = today's rvol
-      prior_cs          = yesterday's close_strength
-      day_win           = today_close > today_open   (buy-at-open / sell-at-close)
+    Temp-table columns computed via LAG():
+      premarket_gap_pct  = (today_open − prev_close) / prev_close × 100
+      current_rvol       = today rvol
+      prior_cs           = yesterday close_strength
+      prior_rvol         = yesterday rvol
+      prior_gap_pct      = yesterday intraday gap (gap_pct col)
+      prior_range_pct    = yesterday high-low range
+      vol_accel          = current_rvol > prior_rvol  (volume building)
+      day_return_pct     = (close − open) / open × 100
+      Outcomes tested:
+        any_win  = close > open
+        big3     = day_return_pct >= 3
+        big5     = day_return_pct >= 5
+        big10    = day_return_pct >= 10
 
     Runs once per calendar day. Results stored in aiem_historical_pattern_grid.
     """
@@ -578,34 +740,53 @@ def run_historical_backtest():
     if _HIST_LAST_RUN_DATE == today:
         return {"status": "already_run_today"}
 
-    log.info("=== Historical backtest starting (polygon_market_daily, last 365d) ===")
+    n_cells = len(_historical_backtest_cells())
+    # 4 outcomes × n_cells; Bonferroni across entire test family
+    bonf_thresh = 0.05 / (4 * n_cells)
+    log.info(
+        "=== Historical backtest: %d cells × 4 outcomes = %d tests "
+        "(Bonferroni p<%.2e) — all available trading days ===",
+        n_cells, 4 * n_cells, bonf_thresh
+    )
+
     try:
         conn = psycopg2.connect(DB_URL)
         _ensure_hist_grid_table(conn)
         cur = conn.cursor()
 
-        # Build LAG dataset once in a temp table for efficient multi-cell queries.
+        # ── Build the LAG dataset in a temp table ─────────────────────────────
+        # Includes range_pct (prior day volatility) and all outcome columns.
         cur.execute("DROP TABLE IF EXISTS _hb_tmp")
         cur.execute("""
             CREATE TEMP TABLE _hb_tmp AS
             SELECT
-                ticker, scan_date, close_price, volume,
-                (open_price - prev_close) / NULLIF(prev_close, 0) * 100  AS premarket_gap_pct,
-                rvol                                                       AS current_rvol,
-                prev_cs                                                    AS prior_cs,
-                prev_rvol                                                  AS prior_rvol,
-                prev_gap                                                   AS prior_gap_pct,
-                close_price > open_price                                   AS day_win
+                ticker,
+                scan_date,
+                close_price,
+                volume,
+                (open_price - prev_close) / NULLIF(prev_close, 0) * 100   AS premarket_gap_pct,
+                rvol                                                         AS current_rvol,
+                prev_cs                                                      AS prior_cs,
+                prev_rvol                                                    AS prior_rvol,
+                prev_gap                                                     AS prior_gap_pct,
+                prev_range                                                   AS prior_range_pct,
+                rvol > prev_rvol                                             AS vol_accel,
+                (close_price - open_price) / NULLIF(open_price, 0) * 100   AS day_return_pct,
+                close_price > open_price                                     AS any_win,
+                (close_price - open_price) / NULLIF(open_price, 0) >= 0.03 AS big3,
+                (close_price - open_price) / NULLIF(open_price, 0) >= 0.05 AS big5,
+                (close_price - open_price) / NULLIF(open_price, 0) >= 0.10 AS big10
             FROM (
                 SELECT
-                    ticker, scan_date, open_price, close_price, rvol, volume, gap_pct,
-                    LAG(close_price)    OVER w AS prev_close,
+                    ticker, scan_date, open_price, close_price, rvol, volume,
+                    gap_pct, range_pct,
+                    LAG(close_price) OVER w  AS prev_close,
                     LAG(close_strength) OVER w AS prev_cs,
-                    LAG(rvol)           OVER w AS prev_rvol,
-                    LAG(gap_pct)        OVER w AS prev_gap
+                    LAG(rvol)        OVER w  AS prev_rvol,
+                    LAG(gap_pct)     OVER w  AS prev_gap,
+                    LAG(range_pct)   OVER w  AS prev_range
                 FROM polygon_market_daily
-                WHERE scan_date >= CURRENT_DATE - INTERVAL '365 days'
-                  AND close_price BETWEEN 2.0 AND 200.0
+                WHERE close_price BETWEEN 2.0 AND 200.0
                   AND volume      >= 100000
                   AND open_price  >  0
                 WINDOW w AS (PARTITION BY ticker ORDER BY scan_date)
@@ -614,96 +795,137 @@ def run_historical_backtest():
         """)
         conn.commit()
 
-        cur.execute("SELECT COUNT(*), AVG(day_win::int) * 100 FROM _hb_tmp")
-        total_rows, baseline_wr = cur.fetchone()
-        total_rows  = int(total_rows or 0)
-        baseline_wr = float(baseline_wr or 50.0)
-        log.info("Historical dataset built: %d rows, baseline WR=%.1f%%", total_rows, baseline_wr)
+        # Index the temp table so per-cell WHERE clauses are fast
+        cur.execute("CREATE INDEX ON _hb_tmp (premarket_gap_pct)")
+        cur.execute("CREATE INDEX ON _hb_tmp (current_rvol)")
+        cur.execute("CREATE INDEX ON _hb_tmp (close_price)")
+        conn.commit()
+
+        # Baseline stats per outcome
+        cur.execute("""
+            SELECT
+                COUNT(*),
+                AVG(any_win::int)*100,
+                AVG(big3::int)*100,
+                AVG(big5::int)*100,
+                AVG(big10::int)*100
+            FROM _hb_tmp
+        """)
+        row = cur.fetchone()
+        total_rows = int(row[0] or 0)
+        baselines  = {
+            "any_win": float(row[1] or 50),
+            "big3":    float(row[2] or 10),
+            "big5":    float(row[3] or 5),
+            "big10":   float(row[4] or 2),
+        }
+        outcomes = {
+            "any_win": "any_win",
+            "big3":    "big3",
+            "big5":    "big5",
+            "big10":   "big10",
+        }
+        log.info(
+            "Dataset ready: %d rows | baselines: any_win=%.1f%% big3=%.1f%% "
+            "big5=%.1f%% big10=%.1f%%",
+            total_rows, baselines["any_win"], baselines["big3"],
+            baselines["big5"], baselines["big10"]
+        )
 
         if total_rows < 5000:
             conn.close()
             return {"status": "insufficient_data", "total": total_rows}
 
-        cells       = _historical_backtest_cells()
-        bonf_thresh = 0.05 / len(cells)
+        cells      = _historical_backtest_cells()
         significant = []
+        total_tests = 0
 
-        for key, desc, where_sql in cells:
-            try:
-                cur.execute(f"""
-                    SELECT
-                        COUNT(*)                                   AS n_in,
-                        SUM(CASE WHEN day_win THEN 1 ELSE 0 END)  AS win_in
-                    FROM _hb_tmp
-                    WHERE {where_sql}
-                """)
-                row = cur.fetchone()
-                if not row or not row[0] or row[0] < 30:
-                    continue
-                n_in  = int(row[0])
-                win_in = int(row[1] or 0)
-                lose_in = n_in - win_in
+        for outcome_col, outcome_label in outcomes.items():
+            base_wr  = baselines[outcome_col]
+            log.info("-- Testing outcome: %-10s  baseline=%.2f%% --", outcome_label, base_wr)
 
-                n_out   = total_rows - n_in
-                win_out = int(round(total_rows * baseline_wr / 100)) - win_in
-                win_out = max(win_out, 0)
-                lose_out = max(n_out - win_out, 0)
+            for key, desc, where_sql in cells:
+                try:
+                    cur.execute(f"""
+                        SELECT
+                            COUNT(*) AS n_in,
+                            SUM(CASE WHEN {outcome_col} THEN 1 ELSE 0 END) AS win_in
+                        FROM _hb_tmp
+                        WHERE {where_sql}
+                    """)
+                    r = cur.fetchone()
+                    if not r or not r[0] or r[0] < 30:
+                        continue
+                    n_in    = int(r[0])
+                    win_in  = int(r[1] or 0)
+                    lose_in = n_in - win_in
+                    n_out   = total_rows - n_in
+                    win_out = max(int(round(total_rows * base_wr / 100)) - win_in, 0)
+                    lose_out = max(n_out - win_out, 0)
+                    if n_out < 30:
+                        continue
 
-                if n_out < 30:
-                    continue
-
-                odds_r, p_val = sc.fisher_exact(
-                    [[win_in, lose_in], [win_out, lose_out]],
-                    alternative="greater"
-                )
-                wr_sig      = win_in / n_in * 100
-                passes_bonf = bool(p_val < bonf_thresh)
-
-                cur.execute("""
-                    INSERT INTO aiem_historical_pattern_grid
-                        (cell_key, description, n_signal, n_total,
-                         wr_signal, wr_baseline, p_value, odds_ratio,
-                         passes_bonf, days_covered, last_tested_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,365,NOW())
-                    ON CONFLICT (cell_key) DO UPDATE SET
-                        n_signal       = EXCLUDED.n_signal,
-                        n_total        = EXCLUDED.n_total,
-                        wr_signal      = EXCLUDED.wr_signal,
-                        wr_baseline    = EXCLUDED.wr_baseline,
-                        p_value        = EXCLUDED.p_value,
-                        odds_ratio     = EXCLUDED.odds_ratio,
-                        passes_bonf    = EXCLUDED.passes_bonf,
-                        days_covered   = EXCLUDED.days_covered,
-                        last_tested_at = NOW()
-                """, (key, desc, n_in, total_rows,
-                      round(wr_sig, 2), round(baseline_wr, 2),
-                      float(p_val), float(odds_r), passes_bonf))
-                conn.commit()
-
-                if passes_bonf:
-                    log.info(
-                        "HIST FINDING ★  %-48s  n=%6d  WR=%.1f%% (base=%.1f%%)  p=%.2e  OR=%.2f",
-                        desc[:48], n_in, wr_sig, baseline_wr, p_val, float(odds_r)
+                    odds_r, p_val = sc.fisher_exact(
+                        [[win_in, lose_in], [win_out, lose_out]],
+                        alternative="greater"
                     )
-                    significant.append({
-                        "desc": desc, "n": n_in,
-                        "wr": round(wr_sig, 1), "base": round(baseline_wr, 1),
-                        "p": float(p_val), "or": round(float(odds_r), 2),
-                    })
+                    wr_sig      = win_in / n_in * 100
+                    passes_bonf = bool(p_val < bonf_thresh)
+                    total_tests += 1
 
-            except Exception as cell_err:
-                log.warning("Historical cell %s error: %s", key, cell_err)
-                conn.rollback()
+                    cur.execute("""
+                        INSERT INTO aiem_historical_pattern_grid
+                            (cell_key, outcome_type, description, n_signal, n_total,
+                             wr_signal, wr_baseline, p_value, odds_ratio,
+                             passes_bonf, days_covered, last_tested_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,494,NOW())
+                        ON CONFLICT (cell_key, outcome_type) DO UPDATE SET
+                            description    = EXCLUDED.description,
+                            n_signal       = EXCLUDED.n_signal,
+                            n_total        = EXCLUDED.n_total,
+                            wr_signal      = EXCLUDED.wr_signal,
+                            wr_baseline    = EXCLUDED.wr_baseline,
+                            p_value        = EXCLUDED.p_value,
+                            odds_ratio     = EXCLUDED.odds_ratio,
+                            passes_bonf    = EXCLUDED.passes_bonf,
+                            days_covered   = EXCLUDED.days_covered,
+                            last_tested_at = NOW()
+                    """, (key, outcome_label, desc, n_in, total_rows,
+                          round(wr_sig, 2), round(base_wr, 2),
+                          float(p_val), float(odds_r), passes_bonf))
+                    conn.commit()
+
+                    if passes_bonf:
+                        log.info(
+                            "★ FINDING [%s]  %-44s  n=%6d  WR=%.1f%% (base=%.1f%%)  "
+                            "p=%.2e  OR=%.2f",
+                            outcome_label, desc[:44], n_in,
+                            wr_sig, base_wr, p_val, float(odds_r)
+                        )
+                        significant.append({
+                            "outcome": outcome_label, "desc": desc, "n": n_in,
+                            "wr": round(wr_sig, 1), "base": round(base_wr, 1),
+                            "p": float(p_val), "or": round(float(odds_r), 2),
+                        })
+
+                except Exception as cell_err:
+                    log.warning("Cell %s/%s error: %s", outcome_label, key, cell_err)
+                    conn.rollback()
 
         cur.execute("DROP TABLE IF EXISTS _hb_tmp")
         conn.commit()
         conn.close()
 
         _HIST_LAST_RUN_DATE = today
-        log.info("Historical backtest complete: %d cells, %d significant (Bonferroni p<%.4f)",
-                 len(cells), len(significant), bonf_thresh)
-        return {"status": "ok", "total": total_rows, "tested": len(cells),
-                "significant": len(significant), "findings": significant}
+        log.info(
+            "Historical backtest COMPLETE: %d total tests, %d significant findings",
+            total_tests, len(significant)
+        )
+        return {
+            "status": "ok", "total": total_rows,
+            "tested": total_tests, "significant": len(significant),
+            "findings": significant,
+        }
 
     except Exception as exc:
         log.error("Historical backtest error: %s", exc)
@@ -822,6 +1044,18 @@ def send_pattern_digest(force: bool = False):
 def main():
     log.info("AIEM statistical research runner starting — pure stats, zero OpenAI")
     ensure_schema()
+
+    # ── Startup kick: run the historical backtest immediately ──────────────────
+    # This fires once right now so the user gets pattern results ASAP (don't
+    # wait for the EOD battery to finish first).
+    log.info("=== STARTUP: Historical backtest kicking off immediately (all available data) ===")
+    hist_startup = run_historical_backtest()
+    log.info("STARTUP historical backtest: status=%s  significant=%s  total_rows=%s",
+             hist_startup.get("status"), hist_startup.get("significant"),
+             hist_startup.get("total"))
+    # Send the digest right after so findings go to Telegram immediately
+    send_pattern_digest(force=True)
+    # ──────────────────────────────────────────────────────────────────────────
 
     while True:
         try:
