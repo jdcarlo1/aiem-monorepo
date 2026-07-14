@@ -1,0 +1,115 @@
+# Directive: Verify Directive 11 Phase 3 — Diagram1CandidateIntake Atomic Claiming
+
+**Date:** July 14, 2026
+**Context:** Directive 11 Phase 3 (Diagram1CandidateIntake polling/atomic claiming)
+was drafted in a prior session but has never been verified with real evidence
+against actual concurrent-claim behavior. This directive closes that gap.
+
+---
+
+## Background
+
+The authoritative design decision from prior sessions: the connector between
+candidate intake and Diagram 1 is a durable DB-backed polling/pull mechanism
+(not event-driven). Events like `CANDIDATE_READY` are optional accelerators
+only. Atomic claiming uses `SELECT...FOR UPDATE SKIP LOCKED`. A 7-state
+candidate status lifecycle governs the pipeline:
+`PENDING_FULL_ANALYSIS` → `CLAIMED_BY_DIAGRAM1` → `FULL_ANALYSIS_RUNNING` →
+`FULL_ANALYSIS_COMPLETED`/`FAILED` → `RETRY_PENDING`/`QUARANTINED`.
+
+This has been described as implemented but has never been verified with raw
+evidence that it behaves correctly under real conditions — specifically that
+concurrent claim attempts do not double-claim the same candidate, and that
+the full status lifecycle actually transitions as designed.
+
+## Required verification steps
+
+### Step 1 — Confirm the claiming code exists and matches the design
+
+Grep for the actual `SELECT...FOR UPDATE SKIP LOCKED` implementation. Paste
+raw grep output showing file, line number, and the exact query. Do not
+paraphrase what the query does — show it verbatim.
+
+### Step 2 — Confirm the 7-state lifecycle is implemented as designed
+
+Grep for all status transition writes (every `UPDATE` that sets a candidate
+status). Confirm all 7 states are actually used somewhere in the codebase:
+`PENDING_FULL_ANALYSIS`, `CLAIMED_BY_DIAGRAM1`, `FULL_ANALYSIS_RUNNING`,
+`FULL_ANALYSIS_COMPLETED`, `FULL_ANALYSIS_FAILED`, `RETRY_PENDING`,
+`QUARANTINED`. If any state is defined but never actually transitioned to/from
+in code, report that explicitly rather than assuming it's dead code or a gap.
+
+### Step 3 — Concurrent claim test (the core of this directive)
+
+This is the part that has never been tested. Design and run a test that:
+
+1. Inserts one or more test candidates in `PENDING_FULL_ANALYSIS` status
+   (clearly marked as test data — see Data Immutability Rule below).
+2. Simulates two or more concurrent processes/threads attempting to claim
+   the same candidate(s) at the same time.
+3. Confirms that exactly one claimant succeeds per candidate and the other(s)
+   receive no rows / are correctly skipped — i.e., `SKIP LOCKED` is actually
+   preventing double-claims, not just present in the query syntax.
+4. Paste the raw output of this test — actual claim results from each
+   simulated process, not a description of what should happen.
+
+If the test reveals a race condition or double-claim is possible, report it
+as a finding — do not attempt to fix it under this directive without
+Joel's sign-off first.
+
+### Step 4 — Confirm what happens on failure/retry
+
+Trace what happens when `FULL_ANALYSIS_FAILED` is set — does a candidate
+actually transition to `RETRY_PENDING` or `QUARANTINED` correctly, and is
+there a retry limit or does it require manual intervention? Paste the raw
+code path, not a summary.
+
+### Step 5 — End-to-end evidence
+
+If possible without violating the Data Immutability Rule, trace one full
+lifecycle in a controlled way (test candidate) from
+`PENDING_FULL_ANALYSIS` through claim, processing, and completion. Paste the
+raw row states at each step (before/after each transition).
+
+---
+
+## Verification Block (required for completion)
+
+1. **Raw terminal output** for all grep and test commands — never paraphrase
+   what a grep or query would show.
+2. **Raw SQL query + full result set** for every query run, including the
+   concurrent claim test results.
+3. **Exact before/after state** of any test candidate rows used, at each
+   lifecycle transition.
+4. **sha256 hash** — not applicable unless files are modified for test
+   scaffolding; if so, hash before/after.
+5. Explicit statement of what remains unverified if the concurrent claim
+   test cannot be fully simulated in this environment (do not paper over
+   this gap with a confident-sounding but unverified claim).
+
+## Data Immutability Rule
+
+The agent may never delete, truncate, drop, or overwrite any row, table, or
+file — including test candidates it creates itself — without Joel's explicit
+prior approval in that session. Before creating any test candidate rows for
+the concurrent claim test, state exactly what will be inserted and why, wait
+for approval, then log it. Test rows must be clearly identifiable (e.g., a
+distinct ticker prefix or session_id) so they can be found and reviewed
+later. Any cleanup of test data requires separate explicit approval — do not
+delete test rows automatically at the end of the test.
+
+## Evidence Chain Protocol
+
+All evidence-producing commands must run through `verified_run.sh`, and the
+log must be validated with `verify_chain.sh` before declaring this directive
+complete — paste that script's output. This proves internal log consistency
+only, not that commands were genuinely executed against the real production
+DB — Joel may spot-check with an independently re-run sampled command.
+
+---
+
+## Status
+
+**OPEN — not yet verified.** Independent of D3 PAPER ENFORCEMENT and the
+Stage 13 fallback work. This should be completed before D3 PAPER ENFORCEMENT
+is scheduled, per standing backlog priority order.
