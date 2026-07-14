@@ -1605,6 +1605,74 @@ def main():
     #     replace_existing=True,
     # )
 
+    def _nightly_db_backup():
+        """2:58 AM — pg_dump the entire database to a compressed file.
+        Keeps the last 7 daily backups. Sends a Telegram summary.
+        Runs BEFORE the 3:00 AM os._exit() resets so data is safe first."""
+        import subprocess as _sp, glob as _gl, gzip as _gz, shutil as _sh
+        _backup_dir = os.path.join(os.path.dirname(__file__), ".local", "backups")
+        os.makedirs(_backup_dir, exist_ok=True)
+        _db_url = os.environ.get("DATABASE_URL", "")
+        if not _db_url:
+            log.error("[nightly-backup] DATABASE_URL not set — skipping backup")
+            _tg_send("⚠️ AIEM DB Backup FAILED — DATABASE_URL not set",
+                     signal_source="db_backup", alert_class="ERROR")
+            return
+        import datetime as _dtb
+        _ts   = _datetime.now(ET).strftime("%Y%m%d_%H%M")
+        _out  = os.path.join(_backup_dir, f"aiem_db_{_ts}.sql.gz")
+        _pg   = "/nix/store/bgwr5i8jf8jpg75rr53rz3fqv5k8yrwp-postgresql-16.10/bin/pg_dump"
+        if not os.path.exists(_pg):
+            # fallback: whatever is on PATH
+            _pg = "pg_dump"
+        try:
+            # Stream pg_dump → gzip → file (no huge temp .sql on disk)
+            log.info(f"[nightly-backup] starting pg_dump → {_out}")
+            with open(_out, "wb") as _fout:
+                _dump = _sp.Popen(
+                    [_pg, "--no-password", _db_url],
+                    stdout=_sp.PIPE, stderr=_sp.PIPE
+                )
+                with _gz.open(_fout, "wb") as _gz_out:
+                    _sh.copyfileobj(_dump.stdout, _gz_out)
+                _dump.wait(timeout=300)
+            _sz_mb = os.path.getsize(_out) / 1_048_576
+            if _dump.returncode != 0:
+                _err = _dump.stderr.read().decode("utf-8", errors="replace")[:300]
+                raise RuntimeError(f"pg_dump exit {_dump.returncode}: {_err}")
+            log.info(f"[nightly-backup] done — {_sz_mb:.1f} MB → {_out}")
+
+            # Rotate — keep only the 7 most-recent backup files
+            _all = sorted(_gl.glob(os.path.join(_backup_dir, "aiem_db_*.sql.gz")))
+            for _old in _all[:-7]:
+                try:
+                    os.remove(_old)
+                    log.info(f"[nightly-backup] rotated old backup: {os.path.basename(_old)}")
+                except Exception:
+                    pass
+
+            _tg_send(
+                f"✅ AIEM Nightly DB Backup complete\n"
+                f"File: aiem_db_{_ts}.sql.gz ({_sz_mb:.1f} MB)\n"
+                f"Backups kept: {min(len(_all), 7)} (last 7 days)\n"
+                f"All data safe before 3 AM reset.",
+                signal_source="db_backup", alert_class="INFO"
+            )
+        except Exception as _e:
+            log.error(f"[nightly-backup] FAILED: {_e}")
+            _tg_send(
+                f"🚨 AIEM DB Backup FAILED at {_ts}\nError: {str(_e)[:200]}\n"
+                "Manual backup may be needed — check /home/runner/workspace/.local/backups/",
+                signal_source="db_backup", alert_class="ERROR"
+            )
+
+    scheduler.add_job(
+        _nightly_db_backup,
+        CronTrigger(hour=2, minute=58, timezone=ET),
+        id="nightly_db_backup",
+        replace_existing=True,
+    )
+
     def _nightly_notifier_reset():
         log.info("[NIGHTLY-RESET] 3:04 AM ET scheduled memory reset — exiting cleanly for platform restart")
         import sys as _s; _s.stdout.flush()
@@ -1617,7 +1685,7 @@ def main():
         replace_existing=True,
     )
 
-    log.info("AIEM Telegram Notifier started — 8:50 AM PATTERN ENGINE + 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll)")
+    log.info("AIEM Telegram Notifier started — 2:58 AM DB BACKUP + 8:50 AM PATTERN ENGINE + 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll)")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
