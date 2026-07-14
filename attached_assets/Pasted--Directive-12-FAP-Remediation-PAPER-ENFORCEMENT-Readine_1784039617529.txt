@@ -1,0 +1,64 @@
+# Directive 12 — FAP Remediation & PAPER ENFORCEMENT Readiness
+
+**Context:** The First Ambient Production (FAP) run executed successfully at 9:42 AM ET on July 14, 2026 — first confirmed end-to-end execution of D1 → D2 → D3 for 7 real tickers (VEEE, AMZN, AGEN, WDC, SPY, QTTB, TCBK). This is a genuine milestone: `run_full_cycle()` executed for real candidates for the first time, and all 7 trades cleared G0–G3 gates in SHADOW mode. However, three gaps surfaced that must be closed before D3 can move from SHADOW to PAPER ENFORCEMENT, plus one evidence-chain compliance item.
+
+This directive does not ask the agent to re-run the FAP or touch any existing rows. It asks for diagnosis and remediation of specific, named gaps.
+
+---
+
+## Item 1 — `paper_trade_id` write-back is not wired (Directive 11 Phase 3 dependency)
+
+**Observed:** `paper_trade_id` is NULL in all rows of `aiem_candidate_pipeline`, including the 7 rows from today's FAP run. The candidate pipeline transitions to `FULL_ANALYSIS_COMPLETED` but is never linked back to the resulting row in `aiem_paper_trades`.
+
+**Why this matters:** Without this link, there is no way to trace a given candidate back to the trade it produced (or vice versa). This directly affects Directive 11 Phase 3's atomic claiming/status lifecycle — a candidate can reach a terminal status without the system being able to prove which trade, if any, resulted from it.
+
+**Required work:**
+1. Grep for every write path into `aiem_paper_trades` and confirm whether `candidate_id` (or equivalent) is available at insert time.
+2. Identify the specific code location where the write-back to `aiem_candidate_pipeline.paper_trade_id` should occur but currently does not.
+3. Propose the fix (do not implement without confirming scope first — this may intersect with Phase 3 claiming logic already drafted).
+4. State explicitly whether this is a missing line of code, a missing join key, or an architectural gap requiring more than a one-line fix.
+
+---
+
+## Item 2 — Stage 13 (`probability_engine`) failed for all 7 tickers
+
+**Observed:** `MISSING_STAGES:13` — the probability engine returned no data for any of the 7 candidates today. Risk and decision gates approved all 7 trades without this input, flagged as non-blocking only because D3 is in SHADOW mode.
+
+**Required work:**
+1. Raw grep/trace of the probability engine's data source(s) — confirm what table(s) it reads from and whether those tables have any rows at all as of today's run.
+2. Determine root cause: is this a data pipeline gap (upstream table empty), a query/join bug, or a stage that has never been wired to live data (similar to the `run_full_cycle` gap Directive 10 found)?
+3. Report findings only — do not attempt a fix until root cause is confirmed and reported.
+
+---
+
+## Item 3 — `UNAPPROVED_STRATEGY` flag: formal registry approval needed
+
+**Observed:** `gap_volume`, `unusual_calls`, and `aiem_v3_discovery` are producing live candidates and trades but are not present as approved strategies in the D3 registry. This is non-blocking in SHADOW mode but would BLOCK in ENFORCE mode.
+
+**Required work:**
+1. Confirm the current schema/table used for the D3 approved-strategy registry.
+2. List what is required to formally approve a strategy (fields, approval flow, any Joel sign-off step already designed).
+3. Do **not** add these three strategies to the registry without Joel's explicit approval in-session — present the requirements and wait.
+
+---
+
+## Item 4 — Evidence chain compliance for this FAP run
+
+**Observed:** Raw DB output was provided for today's FAP run, but no `verify_chain.sh` output was shown alongside it.
+
+**Required work:**
+1. Confirm whether today's FAP-run commands were executed through `verified_run.sh`.
+2. If yes, run `verify_chain.sh` now and paste its full output.
+3. If no, state that plainly — do not retroactively construct a chain. Flag it as a protocol gap for this run specifically.
+
+---
+
+## Standing Requirements (apply to all work under this directive)
+
+**Verification block:** No task is complete based on description alone. Every claim of "fixed," "found," "confirmed," or "tested" must be backed by: (1) raw terminal output, including raw grep output for any claim about code locations or whether a function/pattern exists — never paraphrased; (2) exact before/after file diff for any changed file; (3) sha256 hash before/after for any changed file; (4) raw SQL query plus full result set for any database claim. If evidence cannot be produced, say so explicitly rather than describing the result narratively.
+
+**Data Immutability Rule:** The agent may not delete, truncate, drop, or overwrite any row, table, or file — including anything it created itself or labels "test," "synthetic," or "cleanup" — without Joel's explicit prior approval given in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+**Evidence Chain Protocol:** All evidence-producing commands must run through `verified_run.sh`, and the log must be validated with `verify_chain.sh` before any part of this directive is declared complete. Paste that script's output. This proves internal log consistency only, not that commands ran against the real production DB — Joel will periodically spot-check independently.
+
+**Scope discipline:** Report and diagnose before fixing. Items 1 and 2 in particular may have downstream effects on Directive 11 Phase 3 work already drafted — do not implement changes that could conflict with that without flagging the overlap first.
