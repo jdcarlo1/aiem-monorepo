@@ -1674,37 +1674,86 @@ def main():
                   CronTrigger(day_of_week="mon-fri", hour="11-15", minute="*/15"),
                   id="aiem_open_watcher_catchup_net", replace_existing=True)
 
-    # ── Startup catch-up: fire open_watcher immediately if we restarted
-    # anytime between 9:30 AM and 3:30 PM ET and today's alert hasn't gone
-    # yet (e.g. a deploy/restart landed outside the primary 9:30-10:30
-    # window — previously this meant the alert was permanently skipped for
-    # the day).
-    def _startup_open_watcher_catchup():
+    # ── Startup full catch-up: handles any restart between 9:00 AM and 3:30 PM.
+    #
+    # Three scenarios are covered:
+    #   A) Restart during 9:00-9:29 AM — run warmup+premarket now so the
+    #      scheduled open_watcher at 9:30 fires with a fresh predictions table.
+    #   B) Restart during 9:30 AM-3:30 PM, premarket already ran — just fire
+    #      open_watcher immediately (original behaviour).
+    #   C) Restart during 9:30 AM-3:30 PM, predictions EMPTY (premarket missed
+    #      overnight) — run warmup+premarket first, THEN fire open_watcher.
+    #      This is the exact scenario that caused today's miss.
+    def _startup_full_catchup():
         import time as _t
-        _t.sleep(8)  # let scheduler bind and DB settle
+        _t.sleep(12)  # let scheduler bind and DB/network settle
         now_et = datetime.now(ET)
-        if now_et.weekday() >= 5:
+        if now_et.weekday() >= 5:           # skip weekends
+            return
+        if not _market_day():               # skip holidays
             return
         now_mins = now_et.hour * 60 + now_et.minute
-        if not (570 <= now_mins <= 930):  # 9:30 AM – 3:30 PM
+        # Only run between 9:00 AM and 3:30 PM ET
+        if not (540 <= now_mins <= 930):
             return
+
+        # Check whether today's predictions already exist
+        today = now_et.date()
         try:
             conn = _db()
-            cur = conn.cursor()
+            cur  = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date = %s", (today,))
+            pred_count = cur.fetchone()[0]
             cur.execute(
                 "SELECT 1 FROM signal_fire_log WHERE fire_date=%s AND signal_name='AIEM_OPEN_ALERT' AND ticker='DAILY_SUMMARY'",
-                (now_et.date(),)
+                (today,)
             )
-            already = cur.fetchone()
+            already_fired = bool(cur.fetchone())
             conn.close()
-        except Exception:
-            already = None
-        if not already:
-            log.info(f"[catchup] Restarted during open-watcher window ({now_et.strftime('%H:%M ET')}) — firing immediately")
-            aiem_open_watcher()
+        except Exception as e:
+            log.warning(f"[catchup] DB check failed: {e} — skipping catchup")
+            return
+
+        if already_fired:
+            log.info("[catchup] today's open alert already sent — nothing to do")
+            return
+
+        # ── Scenario C / A: predictions table is empty — run warmup+premarket ──
+        if pred_count == 0:
+            log.info(f"[catchup] No predictions for today at {now_et.strftime('%H:%M ET')} — "
+                     f"running emergency warmup + premarket scan now")
+            try:
+                aiem_warmup()
+            except Exception as e:
+                log.error(f"[catchup] warmup error: {e}")
+            try:
+                aiem_premarket_scan()
+            except Exception as e:
+                log.error(f"[catchup] premarket_scan error: {e}")
+            # Re-check — if scan produced predictions, fall through to open_watcher
+            try:
+                conn2 = _db()
+                cur2  = conn2.cursor()
+                cur2.execute("SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date=%s", (today,))
+                pred_count = cur2.fetchone()[0]
+                conn2.close()
+            except Exception:
+                pass
+            log.info(f"[catchup] After emergency scan: {pred_count} predictions ready")
+
+        # ── Scenario B / C follow-through: fire open_watcher if in open window ──
+        if 570 <= now_mins <= 930:   # 9:30 AM – 3:30 PM
+            log.info(f"[catchup] Firing open_watcher at {now_et.strftime('%H:%M ET')}")
+            try:
+                aiem_open_watcher()
+            except Exception as e:
+                log.error(f"[catchup] open_watcher error: {e}")
+        else:
+            log.info(f"[catchup] Pre-open catchup done at {now_et.strftime('%H:%M ET')} — "
+                     f"open_watcher will fire at 9:30 AM via scheduler")
 
     import threading as _ct
-    _ct.Thread(target=_startup_open_watcher_catchup, daemon=True, name="open-watcher-catchup").start()
+    _ct.Thread(target=_startup_full_catchup, daemon=True, name="startup-full-catchup").start()
 
     # 4:30 PM — grade T1 outcomes
     sched.add_job(aiem_grade_outcomes,
