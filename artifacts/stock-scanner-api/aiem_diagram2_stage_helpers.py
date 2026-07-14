@@ -660,6 +660,23 @@ def run_probability_engine_for_ticker(ticker: str) -> dict:
     from aiem_probability_engine.live_query import run_live_query
     result = run_live_query(ticker=ticker, mode="ticker")
     if isinstance(result, dict) and result.get("error"):
+        err = str(result["error"])
+        # Both sources absent: no ai_short_calls_log row AND no polygon_market_daily
+        # row for this ticker. Hard-exclude with SKIP rather than recording a FAIL —
+        # same semantics as Option C (polygon_fallback active). A missing-data gap
+        # for one ticker is not a pipeline failure; stage 13 simply cannot score it.
+        if "no rows" in err.lower() or "polygon_market_daily" in err:
+            return {
+                "status": "SKIP",
+                "reason": (
+                    f"no_data_in_either_source: {err[:300]}. "
+                    "Stage 13 hard-excluded — paper trade proceeds without "
+                    "Probability Engine score (same semantics as Option C / "
+                    "polygon_fallback active)."
+                ),
+                "polygon_fallback": False,
+                "numeric_score_emitted": False,
+            }
         raise RuntimeError(f"probability_engine: {result['error']}")
     # Hard-exclude when polygon fallback is active (Option C, 2026-07-14).
     # _polygon_fallback_score() wraps its result as {"envelope": {...}, "self_verify": {...}};

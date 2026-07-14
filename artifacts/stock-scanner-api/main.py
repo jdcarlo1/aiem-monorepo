@@ -17716,6 +17716,8 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 # trace_id as the legacy 13-stage audit above (falls back to a fresh
                 # uuid4 only if that trace failed to initialize). Each stage call is
                 # individually isolated so one honest FAIL never blocks the rest.
+                _d2_candidate_id = None  # set inside D2 block; used in INSERT below
+                _exec_plan_id    = None  # generated at stage 17; persisted to aiem_paper_trades
                 try:
                     import uuid as _d2_uuid
                     import aiem_master_orchestrator as _amo
@@ -17725,6 +17727,9 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     import aiem_diagram3_governance as _d3_gov_ctx
 
                     _d2_trace_id = _audit_trace_id or str(_d2_uuid.uuid4())
+                    # Stable candidate_id for this ticker's entire D2 run: threads through
+                    # all 23 stage rows in aiem_diagram2_trace_audit and into aiem_paper_trades.
+                    _d2_candidate_id = f"cand_{_t}_{_today}_{_d2_trace_id[:8]}"
                     _d2_orch = _amo.get_orchestrator()
 
                     def _d2_run(stage_order, stage_name, display, runtime_fn_name, fn, *fargs):
@@ -17737,6 +17742,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                 return _d2_orch.execute_stage(
                                     _d2_trace_id, _t, stage_order, stage_name, display,
                                     runtime_fn_name, fn, *fargs, paper_trade_id=None,
+                                    candidate_id=_d2_candidate_id,
                                 )
                         except Exception as _d2_stage_e:
                             print(f"[diagram2] stage {stage_order} ({stage_name}) FAILED for {_t}: {_d2_stage_e}")
@@ -17818,10 +17824,15 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                      "sizing_risk_pct": _sizing_risk_pct,
                                      "kill_switch": "CLEAR", "daily_loss_limit": "CLEAR",
                                      "portfolio_correlation": "CLEAR"})
+                    # execution_plan_id: stable ID created at the decision boundary (stage 17).
+                    # Persisted to aiem_paper_trades so every downstream outcome,
+                    # learning-loop, and D2 trace row can be cross-matched by plan.
+                    _exec_plan_id = f"exec_{_d2_trace_id[:12]}_{str(_d2_uuid.uuid4())[:8]}"
                     _d2_run(17, "decision_engine", "Decision Engine",
                             "_aiem_paper_execute_today (final_aiem_decision)",
                             lambda: {"decision": "EXECUTE", "ticker": _t,
-                                     "price": _fill_price, "type": _trade_type})
+                                     "price": _fill_price, "type": _trade_type,
+                                     "execution_plan_id": _exec_plan_id})
                 except Exception as _d2_e:
                     print(f"[diagram2_wiring] setup error for {_t} (non-fatal, legacy pipeline unaffected): {_d2_e}")
                     _d2_trace_id = None
@@ -18104,9 +18115,11 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                          mid_price, fill_price, spread_pct_used,
                          sizing_stop_price, sizing_stop_basis,
                          sizing_risk_pct, sizing_gate_result,
-                         pre_sizing_model, audit_trace_id)
+                         pre_sizing_model, audit_trace_id,
+                         candidate_id, execution_plan_id)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
-                            %s,%s,%s,%s,%s,%s,%s,FALSE,%s)
+                            %s,%s,%s,%s,%s,%s,%s,FALSE,%s,
+                            %s,%s)
                     ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
                 """, (_today, _t, _trade_type, _fill_price, _qty,
                       _notional, pick["source"], pick.get("detail",""),
@@ -18114,7 +18127,8 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                       pick.get("strike"), pick.get("expiry"),
                       _mid_price, _fill_price, _spread_pct_used,
                       _sizing_stop, _sizing_stop_basis,
-                      _sizing_risk_pct, _sizing_gate, _audit_trace_id))
+                      _sizing_risk_pct, _sizing_gate, _audit_trace_id,
+                      _d2_candidate_id, _exec_plan_id))
                 _tg_entry_lines.append(
                     f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
                 )

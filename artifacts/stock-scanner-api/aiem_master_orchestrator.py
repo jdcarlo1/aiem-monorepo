@@ -399,7 +399,8 @@ class AEIMMasterOrchestrator:
 
     def execute_stage(self, trace_id: str, ticker: str, stage_order: int,
                        stage_name: str, component_name: str, runtime_function: str,
-                       fn: Callable, *args, paper_trade_id: int = None, **kwargs):
+                       fn: Callable, *args, paper_trade_id: int = None,
+                       candidate_id: str = None, **kwargs):
         import aiem_registry as _areg
         import aiem_communication_bus as _abus
         import aiem_diagram2_trace_audit as _atrace2
@@ -444,6 +445,7 @@ class AEIMMasterOrchestrator:
                     f"registry_found={reg_check.get('found')}"
                 ),
                 paper_trade_id=paper_trade_id,
+                candidate_id=candidate_id,
             )
             return result
         except Exception as exc:
@@ -464,6 +466,7 @@ class AEIMMasterOrchestrator:
                     f"registry_found={reg_check.get('found')}"
                 ),
                 paper_trade_id=paper_trade_id,
+                candidate_id=candidate_id,
             )
             raise
 
