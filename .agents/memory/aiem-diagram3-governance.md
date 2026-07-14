@@ -437,3 +437,23 @@ Guards A & B shipped + negative-control test PASS (9s, exit 0).
 - Step 4r (restore): G0 mode=SHADOW state=NORMAL DB-verified ✓
 - Step 6 (ALLOW): `decision=ALLOW mode=SHADOW would_block=False reasons=['STATE_OK']` ✓
 - Final: config_history +4, d3_governance_decisions +3, d3_governance_event_links +7, paper_trades unchanged
+
+## Directive 13 — G3 ENFORCE Verification (2026-07-14, Phase 2 in progress)
+
+**Phase 1 COMPLETE.** G3 flipped to ENFORCE (d3_checkpoint_config mode='ENFORCE', updated_by='directive13', 2026-07-14 20:00:23 UTC). d3_governance_config_history audit row written. Rollback proven ≤5s (direct SQL) or 0s (set_d3_checkpoint_mode). All 6 unregistered sources have logged Joel decisions: sweep=APPROVED (registered id=5), oi_buildup/washout_ignition/layer9_stat/squeeze_reversion/premarket_open_trader=BLOCKED (absent from registry). Evidence chain: .local/d12_evidence_chain.log, 96 entries, 11 failures (all pre-existing).
+
+**Phase 2 IN PROGRESS — Tasks 4+6 pending tomorrow's run.**
+
+Three structural findings discovered before/during Task 2 execution:
+
+**Finding 1 (RESOLVED):** `_g3_check_model_approval(None)` returned `ok=False` for every candidate (d3_model_governance is empty — 0 rows, no model versioning exists). Under ENFORCE, this would have blocked ALL candidates including approved ones. Joel approved Option A: change `model_version=None` branch from `ok=False` to `ok=True, reason=MODEL_VERSION_NOT_TRACKED_ADVISORY`. File sha256 before: `46c432ba...`, after: `fe1e9e1e...`. This is the ONLY code change in D13.
+
+**Finding 2 (DOCUMENTED-UNVERIFIABLE):** Guard B (main.py:16835) fires ONLY inside the G0 BLOCK conditional — not G3. G3 BLOCKs use `continue` (per-candidate skip, no batch halt, no Telegram). There is no Telegram notification path for a G3-level BLOCK anywhere in the codebase. Backlog: G3-level Guard B coverage (separate follow-up).
+
+**Finding 3 (DOCUMENTED-UNVERIFIABLE for live traffic):** The 5 unapproved sources (oi_buildup, washout_ignition, layer9_stat, squeeze_reversion, premarket_open_trader) are filtered at pre-G3 source validation (status='not found'/'hypothesis') before any candidate reaches the G3 per-candidate loop. No live run will ever produce a G3 `decision='BLOCK'` row in `d3_governance_decisions`. Task 3 (BLOCK verification) is structurally unverifiable via live traffic — requires a separate scoped directive with a deliberately approved test candidate.
+
+**Finding 4 (RESOLVED — wait for tomorrow):** Admin-triggered ENFORCE run (aiem_paper_execution_log id=11) was halted by daily_loss_limit gate at main.py:16967 (loss_pct=-2.185 <= -2.0), which sits 901 lines before the G3 per-candidate loop at main.py:17868. Zero G3 decisions written. Joel approved Option A: wait for tomorrow's 9:42 AM ET scheduled run (loss limit resets daily).
+
+**Tasks 4+6 execution plan:** Run `.local/d13_p2_capture_morning_run.sh` after 9:42 AM ET on 2026-07-15. That script queries d3_governance_decisions (G3, today), aiem_paper_execution_log, and aiem_paper_trades for today, and compares against the 2026-07-14 SHADOW baseline (7 decisions, all ALLOW, all had UNAPPROVED_STRATEGY+MODEL_VERSION_NOT_TRACKED in reason_codes). After Finding 1 fix: approved sources should now see only MODEL_VERSION_NOT_TRACKED_ADVISORY (ok=True, non-blocking) — net decision=ALLOW. Run through verified_run.sh as `D13_P2_TASKS4_6_morning_enforce_run`.
+
+**Key structural rule confirmed:** The per-candidate G3 path (main.py:17868) is only reached when: (1) pre-G3 source validation passes, (2) intelligence gate passes, (3) kill_switch/daily_loss_limit/portfolio_corr batch gates all clear, (4) G0/G1 batch gates both ALLOW. A G3 BLOCK from an unapproved strategy requires a source that passes steps 1-3 but has no d3_strategy_registry row — currently no such source exists in live traffic.

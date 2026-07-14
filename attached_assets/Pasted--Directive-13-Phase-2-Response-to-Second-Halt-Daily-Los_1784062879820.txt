@@ -1,0 +1,26 @@
+# Directive 13 — Phase 2: Response to Second Halt (Daily Loss Limit / G3 Not Reached)
+
+## Decision on the immediate halt: Option A — wait for tomorrow's 9:42 AM ET scheduled run
+
+Approved. Do not attempt a manual re-run today. The daily loss limit gate (`main.py:16967`) sits ahead of the G3 per-candidate loop (`main.py:17868`) in the execution path and is currently tripped by this morning's SHADOW-run trades (`loss_pct=-2.185 <= -2.0`). This is a pre-existing batch-level gate unrelated to Directive 13 — it would have halted identically under SHADOW. It resets daily, so tomorrow's scheduled run is the right next attempt, not a forced same-day retry.
+
+## Decision on Task 3 (BLOCK verification): do not inject a synthetic candidate yet
+
+Do not proceed with Option B (injecting an unapproved-strategy candidate or a `approval_status='pending'` test source) at this time. This is correctly identified as a Data Immutability Rule decision, not a routine test step, and I'm not approving synthetic test data for this purpose right now.
+
+Reasoning: the 5 unapproved sources (`oi_buildup`, `washout_ignition`, `layer9_stat`, `squeeze_reversion`, `premarket_open_trader`) are filtered at the pre-G3 source-validation stage (`status='not found'`/`'hypothesis'`) before any candidate reaches the G3 per-candidate loop. This means **no live run — today's or tomorrow's — will ever produce a G3 BLOCK decision under current registry state.** Tomorrow's 9:42 AM run will only exercise ALLOW paths from the 4 approved sources. This is a structural gap in what live traffic can verify, not something more time or another attempt will fix.
+
+## Handling in Phase 2
+
+Mark Task 3 as **structurally unverifiable via live traffic under current conditions** — the same class of finding as Task 5 / Guard B, not a failure to complete. Document in the Phase 2 report:
+- No unapproved-strategy candidate currently reaches the G3 decision point; all such sources are rejected at pre-G3 source validation.
+- This means Task 3's BLOCK evidence cannot be produced by any live paper cycle as currently configured — only by a deliberately injected test candidate.
+- Add this to the standing backlog alongside the Guard B / G3-level Telegram gap (both "known untestable-by-live-traffic" governance gaps).
+
+## Path forward
+
+1. Let tomorrow's 9:42 AM ET scheduled run proceed under G3 ENFORCE as normal — no manual trigger today.
+2. Complete Tasks 4 and 6 (ALLOW verification and SHADOW-baseline comparison) using that run's real evidence.
+3. Report Task 3 as documented-unverifiable per the above, not as incomplete or failed.
+4. Do not create any synthetic/test candidate data without a separate, explicitly-scoped request from Joel — if G3's BLOCK path needs direct verification later, that should be its own small directive with a deliberately approved test candidate, not folded into Phase 2 under time pressure.
+5. If anything else surfaces before or during tomorrow's run, halt and report back — do not proceed to Phase 3 planning with anything unresolved.
