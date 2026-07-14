@@ -1,0 +1,65 @@
+# Directive 12 — Crash Diagnostic Logging: 3:02 AM Reset & 7:00 AM First Scan
+
+## Context
+An open, unresolved theory exists that aiem-process may crash-loop during the
+nightly 3:02 AM ET memory reset due to OOM: importing `aiem_optprob`
+(scipy/numpy) concurrently with stock-api's restart on a 2GB VM could exhaust
+memory and kill aiem-process before the scheduler can start. This has NOT been
+confirmed or ruled out — no aiem-process logs from the prior (July 10)
+deployment exist to check against. This directive exists to capture the
+evidence needed to confirm or rule out this theory, before any infrastructure
+change (bigger VM, process separation, supervisor) is decided on.
+
+## Task
+1. **Before 3:02 AM ET tonight**: confirm aiem-process is currently alive and
+   log baseline memory usage (RSS, available system memory).
+2. **Immediately after 3:02 AM ET reset fires**: capture whether aiem-process
+   is still alive, its PID (same or restarted), memory usage at that moment,
+   and full raw log output spanning 3:00–3:10 AM ET. If it died, capture the
+   exact error/exit code and timestamp of death.
+3. **Immediately after the 6:55 AM ET warmup and 7:00 AM ET first scan window**:
+   confirm whether the scan fired, whether aiem-process was alive to receive
+   it, and whether at least one candidate ticker was claimed
+   (`CLAIMED_BY_DIAGRAM1` status or equivalent). Capture raw DB query results,
+   not a paraphrase.
+4. Do NOT take any action to "fix" a crash if one is observed — only capture
+   evidence. Any remediation (VM upgrade, process separation, supervisor)
+   will be a separate directive once root cause is confirmed.
+
+## Verification Block (required in full)
+- Raw terminal output of actual execution for every step above, including raw
+  grep output for any claim about log locations, process state, or whether a
+  crash occurred — never paraphrase what a log or grep would show.
+- Exact before/after state for aiem-process (PID, uptime, memory) across the
+  3:02 AM reset window.
+- sha256 hash before/after for any files touched (none expected — this is
+  observation-only).
+- Raw SQL query + full result set confirming whether a candidate was claimed
+  after the 7:00 AM scan.
+- Narrative/paraphrased claims of "ran fine," "crashed," or "confirmed"
+  without pasted raw evidence are rejected. Agent must explicitly state if it
+  cannot produce evidence for any sub-item above.
+
+## Data Immutability Rule (required in full)
+Agent may never delete, truncate, drop, or overwrite any row, table, or file —
+including data it created itself or labels "test"/"synthetic"/"cleanup" —
+without Joel's explicit prior approval in that session. Must state what it
+wants to delete and why, wait for approval, then log it. Any unapproved
+deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol (required in full)
+Agent must run all evidence-producing commands through `verified_run.sh`
+instead of running them directly, and validate the log with `verify_chain.sh`
+before declaring this directive complete, pasting that script's output. This
+supplements, not replaces, the raw-evidence verification block above. Note:
+this proves internal log consistency only — not that commands were genuinely
+executed against the real production DB. Joel should periodically spot-check
+by independently re-running a sampled command himself.
+
+## Deliverable
+A single evidence report covering:
+- 3:02 AM reset window: alive/dead, memory, raw logs
+- 7:00 AM scan window: fired/not fired, candidate claimed/not claimed, raw
+  logs + raw SQL result set
+- Explicit statement on whether the OOM crash-loop theory is CONFIRMED,
+  RULED OUT, or STILL INCONCLUSIVE based on what was actually observed
