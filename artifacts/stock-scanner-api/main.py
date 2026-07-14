@@ -17999,6 +17999,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         if _pcl_live >= _pcl_cap:
                             print(f"[aiem_paper] POSITION_CAP_LIVE_BLOCKED {_t}: "
                                   f"live_open={_pcl_live} >= cap={_pcl_cap} "
+                                  f"lock_key=7625310052 trace={_audit_trace_id} "
                                   f"(advisory-lock confirmed — skipping candidate)")
                             try:
                                 import aiem_diagram3_governance as _d3ev_pcl
@@ -18015,6 +18016,16 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                  "reason": (f"live_open={_pcl_live} "
                                             f">= cap={_pcl_cap}")})
                             continue
+                        # ── Pass-through: count < cap, INSERT will proceed ──────────
+                        # This line fires ONLY when _pcl_live < _pcl_cap.  The advisory
+                        # lock (key=7625310052) is still held on _cu; it releases when
+                        # _c.commit() is called after the INSERT below.  No explicit
+                        # UNLOCKALL needed — pg_advisory_xact_lock is transaction-scoped.
+                        print(f"[aiem_paper] POSITION_CAP_LIVE_ALLOWED {_t}: "
+                              f"live_open={_pcl_live} < cap={_pcl_cap} "
+                              f"lock_key=7625310052 trace={_audit_trace_id} "
+                              f"(advisory_xact_lock held; live count read; "
+                              f"proceeding to INSERT — lock releases on _c.commit())")
                     except Exception as _pcl_e:
                         print(f"[aiem_paper] POSITION_CAP_LIVE_BLOCKED {_t}: "
                               f"advisory-lock or count failed — fail-closed: {_pcl_e}")
