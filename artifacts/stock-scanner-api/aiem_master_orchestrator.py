@@ -902,6 +902,44 @@ class AEIMMasterOrchestrator:
             else:
                 packet.microstructure["garch_vote"]   = 0
                 packet.microstructure["garch_reason"] = "insufficient_bars_for_garch"
+        # D14 evidence capture — writes to persistent file + stdout for SHA-256 chain
+        try:
+            import datetime as _d14dt, json as _d14j
+            _ms14   = packet.microstructure or {}
+            _comp14 = (_ms14.get("components") or {})
+            _vpin14 = float((_comp14.get("vpin_toxicity") or {}).get("raw") or 0)
+            _hurst14 = float((_comp14.get("hurst_regime") or {}).get("raw") or 0.5)
+            _ev14 = {
+                "event":         "D14_LAYER9",
+                "ts":            _d14dt.datetime.utcnow().isoformat() + "Z",
+                "ticker":        packet.ticker,
+                "trace_id":      packet.packet_id,
+                "candidate_id":  packet.execution_plan_id,
+                "bar_count":     len(rows),
+                "garch_module":  "volatility_clustering.garch_regime_indicator",
+                "garch_vote":    _ms14.get("garch_vote"),
+                "garch_reason":  _ms14.get("garch_reason"),
+                "vpin_source":   "advanced_quant_indicators.vpin → compute_layer9_score → components.vpin_toxicity.raw",
+                "vpin_raw":      _vpin14,
+                "hurst_source":  "advanced_quant_indicators.hurst_exponent → compute_layer9_score → components.hurst_regime.raw",
+                "hurst_raw":     _hurst14,
+                "layer9_regime": (_ms14.get("regime") or "unknown"),
+                "layer9_score":  (_ms14.get("statistical_score") or 0),
+            }
+            with open("/home/runner/workspace/.local/d14_live_capture.log", "a") as _f14:
+                _f14.write(_d14j.dumps(_ev14) + "\n")
+            print(
+                f"[D14_LAYER9] ticker={packet.ticker} trace_id={packet.packet_id}"
+                f" candidate_id={packet.execution_plan_id} bars={len(rows)}"
+                f" garch_fn=volatility_clustering.garch_regime_indicator"
+                f" garch_vote={_ms14.get('garch_vote')}"
+                f" garch_reason={_ms14.get('garch_reason')!r}"
+                f" vpin_raw={_vpin14:.4f} (path: components.vpin_toxicity.raw)"
+                f" hurst_raw={_hurst14:.4f} (path: components.hurst_regime.raw)"
+                f" layer9_regime={_ms14.get('regime')} layer9_score={_ms14.get('statistical_score')}"
+            )
+        except Exception as _d14e:
+            print(f"[D14_LAYER9] capture error (non-fatal): {_d14e}")
         _score = result.get("statistical_score") if isinstance(result, dict) else None
         if _score is not None:
             packet.ml_prediction["layer9_statistical_edge"] = {
@@ -1156,18 +1194,43 @@ class AEIMMasterOrchestrator:
             "garch_vote":       int(_ms.get("garch_vote") or 0),
             "garch_reason":     str(_ms.get("garch_reason") or ""),
         }
-        # D14 live-confirmation log: print Tier-1 indicator values entering the debate
-        print(
-            f"[D14_BULL_BEAR] ticker={packet.ticker}"
-            f" vpin_raw={signal_context['vpin_raw']:.3f}"
-            f" hurst_raw={signal_context['hurst_raw']:.3f}"
-            f" garch_vote={signal_context['garch_vote']}"
-            f" garch_reason={signal_context['garch_reason']!r}"
-            f" rvol={signal_context['rvol']:.2f}"
-            f" rsi_14={signal_context['rsi_14']:.1f}"
-            f" layer9_score={signal_context['layer9_score']:.1f}"
-            f" layer9_regime={signal_context['layer9_regime']}"
-        )
+        # D14 evidence capture — signal_context BEFORE debate (proves all 3 keys are flat)
+        try:
+            import datetime as _d14bdt, json as _d14bj
+            _pre14 = {
+                "event":        "D14_DEBATE_PRE",
+                "ts":           _d14bdt.datetime.utcnow().isoformat() + "Z",
+                "ticker":       packet.ticker,
+                "trace_id":     packet.packet_id,
+                "candidate_id": packet.execution_plan_id,
+                "signal_context_d14_keys": {
+                    "vpin_raw":    signal_context["vpin_raw"],
+                    "vpin_score":  signal_context["vpin_score"],
+                    "hurst_raw":   signal_context["hurst_raw"],
+                    "hurst_score": signal_context["hurst_score"],
+                    "garch_vote":  signal_context["garch_vote"],
+                    "garch_reason":signal_context["garch_reason"],
+                    "layer9_regime": signal_context["layer9_regime"],
+                    "layer9_score":  signal_context["layer9_score"],
+                },
+                "note": "these are flat top-level keys in signal_context — debate functions read them directly",
+            }
+            with open("/home/runner/workspace/.local/d14_live_capture.log", "a") as _f14b:
+                _f14b.write(_d14bj.dumps(_pre14) + "\n")
+            print(
+                f"[D14_BULL_BEAR] ticker={packet.ticker} trace_id={packet.packet_id}"
+                f" candidate_id={packet.execution_plan_id}"
+                f" vpin_raw={signal_context['vpin_raw']:.3f}"
+                f" hurst_raw={signal_context['hurst_raw']:.3f}"
+                f" garch_vote={signal_context['garch_vote']}"
+                f" garch_reason={signal_context['garch_reason']!r}"
+                f" rvol={signal_context['rvol']:.2f}"
+                f" rsi_14={signal_context['rsi_14']:.1f}"
+                f" layer9_score={signal_context['layer9_score']:.1f}"
+                f" layer9_regime={signal_context['layer9_regime']}"
+            )
+        except Exception as _d14be:
+            print(f"[D14_BULL_BEAR] pre-capture error (non-fatal): {_d14be}")
         result = self._bb.run_bull_bear_debate(packet.ticker, signal_context)
         # Bridge fix: synthesize_debate() emits verdict (BUY/LEAN_BUY/NEUTRAL/LEAN_AVOID/AVOID)
         # + confidence, but _h_specialist_council expects weighted_vote in [-1, +1].
@@ -1177,6 +1240,50 @@ class AEIMMasterOrchestrator:
         _v = str(result.get("verdict", "NEUTRAL")).upper()
         _c = float(result.get("confidence", 0.5) or 0.5)
         result["weighted_vote"] = round(_VERDICT_SIGN.get(_v, 0.0) * _c, 4)
+        # D14 evidence capture — debate result AFTER run (proves debate consumed the values)
+        try:
+            import datetime as _d14adt, json as _d14aj
+            _post14 = {
+                "event":         "D14_DEBATE_POST",
+                "ts":            _d14adt.datetime.utcnow().isoformat() + "Z",
+                "ticker":        packet.ticker,
+                "trace_id":      packet.packet_id,
+                "candidate_id":  packet.execution_plan_id,
+                "verdict":       result.get("verdict"),
+                "confidence":    result.get("confidence"),
+                "weighted_vote": result.get("weighted_vote"),
+                "bull_score":    (result.get("bull_case") or {}).get("score"),
+                "bull_thesis":   (result.get("bull_case") or {}).get("thesis"),
+                "bear_score":    (result.get("bear_case") or {}).get("score"),
+                "bear_thesis":   (result.get("bear_case") or {}).get("thesis"),
+                "risk_level":    (result.get("risk_review") or {}).get("risk_level"),
+                "risk_items":    (result.get("risk_review") or {}).get("all_risks", []),
+                "contradictions_found": (result.get("contradiction_check") or {}).get("contradictions_found"),
+                "contradiction_types": [c.get("type") for c in ((result.get("contradiction_check") or {}).get("contradiction_details") or [])],
+                "d14_consumed_in_thesis": {
+                    "garch_in_bull": "garch" in str((result.get("bull_case") or {}).get("thesis", "")).lower(),
+                    "vpin_in_bull":  "vpin"  in str((result.get("bull_case") or {}).get("thesis", "")).lower(),
+                    "hurst_in_bull": "hurst" in str((result.get("bull_case") or {}).get("thesis", "")).lower(),
+                    "garch_in_bear": "garch" in str((result.get("bear_case") or {}).get("thesis", "")).lower(),
+                    "vpin_in_bear":  "vpin"  in str((result.get("bear_case") or {}).get("thesis", "")).lower(),
+                    "hurst_in_bear": "hurst" in str((result.get("bear_case") or {}).get("thesis", "")).lower(),
+                },
+            }
+            with open("/home/runner/workspace/.local/d14_live_capture.log", "a") as _f14a:
+                _f14a.write(_d14aj.dumps(_post14) + "\n")
+            print(
+                f"[D14_DEBATE_POST] ticker={packet.ticker} trace_id={packet.packet_id}"
+                f" verdict={result.get('verdict')} confidence={result.get('confidence')}"
+                f" bull_score={(result.get('bull_case') or {}).get('score')}"
+                f" bear_score={(result.get('bear_case') or {}).get('score')}"
+                f" risk_level={(result.get('risk_review') or {}).get('risk_level')}"
+                f" contradictions={(result.get('contradiction_check') or {}).get('contradictions_found')}"
+                f" garch_in_bull={'garch' in str((result.get('bull_case') or {}).get('thesis','')).lower()}"
+                f" vpin_in_bull={'vpin' in str((result.get('bull_case') or {}).get('thesis','')).lower()}"
+                f" hurst_in_bull={'hurst' in str((result.get('bull_case') or {}).get('thesis','')).lower()}"
+            )
+        except Exception as _d14ae:
+            print(f"[D14_DEBATE_POST] capture error (non-fatal): {_d14ae}")
         packet.debate["bull_bear"] = result
         return result
 
