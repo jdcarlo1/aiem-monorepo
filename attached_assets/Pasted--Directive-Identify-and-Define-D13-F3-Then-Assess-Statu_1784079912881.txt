@@ -1,0 +1,42 @@
+# Directive — Identify and Define D13 F3, Then Assess Status
+
+F3 was referenced during D13 Phase 2 pre-run findings alongside F1 (model_version hardcoded,
+now advisory) and F2 (Guard B Telegram alert scoped only to G0, not G3), but its definition and
+current status were never confirmed. This directive must be completed before any verification
+of F3 is attempted.
+
+## Section 1 — Locate and define F3
+
+1. Raw grep across the codebase and any Phase 2 diagnostic logs/commit messages/comments
+   referencing "F3" in the context of D13 Phase 2 findings. Paste raw grep output — do not
+   paraphrase.
+2. State what F3 refers to: what condition, gate, or defect it identifies, and where in the
+   code/system it lives (file, function, line numbers).
+3. If F3 cannot be located in any artifact (code, logs, prior directive responses), say so
+   explicitly rather than guessing or inferring from F1/F2 pattern.
+
+## Section 2 — Current status
+
+1. If F3 is located: state whether it has been addressed, partially addressed, or untouched,
+   with raw evidence (file diff, grep, or SQL as applicable) — not a narrative claim.
+2. If untouched: state clearly that F3 remains open and unresolved.
+3. Do not attempt a fix in this directive. This is identification and status only.
+
+## Standing verification block (applies to every section above)
+Raw terminal output including raw grep output for any claim about code locations, call chains,
+or whether a function/pattern exists — never paraphrase what grep would show. Exact before/after
+file diff for anything touched. sha256 hash before/after for changed files. Raw SQL query + full
+result set if a database is involved. Narrative/paraphrased claims of "fixed," "tested," "found,"
+or "confirmed" without pasted raw evidence are rejected; agent must explicitly say if it cannot
+produce evidence.
+
+## Standing Data Immutability Rule
+No deletion, truncation, dropping, or overwriting of any row, table, or file — including data
+the agent created itself or labels "test"/"synthetic"/"cleanup" — without Joel's explicit prior
+approval in this session. Must state what it wants to delete and why, wait for approval, then log
+it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Standing Evidence Chain Protocol
+Run all evidence-producing commands through `verified_run.sh` instead of running them directly,
+and validate the log with `verify_chain.sh` before declaring this directive complete. Paste that
+script's raw output. This supplements, not replaces, the raw-evidence verification block above.
