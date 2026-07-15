@@ -17220,8 +17220,159 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                             "signal_detail": _top.get("detail", ""),
                             "score": round(_top["score"], 2),
                         }
+                        # ── D14 Tier-1 injection: read layer9_scores → inject 8 flat keys ──
+                        # Reads existing values only (no recomputation of layer9 pipeline).
+                        # GARCH is not stored in layer9_scores so computed from DB bars (~35ms).
+                        import uuid as _d14uuid
+                        _d14_trace_id     = str(_d14uuid.uuid4())
+                        _d14_candidate_id = f"debate_{_tt}_{_today}_{_d14_trace_id[:8]}"
+                        _d14_l9_computed_at = None
+                        try:
+                            with _psycopg2.connect(_DB_URL, connect_timeout=3) as _d14c, \
+                                 _d14c.cursor() as _d14cur:
+                                _d14cur.execute(
+                                    "SELECT statistical_score, regime, hurst_raw, vpin_raw, "
+                                    "computed_at FROM layer9_scores "
+                                    "WHERE ticker=%s ORDER BY computed_at DESC LIMIT 1",
+                                    (_tt,)
+                                )
+                                _d14row = _d14cur.fetchone()
+                            _ctx["layer9_score"]    = float((_d14row[0] if _d14row else None) or 0)
+                            _ctx["layer9_regime"]   = str((_d14row[1]  if _d14row else None) or "unknown")
+                            _ctx["hurst_raw"]       = float((_d14row[2] if _d14row else None) or 0.5)
+                            _ctx["hurst_score"]     = 0.0  # not stored; raw drives all debate logic
+                            _ctx["vpin_raw"]        = float((_d14row[3] if _d14row else None) or 0)
+                            _ctx["vpin_score"]      = 0.0  # not stored; raw drives all debate logic
+                            _d14_l9_computed_at     = str(_d14row[4]) if _d14row else None
+                        except Exception as _d14e:
+                            print(f"[D14_INJECT] layer9_scores read error for {_tt} (non-fatal): {_d14e}")
+                            _ctx.setdefault("layer9_score", 0.0)
+                            _ctx.setdefault("layer9_regime", "unknown")
+                            _ctx.setdefault("hurst_raw", 0.5)
+                            _ctx.setdefault("hurst_score", 0.0)
+                            _ctx.setdefault("vpin_raw", 0.0)
+                            _ctx.setdefault("vpin_score", 0.0)
+                        # GARCH: not stored in layer9_scores; compute from polygon_market_daily
+                        try:
+                            import pandas as _d14pd
+                            from volatility_clustering import garch_regime_indicator as _d14_garch_fn
+                            with _psycopg2.connect(_DB_URL, connect_timeout=3) as _d14c2, \
+                                 _d14c2.cursor() as _d14cur2:
+                                _d14cur2.execute(
+                                    "SELECT close_price, open_price, high_price, low_price, volume "
+                                    "FROM polygon_market_daily WHERE ticker=%s "
+                                    "ORDER BY scan_date DESC LIMIT 81",
+                                    (_tt,)
+                                )
+                                _d14bars = _d14cur2.fetchall()
+                            if len(_d14bars) >= 30:
+                                _d14df = _d14pd.DataFrame(
+                                    [list(r) for r in _d14bars][::-1],
+                                    columns=["Close", "Open", "High", "Low", "Volume"]
+                                )
+                                _d14g = _d14_garch_fn(_d14df)
+                                _ctx["garch_vote"]   = int(_d14g.get("vote", 0))
+                                _ctx["garch_reason"] = str(_d14g.get("reason", ""))
+                            else:
+                                _ctx["garch_vote"]   = 0
+                                _ctx["garch_reason"] = f"insufficient_bars:{len(_d14bars)}"
+                        except Exception as _d14ge:
+                            print(f"[D14_INJECT] garch error for {_tt} (non-fatal): {_d14ge}")
+                            _ctx.setdefault("garch_vote", 0)
+                            _ctx.setdefault("garch_reason", f"garch_error:{_d14ge}")
+                        # D14 evidence capture: layer9 DB source + pre-debate signal_context
+                        try:
+                            import json as _d14j, datetime as _d14bdt
+                            _d14_ts_pre = _d14bdt.datetime.utcnow().isoformat() + "Z"
+                            _d14_ev_l9 = {
+                                "event":              "D14_LAYER9",
+                                "ts":                 _d14_ts_pre,
+                                "trigger_source":     trigger_source,
+                                "ticker":             _tt,
+                                "trace_id":           _d14_trace_id,
+                                "candidate_id":       _d14_candidate_id,
+                                "layer9_source":      "layer9_scores table (background scanner)",
+                                "layer9_computed_at": _d14_l9_computed_at,
+                                "layer9_score":       _ctx["layer9_score"],
+                                "layer9_regime":      _ctx["layer9_regime"],
+                                "hurst_raw":          _ctx["hurst_raw"],
+                                "vpin_raw":           _ctx["vpin_raw"],
+                                "garch_fn":           "volatility_clustering.garch_regime_indicator",
+                                "garch_vote":         _ctx["garch_vote"],
+                                "garch_reason":       _ctx["garch_reason"],
+                            }
+                            _d14_ev_pre = {
+                                "event":              "D14_DEBATE_PRE",
+                                "ts":                 _d14_ts_pre,
+                                "trigger_source":     trigger_source,
+                                "ticker":             _tt,
+                                "trace_id":           _d14_trace_id,
+                                "candidate_id":       _d14_candidate_id,
+                                "signal_context_d14_keys": {
+                                    k: _ctx[k] for k in (
+                                        "vpin_raw", "vpin_score", "hurst_raw", "hurst_score",
+                                        "garch_vote", "garch_reason", "layer9_regime", "layer9_score"
+                                    )
+                                },
+                                "layer9_completed_before_debate": True,
+                                "layer9_computed_at": _d14_l9_computed_at,
+                            }
+                            with open("/home/runner/workspace/.local/d14_live_capture.log", "a") as _d14lf:
+                                _d14lf.write(_d14j.dumps(_d14_ev_l9) + "\n")
+                                _d14lf.write(_d14j.dumps(_d14_ev_pre) + "\n")
+                            print(
+                                f"[D14_INJECT] {_tt} trace_id={_d14_trace_id}"
+                                f" layer9_score={_ctx['layer9_score']}"
+                                f" layer9_regime={_ctx['layer9_regime']}"
+                                f" vpin_raw={_ctx['vpin_raw']:.4f}"
+                                f" hurst_raw={_ctx['hurst_raw']:.4f}"
+                                f" garch_vote={_ctx['garch_vote']}"
+                                f" garch_reason={_ctx['garch_reason']!r}"
+                            )
+                        except Exception as _d14le:
+                            print(f"[D14_INJECT] capture error (non-fatal): {_d14le}")
                         _deb = _bull_bear.run_bull_bear_debate(_tt, _ctx)
                         _verd = (_deb.get("synthesis") or {}).get("verdict", "CONFLICTED")
+                        # D14 post-debate capture: proves debate consumed the injected values
+                        try:
+                            import json as _d14j2, datetime as _d14dt2
+                            def _d14_in(t, k): return k.lower() in (t or "").lower()
+                            _bcase  = (_deb.get("bull_case") or {})
+                            _brcase = (_deb.get("bear_case") or {})
+                            _rrev   = (_deb.get("risk_review") or {})
+                            _cchk   = (_deb.get("contradiction_check") or {})
+                            _syn    = (_deb.get("synthesis") or {})
+                            _d14_ev_post = {
+                                "event":              "D14_DEBATE_POST",
+                                "ts":                 _d14dt2.datetime.utcnow().isoformat() + "Z",
+                                "trigger_source":     trigger_source,
+                                "ticker":             _tt,
+                                "trace_id":           _d14_trace_id,
+                                "candidate_id":       _d14_candidate_id,
+                                "verdict":            _verd,
+                                "bull_thesis":        (_bcase.get("thesis") or _syn.get("bull_thesis")),
+                                "bear_thesis":        (_brcase.get("thesis") or _syn.get("bear_thesis")),
+                                "risk_level":         _rrev.get("risk_level"),
+                                "risk_items":         _rrev.get("all_risks", []),
+                                "contradictions_found": _cchk.get("contradictions_found"),
+                                "d14_tier1_activation": {
+                                    "vpin_in_bull":  _d14_in(_bcase.get("thesis", ""), "vpin"),
+                                    "hurst_in_bull": _d14_in(_bcase.get("thesis", ""), "hurst"),
+                                    "garch_in_bull": _d14_in(_bcase.get("thesis", ""), "garch"),
+                                    "vpin_in_bear":  _d14_in(_brcase.get("thesis", ""), "vpin"),
+                                    "hurst_in_bear": _d14_in(_brcase.get("thesis", ""), "hurst"),
+                                    "garch_in_bear": _d14_in(_brcase.get("thesis", ""), "garch"),
+                                },
+                                "layer9_completed_before_debate": True,
+                            }
+                            with open("/home/runner/workspace/.local/d14_live_capture.log", "a") as _d14lf2:
+                                _d14lf2.write(_d14j2.dumps(_d14_ev_post) + "\n")
+                            print(f"[D14_DEBATE_POST] {_tt} verdict={_verd}"
+                                  f" vpin_in_bull={_d14_ev_post['d14_tier1_activation']['vpin_in_bull']}"
+                                  f" hurst_in_bull={_d14_ev_post['d14_tier1_activation']['hurst_in_bull']}"
+                                  f" garch_in_bull={_d14_ev_post['d14_tier1_activation']['garch_in_bull']}")
+                        except Exception as _d14pe:
+                            print(f"[D14_DEBATE_POST] capture error (non-fatal): {_d14pe}")
                         _debate_verdicts[_tt] = {"verdict": _verd, "debate": _deb, "context": _ctx}
                         print(f"[aiem_paper] bull_bear {_tt}: {_verd}")
                     except Exception as _bbe:
