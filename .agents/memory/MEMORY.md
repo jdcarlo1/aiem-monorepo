@@ -1,3 +1,4 @@
+- [D14 post-run proof verifier](d14-verifier-wiring.md) — aiem_d14_verifier.py fires within 5 min of 9:42 run; 3 required events + SHA-256 chain; auto-retry + Telegram alert; 3 wiring points (log_finish, watchdog, retry fn)
 - [Directive 14 Tier-1 wiring](d14-tier1-wiring.md) — GARCH/VPIN/Hurst were ALL inert before D14; root cause + exact fix in topic; live-confirmation log tag: [D14_BULL_BEAR]
 - [G1 baseline hash isolation test](g1-baseline-hash-isolation.md) — _D3_BASELINE_HASH=None in standalone Python (d3_startup() never called); must seed from DB before any G1 ALLOW isolation test
 - [Paper trade recovery system](paper-trade-recovery-system.md) — exactly-once ledger, 3-step try_claim (stale CLAIMED+EXECUTING), >=1 dup gate, external watchdog in aiem-telegram, globals() forward-ref fix; live-proven July 15 2026

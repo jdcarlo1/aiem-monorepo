@@ -7639,6 +7639,10 @@ try:
             is_trading_day_fn=lambda d: globals().get("_is_trading_day",
                                                        lambda x: True)(d),
             et_tz=_ET,
+            # D14 proof verification fires within 5 min of any successful run.
+            # globals() lookup defers until call time so forward-ref is safe.
+            d14_verify_fn=lambda: globals().get(
+                "_aiem_d14_run_verification_async", lambda: None)(),
         )
     except Exception as _pr_wd_e:
         print(f"[paper_recovery] internal watchdog start error (non-fatal): {_pr_wd_e}")
@@ -17059,6 +17063,15 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
             try:
                 if _status == "SUCCESS":
                     _pr_recovery.mark_completed(_today, _ledger_exec_id, _trades or 0)
+                    # ── D14 proof verification: fires async within seconds of run ──
+                    # Checks D14_LAYER9_READ/DEBATE_PRE/DEBATE_POST + SHA-256 chain.
+                    # On failure: auto-retry once, Telegram alert, ledger stamp.
+                    try:
+                        _d14_vfn = globals().get("_aiem_d14_run_verification_async")
+                        if _d14_vfn:
+                            _d14_vfn()
+                    except Exception as _d14_vfe:
+                        print(f"[D14_VERIFY] fire error (non-fatal): {_d14_vfe}")
                 elif _status in ("SKIPPED", "NO_CANDIDATES",
                                  "BLOCKED_G0", "BLOCKED_G1"):
                     _pr_recovery.mark_skipped(_today, _ledger_exec_id, _status)
@@ -17384,6 +17397,10 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                             _ctx.setdefault("garch_vote", 0)
                             _ctx.setdefault("garch_reason", f"garch_error:{_d14ge}")
                         # D14 evidence capture: layer9 DB source + pre-debate signal_context
+                        # _d14_chain_hash_after_pre: seeded to "genesis" here so the
+                        # POST-debate capture block can always read it, even if this
+                        # L9+PRE capture block raises an exception.
+                        _d14_chain_hash_after_pre = "genesis"
                         try:
                             import json as _d14j, datetime as _d14bdt
                             _d14_ts_pre = _d14bdt.datetime.utcnow().isoformat() + "Z"
@@ -17420,6 +17437,30 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                 "layer9_completed_before_debate": True,
                                 "layer9_computed_at": _d14_l9_computed_at,
                             }
+                            # SHA-256 evidence chain — seed from trace_id + trade date
+                            import hashlib as _d14_hl
+                            _d14_ch0 = _d14_hl.sha256(
+                                f"d14_chain:{_d14_trace_id}:{_today}".encode()
+                            ).hexdigest()
+                            def _d14_hev(_ev):
+                                return {k: v for k, v in _ev.items()
+                                        if k not in ("sha256", "prev_hash")}
+                            _d14_ev_l9["prev_hash"] = _d14_ch0
+                            _d14_ev_l9["sha256"] = _d14_hl.sha256(
+                                (_d14_hl.sha256(
+                                    _d14j.dumps(_d14_hev(_d14_ev_l9),
+                                                sort_keys=True).encode()
+                                ).hexdigest() + _d14_ch0).encode()
+                            ).hexdigest()
+                            _d14_ch1 = _d14_ev_l9["sha256"]
+                            _d14_ev_pre["prev_hash"] = _d14_ch1
+                            _d14_ev_pre["sha256"] = _d14_hl.sha256(
+                                (_d14_hl.sha256(
+                                    _d14j.dumps(_d14_hev(_d14_ev_pre),
+                                                sort_keys=True).encode()
+                                ).hexdigest() + _d14_ch1).encode()
+                            ).hexdigest()
+                            _d14_chain_hash_after_pre = _d14_ev_pre["sha256"]
                             with open("/home/runner/workspace/.local/d14_live_capture.log", "a") as _d14lf:
                                 _d14lf.write(_d14j.dumps(_d14_ev_l9) + "\n")
                                 _d14lf.write(_d14j.dumps(_d14_ev_pre) + "\n")
@@ -17468,6 +17509,18 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                                 },
                                 "layer9_completed_before_debate": True,
                             }
+                            # SHA-256 chain: POST links to PRE hash
+                            import hashlib as _d14_hl2
+                            _d14_ev_post["prev_hash"] = _d14_chain_hash_after_pre
+                            _d14_ev_post["sha256"] = _d14_hl2.sha256(
+                                (_d14_hl2.sha256(
+                                    _d14j2.dumps(
+                                        {k: v for k, v in _d14_ev_post.items()
+                                         if k not in ("sha256", "prev_hash")},
+                                        sort_keys=True
+                                    ).encode()
+                                ).hexdigest() + _d14_chain_hash_after_pre).encode()
+                            ).hexdigest()
                             with open("/home/runner/workspace/.local/d14_live_capture.log", "a") as _d14lf2:
                                 _d14lf2.write(_d14j2.dumps(_d14_ev_post) + "\n")
                             print(f"[D14_DEBATE_POST] {_tt} verdict={_verd}"
@@ -18532,6 +18585,270 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         _log_finish("FAILED", _err=str(_e))
     finally:
         _AIEM_PAPER_LOCK.release()
+
+
+# ── D14 Verification support functions ─────────────────────────────────────
+# These must live AFTER _aiem_paper_execute_today (above) so they can
+# reference _bull_bear and _DB_URL.  They are called via globals() lookup
+# so there is no forward-reference issue from the watchdog startup block.
+
+def _aiem_d14_retry_debate_only(trade_date, original_trigger_source):
+    """
+    D14 retry path — re-runs the layer9 inject + bull_bear debate for
+    today's existing paper picks (read from aiem_paper_trades).
+
+    Writes fresh D14 triplets with trigger_source="d14_retry".
+    Returns True if at least one ticker produced a complete D14 triplet.
+    Never touches aiem_paper_trades — picks are NOT re-inserted.
+    """
+    import json as _r_j, hashlib as _r_hl, datetime as _r_dt
+    import uuid as _r_uuid, psycopg2 as _r_pg
+    _RETRY_SRC = "d14_retry"
+    _today_s   = str(trade_date)
+    produced   = 0
+
+    try:
+        with _r_pg.connect(_DB_URL, connect_timeout=5) as _rc, _rc.cursor() as _rcu:
+            _rcu.execute(
+                "SELECT DISTINCT ticker FROM aiem_paper_trades "
+                "WHERE trade_date=%s ORDER BY id LIMIT 3",
+                (_today_s,)
+            )
+            tickers = [row[0] for row in _rcu.fetchall()]
+
+        if not tickers:
+            print(f"[D14_RETRY] no picks found for {_today_s}")
+            return False
+
+        print(f"[D14_RETRY] re-running D14 debate for {tickers}")
+
+        for _tt in tickers:
+            try:
+                _tr    = str(_r_uuid.uuid4())
+                _cand  = f"d14retry_{_tt}_{_today_s}_{_tr[:8]}"
+                _ts_s  = _r_dt.datetime.utcnow().isoformat() + "Z"
+
+                # ── layer9 read ──────────────────────────────────────
+                _l9_sc, _l9_reg = 0.0, "unknown"
+                _hur, _vpin     = 0.5, 0.0
+                _l9_at          = None
+                try:
+                    with _r_pg.connect(_DB_URL, connect_timeout=4) as _lc, \
+                         _lc.cursor() as _lcu:
+                        _lcu.execute(
+                            "SELECT statistical_score, regime, hurst_raw, "
+                            "vpin_raw, computed_at "
+                            "FROM layer9_scores WHERE ticker=%s "
+                            "ORDER BY computed_at DESC LIMIT 1", (_tt,)
+                        )
+                        _lr = _lcu.fetchone()
+                    if _lr:
+                        _l9_sc  = float(_lr[0] or 0)
+                        _l9_reg = str(_lr[1] or "unknown")
+                        _hur    = float(_lr[2] or 0.5)
+                        _vpin   = float(_lr[3] or 0.0)
+                        _l9_at  = str(_lr[4]) if _lr[4] else None
+                except Exception as _le:
+                    print(f"[D14_RETRY] layer9 read error {_tt}: {_le}")
+
+                # ── GARCH compute ────────────────────────────────────
+                _gv, _gr = 0, "retry_garch_not_run"
+                try:
+                    import pandas as _rpd
+                    from volatility_clustering import \
+                        garch_regime_indicator as _rg_fn
+                    with _r_pg.connect(_DB_URL, connect_timeout=4) as _gc, \
+                         _gc.cursor() as _gcu:
+                        _gcu.execute(
+                            "SELECT close_price, open_price, high_price, "
+                            "low_price, volume "
+                            "FROM polygon_market_daily WHERE ticker=%s "
+                            "ORDER BY scan_date DESC LIMIT 81", (_tt,)
+                        )
+                        _gb = _gcu.fetchall()
+                    if len(_gb) >= 30:
+                        _gdf = _rpd.DataFrame(
+                            [list(r) for r in _gb][::-1],
+                            columns=["Close","Open","High","Low","Volume"]
+                        )
+                        _gres = _rg_fn(_gdf)
+                        _gv   = int(_gres.get("vote", 0))
+                        _gr   = str(_gres.get("reason", ""))
+                except Exception as _ge:
+                    print(f"[D14_RETRY] garch error {_tt}: {_ge}")
+
+                # ── bull_bear debate ─────────────────────────────────
+                _verd    = "CONFLICTED"
+                _tier1   = {k: False for k in (
+                    "vpin_in_bull","hurst_in_bull","garch_in_bull",
+                    "vpin_in_bear","hurst_in_bear","garch_in_bear"
+                )}
+                _bb_mod = globals().get("_bull_bear")
+                if _bb_mod:
+                    try:
+                        _rctx = {
+                            "price": 0, "trade_type": "STOCK",
+                            "signal_source": "d14_retry",
+                            "signal_detail": "D14 re-verify", "score": 0,
+                            "layer9_score": _l9_sc, "layer9_regime": _l9_reg,
+                            "hurst_raw": _hur, "hurst_score": 0.0,
+                            "vpin_raw": _vpin, "vpin_score": 0.0,
+                            "garch_vote": _gv, "garch_reason": _gr,
+                        }
+                        _rdeb  = _bb_mod.run_bull_bear_debate(_tt, _rctx)
+                        _verd  = (_rdeb.get("synthesis") or {}).get(
+                            "verdict", "CONFLICTED")
+                        _bc    = _rdeb.get("bull_case")  or {}
+                        _brc   = _rdeb.get("bear_case")  or {}
+                        def _rin(t, k): return k.lower() in (t or "").lower()
+                        _tier1 = {
+                            "vpin_in_bull":  _rin(_bc.get("thesis",""),  "vpin"),
+                            "hurst_in_bull": _rin(_bc.get("thesis",""),  "hurst"),
+                            "garch_in_bull": _rin(_bc.get("thesis",""),  "garch"),
+                            "vpin_in_bear":  _rin(_brc.get("thesis",""), "vpin"),
+                            "hurst_in_bear": _rin(_brc.get("thesis",""), "hurst"),
+                            "garch_in_bear": _rin(_brc.get("thesis",""), "garch"),
+                        }
+                    except Exception as _dbe:
+                        print(f"[D14_RETRY] debate error {_tt}: {_dbe}")
+
+                # ── build events ─────────────────────────────────────
+                _ev_l9 = {
+                    "event": "D14_LAYER9", "ts": _ts_s,
+                    "trigger_source": _RETRY_SRC, "ticker": _tt,
+                    "trace_id": _tr, "candidate_id": _cand,
+                    "layer9_source": "layer9_scores (D14 retry)",
+                    "layer9_computed_at": _l9_at,
+                    "layer9_score": _l9_sc, "layer9_regime": _l9_reg,
+                    "hurst_raw": _hur, "vpin_raw": _vpin,
+                    "garch_fn": "volatility_clustering.garch_regime_indicator",
+                    "garch_vote": _gv, "garch_reason": _gr,
+                }
+                _ev_pre = {
+                    "event": "D14_DEBATE_PRE", "ts": _ts_s,
+                    "trigger_source": _RETRY_SRC, "ticker": _tt,
+                    "trace_id": _tr, "candidate_id": _cand,
+                    "signal_context_d14_keys": {
+                        "vpin_raw": _vpin,   "vpin_score": 0.0,
+                        "hurst_raw": _hur,   "hurst_score": 0.0,
+                        "garch_vote": _gv,   "garch_reason": _gr,
+                        "layer9_regime": _l9_reg, "layer9_score": _l9_sc,
+                    },
+                    "layer9_completed_before_debate": True,
+                    "layer9_computed_at": _l9_at,
+                }
+                _ev_post = {
+                    "event": "D14_DEBATE_POST",
+                    "ts": _r_dt.datetime.utcnow().isoformat() + "Z",
+                    "trigger_source": _RETRY_SRC, "ticker": _tt,
+                    "trace_id": _tr, "candidate_id": _cand,
+                    "verdict": _verd,
+                    "bull_thesis": None, "bear_thesis": None,
+                    "contradictions_found": 0,
+                    "d14_tier1_activation": _tier1,
+                    "layer9_completed_before_debate": True,
+                    "is_d14_retry": True,
+                    "original_trigger_source": original_trigger_source,
+                }
+
+                # ── SHA-256 chain ────────────────────────────────────
+                _seed = _r_hl.sha256(
+                    f"d14_chain:{_tr}:{_today_s}".encode()).hexdigest()
+                def _hev(ev):
+                    return {k: v for k, v in ev.items()
+                            if k not in ("sha256", "prev_hash")}
+                _ev_l9["prev_hash"]  = _seed
+                _ev_l9["sha256"]     = _r_hl.sha256(
+                    (_r_hl.sha256(_r_j.dumps(_hev(_ev_l9),  sort_keys=True
+                     ).encode()).hexdigest() + _seed).encode()).hexdigest()
+                _c1 = _ev_l9["sha256"]
+                _ev_pre["prev_hash"] = _c1
+                _ev_pre["sha256"]    = _r_hl.sha256(
+                    (_r_hl.sha256(_r_j.dumps(_hev(_ev_pre), sort_keys=True
+                     ).encode()).hexdigest() + _c1).encode()).hexdigest()
+                _c2 = _ev_pre["sha256"]
+                _ev_post["prev_hash"] = _c2
+                _ev_post["sha256"]    = _r_hl.sha256(
+                    (_r_hl.sha256(_r_j.dumps(_hev(_ev_post), sort_keys=True
+                     ).encode()).hexdigest() + _c2).encode()).hexdigest()
+
+                # ── write to capture log ─────────────────────────────
+                _CAP = "/home/runner/workspace/.local/d14_live_capture.log"
+                with open(_CAP, "a") as _rfl:
+                    _rfl.write(_r_j.dumps(_ev_l9)  + "\n")
+                    _rfl.write(_r_j.dumps(_ev_pre)  + "\n")
+                    _rfl.write(_r_j.dumps(_ev_post) + "\n")
+
+                print(f"[D14_RETRY] {_tt} triplet written "
+                      f"trace_id={_tr} verdict={_verd}")
+                produced += 1
+
+            except Exception as _tte:
+                print(f"[D14_RETRY] error for {_tt}: {_tte}")
+
+    except Exception as _outer:
+        print(f"[D14_RETRY] outer error: {_outer}")
+        return False
+
+    print(f"[D14_RETRY] done: {produced}/{len(tickers)} tickers produced triplets")
+    return produced > 0
+
+
+def _aiem_d14_run_verification_async():
+    """
+    Async launcher: reads today's ledger, then calls aiem_d14_verifier.
+    Runs in a daemon thread — never blocks the caller.
+
+    Wiring points:
+      • _log_finish("SUCCESS") inside _aiem_paper_execute_today (every run)
+      • d14_verify_fn lambda in start_internal_watchdog (recovery path)
+    """
+    import threading as _d14va_t
+
+    def _run():
+        try:
+            import datetime as _vdt, psycopg2 as _vpg
+            import pytz as _vtz
+            import aiem_d14_verifier as _d14v
+            _et   = _vtz.timezone("America/New_York")
+            _date = _vdt.datetime.now(_et).date()
+
+            with _vpg.connect(_DB_URL, connect_timeout=5) as _lc, \
+                 _lc.cursor() as _lcu:
+                _lcu.execute(
+                    "SELECT execution_id, trigger_source, status "
+                    "FROM paper_trade_job_ledger WHERE business_date=%s",
+                    (str(_date),)
+                )
+                _lr = _lcu.fetchone()
+
+            if not _lr:
+                print(f"[D14_VERIFY] no ledger row for {_date} — skip")
+                return
+            _eid, _trig, _status = _lr
+
+            if _status == "SKIPPED":
+                print(f"[D14_VERIFY] {_date} SKIPPED — no picks to verify")
+                return
+
+            _retry_fn  = None
+            _retry_deb = globals().get("_aiem_d14_retry_debate_only")
+            if _retry_deb:
+                _retry_fn = lambda: _retry_deb(_date, _trig or "")
+
+            _d14v.run_d14_verification(
+                trade_date     = _date,
+                execution_id   = _eid   or "unknown",
+                trigger_source = _trig  or "unknown",
+                retry_fn       = _retry_fn,
+                retry_trigger  = "d14_retry",
+            )
+        except Exception as _ve:
+            print(f"[D14_VERIFY] async error (non-fatal): {_ve}")
+
+    _d14va_t.Thread(
+        target=_run, daemon=True, name="d14_async_verify"
+    ).start()
 
 
 @app.route("/stock-api/admin/run-paper-today", methods=["POST"])

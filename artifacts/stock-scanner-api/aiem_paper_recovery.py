@@ -381,13 +381,19 @@ def beat(business_date: datetime.date, execution_id: str):
         pass
 
 
-def start_internal_watchdog(execute_fn, is_trading_day_fn, et_tz):
+def start_internal_watchdog(execute_fn, is_trading_day_fn, et_tz,
+                            d14_verify_fn=None):
     """
     Protection #4 — internal watchdog (inside stock-api process).
 
     Wakes every 2 minutes. After 9:44 AM ET on a trading weekday, checks
     the DB ledger. If status is not terminal (COMPLETED or SKIPPED), calls
     execute_fn() which goes through try_claim() — exactly-once is preserved.
+
+    After execute_fn() completes (recovery path), calls d14_verify_fn() if
+    provided. d14_verify_fn checks D14_LAYER9_READ / D14_DEBATE_PRE /
+    D14_DEBATE_POST + SHA-256 chain; on failure it auto-retries once and
+    sends a Telegram alert.
 
     Also writes DB heartbeats for Protection #6.
     """
@@ -424,6 +430,14 @@ def start_internal_watchdog(execute_fn, is_trading_day_fn, et_tz):
                             execute_fn()
                         except Exception as exc:
                             print(f"[paper_watchdog_internal] recovery error: {exc}")
+                        # D14 verification: fires after any recovery attempt
+                        # (the fn itself checks ledger status and skips if SKIPPED)
+                        if d14_verify_fn:
+                            try:
+                                d14_verify_fn()
+                            except Exception as d14_exc:
+                                print(f"[paper_watchdog_internal] "
+                                      f"D14 verify error (non-fatal): {d14_exc}")
             except Exception as outer_exc:
                 print(f"[paper_watchdog_internal] loop error (non-fatal): {outer_exc}")
 
