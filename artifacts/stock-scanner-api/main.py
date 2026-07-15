@@ -18610,8 +18610,8 @@ def _aiem_d14_retry_debate_only(trade_date, original_trigger_source):
     try:
         with _r_pg.connect(_DB_URL, connect_timeout=5) as _rc, _rc.cursor() as _rcu:
             _rcu.execute(
-                "SELECT DISTINCT ticker FROM aiem_paper_trades "
-                "WHERE trade_date=%s ORDER BY id LIMIT 3",
+                "SELECT ticker FROM aiem_paper_trades "
+                "WHERE trade_date=%s GROUP BY ticker ORDER BY MIN(id) LIMIT 3",
                 (_today_s,)
             )
             tickers = [row[0] for row in _rcu.fetchall()]
