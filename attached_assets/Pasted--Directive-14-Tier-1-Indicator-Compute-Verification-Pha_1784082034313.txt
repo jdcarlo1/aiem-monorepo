@@ -1,0 +1,89 @@
+# Directive 14 — Tier 1 Indicator Compute Verification (Phase 1)
+
+## Purpose
+Before any wiring work begins (Directive 14 Phase 2+), prove that each Tier 1
+indicator's own computation is real and correct in isolation. Wiring a
+placeholder or dead calculation into `signal_context` just moves the
+`model_version=None` failure pattern to three new places. Compute integrity
+is a gate — wiring does not start until this phase passes.
+
+**Scope: GARCH, VPIN, Hurst Exponent only. Do not touch signal_context, the
+orchestrator loop, or bull_bear_debate in this phase. Standalone compute
+testing only.**
+
+---
+
+## What "proven to work" means, per indicator
+
+For each indicator, the agent must run the indicator's actual function
+directly (not through the live loop) against real historical/live market
+data for at least 3 different tickers, and report raw output showing:
+
+### 1. GARCH (volatility clustering / persistence)
+- Fitted parameters (alpha, beta, omega) from real return series — not
+  defaults, not hardcoded fallbacks
+- Confirm alpha + beta < 1 (stationarity condition) and both are non-zero
+- Confirm output changes across tickers and across time windows (same
+  ticker, two different date ranges should not produce identical output)
+- Raw grep: locate the function, confirm no hardcoded return path or
+  try/except that silently returns a default on failure
+
+### 2. VPIN (order flow toxicity)
+- Value falls within expected [0,1] range
+- Confirm it varies meaningfully across tickers (a toxicity score identical
+  across unrelated tickers is a red flag)
+- Confirm the input data feeding it is genuine trade/volume data, not a
+  stale or mocked source — raw SQL or raw API response showing the input
+- Raw grep: confirm no hardcoded/default value path
+
+### 3. Hurst Exponent (trending vs. mean-reverting regime)
+- Value falls within expected [0,1] range
+- Confirm it is not stuck at 0.5 (the "no information" default) across all
+  test cases — if it is always ~0.5, that's a sign the calc is falling
+  back to a default, not genuinely computing
+- Confirm it varies across tickers/time windows
+- Raw grep: locate calculation, confirm real windowing/lookback logic vs.
+  placeholder
+
+---
+
+## Standing verification block (non-negotiable, applies to every item above)
+No task is complete based on description alone. Required for each indicator:
+1. Raw terminal output of actual execution — including raw grep output for
+   any claim about code location, call chain, or default/fallback logic.
+   Never paraphrase what grep would show.
+2. Exact before/after file diff (if any code was touched to expose
+   testability — e.g., adding a standalone test harness)
+3. sha256 hash before/after for any changed files
+4. Raw SQL query + full result set for any DB-sourced input data
+5. Narrative claims of "verified," "confirmed," "works" without pasted raw
+   evidence are rejected. Agent must explicitly say if it cannot produce
+   evidence for a given item.
+
+## Standing Data Immutability Rule
+No deletion, truncation, or overwrite of any row/table/file — including
+test/synthetic data — without Joel's explicit prior approval in-session.
+
+## Standing Evidence Chain Protocol
+All evidence-producing commands run through `verified_run.sh`
+(sha256 72824bfe...24abd), validated via `verify_chain.sh`
+(sha256 7294abeb...1fbec7) before declaring this phase complete. Paste the
+verify_chain.sh output. Note: this proves internal log consistency only,
+not that commands ran against real production data — Joel will
+spot-check independently.
+
+---
+
+## Gate to Phase 2 (wiring)
+Phase 2 (wiring GARCH/VPIN/Hurst into `bull_bear_debate.signal_context`)
+does not begin until:
+- All three indicators have raw, non-default, cross-ticker-varying output
+  confirmed per above
+- Any indicator that fails this test gets a separate remediation item —
+  it does NOT get wired "as-is with a caveat"
+
+## Explicitly out of scope for this phase
+- Tier 2 (Options Structure, Gamma, Skew) and Tier 3 (RSI, Momentum, Trend)
+  — held until Tier 1 fully clears both compute verification and wiring
+- Any change to signal_context, orchestrator loop, or live per-ticker path
+- The aiem_signal_discoveries schema bug (separate standing Priority 1 item)
