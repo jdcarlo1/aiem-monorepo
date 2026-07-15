@@ -2405,6 +2405,98 @@ def main():
                      name="aiem-process-watchdog").start()
     # ────────────────────────────────────────────────────────────────────────
 
+    # ── Protection #5: external paper trade watchdog ─────────────────────────
+    # Runs in THIS process (aiem-telegram, a completely different process from
+    # stock-api), satisfying the "external watchdog" protection requirement.
+    # Polls the DB ledger every 2 min. After 9:46 AM ET, if no terminal status,
+    # POSTs to the stock-api admin endpoint to trigger recovery execution.
+    def _paper_trade_watchdog():
+        import time as _ptw_t, json as _ptw_j, urllib.request as _ptw_req
+        import urllib.error as _ptw_err, datetime as _ptw_dt
+        _PTW_LOG = "/home/runner/workspace/.local/paper_watchdog.log"
+        _PTW_ADMIN = os.getenv("ADMIN_TOKEN", "")
+        _PTW_PORT  = os.getenv("PORT", "5050")
+
+        def _ptw_log(ev):
+            ev.setdefault("ts", _ptw_dt.datetime.utcnow().isoformat() + "Z")
+            ev.setdefault("pid", os.getpid())
+            msg = _ptw_j.dumps(ev)
+            try:
+                os.makedirs(os.path.dirname(_PTW_LOG), exist_ok=True)
+                with open(_PTW_LOG, "a") as _f:
+                    _f.write(msg + "\n")
+            except Exception:
+                pass
+
+        def _ptw_ledger(ds):
+            try:
+                _ptw_conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+                _ptw_cur  = _ptw_conn.cursor()
+                _ptw_cur.execute("SELECT status FROM paper_trade_job_ledger "
+                                 "WHERE business_date=%s", (ds,))
+                _r = _ptw_cur.fetchone()
+                _ptw_cur.close(); _ptw_conn.close()
+                return _r[0] if _r else "PENDING"
+            except Exception as _e2:
+                return "DB_ERROR"
+
+        def _ptw_trigger(note):
+            try:
+                url = f"http://localhost:{_PTW_PORT}/stock-api/admin/run-paper-today"
+                req = _ptw_req.Request(
+                    url,
+                    data=_ptw_j.dumps({"trigger_source": "external_watchdog",
+                                        "note": note}).encode(),
+                    headers={"Content-Type": "application/json",
+                             "X-Admin-Token": _PTW_ADMIN,
+                             "X-Trigger-Source": "external_watchdog"},
+                    method="POST",
+                )
+                with _ptw_req.urlopen(req, timeout=60) as _resp:
+                    _ptw_log({"event": "TRIGGER_SENT", "http": _resp.status, "note": note})
+                return True
+            except _ptw_err.HTTPError as _he:
+                _ptw_log({"event": "TRIGGER_HTTP_ERROR", "code": _he.code, "note": note})
+            except Exception as _te:
+                _ptw_log({"event": "TRIGGER_ERROR", "error": str(_te), "note": note})
+            return False
+
+        _ptw_t.sleep(90)
+        _ptw_et = _ptw_dt.timezone(_ptw_dt.timedelta(hours=-4))  # ET (EDT)
+        log.info("[paper-watchdog] external paper trade watchdog started (2-min poll)")
+        _ptw_log({"event": "EXTERNAL_WATCHDOG_STARTED", "pid": os.getpid()})
+        while True:
+            try:
+                import pytz as _ptw_pytz
+                _ptw_et = _ptw_pytz.timezone("America/New_York")
+                _now = _ptw_dt.datetime.now(_ptw_et)
+                _ds  = str(_now.date())
+                _h, _m = _now.hour, _now.minute
+                is_wday  = _now.weekday() < 5
+                past_946 = (_h > 9) or (_h == 9 and _m >= 46)
+                before_4 = _h < 16
+                if is_wday and past_946 and before_4:
+                    _status = _ptw_ledger(_ds)
+                    terminal = {"COMPLETED", "SKIPPED"}
+                    if _status not in terminal and _status != "DB_ERROR":
+                        _note = f"{_ds} ledger={_status} at {_h:02d}:{_m:02d} ET"
+                        log.warning(f"[paper-watchdog] RECOVERY TRIGGER: {_note}")
+                        _ptw_log({"event": "WATCHDOG_RECOVERY_TRIGGERED",
+                                  "date": _ds, "ledger_status": _status,
+                                  "time_et": f"{_h:02d}:{_m:02d}"})
+                        _ptw_trigger(_note)
+                    else:
+                        _ptw_log({"event": "WATCHDOG_CHECK_OK", "date": _ds,
+                                  "ledger_status": _status,
+                                  "time_et": f"{_h:02d}:{_m:02d}"})
+            except Exception as _pe:
+                log.error(f"[paper-watchdog] loop error: {_pe}")
+            _ptw_t.sleep(120)
+
+    threading.Thread(target=_paper_trade_watchdog, daemon=True,
+                     name="paper-trade-watchdog").start()
+    # ────────────────────────────────────────────────────────────────────────
+
     # ── Startup catch-up ────────────────────────────────────────────────────
     # If this process restarts after the scheduled send time (e.g. due to a
     # redeploy during the auditor or any other restart), fire missed briefs

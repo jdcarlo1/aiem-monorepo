@@ -1,5 +1,6 @@
 - [Directive 14 Tier-1 wiring](d14-tier1-wiring.md) — GARCH/VPIN/Hurst were ALL inert before D14; root cause + exact fix in topic; live-confirmation log tag: [D14_BULL_BEAR]
 - [G1 baseline hash isolation test](g1-baseline-hash-isolation.md) — _D3_BASELINE_HASH=None in standalone Python (d3_startup() never called); must seed from DB before any G1 ALLOW isolation test
+- [Paper trade recovery system](paper-trade-recovery-system.md) — exactly-once ledger, 3-step try_claim (stale CLAIMED+EXECUTING), >=1 dup gate, external watchdog in aiem-telegram, globals() forward-ref fix; live-proven July 15 2026
 - [Scheduler run audit table](scheduler-run-audit.md) — scheduler_run_audit tracks every 9:42 AM paper-trading outcome (EXECUTED/RECOVERED/SKIPPED); wired at two points in main.py; after-hours silent-skip was the only gap
 - [Probability Engine polygon fallback](probability-engine-polygon-fallback.md) — ai_short_calls_log has 0 rows total; live_query.py polygon fallback wired for stage 13; all options features imputed; scan_date is polygon_market_daily's date col
 - [mkt backfill blocking module load](mkt-backfill-blocking-load.md) — _mkt_backfill_indicators_all() was inline at module level → 4-min load block; moved to daemon thread; _MODULE_FULLY_LOADED gate pattern for startup_catchup + admin endpoints

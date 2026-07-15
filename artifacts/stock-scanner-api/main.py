@@ -7630,6 +7630,18 @@ try:
     print("[discovery_cycle] scheduled — daily: Mon-Fri 17:30 ET | GP weekly: Mon 17:35 ET")
 
     _scheduler.start()
+    # ── Protection #4: internal paper trade watchdog ────────────────────────
+    try:
+        import aiem_paper_recovery as _pr_wd_mod
+        _pr_wd_mod.start_internal_watchdog(
+            execute_fn=lambda: _aiem_paper_execute_today(
+                trigger_source="internal_watchdog"),
+            is_trading_day_fn=lambda d: globals().get("_is_trading_day",
+                                                       lambda x: True)(d),
+            et_tz=_ET,
+        )
+    except Exception as _pr_wd_e:
+        print(f"[paper_recovery] internal watchdog start error (non-fatal): {_pr_wd_e}")
     # reconcile_orphaned_sessions is defined later in the file; defer so the
     # full module finishes loading before the function is looked up.
     import threading as _rt_sched
@@ -7796,6 +7808,50 @@ try:
     import threading as _thr_su
     _thr_su.Thread(target=_startup_catchup, daemon=True).start()
     print("[startup_catchup] catch-up checker scheduled (runs in 90s if today's data is missing)")
+
+    # ── Protection #3: paper trade startup reconciler (independent) ─────────
+    # Runs as its own thread, independent of the startup_catchup unusual-calls/
+    # microcap scans. Waits 45 s for DB to settle, then checks the ledger
+    # directly. No inter-scan stagger delays on the paper trade path — so a
+    # VM restart during the 9:42 AM window is caught within ~55 s of boot
+    # instead of potentially waiting for module load + other scans to finish.
+    def _paper_startup_reconciler():
+        import time as _psr_t, datetime as _psr_dt, pytz as _psr_pytz
+        _psr_t.sleep(45)
+        try:
+            _psr_et  = _psr_pytz.timezone("America/New_York")
+            _psr_now = _psr_dt.datetime.now(_psr_et)
+            if _psr_now.weekday() >= 5 or not (9 <= _psr_now.hour < 16):
+                return
+            for _ in range(120):   # wait up to 20 min for full load
+                if globals().get("_MODULE_FULLY_LOADED"):
+                    break
+                _psr_t.sleep(10)
+            if not globals().get("_MODULE_FULLY_LOADED"):
+                print("[paper_startup_reconciler] module load timeout — skipping")
+                return
+            try:
+                import aiem_paper_recovery as _psr_pr
+                _psr_status = _psr_pr.get_today_status(_psr_now.date())
+                if _psr_status.get("status") in ("COMPLETED", "SKIPPED"):
+                    print(f"[paper_startup_reconciler] already "
+                          f"{_psr_status['status']} — no action needed")
+                    return
+                if _psr_status.get("status") == "EXECUTING":
+                    print("[paper_startup_reconciler] EXECUTING in progress — no action")
+                    return
+            except Exception as _psr_le:
+                print(f"[paper_startup_reconciler] ledger check error: {_psr_le}")
+            print(f"[paper_startup_reconciler] no terminal run for {_psr_now.date()} "
+                  f"— triggering startup_recovery")
+            _aiem_paper_execute_today(trigger_source="startup_recovery")
+            print("[paper_startup_reconciler] startup_recovery complete")
+        except Exception as _psr_e:
+            print(f"[paper_startup_reconciler] error: {_psr_e}")
+    import threading as _psr_thr
+    _psr_thr.Thread(target=_paper_startup_reconciler, daemon=True,
+                    name="paper_startup_reconciler").start()
+    print("[paper_startup_reconciler] launched — independent paper trade check at T+45s")
 
     # ── Instant cache preload ───────────────────────────────────────────────
     # Runs 5 s after boot (just enough for DB connections to settle).
@@ -16796,8 +16852,33 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         print(f"[aiem_paper] skipping — not a NYSE trading day ({_today.strftime('%A %Y-%m-%d')})")
         return
 
+    # ── Protection #9: DB ledger atomic claim (cross-process exactly-once) ──
+    # Exactly one row per business date (UNIQUE constraint). The INSERT …
+    # ON CONFLICT DO NOTHING ensures only ONE caller among scheduler /
+    # startup_recovery / internal_watchdog / external_watchdog / admin can
+    # ever execute on a given day.  try_claim() also handles crash-after-claim:
+    # a CLAIMED row >10 min old is stolen for recovery (Protection #3/#4/#5/#8).
+    import uuid as _pr_uuid
+    _ledger_exec_id = f"paper_{_pr_uuid.uuid4().hex[:16]}"
+    _pr_recovery = None
+    try:
+        import aiem_paper_recovery as _pr_recovery
+        _pr_recovery.mark_readiness(_today, trigger_source)   # Protection #7
+        if not _pr_recovery.try_claim(_today, _ledger_exec_id, trigger_source):
+            return  # another caller already owns today's execution (dedup)
+        _pr_recovery.mark_started(_today, _ledger_exec_id)
+    except Exception as _pr_claim_e:
+        print(f"[aiem_paper] ledger claim error (non-fatal, in-process lock fallback): {_pr_claim_e}")
+        _ledger_exec_id = None
+
     if not _AIEM_PAPER_LOCK.acquire(blocking=False):
         print("[aiem_paper] already executing — concurrent call rejected")
+        if _ledger_exec_id and _pr_recovery:
+            try:
+                _pr_recovery.mark_failed(_today, _ledger_exec_id,
+                                         "lock_contention_after_claim")
+            except Exception:
+                pass
         # Previously a fully silent no-op (print only, no DB trace). Now writes
         # an honest SKIPPED_LOCK_HELD row so "did it run, fail, or never fire"
         # is never ambiguous again — this is the exact gap that made the
@@ -16889,6 +16970,12 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 )
             except Exception as _g0_tg_e:
                 print(f"[Guard B] Telegram alert failed: {_g0_tg_e}")
+        # Mark ledger SKIPPED so watchdog does not retry a governed halt
+        if _ledger_exec_id and _pr_recovery:
+            try:
+                _pr_recovery.mark_skipped(_today, _ledger_exec_id, "BLOCKED_G0")
+            except Exception:
+                pass
         _AIEM_PAPER_LOCK.release()
         return {
             "blocked": True,
@@ -16964,12 +17051,28 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 _lc.commit()
         except Exception as _le:
             print(f"[aiem_paper] exec log finish error: {_le}")
+        # ── Protection #8: post-run ledger update ──────────────────────────
+        # Transitions ledger row from EXECUTING → terminal status.
+        # COMPLETED/SKIPPED → watchdog stops retrying this date.
+        # FAILED → watchdog will attempt recovery on next poll (within 2 min).
+        if _ledger_exec_id and _pr_recovery:
+            try:
+                if _status == "SUCCESS":
+                    _pr_recovery.mark_completed(_today, _ledger_exec_id, _trades or 0)
+                elif _status in ("SKIPPED", "NO_CANDIDATES",
+                                 "BLOCKED_G0", "BLOCKED_G1"):
+                    _pr_recovery.mark_skipped(_today, _ledger_exec_id, _status)
+                else:
+                    _pr_recovery.mark_failed(_today, _ledger_exec_id,
+                                             _err or _status or "unknown")
+            except Exception as _pr_lf_e:
+                print(f"[aiem_paper] ledger post-run update error (non-fatal): {_pr_lf_e}")
 
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE trade_date = %s", (_today,))
-            if _cu.fetchone()[0] >= 20:
-                print(f"[aiem_paper] already executed for {_today}, skipping")
+            if _cu.fetchone()[0] >= 1:
+                print(f"[aiem_paper] already executed for {_today} (picks exist) — skipping duplicate")
                 _log_finish("SKIPPED", _trades=0)
                 return
 
@@ -56391,6 +56494,15 @@ def _init_polygon_rvol_scan_table():
         print(f"[init_polygon_rvol_scan] schema init skipped: {_e}")
 
 _DEFERRED_INITS.append(lambda: _init_polygon_rvol_scan_table())
+
+
+def _init_paper_recovery_schema():
+    try:
+        import aiem_paper_recovery as _pr_init
+        _pr_init.init_schema()
+    except Exception as _e:
+        print(f"[paper_recovery] schema init error: {_e}")
+_DEFERRED_INITS.append(_init_paper_recovery_schema)
 
 
 def _run_layer9_bg_scan():
