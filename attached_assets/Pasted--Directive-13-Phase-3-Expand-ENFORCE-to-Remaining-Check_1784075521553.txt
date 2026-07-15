@@ -1,0 +1,61 @@
+# Directive 13 — Phase 3: Expand ENFORCE to Remaining Checkpoints (G6, G2, G1, G0)
+
+## Context
+
+Phase 2 proved, with live evidence, that G3 in ENFORCE mode produces correct BLOCK/ALLOW behavior, matches its SHADOW-mode predictions, and that Guard B fires correctly on a real BLOCK. G0, G1, G6, and G2 are still in SHADOW mode as of the start of this phase.
+
+This phase expands ENFORCE to the remaining 4 checkpoints, one at a time, in this order: **G6 → G2 → G1 → G0** (roughly reverse-distance-from-trade-execution — G6/G2 are per-candidate checks closer to execution; G1/G0 are once-per-batch checks that, if misbehaving, could affect the entire day's run rather than a single candidate).
+
+Joel may override this ordering; if so, the agent should record Joel's chosen order explicitly before proceeding.
+
+## Per-checkpoint procedure (repeat for G6, then G2, then G1, then G0)
+
+**Step A — Pre-flip check**
+Raw SQL query of `d3_checkpoint_config` to confirm the target checkpoint's current mode (should be SHADOW) and that all previously-flipped checkpoints remain in ENFORCE (no unintended drift).
+
+**Step B — Confirm rollback works for this checkpoint**
+Before flipping, confirm a rollback command exists and is instant for this specific checkpoint (same pattern proven for G3 in Phase 1). Do not assume the Phase 1 rollback mechanism automatically covers other checkpoints — verify per-checkpoint.
+
+**Step C — Flip to ENFORCE**
+```sql
+UPDATE d3_checkpoint_config SET mode='ENFORCE', updated_by='directive13_phase3' WHERE checkpoint=<checkpoint>;
+```
+Confirm via raw SQL that the row now shows `mode='ENFORCE'`.
+
+**Step D — Run one live paper cycle**
+Same verification approach as Phase 2 Tasks 2–6, applied to this checkpoint: confirm real BLOCKs are written and the candidate/batch is actually skipped, confirm ALLOWs proceed normally, confirm no regression vs. this checkpoint's own SHADOW-mode baseline.
+
+For G0 and G1 specifically (once-per-batch scope): pay particular attention to whether a BLOCK at this checkpoint halts the entire day's batch rather than a single candidate. Confirm this is the intended behavior before treating the flip as successful — a batch-level BLOCK has much larger consequences than a candidate-level one, and Joel should explicitly confirm he wants this behavior live before Step C for G0/G1.
+
+**Step E — Halt-and-report on any discrepancy**
+If any checkpoint's ENFORCE-mode behavior doesn't match its SHADOW-mode prediction, or produces an unexpected batch-level halt, stop immediately, roll back that checkpoint to SHADOW using the Step B mechanism, and report to Joel rather than proceeding to the next checkpoint.
+
+## Explicit gating condition
+
+Do not proceed to the next checkpoint in the sequence until the current checkpoint's Step D verification is complete and clean. Do not flip more than one checkpoint at a time.
+
+## Verification Block (required for every step above, per checkpoint)
+
+No task is complete based on description alone. For each checkpoint's flip and verification, the agent must provide:
+
+1. Raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists — never paraphrase what grep would show.
+2. Exact before/after file diff for any code changed (none expected — flag immediately if a code change becomes necessary for any checkpoint).
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set for every DB claim (checkpoint mode, decisions written, batch-level effects).
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. The agent must explicitly say if it cannot produce evidence for any claim.
+
+## Data Immutability Rule
+
+The agent may never delete, truncate, drop, or overwrite any row, table, or file — including data it created itself or labels "test"/"synthetic"/"cleanup" — without Joel's explicit prior approval in that session. The agent must state what it wants to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Evidence Chain Protocol
+
+All evidence-producing commands in this directive must be run through `verified_run.sh`, not run directly. The agent must validate the resulting log with `verify_chain.sh` before declaring any checkpoint or this directive complete, and must paste that script's raw output. This supplements, not replaces, the raw-evidence Verification Block above. Note: this proves internal log consistency only — not that commands were genuinely executed against the real production DB. Joel should periodically spot-check by independently re-running a sampled command himself.
+
+## Definition of done for Phase 3
+
+- G6, G2, G1, and G0 are each individually confirmed in ENFORCE mode via raw SQL.
+- Each checkpoint has at least one clean, evidence-backed live paper cycle showing correct BLOCK/ALLOW behavior with no regression from its SHADOW-mode baseline.
+- Any batch-level halt behavior (from G0/G1) has been explicitly confirmed as intended by Joel before being left live.
+- No checkpoint was flipped without the prior checkpoint's verification being complete first.

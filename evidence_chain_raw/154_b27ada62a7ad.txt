@@ -1,0 +1,1 @@
+set_d3_checkpoint_mode result: {'checkpoint': 'G6', 'old_mode': 'SHADOW', 'new_mode': 'ENFORCE', 'changed_by': 'directive13_phase3'}

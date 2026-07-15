@@ -1,0 +1,2 @@
+[G6 ENFORCE BLOCK test] polygon_fallback+stale: BLOCK would_block: True mode: ENFORCE enforcement_status: ENFORCED reason_codes: ['PRICE_STALE_FALLBACK'] db_error: None
+[G6 ENFORCE BLOCK test] PASS

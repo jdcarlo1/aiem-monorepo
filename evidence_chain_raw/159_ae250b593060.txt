@@ -1,0 +1,2 @@
+[G6 fail-open test] result: ALLOW reason_codes: ['G6_INTERNAL_EXCEPTION_FAIL_OPEN:RuntimeError']
+[G6 fail-open test] PASS — exception path returns ALLOW as designed

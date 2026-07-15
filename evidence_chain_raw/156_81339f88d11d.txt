@@ -1,0 +1,2 @@
+[G6 ENFORCE ALLOW test] live_quote: ALLOW would_block: False mode: ENFORCE enforcement_status: NOT_ENFORCED reason_codes: ['PIT_OK'] db_error: None
+[G6 ENFORCE ALLOW test] PASS

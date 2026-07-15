@@ -1,0 +1,2 @@
+[G6 ENFORCE UNKNOWN_DATE test] polygon_fallback+None: BLOCK reason_codes: ['PRICE_PROVENANCE_UNKNOWN_DATE']
+[G6 ENFORCE UNKNOWN_DATE test] PASS

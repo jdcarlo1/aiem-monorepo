@@ -1,0 +1,10 @@
+ checkpoint |  mode   |     updated_by     |          updated_at           
+------------+---------+--------------------+-------------------------------
+ G0         | SHADOW  | directive6_govtest | 2026-07-12 21:46:45.949178+00
+ G1         | SHADOW  | SYSTEM_STARTUP     | 2026-07-11 06:00:45.16722+00
+ G2         | SHADOW  | SYSTEM_STARTUP     | 2026-07-11 06:00:45.16722+00
+ G3         | ENFORCE | directive13        | 2026-07-14 20:00:23.550951+00
+ G4         | SHADOW  | SYSTEM_STARTUP     | 2026-07-11 06:00:45.16722+00
+ G5         | SHADOW  | SYSTEM_STARTUP     | 2026-07-11 06:00:45.16722+00
+ G6         | ENFORCE | directive13_phase3 | 2026-07-15 00:39:28.319886+00
+(7 rows)
