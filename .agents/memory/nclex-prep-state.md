@@ -89,10 +89,10 @@ Removing this normalization will cause blank page crashes in the quiz.
 - 'multiple': correctLetter = sorted comma-separated letters "A,C,D"; server and client both sort before comparing
 - 'ordered': correctLetter = correct sequence of item letters e.g. "C,B,A,D,E"; direct string compare after sorting both sides
 
-## Question Bank State (updated 2026-05-29)
-- 59 nursing school categories total (9 in assessments array)
-- Production question count: **2,778** (confirmed via /api/questions endpoint)
-- Next question number to use: **Q2304**
+## Question Bank State (updated 2026-07-15)
+- 70+ nursing school categories (38 new tabs added July 2026)
+- Production question count: **~2,300+** after July 2026 re-seed (exact count via /api/questions)
+- Next question number to use: **Q2310** (safe starting point after re-seed)
 - Assessment categories seeded (410 questions):
   - Assessment: Cardiac — Q1894–Q1943 (50q)
   - Assessment: Respiratory — Q1944–Q1993 (50q)
@@ -111,8 +111,20 @@ Removing this normalization will cause blank page crashes in the quiz.
 
 ## Admin Seeding
 - Endpoint: POST https://nclexai.org/api/admin/seed-questions
-- Header: x-admin-secret: nclexai-admin-2026
+- Header: x-admin-secret: value of `ADMIN_TOKEN` env var (NOT hardcoded "nclexai-admin-2026" — that gives 401)
+- Use `os.environ["ADMIN_TOKEN"]` in Python; never hardcode the secret
 - Always use Python urllib (not bash curl) to avoid apostrophe/shell escaping issues
+- Seed endpoint uses `onConflictDoNothing()` on PK only — question_number has NO unique constraint, so
+  duplicate q-numbers are safe (multiple rows can share the same question_number)
+- Model that works for seeding: gpt-5.4, max_completion_tokens=1500, 5q per call max
+  (use 3q per call for NGN: Trend/Graphic — those questions are longer and truncate at 5)
+- Parallel seeding: up to 5 concurrent workers before hitting 429 rate limits; use 2-3 for safety
+
+## Data-Loss Prevention (added 2026-07-15)
+- lib/db/drizzle.config.ts tablesFilter = ["sessions", "affiliates"] — questions NOT in list
+  This prevents Drizzle migrations from ever DROP/ALTER/recreating the questions table again
+- Verification script: scripts/verify-nclex-db.sh — checks all 70+ categories, exits 1 if any empty
+  Run after every publish: bash scripts/verify-nclex-db.sh
 
 ## nursing-school.tsx Array Structure
 fundamentals (1), medsurg (9), infectiousDisease (2), specialtyNursing (6), advancedPractice (2),

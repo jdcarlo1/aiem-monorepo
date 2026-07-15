@@ -596,7 +596,7 @@ const ngnFormats = [
     iconBg: "bg-violet-100",
   },
   {
-    category: "NGN Case Studies",
+    category: "NGN - Clinical Judgment",
     label: "NGN Case Studies",
     icon: <ClipboardList className="w-6 h-6" />,
     questions: 30,
@@ -668,7 +668,7 @@ const ngnFormats = [
 
 const hematologic = [
   {
-    category: "Hematologic Disorders",
+    category: "Hematology-Oncology",
     label: "Hematologic Disorders",
     icon: <Droplets className="w-6 h-6" />,
     questions: 30,
