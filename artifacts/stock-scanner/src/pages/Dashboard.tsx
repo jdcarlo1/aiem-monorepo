@@ -16709,6 +16709,8 @@ export default function Dashboard() {
     { id: "watchlist",   label: "📌 MY WATCHLIST" },
     { id: "insiderradar",    label: "🕵️ INSIDER RADAR" },
     { id: "unusualcalls",    label: "🚨 UNUSUAL CALLS" },
+    { id: "unusualputs",     label: "🔴 UNUSUAL PUTS" },
+    { id: "bearflow",        label: "🐻 BEAR FLOW" },
     { id: "unusualcallslog", label: "📋 CALLS LOG" },
     { id: "smpressure",       label: "🔥 SMART MONEY PRESSURE" },
     { id: "convictionstack", label: "🎯 8-LAYER CONVICTION" },
@@ -16756,8 +16758,6 @@ export default function Dashboard() {
     { id: "quantagent",     label: "🤖 QUANT AGENT" },
     { id: "gasboard",       label: "⚡ GAS BOARD" },
     { id: "signalintel",    label: "🔬 SIGNAL INTEL" },
-    { id: "unusualputs",    label: "🔴 UNUSUAL PUTS" },
-    { id: "bearflow",       label: "🐻 BEAR FLOW" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
