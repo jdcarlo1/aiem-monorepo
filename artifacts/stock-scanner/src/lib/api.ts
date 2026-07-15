@@ -2595,3 +2595,89 @@ export interface CandlestickConfluenceResult {
 export function fetchCandlestickConfluence(): Promise<CandlestickConfluenceResult> {
   return fetchJson<CandlestickConfluenceResult>("/candlestick-confluence");
 }
+
+export interface UnusualPut {
+  ticker:        string;
+  price:         number;
+  strike:        number;
+  expiry:        string;
+  days_out:      number;
+  volume:        number;
+  oi:            number;
+  vol_oi:        number;
+  prem:          number;
+  otm_pct:       number;
+  iv:            number;
+  urgency:       "EXPIRING" | "NEAR" | "SHORT";
+  fill_side:     "BUY" | "SALE" | "UNKNOWN";
+  oi_direction:  "INCREASING" | "DECREASING" | "FLAT" | "UNKNOWN";
+  spread_flag:   boolean;
+  closing_flag:  boolean;
+  unusual_score: number;
+  data_age_min:  number | null;
+  first_seen?:   string;
+  detected_label?: string;
+  score_breakdown: {
+    vol_oi_pts:     number;
+    prem_pts:       number;
+    urgency_pts:    number;
+    otm_pts:        number;
+    spread_penalty: number;
+    total:          number;
+  };
+}
+
+export interface UnusualPutsResult {
+  hits:    UnusualPut[];
+  total:   number;
+  scanned: number;
+  stale?:  boolean;
+  note?:   string;
+}
+
+export function fetchUnusualPuts() {
+  return fetchJson<UnusualPutsResult>("/unusual-puts");
+}
+
+export interface BearFlowRow {
+  ticker:             string;
+  bearish_score:      number;
+  label:              string;
+  confidence:         string;
+  bearish_premium:    number;
+  total_bearish_prem: number;
+  top_strike:         number;
+  expiry:             string;
+  otm_pct:            number;
+  iv:                 number;
+  vpin:               number;
+  hurst:              number;
+  regime:             string;
+  rvol:               number;
+  pct_change:         number;
+  signal_count:       number;
+  session_days:       number;
+  spread_flag:        boolean;
+  technical_signals:  string[];
+  score_breakdown: {
+    put_flow:    number;
+    regime:      number;
+    technical:   number;
+    smart_money: number;
+    composite:   number;
+    put_flow_detail:    { vol_oi_pts: number; prem_pts: number; multi_pts: number; spread_penalty: number };
+    regime_detail:      { vpin: number; hurst: number; l9_score: number; regime: string };
+    tech_detail:        { pct_change: number; rvol: number; max_iv: number };
+    smart_money_detail: { session_days: number; cumul_prem_m: number };
+  };
+}
+
+export interface BearFlowResult {
+  results:      BearFlowRow[];
+  total:        number;
+  last_updated: string;
+}
+
+export function fetchBearFlow() {
+  return fetchJson<BearFlowResult>("/bear-flow");
+}

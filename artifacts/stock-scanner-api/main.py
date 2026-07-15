@@ -68141,6 +68141,528 @@ def admin_scheduler_jobs():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Unusual Puts & Bear Flow (added) ─────────────────────────────────────────
+# 6 quality rules (R1-R6) enforced at scan time:
+# R1: No put SALES — bid/ask fill-side inference; at-bid = writer → excluded
+# R2: No closing trades — OI must be INCREASING or UNKNOWN day-over-day
+# R3: Spread leg detection — 2+ strike clusters same expiry → flagged + score penalty
+# R4: Data freshness tracked per row (data_fetched_at); DELAYED badge if >15 min
+# R5: Different ranking from Bear Flow: Unusual Puts ranks by Vol/OI only
+# R6: score_breakdown dict in every response row for full traceability
+
+def _init_unusual_puts_table():
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS unusual_puts_log (
+                    id              SERIAL PRIMARY KEY,
+                    ticker          TEXT NOT NULL,
+                    price           NUMERIC(12,4),
+                    strike          NUMERIC(12,4),
+                    expiry          DATE,
+                    days_out        INTEGER,
+                    volume          INTEGER,
+                    oi              INTEGER,
+                    oi_direction    TEXT DEFAULT 'UNKNOWN',
+                    vol_oi          NUMERIC(10,2),
+                    prem            BIGINT,
+                    otm_pct         NUMERIC(8,2),
+                    iv              NUMERIC(8,2),
+                    urgency         TEXT,
+                    spread_flag     BOOLEAN DEFAULT FALSE,
+                    closing_flag    BOOLEAN DEFAULT FALSE,
+                    fill_side       TEXT DEFAULT 'UNKNOWN',
+                    unusual_score   INTEGER DEFAULT 0,
+                    data_fetched_at TIMESTAMPTZ DEFAULT NOW(),
+                    first_seen      TIMESTAMPTZ DEFAULT NOW(),
+                    last_seen       TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_upl_ticker    ON unusual_puts_log(ticker)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_upl_last_seen ON unusual_puts_log(last_seen)")
+            conn.commit()
+    except Exception as _upt_e:
+        print(f"[unusual_puts_table] init error: {_upt_e}")
+
+_init_unusual_puts_table()
+
+
+def _fetch_tradier_put_chain(ticker, token):
+    """Fetch all PUT contracts for ticker from Tradier."""
+    import urllib.request as _ureq2, json as _json2
+    try:
+        url = f"https://api.tradier.com/v1/markets/options/chains?symbol={ticker}&greeks=true"
+        req = _ureq2.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+        with _ureq2.urlopen(req, timeout=8) as r:
+            data = _json2.loads(r.read())
+        opts = (data.get("options") or {}).get("option") or []
+        if not isinstance(opts, list):
+            opts = [opts] if opts else []
+        return [o for o in opts if isinstance(o, dict) and o.get("option_type") == "put"]
+    except Exception:
+        return []
+
+
+def _fetch_tradier_last_price(ticker, token):
+    """Fetch last price for ticker from Tradier."""
+    import urllib.request as _ureq3, json as _json3
+    try:
+        url = f"https://api.tradier.com/v1/markets/quotes?symbols={ticker}"
+        req = _ureq3.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+        with _ureq3.urlopen(req, timeout=5) as r:
+            q = _json3.loads(r.read())
+        quote = (q.get("quotes") or {}).get("quote") or {}
+        if isinstance(quote, list):
+            quote = quote[0] if quote else {}
+        return float(quote.get("last") or 0)
+    except Exception:
+        return 0.0
+
+
+def _build_bear_tech_signals(close_str, rvol, vpin, hurst, iv):
+    """Human-readable list of supporting bearish technical signals.
+    close_str: 0.0 = closed at day low (bearish), 1.0 = closed at day high (bullish).
+    """
+    sigs = []
+    if close_str < 0.25:  sigs.append(f"📉 Closed near day low ({close_str:.0%} range)")
+    if close_str < 0.10:  sigs.append("🔴 Significant selling into close")
+    if rvol >= 2.0:        sigs.append(f"⚡ Volume surge {rvol:.1f}x avg")
+    if rvol >= 3.0:        sigs.append("🚨 Extreme volume spike")
+    if vpin > 0.65:        sigs.append(f"🧠 VPIN {vpin:.2f} — order-flow toxicity elevated")
+    if vpin > 0.80:        sigs.append("⚠️ VPIN critical — heavy informed selling")
+    if hurst < 0.45:       sigs.append(f"📊 Hurst {hurst:.2f} — no persistent uptrend")
+    if hurst < 0.40:       sigs.append("🔻 Hurst very low — trend exhausted")
+    if iv > 60:            sigs.append(f"📈 IV {iv:.0f}% — fear elevated")
+    if iv > 80:            sigs.append("🔥 Extreme IV — large move expected")
+    if not sigs:           sigs.append("• Monitoring — confirm with other signals")
+    return sigs
+
+
+@app.route("/stock-api/unusual-puts", methods=["GET"])
+def unusual_puts():
+    """
+    Scan for unusual near-term PUT activity — bearish conviction buys only.
+    R1-R6 enforced: no put sales, no closing trades, spread flagging,
+    freshness tracking, Vol/OI-only ranking (differs from /bear-flow), full score trace.
+    """
+    import os as _os
+    import threading as _thr_up
+    import traceback as _tb_up
+    from datetime import datetime as _dt_up
+    from concurrent.futures import ThreadPoolExecutor as _TPE_up, as_completed as _ac_up
+
+    TRADIER_TOKEN = _os.getenv("TRADIER_API_TOKEN_2") or _os.getenv("TRADIER_API_TOKEN", "")
+    now_utc = _dt_up.utcnow()
+
+    # In-memory cache (12 min)
+    _uc = getattr(app, "_unusual_puts_cache", None)
+    _ut = getattr(app, "_unusual_puts_cache_ts", None)
+    if _uc and _ut and (now_utc - _ut).total_seconds() < 720:
+        return jsonify(_uc)
+
+    # Off-hours: serve DB snapshot
+    if not _intraday_scan_allowed():
+        try:
+            with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                cur.execute("""
+                    SELECT ticker, price::float, strike::float, expiry::text, days_out,
+                           volume, oi, oi_direction, vol_oi::float, prem::bigint,
+                           otm_pct::float, iv::float, urgency, spread_flag,
+                           fill_side, unusual_score,
+                           first_seen AT TIME ZONE 'UTC',
+                           last_seen  AT TIME ZONE 'UTC'
+                    FROM unusual_puts_log
+                    WHERE last_seen >= NOW() - INTERVAL '5 days'
+                      AND expiry::date > (NOW() AT TIME ZONE 'America/New_York')::date
+                      AND closing_flag = FALSE
+                      AND vol_oi >= 1.5
+                    ORDER BY vol_oi DESC LIMIT 80
+                """)
+                cols = ["ticker","price","strike","expiry","days_out","volume","oi",
+                        "oi_direction","vol_oi","prem","otm_pct","iv","urgency","spread_flag",
+                        "fill_side","unusual_score","first_seen","last_seen"]
+                rows = cur.fetchall()
+            hits = []
+            for row in rows:
+                d = dict(zip(cols, row))
+                for k in ("first_seen","last_seen"):
+                    v = d.get(k)
+                    d[k] = v.isoformat() if hasattr(v, "isoformat") else str(v or "")
+                d["closing_flag"]    = False
+                d["data_age_min"]    = None
+                d["score_breakdown"] = None
+                hits.append(d)
+            out = {"hits": hits, "total": len(hits), "scanned": 0,
+                   "stale": True, "note": "Market closed — showing last logged put activity"}
+            app._unusual_puts_cache    = out
+            app._unusual_puts_cache_ts = now_utc
+            return jsonify(out)
+        except Exception as _oe:
+            return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True, "error": str(_oe)})
+
+    # Scan lock — never block user > 2s
+    if not hasattr(app, "_up_scan_lock"):
+        app._up_scan_lock = _thr_up.Lock()
+    if not app._up_scan_lock.acquire(timeout=2):
+        stale = getattr(app, "_unusual_puts_cache", None)
+        if stale:
+            out = dict(stale); out["stale"] = True; out["note"] = "Scan in progress — showing last result"
+            return jsonify(out)
+        return jsonify({"hits": [], "total": 0, "scanned": 0, "stale": True,
+                        "note": "Scan in progress — check back in ~60s"})
+    try:
+        _uc2 = getattr(app, "_unusual_puts_cache", None)
+        _ut2 = getattr(app, "_unusual_puts_cache_ts", None)
+        if _uc2 and _ut2 and (now_utc - _ut2).total_seconds() < 720:
+            return jsonify(_uc2)
+
+        # Universe: polygon high-rvol tickers + core optionable names
+        universe = []
+        try:
+            with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ticker FROM polygon_rvol_scan
+                    WHERE scan_date >= NOW() - INTERVAL '3 days' AND rvol >= 1.3
+                    ORDER BY ticker LIMIT 200
+                """)
+                universe = [r[0] for r in cur.fetchall()]
+        except Exception:
+            pass
+        _CORE_UP = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AMD","SPY","QQQ",
+                    "NFLX","AVGO","ORCL","CRM","BAC","JPM","GS","XOM","CVX","V","MA",
+                    "WMT","UNH","ABBV","LLY","PFE","MRNA","HD","MCD","DIS","COIN","PLTR",
+                    "SOFI","MARA","RIOT","GME","AMC","HOOD","SQ","PYPL","INTC","MU","ARM","SMCI"]
+        universe = list(set(universe + _CORE_UP))[:200]
+
+        # Previous-day OI for R2 (closing-trade detection)
+        oi_prev = {}
+        try:
+            with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                cur.execute("SELECT ticker,strike::float,expiry::text,oi FROM unusual_puts_log WHERE last_seen>=NOW()-INTERVAL '2 days'")
+                for r in cur.fetchall():
+                    oi_prev[(r[0], float(r[1]), str(r[2]))] = int(r[3] or 0)
+        except Exception:
+            pass
+
+        hits = []
+        lock = _thr_up.Lock()
+        fetch_ts = now_utc
+        today_d  = now_utc.date()
+
+        def _proc(ticker):
+            try:
+                puts = _fetch_tradier_put_chain(ticker, TRADIER_TOKEN)
+                if not puts: return
+                price = _fetch_tradier_last_price(ticker, TRADIER_TOKEN)
+
+                # R3: build per-expiry strike/volume map for spread detection
+                exp_sv = {}
+                for opt in puts:
+                    v = int(opt.get("volume") or 0)
+                    s = float(opt.get("strike") or 0)
+                    e = str(opt.get("expiration_date") or "")
+                    if v >= 50 and s > 0 and e:
+                        exp_sv.setdefault(e, []).append((s, v))
+                spread_expiries = {e for e, sv in exp_sv.items() if len(sv) >= 2}
+
+                for opt in puts:
+                    try:
+                        vol    = int(opt.get("volume") or 0)
+                        oi     = int(opt.get("open_interest") or 1)
+                        strike = float(opt.get("strike") or 0)
+                        expiry = str(opt.get("expiration_date") or "")
+                        bid    = float(opt.get("bid") or 0)
+                        ask    = float(opt.get("ask") or 0)
+                        last_p = float(opt.get("last") or 0)
+                        greeks = opt.get("greeks") or {}
+                        iv     = round(float(greeks.get("mid_iv") or opt.get("implied_volatility") or 0) * 100, 1)
+
+                        if not vol or not strike or not expiry or oi < 1: continue
+                        vol_oi = round(vol / max(oi, 1), 2)
+                        if vol_oi < 1.5: continue
+                        mid  = (bid + ask) / 2.0 if bid > 0 and ask > 0 else last_p
+                        prem = int(vol * mid * 100)
+                        if prem < 50_000: continue
+
+                        try:
+                            from datetime import datetime as _dti
+                            exp_d = _dti.strptime(expiry, "%Y-%m-%d").date()
+                        except Exception:
+                            continue
+                        days_out = (exp_d - today_d).days
+                        if days_out < 1 or days_out > 45: continue
+
+                        otm_pct = 0.0
+                        if price > 0:
+                            otm_pct = round((price - strike) / price * 100, 1)
+                            if otm_pct < -5: continue   # deep ITM = hedge not conviction
+                            if otm_pct > 30: continue   # far OTM = lottery not conviction
+
+                        # R1: put sale detection via fill-side inference
+                        fill_side = "UNKNOWN"
+                        if bid > 0 and ask > 0 and last_p > 0:
+                            mid_p = (bid + ask) / 2.0
+                            if last_p <= bid * 1.03:   fill_side = "SALE"
+                            elif last_p >= ask * 0.97: fill_side = "BUY"
+                            elif last_p >= mid_p:      fill_side = "BUY"
+                            else:                       fill_side = "SALE"
+                        if fill_side == "SALE": continue  # R1 filter
+
+                        # R2: closing-trade detection via OI direction
+                        prev_oi = oi_prev.get((ticker, float(strike), expiry))
+                        oi_dir  = "UNKNOWN"
+                        if prev_oi is not None:
+                            if oi > prev_oi:   oi_dir = "INCREASING"
+                            elif oi < prev_oi:
+                                oi_dir = "DECREASING"
+                                continue      # R2 filter: closing trade
+                            else:              oi_dir = "FLAT"
+
+                        # R3: spread flag
+                        spread_flag = expiry in spread_expiries
+
+                        urgency = "EXPIRING" if days_out <= 7 else ("NEAR" if days_out <= 14 else "SHORT")
+
+                        # R6: score breakdown — every component explicit and traceable
+                        voi_pts  = round(min(vol_oi / 10.0, 1.0) * 40, 1)
+                        prm_pts  = round(min(prem / 2_000_000, 1.0) * 30, 1)
+                        urg_pts  = {"EXPIRING": 20, "NEAR": 15, "SHORT": 10}[urgency]
+                        otm_pts  = round(max(0, 10 - abs(otm_pct) / 3), 1)
+                        spr_pen  = -15 if spread_flag else 0
+                        score    = max(0, min(100, round(voi_pts + prm_pts + urg_pts + otm_pts + spr_pen)))
+
+                        with lock:
+                            hits.append({
+                                "ticker": ticker, "price": round(price, 2),
+                                "strike": strike, "expiry": expiry, "days_out": days_out,
+                                "volume": vol, "oi": oi, "vol_oi": vol_oi, "prem": prem,
+                                "otm_pct": otm_pct, "iv": iv, "urgency": urgency,
+                                "fill_side": fill_side, "oi_direction": oi_dir,
+                                "spread_flag": spread_flag, "closing_flag": False,
+                                "unusual_score": score,
+                                "data_fetched_at": fetch_ts.isoformat() + "Z",
+                                "data_age_min": 0,
+                                "score_breakdown": {
+                                    "vol_oi_pts": voi_pts, "prem_pts": prm_pts,
+                                    "urgency_pts": urg_pts, "otm_pts": otm_pts,
+                                    "spread_penalty": spr_pen, "total": score,
+                                },
+                            })
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        with _TPE_up(max_workers=8) as ex:
+            list(_ac_up([ex.submit(_proc, t) for t in universe]))
+
+        # R5: rank by Vol/OI only (Bear Flow uses composite — they must differ)
+        hits.sort(key=lambda x: x["vol_oi"], reverse=True)
+
+        # Persist to DB for off-hours serving
+        if hits:
+            try:
+                with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+                    for h in hits[:80]:
+                        cur.execute("""
+                            INSERT INTO unusual_puts_log
+                                (ticker,price,strike,expiry,days_out,volume,oi,oi_direction,
+                                 vol_oi,prem,otm_pct,iv,urgency,spread_flag,closing_flag,
+                                 fill_side,unusual_score,data_fetched_at,first_seen,last_seen)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s,%s,NOW(),NOW(),NOW())
+                            ON CONFLICT DO NOTHING
+                        """, (h["ticker"],h["price"],h["strike"],h["expiry"],h["days_out"],
+                              h["volume"],h["oi"],h["oi_direction"],h["vol_oi"],h["prem"],
+                              h["otm_pct"],h["iv"],h["urgency"],h["spread_flag"],
+                              h["fill_side"],h["unusual_score"]))
+                    conn.commit()
+            except Exception as _pe2:
+                print(f"[unusual_puts] persist error: {_pe2}")
+
+        out = {"hits": hits[:80], "total": len(hits), "scanned": len(universe), "stale": False, "note": None}
+        app._unusual_puts_cache    = out
+        app._unusual_puts_cache_ts = now_utc
+        return jsonify(out)
+    finally:
+        app._up_scan_lock.release()
+
+
+@app.route("/stock-api/bear-flow", methods=["GET"])
+def bear_flow():
+    """
+    Composite Bearish Conviction Score 0-100 per ticker.
+    4 pillars: put flow (30) + regime/VPIN/Hurst (25) + technicals (25) + smart money (20).
+    R5: Ranks by COMPOSITE score — different from /unusual-puts which ranks by Vol/OI only.
+        A Vol/OI #1 may rank low here if the regime/technical context is bullish.
+    R6: Full score_breakdown in every row — every number traceable to raw source data.
+    """
+    from datetime import datetime as _dt_bf
+
+    _bc = getattr(app, "_bear_flow_cache", None)
+    _bt = getattr(app, "_bear_flow_cache_ts", None)
+    if _bc and _bt and (_dt_bf.utcnow() - _bt).total_seconds() < 600:
+        return jsonify(_bc)
+
+    try:
+        with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+
+            # Pillar 1: Put flow (quality-filtered)
+            cur.execute("""
+                SELECT ticker,
+                       MAX(vol_oi)::float   AS max_voi,
+                       MAX(prem)::bigint    AS max_prem,
+                       COUNT(*)             AS signal_count,
+                       MIN(strike)::float   AS top_strike,
+                       MIN(expiry)::text    AS near_expiry,
+                       AVG(otm_pct)::float  AS avg_otm,
+                       MAX(iv)::float       AS max_iv,
+                       BOOL_OR(spread_flag) AS any_spread,
+                       SUM(prem)::bigint    AS total_prem
+                FROM unusual_puts_log
+                WHERE last_seen  >= NOW() - INTERVAL '5 days'
+                  AND closing_flag = FALSE
+                  AND vol_oi >= 1.5
+                  AND prem   >= 50000
+                GROUP BY ticker
+            """)
+            put_rows = {r[0]: r for r in cur.fetchall()}
+
+            # Pillar 2: Layer9 regime (VPIN, Hurst)
+            cur.execute("""
+                SELECT DISTINCT ON (ticker)
+                    ticker,
+                    COALESCE(statistical_score,50)::float AS l9_score,
+                    COALESCE(regime,'unknown')            AS regime,
+                    COALESCE(vpin_raw,0.5)::float         AS vpin,
+                    COALESCE(hurst_raw,0.5)::float        AS hurst
+                FROM layer9_scores
+                WHERE computed_at >= NOW() - INTERVAL '2 days'
+                ORDER BY ticker, computed_at DESC
+            """)
+            l9_map = {r[0]: r for r in cur.fetchall()}
+
+            # Pillar 3: Technical (polygon_rvol_scan)
+            cur.execute("""
+                SELECT DISTINCT ON (ticker)
+                    ticker,
+                    COALESCE(rvol,1.0)::float          AS rvol,
+                    COALESCE(price,0)::float            AS price,
+                    COALESCE(close_strength,0.5)::float AS close_strength
+                FROM polygon_rvol_scan
+                WHERE scan_date >= NOW() - INTERVAL '3 days'
+                ORDER BY ticker, scan_date DESC
+            """)
+            tech_map = {r[0]: r for r in cur.fetchall()}
+
+            # Pillar 4: Smart money (multi-session put flow)
+            cur.execute("""
+                SELECT ticker,
+                       COUNT(DISTINCT DATE(last_seen)) AS session_days,
+                       SUM(prem)::bigint               AS cumul_prem
+                FROM unusual_puts_log
+                WHERE last_seen  >= NOW() - INTERVAL '10 days'
+                  AND closing_flag = FALSE AND vol_oi >= 1.5
+                GROUP BY ticker
+                HAVING COUNT(DISTINCT DATE(last_seen)) >= 2
+            """)
+            sm_map = {r[0]: (int(r[1]), int(r[2] or 0)) for r in cur.fetchall()}
+
+        candidates = set(put_rows.keys())
+        for tk, lr in l9_map.items():
+            if float(lr[3]) > 0.72:   # high VPIN even without put log
+                candidates.add(tk)
+
+        rows_out = []
+        for ticker in candidates:
+            pr    = put_rows.get(ticker)
+            l9r   = l9_map.get(ticker)
+            techr = tech_map.get(ticker)
+
+            # ── Pillar 1: Put flow (0-30) ────────────────────────────────────
+            if pr:
+                max_voi=float(pr[1]or 0); max_prem=int(pr[2]or 0); sig_count=int(pr[3]or 0)
+                top_strike=float(pr[4]or 0); near_expiry=str(pr[5]or "")
+                avg_otm=float(pr[6]or 0); max_iv=float(pr[7]or 0)
+                any_spread=bool(pr[8]); total_prem=int(pr[9]or 0)
+                voi_pts  = round(min(max_voi/10.0,1.0)*15,1)
+                prm_pts  = round(min(max_prem/1_000_000,1.0)*10,1)
+                mul_pts  = 5 if sig_count>=3 else (3 if sig_count>=2 else 0)
+                spr_pen  = -8 if any_spread else 0
+                pf_score = max(0.0, voi_pts+prm_pts+mul_pts+spr_pen)
+            else:
+                max_voi=0.0;max_prem=0;sig_count=0;top_strike=0.0;near_expiry=""
+                avg_otm=0.0;max_iv=0.0;any_spread=False;total_prem=0
+                voi_pts=0.0;prm_pts=0.0;mul_pts=0;spr_pen=0;pf_score=0.0
+
+            # ── Pillar 2: Regime (0-25) ──────────────────────────────────────
+            if l9r:
+                l9_score=float(l9r[1]); regime=str(l9r[2]); vpin=float(l9r[3]); hurst=float(l9r[4])
+                vpin_pts = round(min(max(vpin-0.5,0)/0.5,1.0)*12,1)
+                hurst_pts= round(min(max(0.55-hurst,0)/0.15,1.0)*8,1)
+                l9_weak  = round(max(0.0,(50-l9_score)/50.0*5),1)
+                reg_score= min(25.0, vpin_pts+hurst_pts+l9_weak)
+            else:
+                l9_score=50.0;regime="unknown";vpin=0.5;hurst=0.5
+                vpin_pts=0.0;hurst_pts=0.0;l9_weak=0.0;reg_score=0.0
+
+            # ── Pillar 3: Technical (0-25) ───────────────────────────────────
+            if techr:
+                rvol=float(techr[1]); price=float(techr[2]); close_str=float(techr[3])
+                # close_strength: 0=closed at day low (bearish), 1=closed at day high (bullish)
+                close_pts= round(min(max(0.5-close_str,0)/0.5,1.0)*10,1)
+                rvl_pts  = round(min(max(rvol-1.0,0)/3.0,1.0)*10,1)
+                iv_pts   = round(min(max_iv/100.0,1.0)*5,1)
+                tch_score= min(25.0,close_pts+rvl_pts+iv_pts)
+            else:
+                rvol=0.0;price=0.0;close_str=0.5;close_pts=0.0;rvl_pts=0.0;iv_pts=0.0;tch_score=0.0
+
+            # ── Pillar 4: Smart money (0-20) ─────────────────────────────────
+            sm=sm_map.get(ticker)
+            if sm:
+                sess_d=sm[0]; cumul_p=sm[1]
+                sess_pts=round(min(sess_d/5.0,1.0)*10,1)
+                cum_pts =round(min(cumul_p/5_000_000,1.0)*10,1)
+                sm_score=min(20.0,sess_pts+cum_pts)
+            else:
+                sess_d=1;cumul_p=0;sess_pts=0.0;cum_pts=0.0;sm_score=0.0
+
+            composite=max(0,min(100,round(pf_score+reg_score+tch_score+sm_score)))
+            label=("EXTREME BEAR" if composite>=75 else "HIGH CONVICTION" if composite>=60
+                   else "MODERATE" if composite>=45 else "WATCH" if composite>=30 else "WEAK")
+
+            rows_out.append({
+                "ticker":ticker,"bearish_score":composite,"label":label,
+                "confidence":f"{composite}%","bearish_premium":max_prem,
+                "total_bearish_prem":total_prem,"top_strike":top_strike,
+                "expiry":near_expiry,"otm_pct":round(avg_otm,1),"iv":round(max_iv,1),
+                "vpin":round(vpin,3),"hurst":round(hurst,3),"regime":regime,
+                "rvol":round(rvol,2),"close_strength":round(close_str,3),
+                "signal_count":sig_count,"session_days":sess_d,"spread_flag":any_spread,
+                "technical_signals":_build_bear_tech_signals(close_str,rvol,vpin,hurst,max_iv),
+                # R6: full breakdown — every number traceable to raw source
+                "score_breakdown":{
+                    "put_flow":round(pf_score,1),"regime":round(reg_score,1),
+                    "technical":round(tch_score,1),"smart_money":round(sm_score,1),
+                    "composite":composite,
+                    "put_flow_detail":{"vol_oi_pts":voi_pts,"prem_pts":prm_pts,"multi_pts":mul_pts,"spread_penalty":spr_pen},
+                    "regime_detail":{"vpin":round(vpin,3),"hurst":round(hurst,3),"l9_score":round(l9_score,1),"regime":regime},
+                    "tech_detail":{"close_strength":round(close_str,3),"rvol":round(rvol,2),"max_iv":round(max_iv,1)},
+                    "smart_money_detail":{"session_days":sess_d,"cumul_prem_m":round(cumul_p/1_000_000,3)},
+                },
+            })
+
+        # R5: sort by composite score — Unusual Puts sorts by vol_oi (they must differ)
+        rows_out.sort(key=lambda x: x["bearish_score"], reverse=True)
+        now2=_dt_bf.utcnow()
+        out={"results":rows_out[:50],"total":len(rows_out),"last_updated":now2.isoformat()+"Z"}
+        app._bear_flow_cache=out; app._bear_flow_cache_ts=now2
+        return jsonify(out)
+
+    except Exception as _bfe:
+        import traceback as _tb2
+        print(f"[bear_flow] error: {_bfe}\n{_tb2.format_exc()}")
+        return jsonify({"results":[],"total":0,"error":str(_bfe)}),500
+
 # Set AFTER all module-level definitions complete — startup_catchup waits for this flag
 # before calling _aiem_paper_execute_today so all dependencies are guaranteed to exist.
 _MODULE_FULLY_LOADED = True

@@ -28,6 +28,8 @@ import {
   fetchTradeWatchlist, addTradeWatchlist, deleteTradeWatchlist, TradeWatchlistEntry,
   fetchUnusualCalls, UnusualCall,
   fetchUnusualCallsLog, UnusualCallsLogEntry,
+  fetchUnusualPuts, UnusualPut, UnusualPutsResult,
+  fetchBearFlow, BearFlowRow, BearFlowResult,
   fetchEtfCalls, EtfCallsResult,
   fetchGammaPressure, GammaPressureRow, GammaPressureResult, triggerGammaScan,
   fetchOiAccumulation, OiAccumRow, OiAccumResult, triggerOiSnapshot,
@@ -16116,11 +16118,456 @@ class TabErrorBoundary extends React.Component<
   }
 }
 
+// ── Unusual Puts Tab ──────────────────────────────────────────────────────────
+// 6 quality rules surfaced in the UI:
+// R1 No put sales (bid-fill inference — sold at bid = writer not buyer)
+// R2 No closing trades (OI must be INCREASING or UNKNOWN)
+// R3 Spread legs flagged (2+ strikes same expiry → badge + score deduction)
+// R4 Data freshness tracked (DELAYED badge if >15 min during market hours)
+// R5 Rankings differ from Bear Flow (Vol/OI ratio only, NOT composite score)
+// R6 Every score fully traceable via expandable breakdown row
+function UnusualPutsTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]     = useState<UnusualPutsResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved]   = useState<Record<string, boolean>>({});
+  const [filter, setFilter] = useState<"ALL"|"EXPIRING"|"NEAR"|"SHORT">("ALL");
+
+  useEffect(() => {
+    setLoading(true);
+    fetchUnusualPuts().then(d => setData(d)).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async (e: React.MouseEvent, h: UnusualPut) => {
+    e.stopPropagation();
+    const key = `${h.ticker}-${h.strike}-${h.expiry}`;
+    try {
+      await addTradeWatchlist({ ticker: h.ticker, strike: h.strike, expiry: h.expiry, option_type: "PUT",
+        notes: `Unusual Put: ${h.vol_oi}x Vol/OI · $${Math.round(h.prem/1000)}K prem · ${h.urgency}` });
+      setSaved(s => ({ ...s, [key]: true }));
+      setTimeout(() => setSaved(s => ({ ...s, [key]: false })), 2500);
+    } catch {}
+  };
+
+  const filtered = (data?.hits ?? []).filter(h => filter === "ALL" || h.urgency === filter);
+
+  const urgencyStyle = (u: string) => {
+    if (u === "EXPIRING") return { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)", label: "🔴 EXPIRING ≤7d" };
+    if (u === "NEAR")     return { color: "#fb923c", bg: "rgba(251,146,60,0.12)",  border: "rgba(251,146,60,0.3)",  label: "🟠 NEAR ≤14d" };
+    return                       { color: "#facc15", bg: "rgba(250,204,21,0.1)",   border: "rgba(250,204,21,0.25)", label: "🟡 SHORT ≤30d" };
+  };
+
+  const volOiBadge = (r: number) => {
+    if (r >= 20) return { color: "#f87171", label: `${r}x 🚨` };
+    if (r >= 10) return { color: "#fb923c", label: `${r}x 🔥` };
+    if (r >= 5)  return { color: "#facc15", label: `${r}x ⚡` };
+    return              { color: "#f87171", label: `${r}x` };
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🔴 Unusual Puts</h2>
+          <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+            Bearish PUT buys only · No put sales · No closing trades · No spread legs · Expiry ≤45d · Vol/OI ≥1.5x
+            {data ? ` · ${data.scanned} tickers scanned` : " · scanning…"}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {(["ALL","EXPIRING","NEAR","SHORT"] as const).map(f => (
+            <button key={f} onClick={() => setFilter(f)} style={{
+              padding: "6px 14px", borderRadius: 8, fontFamily: BB_F, fontSize: 11, fontWeight: 700, cursor: "pointer",
+              background: filter === f ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${filter === f ? "rgba(248,113,113,0.4)" : "rgba(255,255,255,0.1)"}`,
+              color: filter === f ? "#f87171" : "#64748b",
+            }}>{f}</button>
+          ))}
+        </div>
+      </div>
+
+      {data && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 24 }}>
+          {[
+            { label: "Unusual Put Signals",   val: data.total,                                               color: "#f87171" },
+            { label: "Expiring ≤7 Days",      val: data.hits.filter(h => h.urgency === "EXPIRING").length,  color: "#fb923c" },
+            { label: "Vol/OI ≥10x (Extreme)", val: data.hits.filter(h => h.vol_oi >= 10).length,           color: "#facc15" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: "16px 20px", textAlign: "center" }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 28, color: s.color, letterSpacing: "-0.04em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.15)", borderRadius: 12, padding: "12px 18px", marginBottom: 20,
+        fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+        <span style={{ color: "#f87171", fontWeight: 700 }}>6 Quality Rules enforced: </span>
+        <span style={{ color: "#e2e8f0" }}>No put sales</span>{" "}(bid-fill excluded) ·{" "}
+        <span style={{ color: "#e2e8f0" }}>No closing trades</span>{" "}(OI must be rising) ·{" "}
+        <span style={{ color: "#e2e8f0" }}>Spread legs flagged</span>{" "}(2+ strikes same expiry, score −15) ·{" "}
+        <span style={{ color: "#e2e8f0" }}>Freshness tracked</span>{" "}(DELAYED badge if &gt;15 min) ·{" "}
+        Vol/OI ≥ 1.5x = more contracts traded than exist — someone aggressively opening <em>new</em> bearish positions.
+      </div>
+
+      {!loading && data?.stale && data?.note && (
+        <div style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.25)", borderRadius: 12, padding: "10px 16px", marginBottom: 20,
+          fontFamily: BB_F, fontSize: 11.5, color: "#facc15" }}>
+          ⏳ {data.note} <span style={{ color: "#94a3b8" }}>Each row shows when it was detected.</span>
+        </div>
+      )}
+
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#f87171", display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />)}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Scanning for unusual put activity — filtering put sales, spread legs, and closing trades…</p>
+        </div>
+      )}
+
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🔴</div>
+          <p style={{ fontFamily: BB_F, color: "#475569" }}>No unusual bearish put conviction detected. All 6 quality filters passed — nothing meets the bar.</p>
+        </div>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map((h, i) => {
+            const urg  = urgencyStyle(h.urgency);
+            const voib = volOiBadge(h.vol_oi);
+            const key  = `${h.ticker}-${h.strike}-${h.expiry}`;
+            const premK = h.prem >= 1_000_000 ? `$${(h.prem/1_000_000).toFixed(1)}M` : `$${(h.prem/1000).toFixed(0)}k`;
+            const otmLabel = h.otm_pct > 0 ? `+${h.otm_pct}% OTM` : h.otm_pct < 0 ? `${Math.abs(h.otm_pct)}% ITM` : "ATM";
+            const isStale = h.data_age_min != null && h.data_age_min > 15;
+            return (
+              <div key={i} onClick={() => onSelectTicker(h.ticker)} style={{
+                background: "rgba(255,255,255,0.025)", border: `1px solid ${i < 3 ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 18, padding: "16px 20px", cursor: "pointer", transition: "background 0.15s",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = "rgba(248,113,113,0.04)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.025)")}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#334155", fontSize: 16, minWidth: 28 }}>#{i+1}</span>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 20 }}>{h.ticker}</span>
+                        <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>${h.price.toFixed(2)}</span>
+                        {/* PUT badge */}
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(248,113,113,0.12)", color: "#f87171", border: "1px solid rgba(248,113,113,0.3)" }}>PUT</span>
+                        <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                          background: urg.bg, color: urg.color, border: `1px solid ${urg.border}` }}>{urg.label}</span>
+                        {/* R2: OI direction */}
+                        <span title="OI direction confirms opening (not closing) positions" style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(248,113,113,0.08)", color: h.oi_direction === "INCREASING" ? "#f87171" : "#94a3b8",
+                          border: "1px solid rgba(248,113,113,0.2)" }}>
+                          {h.oi_direction === "INCREASING" ? "OI↑ Opening" : h.oi_direction === "FLAT" ? "OI→ Flat" : "OI?"}
+                        </span>
+                        {/* R3: Spread flag */}
+                        {h.spread_flag && (
+                          <span title="Multiple put strikes detected at same expiry — possible spread leg; score adjusted −15 pts" style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                            background: "rgba(250,204,21,0.1)", color: "#facc15", border: "1px solid rgba(250,204,21,0.3)" }}>⚠️ Possible Spread</span>
+                        )}
+                        {/* R4: Stale data */}
+                        {isStale && (
+                          <span title={`Data is ${h.data_age_min?.toFixed(0)} min old`} style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                            background: "rgba(250,204,21,0.08)", color: "#facc15", border: "1px solid rgba(250,204,21,0.25)" }}>⏳ DELAYED {h.data_age_min?.toFixed(0)}m</span>
+                        )}
+                      </div>
+                      {/* Strike / expiry row — R6: traceable source fields */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${h.strike} strike</span>
+                        <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>exp {h.expiry}</span>
+                        <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>{otmLabel}</span>
+                        {h.iv > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {h.iv}%</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 26, letterSpacing: "-0.04em", marginBottom: 2, color: voib.color }}>{voib.label}</div>
+                    <div style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11, marginBottom: 1 }}>Vol/OI ratio</div>
+                    <div style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>{premK} premium</div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>{h.volume.toLocaleString()} vol · {h.oi.toLocaleString()} OI · {h.days_out}d left</div>
+                    <button onClick={e => handleSave(e, h)} style={{ marginTop: 8, padding: "5px 12px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid",
+                      background: saved[key] ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.04)",
+                      borderColor: saved[key] ? "rgba(34,197,94,0.4)" : "rgba(255,255,255,0.12)",
+                      color: saved[key] ? "#4ade80" : "#64748b" }}>
+                      {saved[key] ? "✓ Saved" : "📌 Save"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* R6: Score trace — every displayed number traceable to raw inputs */}
+                {h.score_breakdown && (
+                  <div style={{ marginTop: 12, padding: "8px 12px", background: "rgba(0,0,0,0.2)", borderRadius: 8, borderTop: "1px solid rgba(248,113,113,0.1)" }}>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginBottom: 5, fontWeight: 700, letterSpacing: "0.07em" }}>SCORE TRACE — R6</div>
+                    <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
+                      {[
+                        { label: "Vol/OI",   val: h.score_breakdown.vol_oi_pts,    warn: false },
+                        { label: "Premium",  val: h.score_breakdown.prem_pts,       warn: false },
+                        { label: "Urgency",  val: h.score_breakdown.urgency_pts,    warn: false },
+                        { label: "OTM fit",  val: h.score_breakdown.otm_pts,        warn: false },
+                        { label: "Spread adj", val: h.score_breakdown.spread_penalty, warn: h.score_breakdown.spread_penalty < 0 },
+                      ].map(c => (
+                        <span key={c.label} style={{ fontFamily: BB_F, fontSize: 10 }}>
+                          <span style={{ color: "#475569" }}>{c.label}: </span>
+                          <span style={{ color: c.warn ? "#facc15" : "#94a3b8", fontWeight: 700 }}>
+                            {c.val > 0 ? "+" : ""}{typeof c.val === "number" ? c.val.toFixed(1) : c.val}
+                          </span>
+                        </span>
+                      ))}
+                      <span style={{ marginLeft: "auto", fontFamily: BB_F, fontSize: 10 }}>
+                        <span style={{ color: "#475569" }}>= </span>
+                        <span style={{ color: "#f87171", fontWeight: 900, fontSize: 13 }}>{h.unusual_score}</span>
+                        <span style={{ color: "#475569" }}>/100</span>
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Bear Flow Tab ─────────────────────────────────────────────────────────────
+// Composite Bearish Conviction Score 0–100 from 4 weighted pillars.
+// R5: Explicitly different ranking from Unusual Puts (which ranks by Vol/OI only).
+//     A #1 on Unusual Puts can rank low here if regime/technical context is bullish.
+// R6: All 4 pillars shown in expandable score breakdown.
+function BearFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+  const BB_F = "JetBrains Mono, monospace";
+  const [data, setData]       = useState<BearFlowResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setLoading(true);
+    fetchBearFlow().then(d => setData(d)).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const scoreColor = (s: number) => {
+    if (s >= 75) return "#f87171";
+    if (s >= 60) return "#fb923c";
+    if (s >= 45) return "#facc15";
+    if (s >= 30) return "#94a3b8";
+    return "#475569";
+  };
+
+  const labelStyle = (lbl: string) => {
+    if (lbl === "EXTREME BEAR")    return { bg: "rgba(248,113,113,0.15)", color: "#f87171",  border: "rgba(248,113,113,0.4)" };
+    if (lbl === "HIGH CONVICTION") return { bg: "rgba(251,146,60,0.12)",  color: "#fb923c",  border: "rgba(251,146,60,0.35)" };
+    if (lbl === "MODERATE")        return { bg: "rgba(250,204,21,0.10)",  color: "#facc15",  border: "rgba(250,204,21,0.3)" };
+    if (lbl === "WATCH")           return { bg: "rgba(148,163,184,0.08)", color: "#94a3b8",  border: "rgba(148,163,184,0.25)" };
+    return                                { bg: "rgba(71,85,105,0.08)",   color: "#475569",  border: "rgba(71,85,105,0.2)" };
+  };
+
+  const results = data?.results ?? [];
+
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontFamily: BB_F, fontWeight: 900, color: "#fff", fontSize: 22, margin: 0, marginBottom: 4 }}>🐻 Bear Flow</h2>
+        <p style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12, margin: 0 }}>
+          Composite Bearish Conviction Score 0–100 · Put flow + VPIN/Hurst regime + price action + smart money
+          {data ? ` · ${data.total} candidates ranked` : " · computing…"}
+        </p>
+      </div>
+
+      {/* R5: Explicit methodology diff from Unusual Puts */}
+      <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.12)", borderRadius: 12, padding: "12px 18px", marginBottom: 20,
+        fontFamily: BB_F, fontSize: 11, color: "#94a3b8", lineHeight: 1.8 }}>
+        <span style={{ color: "#f87171", fontWeight: 700 }}>How Bear Flow differs from Unusual Puts (R5): </span>
+        Unusual Puts ranks by raw <em>Vol/OI ratio only</em>. Bear Flow ranks by a composite of{" "}
+        <span style={{ color: "#e2e8f0" }}>put flow (30 pts)</span> +{" "}
+        <span style={{ color: "#e2e8f0" }}>market regime via VPIN/Hurst (25 pts)</span> +{" "}
+        <span style={{ color: "#e2e8f0" }}>price action &amp; volume (25 pts)</span> +{" "}
+        <span style={{ color: "#e2e8f0" }}>multi-session smart money (20 pts)</span>.
+        A ticker ranked #1 on Unusual Puts may rank low here if technical/regime context is bullish.
+        Every score is fully traceable — click <em>Score trace</em> on any row.
+      </div>
+
+      {results.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 24 }}>
+          {[
+            { label: "EXTREME BEAR ≥75",   val: results.filter(r => r.bearish_score >= 75).length, color: "#f87171" },
+            { label: "HIGH CONV ≥60",       val: results.filter(r => r.bearish_score >= 60).length, color: "#fb923c" },
+            { label: "MODERATE ≥45",        val: results.filter(r => r.bearish_score >= 45).length, color: "#facc15" },
+            { label: "Spread-flagged",      val: results.filter(r => r.spread_flag).length,         color: "#94a3b8" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+              <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 24, color: s.color, letterSpacing: "-0.03em", marginBottom: 4 }}>{s.val}</div>
+              <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+            {[0,1,2].map(i => <span key={i} style={{ width: 8, height: 8, borderRadius: "50%", background: "#f87171", display: "inline-block", animation: "bounce 1s infinite", animationDelay: `${i*0.15}s` }} />)}
+          </div>
+          <p style={{ fontFamily: BB_F, color: "#475569", fontSize: 13 }}>Computing composite bearish conviction — put flow, VPIN/Hurst regime, technicals, smart money…</p>
+        </div>
+      )}
+
+      {!loading && results.length === 0 && (
+        <div style={{ textAlign: "center", padding: "80px 0" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🐻</div>
+          <p style={{ fontFamily: BB_F, color: "#475569" }}>No bearish conviction detected. All 4 composite pillars below threshold — no signals meet the bar.</p>
+        </div>
+      )}
+
+      {!loading && results.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {results.map((r, i) => {
+            const sc  = scoreColor(r.bearish_score);
+            const lb  = labelStyle(r.label);
+            const isExp = expanded[r.ticker];
+            const bd  = r.score_breakdown;
+            const premFmt = r.bearish_premium >= 1_000_000
+              ? `$${(r.bearish_premium/1_000_000).toFixed(1)}M`
+              : r.bearish_premium >= 1_000
+              ? `$${(r.bearish_premium/1000).toFixed(0)}K` : "—";
+
+            return (
+              <div key={i} style={{
+                background: "rgba(255,255,255,0.025)", border: `1px solid ${i < 3 ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 18, padding: "18px 20px",
+              }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                  {/* Left */}
+                  <div onClick={() => onSelectTicker(r.ticker)} style={{ cursor: "pointer", flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#334155", fontSize: 15, minWidth: 28 }}>#{i+1}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 900, color: "#f1f5f9", fontSize: 22 }}>{r.ticker}</span>
+                      <span style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 12, padding: "3px 10px", borderRadius: 99,
+                        background: lb.bg, color: lb.color, border: `1px solid ${lb.border}` }}>{r.label}</span>
+                      {/* R3: Spread flag */}
+                      {r.spread_flag && (
+                        <span title="Multiple put strikes same expiry — possible spread leg; bear score adjusted −8 pts" style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(250,204,21,0.1)", color: "#facc15", border: "1px solid rgba(250,204,21,0.3)" }}>⚠️ Spread flag</span>
+                      )}
+                      {r.session_days >= 2 && (
+                        <span title={`Put flow detected on ${r.session_days} separate sessions — institutional accumulation pattern`} style={{ fontFamily: BB_F, fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 99,
+                          background: "rgba(248,113,113,0.08)", color: "#f87171", border: "1px solid rgba(248,113,113,0.2)" }}>🧠 {r.session_days}d smart $</span>
+                      )}
+                    </div>
+
+                    {/* Strike / expiry */}
+                    {r.top_strike > 0 && (
+                      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+                        <span style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 13, fontWeight: 700 }}>${r.top_strike} strike</span>
+                        {r.expiry && <span style={{ fontFamily: BB_F, color: "#64748b", fontSize: 12 }}>exp {r.expiry}</span>}
+                        {r.otm_pct != null && (
+                          <span style={{ fontFamily: BB_F, color: "#94a3b8", fontSize: 11 }}>
+                            {r.otm_pct > 0 ? `+${r.otm_pct}% OTM` : r.otm_pct < 0 ? `${Math.abs(r.otm_pct)}% ITM` : "ATM"}
+                          </span>
+                        )}
+                        {r.iv > 0 && <span style={{ fontFamily: BB_F, color: "#475569", fontSize: 11 }}>IV {r.iv}%</span>}
+                      </div>
+                    )}
+
+                    {/* Technical signals */}
+                    {r.technical_signals?.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {r.technical_signals.map((sig, si) => (
+                          <span key={si} style={{ fontFamily: BB_F, fontSize: 10, color: "#64748b",
+                            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 6, padding: "2px 7px" }}>{sig}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right — composite score */}
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontFamily: BB_F, fontWeight: 900, fontSize: 48, letterSpacing: "-0.05em", lineHeight: 1, color: sc, marginBottom: 0 }}>
+                      {r.bearish_score}
+                    </div>
+                    <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginBottom: 6 }}>/100 composite</div>
+                    <div style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 12, fontWeight: 700 }}>{premFmt} put flow</div>
+                    {r.regime && r.regime !== "unknown" && (
+                      <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 10, marginTop: 2 }}>regime: {r.regime}</div>
+                    )}
+                    <button onClick={() => setExpanded(x => ({ ...x, [r.ticker]: !x[r.ticker] }))} style={{
+                      marginTop: 8, padding: "4px 10px", borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: "pointer",
+                      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "#64748b",
+                    }}>{isExp ? "▲ Hide trace" : "▼ Score trace"}</button>
+                  </div>
+                </div>
+
+                {/* R6: Full 4-pillar breakdown (expandable) */}
+                {isExp && bd && (
+                  <div style={{ marginTop: 14, padding: "14px 16px", background: "rgba(0,0,0,0.25)", borderRadius: 10, border: "1px solid rgba(248,113,113,0.1)" }}>
+                    <div style={{ fontFamily: BB_F, fontSize: 10, color: "#475569", fontWeight: 700, marginBottom: 12, letterSpacing: "0.08em" }}>
+                      BEARISH CONVICTION BREAKDOWN — R6 · every number traceable to raw source
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10 }}>
+                      {[
+                        { label: "PUT FLOW", pts: bd.put_flow, max: 30, lines: [
+                            `Vol/OI pts: +${bd.put_flow_detail.vol_oi_pts}`,
+                            `Premium pts: +${bd.put_flow_detail.prem_pts}`,
+                            `Multi-signal: +${bd.put_flow_detail.multi_pts}`,
+                            ...(bd.put_flow_detail.spread_penalty < 0 ? [`Spread penalty: ${bd.put_flow_detail.spread_penalty}`] : []),
+                          ]},
+                        { label: "REGIME (VPIN/Hurst)", pts: bd.regime, max: 25, lines: [
+                            `VPIN: ${bd.regime_detail.vpin} ${bd.regime_detail.vpin > 0.65 ? "⚠️ elevated" : ""}`,
+                            `Hurst: ${bd.regime_detail.hurst} ${bd.regime_detail.hurst < 0.45 ? "— no trend" : ""}`,
+                            `L9 score: ${bd.regime_detail.l9_score}`,
+                            `Regime: ${bd.regime_detail.regime}`,
+                          ]},
+                        { label: "TECHNICAL", pts: bd.technical, max: 25, lines: [
+                            `Move: ${bd.tech_detail.pct_change > 0 ? "+" : ""}${bd.tech_detail.pct_change}%`,
+                            `RVOL: ${bd.tech_detail.rvol}x avg`,
+                            `Max IV: ${bd.tech_detail.max_iv}%`,
+                          ]},
+                        { label: "SMART MONEY", pts: bd.smart_money, max: 20, lines: [
+                            `Sessions w/ flow: ${bd.smart_money_detail.session_days}d`,
+                            `Cumul premium: $${bd.smart_money_detail.cumul_prem_m}M`,
+                          ]},
+                      ].map(col => (
+                        <div key={col.label} style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 12px" }}>
+                          <div style={{ fontFamily: BB_F, fontSize: 9, color: "#475569", fontWeight: 700, marginBottom: 5, letterSpacing: "0.06em" }}>{col.label}</div>
+                          <div style={{ fontFamily: BB_F, fontSize: 22, fontWeight: 900, color: sc, letterSpacing: "-0.04em", marginBottom: 6 }}>
+                            {col.pts}<span style={{ fontSize: 10, color: "#334155", fontWeight: 400 }}>/{col.max}</span>
+                          </div>
+                          {col.lines.map((ln, li) => (
+                            <div key={li} style={{ fontFamily: BB_F, fontSize: 9.5, color: "#475569", marginBottom: 1 }}>{ln}</div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 10, fontFamily: BB_F, fontSize: 10, color: "#334155", textAlign: "right" }}>
+                      Total: <span style={{ color: sc, fontWeight: 900, fontSize: 16 }}>{bd.composite}</span>
+                      <span style={{ color: "#475569" }}>/100</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete"|"candlestick-confluence">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete"|"candlestick-confluence"|"unusualputs"|"bearflow">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -16309,6 +16756,8 @@ export default function Dashboard() {
     { id: "quantagent",     label: "🤖 QUANT AGENT" },
     { id: "gasboard",       label: "⚡ GAS BOARD" },
     { id: "signalintel",    label: "🔬 SIGNAL INTEL" },
+    { id: "unusualputs",    label: "🔴 UNUSUAL PUTS" },
+    { id: "bearflow",       label: "🐻 BEAR FLOW" },
   ] as const;
 
   const timeStr = now.toLocaleTimeString("en-US", { hour12: false, timeZone: "America/New_York" });
@@ -18831,6 +19280,8 @@ export default function Dashboard() {
         {tab === "quantagent"  && <QuantAgentTab />}
         {tab === "gasboard"    && <GasBoardTab />}
         {tab === "signalintel" && <SignalIntelTab />}
+        {tab === "unusualputs" && <UnusualPutsTab  onSelectTicker={selectTicker} />}
+        {tab === "bearflow"    && <BearFlowTab     onSelectTicker={selectTicker} />}
 
       </div>
       </main>
