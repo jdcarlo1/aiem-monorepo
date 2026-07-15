@@ -1,0 +1,82 @@
+# DIRECTIVE — Tier 1 Indicator Wiring Verification (GARCH, VPIN, Hurst)
+
+**Source:** AIEM Prioritized Indicator Wiring Plan, Sequence Step 2
+**Scope:** Confirm Tier 1 core-regime indicators actually reach `bull_bear_debate.signal_context` in a real live run — not just `packet.microstructure` or any intermediate structure.
+
+---
+
+## Precondition (confirm before starting, do not assume)
+
+State explicitly whether the `aiem_signal_discoveries.created_at` schema bug (standing Priority 1 item, blocking Stage 9 OOS edge-filter) has already been fixed and verified. If not fixed, STOP and report — do not proceed with Tier 1 wiring confirmation until this is resolved, per the plan's sequencing.
+
+---
+
+## Task
+
+For each of the three Tier 1 indicators — GARCH (volatility clustering/persistence), VPIN (order flow toxicity), Hurst Exponent (trending vs. mean-reverting regime) — confirm:
+
+1. **Where the value is computed** — exact file, function, line range.
+2. **The full call chain** from computation to `bull_bear_debate.signal_context`, with every intermediate structure named (e.g., does it pass through `packet.microstructure` first, and if so, is that struct actually read downstream or is it a dead handoff?).
+3. **A real live run during market hours** — not backtest, not a stubbed/mock ticker — showing the indicator's actual computed value landing inside `signal_context` at decision time.
+4. **Whether `ensemble_combiner` or the decision path downstream actually uses the value**, or whether it's present in `signal_context` but functionally inert (as was found for Thompson Sampling and Bayesian Statistics in the 39-indicator audit — do not assume presence means usage).
+
+Do this per-indicator, not as a combined summary. If any one of the three fails the chain at any point, report that specific failure — do not average status across the tier.
+
+---
+
+## Negative Control Requirement (applies to every indicator)
+
+Proving the happy path is not sufficient — presence of a value in `signal_context` does not prove the pipeline actually depends on it (a hardcoded or injected constant could satisfy the happy-path check alone). For each indicator, also prove the failure path:
+
+1. State what you are about to disable or corrupt and why, and wait for approval before doing it (same principle as the Data Immutability Rule — no unilateral changes to live code behavior).
+2. Disable or corrupt the indicator's value at its source.
+3. Show the pipeline detects the missing/corrupted value (raw output, not a description).
+4. Prove the downstream decision changes, or that validation fails — either is acceptable, but one of the two must be demonstrated with evidence.
+5. Restore the original implementation and confirm restoration with a diff/hash showing it matches pre-test state.
+
+Skipping this leaves open the possibility that a constant value was injected and the happy-path evidence alone would not catch it.
+
+## Provenance ID Requirement (applies to every piece of evidence)
+
+Every piece of raw evidence submitted for this directive — grep output, diffs, SQL results, trace output — must carry consistent identifiers across the full chain, so the evidence is provably one continuous execution rather than stitched together from separate runs:
+
+- `trace_id`
+- `candidate_id`
+- `decision_id`
+- `signal_context_id`
+- `indicator_instance_id`
+
+Where a given piece of evidence doesn't naturally carry one of these (e.g. a pure code-location grep), that's fine — but anywhere a live run is being demonstrated (items 2–4 in the Task list, and the negative control above), the same ID set must appear and match across every artifact from that run.
+
+---
+
+## Standing Verification Block (non-negotiable, applies to every claim below)
+
+No task is complete based on description alone. For every claim of "wired," "confirmed," "reaches," or "used," provide:
+
+1. **Raw terminal output** of actual execution — including raw `grep` output for any claim about code location, call chains, or whether a function/pattern exists. Never paraphrase what grep would show.
+2. **Exact before/after file diff** for any file touched.
+3. **sha256 hash before/after** for any changed file.
+4. **Raw SQL query + full result set** for any database-involved claim (e.g., confirming a row in `aiem_signal_discoveries` or trace tables reflects the live value).
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. If evidence cannot be produced, the agent must say so explicitly rather than asserting completion.
+
+---
+
+## Standing Data Immutability Rule
+
+No deletion, truncation, drop, or overwrite of any row, table, or file — including agent-created "test"/"synthetic"/"cleanup" data — without Joel's explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+---
+
+## Standing Evidence Chain Protocol
+
+Run all evidence-producing commands through `verified_run.sh` (hash-chained append-only logging wrapper, sha256 `72824bfe...24abd`) instead of running them directly. Validate the log with `verify_chain.sh` (sha256 `7294abeb...1fbec7`) before declaring this directive complete, and paste that script's output. Note: this proves internal log consistency only, not that commands genuinely executed against the real production DB — spot-checks may follow independently.
+
+---
+
+## Deliverable
+
+A per-indicator report (GARCH / VPIN / Hurst) covering items 1–4 above, each backed by the raw evidence required in the Standing Verification Block, plus the `verify_chain.sh` output at the end.
+
+Do not proceed to Tier 2 (Options Structure, Gamma, Skew) until this directive is confirmed complete with raw evidence.
