@@ -1,0 +1,40 @@
+# D13 Phase 3 — G1/G0 Decision + Next-Step Sequencing
+**Prepared for Joel — July 14, 2026**
+
+---
+
+## Decision: Q1 and Q2
+
+**Q1 (G1 — baseline integrity halt): A — Yes, flip G1 to ENFORCE**
+
+Rationale: G1 only fires on a genuine D3 architecture baseline mismatch (module count, tool count, or hash drift) — almost always caused by a code deploy that wasn't accompanied by a baseline update. This is a structural correctness check, not a market-timing judgment call. Low false-positive surface, real failure mode it protects against. No reason to leave it as log-only.
+
+**Q2 (G0 — PAUSED state halt): A — Yes, flip G0 to ENFORCE**
+
+Rationale: G0 never fires automatically — it only triggers when PAUSED is explicitly set by you or the G5 admin function. In SHADOW, hitting "pause" doesn't actually pause anything, which defeats the purpose of having an emergency stop. Flipping to ENFORCE makes the emergency stop functional. There's no scenario evident where you'd want to set PAUSED without it actually halting.
+
+---
+
+## Message to send to the agent now
+
+> Confirmed: **Q1 = A** (flip G1 to ENFORCE), **Q2 = A** (flip G0 to ENFORCE).
+>
+> Proceed with Step C for both G1 and G0, one at a time, following the same procedure used for G3 and G6: pre-flip check, flip, post-flip ALLOW+BLOCK path verification, rollback confirmation, and full verified_run.sh / verify_chain.sh evidence for each. Paste raw SQL, raw terminal output, and the verify_chain.sh output for both. Do not proceed to G2 Step C — that stays gated on the July 15 09:42 ET live G6 verification per the existing directive.
+
+---
+
+## Sequencing from here (fastest path, no shortcuts on evidence)
+
+1. **Now:** Send the message above to the agent — unblocks G1 and G0.
+2. **Tonight, in parallel:** Send the two items already queued —
+   - D13 F1 clarification (raw grep/SQL: why `model_version` is `None`, and whether the advisory-only change makes the gate a no-op)
+   - Directive 11 Phase 3 (Diagram1CandidateIntake polling/atomic claiming verification)
+3. **After tonight's sends resolve, confirm before moving further:**
+   - G1 and G0 both ENFORCE with clean evidence
+   - F1 concern actually resolved (not just documented) — this affects whether G3's candidate-passing behavior is trustworthy
+4. **July 15, 9:42 AM ET:** Scheduled cycle runs. G6 produces its first live decisions. D13 Phase 2 Tasks 4 & 6 (G3 ENFORCE verification) run automatically ~5 min after — you don't send this.
+5. **After the cycle, once SQL confirms new `aiem_diagram2_trace_audit` rows:** Send Directive 11 Phase 4 Item 3 (post-FAP stage-13 timestamp fix).
+6. **After the live cycle, if G6 verification is clean:** G2 Step C (flip to ENFORCE) becomes unblocked — this was intentionally gated on live G6 data, not something to push earlier.
+7. **Only after all 5 checkpoints (G0, G1, G2, G3, G6) are confirmed ENFORCE with clean evidence:** Send Directive 13 Phase 4 (Full PAPER ENFORCEMENT Closure).
+
+**Do not send Phase 4 before step 7.** Phase 4 Task 1 assumes all five checkpoints are already simultaneously ENFORCE — sending it early just produces a report built on an incomplete state.
