@@ -1,0 +1,49 @@
+# Directive: Resolve `aiem_signal_discoveries.created_at` Schema Bug Ambiguity
+
+**Context:** Directive 14 Phase 2 precondition check correctly stopped and reported that `created_at` does not exist on `aiem_signal_discoveries` (confirmed via raw schema query, only `discovered_at` and `confirmed_at` timestamp columns present), but could not determine whether this represents (A) a fix via undocumented rename, (B) an open bug with Stage 9's OOS filter silently failing, or (C) a mislabeled bug referring to something other than the column name.
+
+You are not authorized to proceed to Tier 1 wiring confirmation until this is resolved. Do not guess or infer — every claim below requires raw evidence per the standing verification block.
+
+## Task 1 — Determine what column Stage 9's OOS edge-filter actually gates on
+
+1. Locate the Stage 9 OOS edge-filter logic (expected in `walk_forward.py` and/or `aiem_stat_research_runner.py`).
+2. Paste the raw grep output showing every reference to `discovered_at` and `confirmed_at` within that filter logic (function-level context, not just line matches).
+3. State explicitly: does the OOS filter currently use `discovered_at` (or `confirmed_at`) as its cutoff/gating timestamp? Yes/No, with the exact line(s) as evidence.
+4. If neither column is referenced anywhere in the OOS filter path, state that explicitly — this would support possibility (B): the filter has no timestamp to gate on and is either not running or not actually filtering.
+
+## Task 2 — Recover the original bug definition
+
+1. Search any available directive history, commit messages, or code comments for the original description of the "`created_at` schema bug" (search terms: `created_at`, `signal_discoveries`, `OOS cutoff`, `Stage 9`).
+2. Paste raw grep/search output. If nothing is found, state that explicitly rather than reconstructing the bug definition from inference.
+3. If found, quote the original bug description (raw) and compare it against current schema/code state.
+
+## Task 3 — Runtime check
+
+1. Confirm via `verified_run.sh` whether the stat-research workflow is currently running or has run recently, and whether it errors, silently skips, or completes when it reaches the Stage 9 OOS step.
+2. Paste raw log/terminal output for this run, not a paraphrase.
+
+## Task 4 — Final determination
+
+Based on Tasks 1–3 only (no inference beyond what the evidence shows), state which of the three possibilities is true:
+- (A) Fixed via rename — cite the evidence from Task 1 showing `discovered_at` is wired into the OOS filter as the functional replacement.
+- (B) Still open — cite the evidence from Task 1/3 showing no column gates the filter, or it errors/skips silently.
+- (C) Mislabeled bug — cite the evidence from Task 2 showing the original bug meant something other than "missing column."
+
+If evidence from Tasks 1–3 is insufficient to make this determination with certainty, say so explicitly and specify exactly what additional evidence (raw command + expected output) would resolve it. Do not proceed to Tier 1 wiring confirmation in that case.
+
+---
+
+## Standing Verification Block (required for this task)
+No task is complete based on description alone. You must provide:
+1. Raw terminal output of actual execution, including raw grep output for any claim about code locations, call chains, or whether a function/pattern exists — never paraphrase what grep would show.
+2. Exact before/after file diff (if any files are changed).
+3. sha256 hash before/after for any changed files.
+4. Raw SQL query + full result set for any database claim.
+
+Narrative/paraphrased claims of "fixed," "tested," "found," or "confirmed" without pasted raw evidence are rejected. If you cannot produce evidence for a claim, say so explicitly.
+
+## Standing Data Immutability Rule
+You may never delete, truncate, drop, or overwrite any row, table, or file — including data you created yourself or label "test"/"synthetic"/"cleanup" — without my explicit prior approval in this session. State what you want to delete and why, wait for approval, then log it. Any unapproved deletion is a protocol violation to report, not self-correct.
+
+## Standing Evidence Chain Protocol
+Run all evidence-producing commands through `verified_run.sh` and validate the log with `verify_chain.sh` before declaring this directive complete. Paste `verify_chain.sh`'s output. This proves internal log consistency only — not that commands ran against the real production DB.
