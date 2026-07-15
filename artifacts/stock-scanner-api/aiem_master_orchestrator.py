@@ -885,6 +885,23 @@ class AEIMMasterOrchestrator:
         else:
             result = {"error": "insufficient_bars", "bars": len(rows)}
         packet.microstructure = result
+        # D14 — GARCH wiring: specialist_council (which normally computes GARCH) runs
+        # AFTER _h_bull_bear_debate in the pipeline, so GARCH would never reach
+        # signal_context. Compute it here (same stage as VPIN/Hurst) so the debate
+        # can read garch_vote from packet.microstructure → signal_context["garch_vote"].
+        if isinstance(packet.microstructure, dict):
+            if len(rows) >= 30:
+                try:
+                    from volatility_clustering import garch_regime_indicator as _garch_fn
+                    _garch_res = _garch_fn(df)   # df already has "Close" col from rename above
+                    packet.microstructure["garch_vote"]   = int(_garch_res.get("vote", 0))
+                    packet.microstructure["garch_reason"] = str(_garch_res.get("reason", ""))
+                except Exception as _ge:
+                    packet.microstructure["garch_vote"]   = 0
+                    packet.microstructure["garch_reason"] = f"garch_error: {_ge}"
+            else:
+                packet.microstructure["garch_vote"]   = 0
+                packet.microstructure["garch_reason"] = "insufficient_bars_for_garch"
         _score = result.get("statistical_score") if isinstance(result, dict) else None
         if _score is not None:
             packet.ml_prediction["layer9_statistical_edge"] = {
@@ -1105,15 +1122,52 @@ class AEIMMasterOrchestrator:
         return result
 
     def _h_bull_bear_debate(self, packet: AEIMTradePacket) -> Dict:
+        _tech    = packet.technical      or {}
+        _ms      = packet.microstructure or {}
+        _ms_comp = _ms.get("components") or {}
         signal_context = {
-            "ticker":       packet.ticker,
-            "source":       packet.source,
-            "macro":        packet.macro,
-            "technical":    packet.technical,
-            "options":      packet.options,
-            "microstructure": packet.microstructure,
-            "ml":           packet.ml_prediction,
+            # Nested sub-dicts (available for future consumers)
+            "ticker":           packet.ticker,
+            "source":           packet.source,
+            "macro":            packet.macro,
+            "technical":        _tech,
+            "options":          packet.options,
+            "microstructure":   _ms,
+            "ml":               packet.ml_prediction,
+            # D14 fix: debate functions read flat top-level keys, not nested dicts;
+            # flatten technical so existing indicators (rvol/rsi/cmf/etc.) reach the debate
+            "rvol":             float(_tech.get("rvol") or _tech.get("polygon_rvol") or 1.0),
+            "close_strength":   float(_tech.get("close_strength") or 0.5),
+            "gap_pct":          float(_tech.get("gap_pct") or 0),
+            "rsi_14":           float(_tech.get("rsi_14") or 50),
+            "cmf_20":           float(_tech.get("cmf_20") or 0),
+            "conviction_score": float(_tech.get("conviction_score") or 0),
+            "sweep_vol_oi":     float(_tech.get("sweep_vol_oi") or 0),
+            "days_held":        int(_tech.get("days_held") or 0),
+            # D14 Tier 1: VPIN (microstructure.components.vpin_toxicity.raw)
+            "vpin_raw":         float((_ms_comp.get("vpin_toxicity") or {}).get("raw") or 0),
+            "vpin_score":       float((_ms_comp.get("vpin_toxicity") or {}).get("score") or 0),
+            # D14 Tier 1: Hurst (microstructure.components.hurst_regime.raw)
+            "hurst_raw":        float((_ms_comp.get("hurst_regime") or {}).get("raw") or 0.5),
+            "hurst_score":      float((_ms_comp.get("hurst_regime") or {}).get("score") or 0),
+            "layer9_regime":    str(_ms.get("regime") or "unknown"),
+            "layer9_score":     float(_ms.get("statistical_score") or 0),
+            # D14 Tier 1: GARCH (set by _h_layer9_statistical_edge before this stage)
+            "garch_vote":       int(_ms.get("garch_vote") or 0),
+            "garch_reason":     str(_ms.get("garch_reason") or ""),
         }
+        # D14 live-confirmation log: print Tier-1 indicator values entering the debate
+        print(
+            f"[D14_BULL_BEAR] ticker={packet.ticker}"
+            f" vpin_raw={signal_context['vpin_raw']:.3f}"
+            f" hurst_raw={signal_context['hurst_raw']:.3f}"
+            f" garch_vote={signal_context['garch_vote']}"
+            f" garch_reason={signal_context['garch_reason']!r}"
+            f" rvol={signal_context['rvol']:.2f}"
+            f" rsi_14={signal_context['rsi_14']:.1f}"
+            f" layer9_score={signal_context['layer9_score']:.1f}"
+            f" layer9_regime={signal_context['layer9_regime']}"
+        )
         result = self._bb.run_bull_bear_debate(packet.ticker, signal_context)
         # Bridge fix: synthesize_debate() emits verdict (BUY/LEAN_BUY/NEUTRAL/LEAN_AVOID/AVOID)
         # + confidence, but _h_specialist_council expects weighted_vote in [-1, +1].

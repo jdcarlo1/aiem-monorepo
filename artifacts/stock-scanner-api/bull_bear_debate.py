@@ -104,6 +104,10 @@ def build_bull_case(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, An
     cmf  = float(signal_context.get("cmf_20") or 0)
     conv = float(signal_context.get("conviction_score") or 0)
     sweep_voi = float(signal_context.get("sweep_vol_oi") or 0)
+    # D14 Tier 1 indicators
+    garch_vote = int(signal_context.get("garch_vote") or 0)
+    vpin_raw   = float(signal_context.get("vpin_raw") or 0)
+    hurst_raw  = float(signal_context.get("hurst_raw") or 0.5)
 
     if rvol >= 3.0:
         score += 0.25; points.append(f"RVOL {rvol:.1f}x — institutional-level volume")
@@ -132,6 +136,14 @@ def build_bull_case(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, An
     if conv >= 6:
         score += 0.10; points.append(f"Conviction {conv:.0f}/10 — multi-layer confirmation")
 
+    # D14 Tier 1: GARCH (low-vol regime supports calls), VPIN (clean tape), Hurst (trending)
+    if garch_vote == 1:
+        score += 0.05; points.append(f"GARCH: low-vol clustering regime — supportive backdrop for calls")
+    if vpin_raw > 0 and vpin_raw < 0.30:
+        score += 0.05; points.append(f"VPIN {vpin_raw:.3f} — low informed-flow toxicity, clean entry signal")
+    if hurst_raw > 0.60:
+        score += 0.08; points.append(f"Hurst {hurst_raw:.3f} — trending regime, momentum likely to persist")
+
     score = min(1.0, score)
     strongest = points[0] if points else "No strong bull signals identified"
     return {
@@ -156,6 +168,10 @@ def build_bear_case(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, An
     cmf  = float(signal_context.get("cmf_20") or 0)
     rvol = float(signal_context.get("rvol") or 1)
     days_held = int(signal_context.get("days_held") or 0)
+    # D14 Tier 1 indicators
+    garch_vote = int(signal_context.get("garch_vote") or 0)
+    vpin_raw   = float(signal_context.get("vpin_raw") or 0)
+    hurst_raw  = float(signal_context.get("hurst_raw") or 0.5)
 
     if rsi > 72:
         score += 0.30; points.append(f"RSI {rsi:.0f} — overbought, reversal risk")
@@ -175,6 +191,16 @@ def build_bear_case(ticker: str, signal_context: Dict[str, Any]) -> Dict[str, An
 
     if days_held >= 5:
         score += 0.10; points.append(f"Held {days_held}d — position aging, time-decay risk")
+
+    # D14 Tier 1: GARCH (high-vol regime is bearish for calls), VPIN (toxic flow), Hurst (mean-rev)
+    if garch_vote == -1:
+        score += 0.08; points.append(f"GARCH: elevated vol-clustering regime — increased risk for calls")
+    if vpin_raw > 0.60:
+        score += 0.10; points.append(f"VPIN {vpin_raw:.3f} — high informed-flow toxicity, informed sellers active")
+    elif vpin_raw > 0.40:
+        score += 0.05; points.append(f"VPIN {vpin_raw:.3f} — moderate informed-flow pressure")
+    if hurst_raw < 0.40:
+        score += 0.05; points.append(f"Hurst {hurst_raw:.3f} — mean-reverting regime, momentum plays face headwinds")
 
     score = min(1.0, score)
     strongest = points[0] if points else "No strong bear signals identified"
@@ -251,6 +277,9 @@ def run_risk_review(
     bull_s = float(bull_case.get("score") or 0)
     rsi    = float(signal_context.get("rsi_14") or 50)
     gap    = float(signal_context.get("gap_pct") or 0)
+    # D14 Tier 1 indicators
+    vpin_raw   = float(signal_context.get("vpin_raw") or 0)
+    garch_vote = int(signal_context.get("garch_vote") or 0)
 
     risks = []
     risk_score = 0.0
@@ -273,6 +302,14 @@ def run_risk_review(
     if bull_s > 0 and (bull_s - bear_s) < 0.10:
         risk_score += 0.10
         risks.append(f"thin conviction margin: bull({bull_s:.2f})–bear({bear_s:.2f}) edge < 0.10")
+
+    # D14 Tier 1: VPIN and GARCH risk signals
+    if vpin_raw > 0.70:
+        risk_score += 0.15
+        risks.append(f"VPIN={vpin_raw:.3f} — high informed-flow toxicity, potential informed sellers present")
+    if garch_vote == -1:
+        risk_score += 0.10
+        risks.append(f"GARCH vote=-1 — elevated volatility-clustering regime")
 
     if risk_score >= 0.50:
         risk_level       = "HIGH"
@@ -325,6 +362,8 @@ def run_contradiction_check(
     cmf  = float(signal_context.get("cmf_20") or 0)
     bull_s = float(bull_case.get("score") or 0)
     bear_s = float(bear_case.get("score") or 0)
+    # D14 Tier 1 indicators
+    vpin_raw = float(signal_context.get("vpin_raw") or 0)
 
     contradictions = []
 
@@ -356,6 +395,16 @@ def run_contradiction_check(
                             f"both >= 0.35 — genuinely ambiguous direction"),
             "bull_signal": f"bull={bull_s:.2f}",
             "bear_signal": f"bear={bear_s:.2f}",
+        })
+
+    # D14 Contradiction 4: elevated VPIN (informed-flow toxicity) conflicts with positive CMF
+    if vpin_raw > 0.50 and cmf > 0.05:
+        contradictions.append({
+            "type": "vpin_vs_cmf",
+            "description": (f"VPIN={vpin_raw:.3f} (informed-flow toxicity elevated) conflicts with "
+                            f"CMF={cmf:.2f} (money-flow indicator positive)"),
+            "bull_signal": f"CMF={cmf:.2f}",
+            "bear_signal": f"VPIN={vpin_raw:.3f}",
         })
 
     confidence_adjustment = round(-0.05 * len(contradictions), 3)

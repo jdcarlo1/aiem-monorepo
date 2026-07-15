@@ -1,0 +1,76 @@
+Directive 14 — Tier 1 Indicator Wiring Verification
+
+Scope
+
+Prerequisite confirmed: aiem_signal_discoveries.created_at is fixed.
+
+This directive is separate from D11/D13. Do not block either workstream on the other.
+
+Verify only these Tier 1 indicators (in order):
+
+1. GARCH
+2. VPIN
+3. Hurst Exponent
+
+Do not begin Tier 2 until all three pass.
+
+Goal
+
+Prove with real evidence that each indicator reaches bull_bear_debate.signal_context and is actually read by the bull/bear debate. Placement only in packet.microstructure or any intermediate structure does not count.
+
+For each indicator
+
+1. Locate the code
+    * Paste raw grep output showing where the indicator is computed and every place its value is written and read.
+2. Trace the wiring
+    * Show the complete path from computation → bull_bear_debate.signal_context → bull/bear debate consumer.
+    * If it stops before signal_context, state that explicitly.
+3. If not wired
+    * Make only the minimum code change required.
+    * Provide the exact before/after diff.
+    * Provide SHA-256 hashes before and after for every modified file.
+4. Live confirmation
+    * During live market hours (no mocks, no backtests), provide raw logs showing:
+        * trace_id
+        * candidate_id
+        * ticker
+        * indicator value
+        * assignment into signal_context
+        * the debate reading that value
+5. Confirm
+    * State whether the value reaching signal_context is:
+        * non-null
+        * not hardcoded or placeholder
+        * a real computed value
+        * observed to vary during live execution (not a fixed constant)
+
+Required evidence
+
+All commands must run through verified_run.sh.
+
+Before closing this directive, provide:
+
+* Raw terminal output
+* Raw grep output (no paraphrasing)
+* Exact diffs for all changes
+* SHA-256 before/after for modified files
+* Raw SQL and full results if database queries are used
+* verify_chain.sh output
+
+If any required evidence cannot be produced, explicitly state that instead of claiming completion.
+
+Data Rule
+
+Do not delete, truncate, overwrite, or clean up any rows, tables, or files—including test data—without Joel’s explicit approval first. Report any needed deletion and wait for approval.
+
+Exit Criteria
+
+Directive 14 is complete only when:
+
+* GARCH reaches bull_bear_debate.signal_context
+* VPIN reaches bull_bear_debate.signal_context
+* Hurst reaches bull_bear_debate.signal_context
+* All three are consumed by the bull/bear debate
+* Live runtime evidence proves real, non-placeholder values
+* Any wiring changes include diff + SHA-256 evidence
+* verify_chain.sh passes
