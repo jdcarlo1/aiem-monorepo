@@ -1775,10 +1775,38 @@ def main():
                   CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
                   id="aiem_pattern_gap_analysis", replace_existing=True)
 
+    # 5:10 PM — capture top 100 winners/losers per market cap tier (feeds discovery engine)
+    def _daily_tiered_movers_job():
+        try:
+            from daily_market_movers import run_daily_tiered_movers_job
+            api_key = os.environ.get("POLYGON_API_KEY", "")
+            result  = run_daily_tiered_movers_job(top_n=100, api_key=api_key)
+            log.info("[tiered-movers] %s", result)
+        except Exception as _e:
+            log.error("[tiered-movers] error: %s", _e)
+
+    sched.add_job(_daily_tiered_movers_job,
+                  CronTrigger(day_of_week="mon-fri", hour=17, minute=10),
+                  id="aiem_daily_tiered_movers", replace_existing=True)
+
     # 5:15 PM — write signal discoveries to DB
     sched.add_job(aiem_write_signal_discoveries,
                   CronTrigger(day_of_week="mon-fri", hour=17, minute=15),
                   id="aiem_write_signal_discoveries", replace_existing=True)
+
+    # 5:30 PM — per-tier discovery cycle (nano/small/mid/large pattern search)
+    def _discovery_cycle_job():
+        try:
+            from aiem_discovery_engine import get_discovery_engine
+            eng    = get_discovery_engine()
+            result = eng.run_tiered_wl_cycle()
+            log.info("[discovery-cycle] %s", result)
+        except Exception as _e:
+            log.error("[discovery-cycle] error: %s", _e)
+
+    sched.add_job(_discovery_cycle_job,
+                  CronTrigger(day_of_week="mon-fri", hour=17, minute=30),
+                  id="aiem_discovery_cycle", replace_existing=True)
 
     # 6:00 PM — nightly learn (update trust weights, promote hypotheses)
     sched.add_job(aiem_nightly_learn,
