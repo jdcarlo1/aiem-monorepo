@@ -1,0 +1,500 @@
+# DIRECTIVE — STANDALONE ADVANCED OPTIONS STRATEGY ENGINE
+
+SCOPE:
+This is a standalone project. Do NOT connect it to Diagrams 1–3. Do NOT modify the existing AEIM pipeline or existing options-indicator intelligence. Paper trading only until separately approved and verified.
+
+GOAL:
+For every eligible stock and market thesis, generate and compare every valid options strategy, then select the structure with the best combination of:
+- Capital preservation
+- Defined maximum loss
+- Probability of profit
+- Expected value after realistic costs
+- Capital efficiency
+- Liquidity and fill quality
+- Market-regime fit
+- Volatility-regime fit
+- Event-risk fit
+- Portfolio-risk fit
+
+NO_TRADE must always be included as a valid final decision.
+
+STRATEGY ARSENAL:
+Implement all major recognized options structures, including:
+
+1. SINGLE-LEG
+- Long call
+- Long put
+- Cash-secured put
+- Covered short call
+- LEAPS call/put
+- Deep-ITM stock-replacement call/put
+- Short call/put analysis only unless fully covered or cash secured
+
+2. STOCK + OPTION
+- Covered call
+- Buy-write
+- Covered put
+- Cash-secured put
+- Protective put/call
+- Married put
+- Collar
+- Zero-cost collar
+- Put-spread collar
+- Seagull collar
+- Covered strangle
+- Poor man’s covered call/put
+- Synthetic covered call/put
+- Stock repair
+- Wheel strategy
+- Dynamic collar
+- Rolling covered-call structures
+
+3. CALL SPREADS
+- Bull call debit spread
+- Bear call credit spread
+- Long/short call vertical
+- ITM/ATM/OTM call spreads
+- Narrow/wide call spreads
+- Weekly/monthly/LEAPS call spreads
+- Call spread roll-up/down/out
+- Call spread roll-up-and-out/down-and-out
+- Call spread conversions into butterfly, condor, diagonal, or ratio spread
+
+4. PUT SPREADS
+- Bear put debit spread
+- Bull put credit spread
+- Long/short put vertical
+- ITM/ATM/OTM put spreads
+- Narrow/wide put spreads
+- Weekly/monthly/LEAPS put spreads
+- Put spread roll-up/down/out
+- Put spread roll-up-and-out/down-and-out
+- Put spread conversions into butterfly, condor, diagonal, or ratio spread
+
+5. SYNTHETIC / COMBINATION
+- Bullish/bearish risk reversal
+- Fence
+- Synthetic long stock
+- Synthetic short stock
+- Split-strike synthetic
+- Double bull spread
+- Double bear spread
+- Conversion/reversal analysis only
+- Box spread/short box analysis only
+- Jelly roll analysis only
+
+6. CALENDAR / HORIZONTAL
+- Long/short call calendar
+- Long/short put calendar
+- ATM/ITM/OTM calendar
+- Weekly/monthly and monthly/quarterly calendar
+- Double/triple calendar
+- Calendar straddle/strangle
+- Reverse calendar
+- Earnings calendar
+- LEAPS calendar
+- Ratio calendar
+- Calendarized vertical
+
+7. DIAGONAL
+- Long/short call diagonal
+- Long/short put diagonal
+- Bullish/bearish diagonal
+- Debit/credit diagonal
+- Double diagonal
+- Reverse diagonal
+- Diagonal straddle/strangle
+- Diagonal collar
+- LEAPS diagonal
+- Rolling diagonal
+- Earnings diagonal
+- Broken-wing diagonal
+- Ratio diagonal
+
+8. STRADDLES / STRANGLES
+- Long straddle
+- Short straddle analysis only unless fully capped
+- Long strangle
+- Short strangle analysis only unless fully capped
+- Long/short guts
+- Strap
+- Strip
+- Covered/protective straddle
+- Covered/protective strangle
+- Calendar straddle/strangle
+- Diagonal straddle/strangle
+- Iron straddle/strangle
+- Ratio straddle/strangle
+- Reverse-ratio straddle/strangle
+
+9. BUTTERFLIES
+- Long/short call butterfly
+- Long/short put butterfly
+- Iron butterfly
+- Debit/credit butterfly
+- ATM/ITM/OTM butterfly
+- Broken-wing butterfly
+- Unbalanced butterfly
+- Skip-strike butterfly
+- Wide/narrow-wing butterfly
+- Christmas tree
+- Double butterfly
+- Split-strike butterfly
+- Ratio butterfly
+- Reverse butterfly
+- Calendar/diagonal butterfly
+- Earnings butterfly
+- Zero-cost/asymmetric butterfly
+
+10. CONDORS
+- Long/short call condor
+- Long/short put condor
+- Iron condor
+- Reverse iron condor
+- Debit/credit condor
+- Symmetric/asymmetric iron condor
+- Narrow/wide iron condor
+- Broken-wing/unbalanced condor
+- Double condor
+- Calendar/diagonal condor
+- Earnings iron condor
+- Zero-DTE iron condor
+- Skewed/delta-neutral iron condor
+- Condor-to-butterfly and butterfly-to-condor adjustments
+
+11. RATIO SPREADS / BACKSPREADS
+- Call ratio spread
+- Put ratio spread
+- Call backspread
+- Put backspread
+- 1x2, 1x3, and 2x3 call/put spreads
+- Front spread
+- Backspread
+- Ratio calendar
+- Ratio diagonal
+- Covered ratio spread
+- Broken-wing ratio spread
+- Zero-cost ratio spread
+- Call/put seagull
+- Bullish/bearish seagull
+
+12. ADVANCED INCOME / VOLATILITY
+- Jade lizard
+- Reverse jade lizard
+- Big lizard
+- Twisted sister
+- Batman
+- Iron fly
+- Reverse iron fly
+- Double calendar
+- Double diagonal
+- Double butterfly
+- Double condor
+- Vega-positive structures
+- Defined-risk vega-negative structures
+- Theta-positive structures
+- Gamma-positive structures
+- Delta-neutral structures
+- Delta-hedged structures
+- Gamma-scalping simulation
+- Volatility-skew trade
+- Term-structure trade
+- Forward-volatility trade
+- Variance-risk-premium structure
+- Tail-risk hedge
+- Crash put spread
+- Put/call spread overlay
+- Buffered-protection structure
+- Defined-outcome structure
+- Capped-upside buffer structure
+- Dispersion/correlation structures analysis only
+
+13. EVENT / EXPIRATION
+- Earnings long straddle/strangle
+- Earnings butterfly
+- Earnings iron condor
+- Earnings calendar/diagonal
+- Pre-event IV-expansion trade
+- Post-event IV-crush trade
+- Ex-dividend protection
+- Merger/FDA/macro-event structures
+- Zero-DTE vertical
+- Zero-DTE butterfly
+- Zero-DTE iron butterfly
+- Zero-DTE iron condor
+- Weekly/monthly/quarterly structures
+- LEAPS structures
+- Same-day expiration hedge
+- Overnight-gap hedge
+
+GENERIC MULTI-LEG BUILDER:
+Do not rely only on hard-coded named strategies.
+
+Build a generic constructor supporting:
+- 1–8 option legs
+- Calls and puts
+- Long and short legs
+- Same or different strikes
+- Same or different expirations
+- Integer ratios
+- Optional stock leg
+- Debit or credit entry
+- Symmetric/asymmetric wings
+
+Requirements:
+- Normalize and sort legs canonically
+- Detect named-strategy duplicates
+- Assign recognized strategy name when possible
+- Otherwise classify as CUSTOM_MULTI_LEG
+- Generate deterministic strategy fingerprint
+- Reject invalid, redundant, unpriceable, or unsafe combinations
+- Prevent combinatorial explosion using thesis, DTE, IV, liquidity, expected move, and risk constraints
+
+ELIGIBILITY FILTER:
+Reject any strategy with:
+- Missing/stale/crossed quotes
+- Missing legs
+- Invalid symbols, strikes, or expirations
+- Insufficient volume/open interest
+- Excessive bid/ask width
+- Unreliable Greeks or IV
+- Unacceptable assignment or pin risk
+- Unknown maximum loss
+- Unknown buying-power requirement
+- Undefined autonomous risk
+- Excessive event exposure
+- Excessive portfolio risk
+- Unrealistic multi-leg fill assumptions
+
+STRATEGY MODELING:
+For every eligible strategy calculate and save:
+- Net debit/credit
+- Mid and conservative executable price
+- Slippage
+- Commissions/fees
+- Maximum profit/loss
+- All breakevens
+- Probability of profit
+- Probability of touch
+- Probability of max profit/loss
+- Expected value before/after costs
+- Return on capital
+- Return on maximum risk
+- Buying power
+- Capital at risk
+- Reward/risk
+- Delta, gamma, theta, vega, rho
+- Charm, vanna, vomma/volga, speed, color where available
+- IV rank/percentile
+- Realized vs implied volatility
+- Skew and term-structure exposure
+- Expected-move coverage
+- Assignment, pin, dividend, gap, and event risk
+- Liquidity/fill-quality score
+- Stress losses
+- Payoff across price, time, and volatility scenarios
+
+Do not use delta alone as probability of profit. Use calibrated distribution modeling, volatility surface, skew, term structure, expected move, and fat-tail stress scenarios.
+
+RANKING:
+Use a transparent Capital Compounding Score based on:
+- Probability of profit
+- Expected value after costs
+- Capital preservation
+- Defined-risk quality
+- Capital efficiency
+- Liquidity
+- Thesis fit
+- Market-regime fit
+- Volatility-regime fit
+- Diversification value
+
+Penalize:
+- Maximum loss
+- Drawdown
+- Tail risk
+- Assignment risk
+- Event risk
+- Slippage
+- Complexity
+- Correlation concentration
+
+Store every score component and weight separately.
+
+SELECTION RULES:
+1. Reject invalid/unpriceable structures
+2. Reject prohibited or undefined-risk structures
+3. Reject excessive capital-at-risk
+4. Reject negative expected value after costs
+5. Reject poor liquidity
+6. Rank all remaining strategies
+7. Prefer defined risk
+8. Prefer lower drawdown/tail risk
+9. Prefer better expected return per dollar at risk
+10. Select the strongest capital-compounding strategy
+11. Select NO_TRADE if no strategy clears thresholds
+
+The selected strategy must also beat:
+- Long stock
+- Short stock comparison
+- Long call
+- Long put
+- Simplest applicable vertical spread
+- Cash/NO_TRADE
+
+Do not choose a complex structure unless it materially improves capital preservation or risk-adjusted expected value over a simpler structure.
+
+AUTONOMOUS PAPER TRADING:
+Every approved decision must create:
+- Parent paper-trade record
+- Individual leg records
+- Strategy evaluation record
+- Entry assumptions
+- Pricing source and timestamps
+- Greeks and IV
+- Selection reason
+- Runner-up strategy
+- NO_TRADE comparison
+- Entry/exit/adjustment history
+- Complete immutable audit trail
+
+Never save only the strategy name. Every leg must be reconstructable.
+
+REQUIRED PARENT FIELDS:
+paper_trade_id, strategy_evaluation_id, strategy_fingerprint, decision_run_id, underlying, strategy_name, family, thesis, direction, volatility_thesis, entry_time, planned_exit, probability_of_profit, expected_value, maximum_profit, maximum_loss, capital_at_risk, buying_power, return_on_risk, liquidity_score, selected_score, runner_up, no_trade_score, market_regime, volatility_regime, event_context, status, created_at, updated_at.
+
+REQUIRED LEG FIELDS:
+paper_trade_leg_id, paper_trade_id, leg_number, asset_type, option_symbol, call_or_put, buy_or_sell, open_or_close, quantity, strike, expiration, DTE, bid, ask, mid, modeled_fill, paper_fill, Greeks, IV, volume, open_interest, quote_timestamp, data_provider.
+
+POSITION MANAGEMENT:
+Support:
+- Profit target
+- Stop/max loss
+- Time/DTE exit
+- Event exit
+- Delta/gamma/vega exit
+- Liquidity-deterioration exit
+- Thesis/regime invalidation
+- Short-strike defense
+- Roll up/down/out
+- Roll up-and-out/down-and-out
+- Close one leg or full position
+- Add protective wing
+- Reduce size
+- Convert vertical/butterfly/condor/diagonal where valid
+- Exercise/assignment simulation
+
+Every adjustment must create a new immutable record. Never overwrite the original entry.
+
+TRACK RECORD:
+Persist every:
+- Winning trade
+- Losing trade
+- Breakeven trade
+- Expired trade
+- Rejected strategy
+- Canceled trade
+- NO_TRADE decision
+
+For closed trades save:
+- Exit time/reason
+- Exit price per leg
+- Gross and net P/L
+- Costs/slippage
+- Return on capital/risk
+- Maximum favorable/adverse excursion
+- Holding period
+- Assignment/exercise outcome
+- Probability calibration
+- Expected-value error
+- Regime at entry/exit
+- Full adjustment and audit history
+
+PERFORMANCE REPORTING:
+Produce immutable daily, weekly, and monthly reports with:
+- Autonomous scans
+- Strategies evaluated/rejected
+- NO_TRADE decisions
+- Trades opened/closed
+- Net P/L
+- Win/loss rate
+- Average winner/loser
+- Profit factor
+- Expectancy
+- Sharpe
+- Sortino
+- Maximum drawdown
+- Calmar
+- Return on capital/risk
+- Capital utilization
+- Capital preservation score
+- Brier score/calibration
+- Performance by strategy, family, symbol, regime, IV, DTE, delta, event, entry time, and holding period
+- Equity curve
+- Drawdown curve
+- Monthly return table
+- Complete trade ledger
+
+Clearly separate:
+- THEORETICAL_RETURN
+- MODELED_FILL_RETURN
+- PAPER_EXECUTED_RETURN
+
+SAFETY:
+The following remain analysis-only unless converted to fully capped defined-risk forms:
+- Naked calls/puts
+- Uncovered short straddles/strangles
+- Uncovered ratio spreads
+- Unlimited-loss synthetics
+- Arbitrage structures without executable synchronized pricing
+- Any strategy with unknown max loss or buying power
+
+STRICT VERIFICATION:
+Return real runtime evidence only. No narrative-only claims, mocks, fabricated fills, or manually inserted success rows.
+
+Provide:
+1. Complete strategy registry
+2. Count by strategy family
+3. Source file/class/function for each strategy
+4. Enabled vs analysis-only status
+5. Payoff, breakeven, max-profit, and max-loss tests
+6. Greek aggregation tests
+7. Undefined-risk rejection tests
+8. Liquidity/missing-data rejection tests
+9. NO_TRADE negative control
+10. Generic custom multi-leg test
+11. Duplicate detection test
+12. Bullish, bearish, neutral, high-IV, low-IV, earnings, and illiquid-chain comparisons
+13. Real autonomous paper-trade insertion
+14. SQL proof of parent trade
+15. SQL proof of every leg
+16. SQL proof of valuation updates
+17. SQL proof of adjustment/exit
+18. SQL proof of performance reporting
+
+For every test return:
+- Exact command
+- Raw output
+- Timestamp
+- Run ID
+- Strategy ID
+- Paper-trade ID
+- Database table
+- SQL query/result
+- Code SHA-256
+- Config SHA-256
+- PASS/FAIL
+
+FINAL ACCEPTANCE:
+Do not declare completion until:
+- All strategy families are registered
+- Generic multi-leg construction works
+- Payoff/risk calculations are validated
+- Undefined-risk autonomous trades are blocked
+- All eligible strategies and NO_TRADE are compared
+- Selection follows capital preservation and expected value, not probability alone
+- Every parent trade and leg is permanently saved
+- Positions are autonomously monitored through closure
+- Closed trades feed the permanent performance record
+- Real runtime and SQL evidence is provided
+- No connection to Diagrams 1–3 exists
