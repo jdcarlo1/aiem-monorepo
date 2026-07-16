@@ -1,0 +1,112 @@
+OPTIONS ALERT DECISION LOGIC — SIMPLIFIED VERSION
+
+Goal:
+Analyze the stock and options market, determine whether the opportunity is bullish or bearish, and compare only a long call versus a long put. Do not build or compare multi-leg options strategies yet.
+
+Before sending an alert, evaluate:
+
+1. UNDERLYING STOCK ANALYSIS
+- Current trend and market structure
+- Support and resistance
+- VWAP position and VWAP reclaim/rejection
+- Relative volume and volume confirmation
+- Momentum and momentum exhaustion
+- Breakout, breakdown, pullback, or reversal setup
+- Broader market direction
+- Sector strength or weakness
+- Market breadth
+- Volatility regime
+- Existing AEIM probability and conviction scores
+
+2. OPTIONS CONTRACT ANALYSIS
+- Call volume versus put volume
+- Volume compared with open interest
+- Open-interest change when available
+- Unusual options activity
+- Sweep/block activity when available
+- Bid/ask spread
+- Contract liquidity
+- Slippage estimate
+- Implied volatility
+- IV rank and IV percentile
+- Delta
+- Gamma
+- Theta
+- Vega
+- Gamma exposure and dealer-positioning context
+- Put/call skew
+- Expected move
+- Strike selection
+- Expiration selection
+- Break-even price
+- Premium at risk
+- Probability of profit or probability of reaching the target
+- Expected return
+- Maximum possible loss
+- Time remaining before expiration
+
+3. LIMITED DIRECTIONAL COMPARISON
+Compare only:
+- Best eligible long call
+- Best eligible long put
+- No trade
+
+Do not compare spreads, calendars, condors, butterflies, straddles, strangles, ratio spreads, covered calls, collars, or synthetic positions at this stage.
+
+4. SCORING
+Score the best call and best put using:
+- Directional probability
+- Expected return
+- Maximum loss
+- Risk/reward
+- Liquidity
+- Bid/ask spread
+- Estimated slippage
+- Theta-decay risk
+- IV-expansion or IV-crush risk
+- Capital required
+- Market-regime fit
+- Technical confirmation
+- Options-flow confirmation
+- Historical performance in similar conditions
+
+5. ALERT GATE
+Send an alert only when:
+- The underlying stock signal and options signal agree
+- Liquidity meets the minimum threshold
+- Bid/ask spread is acceptable
+- Expected return justifies the premium at risk
+- The contract has enough time before expiration
+- The selected direction clearly scores higher than the opposite direction
+- The total score exceeds the minimum alert threshold
+- No major conflicting signal invalidates the setup
+
+Otherwise return NO TRADE.
+
+6. REQUIRED ALERT OUTPUT
+- Ticker
+- Bullish, bearish, or no trade
+- Selected contract
+- Call or put
+- Strike
+- Expiration
+- Current stock price
+- Entry premium range
+- Delta, gamma, theta, vega, and IV
+- Volume
+- Open interest
+- Bid/ask spread
+- Expected move
+- Break-even
+- Maximum premium at risk
+- Probability estimate
+- Expected-return estimate
+- Suggested profit target
+- Suggested stop or invalidation level
+- Main reasons for the alert
+- Main risks
+- Score for the selected contract
+- Score for the rejected opposite-direction contract
+- Exact reason the selected contract won
+
+The system must never force an alert. NO TRADE is required whenever neither the long call nor long put meets the minimum quality, liquidity, and capital-preservation standards.
