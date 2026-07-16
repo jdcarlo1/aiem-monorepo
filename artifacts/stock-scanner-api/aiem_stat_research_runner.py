@@ -759,8 +759,8 @@ def run_historical_backtest():
       vol_accel          = current_rvol > prior_rvol  (volume building)
       day_return_pct     = (close − open) / open × 100
       Outcomes tested (same-day only — buy open, sell close):
-        big7     = day_return_pct >= 7   (primary target)
-        big10    = day_return_pct >= 10  (strong runner)
+        big5     = day_return_pct >= 5   (primary target)
+        big7     = day_return_pct >= 7   (strong runner)
 
     Runs once per calendar day. Results stored in aiem_historical_pattern_grid.
     """
@@ -801,8 +801,8 @@ def run_historical_backtest():
                 prev_range                                                   AS prior_range_pct,
                 rvol > prev_rvol                                             AS vol_accel,
                 (close_price - open_price) / NULLIF(open_price, 0) * 100   AS day_return_pct,
-                (close_price - open_price) / NULLIF(open_price, 0) >= 0.07 AS big7,
-                (close_price - open_price) / NULLIF(open_price, 0) >= 0.10 AS big10
+                (close_price - open_price) / NULLIF(open_price, 0) >= 0.05 AS big5,
+                (close_price - open_price) / NULLIF(open_price, 0) >= 0.07 AS big7
             FROM (
                 SELECT
                     ticker, scan_date, open_price, close_price, rvol, volume,
@@ -832,23 +832,23 @@ def run_historical_backtest():
         cur.execute("""
             SELECT
                 COUNT(*),
-                AVG(big7::int)*100,
-                AVG(big10::int)*100
+                AVG(big5::int)*100,
+                AVG(big7::int)*100
             FROM _hb_tmp
         """)
         row = cur.fetchone()
         total_rows = int(row[0] or 0)
         baselines  = {
-            "big7":  float(row[1] or 3),
-            "big10": float(row[2] or 2),
+            "big5":  float(row[1] or 5),
+            "big7":  float(row[2] or 3),
         }
         outcomes = {
+            "big5":  "big5",
             "big7":  "big7",
-            "big10": "big10",
         }
         log.info(
-            "Dataset ready: %d rows | same-day baselines: big7=%.1f%% big10=%.1f%%",
-            total_rows, baselines["big7"], baselines["big10"]
+            "Dataset ready: %d rows | same-day baselines: big5=%.1f%% big7=%.1f%%",
+            total_rows, baselines["big5"], baselines["big7"]
         )
 
         if total_rows < 5000:
