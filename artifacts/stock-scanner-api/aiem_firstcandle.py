@@ -113,96 +113,102 @@ def _polygon_news_check(ticker: str, trade_date: date) -> dict:
 
 def _polygon_intraday_signals(ticker: str, trade_date: date) -> dict:
     """
-    Fetch Polygon tick-level trades for the 9:30-9:35 AM ET window and compute
-    three pro-grade intraday signals in a single pass:
+    Compute three pro-grade intraday signals from Tradier 1-minute bars
+    for the 9:30-9:35 AM ET window (5 bars).
 
-      1. CVD (Cumulative Volume Delta) — tick rule buy/sell pressure
-           uptick  (price > prev) → buy aggressor  (+size)
-           downtick (price < prev) → sell aggressor (-size)
-           no-change               → carry forward direction
+    Polygon's /v3/trades endpoint requires a higher subscription tier, so we
+    use Tradier 1-min timesales as the data source — same Tradier token already
+    used for the first-candle bar.  The bar-direction rule is a standard
+    approximation when individual tick data is unavailable:
 
-      2. VWAP — volume-weighted average price for the first candle
+      1. CVD (Cumulative Volume Delta) — bar-direction rule:
+           close > open → classify entire bar as buyer-initiated  (+volume)
+           close < open → classify entire bar as seller-initiated (-volume)
+           close == open → carry forward previous bar's direction
 
-      3. Volume Profile — Point of Control (highest-volume price level)
-           + Value Area High/Low (price range containing 70% of volume)
+      2. VWAP — sum(typical_price × volume) / sum(volume)
+           typical_price = (high + low + close) / 3
 
-    Returns dict with: cum_delta, delta_pct, buy_vol, sell_vol, tick_count,
-                       vwap, vwap_vs_open_pct, poc_price, poc_vs_open_pct,
+      3. Volume Profile — bucket typical prices to $0.05 levels;
+           POC = highest-volume bucket;
+           Value Area High/Low = price range covering 70% of volume
+
+    Returns dict with: cum_delta, delta_pct, buy_vol, sell_vol, tick_count
+                       (= bar count), vwap, vwap_vs_open_pct (None — filled
+                       by caller), poc_price, poc_vs_open_pct (None), 
                        value_area_high, value_area_low
     or {} on failure/no data.
     """
-    import urllib.request
-    import json as _json
-    from datetime import time as _time
-    import pytz as _pytz
-
-    key = _polygon_key()
-    if not key:
+    hdrs = _td_headers()
+    if not hdrs:
         return {}
 
-    utc = _pytz.utc
-    start_et = ET.localize(datetime.combine(trade_date, _time(9, 30, 0)))
-    end_et   = ET.localize(datetime.combine(trade_date, _time(9, 35, 0)))
-    start_ns = int(start_et.astimezone(utc).timestamp() * 1_000_000_000)
-    end_ns   = int(end_et.astimezone(utc).timestamp()   * 1_000_000_000)
+    date_str = trade_date.strftime("%Y-%m-%d")
+    try:
+        r = requests.get(
+            "https://api.tradier.com/v1/markets/timesales",
+            params={
+                "symbol":         ticker.upper(),
+                "interval":       "1min",
+                "start":          f"{date_str} 09:30:00",
+                "end":            f"{date_str} 09:35:00",
+                "session_filter": "open",
+            },
+            headers=hdrs, timeout=10,
+        )
+        if r.status_code != 200:
+            return {}
+        series = r.json().get("series")
+        if not series:
+            return {}
+        bars = series.get("data") or []
+        if isinstance(bars, dict):
+            bars = [bars]
+    except Exception as exc:
+        print(f"{_LOG} intraday_signals {ticker}: {exc}")
+        return {}
 
-    trades = []
-    url = (
-        f"https://api.polygon.io/v3/trades/{ticker.upper()}"
-        f"?timestamp.gte={start_ns}&timestamp.lte={end_ns}"
-        f"&limit=50000&sort=timestamp&order=asc&apiKey={key}"
-    )
-    for _ in range(6):
+    if not bars:
+        return {}
+
+    # ── Single-pass: CVD + VWAP + Volume Profile ──────────────────────────────
+    buy_vol   = 0
+    sell_vol  = 0
+    sum_pv    = 0.0
+    sum_v     = 0
+    profile   = {}     # price_bucket → volume
+    direction = 0      # +1 = buy bar, -1 = sell bar
+
+    for bar in bars:
         try:
-            with urllib.request.urlopen(url, timeout=10) as resp:
-                data = _json.loads(resp.read())
-            results = data.get("results", [])
-            trades.extend(results)
-            next_url = data.get("next_url")
-            if not next_url or not results:
-                break
-            url = f"{next_url}&apiKey={key}"
-        except Exception as exc:
-            print(f"{_LOG} intraday_signals {ticker}: {exc}")
-            break
-
-    if not trades:
-        return {}
-
-    # ── Single-pass over trades: CVD + VWAP + Volume Profile ──────────────────
-    buy_vol    = 0
-    sell_vol   = 0
-    sum_pv     = 0.0   # price × volume (for VWAP)
-    sum_v      = 0     # total volume (for VWAP)
-    profile    = {}    # price_bucket → volume (for Volume Profile)
-    prev_price = None
-    direction  = 0     # +1 = last trade was buy-initiated, -1 = sell
-
-    for t in trades:
-        price = float(t.get("price") or 0)
-        size  = int(t.get("size")  or 0)
-        if price <= 0 or size <= 0:
+            o = float(bar.get("open")   or 0)
+            h = float(bar.get("high")   or 0)
+            l = float(bar.get("low")    or 0)
+            c = float(bar.get("close")  or 0)
+            v = int(bar.get("volume")   or 0)
+        except (TypeError, ValueError):
+            continue
+        if not o or not c or v <= 0:
             continue
 
-        # CVD tick rule
-        if prev_price is not None:
-            if price > prev_price:
-                direction = 1
-            elif price < prev_price:
-                direction = -1
-            if direction == 1:
-                buy_vol += size
-            elif direction == -1:
-                sell_vol += size
-        prev_price = price
+        # Bar-direction CVD rule
+        if c > o:
+            direction = 1
+        elif c < o:
+            direction = -1
+        if direction == 1:
+            buy_vol += v
+        elif direction == -1:
+            sell_vol += v
 
-        # VWAP accumulation
-        sum_pv += price * size
-        sum_v  += size
+        # VWAP using typical price
+        tp      = (h + l + c) / 3
+        sum_pv += tp * v
+        sum_v  += v
 
-        # Volume Profile — bucket to nearest $0.05 increment
-        bucket = round(round(price / 0.05) * 0.05, 2)
-        profile[bucket] = profile.get(bucket, 0) + size
+        # Volume Profile — bucket typical price to nearest $0.05
+        bucket = round(round(tp / 0.05) * 0.05, 2)
+        profile[bucket] = profile.get(bucket, 0) + v
 
     if sum_v == 0:
         return {}
@@ -213,16 +219,14 @@ def _polygon_intraday_signals(ticker: str, trade_date: date) -> dict:
     vwap      = round(sum_pv / sum_v, 4)
 
     # ── Volume Profile: POC + Value Area (70%) ────────────────────────────────
-    sorted_buckets = sorted(profile.items())          # [(price, vol), …]
+    sorted_buckets    = sorted(profile.items())
     total_profile_vol = sum(v for _, v in sorted_buckets)
-    poc_idx = max(range(len(sorted_buckets)), key=lambda i: sorted_buckets[i][1])
+    poc_idx   = max(range(len(sorted_buckets)), key=lambda i: sorted_buckets[i][1])
     poc_price = sorted_buckets[poc_idx][0]
 
-    # Expand outward from POC until 70% of volume is inside Value Area
-    va_vol  = sorted_buckets[poc_idx][1]
-    lo_idx  = poc_idx
-    hi_idx  = poc_idx
-    target  = total_profile_vol * 0.70
+    va_vol = sorted_buckets[poc_idx][1]
+    lo_idx = hi_idx = poc_idx
+    target = total_profile_vol * 0.70
 
     while va_vol < target:
         can_up = hi_idx + 1 < len(sorted_buckets)
@@ -241,50 +245,44 @@ def _polygon_intraday_signals(ticker: str, trade_date: date) -> dict:
             else:
                 lo_idx -= 1; va_vol += sorted_buckets[lo_idx][1]
 
-    value_area_high = sorted_buckets[hi_idx][0]
-    value_area_low  = sorted_buckets[lo_idx][0]
-
     return {
         "cum_delta":        cum_delta,
         "delta_pct":        delta_pct,
         "buy_vol":          buy_vol,
         "sell_vol":         sell_vol,
-        "tick_count":       len(trades),
+        "tick_count":       len(bars),
         "vwap":             vwap,
         "vwap_vs_open_pct": None,  # filled in _capture_one where open price is known
         "poc_price":        poc_price,
         "poc_vs_open_pct":  None,  # filled in _capture_one
-        "value_area_high":  value_area_high,
-        "value_area_low":   value_area_low,
+        "value_area_high":  sorted_buckets[hi_idx][0],
+        "value_area_low":   sorted_buckets[lo_idx][0],
     }
 
 
 def _polygon_nbbo_spread(ticker: str) -> dict:
     """
-    Fetch the most recent NBBO quote from Polygon.
+    Fetch current bid/ask from Tradier quotes and return the spread.
+    (Polygon's NBBO endpoints require a higher subscription tier;
+     Tradier quotes provide bid/ask in the same API call we already use.)
     Returns {bid, ask, spread_pct} or {} on failure.
-    Called near market open so the quote reflects current open conditions.
     """
-    import urllib.request
-    import json as _json
-
-    key = _polygon_key()
-    if not key:
+    hdrs = _td_headers()
+    if not hdrs:
         return {}
-
     try:
-        url = (
-            f"https://api.polygon.io/v3/quotes/{ticker.upper()}"
-            f"?limit=1&sort=participant_timestamp&order=desc&apiKey={key}"
+        r = requests.get(
+            "https://api.tradier.com/v1/markets/quotes",
+            params={"symbols": ticker.upper()},
+            headers=hdrs, timeout=6,
         )
-        with urllib.request.urlopen(url, timeout=6) as resp:
-            data = _json.loads(resp.read())
-        results = data.get("results", [])
-        if not results:
+        if r.status_code != 200:
             return {}
-        q   = results[0]
-        bid = float(q.get("bid_price") or 0)
-        ask = float(q.get("ask_price") or 0)
+        raw = r.json().get("quotes", {}).get("quote", {})
+        if isinstance(raw, list):
+            raw = raw[0] if raw else {}
+        bid = float(raw.get("bid") or 0)
+        ask = float(raw.get("ask") or 0)
         if bid <= 0 or ask <= 0:
             return {}
         spread_pct = round((ask - bid) / ask * 100, 4)
