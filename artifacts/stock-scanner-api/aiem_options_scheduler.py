@@ -44,6 +44,7 @@ import psycopg2
 import psycopg2.extras
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 import pytz
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -103,49 +104,56 @@ def _bootstrap_db() -> None:
     global _DB_BOOTSTRAPPED
     if _DB_BOOTSTRAPPED:
         return
-    try:
-        with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS options_pipeline_jobs (
-                    id                  BIGSERIAL PRIMARY KEY,
-                    ticker              VARCHAR(20)  NOT NULL,
-                    scan_date           DATE         NOT NULL,
-                    status              VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
-                    claim_id            VARCHAR(48),
-                    trace_id            VARCHAR(48),
-                    alert_id            INTEGER,
-                    direction           VARCHAR(12),
-                    selected_score      NUMERIC(5,1),
-                    trigger_source      VARCHAR(48)  DEFAULT 'scheduler',
-                    error_text          TEXT,
-                    recovery_attempts   INTEGER      DEFAULT 0,
-                    created_at          TIMESTAMPTZ  DEFAULT NOW(),
-                    claimed_at          TIMESTAMPTZ,
-                    executing_at        TIMESTAMPTZ,
-                    completed_at        TIMESTAMPTZ,
-                    heartbeat_at        TIMESTAMPTZ,
-                    UNIQUE(ticker, scan_date)
-                )
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_opj_status_date
-                    ON options_pipeline_jobs(status, scan_date)
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS job_heartbeats (
-                    job_name            VARCHAR(100) PRIMARY KEY,
-                    last_success        TIMESTAMP,
-                    last_attempt        TIMESTAMP,
-                    last_error          TEXT,
-                    consecutive_failures INTEGER DEFAULT 0
-                )
-            """)
-            conn.commit()
-        _DB_BOOTSTRAPPED = True
-        log.info("[bootstrap] options_pipeline_jobs and job_heartbeats ready")
-    except Exception as e:
-        log.error(f"[bootstrap] FAILED: {e}")
-        raise
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            with psycopg2.connect(_DB_URL, connect_timeout=15) as conn, conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS options_pipeline_jobs (
+                        id                  BIGSERIAL PRIMARY KEY,
+                        ticker              VARCHAR(20)  NOT NULL,
+                        scan_date           DATE         NOT NULL,
+                        status              VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
+                        claim_id            VARCHAR(48),
+                        trace_id            VARCHAR(48),
+                        alert_id            INTEGER,
+                        direction           VARCHAR(12),
+                        selected_score      NUMERIC(5,1),
+                        trigger_source      VARCHAR(48)  DEFAULT 'scheduler',
+                        error_text          TEXT,
+                        recovery_attempts   INTEGER      DEFAULT 0,
+                        created_at          TIMESTAMPTZ  DEFAULT NOW(),
+                        claimed_at          TIMESTAMPTZ,
+                        executing_at        TIMESTAMPTZ,
+                        completed_at        TIMESTAMPTZ,
+                        heartbeat_at        TIMESTAMPTZ,
+                        UNIQUE(ticker, scan_date)
+                    )
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_opj_status_date
+                        ON options_pipeline_jobs(status, scan_date)
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS job_heartbeats (
+                        job_name            VARCHAR(100) PRIMARY KEY,
+                        last_success        TIMESTAMP,
+                        last_attempt        TIMESTAMP,
+                        last_error          TEXT,
+                        consecutive_failures INTEGER DEFAULT 0
+                    )
+                """)
+                conn.commit()
+            _DB_BOOTSTRAPPED = True
+            log.info("[bootstrap] options_pipeline_jobs and job_heartbeats ready")
+            return
+        except Exception as e:
+            last_exc = e
+            log.warning(f"[bootstrap] attempt {attempt}/3 failed: {e} — retrying in 5s")
+            if attempt < 3:
+                time.sleep(5)
+    log.error(f"[bootstrap] all 3 attempts FAILED: {last_exc}")
+    raise last_exc
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HEARTBEAT
@@ -902,6 +910,49 @@ def main():
     sched.add_job(recover_stale_jobs,
                   CronTrigger(minute="*/5"),
                   id="stale_recovery", replace_existing=True)
+
+    # ── TEST CYCLE (only when TEST_CYCLE_OFFSET_SECS is set) ────────────────
+    # Proves the scheduler fires jobs automatically at a scheduled time.
+    # Set TEST_CYCLE_OFFSET_SECS=N to fire a full seed+execute cycle N seconds
+    # from now.  TEST_SCAN_DATE overrides the scan date (default: yesterday).
+    _test_offset = int(os.environ.get("TEST_CYCLE_OFFSET_SECS", "0"))
+    if _test_offset > 0:
+        _raw_test_date = os.environ.get("TEST_SCAN_DATE", "")
+        if _raw_test_date:
+            from datetime import date as _date_cls
+            _test_sd = _date_cls.fromisoformat(_raw_test_date)
+        else:
+            _test_sd = (datetime.now(_ET) - timedelta(days=1)).date()
+
+        _fire_at = datetime.now(_ET) + timedelta(seconds=_test_offset)
+        _test_run_id = uuid.uuid4().hex[:12]
+
+        def _test_cycle_job():
+            log.info(
+                f"[TEST_CYCLE] *** APScheduler fired automatically ***  "
+                f"run_id={_test_run_id}  scan_date={_test_sd}  "
+                f"fire_ts={datetime.utcnow().isoformat()}Z"
+            )
+            seed_result   = seed_daily_candidates(scan_date=_test_sd)
+            worker_result = run_pipeline_worker(scan_date=_test_sd)
+            log.info(
+                f"[TEST_CYCLE] COMPLETE  run_id={_test_run_id}  "
+                f"seeded={seed_result.get('seeded',0)}  "
+                f"executed={worker_result.get('executed',0)}  "
+                f"errors={worker_result.get('errors',0)}"
+            )
+
+        sched.add_job(
+            _test_cycle_job,
+            DateTrigger(run_date=_fire_at, timezone=_ET),
+            id="test_cycle_auto",
+            replace_existing=True,
+        )
+        log.info(
+            f"[TEST_CYCLE] one-shot job scheduled — fires automatically at "
+            f"{_fire_at.strftime('%Y-%m-%dT%H:%M:%S%z')}  "
+            f"run_id={_test_run_id}  scan_date={_test_sd}"
+        )
 
     # Every 5 min — heartbeat
     threading.Thread(target=_heartbeat_loop, daemon=True, name="hb").start()
