@@ -330,12 +330,18 @@ def create_schema() -> bool:
     """Create all ase_* tables if they do not exist. Safe to call repeatedly."""
     try:
         with get_conn() as conn, conn.cursor() as cur:
-            # Execute DDL without the self-referential FK first
+            # Strip the self-referential FK including its preceding comma so no
+            # trailing comma is left before the closing ')' of ase_decision_runs.
             safe_ddl = DDL.replace(
-                "FOREIGN KEY (selected_evaluation_id) REFERENCES ase_strategy_evaluations(id)\n"
-                "        DEFERRABLE INITIALLY DEFERRED", ""
+                ",\n    FOREIGN KEY (selected_evaluation_id) REFERENCES ase_strategy_evaluations(id)\n"
+                "        DEFERRABLE INITIALLY DEFERRED",
+                ""
             )
             cur.execute(safe_ddl)
+            conn.commit()
+        # Add the FK via ALTER TABLE after both tables exist
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute(DDL_FK_FIX)
             conn.commit()
         return True
     except Exception as exc:

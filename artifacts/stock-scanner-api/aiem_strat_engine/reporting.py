@@ -207,11 +207,13 @@ def generate_report(
 
     total_pnl_paper = round(sum(pnls), 4) if pnls else 0.0
     # THEORETICAL: use max_profit×PoP as expected return
-    theoretical = sum(
+    # Force float so that an empty closed list produces 0.0 not int 0 —
+    # json.dumps(0) != json.dumps(0.0), which would break the SHA-256 round-trip.
+    theoretical = float(sum(
         float(t.get("maximum_profit") or 0) * float(t.get("probability_of_profit") or 0.5)
         - float(t.get("maximum_loss") or 0) * (1 - float(t.get("probability_of_profit") or 0.5))
         for t in closed
-    )
+    ))
 
     report_data = {
         "period_type":           period_type,
@@ -335,6 +337,35 @@ def generate_monthly_report(target_date: Optional[date] = None) -> Optional[Dict
     return generate_report("MONTHLY", first, last)
 
 
+def _normalize_for_hash(obj):
+    """
+    Recursively coerce DB-returned types back to JSON-native Python types so
+    the SHA-256 round-trip is stable.
+
+    PostgreSQL → Python mapping we need to undo:
+      NUMERIC  → decimal.Decimal  →  float
+      DATE     → datetime.date    →  ISO string
+      TIMESTAMPTZ → datetime      →  ISO string
+      JSONB    → already parsed   →  (recurse)
+    """
+    import decimal as _decimal
+    if isinstance(obj, dict):
+        return {k: _normalize_for_hash(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalize_for_hash(i) for i in obj]
+    if isinstance(obj, _decimal.Decimal):
+        return float(obj)
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    return obj
+
+
+# Columns present in SELECT * but NOT in the original report_data hash dict.
+# Must be excluded during integrity verification.
+_HASH_EXCLUDE_COLS = frozenset({"id", "created_at", "report_id", "report_sha256",
+                                 "by_iv_bucket", "by_dte_bucket"})
+
+
 def verify_report_integrity(report_id: str) -> Tuple[bool, str]:
     """Re-compute SHA-256 and compare to stored hash."""
     try:
@@ -344,11 +375,11 @@ def verify_report_integrity(report_id: str) -> Tuple[bool, str]:
                 row = cur.fetchone()
                 if not row:
                     return False, "Report not found"
-                stored_sha = row.pop("report_sha256", None)
-                row.pop("id", None)
-                row.pop("created_at", None)
-                row.pop("report_id", None)
-                computed = _sha256(dict(row))
+                stored_sha = row.get("report_sha256")
+                # Rebuild exactly the dict that was hashed at write time
+                reduced = {k: v for k, v in row.items() if k not in _HASH_EXCLUDE_COLS}
+                normalized = _normalize_for_hash(reduced)
+                computed = _sha256(normalized)
                 if computed == stored_sha:
                     return True, f"SHA-256 verified: {stored_sha[:16]}…"
                 return False, f"SHA-256 MISMATCH: expected {stored_sha[:16]}, got {computed[:16]}"

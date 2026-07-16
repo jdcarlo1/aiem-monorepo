@@ -151,17 +151,18 @@ def compute_payoff(
     max_pnl = max(payoffs)
     min_pnl = min(payoffs)
 
-    # Undefined-risk detection: payoff grows without bound at price extremes
-    # Heuristic: check if payoff at the two extreme edges is still rising
-    is_undefined_right = payoffs[-1] > payoffs[-3] > payoffs[-5]
-    is_undefined_left  = payoffs[0]  < payoffs[2]  < payoffs[4]
+    # Undefined-risk detection: loss grows without bound at price extremes.
+    # For naked short call: payoff keeps DECLINING (more negative) as price rises → right edge decreasing.
+    # For naked short put:  payoff keeps DECLINING (more negative) as price falls → left edge decreasing.
+    is_undefined_right = (payoffs[-1] < payoffs[-3] < payoffs[-5]) and (payoffs[-1] < 0)
+    is_undefined_left  = (payoffs[0]  < payoffs[2]  < payoffs[4])  and (payoffs[0]  < 0)
 
-    if is_undefined_right and min_pnl < 0:
+    if is_undefined_right:
         # Short naked exposure on upside — unlimited loss
         max_profit_val = max_pnl
         max_loss_val   = None
         is_undefined   = True
-    elif is_undefined_left and min_pnl < 0:
+    elif is_undefined_left:
         max_profit_val = max_pnl
         max_loss_val   = None
         is_undefined   = True
