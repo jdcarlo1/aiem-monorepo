@@ -800,6 +800,10 @@ def run_historical_backtest():
                 prev_gap                                                     AS prior_gap_pct,
                 prev_range                                                   AS prior_range_pct,
                 rvol > prev_rvol                                             AS vol_accel,
+                prev_vwap_above,
+                prev_high_ext,
+                (open_price - close_5d_ago) / NULLIF(close_5d_ago, 0) * 100  AS five_day_mom,
+                (open_price - close_10d_ago) / NULLIF(close_10d_ago, 0) * 100 AS ten_day_mom,
                 (close_price - open_price) / NULLIF(open_price, 0) * 100   AS day_return_pct,
                 (close_price - open_price) / NULLIF(open_price, 0) >= 0.05 AS big5,
                 (close_price - open_price) / NULLIF(open_price, 0) >= 0.07 AS big7
@@ -807,11 +811,15 @@ def run_historical_backtest():
                 SELECT
                     ticker, scan_date, open_price, close_price, rvol, volume,
                     gap_pct, range_pct,
-                    LAG(close_price) OVER w  AS prev_close,
-                    LAG(close_strength) OVER w AS prev_cs,
-                    LAG(rvol)        OVER w  AS prev_rvol,
-                    LAG(gap_pct)     OVER w  AS prev_gap,
-                    LAG(range_pct)   OVER w  AS prev_range
+                    LAG(close_price)      OVER w AS prev_close,
+                    LAG(close_strength)   OVER w AS prev_cs,
+                    LAG(rvol)             OVER w AS prev_rvol,
+                    LAG(gap_pct)          OVER w AS prev_gap,
+                    LAG(range_pct)        OVER w AS prev_range,
+                    LAG(close_price > NULLIF(vwap, 0)) OVER w AS prev_vwap_above,
+                    LAG((high_price - open_price) / NULLIF(open_price, 0) * 100) OVER w AS prev_high_ext,
+                    LAG(close_price, 5)   OVER w AS close_5d_ago,
+                    LAG(close_price, 10)  OVER w AS close_10d_ago
                 FROM polygon_market_daily
                 WHERE close_price BETWEEN 2.0 AND 200.0
                   AND volume      >= 100000
