@@ -111,6 +111,189 @@ def _polygon_news_check(ticker: str, trade_date: date) -> dict:
         return {"has_news": None, "news_count": 0}
 
 
+def _polygon_intraday_signals(ticker: str, trade_date: date) -> dict:
+    """
+    Fetch Polygon tick-level trades for the 9:30-9:35 AM ET window and compute
+    three pro-grade intraday signals in a single pass:
+
+      1. CVD (Cumulative Volume Delta) — tick rule buy/sell pressure
+           uptick  (price > prev) → buy aggressor  (+size)
+           downtick (price < prev) → sell aggressor (-size)
+           no-change               → carry forward direction
+
+      2. VWAP — volume-weighted average price for the first candle
+
+      3. Volume Profile — Point of Control (highest-volume price level)
+           + Value Area High/Low (price range containing 70% of volume)
+
+    Returns dict with: cum_delta, delta_pct, buy_vol, sell_vol, tick_count,
+                       vwap, vwap_vs_open_pct, poc_price, poc_vs_open_pct,
+                       value_area_high, value_area_low
+    or {} on failure/no data.
+    """
+    import urllib.request
+    import json as _json
+    from datetime import time as _time
+    import pytz as _pytz
+
+    key = _polygon_key()
+    if not key:
+        return {}
+
+    utc = _pytz.utc
+    start_et = ET.localize(datetime.combine(trade_date, _time(9, 30, 0)))
+    end_et   = ET.localize(datetime.combine(trade_date, _time(9, 35, 0)))
+    start_ns = int(start_et.astimezone(utc).timestamp() * 1_000_000_000)
+    end_ns   = int(end_et.astimezone(utc).timestamp()   * 1_000_000_000)
+
+    trades = []
+    url = (
+        f"https://api.polygon.io/v3/trades/{ticker.upper()}"
+        f"?timestamp.gte={start_ns}&timestamp.lte={end_ns}"
+        f"&limit=50000&sort=timestamp&order=asc&apiKey={key}"
+    )
+    for _ in range(6):
+        try:
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = _json.loads(resp.read())
+            results = data.get("results", [])
+            trades.extend(results)
+            next_url = data.get("next_url")
+            if not next_url or not results:
+                break
+            url = f"{next_url}&apiKey={key}"
+        except Exception as exc:
+            print(f"{_LOG} intraday_signals {ticker}: {exc}")
+            break
+
+    if not trades:
+        return {}
+
+    # ── Single-pass over trades: CVD + VWAP + Volume Profile ──────────────────
+    buy_vol    = 0
+    sell_vol   = 0
+    sum_pv     = 0.0   # price × volume (for VWAP)
+    sum_v      = 0     # total volume (for VWAP)
+    profile    = {}    # price_bucket → volume (for Volume Profile)
+    prev_price = None
+    direction  = 0     # +1 = last trade was buy-initiated, -1 = sell
+
+    for t in trades:
+        price = float(t.get("price") or 0)
+        size  = int(t.get("size")  or 0)
+        if price <= 0 or size <= 0:
+            continue
+
+        # CVD tick rule
+        if prev_price is not None:
+            if price > prev_price:
+                direction = 1
+            elif price < prev_price:
+                direction = -1
+            if direction == 1:
+                buy_vol += size
+            elif direction == -1:
+                sell_vol += size
+        prev_price = price
+
+        # VWAP accumulation
+        sum_pv += price * size
+        sum_v  += size
+
+        # Volume Profile — bucket to nearest $0.05 increment
+        bucket = round(round(price / 0.05) * 0.05, 2)
+        profile[bucket] = profile.get(bucket, 0) + size
+
+    if sum_v == 0:
+        return {}
+
+    total_vol = buy_vol + sell_vol
+    cum_delta = buy_vol - sell_vol
+    delta_pct = round(cum_delta / total_vol * 100, 2) if total_vol > 0 else 0.0
+    vwap      = round(sum_pv / sum_v, 4)
+
+    # ── Volume Profile: POC + Value Area (70%) ────────────────────────────────
+    sorted_buckets = sorted(profile.items())          # [(price, vol), …]
+    total_profile_vol = sum(v for _, v in sorted_buckets)
+    poc_idx = max(range(len(sorted_buckets)), key=lambda i: sorted_buckets[i][1])
+    poc_price = sorted_buckets[poc_idx][0]
+
+    # Expand outward from POC until 70% of volume is inside Value Area
+    va_vol  = sorted_buckets[poc_idx][1]
+    lo_idx  = poc_idx
+    hi_idx  = poc_idx
+    target  = total_profile_vol * 0.70
+
+    while va_vol < target:
+        can_up = hi_idx + 1 < len(sorted_buckets)
+        can_dn = lo_idx - 1 >= 0
+        if not can_up and not can_dn:
+            break
+        if not can_up:
+            lo_idx -= 1; va_vol += sorted_buckets[lo_idx][1]
+        elif not can_dn:
+            hi_idx += 1; va_vol += sorted_buckets[hi_idx][1]
+        else:
+            up_vol = sorted_buckets[hi_idx + 1][1]
+            dn_vol = sorted_buckets[lo_idx - 1][1]
+            if up_vol >= dn_vol:
+                hi_idx += 1; va_vol += sorted_buckets[hi_idx][1]
+            else:
+                lo_idx -= 1; va_vol += sorted_buckets[lo_idx][1]
+
+    value_area_high = sorted_buckets[hi_idx][0]
+    value_area_low  = sorted_buckets[lo_idx][0]
+
+    return {
+        "cum_delta":        cum_delta,
+        "delta_pct":        delta_pct,
+        "buy_vol":          buy_vol,
+        "sell_vol":         sell_vol,
+        "tick_count":       len(trades),
+        "vwap":             vwap,
+        "vwap_vs_open_pct": None,  # filled in _capture_one where open price is known
+        "poc_price":        poc_price,
+        "poc_vs_open_pct":  None,  # filled in _capture_one
+        "value_area_high":  value_area_high,
+        "value_area_low":   value_area_low,
+    }
+
+
+def _polygon_nbbo_spread(ticker: str) -> dict:
+    """
+    Fetch the most recent NBBO quote from Polygon.
+    Returns {bid, ask, spread_pct} or {} on failure.
+    Called near market open so the quote reflects current open conditions.
+    """
+    import urllib.request
+    import json as _json
+
+    key = _polygon_key()
+    if not key:
+        return {}
+
+    try:
+        url = (
+            f"https://api.polygon.io/v3/quotes/{ticker.upper()}"
+            f"?limit=1&sort=participant_timestamp&order=desc&apiKey={key}"
+        )
+        with urllib.request.urlopen(url, timeout=6) as resp:
+            data = _json.loads(resp.read())
+        results = data.get("results", [])
+        if not results:
+            return {}
+        q   = results[0]
+        bid = float(q.get("bid_price") or 0)
+        ask = float(q.get("ask_price") or 0)
+        if bid <= 0 or ask <= 0:
+            return {}
+        spread_pct = round((ask - bid) / ask * 100, 4)
+        return {"bid": bid, "ask": ask, "spread_pct": spread_pct}
+    except Exception as exc:
+        print(f"{_LOG} nbbo_spread {ticker}: {exc}")
+        return {}
+
+
 def _td_quotes_batch(symbols: list) -> dict:
     """Batch real-time/EOD quotes.  Returns {SYM: {last, open, prevclose}}."""
     hdrs = _td_headers()
@@ -342,6 +525,19 @@ def init_firstcandle_table(db_url: str) -> None:
                 "ADD COLUMN IF NOT EXISTS premarket_volume    BIGINT",
                 "ADD COLUMN IF NOT EXISTS has_news            BOOLEAN",
                 "ADD COLUMN IF NOT EXISTS news_count          INTEGER DEFAULT 0",
+                # Tier 3: Intraday order-flow signals (CVD, VWAP, Volume Profile)
+                "ADD COLUMN IF NOT EXISTS cum_delta           FLOAT",
+                "ADD COLUMN IF NOT EXISTS delta_pct           FLOAT",
+                "ADD COLUMN IF NOT EXISTS buy_vol             BIGINT",
+                "ADD COLUMN IF NOT EXISTS sell_vol            BIGINT",
+                "ADD COLUMN IF NOT EXISTS tick_count          INTEGER",
+                "ADD COLUMN IF NOT EXISTS vwap                FLOAT",
+                "ADD COLUMN IF NOT EXISTS vwap_vs_open_pct    FLOAT",
+                "ADD COLUMN IF NOT EXISTS poc_price           FLOAT",
+                "ADD COLUMN IF NOT EXISTS poc_vs_open_pct     FLOAT",
+                "ADD COLUMN IF NOT EXISTS value_area_high     FLOAT",
+                "ADD COLUMN IF NOT EXISTS value_area_low      FLOAT",
+                "ADD COLUMN IF NOT EXISTS bid_ask_spread_pct  FLOAT",
             ]:
                 cur.execute(f"ALTER TABLE aiem_first_candle_data {col_sql}")
             cur.execute("""
@@ -389,14 +585,20 @@ def run_firstcandle_capture(db_url: str) -> None:
 
     def _capture_one(entry: dict) -> dict | None:
         ticker = entry["ticker"]
-        # Fetch first candle + pre-market H/L + news in parallel threads
-        with ThreadPoolExecutor(max_workers=3) as _inner:
-            fut_candle = _inner.submit(_td_first_candle, ticker, trade_date)
-            fut_pm     = _inner.submit(_td_premarket_hl, ticker, trade_date)
-            fut_news   = _inner.submit(_polygon_news_check, ticker, trade_date)
+        # Fetch all 5 data sources in parallel inner threads:
+        #   Tradier first candle, Tradier premarket H/L, Polygon news,
+        #   Polygon tick-level order flow (CVD+VWAP+Volume Profile), Polygon NBBO
+        with ThreadPoolExecutor(max_workers=5) as _inner:
+            fut_candle  = _inner.submit(_td_first_candle,         ticker, trade_date)
+            fut_pm      = _inner.submit(_td_premarket_hl,         ticker, trade_date)
+            fut_news    = _inner.submit(_polygon_news_check,      ticker, trade_date)
+            fut_intra   = _inner.submit(_polygon_intraday_signals, ticker, trade_date)
+            fut_nbbo    = _inner.submit(_polygon_nbbo_spread,     ticker)
             candle  = fut_candle.result()
             pm_data = fut_pm.result()
             news    = fut_news.result()
+            intra   = fut_intra.result()
+            nbbo    = fut_nbbo.result()
 
         if not candle or not candle.get("open"):
             return None
@@ -424,6 +626,16 @@ def run_firstcandle_capture(db_url: str) -> None:
         if pm_high and prior_close and prior_close > 0:
             pm_high_pct = round((pm_high - prior_close) / prior_close * 100, 3)
 
+        # Fill open-relative derived fields now that we have open price
+        vwap        = intra.get("vwap")
+        poc_price   = intra.get("poc_price")
+        vwap_vs_open = None
+        poc_vs_open  = None
+        if vwap and o:
+            vwap_vs_open = round((o - vwap) / vwap * 100, 3)
+        if poc_price and o:
+            poc_vs_open = round((o - poc_price) / poc_price * 100, 3)
+
         return {
             **entry,
             "premarket_gap_pct":      real_gap_pct,
@@ -435,13 +647,26 @@ def run_firstcandle_capture(db_url: str) -> None:
             "gap_held":               c > o,
             "first_candle_direction": direction,
             "first_candle_range_pct": rng_pct,
-            # New Tier 2 indicators
+            # Tier 2: premarket context
             "premarket_high":         pm_high,
             "premarket_low":          pm_low,
             "premarket_high_pct":     pm_high_pct,
             "premarket_volume":       pm_data.get("premarket_volume"),
             "has_news":               news.get("has_news"),
             "news_count":             news.get("news_count", 0),
+            # Tier 3: intraday order-flow (CVD + VWAP + Volume Profile)
+            "cum_delta":              intra.get("cum_delta"),
+            "delta_pct":              intra.get("delta_pct"),
+            "buy_vol":                intra.get("buy_vol"),
+            "sell_vol":               intra.get("sell_vol"),
+            "tick_count":             intra.get("tick_count"),
+            "vwap":                   vwap,
+            "vwap_vs_open_pct":       vwap_vs_open,
+            "poc_price":              poc_price,
+            "poc_vs_open_pct":        poc_vs_open,
+            "value_area_high":        intra.get("value_area_high"),
+            "value_area_low":         intra.get("value_area_low"),
+            "bid_ask_spread_pct":     nbbo.get("spread_pct"),
         }
 
     captured = []
@@ -475,8 +700,12 @@ def run_firstcandle_capture(db_url: str) -> None:
                          first_candle_close, first_candle_volume,
                          gap_held, first_candle_direction, first_candle_range_pct,
                          premarket_high, premarket_low, premarket_high_pct,
-                         premarket_volume, has_news, news_count)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         premarket_volume, has_news, news_count,
+                         cum_delta, delta_pct, buy_vol, sell_vol, tick_count,
+                         vwap, vwap_vs_open_pct, poc_price, poc_vs_open_pct,
+                         value_area_high, value_area_low, bid_ask_spread_pct)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                            %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (scan_date, ticker) DO NOTHING
                 """, (
                     date_str,
@@ -499,6 +728,19 @@ def run_firstcandle_capture(db_url: str) -> None:
                     row.get("premarket_volume"),
                     row.get("has_news"),
                     row.get("news_count", 0),
+                    # Tier 3 order-flow signals
+                    row.get("cum_delta"),
+                    row.get("delta_pct"),
+                    row.get("buy_vol"),
+                    row.get("sell_vol"),
+                    row.get("tick_count"),
+                    row.get("vwap"),
+                    row.get("vwap_vs_open_pct"),
+                    row.get("poc_price"),
+                    row.get("poc_vs_open_pct"),
+                    row.get("value_area_high"),
+                    row.get("value_area_low"),
+                    row.get("bid_ask_spread_pct"),
                 ))
             written = len(captured)
     except Exception as exc:
