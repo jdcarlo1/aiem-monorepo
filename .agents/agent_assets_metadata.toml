@@ -264,3 +264,9 @@ id = "gYMg3uhhptfkvbjSRfAXq"
 uri = "file://stockscanner_source_20260711.zip"
 type = "unspecified"
 title = "StockScanner Source Code — 2026-07-11T04:40Z"
+
+[[outputs]]
+id = "771SEZgy6wRPPLyQ2Zc08"
+uri = "file://.local/AIEM_COMPLETE_VERIFICATION_AUDIT.md"
+type = "text"
+title = "AIEM Complete Stock-Analysis Verification Audit"
