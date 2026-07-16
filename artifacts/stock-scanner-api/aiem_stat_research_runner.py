@@ -738,6 +738,76 @@ def _historical_backtest_cells():
          "five_day_mom >= 10 AND prev_vwap_above = TRUE AND premarket_gap_pct >= 3"),
     ]
 
+    # ── ATR expansion (volatility regime) ────────────────────────────────────
+    atr_bins = [
+        ("atr_tight",   "Prior ATR <1% (coiled/compressed)",        "prior_atr_pct IS NOT NULL AND prior_atr_pct < 1"),
+        ("atr_norm",    "Prior ATR 1–3% (normal volatility)",        "prior_atr_pct BETWEEN 1 AND 3"),
+        ("atr_expand",  "Prior ATR 3–5% (expanding volatility)",     "prior_atr_pct BETWEEN 3 AND 5"),
+        ("atr_wide",    "Prior ATR >5% (high volatility regime)",    "prior_atr_pct > 5"),
+        ("gap_1atr",    "Gap ≥1× ATR (significant move)",           "gap_in_atrs >= 1"),
+        ("gap_2atr",    "Gap ≥2× ATR (exceptional move)",           "gap_in_atrs >= 2"),
+        ("gap_3atr",    "Gap ≥3× ATR (extreme / news-driven move)", "gap_in_atrs >= 3"),
+    ]
+
+    # ── SPY/Market context (Tier 1 signal: is the market with you?) ───────────
+    spy_bins = [
+        ("spy_up05",   "SPY trending up ≥0.3% (risk-on day)",     "spy_gap_pct >= 0.3"),
+        ("spy_up1",    "SPY strong ≥1% (bull momentum day)",       "spy_gap_pct >= 1.0"),
+        ("spy_flat",   "SPY flat (−0.3% to +0.3%)",               "spy_gap_pct BETWEEN -0.3 AND 0.3"),
+        ("spy_down",   "SPY down (risk-off, gap<−0.3%)",          "spy_gap_pct < -0.3"),
+        ("spy_down1",  "SPY weak day (gap<−1%)",                   "spy_gap_pct < -1.0"),
+        ("spy_cs_str", "SPY closed strong prior day (≥0.7)",       "spy_cs >= 0.7"),
+        ("spy_cs_weak","SPY closed weak prior day (<0.3)",         "spy_cs < 0.3"),
+    ]
+
+    # ── Consecutive green closes (momentum / trend confirmation) ──────────────
+    streak_bins = [
+        ("streak_0",   "No prior green streak (first green)",      "prior_green_streak = 0"),
+        ("streak_1",   "1 prior green close (early momentum)",     "prior_green_streak = 1"),
+        ("streak_2p",  "2+ prior green closes (momentum confirmed)","prior_green_streak >= 2"),
+        ("streak_3",   "3 consecutive green closes (strong trend)","prior_green_streak >= 3"),
+    ]
+
+    # ── High-probability market alignment combos ───────────────────────────────
+    # These match the ChatGPT "highest-probability setup" framework:
+    # Bull Flag + RVOL>3x + Above VWAP + Options call buying + Sector leading + SPY up
+    market_combos = [
+        ("spy_up_gap5",       "SPY up + gap≥5% (market aligned)",
+         "spy_gap_pct >= 0.3 AND premarket_gap_pct >= 5"),
+        ("spy_up_gap10",      "SPY up + gap≥10% (strong market alignment)",
+         "spy_gap_pct >= 0.3 AND premarket_gap_pct >= 10"),
+        ("spy_up_rv3",        "SPY up + RVOL≥3x (market + institutional)",
+         "spy_gap_pct >= 0.3 AND current_rvol >= 3"),
+        ("spy_down_gap10",    "SPY DOWN + gap≥10% (vs market — news catalyst?)",
+         "spy_gap_pct < -0.3 AND premarket_gap_pct >= 10"),
+        ("spy_up_gap5_rv2",   "SPY up + gap≥5% + RVOL≥2x (3-factor alignment)",
+         "spy_gap_pct >= 0.3 AND premarket_gap_pct >= 5 AND current_rvol >= 2"),
+        ("spy_up_gap5_rv3_vwap","SPY up + gap≥5% + RVOL≥3x + VWAP hold (4-factor)",
+         "spy_gap_pct >= 0.3 AND premarket_gap_pct >= 5 AND current_rvol >= 3 AND prev_vwap_above = TRUE"),
+        ("streak2_gap5",      "2+ green streak + gap≥5% (momentum continuation)",
+         "prior_green_streak >= 2 AND premarket_gap_pct >= 5"),
+        ("streak2_rv2",       "2+ green streak + RVOL≥2x (volume confirms trend)",
+         "prior_green_streak >= 2 AND current_rvol >= 2"),
+        ("streak2_spy_gap3",  "2+ green + SPY up + gap≥3% (full momentum alignment)",
+         "prior_green_streak >= 2 AND spy_gap_pct >= 0.3 AND premarket_gap_pct >= 3"),
+        ("gap2atr_rv2",       "Gap≥2×ATR + RVOL≥2x (unusually large move, confirmed)",
+         "gap_in_atrs >= 2 AND current_rvol >= 2"),
+        ("gap2atr_spy",       "Gap≥2×ATR + SPY up (extreme move WITH market)",
+         "gap_in_atrs >= 2 AND spy_gap_pct >= 0.3"),
+        ("gap3atr_any",       "Gap≥3×ATR (extreme range-relative move — news/catalyst)",
+         "gap_in_atrs >= 3"),
+        ("mom5_spy_up",       "5-day uptrend + SPY up (sector momentum aligned)",
+         "five_day_mom >= 10 AND spy_gap_pct >= 0.3"),
+        ("mom10_spy_gap5",    "10-day up ≥20% + SPY up + gap≥5% (MRVI-type full setup)",
+         "ten_day_mom >= 20 AND spy_gap_pct >= 0.3 AND premarket_gap_pct >= 5"),
+        ("atr_tight_gap5_rv2","Coiled (tight ATR) + gap≥5% + RVOL≥2x (spring release)",
+         "prior_atr_pct IS NOT NULL AND prior_atr_pct < 2 AND premarket_gap_pct >= 5 AND current_rvol >= 2"),
+        ("spy_up_streak_gap3","SPY up + 2+ green streak + gap≥3% (multi-factor momentum)",
+         "spy_gap_pct >= 0.3 AND prior_green_streak >= 2 AND premarket_gap_pct >= 3"),
+        ("full_alignment",    "SPY up + gap≥7% + RVOL≥3x + VWAP + streak≥2 (full checklist)",
+         "spy_gap_pct >= 0.3 AND premarket_gap_pct >= 7 AND current_rvol >= 3 AND prev_vwap_above = TRUE AND prior_green_streak >= 2"),
+    ]
+
     cells = []
     for k, d, w in gap_bins:
         cells.append(("hb_" + k, d, w))
@@ -760,6 +830,14 @@ def _historical_backtest_cells():
     for k, d, w in trend_bins:
         cells.append(("hb_" + k, d, w))
     for k, d, w in trend_combos:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in atr_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in spy_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in streak_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in market_combos:
         cells.append(("hb_" + k, d, w))
     return cells
 
@@ -869,45 +947,83 @@ def run_historical_backtest():
         cur.execute("DROP TABLE IF EXISTS _hb_tmp")
         cur.execute("""
             CREATE TEMP TABLE _hb_tmp AS
+            WITH spy_ctx AS (
+                SELECT scan_date,
+                       (open_price - LAG(close_price) OVER (ORDER BY scan_date))
+                           / NULLIF(LAG(close_price) OVER (ORDER BY scan_date), 0) * 100 AS spy_gap_pct,
+                       close_strength AS spy_cs
+                FROM polygon_market_daily
+                WHERE ticker = 'SPY'
+            )
             SELECT
-                ticker,
-                scan_date,
-                close_price,
-                volume,
-                (open_price - prev_close) / NULLIF(prev_close, 0) * 100   AS premarket_gap_pct,
-                rvol                                                         AS current_rvol,
-                prev_cs                                                      AS prior_cs,
-                prev_rvol                                                    AS prior_rvol,
-                prev_gap                                                     AS prior_gap_pct,
-                prev_range                                                   AS prior_range_pct,
-                rvol > prev_rvol                                             AS vol_accel,
-                prev_vwap_above,
-                prev_high_ext,
-                (open_price - close_5d_ago) / NULLIF(close_5d_ago, 0) * 100  AS five_day_mom,
-                (open_price - close_10d_ago) / NULLIF(close_10d_ago, 0) * 100 AS ten_day_mom,
-                (close_price - open_price) / NULLIF(open_price, 0) * 100   AS day_return_pct,
-                (close_price - open_price) / NULLIF(open_price, 0) >= 0.05 AS big5,
-                (close_price - open_price) / NULLIF(open_price, 0) >= 0.07 AS big7
+                sub.ticker,
+                sub.scan_date,
+                sub.close_price,
+                sub.volume,
+                (sub.open_price - sub.prev_close) / NULLIF(sub.prev_close, 0) * 100   AS premarket_gap_pct,
+                sub.rvol                                                                AS current_rvol,
+                sub.prev_cs                                                             AS prior_cs,
+                sub.prev_rvol                                                           AS prior_rvol,
+                sub.prev_gap                                                            AS prior_gap_pct,
+                sub.prev_range                                                          AS prior_range_pct,
+                sub.rvol > sub.prev_rvol                                                AS vol_accel,
+                sub.prev_vwap_above,
+                sub.prev_high_ext,
+                (sub.open_price - sub.close_5d_ago)  / NULLIF(sub.close_5d_ago,  0) * 100 AS five_day_mom,
+                (sub.open_price - sub.close_10d_ago) / NULLIF(sub.close_10d_ago, 0) * 100 AS ten_day_mom,
+                -- ATR proxy: prior day true range as % of prior close
+                GREATEST(
+                    sub.prev_high - sub.prev_low,
+                    ABS(sub.prev_high - sub.prev_prev_close),
+                    ABS(sub.prev_low  - sub.prev_prev_close)
+                ) / NULLIF(sub.prev_prev_close, 0) * 100                               AS prior_atr_pct,
+                -- How many ATRs is today's gap? (gap significance)
+                CASE WHEN GREATEST(sub.prev_high - sub.prev_low,
+                                   ABS(sub.prev_high - sub.prev_prev_close),
+                                   ABS(sub.prev_low  - sub.prev_prev_close)) > 0
+                     THEN (sub.open_price - sub.prev_close) / GREATEST(
+                          sub.prev_high - sub.prev_low,
+                          ABS(sub.prev_high - sub.prev_prev_close),
+                          ABS(sub.prev_low  - sub.prev_prev_close))
+                     END                                                                AS gap_in_atrs,
+                -- Consecutive green closes heading into today
+                CASE WHEN sub.prev1_green AND sub.prev2_green AND sub.prev3_green THEN 3
+                     WHEN sub.prev1_green AND sub.prev2_green THEN 2
+                     WHEN sub.prev1_green THEN 1
+                     ELSE 0 END                                                         AS prior_green_streak,
+                -- SPY market context
+                spy_ctx.spy_gap_pct,
+                spy_ctx.spy_cs,
+                (sub.close_price - sub.open_price) / NULLIF(sub.open_price, 0) * 100  AS day_return_pct,
+                (sub.close_price - sub.open_price) / NULLIF(sub.open_price, 0) >= 0.05 AS big5,
+                (sub.close_price - sub.open_price) / NULLIF(sub.open_price, 0) >= 0.07 AS big7
             FROM (
                 SELECT
                     ticker, scan_date, open_price, close_price, rvol, volume,
-                    gap_pct, range_pct,
+                    gap_pct, range_pct, high_price, low_price,
                     LAG(close_price)      OVER w AS prev_close,
+                    LAG(high_price)       OVER w AS prev_high,
+                    LAG(low_price)        OVER w AS prev_low,
+                    LAG(close_price, 2)   OVER w AS prev_prev_close,
                     LAG(close_strength)   OVER w AS prev_cs,
                     LAG(rvol)             OVER w AS prev_rvol,
                     LAG(gap_pct)          OVER w AS prev_gap,
                     LAG(range_pct)        OVER w AS prev_range,
-                    LAG(close_price > NULLIF(vwap, 0)) OVER w AS prev_vwap_above,
+                    LAG(close_price > NULLIF(vwap, 0))                     OVER w AS prev_vwap_above,
                     LAG((high_price - open_price) / NULLIF(open_price, 0) * 100) OVER w AS prev_high_ext,
                     LAG(close_price, 5)   OVER w AS close_5d_ago,
-                    LAG(close_price, 10)  OVER w AS close_10d_ago
+                    LAG(close_price, 10)  OVER w AS close_10d_ago,
+                    LAG(close_price > open_price)    OVER w AS prev1_green,
+                    LAG(close_price > open_price, 2) OVER w AS prev2_green,
+                    LAG(close_price > open_price, 3) OVER w AS prev3_green
                 FROM polygon_market_daily
                 WHERE close_price BETWEEN 2.0 AND 200.0
                   AND volume      >= 100000
                   AND open_price  >  0
                 WINDOW w AS (PARTITION BY ticker ORDER BY scan_date)
             ) sub
-            WHERE prev_close IS NOT NULL AND prev_close > 0
+            LEFT JOIN spy_ctx ON spy_ctx.scan_date = sub.scan_date
+            WHERE sub.prev_close IS NOT NULL AND sub.prev_close > 0
         """)
         conn.commit()
 
@@ -915,6 +1031,11 @@ def run_historical_backtest():
         cur.execute("CREATE INDEX ON _hb_tmp (premarket_gap_pct)")
         cur.execute("CREATE INDEX ON _hb_tmp (current_rvol)")
         cur.execute("CREATE INDEX ON _hb_tmp (close_price)")
+        cur.execute("CREATE INDEX ON _hb_tmp (spy_gap_pct)")
+        cur.execute("CREATE INDEX ON _hb_tmp (prior_atr_pct)")
+        cur.execute("CREATE INDEX ON _hb_tmp (prior_green_streak)")
+        cur.execute("CREATE INDEX ON _hb_tmp (five_day_mom)")
+        cur.execute("CREATE INDEX ON _hb_tmp (ten_day_mom)")
         conn.commit()
 
         # Baseline stats per outcome (same-day only)

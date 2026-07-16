@@ -36,8 +36,80 @@ def _td_headers() -> dict:
     tok = _td_token()
     return {"Authorization": f"Bearer {tok}", "Accept": "application/json"} if tok else {}
 
+def _polygon_key() -> str:
+    return os.environ.get("POLYGON_API_KEY", "")
+
 
 # ── Tradier helpers ───────────────────────────────────────────────────────────
+
+def _td_premarket_hl(ticker: str, trade_date: date) -> dict:
+    """
+    Fetch pre-market session (4 AM–9:30 AM ET) high/low/volume from Tradier.
+    Returns dict with premarket_high, premarket_low, premarket_volume or {}.
+    """
+    hdrs = _td_headers()
+    if not hdrs:
+        return {}
+    date_str = trade_date.strftime("%Y-%m-%d")
+    try:
+        r = requests.get(
+            "https://api.tradier.com/v1/markets/timesales",
+            params={
+                "symbol":         ticker.upper(),
+                "interval":       "5min",
+                "start":          f"{date_str} 04:00:00",
+                "end":            f"{date_str} 09:29:59",
+                "session_filter": "all",
+            },
+            headers=hdrs, timeout=8,
+        )
+        if r.status_code != 200:
+            return {}
+        series = r.json().get("series")
+        if not series:
+            return {}
+        data = series.get("data") or []
+        if isinstance(data, dict):
+            data = [data]
+        highs = [float(b["high"])   for b in data if b.get("high")]
+        lows  = [float(b["low"])    for b in data if b.get("low")]
+        vols  = [int(b.get("volume") or 0) for b in data]
+        if not highs:
+            return {}
+        return {
+            "premarket_high":   round(max(highs), 4),
+            "premarket_low":    round(min(lows),  4),
+            "premarket_volume": sum(vols),
+        }
+    except Exception as exc:
+        print(f"{_LOG} premarket_hl {ticker}: {exc}")
+        return {}
+
+
+def _polygon_news_check(ticker: str, trade_date: date) -> dict:
+    """
+    Check Polygon for news published in the last 2 days on this ticker.
+    Returns {has_news: bool|None, news_count: int}.
+    """
+    import urllib.request
+    import json as _json
+    from datetime import timedelta
+    key = _polygon_key()
+    if not key:
+        return {"has_news": None, "news_count": 0}
+    since = (trade_date - timedelta(days=2)).strftime("%Y-%m-%d")
+    try:
+        url = (
+            f"https://api.polygon.io/v2/reference/news"
+            f"?ticker={ticker}&published_utc.gte={since}&limit=10&apiKey={key}"
+        )
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = _json.loads(resp.read())
+        results = data.get("results", [])
+        return {"has_news": len(results) > 0, "news_count": len(results)}
+    except Exception:
+        return {"has_news": None, "news_count": 0}
+
 
 def _td_quotes_batch(symbols: list) -> dict:
     """Batch real-time/EOD quotes.  Returns {SYM: {last, open, prevclose}}."""
@@ -231,7 +303,9 @@ def _get_morning_universe(db_url: str, trade_date: date) -> list:
 # ── DB table ──────────────────────────────────────────────────────────────────
 
 def init_firstcandle_table(db_url: str) -> None:
-    """Create aiem_first_candle_data if it doesn't exist (idempotent)."""
+    """Create aiem_first_candle_data if it doesn't exist (idempotent).
+    Also adds new indicator columns if upgrading from an older schema.
+    """
     import psycopg2
     try:
         with psycopg2.connect(db_url) as conn, conn.cursor() as cur:
@@ -260,6 +334,16 @@ def init_firstcandle_table(db_url: str) -> None:
                     UNIQUE (scan_date, ticker)
                 )
             """)
+            # Additive column upgrades — safe to run on existing tables
+            for col_sql in [
+                "ADD COLUMN IF NOT EXISTS premarket_high      NUMERIC",
+                "ADD COLUMN IF NOT EXISTS premarket_low       NUMERIC",
+                "ADD COLUMN IF NOT EXISTS premarket_high_pct  NUMERIC",
+                "ADD COLUMN IF NOT EXISTS premarket_volume    BIGINT",
+                "ADD COLUMN IF NOT EXISTS has_news            BOOLEAN",
+                "ADD COLUMN IF NOT EXISTS news_count          INTEGER DEFAULT 0",
+            ]:
+                cur.execute(f"ALTER TABLE aiem_first_candle_data {col_sql}")
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_aiem_firstcandle_date
                 ON aiem_first_candle_data (scan_date)
@@ -301,9 +385,19 @@ def run_firstcandle_capture(db_url: str) -> None:
 
     print(f"{_LOG} capturing first candle for {len(universe)} tickers on {trade_date}…")
 
+    polygon_key = _polygon_key()
+
     def _capture_one(entry: dict) -> dict | None:
         ticker = entry["ticker"]
-        candle = _td_first_candle(ticker, trade_date)
+        # Fetch first candle + pre-market H/L + news in parallel threads
+        with ThreadPoolExecutor(max_workers=3) as _inner:
+            fut_candle = _inner.submit(_td_first_candle, ticker, trade_date)
+            fut_pm     = _inner.submit(_td_premarket_hl, ticker, trade_date)
+            fut_news   = _inner.submit(_polygon_news_check, ticker, trade_date)
+            candle  = fut_candle.result()
+            pm_data = fut_pm.result()
+            news    = fut_news.result()
+
         if not candle or not candle.get("open"):
             return None
 
@@ -318,15 +412,21 @@ def run_firstcandle_capture(db_url: str) -> None:
         rng_pct   = round((h - l) / o * 100, 3) if o else None
 
         # Compute real premarket gap: prior day's close → today's open.
-        # This is the true premarket move, not yesterday's intraday gap_pct.
         prior_close = entry.get("prior_close")
         real_gap_pct = None
         if prior_close and prior_close > 0 and o > 0:
             real_gap_pct = round((o - prior_close) / prior_close * 100, 3)
 
+        # Pre-market high extension: how far above prior close did PM reach?
+        pm_high     = pm_data.get("premarket_high")
+        pm_low      = pm_data.get("premarket_low")
+        pm_high_pct = None
+        if pm_high and prior_close and prior_close > 0:
+            pm_high_pct = round((pm_high - prior_close) / prior_close * 100, 3)
+
         return {
             **entry,
-            "premarket_gap_pct":      real_gap_pct,   # override with real gap
+            "premarket_gap_pct":      real_gap_pct,
             "open_price":             round(o, 4),
             "first_candle_high":      round(h, 4),
             "first_candle_low":       round(l, 4),
@@ -335,6 +435,13 @@ def run_firstcandle_capture(db_url: str) -> None:
             "gap_held":               c > o,
             "first_candle_direction": direction,
             "first_candle_range_pct": rng_pct,
+            # New Tier 2 indicators
+            "premarket_high":         pm_high,
+            "premarket_low":          pm_low,
+            "premarket_high_pct":     pm_high_pct,
+            "premarket_volume":       pm_data.get("premarket_volume"),
+            "has_news":               news.get("has_news"),
+            "news_count":             news.get("news_count", 0),
         }
 
     captured = []
@@ -366,8 +473,10 @@ def run_firstcandle_capture(db_url: str) -> None:
                          prior_close_strength, prior_rvol,
                          open_price, first_candle_high, first_candle_low,
                          first_candle_close, first_candle_volume,
-                         gap_held, first_candle_direction, first_candle_range_pct)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                         gap_held, first_candle_direction, first_candle_range_pct,
+                         premarket_high, premarket_low, premarket_high_pct,
+                         premarket_volume, has_news, news_count)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (scan_date, ticker) DO NOTHING
                 """, (
                     date_str,
@@ -384,6 +493,12 @@ def run_firstcandle_capture(db_url: str) -> None:
                     row["gap_held"],
                     row["first_candle_direction"],
                     row["first_candle_range_pct"],
+                    row.get("premarket_high"),
+                    row.get("premarket_low"),
+                    row.get("premarket_high_pct"),
+                    row.get("premarket_volume"),
+                    row.get("has_news"),
+                    row.get("news_count", 0),
                 ))
             written = len(captured)
     except Exception as exc:
