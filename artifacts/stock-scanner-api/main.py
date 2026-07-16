@@ -37114,6 +37114,18 @@ def _mkt_bearish_signals(min_fear_pp: float = 8.0, min_gex_m: float = 0.0) -> di
         return {"error": str(_e)}
 
 
+def _mkt_verify_options_inputs(ticker: str, call_data: dict, put_data: dict) -> dict:
+    """AIEM wrapper → aiem_options_intel.verify_options_decision_inputs.
+    Runtime gate: call this before outputting LONG CALL / LONG PUT / NO TRADE.
+    Returns ready_for_decision=True only when ALL required fields are collected
+    and no hard rejection gate fires on either the call or put candidate."""
+    try:
+        import aiem_options_intel as _oi
+        return _oi.verify_options_decision_inputs(ticker, call_data, put_data)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _build_aiem_tool_map():
     """Build full merged tool map — all tools available to both focused sessions and chat tab.
     Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
@@ -37230,7 +37242,8 @@ def _build_aiem_tool_map():
         "mkt_expected_move":      _mkt_expected_move,
         "mkt_iv_rank_live":       _mkt_iv_rank_live,
         "mkt_oi_by_strike":       _mkt_oi_by_strike,
-        "mkt_bearish_signals":    _mkt_bearish_signals,
+        "mkt_bearish_signals":        _mkt_bearish_signals,
+        "mkt_verify_options_inputs":  _mkt_verify_options_inputs,
         # ── AIEM Research Integrity / hypothesis tracking ─────────────────────
         "register_hypothesis":    _aiem_tool_register_hypothesis,
         "list_hypotheses":        _aiem_tool_list_hypotheses,
@@ -37923,6 +37936,47 @@ _AIEM_AGENT_TOOLS = [
             "min_fear_pp": {"type": "number", "description": "Minimum put/call skew in pp (default 8.0)"},
             "min_gex_m": {"type": "number", "description": "Minimum absolute GEX in $M (default 0)"}
         }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_verify_options_inputs",
+        "description": (
+            "MANDATORY RUNTIME GATE — call this before outputting LONG CALL / LONG PUT / NO TRADE. "
+            "Verifies every required input has been collected for both the call and put candidates. "
+            "Checks all required fields: delta, gamma, theta, vega, iv, volume, open_interest, "
+            "bid, ask, bid_ask_spread_pct, breakeven, premium_at_risk, expected_move, "
+            "probability_estimate, expected_return, dte, slippage_pct (per contract) PLUS "
+            "stock_direction, market_regime, iv_rank, iv_crush_risk, vwap_position, "
+            "sector_strength, market_breadth (stock-level). "
+            "Also enforces hard rejection gates: DTE < 5, OI < 500, volume < 100, "
+            "spread > 20%, slippage > 15%, delta < 0.20, PoP < 35%. "
+            "Returns ready_for_decision (bool), missing_fields list, gate_failures list, "
+            "call_eligible, put_eligible, and a verdict string. "
+            "You MAY NOT output a trade decision until ready_for_decision=True."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {
+                "type": "string",
+                "description": "Ticker symbol being evaluated, e.g. 'NVDA'"
+            },
+            "call_data": {
+                "type": "object",
+                "description": (
+                    "Dict of all collected inputs for the call candidate. "
+                    "Must include per-contract fields (delta, gamma, theta, vega, iv, volume, "
+                    "open_interest, bid, ask, bid_ask_spread_pct, breakeven, premium_at_risk, "
+                    "expected_move, probability_estimate, expected_return, dte, slippage_pct) "
+                    "AND stock-level fields (stock_direction, market_regime, iv_rank, "
+                    "iv_crush_risk, vwap_position, sector_strength, market_breadth)."
+                )
+            },
+            "put_data": {
+                "type": "object",
+                "description": (
+                    "Dict of all collected inputs for the put candidate. "
+                    "Must include all per-contract fields listed in call_data description."
+                )
+            },
+        }, "required": ["ticker", "call_data", "put_data"]},
     }},
     {"type": "function", "function": {
         "name": "query_independent_picks",
@@ -40393,112 +40447,92 @@ Always use these together — they cross-validate each other.
   - mkt_cta_triggers: CTA trigger levels from 50/100/200-day MAs. Tickers with trigger_pct_away < 2% face imminent CTA mechanical flows (could be large, sudden, uninformative). GOLDEN_CROSS / DEATH_CROSS tickers (last 5 days) = peak CTA positioning change. MAX_LONG (cta_score=3) = CTAs fully deployed = less future buying available. MAX_SHORT (cta_score=0) = CTAs fully short = forced buy candidate.
   BULLISH WORKFLOW: mkt_gex_scan → filter to SHORT_GAMMA (momentum), then mkt_options_skew to confirm CALL_SKEW, then mkt_cta_triggers to check if CTAs have room to add. SHORT_GAMMA + CALL_SKEW + low cta_score (room for CTA buying) = high-conviction CALL_OPTION candidate.
   BEARISH WORKFLOW: mkt_bearish_signals → filter conviction >= 10, then mkt_iv_rank_live (confirm IV < 80 before buying puts), then mkt_oi_by_strike to find highest-OI put strike as price target, then mkt_expected_move to size the move. LONG_GAMMA + FEAR_PREMIUM + INVERTED term = high-conviction PUT_OPTION candidate.
-  OPTIONS ALERT DECISION LOGIC — applied to every ticker you analyze or propose:
+  AIEM OPTIONS ALERT — FINAL DECISION REQUIREMENTS
+  Keep this inside the existing AIEM. Do not create a new diagram or large separate strategy engine.
+  FINAL OUTPUT is exactly one of: LONG CALL | LONG PUT | NO TRADE — nothing else.
 
-  STEP 1 — UNDERLYING STOCK ANALYSIS (run before touching any options data):
-    • Current trend and market structure (higher highs/lows or lower highs/lows)
-    • Support and resistance levels relative to current price
-    • VWAP position — is price above/below VWAP? Reclaim or rejection?
-    • Relative volume vs 20-day average (use mkt_rvol / polygon_market_daily rvol)
-    • Momentum direction and whether it is exhausting (RSI, MACD hist, ADX)
-    • Setup type: breakout, breakdown, pullback into support, or reversal
-    • Broader market direction (SPY/QQQ trend, mkt_market_breadth)
-    • Sector strength or weakness (is sector leading or lagging SPY?)
-    • Market breadth (advance-decline, % above 20MA)
-    • Volatility regime (VIX level, IV rank — high vs low vol environment)
-    • Existing AIEM probability and conviction scores (query_pick_outcomes, AIEM signal source)
+  REQ 1 — Confirm the underlying stock direction and market regime.
 
-  STEP 2 — OPTIONS CONTRACT ANALYSIS (run for both the call and the put):
-    Tools: mkt_expected_move → ±EM; mkt_oi_by_strike → OI walls; mkt_iv_rank_live → IV rank;
-           mkt_options_skew → put/call skew; mkt_gex_scan → GEX/gamma regime;
-           mkt_term_structure → IV term structure; mkt_ticker_options_history → flow history
-    For each candidate contract evaluate:
-    • Call volume vs put volume (directional bias in the flow)
-    • Volume vs open interest ratio (vol/OI > 1 = unusual activity)
-    • OI change (buildup = new positioning, drain = closing)
-    • Unusual options activity and sweep/block flags (mkt_ticker_options_history)
-    • Bid/ask spread (reject if spread > 20% of mid; use estimate_options_slippage)
-    • Contract liquidity (OI > 500, daily volume > 100 minimum thresholds)
-    • Estimated slippage (estimate_options_slippage for wide-spread contracts)
-    • Implied volatility and IV rank/percentile (mkt_iv_rank_live — prefer IV_rank < 50 when buying)
-    • Delta (target 0.35–0.55 for directional; avoid < 0.20 lottery strikes)
-    • Gamma (higher near expiry — accounts for acceleration risk)
-    • Theta (daily decay cost — reject when theta > 5% of premium per day)
-    • Vega (IV sensitivity — size down when vega exposure is large near events)
-    • GEX and dealer positioning (mkt_gex_scan — SHORT_GAMMA = momentum amplifier)
-    • Put/call skew (mkt_options_skew — FEAR_PREMIUM > 8pp = bearish hedge; CALL_SKEW < -3pp = bullish)
-    • Expected move ±EM (mkt_expected_move — sets strike and target price bounds)
-    • Strike selection: CALL strike = highest-OI call wall nearest spot+EM; PUT strike = highest-OI put wall nearest spot-EM; round to nearest $0.50
-    • Expiration selection: nearest weekly 7–14 days out (min 5 DTE to avoid gamma collapse)
-    • Break-even price: premium / delta (approx) above/below current spot
-    • Premium at risk: full debit paid × contracts (max loss for long options)
-    • Probability of profit / probability of reaching target (PoP ≈ delta as rough proxy)
-    • Expected return: (target_premium - entry_premium) / entry_premium
-    • Maximum possible loss: full premium paid (long options = defined risk)
-    • Time remaining vs setup catalyst timeline
+  REQ 2 — Evaluate price action, trend, VWAP position (reclaim vs rejection), volume
+    confirmation, momentum (RSI/MACD/ADX) and exhaustion, support/resistance levels,
+    sector strength or weakness, and market breadth.
 
-  STEP 3 — DIRECTIONAL COMPARISON (long call vs long put vs no trade ONLY):
-    Compare exactly two contracts: the best eligible long call and the best eligible long put.
-    DO NOT compare spreads, calendars, condors, butterflies, straddles, strangles, ratio spreads,
-    covered calls, collars, or any synthetic position. Single-leg long options only at this stage.
+  REQ 3 — Analyze eligible calls and puts across appropriate strikes and expirations.
+    CALL strike = highest-OI call wall near (spot + expected_move) rounded to $0.50.
+    PUT  strike = highest-OI put  wall near (spot − expected_move) rounded to $0.50.
+    Expiry: nearest weekly 7–14 DTE, minimum 5 DTE.
+    Tools: mkt_expected_move → ±EM range; mkt_oi_by_strike → OI walls and strike anchors.
 
-  STEP 4 — SCORING (score both call and put; the higher score wins):
-    Score each contract 0–100 across:
-    • Directional probability (Step 1 technical + flow agreement)    weight: 20
-    • Expected return (projected P&L / premium at risk)              weight: 15
-    • Maximum loss exposure relative to conviction                   weight: 10
-    • Risk/reward ratio (target / stop distance)                     weight: 10
-    • Liquidity score (OI, volume, bid/ask spread combined)          weight: 10
-    • Slippage estimate (lower = better)                             weight: 5
-    • Theta-decay risk (theta/premium per day; < 3% = good)         weight: 5
-    • IV-expansion or IV-crush risk (earnings/event proximity)       weight: 10
-    • Capital required vs position sizing rules                      weight: 5
-    • Market-regime fit (GEX regime + macro bias alignment)          weight: 5
-    • Technical confirmation (Step 1 checklist alignment)            weight: 5
-    If total score for the winning direction < 55 → return NO TRADE.
+  REQ 4 — For BOTH the call and the put, collect every required input:
+    • Call and put volume; volume vs open interest (vol/OI > 1 = unusual)
+    • Open-interest change (buildup = new positioning; drain = closing)
+    • Unusual activity and sweep/block flags (mkt_ticker_options_history)
+    • Bid/ask spread and estimated slippage (estimate_options_slippage)
+    • Implied volatility, IV rank and IV percentile (mkt_iv_rank_live)
+    • Delta, gamma, theta, vega
+    • GEX and dealer positioning context (mkt_gex_scan)
+    • Put/call skew (mkt_options_skew — FEAR_PREMIUM ≥ 8pp = bearish; CALL_SKEW ≤ −3pp = bullish)
+    • Expected move (mkt_expected_move); breakeven; premium at risk
+    • IV-expansion and IV-crush risk (mkt_term_structure — INVERTED = near-term event)
 
-  STEP 5 — ALERT GATE (ALL conditions must pass; fail any one → NO TRADE):
-    ✓ Underlying stock signal and options flow signal agree directionally
-    ✓ OI > 500 AND daily volume > 100 on the selected contract
-    ✓ Bid/ask spread ≤ 20% of mid-price
-    ✓ Expected return ≥ 50% of premium at risk (minimum 1:0.5 R:R before entering)
-    ✓ At least 5 DTE remaining on expiration (no 0-DTE or 1-DTE trades)
-    ✓ Selected direction scores at least 10 points higher than opposite direction
-    ✓ Total score ≥ 55 / 100
-    ✓ No major conflicting signal invalidates the setup (e.g., earnings within 2 days
-      with no catalyst thesis, extreme IV crush risk, or contradictory GEX + skew)
-    If ANY gate fails → return NO TRADE. Never force an alert.
+  REQ 5 — Compare ONLY:  best eligible long call | best eligible long put | no trade
+    DO NOT compare spreads, calendars, condors, butterflies, straddles, strangles,
+    ratio spreads, covered calls, collars, or any synthetic position at this stage.
 
-  STEP 6 — REQUIRED ALERT OUTPUT FORMAT (use this exact structure in every alert):
-    TICKER:            [symbol]
-    DIRECTION:         BULLISH / BEARISH / NO TRADE
-    TRADE TYPE:        CALL_OPTION / PUT_OPTION
-    STRIKE:            $[x.xx]
-    EXPIRATION:        [YYYY-MM-DD]  ([N] DTE)
-    CURRENT PRICE:     $[x.xx]
-    ENTRY PREMIUM:     $[lo] – $[hi]  (target mid: $[x.xx])
-    GREEKS:            Δ=[x.xx]  Γ=[x.xx]  Θ=[$x.xx/day]  Vega=[x.xx]  IV=[x%]
-    VOLUME / OI:       [vol] / [OI]
-    BID/ASK SPREAD:    $[x.xx] / $[x.xx]  ([x%] of mid)
-    EXPECTED MOVE:     ±$[x.xx] ([x%]) by expiry
-    BREAK-EVEN:        $[x.xx]  ([±x%] from spot)
-    MAX PREMIUM RISK:  $[x.xx] per contract
-    PROBABILITY EST:   [x%] PoP (delta proxy)
-    EXPECTED RETURN:   [x%] of premium if target hit
-    PROFIT TARGET:     $[x.xx] premium (exit at [x%] gain)
-    STOP/INVALIDATION: [price level or condition]
-    REASONS:           [3–5 bullet points — technical + flow + regime]
-    RISKS:             [2–3 bullet points — theta, IV crush, technical invalidation]
-    CALL SCORE:        [x/100]
-    PUT SCORE:         [x/100]
-    WHY CALL/PUT WON:  [1–2 sentence explanation of the margin of victory]
+  REQ 6 — Score the call and put 0–100 using ALL of:
+    directional probability, probability of reaching target before expiry,
+    expected return, maximum premium loss, risk/reward, liquidity,
+    slippage, theta-decay risk, market-regime fit, technical confirmation,
+    options-flow confirmation, historical performance in similar conditions.
 
-  DIRECTION RULE: AIEM is fully direction-agnostic. For EVERY ticker you analyze or propose
-  as a pick, you MUST always present BOTH setups (call + put with strike and expiry) before
-  choosing. Use mkt_expected_move(ticker) to derive the ±EM range, mkt_oi_by_strike(ticker)
-  to find the highest-OI walls as strike anchors. Choose the direction that scores higher
-  after Step 4. A PUT_OPTION with score=72 beats a CALL_OPTION with score=58 every time.
-  Never default bullish. Never force an alert — NO TRADE is a valid and often correct answer.
+  REQ 7 — Apply strict rejection gates (fail any → NO TRADE for that direction):
+    ✗ Poor liquidity: OI < 500 or contract volume < 100
+    ✗ Bid/ask spread > 20% of mid
+    ✗ Slippage estimate > 15%
+    ✗ DTE < 5 (unsuitable expiration or extreme theta risk)
+    ✗ Stock signal and options flow conflict directionally
+    ✗ Probability of profit < 35% or expected return < 50% of premium
+    ✗ Position-size or daily-loss limit breached (check_daily_loss_limit,
+      check_portfolio_concentration)
+
+  REQ 8 — Final output is exactly one of: LONG CALL | LONG PUT | NO TRADE.
+
+  REQ 9 — DO NOT force an alert. NO TRADE is required whenever neither direction clearly
+    meets all quality, liquidity, probability, and capital-preservation requirements.
+
+  REQ 10 — Every alert must include ALL of:
+    TICKER:               [symbol]
+    DIRECTION:            BULLISH / BEARISH
+    CONTRACT:             CALL / PUT   STRIKE: $[x.xx]   EXPIRY: [YYYY-MM-DD] ([N] DTE)
+    ENTRY PREMIUM:        $[lo] – $[hi]
+    CURRENT STOCK PRICE:  $[x.xx]
+    GREEKS:               Δ=[x.xx]  Γ=[x.xx]  Θ=[$x.xx/day]  Vega=[x.xx]  IV=[x%]
+    VOLUME / OI:          [vol] / [OI]
+    BID/ASK SPREAD:       $[bid] / $[ask]  ([x%] of mid)
+    EXPECTED MOVE:        ±$[x.xx] ([x%])
+    BREAKEVEN:            $[x.xx] ([±x%] from spot)
+    MAX PREMIUM AT RISK:  $[x.xx] per contract
+    PROBABILITY:          [definition] — [x%] estimate
+    EXPECTED RETURN:      [x%] if profit target hit
+    PROFIT TARGET:        $[x.xx] premium
+    STOP / INVALIDATION:  [price level or condition]
+    SELECTED SCORE:       [x/100]
+    OPPOSITE SCORE:       [x/100]
+    WHY SELECTED WON:     [exact reasons the selected direction beat the other]
+    MAIN RISKS:           [theta decay, IV crush, technical invalidation, etc.]
+
+  ── RUNTIME VERIFICATION GATE (MANDATORY) ───────────────────────────────────────────────
+  Before outputting LONG CALL / LONG PUT / NO TRADE you MUST call:
+    mkt_verify_options_inputs(ticker, call_data, put_data)
+  where call_data and put_data are dicts containing every field from REQ 4 and REQ 10
+  you have collected for each contract. If the tool returns ready_for_decision=False,
+  collect the missing fields first — you CANNOT output a decision until it returns True.
+  This confirms at runtime that every required input actually reached the final decision.
+  ────────────────────────────────────────────────────────────────────────────────────────
+
+  DIRECTION RULE: AIEM is fully direction-agnostic. Always evaluate both directions.
+  Choose the one that scores higher after REQ 6 scoring. A PUT with score=72 beats a
+  CALL with score=58 every time. Never default bullish. NO TRADE is always a valid answer.
 
 TOOLS AVAILABLE (use in this order):
 1.  evaluate_previous_model      - ALWAYS start here. Was last week's model good or bad?

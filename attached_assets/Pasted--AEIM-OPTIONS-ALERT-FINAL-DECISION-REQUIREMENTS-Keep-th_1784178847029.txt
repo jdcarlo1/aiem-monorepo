@@ -1,0 +1,85 @@
+# AEIM OPTIONS ALERT — FINAL DECISION REQUIREMENTS
+
+Keep this inside the existing AEIM. Do not create a new diagram or large separate strategy engine.
+
+For every options candidate, the AEIM must:
+
+1. Confirm the underlying stock direction and market regime.
+2. Evaluate price action, trend, VWAP, volume, momentum, support/resistance, sector strength and market breadth.
+3. Analyze eligible calls and puts across appropriate strikes and expirations.
+4. Evaluate:
+   - Call and put volume
+   - Volume versus open interest
+   - Open-interest changes
+   - Unusual options activity
+   - Sweep/block activity when available
+   - Bid/ask spread
+   - Liquidity and estimated slippage
+   - Implied volatility
+   - IV rank and IV percentile
+   - Delta, gamma, theta and vega
+   - Gamma exposure and dealer-positioning context
+   - Put/call skew
+   - Expected move
+   - Breakeven
+   - Premium at risk
+   - IV-expansion and IV-crush risk
+
+5. Compare only:
+   - Best eligible long call
+   - Best eligible long put
+   - No trade
+
+6. Score the call and put using:
+   - Directional probability
+   - Probability of reaching the target before expiration
+   - Expected return
+   - Maximum premium loss
+   - Risk/reward
+   - Liquidity
+   - Slippage
+   - Theta-decay risk
+   - Market-regime fit
+   - Technical confirmation
+   - Options-flow confirmation
+   - Historical performance in similar conditions
+
+7. Apply strict risk and quality gates:
+   - Reject poor liquidity
+   - Reject excessive bid/ask spreads
+   - Reject excessive slippage
+   - Reject contracts with unsuitable expiration or theta risk
+   - Reject conflicting stock and options signals
+   - Reject trades below the minimum probability and expected-return thresholds
+   - Enforce position-size and daily-loss limits
+
+8. Final output must be exactly one:
+   - LONG CALL
+   - LONG PUT
+   - NO TRADE
+
+9. Do not force an alert. NO TRADE is required whenever neither direction clearly meets all quality, liquidity, probability and capital-preservation requirements.
+
+10. Every alert must include:
+   - Ticker
+   - Direction
+   - Selected contract
+   - Strike and expiration
+   - Entry premium range
+   - Current stock price
+   - Delta, gamma, theta, vega and IV
+   - Volume and open interest
+   - Bid/ask spread
+   - Expected move
+   - Breakeven
+   - Maximum premium at risk
+   - Probability definition and estimate
+   - Expected-return estimate
+   - Profit target
+   - Stop or invalidation condition
+   - Selected-contract score
+   - Opposite-direction score
+   - Exact reasons the selected direction won
+   - Main risks
+
+Do not claim completion without runtime verification showing that every required input reaches the final call-versus-put-versus-no-trade decision.

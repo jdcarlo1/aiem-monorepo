@@ -361,3 +361,126 @@ def compute_bearish_signals(min_fear_pp: float = 8.0, min_gex_m: float = 0.0) ->
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+def verify_options_decision_inputs(
+    ticker: str,
+    call_data: dict,
+    put_data: dict,
+) -> dict:
+    """
+    Runtime gate — MANDATORY before outputting LONG CALL / LONG PUT / NO TRADE.
+
+    Confirms every required input from the final decision requirements has been
+    collected for both the call and the put. Returns ready_for_decision=True only
+    when ALL required fields are populated AND no hard rejection gate fires.
+
+    Required per-contract fields (call_data and put_data must each contain):
+      delta, gamma, theta, vega, iv, volume, open_interest,
+      bid, ask, bid_ask_spread_pct, breakeven, premium_at_risk,
+      expected_move, probability_estimate, expected_return, dte, slippage_pct
+
+    Required stock-level fields (in call_data — shared context):
+      stock_direction, market_regime, iv_rank, iv_crush_risk,
+      vwap_position, sector_strength, market_breadth
+
+    Hard rejection gates (fail → that direction is ineligible):
+      ✗ dte < 5                        (expiration too close)
+      ✗ open_interest < 500            (insufficient liquidity)
+      ✗ volume < 100                   (insufficient liquidity)
+      ✗ bid_ask_spread_pct > 0.20      (excessive spread)
+      ✗ slippage_pct > 0.15            (excessive slippage)
+      ✗ delta < 0.20                   (lottery strike)
+      ✗ probability_estimate < 0.35   (below minimum PoP)
+    """
+    PER_CONTRACT_FIELDS = [
+        "delta", "gamma", "theta", "vega", "iv",
+        "volume", "open_interest",
+        "bid", "ask", "bid_ask_spread_pct",
+        "breakeven", "premium_at_risk",
+        "expected_move", "probability_estimate",
+        "expected_return", "dte", "slippage_pct",
+    ]
+    STOCK_FIELDS = [
+        "stock_direction", "market_regime", "iv_rank", "iv_crush_risk",
+        "vwap_position", "sector_strength", "market_breadth",
+    ]
+
+    call_data = call_data or {}
+    put_data  = put_data  or {}
+    missing   = []
+
+    for f in STOCK_FIELDS:
+        if call_data.get(f) is None:
+            missing.append(f"stock:{f}")
+
+    for label, data in [("call", call_data), ("put", put_data)]:
+        for f in PER_CONTRACT_FIELDS:
+            if data.get(f) is None:
+                missing.append(f"{label}:{f}")
+
+    def _check_gates(label: str, data: dict) -> list:
+        fails = []
+        checks = [
+            ("dte",                  lambda v: float(v) < 5,    "DTE < 5 — expiration too close"),
+            ("open_interest",        lambda v: float(v) < 500,  "OI < 500 — insufficient liquidity"),
+            ("volume",               lambda v: float(v) < 100,  "volume < 100 — insufficient liquidity"),
+            ("bid_ask_spread_pct",   lambda v: float(v) > 0.20, "bid/ask spread > 20% of mid"),
+            ("slippage_pct",         lambda v: float(v) > 0.15, "slippage > 15%"),
+            ("delta",                lambda v: abs(float(v)) < 0.20, "delta < 0.20 — lottery strike"),
+            ("probability_estimate", lambda v: float(v) < 0.35, "PoP < 35% — below minimum threshold"),
+        ]
+        for field, test, reason in checks:
+            val = data.get(field)
+            if val is not None:
+                try:
+                    if test(val):
+                        fails.append(f"{label}: {reason} (value={val})")
+                except Exception:
+                    pass
+        return fails
+
+    call_gate_fails = _check_gates("call", call_data)
+    put_gate_fails  = _check_gates("put",  put_data)
+    all_gate_fails  = call_gate_fails + put_gate_fails
+
+    call_eligible = len(missing) == 0 and len(call_gate_fails) == 0
+    put_eligible  = len(missing) == 0 and len(put_gate_fails)  == 0
+    ready         = len(missing) == 0 and (call_eligible or put_eligible)
+
+    if missing:
+        verdict = (
+            f"NOT READY — {len(missing)} required field(s) missing. "
+            "Collect all missing inputs before calling this function again."
+        )
+    elif not call_eligible and not put_eligible:
+        verdict = (
+            "BOTH DIRECTIONS REJECTED by hard gates. "
+            "Return NO TRADE — neither the call nor the put meets minimum quality standards."
+        )
+    elif not call_eligible:
+        verdict = (
+            "CALL rejected by hard gates. Only the PUT is eligible. "
+            "Proceed to final scoring — still requires overall score >= 55 to send alert."
+        )
+    elif not put_eligible:
+        verdict = (
+            "PUT rejected by hard gates. Only the CALL is eligible. "
+            "Proceed to final scoring — still requires overall score >= 55 to send alert."
+        )
+    else:
+        verdict = (
+            "BOTH directions passed all gates and have all required inputs. "
+            "Proceed to final scoring — highest score wins; "
+            "winning direction must score >= 55 AND >= 10 points above the other to send an alert."
+        )
+
+    return {
+        "ticker":             ticker.upper(),
+        "ready_for_decision": ready,
+        "missing_fields":     missing,
+        "gate_failures":      all_gate_fails,
+        "call_eligible":      call_eligible,
+        "put_eligible":       put_eligible,
+        "verdict":            verdict,
+    }
