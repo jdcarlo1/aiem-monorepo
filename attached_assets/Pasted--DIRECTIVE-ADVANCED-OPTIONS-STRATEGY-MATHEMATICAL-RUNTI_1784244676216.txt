@@ -1,0 +1,470 @@
+# DIRECTIVE — ADVANCED OPTIONS STRATEGY MATHEMATICAL & RUNTIME VERIFICATION
+
+VERIFY THE STANDALONE OPTIONS ENGINE ONLY.
+- No changes to Diagrams 1–3.
+- No mocks or fabricated evidence.
+- No manual database inserts.
+- Paper trading only.
+- Any failed mathematical or runtime test must disable that strategy from autonomous paper trading.
+
+====================================================
+1. STRATEGY REGISTRY
+====================================================
+
+Return:
+- Complete strategy registry
+- Count by strategy family
+- Strategy ID
+- Family
+- Enabled / Analysis Only
+- Source file
+- Function/class
+- SHA-256
+- PASS/FAIL
+
+Fail if any implemented strategy is missing from the registry.
+
+====================================================
+2. COMPLETE STRATEGY COVERAGE
+====================================================
+
+Verify every supported strategy including:
+
+• Single-leg options
+• Covered strategies
+• Protective strategies
+• Collars
+• Bull/Bear Call Spreads
+• Bull/Bear Put Spreads
+• Debit/Credit Verticals
+• Calendars
+• Diagonals
+• Butterflies
+• Broken-Wing Butterflies
+• Iron Butterflies
+• Condors
+• Iron Condors
+• Ratio Spreads
+• Backspreads
+• Risk Reversals
+• Seagulls
+• Jade Lizards
+• Synthetics
+• LEAPS
+• Zero-DTE
+• Earnings/Event strategies
+• Stock + Option structures
+• Generic 1–8 Leg Custom Structures
+
+====================================================
+3. LEG CONSTRUCTION
+====================================================
+
+Verify:
+- Number of legs
+- Long/Short side
+- Call/Put type
+- Strike ordering
+- Expiration ordering
+- Ratios
+- Debit/Credit
+- Multiplier
+- Optional stock leg
+- Canonical strategy name
+- Strategy fingerprint
+
+Run positive and malformed negative-control tests.
+
+====================================================
+4. MATHEMATICAL VALIDATION
+====================================================
+
+Independently calculate using TWO completely separate methods:
+
+Method A:
+Production payoff engine
+
+Method B:
+Independent payoff calculator
+
+Verify:
+- Maximum profit
+- Maximum loss
+- Every breakeven
+- Net debit/credit
+- Payoff curve
+- Expiration payoff
+
+Compare across:
+- Below every strike
+- At every strike
+- Between strikes
+- Every breakeven
+- Above every strike
+- Extreme upside
+- Extreme downside
+
+Tolerance:
+≤ $0.01 OR ≤0.01%
+
+Fail on any mismatch.
+
+====================================================
+5. OPTION PRICING
+====================================================
+
+Verify:
+- Pre-expiration pricing
+- Time decay
+- IV sensitivity
+- Interest-rate sensitivity
+- Dividend assumptions
+- Volatility skew
+- Term structure
+- Deep ITM
+- ATM
+- Deep OTM
+- Near expiration
+- LEAPS
+
+Compare against an independent pricing implementation.
+
+====================================================
+6. GREEKS
+====================================================
+
+Verify:
+
+Per leg and total position:
+
+- Delta
+- Gamma
+- Theta
+- Vega
+- Rho
+- Charm
+- Vanna
+- Vomma
+- Speed
+- Color
+
+Cross-check with finite-difference calculations.
+
+====================================================
+7. PROBABILITY & EXPECTED VALUE
+====================================================
+
+Verify:
+
+- Probability of Profit
+- Probability of Loss
+- Probability of Max Profit
+- Probability of Max Loss
+- Expected Value
+- Expected Value After Costs
+
+Confirm calculations use:
+
+- Volatility Surface
+- IV
+- Skew
+- Term Structure
+- Expected Move
+- Tail Risk
+
+NOT delta alone.
+
+Cross-check using Monte Carlo.
+
+====================================================
+8. LIQUIDITY
+====================================================
+
+Verify:
+
+- Bid
+- Ask
+- Mid
+- Modeled Fill
+- Paper Fill
+- Slippage
+- Commissions
+- Fees
+- Spread Width
+- Open Interest
+- Volume
+- Quote Age
+
+Reject:
+
+- Crossed markets
+- Missing legs
+- Stale chains
+- Illiquid options
+- Impossible pricing
+
+====================================================
+9. ASSIGNMENT & EXPIRATION
+====================================================
+
+Verify:
+
+- Early assignment
+- Automatic exercise
+- Dividend assignment
+- Pin risk
+- Partial assignment
+- Multi-leg assignment
+- Expiration behavior
+- Exercise simulation
+
+====================================================
+10. RISK CLASSIFICATION
+====================================================
+
+Attempt:
+
+- Naked Call
+- Naked Put
+- Naked Straddle
+- Naked Strangle
+- Naked Ratio
+- Unlimited-Loss Synthetic
+- Missing Buying Power
+- Unknown Max Loss
+- Excessive Risk
+
+Expected:
+
+REJECTED or ANALYSIS_ONLY
+
+====================================================
+11. GENERIC MULTI-LEG BUILDER
+====================================================
+
+Verify:
+
+1–8 legs
+
+Calls
+Puts
+Mixed
+Same expiration
+Different expirations
+Ratios
+Optional stock leg
+
+Confirm:
+
+- Named strategies detected
+- Unknown structures become CUSTOM_MULTI_LEG
+- Duplicate detection
+- Fingerprint uniqueness
+- Invalid structures rejected
+
+====================================================
+12. MARKET SCENARIOS
+====================================================
+
+Run:
+
+Bull
+Bear
+Sideways
+High IV
+Low IV
+Positive Skew
+Negative Skew
+Earnings
+Post Earnings
+Zero DTE
+Weekly
+Monthly
+LEAPS
+Highly Liquid
+Illiquid
+Gap Risk
+
+For every scenario return:
+
+- Strategies Generated
+- Strategies Rejected
+- Score Components
+- Selected Strategy
+- Runner-Up
+- NO_TRADE Score
+
+====================================================
+13. CAPITAL COMPOUNDING SCORE
+====================================================
+
+Verify every component independently:
+
+- Probability
+- Expected Value
+- Capital Preservation
+- Defined Risk
+- Capital Efficiency
+- Liquidity
+- Market Regime
+- Volatility Regime
+- Diversification
+
+Penalties:
+
+- Tail Risk
+- Drawdown
+- Assignment
+- Event Risk
+- Slippage
+- Complexity
+- Correlation
+
+Recalculate final score independently.
+
+Tolerance:
+≤0.000001
+
+====================================================
+14. PAPER TRADE LIFECYCLE
+====================================================
+
+Verify:
+
+Generate
+Rank
+Select
+Paper Trade
+Parent Record
+Leg Records
+Valuation
+Adjustments
+Exit
+Final P/L
+Performance Reporting
+
+====================================================
+15. DATABASE VERIFICATION
+====================================================
+
+Provide SQL proof for:
+
+- Parent Trade
+- Every Leg
+- Greeks
+- Pricing
+- Valuation Updates
+- Adjustments
+- Exit
+- P/L
+- Performance Summary
+
+Verify:
+
+- Foreign Keys
+- No Duplicate Parents
+- No Orphan Legs
+- Idempotency
+- Transaction Rollback
+
+====================================================
+16. FAILURE RECOVERY
+====================================================
+
+Simulate:
+
+- Application Restart
+- Scheduler Restart
+- Database Failure
+- Data Provider Failure
+- Missing Chain
+- Missing Leg
+- Delayed Quotes
+
+Verify:
+
+- Open trades recovered
+- Monitoring resumes
+- No duplicate trades
+- No lost positions
+- Audit preserved
+
+====================================================
+17. PERFORMANCE VALIDATION
+====================================================
+
+Independently verify:
+
+- Net/Gross P&L
+- Win Rate
+- Profit Factor
+- Sharpe
+- Sortino
+- Calmar
+- Drawdown
+- Expectancy
+- Return on Capital
+- Return on Risk
+- Capital Preservation Score
+- Equity Curve
+- Monthly Returns
+
+Confirm:
+
+Theoretical Return
+Modeled Fill Return
+Paper Executed Return
+
+are all reported separately.
+
+====================================================
+18. REQUIRED EVIDENCE
+====================================================
+
+For EVERY test provide:
+
+- Test ID
+- Strategy ID
+- Strategy Name
+- Command
+- Raw Output
+- Inputs
+- Expected Result
+- Actual Result
+- Numerical Difference
+- Allowed Tolerance
+- PASS/FAIL
+- Timestamp
+- Run ID
+- Paper Trade ID
+- SQL Query
+- SQL Output
+- Code SHA-256
+- Config SHA-256
+
+No summaries in place of evidence.
+
+====================================================
+FINAL PASS REQUIREMENTS
+====================================================
+
+PASS ONLY IF:
+
+✓ Every strategy verified
+✓ Leg construction correct
+✓ Mathematical calculations independently verified
+✓ Greeks verified
+✓ Probability & EV verified
+✓ Risk classification correct
+✓ Unsafe strategies blocked
+✓ Generic 1–8 leg builder verified
+✓ NO_TRADE tested
+✓ Capital Compounding Score independently verified
+✓ Complete paper-trade lifecycle verified
+✓ Parent & leg records permanently saved
+✓ Performance calculations verified
+✓ Restart & recovery verified
+✓ Real runtime + SQL evidence provided
+✓ No connection exists to Diagrams 1–3
+
+If ANY mathematical, runtime, database, or safety verification fails, return FAIL and identify the exact strategy, calculation, module, and reason.
