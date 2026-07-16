@@ -142,3 +142,4 @@
 - [Flow Streak ignition signal](flow-streak-ignition.md) — rvol≥1.5× + day≥3% + close_pos≥0.70 on same streak day; derived from ASTE/AMLX backtest; 71/851 stocks flagged on first live scan
 - [Gap+Volume Signal Tab](gap-volume-signal-tab.md) — S2 (gap≥1%+rvol≥2x) survived OOS tight-baseline test (+2.5pp p=0.002); S1 (rvol+range) FAILED; endpoint is pure DB query on polygon_rvol_scan
 - [AIEM Supervisor Meta-Reasoning Layer](aiem-supervisor-layer.md) — 7-module autonomous supervisor; fires post-trade/post-pick/daily/weekly; 7 DB tables; live verdict: multi_signal=RETIRED, gap_volume=DEMOTED, unusual_calls=DEMOTED
+- [AIEM direction-agnostic architecture](aiem-direction-agnostic.md) — CALL/PUT/SHORT paper trades; MTM P&L inverts for PUT/SHORT; system prompt requires both strike+expiry per ticker

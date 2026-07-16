@@ -17643,8 +17643,9 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     _fill_price      = _mid_price
                     _spread_pct_used = None
 
-                _notional  = 1000.0
+                _notional   = 1000.0
                 _trade_type = pick["trade_type"]
+                _direction  = pick.get("direction", "BULLISH")
 
                 # ── Position sizing (spec §2-5, aiem_position_sizing) ─────────
                 # compute_position_size() returns PARAMS_NOT_CONFIRMED only when
@@ -18416,7 +18417,8 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
 
                 _cu.execute("""
                     INSERT INTO aiem_paper_trades
-                        (trade_date, ticker, trade_type, entry_price, quantity,
+                        (trade_date, ticker, trade_type, direction,
+                         entry_price, quantity,
                          notional, signal_source, signal_detail, hold_days_max,
                          last_price, status, strike, expiry,
                          mid_price, fill_price, spread_pct_used,
@@ -18424,11 +18426,12 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                          sizing_risk_pct, sizing_gate_result,
                          pre_sizing_model, audit_trace_id,
                          candidate_id, execution_plan_id)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'OPEN',%s,%s,
                             %s,%s,%s,%s,%s,%s,%s,FALSE,%s,
                             %s,%s)
                     ON CONFLICT ON CONSTRAINT aiem_paper_trades_ticker_date_unique DO NOTHING
-                """, (_today, _t, _trade_type, _fill_price, _qty,
+                """, (_today, _t, _trade_type, _direction,
+                      _fill_price, _qty,
                       _notional, pick["source"], pick.get("detail",""),
                       _hold_days, _fill_price,
                       pick.get("strike"), pick.get("expiry"),
@@ -18436,8 +18439,9 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                       _sizing_stop, _sizing_stop_basis,
                       _sizing_risk_pct, _sizing_gate, _audit_trace_id,
                       _d2_candidate_id, _exec_plan_id))
+                _dir_tag = "" if _direction == "BULLISH" else f" ↓{_direction}"
                 _tg_entry_lines.append(
-                    f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}  [{pick['source']}]"
+                    f"▸ {_t:<6} ${_fill_price:.2f}  {_trade_type}{_dir_tag}  [{pick['source']}]"
                 )
                 rows_inserted += 1
                 _c.commit()  # commit before Hook 4 — supervisor opens a new connection; must see the row
@@ -37075,6 +37079,41 @@ def _aiem_tool_run_self_backtest(hypothesis_id: int, self_written_code: str, inp
         return {"error": str(_e)}
 
 
+# ── Options Intelligence tools (direction-agnostic: calls, puts, shorts) ──────
+
+def _mkt_expected_move(ticker: str, dte_days: int = 5) -> dict:
+    """AIEM wrapper → aiem_options_intel.compute_expected_move"""
+    try:
+        import aiem_options_intel as _oi
+        return _oi.compute_expected_move(ticker, dte_days)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _mkt_iv_rank_live(ticker: str) -> dict:
+    """AIEM wrapper → aiem_options_intel.compute_iv_rank_live"""
+    try:
+        import aiem_options_intel as _oi
+        return _oi.compute_iv_rank_live(ticker)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _mkt_oi_by_strike(ticker: str, expiry: str | None = None) -> dict:
+    """AIEM wrapper → aiem_options_intel.compute_oi_by_strike"""
+    try:
+        import aiem_options_intel as _oi
+        return _oi.compute_oi_by_strike(ticker, expiry)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+def _mkt_bearish_signals(min_fear_pp: float = 8.0, min_gex_m: float = 0.0) -> dict:
+    """AIEM wrapper → aiem_options_intel.compute_bearish_signals"""
+    try:
+        import aiem_options_intel as _oi
+        return _oi.compute_bearish_signals(min_fear_pp, min_gex_m)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _build_aiem_tool_map():
     """Build full merged tool map — all tools available to both focused sessions and chat tab.
     Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
@@ -37187,6 +37226,11 @@ def _build_aiem_tool_map():
         "mkt_options_skew":       _mkt_tool_options_skew,
         "mkt_term_structure":     _mkt_tool_term_structure,
         "mkt_cta_triggers":       _mkt_tool_cta_triggers,
+        # ── Options Intelligence: Expected Move / IV Rank / OI / Bearish ──────
+        "mkt_expected_move":      _mkt_expected_move,
+        "mkt_iv_rank_live":       _mkt_iv_rank_live,
+        "mkt_oi_by_strike":       _mkt_oi_by_strike,
+        "mkt_bearish_signals":    _mkt_bearish_signals,
         # ── AIEM Research Integrity / hypothesis tracking ─────────────────────
         "register_hypothesis":    _aiem_tool_register_hypothesis,
         "list_hypotheses":        _aiem_tool_list_hypotheses,
@@ -37808,6 +37852,76 @@ _AIEM_AGENT_TOOLS = [
             "cross_only": {"type": "boolean", "description": "Only recent Golden/Death cross tickers"},
             "near_trigger_pct": {"type": "number", "description": "Only tickers within N% of a trigger (default 3.0)"},
             "limit": {"type": "integer", "description": "Max rows (default 30)"}
+        }, "required": []}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_expected_move",
+        "description": (
+            "Compute the options-implied Expected Move for a ticker over N trading days. "
+            "Expected Move = stock_price × ATM_IV × sqrt(dte/252). "
+            "This is the ±1 standard-deviation range the market is pricing for the holding period "
+            "(68% probability price stays inside). "
+            "Use for: strike selection (find OTM calls/puts just beyond the EM), "
+            "sizing (wider EM = more volatile = smaller size), "
+            "and confirming whether a target move is realistic. "
+            "Also shows skew_tag (FEAR_PREMIUM / CALL_SKEW) from the current options chain."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol (e.g. 'AAPL')"},
+            "dte_days": {"type": "integer", "description": "Holding period in trading days (default 5)"}
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_iv_rank_live",
+        "description": (
+            "Compute IV Rank for a ticker: (current_IV - 52wk_low) / (52wk_high - 52wk_low) × 100. "
+            "IV Rank < 20 = IV CHEAP → BUYING options is cheap; vega works for you. "
+            "IV Rank > 80 = IV EXPENSIVE → SELLING premium is favorable; buying options is costly. "
+            "IV Rank 20-80 = FAIR → directional plays acceptable. "
+            "CRITICAL: always check IV Rank BEFORE buying puts or calls. "
+            "High IV Rank (>80) = puts or calls are expensive → prefer spread structures. "
+            "Low IV Rank (<20) = buy outright options cheaply before a catalyst."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol"}
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_oi_by_strike",
+        "description": (
+            "OI (Open Interest) distribution across strikes from oi_daily_snapshot. "
+            "Shows where the biggest OI walls are — these act as max-pain pinning zones near expiration. "
+            "Put wall BELOW current price = mechanical floor support "
+            "(MMs must buy stock to delta-hedge their short puts as price approaches). "
+            "Call wall ABOVE current price = mechanical resistance "
+            "(MMs must sell stock to delta-hedge their short calls). "
+            "Returns put/call OI ratio: >1.2 = put-heavy = bearish institutional positioning. "
+            "Use to: find ideal put strike target, locate key support/resistance levels, "
+            "confirm whether a bearish target is a realistic pinning zone."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker": {"type": "string", "description": "Ticker symbol"},
+            "expiry": {"type": "string", "description": "Optional expiry date filter (YYYY-MM-DD)"}
+        }, "required": ["ticker"]}
+    }},
+    {"type": "function", "function": {
+        "name": "mkt_bearish_signals",
+        "description": (
+            "Aggregate multi-factor bearish options signals across all scanned tickers. "
+            "Combines: FEAR_PREMIUM put/call IV skew (>8pp = institutions buying puts), "
+            "LONG_GAMMA GEX regime (dealer positioning suppresses price = mean-reversion), "
+            "INVERTED term structure (near-term stress / catalyst expected). "
+            "Scoring: 0-13 points. conviction >= 10 = strong PUT_OPTION candidate. "
+            "BEARISH WORKFLOW: mkt_bearish_signals → filter conviction >= 10 "
+            "→ mkt_iv_rank_live (confirm IV not expensive) "
+            "→ mkt_oi_by_strike (find highest-OI put strike as target) "
+            "→ mkt_expected_move (size the expected move). "
+            "When macro is RISK-OFF and FEAR_PREMIUM + LONG_GAMMA agree, "
+            "this is the highest-conviction bearish setup AIEM can find."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "min_fear_pp": {"type": "number", "description": "Minimum put/call skew in pp (default 8.0)"},
+            "min_gex_m": {"type": "number", "description": "Minimum absolute GEX in $M (default 0)"}
         }, "required": []}
     }},
     {"type": "function", "function": {
@@ -40277,7 +40391,14 @@ Always use these together — they cross-validate each other.
   - mkt_options_skew: Put/Call IV skew at 25-delta. FEAR_PREMIUM (>8pp) = institutions buying downside protection = bearish institutional hedge. CALL_SKEW (<-3pp) = institutions buying upside = bullish institutional positioning. HIGH CONVICTION when skew + GEX agree directionally.
   - mkt_term_structure: Front/back month IV ratio. INVERTED (>1.10) = near-term stress = catalyst or event expected within days. CONTANGO (<0.88) = complacency = good for selling premium. Cross-reference with earnings dates.
   - mkt_cta_triggers: CTA trigger levels from 50/100/200-day MAs. Tickers with trigger_pct_away < 2% face imminent CTA mechanical flows (could be large, sudden, uninformative). GOLDEN_CROSS / DEATH_CROSS tickers (last 5 days) = peak CTA positioning change. MAX_LONG (cta_score=3) = CTAs fully deployed = less future buying available. MAX_SHORT (cta_score=0) = CTAs fully short = forced buy candidate.
-  WORKFLOW: mkt_gex_scan → filter to SHORT_GAMMA (momentum), then mkt_options_skew to confirm CALL_SKEW or FEAR_PREMIUM, then mkt_cta_triggers to check if CTAs have room to add. A SHORT_GAMMA + CALL_SKEW + low cta_score (room for CTA buying) = high-conviction breakout candidate.
+  BULLISH WORKFLOW: mkt_gex_scan → filter to SHORT_GAMMA (momentum), then mkt_options_skew to confirm CALL_SKEW, then mkt_cta_triggers to check if CTAs have room to add. SHORT_GAMMA + CALL_SKEW + low cta_score (room for CTA buying) = high-conviction CALL_OPTION candidate.
+  BEARISH WORKFLOW: mkt_bearish_signals → filter conviction >= 10, then mkt_iv_rank_live (confirm IV < 80 before buying puts), then mkt_oi_by_strike to find highest-OI put strike as price target, then mkt_expected_move to size the move. LONG_GAMMA + FEAR_PREMIUM + INVERTED term = high-conviction PUT_OPTION candidate.
+  DIRECTION RULE: AIEM is fully direction-agnostic. For EVERY ticker you analyze or propose as a pick, you MUST always present BOTH setups simultaneously:
+    CALL setup: strike = round(spot + expected_move) to nearest $0.50, expiry = nearest weekly 7-14 days out
+    PUT setup:  strike = round(spot - expected_move) to nearest $0.50, expiry = nearest weekly 7-14 days out
+  Use mkt_expected_move(ticker) to compute the ±EM range, then mkt_oi_by_strike(ticker) to verify where the biggest OI walls are (highest-OI call strike = your call target, highest-OI put strike = your put target).
+  After presenting both, choose the one with better risk/reward based on: IV rank (prefer buying when IV_rank < 50), directional conviction (GEX regime + skew alignment), and macro bias.
+  NEVER present only a call or only a put without showing both. A PUT_OPTION with conviction=12 beats a CALL_OPTION with conviction=7 every time. Never default bullish just because most prior picks were bullish.
 
 TOOLS AVAILABLE (use in this order):
 1.  evaluate_previous_model      - ALWAYS start here. Was last week's model good or bad?
@@ -44896,6 +45017,7 @@ def _init_aiem_paper_trades_table():
             # MTM exit, manual/admin close, or backfill) triggers the close.
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS learning_loop_fired_at TIMESTAMPTZ")
             _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS exit_reason TEXT")
+            _cu.execute("ALTER TABLE aiem_paper_trades ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'BULLISH'")
             _c.commit()
         print("[aiem_paper] trades table ready")
     except Exception as _e:
@@ -45009,7 +45131,8 @@ def _aiem_paper_pick_candidates() -> list:
     except Exception as _dme:
         print(f"[learning_gate] drift gate skipped (non-fatal): {_dme}")
 
-    def _add(ticker, score, trade_type, source, detail="", strike=None, expiry=None):
+    def _add(ticker, score, trade_type, source, detail="", strike=None, expiry=None,
+             direction="BULLISH"):
         t = ticker.upper().strip()
         if not t or len(t) > 6:
             return
@@ -45023,10 +45146,12 @@ def _aiem_paper_pick_candidates() -> list:
                                "drift_mult": _dm,    # drift multiplier applied (Gap 5)
                                "trust_mult": 1.0,    # filled by trust gate below (Gap 5)
                                "trade_type": trade_type,
+                               "direction": direction,
                                "source": source, "detail": detail,
                                "strike": strike, "expiry": expiry}
         elif trade_type == "CALL_OPTION" and existing["trade_type"] == "STOCK":
             existing["trade_type"] = "CALL_OPTION"
+            existing["direction"] = direction
             existing["detail"] = detail or existing["detail"]
             existing["strike"] = strike if strike is not None else existing.get("strike")
             existing["expiry"] = expiry if expiry is not None else existing.get("expiry")
@@ -45281,6 +45406,70 @@ def _aiem_paper_pick_candidates() -> list:
             print(f"[aiem_paper] v3_discovery: {len(_v3_disc)} candidates → {_v3_buys} BUY/SMALL_BUY")
     except Exception as _v3e:
         print(f"[aiem_paper] v3_discovery source skipped: {_v3e}")
+
+    # ── 12. Bearish — FEAR_PREMIUM + LONG_GAMMA (institutional put hedging) ─────
+    # When put IV > call IV by >=10pp AND dealers are long gamma (price-suppressive),
+    # institutions are paying up for downside protection. High-conviction PUT_OPTION.
+    # Gate: only fires when macro_bias != 1 (risk-on) to avoid fighting the tape.
+    try:
+        if _macro_bias != 1:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                                   options="-c statement_timeout=5000") as _bc, _bc.cursor() as _bcu:
+                _bcu.execute("""
+                    SELECT ticker, spot, pc_skew_pp, gex_m, gex_regime, gamma_flip_price
+                    FROM options_structure_scan
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '1 day'
+                      AND pc_skew_tag = 'FEAR_PREMIUM'
+                      AND pc_skew_pp >= 10
+                      AND gex_regime = 'LONG_GAMMA'
+                      AND spot IS NOT NULL AND spot >= 10
+                    ORDER BY pc_skew_pp DESC
+                    LIMIT 8
+                """)
+                _fear_rows = _bcu.fetchall()
+            for _bt, _bspot, _bskew, _bgex, _breg, _bgfp in (_fear_rows or []):
+                _bscore = float(_bskew or 0) * 0.8 + abs(float(_bgex or 0)) * 0.1 + 5.0
+                _add(_bt, _bscore, "PUT_OPTION", "fear_premium_gex",
+                     f"FEAR_PREMIUM skew={float(_bskew or 0):.1f}pp "
+                     f"GEX={float(_bgex or 0):.1f}M ({_breg})",
+                     direction="BEARISH")
+            if _fear_rows:
+                print(f"[aiem_paper] fear_premium_gex: {len(_fear_rows)} bearish PUT candidates")
+        else:
+            print("[aiem_paper] fear_premium_gex SKIPPED: macro_bias=RISK_ON")
+    except Exception as _be12:
+        print(f"[aiem_paper] fear_premium_gex source skipped: {_be12}")
+
+    # ── 13. Bearish — Gap-down distribution (high RVOL + close near lows) ────────
+    # Stocks gapping down on 2.5x+ volume and closing near their low of day signal
+    # sustained institutional distribution. SHORT_STOCK candidates, BEARISH direction.
+    # Gate: only fires when macro_bias != 1 (risk-on).
+    try:
+        if _macro_bias != 1:
+            with _psycopg2.connect(_DB_URL, connect_timeout=4,
+                                   options="-c statement_timeout=5000") as _dc, _dc.cursor() as _dcu:
+                _dcu.execute("""
+                    SELECT ticker, rvol, gap_pct, price, close_strength
+                    FROM polygon_rvol_scan
+                    WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
+                      AND gap_pct <= -1.5 AND rvol >= 2.5
+                      AND price >= 5.0
+                      AND close_strength <= 0.30
+                    ORDER BY (ABS(gap_pct) * rvol) DESC LIMIT 8
+                """)
+                _dist_rows = _dcu.fetchall()
+            for _dt, _drv, _dgp, _dpr, _dcs in (_dist_rows or []):
+                _dscore = abs(float(_drv or 1)) * abs(float(_dgp or 1)) * (1 - float(_dcs or 0))
+                _add(_dt, _dscore, "SHORT_STOCK", "gap_down_distribution",
+                     f"gap={float(_dgp or 0):.1f}% rvol={float(_drv or 0):.1f}x "
+                     f"cs={float(_dcs or 0):.2f}",
+                     direction="BEARISH")
+            if _dist_rows:
+                print(f"[aiem_paper] gap_down_distribution: {len(_dist_rows)} bearish SHORT candidates")
+        else:
+            print("[aiem_paper] gap_down_distribution SKIPPED: macro_bias=RISK_ON")
+    except Exception as _be13:
+        print(f"[aiem_paper] gap_down_distribution source skipped: {_be13}")
 
     # ── Social sentiment boost (StockTwits) for top 12 candidates ─────────
     _prelim = sorted(_candidates.values(), key=lambda x: x["score"], reverse=True)[:12]
@@ -45814,32 +46003,43 @@ def _aiem_close_paper_trade_and_run_loop(
             if mode == "close":
                 _cu.execute("""
                     SELECT ticker, trade_type, entry_price, quantity, notional,
-                           trade_date, signal_source, audit_trace_id, status
+                           trade_date, signal_source, audit_trace_id, status,
+                           COALESCE(direction, 'BULLISH') AS direction
                     FROM aiem_paper_trades WHERE id=%s
                 """, (_id,))
                 _row = _cu.fetchone()
                 if not _row:
                     return {"fired": False, "reason": f"trade {_id} not found"}
                 (_t, _ttype, _entry, _qty, _notional, _td, _src,
-                 _trace_id, _cur_status) = _row
+                 _trace_id, _cur_status, _dir) = _row
                 if _cur_status != "OPEN":
                     return {"fired": False,
                             "reason": f"trade {_id} not OPEN (status={_cur_status}); "
                                       f"refusing to re-close"}
                 _entry_f = float(_entry or 0)
-                _qty_f = float(_qty or 0)
-                _not_f = float(_notional or 0)
-                _last = float(exit_price)
+                _qty_f   = float(_qty or 0)
+                _not_f   = float(_notional or 0)
+                _last    = float(exit_price)
 
-                # Fix #8: CALL_OPTION P&L is a synthetic 2x proxy, not real
-                # options pricing — tag it in the log so it's never misread.
+                # Direction-aware P&L proxy:
+                #   CALL_OPTION (BULLISH)  : 2x underlying proxy — stock up = wins
+                #   PUT_OPTION  (BEARISH)  : 2x inverse proxy   — stock down = wins
+                #   SHORT_STOCK (BEARISH)  : 1x inverse          — stock down = wins
+                #   STOCK/ETF   (BULLISH)  : 1x long             — stock up = wins
                 if _ttype == "CALL_OPTION":
                     _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
-                    _pnl_pct = round(max(-100.0, _move_pct * 2.0), 4)
-                    _pnl = round(_not_f * _pnl_pct / 100, 2)
+                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
+                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
+                elif _ttype == "PUT_OPTION":
+                    _move_pct = (_entry_f - _last) / _entry_f * 100 if _entry_f > 0 else 0
+                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
+                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
+                elif _ttype == "SHORT_STOCK":
+                    _pnl      = round((_entry_f - _last) * _qty_f, 2)
+                    _pnl_pct  = round((_entry_f - _last) / _entry_f * 100, 4) if _entry_f > 0 else 0
                 else:
-                    _pnl = round((_last - _entry_f) * _qty_f, 2)
-                    _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 4) if _entry_f > 0 else 0
+                    _pnl      = round((_last - _entry_f) * _qty_f, 2)
+                    _pnl_pct  = round((_last - _entry_f) / _entry_f * 100, 4) if _entry_f > 0 else 0
                 _reason = exit_reason
 
                 _cu.execute("""
@@ -45859,7 +46059,7 @@ def _aiem_close_paper_trade_and_run_loop(
                             "reason": f"trade {_id} lost the OPEN->{status} race "
                                       f"(closed by another caller first)"}
                 _c.commit()
-                _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype == "CALL_OPTION" else ""
+                _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype in ("CALL_OPTION", "PUT_OPTION") else ""
                 print(f"[aiem_paper_close] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — "
                       f"{_reason} (mode=close, id={_id})")
 
@@ -46249,7 +46449,8 @@ def _aiem_paper_mark_to_market():
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("""
                 SELECT id, ticker, trade_type, entry_price, quantity,
-                       notional, trade_date, signal_source, signal_detail
+                       notional, trade_date, signal_source, signal_detail,
+                       COALESCE(direction, 'BULLISH') AS direction
                 FROM aiem_paper_trades WHERE status = 'OPEN'
             """)
             _open = _cu.fetchall()
@@ -46316,7 +46517,8 @@ def _aiem_paper_mark_to_market():
         _positions_for_ai = []
         _stale_quote_ids = set()   # Fix #4: positions whose live quote fetch failed this cycle
 
-        for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail) in _open:
+        for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail,
+             _dir) in _open:
             # Diagram 2 fix (architect-required): reset per-iteration so a
             # failed/skipped SELECT on THIS trade can never (a) NameError from
             # a bare reference, or (b) silently inherit a PRIOR trade's stale
@@ -46328,6 +46530,7 @@ def _aiem_paper_mark_to_market():
             _qty_f    = float(_qty)
             _not_f    = float(_notional)
             _days     = (_today - _trade_date).days
+            _dir      = _dir or "BULLISH"
 
             # Fix #4: a failed quote fetch (_last <= 0) must not be silently
             # masked as a flat 0% P&L as if it were a real observed price.
@@ -46340,7 +46543,7 @@ def _aiem_paper_mark_to_market():
                 _stale_quote_ids.add(_id)
                 _last = _entry_f
 
-            _price_map[_id] = (_last, _entry_f, _qty_f, _not_f, _ttype, _trade_date)
+            _price_map[_id] = (_last, _entry_f, _qty_f, _not_f, _ttype, _trade_date, _dir)
 
             if _stale_quote:
                 # Excluded from feeding the LLM's HOLD/EXIT reasoning as if
@@ -46348,29 +46551,44 @@ def _aiem_paper_mark_to_market():
                 # to this position regardless of the missing quote.
                 continue
 
+            # Direction-aware P&L:
+            #   CALL_OPTION (BULLISH): 2x underlying proxy — stock up = call wins
+            #   PUT_OPTION  (BEARISH): 2x inverse proxy  — stock down = put wins
+            #   SHORT_STOCK (BEARISH): 1x inverse        — stock down = short wins
+            #   STOCK/ETF   (BULLISH): 1x long           — stock up = wins
             if _ttype == "CALL_OPTION":
                 _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
                 _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 2)
                 _pnl      = round(_not_f * _pnl_pct / 100, 2)
+            elif _ttype == "PUT_OPTION":
+                _move_pct = (_entry_f - _last) / _entry_f * 100 if _entry_f > 0 else 0
+                _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 2)
+                _pnl      = round(_not_f * _pnl_pct / 100, 2)
+            elif _ttype == "SHORT_STOCK":
+                _pnl     = round((_entry_f - _last) * _qty_f, 2)
+                _pnl_pct = round((_entry_f - _last) / _entry_f * 100, 2) if _entry_f > 0 else 0
             else:
                 _pnl     = round((_last - _entry_f) * _qty_f, 2)
                 _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 2) if _entry_f > 0 else 0
 
             _pos_entry = {
                 "id": _id, "ticker": _t, "trade_type": _ttype,
+                "direction": _dir,
                 "entry_price": round(_entry_f, 2), "current_price": round(_last, 2),
                 "pnl_dollars": _pnl,
                 "days_held": _days, "signal_source": _src,
                 "signal_detail": _detail or "",
                 "recent_sessions": _indicator_ctx.get(_t, [])[:5],
             }
-            # Fix #8: CALL_OPTION "P&L" here is a synthetic 2x-underlying-move
+            # Fix #8: CALL_OPTION / PUT_OPTION P&L is a synthetic 2x-underlying-move
             # proxy (no strike/IV/theta modeled) — label it distinctly so it's
             # never fed to / read by the LLM as if it were real option pricing.
-            if _ttype == "CALL_OPTION":
+            if _ttype in ("CALL_OPTION", "PUT_OPTION"):
                 _pos_entry["synthetic_option_proxy_pct"] = _pnl_pct
-                _pos_entry["proxy_note"] = ("Synthetic 2x underlying move proxy — "
-                                             "NOT real options pricing (no strike/IV/theta).")
+                _pos_entry["proxy_note"] = (
+                    f"Synthetic 2x underlying-move proxy ({_dir}) — "
+                    "NOT real options pricing (no strike/IV/theta)."
+                )
             else:
                 _pos_entry["pnl_pct"] = _pnl_pct
 
@@ -46626,14 +46844,23 @@ def _aiem_paper_mark_to_market():
 
         # ── 5. Apply decisions ─────────────────────────────────────────────
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
-            for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail) in _open:
-                _last, _entry_f, _qty_f, _not_f, _, _ = _price_map[_id]
+            for (_id, _t, _ttype, _entry, _qty, _notional, _trade_date, _src, _detail,
+                 _dir) in _open:
+                _last, _entry_f, _qty_f, _not_f, _, _, _dir2 = _price_map[_id]
+                _dir  = _dir or _dir2 or "BULLISH"
                 _days = (_today - _trade_date).days
 
                 if _ttype == "CALL_OPTION":
                     _move_pct = (_last - _entry_f) / _entry_f * 100 if _entry_f > 0 else 0
                     _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
                     _pnl      = round(_not_f * _pnl_pct / 100, 2)
+                elif _ttype == "PUT_OPTION":
+                    _move_pct = (_entry_f - _last) / _entry_f * 100 if _entry_f > 0 else 0
+                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
+                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
+                elif _ttype == "SHORT_STOCK":
+                    _pnl     = round((_entry_f - _last) * _qty_f, 2)
+                    _pnl_pct = round((_entry_f - _last) / _entry_f * 100, 4) if _entry_f > 0 else 0
                 else:
                     _pnl     = round((_last - _entry_f) * _qty_f, 2)
                     _pnl_pct = round((_last - _entry_f) / _entry_f * 100, 4) if _entry_f > 0 else 0
@@ -46691,7 +46918,7 @@ def _aiem_paper_mark_to_market():
                         trade_id=_id, status=_status, exit_reason=_reason,
                         exit_price=_last, exit_date=_today, mode="close")
                     if _close_result.get("fired"):
-                        _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype == "CALL_OPTION" else ""
+                        _proxy_tag = " [synthetic 2x proxy, not real option pricing]" if _ttype in ("CALL_OPTION", "PUT_OPTION") else ""
                         print(f"[aiem_paper][MTM] EXIT {_t} {_pnl_pct:+.1f}%{_proxy_tag} — {_reason}")
                         _emoji = "✅" if _pnl_pct >= 0 else "🔴"
                         _tg_exit_lines.append(f"{_emoji} {_t:<6} {_pnl_pct:+.1f}%  {_reason}")
