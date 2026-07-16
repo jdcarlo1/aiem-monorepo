@@ -51,6 +51,11 @@ def compute_expected_move(ticker: str, dte_days: int = 5) -> dict:
             float(row[2]) if row[2] else None,
             row[3],
         )
+        # front_iv/back_iv stored as percentage (e.g. 39.78 = 39.78%) — normalise to decimal
+        if front_iv > 1.0:
+            front_iv = front_iv / 100.0
+        if back_iv is not None and back_iv > 1.0:
+            back_iv = back_iv / 100.0
         em     = spot * front_iv * math.sqrt(dte_days / 252)
         em_pct = front_iv * math.sqrt(dte_days / 252) * 100
 
@@ -103,6 +108,9 @@ def compute_iv_rank_live(ticker: str) -> dict:
             if not row:
                 return {"error": f"No options_structure_scan data for {ticker}"}
             current_iv, spot, skew_tag = float(row[0]), float(row[1]), row[2]
+            # front_iv stored as percentage — normalise to decimal for HV comparison
+            if current_iv > 1.0:
+                current_iv = current_iv / 100.0
 
             cur.execute("""
                 SELECT close_price
@@ -176,26 +184,29 @@ def compute_oi_by_strike(ticker: str, expiry: str | None = None) -> dict:
     """
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            # oi_daily_snapshot has no option_type column; use price (underlying at snapshot)
+            # to classify: strike > price → above-spot (call-side resistance);
+            #              strike <= price → at/below-spot (put-side floor)
             if expiry:
                 cur.execute("""
-                    SELECT strike, option_type, SUM(oi) AS total_oi
+                    SELECT strike, SUM(oi) AS total_oi, AVG(price) AS avg_price
                     FROM oi_daily_snapshot
                     WHERE ticker = %s AND expiry = %s
                       AND snapshot_date = (
                           SELECT MAX(snapshot_date) FROM oi_daily_snapshot WHERE ticker = %s
                       )
-                    GROUP BY strike, option_type
+                    GROUP BY strike
                     ORDER BY total_oi DESC LIMIT 20
                 """, (ticker.upper(), expiry, ticker.upper()))
             else:
                 cur.execute("""
-                    SELECT strike, option_type, SUM(oi) AS total_oi
+                    SELECT strike, SUM(oi) AS total_oi, AVG(price) AS avg_price
                     FROM oi_daily_snapshot
                     WHERE ticker = %s
                       AND snapshot_date = (
                           SELECT MAX(snapshot_date) FROM oi_daily_snapshot WHERE ticker = %s
                       )
-                    GROUP BY strike, option_type
+                    GROUP BY strike
                     ORDER BY total_oi DESC LIMIT 20
                 """, (ticker.upper(), ticker.upper()))
             rows = cur.fetchall()
@@ -204,48 +215,50 @@ def compute_oi_by_strike(ticker: str, expiry: str | None = None) -> dict:
             return {"error": f"No OI snapshot data for {ticker}"}
 
         results      = []
-        total_call   = 0
-        total_put    = 0
-        top_call_oi  = 0
-        top_put_oi   = 0
-        top_call_str = None
-        top_put_str  = None
+        total_above  = 0   # call-side (above spot)
+        total_below  = 0   # put-side (at/below spot)
+        top_above_oi  = 0
+        top_below_oi  = 0
+        top_above_str = None
+        top_below_str = None
 
-        for strike, opt_type, oi in rows:
-            s   = float(strike)
-            oi_ = int(oi)
-            results.append({"strike": s, "type": opt_type, "oi": oi_})
-            if opt_type == "call":
-                total_call += oi_
-                if oi_ > top_call_oi:
-                    top_call_oi, top_call_str = oi_, s
+        for strike, oi, avg_price in rows:
+            s        = float(strike)
+            oi_      = int(oi)
+            spot_ref = float(avg_price) if avg_price else 0
+            side     = "above_spot" if s > spot_ref else "at_or_below_spot"
+            results.append({"strike": s, "oi": oi_, "side": side})
+            if side == "above_spot":
+                total_above += oi_
+                if oi_ > top_above_oi:
+                    top_above_oi, top_above_str = oi_, s
             else:
-                total_put += oi_
-                if oi_ > top_put_oi:
-                    top_put_oi, top_put_str = oi_, s
+                total_below += oi_
+                if oi_ > top_below_oi:
+                    top_below_oi, top_below_str = oi_, s
 
-        pc_ratio = round(total_put / total_call, 2) if total_call > 0 else None
+        pc_ratio = round(total_below / total_above, 2) if total_above > 0 else None
 
         interp = (
-            f"Largest call wall: ${top_call_str} ({top_call_oi:,} OI) = overhead resistance. "
-            f"Largest put wall: ${top_put_str} ({top_put_oi:,} OI) = floor support. "
-            f"Put/Call OI ratio: {pc_ratio or 'N/A'}"
+            f"Largest above-spot OI wall: ${top_above_str} ({top_above_oi:,} OI) = overhead resistance. "
+            f"Largest at/below-spot OI wall: ${top_below_str} ({top_below_oi:,} OI) = floor support. "
+            f"Below/Above OI ratio: {pc_ratio or 'N/A'}."
         )
         if pc_ratio and pc_ratio > 1.5:
-            interp += " — PUT-HEAVY (>1.5): significant downside hedging / bearish positioning."
+            interp += " PUT-HEAVY (>1.5): significant downside hedging / bearish positioning."
         elif pc_ratio and pc_ratio < 0.7:
-            interp += " — CALL-HEAVY (<0.7): bullish speculative positioning."
+            interp += " CALL-HEAVY (<0.7): bullish speculative positioning."
 
         return {
-            "ticker":            ticker.upper(),
-            "expiry_filter":     expiry,
-            "top_oi_strikes":    results,
-            "total_call_oi":     total_call,
-            "total_put_oi":      total_put,
-            "put_call_oi_ratio": pc_ratio,
-            "biggest_call_wall": top_call_str,
-            "biggest_put_wall":  top_put_str,
-            "interpretation":    interp,
+            "ticker":              ticker.upper(),
+            "expiry_filter":       expiry,
+            "top_oi_strikes":      results,
+            "total_above_spot_oi": total_above,
+            "total_below_spot_oi": total_below,
+            "below_above_ratio":   pc_ratio,
+            "biggest_above_wall":  top_above_str,
+            "biggest_below_wall":  top_below_str,
+            "interpretation":      interp,
         }
     except Exception as e:
         return {"error": str(e)}

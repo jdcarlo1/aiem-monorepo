@@ -1,0 +1,140 @@
+# AEIM OPTIONS ENGINE — FINAL VERIFICATION (STRICT)
+
+Do not provide narrative confirmation. Return runtime evidence only.
+
+Verify that every required component is implemented, correctly wired, actively consumed by the decision engine, and influences the final CALL vs PUT vs NO TRADE decision.
+
+## 1. Stock Analysis Verification
+Prove the following are computed and consumed:
+- Market regime
+- Trend
+- Price action
+- VWAP
+- Volume
+- Momentum
+- Support/resistance
+- Sector strength
+- Market breadth
+- Existing AEIM probability/conviction scores
+
+## 2. Options Analysis Verification
+Prove the following are computed and consumed:
+- Call volume
+- Put volume
+- Volume/Open Interest
+- Open Interest changes
+- Unusual options activity
+- Sweep/Block activity (if implemented)
+- Bid/Ask spread
+- Liquidity
+- Estimated slippage
+- Implied Volatility (IV)
+- IV Rank
+- IV Percentile
+- Delta
+- Gamma
+- Theta
+- Vega
+- Gamma Exposure (GEX)
+- Dealer positioning (if implemented)
+- Put/Call skew
+- Expected Move
+- Strike selection
+- Expiration selection
+- Break-even
+- Premium at risk
+- IV expansion / IV crush risk
+
+## 3. Scoring Verification
+Show how both the CALL and PUT receive scores using:
+- Directional probability
+- Probability of reaching target before expiration
+- Expected return
+- Maximum premium loss
+- Risk/reward
+- Liquidity
+- Slippage
+- Theta decay risk
+- Market regime fit
+- Technical confirmation
+- Options flow confirmation
+- Historical performance in similar conditions
+
+## 4. Risk Gate Verification
+Prove the engine rejects:
+- Poor liquidity
+- Excessive bid/ask spreads
+- Excessive slippage
+- Unsuitable expiration/theta risk
+- Conflicting stock/options signals
+- Trades below minimum probability threshold
+- Trades below minimum expected-return threshold
+- Position-size violations
+- Daily-loss-limit violations
+
+## 5. Decision Verification
+Run:
+- One bullish scenario
+- One bearish scenario
+- One NO TRADE scenario
+
+Return:
+- Raw indicator values
+- Individual component scores
+- Final CALL score
+- Final PUT score
+- Final decision
+- Exact reason the winning decision was selected
+- Exact reason the rejected decision(s) were rejected
+
+## 6. Alert Verification
+Verify every alert contains:
+- Ticker
+- Direction
+- Selected contract
+- Strike
+- Expiration
+- Entry premium
+- Stock price
+- Delta
+- Gamma
+- Theta
+- Vega
+- IV
+- Volume
+- Open Interest
+- Bid/Ask spread
+- Expected Move
+- Break-even
+- Premium at risk
+- Probability definition and value
+- Expected return
+- Profit target
+- Stop/invalidation
+- Selected score
+- Opposite-direction score
+- Main reasons
+- Main risks
+
+## 7. Wiring Verification
+For every required input:
+- Show where it is calculated.
+- Show where it is consumed.
+- Show it reaches the final decision.
+- Prove no bypasses.
+- Prove no unused/dead indicators.
+- Prove no hard-coded values.
+- Prove no duplicate calculations.
+
+## 8. Runtime Evidence Required
+Return:
+- File names
+- Functions
+- Line numbers
+- Execution traces
+- Candidate IDs
+- Trace IDs
+- Runtime logs
+- Raw evidence
+
+Evidence only. No summary-only statements or "works as expected."
