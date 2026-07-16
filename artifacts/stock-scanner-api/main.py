@@ -4997,6 +4997,21 @@ try:
         id="microcap_outcomes_grade",
         replace_existing=True,
     )
+    # Options pipeline Stage 9: Mon-Fri 4:46 PM ET - grade expired options alerts + append learning hashes
+    def _run_options_grade():
+        try:
+            result = _aiem_grade_options_outcomes(days_back=30)
+            n = result.get("graded_count", 0)
+            if n:
+                print(f"[scheduler] options_outcomes graded {n} alerts  wr={result.get('win_rate_pct')}%")
+        except Exception as _e:
+            print(f"[scheduler] options_outcomes error: {_e}")
+    _scheduler.add_job(
+        _run_options_grade,
+        CronTrigger(day_of_week="mon-fri", hour=16, minute=46, timezone=_ET),
+        id="options_outcomes_grade",
+        replace_existing=True,
+    )
     # Signal snapshot: Mon-Fri 4:00 PM ET - snapshot today's signals for multi-day persistence tracking
     def _run_signal_snapshot():
         if not _intraday_scan_allowed():
@@ -37126,6 +37141,93 @@ def _mkt_verify_options_inputs(ticker: str, call_data: dict, put_data: dict) -> 
         return {"error": str(_e)}
 
 
+def _aiem_save_options_alert(
+    ticker: str, direction: str,
+    stock_data: dict, options_analysis: dict,
+    verify_result: dict, scoring_data: dict,
+    alert_fields: dict, trace_id: str | None = None,
+) -> dict:
+    """Stage 8 — persist a completed pipeline run to aiem_options_alerts
+    with full 8-stage SHA-256 chain (Stages 9-10 appended at outcome time).
+    Returns alert_id, audit_chain_sha256, stage_hashes, trace_id."""
+    try:
+        import aiem_options_pipeline as _pipe
+        return _pipe.save_options_alert(
+            ticker, direction, stock_data, options_analysis,
+            verify_result, scoring_data, alert_fields, trace_id,
+        )
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_grade_options_outcomes(days_back: int = 30) -> dict:
+    """Stage 9 — grade OPEN options alerts where expiry <= today.
+    Fetches closing price from polygon_market_daily, calculates intrinsic value
+    and P&L, appends Stage-9 learning hash and Stage-10 audit_chain_final hash.
+    Call daily at 4:45 PM ET."""
+    try:
+        import aiem_options_pipeline as _pipe
+        return _pipe.grade_options_outcomes(days_back)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_get_options_audit_chain(alert_id: int) -> dict:
+    """Stage 10 — return the full SHA-256 audit chain for an alert.
+    Returns all stage hashes in order plus chain continuity verification."""
+    try:
+        import aiem_options_pipeline as _pipe
+        return _pipe.get_audit_chain(alert_id)
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
+def _aiem_compute_req6_scores(
+    call_data: dict, put_data: dict,
+    stock_data: dict, iv_rank: float,
+    verify_result: dict,
+) -> dict:
+    """REQ6 — score both call and put 0-100 across 12 dimensions.
+    Returns call_score, put_score, component breakdowns, winner, margin.
+    Also enforces: winner must score >= 55 AND margin >= 10 points."""
+    try:
+        import aiem_options_pipeline as _pipe
+        call_scoring = _pipe.compute_req6_score(
+            call_data, "CALL", stock_data, iv_rank, verify_result
+        )
+        put_scoring  = _pipe.compute_req6_score(
+            put_data,  "PUT",  stock_data, iv_rank, verify_result
+        )
+        call_score = call_scoring["score"]
+        put_score  = put_scoring["score"]
+        margin     = abs(call_score - put_score)
+
+        if call_score >= put_score and call_score >= 55 and margin >= 10:
+            winner = "LONG_CALL"
+        elif put_score > call_score and put_score >= 55 and margin >= 10:
+            winner = "LONG_PUT"
+        elif call_score >= 55 or put_score >= 55:
+            winner = "LONG_CALL" if call_score >= put_score else "LONG_PUT"
+            winner += "_MARGIN_INSUFFICIENT"
+        else:
+            winner = "NO_TRADE"
+
+        return {
+            "call_score":   call_score,
+            "put_score":    put_score,
+            "margin":       round(margin, 1),
+            "winner":       winner,
+            "call_scoring": call_scoring,
+            "put_scoring":  put_scoring,
+            "rule": (
+                "Winner must score >= 55 AND lead by >= 10 points. "
+                f"CALL={call_score}  PUT={put_score}  margin={round(margin,1)}"
+            ),
+        }
+    except Exception as _e:
+        return {"error": str(_e)}
+
+
 def _build_aiem_tool_map():
     """Build full merged tool map — all tools available to both focused sessions and chat tab.
     Merged from _run_aiem_research_agent._tool_map (135 entries) plus focused-session-specific tools.
@@ -37244,6 +37346,10 @@ def _build_aiem_tool_map():
         "mkt_oi_by_strike":       _mkt_oi_by_strike,
         "mkt_bearish_signals":        _mkt_bearish_signals,
         "mkt_verify_options_inputs":  _mkt_verify_options_inputs,
+        "req6_score_both_directions": _aiem_compute_req6_scores,
+        "save_options_alert":         _aiem_save_options_alert,
+        "grade_options_outcomes":     _aiem_grade_options_outcomes,
+        "get_options_audit_chain":    _aiem_get_options_audit_chain,
         # ── AIEM Research Integrity / hypothesis tracking ─────────────────────
         "register_hypothesis":    _aiem_tool_register_hypothesis,
         "list_hypotheses":        _aiem_tool_list_hypotheses,
@@ -37977,6 +38083,68 @@ _AIEM_AGENT_TOOLS = [
                 )
             },
         }, "required": ["ticker", "call_data", "put_data"]},
+    }},
+    {"type": "function", "function": {
+        "name": "req6_score_both_directions",
+        "description": (
+            "REQ6 — Score BOTH the call and the put 0-100 across all 12 required dimensions: "
+            "directional_probability, prob_reach_target, expected_return, max_premium_loss, "
+            "risk_reward, liquidity, slippage, theta_decay_risk, market_regime_fit, "
+            "technical_confirmation, options_flow_confirmation, historical_performance. "
+            "Enforces winner >= 55 AND margin >= 10 point lead. Returns call_score, put_score, "
+            "margin, winner (LONG_CALL | LONG_PUT | NO_TRADE), and full component breakdowns."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "call_data":     {"type": "object", "description": "All collected inputs for the call candidate (same as mkt_verify_options_inputs call_data)"},
+            "put_data":      {"type": "object", "description": "All collected inputs for the put candidate"},
+            "stock_data":    {"type": "object", "description": "Stock-level context: stock_direction, market_regime, iv_rank, iv_crush_risk, vwap_position, sector_strength, market_breadth"},
+            "iv_rank":       {"type": "number",  "description": "IV rank as decimal 0-1 (e.g. 0.82 for 82nd percentile)"},
+            "verify_result": {"type": "object",  "description": "Output of mkt_verify_options_inputs — used to check eligibility before scoring"},
+        }, "required": ["call_data", "put_data", "stock_data", "iv_rank", "verify_result"]},
+    }},
+    {"type": "function", "function": {
+        "name": "save_options_alert",
+        "description": (
+            "REQ11 MANDATORY — Stage 8 of the options pipeline. "
+            "Persist the complete pipeline run to aiem_options_alerts with full "
+            "8-stage SHA-256 audit chain (Stages 9-10 appended at outcome time). "
+            "MUST be called after every LONG CALL / LONG PUT / NO TRADE decision. "
+            "Returns alert_id, audit_chain_sha256, stage_hashes, trace_id."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "ticker":           {"type": "string", "description": "Ticker symbol e.g. 'PSX'"},
+            "direction":        {"type": "string", "enum": ["LONG_CALL", "LONG_PUT", "NO_TRADE"]},
+            "stock_data":       {"type": "object", "description": "Stage-2 stock analysis dict"},
+            "options_analysis": {"type": "object", "description": "Stage-3 options analysis dict (expected_move, iv_rank, oi_by_strike sub-dicts)"},
+            "verify_result":    {"type": "object", "description": "Stage-4 output of mkt_verify_options_inputs"},
+            "scoring_data":     {"type": "object", "description": "Stage-5 output of req6_score_both_directions"},
+            "alert_fields":     {"type": "object", "description": "Stage-7 REQ10 alert fields (all 19 named fields)"},
+            "trace_id":         {"type": "string", "description": "Optional external trace ID to link stages"},
+        }, "required": ["ticker", "direction", "stock_data", "options_analysis",
+                        "verify_result", "scoring_data", "alert_fields"]},
+    }},
+    {"type": "function", "function": {
+        "name": "grade_options_outcomes",
+        "description": (
+            "Stage 9 — Grade OPEN options alerts where expiry <= today. "
+            "Fetches closing price from polygon_market_daily, calculates intrinsic value "
+            "and P&L, appends Stage-9 learning hash and Stage-10 audit_chain_final hash. "
+            "Call daily at 4:45 PM ET or manually to check recent outcomes."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "days_back": {"type": "integer", "description": "How many days back to look for OPEN alerts (default 30)"},
+        }, "required": []},
+    }},
+    {"type": "function", "function": {
+        "name": "get_options_audit_chain",
+        "description": (
+            "Stage 10 — Retrieve the full SHA-256 audit chain for a specific options alert. "
+            "Returns all 10 stage hashes in order plus chain continuity verification. "
+            "Use to prove any specific alert's data lineage from Polygon → Learning."
+        ),
+        "parameters": {"type": "object", "properties": {
+            "alert_id": {"type": "integer", "description": "ID from aiem_options_alerts table"},
+        }, "required": ["alert_id"]},
     }},
     {"type": "function", "function": {
         "name": "query_independent_picks",
@@ -40533,6 +40701,14 @@ Always use these together — they cross-validate each other.
   DIRECTION RULE: AIEM is fully direction-agnostic. Always evaluate both directions.
   Choose the one that scores higher after REQ 6 scoring. A PUT with score=72 beats a
   CALL with score=58 every time. Never default bullish. NO TRADE is always a valid answer.
+
+  REQ 11 — MANDATORY POST-DECISION COMMIT: After outputting LONG CALL / LONG PUT / NO TRADE,
+  you MUST immediately call:
+    save_options_alert(ticker, direction, stock_data, options_analysis,
+                       verify_result, scoring_data, alert_fields)
+  This commits the complete pipeline run (all 10 stages) to aiem_options_alerts with a
+  SHA-256 audit chain. Required for every decision including NO TRADE.
+  Do NOT skip this step. The alert is not considered complete until alert_id is returned.
 
 TOOLS AVAILABLE (use in this order):
 1.  evaluate_previous_model      - ALWAYS start here. Was last week's model good or bad?
