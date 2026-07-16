@@ -1,0 +1,290 @@
+
+# AEIM COMPLETE STOCK-ANALYSIS VERIFICATION — STRICT
+
+Do not rely only on a handwritten indicator list.
+
+First generate the complete inventory of every active:
+- Indicator
+- Feature
+- Signal
+- Chart pattern
+- Market-internal input
+- Order-flow input
+- Options/institutional-flow input used for stock selection
+- Statistical model
+- Scoring component
+- Risk or quality gate
+
+The inventory must be generated from the actual codebase, registries, scheduler jobs, database schema, configuration files, and runtime traces.
+
+## 1. REQUIRED COVERAGE
+
+At minimum, verify all available items in these categories:
+
+### Price action and market structure
+- Candlesticks
+- Higher highs/lower lows
+- Support/resistance
+- Breakouts and breakdowns
+- Failed breakouts and failed breakdowns
+- Opening Range Breakout
+- ORB pullback
+- Opening drive
+- Gap-and-go
+- Gap fill
+- Gap size and gap statistics
+- Trendlines
+- Channels
+- Pre-market high/low
+- First-candle OHLCV
+- VWAP reclaim, rejection and bounce
+
+### Chart patterns
+- Bull flag / bear flag
+- Ascending / descending triangle
+- Flat-top breakout
+- Cup and handle
+- Wedge breakout
+- Pennant
+- Double top / double bottom
+- Head and shoulders
+- ABCD pattern
+- Every other implemented pattern
+
+### Volume and order flow
+- Volume
+- Relative volume
+- Buy volume
+- Sell volume
+- Tick count
+- Cumulative Volume Delta
+- Delta percentage
+- Volume delta
+- VWAP
+- Anchored VWAP
+- Volume Profile
+- Point of Control
+- POC versus open
+- Value Area High
+- Value Area Low
+- Time and Sales / tape signals
+- Bid/ask spread
+- Bid/ask imbalance
+- Order-book imbalance
+- Opening-auction imbalance
+- Absorption
+- Iceberg detection
+- Liquidity sweeps
+- Dark-pool activity
+- VPIN
+- Every other available order-flow signal
+
+### Momentum
+- RSI
+- MACD
+- Stochastic
+- Williams %R
+- Momentum oscillator
+- Rate of Change
+- ADX
+- CCI
+- Momentum exhaustion
+- Washout ignition
+- Every other implemented momentum signal
+
+### Trend
+- 9 EMA
+- 20 EMA
+- 50 EMA
+- 200 EMA
+- SMA20
+- SMA50
+- Other active SMAs
+- Bollinger Bands
+- Bollinger z-score
+- Bollinger squeeze
+- Keltner Channels
+- Supertrend
+- Ichimoku Cloud
+- Parabolic SAR
+- Trend integrity
+- Hurst Exponent
+- Every other trend/regime signal
+
+### Volatility
+- ATR
+- ATR expansion
+- Standard deviation
+- Historical volatility
+- Implied volatility where consumed by stock analysis
+- VIX/UVXY fear gauge
+- GARCH
+- Every other active volatility signal
+
+### Market breadth, relative strength and context
+- Advance/Decline data when available
+- A/D ratio
+- NYSE TICK when available
+- TRIN when available
+- Up volume versus down volume when available
+- Volume breadth
+- Sector strength
+- Industry strength
+- Relative strength versus SPY/QQQ
+- SPY, QQQ and IWM confirmation
+- Index-futures confirmation
+- Market regime
+- News catalyst
+- News/sentiment
+- Economic-calendar risk
+- Every other market-context input
+
+### Institutional/options confirmation used in stock selection
+- Options flow
+- Unusual options activity
+- Gamma Exposure
+- Delta Exposure
+- Put/Call ratio
+- Dealer positioning when available
+- Every other implemented institutional-flow signal
+
+### Existing AEIM models and workstreams
+- Probability engine
+- Conviction scoring
+- RVOL scanner
+- Layer 9 statistical edge
+- Statistical-arbitrage pairs
+- Nano/small-cap morning systems
+- Independent picks workstream
+- Historical research runner
+- First-candle module
+- Every other model or scoring component that influences selection
+
+## 2. PROOF REQUIRED FOR EVERY INVENTORY ITEM
+
+For every discovered item, return:
+
+INDICATOR OR COMPONENT
+→ DATA SOURCE
+→ REGISTRATION LOCATION
+→ CALCULATION FILE/FUNCTION/LINES
+→ RAW INPUT
+→ CALCULATED OUTPUT
+→ NORMALIZATION OR SCORE
+→ CONSUMING FILE/FUNCTION/LINES
+→ CATEGORY SCORE EFFECT
+→ FINAL DECISION EFFECT
+→ SQL TABLE/ROW
+→ CANDIDATE ID
+→ TRACE ID
+→ TIMESTAMP
+→ AUDIT EVENT
+→ SHA-256 CHAIN EVENT
+→ PASS / FAIL / UNSUPPORTED
+
+## 3. GREP AND CODEBASE PROOF
+
+Return raw GREP or equivalent code-search output proving:
+- Where each item is registered
+- Where each item is calculated
+- Where each item is normalized or scored
+- Where each item is consumed
+- Where each item affects the final selection or rejection
+
+Also identify:
+- Dead code
+- Duplicated calculations
+- Hard-coded values
+- Silent defaults
+- Placeholder values
+- Stale values
+- Missing-data substitutions
+- Bypass paths
+- Indicators that are computed but never consumed
+
+## 4. SQL AND TRACE PROOF
+
+Return raw SQL showing:
+- Source values stored
+- Calculated features stored
+- Candidate and trace linkage
+- Category scores
+- Final probability/conviction
+- Risk-gate result
+- Final decision
+- Alert/audit record
+
+All records must link through the same candidate ID and trace ID.
+
+## 5. NEGATIVE CONTROLS
+
+For representative indicators in every major category:
+- Remove, disable or materially alter the input
+- Prove the expected category score or decision changes
+- If a mandatory input is missing, prove the required failure or NO TRADE path occurs
+
+Logging an indicator without changing any downstream behavior is not proof of consumption.
+
+## 6. RUNTIME SCENARIOS
+
+Run and return complete evidence for:
+- One bullish stock scenario
+- One bearish stock scenario
+- One NO TRADE scenario
+- One missing-data scenario
+- One poor-liquidity scenario
+- One conflicting-signal scenario
+
+## 7. DAILY AUTOMATION
+
+Prove one genuine scheduler-triggered market-day run:
+scheduler trigger
+→ stock scan
+→ feature calculations
+→ category scores
+→ probability/conviction
+→ risk gate
+→ final selection or NO TRADE
+→ persisted record
+→ alert/audit output
+
+Also prove:
+- Scheduler registration
+- Exact run time
+- Startup reload after restart
+- Idempotency
+- Duplicate prevention
+- Stale-run detection
+- Recovery after failure
+- Failure alerting
+- Next scheduled run
+
+A manual run alone is insufficient.
+
+## 8. DATA AVAILABILITY
+
+Do not fabricate unavailable data.
+
+Items such as NYSE TICK, intraday A/D, TRIN, Level II, order-book imbalance, absorption, iceberg orders or dark-pool data must be marked:
+- PASS only with a real supported feed and runtime evidence
+- UNSUPPORTED if the current provider does not supply the required data
+- PROXY only when explicitly identified as a proxy, with the exact formula and limitations
+
+A proxy must never be labeled as the genuine indicator.
+
+## 9. FINAL COVERAGE REPORT
+
+Return:
+- Total components discovered
+- Total PASS
+- Total FAIL
+- Total UNSUPPORTED
+- Total PROXY
+- Total computed-but-unused
+- Total missing from runtime
+- Exact unresolved gaps
+
+No screenshots-only proof.
+No mocked values.
+No narrative-only confirmation.
+No “implemented,” “connected,” or “works as expected” without raw evidence.
