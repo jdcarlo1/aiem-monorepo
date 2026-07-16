@@ -808,6 +808,152 @@ def _historical_backtest_cells():
          "spy_gap_pct >= 0.3 AND premarket_gap_pct >= 7 AND current_rvol >= 3 AND prev_vwap_above = TRUE AND prior_green_streak >= 2"),
     ]
 
+    # ── Bollinger Bands (20-day) ───────────────────────────────────────────────
+    # bb_z: how many std devs the open sits above/below the 20-day SMA
+    # bb_squeeze: bands tight relative to SMA (coiled spring, often precedes big move)
+    bb_bins = [
+        ("bb_squeeze",        "Bollinger squeeze: bands tight <2.5% of SMA (coiled)",
+         "bb_squeeze = TRUE"),
+        ("bb_overbought",     "Bollinger overbought: open >+2σ above 20d SMA",
+         "bb_z IS NOT NULL AND bb_z > 2"),
+        ("bb_oversold",       "Bollinger oversold: open >2σ below 20d SMA",
+         "bb_z IS NOT NULL AND bb_z < -2"),
+        ("bb_mid_upper",      "Bollinger upper half (+1σ to +2σ) — momentum zone",
+         "bb_z IS NOT NULL AND bb_z BETWEEN 1 AND 2"),
+        ("bb_neutral",        "Bollinger neutral (within ±1σ of 20d SMA)",
+         "bb_z IS NOT NULL AND bb_z BETWEEN -1 AND 1"),
+        ("bb_squeeze_gap5",   "BB squeeze + gap≥5% (compressed spring released by catalyst)",
+         "bb_squeeze = TRUE AND premarket_gap_pct >= 5"),
+        ("bb_squeeze_rv2",    "BB squeeze + RVOL≥2x (compression + volume confirmation)",
+         "bb_squeeze = TRUE AND current_rvol >= 2"),
+        ("bb_squeeze_spy_up", "BB squeeze + SPY up (compression in good market)",
+         "bb_squeeze = TRUE AND spy_gap_pct >= 0.3"),
+        ("bb_os_gap5",        "Oversold (BB <-2σ) + gap≥5% (bounce from deep low)",
+         "bb_z IS NOT NULL AND bb_z < -2 AND premarket_gap_pct >= 5"),
+        ("bb_ob_gap5",        "Overbought (BB >+2σ) + gap≥5% (extended + catalyst)",
+         "bb_z IS NOT NULL AND bb_z > 2 AND premarket_gap_pct >= 5"),
+    ]
+
+    # ── SMA / Trend position ───────────────────────────────────────────────────
+    # Is the stock in an uptrend (above SMA20/50) or downtrend?
+    # Trend alignment significantly changes probability of follow-through
+    sma_bins = [
+        ("above_sma20",       "Price above 20-day SMA (uptrend context)",
+         "above_sma20 = TRUE"),
+        ("below_sma20",       "Price below 20-day SMA (downtrend context)",
+         "above_sma20 = FALSE"),
+        ("above_sma50",       "Price above 50-day SMA (longer-term uptrend)",
+         "above_sma50 = TRUE"),
+        ("below_sma50",       "Price below 50-day SMA (longer-term downtrend)",
+         "above_sma50 = FALSE"),
+        ("sma_aligned_bull",  "Above both SMA20 and SMA50 (fully aligned uptrend)",
+         "above_sma20 = TRUE AND above_sma50 = TRUE"),
+        ("sma_aligned_bear",  "Below both SMA20 and SMA50 (fully aligned downtrend)",
+         "above_sma20 = FALSE AND above_sma50 = FALSE"),
+        ("sma20_gap5",        "Above SMA20 + gap≥5% (trend continuation gap)",
+         "above_sma20 = TRUE AND premarket_gap_pct >= 5"),
+        ("below_sma20_gap5",  "Below SMA20 + gap≥5% (recovery from downtrend? or dead-cat?)",
+         "above_sma20 = FALSE AND premarket_gap_pct >= 5"),
+        ("sma_aligned_gap5",  "Fully aligned uptrend (both SMAs) + gap≥5%",
+         "above_sma20 = TRUE AND above_sma50 = TRUE AND premarket_gap_pct >= 5"),
+        ("sma20_rv2_gap3",    "Above SMA20 + RVOL≥2x + gap≥3% (3-factor uptrend setup)",
+         "above_sma20 = TRUE AND current_rvol >= 2 AND premarket_gap_pct >= 3"),
+    ]
+
+    # ── Support / Resistance (20-day lookback) ─────────────────────────────────
+    # at_resistance: open within 2% of 20-day high — this is where stocks often stall
+    # breakout_20d: open ABOVE 20-day high — genuine breakout, gaps past resistance
+    # near_support: open within 2% of 20-day low — potential bounce zone
+    sr_bins = [
+        ("at_resistance",     "Within 2% of 20-day high (testing resistance)",
+         "at_resistance = TRUE"),
+        ("breakout_20d",      "Open above 20-day high (resistance breakout!)",
+         "breakout_20d = TRUE"),
+        ("near_support",      "Within 2% of 20-day low (at support level)",
+         "near_support = TRUE"),
+        ("breakout_gap5",     "20-day resistance breakout + gap≥5% (breakout + catalyst)",
+         "breakout_20d = TRUE AND premarket_gap_pct >= 5"),
+        ("breakout_rv2",      "20-day breakout + RVOL≥2x (breakout + institutional volume)",
+         "breakout_20d = TRUE AND current_rvol >= 2"),
+        ("breakout_sma_align","20-day breakout + above SMA20 (trend-aligned breakout)",
+         "breakout_20d = TRUE AND above_sma20 = TRUE"),
+        ("support_bounce_gap","Near support + gap≥5% (support bounce + gap catalyst)",
+         "near_support = TRUE AND premarket_gap_pct >= 5"),
+        ("resist_gap10",      "At resistance + gap≥10% (blowing through resistance)",
+         "at_resistance = TRUE AND premarket_gap_pct >= 10"),
+    ]
+
+    # ── Williams %R — RSI proxy (14-day lookback) ─────────────────────────────
+    # -100 = oversold (open near 14-day low) = potential bounce
+    # 0    = overbought (open near 14-day high) = momentum continuation or reversal
+    # This captures RSI-equivalent signal using only SQL window functions
+    willr_bins = [
+        ("willr_oversold",    "Williams %R oversold (<−80): open near 14d low",
+         "williams_r IS NOT NULL AND williams_r < -80"),
+        ("willr_overbought",  "Williams %R overbought (>−20): open near 14d high",
+         "williams_r IS NOT NULL AND williams_r > -20"),
+        ("willr_neutral",     "Williams %R neutral (−80 to −20)",
+         "williams_r IS NOT NULL AND williams_r BETWEEN -80 AND -20"),
+        ("willr_os_gap5",     "Oversold + gap≥5% (oversold bounce with catalyst)",
+         "williams_r IS NOT NULL AND williams_r < -80 AND premarket_gap_pct >= 5"),
+        ("willr_ob_gap5",     "Overbought + gap≥5% (strong momentum at 14d high)",
+         "williams_r IS NOT NULL AND williams_r > -20 AND premarket_gap_pct >= 5"),
+        ("willr_os_rv2",      "Oversold + RVOL≥2x (institutional buying from oversold)",
+         "williams_r IS NOT NULL AND williams_r < -80 AND current_rvol >= 2"),
+        ("willr_ob_rv3",      "Overbought + RVOL≥3x (momentum stocks at 14d peak + surge)",
+         "williams_r IS NOT NULL AND williams_r > -20 AND current_rvol >= 3"),
+        ("willr_ob_spy_up",   "Overbought + SPY up (momentum in bull market)",
+         "williams_r IS NOT NULL AND williams_r > -20 AND spy_gap_pct >= 0.3"),
+    ]
+
+    # ── VIX / Fear gauge (UVXY as proxy) ──────────────────────────────────────
+    # UVXY rising = VIX rising = fear/volatility increasing = market stress
+    # UVXY falling = VIX falling = complacency / risk-on environment
+    vix_bins = [
+        ("vix_spike",         "UVXY spiking ≥5% (fear rising, high volatility)",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct >= 5"),
+        ("vix_falling",       "UVXY falling ≥5% (fear dropping, risk-on)",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct <= -5"),
+        ("vix_calm",          "UVXY calm (−2% to +2%): stable low-volatility day",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct BETWEEN -2 AND 2"),
+        ("vix_spike_gap5",    "Fear spike + stock gap≥5% (stock news against fearful market)",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct >= 5 AND premarket_gap_pct >= 5"),
+        ("vix_fall_gap5",     "Fear dropping + gap≥5% (risk-on market + catalyst = ideal)",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct <= -5 AND premarket_gap_pct >= 5"),
+        ("vix_calm_gap7",     "Calm VIX + gap≥7% (low volatility backdrop + big gap)",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct BETWEEN -2 AND 2 AND premarket_gap_pct >= 7"),
+        ("vix_spike_rv3",     "Fear spike + RVOL≥3x (stock surging despite fearful market)",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct >= 5 AND current_rvol >= 3"),
+        ("vix_fall_spy_up",   "Fear falling + SPY up + gap≥5% (triple risk-on alignment)",
+         "uvxy_chg_pct IS NOT NULL AND uvxy_chg_pct <= -3 AND spy_gap_pct >= 0.3 AND premarket_gap_pct >= 5"),
+    ]
+
+    # ── Market Breadth (Advance/Decline line) ─────────────────────────────────
+    # adv_ratio: fraction of stocks that closed up on that day
+    # >0.6 = broad bull day (market helping you), <0.4 = bear breadth day
+    breadth_bins = [
+        ("breadth_bull",      "Broad bull breadth: >60% of stocks up (market tailwind)",
+         "adv_ratio IS NOT NULL AND adv_ratio > 0.6"),
+        ("breadth_bear",      "Broad bear breadth: <40% of stocks up (market headwind)",
+         "adv_ratio IS NOT NULL AND adv_ratio < 0.4"),
+        ("breadth_mixed",     "Mixed breadth (40–60%) — split market day",
+         "adv_ratio IS NOT NULL AND adv_ratio BETWEEN 0.4 AND 0.6"),
+        ("breadth_strong",    "Very strong breadth: >70% of stocks up (broad rally)",
+         "adv_ratio IS NOT NULL AND adv_ratio > 0.7"),
+        ("breadth_weak",      "Very weak breadth: <30% of stocks up (broad sell-off)",
+         "adv_ratio IS NOT NULL AND adv_ratio < 0.3"),
+        ("breadth_bull_gap5", "Bull breadth + gap≥5% (market carries your stock higher)",
+         "adv_ratio IS NOT NULL AND adv_ratio > 0.6 AND premarket_gap_pct >= 5"),
+        ("breadth_bear_gap5", "Bear breadth + gap≥5% (stock catalyst vs down market — purer signal)",
+         "adv_ratio IS NOT NULL AND adv_ratio < 0.4 AND premarket_gap_pct >= 5"),
+        ("breadth_bull_rv2",  "Bull breadth + RVOL≥2x (market up + stock getting attention)",
+         "adv_ratio IS NOT NULL AND adv_ratio > 0.6 AND current_rvol >= 2"),
+        ("breadth_bull_spy_gap5","Bull breadth + SPY up + gap≥5% (3-way market alignment)",
+         "adv_ratio IS NOT NULL AND adv_ratio > 0.6 AND spy_gap_pct >= 0.3 AND premarket_gap_pct >= 5"),
+        ("breadth_bear_sma20","Bear breadth day + stock above SMA20 (strong stock vs weak market)",
+         "adv_ratio IS NOT NULL AND adv_ratio < 0.4 AND above_sma20 = TRUE"),
+    ]
+
     cells = []
     for k, d, w in gap_bins:
         cells.append(("hb_" + k, d, w))
@@ -838,6 +984,18 @@ def _historical_backtest_cells():
     for k, d, w in streak_bins:
         cells.append(("hb_" + k, d, w))
     for k, d, w in market_combos:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in bb_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in sma_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in sr_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in willr_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in vix_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in breadth_bins:
         cells.append(("hb_" + k, d, w))
     return cells
 
@@ -954,11 +1112,32 @@ def run_historical_backtest():
                        close_strength AS spy_cs
                 FROM polygon_market_daily
                 WHERE ticker = 'SPY'
+            ),
+            vix_ctx AS (
+                -- UVXY as VIX proxy (fear gauge) — 496 days of history
+                SELECT scan_date,
+                       close_price AS uvxy_close,
+                       (close_price - LAG(close_price) OVER (ORDER BY scan_date))
+                           / NULLIF(LAG(close_price) OVER (ORDER BY scan_date), 0) * 100 AS uvxy_chg_pct
+                FROM polygon_market_daily
+                WHERE ticker = 'UVXY'
+            ),
+            mkt_breadth AS (
+                -- Per-day advance/decline line: fraction of stocks that closed up
+                SELECT scan_date,
+                       COUNT(*) FILTER (WHERE close_price > open_price)::float
+                           / NULLIF(COUNT(*), 0) AS adv_ratio
+                FROM polygon_market_daily
+                WHERE close_price BETWEEN 2.0 AND 200.0
+                  AND volume >= 100000
+                  AND open_price > 0
+                GROUP BY scan_date
             )
             SELECT
                 sub.ticker,
                 sub.scan_date,
                 sub.close_price,
+                sub.open_price,
                 sub.volume,
                 (sub.open_price - sub.prev_close) / NULLIF(sub.prev_close, 0) * 100   AS premarket_gap_pct,
                 sub.rvol                                                                AS current_rvol,
@@ -977,7 +1156,7 @@ def run_historical_backtest():
                     ABS(sub.prev_high - sub.prev_prev_close),
                     ABS(sub.prev_low  - sub.prev_prev_close)
                 ) / NULLIF(sub.prev_prev_close, 0) * 100                               AS prior_atr_pct,
-                -- How many ATRs is today's gap? (gap significance)
+                -- How many ATRs is today's gap?
                 CASE WHEN GREATEST(sub.prev_high - sub.prev_low,
                                    ABS(sub.prev_high - sub.prev_prev_close),
                                    ABS(sub.prev_low  - sub.prev_prev_close)) > 0
@@ -986,7 +1165,7 @@ def run_historical_backtest():
                           ABS(sub.prev_high - sub.prev_prev_close),
                           ABS(sub.prev_low  - sub.prev_prev_close))
                      END                                                                AS gap_in_atrs,
-                -- Consecutive green closes heading into today
+                -- Consecutive green closes
                 CASE WHEN sub.prev1_green AND sub.prev2_green AND sub.prev3_green THEN 3
                      WHEN sub.prev1_green AND sub.prev2_green THEN 2
                      WHEN sub.prev1_green THEN 1
@@ -994,6 +1173,26 @@ def run_historical_backtest():
                 -- SPY market context
                 spy_ctx.spy_gap_pct,
                 spy_ctx.spy_cs,
+                -- ── Bollinger Bands (20-day) ───────────────────────────────────────
+                -- bb_z: how many std devs is the open above/below 20-day mean?
+                (sub.open_price - sub.sma20) / NULLIF(sub.stddev20, 0)                AS bb_z,
+                -- bb_squeeze: bands are tight (compressed coil)
+                sub.stddev20 IS NOT NULL AND sub.sma20 IS NOT NULL
+                    AND sub.stddev20 / NULLIF(sub.sma20, 0) < 0.025                   AS bb_squeeze,
+                -- ── SMA trend position ────────────────────────────────────────────
+                sub.open_price > sub.sma20                                             AS above_sma20,
+                sub.open_price > sub.sma50                                             AS above_sma50,
+                -- ── Support / Resistance (20-day) ─────────────────────────────────
+                sub.open_price >= sub.resist20 * 0.98                                 AS at_resistance,
+                sub.open_price >  sub.resist20                                         AS breakout_20d,
+                sub.open_price <= sub.support20 * 1.02                                AS near_support,
+                -- ── Williams %R — RSI proxy (14-day lookback) ────────────────────
+                -- -100 = oversold (open near 14d low), 0 = overbought (near 14d high)
+                (sub.high14 - sub.open_price) / NULLIF(sub.high14 - sub.low14, 0) * -100 AS williams_r,
+                -- ── VIX / Fear gauge ──────────────────────────────────────────────
+                vix_ctx.uvxy_chg_pct,
+                -- ── Market breadth (A/D ratio) ────────────────────────────────────
+                mkt_breadth.adv_ratio,
                 (sub.close_price - sub.open_price) / NULLIF(sub.open_price, 0) * 100  AS day_return_pct,
                 (sub.close_price - sub.open_price) / NULLIF(sub.open_price, 0) >= 0.05 AS big5,
                 (sub.close_price - sub.open_price) / NULLIF(sub.open_price, 0) >= 0.07 AS big7
@@ -1015,14 +1214,29 @@ def run_historical_backtest():
                     LAG(close_price, 10)  OVER w AS close_10d_ago,
                     LAG(close_price > open_price)    OVER w AS prev1_green,
                     LAG(close_price > open_price, 2) OVER w AS prev2_green,
-                    LAG(close_price > open_price, 3) OVER w AS prev3_green
+                    LAG(close_price > open_price, 3) OVER w AS prev3_green,
+                    -- ── Bollinger Band inputs (20-day window) ──────────────────────
+                    AVG(close_price)    OVER w20 AS sma20,
+                    AVG(close_price)    OVER w50 AS sma50,
+                    STDDEV(close_price) OVER w20 AS stddev20,
+                    -- ── Support / Resistance levels ────────────────────────────────
+                    MAX(high_price)     OVER w20 AS resist20,
+                    MIN(low_price)      OVER w20 AS support20,
+                    -- ── Williams %R inputs (14-day window) ────────────────────────
+                    MAX(high_price)     OVER w14 AS high14,
+                    MIN(low_price)      OVER w14 AS low14
                 FROM polygon_market_daily
                 WHERE close_price BETWEEN 2.0 AND 200.0
                   AND volume      >= 100000
                   AND open_price  >  0
-                WINDOW w AS (PARTITION BY ticker ORDER BY scan_date)
+                WINDOW w   AS (PARTITION BY ticker ORDER BY scan_date),
+                       w14 AS (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 14 PRECEDING AND 1 PRECEDING),
+                       w20 AS (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING),
+                       w50 AS (PARTITION BY ticker ORDER BY scan_date ROWS BETWEEN 50 PRECEDING AND 1 PRECEDING)
             ) sub
-            LEFT JOIN spy_ctx ON spy_ctx.scan_date = sub.scan_date
+            LEFT JOIN spy_ctx     ON spy_ctx.scan_date     = sub.scan_date
+            LEFT JOIN vix_ctx     ON vix_ctx.scan_date     = sub.scan_date
+            LEFT JOIN mkt_breadth ON mkt_breadth.scan_date = sub.scan_date
             WHERE sub.prev_close IS NOT NULL AND sub.prev_close > 0
         """)
         conn.commit()
@@ -1036,6 +1250,16 @@ def run_historical_backtest():
         cur.execute("CREATE INDEX ON _hb_tmp (prior_green_streak)")
         cur.execute("CREATE INDEX ON _hb_tmp (five_day_mom)")
         cur.execute("CREATE INDEX ON _hb_tmp (ten_day_mom)")
+        # New indicator indexes
+        cur.execute("CREATE INDEX ON _hb_tmp (bb_z)")
+        cur.execute("CREATE INDEX ON _hb_tmp (bb_squeeze)")
+        cur.execute("CREATE INDEX ON _hb_tmp (above_sma20)")
+        cur.execute("CREATE INDEX ON _hb_tmp (above_sma50)")
+        cur.execute("CREATE INDEX ON _hb_tmp (breakout_20d)")
+        cur.execute("CREATE INDEX ON _hb_tmp (at_resistance)")
+        cur.execute("CREATE INDEX ON _hb_tmp (williams_r)")
+        cur.execute("CREATE INDEX ON _hb_tmp (uvxy_chg_pct)")
+        cur.execute("CREATE INDEX ON _hb_tmp (adv_ratio)")
         conn.commit()
 
         # Baseline stats per outcome (same-day only)
