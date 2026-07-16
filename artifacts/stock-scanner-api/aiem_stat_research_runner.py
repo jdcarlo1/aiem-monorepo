@@ -632,6 +632,37 @@ def _historical_backtest_cells():
          "prior_rvol >= 5 AND premarket_gap_pct >= 3"),
         ("tight_rv5",         "Tight prior range + RVOL≥5x",
          "prior_range_pct < 1 AND current_rvol >= 5"),
+        # ── Same-day 7%+ specific combos (buy open, sell close) ──────────────
+        ("gap_ge7",           "Gap up ≥7% (any)",
+         "premarket_gap_pct >= 7"),
+        ("gap7_10",           "Gap up 7–10%",
+         "premarket_gap_pct BETWEEN 7 AND 10"),
+        ("gap7_rv3",          "Gap≥7% + RVOL≥3x",
+         "premarket_gap_pct >= 7 AND current_rvol >= 3"),
+        ("gap7_rv5",          "Gap≥7% + RVOL≥5x",
+         "premarket_gap_pct >= 7 AND current_rvol >= 5"),
+        ("gap7_vol1m",        "Gap≥7% + Vol≥1M",
+         "premarket_gap_pct >= 7 AND volume >= 1000000"),
+        ("gap7_vol5m",        "Gap≥7% + Vol≥5M",
+         "premarket_gap_pct >= 7 AND volume >= 5000000"),
+        ("gap7_micro",        "Gap≥7% + micro-cap ($2–5)",
+         "premarket_gap_pct >= 7 AND close_price BETWEEN 2 AND 5"),
+        ("gap5_rv10",         "Gap≥5% + RVOL≥10x (explosive volume)",
+         "premarket_gap_pct >= 5 AND current_rvol >= 10"),
+        ("gap5_vol10m",       "Gap≥5% + Vol≥10M (heavy institutional)",
+         "premarket_gap_pct >= 5 AND volume >= 10000000"),
+        ("gap7_rv3_vol1m",    "Gap≥7%+RVOL≥3x+Vol≥1M (7pct full setup)",
+         "premarket_gap_pct >= 7 AND current_rvol >= 3 AND volume >= 1000000"),
+        ("gap5_rv5_micro",    "Gap≥5%+RVOL≥5x+micro ($2–5)",
+         "premarket_gap_pct >= 5 AND current_rvol >= 5 AND close_price BETWEEN 2 AND 5"),
+        ("gap7_pcs_str",      "Gap≥7% + prior strong close",
+         "premarket_gap_pct >= 7 AND prior_cs >= 0.7"),
+        ("gap5_rv3_px5_20",   "Gap≥5%+RVOL≥3x+price $5–20 (sweet spot)",
+         "premarket_gap_pct >= 5 AND current_rvol >= 3 AND close_price BETWEEN 5 AND 20"),
+        ("gap7_rv3_pcs_str",  "Gap≥7%+RVOL≥3x+prior strong (3-factor)",
+         "premarket_gap_pct >= 7 AND current_rvol >= 3 AND prior_cs >= 0.7"),
+        ("rv10_vol1m_gap3",   "RVOL≥10x+Vol≥1M+gap≥3% (explosive open)",
+         "current_rvol >= 10 AND volume >= 1000000 AND premarket_gap_pct >= 3"),
     ]
 
     cells = []
@@ -741,12 +772,12 @@ def run_historical_backtest():
         return {"status": "already_run_today"}
 
     n_cells = len(_historical_backtest_cells())
-    # 4 outcomes × n_cells; Bonferroni across entire test family
-    bonf_thresh = 0.05 / (4 * n_cells)
+    # 5 outcomes × n_cells; Bonferroni across entire test family
+    bonf_thresh = 0.05 / (5 * n_cells)
     log.info(
-        "=== Historical backtest: %d cells × 4 outcomes = %d tests "
+        "=== Historical backtest: %d cells × 5 outcomes = %d tests "
         "(Bonferroni p<%.2e) — all available trading days ===",
-        n_cells, 4 * n_cells, bonf_thresh
+        n_cells, 5 * n_cells, bonf_thresh
     )
 
     try:
@@ -775,6 +806,7 @@ def run_historical_backtest():
                 close_price > open_price                                     AS any_win,
                 (close_price - open_price) / NULLIF(open_price, 0) >= 0.03 AS big3,
                 (close_price - open_price) / NULLIF(open_price, 0) >= 0.05 AS big5,
+                (close_price - open_price) / NULLIF(open_price, 0) >= 0.07 AS big7,
                 (close_price - open_price) / NULLIF(open_price, 0) >= 0.10 AS big10
             FROM (
                 SELECT
@@ -808,6 +840,7 @@ def run_historical_backtest():
                 AVG(any_win::int)*100,
                 AVG(big3::int)*100,
                 AVG(big5::int)*100,
+                AVG(big7::int)*100,
                 AVG(big10::int)*100
             FROM _hb_tmp
         """)
@@ -817,19 +850,21 @@ def run_historical_backtest():
             "any_win": float(row[1] or 50),
             "big3":    float(row[2] or 10),
             "big5":    float(row[3] or 5),
-            "big10":   float(row[4] or 2),
+            "big7":    float(row[4] or 3),
+            "big10":   float(row[5] or 2),
         }
         outcomes = {
             "any_win": "any_win",
             "big3":    "big3",
             "big5":    "big5",
+            "big7":    "big7",
             "big10":   "big10",
         }
         log.info(
             "Dataset ready: %d rows | baselines: any_win=%.1f%% big3=%.1f%% "
-            "big5=%.1f%% big10=%.1f%%",
+            "big5=%.1f%% big7=%.1f%% big10=%.1f%%",
             total_rows, baselines["any_win"], baselines["big3"],
-            baselines["big5"], baselines["big10"]
+            baselines["big5"], baselines["big7"], baselines["big10"]
         )
 
         if total_rows < 5000:
@@ -962,12 +997,42 @@ def send_pattern_digest(force: bool = False):
             "",
         ]
 
-        # Historical backtest top findings
+        # ── Same-day 7%+ findings (primary focus) ────────────────────────────
         try:
             cur.execute("""
                 SELECT description, n_signal, wr_signal, wr_baseline, p_value, odds_ratio
                 FROM aiem_historical_pattern_grid
                 WHERE passes_bonf = TRUE
+                  AND outcome_type = 'big7'
+                ORDER BY wr_signal DESC
+                LIMIT 10
+            """)
+            rows = cur.fetchall()
+            if rows:
+                lines.append("🎯 <b>Same-Day 7%+ Runner Patterns (buy open → sell close)</b>")
+                for r in rows:
+                    desc, n, wr, base, p, OR = r
+                    out_of_20 = round(wr / 100 * 20, 1)
+                    icon = "🟢" if wr >= 15 else "🟡"
+                    lines.append(
+                        f"{icon} <b>{desc}</b>\n"
+                        f"   WR <b>{wr:.1f}%</b> ({out_of_20}/20 stocks run 7%+)"
+                        f"  |  n={n:,}  |  OR={OR:.2f}  |  p={p:.2e}"
+                    )
+                lines.append("")
+            else:
+                lines.append("🎯 <b>Same-Day 7%+ Patterns</b>: Still accumulating data — check back tomorrow")
+                lines.append("")
+        except Exception:
+            pass
+
+        # Historical backtest top findings (all outcomes)
+        try:
+            cur.execute("""
+                SELECT description, outcome_type, n_signal, wr_signal, wr_baseline, p_value, odds_ratio
+                FROM aiem_historical_pattern_grid
+                WHERE passes_bonf = TRUE
+                  AND outcome_type = 'any_win'
                 ORDER BY wr_signal DESC
                 LIMIT 10
             """)
@@ -975,7 +1040,7 @@ def send_pattern_digest(force: bool = False):
             if rows:
                 lines.append("🔬 <b>Historical Backtest — 365 days, 11K+ stocks</b>")
                 for r in rows:
-                    desc, n, wr, base, p, OR = r
+                    desc, outcome, n, wr, base, p, OR = r
                     edge = wr - base
                     icon = "🟢" if edge >= 5 else "🟡"
                     lines.append(
