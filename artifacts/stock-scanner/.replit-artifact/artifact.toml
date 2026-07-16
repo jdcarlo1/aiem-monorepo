@@ -80,4 +80,20 @@ kind = "data-app"
 
   [services.env]
   AIEM_PROCESS_PORT = "5055"
-  
+
+  [[services]]
+  name = "options-pipeline-scheduler"
+  paths = [ "/options-pipeline/" ]
+  localPort = 5053
+
+  [services.development]
+  run = "python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_scheduler.py"
+
+  [services.production]
+  run = "python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_scheduler.py"
+
+  [services.production.health.startup]
+  path = "/health"
+
+  [services.env]
+  OPTIONS_SCHEDULER_PORT = "5053"

@@ -1,0 +1,68 @@
+# FINAL 24/7 AUTOMATION & RECOVERY VERIFICATION
+
+The options pipeline logic passed. Now prove it can operate automatically 24/7 and recover without manual intervention.
+
+Required live evidence:
+
+1. AUTOMATIC EXECUTION
+- Show the production scheduler configuration and next-run time.
+- Prove the scheduler automatically launches the full options pipeline.
+- Show one unattended run with timestamps, job_id, trace_id and candidate_id.
+- Prove each candidate executes exactly once.
+
+2. SERVER-FAILURE RECOVERY
+Perform a controlled shutdown during a scheduled test and provide raw evidence that:
+- An external watchdog detects the outage.
+- The server/process automatically restarts.
+- The scheduler and workers restart automatically.
+- The missed or interrupted job remains in a persistent queue.
+- The job resumes or reruns without manual action.
+- Recovery completes within 2 minutes.
+- No candidate is lost or processed twice.
+
+3. BACKUP RELIABILITY
+The watchdog must operate outside the primary application/VM. A watchdog running only inside the failed server is not acceptable.
+
+Show:
+- External uptime monitor
+- Automatic VM/service restart
+- Process manager auto-restart
+- Persistent database-backed job queue
+- Atomic job claiming
+- Idempotency protection
+- Stale-job recovery
+- Missed-schedule backfill
+- Health checks for database, Polygon and scheduler
+- Telegram alert for failure and successful recovery
+
+4. REBOOT TEST
+Reboot the entire VM and prove all required services automatically return:
+- Web application
+- Scheduler
+- Options pipeline worker
+- Outcome grader
+- Watchdog/heartbeat
+- Telegram alerting
+
+5. REQUIRED EVIDENCE
+Return raw logs and DB evidence showing:
+- Shutdown timestamp
+- Detection timestamp
+- Restart timestamp
+- Recovery timestamp
+- Original job_id and trace_id
+- Claim/state transitions
+- Exactly-once execution proof
+- Final DB output
+- SHA-256 audit chain
+- No duplicate rows
+- No missing jobs
+- Telegram failure/recovery alerts
+
+Do not provide narrative-only confirmation, screenshots of code, simulated recovery, or mocked evidence.
+
+PASS only if the system automatically survives both:
+A. application-process failure
+B. full VM/server failure
+
+Until this controlled failure-and-recovery test passes, the options pipeline is functionally verified but not approved as a 24/7 production system.

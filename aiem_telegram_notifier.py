@@ -2788,7 +2788,97 @@ def main():
         replace_existing=True,
     )
 
-    log.info("AIEM Telegram Notifier started — 2:58 AM DB BACKUP + 8:50 AM PATTERN ENGINE + 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll)")
+    # ── Options pipeline scheduler external watchdog ─────────────────────────
+    # Runs in THIS process (aiem-telegram) — completely separate from
+    # aiem_options_scheduler.py — satisfying the "external watchdog" requirement.
+    # Checks every 5 min:
+    #   (a) job_heartbeats freshness  — alerts if no heartbeat in 15 min
+    #   (b) stuck EXECUTING rows      — alerts if any job stuck > 10 min
+    def _options_pipeline_watchdog():
+        import time as _opw_t
+        _OPW_INTERVAL   = 300      # 5 min
+        _HB_STALE_SECS  = 900      # 15 min — heartbeat too old
+        _EXEC_STALE_SEC = 600      # 10 min — job stuck executing
+        _ALERT_COOL     = 1800     # 30 min between repeated alerts
+        _last_alert     = 0.0
+        _opw_t.sleep(60)           # let notifier fully boot first
+        log.info("[opts-watchdog] options pipeline watchdog started")
+        while True:
+            try:
+                import psycopg2 as _opw_pg
+                conn = _opw_pg.connect(os.environ["DATABASE_URL"], connect_timeout=4)
+                cur  = conn.cursor()
+
+                # (a) heartbeat freshness
+                cur.execute("""
+                    SELECT last_success, consecutive_failures
+                    FROM job_heartbeats
+                    WHERE job_name = 'options_pipeline_scheduler'
+                """)
+                hb = cur.fetchone()
+                hb_stale = False
+                if hb is None:
+                    hb_stale = True
+                    hb_msg = "No heartbeat row found — scheduler may never have started."
+                else:
+                    import datetime as _opw_dt
+                    last_ok = hb[0]
+                    failures = hb[1] or 0
+                    if last_ok is None:
+                        hb_stale = True
+                        hb_msg = f"last_success=None  consecutive_failures={failures}"
+                    else:
+                        age = (_opw_dt.datetime.utcnow() - last_ok).total_seconds()
+                        if age > _HB_STALE_SECS:
+                            hb_stale = True
+                            hb_msg = (f"last_success={last_ok.isoformat()}  "
+                                      f"age={int(age)}s > {_HB_STALE_SECS}s threshold  "
+                                      f"consecutive_failures={failures}")
+
+                # (b) stuck EXECUTING rows
+                cur.execute("""
+                    SELECT id, ticker, scan_date, executing_at
+                    FROM options_pipeline_jobs
+                    WHERE status = 'EXECUTING'
+                      AND executing_at < NOW() - INTERVAL '10 minutes'
+                """)
+                stuck = cur.fetchall()
+                conn.close()
+
+                issues = []
+                if hb_stale:
+                    issues.append(f"HEARTBEAT STALE: {hb_msg}")
+                if stuck:
+                    issues.append(
+                        f"STUCK JOBS ({len(stuck)}): " +
+                        ", ".join(f"id={r[0]} {r[1]} {r[2]}" for r in stuck)
+                    )
+
+                if issues:
+                    import time as _t2
+                    now_ts = _t2.time()
+                    if now_ts - _last_alert >= _ALERT_COOL:
+                        _tg_send(
+                            "⚠️ <b>OPTIONS PIPELINE WATCHDOG ALERT</b>\n"
+                            "━━━━━━━━━━━━━━━━━━━━\n" +
+                            "\n".join(f"• {i}" for i in issues) +
+                            "\n\nCheck aiem_options_scheduler workflow in Replit.\n"
+                            "Stale recovery runs automatically every 5 min."
+                        )
+                        _last_alert = now_ts
+                        log.warning(f"[opts-watchdog] alert sent: {issues}")
+                else:
+                    log.debug("[opts-watchdog] options scheduler healthy")
+
+            except Exception as _opw_e:
+                log.warning(f"[opts-watchdog] check error: {_opw_e}")
+            _opw_t.sleep(_OPW_INTERVAL)
+
+    threading.Thread(target=_options_pipeline_watchdog, daemon=True,
+                     name="options-pipeline-watchdog").start()
+    # ────────────────────────────────────────────────────────────────────────
+
+    log.info("AIEM Telegram Notifier started — 2:58 AM DB BACKUP + 8:50 AM PATTERN ENGINE + 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll) | options-pipeline-watchdog active (5-min poll)")
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

@@ -28,14 +28,6 @@ args = "artifacts/stock-scanner: aiem-process"
 task = "workflow.run"
 args = "artifacts/stock-scanner: stat-research"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "artifacts/stock-scanner: d12-monitor"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "artifacts/stock-scanner: d12-watchdog"
-
 [[workflows.workflow]]
 name = "artifacts/stock-scanner: probability-engine-scheduler"
 author = "agent"
@@ -65,28 +57,6 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python3 /home/runner/workspace/artifacts/stock-scanner-api/aiem_stat_research_runner.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
-name = "artifacts/stock-scanner: d12-monitor"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 /home/runner/workspace/.local/d12_monitor.py"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
-name = "artifacts/stock-scanner: d12-watchdog"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 /home/runner/workspace/.local/d12_watchdog.py"
 
 [workflows.workflow.metadata]
 outputType = "console"
