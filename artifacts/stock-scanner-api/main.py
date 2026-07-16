@@ -18054,6 +18054,29 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     # Stable candidate_id for this ticker's entire D2 run: threads through
                     # all 23 stage rows in aiem_diagram2_trace_audit and into aiem_paper_trades.
                     _d2_candidate_id = f"cand_{_t}_{_today}_{_d2_trace_id[:8]}"
+                    # ── Council trace_id backfill ──────────────────────────────────────────
+                    # The specialist council ran inside _aiem_paper_pick_candidates() before
+                    # any trace_id existed.  Now that _d2_trace_id is minted we UPDATE the
+                    # persisted aiem_specialist_council_runs row so all four audit tables
+                    # (specialist_council_runs, diagram2_trace_audit, d3_governance_decisions,
+                    # aiem_paper_trades) share one join key for this candidate.
+                    _d2_council_run_id = pick.get("_council_run_id")
+                    if _d2_council_run_id:
+                        try:
+                            import psycopg2 as _d2_pg2ctr
+                            with _d2_pg2ctr.connect(_DB_URL, connect_timeout=3) as _ctrc, \
+                                    _ctrc.cursor() as _ctrcu:
+                                _ctrcu.execute(
+                                    "UPDATE aiem_specialist_council_runs "
+                                    "SET trace_id=%s WHERE id=%s AND trace_id IS NULL",
+                                    (_d2_trace_id, _d2_council_run_id),
+                                )
+                                _ctrc.commit()
+                            print(f"[council_trace_backfill] {_t}: "
+                                  f"council_run_id={_d2_council_run_id} -> "
+                                  f"trace_id={_d2_trace_id[:20]}...")
+                        except Exception as _ctre:
+                            print(f"[council_trace_backfill] non-fatal: {_ctre}")
                     _d2_orch = _amo.get_orchestrator()
 
                     def _d2_run(stage_order, stage_name, display, runtime_fn_name, fn, *fargs):
@@ -45823,6 +45846,7 @@ def _aiem_paper_pick_candidates() -> list:
                 )
                 _mult = 1.0 + (_council.get("weighted_vote", 0) * 0.20)
                 _sp["score"] *= max(0.50, min(1.40, _mult))
+                _sp["_council_run_id"] = _council.get("council_run_id")
             except Exception as _exc:
                 print(f'[silent_except:L41476_specialist_council] {type(_exc).__name__}: {_exc}')
                 # council is additive; never block a pick — but log so a dead
@@ -46939,6 +46963,7 @@ def _aiem_paper_mark_to_market():
             if _specialist_council and _ind:
                 try:
                     _rsi_v = _ind.get("rsi_14")
+                    _mtm_council_trace_id = f"mtm_{_id}_{_today}"
                     _council = _specialist_council.run_council(
                         "mtm_exit",
                         _t,
@@ -46950,6 +46975,7 @@ def _aiem_paper_mark_to_market():
                             },
                             "macro_bias": float(_exit_macro_bias),
                         },
+                        trace_id=_mtm_council_trace_id,
                     )
                     # -1 = council leans EXIT/bearish, +1 = council leans HOLD/bullish
                     _pos_entry["specialist_council_score"] = round(_council.get("weighted_vote", 0), 3)

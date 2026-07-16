@@ -144,3 +144,4 @@
 - [Gap+Volume Signal Tab](gap-volume-signal-tab.md) — S2 (gap≥1%+rvol≥2x) survived OOS tight-baseline test (+2.5pp p=0.002); S1 (rvol+range) FAILED; endpoint is pure DB query on polygon_rvol_scan
 - [AIEM Supervisor Meta-Reasoning Layer](aiem-supervisor-layer.md) — 7-module autonomous supervisor; fires post-trade/post-pick/daily/weekly; 7 DB tables; live verdict: multi_signal=RETIRED, gap_volume=DEMOTED, unusual_calls=DEMOTED
 - [AIEM direction-agnostic architecture](aiem-direction-agnostic.md) — CALL/PUT/SHORT paper trades; MTM P&L inverts for PUT/SHORT; system prompt requires both strike+expiry per ticker
+- [Specialist Council trace_id propagation](specialist-council-trace-id.md) — pick-phase council runs before _d2_trace_id exists; fix = store council_run_id in pick dict → UPDATE after trace mint; MTM uses mtm_{id}_{date}
