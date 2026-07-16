@@ -758,11 +758,9 @@ def run_historical_backtest():
       prior_range_pct    = yesterday high-low range
       vol_accel          = current_rvol > prior_rvol  (volume building)
       day_return_pct     = (close − open) / open × 100
-      Outcomes tested:
-        any_win  = close > open
-        big3     = day_return_pct >= 3
-        big5     = day_return_pct >= 5
-        big10    = day_return_pct >= 10
+      Outcomes tested (same-day only — buy open, sell close):
+        big7     = day_return_pct >= 7   (primary target)
+        big10    = day_return_pct >= 10  (strong runner)
 
     Runs once per calendar day. Results stored in aiem_historical_pattern_grid.
     """
@@ -772,12 +770,12 @@ def run_historical_backtest():
         return {"status": "already_run_today"}
 
     n_cells = len(_historical_backtest_cells())
-    # 5 outcomes × n_cells; Bonferroni across entire test family
-    bonf_thresh = 0.05 / (5 * n_cells)
+    # 2 same-day outcomes × n_cells; Bonferroni across entire test family
+    bonf_thresh = 0.05 / (2 * n_cells)
     log.info(
-        "=== Historical backtest: %d cells × 5 outcomes = %d tests "
+        "=== Historical backtest: %d cells × 2 same-day outcomes = %d tests "
         "(Bonferroni p<%.2e) — all available trading days ===",
-        n_cells, 5 * n_cells, bonf_thresh
+        n_cells, 2 * n_cells, bonf_thresh
     )
 
     try:
@@ -803,9 +801,6 @@ def run_historical_backtest():
                 prev_range                                                   AS prior_range_pct,
                 rvol > prev_rvol                                             AS vol_accel,
                 (close_price - open_price) / NULLIF(open_price, 0) * 100   AS day_return_pct,
-                close_price > open_price                                     AS any_win,
-                (close_price - open_price) / NULLIF(open_price, 0) >= 0.03 AS big3,
-                (close_price - open_price) / NULLIF(open_price, 0) >= 0.05 AS big5,
                 (close_price - open_price) / NULLIF(open_price, 0) >= 0.07 AS big7,
                 (close_price - open_price) / NULLIF(open_price, 0) >= 0.10 AS big10
             FROM (
@@ -833,13 +828,10 @@ def run_historical_backtest():
         cur.execute("CREATE INDEX ON _hb_tmp (close_price)")
         conn.commit()
 
-        # Baseline stats per outcome
+        # Baseline stats per outcome (same-day only)
         cur.execute("""
             SELECT
                 COUNT(*),
-                AVG(any_win::int)*100,
-                AVG(big3::int)*100,
-                AVG(big5::int)*100,
                 AVG(big7::int)*100,
                 AVG(big10::int)*100
             FROM _hb_tmp
@@ -847,24 +839,16 @@ def run_historical_backtest():
         row = cur.fetchone()
         total_rows = int(row[0] or 0)
         baselines  = {
-            "any_win": float(row[1] or 50),
-            "big3":    float(row[2] or 10),
-            "big5":    float(row[3] or 5),
-            "big7":    float(row[4] or 3),
-            "big10":   float(row[5] or 2),
+            "big7":  float(row[1] or 3),
+            "big10": float(row[2] or 2),
         }
         outcomes = {
-            "any_win": "any_win",
-            "big3":    "big3",
-            "big5":    "big5",
-            "big7":    "big7",
-            "big10":   "big10",
+            "big7":  "big7",
+            "big10": "big10",
         }
         log.info(
-            "Dataset ready: %d rows | baselines: any_win=%.1f%% big3=%.1f%% "
-            "big5=%.1f%% big7=%.1f%% big10=%.1f%%",
-            total_rows, baselines["any_win"], baselines["big3"],
-            baselines["big5"], baselines["big7"], baselines["big10"]
+            "Dataset ready: %d rows | same-day baselines: big7=%.1f%% big10=%.1f%%",
+            total_rows, baselines["big7"], baselines["big10"]
         )
 
         if total_rows < 5000:
