@@ -665,6 +665,79 @@ def _historical_backtest_cells():
          "current_rvol >= 10 AND volume >= 1000000 AND premarket_gap_pct >= 3"),
     ]
 
+    # ── VWAP context (prior day closed above/below VWAP) ──────────────────────
+    vwap_bins = [
+        ("vwap_above", "Prior day closed above VWAP (bull bias)",
+         "prev_vwap_above = TRUE"),
+        ("vwap_below", "Prior day closed below VWAP (bear bias)",
+         "prev_vwap_above = FALSE"),
+    ]
+
+    # ── Prior day high extension (ORB proxy — how far did it run intraday) ────
+    high_ext_bins = [
+        ("hext_lt2",  "Prior day high <2% from open (tight, coiled)",
+         "prev_high_ext IS NOT NULL AND prev_high_ext < 2"),
+        ("hext_ge3",  "Prior day high ran ≥3% from open",
+         "prev_high_ext >= 3"),
+        ("hext_ge5",  "Prior day high ran ≥5% from open",
+         "prev_high_ext >= 5"),
+        ("hext_ge10", "Prior day high ran ≥10% from open (explosive prior)",
+         "prev_high_ext >= 10"),
+    ]
+
+    # ── 5-day and 10-day momentum (multi-week trend — catches MRVI-type) ──────
+    trend_bins = [
+        ("mom5_down10", "5-day trend down >10% (falling knife)",  "five_day_mom < -10"),
+        ("mom5_neg",    "5-day trend negative",                   "five_day_mom < 0"),
+        ("mom5_ge5",    "5-day trend ≥5% (mild uptrend)",         "five_day_mom >= 5"),
+        ("mom5_ge10",   "5-day trend ≥10% (strong uptrend)",      "five_day_mom >= 10"),
+        ("mom5_ge20",   "5-day trend ≥20% (hot stock)",           "five_day_mom >= 20"),
+        ("mom5_ge30",   "5-day trend ≥30% (parabolic week)",      "five_day_mom >= 30"),
+        ("mom10_neg",   "10-day trend negative",                  "ten_day_mom < 0"),
+        ("mom10_ge10",  "10-day trend ≥10%",                      "ten_day_mom >= 10"),
+        ("mom10_ge20",  "10-day trend ≥20%",                      "ten_day_mom >= 20"),
+        ("mom10_ge30",  "10-day trend ≥30%",                      "ten_day_mom >= 30"),
+        ("mom10_ge50",  "10-day trend ≥50% (MRVI-type run)",      "ten_day_mom >= 50"),
+    ]
+
+    # ── Trend + gap combos (the high-probability 15-min setup signal list) ────
+    trend_combos = [
+        ("mom5_ge10_gap3",     "5-day up ≥10% + gap≥3% (trend continuation)",
+         "five_day_mom >= 10 AND premarket_gap_pct >= 3"),
+        ("mom5_ge20_gap5",     "5-day up ≥20% + gap≥5% (hot stock follow-through)",
+         "five_day_mom >= 20 AND premarket_gap_pct >= 5"),
+        ("mom10_ge20_gap3",    "10-day up ≥20% + gap≥3% (momentum play)",
+         "ten_day_mom >= 20 AND premarket_gap_pct >= 3"),
+        ("mom10_ge30_gap5",    "10-day up ≥30% + gap≥5% (MRVI-type setup)",
+         "ten_day_mom >= 30 AND premarket_gap_pct >= 5"),
+        ("mom10_ge50_any",     "10-day up ≥50% + any open (parabolic)",
+         "ten_day_mom >= 50"),
+        ("mom5_ge10_rv2",      "5-day up ≥10% + RVOL≥2x (trend + institutional)",
+         "five_day_mom >= 10 AND current_rvol >= 2"),
+        ("mom10_ge20_rv2",     "10-day up ≥20% + RVOL≥2x",
+         "ten_day_mom >= 20 AND current_rvol >= 2"),
+        ("mom5_ge10_rv2_gap3", "5-day up ≥10% + RVOL≥2x + gap≥3% (full trend setup)",
+         "five_day_mom >= 10 AND current_rvol >= 2 AND premarket_gap_pct >= 3"),
+        ("mom10_ge20_rv2_gap3","10-day up ≥20% + RVOL≥2x + gap≥3%",
+         "ten_day_mom >= 20 AND current_rvol >= 2 AND premarket_gap_pct >= 3"),
+        ("mom5_ge20_micro",    "5-day up ≥20% + micro-cap ($2–10)",
+         "five_day_mom >= 20 AND close_price BETWEEN 2 AND 10"),
+        ("vwap_above_gap3",    "VWAP hold + gap≥3% (ORB setup)",
+         "prev_vwap_above = TRUE AND premarket_gap_pct >= 3"),
+        ("vwap_above_rv2",     "VWAP hold + RVOL≥2x (institutional confirmation)",
+         "prev_vwap_above = TRUE AND current_rvol >= 2"),
+        ("vwap_above_gap3_rv2","VWAP hold + gap≥3% + RVOL≥2x (3-factor ORB)",
+         "prev_vwap_above = TRUE AND premarket_gap_pct >= 3 AND current_rvol >= 2"),
+        ("hext5_gap3",         "Prior high ran ≥5% + today gap≥3% (range expansion)",
+         "prev_high_ext >= 5 AND premarket_gap_pct >= 3"),
+        ("hext5_rv2",          "Prior high ran ≥5% + RVOL≥2x",
+         "prev_high_ext >= 5 AND current_rvol >= 2"),
+        ("coil_vwap_gap5",     "Coiled prior (tight range) + VWAP hold + gap≥5%",
+         "prev_high_ext IS NOT NULL AND prev_high_ext < 2 AND prev_vwap_above = TRUE AND premarket_gap_pct >= 5"),
+        ("mom5_ge10_vwap_gap3","5-day trend + VWAP + gap≥3% (full alignment)",
+         "five_day_mom >= 10 AND prev_vwap_above = TRUE AND premarket_gap_pct >= 3"),
+    ]
+
     cells = []
     for k, d, w in gap_bins:
         cells.append(("hb_" + k, d, w))
@@ -679,6 +752,14 @@ def _historical_backtest_cells():
     for k, d, w in prior_bins:
         cells.append(("hb_" + k, d, w))
     for k, d, w in combos:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in vwap_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in high_ext_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in trend_bins:
+        cells.append(("hb_" + k, d, w))
+    for k, d, w in trend_combos:
         cells.append(("hb_" + k, d, w))
     return cells
 
