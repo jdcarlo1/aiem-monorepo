@@ -1,0 +1,408 @@
+# FINAL STRICT VERIFICATION — ALL UNRESOLVED ITEMS
+
+Do not give narrative claims, screenshots of PASS labels, mock data, manually created examples, or summaries without raw proof. Use real code, raw grep, raw SQL, raw runtime logs, real database rows, reproducible SHA-256 verification, and exit codes. Do not modify production data merely to make this pass. Any controlled negative test must be isolated from production and clearly labeled.
+
+## 1. COMPLETE TODAY’S LAYER 9 RUN
+
+Prove today’s Layer 9 computation fully completed.
+
+Required proof:
+- Raw SQL for today’s rows.
+- `statistical_score` populated for completed candidates.
+- `regime` not `unknown`.
+- Hurst, VPIN, and GARCH values are real computed values, not defaults such as `hurst_raw=0.5` or `vpin_raw=0.3`.
+- Start time, end time, candidate count, success count, failure count, retry count.
+- Every NULL row must have an explicit machine-readable failure reason.
+- Incomplete rows must be blocked from debate, decision, and execution.
+
+Run:
+
+SELECT
+    id,
+    ticker,
+    created_at,
+    statistical_score,
+    regime,
+    hurst_raw,
+    vpin_raw,
+    garch_persistence
+FROM layer9_scores
+WHERE created_at::date = CURRENT_DATE
+ORDER BY created_at DESC;
+
+FAIL if completed rows still contain defaults, NULL scores without reason codes, or unknown regimes.
+
+## 2. PROVE HURST, VPIN, AND GARCH END TO END
+
+For one real ticker processed today, prove all three values travel through:
+
+Raw input
+→ indicator computation
+→ Layer 9 record
+→ `bull_bear_debate.signal_context`
+→ bull PRE
+→ bear PRE
+→ bull POST
+→ bear POST
+→ risk gate
+→ governance
+→ final decision
+→ paper trade or NO_TRADE
+
+Required proof:
+- Raw grep showing where each indicator is computed.
+- Raw grep showing where each is inserted into `signal_context`.
+- Raw grep showing where the debate consumes each value.
+- Same ticker, trace_id, candidate_id, Layer 9 ID, decision ID, governance ID, and execution/NO_TRADE ID throughout.
+- Actual numeric Hurst, VPIN, and GARCH values shown at every stage.
+
+Negative controls, isolated from production:
+- Remove Hurst: debate must reject or explicitly mark missing.
+- Remove VPIN: debate must reject or explicitly mark missing.
+- Remove GARCH: debate must reject or explicitly mark missing.
+- No silent defaults, fake neutral values, or replacements with 0 or 50.
+
+FAIL if the values stop at Layer 9, `packet.microstructure`, or any intermediate structure without proven debate and decision consumption.
+
+## 3. FULL CRYPTOGRAPHIC CHAIN
+
+Prove one real current trace forms a mathematically linked SHA-256 chain through:
+
+PIPELINE_STARTED
+INTAKE_ACCEPTED
+DATA_GUARDS_PASSED or FAILED
+REGIME_COMPLETED
+DISCOVERY_COMPLETED
+ANALYSIS_COMPLETED
+PROBABILITY_COMPLETED
+SCORING_COMPLETED
+COUNCIL_COMPLETED
+RISK_GATE_COMPLETED
+GOVERNANCE_G2_DECISION
+DECISION_CREATED
+EXECUTION_REQUESTED or NO_TRADE
+OUTCOME_RECORDED
+LEARNING_PROPOSAL_CREATED
+MEMORY_WRITE
+
+For every event show:
+- event_id
+- trace_id
+- candidate_id
+- sequence number
+- timestamp
+- canonical payload
+- payload_hash
+- previous_hash
+- current_hash
+
+Run an independent script that:
+- recomputes every hash;
+- verifies every `previous_hash`;
+- verifies sequence and timestamp continuity;
+- detects altered, deleted, inserted, duplicated, or reordered records;
+- exits non-zero on failure.
+
+Run:
+
+./verify_chain.sh <trace_id>
+echo $?
+
+Exit code must be `0` only for a valid uninterrupted chain. A list of unrelated hashes is not sufficient.
+
+## 4. GOVERNANCE ENFORCEMENT
+
+Prove governance is enforced before execution.
+
+Required proof:
+- Raw code showing the governance decision check.
+- One real or controlled ALLOW case.
+- One isolated QUARANTINE, PAUSE, or REJECT case.
+- Rejected case must create no execution request, paper trade, broker order, or executable alert.
+- Show Diagram 2 acknowledgement.
+- Show policy version, governance ID, trace ID, and decision hash.
+
+FAIL if governance records rejection but execution can continue.
+
+## 5. MACRO HARD-BLOCK TEST
+
+The audit says `macro_score < 20` blocks trading but did not show a triggered case.
+
+Run an isolated non-production test using a cloned candidate:
+- Set only the test context below 20.
+- Do not alter live production macro data.
+- Prove `block_trades=True`.
+- Prove final result is BLOCKED or NO_TRADE.
+- Prove no paper trade, execution request, broker order, or executable Telegram/email alert.
+- Prove production data remained unchanged after cleanup.
+
+FAIL if any execution artifact is created.
+
+## 6. SIZING-GATE REJECTION TEST
+
+The audit only showed APPROVED samples.
+
+Run one isolated candidate that violates a real sizing rule.
+
+Show:
+- `sizing_gate_result=REJECTED`
+- exact reason code
+- calculated risk
+- maximum allowed risk
+- stop-function lookup
+- no paper-trade insert
+- no execution request
+- no broker order
+- no executable alert
+
+Also show one valid APPROVED control.
+
+FAIL if a rejected candidate reaches execution or if the gate is advisory only.
+
+## 7. NO_TRADE FUNCTIONAL TEST
+
+Prove NO_TRADE is an actual runtime outcome for:
+
+- insufficient conviction;
+- missing required data;
+- macro block;
+- failed risk gate;
+- failed sizing gate.
+
+For each case show:
+- trace ID
+- reason code
+- final direction=`NO_TRADE`
+- decision record
+- no paper-trade record
+- no execution record
+- no broker request
+- no misleading executable alert
+
+## 8. MARKET-DATA ANOMALY VALIDATION
+
+Validate extreme values seen in the audit, including:
+- RVOL values in the thousands;
+- gaps above 100%;
+- entry scores such as 241, 565, or 962;
+- extreme call/put ratios.
+
+For every extreme value show:
+- raw provider response;
+- provider and endpoint;
+- symbol;
+- raw price and volume;
+- baseline volume;
+- split-adjustment status;
+- corporate-action status;
+- exact formula;
+- calculated value;
+- validation result: ACCEPTED, CAPPED, QUARANTINED, or REJECTED.
+
+Prove controls exist for:
+- splits and reverse splits;
+- symbol changes;
+- stale prices;
+- zero or near-zero baselines;
+- duplicate bars;
+- malformed candles;
+- impossible prices;
+- extreme gaps;
+- provider disagreement.
+
+FAIL if anomalous data can silently inflate a score.
+
+## 9. SCORE-RANGE CONSISTENCY
+
+The audit describes normalized score ranges but shows values above 100.
+
+For MU, CRMT, and BMGL, provide full score lineage:
+- every component;
+- raw value;
+- weight;
+- subtotal;
+- normalization;
+- regime multiplier;
+- penalties;
+- final score;
+- intended minimum and maximum.
+
+State whether values such as 241, 565, and 962 are:
+- valid raw composite scores;
+- scaling errors;
+- duplicate additions;
+- stale fields;
+- or mislabeled normalized scores.
+
+Add or prove a hard range assertion and unit test for every normalized field.
+
+FAIL if the documented range and stored range disagree without a clearly defined raw-to-normalized mapping.
+
+## 10. REJECTED-TRADE DATABASE PROOF
+
+For macro rejection, risk rejection, sizing rejection, governance rejection, and NO_TRADE:
+
+Show raw SQL proving:
+- decision record exists;
+- rejection reason exists;
+- no execution row exists;
+- no paper-trade row exists;
+- no broker-order row exists;
+- no executable alert exists.
+
+The same trace_id must be used across all checks.
+
+## 11. WATCHDOG, RETRY, FAILOVER, AND RECOVERY
+
+Prove the system can recover from the failure that caused the missed scheduled run.
+
+Run isolated controlled failure tests for:
+- process crash;
+- VM/service restart;
+- database temporary outage;
+- Polygon timeout;
+- Tradier timeout;
+- rate limit;
+- stale job claim;
+- worker crash after claim;
+- duplicate scheduler trigger.
+
+Required proof:
+- persistent job queue;
+- atomic idempotent claim;
+- retry with exponential backoff and jitter;
+- cached historical-data fallback;
+- secondary provider where available;
+- graceful degradation;
+- explicit missing-data markers;
+- stale-claim recovery;
+- watchdog detection;
+- service restart;
+- replay of missed work;
+- Telegram alert;
+- no duplicate execution.
+
+For one controlled missed job show:
+- original scheduled time;
+- failure time;
+- watchdog detection time;
+- recovery time;
+- retry count;
+- final completion time;
+- one and only one final execution.
+
+Target: recovery and rerun within 2 minutes where technically supported.
+
+FAIL if the system misses the job, creates duplicates, or requires manual intervention.
+
+## 12. EXACTLY-ONCE EXECUTION
+
+For the same candidate, intentionally trigger:
+- scheduler duplicate;
+- retry duplicate;
+- watchdog replay duplicate.
+
+Prove:
+- one atomic claim winner;
+- all other attempts are rejected as duplicate/already claimed;
+- `run_full_cycle()` executes exactly once;
+- one decision row;
+- one execution/NO_TRADE row;
+- one outcome lineage.
+
+Show raw concurrency logs and SQL uniqueness constraints.
+
+## 13. BACKUP AND RESTORE PROOF
+
+Prove database backups are usable, not merely scheduled.
+
+Required proof:
+- latest backup timestamp;
+- backup size;
+- SHA-256 hash;
+- restore into an isolated database;
+- row-count comparisons for critical tables;
+- schema comparison;
+- random record verification;
+- restore duration;
+- successful application health check against restored data.
+
+FAIL if a backup exists but has not been successfully restored and validated.
+
+## 14. SCHEDULER EXECUTION PROOF
+
+The schedule list alone is not proof.
+
+For today, show:
+- every expected critical job;
+- scheduled time;
+- actual start;
+- actual finish;
+- result;
+- retries;
+- row/output count;
+- error message if failed;
+- recovery status.
+
+Critical jobs include:
+- RVOL scan;
+- Layer 9 scanner;
+- macro scanner;
+- first candle;
+- five-layer conviction;
+- governance;
+- decision engine;
+- outcomes;
+- learning;
+- memory;
+- watchdog;
+- backups.
+
+FAIL if any critical job is missing without an explicit recovered or approved skip reason.
+
+## 15. COMPLETE END-TO-END LIVE TRACE
+
+Finish with one real current ticker trace containing:
+
+- raw provider input;
+- data guards;
+- Hurst;
+- VPIN;
+- GARCH;
+- technical score;
+- Layer 9 score;
+- macro score;
+- bull/bear debate;
+- probability score;
+- council result;
+- risk result;
+- governance result;
+- final decision;
+- execution or NO_TRADE;
+- outcome;
+- learning event;
+- memory write;
+- complete SHA-256 chain.
+
+All records must share the same trace lineage and be independently verifiable.
+
+## REQUIRED FINAL REPORT FORMAT
+
+Return exactly:
+
+1. Overall verdict: PASS or FAIL
+2. PASS items
+3. FAIL items
+4. Unverified items
+5. Raw grep output
+6. Raw SQL output
+7. Raw runtime logs
+8. Controlled negative-test results
+9. SHA-256 chain verification output
+10. Script exit codes
+11. Exact files and line numbers
+12. Exact fixes required for every FAIL
+13. Final statement confirming whether autonomous paper trading is safe
+14. Separate statement confirming whether autonomous live-broker trading is safe
+
+Do not label the overall audit PASS if any critical item is failed, incomplete, default-initialized, only described, or not reproducibly proven.

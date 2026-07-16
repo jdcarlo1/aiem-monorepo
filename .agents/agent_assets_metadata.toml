@@ -270,3 +270,9 @@ id = "771SEZgy6wRPPLyQ2Zc08"
 uri = "file://.local/AIEM_COMPLETE_VERIFICATION_AUDIT.md"
 type = "text"
 title = "AIEM Complete Stock-Analysis Verification Audit"
+
+[[outputs]]
+id = "-msFJ9XckrygpYWRgyCwn"
+uri = "file://.local/AIEM_LIVE_VERIFICATION_RESULTS.md"
+type = "text"
+title = "AIEM Live Verification Results (Scripts Run 2026-07-16)"
