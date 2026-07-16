@@ -1,0 +1,187 @@
+# MASTER DIRECTIVE — PRODUCTION RELIABILITY + FORENSIC VERIFICATION (FINAL)
+
+This system will eventually execute autonomous trades. Silent failures, skipped executions, partial pipelines, or narrative-only verification are unacceptable.
+
+## 1. Fix ALL known issues
+
+- Eliminate Layer 9 aborts (GARCH, VPIN, Hurst).
+- Fix HTTP 429 handling.
+- Fix scheduler missed-window recovery.
+- Fix `closed_at`, `score`, `risk_gate_passed`, `chain_hash`, and all schema/SQL errors.
+- Remove all production bugs and clean up test artifacts.
+
+## 2. Reliability (no single point of failure)
+
+Implement and prove:
+
+- Exponential backoff with jitter
+- Retry-After support
+- Global rate limiter
+- Request batching/deduplication
+- Circuit breakers
+- Fresh cache
+- Last-known-good cache
+- Secondary provider
+- Tertiary provider (if available)
+- Graceful degradation
+- Confidence penalties for degraded inputs
+- NO-TRADE when mandatory data is unavailable
+- Durable scheduler
+- Atomic job claiming
+- Idempotency
+- Worker heartbeats
+- Automatic stale-job recovery
+- Automatic replay of missed market windows
+- External scheduler/watchdog independent of the VM
+- Automatic restart
+- Leader election (prevent duplicate workers)
+- Database-backed queue
+- Dead-letter queue
+- Daily backup + restore verification
+- Rollback capability
+- Immediate alerts for failures
+
+Nothing may silently fail or skip execution.
+
+## 3. Mandatory forensic verification
+
+No narrative-only answers.
+
+Return real evidence using:
+
+- raw SQL
+- raw GREP/ripgrep
+- runtime logs
+- trace IDs
+- candidate IDs
+- scheduler IDs
+- database rows
+- timestamps
+- commit hash
+- changed files
+- migrations
+- SHA-256 hashes
+- persisted chain_hash verification
+- Merkle/chain validation
+- audit logs
+
+Prove every reliability feature is:
+
+- implemented
+- imported
+- connected
+- executed
+- consumed downstream
+
+Dead code, duplicate code, bypass paths, or placeholder implementations = FAIL.
+
+## 4. SQL verification
+
+Return raw SQL proving:
+
+- schema
+- constraints
+- indexes
+- foreign keys
+- unique constraints
+- idempotency
+- chain_hash persistence
+- risk gate fields
+- governance fields
+- heartbeat tables
+- scheduler tables
+- Layer 9 tables
+
+Verify every required production column exists and is populated correctly.
+
+## 5. GREP verification
+
+Run recursive GREP across the entire production codebase for:
+
+- retry
+- exponential backoff
+- jitter
+- Retry-After
+- rate limiting
+- fallback
+- cache
+- secondary provider
+- circuit breaker
+- replay
+- recovery
+- stale jobs
+- scheduler
+- heartbeat
+- idempotency
+- atomic locking
+- Layer 9
+- GARCH
+- VPIN
+- Hurst
+- risk gate
+- governance
+- chain_hash
+- SHA256
+- Merkle
+
+Return file paths, line numbers, callers, imports, runtime consumers, and SHA-256 of each file.
+
+## 6. Forced failure testing
+
+Prove successful recovery from:
+
+- VM restart
+- scheduler interruption
+- HTTP 429
+- HTTP 500
+- provider outage
+- cache failure
+- database outage
+- stale jobs
+- duplicate execution
+- schema failure
+- corrupted chain hash
+- simultaneous workers
+- missing indicators
+
+Every failure must:
+
+- detect automatically
+- recover automatically
+- alert automatically
+- never duplicate execution
+- never lose a candidate
+- never bypass risk/governance
+- never execute an unverified trade
+
+## 7. Production acceptance
+
+Tomorrow's live verification must prove:
+
+- Scheduler executes correctly.
+- Missed windows replay automatically.
+- Layer 9 processes today's live universe.
+- GARCH, VPIN, and Hurst complete successfully.
+- No unresolved HTTP 429 aborts.
+- Every candidate ends as FULL, DEGRADED, NO_TRADE, or FAILED_SAFE.
+- Risk Gate executes before every decision.
+- Governance executes before every decision.
+- No duplicate jobs.
+- No orphan jobs.
+- No production FAILED rows.
+- Chain hashes are persisted and verified.
+- All watchdogs remain healthy.
+- All bugs are fixed.
+
+## PASS criteria
+
+Return ONLY:
+
+PASS
+FAIL
+BLOCKED
+NOT EXECUTED
+
+Do NOT use "PARTIAL PASS."
+
+Nothing is approved until every item above has real runtime evidence.

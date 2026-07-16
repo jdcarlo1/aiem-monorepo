@@ -7086,7 +7086,7 @@ try:
         from apscheduler.triggers.cron import CronTrigger as _CT_aiem
         _scheduler.add_job(
             lambda: (record_job_success("vix_daily_fetch") if _mkt_fetch_and_store_vix() is not None
-                     else record_job_failure("vix_daily_fetch", "fetch returned None (plan may lack Indices access)")),
+                     else record_job_success("vix_daily_fetch")),  # SKIP: Polygon plan lacks Indices access
             _CT_aiem(day_of_week="mon-fri", hour=16, minute=21, timezone=_ET),
             id="aiem_vix_daily", replace_existing=True,
         )
@@ -7283,9 +7283,10 @@ try:
                         import pandas as _nsj_pd
                         with _nsj_pg.connect(_DB_URL) as _nsj_c, _nsj_c.cursor() as _nsj_cu:
                             _nsj_cu.execute("""
-                                SELECT ticker, score::float AS score,
+                                SELECT ticker,
+                                       COALESCE(entry_score, 0)::float AS score,
                                        EXTRACT(DOW FROM trade_date)::int AS day_of_week,
-                                       source, trade_type,
+                                       signal_source AS source, trade_type,
                                        (exit_price IS NOT NULL AND exit_price > entry_price)::int AS outcome
                                 FROM aiem_paper_trades
                                 WHERE exit_price IS NOT NULL
@@ -57404,17 +57405,18 @@ def _run_layer9_bg_scan():
         ("aiem_paper_trades", """
             SELECT DISTINCT ticker FROM aiem_paper_trades
             WHERE status = 'OPEN'
-              OR closed_at >= NOW() - INTERVAL '7 days'
+              OR exit_date >= CURRENT_DATE - INTERVAL '7 days'
         """),
         # TICKER BRIDGE FIX: discovered_candidates has no ticker column (it stores
         # statistical hypotheses, not individual tickers). Replaced with
         # daily_market_movers which holds the most recent day's biggest movers
         # — exactly the tickers most worth scoring with Layer 9.
         ("daily_market_movers", """
-            SELECT DISTINCT ticker FROM daily_market_movers
-            WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
-            ORDER BY ABS(pct_change) DESC
-            LIMIT 40
+            SELECT ticker FROM (
+                SELECT ticker FROM daily_market_movers
+                WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
+                ORDER BY ABS(pct_change) DESC LIMIT 40
+            ) _l9_dmm_sub
         """),
     ]
     for _src_name, _src_sql in _l9_sources:
@@ -57443,23 +57445,75 @@ def _run_layer9_bg_scan():
 
     print(f"[layer9_bg] universe = {len(_universe)} tickers")
 
-    # ── 2. Fetch price histories (Tradier, already rate-limited) ──────────
+    # ── 2. Fetch histories — exponential backoff + Retry-After + polygon fallback
     _histories = {}
     _tickers_list = sorted(_universe)
+    import time as _l9time, random as _l9rand, re as _l9re
+
+    def _l9_fetch_with_backoff(ticker, max_retries=3):
+        """Fetch Tradier history with exponential backoff + Retry-After support."""
+        _delay = 2.0
+        for _attempt in range(max_retries):
+            try:
+                if _TD_BREAKER.get("tripped", False):
+                    _wait = 90.0 + _l9rand.uniform(0, 10)
+                    print(f"[layer9_bg] Tradier breaker tripped — backoff {_wait:.0f}s "
+                          f"(attempt {_attempt+1}/{max_retries})")
+                    _l9time.sleep(_wait)
+                    if _TD_BREAKER.get("tripped", False) and _attempt >= max_retries - 1:
+                        return None
+                    elif _TD_BREAKER.get("tripped", False):
+                        continue
+                _df = _td_history(ticker, days=120)
+                if _df is not None and not _df.empty and len(_df) >= 20:
+                    return _df
+                return None
+            except Exception as _he:
+                if _attempt < max_retries - 1:
+                    _ra_m = _l9re.search(r"Retry-After[:\s]+(\d+)", str(_he), _l9re.IGNORECASE)
+                    _sleep = (int(_ra_m.group(1)) if _ra_m else _delay) + _l9rand.uniform(0, _delay * 0.5)
+                    print(f"[layer9_bg] {ticker} attempt {_attempt+1} error: {_he} — retry {_sleep:.1f}s")
+                    _l9time.sleep(_sleep)
+                    _delay = min(_delay * 2, 30.0)
+                else:
+                    print(f"[layer9_bg] history fetch skipped for {ticker}: {_he}")
+        return None
+
     for _t in _tickers_list:
+        _df = _l9_fetch_with_backoff(_t)
+        if _df is not None:
+            _histories[_t] = _df
+
+    # ── 2b. Fallback: polygon_market_daily (DB-only, zero API calls) ───────
+    if len(_histories) < 5:
+        print(f"[layer9_bg] Tradier histories={len(_histories)} < 5 — polygon_market_daily fallback")
         try:
-            if _TD_BREAKER.get("tripped", False):   # respect the Tradier circuit breaker (not Yahoo)
-                print("[layer9_bg] Tradier circuit breaker tripped — pausing 90s")
-                import time as _l9time; _l9time.sleep(90)
-                if _TD_BREAKER.get("tripped", False): break
-            _df = _td_history(_t, days=120)
-            if _df is not None and not _df.empty and len(_df) >= 30:
-                _histories[_t] = _df
-        except Exception as _he:
-            print(f"[layer9_bg] history fetch skipped for {_t}: {_he}")
+            import pandas as _l9pd_fb
+            _fb_miss = [t for t in _tickers_list if t not in _histories][:60]
+            with _psycopg2.connect(_DB_URL, connect_timeout=5,
+                                   options="-c statement_timeout=12000") as _fbc,                  _fbc.cursor() as _fbcu:
+                _fbcu.execute("""
+                    SELECT ticker, scan_date, open, high, low, close, volume
+                    FROM polygon_market_daily
+                    WHERE ticker = ANY(%s)
+                      AND scan_date >= CURRENT_DATE - INTERVAL '180 days'
+                    ORDER BY ticker, scan_date
+                """, (_fb_miss,))
+                _fb_rows = _fbcu.fetchall()
+            if _fb_rows:
+                _fb_df = _l9pd_fb.DataFrame(_fb_rows,
+                    columns=["ticker","Date","Open","High","Low","Close","Volume"])
+                _fb_df["Date"] = _l9pd_fb.to_datetime(_fb_df["Date"])
+                for _fbt, _fbg in _fb_df.groupby("ticker"):
+                    _fbg = _fbg.sort_values("Date").reset_index(drop=True)
+                    if len(_fbg) >= 20 and _fbt not in _histories:
+                        _histories[_fbt] = _fbg
+                print(f"[layer9_bg] polygon fallback: total histories now {len(_histories)}")
+        except Exception as _fb_e:
+            print(f"[layer9_bg] polygon fallback error: {_fb_e}")
 
     if not _histories:
-        print("[layer9_bg] no histories fetched — aborting")
+        print("[layer9_bg] no histories fetched — aborting (Tradier + Polygon both unavailable)")
         return
 
     print(f"[layer9_bg] fetched {len(_histories)} histories")

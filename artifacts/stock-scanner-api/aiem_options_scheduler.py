@@ -127,8 +127,13 @@ def _bootstrap_db() -> None:
                         executing_at        TIMESTAMPTZ,
                         completed_at        TIMESTAMPTZ,
                         heartbeat_at        TIMESTAMPTZ,
+                        chain_hash          VARCHAR(64),
                         UNIQUE(ticker, scan_date)
                     )
+                """)
+                cur.execute("""
+                    ALTER TABLE options_pipeline_jobs
+                        ADD COLUMN IF NOT EXISTS chain_hash VARCHAR(64)
                 """)
                 cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_opj_status_date
@@ -180,6 +185,32 @@ def _write_heartbeat(success: bool, error: str = None) -> None:
             conn.commit()
     except Exception as e:
         log.warning(f"[heartbeat] write failed: {e}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAIN HASH — Merkle-style tamper-evident log per completed job
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_prev_chain_hash(conn) -> str:
+    """Return chain_hash of the most recent DONE job (Merkle prev_hash)."""
+    try:
+        with conn.cursor() as _cur:
+            _cur.execute("""
+                SELECT chain_hash FROM options_pipeline_jobs
+                WHERE chain_hash IS NOT NULL
+                ORDER BY id DESC LIMIT 1
+            """)
+            _row = _cur.fetchone()
+            return _row[0] if _row else "genesis"
+    except Exception:
+        return "genesis"
+
+
+def _compute_chain_hash(job_id: int, ticker: str, scan_date, trace_id: str,
+                         direction: str, prev_hash: str) -> str:
+    """SHA-256 Merkle chain: each DONE job hashes its own fields + prev hash."""
+    payload = f"{job_id}:{ticker}:{scan_date}:{trace_id or ''}:{direction}:{prev_hash}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # STALE JOB RECOVERY
@@ -554,20 +585,25 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         if direction == "NO_TRADE":
             with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+                _nt_prev_hash = _get_prev_chain_hash(conn)
+                _nt_chain_hash = _compute_chain_hash(
+                    job_id, ticker, scan_date, trace_id, "NO_TRADE", _nt_prev_hash)
                 cur.execute("""
                     UPDATE options_pipeline_jobs
                     SET status='DONE', completed_at=NOW(),
                         direction='NO_TRADE', selected_score=%s,
+                        chain_hash=%s,
                         error_text='NO_TRADE: neither direction meets score+margin gates'
                     WHERE id=%s
-                """, (max(call_score, put_score), job_id))
+                """, (max(call_score, put_score), _nt_chain_hash, job_id))
                 conn.commit()
             log.info(f"[exec] job_id={job_id} {ticker} → NO_TRADE "
-                     f"call={call_score}  put={put_score}  margin={round(margin,1)}")
+                     f"call={call_score}  put={put_score}  margin={round(margin,1)} "
+                     f"chain={_nt_chain_hash[:16]}")
             _write_heartbeat(True)
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
                     "call_score": call_score, "put_score": put_score,
-                    "trace_id": trace_id}
+                    "trace_id": trace_id, "chain_hash": _nt_chain_hash}
 
         # ── Stage 7: Alert fields ──────────────────────────────────────────────
         sel_data  = put_data   if direction == "LONG_PUT"  else call_data
@@ -640,20 +676,24 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         chain_sha   = save_result["audit_chain_sha256"]
         elapsed     = round(time.time() - t_start, 2)
 
-        # Mark job DONE
+        # Mark job DONE — compute Merkle chain_hash
         with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            _done_prev_hash = _get_prev_chain_hash(conn)
+            _done_chain_hash = _compute_chain_hash(
+                job_id, ticker, str(scan_date), trace_id, direction, _done_prev_hash)
             cur.execute("""
                 UPDATE options_pipeline_jobs
                 SET status='DONE', completed_at=NOW(),
-                    alert_id=%s, direction=%s, selected_score=%s, trace_id=%s
+                    alert_id=%s, direction=%s, selected_score=%s, trace_id=%s,
+                    chain_hash=%s
                 WHERE id=%s
-            """, (alert_id, direction, sel_score, trace_id, job_id))
+            """, (alert_id, direction, sel_score, trace_id, _done_chain_hash, job_id))
             conn.commit()
 
         log.info(
             f"[exec] DONE job_id={job_id} ticker={ticker} direction={direction} "
-            f"alert_id={alert_id} chain={chain_sha[:16]} elapsed={elapsed}s "
-            f"trace_id={trace_id}"
+            f"alert_id={alert_id} chain={chain_sha[:16]} opj_chain={_done_chain_hash[:16]} "
+            f"elapsed={elapsed}s trace_id={trace_id}"
         )
         _write_heartbeat(True)
 
@@ -877,10 +917,43 @@ def main():
     stale_result = recover_stale_jobs()
     log.info(f"[startup] stale recovery: {stale_result}")
 
-    # ── Step 2: Missed-schedule backfill ────────────────────────────────────
+    # ── Step 2: Missed-schedule backfill (existing PENDING rows) ───────────
     log.info("[startup] running missed-schedule backfill…")
     backfill_result = backfill_missed_jobs()
     log.info(f"[startup] backfill: {backfill_result}")
+
+    # ── Step 2b: Missed-SEED detection — VM restarted after 9:45 window ────
+    # If the VM restarted AFTER the 9:40 seed window but BEFORE EOD, and
+    # today has zero rows in options_pipeline_jobs, seed + execute immediately.
+    try:
+        _now_et = datetime.now(_ET)
+        _is_weekday = _now_et.weekday() < 5          # Mon=0 … Fri=4
+        _after_window = _now_et.hour > 9 or (_now_et.hour == 9 and _now_et.minute >= 46)
+        _before_eod   = _now_et.hour < 15 or (_now_et.hour == 15 and _now_et.minute <= 30)
+        if _is_weekday and _after_window and _before_eod:
+            with psycopg2.connect(_DB_URL, connect_timeout=4) as _sc, _sc.cursor() as _scu:
+                _scu.execute(
+                    "SELECT COUNT(*) FROM options_pipeline_jobs WHERE scan_date = %s",
+                    (_now_et.date(),)
+                )
+                _today_count = _scu.fetchone()[0]
+            if _today_count == 0:
+                log.warning(
+                    f"[startup] missed-seed detected: 0 rows for {_now_et.date()} "
+                    f"(VM restarted after 09:45 window). Seeding + executing now…"
+                )
+                _tg("[MISSED-SEED RECOVERY] OPTIONS PIPELINE\n"
+                    + f"date={_now_et.date()}  time={_now_et.strftime('%H:%M ET')}\n"
+                    + "VM restarted after 09:45 window. Seeding + executing now.")
+                _ms_seed = seed_daily_candidates(scan_date=_now_et.date())
+                log.info(f"[startup] missed-seed result: {_ms_seed}")
+                if _ms_seed.get("seeded", 0) > 0:
+                    _ms_exec = run_pipeline_worker(scan_date=_now_et.date())
+                    log.info(f"[startup] missed-seed exec: {_ms_exec}")
+            else:
+                log.info(f"[startup] no missed-seed: {_today_count} row(s) already exist for {_now_et.date()}")
+    except Exception as _ms_e:
+        log.warning(f"[startup] missed-seed check error: {_ms_e}")
 
     # ── Step 3: APScheduler ─────────────────────────────────────────────────
     sched = BackgroundScheduler(timezone=_ET)
