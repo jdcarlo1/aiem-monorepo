@@ -1,0 +1,57 @@
+name: AIEM Morning Pipeline Backup
+
+on:
+  schedule:
+    # 9:50 AM ET (13:50 UTC) Mon–Fri — fires 10 min after the primary 9:40 window
+    # If primary ran, backup exits in <5s (dedup check). No cost.
+    - cron: '50 13 * * 1-5'
+    # 10:10 AM ET (14:10 UTC) — second safety net in case 9:50 run was skipped
+    - cron: '10 14 * * 1-5'
+
+  # Manual trigger for testing / emergency override
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: 'Override TRIGGER_SOURCE label'
+        required: false
+        default: 'backup_manual'
+
+env:
+  TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || 'backup_github_actions' }}
+
+jobs:
+  backup-run:
+    name: Run AIEM Backup Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install psycopg2-binary
+
+      - name: Run backup pipeline runner
+        env:
+          DATABASE_URL:         ${{ secrets.DATABASE_URL }}
+          POLYGON_API_KEY:      ${{ secrets.POLYGON_API_KEY }}
+          TRADIER_API_TOKEN_2:  ${{ secrets.TRADIER_API_TOKEN_2 }}
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
+          TRIGGER_SOURCE:       ${{ env.TRIGGER_SOURCE }}
+        run: |
+          python artifacts/stock-scanner-api/aiem_backup_runner.py
+
+      - name: Upload run log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-runner-log-${{ github.run_id }}
+          path: /tmp/aiem_backup_*.log
+          if-no-files-found: ignore

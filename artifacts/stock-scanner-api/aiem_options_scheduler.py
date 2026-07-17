@@ -357,6 +357,23 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             f"scan_date={scan_date}  seeded={seeded}  skipped_dupes={dupes}\n"
             f"Tickers: {', '.join(r[0] for r in candidates[:seeded])}"
         )
+
+    # Write seed event to durable run log
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc, _dc.cursor() as _cu:
+            _cu.execute("""
+                INSERT INTO daily_pipeline_runs
+                    (run_date, trigger_source, status, candidates_seeded, started_at)
+                VALUES (%s, 'primary', 'RUNNING', %s, NOW())
+                ON CONFLICT (run_date, trigger_source) DO UPDATE
+                    SET status='RUNNING',
+                        candidates_seeded=EXCLUDED.candidates_seeded,
+                        started_at=COALESCE(daily_pipeline_runs.started_at, NOW())
+            """, (scan_date, seeded))
+            _dc.commit()
+    except Exception as _de:
+        log.warning(f"[seed] daily_pipeline_runs write failed: {_de}")
+
     return {"seeded": seeded, "skipped_duplicates": dupes,
             "candidates": [r[0] for r in candidates]}
 
@@ -787,6 +804,32 @@ def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
             executed += 1
 
     log.info(f"[worker] scan_date={scan_date}  executed={executed}  errors={skipped}")
+
+    # Update durable run log with final counts
+    no_trade_count = sum(1 for r in results if r.get("direction") == "NO_TRADE")
+    final_status   = "COMPLETED" if executed > 0 else ("FAILED" if skipped > 0 else "NO_TRADE")
+    first_trace    = next((r.get("trace_id") for r in results if r.get("trace_id")), None)
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _wc, _wc.cursor() as _wu:
+            _wu.execute("""
+                INSERT INTO daily_pipeline_runs
+                    (run_date, trigger_source, status, trace_id,
+                     candidates_executed, candidates_no_trade, candidates_failed,
+                     completed_at)
+                VALUES (%s, 'primary', %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (run_date, trigger_source) DO UPDATE
+                    SET status=EXCLUDED.status,
+                        trace_id=COALESCE(EXCLUDED.trace_id, daily_pipeline_runs.trace_id),
+                        candidates_executed=EXCLUDED.candidates_executed,
+                        candidates_no_trade=EXCLUDED.candidates_no_trade,
+                        candidates_failed=EXCLUDED.candidates_failed,
+                        completed_at=NOW()
+            """, (scan_date, final_status, first_trace,
+                  executed, no_trade_count, skipped))
+            _wc.commit()
+    except Exception as _we:
+        log.warning(f"[worker] daily_pipeline_runs write failed: {_we}")
+
     return {"executed": executed, "errors": skipped, "jobs": results}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -920,6 +963,21 @@ def main():
 
     _bootstrap_db()
     _start_health_server()
+
+    # ── Step 0: Register today's run as SCHEDULED (dedup signal for backup) ─
+    try:
+        _today_et = date.today()
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _sc0, _sc0.cursor() as _cu0:
+            _cu0.execute("""
+                INSERT INTO daily_pipeline_runs
+                    (run_date, trigger_source, status)
+                VALUES (%s, 'primary', 'SCHEDULED')
+                ON CONFLICT (run_date, trigger_source) DO NOTHING
+            """, (_today_et,))
+            _sc0.commit()
+        log.info(f"[startup] daily_pipeline_runs: SCHEDULED registered for {_today_et}")
+    except Exception as _sc0e:
+        log.warning(f"[startup] daily_pipeline_runs SCHEDULED insert failed: {_sc0e}")
 
     # ── Step 1: Startup stale recovery ──────────────────────────────────────
     log.info("[startup] running stale job recovery…")

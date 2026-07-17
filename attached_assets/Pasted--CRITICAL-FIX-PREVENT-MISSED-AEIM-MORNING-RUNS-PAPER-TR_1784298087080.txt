@@ -1,0 +1,86 @@
+# CRITICAL FIX — PREVENT MISSED AEIM MORNING RUNS
+
+PAPER TRADING ONLY.
+Do not change trading logic, indicators, scores, or risk rules.
+
+GOAL:
+The AEIM morning Polygon scan and 9:40–9:45 pipeline must still run automatically if the Replit Reserved VM is down.
+
+IMPLEMENT THESE 7 ITEMS:
+
+1. INDEPENDENT BACKUP HOST
+- Create a standby worker outside the primary Replit VM.
+- It must be able to run the Polygon scan and full AEIM pipeline.
+- A backup inside the same VM does not count.
+
+2. EXTERNAL WATCHDOG
+- Run outside the primary VM.
+- Check every minute:
+  - primary heartbeat
+  - backup heartbeat
+  - Polygon scan status
+  - 9:40 seed status
+  - 9:45 pipeline status
+- If the primary misses a deadline, trigger the backup automatically.
+
+3. DURABLE DATABASE JOBS
+- Store the daily Polygon scan, candidate seed, and pipeline run in Postgres before they are due.
+- Jobs must remain pending after a VM restart instead of being skipped.
+- Required statuses:
+  SCHEDULED, CLAIMED, RUNNING, COMPLETED, NO_TRADE, FAILED.
+
+4. BACKUP POLYGON SCAN
+- Run Polygon automatically every trading morning.
+- If today’s Polygon rows are missing, stale, or incomplete:
+  - backup host fetches today’s Polygon data,
+  - validates coverage and timestamps,
+  - saves it,
+  - then seeds candidates and runs the pipeline.
+- Do not seed from an empty table and stop.
+
+5. DUPLICATE PROTECTION
+- Primary and backup may both see the job, but only one may claim it.
+- Use a Postgres lock, lease, and unique idempotency key.
+- Prevent duplicate paper trades and duplicate pipeline effects.
+
+6. COMPLETE RECOVERY CHAIN
+Recovery order must be:
+
+Polygon scan
+→ validation
+→ candidate seed
+→ full pipeline
+→ risk gate
+→ governance
+→ paper trade or recorded NO_TRADE
+→ audit and hash chain
+
+Every run, including recovery and NO_TRADE, must have one non-null trace_id.
+
+7. FAILURE TEST
+Before approval:
+- Turn off the primary Replit VM before the morning run.
+- Prove the backup automatically:
+  - scans Polygon,
+  - seeds candidates,
+  - runs the pipeline,
+  - writes trace_id and Diagram 2 audit,
+  - generates the hash chain,
+  - records paper trade or NO_TRADE,
+  - sends Telegram/email alerts,
+  - avoids duplicates when Replit returns.
+
+FAIL if any human manually starts, repairs, replays, or inserts data.
+
+RETURN:
+- source files/functions changed
+- database schema and constraints
+- raw logs
+- SQL proof
+- host independence proof
+- failure-test evidence
+- SHA-256 hashes
+- final PASS/FAIL
+
+Do not claim success because the system restarted later.
+PASS only if the full logical morning run completes automatically while the primary VM is intentionally offline.

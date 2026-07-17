@@ -1,0 +1,103 @@
+name: AIEM Market-Hours Watchdog
+
+# Runs every minute Mon-Fri during market hours (9:00 AM – 4:05 PM ET).
+# The Python script applies its own precise 9:30–4:00 ET gate, so
+# runs outside the exact window exit in < 2 seconds at no cost.
+#
+# What this job does (in order):
+#   1. Check VM heartbeat (options_pipeline_scheduler in job_heartbeats)
+#   2. Check Polygon scan populated (polygon_rvol_scan rows for today)
+#   3. Check 9:40 seed completed (options_pipeline_jobs rows for today)
+#   4. Check 9:45 pipeline completed (all jobs DONE)
+#   5. If any checkpoint FAIL and we are in the 9:55–3:00 ET recovery window:
+#      invoke aiem_backup_runner.py — which owns ALL trade logic + dedup.
+#   6. Log every check result and write watchdog heartbeat to job_heartbeats.
+#
+# This workflow NEVER executes trades directly.
+# Trade decisions live exclusively in aiem_backup_runner.py.
+
+on:
+  schedule:
+    # Every minute, Mon–Fri, 13:00–20:00 UTC (09:00–16:00 ET)
+    # GitHub Actions minimum cron resolution is 1 min; actual dispatch
+    # may lag up to ~1 min under load — acceptable for a watchdog.
+    - cron: '* 13-19 * * 1-5'
+    # 20:00–20:05 UTC slot covers the 4:00 PM ET close
+    - cron: '0-5 20 * * 1-5'
+
+  # Manual trigger — useful for testing or ad-hoc recovery checks
+  workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: 'TRIGGER_SOURCE label written to daily_pipeline_runs'
+        required: false
+        default: 'watchdog_manual'
+      dry_run:
+        description: 'Set to "true" to run checks only, never trigger recovery'
+        required: false
+        default: 'false'
+
+concurrency:
+  # Only one watchdog run at a time — prevent pile-ups if GH delays dispatch
+  group: aiem-watchdog
+  cancel-in-progress: false   # let the in-flight run finish; drop the new one
+
+env:
+  TRIGGER_SOURCE: ${{ github.event.inputs.trigger_source || 'watchdog_github_actions' }}
+  DRY_RUN:        ${{ github.event.inputs.dry_run || 'false' }}
+
+jobs:
+  watchdog:
+    name: AIEM Checkpoint Watchdog
+    runs-on: ubuntu-latest
+    timeout-minutes: 12   # hard cap: watchdog + backup runner combined
+
+    steps:
+      # ── 1. Checkout (shallow — we only need the two Python scripts) ──────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            artifacts/stock-scanner-api/aiem_watchdog.py
+            artifacts/stock-scanner-api/aiem_backup_runner.py
+          sparse-checkout-cone-mode: false
+
+      # ── 2. Python runtime ─────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # ── 3. Minimal dependencies (psycopg2 only) ───────────────────────────────
+      - name: Install dependencies
+        run: pip install --quiet psycopg2-binary
+
+      # ── 4. Run watchdog (logs every checkpoint, triggers backup if needed) ────
+      - name: Run AIEM watchdog
+        env:
+          DATABASE_URL:        ${{ secrets.DATABASE_URL }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          POLYGON_API_KEY:     ${{ secrets.POLYGON_API_KEY }}
+          TRADIER_API_TOKEN_2: ${{ secrets.TRADIER_API_TOKEN_2 }}
+          TRIGGER_SOURCE:      ${{ env.TRIGGER_SOURCE }}
+          DRY_RUN:             ${{ env.DRY_RUN }}
+        run: |
+          echo "=== AIEM Watchdog ==="
+          echo "UTC time   : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Trigger    : $TRIGGER_SOURCE"
+          echo "Dry run    : $DRY_RUN"
+          echo "Run ID     : ${{ github.run_id }}"
+          echo "=============================="
+          python artifacts/stock-scanner-api/aiem_watchdog.py
+
+      # ── 5. Capture logs on any failure ────────────────────────────────────────
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: watchdog-log-${{ github.run_id }}
+          path: /tmp/aiem_*.log
+          if-no-files-found: ignore
+          retention-days: 7
