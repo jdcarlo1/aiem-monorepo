@@ -1,0 +1,36 @@
+# DIRECTIVE — Standing Evidence Chain Protocol Update
+**Effective:** 2026-07-17
+**Applies to:** all coding-agent work on AIEM (and any task invoking the evidence chain)
+
+---
+
+## 1. Canonical Script Hashes (current)
+
+| File | SHA256 |
+|---|---|
+| `tools/verified_run.sh` | `ebb6a2dd6f5fb450ef3732428507e1bc408339eea8c3a3855ed4cecf2866cd26` |
+| `tools/verify_chain.sh` | `a6161734a8b752b7a9304f5df13582ec77f0c6210739725280b29a12573463f9` |
+
+These supersede the previous canonical hashes (`72824bfe...24abd` / `7294abeb...1fbec7`), which were pre-modification versions recorded at merge commit `2e0f3a9` (2026-07-12). Both scripts were legitimately modified on 2026-07-13:
+- `verified_run.sh` (commit `6156b3b`): added `flock` + PREV_HASH chain
+- `verify_chain.sh` (commit `71070ba`): rewritten as single-pass Python
+
+## 2. New Rule — Validator Self-Check
+
+Before any `verify_chain.sh` output is accepted as satisfying a directive, the agent must first run:
+
+```
+sha256sum tools/verified_run.sh tools/verify_chain.sh
+```
+
+and paste the raw output alongside the chain-verification output. This is checked against the canonical hashes in Section 1. **A mismatch means the validator itself has drifted and its output is rejected, regardless of what the chain log says.**
+
+This is a check on the *tooling*, not on whether commands were genuinely run against real data — that still requires periodic independent spot-checks.
+
+## 3. Full Requirement for Any Evidence-Chain Invocation Going Forward
+
+1. **Validator self-check** (raw paste): `sha256sum tools/verified_run.sh tools/verify_chain.sh` — confirm both hashes match Section 1.
+2. **Run the command through `tools/verified_run.sh`** (not `.local/`).
+3. **Paste raw `tools/verify_chain.sh` output** against the resulting log.
+
+This supplements — does not replace — the existing standing verification block (raw terminal output, before/after diffs, before/after file hashes, raw SQL where applicable; narrative claims without pasted evidence are rejected).
