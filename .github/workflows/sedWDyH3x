@@ -1,0 +1,119 @@
+name: AIEM Market-Hours Watchdog
+
+# Runs every minute Mon-Fri during market hours (9:00 AM - 4:05 PM ET).
+# Calls the pipeline-checkpoint endpoint on the Replit VM. If needs_recovery=true,
+# calls the emergency-run endpoint. No database access needed on this runner.
+#
+# Recovery window: 9:55 AM - 3:00 PM ET (13:55-19:00 UTC).
+# Outside that window: exits in <2 seconds, no cost.
+#
+# This workflow NEVER executes trades directly.
+# All trade logic lives in aiem_backup_runner.py running on the Replit VM.
+
+on:
+  schedule:
+    # Every minute, Mon-Fri, 13:00-20:00 UTC (09:00-16:00 ET)
+    - cron: '* 13-19 * * 1-5'
+    # 20:00-20:05 UTC slot covers the 4:00 PM ET close
+    - cron: '0-5 20 * * 1-5'
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Set to "true" to check only, never trigger recovery'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: aiem-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    name: AIEM Checkpoint Watchdog
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - name: Check pipeline and recover if needed
+        env:
+          REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
+          ADMIN_TOKEN:    ${{ secrets.ADMIN_TOKEN }}
+          DRY_RUN:        ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          echo "=== AIEM Watchdog ==="
+          echo "UTC time : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Run ID   : ${{ github.run_id }}"
+          echo "Dry run  : ${DRY_RUN}"
+          echo "=============================="
+
+          # ── Recovery window check (9:55 AM - 3:00 PM ET = 13:55-19:00 UTC) ──
+          HOUR_UTC=$(date -u +%H)
+          MIN_UTC=$(date -u +%M)
+          TIME_UTC=$(( HOUR_UTC * 60 + MIN_UTC ))
+          WINDOW_START=$(( 13 * 60 + 55 ))
+          WINDOW_END=$(( 19 * 60 ))
+
+          if [ "${TIME_UTC}" -lt "${WINDOW_START}" ] || [ "${TIME_UTC}" -gt "${WINDOW_END}" ]; then
+            echo "Outside recovery window (${HOUR_UTC}:${MIN_UTC} UTC) — no action"
+            exit 0
+          fi
+
+          # ── Check pipeline checkpoint (read-only, no auth) ───────────────────
+          echo "Checking pipeline checkpoint..."
+          STATUS_JSON=$(curl -sf \
+            "${REPLIT_APP_URL}/stock-api/admin/pipeline-checkpoint" \
+            --max-time 10 2>&1) || STATUS_JSON=""
+
+          if [ -z "${STATUS_JSON}" ]; then
+            echo "ERROR: could not reach checkpoint endpoint — VM may be down"
+            exit 1
+          fi
+
+          echo "Checkpoint: ${STATUS_JSON}"
+
+          NEEDS_RECOVERY=$(echo "${STATUS_JSON}" | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print('true' if d.get('needs_recovery') else 'false')" \
+            2>/dev/null || echo "unknown")
+
+          echo "needs_recovery: ${NEEDS_RECOVERY}"
+
+          if [ "${NEEDS_RECOVERY}" != "true" ]; then
+            echo "Pipeline OK — no recovery needed"
+            exit 0
+          fi
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY RUN — recovery needed but not triggered"
+            exit 0
+          fi
+
+          # ── Trigger recovery ─────────────────────────────────────────────────
+          echo "Recovery needed — calling emergency-run..."
+          TIMESTAMP=$(date +%s)
+          RESPONSE=$(curl -sf -X POST \
+            "${REPLIT_APP_URL}/stock-api/admin/emergency-run" \
+            -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"ts\": ${TIMESTAMP}}" \
+            --max-time 280 \
+            --retry 2 --retry-delay 5 2>&1) || RESPONSE='{"error":"curl failed"}'
+
+          echo "Recovery response: ${RESPONSE}"
+
+          echo "${RESPONSE}" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception as e:
+    print(f'ERROR: non-JSON response: {e}')
+    sys.exit(1)
+status = d.get('status', 'UNKNOWN')
+print(f'Pipeline status : {status}')
+print(f'Summary         : {d.get(\"summary\",\"\")}')
+for line in d.get('log_tail', [])[-10:]:
+    print(f'  {line}')
+if 'error' in d:
+    print(f'ERROR: {d[\"error\"]}')
+    sys.exit(1)
+"

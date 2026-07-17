@@ -1,0 +1,43 @@
+# Directive: Prove Real Failover Recovery — Not Just the Idempotent Path
+
+**Context:** AIEM_FAILOVER_VERIFICATION.md is rejected as verification. It's a narrative
+report, not evidence, and it did not test the one scenario this whole system exists for.
+
+## What's actually missing
+
+Test 4 only proved the "primary already ran" no-op path. Nobody has proven that if the
+Replit VM is actually down or the pipeline actually fails, `/emergency-run` will pull
+Polygon data, score and pick candidates, and write real paper trades — the entire
+Diagram 1 → Diagram 2 → paper trade cycle — automatically, with no one touching a
+keyboard. That is the only scenario that matters and it is still unproven.
+
+## Required this time (per standing verification protocol)
+
+1. **Force a real recovery scenario.** Either pause/kill the primary 9:40 AM pipeline
+   run in a test window, or manually mark jobs PENDING, so `needs_recovery=true` is
+   genuine — not simulated in words.
+2. **Let the automated path run untouched.** No manual trigger. Let
+   `market-hours-watchdog.yml` (or `morning-backup.yml`) detect it and call
+   `/emergency-run` on its own schedule.
+3. **Raw evidence of the full cycle, not just the HTTP response:**
+   - Raw terminal/log output showing Polygon data actually pulled for the recovery run
+   - Raw SQL query + result set showing `options_pipeline_jobs` moving PENDING → DONE
+   - Raw SQL query + result set showing real rows written to the paper trades table
+   - The GitHub Actions run log itself (not a paraphrase) showing it fired on schedule
+     with no manual dispatch
+4. **Evidence chain compliance.** All of the above run through `verified_run.sh`, with
+   `verify_chain.sh` output pasted, plus sha256sum of both scripts checked against
+   canonical values.
+5. **Before/after diffs and hashes** for every file this report claims changed
+   (`main.py`, `aiem_backup_runner.py`, both workflow YAMLs) — actual `git diff` or
+   `sha256sum` output, not before/after code snippets.
+6. **Line-number claims** (e.g. "lines 22541–22647", "line 502", "line 551") backed by
+   `grep -n` / `sed -n` output, not stated as fact.
+
+## Not acceptable as a substitute
+
+- Re-running the idempotent "primary already ran" test again
+- Narrative claims of "tested," "confirmed," or "verified" without the raw artifacts above
+- Any evidence not run through `verified_run.sh`
+
+State explicitly if any of the above cannot be produced — don't paper over a gap.

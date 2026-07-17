@@ -360,3 +360,9 @@ id = "Py49y0Qi5eOi1wFcZOrLs"
 uri = "file://AIEM_FAILOVER_VERIFICATION.md"
 type = "text"
 title = "AIEM Failover — Full Verification Report"
+
+[[outputs]]
+id = "oeswyfwNi6oZE4AIjB-9C"
+uri = "file://AIEM_FAILOVER_EVIDENCE.md"
+type = "text"
+title = "AIEM Failover Evidence Package (with explicit gaps)"
