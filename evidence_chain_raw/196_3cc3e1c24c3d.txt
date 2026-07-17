@@ -1,0 +1,330 @@
+OK  seq=1  entry_hash=b1c0accbf66f2507...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=2  entry_hash=a9e684e82760e490...  cmd: psql $DATABASE_URL -c "SELECT ticker, score, composite_score, hurst_raw, vpin_raw, amihud_score, vrp_score, created_at FROM layer9_scores WHERE ticker='NVDA' ORDER BY created_at DESC LIMIT 10;"
+OK  seq=3  entry_hash=a7a2e710d142b2ab...  cmd: psql $DATABASE_URL -c "\d layer9_scores"
+OK  seq=4  entry_hash=23d396fe4296e377...  cmd: psql $DATABASE_URL -c "SELECT ticker, statistical_score, hurst_raw, vpin_raw, amihud_score, vrp_score, regime, computed_at, scan_date FROM layer9_scores WHERE ticker='NVDA' ORDER BY computed_at DESC LIMIT 10;"
+OK  seq=5  entry_hash=cd6f4299c4eb2e44...  cmd: psql $DATABASE_URL -c "SELECT ticker, rvol, gap_pct, price, close_strength, scan_date FROM polygon_rvol_scan WHERE ticker='NVDA' ORDER BY scan_date DESC LIMIT 5;"
+OK  seq=6  entry_hash=c278f43764905ced...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, direction, setup_type, conviction, trade_date, created_at FROM ai_trade_log WHERE ticker='NVDA' ORDER BY id DESC LIMIT 5;"
+OK  seq=7  entry_hash=00014cf63583d7ac...  cmd: grep -c run_full_cycle artifacts/stock-scanner-api/main.py; echo exit:$?
+OK  seq=8  entry_hash=2f2ddb4131686a09...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, requested_at, mode, outcome, decision_reason FROM d3_governance_requests WHERE ticker='NVDA' ORDER BY requested_at DESC LIMIT 10;"
+OK  seq=9  entry_hash=0d22aa0d8b60ca6e...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, entry_date, source, status, created_at FROM aiem_paper_trades WHERE ticker='NVDA' ORDER BY created_at DESC LIMIT 10;"
+OK  seq=10  entry_hash=76bd9ec58f03734a...  cmd: psql $DATABASE_URL -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='d3_governance_requests' ORDER BY ordinal_position;"
+OK  seq=11  entry_hash=f192378c68e18482...  cmd: psql $DATABASE_URL -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='aiem_paper_trades' ORDER BY ordinal_position;"
+OK  seq=12  entry_hash=9c08bac4f3452c4c...  cmd: psql $DATABASE_URL -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='d3_governance_decisions' ORDER BY ordinal_position;"
+OK  seq=13  entry_hash=0259ebc5582bc9a6...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc, is_test_record FROM d3_governance_requests WHERE checkpoint='G0' ORDER BY request_timestamp_utc DESC LIMIT 10;"
+OK  seq=14  entry_hash=5a44be237848c997...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, trade_date, signal_source, status, created_at, audit_trace_id FROM aiem_paper_trades WHERE ticker='NVDA' ORDER BY created_at DESC LIMIT 10;"
+OK  seq=15  entry_hash=c5127cf94342d3d0...  cmd: psql $DATABASE_URL -c "SELECT gd.checkpoint, gd.decision, gd.blocking, gd.response_timestamp_utc, gr.trigger_source, gr.entrypoint FROM d3_governance_decisions gd JOIN d3_governance_requests gr ON gd.governance_request_id=gr.governance_request_id WHERE gd.checkpoint='G0' AND gd.is_test_record=false ORDER BY gd.response_timestamp_utc DESC LIMIT 10;"
+OK  seq=16  entry_hash=d24d131d8eb97dbd...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, trades_inserted, finished_at, error_msg FROM aiem_paper_execution_log ORDER BY id DESC LIMIT 10;"
+OK  seq=17  entry_hash=1a6edcc63d09751a...  cmd: grep -n 'INSERT\|signal_discoveries\|aiem_v3_discovery' artifacts/stock-scanner-api/aiem_v3_discovery.py | grep -v '#' | head -30
+OK  seq=18  entry_hash=2b50c0c08db6635f...  cmd: psql $DATABASE_URL -c "SELECT scan_date, COUNT(*) as tickers FROM polygon_rvol_scan WHERE gap_pct >= 1.0 AND rvol >= 2.0 GROUP BY scan_date ORDER BY scan_date DESC LIMIT 10;"
+OK  seq=19  entry_hash=d86c21070a20e45f...  cmd: psql $DATABASE_URL -c "SELECT trade_date, COUNT(*) as tickers FROM ai_trade_log WHERE direction='BULLISH' AND conviction IN ('HIGH','VERY HIGH') GROUP BY trade_date ORDER BY trade_date DESC LIMIT 10;"
+OK  seq=20  entry_hash=16aac30a582e47b9...  cmd: grep -rn run_full_cycle artifacts/stock-scanner-api/ --include=*.py | grep -v __pycache__ | grep -v diagram1-signoff
+OK  seq=21  entry_hash=8371035b95aed7fd...  cmd: psql $DATABASE_URL -c "SELECT table_schema, table_name, (SELECT COUNT(*) FROM public.d3_governance_requests) as pub_gr, (SELECT COUNT(*) FROM public.d3_governance_decisions) as pub_gd, (SELECT COUNT(*) FROM public.d3_governance_event_links) as pub_gel, (SELECT COUNT(*) FROM public.d3_governance_acks) as pub_ga;"
+OK  seq=22  entry_hash=2ae767f0b4b9fd4e...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as pub_gr FROM public.d3_governance_requests; SELECT COUNT(*) as pub_gd FROM public.d3_governance_decisions; SELECT COUNT(*) as pub_gel FROM public.d3_governance_event_links; SELECT COUNT(*) as pub_ga FROM public.d3_governance_acks;"
+OK  seq=23  entry_hash=92fd5455cde473c3...  cmd: psql $DATABASE_URL -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name='d3_test_isolation';"
+OK  seq=24  entry_hash=6311bc02a46d59e8...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as iso_gr FROM d3_test_isolation.d3_governance_requests; SELECT COUNT(*) as iso_gd FROM d3_test_isolation.d3_governance_decisions; SELECT COUNT(*) as iso_gel FROM d3_test_isolation.d3_governance_event_links; SELECT COUNT(*) as iso_ga FROM d3_test_isolation.d3_governance_acks;"
+OK  seq=25  entry_hash=3236b552a1cb1851...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as paper_trades FROM public.aiem_paper_trades;"
+OK  seq=26  entry_hash=ac857cd69d798c01...  cmd: cd artifacts/stock-scanner-api && python3 d3_negctl_harness.py --dry-run 2>&1
+OK  seq=27  entry_hash=6545aea42f518dc7...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as iso_gr FROM d3_test_isolation.d3_governance_requests; SELECT COUNT(*) as iso_gd FROM d3_test_isolation.d3_governance_decisions; SELECT COUNT(*) as iso_gel FROM d3_test_isolation.d3_governance_event_links; SELECT COUNT(*) as iso_ga FROM d3_test_isolation.d3_governance_acks; SELECT COUNT(*) as pub_gr FROM public.d3_governance_requests; SELECT COUNT(*) as pub_gd FROM public.d3_governance_decisions; SELECT COUNT(*) as pub_gel FROM public.d3_governance_event_links; SELECT COUNT(*) as pub_ga FROM public.d3_governance_acks; SELECT COUNT(*) as paper_trades FROM public.aiem_paper_trades;"
+OK  seq=28  entry_hash=b8846bd877a2b5be...  cmd: sed -n '43112,43127p' /home/runner/workspace/artifacts/stock-scanner-api/main.py
+OK  seq=29  entry_hash=e4977c06583b5312...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as iso_gr FROM d3_test_isolation.d3_governance_requests; SELECT COUNT(*) as iso_gd FROM d3_test_isolation.d3_governance_decisions; SELECT COUNT(*) as iso_gel FROM d3_test_isolation.d3_governance_event_links; SELECT COUNT(*) as iso_ga FROM d3_test_isolation.d3_governance_acks; SELECT COUNT(*) as pub_gr FROM public.d3_governance_requests; SELECT COUNT(*) as pub_gd FROM public.d3_governance_decisions; SELECT COUNT(*) as pub_gel FROM public.d3_governance_event_links; SELECT COUNT(*) as pub_ga FROM public.d3_governance_acks; SELECT COUNT(*) as paper_trades FROM public.aiem_paper_trades;"
+OK  seq=30  entry_hash=3462fcd60111d82a...  cmd: echo FULL-TEST-RESULT: subprocess OOM-killed during main.py import. Harness log 0 bytes. No VERDICT line produced. Progress stopped at socket.bind intercept. No result JSON written.
+OK  seq=31  entry_hash=ad58efe656bd631c...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as iso_gr FROM d3_test_isolation.d3_governance_requests; SELECT COUNT(*) as iso_gd FROM d3_test_isolation.d3_governance_decisions; SELECT COUNT(*) as iso_gel FROM d3_test_isolation.d3_governance_event_links; SELECT COUNT(*) as iso_ga FROM d3_test_isolation.d3_governance_acks; SELECT COUNT(*) as pub_gr FROM public.d3_governance_requests; SELECT COUNT(*) as pub_gd FROM public.d3_governance_decisions; SELECT COUNT(*) as pub_gel FROM public.d3_governance_event_links; SELECT COUNT(*) as pub_ga FROM public.d3_governance_acks; SELECT COUNT(*) as paper_trades FROM public.aiem_paper_trades;"
+OK  seq=32  entry_hash=fe4f7c1dfb1158d6...  cmd: echo SERVER_STOP: killing stock-api PID 106 at 2026-07-13T00:30:58Z to free memory for full-test subprocess. Will restart immediately after.
+OK  seq=33  entry_hash=fc7d166b76528459...  cmd: cat /tmp/d3_negctl_result.json
+OK  seq=34  entry_hash=ffa3223febc2910d...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as iso_gr FROM d3_test_isolation.d3_governance_requests; SELECT COUNT(*) as iso_gd FROM d3_test_isolation.d3_governance_decisions; SELECT COUNT(*) as iso_gel FROM d3_test_isolation.d3_governance_event_links; SELECT COUNT(*) as iso_ga FROM d3_test_isolation.d3_governance_acks; SELECT COUNT(*) as pub_gr FROM public.d3_governance_requests; SELECT COUNT(*) as pub_gd FROM public.d3_governance_decisions; SELECT COUNT(*) as pub_gel FROM public.d3_governance_event_links; SELECT COUNT(*) as pub_ga FROM public.d3_governance_acks; SELECT COUNT(*) as paper_trades FROM public.aiem_paper_trades; SELECT COUNT(*) as exec_log FROM public.aiem_paper_execution_log;"
+OK  seq=35  entry_hash=a8d892f29f83630e...  cmd: cat /tmp/d3_negctl_progress.log
+OK  seq=36  entry_hash=02c56f22d257ced9...  cmd: find /home/runner/workspace -type f \( -name '*paper_enforcement*' -o -name '*paper-enforcement*' -o -name '*enforcement*' \) 2>/dev/null | grep -v __pycache__ | grep -v '.pyc' | sort
+OK  seq=37  entry_hash=40faf8b33cf91773...  cmd: grep -n 'Directive 6\|directive_6\|directive6\|item 3\|PAPER ENFORCEMENT' /home/runner/workspace/evidence_chain.log 2>/dev/null | head -40
+OK  seq=38  entry_hash=684fe383d00e8415...  cmd: grep -rn 'Directive 6\|directive_6\|directive6' /home/runner/workspace --include='*.py' --include='*.md' --include='*.txt' 2>/dev/null | grep -v __pycache__ | head -30
+OK  seq=39  entry_hash=26ca45670519bc0e...  cmd: cat .agents/memory/d3-paper-enforcement-design.md
+OK  seq=40  entry_hash=e5dad99995926aa7...  cmd: wc -l artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py && echo '---' && cat artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py
+OK  seq=41  entry_hash=88ae2d0de161a2ba...  cmd: grep -n 'require_governance\|governance_authorization\|_g0_result\|BLOCKED_G0\|G0.*BLOCK\|d3.*block\|paper.*enforce\|enforce.*paper' /home/runner/workspace/artifacts/stock-scanner-api/main.py | grep -v 'd3_negctl\|#.*require\|test_mode\|harness' | grep -v '^.*#' | head -40
+OK  seq=42  entry_hash=4aef43567ea75df7...  cmd: grep -n 'check_g0_enforce_preconditions\|enforce_switch\|enforce_precondition' /home/runner/workspace/artifacts/stock-scanner-api/aiem_diagram3_governance.py | head -30
+OK  seq=43  entry_hash=7dddcb5f54085fb4...  cmd: cat artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py
+OK  seq=44  entry_hash=200056c12bd3c9df...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, mode, created_at FROM d3_checkpoint_config ORDER BY checkpoint; SELECT state, updated_at FROM d3_system_state ORDER BY id;"
+OK  seq=45  entry_hash=d2d7765469c6c62c...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, mode, updated_at FROM d3_checkpoint_config ORDER BY checkpoint; SELECT state, updated_at FROM d3_system_state ORDER BY id;"
+OK  seq=46  entry_hash=d17f441953505881...  cmd: psql $DATABASE_URL -c "\d d3_system_state" 2>&1 | head -20
+OK  seq=47  entry_hash=f86d6e8811030104...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, mode, updated_at FROM d3_checkpoint_config ORDER BY checkpoint; SELECT state, reason, changed_by, changed_at FROM d3_system_state WHERE id=1;"
+OK  seq=48  entry_hash=c05a18706571015c...  cmd: psql $DATABASE_URL -c "SELECT job_name, started_at, finished_at, status FROM job_heartbeats WHERE started_at BETWEEN '2026-07-12 21:46:43+00' AND '2026-07-12 21:46:49+00' OR finished_at BETWEEN '2026-07-12 21:46:43+00' AND '2026-07-12 21:46:49+00' ORDER BY started_at;"
+OK  seq=49  entry_hash=486591b466dad3b7...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc, is_test_record FROM d3_governance_requests WHERE request_timestamp_utc BETWEEN '2026-07-12 21:46:43+00' AND '2026-07-12 21:46:49+00' ORDER BY request_timestamp_utc;"
+OK  seq=50  entry_hash=0d06e03942a56d67...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, started_at, finished_at, trades_inserted FROM aiem_paper_execution_log WHERE started_at BETWEEN '2026-07-12 21:46:43+00' AND '2026-07-12 21:46:49+00' ORDER BY started_at;"
+OK  seq=51  entry_hash=64c9e5ab5376a2f3...  cmd: psql $DATABASE_URL -c "\d job_heartbeats" 2>&1 | head -20
+OK  seq=52  entry_hash=327f413556f2a1c0...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc, is_test_record FROM d3_governance_requests WHERE request_timestamp_utc BETWEEN '2026-07-12 21:46:40+00' AND '2026-07-12 21:46:52+00' AND trigger_source NOT LIKE 'directive6%' AND trigger_source != 'ADMIN' ORDER BY request_timestamp_utc;"
+OK  seq=53  entry_hash=bfd59156f435431b...  cmd: psql $DATABASE_URL -c "SELECT job_name, last_attempt, last_success, consecutive_failures FROM job_heartbeats WHERE last_attempt BETWEEN '2026-07-12 21:46:40' AND '2026-07-12 21:46:52' ORDER BY last_attempt;"
+OK  seq=54  entry_hash=439bbeebb84e9b78...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc FROM d3_governance_requests WHERE request_timestamp_utc BETWEEN '2026-07-12 21:46:43+00' AND '2026-07-12 21:46:49+00' ORDER BY request_timestamp_utc;"
+OK  seq=55  entry_hash=0e393ff6b1269633...  cmd: cat artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py
+OK  seq=56  entry_hash=c5a153b673a2bfca...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, run_date, phase_reached, governance_result, created_at FROM aiem_diagram2_trace_audit ORDER BY created_at DESC LIMIT 10;"
+OK  seq=57  entry_hash=58016756a6849c2d...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, trade_date, signal_source, status, entry_price, notional, created_at FROM aiem_paper_trades ORDER BY created_at DESC LIMIT 10;"
+OK  seq=58  entry_hash=25699745294e332f...  cmd: grep -n 'run_tiered_wl_cycle\|def run_tiered_wl_cycle' /home/runner/workspace/artifacts/stock-scanner-api/main.py | head -30
+OK  seq=59  entry_hash=0f66e4c9319e8ead...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as cnt, MAX(created_at) as latest FROM aiem_signal_discoveries; SELECT COUNT(*) as cnt, MAX(created_at) as latest FROM aiem_discovery_memory; SELECT COUNT(*) as cnt, MAX(trade_date) as latest FROM daily_market_movers;"
+BREAK at line 60 (seq=56): prev_hash mismatch — chain continuity gap.
+  expected prev_hash: 0f66e4c9319e8ead0570a509c964fa458b47e247faa51042996146f8bde64b4c
+  stored  prev_hash:  0e393ff6b1269633075e01cc91e57fddcbec01c433ff953d9b97a45e82cb4947
+  Cause: UNKNOWN — prev_hash mismatch detected. Do not assume this is benign.
+  Entry is internally valid. Restarting sub-chain from this entry.
+OK  seq=61  entry_hash=d7a48b295d9e5af0...  cmd: psql $DATABASE_URL -c "\d aiem_diagram2_trace_audit" 2>&1; psql $DATABASE_URL -c "\d aiem_signal_discoveries" 2>&1 | head -20; psql $DATABASE_URL -c "\d aiem_discovery_memory" 2>&1 | head -20
+OK  seq=62  entry_hash=13edc789c2eed4e7...  cmd: grep -rn 'PAPER ENFORCEMENT\|paper enforcement\|paper_enforcement' /home/runner/workspace --include='*.py' --include='*.md' --include='*.txt' -l 2>/dev/null | grep -v __pycache__ | sort
+OK  seq=63  entry_hash=87b3e40bca354f93...  cmd: grep -n 'def run_tiered_wl_cycle\|get_discovery_engine\|discovery_engine\|DiscoveryEngine' /home/runner/workspace/artifacts/stock-scanner-api/main.py | head -20
+OK  seq=64  entry_hash=686bc7e54f2a91b5...  cmd: grep -n 'run_full_cycle\|def run_full_cycle' /home/runner/workspace/artifacts/stock-scanner-api/main.py | head -20
+OK  seq=65  entry_hash=f1914a27d431938b...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as cnt, MAX(trade_date) as latest_date FROM daily_market_movers; SELECT COUNT(*) as cnt, MAX(updated_at) as latest FROM aiem_signal_discoveries;" 2>&1
+OK  seq=66  entry_hash=a01d669e6c562f60...  cmd: psql $DATABASE_URL -c "\d daily_market_movers" 2>&1 | head -25
+OK  seq=67  entry_hash=5324ad00a1695464...  cmd: psql $DATABASE_URL -c "SELECT trace_id, ticker, stage_order, stage_name, status, terminal_status, started_at, completed_at FROM aiem_diagram2_trace_audit ORDER BY started_at DESC LIMIT 15;"
+OK  seq=68  entry_hash=1f4f9122c4183b27...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as cnt, MAX(discovered_at) as latest FROM aiem_signal_discoveries; SELECT COUNT(*) as cnt, MAX(created_at) as latest FROM aiem_discovery_memory;"
+OK  seq=69  entry_hash=77fc00477bacd10c...  cmd: grep -n 'def run_tiered_wl_cycle\|aiem_signal_discoveries\|aiem_discovery_memory\|discovery_memory' /home/runner/workspace/artifacts/stock-scanner-api/aiem_discovery_engine.py | head -40
+OK  seq=70  entry_hash=5822bc11b20f5a66...  cmd: stat .agents/memory/d3-paper-enforcement-design.md && echo '---' && cat .agents/memory/d3-paper-enforcement-design.md
+OK  seq=71  entry_hash=f6d7a53cb296ee48...  cmd: grep -rn 'run_full_cycle\|def run_full_cycle' /home/runner/workspace/artifacts/stock-scanner-api/ --include='*.py' 2>/dev/null | grep -v __pycache__ | head -20
+OK  seq=72  entry_hash=a9a048f5e7e196f5...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, trades_inserted, error_msg, started_at, finished_at FROM aiem_paper_execution_log ORDER BY id DESC LIMIT 10;"
+OK  seq=73  entry_hash=559e41f97e625e34...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, ticker, request_timestamp_utc FROM d3_governance_requests WHERE trigger_source NOT LIKE 'directive%' AND trigger_source != 'ADMIN' ORDER BY request_timestamp_utc DESC LIMIT 10;"
+OK  seq=74  entry_hash=cf28673dd3574b5f...  cmd: psql $DATABASE_URL -c "\d d3_governance_requests" 2>&1 | head -20
+OK  seq=75  entry_hash=e9e24213c814dae2...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as cnt, MAX(scan_date) as latest_scan_date FROM daily_market_movers; SELECT COUNT(*) as cnt, MAX(created_at) as latest FROM discovered_candidates;" 2>&1
+OK  seq=76  entry_hash=0ceb9dc4c9b2dd03...  cmd: grep -n 'aiem_paper_execute_today\|_discovery_cycle_job\|discovery_cycle\|17:30\|17:10\|_aiem_paper_run\|9.*00.*AM\|scheduler.*paper\|paper.*scheduler' /home/runner/workspace/artifacts/stock-scanner-api/main.py | grep -v '#' | head -25
+OK  seq=77  entry_hash=0a8f63535c49c204...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as cnt, MAX(discovered_at) as latest FROM discovered_candidates;" 2>&1
+OK  seq=78  entry_hash=ddb5cdb508c0d341...  cmd: psql $DATABASE_URL -c "\d discovered_candidates" 2>&1 | head -20
+OK  seq=79  entry_hash=779f8990685d5b8f...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc FROM d3_governance_requests WHERE trigger_source NOT LIKE 'directive%' AND trigger_source != 'ADMIN' AND is_test_record=false ORDER BY request_timestamp_utc DESC LIMIT 10;"
+OK  seq=80  entry_hash=0089e66ac864dbc2...  cmd: grep -n 'aiem_paper_execute_today\|_aiem_paper_execute_today' /home/runner/workspace/artifacts/stock-scanner-api/main.py | grep -i 'CronTrigger\|hour\|minute\|schedule\|add_job\|scheduler' | head -20
+OK  seq=81  entry_hash=42f908212c29059a...  cmd: grep -n 'add_job.*aiem_paper\|aiem_paper.*add_job\|CronTrigger.*paper\|paper.*CronTrigger' /home/runner/workspace/artifacts/stock-scanner-api/main.py | head -10
+OK  seq=82  entry_hash=01f8dbb15fb12bda...  cmd: sed -n '15860,15885p' /home/runner/workspace/artifacts/stock-scanner-api/main.py
+OK  seq=83  entry_hash=76e7f1b793738f80...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as cnt, MAX(proposed_at) as latest FROM discovered_candidates;"
+OK  seq=84  entry_hash=09deacff69b067d8...  cmd: psql $DATABASE_URL -c "SELECT id, candidate_id, hypothesis_text, status, oos_wr, oos_n, proposed_at FROM discovered_candidates ORDER BY proposed_at DESC LIMIT 5;"
+OK  seq=85  entry_hash=cf48075b6c6c3622...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, trades_inserted, error_msg, started_at FROM aiem_paper_execution_log ORDER BY id DESC LIMIT 10;"
+OK  seq=86  entry_hash=bbc485c04c6a29da...  cmd: grep -rn 'require_governance_authorization\|aiem_diagram3_governance\|import aiem_diagram3' /home/runner/workspace/artifacts/stock-scanner-api/main.py | grep -v '__pycache__' | head -40
+OK  seq=87  entry_hash=7c74a8f9be941c81...  cmd: psql $DATABASE_URL -c "SELECT governance_request_id, checkpoint, entrypoint, trigger_source, request_timestamp_utc, is_test_record FROM d3_governance_requests ORDER BY request_timestamp_utc DESC LIMIT 10;"
+OK  seq=88  entry_hash=6f98d652871af8a9...  cmd: grep -rn "run_full_cycle" /home/runner/workspace --include="*.py" 2>/dev/null | grep -v __pycache__
+OK  seq=89  entry_hash=5382a70dae5781e3...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) FROM aiem_diagram2_trace_audit; SELECT COUNT(*) FROM aiem_diagram2_trace_audit WHERE ticker = 'NVDA';"
+OK  seq=90  entry_hash=6e67a12d4ad8720d...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, trades_inserted, error_msg, created_at, finished_at FROM aiem_paper_execution_log ORDER BY created_at DESC;"
+OK  seq=91  entry_hash=f8311d8b1be989d9...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, trades_inserted, error_msg, started_at, finished_at FROM aiem_paper_execution_log ORDER BY started_at DESC;"
+OK  seq=92  entry_hash=34289b3c911d1986...  cmd: git --no-optional-locks show --stat 8af9666 2>/dev/null | head -20; echo '---'; git --no-optional-locks show --stat 021efc7 2>/dev/null | head -20
+OK  seq=93  entry_hash=2ec9ce860ace31e0...  cmd: grep -n "aiem_master_orchestrator\|run_full_cycle" /home/runner/workspace/artifacts/stock-scanner-api/main.py | head -20
+OK  seq=94  entry_hash=36c5fcc0e6e5e8fc...  cmd: grep -rn "message_queue\|task_queue\|job_queue\|enqueue\|dequeue\|\.publish.*CANDIDATE\|celery\|redis\." /home/runner/workspace/artifacts/stock-scanner-api/ --include="*.py" 2>/dev/null | grep -v __pycache__ | head -30
+OK  seq=95  entry_hash=db7fce6577507d3f...  cmd: grep -rn "PENDING_FULL_ANALYSIS\|CANDIDATE_READY\|QUEUED_FOR\|READY_FOR_ANALYSIS\|candidate_status\|intake_status" /home/runner/workspace/artifacts/stock-scanner-api/ --include="*.py" 2>/dev/null | grep -v __pycache__ | head -30
+OK  seq=96  entry_hash=7e5c5aa68732c63a...  cmd: grep -rn "add_job.*run_full_cycle\|run_full_cycle.*add_job\|scheduler.*run_full_cycle\|run_full_cycle.*scheduler\|CronTrigger.*run_full\|run_full.*CronTrigger" /home/runner/workspace/artifacts/stock-scanner-api/ --include="*.py" 2>/dev/null | grep -v __pycache__ | head -20
+OK  seq=97  entry_hash=ae2ec9ff7038ea5b...  cmd: grep -n "run_full_cycle" /home/runner/workspace/artifacts/stock-scanner-api/aiem_master_orchestrator.py; echo '---EXECUTE_STAGE_CALLS_IN_MAIN---'; grep -n "execute_stage" /home/runner/workspace/artifacts/stock-scanner-api/main.py | head -20; echo '---TRACE_AUDIT_TABLE---'; psql $DATABASE_URL -c "SELECT COUNT(*) FROM aiem_diagram2_trace_audit;"
+OK  seq=98  entry_hash=f18815ba5d985dad...  cmd: sha256sum artifacts/stock-scanner-api/main.py; echo '---SCHEMA_BEFORE---'; psql $DATABASE_URL -c "\d aiem_candidate_pipeline" 2>&1
+OK  seq=99  entry_hash=cc5fd0babef0991d...  cmd: psql $DATABASE_URL -c "
+CREATE TABLE aiem_candidate_pipeline (
+    id              BIGSERIAL PRIMARY KEY,
+    ticker          TEXT NOT NULL,
+    candidate_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+    score           DOUBLE PRECISION,
+    raw_score       DOUBLE PRECISION,
+    trade_type      TEXT,
+    source          TEXT,
+    detail          TEXT,
+    status          TEXT NOT NULL DEFAULT 'PENDING_FULL_ANALYSIS'
+                    CHECK (status IN (
+                        'PENDING_FULL_ANALYSIS',
+                        'CLAIMED_BY_DIAGRAM1',
+                        'FULL_ANALYSIS_RUNNING',
+                        'FULL_ANALYSIS_COMPLETED',
+                        'FAILED',
+                        'RETRY_PENDING',
+                        'QUARANTINED'
+                    )),
+    inserted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    error_msg       TEXT,
+    paper_trade_id  INTEGER,
+    is_test_record  BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE (ticker, candidate_date)
+);
+CREATE INDEX ON aiem_candidate_pipeline (candidate_date, status);
+"
+OK  seq=100  entry_hash=1a0b34a26e0d65f3...  cmd: psql $DATABASE_URL -c "\d aiem_candidate_pipeline"
+OK  seq=101  entry_hash=22891973c156cb88...  cmd: sha256sum artifacts/stock-scanner-api/main.py; echo '---NEW_CODE_GREP---'; grep -n 'candidate_intake\|PENDING_FULL_ANALYSIS\|aiem_candidate_pipeline' artifacts/stock-scanner-api/main.py | head -20
+OK  seq=102  entry_hash=e00cc07a6c5fc376...  cmd: psql $DATABASE_URL -c "INSERT INTO aiem_candidate_pipeline (ticker, candidate_date, score, raw_score, trade_type, source, detail, status) VALUES ('TEST_TICKER', CURRENT_DATE, 9.5, 10.0, 'STOCK', 'unit_test', 'Phase1 schema test', 'PENDING_FULL_ANALYSIS'); SELECT id, ticker, candidate_date, score, trade_type, source, status, inserted_at FROM aiem_candidate_pipeline WHERE ticker='TEST_TICKER';"
+OK  seq=103  entry_hash=e57394f6884df4ac...  cmd: psql $DATABASE_URL -c "INSERT INTO aiem_candidate_pipeline (ticker, candidate_date, status) VALUES ('BAD_TICKER', CURRENT_DATE, 'INVALID_STATUS');" 2>&1; echo EXIT:$?
+OK  seq=104  entry_hash=3dbf0f6371b014fe...  cmd: psql $DATABASE_URL -c "DELETE FROM aiem_candidate_pipeline WHERE ticker='TEST_TICKER' AND candidate_date='2026-07-13' AND source='unit_test'; SELECT COUNT(*) AS remaining_rows FROM aiem_candidate_pipeline WHERE ticker='TEST_TICKER';"
+OK  seq=105  entry_hash=c33a29d44711df5c...  cmd: cat /tmp/phase2_trigger.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/phase2_trigger.sql
+OK  seq=106  entry_hash=34373305acd16474...  cmd: psql $DATABASE_URL -c "INSERT INTO aiem_candidate_pipeline (ticker, candidate_date, status) VALUES ('ILLEGAL_INSERT_TEST', CURRENT_DATE, 'CLAIMED_BY_DIAGRAM1');" 2>&1; echo EXIT_CODE:$?
+OK  seq=107  entry_hash=65cdde42524c6068...  cmd: cat /tmp/phase2_update_test.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/phase2_update_test.sql 2>&1; echo EXIT_CODE:$?
+OK  seq=108  entry_hash=969c15440d92b264...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) AS total_rows, COUNT(*) FILTER (WHERE ticker IN ('ILLEGAL_INSERT_TEST','PHASE2_UPDTEST')) AS test_rows_remaining FROM aiem_candidate_pipeline;"
+OK  seq=109  entry_hash=0f60d867b7ee9fc4...  cmd: echo '--- INSERT refs ---'; grep -n 'aiem_candidate_pipeline' artifacts/stock-scanner-api/main.py; echo '--- UPDATE on table anywhere in main.py ---'; grep -n 'UPDATE.*aiem_candidate_pipeline\|aiem_candidate_pipeline.*UPDATE' artifacts/stock-scanner-api/main.py || echo NONE; echo '--- DELETE on table anywhere in main.py ---'; grep -n 'DELETE.*aiem_candidate_pipeline\|aiem_candidate_pipeline.*DELETE' artifacts/stock-scanner-api/main.py || echo NONE
+OK  seq=110  entry_hash=7f8a2724ded9793c...  cmd: psql $DATABASE_URL -c "SELECT trigger_name, event_manipulation, action_timing, action_orientation FROM information_schema.triggers WHERE event_object_table='aiem_candidate_pipeline' ORDER BY trigger_name, event_manipulation;"
+OK  seq=111  entry_hash=0468f679a59eda6b...  cmd: echo CONCURRENT_B_FLOCK_TEST
+OK  seq=112  entry_hash=2ec224f145dfa913...  cmd: sleep 1 && echo CONCURRENT_A_FLOCK_TEST
+OK  seq=113  entry_hash=5d8c2fe4d68d9e23...  cmd: cat /tmp/approved_run_3WXMZZ.txt
+OK  seq=114  entry_hash=d22e5f0048bb4179...  cmd: cat /tmp/p2t_setup.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_setup.sql
+OK  seq=115  entry_hash=4899ce755e702f64...  cmd: cat /tmp/approved_run_zUPHiZ.txt
+OK  seq=116  entry_hash=db50878032e58084...  cmd: cat /tmp/p2t_positive.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_positive.sql
+OK  seq=117  entry_hash=45f91fc3b2772d1f...  cmd: cat /tmp/approved_run_JaNeFj.txt
+OK  seq=118  entry_hash=467ef677036626ad...  cmd: cat /tmp/p2t_atomicity.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_atomicity.sql
+OK  seq=119  entry_hash=fc90d7a4e9e97fbb...  cmd: cat /tmp/approved_run_WxT46T.txt
+OK  seq=120  entry_hash=593b48b7028af5bd...  cmd: cat /tmp/p2t_negative.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_negative.sql
+OK  seq=121  entry_hash=7d46cfe83ff7888a...  cmd: bash /tmp/p2t_concurrent.sh
+OK  seq=122  entry_hash=5c5dc5691511168c...  cmd: cat /tmp/approved_run_YiWQlK.txt
+OK  seq=123  entry_hash=63eccdb7e3e1c331...  cmd: cat /tmp/p2t_cleanup.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_cleanup.sql
+OK  seq=124  entry_hash=f190e55a26f71c14...  cmd: bash tools/verify_chain.sh evidence_chain.log
+OK  seq=125  entry_hash=5552f6184064d231...  cmd: sha256sum tools/verify_chain.sh && bash tools/verify_chain.sh evidence_chain.log
+OK  seq=126  entry_hash=9d02e7bd0e4e1611...  cmd: sha256sum tools/verify_chain.sh && bash tools/verify_chain.sh evidence_chain.log
+OK  seq=127  entry_hash=f928a04ec1d6beb8...  cmd: bash /tmp/p3_baseline.sh
+OK  seq=128  entry_hash=73e1571a4bb8ed7d...  cmd: cat /tmp/approved_run_jyFE4L.txt
+OK  seq=129  entry_hash=7ee2e228e2a3e677...  cmd: cat /tmp/approved_run_7heFyQ.txt
+OK  seq=130  entry_hash=b4677c6e8dd931ec...  cmd: bash /tmp/p3_apply.sh
+OK  seq=131  entry_hash=860f119a875f2129...  cmd: bash /tmp/p3_postedit.sh
+OK  seq=132  entry_hash=35917320acd9caac...  cmd: cat /tmp/approved_run_rS7v7B.txt
+OK  seq=133  entry_hash=4d7406d234983097...  cmd: bash /tmp/p3_insert.sh
+OK  seq=134  entry_hash=8d18e5d1cbad9b61...  cmd: cat /tmp/approved_run_uzEhYB.txt
+OK  seq=135  entry_hash=1accf84f0ff851f3...  cmd: cd artifacts/stock-scanner-api && python3 /tmp/p3_concurrency.py
+OK  seq=136  entry_hash=e1f50fefda09b260...  cmd: cat /tmp/approved_run_LB08jU.txt
+OK  seq=137  entry_hash=b95b781f68a39988...  cmd: cd artifacts/stock-scanner-api && python3 /tmp/p3_idempotency.py
+OK  seq=138  entry_hash=2275aef53d17d399...  cmd: cat /tmp/approved_run_bZX42X.txt
+OK  seq=139  entry_hash=c5fa56c0f8153b9d...  cmd: cd artifacts/stock-scanner-api && python3 /tmp/p3_stale.py
+OK  seq=140  entry_hash=9fd135203cbaf4e6...  cmd: cat /tmp/approved_run_p5mefu.txt
+OK  seq=141  entry_hash=a21aa05ec64402f3...  cmd: bash /tmp/p3_cleanup.sh
+OK  seq=142  entry_hash=bd102abc197e22ec...  cmd: cat /tmp/approved_run_UDKurf.txt
+OK  seq=143  entry_hash=afe9e03a34838b48...  cmd: bash /tmp/p4_insert.sh
+OK  seq=144  entry_hash=c32a20f5f304a834...  cmd: cat /tmp/approved_run_e58zJl.txt
+OK  seq=145  entry_hash=e4a5ffa0495d067e...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c1_dupclm.py
+OK  seq=146  entry_hash=c7bcb8f6b83e4396...  cmd: cat /tmp/approved_run_voxnMl.txt
+OK  seq=147  entry_hash=59b75f5578fd6007...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c2_orchfail.py
+OK  seq=148  entry_hash=e820add952a9215c...  cmd: cat /tmp/approved_run_hds7bN.txt
+OK  seq=149  entry_hash=a18a95187eba7670...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c4_dupevt.py
+OK  seq=150  entry_hash=391be2829d2edc61...  cmd: cat /tmp/approved_run_zAm9ey.txt
+OK  seq=151  entry_hash=6d345a2dbf9c2ef3...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c5_restart.py
+OK  seq=152  entry_hash=8af78017b0835f7f...  cmd: cat /tmp/approved_run_EIHvKg.txt
+OK  seq=153  entry_hash=fd213c09a069dc7d...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c6_stlrun.py
+OK  seq=154  entry_hash=fd7df1cd6832c7ed...  cmd: python3 -c "
+import sys, os; sys.path.insert(0, 'artifacts/stock-scanner-api'); os.chdir('artifacts/stock-scanner-api')
+import aiem_diagram3_governance as d3
+result = d3.set_d3_checkpoint_mode(
+    checkpoint='G6',
+    mode='ENFORCE',
+    reason='Directive 13 Phase 3 Step C: G6 flip to ENFORCE. Wiring confirmed, rollback proven instant.',
+    changed_by='directive13_phase3',
+    confirm=True
+)
+print('set_d3_checkpoint_mode result:', result)
+"
+OK  seq=155  entry_hash=0e283328dcd227a7...  cmd: psql "$DATABASE_URL" -c "
+SELECT checkpoint, mode, updated_by, updated_at FROM d3_checkpoint_config ORDER BY checkpoint;
+"
+OK  seq=156  entry_hash=8e64039b9f0cc516...  cmd: python3 -c "
+import sys, os; sys.path.insert(0, 'artifacts/stock-scanner-api'); os.chdir('artifacts/stock-scanner-api')
+import aiem_diagram3_governance as d3, datetime as _dt
+
+result = d3._evaluate_g6_decision(
+    run_kind='TRADE_EXECUTING',
+    candidate_ticker='NVDA',
+    pit_price_source='live_quote',
+    pit_price_source_scan_date=None,
+    now_et_date=_dt.date(2026, 7, 15)
+)
+print('[G6 ENFORCE ALLOW test] live_quote:', result.get('decision'),
+      'would_block:', result.get('would_block'),
+      'mode:', result.get('mode'),
+      'enforcement_status:', result.get('enforcement_status'),
+      'reason_codes:', result.get('reason_codes'),
+      'db_error:', result.get('db_error'))
+assert result['decision'] == 'ALLOW', 'FAIL: expected ALLOW for live_quote'
+assert result['would_block'] == False, 'FAIL: would_block should be False'
+assert result['mode'] == 'ENFORCE', 'FAIL: mode must be ENFORCE now'
+print('[G6 ENFORCE ALLOW test] PASS')
+"
+OK  seq=157  entry_hash=7946b81c6919ebd6...  cmd: python3 -c "
+import sys, os; sys.path.insert(0, 'artifacts/stock-scanner-api'); os.chdir('artifacts/stock-scanner-api')
+import aiem_diagram3_governance as d3, datetime as _dt
+
+stale_date = _dt.date(2026, 7, 14)   # yesterday = stale
+today      = _dt.date(2026, 7, 15)   # now_et_date
+
+result = d3._evaluate_g6_decision(
+    run_kind='TRADE_EXECUTING',
+    candidate_ticker='TSLA',
+    pit_price_source='polygon_fallback',
+    pit_price_source_scan_date=stale_date,
+    now_et_date=today
+)
+print('[G6 ENFORCE BLOCK test] polygon_fallback+stale:', result.get('decision'),
+      'would_block:', result.get('would_block'),
+      'mode:', result.get('mode'),
+      'enforcement_status:', result.get('enforcement_status'),
+      'reason_codes:', result.get('reason_codes'),
+      'db_error:', result.get('db_error'))
+assert result['decision'] == 'BLOCK', 'FAIL: expected BLOCK for stale polygon_fallback in ENFORCE mode'
+assert result['would_block'] == True, 'FAIL: would_block should be True'
+assert result['mode'] == 'ENFORCE', 'FAIL: mode must be ENFORCE'
+assert 'PRICE_STALE_FALLBACK' in result['reason_codes'], 'FAIL: expected PRICE_STALE_FALLBACK'
+print('[G6 ENFORCE BLOCK test] PASS')
+"
+OK  seq=158  entry_hash=81f8e3e2082fab95...  cmd: python3 -c "
+import sys, os; sys.path.insert(0, 'artifacts/stock-scanner-api'); os.chdir('artifacts/stock-scanner-api')
+import aiem_diagram3_governance as d3, datetime as _dt
+
+result = d3._evaluate_g6_decision(
+    run_kind='TRADE_EXECUTING',
+    candidate_ticker='AAPL',
+    pit_price_source='polygon_fallback',
+    pit_price_source_scan_date=None,
+    now_et_date=_dt.date(2026, 7, 15)
+)
+print('[G6 ENFORCE UNKNOWN_DATE test] polygon_fallback+None:', result.get('decision'),
+      'reason_codes:', result.get('reason_codes'))
+assert result['decision'] == 'BLOCK', 'FAIL: expected BLOCK for unknown scan_date'
+assert 'PRICE_PROVENANCE_UNKNOWN_DATE' in result['reason_codes'], 'FAIL'
+print('[G6 ENFORCE UNKNOWN_DATE test] PASS')
+"
+OK  seq=159  entry_hash=64d3bb474ee66167...  cmd: python3 -c "
+import sys, os; sys.path.insert(0, 'artifacts/stock-scanner-api'); os.chdir('artifacts/stock-scanner-api')
+import aiem_diagram3_governance as d3
+
+# Inject a param that causes evaluate_live_candidate_pit to raise by patching it
+original = d3.evaluate_live_candidate_pit
+def boom(**kw): raise RuntimeError('injected_test_exception')
+d3.evaluate_live_candidate_pit = boom
+
+result = d3._evaluate_g6_decision(
+    run_kind='TRADE_EXECUTING',
+    candidate_ticker='TEST',
+    pit_price_source='live_quote',
+    pit_price_source_scan_date=None,
+    now_et_date=None
+)
+d3.evaluate_live_candidate_pit = original  # restore
+
+print('[G6 fail-open test] result:', result.get('decision'),
+      'reason_codes:', result.get('reason_codes'))
+assert result['decision'] == 'ALLOW', 'FAIL: exception must fail OPEN (ALLOW), got BLOCK'
+assert any('G6_INTERNAL_EXCEPTION_FAIL_OPEN' in rc for rc in result.get('reason_codes',[])), 'FAIL: missing fail-open reason code'
+print('[G6 fail-open test] PASS — exception path returns ALLOW as designed')
+"
+OK  seq=160  entry_hash=6f4144c2714b3718...  cmd: python
+OK  seq=161  entry_hash=84c7c093fa915d16...  cmd: artifacts/stock-scanner-api/ase_prob_ev_verification.py
+OK  seq=162  entry_hash=8b6cbe8c79d90734...  cmd: artifacts/stock-scanner-api/ase_liquidity_verification.py
+OK  seq=163  entry_hash=e7fd6ced75eb66e4...  cmd: python artifacts/stock-scanner-api/ase_prob_ev_verification.py
+OK  seq=164  entry_hash=1c78319edd044430...  cmd: python artifacts/stock-scanner-api/ase_liquidity_verification.py
+OK  seq=165  entry_hash=b1f18ed35c9ab5c8...  cmd: cd artifacts/stock-scanner-api && python ase_assignment_verification.py
+OK  seq=166  entry_hash=86b918c5af6e3c4c...  cmd: cd artifacts/stock-scanner-api && python ase_risk_classification_verification.py
+OK  seq=167  entry_hash=c6e0b6391c8f04bf...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=168  entry_hash=a89253d2fe321586...  cmd: git show d830870:artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py | sha256sum
+OK  seq=169  entry_hash=a9b69eb888c4c1a9...  cmd: git show d830870:artifacts/stock-scanner-api/verify_13_14.py | sha256sum
+OK  seq=170  entry_hash=7d63a323cb37acad...  cmd: sha256sum artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py artifacts/stock-scanner-api/verify_13_14.py
+OK  seq=171  entry_hash=8bff0574fad2c58a...  cmd: git --no-optional-locks diff d830870 dcafe66 -- artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py artifacts/stock-scanner-api/verify_13_14.py
+OK  seq=172  entry_hash=5e8cf907b60aed1c...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=173  entry_hash=128f87febdf05340...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=174  entry_hash=3ea2c5f237bbea87...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=175  entry_hash=9b5f42c253eed931...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=176  entry_hash=113d864ba649a086...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=177  entry_hash=d053662ad1d75098...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_15_db.py
+OK  seq=178  entry_hash=6a79ffa4e1f0e02f...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_15_db.py
+OK  seq=179  entry_hash=8caffa870f844971...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_16_recovery.py
+OK  seq=180  entry_hash=ef93a618e9ddc84f...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_16_recovery.py
+OK  seq=181  entry_hash=2b1b07169daecb5b...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_17_performance.py
+OK  seq=182  entry_hash=551642f5efd1cca5...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_17_performance.py
+OK  seq=183  entry_hash=ab01a462446674cf...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_17_performance.py
+OK  seq=184  entry_hash=c3fb1dd108858789...  cmd: psql "$DATABASE_URL" -c "SELECT underlying, COUNT(*) AS row_count FROM ase_paper_trades GROUP BY underlying ORDER BY underlying;"
+OK  seq=185  entry_hash=f70845ba1466906e...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=186  entry_hash=a72ee44360bf52a4...  cmd: psql "$DATABASE_URL" -c "SELECT paper_trade_id, underlying, strategy_name, gross_pnl, commission_paid, net_pnl, return_on_capital_realized, capital_at_risk FROM ase_paper_trades WHERE status='CLOSED' ORDER BY close_time;"
+OK  seq=187  entry_hash=0b5ce9b2f841c85c...  cmd: grep -rn "AAPL" artifacts/stock-scanner-api/verify_*.py artifacts/stock-scanner-api/verify_13_14.py 2>/dev/null | head -40
+OK  seq=188  entry_hash=81b7edc30c20e77b...  cmd: grep -rn "AAPL" artifacts/stock-scanner-api/ --include="*.py" | grep -v __pycache__ | grep -v "verify_premarket"
+OK  seq=189  entry_hash=e78deec45ffef8e0...  cmd: psql "$DATABASE_URL" -c "SELECT SUM(net_pnl) AS total_net_pnl FROM ase_paper_trades WHERE status='CLOSED';"
+OK  seq=190  entry_hash=05d85bf9018b8cef...  cmd: grep -n "_normalize_for_hash\|_sha256\|trade_ledger\|float(t\[" artifacts/stock-scanner-api/aiem_strat_engine/reporting.py
+OK  seq=191  entry_hash=19c554746ee5a6b4...  cmd: cd artifacts/stock-scanner-api && python3 backfill_report_sha256.py
+OK  seq=192  entry_hash=4b5de8bbbb9e70f9...  cmd: sha256sum artifacts/stock-scanner-api/aiem_strat_engine/reporting.py
+OK  seq=193  entry_hash=ea238b16af0ec790...  cmd: psql "$DATABASE_URL" -c "SELECT report_id, LEFT(report_sha256,20) AS sha_prefix FROM ase_performance_reports ORDER BY created_at;"
+OK  seq=194  entry_hash=d55b2189b1209f99...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_17_performance.py
+OK  seq=195  entry_hash=72bbdc902be2b32f...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+
+=== CHAIN HAS 1 UNRESOLVED BREAK(S) — awaiting manual review. Not auto-approved. ===
+    Each break entry above was internally valid but the chain continuity gap is unverified.
+    Cause is UNKNOWN. Do not assume benign. Manual review and explicit approval required.
