@@ -1,0 +1,87 @@
+The 322/322 PASS remediation result is accepted as a partial result only.
+
+Do not mark the MASTER ADVANCED OPTIONS VERIFICATION complete yet.
+
+Provide the missing evidence in one consolidated final report:
+
+1. COMPLETE STRATEGY REGISTRY
+- Every implemented strategy
+- Strategy ID
+- Family
+- Enabled / Analysis Only / Revoked
+- Source file
+- Function/class
+- SHA-256
+- PASS/FAIL
+- Family counts
+- Reconcile registry against source discovery; fail if anything is missing
+
+2. COMPLETE COVERAGE MATRIX
+For every strategy, identify the exact tests covering:
+- construction
+- net debit/credit
+- payoff
+- max profit
+- max loss
+- breakeven(s)
+- Greeks
+- expiration payoff
+- edge cases
+- runtime execution
+- risk controls
+
+Do not provide only aggregate “322 PASS.” Map every requirement to test IDs.
+
+3. RAW FORENSIC EVIDENCE
+Provide:
+- exact verification command
+- UTC start/end timestamps
+- git commit
+- git diff/status
+- source SHA-256 manifest
+- test-artifact SHA-256 manifest
+- raw stdout/stderr log path
+- EXIT code
+- cryptographic chain verification result
+
+4. SOURCE AND RUNTIME TRACEABILITY
+Provide GREP/source evidence showing:
+strategy registry → constructor → mathematical engine → risk checks →
+paper-trading eligibility → runtime invocation → audit record.
+
+5. DATABASE EVIDENCE
+Provide read-only SQL output for the verification run showing:
+- run_id
+- strategy_id
+- test/result status
+- revocation or enablement status
+- timestamps
+- artifact/hash references
+
+No manual inserts and no fabricated rows.
+
+6. REVOCATION / FAIL-CLOSED PROOF
+Deliberately force one strategy to fail in an isolated test and prove:
+- it is automatically disabled/revoked from autonomous paper trading
+- it cannot generate an executable paper order
+- an audit event is written
+- restoration requires a passing verification
+Then restore the clean code and rerun the full suite.
+
+7. INDEPENDENCE
+State which expected values were independently calculated and prove the
+verifier is not merely calling the same production functions being tested.
+
+8. FINAL VERDICT
+Return:
+- total implemented strategies
+- total registered
+- total fully tested
+- total enabled
+- total analysis-only
+- total revoked
+- uncovered requirements
+- PASS/FAIL for the complete master directive
+
+Paper trading only. No live execution.
+Do not claim final completion unless every requested item has direct evidence.
