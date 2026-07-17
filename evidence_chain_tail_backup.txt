@@ -1,0 +1,1300 @@
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T01
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Call
+ 04. Command            : classify_strategy_risk([SHORT CALL@105], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@105 mid=1.20]; max_loss=None
+ 07. Expected           : execution_mode=REJECTED risk_class=UNDEFINED_RISK flag=NAKED_CALL
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003288+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : is_naked_call=True reason=Uncovered short call at strike=105.0
+ 15. Inputs Hash        : 835ade700f25e5a6
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T02
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Put
+ 04. Command            : classify_strategy_risk([SHORT PUT@95], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT PUT@95 mid=1.20]; max_loss=None
+ 07. Expected           : execution_mode=REJECTED risk_class=UNDEFINED_RISK flag=NAKED_PUT
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003317+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : is_naked_put=True reason=Uncovered short put at strike=95.0
+ 15. Inputs Hash        : f09462b11fd340ce
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T03
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Straddle
+ 04. Command            : classify_strategy_risk([SC@100, SP@100], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRADDLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@100, SHORT PUT@100]; same strike, no hedges
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_STRADDLE
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRADDLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003341+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : is_naked_straddle=True reason=Naked straddle at strike=100.0
+ 15. Inputs Hash        : ef45fd5a02732052
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T04
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Strangle
+ 04. Command            : classify_strategy_risk([SC@105, SP@95], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRANGLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@105, SHORT PUT@95]; different strikes, no hedges
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_STRANGLE
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRANGLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003365+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : is_naked_strangle=True reason=Naked strangle: short call@105.0, short put@95.0
+ 15. Inputs Hash        : e12c2437c1e663f6
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T05
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Ratio (1×2 call spread)
+ 04. Command            : classify_strategy_risk([LC@100 ×1, SC@105 ×2], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_RATIO', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[LONG CALL@100 ratio=1, SHORT CALL@105 ratio=2]
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_RATIO
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_RATIO', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003388+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : is_naked_ratio=True reason=Naked ratio: net 1 uncovered short call(s)
+ 15. Inputs Hash        : 3d4a9158765b5805
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T06
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Unlimited-Loss Synthetic (synthetic short stock)
+ 04. Command            : classify_strategy_risk([SC@100, LP@100 same expiry], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNLIMITED_LOSS_SYNTHETIC', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : SHORT CALL@100 + LONG PUT@100 same strike & expiry; no long stock
+ 07. Expected           : execution_mode=REJECTED flag=UNLIMITED_LOSS_SYNTHETIC
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNLIMITED_LOSS_SYNTHETIC', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003404+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : detected=True reason=Synthetic short (short call@100.0 + long put@100.0) without long stock hedge — unlimited upside loss
+ 15. Inputs Hash        : 76b18850ae0d5786
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T07
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Missing Buying Power (no strike or mid on short option)
+ 04. Command            : classify_strategy_risk([SC strike=None mid=None], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'MISSING_BUYING_POWER', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : SHORT CALL strike=None mid=None
+ 07. Expected           : execution_mode=REJECTED flag=MISSING_BUYING_POWER
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'MISSING_BUYING_POWER', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003418+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : detected=True reason=Missing data prevents buying-power calculation: SHORT CALL: missing strike; SHORT CALL@None: missing mid price
+ 15. Inputs Hash        : ffa54bb5eb1ba4f8
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T08
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Unknown Max Loss (payoff engine returned None)
+ 04. Command            : classify_strategy_risk([LC@100, SC@105], max_loss=None)
+ 05. Raw Output         : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['UNKNOWN_MAX_LOSS']
+ 06. Inputs             : bull call spread LC@100 SC@105 (valid legs); max_loss=None from payoff
+ 07. Expected           : execution_mode=ANALYSIS_ONLY risk_class=LIMITED_RISK flag=UNKNOWN_MAX_LOSS
+ 08. Actual Result      : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003441+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : detected=True can_paper_trade=False
+ 15. Inputs Hash        : 27ea137202760e75
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T09
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Excessive Risk (buying power exceeds per-trade cap)
+ 04. Command            : classify_strategy_risk([LC@100, SC@150], max_loss=51.00)
+ 05. Raw Output         : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['EXCESSIVE_RISK']
+ 06. Inputs             : max_loss=51.00 → buying_power=$5,100 > cap=$5,000
+ 07. Expected           : execution_mode=ANALYSIS_ONLY flag=EXCESSIVE_RISK
+ 08. Actual Result      : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['EXCESSIVE_RISK']
+ 09. Numeric Diff       : buying_power=5,100 cap=5,000 excess=100
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003470+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : detected=True reason=Buying power $5,100 exceeds per-trade cap $5,000
+ 15. Inputs Hash        : 3b8a90d013142e79
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T10
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Defined-risk bull call spread (control case — AUTONOMOUS)
+ 04. Command            : classify_strategy_risk([LC@100, SC@105], max_loss=1.50)
+ 05. Raw Output         : mode=AUTONOMOUS class=DEFINED_RISK flags=[] can_paper=True
+ 06. Inputs             : bull call spread LC@100 SC@105; max_loss=1.50 ($150 BP)
+ 07. Expected           : execution_mode=AUTONOMOUS risk_class=DEFINED_RISK flags=[]
+ 08. Actual Result      : mode=AUTONOMOUS class=DEFINED_RISK flags=[] can_paper=True
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:06:31.003485+00:00
+ 13. Run ID             : R10_BFB363A27DCD
+ 14. Extra              : 
+ 15. Inputs Hash        : 40e9ade3929dc579
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+ SECTION 10 SUMMARY
+ Run ID        : R10_BFB363A27DCD
+ Total tests   : 10
+ PASS          : 10
+ FAIL          : 0
+ risk_classifier.py SHA-256 : 0a6a48878b4f55bdb282cf3885186373f70988f92c9f535bcb23f88bac07642c
+ legs.py SHA-256            : b6fc2f4ba296b5b3904a3b721705cc5c829011711e0916747c5c5b7a8a5ccec9
+ this file SHA-256          : 2d5ad9652db657cc1502991b77234ec9c911351f1824ccd37d50ed120b766b17
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T01
+ 02. Module         : assignment.py
+ 03. Test Name      : Early assignment — deep ITM short call DTE=1
+ 04. Command        : early_assignment_risk([SC@80 delta=-0.92 DTE=1], spot=100)
+ 05. Raw Output     : risk_level=HIGH legs=1
+ 06. Inputs         : legs=SHORT CALL@80 delta=-0.92 DTE=1; spot=100.0
+ 07. Expected       : risk_level=HIGH
+ 08. Actual Result  : risk_level=HIGH legs=1
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855704+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : at_risk_legs=[{'leg': 'SC80.0', 'factors': ['deep ITM delta=0.92', 'DTE=1 expiry imminent'], 'risk_level': 'HIGH', 'intrinsic': 20.0, 'extrinsic': 0.1, 'dte': 1}]
+ 15. Inputs Hash    : 6fd851a7d93e7ef3
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T02
+ 02. Module         : assignment.py
+ 03. Test Name      : Early assignment — OTM short call DTE=30
+ 04. Command        : early_assignment_risk([SC@115 delta=-0.15 DTE=30], spot=100)
+ 05. Raw Output     : risk_level=LOW at_risk_legs=0
+ 06. Inputs         : legs=SHORT CALL@115 delta=-0.15 DTE=30; spot=100.0
+ 07. Expected       : risk_level=LOW at_risk_legs=0
+ 08. Actual Result  : risk_level=LOW at_risk_legs=0
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855723+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 472ebc6abed2949e
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T03
+ 02. Module         : assignment.py
+ 03. Test Name      : Auto exercise — long call $0.05 ITM at expiry
+ 04. Command        : automatic_exercise_check([LC@100], spot=100.05)
+ 05. Raw Output     : decision=EXERCISE intrinsic=0.0500
+ 06. Inputs         : long call K=100 spot=100.05
+ 07. Expected       : decision=EXERCISE intrinsic>=0.01
+ 08. Actual Result  : decision=EXERCISE intrinsic=0.0500
+ 09. Numeric Diff   : |intrinsic - 0.05| = 0.000000
+ 10. Tolerance      : 0.001
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855735+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 6b4f1df8f04629e2
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T04
+ 02. Module         : assignment.py
+ 03. Test Name      : Auto exercise — long call $0.005 ITM (below OCC threshold)
+ 04. Command        : automatic_exercise_check([LC@100], spot=100.005)
+ 05. Raw Output     : decision=AMBIGUOUS intrinsic=0.0050
+ 06. Inputs         : long call K=100 spot=100.005 OCC_threshold=0.01
+ 07. Expected       : decision=AMBIGUOUS
+ 08. Actual Result  : decision=AMBIGUOUS intrinsic=0.0050
+ 09. Numeric Diff   : intrinsic=0.0050 < threshold=0.01
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855746+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : b8fa5b2c11edce89
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T05
+ 02. Module         : assignment.py
+ 03. Test Name      : Dividend assignment — extrinsic < quarterly dividend
+ 04. Command        : dividend_assignment_risk([SC@80 mid=21], spot=100, annual_div=8, days=2)
+ 05. Raw Output     : risk_level=HIGH at_risk_legs=1
+ 06. Inputs         : SHORT CALL@80 mid=21 spot=100.0 annual_div=8 days_to_ex_div=2
+ 07. Expected       : risk_level=HIGH at_risk_legs=1
+ 08. Actual Result  : risk_level=HIGH at_risk_legs=1
+ 09. Numeric Diff   : extrinsic=1.0 quarterly_div=2.0
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855761+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : shortfall=1.0
+ 15. Inputs Hash    : afa07dd843471024
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T06
+ 02. Module         : assignment.py
+ 03. Test Name      : Dividend assignment — no ex-div date supplied
+ 04. Command        : dividend_assignment_risk([SC@90], spot=100, annual_div=0)
+ 05. Raw Output     : risk_level=LOW
+ 06. Inputs         : SHORT CALL@90 spot=100.0 annual_div=0
+ 07. Expected       : risk_level=LOW
+ 08. Actual Result  : risk_level=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855768+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 50481e3942331cc3
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T07
+ 02. Module         : assignment.py
+ 03. Test Name      : Pin risk — short strike 0.2% from spot DTE=1
+ 04. Command        : pin_risk_analysis([SC@100.20 DTE=1 gamma=0.08], spot=100)
+ 05. Raw Output     : risk_level=HIGH pct_from_spot=0.2%
+ 06. Inputs         : SHORT CALL@100.20 DTE=1 gamma=0.08 spot=100.0
+ 07. Expected       : risk_level=HIGH
+ 08. Actual Result  : risk_level=HIGH pct_from_spot=0.2%
+ 09. Numeric Diff   : pct_from_spot=0.2 < 0.5%
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855781+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : c5f2790265614e64
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T08
+ 02. Module         : assignment.py
+ 03. Test Name      : Pin risk — short strike 5% from spot
+ 04. Command        : pin_risk_analysis([SC@105 DTE=10], spot=100)
+ 05. Raw Output     : risk_level=LOW
+ 06. Inputs         : SHORT CALL@105 DTE=10 spot=100.0
+ 07. Expected       : risk_level=LOW
+ 08. Actual Result  : risk_level=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855795+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 4b11133890f232df
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T09
+ 02. Module         : assignment.py
+ 03. Test Name      : Partial assignment — iron condor, short put assigned
+ 04. Command        : partial_assignment_impact(iron_condor, index=1 [SP@90])
+ 05. Raw Output     : residual_legs=3 has_naked=True risk=HIGH
+ 06. Inputs         : iron condor SC@110 SP@90 LC@115 LP@85; assign SP@90
+ 07. Expected       : residual_legs=3 residual_has_naked_short=False (SC@110 covered by LC@115)
+ 08. Actual Result  : residual_legs=3 has_naked=True risk=HIGH
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact bool match
+ 11. PASS/FAIL      : FAIL
+ 12. Timestamp      : 2026-07-17T07:06:46.855848+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : pnl_on_assigned=120.0
+ 15. Inputs Hash    : 09f378791d180129
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T10
+ 02. Module         : assignment.py
+ 03. Test Name      : Multi-leg assignment — short straddle
+ 04. Command        : multi_leg_assignment_analysis([SC@100 SP@100 DTE=2], spot=100)
+ 05. Raw Output     : total_short_legs=2 overall_risk=LOW likelihoods=['NONE', 'NONE']
+ 06. Inputs         : SHORT CALL@100 + SHORT PUT@100 delta≈0.50 DTE=2
+ 07. Expected       : total_short_legs=2 overall_risk=MEDIUM or HIGH
+ 08. Actual Result  : total_short_legs=2 overall_risk=LOW likelihoods=['NONE', 'NONE']
+ 09. Numeric Diff   : worst_case_pnl=0.0
+ 10. Tolerance      : risk in [MEDIUM, HIGH]
+ 11. PASS/FAIL      : FAIL
+ 12. Timestamp      : 2026-07-17T07:06:46.855913+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 836994f37b95b68e
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T11
+ 02. Module         : assignment.py
+ 03. Test Name      : Expiration — OTM short call lapses worthless
+ 04. Command        : expiration_outcome([SC@100 mid=1.50], spot=95)
+ 05. Raw Output     : decision=LAPSE net_pnl=150.0 stock_pos=0
+ 06. Inputs         : SHORT CALL@100 mid=1.50 spot=95 (OTM)
+ 07. Expected       : decision=LAPSE net_pnl=+150.00
+ 08. Actual Result  : decision=LAPSE net_pnl=150.0 stock_pos=0
+ 09. Numeric Diff   : |net_pnl - 150| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855942+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 27e77b0e8c375ea6
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T12
+ 02. Module         : assignment.py
+ 03. Test Name      : Expiration — ITM short call auto-assigned
+ 04. Command        : expiration_outcome([SC@100 mid=1.50], spot=105)
+ 05. Raw Output     : decision=ASSIGNED net_pnl=-350.0 stock_pos=-100
+ 06. Inputs         : SHORT CALL@100 mid=1.50 spot=105 (ITM by 5.0)
+ 07. Expected       : decision=ASSIGNED net_pnl=-350.00 stock_position=-100
+ 08. Actual Result  : decision=ASSIGNED net_pnl=-350.0 stock_pos=-100
+ 09. Numeric Diff   : |net_pnl - (-350)| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855954+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 0e28c6327d71b430
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T13
+ 02. Module         : assignment.py
+ 03. Test Name      : Exercise simulation — long put explicitly exercised
+ 04. Command        : exercise_simulation([LP@100 mid=2.00], spot=90, {0: EXERCISE})
+ 05. Raw Output     : action=EXERCISE total_pnl=800.0 stock_delta=-100
+ 06. Inputs         : LONG PUT@100 mid=2.00 spot=90; decision={0: EXERCISE}
+ 07. Expected       : action=EXERCISE total_pnl=800.00
+ 08. Actual Result  : action=EXERCISE total_pnl=800.0 stock_delta=-100
+ 09. Numeric Diff   : |total_pnl - 800.0| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855966+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : ad8f92002585b911
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T14
+ 02. Module         : assignment.py
+ 03. Test Name      : Exercise simulation — long OTM call explicitly lapsed
+ 04. Command        : exercise_simulation([LC@110 mid=1.50], spot=105, {0: LAPSE})
+ 05. Raw Output     : action=LAPSE total_pnl=-150.0
+ 06. Inputs         : LONG CALL@110 mid=1.50 spot=105 OTM; decision={0: LAPSE}
+ 07. Expected       : action=LAPSE total_pnl=-150.00
+ 08. Actual Result  : action=LAPSE total_pnl=-150.0
+ 09. Numeric Diff   : |total_pnl - (-150.0)| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:06:46.855976+00:00
+ 13. Run ID         : A9_0CE7ADCCE7D1
+ 14. Extra          : 
+ 15. Inputs Hash    : 3a4e9f0155d4b7b8
+ 16. assignment.py  : 8a668f48162d1b57
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+ SECTION 9 SUMMARY
+ Run ID      : A9_0CE7ADCCE7D1
+ Total tests : 14
+ PASS        : 12
+ FAIL        : 2
+ assignment.py SHA-256 : 8a668f48162d1b574bdd684177cfc492d9f476a81b6536a4d1132be2d6dd89e6
+ legs.py SHA-256       : b6fc2f4ba296b5b3904a3b721705cc5c829011711e0916747c5c5b7a8a5ccec9
+ this file SHA-256     : 33f0f78528e64bf6eceded35b27b342f63ee051be8b7184a78cf05d162806cb0
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T01
+ 02. Module         : assignment.py
+ 03. Test Name      : Early assignment — deep ITM short call DTE=1
+ 04. Command        : early_assignment_risk([SC@80 delta=-0.92 DTE=1], spot=100)
+ 05. Raw Output     : risk_level=HIGH legs=1
+ 06. Inputs         : legs=SHORT CALL@80 delta=-0.92 DTE=1; spot=100.0
+ 07. Expected       : risk_level=HIGH
+ 08. Actual Result  : risk_level=HIGH legs=1
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450164+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : at_risk_legs=[{'leg': 'SC80.0', 'factors': ['deep ITM delta=0.92', 'DTE=1 expiry imminent'], 'risk_level': 'HIGH', 'intrinsic': 20.0, 'extrinsic': 0.1, 'dte': 1}]
+ 15. Inputs Hash    : 6fd851a7d93e7ef3
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T02
+ 02. Module         : assignment.py
+ 03. Test Name      : Early assignment — OTM short call DTE=30
+ 04. Command        : early_assignment_risk([SC@115 delta=-0.15 DTE=30], spot=100)
+ 05. Raw Output     : risk_level=LOW at_risk_legs=0
+ 06. Inputs         : legs=SHORT CALL@115 delta=-0.15 DTE=30; spot=100.0
+ 07. Expected       : risk_level=LOW at_risk_legs=0
+ 08. Actual Result  : risk_level=LOW at_risk_legs=0
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450209+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 472ebc6abed2949e
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T03
+ 02. Module         : assignment.py
+ 03. Test Name      : Auto exercise — long call $0.05 ITM at expiry
+ 04. Command        : automatic_exercise_check([LC@100], spot=100.05)
+ 05. Raw Output     : decision=EXERCISE intrinsic=0.0500
+ 06. Inputs         : long call K=100 spot=100.05
+ 07. Expected       : decision=EXERCISE intrinsic>=0.01
+ 08. Actual Result  : decision=EXERCISE intrinsic=0.0500
+ 09. Numeric Diff   : |intrinsic - 0.05| = 0.000000
+ 10. Tolerance      : 0.001
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450227+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 6b4f1df8f04629e2
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T04
+ 02. Module         : assignment.py
+ 03. Test Name      : Auto exercise — long call $0.005 ITM (below OCC threshold)
+ 04. Command        : automatic_exercise_check([LC@100], spot=100.005)
+ 05. Raw Output     : decision=AMBIGUOUS intrinsic=0.0050
+ 06. Inputs         : long call K=100 spot=100.005 OCC_threshold=0.01
+ 07. Expected       : decision=AMBIGUOUS
+ 08. Actual Result  : decision=AMBIGUOUS intrinsic=0.0050
+ 09. Numeric Diff   : intrinsic=0.0050 < threshold=0.01
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450243+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : b8fa5b2c11edce89
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T05
+ 02. Module         : assignment.py
+ 03. Test Name      : Dividend assignment — extrinsic < quarterly dividend
+ 04. Command        : dividend_assignment_risk([SC@80 mid=21], spot=100, annual_div=8, days=2)
+ 05. Raw Output     : risk_level=HIGH at_risk_legs=1
+ 06. Inputs         : SHORT CALL@80 mid=21 spot=100.0 annual_div=8 days_to_ex_div=2
+ 07. Expected       : risk_level=HIGH at_risk_legs=1
+ 08. Actual Result  : risk_level=HIGH at_risk_legs=1
+ 09. Numeric Diff   : extrinsic=1.0 quarterly_div=2.0
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450261+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : shortfall=1.0
+ 15. Inputs Hash    : afa07dd843471024
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T06
+ 02. Module         : assignment.py
+ 03. Test Name      : Dividend assignment — no ex-div date supplied
+ 04. Command        : dividend_assignment_risk([SC@90], spot=100, annual_div=0)
+ 05. Raw Output     : risk_level=LOW
+ 06. Inputs         : SHORT CALL@90 spot=100.0 annual_div=0
+ 07. Expected       : risk_level=LOW
+ 08. Actual Result  : risk_level=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450270+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 50481e3942331cc3
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T07
+ 02. Module         : assignment.py
+ 03. Test Name      : Pin risk — short strike 0.2% from spot DTE=1
+ 04. Command        : pin_risk_analysis([SC@100.20 DTE=1 gamma=0.08], spot=100)
+ 05. Raw Output     : risk_level=HIGH pct_from_spot=0.2%
+ 06. Inputs         : SHORT CALL@100.20 DTE=1 gamma=0.08 spot=100.0
+ 07. Expected       : risk_level=HIGH
+ 08. Actual Result  : risk_level=HIGH pct_from_spot=0.2%
+ 09. Numeric Diff   : pct_from_spot=0.2 < 0.5%
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450285+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : c5f2790265614e64
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T08
+ 02. Module         : assignment.py
+ 03. Test Name      : Pin risk — short strike 5% from spot
+ 04. Command        : pin_risk_analysis([SC@105 DTE=10], spot=100)
+ 05. Raw Output     : risk_level=LOW
+ 06. Inputs         : SHORT CALL@105 DTE=10 spot=100.0
+ 07. Expected       : risk_level=LOW
+ 08. Actual Result  : risk_level=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450300+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 4b11133890f232df
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T09
+ 02. Module         : assignment.py
+ 03. Test Name      : Partial assignment — iron condor, short put assigned
+ 04. Command        : partial_assignment_impact(iron_condor, index=1 [SP@90])
+ 05. Raw Output     : residual_legs=3 has_naked=False risk=LOW
+ 06. Inputs         : iron condor SC@110 SP@90 LC@115 LP@85; assign SP@90
+ 07. Expected       : residual_legs=3 residual_has_naked_short=False (SC@110 covered by LC@115)
+ 08. Actual Result  : residual_legs=3 has_naked=False risk=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact bool match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450326+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : pnl_on_assigned=120.0
+ 15. Inputs Hash    : 09f378791d180129
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T10
+ 02. Module         : assignment.py
+ 03. Test Name      : Multi-leg assignment — short straddle
+ 04. Command        : multi_leg_assignment_analysis([SC@100 SP@100 DTE=2], spot=100)
+ 05. Raw Output     : total_short_legs=2 overall_risk=MEDIUM likelihoods=['MEDIUM', 'MEDIUM']
+ 06. Inputs         : SHORT CALL@100 + SHORT PUT@100 delta≈0.50 DTE=2
+ 07. Expected       : total_short_legs=2 overall_risk=MEDIUM or HIGH
+ 08. Actual Result  : total_short_legs=2 overall_risk=MEDIUM likelihoods=['MEDIUM', 'MEDIUM']
+ 09. Numeric Diff   : worst_case_pnl=580.0
+ 10. Tolerance      : risk in [MEDIUM, HIGH]
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450347+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 836994f37b95b68e
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T11
+ 02. Module         : assignment.py
+ 03. Test Name      : Expiration — OTM short call lapses worthless
+ 04. Command        : expiration_outcome([SC@100 mid=1.50], spot=95)
+ 05. Raw Output     : decision=LAPSE net_pnl=150.0 stock_pos=0
+ 06. Inputs         : SHORT CALL@100 mid=1.50 spot=95 (OTM)
+ 07. Expected       : decision=LAPSE net_pnl=+150.00
+ 08. Actual Result  : decision=LAPSE net_pnl=150.0 stock_pos=0
+ 09. Numeric Diff   : |net_pnl - 150| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450360+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 27e77b0e8c375ea6
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T12
+ 02. Module         : assignment.py
+ 03. Test Name      : Expiration — ITM short call auto-assigned
+ 04. Command        : expiration_outcome([SC@100 mid=1.50], spot=105)
+ 05. Raw Output     : decision=ASSIGNED net_pnl=-350.0 stock_pos=-100
+ 06. Inputs         : SHORT CALL@100 mid=1.50 spot=105 (ITM by 5.0)
+ 07. Expected       : decision=ASSIGNED net_pnl=-350.00 stock_position=-100
+ 08. Actual Result  : decision=ASSIGNED net_pnl=-350.0 stock_pos=-100
+ 09. Numeric Diff   : |net_pnl - (-350)| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450371+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 0e28c6327d71b430
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T13
+ 02. Module         : assignment.py
+ 03. Test Name      : Exercise simulation — long put explicitly exercised
+ 04. Command        : exercise_simulation([LP@100 mid=2.00], spot=90, {0: EXERCISE})
+ 05. Raw Output     : action=EXERCISE total_pnl=800.0 stock_delta=-100
+ 06. Inputs         : LONG PUT@100 mid=2.00 spot=90; decision={0: EXERCISE}
+ 07. Expected       : action=EXERCISE total_pnl=800.00
+ 08. Actual Result  : action=EXERCISE total_pnl=800.0 stock_delta=-100
+ 09. Numeric Diff   : |total_pnl - 800.0| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450382+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : ad8f92002585b911
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T14
+ 02. Module         : assignment.py
+ 03. Test Name      : Exercise simulation — long OTM call explicitly lapsed
+ 04. Command        : exercise_simulation([LC@110 mid=1.50], spot=105, {0: LAPSE})
+ 05. Raw Output     : action=LAPSE total_pnl=-150.0
+ 06. Inputs         : LONG CALL@110 mid=1.50 spot=105 OTM; decision={0: LAPSE}
+ 07. Expected       : action=LAPSE total_pnl=-150.00
+ 08. Actual Result  : action=LAPSE total_pnl=-150.0
+ 09. Numeric Diff   : |total_pnl - (-150.0)| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:08:36.450392+00:00
+ 13. Run ID         : A9_5DBB70CB8D3E
+ 14. Extra          : 
+ 15. Inputs Hash    : 3a4e9f0155d4b7b8
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+ SECTION 9 SUMMARY
+ Run ID      : A9_5DBB70CB8D3E
+ Total tests : 14
+ PASS        : 14
+ FAIL        : 0
+ assignment.py SHA-256 : a3d9ecdacb74d30a59392ac0792d963961579a933e9aa9236ce0e1de62bd090b
+ legs.py SHA-256       : b6fc2f4ba296b5b3904a3b721705cc5c829011711e0916747c5c5b7a8a5ccec9
+ this file SHA-256     : 33f0f78528e64bf6eceded35b27b342f63ee051be8b7184a78cf05d162806cb0
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T01
+ 02. Module         : assignment.py
+ 03. Test Name      : Early assignment — deep ITM short call DTE=1
+ 04. Command        : early_assignment_risk([SC@80 delta=-0.92 DTE=1], spot=100)
+ 05. Raw Output     : risk_level=HIGH legs=1
+ 06. Inputs         : legs=SHORT CALL@80 delta=-0.92 DTE=1; spot=100.0
+ 07. Expected       : risk_level=HIGH
+ 08. Actual Result  : risk_level=HIGH legs=1
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082650+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : at_risk_legs=[{'leg': 'SC80.0', 'factors': ['deep ITM delta=0.92', 'DTE=1 expiry imminent'], 'risk_level': 'HIGH', 'intrinsic': 20.0, 'extrinsic': 0.1, 'dte': 1}]
+ 15. Inputs Hash    : 6fd851a7d93e7ef3
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T02
+ 02. Module         : assignment.py
+ 03. Test Name      : Early assignment — OTM short call DTE=30
+ 04. Command        : early_assignment_risk([SC@115 delta=-0.15 DTE=30], spot=100)
+ 05. Raw Output     : risk_level=LOW at_risk_legs=0
+ 06. Inputs         : legs=SHORT CALL@115 delta=-0.15 DTE=30; spot=100.0
+ 07. Expected       : risk_level=LOW at_risk_legs=0
+ 08. Actual Result  : risk_level=LOW at_risk_legs=0
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082715+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 472ebc6abed2949e
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T03
+ 02. Module         : assignment.py
+ 03. Test Name      : Auto exercise — long call $0.05 ITM at expiry
+ 04. Command        : automatic_exercise_check([LC@100], spot=100.05)
+ 05. Raw Output     : decision=EXERCISE intrinsic=0.0500
+ 06. Inputs         : long call K=100 spot=100.05
+ 07. Expected       : decision=EXERCISE intrinsic>=0.01
+ 08. Actual Result  : decision=EXERCISE intrinsic=0.0500
+ 09. Numeric Diff   : |intrinsic - 0.05| = 0.000000
+ 10. Tolerance      : 0.001
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082730+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 6b4f1df8f04629e2
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T04
+ 02. Module         : assignment.py
+ 03. Test Name      : Auto exercise — long call $0.005 ITM (below OCC threshold)
+ 04. Command        : automatic_exercise_check([LC@100], spot=100.005)
+ 05. Raw Output     : decision=AMBIGUOUS intrinsic=0.0050
+ 06. Inputs         : long call K=100 spot=100.005 OCC_threshold=0.01
+ 07. Expected       : decision=AMBIGUOUS
+ 08. Actual Result  : decision=AMBIGUOUS intrinsic=0.0050
+ 09. Numeric Diff   : intrinsic=0.0050 < threshold=0.01
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082742+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : b8fa5b2c11edce89
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T05
+ 02. Module         : assignment.py
+ 03. Test Name      : Dividend assignment — extrinsic < quarterly dividend
+ 04. Command        : dividend_assignment_risk([SC@80 mid=21], spot=100, annual_div=8, days=2)
+ 05. Raw Output     : risk_level=HIGH at_risk_legs=1
+ 06. Inputs         : SHORT CALL@80 mid=21 spot=100.0 annual_div=8 days_to_ex_div=2
+ 07. Expected       : risk_level=HIGH at_risk_legs=1
+ 08. Actual Result  : risk_level=HIGH at_risk_legs=1
+ 09. Numeric Diff   : extrinsic=1.0 quarterly_div=2.0
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082758+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : shortfall=1.0
+ 15. Inputs Hash    : afa07dd843471024
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T06
+ 02. Module         : assignment.py
+ 03. Test Name      : Dividend assignment — no ex-div date supplied
+ 04. Command        : dividend_assignment_risk([SC@90], spot=100, annual_div=0)
+ 05. Raw Output     : risk_level=LOW
+ 06. Inputs         : SHORT CALL@90 spot=100.0 annual_div=0
+ 07. Expected       : risk_level=LOW
+ 08. Actual Result  : risk_level=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082766+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 50481e3942331cc3
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T07
+ 02. Module         : assignment.py
+ 03. Test Name      : Pin risk — short strike 0.2% from spot DTE=1
+ 04. Command        : pin_risk_analysis([SC@100.20 DTE=1 gamma=0.08], spot=100)
+ 05. Raw Output     : risk_level=HIGH pct_from_spot=0.2%
+ 06. Inputs         : SHORT CALL@100.20 DTE=1 gamma=0.08 spot=100.0
+ 07. Expected       : risk_level=HIGH
+ 08. Actual Result  : risk_level=HIGH pct_from_spot=0.2%
+ 09. Numeric Diff   : pct_from_spot=0.2 < 0.5%
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082781+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : c5f2790265614e64
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T08
+ 02. Module         : assignment.py
+ 03. Test Name      : Pin risk — short strike 5% from spot
+ 04. Command        : pin_risk_analysis([SC@105 DTE=10], spot=100)
+ 05. Raw Output     : risk_level=LOW
+ 06. Inputs         : SHORT CALL@105 DTE=10 spot=100.0
+ 07. Expected       : risk_level=LOW
+ 08. Actual Result  : risk_level=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact string match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082796+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 4b11133890f232df
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T09
+ 02. Module         : assignment.py
+ 03. Test Name      : Partial assignment — iron condor, short put assigned
+ 04. Command        : partial_assignment_impact(iron_condor, index=1 [SP@90])
+ 05. Raw Output     : residual_legs=3 has_naked=False risk=LOW
+ 06. Inputs         : iron condor SC@110 SP@90 LC@115 LP@85; assign SP@90
+ 07. Expected       : residual_legs=3 residual_has_naked_short=False (SC@110 covered by LC@115)
+ 08. Actual Result  : residual_legs=3 has_naked=False risk=LOW
+ 09. Numeric Diff   : N/A
+ 10. Tolerance      : exact bool match
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082823+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : pnl_on_assigned=120.0
+ 15. Inputs Hash    : 09f378791d180129
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T10
+ 02. Module         : assignment.py
+ 03. Test Name      : Multi-leg assignment — short straddle
+ 04. Command        : multi_leg_assignment_analysis([SC@100 SP@100 DTE=2], spot=100)
+ 05. Raw Output     : total_short_legs=2 overall_risk=MEDIUM likelihoods=['MEDIUM', 'MEDIUM']
+ 06. Inputs         : SHORT CALL@100 + SHORT PUT@100 delta≈0.50 DTE=2
+ 07. Expected       : total_short_legs=2 overall_risk=MEDIUM or HIGH
+ 08. Actual Result  : total_short_legs=2 overall_risk=MEDIUM likelihoods=['MEDIUM', 'MEDIUM']
+ 09. Numeric Diff   : worst_case_pnl=580.0
+ 10. Tolerance      : risk in [MEDIUM, HIGH]
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082849+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 836994f37b95b68e
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T11
+ 02. Module         : assignment.py
+ 03. Test Name      : Expiration — OTM short call lapses worthless
+ 04. Command        : expiration_outcome([SC@100 mid=1.50], spot=95)
+ 05. Raw Output     : decision=LAPSE net_pnl=150.0 stock_pos=0
+ 06. Inputs         : SHORT CALL@100 mid=1.50 spot=95 (OTM)
+ 07. Expected       : decision=LAPSE net_pnl=+150.00
+ 08. Actual Result  : decision=LAPSE net_pnl=150.0 stock_pos=0
+ 09. Numeric Diff   : |net_pnl - 150| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082861+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 27e77b0e8c375ea6
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T12
+ 02. Module         : assignment.py
+ 03. Test Name      : Expiration — ITM short call auto-assigned
+ 04. Command        : expiration_outcome([SC@100 mid=1.50], spot=105)
+ 05. Raw Output     : decision=ASSIGNED net_pnl=-350.0 stock_pos=-100
+ 06. Inputs         : SHORT CALL@100 mid=1.50 spot=105 (ITM by 5.0)
+ 07. Expected       : decision=ASSIGNED net_pnl=-350.00 stock_position=-100
+ 08. Actual Result  : decision=ASSIGNED net_pnl=-350.0 stock_pos=-100
+ 09. Numeric Diff   : |net_pnl - (-350)| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082873+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 0e28c6327d71b430
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T13
+ 02. Module         : assignment.py
+ 03. Test Name      : Exercise simulation — long put explicitly exercised
+ 04. Command        : exercise_simulation([LP@100 mid=2.00], spot=90, {0: EXERCISE})
+ 05. Raw Output     : action=EXERCISE total_pnl=800.0 stock_delta=-100
+ 06. Inputs         : LONG PUT@100 mid=2.00 spot=90; decision={0: EXERCISE}
+ 07. Expected       : action=EXERCISE total_pnl=800.00
+ 08. Actual Result  : action=EXERCISE total_pnl=800.0 stock_delta=-100
+ 09. Numeric Diff   : |total_pnl - 800.0| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082890+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : ad8f92002585b911
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID        : A9_T14
+ 02. Module         : assignment.py
+ 03. Test Name      : Exercise simulation — long OTM call explicitly lapsed
+ 04. Command        : exercise_simulation([LC@110 mid=1.50], spot=105, {0: LAPSE})
+ 05. Raw Output     : action=LAPSE total_pnl=-150.0
+ 06. Inputs         : LONG CALL@110 mid=1.50 spot=105 OTM; decision={0: LAPSE}
+ 07. Expected       : action=LAPSE total_pnl=-150.00
+ 08. Actual Result  : action=LAPSE total_pnl=-150.0
+ 09. Numeric Diff   : |total_pnl - (-150.0)| = 0.0000
+ 10. Tolerance      : 0.01
+ 11. PASS/FAIL      : PASS
+ 12. Timestamp      : 2026-07-17T07:29:52.082899+00:00
+ 13. Run ID         : A9_0A4CC7FFD3E7
+ 14. Extra          : 
+ 15. Inputs Hash    : 3a4e9f0155d4b7b8
+ 16. assignment.py  : a3d9ecdacb74d30a
+ 17. legs.py SHA    : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+ SECTION 9 SUMMARY
+ Run ID      : A9_0A4CC7FFD3E7
+ Total tests : 14
+ PASS        : 14
+ FAIL        : 0
+ assignment.py SHA-256 : a3d9ecdacb74d30a59392ac0792d963961579a933e9aa9236ce0e1de62bd090b
+ legs.py SHA-256       : b6fc2f4ba296b5b3904a3b721705cc5c829011711e0916747c5c5b7a8a5ccec9
+ this file SHA-256     : 33f0f78528e64bf6eceded35b27b342f63ee051be8b7184a78cf05d162806cb0
+════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T01
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Call
+ 04. Command            : classify_strategy_risk([SHORT CALL@105], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@105 mid=1.20]; max_loss=None
+ 07. Expected           : execution_mode=REJECTED risk_class=UNDEFINED_RISK flag=NAKED_CALL
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082653+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : is_naked_call=True reason=Uncovered short call at strike=105.0
+ 15. Inputs Hash        : 835ade700f25e5a6
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T02
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Put
+ 04. Command            : classify_strategy_risk([SHORT PUT@95], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT PUT@95 mid=1.20]; max_loss=None
+ 07. Expected           : execution_mode=REJECTED risk_class=UNDEFINED_RISK flag=NAKED_PUT
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082692+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : is_naked_put=True reason=Uncovered short put at strike=95.0
+ 15. Inputs Hash        : f09462b11fd340ce
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T03
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Straddle
+ 04. Command            : classify_strategy_risk([SC@100, SP@100], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRADDLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@100, SHORT PUT@100]; same strike, no hedges
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_STRADDLE
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRADDLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082718+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : is_naked_straddle=True reason=Naked straddle at strike=100.0
+ 15. Inputs Hash        : ef45fd5a02732052
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T04
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Strangle
+ 04. Command            : classify_strategy_risk([SC@105, SP@95], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRANGLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@105, SHORT PUT@95]; different strikes, no hedges
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_STRANGLE
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRANGLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082742+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : is_naked_strangle=True reason=Naked strangle: short call@105.0, short put@95.0
+ 15. Inputs Hash        : e12c2437c1e663f6
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T05
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Ratio (1×2 call spread)
+ 04. Command            : classify_strategy_risk([LC@100 ×1, SC@105 ×2], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_RATIO', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[LONG CALL@100 ratio=1, SHORT CALL@105 ratio=2]
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_RATIO
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_RATIO', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082769+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : is_naked_ratio=True reason=Naked ratio: net 1 uncovered short call(s)
+ 15. Inputs Hash        : 3d4a9158765b5805
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T06
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Unlimited-Loss Synthetic (synthetic short stock)
+ 04. Command            : classify_strategy_risk([SC@100, LP@100 same expiry], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNLIMITED_LOSS_SYNTHETIC', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : SHORT CALL@100 + LONG PUT@100 same strike & expiry; no long stock
+ 07. Expected           : execution_mode=REJECTED flag=UNLIMITED_LOSS_SYNTHETIC
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNLIMITED_LOSS_SYNTHETIC', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082787+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : detected=True reason=Synthetic short (short call@100.0 + long put@100.0) without long stock hedge — unlimited upside loss
+ 15. Inputs Hash        : 76b18850ae0d5786
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T07
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Missing Buying Power (no strike or mid on short option)
+ 04. Command            : classify_strategy_risk([SC strike=None mid=None], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'MISSING_BUYING_POWER', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : SHORT CALL strike=None mid=None
+ 07. Expected           : execution_mode=REJECTED flag=MISSING_BUYING_POWER
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'MISSING_BUYING_POWER', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082802+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : detected=True reason=Missing data prevents buying-power calculation: SHORT CALL: missing strike; SHORT CALL@None: missing mid price
+ 15. Inputs Hash        : ffa54bb5eb1ba4f8
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T08
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Unknown Max Loss (payoff engine returned None)
+ 04. Command            : classify_strategy_risk([LC@100, SC@105], max_loss=None)
+ 05. Raw Output         : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['UNKNOWN_MAX_LOSS']
+ 06. Inputs             : bull call spread LC@100 SC@105 (valid legs); max_loss=None from payoff
+ 07. Expected           : execution_mode=ANALYSIS_ONLY risk_class=LIMITED_RISK flag=UNKNOWN_MAX_LOSS
+ 08. Actual Result      : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082826+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : detected=True can_paper_trade=False
+ 15. Inputs Hash        : 27ea137202760e75
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T09
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Excessive Risk (buying power exceeds per-trade cap)
+ 04. Command            : classify_strategy_risk([LC@100, SC@150], max_loss=51.00)
+ 05. Raw Output         : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['EXCESSIVE_RISK']
+ 06. Inputs             : max_loss=51.00 → buying_power=$5,100 > cap=$5,000
+ 07. Expected           : execution_mode=ANALYSIS_ONLY flag=EXCESSIVE_RISK
+ 08. Actual Result      : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['EXCESSIVE_RISK']
+ 09. Numeric Diff       : buying_power=5,100 cap=5,000 excess=100
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082857+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : detected=True reason=Buying power $5,100 exceeds per-trade cap $5,000
+ 15. Inputs Hash        : 3b8a90d013142e79
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T10
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Defined-risk bull call spread (control case — AUTONOMOUS)
+ 04. Command            : classify_strategy_risk([LC@100, SC@105], max_loss=1.50)
+ 05. Raw Output         : mode=AUTONOMOUS class=DEFINED_RISK flags=[] can_paper=True
+ 06. Inputs             : bull call spread LC@100 SC@105; max_loss=1.50 ($150 BP)
+ 07. Expected           : execution_mode=AUTONOMOUS risk_class=DEFINED_RISK flags=[]
+ 08. Actual Result      : mode=AUTONOMOUS class=DEFINED_RISK flags=[] can_paper=True
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:29:53.082874+00:00
+ 13. Run ID             : R10_DDBFC64BF141
+ 14. Extra              : 
+ 15. Inputs Hash        : 40e9ade3929dc579
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+ SECTION 10 SUMMARY
+ Run ID        : R10_DDBFC64BF141
+ Total tests   : 10
+ PASS          : 10
+ FAIL          : 0
+ risk_classifier.py SHA-256 : 0a6a48878b4f55bdb282cf3885186373f70988f92c9f535bcb23f88bac07642c
+ legs.py SHA-256            : b6fc2f4ba296b5b3904a3b721705cc5c829011711e0916747c5c5b7a8a5ccec9
+ this file SHA-256          : 2d5ad9652db657cc1502991b77234ec9c911351f1824ccd37d50ed120b766b17
+════════════════════════════════════════════════════════════════════════
+

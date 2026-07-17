@@ -511,15 +511,6 @@ def main():
     OUT.append(summary)
     full = "\n".join(OUT)
     print(full, flush=True)
-
-    out_path = os.path.join(os.path.dirname(__file__), "..", "..",
-                            "evidence_chain.log")
-    try:
-        with open(out_path, "a") as fh:
-            fh.write(full + "\n")
-    except Exception:
-        pass
-
     return 0 if FAIL_COUNT == 0 else 1
 
 

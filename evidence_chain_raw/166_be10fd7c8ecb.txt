@@ -1,0 +1,219 @@
+
+════════════════════════════════════════════════════════════════════════
+ ASE Section 10 — Risk Classification Verification
+ Run ID : R10_18BE6681B52B
+ Time   : 2026-07-17T07:51:31.445510+00:00
+ SHAs   : risk_classifier=0a6a48878b4f55bd  legs=b6fc2f4ba296b5b3
+ Config : MAX_CAPITAL_PER_TRADE=5000 PORTFOLIO=100000
+────────────────────────────────────────────────────────────────────────
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T01
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Call
+ 04. Command            : classify_strategy_risk([SHORT CALL@105], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@105 mid=1.20]; max_loss=None
+ 07. Expected           : execution_mode=REJECTED risk_class=UNDEFINED_RISK flag=NAKED_CALL
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447377+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : is_naked_call=True reason=Uncovered short call at strike=105.0
+ 15. Inputs Hash        : 835ade700f25e5a6
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T02
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Put
+ 04. Command            : classify_strategy_risk([SHORT PUT@95], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT PUT@95 mid=1.20]; max_loss=None
+ 07. Expected           : execution_mode=REJECTED risk_class=UNDEFINED_RISK flag=NAKED_PUT
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447404+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : is_naked_put=True reason=Uncovered short put at strike=95.0
+ 15. Inputs Hash        : f09462b11fd340ce
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T03
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Straddle
+ 04. Command            : classify_strategy_risk([SC@100, SP@100], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRADDLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@100, SHORT PUT@100]; same strike, no hedges
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_STRADDLE
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRADDLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447461+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : is_naked_straddle=True reason=Naked straddle at strike=100.0
+ 15. Inputs Hash        : ef45fd5a02732052
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T04
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Strangle
+ 04. Command            : classify_strategy_risk([SC@105, SP@95], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRANGLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[SHORT CALL@105, SHORT PUT@95]; different strikes, no hedges
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_STRANGLE
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_STRANGLE', 'NAKED_CALL', 'NAKED_PUT', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447496+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : is_naked_strangle=True reason=Naked strangle: short call@105.0, short put@95.0
+ 15. Inputs Hash        : e12c2437c1e663f6
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T05
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Naked Ratio (1×2 call spread)
+ 04. Command            : classify_strategy_risk([LC@100 ×1, SC@105 ×2], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_RATIO', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : legs=[LONG CALL@100 ratio=1, SHORT CALL@105 ratio=2]
+ 07. Expected           : execution_mode=REJECTED flag=NAKED_RATIO
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_RATIO', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447547+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : is_naked_ratio=True reason=Naked ratio: net 1 uncovered short call(s)
+ 15. Inputs Hash        : 3d4a9158765b5805
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T06
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Unlimited-Loss Synthetic (synthetic short stock)
+ 04. Command            : classify_strategy_risk([SC@100, LP@100 same expiry], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNLIMITED_LOSS_SYNTHETIC', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : SHORT CALL@100 + LONG PUT@100 same strike & expiry; no long stock
+ 07. Expected           : execution_mode=REJECTED flag=UNLIMITED_LOSS_SYNTHETIC
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'UNLIMITED_LOSS_SYNTHETIC', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447573+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : detected=True reason=Synthetic short (short call@100.0 + long put@100.0) without long stock hedge — unlimited upside loss
+ 15. Inputs Hash        : 76b18850ae0d5786
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T07
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Missing Buying Power (no strike or mid on short option)
+ 04. Command            : classify_strategy_risk([SC strike=None mid=None], max_loss=None)
+ 05. Raw Output         : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'MISSING_BUYING_POWER', 'UNKNOWN_MAX_LOSS']
+ 06. Inputs             : SHORT CALL strike=None mid=None
+ 07. Expected           : execution_mode=REJECTED flag=MISSING_BUYING_POWER
+ 08. Actual Result      : mode=REJECTED class=UNDEFINED_RISK flags=['NAKED_CALL', 'MISSING_BUYING_POWER', 'UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447588+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : detected=True reason=Missing data prevents buying-power calculation: SHORT CALL: missing strike; SHORT CALL@None: missing mid price
+ 15. Inputs Hash        : ffa54bb5eb1ba4f8
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T08
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Unknown Max Loss (payoff engine returned None)
+ 04. Command            : classify_strategy_risk([LC@100, SC@105], max_loss=None)
+ 05. Raw Output         : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['UNKNOWN_MAX_LOSS']
+ 06. Inputs             : bull call spread LC@100 SC@105 (valid legs); max_loss=None from payoff
+ 07. Expected           : execution_mode=ANALYSIS_ONLY risk_class=LIMITED_RISK flag=UNKNOWN_MAX_LOSS
+ 08. Actual Result      : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['UNKNOWN_MAX_LOSS']
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447612+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : detected=True can_paper_trade=False
+ 15. Inputs Hash        : 27ea137202760e75
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T09
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Excessive Risk (buying power exceeds per-trade cap)
+ 04. Command            : classify_strategy_risk([LC@100, SC@150], max_loss=51.00)
+ 05. Raw Output         : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['EXCESSIVE_RISK']
+ 06. Inputs             : max_loss=51.00 → buying_power=$5,100 > cap=$5,000
+ 07. Expected           : execution_mode=ANALYSIS_ONLY flag=EXCESSIVE_RISK
+ 08. Actual Result      : mode=ANALYSIS_ONLY class=LIMITED_RISK flags=['EXCESSIVE_RISK']
+ 09. Numeric Diff       : buying_power=5,100 cap=5,000 excess=100
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447641+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : detected=True reason=Buying power $5,100 exceeds per-trade cap $5,000
+ 15. Inputs Hash        : 3b8a90d013142e79
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+════════════════════════════════════════════════════════════════════════
+ 01. Test ID            : R10_T10
+ 02. Module             : risk_classifier.py
+ 03. Test Name          : Defined-risk bull call spread (control case — AUTONOMOUS)
+ 04. Command            : classify_strategy_risk([LC@100, SC@105], max_loss=1.50)
+ 05. Raw Output         : mode=AUTONOMOUS class=DEFINED_RISK flags=[] can_paper=True
+ 06. Inputs             : bull call spread LC@100 SC@105; max_loss=1.50 ($150 BP)
+ 07. Expected           : execution_mode=AUTONOMOUS risk_class=DEFINED_RISK flags=[]
+ 08. Actual Result      : mode=AUTONOMOUS class=DEFINED_RISK flags=[] can_paper=True
+ 09. Numeric Diff       : N/A
+ 10. Tolerance          : exact string match
+ 11. PASS/FAIL          : PASS
+ 12. Timestamp          : 2026-07-17T07:51:31.447657+00:00
+ 13. Run ID             : R10_18BE6681B52B
+ 14. Extra              : 
+ 15. Inputs Hash        : 40e9ade3929dc579
+ 16. risk_classifier SHA: 0a6a48878b4f55bd
+ 17. legs.py SHA        : b6fc2f4ba296b5b3
+────────────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════
+ SECTION 10 SUMMARY
+ Run ID        : R10_18BE6681B52B
+ Total tests   : 10
+ PASS          : 10
+ FAIL          : 0
+ risk_classifier.py SHA-256 : 0a6a48878b4f55bdb282cf3885186373f70988f92c9f535bcb23f88bac07642c
+ legs.py SHA-256            : b6fc2f4ba296b5b3904a3b721705cc5c829011711e0916747c5c5b7a8a5ccec9
+ this file SHA-256          : ed88f96d71496ab4c1014a64a7f11e970957a56f6bc33f7e25acade5cd0eff28
+════════════════════════════════════════════════════════════════════════

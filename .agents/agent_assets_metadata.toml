@@ -348,3 +348,9 @@ id = "flUpVToipvGpUIRVDouTT"
 uri = "file://.local/ASE_S9_S10_Raw_Evidence.txt"
 type = "text"
 title = "ASE S9 & S10 — Raw Evidence (per directive requirements)"
+
+[[outputs]]
+id = "u6jje0RaaxIbRdL6qXwzG"
+uri = "file://.local/ASE_S9_S10_Chain_Closure.txt"
+type = "text"
+title = "ASE S9 & S10 — Evidence Chain Closure (Directive 14 final)"

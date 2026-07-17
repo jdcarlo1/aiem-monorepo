@@ -1,0 +1,40 @@
+# Directive 14 — ASE Sections 9 & 10: Evidence Chain Closure
+
+**Responds to:** ASE_S9_S10_Raw_Evidence.txt (2026-07-17 submission)
+**Status of that submission:** Test results accepted (24/24 PASS). Two items remain open before this directive can close.
+
+---
+
+## Item 1 — Re-run S9/S10 verifiers through `verified_run.sh`
+
+The submitted evidence stated explicitly that `ase_assignment_verification.py` (Section 9) and `ase_liquidity_verification.py` / `ase_prob_ev_verification.py` (Section 10) were run as standalone scripts, **not** through `verified_run.sh`. That means the 24 passing test results are not in the hash-chained log — they are not tamper-evident and do not satisfy the Evidence Chain Protocol.
+
+**Required:**
+1. Re-run all S9 and S10 verifier scripts through `verified_run.sh`.
+2. Paste the raw stdout of each run (same per-test format as before is fine).
+3. Paste the new `verify_chain.sh` output showing these runs as new entries in the chain, with their `seq=` numbers.
+4. If any result differs from the original standalone run, flag the discrepancy — do not silently reconcile it.
+
+## Item 2 — SHA confirmation on the validator scripts themselves
+
+Before the Item 1 re-run output is accepted, paste raw `sha256sum` output for `tools/verified_run.sh` and `tools/verify_chain.sh` and confirm both against:
+
+- `verified_run.sh`: `ebb6a2dd6f5fb450ef3732428507e1bc408339eea8c3a3855ed4cecf2866cd26`
+- `verify_chain.sh`: `972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75`
+
+(Note: the second value was corrected on my end 2026-07-17 — the previously-circulated canonical value was a 63-character truncation. Use the value above, not any earlier copy of it.)
+
+## Item 3 — Correct the Bug 1/Bug 2 attribution
+
+The original directive labeled Bug 1 as being in `risk_classifier.py`. The evidence confirmed both Bug 1 (strike-comparison coverage check) and Bug 2 (ATM threshold) are in `assignment.py`; `risk_classifier.py` was not modified this session. Correct this attribution in whatever tracker or running directive log carries it forward, so the record doesn't propagate the wrong file name.
+
+## Not required to re-litigate
+
+The following from the original submission are accepted as-is and do not need to be redone:
+- The `git diff --stat` confirmation that only `assignment.py`, `risk_classifier.py`, and `__init__.py` changed
+- The BREAK-at-seq-60 handling (correctly flagged as unresolved, not auto-passed)
+- The explanation for why no git pre-fix object exists for `assignment.py`
+
+---
+
+**This directive closes when:** Items 1–3 above are satisfied with raw evidence per the standing verification block (raw output, before/after diff where applicable, sha256 hashes, explicit statement of anything that cannot be produced).
