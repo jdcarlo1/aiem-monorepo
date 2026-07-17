@@ -306,12 +306,16 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
 
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
-            # Top FEAR_PREMIUM bearish candidates with both OSS + PMD data
+            # Top FEAR_PREMIUM bearish candidates with both OSS + PMD data.
+            # polygon_market_daily is EOD data — it never has today's date on
+            # the same calendar day.  Join on the latest available date so
+            # a VM restart after 09:45 (missed-seed recovery) still seeds.
             cur.execute("""
                 SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag
                 FROM options_structure_scan o
                 JOIN polygon_market_daily p
-                    ON p.ticker = o.ticker AND p.scan_date = o.scan_date
+                    ON p.ticker = o.ticker
+                   AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
                 WHERE o.scan_date = %s
                   AND o.pc_skew_pp IS NOT NULL
                   AND o.front_iv > 0
@@ -432,12 +436,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         import psycopg2 as _pg2
 
         # ── Stage 1: Pull Polygon data from DB ────────────────────────────────
+        # polygon_market_daily is EOD data — it never contains today's date
+        # on the same calendar day.  Use the most recent available row for
+        # the ticker so missed-seed recovery still executes correctly.
         with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT scan_date, close_price, open_price, vwap, close_strength
                 FROM polygon_market_daily
-                WHERE ticker=%s AND scan_date=%s
-            """, (ticker, scan_date))
+                WHERE ticker=%s
+                ORDER BY scan_date DESC
+                LIMIT 1
+            """, (ticker,))
             pmd = cur.fetchone()
             cur.execute("""
                 SELECT spot, front_iv, gex_m, gex_regime, gamma_flip_price,
