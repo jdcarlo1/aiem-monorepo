@@ -1,0 +1,420 @@
+================================================================
+SECTION 1 — TOOL SHA-256 (fresh run 2026-07-17)
+================================================================
+
+$ sha256sum tools/verified_run.sh tools/verify_chain.sh
+ebb6a2dd6f5fb450ef3732428507e1bc408339eea8c3a3855ed4cecf2866cd26  tools/verified_run.sh
+972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75  tools/verify_chain.sh
+
+Canonical match: YES
+  verified_run.sh : ebb6a2dd… ✓
+  verify_chain.sh : 972ff44a… ✓
+
+
+================================================================
+SECTION 2 — FULL verify_chain.sh OUTPUT (fresh run 2026-07-17)
+================================================================
+
+OK  seq=1  entry_hash=b1c0accbf66f2507...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=2  entry_hash=a9e684e82760e490...  cmd: psql $DATABASE_URL -c "SELECT ticker, score, composite_score, hurst_raw, vpin_raw, amihud_score, vrp_score, created_at FROM layer9_scores WHERE ticker='NVDA' ORDER BY created_at DESC LIMIT 10;"
+OK  seq=3  entry_hash=a7a2e710d142b2ab...  cmd: psql $DATABASE_URL -c "\d layer9_scores"
+OK  seq=4  entry_hash=23d396fe4296e377...  cmd: psql $DATABASE_URL -c "SELECT ticker, statistical_score, hurst_raw, vpin_raw, amihud_score, vrp_score, regime, computed_at, scan_date FROM layer9_scores WHERE ticker='NVDA' ORDER BY computed_at DESC LIMIT 10;"
+OK  seq=5  entry_hash=cd6f4299c4eb2e44...  cmd: psql $DATABASE_URL -c "SELECT ticker, rvol, gap_pct, price, close_strength, scan_date FROM polygon_rvol_scan WHERE ticker='NVDA' ORDER BY scan_date DESC LIMIT 5;"
+OK  seq=6  entry_hash=c278f43764905ced...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, direction, setup_type, conviction, trade_date, created_at FROM ai_trade_log WHERE ticker='NVDA' ORDER BY id DESC LIMIT 5;"
+OK  seq=7  entry_hash=00014cf63583d7ac...  cmd: grep -c run_full_cycle artifacts/stock-scanner-api/main.py; echo exit:$?
+OK  seq=8  entry_hash=2f2ddb4131686a09...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, requested_at, mode, outcome, decision_reason FROM d3_governance_requests WHERE ticker='NVDA' ORDER BY requested_at DESC LIMIT 10;"
+OK  seq=9  entry_hash=0d22aa0d8b60ca6e...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, entry_date, source, status, created_at FROM aiem_paper_trades WHERE ticker='NVDA' ORDER BY created_at DESC LIMIT 10;"
+OK  seq=10  entry_hash=76bd9ec58f03734a...  cmd: psql $DATABASE_URL -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='d3_governance_requests' ORDER BY ordinal_position;"
+OK  seq=11  entry_hash=f192378c68e18482...  cmd: psql $DATABASE_URL -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='aiem_paper_trades' ORDER BY ordinal_position;"
+OK  seq=12  entry_hash=9c08bac4f3452c4c...  cmd: psql $DATABASE_URL -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='d3_governance_decisions' ORDER BY ordinal_position;"
+OK  seq=13  entry_hash=0259ebc5582bc9a6...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc, is_test_record FROM d3_governance_requests WHERE checkpoint='G0' ORDER BY request_timestamp_utc DESC LIMIT 10;"
+OK  seq=14  entry_hash=5a44be237848c997...  cmd: psql $DATABASE_URL -c "SELECT id, ticker, trade_date, signal_source, status, created_at, audit_trace_id FROM aiem_paper_trades WHERE ticker='NVDA' ORDER BY created_at DESC LIMIT 10;"
+OK  seq=15  entry_hash=c5127cf94342d3d0...  cmd: psql $DATABASE_URL -c "SELECT gd.checkpoint, gd.decision, gd.blocking, gd.response_timestamp_utc, gr.trigger_source, gr.entrypoint FROM d3_governance_decisions gd JOIN d3_governance_requests gr ON gd.governance_request_id=gr.governance_request_id WHERE gd.checkpoint='G0' AND gd.is_test_record=false ORDER BY gd.response_timestamp_utc DESC LIMIT 10;"
+OK  seq=16  entry_hash=d24d131d8eb97dbd...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, trades_inserted, finished_at, error_msg FROM aiem_paper_execution_log ORDER BY id DESC LIMIT 10;"
+OK  seq=17  entry_hash=1a6edcc63d09751a...  cmd: grep -n 'INSERT\|signal_discoveries\|aiem_v3_discovery' artifacts/stock-scanner-api/aiem_v3_discovery.py | grep -v '#' | head -30
+OK  seq=18  entry_hash=2b50c0c08db6635f...  cmd: psql $DATABASE_URL -c "SELECT scan_date, COUNT(*) as tickers FROM polygon_rvol_scan WHERE gap_pct >= 1.0 AND rvol >= 2.0 GROUP BY scan_date ORDER BY scan_date DESC LIMIT 10;"
+OK  seq=19  entry_hash=d86c21070a20e45f...  cmd: psql $DATABASE_URL -c "SELECT trade_date, COUNT(*) as tickers FROM ai_trade_log WHERE direction='BULLISH' AND conviction IN ('HIGH','VERY HIGH') GROUP BY trade_date ORDER BY trade_date DESC LIMIT 10;"
+OK  seq=20  entry_hash=16aac30a582e47b9...  cmd: grep -rn run_full_cycle artifacts/stock-scanner-api/ --include=*.py | grep -v __pycache__ | grep -v diagram1-signoff
+OK  seq=21  entry_hash=8371035b95aed7fd...  cmd: psql $DATABASE_URL -c "SELECT table_schema, table_name, ..."
+OK  seq=22  entry_hash=2ae767f0b4b9fd4e...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as pub_gr FROM public.d3_governance_requests; ..."
+OK  seq=23  entry_hash=92fd5455cde473c3...  cmd: psql $DATABASE_URL -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name='d3_test_isolation';"
+OK  seq=24  entry_hash=6311bc02a46d59e8...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as iso_gr FROM d3_test_isolation.d3_governance_requests; ..."
+OK  seq=25  entry_hash=3236b552a1cb1851...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as paper_trades FROM public.aiem_paper_trades;"
+OK  seq=26  entry_hash=ac857cd69d798c01...  cmd: cd artifacts/stock-scanner-api && python3 d3_negctl_harness.py --dry-run 2>&1
+OK  seq=27  entry_hash=6545aea42f518dc7...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) as iso_gr FROM ..."
+OK  seq=28  entry_hash=b8846bd877a2b5be...  cmd: sed -n '43112,43127p' /home/runner/workspace/artifacts/stock-scanner-api/main.py
+OK  seq=29  entry_hash=e4977c06583b5312...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) ..."
+OK  seq=30  entry_hash=3462fcd60111d82a...  cmd: echo FULL-TEST-RESULT: subprocess OOM-killed during main.py import. ...
+OK  seq=31  entry_hash=ad58efe656bd631c...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) ..."
+OK  seq=32  entry_hash=fe4f7c1dfb1158d6...  cmd: echo SERVER_STOP: killing stock-api PID 106 at 2026-07-13T00:30:58Z ...
+OK  seq=33  entry_hash=fc7d166b76528459...  cmd: cat /tmp/d3_negctl_result.json
+OK  seq=34  entry_hash=ffa3223febc2910d...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) ..."
+OK  seq=35  entry_hash=a8d892f29f83630e...  cmd: cat /tmp/d3_negctl_progress.log
+OK  seq=36  entry_hash=02c56f22d257ced9...  cmd: find /home/runner/workspace -type f \( -name '*paper_enforcement*' ... \)
+OK  seq=37  entry_hash=40faf8b33cf91773...  cmd: grep -n 'Directive 6\|directive_6\|...' /home/runner/workspace/evidence_chain.log
+OK  seq=38  entry_hash=684fe383d00e8415...  cmd: grep -rn 'Directive 6\|directive_6\|directive6' ...
+OK  seq=39  entry_hash=26ca45670519bc0e...  cmd: cat .agents/memory/d3-paper-enforcement-design.md
+OK  seq=40  entry_hash=e5dad99995926aa7...  cmd: wc -l artifacts/stock-scanner-api/d3_directive6_enforcement_harness.py ...
+OK  seq=41  entry_hash=88ae2d0de161a2ba...  cmd: grep -n 'require_governance\|governance_authorization\|...' /home/runner/workspace/artifacts/stock-scanner-api/main.py
+OK  seq=42  entry_hash=4aef43567ea75df7...  cmd: grep -n 'check_g0_enforce_preconditions\|...' /home/runner/workspace/artifacts/stock-scanner-api/aiem_diagram3_governance.py
+OK  seq=43  entry_hash=7dddcb5f54085fb4...  cmd: cat artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py
+OK  seq=44  entry_hash=200056c12bd3c9df...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, mode, created_at FROM d3_checkpoint_config ..."
+OK  seq=45  entry_hash=d2d7765469c6c62c...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, mode, updated_at FROM d3_checkpoint_config ..."
+OK  seq=46  entry_hash=d17f441953505881...  cmd: psql $DATABASE_URL -c "\d d3_system_state" 2>&1 | head -20
+OK  seq=47  entry_hash=f86d6e8811030104...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, mode, updated_at FROM d3_checkpoint_config ..."
+OK  seq=48  entry_hash=c05a18706571015c...  cmd: psql $DATABASE_URL -c "SELECT job_name, started_at, finished_at, status FROM job_heartbeats ..."
+OK  seq=49  entry_hash=486591b466dad3b7...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc, is_test_record FROM d3_governance_requests ..."
+OK  seq=50  entry_hash=0d06e03942a56d67...  cmd: psql $DATABASE_URL -c "SELECT id, status, trigger_source, started_at, finished_at, trades_inserted FROM aiem_paper_execution_log ..."
+OK  seq=51  entry_hash=64c9e5ab5376a2f3...  cmd: psql $DATABASE_URL -c "\d job_heartbeats" 2>&1 | head -20
+OK  seq=52  entry_hash=327f413556f2a1c0...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc, is_test_record FROM d3_governance_requests ..."
+OK  seq=53  entry_hash=bfd59156f435431b...  cmd: psql $DATABASE_URL -c "SELECT job_name, last_attempt, last_success, consecutive_failures FROM job_heartbeats ..."
+OK  seq=54  entry_hash=439bbeebb84e9b78...  cmd: psql $DATABASE_URL -c "SELECT checkpoint, entrypoint, trigger_source, request_timestamp_utc FROM d3_governance_requests ..."
+OK  seq=55  entry_hash=0e393ff6b1269633...  cmd: cat artifacts/stock-scanner-api/d3_directive6_enforcement_govtest.py
+BREAK at line 60 (seq=56): prev_hash mismatch — chain continuity gap.
+  expected prev_hash: 0f66e4c9319e8ead0570a509c964fa458b47e247faa51042996146f8bde64b4c
+  stored  prev_hash:  0e393ff6b1269633075e01cc91e57fddcbec01c433ff953d9b97a45e82cb4947
+  Cause: UNKNOWN — prev_hash mismatch detected. Do not assume this is benign.
+  Entry is internally valid. Restarting sub-chain from this entry.
+OK  seq=61  entry_hash=d7a48b295d9e5af0...  cmd: psql $DATABASE_URL -c "\d aiem_diagram2_trace_audit" ...
+OK  seq=62  entry_hash=13edc789c2eed4e7...  cmd: grep -rn 'PAPER ENFORCEMENT\|paper enforcement\|paper_enforcement' ...
+OK  seq=63  entry_hash=87b3e40bca354f93...  cmd: grep -n 'def run_tiered_wl_cycle\|...' /home/runner/workspace/artifacts/stock-scanner-api/main.py
+OK  seq=64  entry_hash=686bc7e54f2a91b5...  cmd: grep -n 'run_full_cycle\|def run_full_cycle' /home/runner/workspace/artifacts/stock-scanner-api/main.py
+[... seq=65 through seq=99 all OK ...]
+OK  seq=100  entry_hash=1a0b34a26e0d65f3...  cmd: psql $DATABASE_URL -c "\d aiem_candidate_pipeline"
+OK  seq=101  entry_hash=22891973c156cb88...  cmd: sha256sum artifacts/stock-scanner-api/main.py; ...
+OK  seq=102  entry_hash=e00cc07a6c5fc376...  cmd: psql $DATABASE_URL -c "INSERT INTO aiem_candidate_pipeline ..."
+OK  seq=103  entry_hash=e57394f6884df4ac...  cmd: psql $DATABASE_URL -c "INSERT INTO aiem_candidate_pipeline ... INVALID_STATUS ..."
+OK  seq=104  entry_hash=3dbf0f6371b014fe...  cmd: psql $DATABASE_URL -c "DELETE FROM aiem_candidate_pipeline WHERE ticker='TEST_TICKER' ..."
+OK  seq=105  entry_hash=c33a29d44711df5c...  cmd: cat /tmp/phase2_trigger.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/phase2_trigger.sql
+OK  seq=106  entry_hash=34373305acd16474...  cmd: psql $DATABASE_URL -c "INSERT INTO aiem_candidate_pipeline ... CLAIMED_BY_DIAGRAM1 ..."
+OK  seq=107  entry_hash=65cdde42524c6068...  cmd: cat /tmp/phase2_update_test.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/phase2_update_test.sql
+OK  seq=108  entry_hash=969c15440d92b264...  cmd: psql $DATABASE_URL -c "SELECT COUNT(*) AS total_rows ..."
+OK  seq=109  entry_hash=0f60d867b7ee9fc4...  cmd: echo '--- INSERT refs ---'; grep -n 'aiem_candidate_pipeline' artifacts/stock-scanner-api/main.py; ...
+OK  seq=110  entry_hash=7f8a2724ded9793c...  cmd: psql $DATABASE_URL -c "SELECT trigger_name ... FROM information_schema.triggers WHERE event_object_table='aiem_candidate_pipeline' ..."
+OK  seq=111  entry_hash=0468f679a59eda6b...  cmd: echo CONCURRENT_B_FLOCK_TEST
+OK  seq=112  entry_hash=2ec224f145dfa913...  cmd: sleep 1 && echo CONCURRENT_A_FLOCK_TEST
+OK  seq=113  entry_hash=5d8c2fe4d68d9e23...  cmd: cat /tmp/approved_run_3WXMZZ.txt
+OK  seq=114  entry_hash=d22e5f0048bb4179...  cmd: cat /tmp/p2t_setup.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_setup.sql
+OK  seq=115  entry_hash=4899ce755e702f64...  cmd: cat /tmp/approved_run_zUPHiZ.txt
+OK  seq=116  entry_hash=db50878032e58084...  cmd: cat /tmp/p2t_positive.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_positive.sql
+OK  seq=117  entry_hash=45f91fc3b2772d1f...  cmd: cat /tmp/approved_run_JaNeFj.txt
+OK  seq=118  entry_hash=467ef677036626ad...  cmd: cat /tmp/p2t_atomicity.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_atomicity.sql
+OK  seq=119  entry_hash=fc90d7a4e9e97fbb...  cmd: cat /tmp/approved_run_WxT46T.txt
+OK  seq=120  entry_hash=593b48b7028af5bd...  cmd: cat /tmp/p2t_negative.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_negative.sql
+OK  seq=121  entry_hash=7d46cfe83ff7888a...  cmd: bash /tmp/p2t_concurrent.sh
+OK  seq=122  entry_hash=5c5dc5691511168c...  cmd: cat /tmp/approved_run_YiWQlK.txt
+OK  seq=123  entry_hash=63eccdb7e3e1c331...  cmd: cat /tmp/p2t_cleanup.sql && echo '---EXECUTING---' && psql $DATABASE_URL -f /tmp/p2t_cleanup.sql
+OK  seq=124  entry_hash=f190e55a26f71c14...  cmd: bash tools/verify_chain.sh evidence_chain.log
+OK  seq=125  entry_hash=5552f6184064d231...  cmd: sha256sum tools/verify_chain.sh && bash tools/verify_chain.sh evidence_chain.log
+OK  seq=126  entry_hash=9d02e7bd0e4e1611...  cmd: sha256sum tools/verify_chain.sh && bash tools/verify_chain.sh evidence_chain.log
+OK  seq=127  entry_hash=f928a04ec1d6beb8...  cmd: bash /tmp/p3_baseline.sh
+OK  seq=128  entry_hash=73e1571a4bb8ed7d...  cmd: cat /tmp/approved_run_jyFE4L.txt
+OK  seq=129  entry_hash=7ee2e228e2a3e677...  cmd: cat /tmp/approved_run_7heFyQ.txt
+OK  seq=130  entry_hash=b4677c6e8dd931ec...  cmd: bash /tmp/p3_apply.sh
+OK  seq=131  entry_hash=860f119a875f2129...  cmd: bash /tmp/p3_postedit.sh
+OK  seq=132  entry_hash=35917320acd9caac...  cmd: cat /tmp/approved_run_rS7v7B.txt
+OK  seq=133  entry_hash=4d7406d234983097...  cmd: bash /tmp/p3_insert.sh
+OK  seq=134  entry_hash=8d18e5d1cbad9b61...  cmd: cat /tmp/approved_run_uzEhYB.txt
+OK  seq=135  entry_hash=1accf84f0ff851f3...  cmd: cd artifacts/stock-scanner-api && python3 /tmp/p3_concurrency.py
+OK  seq=136  entry_hash=e1f50fefda09b260...  cmd: cat /tmp/approved_run_LB08jU.txt
+OK  seq=137  entry_hash=b95b781f68a39988...  cmd: cd artifacts/stock-scanner-api && python3 /tmp/p3_idempotency.py
+OK  seq=138  entry_hash=2275aef53d17d399...  cmd: cat /tmp/approved_run_bZX42X.txt
+OK  seq=139  entry_hash=c5fa56c0f8153b9d...  cmd: cd artifacts/stock-scanner-api && python3 /tmp/p3_stale.py
+OK  seq=140  entry_hash=9fd135203cbaf4e6...  cmd: cat /tmp/approved_run_p5mefu.txt
+OK  seq=141  entry_hash=a21aa05ec64402f3...  cmd: bash /tmp/p3_cleanup.sh
+OK  seq=142  entry_hash=bd102abc197e22ec...  cmd: cat /tmp/approved_run_UDKurf.txt
+OK  seq=143  entry_hash=afe9e03a34838b48...  cmd: bash /tmp/p4_insert.sh
+OK  seq=144  entry_hash=c32a20f5f304a834...  cmd: cat /tmp/approved_run_e58zJl.txt
+OK  seq=145  entry_hash=e4a5ffa0495d067e...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c1_dupclm.py
+OK  seq=146  entry_hash=c7bcb8f6b83e4396...  cmd: cat /tmp/approved_run_voxnMl.txt
+OK  seq=147  entry_hash=59b75f5578fd6007...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c2_orchfail.py
+OK  seq=148  entry_hash=e820add952a9215c...  cmd: cat /tmp/approved_run_hds7bN.txt
+OK  seq=149  entry_hash=a18a95187eba7670...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c4_dupevt.py
+OK  seq=150  entry_hash=391be2829d2edc61...  cmd: cat /tmp/approved_run_zAm9ey.txt
+OK  seq=151  entry_hash=6d345a2dbf9c2ef3...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c5_restart.py
+OK  seq=152  entry_hash=8af78017b0835f7f...  cmd: cat /tmp/approved_run_EIHvKg.txt
+OK  seq=153  entry_hash=fd213c09a069dc7d...  cmd: cd /home/runner/workspace/artifacts/stock-scanner-api && python3 /tmp/p4_c6_stlrun.py
+OK  seq=154  entry_hash=fd7df1cd6832c7ed...  cmd: python3 -c "... d3.set_d3_checkpoint_mode(checkpoint='G6', mode='ENFORCE', ...) ..."
+OK  seq=155  entry_hash=0e283328dcd227a7...  cmd: psql "$DATABASE_URL" -c "SELECT checkpoint, mode, updated_by, updated_at FROM d3_checkpoint_config ORDER BY checkpoint;"
+OK  seq=156  entry_hash=8e64039b9f0cc516...  cmd: python3 -c "... d3._evaluate_g6_decision(... pit_price_source='live_quote' ...) ..."
+OK  seq=157  entry_hash=7946b81c6919ebd6...  cmd: python3 -c "... d3._evaluate_g6_decision(... pit_price_source='polygon_fallback', stale_date ...) ..."
+OK  seq=158  entry_hash=81f8e3e2082fab95...  cmd: python3 -c "... d3._evaluate_g6_decision(... polygon_fallback, scan_date=None ...) ..."
+OK  seq=159  entry_hash=64d3bb474ee66167...  cmd: python3 -c "... G6 fail-open test ..."
+OK  seq=160  entry_hash=6f4144c2714b3718...  cmd: python
+OK  seq=161  entry_hash=84c7c093fa915d16...  cmd: artifacts/stock-scanner-api/ase_prob_ev_verification.py
+OK  seq=162  entry_hash=8b6cbe8c79d90734...  cmd: artifacts/stock-scanner-api/ase_liquidity_verification.py
+OK  seq=163  entry_hash=e7fd6ced75eb66e4...  cmd: python artifacts/stock-scanner-api/ase_prob_ev_verification.py
+OK  seq=164  entry_hash=1c78319edd044430...  cmd: python artifacts/stock-scanner-api/ase_liquidity_verification.py
+OK  seq=165  entry_hash=b1f18ed35c9ab5c8...  cmd: cd artifacts/stock-scanner-api && python ase_assignment_verification.py
+OK  seq=166  entry_hash=86b918c5af6e3c4c...  cmd: cd artifacts/stock-scanner-api && python ase_risk_classification_verification.py
+OK  seq=167  entry_hash=c6e0b6391c8f04bf...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=168  entry_hash=a89253d2fe321586...  cmd: git show d830870:artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py | sha256sum
+OK  seq=169  entry_hash=a9b69eb888c4c1a9...  cmd: git show d830870:artifacts/stock-scanner-api/verify_13_14.py | sha256sum
+OK  seq=170  entry_hash=7d63a323cb37acad...  cmd: sha256sum artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py artifacts/stock-scanner-api/verify_13_14.py
+OK  seq=171  entry_hash=8bff0574fad2c58a...  cmd: git --no-optional-locks diff d830870 dcafe66 -- artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py artifacts/stock-scanner-api/verify_13_14.py
+OK  seq=172  entry_hash=5e8cf907b60aed1c...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=173  entry_hash=128f87febdf05340...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=174  entry_hash=3ea2c5f237bbea87...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=175  entry_hash=9b5f42c253eed931...  cmd: cd artifacts/stock-scanner-api && python3 verify_followup_2_5.py
+OK  seq=176  entry_hash=113d864ba649a086...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=177  entry_hash=d053662ad1d75098...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_15_db.py
+OK  seq=178  entry_hash=6a79ffa4e1f0e02f...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_15_db.py
+OK  seq=179  entry_hash=8caffa870f844971...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_16_recovery.py
+OK  seq=180  entry_hash=ef93a618e9ddc84f...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_16_recovery.py
+OK  seq=181  entry_hash=2b1b07169daecb5b...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_17_performance.py
+OK  seq=182  entry_hash=551642f5efd1cca5...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_17_performance.py
+OK  seq=183  entry_hash=ab01a462446674cf...  cmd: cd artifacts/stock-scanner-api && python3 verify_item_17_performance.py
+
+=== CHAIN HAS 1 UNRESOLVED BREAK(S) — awaiting manual review. Not auto-approved. ===
+    Each break entry above was internally valid but the chain continuity gap is unverified.
+    Cause is UNKNOWN. Do not assume this is benign. Manual review and explicit approval required.
+
+
+================================================================
+SECTION 3 — git diff dcafe66^ dcafe66 -- aiem_strat_engine/paper_trader.py
+================================================================
+
+$ cd artifacts/stock-scanner-api && git diff dcafe66^ dcafe66 -- aiem_strat_engine/paper_trader.py
+
+diff --git a/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py b/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py
+index e62282f..9f0c6e6 100644
+--- a/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py
++++ b/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py
+@@ -266,11 +266,15 @@ def get_open_trades() -> List[Dict[str, Any]]:
+         with get_conn() as conn:
+             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                 cur.execute("""
+-                    SELECT pt.*, array_agg(row_to_json(pl.*)) AS legs
++                    SELECT pt.*, legs_sub.legs
+                     FROM ase_paper_trades pt
+-                    LEFT JOIN ase_paper_trade_legs pl ON pl.paper_trade_id = pt.paper_trade_id
++                    LEFT JOIN (
++                        SELECT paper_trade_id,
++                               array_agg(row_to_json(pl.*)) AS legs
++                        FROM ase_paper_trade_legs pl
++                        GROUP BY paper_trade_id
++                    ) legs_sub ON legs_sub.paper_trade_id = pt.paper_trade_id
+                     WHERE pt.status = 'OPEN'
+-                    GROUP BY pt.paper_trade_id
+                     ORDER BY pt.entry_time DESC
+                 """)
+                 return [dict(r) for r in cur.fetchall()]
+
+
+================================================================
+SECTION 4 — grep: GroupingError fix location, get_conn binding, _current_value legs-skip
+================================================================
+
+--- 4a. GroupingError fix location (paper_trader.py) ---
+
+$ grep -n "GroupingError\|get_open_trades\|groupby\|apply\|to_dict" \
+    aiem_strat_engine/paper_trader.py | head -40
+
+124:        "legs":                 [lg.to_dict() for lg in evaluation.legs],
+263:def get_open_trades() -> List[Dict[str, Any]]:
+
+  Note: GroupingError was caused by GROUP BY pt.paper_trade_id on a SELECT pt.*
+  when pt has no stable single-column primary key visible to pandas groupby.
+  The fix moves the GROUP BY into a subquery on ase_paper_trade_legs only,
+  where paper_trade_id is the sole group key. Lines 266-280 in paper_trader.py.
+  Exact diff is in Section 3 above.
+
+--- 4b. Module-local get_conn binding ---
+
+$ grep -n "^from .db import\|^from aiem_strat_engine.db import\|get_conn" \
+    aiem_strat_engine/paper_trader.py | head -20
+
+19:from .db import get_conn
+135:        with get_conn() as conn, conn.cursor() as cur:
+238:        with get_conn() as conn, conn.cursor() as cur:
+266:        with get_conn() as conn:
+304:        with get_conn() as conn, conn.cursor() as cur:
+
+$ grep -n "^from .db import\|^from .chain_data import" \
+    aiem_strat_engine/position_manager.py | head -10
+
+28:from .db import get_conn
+29:from .chain_data import get_spot, get_chain, get_expirations, get_atm_iv
+
+  Implication: patching _db_mod.get_conn does not affect paper_trader.get_conn
+  or position_manager.get_conn because both bind get_conn at import time via
+  "from .db import get_conn". Patches in Item 16 target _pt_mod.get_conn and
+  _pm_mod.get_conn directly.
+
+--- 4c. _current_value legs-skip logic (position_manager.py lines 46-78) ---
+
+$ sed -n '46,78p' aiem_strat_engine/position_manager.py
+
+def _current_value(legs_data: List[Dict], ticker: str) -> Optional[float]:
+    """
+    Estimate current mark-to-market value of all legs using live chain data.
+    Returns None if any leg cannot be priced.
+    """
+    total = 0.0
+    fetched: Dict[str, List] = {}
+    for leg in legs_data:
+        if not isinstance(leg, dict): continue
+        exp = leg.get("expiration")
+        if not exp: continue                        # <-- legs-skip: no expiration
+        if exp not in fetched:
+            fetched[exp] = get_chain(ticker, str(exp)[:10])
+        chain = fetched.get(exp, [])
+
+        cp = leg.get("call_or_put", "")[:1].upper()
+        strike = leg.get("strike")
+        if not strike: continue                     # <-- legs-skip: no strike
+
+        match = next((o for o in chain
+                       if o.get("call_or_put") == cp and abs((o.get("strike") or 0) - float(strike)) < 0.01),
+                     None)
+        if not match:
+            return None                             # <-- returns None on no match
+
+        mid = match.get("mid") or 0
+        sign = 1 if leg.get("buy_or_sell") == "LONG" else -1
+        ratio = leg.get("ratio", 1) or 1
+        total += sign * mid * ratio
+    return round(total, 4)                          # <-- returns 0.0 if all legs skipped
+
+
+================================================================
+SECTION 5a — RAW SQL: Item 15 parent/legs/valuation rows
+================================================================
+
+$ psql $DATABASE_URL -c "
+  SELECT paper_trade_id, underlying, strategy_name, family, thesis, status,
+         probability_of_profit, maximum_profit, maximum_loss, capital_at_risk, audit_hash
+  FROM ase_paper_trades
+  WHERE underlying='VRY15' AND strategy_name='Bull Call Spread'
+  ORDER BY entry_time DESC LIMIT 3;"
+
+ paper_trade_id | underlying | strategy_name | family | thesis | status | ...
+----------------+------------+---------------+--------+--------+--------+
+(0 rows)
+
+PLAIN STATEMENT: The Item 15 verification script (verify_item_15_db.py)
+inserts test rows using ticker='VRY15' and deletes them in its cleanup
+block before exiting. The script ran and exited 0 (entry #178). The rows
+do not persist after the test. There are no surviving VRY15 rows to query.
+
+The proof that the rows existed and passed all 67 checks is the script
+output captured in evidence_chain.log entry #178:
+  timestamp_utc : 2026-07-17T22:22:05Z (approx)
+  exit_code     : 0
+  output_sha256 : c734d3b3bb4e37476c0197f62a07a4c25396f1b31ab63ccba1a8de14ee2d665f
+  entry_hash    : 6a79ffa4e1f0e02fc901620d49185d1ec6dbde6cf8684eb8c6423ad9babebbbd
+
+The raw output behind that sha256 is the full PASS=67 / FAIL=0 terminal
+dump from verify_item_15_db.py, which includes the actual paper_trade_id,
+legs, valuation, and adjustment rows printed to stdout during the run.
+
+--- ase_paper_trade_legs schema (actual column names) ---
+
+$ psql $DATABASE_URL -c "\d ase_paper_trade_legs"
+
+                    Table "public.ase_paper_trade_legs"
+     Column      |           Type           | Nullable | Default
+-----------------+--------------------------+----------+---------
+ id              | integer                  | not null | nextval(...)
+ paper_trade_id  | text                     | not null |
+ leg_number      | integer                  | not null |
+ asset_type      | text                     | not null |
+ option_symbol   | text                     |          |
+ call_or_put     | text                     |          |
+ buy_or_sell     | text                     | not null |
+ open_or_close   | text                     | not null | 'OPEN'
+ quantity        | integer                  | not null |
+ ratio           | integer                  | not null | 1
+ strike          | numeric(12,4)            |          |
+ expiration      | date                     |          |
+ dte_at_entry    | integer                  |          |
+ bid             | numeric(10,4)            |          |
+ ask             | numeric(10,4)            |          |
+ mid             | numeric(10,4)            |          |
+ modeled_fill    | numeric(10,4)            |          |
+ paper_fill      | numeric(10,4)            |          |
+ iv              | numeric(8,4)             |          |
+ delta           | numeric(8,4)             |          |
+ gamma           | numeric(8,4)             |          |
+ theta           | numeric(8,4)             |          |
+ vega            | numeric(8,4)             |          |
+ rho             | numeric(8,4)             |          |
+ volume          | integer                  |          |
+ open_interest   | integer                  |          |
+ quote_timestamp | timestamp with time zone |          |
+ data_provider   | text                     |          | 'tradier'
+ created_at      | timestamp with time zone | not null | now()
+Indexes:
+    "ase_paper_trade_legs_pkey" PRIMARY KEY, btree (id)
+    "ase_paper_trade_legs_paper_trade_id_leg_number_key" UNIQUE (paper_trade_id, leg_number)
+Foreign-key constraints:
+    "ase_paper_trade_legs_paper_trade_id_fkey" FOREIGN KEY (paper_trade_id)
+        REFERENCES ase_paper_trades(paper_trade_id)
+
+
+================================================================
+SECTION 5b — RAW SQL: Item 17 per-trade net_pnl (all 17 rows, full IDs)
+================================================================
+
+$ psql $DATABASE_URL -c "
+  SELECT paper_trade_id, underlying, strategy_name,
+         gross_pnl, commission_paid, net_pnl,
+         return_on_capital_realized, capital_at_risk
+  FROM ase_paper_trades
+  WHERE status='CLOSED'
+  ORDER BY close_time;"
+
+            paper_trade_id            | underlying |     strategy_name      | gross_pnl | commission_paid | net_pnl  | return_on_capital_realized | capital_at_risk
+--------------------------------------+------------+------------------------+-----------+-----------------+----------+----------------------------+-----------------
+ f7df3c4f-0f5a-4373-b3a1-4de21f8810af | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 1d29561d-5b13-4486-8cc9-f051b26656f9 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 36606418-e378-45a2-87b3-b2959cd9988f | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 7965de94-34d8-4491-81d7-0c88772f5308 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 84263723-68b6-4b8b-8829-238f462538aa | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 33a502ce-2ae8-43dc-8710-5ca457e9eee8 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 24ea4da9-5c39-4871-8f1d-7e0212849731 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 8089be1d-7f58-4384-8d00-cf16ee52359e | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 3944b42c-70ef-4058-badb-a64c343f05e2 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ ase_pt_426097d373aa4fbd              | VERIFY     | Bull Call Debit Spread |  580.0000 |          2.6000 | 577.4000 |                     1.4435 |          400.00
+ ase_pt_6083b99595c94b37              | VERIFY     | Bull Call Debit Spread |  580.0000 |          2.6000 | 577.4000 |                     1.4435 |          400.00
+ ase_pt_3bda863231e14809              | VERIFY     | Bull Call Debit Spread |  580.0000 |          2.6000 | 577.4000 |                     1.4435 |          400.00
+ ase_pt_930dbae809cc441f              | TEST       | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_e74a98a001e44700              | TEST       | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_e95d83f0affc4bb8              | VRFY3      | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_6b1cc9d803364251              | VRFY3      | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_a963675e92cd4d25              | VRFY3      | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+(17 rows)
+
+SQL sum(net_pnl) = 9×5.8 + 3×577.4 + 5×48.7 = 52.2 + 1732.2 + 243.5 = 2027.9
+Matches report net_pnl_paper=2027.9 ✓
+
+Note on gross_pnl=NULL for first 9 rows: these are legacy test trades
+inserted directly without gross_pnl/commission_paid columns populated.
+net_pnl is set directly. The per-trade check in verify_item_17_performance.py
+filters to rows where gross_pnl IS NOT NULL before verifying net=gross-comm.
+
+
+================================================================
+SECTION 6 — seq=60 CHAIN BREAK: sign-off status
+================================================================
+
+$ grep -c "BREAK_APPROVED\|CHAIN_BREAK_SIGNED\|manually.*approved" evidence_chain.log
+0
+
+PLAIN STATEMENT: The seq=60 chain break has NOT been manually signed off.
+No BREAK_APPROVED or equivalent record exists in evidence_chain.log.
+verify_chain.sh exits non-zero and prints:
+  "CHAIN HAS 1 UNRESOLVED BREAK(S) — awaiting manual review.
+   Not auto-approved. Cause is UNKNOWN. Do not assume this is benign."
+
+The break occurred between a prior session's entry at seq=55
+(entry_hash=0e393ff6b1269633...) and the entry stored at seq=56
+(stored prev_hash=0e393ff6b1269633... but the chain expected
+prev_hash=0f66e4c9319e8ead...). The most probable cause is a
+concurrent write or a log-append that lost one entry between sessions.
+The entry at seq=56 is internally valid. All entries from seq=61 onward
+form an unbroken sub-chain through seq=183.
+
+This break predates the ASE verification work. All entries in this
+session (seq=167–183) are in the intact sub-chain following the break.
+The break has not been manually approved. It stands as an open finding.

@@ -1,0 +1,27 @@
+ITEM 17 — SHA-256 INTEGRITY WARN ON PRE-EXISTING ROWS: STATUS OPEN
+
+The WARN lines printed during verify_item_17_performance.py (entry #183) for
+10 stored reports in ase_performance_reports are still open. They are not
+resolved.
+
+The root cause is a type-coercion mismatch in verify_report_integrity(). When
+generate_report() builds report_data and computes the SHA-256, numeric Python
+values (floats, Decimals from DB) are serialized via json.dumps(...,
+default=str). When verify_report_integrity() re-fetches the same row from
+PostgreSQL, NUMERIC columns come back as Decimal objects and JSONB columns come
+back as already-parsed Python dicts/lists. The _normalize_for_hash() function
+converts Decimal→float, but the json.dumps() round-trip for nested JSONB
+values (trade_ledger pnl fields stored as strings via default=str in the
+original write, then retrieved as native JSON strings by psycopg2) may differ
+in representation depending on when and how the row was first written. Rows
+written before the current session's reporting.py code was in place are
+affected. Rows written and verified within the same session round-trip cleanly,
+as demonstrated by the WEEKLY/2099-01-01 fresh row test (PASS) and the
+tamper-detection test (mutation of net_pnl_paper+999 detected, PASS).
+
+This is a bug in verify_report_integrity() that affects pre-existing rows only.
+It does not affect the tamper-detection capability for new rows. It has not
+been fixed. Fixing it requires either backfilling the stored SHA-256 values for
+all pre-existing rows or normalizing the hash input consistently across both
+the write path and the verify path. Neither has been done. The 10 pre-existing
+rows will continue to fail integrity checks until that fix is applied.
