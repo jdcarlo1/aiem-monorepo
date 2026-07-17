@@ -22538,6 +22538,118 @@ def delete_my_trade(trade_id):
         return jsonify({"error": str(e)}), 500
 
 
+# ── Emergency Pipeline Run (GitHub Actions failover) ─────────────────────────
+# Rate limit state — module-level, shared across all requests
+import threading as _er_threading
+_emergency_run_calls = []
+_emergency_run_lock  = _er_threading.Lock()
+
+
+@app.route("/stock-api/admin/pipeline-checkpoint", methods=["GET"])
+def admin_pipeline_checkpoint():
+    """Read-only: returns today's pipeline status and needs_recovery flag. No auth."""
+    import psycopg2
+    from datetime import date, timezone, datetime
+    try:
+        today = date.today().isoformat()
+        with psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT ticker, status FROM options_pipeline_jobs "
+                "WHERE scan_date = %s ORDER BY ticker", (today,))
+            jobs = [{"ticker": r[0], "status": r[1]} for r in cur.fetchall()]
+            cur.execute(
+                "SELECT status, trigger_source FROM daily_pipeline_runs "
+                "WHERE run_date = %s LIMIT 1", (today,))
+            row = cur.fetchone()
+            dpr = {"status": row[0], "trigger_source": row[1]} if row else None
+        pending = sum(1 for j in jobs if j["status"] == "PENDING")
+        done    = sum(1 for j in jobs if j["status"] == "DONE")
+        return jsonify({
+            "date":           today,
+            "jobs":           jobs,
+            "pending":        pending,
+            "done":           done,
+            "pipeline_run":   dpr,
+            "needs_recovery": pending > 0 and (dpr is None or dpr.get("status") != "COMPLETED"),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stock-api/admin/emergency-run", methods=["POST"])
+def admin_emergency_run():
+    """
+    GitHub Actions failover: triggers aiem_backup_runner.py via subprocess.
+    Auth: X-Admin-Token header (ADMIN_TOKEN), constant-time comparison.
+    Rate limit: 3 calls/hour globally.
+    Replay protection: JSON body must include ts (Unix epoch), rejected if |now-ts| > 60s.
+    Logs: timestamp, source IP, result — token value never logged.
+    """
+    import hmac, time, subprocess, sys as _sys, os as _os
+    from datetime import datetime, timezone
+
+    got  = (request.headers.get("X-Admin-Token") or "").encode()
+    want = (_os.environ.get("ADMIN_TOKEN") or "").encode()
+    ip   = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
+
+    def _log(result, detail=""):
+        print(f"[emergency-run] ip={ip} time={datetime.now(timezone.utc).isoformat()} "
+              f"result={result}{' ' + str(detail) if detail else ''}", flush=True)
+
+    # 1. constant-time auth
+    if not got or not want or not hmac.compare_digest(got, want):
+        _log("UNAUTHORIZED")
+        return jsonify({"error": "unauthorized"}), 403
+
+    # 2. replay protection
+    try:
+        body   = request.get_json(force=True) or {}
+        ts_req = float(body.get("ts", 0))
+        skew   = abs(time.time() - ts_req)
+        if skew > 60:
+            _log("REPLAY_REJECTED", f"skew={skew:.1f}s")
+            return jsonify({"error": "timestamp out of range", "skew_s": round(skew, 1)}), 400
+    except Exception:
+        _log("BAD_REQUEST")
+        return jsonify({"error": "body must be JSON with ts (unix epoch)"}), 400
+
+    # 3. rate limit: 3/hour globally
+    now = time.time()
+    with _emergency_run_lock:
+        _emergency_run_calls[:] = [t for t in _emergency_run_calls if now - t < 3600]
+        if len(_emergency_run_calls) >= 3:
+            _log("RATE_LIMITED", f"calls_this_hour={len(_emergency_run_calls)}")
+            return jsonify({"error": "rate limit exceeded: max 3 calls/hour"}), 429
+        _emergency_run_calls.append(now)
+
+    # 4. run backup pipeline
+    _log("ACCEPTED")
+    runner = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "aiem_backup_runner.py")
+    env    = {**_os.environ, "TRIGGER_SOURCE": "emergency_run_endpoint"}
+    try:
+        result  = subprocess.run(
+            [_sys.executable, runner],
+            capture_output=True, text=True, timeout=240, env=env)
+        lines   = (result.stdout + result.stderr).strip().splitlines()
+        status  = "COMPLETED" if result.returncode == 0 else "FAILED"
+        summary = next(
+            (l for l in reversed(lines) if "ALL DONE" in l or "NO_ACTION" in l or "ERROR" in l.upper()),
+            lines[-1] if lines else "")
+        _log(status, summary[:120])
+        return jsonify({
+            "status":    status,
+            "exit_code": result.returncode,
+            "summary":   summary,
+            "log_tail":  lines[-20:],
+        })
+    except subprocess.TimeoutExpired:
+        _log("TIMEOUT")
+        return jsonify({"error": "runner timed out after 240s"}), 504
+    except Exception as e:
+        _log("EXCEPTION", str(e)[:80])
+        return jsonify({"error": str(e)}), 500
+
+
 # ── AI Trade Log - DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():

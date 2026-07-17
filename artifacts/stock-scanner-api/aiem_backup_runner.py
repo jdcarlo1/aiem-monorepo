@@ -494,18 +494,19 @@ def _execute_job(conn, candidate_row, today: date) -> dict:
             entry_mid  = put_mid if direction == "LONG_PUT" else call_mid
             strike     = put_strike if direction == "LONG_PUT" else call_strike
             with conn.cursor() as cur:
-                # Pre-check: avoid duplicate paper trade for same ticker/date/source
-                # (aiem_paper_trades has no unique constraint — explicit guard required)
+                # Pre-check: avoid duplicate paper trade for same ticker/date.
+                # Check on (ticker, trade_date) only — matches the DB unique constraint.
+                # A trade from any source counts as a dedup (idempotent guard).
                 cur.execute("""
-                    SELECT id FROM aiem_paper_trades
-                    WHERE trade_date = %s AND ticker = %s AND signal_source = %s
+                    SELECT id, signal_source FROM aiem_paper_trades
+                    WHERE trade_date = %s AND ticker = %s
                     LIMIT 1
-                """, (today, ticker, _TRIGGER))
+                """, (today, ticker))
                 _pt_existing = cur.fetchone()
 
                 if _pt_existing:
                     log.info(f"[exec] paper trade already exists id={_pt_existing[0]} "
-                             f"for {ticker}/{today}/{_TRIGGER} — skipping duplicate")
+                             f"source={_pt_existing[1]} for {ticker}/{today} — skipping duplicate")
                 else:
                     cur.execute("""
                         INSERT INTO aiem_paper_trades
@@ -545,13 +546,21 @@ def _execute_job(conn, candidate_row, today: date) -> dict:
     except Exception as e:
         err = str(e)[:400]
         log.error(f"[exec] FAILED job_id={job_id} {ticker}: {e}")
-        with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE options_pipeline_jobs
-                SET status='FAILED', error_text=%s, completed_at=NOW()
-                WHERE id=%s
-            """, (err, job_id))
-        conn.commit()
+        # Rollback any aborted transaction before attempting the status update.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE options_pipeline_jobs
+                    SET status='FAILED', error_text=%s, completed_at=NOW()
+                    WHERE id=%s
+                """, (err, job_id))
+            conn.commit()
+        except Exception as upd_err:
+            log.error(f"[exec] could not update job status: {upd_err}")
         return {"job_id": job_id, "ticker": ticker, "direction": "FAILED",
                 "error": err, "trace_id": trace_id}
 

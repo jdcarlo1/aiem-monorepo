@@ -1,0 +1,31 @@
+# AIEM GitHub Actions Failover — Decision
+
+## Decision: Option A — HTTP Endpoint
+
+Add a single protected `POST /stock-api/admin/emergency-run` endpoint to `main.py`. GitHub Actions calls it with `ADMIN_TOKEN` instead of connecting to the database directly.
+
+**Rejected: Option B (External DB URL)** — requires exposing `DATABASE_URL_EXTERNAL` publicly. Larger standing security risk (full DB access if leaked) to solve an edge case (full VM outage) that's rare compared to the scheduler-process-only failures this is meant to catch.
+
+## Why Option A
+
+- Smaller attack surface: one token-scoped endpoint vs. a publicly reachable database.
+- No new infrastructure exposure — doesn't require opening the production DB to external connections.
+- A leaked `ADMIN_TOKEN` is rotated in seconds; a leaked DB connection string is a much bigger incident.
+- Easier to audit and lock down: rate limiting, IP allowlisting, and logging are all straightforward on a single endpoint.
+- Covers the actual failure mode observed (scheduler process / DNS failure), not full VM downtime, which is already rare.
+
+## Implementation Requirements for `ADMIN_TOKEN`
+
+1. **Generation** — cryptographically random, ≥32 bytes, stored only as a GitHub Actions secret and a Replit secret. Never logged, never printed in agent output.
+2. **Scope** — this token authorizes *only* the emergency-run endpoint. Do not reuse it for any other admin function.
+3. **Transport** — sent as a header (e.g. `X-Admin-Token`), never as a query parameter (avoids leaking into logs/URLs).
+4. **Validation** — constant-time comparison server-side to avoid timing attacks.
+5. **Rate limiting** — cap requests per minute/hour on this endpoint specifically.
+6. **IP allowlist (if feasible)** — restrict to GitHub Actions' published IP ranges, or at minimum log all calling IPs.
+7. **Logging** — log every call (timestamp, source IP, result) but never log the token value itself.
+8. **Rotation plan** — document how to rotate the token (update both secrets, no downtime) and rotate immediately if this endpoint or its logs are ever exposed.
+9. **Idempotency/replay protection** — consider a short-lived nonce or timestamp check so a captured request can't be replayed later.
+
+## Next Step
+
+Confirm this spec, then hand to the Replit agent for implementation with the standing verification protocol applied — Claude reviews the actual endpoint code and token-handling logic before it's considered done, not just the agent's claim that it works.
