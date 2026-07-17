@@ -108,7 +108,6 @@ if not db:
 
 try:
     with psycopg2.connect(db) as conn, conn.cursor() as cur:
-        # Check jobs
         cur.execute("SELECT ticker, status FROM options_pipeline_jobs WHERE scan_date=CURRENT_DATE ORDER BY ticker")
         live_jobs = {r[0]: r[1] for r in cur.fetchall()}
         stored_jobs = {j["ticker"]: j["status"] for j in e["db_state"]["options_pipeline_jobs"]}
@@ -118,7 +117,6 @@ try:
             print(f"  FAIL : options_pipeline_jobs mismatch: stored={stored_jobs} live={live_jobs}")
             fails += 1
 
-        # Check daily pipeline run
         cur.execute("SELECT status, trigger_source FROM daily_pipeline_runs WHERE run_date=CURRENT_DATE LIMIT 1")
         r = cur.fetchone()
         stored_dpr = e["db_state"]["daily_pipeline_runs"]
@@ -130,7 +128,6 @@ try:
             print(f"  FAIL : daily_pipeline_runs mismatch: stored={stored_dpr} live={r}")
             fails += 1
 
-        # Check paper trades
         cur.execute("SELECT id, ticker, signal_source FROM aiem_paper_trades WHERE trade_date=CURRENT_DATE ORDER BY id")
         live_trades = [(r[0], r[1], r[2]) for r in cur.fetchall()]
         stored_ids  = [t["id"] for t in e["db_state"]["paper_trades"]]
@@ -156,6 +153,7 @@ GH_EVENT=$(python3 -c "import json; d=json.load(open('$EVIDENCE')); print(d['git
 GH_RUN_ID=$(python3 -c "import json; d=json.load(open('$EVIDENCE')); print(d['github_actions']['run_id'])")
 GH_STATUS=$(python3 -c "import json; d=json.load(open('$EVIDENCE')); print(d['github_actions']['status'])")
 GH_CREATED=$(python3 -c "import json; d=json.load(open('$EVIDENCE')); print(d['github_actions']['created_at'])")
+GH_URL=$(python3 -c "import json; d=json.load(open('$EVIDENCE')); print(d['github_actions'].get('html_url',''))")
 
 if [ "$GH_EVENT" = "schedule" ]; then
     ok "trigger event='schedule' (automated cron, not manual dispatch)"
@@ -164,7 +162,7 @@ else
 fi
 
 if [ "$GH_STATUS" = "success" ]; then
-    ok "run $GH_RUN_ID completed with status=success"
+    ok "run $GH_RUN_ID completed with status=success (url=$GH_URL)"
 elif [ -z "$GH_RUN_ID" ] || [ "$GH_RUN_ID" = "" ]; then
     skip "no GitHub Actions run captured yet (run verified_run.sh after automated trigger)"
 else
@@ -183,6 +181,41 @@ if [ "$STORED_NR" = "False" ] || [ "$STORED_NR" = "false" ]; then
 else
     fail "needs_recovery=$STORED_NR at capture time — recovery did not complete before capture"
 fi
+
+# ── G. HTTP security test results ────────────────────────────────────────────
+echo ""
+echo "[G] HTTP security test results (captured by verified_run.sh)"
+python3 - << PYEOF
+import json, sys
+
+e     = json.load(open("$EVIDENCE"))
+tests = e.get("http_tests", {})
+fails = 0
+
+if not tests:
+    print("  SKIP : no http_tests section in bundle (run with updated verified_run.sh v1.1+)")
+    sys.exit(0)
+
+checks = [
+    ("t1_wrong_token",     "Wrong token must return 403"),
+    ("t2_stale_timestamp", "Stale ts must return 400"),
+    ("t3_valid_auth",      "Valid auth must return COMPLETED or NO_ACTION"),
+    ("t4_checkpoint_noauth", "Checkpoint no-auth must return today's date"),
+]
+for key, desc in checks:
+    t = tests.get(key, {})
+    result = t.get("result", "MISSING")
+    if result == "PASS":
+        print(f"  PASS : {desc} ({key})")
+    elif result == "MISSING":
+        print(f"  SKIP : {desc} — key '{key}' absent from bundle")
+    else:
+        print(f"  FAIL : {desc} ({key}) result={result}")
+        fails += 1
+
+sys.exit(fails)
+PYEOF
+if [ $? -ne 0 ]; then FAIL=$((FAIL+1)); else PASS=$((PASS+1)); fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
