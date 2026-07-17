@@ -474,3 +474,9 @@ id = "SCiluwtbUTKDBfkUv_eKh"
 uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_m.csv"
 type = "table"
 title = "section_m.csv — Negative control, 0 rows (SEC-M)"
+
+[[outputs]]
+id = "WgznhMco-quL2MvFVZXNX"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/LC_FULL_EVIDENCE_PACKAGE.txt"
+type = "text"
+title = "LC_FULL_EVIDENCE_PACKAGE.txt — Complete Evidence (18,965 lines, all-in-one)"
