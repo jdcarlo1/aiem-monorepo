@@ -163,13 +163,13 @@ def _seed_candidates():
         with _db_conn() as conn, conn.cursor() as cur:
             # Pull top-25 stocks from polygon_rvol_scan (most recent scan date)
             cur.execute("""
-                SELECT DISTINCT ON (ticker) ticker, close_strength, rvol_ratio, gap_pct
+                SELECT DISTINCT ON (ticker) ticker, close_strength, rvol, gap_pct
                 FROM polygon_rvol_scan
                 WHERE scan_date >= CURRENT_DATE - INTERVAL '3 days'
-                  AND rvol_ratio >= 1.5
-                  AND close_price >= 5.0
-                  AND close_price <= 500.0
-                ORDER BY ticker, scan_date DESC, rvol_ratio DESC
+                  AND rvol >= 1.5
+                  AND price >= 5.0
+                  AND price <= 500.0
+                ORDER BY ticker, scan_date DESC, rvol DESC
                 LIMIT %s
             """, (_MAX_CANDIDATES,))
             rows = cur.fetchall()

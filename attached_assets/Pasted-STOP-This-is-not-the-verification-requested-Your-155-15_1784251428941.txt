@@ -1,0 +1,147 @@
+STOP. This is not the verification requested.
+
+Your 155/155 result only proves that functions ran against mock legs without exceptions, strategies are reachable in a catalog, and registry rows can be upserted. It does NOT prove mathematical correctness, real scheduler execution, complete database lifecycle, or paper-trade execution.
+
+Do not return another summary score. Provide the following evidence.
+
+1. COMPLETE 155-STRATEGY REGISTRY
+Return one row for every strategy:
+- Strategy ID and exact name
+- Family
+- Source file
+- Function/class
+- Leg count and exact leg template
+- Execution class
+- Enabled / disabled / analysis-only
+- SHA-256
+- Individual PASS/FAIL
+
+No “family covered” substitution. If Long Condor, Short Condor, Unbalanced Condor, Guts, Triple Calendar, Gamma Scalping, or any other named type is not separately implemented, mark it NOT IMPLEMENTED. Do not count it as verified merely because another family exists.
+
+2. REAL MATHEMATICAL VERIFICATION
+For every strategy, test deterministic numerical cases and show:
+- Underlying price
+- Strikes
+- Expirations
+- Option premiums
+- Quantity and multiplier
+- Implied volatility and rate where applicable
+- Expected payoff at multiple expiration prices
+- Actual computed payoff
+- Expected and actual net debit/credit
+- Expected and actual breakeven(s)
+- Expected and actual max profit
+- Expected and actual max loss
+- Expected and actual Greeks where applicable
+- Absolute/relative error tolerance
+- PASS/FAIL
+
+“Function returned required keys” and “no exception” are not mathematical proof.
+
+Cross-check results with an independent reference implementation or independently coded formulas. Do not use the same production function to generate both expected and actual values.
+
+3. NO MOCK-ONLY EVIDENCE
+Mock legs may be used for unit tests, but they do not satisfy final verification.
+
+Run at least one complete recorded-market-data or live paper-data construction for every strategy that can actually be constructed from the available chain. Show:
+- Chain snapshot timestamp
+- Option symbols
+- Bid/ask/mid
+- Selected contracts
+- Liquidity filters
+- Constructed legs
+- Pricing result
+- Risk result
+- Final status
+
+Strategies that cannot be constructed must be reported as NOT EXECUTED, not PASS.
+
+4. TRUE RUNTIME VERIFICATION
+For every strategy:
+- Instantiate it
+- Build valid legs
+- Build invalid legs
+- Run pricing/payoff
+- Run risk checks
+- Run serialization
+- Run database persistence
+- Confirm no exception, NaN, Inf, overflow, or invalid state
+- Include raw command output and test identifier
+
+5. TRUE SCHEDULER VERIFICATION
+Catalog reachability is not scheduler proof.
+
+Show evidence that the actual scheduled job:
+- Fired at the configured time
+- Created a run ID and trace ID
+- Called the real strategy-building function
+- Attempted all eligible strategies exactly once
+- Prevented duplicate execution
+- Recovered a stale/interrupted run
+- Recorded start/end timestamps and final status
+
+Provide scheduler configuration, raw logs, database run rows, and exact counts.
+
+6. COMPLETE DATABASE LIFECYCLE
+A registry upsert is insufficient.
+
+For a real paper execution, prove the linked records for:
+- Strategy registry
+- Chain snapshot
+- Candidate
+- Strategy legs
+- Mathematical metrics
+- Risk decision
+- Paper order
+- Execution/fill
+- Position
+- Audit events
+- Outcome record
+
+Show table names, IDs, foreign-key links, timestamps, trace ID, and transaction result. Verify rollback on forced failure and prove there are no orphan records.
+
+7. END-TO-END PAPER TEST
+Run representative real paper tests covering:
+- Single-leg
+- Covered/protective
+- Vertical
+- Calendar/diagonal
+- Butterfly
+- Condor/iron condor
+- Straddle/strangle
+- Ratio/backspread
+- Synthetic/conversion/reversal
+- Advanced defined-risk structure
+- Analysis-only or undefined-risk blocked structure
+
+For each test show:
+market data → contract selection → strategy construction → mathematical metrics → liquidity checks → risk gate → paper order → database writes → audit trail.
+
+No broker live orders. Paper trading only.
+
+8. CRYPTOGRAPHIC AND FORENSIC EVIDENCE
+Provide:
+- Test command
+- Git commit
+- Source-file SHA-256
+- Registry SHA-256
+- Report SHA-256
+- UTC start/end timestamps
+- Exit code
+- Raw logs
+- Database query results
+
+9. FINAL STATUS RULE
+PASS only when the requested evidence exists.
+
+Use these statuses:
+- PASS
+- FAIL
+- NOT IMPLEMENTED
+- NOT EXECUTED
+- BLOCKED
+- ANALYSIS ONLY
+
+Any strategy without mathematical proof and runtime evidence must not be reported PASS and must remain disabled from autonomous paper trading.
+
+Do not ask what is next. Complete this verification and return the evidence.
