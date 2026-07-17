@@ -1,0 +1,55 @@
+# Directive: Determine Canonical Copy of verified_run.sh / verify_chain.sh
+
+## Context
+Five non-identical copies of these two scripts exist on disk, and none match
+the SHA-256 hashes cited in the standing Evidence Chain Protocol
+(verified_run.sh = 72824bfe...24abd, verify_chain.sh = 7294abeb...1fbec7):
+
+| Path | Actual SHA-256 |
+|---|---|
+| .local/verified_run.sh | aab1e779...d71f8 |
+| tools/verified_run.sh | ebb6a2dd...cd26 |
+| .local/verify_chain.sh | 64f2cffd...05af |
+| tools/verify_chain.sh | a6161734...63f9 |
+| artifacts/stock-scanner-api/verify_chain.sh | f1e5c010...d8bc |
+
+Do NOT pick one as canonical based on assumption or convenience. Produce the
+evidence below and let it decide. This is a diagnostic-only directive — no
+code changes, no deletions, no hash re-certification until Joel reviews the
+findings.
+
+## Required evidence (raw output only — no paraphrasing, per standing protocol)
+
+1. **Git history per path** — for each of the 5 files, paste raw output of:
+   `git log --follow -p -- <path>` (or `git log --follow --stat` if full patch
+   is too long, but include at least the last 3 commits' messages, authors,
+   and timestamps per file)
+
+2. **File timestamps** — raw `stat` output (mtime, ctime) for all 5 files
+
+3. **Live reference trace** — raw `grep -rn` output across the entire codebase
+   for every place `verified_run.sh` and `verify_chain.sh` are invoked or
+   sourced (by exact path, not just filename). Identify which path(s) are
+   actually called by production code vs. only referenced in docs/comments/
+   dead code.
+
+4. **Git tracking status** — raw `git status` / `git check-ignore -v` output
+   for each of the 5 paths, to confirm whether each is tracked, untracked, or
+   gitignored (e.g. `.local/` is often a local-only scratch dir — confirm,
+   don't assume)
+
+5. **Pairwise diffs** — raw `diff` output between:
+   - .local/verified_run.sh vs tools/verified_run.sh
+   - .local/verify_chain.sh vs tools/verify_chain.sh vs artifacts/stock-scanner-api/verify_chain.sh
+
+6. **Origin of the cited hash** — search commit history / commit messages /
+   any changelog or directive log for where 72824bfe...24abd and
+   7294abeb...1fbec7 were originally recorded, to establish what version of
+   the script those hashes actually correspond to (if recoverable)
+
+## Deliverable
+A findings table only — path, tracked/untracked, last modified, called by
+production (Y/N), diff summary vs. the other copies — plus a flagged
+recommendation for which copy appears canonical and why, with the evidence
+cited inline. No action taken beyond this report. Explicitly state if any of
+the six items above cannot be produced.
