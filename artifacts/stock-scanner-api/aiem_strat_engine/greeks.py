@@ -134,7 +134,7 @@ def aggregate(legs: List[Leg]) -> Dict[str, Optional[float]]:
         if lg.vomma:
             totals["vomma"] += mult * lg.vomma
 
-    return {k: round(v, 6) if v != 0.0 else None for k, v in totals.items()}
+    return {k: round(v, 6) for k, v in totals.items()}
 
 
 def portfolio_greeks(positions: List[Dict]) -> Dict[str, float]:

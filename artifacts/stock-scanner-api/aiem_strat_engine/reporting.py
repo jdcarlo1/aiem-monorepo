@@ -300,12 +300,12 @@ def generate_report(
                 round(total_pnl_paper / cap, 6),
                 round(len(opened) * 2000 / cap, 4),
                 brier,
-                json.dumps(by_family),
-                json.dumps(by_symbol),
-                json.dumps(by_regime),
-                json.dumps(report_data["trade_ledger"]),
-                json.dumps(equity_curve),
-                json.dumps(dd_curve),
+                json.dumps(by_family, default=str),
+                json.dumps(by_symbol, default=str),
+                json.dumps(by_regime, default=str),
+                json.dumps(report_data["trade_ledger"], default=str),
+                json.dumps(equity_curve, default=str),
+                json.dumps(dd_curve, default=str),
                 report_sha,
             ))
             conn.commit()

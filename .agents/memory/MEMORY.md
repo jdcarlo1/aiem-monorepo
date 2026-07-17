@@ -145,3 +145,4 @@
 - [AIEM Supervisor Meta-Reasoning Layer](aiem-supervisor-layer.md) — 7-module autonomous supervisor; fires post-trade/post-pick/daily/weekly; 7 DB tables; live verdict: multi_signal=RETIRED, gap_volume=DEMOTED, unusual_calls=DEMOTED
 - [AIEM direction-agnostic architecture](aiem-direction-agnostic.md) — CALL/PUT/SHORT paper trades; MTM P&L inverts for PUT/SHORT; system prompt requires both strike+expiry per ticker
 - [Specialist Council trace_id propagation](specialist-council-trace-id.md) — pick-phase council runs before _d2_trace_id exists; fix = store council_run_id in pick dict → UPDATE after trace mint; MTM uses mtm_{id}_{date}
+- [ASE Directive v2 remediation](ase-directive-v2-remediation.md) — 7 fixes to reach 322/322 PASS; aggregate() 0→None bug; _I_vega/100 pattern; Charm /365 convention

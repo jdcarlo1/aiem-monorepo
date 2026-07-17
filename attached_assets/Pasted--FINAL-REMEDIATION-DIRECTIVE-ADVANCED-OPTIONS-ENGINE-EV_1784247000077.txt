@@ -1,0 +1,602 @@
+# FINAL REMEDIATION DIRECTIVE — ADVANCED OPTIONS ENGINE EVIDENCE AUDIT
+
+The section-summary table previously returned is NOT sufficient and does not satisfy the original verification directive.
+
+VERIFY THE STANDALONE OPTIONS ENGINE ONLY.
+- Do not modify or connect to Diagrams 1–3.
+- Paper trading only.
+- No mocks, fabricated outputs, manual SQL inserts, screenshots-only proof, or narrative claims.
+- Do not mark the engine PASS based on test names, test counts, registry counts, or SHA-256 fingerprints alone.
+- Any failed, missing, skipped, or unsupported critical test must produce FINAL STATUS: FAIL.
+- Disable every affected strategy from autonomous paper trading until corrected and reverified.
+
+====================================================
+A. VERIFY EVERY ADVANCED OPTIONS FUNCTION
+====================================================
+
+Verify every supported strategy and structure, including:
+
+- Single-leg calls and puts
+- Covered calls and covered puts
+- Protective puts and protective calls
+- Collars
+- Bull/bear call spreads
+- Bull/bear put spreads
+- Debit and credit verticals
+- Calendars
+- Diagonals
+- Butterflies
+- Broken-wing butterflies
+- Iron butterflies
+- Condors
+- Iron condors
+- Ratio spreads
+- Backspreads
+- Risk reversals
+- Seagulls
+- Jade lizards
+- Synthetic long/short structures
+- LEAPS
+- Zero-DTE
+- Earnings/event structures
+- Stock-plus-option structures
+- Generic custom structures containing 1–8 option legs plus an optional stock leg
+
+Return the complete registry with:
+
+strategy_id
+strategy_name
+family
+enabled_status
+analysis_only_status
+source_file
+function_or_class
+leg_count
+risk_class
+code_sha256
+PASS/FAIL
+
+Fail if any implemented strategy is missing, duplicated incorrectly, unregistered, or unverifiable.
+
+====================================================
+B. LEG AND STRUCTURE VERIFICATION
+====================================================
+
+For every strategy verify:
+
+- Number of legs
+- Long/short direction
+- Call/put type
+- Quantity and ratio
+- Strike ordering
+- Expiration ordering
+- Contract multiplier
+- Net debit or credit
+- Optional stock leg
+- Canonical strategy classification
+- Unique strategy fingerprint
+- Duplicate detection
+- Invalid or malformed structure rejection
+
+Run both valid and deliberately malformed negative-control cases.
+
+====================================================
+C. INDEPENDENT MATHEMATICAL VERIFICATION
+====================================================
+
+Use two genuinely independent implementations:
+
+METHOD A:
+Production options payoff/pricing engine
+
+METHOD B:
+Separate verification implementation that does not call or reuse the production payoff functions
+
+For every tested strategy verify:
+
+- Net debit/credit
+- Maximum profit
+- Maximum loss
+- Every breakeven
+- Expiration payoff
+- Pre-expiration value
+- Full payoff curve
+
+Evaluate prices:
+
+- Below all strikes
+- At every strike
+- Between every pair of strikes
+- At every breakeven
+- Above all strikes
+- Extreme downside
+- Extreme upside
+
+Allowed difference:
+
+≤ $0.01 OR ≤ 0.01%
+
+Provide the exact Method A value, Method B value, difference, tolerance, and PASS/FAIL.
+
+====================================================
+D. OPTION PRICING
+====================================================
+
+Independently verify:
+
+- Calls and puts
+- Black-Scholes or configured production model
+- Put-call parity
+- Pre-expiration pricing
+- Intrinsic and extrinsic value
+- Time decay
+- IV sensitivity
+- Interest-rate sensitivity
+- Dividend assumptions
+- Volatility skew
+- Volatility term structure
+- Deep ITM
+- ATM
+- Deep OTM
+- Near-expiration
+- Weekly
+- Monthly
+- LEAPS
+- Zero-DTE boundary behavior
+
+Fail if the verification implementation merely calls the production pricing code.
+
+====================================================
+E. GREEKS AND HIGHER-ORDER GREEKS
+====================================================
+
+Verify per leg and total position:
+
+- Delta
+- Gamma
+- Theta
+- Vega
+- Rho
+- Charm
+- Vanna
+- Vomma
+- Speed
+- Color
+
+Cross-check each Greek using independently coded finite differences.
+
+Return:
+
+analytical_value
+finite_difference_value
+difference
+tolerance
+PASS/FAIL
+
+Test across ITM, ATM, OTM, short-dated, long-dated, low-IV, and high-IV contracts.
+
+====================================================
+F. PROBABILITY, EXPECTED VALUE, AND DISTRIBUTIONS
+====================================================
+
+Verify:
+
+- Probability of profit
+- Probability of loss
+- Probability of maximum profit
+- Probability of maximum loss
+- Expected value
+- Expected value after commissions, fees, spread, and slippage
+- Expected move
+- Tail-loss estimates
+
+Confirm the calculation incorporates, where configured:
+
+- IV
+- Volatility surface
+- Skew
+- Term structure
+- Expected move
+- Tail risk
+
+Delta alone is not acceptable as probability of profit.
+
+Cross-check with an independent Monte Carlo implementation and provide:
+
+seed
+simulation_count
+distribution assumptions
+production result
+Monte Carlo result
+difference
+confidence interval
+PASS/FAIL
+
+====================================================
+G. LIQUIDITY AND EXECUTION SAFETY
+====================================================
+
+Verify:
+
+- Bid
+- Ask
+- Mid
+- Modeled fill
+- Paper fill
+- Slippage
+- Commissions
+- Fees
+- Spread width
+- Open interest
+- Volume
+- Quote timestamp
+- Quote age
+- Complete chain availability
+- Complete leg availability
+
+Confirm automatic rejection of:
+
+- Crossed markets
+- Locked or impossible markets where prohibited
+- Missing bids or asks
+- Missing legs
+- Stale chains
+- Illiquid contracts
+- Impossible prices
+- Invalid spreads
+- Unfillable multi-leg combinations
+
+====================================================
+H. ASSIGNMENT, EXERCISE, AND EXPIRATION
+====================================================
+
+Verify:
+
+- Early assignment
+- Dividend-related assignment
+- Automatic exercise
+- Pin risk
+- Partial assignment
+- Multi-leg assignment
+- Expiration settlement
+- Exercise-by-exception rules
+- Expiring ITM, ATM, and OTM legs
+- Mixed assigned/unassigned structures
+
+Provide before-and-after parent trade, leg, position, cash, and P/L records.
+
+====================================================
+I. UNLIMITED-RISK AND UNSAFE-TRADE BLOCKING
+====================================================
+
+Attempt to create and submit:
+
+- Naked call
+- Naked put
+- Naked straddle
+- Naked strangle
+- Naked ratio structure
+- Unlimited-loss synthetic
+- Unknown maximum-loss structure
+- Missing buying-power calculation
+- Excessive-risk structure
+- Malformed custom structure
+
+Expected result:
+
+REJECTED or ANALYSIS_ONLY
+
+Fail the entire safety verification if any unsafe structure reaches autonomous paper execution.
+
+====================================================
+J. GENERIC 1–8 LEG BUILDER
+====================================================
+
+Verify all supported leg counts from 1 through 8 using:
+
+- Calls
+- Puts
+- Mixed calls and puts
+- Same expiration
+- Different expirations
+- Unequal ratios
+- Optional stock leg
+
+Confirm:
+
+- Known structures receive the correct canonical name
+- Unknown valid structures become CUSTOM_MULTI_LEG
+- Duplicate structures are detected
+- Fingerprints remain unique
+- Invalid structures are rejected
+- Every leg is included in pricing, Greeks, payoff, risk, and database persistence
+
+====================================================
+K. MARKET AND EVENT SCENARIOS
+====================================================
+
+Run:
+
+- Bull
+- Bear
+- Sideways
+- High IV
+- Low IV
+- Positive skew
+- Negative skew
+- Earnings
+- Post-earnings volatility collapse
+- Zero-DTE
+- Weekly
+- Monthly
+- LEAPS
+- Highly liquid
+- Illiquid
+- Gap risk
+- Tail-risk event
+
+For every scenario provide:
+
+- Generated strategies
+- Rejected strategies
+- Rejection reasons
+- Score components
+- Selected strategy
+- Runner-up
+- NO_TRADE score
+- Final decision
+- Risk explanation
+
+====================================================
+L. CAPITAL COMPOUNDING SCORE
+====================================================
+
+Independently verify every component:
+
+- Probability
+- Expected value
+- Capital preservation
+- Defined risk
+- Capital efficiency
+- Liquidity
+- Market-regime fit
+- Volatility-regime fit
+- Diversification
+
+Verify penalties for:
+
+- Tail risk
+- Drawdown risk
+- Assignment risk
+- Event risk
+- Slippage
+- Complexity
+- Correlation
+
+Recalculate the score using a separate implementation.
+
+Tolerance:
+
+≤ 0.000001
+
+Provide:
+
+raw component inputs
+weights
+penalties
+production score
+independent score
+difference
+PASS/FAIL
+
+====================================================
+M. COMPLETE PAPER-TRADE LIFECYCLE
+====================================================
+
+Prove the full runtime chain:
+
+GENERATE
+→ RANK
+→ SELECT
+→ RISK CHECK
+→ PAPER EXECUTE
+→ CREATE PARENT
+→ CREATE EVERY LEG
+→ VALUE POSITION
+→ UPDATE GREEKS
+→ ADJUST IF APPLICABLE
+→ EXIT
+→ FINAL P/L
+→ PERFORMANCE REPORT
+
+Use actual application execution. No manual database insertion.
+
+====================================================
+N. SQL AND DATABASE INTEGRITY
+====================================================
+
+Provide executable SQL and raw SQL output proving:
+
+- Parent trade exists
+- Every leg exists
+- Pricing records exist
+- Greek records exist
+- Valuation updates exist
+- Adjustments exist
+- Exit record exists
+- Realized P/L exists
+- Performance summary exists
+
+Verify:
+
+- Foreign keys
+- No duplicate parents
+- No orphan legs
+- Idempotency
+- Atomic transactions
+- Rollback on forced failure
+- Correct parent/leg relationships
+- Correct timestamps
+- Correct trade and run IDs
+
+====================================================
+O. FAILURE AND RESTART RECOVERY
+====================================================
+
+Simulate:
+
+- Application restart
+- Scheduler restart
+- Database interruption
+- Data-provider failure
+- Missing chain
+- Missing leg
+- Delayed quotes
+- Interrupted valuation
+- Interrupted exit processing
+
+Verify:
+
+- Open trades are recovered
+- Monitoring resumes
+- No duplicate trades are created
+- No positions are lost
+- No legs are orphaned
+- Audit records remain intact
+- Processing resumes idempotently
+
+====================================================
+P. PERFORMANCE-METRIC VALIDATION
+====================================================
+
+Independently verify:
+
+- Gross P/L
+- Net P/L
+- Win rate
+- Profit factor
+- Sharpe ratio
+- Sortino ratio
+- Calmar ratio
+- Maximum drawdown
+- Expectancy
+- Return on capital
+- Return on risk
+- Capital Preservation Score
+- Equity curve
+- Monthly returns
+
+Report separately:
+
+- Theoretical return
+- Modeled-fill return
+- Paper-executed return
+
+Do not present theoretical or backtested values as live or paper-executed performance.
+
+====================================================
+Q. REQUIRED EVIDENCE FOR EVERY TEST
+====================================================
+
+For every individual Txx.xx test provide:
+
+test_id
+section
+strategy_id
+strategy_name
+source_file
+function_or_class
+exact_command
+raw_stdout
+raw_stderr
+input_values
+expected_result
+actual_result
+production_value
+independent_value
+numerical_difference
+allowed_tolerance
+PASS/FAIL
+timestamp
+run_id
+paper_trade_id
+parent_trade_id
+leg_ids
+SQL_query
+raw_SQL_output
+code_SHA256
+config_SHA256
+
+A section summary, test-count table, screenshot, or statement such as “all tests passed” does not replace this evidence.
+
+====================================================
+R. EVIDENCE COMPLETENESS AUDIT
+====================================================
+
+At completion, automatically verify:
+
+1. Every registered strategy has evidence.
+2. Every test ID has a result.
+3. Every PASS includes raw output.
+4. Every mathematical test includes two independent values.
+5. Every lifecycle test includes application and SQL evidence.
+6. Every paper trade includes a parent and all leg records.
+7. Every critical negative control was executed.
+8. Every SHA-256 corresponds to the actual tested code and configuration.
+9. No test was silently skipped, xfailed, mocked, or replaced by a placeholder.
+10. No connection to Diagrams 1–3 was created.
+
+Return counts for:
+
+registered_strategies
+strategies_tested
+strategies_passed
+strategies_failed
+tests_expected
+tests_executed
+tests_passed
+tests_failed
+tests_skipped
+tests_missing_evidence
+paper_trades_created
+parent_records
+leg_records
+SQL_queries_executed
+negative_controls_executed
+
+All expected and executed counts must reconcile exactly.
+
+====================================================
+FINAL DECISION
+====================================================
+
+Return exactly one:
+
+PASS — PAPER TRADING VERIFIED
+FAIL — NOT APPROVED
+INCOMPLETE — EVIDENCE MISSING
+
+PASS is permitted only when:
+
+- Every supported strategy was tested
+- All advanced mathematics was independently verified
+- All Greeks were independently verified
+- Probability and EV passed Monte Carlo comparison
+- Unsafe structures were blocked
+- Every 1–8 leg structure was verified
+- NO_TRADE was tested
+- CCS independently matched
+- Full paper lifecycle completed
+- Parent and every leg were saved through the application
+- SQL integrity passed
+- Recovery passed
+- Performance metrics independently matched
+- Evidence completeness was 100%
+- No critical test failed or was skipped
+- No connection to Diagrams 1–3 exists
+
+Until the final result is PASS — PAPER TRADING VERIFIED, the options engine remains:
+
+NOT APPROVED FOR LIVE MONEY
+NOT APPROVED FOR AUTONOMOUS BROKER EXECUTION
+PAPER TRADING ONLY
