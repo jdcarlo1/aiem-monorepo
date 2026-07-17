@@ -366,3 +366,15 @@ id = "oeswyfwNi6oZE4AIjB-9C"
 uri = "file://AIEM_FAILOVER_EVIDENCE.md"
 type = "text"
 title = "AIEM Failover Evidence v3 — raw output only"
+
+[[outputs]]
+id = "x7fIPg1ARfI45hq5LzkuA"
+uri = "file://artifacts/stock-scanner-api/ase_leg_report_LC_F652F30AAC4141E5.txt"
+type = "text"
+title = "Leg Construction Verification — 66/66 PASS (Run ID: LC_F652F30AAC4141E5)"
+
+[[outputs]]
+id = "Own_nI57eYkv7SvWIlKDx"
+uri = "file://artifacts/stock-scanner-api/ase_market_scenarios_report_MS_373EFAC37EEA4279.txt"
+type = "text"
+title = "Market Scenarios Verification — 16/16 PASS (Run ID: MS_373EFAC37EEA4279)"
