@@ -1,0 +1,2 @@
+122e0d959aead99f5515f43adc39be41c7388554696022ec9c0a98b53f3b84b1  artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py
+e119043f9db89ef07794a70b13d4f9c6350794785feb95f11637647f745afd91  artifacts/stock-scanner-api/verify_13_14.py

@@ -1,0 +1,60 @@
+=== ITEM 2: DATA INTEGRITY ===
+  OPEN trade count in ase_paper_trades: 808
+  PASS  orphaned legs = 0: got=0 exp=0
+  PASS  duplicate (paper_trade_id, leg_number) pairs = 0: got=0 exp=0
+  PASS  get_open_trades() returns non-empty list: got=True exp=True
+  PASS  all rows have paper_trade_id: got=True exp=True
+  PASS  all rows have legs key: got=True exp=True
+  PASS  all non-NULL legs values are list type (bad_type=0): got=0 exp=0
+  PASS  leg count matches DB for first 50 non-null-legged trades (mismatch=0): got=0 exp=0
+
+=== ITEM 3: PIPELINE PROOF ===
+[paper_trader] Inserted ase_pt_a963675e92cd4d25: Bull Call Spread on VRFY3 @ 105.0
+  PASS  insert_paper_trade returns id: got=True exp=True
+  PASS  new trade appears in get_open_trades: got=1 exp=1
+  PASS  trade status=OPEN: got='OPEN' exp='OPEN'
+  PASS  trade underlying=VRFY3: got='VRFY3' exp='VRFY3'
+  PASS  legs key present: got=True exp=True
+  PASS  legs is list: got=True exp=True
+  PASS  legs list length=2: got=2 exp=2
+  PASS  legs have LONG and SHORT: got=['LONG', 'SHORT'] exp=['LONG', 'SHORT']
+  PASS  leg strikes = [105.0, 115.0]: got=[105.0, 115.0] exp=[105.0, 115.0]
+  PASS  close_paper_trade returns True: got=True exp=True
+  PASS  closed trade absent from get_open_trades: got=0 exp=0
+
+=== ITEM 4: REGRESSION ===
+  PASS  save_decision_run returns True: got=True exp=True
+  PASS  save_decision_run row visible in DB: got=1 exp=1
+[paper_trader] Inserted ase_pt_09c8715095b640e5: Bull Call Spread on VRFY4 @ 120.0
+  PASS  insert for record_valuation test returns id: got=True exp=True
+  PASS  VRFY4 trade in get_open_trades: got=True exp=True
+  PASS  record_valuation did not raise: got=False exp=False
+  INFO  record_valuation returned: None (None OK — no live chain for VRFY4)
+  PASS  monitor_all_positions is callable: got=True exp=True
+  PASS  sample trade with >=2 legs found for parsing simulation: got=True exp=True
+  PASS  position_manager parsing path produces list: got=True exp=True
+  PASS  parsed legs count >= 2: got=True exp=True
+  PASS  each parsed leg is dict: got=True exp=True
+  PASS  each parsed leg has buy_or_sell key: got=True exp=True
+
+=== ITEM 5: NEGATIVE TEST (0 / 1 / multi legs) ===
+  PASS  0-leg trade appears in get_open_trades: got=True exp=True
+  PASS  0-leg trade: legs field is None (LEFT JOIN miss on empty subquery): got=None exp=None
+  PASS  1-leg trade appears in get_open_trades: got=True exp=True
+  PASS  1-leg: legs is list: got=True exp=True
+  PASS  1-leg: legs list has exactly 1 entry: got=1 exp=1
+  PASS  1-leg: buy_or_sell=LONG: got='LONG' exp='LONG'
+  PASS  1-leg: strike=100.0: got=100.0 exp=100.0
+  PASS  4-leg trade exists in DB data: got=True exp=True
+  PASS  4-leg: legs list length=4: got=4 exp=4
+  PASS  4-leg: all legs are dicts: got=True exp=True
+  PASS  4-leg: DB count matches returned count: got=4 exp=4
+  PASS  0-leg: legs=None (no crash): got=None exp=None
+  PASS  1-leg: legs is list: got=True exp=True
+  PASS  1-leg: legs length=1: got=1 exp=1
+
+=== CLEANUP ===
+  cleaned 3/3 test records
+
+PASS=43  FAIL=0
+EXIT STATUS: PASS

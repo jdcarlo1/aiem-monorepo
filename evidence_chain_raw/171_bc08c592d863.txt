@@ -1,0 +1,49 @@
+diff --git a/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py b/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py
+index e62282f..9f0c6e6 100644
+--- a/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py
++++ b/artifacts/stock-scanner-api/aiem_strat_engine/paper_trader.py
+@@ -266,11 +266,15 @@ def get_open_trades() -> List[Dict[str, Any]]:
+         with get_conn() as conn:
+             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                 cur.execute("""
+-                    SELECT pt.*, array_agg(row_to_json(pl.*)) AS legs
++                    SELECT pt.*, legs_sub.legs
+                     FROM ase_paper_trades pt
+-                    LEFT JOIN ase_paper_trade_legs pl ON pl.paper_trade_id = pt.paper_trade_id
++                    LEFT JOIN (
++                        SELECT paper_trade_id,
++                               array_agg(row_to_json(pl.*)) AS legs
++                        FROM ase_paper_trade_legs pl
++                        GROUP BY paper_trade_id
++                    ) legs_sub ON legs_sub.paper_trade_id = pt.paper_trade_id
+                     WHERE pt.status = 'OPEN'
+-                    GROUP BY pt.paper_trade_id
+                     ORDER BY pt.entry_time DESC
+                 """)
+                 return [dict(r) for r in cur.fetchall()]
+diff --git a/artifacts/stock-scanner-api/verify_13_14.py b/artifacts/stock-scanner-api/verify_13_14.py
+index 7a47a7f..a3bd702 100644
+--- a/artifacts/stock-scanner-api/verify_13_14.py
++++ b/artifacts/stock-scanner-api/verify_13_14.py
+@@ -422,8 +422,20 @@ if closed_row:
+     check("FINAL P&L: return_on_capital_realized", ror_stored, exp_ror)
+ 
+ # PERFORMANCE REPORTING — get_open_trades, save_decision_run
++# Insert a fresh OPEN trade so get_open_trades has something real to return
++pt_id2 = insert_paper_trade(
++    evaluation=eval_a, selection=sel, ticker="PERFTEST", thesis="BULLISH",
++    market_regime="BULL_TREND", volatility_regime="HIGH_IV",
++    event_context=None, run_id=run_id + "_perf", underlying_price=150.0,
++)
+ open_trades = get_open_trades()
+-check_eq("PERFORMANCE REPORTING: get_open_trades returns list", isinstance(open_trades, list), True)
++check_eq("PERFORMANCE REPORTING: get_open_trades no error (not empty)", len(open_trades) > 0, True)
++check_eq("PERFORMANCE REPORTING: first row has paper_trade_id", "paper_trade_id" in (open_trades[0] if open_trades else {}), True)
++check_eq("PERFORMANCE REPORTING: first row status=OPEN", (open_trades[0].get("status") if open_trades else None), "OPEN")
++check_eq("PERFORMANCE REPORTING: first row has legs key", "legs" in (open_trades[0] if open_trades else {}), True)
++if open_trades:
++    legs_val = open_trades[0]["legs"]
++    check_eq("PERFORMANCE REPORTING: legs is list with >=1 entry", isinstance(legs_val, list) and len(legs_val) >= 1, True)
+ 
+ saved = save_decision_run(
+     run_id=run_id, ticker="TEST", spot=100.0, thesis="BULLISH",

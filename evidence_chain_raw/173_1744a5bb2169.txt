@@ -1,0 +1,45 @@
+=== ITEM 2: DATA INTEGRITY ===
+  OPEN trade count in ase_paper_trades: 806
+  PASS  orphaned legs = 0: got=0 exp=0
+  PASS  duplicate (paper_trade_id, leg_number) pairs = 0: got=0 exp=0
+  PASS  get_open_trades() returns non-empty list: got=True exp=True
+  PASS  all rows have paper_trade_id: got=True exp=True
+  PASS  all rows have legs key: got=True exp=True
+  PASS  all non-NULL legs values are list type (bad_type=0): got=0 exp=0
+  PASS  leg count matches DB for first 50 non-null-legged trades (mismatch=0): got=0 exp=0
+
+=== ITEM 3: PIPELINE PROOF ===
+[paper_trader] Inserted ase_pt_e95d83f0affc4bb8: Bull Call Spread on VRFY3 @ 105.0
+  PASS  insert_paper_trade returns id: got=True exp=True
+  PASS  new trade appears in get_open_trades: got=1 exp=1
+  PASS  trade status=OPEN: got='OPEN' exp='OPEN'
+  PASS  trade underlying=VRFY3: got='VRFY3' exp='VRFY3'
+  PASS  legs key present: got=True exp=True
+  PASS  legs is list: got=True exp=True
+  PASS  legs list length=2: got=2 exp=2
+  PASS  legs have LONG and SHORT: got=['LONG', 'SHORT'] exp=['LONG', 'SHORT']
+  PASS  leg strikes = [105.0, 115.0]: got=[105.0, 115.0] exp=[105.0, 115.0]
+  PASS  close_paper_trade returns True: got=True exp=True
+  PASS  closed trade absent from get_open_trades: got=0 exp=0
+
+=== ITEM 4: REGRESSION ===
+  PASS  save_decision_run returns True: got=True exp=True
+  PASS  save_decision_run row visible in DB: got=1 exp=1
+[paper_trader] Inserted ase_pt_1313f2ed69704155: Bull Call Spread on VRFY4 @ 120.0
+  PASS  insert for record_valuation test returns id: got=True exp=True
+  PASS  VRFY4 trade in get_open_trades: got=True exp=True
+  PASS  record_valuation did not raise: got=False exp=False
+  INFO  record_valuation returned: None (None OK — no live chain for VRFY4)
+  PASS  monitor_all_positions is callable: got=True exp=True
+  PASS  sample trade with >=2 legs found for parsing simulation: got=True exp=True
+  PASS  position_manager parsing path produces list: got=True exp=True
+  PASS  parsed legs count >= 2: got=True exp=True
+  PASS  each parsed leg is dict: got=True exp=True
+  PASS  each parsed leg has buy_or_sell key: got=True exp=True
+
+=== ITEM 5: NEGATIVE TEST (0 / 1 / multi legs) ===
+Traceback (most recent call last):
+  File "/home/runner/workspace/artifacts/stock-scanner-api/verify_followup_2_5.py", line 235, in <module>
+    cu0.execute("""
+psycopg2.errors.NotNullViolation: null value in column "strategy_fingerprint" of relation "ase_paper_trades" violates not-null constraint
+DETAIL:  Failing row contains (849, ase_pt_9ebbfbf6d82442ce_z, null, null, null, ZERO, NegTest, null, BULLISH, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, BULL_TREND, HIGH_IV, null, null, OPEN, null, null, null, null, null, null, null, null, null, f, f, f, null, fd01d93c33f283adad8d9b6e422297ce5ef972d1253acbd1e8a3500002f2276e, 2026-07-17 22:05:34.039117+00, 2026-07-17 22:05:34.039117+00).

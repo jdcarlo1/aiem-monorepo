@@ -1,0 +1,12 @@
+=== ITEM 2: DATA INTEGRITY ===
+  OPEN trade count in ase_paper_trades: 806
+  PASS  orphaned legs = 0: got=0 exp=0
+Traceback (most recent call last):
+  File "/home/runner/workspace/artifacts/stock-scanner-api/verify_followup_2_5.py", line 90, in <module>
+    dup_legs = raw_one("""
+               ^^^^^^^^^^^
+  File "/home/runner/workspace/artifacts/stock-scanner-api/verify_followup_2_5.py", line 42, in raw_one
+    cu.execute(sql, params or ())
+psycopg2.errors.UndefinedColumn: column "leg_id" does not exist
+LINE 3:         SELECT leg_id FROM ase_paper_trade_legs
+                       ^
