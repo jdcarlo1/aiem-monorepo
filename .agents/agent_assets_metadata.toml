@@ -384,3 +384,93 @@ id = "SAMzgvwKY9f1ogavgdbhV"
 uri = "file://LC_VERIFICATION_COMPLETE.txt"
 type = "text"
 title = "LC Leg Construction Verification — Complete Evidence Package"
+
+[[outputs]]
+id = "0J91qyUGNb-iRU3-yd4w9"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/LC_VERIFICATION_COMPLETE_V2.txt"
+type = "text"
+title = "LC_VERIFICATION_COMPLETE_V2.txt — Master Evidence Package"
+
+[[outputs]]
+id = "r03xG7M_hQiuNG9ixa64Q"
+uri = "file://artifacts/stock-scanner-api/ase_leg_report_LC_1EEE4B5B8B984503.txt"
+type = "text"
+title = "ase_leg_report_LC_1EEE4B5B8B984503.txt — Full 2515-Line Raw Test Report"
+
+[[outputs]]
+id = "rAJk5DxpaW-jVsR6uM7Zu"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_a.csv"
+type = "table"
+title = "section_a.csv — All 2177 legs (SEC-A)"
+
+[[outputs]]
+id = "oSVDp5ya7JJeYC3Q3HUdP"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_b.csv"
+type = "table"
+title = "section_b.csv — 1234 LONG/BUY legs (SEC-B)"
+
+[[outputs]]
+id = "WU0Ny00-NR2ZKD5_RhvWC"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_c.csv"
+type = "table"
+title = "section_c.csv — 943 SHORT/SELL legs (SEC-C)"
+
+[[outputs]]
+id = "k38cTj6Dzx5wpID6Zh9lM"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_d.csv"
+type = "table"
+title = "section_d.csv — 2159 delta-bearing legs (SEC-D)"
+
+[[outputs]]
+id = "tsKH0Gz9hMAwUzLSMOC97"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_e.csv"
+type = "table"
+title = "section_e.csv — 2177 ratio-populated legs (SEC-E)"
+
+[[outputs]]
+id = "G2uRaUbhc6w0BcEHWwcGh"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_f.csv"
+type = "table"
+title = "section_f.csv — 799 leg-counts per trade (SEC-F)"
+
+[[outputs]]
+id = "pZaUIRgb5b3bzOX4tC3Hz"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_g.csv"
+type = "table"
+title = "section_g.csv — Parent join result, 0 rows (SEC-G)"
+
+[[outputs]]
+id = "8G8-aijnM2vmqcLFgWAfC"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_h.csv"
+type = "table"
+title = "section_h.csv — Distinct asset_type values (SEC-H)"
+
+[[outputs]]
+id = "mt5NcdM1oCb-XiY8qwCRI"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_i.csv"
+type = "table"
+title = "section_i.csv — Distinct buy_or_sell values (SEC-I)"
+
+[[outputs]]
+id = "n2u6ivolpOMctfi1yRS_X"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_j.csv"
+type = "table"
+title = "section_j.csv — 2159 expiration-bearing legs (SEC-J)"
+
+[[outputs]]
+id = "LsRFYTDK89eMXY7gBW-w-"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_k.csv"
+type = "table"
+title = "section_k.csv — 2177 strike-bearing legs (SEC-K)"
+
+[[outputs]]
+id = "CyTxM3L07UV0O4MZFkSXn"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_l.csv"
+type = "table"
+title = "section_l.csv — 2177-row null audit (SEC-L)"
+
+[[outputs]]
+id = "SCiluwtbUTKDBfkUv_eKh"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/section_m.csv"
+type = "table"
+title = "section_m.csv — Negative control, 0 rows (SEC-M)"

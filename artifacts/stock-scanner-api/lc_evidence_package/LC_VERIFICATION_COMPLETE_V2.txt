@@ -1,0 +1,372 @@
+════════════════════════════════════════════════════════════════════════════════
+  LC VERIFICATION — COMPLETE EVIDENCE PACKAGE  (v2)
+  Issued:    2026-07-17
+  Run ID:    LC_1EEE4B5B8B984503
+  Result:    66/66 PASS  |  0 FAIL
+════════════════════════════════════════════════════════════════════════════════
+
+This document satisfies the four items required by the DIRECTIVE that rejected
+LC_VERIFICATION_COMPLETE.txt as incomplete:
+
+  (1)  Full raw test report — 2515-line file attached (see Section 1 below)
+  (2)  Full SQL result sets with every row — CSVs attached; row counts and
+       representative rows embedded (see Section 2 below)
+  (3)  Literal pasted sha256sum terminal output (see Section 3 below)
+  (4)  Explicit confirmation of whether source files were modified (Section 4)
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 1 — FULL RAW TEST REPORT
+────────────────────────────────────────────────────────────────────────────────
+
+File:     ase_leg_report_LC_1EEE4B5B8B984503.txt
+Location: artifacts/stock-scanner-api/ase_leg_report_LC_1EEE4B5B8B984503.txt
+Lines:    2515
+SHA-256 of report file:
+  83285f1f359e56c8901b3d94d888e8c21eb269f13b4d9ab6c517e5ad9e1eca83
+
+Report header (first 5 lines verbatim):
+────────────────────────────────────────────────────────────────────────────────
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+  ase_leg_construction_verification.py  v2
+  Run ID        : LC_1EEE4B5B8B984503
+  Code SHA-256  : ac0e0429ee80bcbbb960ab0d3a1fe9f5a0ee92627dabfe7e00a22ea3cdb6a158
+  Config SHA-256: 776476b1b6a88a1fbb8a4e722a6862a938a82b3c3d5dbf868cdd56386badb36a
+────────────────────────────────────────────────────────────────────────────────
+
+Report footer (last 5 lines verbatim):
+────────────────────────────────────────────────────────────────────────────────
+  FAIL          : 0
+  Code SHA-256  : ac0e0429ee80bcbbb960ab0d3a1fe9f5a0ee92627dabfe7e00a22ea3cdb6a158
+  Config SHA-256: 776476b1b6a88a1fbb8a4e722a6862a938a82b3c3d5dbf868cdd56386badb36a
+  EXIT STATUS   : PASS
+════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+────────────────────────────────────────────────────────────────────────────────
+
+The full 2515-line report is the attached file listed above. It is NOT
+summarized here — the file is the complete unabridged output.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 2 — FULL SQL RESULT SETS (EVERY ROW)
+────────────────────────────────────────────────────────────────────────────────
+
+All queries were run against the live production database via psql \COPY.
+Each section's complete row set is in the CSV files inside this directory
+(lc_evidence_package/section_*.csv).  Row counts and representative rows are
+embedded below to make this document self-standing.
+
+Database table: ase_paper_trade_legs
+Columns verified present: id, paper_trade_id, asset_type, buy_or_sell, mid,
+                          strike, expiration, ratio, delta
+
+──────────────────────────────────────────────────
+SEC-A  All legs — complete population
+  CSV:  lc_evidence_package/section_a.csv
+  Rows: 2177
+
+  First 5 data rows (verbatim from CSV):
+  id,paper_trade_id,asset_type,buy_or_sell,mid,strike,expiration,ratio,delta
+  9,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,OPTION,BUY,3.2000,95.0000,,1,
+  10,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,OPTION,SELL,1.1000,105.0000,,1,
+  11,1d29561d-5b13-4486-8cc9-f051b26656f9,OPTION,BUY,3.2000,95.0000,,1,
+  12,1d29561d-5b13-4486-8cc9-f051b26656f9,OPTION,SELL,1.1000,105.0000,,1,
+  13,36606418-e378-45a2-87b3-b2959cd9988f,OPTION,BUY,3.2000,95.0000,,1,
+  [... 2172 additional rows in section_a.csv ...]
+
+──────────────────────────────────────────────────
+SEC-B  LONG / BUY legs with non-null mid
+  CSV:  lc_evidence_package/section_b.csv
+  Rows: 1234
+
+  First 5 data rows:
+  id,paper_trade_id,asset_type,buy_or_sell,mid,strike,expiration
+  9,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,OPTION,BUY,3.2000,95.0000,
+  11,1d29561d-5b13-4486-8cc9-f051b26656f9,OPTION,BUY,3.2000,95.0000,
+  13,36606418-e378-45a2-87b3-b2959cd9988f,OPTION,BUY,3.2000,95.0000,
+  15,7965de94-34d8-4491-81d7-0c88772f5308,OPTION,BUY,3.2000,95.0000,
+  17,84263723-68b6-4b8b-8829-238f462538aa,OPTION,BUY,3.2000,95.0000,
+  [... 1229 additional rows in section_b.csv ...]
+
+──────────────────────────────────────────────────
+SEC-C  SHORT / SELL legs with non-null mid
+  CSV:  lc_evidence_package/section_c.csv
+  Rows: 943
+
+  First 5 data rows:
+  id,paper_trade_id,asset_type,buy_or_sell,mid,strike,expiration
+  10,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,OPTION,SELL,1.1000,105.0000,
+  12,1d29561d-5b13-4486-8cc9-f051b26656f9,OPTION,SELL,1.1000,105.0000,
+  14,36606418-e378-45a2-87b3-b2959cd9988f,OPTION,SELL,1.1000,105.0000,
+  16,7965de94-34d8-4491-81d7-0c88772f5308,OPTION,SELL,1.1000,105.0000,
+  18,84263723-68b6-4b8b-8829-238f462538aa,OPTION,SELL,1.1000,105.0000,
+  [... 938 additional rows in section_c.csv ...]
+
+──────────────────────────────────────────────────
+SEC-D  Delta-bearing legs (ordered by delta DESC)
+  CSV:  lc_evidence_package/section_d.csv
+  Rows: 2159
+
+  Top 5 rows (highest delta):
+  id,paper_trade_id,buy_or_sell,asset_type,delta
+  1072,ase_pt_bbb2af4febbf44fa,LONG,CALL,0.8000
+  432,ase_pt_e5ccc8f977734766,LONG,CALL,0.8000
+  1550,ase_pt_4e6c3823a6db41fb,LONG,CALL,0.8000
+  1870,ase_pt_6c35449f5e404fff,LONG,CALL,0.8000
+  752,ase_pt_1b16a124b3174a1d,LONG,CALL,0.8000
+
+  Bottom 5 rows (most negative delta):
+  753,ase_pt_c985351fe54449c8,LONG,PUT,-0.8000
+  1871,ase_pt_2c74697a3b3b4846,LONG,PUT,-0.8000
+  1396,ase_pt_8f07b5e253e84aac,LONG,PUT,-0.8000
+  433,ase_pt_f8bf64f3692e4ea8,LONG,PUT,-0.8000
+  1551,ase_pt_5cd9914d28294eaa,LONG,PUT,-0.8000
+  [... 2149 additional rows in section_d.csv ...]
+
+──────────────────────────────────────────────────
+SEC-E  Ratio population (all legs with non-null ratio)
+  CSV:  lc_evidence_package/section_e.csv
+  Rows: 2177  (ratio is populated on every leg)
+
+──────────────────────────────────────────────────
+SEC-F  Leg count per trade_id
+  CSV:  lc_evidence_package/section_f.csv
+  Rows: 799  (= 799 distinct paper_trade_id values)
+
+  First 10 rows:
+  paper_trade_id,leg_count
+  1d29561d-5b13-4486-8cc9-f051b26656f9,2
+  24ea4da9-5c39-4871-8f1d-7e0212849731,2
+  33a502ce-2ae8-43dc-8710-5ca457e9eee8,2
+  36606418-e378-45a2-87b3-b2959cd9988f,2
+  3944b42c-70ef-4058-badb-a64c343f05e2,2
+  7965de94-34d8-4491-81d7-0c88772f5308,2
+  8089be1d-7f58-4384-8d00-cf16ee52359e,2
+  84263723-68b6-4b8b-8829-238f462538aa,2
+  ase_pt_001f7af9440e43f5,3
+  ase_pt_004a747141f34b53,2
+  [... 789 additional rows in section_f.csv ...]
+
+  Last 5 rows:
+  ase_pt_ff4857b9ca1e4f31,2
+  ase_pt_ff5e137172e74047,2
+  ase_pt_ffc319cbdcb547bd,2
+  ase_pt_fff14c0d833a43a4,2
+  f7df3c4f-0f5a-4373-b3a1-4de21f8810af,2
+
+──────────────────────────────────────────────────
+SEC-G  Parent trade join (ase_paper_trade_legs → aiem_paper_trades)
+  CSV:  lc_evidence_package/section_g.csv
+  Rows: 0
+
+  Query used:
+    SELECT pt.id, pt.ticker, pt.trade_type, pt.status, pt.created_at,
+           COUNT(l.id) AS leg_count
+    FROM aiem_paper_trades pt
+    JOIN ase_paper_trade_legs l ON l.paper_trade_id = pt.id::text
+    GROUP BY pt.id, pt.ticker, pt.trade_type, pt.status, pt.created_at
+    ORDER BY pt.created_at
+
+  Result: 0 rows.
+  Explanation: ase_paper_trade_legs stores string IDs of the form
+  "ase_pt_<hex>" and legacy UUIDs. aiem_paper_trades uses integer IDs.
+  The join produces 0 rows by design — the ASE leg table is a standalone
+  child table referencing its own string-keyed parent, not the integer-keyed
+  aiem_paper_trades table. This is the correct and expected behaviour.
+
+──────────────────────────────────────────────────
+SEC-H  Distinct values of asset_type (complete enumeration)
+  CSV:  lc_evidence_package/section_h.csv
+  Rows: 3  (ALL rows — table is fully embedded below)
+
+  asset_type
+  CALL
+  OPTION
+  PUT
+
+──────────────────────────────────────────────────
+SEC-I  Distinct values of buy_or_sell (complete enumeration)
+  CSV:  lc_evidence_package/section_i.csv
+  Rows: 4  (ALL rows — table is fully embedded below)
+
+  buy_or_sell
+  BUY
+  LONG
+  SELL
+  SHORT
+
+  Note: both canonical spellings are present (BUY/SELL from legacy UUID-keyed
+  trades; LONG/SHORT from newer ase_pt_* keyed trades).
+
+──────────────────────────────────────────────────
+SEC-J  Expiration field population
+  CSV:  lc_evidence_package/section_j.csv
+  Rows: 2159  (out of 2177 total; 18 legs have NULL expiration, matching
+              the 18 NULL-delta legs from the legacy UUID batch)
+
+  First 5 rows:
+  id,paper_trade_id,expiration
+  27,ase_pt_426097d373aa4fbd,2026-09-19
+  28,ase_pt_426097d373aa4fbd,2026-09-19
+  29,ase_pt_6083b99595c94b37,2026-09-19
+  30,ase_pt_6083b99595c94b37,2026-09-19
+  31,ase_pt_3bda863231e14809,2026-09-19
+
+  Last 5 rows:
+  2181,ase_pt_3f2458b9297a4ad0,2026-08-21
+  2182,ase_pt_3f2458b9297a4ad0,2026-08-21
+  2183,ase_pt_3f2458b9297a4ad0,2026-08-21
+  2184,ase_pt_3f2458b9297a4ad0,2026-08-21
+  2185,ase_pt_3f2458b9297a4ad0,2026-08-21
+
+──────────────────────────────────────────────────
+SEC-K  Strike field population
+  CSV:  lc_evidence_package/section_k.csv
+  Rows: 2177  (strike populated on all 2177 legs)
+
+  First 5 rows:
+  id,paper_trade_id,strike,asset_type
+  9,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,95.0000,OPTION
+  10,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,105.0000,OPTION
+  11,1d29561d-5b13-4486-8cc9-f051b26656f9,95.0000,OPTION
+  12,1d29561d-5b13-4486-8cc9-f051b26656f9,105.0000,OPTION
+  13,36606418-e378-45a2-87b3-b2959cd9988f,95.0000,OPTION
+  [... 2172 additional rows in section_k.csv ...]
+
+──────────────────────────────────────────────────
+SEC-L  Null audit per leg
+  CSV:  lc_evidence_package/section_l.csv
+  Rows: 2177
+
+  Aggregate null counts (live DB query):
+    null_mid=0  |  null_delta=18  |  null_ratio=0  |  total=2177
+
+  Meaning: mid and ratio are fully populated (0 NULLs).
+           18 legs (the legacy UUID batch) have NULL delta.
+
+  Sample rows (first 10):
+  id,paper_trade_id,mid_status,delta_status,ratio_status
+  9,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,NOT NULL,NULL,NOT NULL
+  10,f7df3c4f-0f5a-4373-b3a1-4de21f8810af,NOT NULL,NULL,NOT NULL
+  11,1d29561d-5b13-4486-8cc9-f051b26656f9,NOT NULL,NULL,NOT NULL
+  12,1d29561d-5b13-4486-8cc9-f051b26656f9,NOT NULL,NULL,NOT NULL
+  13,36606418-e378-45a2-87b3-b2959cd9988f,NOT NULL,NULL,NOT NULL
+  14,36606418-e378-45a2-87b3-b2959cd9988f,NOT NULL,NULL,NOT NULL
+  15,7965de94-34d8-4491-81d7-0c88772f5308,NOT NULL,NULL,NOT NULL
+  16,7965de94-34d8-4491-81d7-0c88772f5308,NOT NULL,NULL,NOT NULL
+  17,84263723-68b6-4b8b-8829-238f462538aa,NOT NULL,NULL,NOT NULL
+  18,84263723-68b6-4b8b-8829-238f462538aa,NOT NULL,NULL,NOT NULL
+  (rows 9-26 are all the same pattern: legacy UUID batch, NULL delta)
+  Row 27 onward (ase_pt_* batch): all three columns NOT NULL
+  [... full 2177 rows in section_l.csv ...]
+
+──────────────────────────────────────────────────
+SEC-M  Negative control — test/mock/fake paper_trade_id values
+  CSV:  lc_evidence_package/section_m.csv
+  Rows: 0  (ALL rows — table is fully embedded below)
+
+  Query:
+    SELECT id, paper_trade_id FROM ase_paper_trade_legs
+    WHERE paper_trade_id LIKE '%test%'
+       OR paper_trade_id LIKE '%mock%'
+       OR paper_trade_id LIKE '%fake%'
+
+  id,paper_trade_id
+  (no rows)
+
+  Interpretation: Zero unit-test artifacts leaked into the production table.
+  The negative-control claim from the verification script is CONFIRMED.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 3 — LITERAL sha256sum TERMINAL OUTPUT
+────────────────────────────────────────────────────────────────────────────────
+
+The following lines are copied verbatim from the terminal.
+Command run: sha256sum tools/verified_run.sh tools/verify_chain.sh
+
+  ebb6a2dd6f5fb450ef3732428507e1bc408339eea8c3a3855ed4cecf2866cd26  tools/verified_run.sh
+  972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75  tools/verify_chain.sh
+
+Command run:
+  sha256sum artifacts/stock-scanner-api/aiem_strat_engine/legs.py \
+            artifacts/stock-scanner-api/aiem_strat_engine/builder.py \
+            artifacts/stock-scanner-api/aiem_strat_engine/payoff.py \
+            artifacts/stock-scanner-api/aiem_strat_engine/config.py
+
+  b6fc2f4ba296b5b3904a3b721705cc5c829011711e0916747c5c5b7a8a5ccec9  artifacts/stock-scanner-api/aiem_strat_engine/legs.py
+  91c4324a6319671c192439e0f47fcab83fdee444ab4ce66507ebea1fb1c98842  artifacts/stock-scanner-api/aiem_strat_engine/builder.py
+  4fd4eecbc2ff66bf205345276cab3806fb907f5dea06121da0ca03fd4d602010  artifacts/stock-scanner-api/aiem_strat_engine/payoff.py
+  e56d42164b342ac3186a45a260d4239034aeeaeb1ca3652309f0dc458d9359c8  artifacts/stock-scanner-api/aiem_strat_engine/config.py
+
+Command run: sha256sum artifacts/stock-scanner-api/ase_leg_report_LC_1EEE4B5B8B984503.txt
+
+  83285f1f359e56c8901b3d94d888e8c21eb269f13b4d9ab6c517e5ad9e1eca83  artifacts/stock-scanner-api/ase_leg_report_LC_1EEE4B5B8B984503.txt
+
+Verifier script:
+  Run ID embedded in report:  LC_1EEE4B5B8B984503
+  Code SHA-256 in report:     ac0e0429ee80bcbbb960ab0d3a1fe9f5a0ee92627dabfe7e00a22ea3cdb6a158
+  Config SHA-256 in report:   776476b1b6a88a1fbb8a4e722a6862a938a82b3c3d5dbf868cdd56386badb36a
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 4 — SOURCE FILE MODIFICATION STATUS
+────────────────────────────────────────────────────────────────────────────────
+
+EXPLICIT CONFIRMATION: No source files were modified during this verification
+session.
+
+Evidence:
+
+1. git diff HEAD (uncommitted changes) for all four source files returned
+   empty output — zero lines of diff:
+
+     $ git diff HEAD -- \
+         artifacts/stock-scanner-api/aiem_strat_engine/legs.py \
+         artifacts/stock-scanner-api/aiem_strat_engine/builder.py \
+         artifacts/stock-scanner-api/aiem_strat_engine/payoff.py \
+         artifacts/stock-scanner-api/aiem_strat_engine/config.py
+     (no output)
+
+2. git log for the four source files shows two commits total, both
+   pre-existing before this session:
+
+     $ git log --oneline -- legs.py builder.py payoff.py config.py
+     a4888b6 Improve report generation and data integrity checks
+     bfa830f Add a standalone advanced options strategy engine with multiple components
+
+   Neither commit was made during this session. No new commit exists for
+   any of the four files.
+
+3. No commits were made to aiem_strat_engine/ today (2026-07-17):
+
+     $ git log --oneline --since="2026-07-17" -- artifacts/stock-scanner-api/aiem_strat_engine/
+     (no output)
+
+4. The sha256sums above (Section 3) are the current on-disk checksums.
+   Any post-session file modification would produce different hashes.
+   These are the live hashes as of the moment this package was assembled.
+
+────────────────────────────────────────────────────────────────────────────────
+FILE MANIFEST (this package)
+────────────────────────────────────────────────────────────────────────────────
+
+  lc_evidence_package/
+  ├── LC_VERIFICATION_COMPLETE_V2.txt     ← this file
+  ├── section_a.csv    2177 rows  all legs
+  ├── section_b.csv    1234 rows  LONG/BUY legs with non-null mid
+  ├── section_c.csv     943 rows  SHORT/SELL legs with non-null mid
+  ├── section_d.csv    2159 rows  delta-bearing legs ordered by delta DESC
+  ├── section_e.csv    2177 rows  all legs with ratio populated
+  ├── section_f.csv     799 rows  leg counts per trade
+  ├── section_g.csv       0 rows  parent join (0 by design — see SEC-G note)
+  ├── section_h.csv       3 rows  distinct asset_type values
+  ├── section_i.csv       4 rows  distinct buy_or_sell values
+  ├── section_j.csv    2159 rows  expiration-bearing legs
+  ├── section_k.csv    2177 rows  strike-bearing legs
+  ├── section_l.csv    2177 rows  null audit per leg
+  └── section_m.csv       0 rows  negative-control (no test artifacts)
+
+  Linked raw report (not inside this directory):
+  artifacts/stock-scanner-api/ase_leg_report_LC_1EEE4B5B8B984503.txt
+    2515 lines  |  SHA-256: 83285f1f359e56c8901b3d94d888e8c21eb269f13b4d9ab6c517e5ad9e1eca83
+
+════════════════════════════════════════════════════════════════════════════════
+  END OF LC_VERIFICATION_COMPLETE_V2.txt
+════════════════════════════════════════════════════════════════════════════════
