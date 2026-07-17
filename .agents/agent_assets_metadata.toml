@@ -294,3 +294,9 @@ id = "IDf98hwk5vuHRKqkJI39A"
 uri = "file://artifacts/stock-scanner-api/ase_math_report_MV_63177CA2F25B6A45.txt"
 type = "text"
 title = "ASE Math Validation Report — MV_63177CA2F25B6A45 (191/191 PASS)"
+
+[[outputs]]
+id = "96GprOkcgTwVUGfs4s28s"
+uri = "file://artifacts/stock-scanner-api/ase_bs_greeks_report_BG_AF79AB6DA9173D21.txt"
+type = "text"
+title = "ASE Sections 5+6 Report — BG_AF79AB6DA9173D21 (105/105 PASS)"
