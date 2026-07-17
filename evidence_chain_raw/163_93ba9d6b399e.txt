@@ -1,0 +1,371 @@
+================================================================================
+ASE SECTION 7 — PROBABILITY & EXPECTED VALUE
+RUN_ID      : cfa9de74
+RUN_TS      : 2026-07-17T05:03:05Z
+probability.py SHA-256 : 794351ca576f9ffbfe5df8b99ca601f1eb066ebb1048a1afdadc59745869d8dc
+config.py SHA-256      : 776476b1b6a88a1fbb8a4e722a6862a938a82b3c3d5dbf868cdd56386badb36a
+verifier SHA-256       : 8927a5aecc770b7b9b60349f31ef2e7c4400f46e62a90aaeacf3d449b6bacb8b
+================================================================================
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T01
+  TEST_NAME                   : PoP lognormal — ATM bull call spread
+  SCENARIO                    : 100/105 call spread, spot=100, iv=0.25, dte=30, skew=0
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : 0.0
+  FUNCTION                    : probability_of_profit()
+  METHOD                      : lognormal density integration (NOT delta)
+  DELTA_CONFIRM               : uses math.log+pdf formula; delta param absent in function
+  COMPUTED_POP                : 0.3519
+  SANITY_BOUND                : 0.20 < pop < 0.75
+  CROSS_CHECK                 : monte_carlo_pop() n=50000 seed=42 → 0.3557
+  TOLERANCE                   : |pop - mc_pop| <= 0.04
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T02
+  TEST_NAME                   : PoP lognormal — OTM bear put spread
+  SCENARIO                    : 90P/85P spread, spot=100, iv=0.30, dte=21, skew=0.05
+  SPOT                        : 100.0
+  IV                          : 0.3
+  DTE                         : 21
+  SKEW                        : 0.05
+  FUNCTION                    : probability_of_profit()
+  METHOD                      : lognormal density integration (NOT delta)
+  DELTA_CONFIRM               : uses math.log+pdf formula; delta param absent in function
+  COMPUTED_POP                : 0.046
+  SANITY_BOUND                : 0.02 < pop < 0.45  (OTM bear spread; needs 10% down in 21d)
+  CROSS_CHECK                 : monte_carlo_pop() n=50000 seed=42 → 0.0524
+  TOLERANCE                   : |pop - mc_pop| <= 0.04
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T03
+  TEST_NAME                   : Fat-tail PoP < lognormal PoP — long straddle (tail-move profit)
+  SCENARIO                    : Long straddle K=100, debit=10, spot=100, iv=0.25, dte=30
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : N/A
+  FUNCTION                    : fat_tail_pop() vs probability_of_profit()
+  METHOD                      : student-t nu=4 sigma_T=0.707×lognormal vs full lognormal sigma
+  DELTA_CONFIRM               : both use density integration over payoff grid — no delta
+  POP_LOGNORMAL               : 0.162
+  POP_FAT_TAIL                : 0.1198
+  POP_MC_50K                  : 0.1621
+  RATIONALE                   : Straddle profit zone=large tails; fat-tail abs-sigma is 0.707× → less prob at ±10 breakevens
+  MC_AGREES_LN                : True
+  CROSS_CHECK                 : MC ≈ lognormal; fat-tail is definitively lower for tail-profit strategies
+  FAT_LOWER                   : True
+  TOLERANCE                   : pop_ft < pop_ln (directional); |mc - pop_ln| <= 0.04
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T04
+  TEST_NAME                   : Blended PoP = 70% lognormal + 30% fat-tail
+  SCENARIO                    : 100/105 call spread, spot=100, iv=0.25, dte=30
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : 0.0
+  FUNCTION                    : calibrated_pop()
+  METHOD                      : 0.70×lognormal + 0.30×fat-tail blend
+  DELTA_CONFIRM               : calibrated_pop calls both density integrators — no delta
+  POP_LOGNORMAL               : 0.3519
+  POP_FAT_TAIL                : 0.3258
+  EXPECTED_BLEND              : 0.3441
+  COMPUTED_BLEND              : 0.3441
+  TOLERANCE                   : |blend - expected| <= 0.0001
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T05
+  TEST_NAME                   : Skew sensitivity — positive put skew reduces bullish PoP
+  SCENARIO                    : 100/105 call spread, skew=0 vs skew=0.10
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW_FLAT                   : 0.0
+  SKEW_BEAR                   : 0.1
+  FUNCTION                    : probability_of_profit(skew=...)
+  METHOD                      : skew_correction = -skew × 0.15 applied to lognormal PoP
+  DELTA_CONFIRM               : skew enters as additive PDF weight correction — not delta
+  POP_FLAT_SKEW               : 0.3519
+  POP_BEAR_SKEW               : 0.3369
+  DIRECTION                   : pop_skew < pop_flat (put premium penalises bullish PoP)
+  DIFF                        : 0.015
+  TOLERANCE                   : directional only (diff > 0)
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T06
+  TEST_NAME                   : Probability of Loss — direct lognormal integration
+  SCENARIO                    : 100/105 call spread, spot=100, iv=0.25, dte=30, skew=0
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : 0.0
+  FUNCTION                    : probability_of_loss()
+  METHOD                      : direct lognormal integral over loss regions (NOT 1-PoP)
+  DELTA_CONFIRM               : integrates density over payoff < 0 regions — no delta
+  COMPUTED_PoP                : 0.3519
+  COMPUTED_PoL                : 0.6481
+  NAIVE_1_MINUS_POP           : 0.6481
+  INDEPENDENCE_NOTE           : PoL integrated separately; boundary (payoff=0) handled explicitly
+  TOLERANCE                   : 0.01 <= pol <= 0.99 (sane range)
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T07
+  TEST_NAME                   : Probability conservation: PoP + PoL ≈ 1.0
+  SCENARIO                    : 100/105 call spread, spot=100, iv=0.25, dte=30, skew=0
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : 0.0
+  FUNCTION                    : probability_of_profit() + probability_of_loss()
+  METHOD                      : both lognormal integrals; complementary regions
+  DELTA_CONFIRM               : no delta used in either path
+  COMPUTED_PoP                : 0.3519
+  COMPUTED_PoL                : 0.6481
+  SUM                         : 1.0
+  EXPECTED                    : ≈ 1.0  (breakeven boundary mass causes small gap)
+  TOLERANCE                   : |pop+pol - 1.0| <= 0.06
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T08
+  TEST_NAME                   : Probability of Max Profit — butterfly center zone
+  SCENARIO                    : 95/100/105 butterfly, spot=100, iv=0.25, dte=30
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : N/A
+  FUNCTION                    : probability_of_max_profit()
+  METHOD                      : lognormal CDF over ±2% band around max-profit strike
+  DELTA_CONFIRM               : uses _lognormal_cdf(lo,spot,sigma,T) – _lognormal_cdf(hi,...)
+  MAX_PROFIT_STRIKE           : 100.0
+  TOLERANCE_BAND              : ±2% of 100.0
+  COMPUTED_PoMP               : 0.2197
+  SANITY_BOUND                : 0.01 <= pmp <= 0.40 (narrow region, not large)
+  TOLERANCE                   : sane range check only
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T09
+  TEST_NAME                   : Probability of Max Loss — iron condor tail region
+  SCENARIO                    : IC 90P/95P/105C/110C, spot=100, iv=0.25, dte=30, credit=2.00
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : N/A
+  FUNCTION                    : probability_of_max_loss()
+  METHOD                      : lognormal integral over payoff <= min_payoff×(1-tol_frac)
+  DELTA_CONFIRM               : uses same density integration as PoP — no delta
+  MIN_PAYOFF_GRID             : -3.0
+  THRESHOLD                   : -2.94
+  COMPUTED_PoML               : 0.1471
+  SANITY_BOUND                : 0.01 <= poml <= 0.50 (extreme tail, low probability)
+  TOLERANCE                   : sane range check
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T10
+  TEST_NAME                   : Expected Value — lognormal numerical integration
+  SCENARIO                    : IC 90P/95P/105C/110C, spot=100, iv=0.30, dte=30
+  SPOT                        : 100.0
+  IV                          : 0.3
+  DTE                         : 30
+  SKEW_ADJ                    : 0.0
+  FUNCTION                    : expected_value()
+  METHOD                      : trapezoidal lognormal integral of payoff (NOT ΣP×payoff with delta)
+  DELTA_CONFIRM               : uses lognormal PDF weight per grid interval — no delta
+  COMPUTED_EV                 : -0.447476
+  NET_CREDIT                  : 1.5
+  SANITY_BOUND                : -5.0 < ev < 5.0 per unit
+  TOLERANCE                   : sane range check only
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T11
+  TEST_NAME                   : EV after costs < EV before costs
+  SCENARIO                    : IC 90P/95P/105C/110C, 4 legs, commission + slippage applied
+  SPOT                        : 100.0
+  IV                          : 0.3
+  DTE                         : 30
+  FUNCTION                    : expected_value_after_costs()
+  METHOD                      : ev_before - commission - slippage, normalised per dollar at risk
+  DELTA_CONFIRM               : costs are deterministic inputs — no delta pathway
+  EV_BEFORE                   : 0.052524
+  COMMISSION                  : 2.72
+  SLIPPAGE                    : 20.0
+  CAPITAL_AT_RISK             : 3.0
+  EV_AFTER_PER_DOLLAR         : -7.555825
+  SANITY_BEFORE               : True
+  SANITY_AFTER                : True
+  TOLERANCE                   : sane ranges
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T12
+  TEST_NAME                   : EV skew sensitivity — skew_adj changes EV
+  SCENARIO                    : 90P/95P bear put spread, iv=0.30, dte=30, skew_adj 0→0.03
+  SPOT                        : 100.0
+  IV                          : 0.3
+  DTE                         : 30
+  FUNCTION                    : expected_value(skew_adj=...)
+  METHOD                      : skew_adj added to sigma before lognormal integration
+  DELTA_CONFIRM               : skew_adj modifies volatility param — no delta pathway
+  EV_SKEW_ADJ_0               : -2.487163
+  EV_SKEW_ADJ_0p03            : -2.606574
+  CHANGE                      : -0.119412
+  SANITY_FLAT                 : True
+  VALUES_DIFFER               : True
+  TOLERANCE                   : sane range + values differ
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T13
+  TEST_NAME                   : Expected Move: EM = spot × iv × sqrt(dte/365)
+  SCENARIO                    : spot=100, iv=0.25, dte=30
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  FUNCTION                    : expected_move()
+  METHOD                      : spot × iv × sqrt(dte/365) — 1-SD band at expiry
+  DELTA_CONFIRM               : formula uses only spot/iv/dte — no delta
+  COMPUTED_EM                 : 7.1673
+  EXPECTED_EM                 : 7.1673
+  FORMULA                     : 100.0 × 0.25 × sqrt(30/365) = 7.1673
+  TOLERANCE                   : abs error <= 0.0001
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T14
+  TEST_NAME                   : Expected Move term structure: 30-DTE < 60-DTE < 90-DTE
+  SCENARIO                    : spot=100, iv=0.25, dte in [30, 60, 90]
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30 / 60 / 90
+  FUNCTION                    : expected_move()
+  METHOD                      : EM ∝ sqrt(T) — monotone increasing with DTE
+  DELTA_CONFIRM               : no delta pathway
+  EM_30                       : 7.1673
+  EM_60                       : 10.1361
+  EM_90                       : 12.4141
+  CROSS_CHECK                 : sqrt(30/365) < sqrt(60/365) < sqrt(90/365)
+  MONOTONE                    : True
+  TOLERANCE                   : strict monotone
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T15
+  TEST_NAME                   : MC PoP cross-check: analytical vs Monte Carlo (n=50,000)
+  SCENARIO                    : 100/105 call spread, spot=100, iv=0.25, dte=30
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  FUNCTION                    : monte_carlo_pop() vs probability_of_profit()
+  METHOD                      : Box-Muller lognormal paths; interpolate payoff grid
+  DELTA_CONFIRM               : MC generates terminal prices directly — no delta proxy
+  POP_ANALYTICAL              : 0.3519
+  POP_MC_50K                  : 0.3557
+  DIFF                        : 0.0038
+  CROSS_CHECK                 : both use same lognormal distribution → must converge
+  SEED                        : 42
+  TOLERANCE                   : |analytical - mc| <= 0.04
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T16
+  TEST_NAME                   : MC convergence: n=10,000 vs n=50,000 agree within 1.5pp
+  SCENARIO                    : 100/105 call spread, spot=100, iv=0.25, dte=30
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  FUNCTION                    : monte_carlo_pop(n_paths=...)
+  METHOD                      : Box-Muller; same seed=42; more paths → tighter estimate
+  DELTA_CONFIRM               : n/a — convergence test
+  MC_10K                      : 0.3534
+  MC_50K                      : 0.3557
+  DIFF                        : 0.0023
+  CROSS_CHECK                 : CLT: σ_MC ≈ sqrt(p(1-p)/n); n=10k → ≈0.5pp std err
+  TOLERANCE                   : |mc_10k - mc_50k| <= 0.015
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S7_T17
+  TEST_NAME                   : calibrated_pop() — full dict coherence
+  SCENARIO                    : 100/105 call spread, iv=0.25, dte=30, skew=0.05 + expected_move
+  SPOT                        : 100.0
+  IV                          : 0.25
+  DTE                         : 30
+  SKEW                        : 0.05
+  FUNCTION                    : calibrated_pop()
+  METHOD                      : lognormal + fat-tail blend; expected_move fed in
+  DELTA_CONFIRM               : all sub-calls use density integration — no delta
+  POP_LOGNORMAL               : 0.3444
+  POP_FAT_TAIL                : 0.3258
+  POP_BLENDED                 : 0.3388
+  EM_COVERAGE                 : 0.3488
+  BLENDED_BETWEEN             : True
+  TOLERANCE                   : all keys present; blended ∈ [fat_tail, lognormal]
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 794351ca576f9ffb
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+================================================================================
+TOTAL: 17  PASS: 17  FAIL: 0
+RESULT: ALL PASS
+================================================================================

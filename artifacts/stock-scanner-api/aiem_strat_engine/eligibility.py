@@ -5,7 +5,7 @@ Final check returns (eligible: bool, rejection_reasons: list[str]).
 """
 from __future__ import annotations
 from typing import List, Optional, Tuple
-from .legs import Leg, SIDE_SHORT, ASSET_STOCK, MODE_ANALYSIS_ONLY
+from .legs import Leg, SIDE_SHORT, ASSET_CALL, ASSET_PUT, ASSET_STOCK, MODE_ANALYSIS_ONLY
 from .config import (
     MIN_DTE, MAX_BID_ASK_WIDTH, MIN_OPEN_INTEREST, MIN_VOLUME,
     MIN_IV, MAX_IV, MIN_PoP, MAX_SPREAD_PER_FILL,
@@ -216,3 +216,113 @@ def pin_risk_label(legs: List[Leg], spot: float) -> str:
             if pct_from_spot < 0.01 and lg.dte <= 2:
                 return "HIGH"
     return "LOW"
+
+
+def check_quote_age(
+    legs: List[Leg],
+    max_age_seconds: int = 300,
+) -> Tuple[bool, List[str]]:
+    """
+    Reject stale options chains.
+
+    Parses quote_timestamp (ISO 8601 from chain_data._normalize_option) and
+    compares to UTC now.  Rejects if older than max_age_seconds (default: 300s).
+
+    Missing timestamps are treated as stale (fail-closed).
+    """
+    from datetime import datetime, timezone
+    reasons: List[str] = []
+    now = datetime.now(timezone.utc)
+    for lg in _option_legs(legs):
+        ts = lg.quote_timestamp
+        label = lg.option_symbol or str(lg.strike)
+        if ts is None:
+            reasons.append(f"No quote timestamp for {label} — treating as stale")
+            continue
+        parsed = None
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                parsed = datetime.strptime(str(ts)[:19], fmt).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            reasons.append(f"Unparseable timestamp '{ts}' for {label}")
+            continue
+        age = (now - parsed).total_seconds()
+        if age > max_age_seconds:
+            reasons.append(
+                f"Stale chain: quote is {age:.0f}s old (limit {max_age_seconds}s) "
+                f"for {label}"
+            )
+    return len(reasons) == 0, reasons
+
+
+def check_impossible_pricing(
+    legs: List[Leg],
+    spot: float,
+) -> Tuple[bool, List[str]]:
+    """
+    Detect impossible option prices.  Rejects on any of:
+
+    1. Negative bid or ask           — option can never be worth < 0
+    2. Crossed market (bid > ask)    — already in check_quotes_present; caught here too
+    3. Call ask > spot × 1.05       — call can't cost more than underlying
+    4. Put ask > strike × 1.05      — put can't cost more than its max payoff (=strike)
+    5. Negative mid price            — impossible, catches malformed chain data
+    6. Call mid < intrinsic floor   — call mid < max(0, spot - strike) - 0.02 buffer
+
+    The 5% / $0.02 buffers absorb data latency and rounding; they are not
+    an excuse to accept wildly wrong prices.
+    """
+    reasons: List[str] = []
+    for lg in _option_legs(legs):
+        bid    = lg.bid
+        ask    = lg.ask
+        mid    = lg.mid
+        strike = lg.strike or 0.0
+        label  = lg.option_symbol or str(strike)
+
+        if bid is not None and bid < 0:
+            reasons.append(f"Negative bid {bid:.4f} for {label}")
+        if ask is not None and ask < 0:
+            reasons.append(f"Negative ask {ask:.4f} for {label}")
+        if mid is not None and mid < 0:
+            reasons.append(f"Negative mid {mid:.4f} for {label}")
+
+        if bid is not None and ask is not None and bid > ask:
+            reasons.append(
+                f"Crossed market: bid={bid:.4f} > ask={ask:.4f} for {label}"
+            )
+
+        if lg.asset_type == ASSET_CALL:
+            if ask is not None and spot > 0 and ask > spot * 1.05:
+                reasons.append(
+                    f"Impossible call price: ask={ask:.2f} > spot×1.05={spot*1.05:.2f} "
+                    f"for {label}"
+                )
+            # Intrinsic floor for calls: mid < max(0, spot - strike) - 0.02
+            if mid is not None and spot > 0:
+                intrinsic = max(0.0, spot - strike)
+                if mid < intrinsic - 0.02:
+                    reasons.append(
+                        f"Call mid={mid:.4f} below intrinsic floor {intrinsic:.4f} "
+                        f"for {label}"
+                    )
+
+        if lg.asset_type == ASSET_PUT:
+            if ask is not None and strike > 0 and ask > strike * 1.05:
+                reasons.append(
+                    f"Impossible put price: ask={ask:.2f} > strike×1.05={strike*1.05:.2f} "
+                    f"for {label}"
+                )
+            # Intrinsic floor for puts: mid < max(0, strike - spot) - 0.02
+            if mid is not None and spot > 0:
+                intrinsic = max(0.0, strike - spot)
+                if mid < intrinsic - 0.02:
+                    reasons.append(
+                        f"Put mid={mid:.4f} below intrinsic floor {intrinsic:.4f} "
+                        f"for {label}"
+                    )
+
+    return len(reasons) == 0, reasons

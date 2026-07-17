@@ -1,0 +1,326 @@
+================================================================================
+ASE SECTION 8 — LIQUIDITY
+RUN_ID         : d397ff65
+RUN_TS         : 2026-07-17T05:03:06Z
+pricing.py SHA : 90ce4dd78b7aacdf2a341dc1943acdee7e04785da912fd594c70a7e499379fa9
+eligibility SHA: df4ab1292452045deca78c09a90babf49ed5d5815e422e6956dee9eee45fa95d
+config SHA     : 776476b1b6a88a1fbb8a4e722a6862a938a82b3c3d5dbf868cdd56386badb36a
+verifier SHA   : 10cc7f06c190178c0449a8b050260a29b14c53fd591c91c41ad7d232f71441db
+================================================================================
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T01
+  TEST_NAME                   : Crossed market rejection — bid > ask
+  SCENARIO                    : CALL bid=1.50, ask=1.20 (bid > ask)
+  INPUTS                      : bid=1.50 ask=1.20 oi=200 vol=100
+  FUNCTION                    : check_quotes_present()
+  GATE_CATEGORY               : CROSSED_MARKET
+  EXPECTED                    : REJECTED — crossed quote
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Crossed quote: bid=1.5 >= ask=1.2 for 105.0']
+  CROSS_CHECK                 : fill_quality_score() must be 0.0 for crossed market
+  CROSS_CHECK_RESULT          : 0.0
+  TOLERANCE                   : exact rejection; fill_quality_score == 0.0
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T02
+  TEST_NAME                   : Missing bid rejection
+  SCENARIO                    : CALL bid=None, ask=1.50
+  INPUTS                      : bid=None ask=1.50 oi=200 vol=100
+  FUNCTION                    : check_quotes_present()
+  GATE_CATEGORY               : MISSING_QUOTE
+  EXPECTED                    : REJECTED — missing bid
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Missing quote for 105.0']
+  CROSS_CHECK                 : mid_price([leg]) must return None
+  CROSS_CHECK_RESULT          : None
+  TOLERANCE                   : passed==False and mid_price==None
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T03
+  TEST_NAME                   : Missing ask rejection
+  SCENARIO                    : CALL bid=1.20, ask=None
+  INPUTS                      : bid=1.20 ask=None oi=200 vol=100
+  FUNCTION                    : check_quotes_present()
+  GATE_CATEGORY               : MISSING_QUOTE
+  EXPECTED                    : REJECTED — missing ask
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Missing quote for 105.0']
+  CROSS_CHECK                 : conservative_fill([leg]) must return None
+  CROSS_CHECK_RESULT          : None
+  TOLERANCE                   : passed==False and conservative_fill==None
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T04
+  TEST_NAME                   : Zero mid price rejection
+  SCENARIO                    : CALL bid=0.0, ask=0.0 → mid=0 (bid==ask triggers crossed-quote path)
+  INPUTS                      : bid=0.0 ask=0.0 mid=0.0 oi=200 vol=100
+  FUNCTION                    : check_quotes_present()
+  GATE_CATEGORY               : ZERO_MID / CROSSED_EQUAL
+  EXPECTED                    : REJECTED (via Zero-mid or Crossed-equal; both are correct)
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Crossed quote: bid=0.0 >= ask=0.0 for 105.0']
+  NOTE                        : bid=ask=0 → bid>=ask → 'Crossed quote' path; rejection is correct
+  CROSS_CHECK                 : fill_quality_score() = 0.0 for any crossed/zero market
+  CROSS_CHECK_RESULT          : 0.0
+  TOLERANCE                   : passed==False and at least one rejection reason present
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T05
+  TEST_NAME                   : Stale quote rejection — timestamp 10 min old
+  SCENARIO                    : quote_timestamp=2026-07-17T04:53:06 (600s ago), limit=300s
+  INPUTS                      : bid=1.20 ask=1.50 ts=2026-07-17T04:53:06
+  FUNCTION                    : check_quote_age(max_age_seconds=300)
+  GATE_CATEGORY               : STALE_CHAIN
+  EXPECTED                    : REJECTED — quote older than 5 min
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Stale chain: quote is 601s old (limit 300s) for 105.0']
+  CROSS_CHECK                 : age_seconds=600 > max=300 → must reject
+  CROSS_CHECK_RESULT          : age=600s confirmed
+  TOLERANCE                   : passed==False
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T06
+  TEST_NAME                   : Fresh quote passes — timestamp 30s old
+  SCENARIO                    : quote_timestamp=2026-07-17T05:02:36 (30s ago), limit=300s
+  INPUTS                      : bid=1.20 ask=1.50 ts=2026-07-17T05:02:36
+  FUNCTION                    : check_quote_age(max_age_seconds=300)
+  GATE_CATEGORY               : FRESH_CHAIN
+  EXPECTED                    : PASSED — quote is recent
+  COMPUTED                    : PASSED
+  REJECTION_REASONS           : []
+  CROSS_CHECK                 : age_seconds=30 < max=300 → must pass
+  CROSS_CHECK_RESULT          : age=30s confirmed
+  TOLERANCE                   : passed==True and reasons==[]
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T07
+  TEST_NAME                   : Missing timestamp fails-closed (treated as stale)
+  SCENARIO                    : CALL quote_timestamp=None
+  INPUTS                      : bid=1.20 ask=1.50 ts=None
+  FUNCTION                    : check_quote_age()
+  GATE_CATEGORY               : MISSING_TIMESTAMP
+  EXPECTED                    : REJECTED — no timestamp → fail-closed
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['No quote timestamp for 105.0 — treating as stale']
+  CROSS_CHECK                 : fail-closed principle: unknown age = stale
+  CROSS_CHECK_RESULT          : N/A — verified by rejection
+  TOLERANCE                   : passed==False
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T08
+  TEST_NAME                   : Low OI rejection — OI=10 < minimum 50
+  SCENARIO                    : CALL open_interest=10, MIN_OPEN_INTEREST=50
+  INPUTS                      : bid=1.20 ask=1.50 oi=10 vol=100
+  FUNCTION                    : check_open_interest()
+  GATE_CATEGORY               : LOW_OI
+  EXPECTED                    : REJECTED — OI 10 < 50
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Low OI: 10 < 50 for 105.0']
+  CROSS_CHECK                 : liquidity_score OI component = 10/1000 = 0.01 (very low)
+  CROSS_CHECK_RESULT          : 0.2318
+  TOLERANCE                   : passed==False
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T09
+  TEST_NAME                   : Low volume rejection — vol=5 < minimum 20
+  SCENARIO                    : CALL volume=5, MIN_VOLUME=20
+  INPUTS                      : bid=1.20 ask=1.50 oi=200 vol=5
+  FUNCTION                    : check_volume()
+  GATE_CATEGORY               : LOW_VOLUME
+  EXPECTED                    : REJECTED — volume 5 < 20
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Low volume: 5 < 20 for 105.0']
+  CROSS_CHECK                 : liquidity_score vol component = 5/200 = 0.025 (very low)
+  CROSS_CHECK_RESULT          : 0.1653
+  TOLERANCE                   : passed==False
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T10
+  TEST_NAME                   : Wide spread rejection — spread/mid > 30%
+  SCENARIO                    : CALL bid=1.00, ask=1.70 → spread_frac=51.9% > 30%
+  INPUTS                      : bid=1.00 ask=1.70 mid=1.35 oi=200 vol=100
+  FUNCTION                    : check_bid_ask_width(max_frac=0.30)
+  GATE_CATEGORY               : WIDE_SPREAD
+  EXPECTED                    : REJECTED — spread 51.9% > 30%
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Bid-ask too wide: 51.9% > 30.0% for 105.0']
+  CROSS_CHECK                 : fill_quality_score() penalises wide spread → 0.002
+  CROSS_CHECK_RESULT          : 0.002
+  TOLERANCE                   : passed==False
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T11
+  TEST_NAME                   : Impossible pricing — call ask > spot
+  SCENARIO                    : CALL ask=110 > spot=100 (option can't cost more than underlying)
+  INPUTS                      : bid=105.0 ask=110.0 spot=100.0 strike=90
+  FUNCTION                    : check_impossible_pricing()
+  GATE_CATEGORY               : IMPOSSIBLE_PRICING
+  EXPECTED                    : REJECTED — call ask > spot×1.05
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Impossible call price: ask=110.00 > spot×1.05=105.00 for 90.0']
+  CROSS_CHECK                 : parity bound: call price ≤ spot at all times
+  CROSS_CHECK_RESULT          : ask=110 > spot×1.05=105.0
+  TOLERANCE                   : passed==False
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T12
+  TEST_NAME                   : Impossible pricing — put ask > strike
+  SCENARIO                    : PUT ask=110 > strike=95 (put max payoff = strike)
+  INPUTS                      : bid=100.0 ask=110.0 spot=100.0 strike=95
+  FUNCTION                    : check_impossible_pricing()
+  GATE_CATEGORY               : IMPOSSIBLE_PRICING
+  EXPECTED                    : REJECTED — put ask > strike×1.05
+  COMPUTED                    : REJECTED
+  REJECTION_REASONS           : ['Impossible put price: ask=110.00 > strike×1.05=99.75 for 95.0']
+  CROSS_CHECK                 : parity bound: put price ≤ strike at all times
+  CROSS_CHECK_RESULT          : ask=110 > strike×1.05=99.75
+  TOLERANCE                   : passed==False
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T13
+  TEST_NAME                   : Conservative fill — long at ask, short at bid
+  SCENARIO                    : 100/105 call spread: long bid=2.00/ask=2.20; short bid=0.90/ask=1.10
+  INPUTS                      : long ask=2.20, short bid=0.90
+  FUNCTION                    : conservative_fill()
+  GATE_CATEGORY               : FILL_MODELING
+  EXPECTED                    : long_ask - short_bid = 1.3
+  COMPUTED                    : 1.3
+  MID_PRICE                   : 1.1
+  FILL_WORSE_THAN_MID         : True
+  CROSS_CHECK                 : conservative_fill > mid_price (buyer pays more than fair value)
+  CROSS_CHECK_RESULT          : 1.3 > 1.1
+  TOLERANCE                   : |computed - expected| <= 0.0001
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T14
+  TEST_NAME                   : Net mid price — bull call spread
+  SCENARIO                    : 100C long mid=2.10 / 105C short mid=1.00 → net debit=1.10
+  INPUTS                      : long mid=2.10 (LONG +sign), short mid=1.00 (SHORT -sign)
+  FUNCTION                    : mid_price()
+  GATE_CATEGORY               : MID_PRICE
+  EXPECTED                    : 1.1
+  COMPUTED                    : 1.1
+  FORMULA                     : Σ(sign × mid × ratio) = +2.10 + (-1.00) = 1.10
+  CROSS_CHECK                 : conservative_fill > mid_price (mid is fair value floor)
+  CROSS_CHECK_RESULT          : 1.3
+  TOLERANCE                   : |computed - expected| <= 0.0001
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T15
+  TEST_NAME                   : Slippage estimate — vol-adjusted spread cost
+  SCENARIO                    : 2-leg spread, each spread=0.20, underlying_vol=0.25
+  INPUTS                      : long spread=0.20, short spread=0.20, vol=0.25
+  FUNCTION                    : slippage_estimate()
+  GATE_CATEGORY               : SLIPPAGE
+  VOL_FACTOR                  : 0.1
+  EXPECTED_SLIP               : 4.0
+  COMPUTED_SLIP               : 4.0
+  FORMULA                     : spread × vol_factor × ratio × 100 per leg
+  CROSS_CHECK                 : slip > 0 (cost is always positive)
+  CROSS_CHECK_RESULT          : True
+  TOLERANCE                   : |computed - expected| <= 0.01
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T16
+  TEST_NAME                   : Commission + regulatory + OCC fee total
+  SCENARIO                    : 2-option-leg spread, 1 contract, Tradier fee model
+  INPUTS                      : 2 option legs × 1 contract
+  FUNCTION                    : commission()
+  GATE_CATEGORY               : COMMISSION
+  FORMULA                     : base($0) + n_legs × (0.65+0.02+0.01) × contracts
+  EXPECTED                    : 1.36
+  COMPUTED                    : 1.36
+  COMPONENTS                  : COMMISSION_PER_LEG=0.65, REG=0.02, OCC=0.01
+  CROSS_CHECK                 : commission > 0 for any option trade
+  CROSS_CHECK_RESULT          : True
+  TOLERANCE                   : |computed - expected| <= 0.0001
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+──────────────────────────────────────────────────────────────────────
+  TEST_ID                     : S8_T17
+  TEST_NAME                   : Fill quality score: tight=high, crossed=zero
+  SCENARIO                    : tight spread (4.9%) vs crossed market comparison
+  INPUTS                      : tight: bid=2.00/ask=2.10/oi=2000/vol=500 | crossed: bid=1.50/ask=1.20
+  FUNCTION                    : fill_quality_score() + liquidity_score()
+  GATE_CATEGORY               : FILL_QUALITY
+  FQS_TIGHT                   : 0.8574
+  FQS_CROSSED                 : 0.0
+  LIQ_TIGHT                   : 0.9512
+  TIGHT_HIGH                  : True
+  CROSSED_ZERO                : True
+  CROSS_CHECK                 : liquidity_score tight > 0 and <= 1.0
+  CROSS_CHECK_RESULT          : True
+  TOLERANCE                   : fqs_tight > 0.70; fqs_crossed == 0.0
+  WITHIN_TOLERANCE            : True
+  CODE_SHA256_16              : 90ce4dd78b7aacdf|df4ab1292452045d
+  CONFIG_SHA256_16            : 776476b1b6a88a1f
+  STATUS                      : PASS
+
+================================================================================
+TOTAL: 17  PASS: 17  FAIL: 0
+RESULT: ALL PASS
+================================================================================
