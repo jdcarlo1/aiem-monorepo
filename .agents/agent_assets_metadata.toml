@@ -354,3 +354,9 @@ id = "u6jje0RaaxIbRdL6qXwzG"
 uri = "file://.local/ASE_S9_S10_Chain_Closure.txt"
 type = "text"
 title = "ASE S9 & S10 — Evidence Chain Closure (Directive 14 final)"
+
+[[outputs]]
+id = "Py49y0Qi5eOi1wFcZOrLs"
+uri = "file://AIEM_FAILOVER_VERIFICATION.md"
+type = "text"
+title = "AIEM Failover — Full Verification Report"
