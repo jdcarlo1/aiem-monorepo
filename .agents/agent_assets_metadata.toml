@@ -378,3 +378,9 @@ id = "Own_nI57eYkv7SvWIlKDx"
 uri = "file://artifacts/stock-scanner-api/ase_market_scenarios_report_MS_373EFAC37EEA4279.txt"
 type = "text"
 title = "Market Scenarios Verification — 16/16 PASS (Run ID: MS_373EFAC37EEA4279)"
+
+[[outputs]]
+id = "SAMzgvwKY9f1ogavgdbhV"
+uri = "file://LC_VERIFICATION_COMPLETE.txt"
+type = "text"
+title = "LC Leg Construction Verification — Complete Evidence Package"
