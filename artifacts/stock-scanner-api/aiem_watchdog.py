@@ -231,41 +231,44 @@ def _recovery_already_triggered(conn, today: date) -> tuple:
     """
     try:
         with conn.cursor() as cur:
-            # Primary already completed
+            # Check 1: primary completed — daily_pipeline_runs row
             cur.execute("""
                 SELECT trigger_source, status, completed_at
                 FROM daily_pipeline_runs
                 WHERE run_date = %s AND status IN ('COMPLETED', 'RUNNING')
                 ORDER BY created_at DESC LIMIT 1
             """, (today,))
-            row = cur.fetchone()
-            if row:
-                return True, f"daily_pipeline_runs: {row[1]} by {row[0]} at {row[2]}"
+            dpr_row = cur.fetchone()
+            if dpr_row and len(dpr_row) >= 3:
+                return True, f"daily_pipeline_runs: {dpr_row[1]} by {dpr_row[0]} at {dpr_row[2]}"
 
-            # Pipeline jobs all done independently (primary ran, no dpr row written)
+            # Check 2: all pipeline jobs independently done
             cur.execute("""
-                SELECT COUNT(*) total,
-                       COUNT(*) FILTER (WHERE status='DONE') done
-                FROM options_pipeline_jobs WHERE scan_date=%s
+                SELECT COUNT(1) AS total,
+                       SUM(CASE WHEN status='DONE' THEN 1 ELSE 0 END) AS done
+                FROM options_pipeline_jobs WHERE scan_date = %s
             """, (today,))
-            r = cur.fetchone()
-            if r and r[0] > 0 and r[0] == r[1]:
-                return True, f"options_pipeline_jobs all DONE ({r[0]} rows)"
+            cnt_row = cur.fetchone()
+            if cnt_row and len(cnt_row) >= 2:
+                total_n = cnt_row[0] or 0
+                done_n  = cnt_row[1] or 0
+                if total_n > 0 and total_n == done_n:
+                    return True, f"options_pipeline_jobs all DONE ({total_n} rows)"
 
-            # Backup runner heartbeat in the cooldown window
-            cutoff = datetime.now(timezone.utc) - timedelta(minutes=_RECOVERY_COOLDOWN_MINUTES)
+            # Check 3: backup runner heartbeat within cooldown
+            # Note: %% escapes the literal % in LIKE pattern (psycopg2 treats bare % as placeholder)
             cur.execute("""
                 SELECT job_name, last_success FROM job_heartbeats
-                WHERE job_name LIKE 'backup_runner_%'
-                  AND last_success >= %s
+                WHERE job_name LIKE 'backup_runner_%%'
+                  AND last_success >= NOW() - INTERVAL '25 minutes'
                 LIMIT 1
-            """, (cutoff,))
-            row = cur.fetchone()
-            if row:
-                return True, f"backup_runner heartbeat: {row[0]} at {row[1]}"
+            """)
+            hb_row = cur.fetchone()
+            if hb_row:
+                return True, f"backup_runner heartbeat: {hb_row[0]} at {hb_row[1]}"
 
     except Exception as e:
-        log.warning(f"[recovery_check] DB error: {e}")
+        log.warning(f"[recovery_check] DB error: {e!r}")
     return False, ""
 
 
@@ -303,9 +306,16 @@ def _trigger_recovery(today: date, now_et: datetime, failed_checks: list) -> int
         result = subprocess.run(
             [sys.executable, script],
             env=env,
-            timeout=600,      # 10 min hard cap
-            capture_output=False,
+            timeout=600,       # 10 min hard cap
+            capture_output=True,
+            text=True,
         )
+        # Echo every line from backup runner with [RECOVERY-LOG] prefix + timestamp
+        for line in result.stdout.splitlines():
+            log.info(f"[RECOVERY-LOG] {line}")
+        if result.stderr:
+            for line in result.stderr.splitlines():
+                log.info(f"[RECOVERY-ERR] {line}")
         log.info(f"[recovery] backup runner exited: code={result.returncode}")
         return result.returncode
     except subprocess.TimeoutExpired:

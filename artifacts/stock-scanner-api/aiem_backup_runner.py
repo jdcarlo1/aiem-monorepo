@@ -179,15 +179,27 @@ def _primary_already_ran(conn, today: date) -> bool:
             log.info(f"[dedup] {row[0]} jobs all DONE — primary already ran")
             return True
 
-        # Check 3: primary heartbeat was written today
+        # Check 3: heartbeat written recently AND all jobs are in-progress
+        # A stale heartbeat (>35 min) means the VM is likely down — allow recovery.
+        # We do NOT use heartbeat alone as a block; job-state is the ground truth.
         cur.execute("""
             SELECT last_success FROM job_heartbeats
             WHERE job_name = 'options_pipeline_scheduler'
-              AND DATE(last_success) = %s
-        """, (today,))
-        if cur.fetchone():
-            log.info("[dedup] options_pipeline_scheduler heartbeat today — primary alive")
-            return True
+              AND last_success >= NOW() - INTERVAL '35 minutes'
+        """)
+        hb_row = cur.fetchone()
+        if hb_row:
+            # Scheduler is alive — only dedup if there are NO pending jobs left
+            cur.execute("""
+                SELECT COUNT(*) FILTER (WHERE status IN ('PENDING','CLAIMED','EXECUTING'))
+                FROM options_pipeline_jobs WHERE scan_date = %s
+            """, (today,))
+            pending = cur.fetchone()
+            if pending and pending[0] == 0:
+                log.info("[dedup] scheduler heartbeat fresh + 0 pending jobs — primary handled it")
+                return True
+            log.info(f"[dedup] scheduler heartbeat fresh but {pending[0] if pending else '?'} "
+                     f"jobs still pending — backup will claim unclaimed slots")
 
     return False
 
@@ -482,23 +494,36 @@ def _execute_job(conn, candidate_row, today: date) -> dict:
             entry_mid  = put_mid if direction == "LONG_PUT" else call_mid
             strike     = put_strike if direction == "LONG_PUT" else call_strike
             with conn.cursor() as cur:
+                # Pre-check: avoid duplicate paper trade for same ticker/date/source
+                # (aiem_paper_trades has no unique constraint — explicit guard required)
                 cur.execute("""
-                    INSERT INTO aiem_paper_trades
-                        (trade_date, ticker, trade_type, entry_price, notional,
-                         signal_source, signal_detail, audit_trace_id,
-                         strike, expiry, entry_score, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN')
-                    ON CONFLICT DO NOTHING
-                """, (
-                    today, ticker, trade_type, entry_mid, 100.00,
-                    _TRIGGER,
-                    f"put={put_score:.0f} call={call_score:.0f} margin={margin:.0f} "
-                    f"skew={pc_skew_tag} regime={gex_regime}",
-                    trace_id, strike, expiry_str, round(sel_score, 2)
-                ))
+                    SELECT id FROM aiem_paper_trades
+                    WHERE trade_date = %s AND ticker = %s AND signal_source = %s
+                    LIMIT 1
+                """, (today, ticker, _TRIGGER))
+                _pt_existing = cur.fetchone()
+
+                if _pt_existing:
+                    log.info(f"[exec] paper trade already exists id={_pt_existing[0]} "
+                             f"for {ticker}/{today}/{_TRIGGER} — skipping duplicate")
+                else:
+                    cur.execute("""
+                        INSERT INTO aiem_paper_trades
+                            (trade_date, ticker, trade_type, entry_price, notional,
+                             signal_source, signal_detail, audit_trace_id,
+                             strike, expiry, entry_score, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN')
+                    """, (
+                        today, ticker, trade_type, entry_mid, 100.00,
+                        _TRIGGER,
+                        f"put={put_score:.0f} call={call_score:.0f} margin={margin:.0f} "
+                        f"skew={pc_skew_tag} regime={gex_regime}",
+                        trace_id, strike, expiry_str, round(sel_score, 2)
+                    ))
+                    conn.commit()
+                    log.info(f"[exec] paper trade written: {ticker} {direction} "
+                             f"strike={strike} entry={entry_mid} trace={trace_id}")
             conn.commit()
-            log.info(f"[exec] paper trade written: {ticker} {direction} strike={strike} "
-                     f"entry={entry_mid} trace={trace_id}")
 
         elapsed = round(time.time() - t0, 2)
         log.info(f"[exec] DONE job_id={job_id} {ticker} → {direction} "
@@ -627,21 +652,39 @@ def main():
         seeded_count = len(candidates)
 
         if seeded_count == 0:
-            log.warning("[backup] 0 candidates seeded — OSS may be empty for today")
+            # Primary may have already seeded but not finished executing.
+            # Look for any PENDING jobs we can claim.
+            log.info("[backup] seed=0 — checking for pre-existing PENDING jobs from primary")
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE daily_pipeline_runs
-                    SET status='NO_TRADE', completed_at=NOW(),
-                        polygon_rvol_rows=%s, oss_rows=%s,
-                        candidates_seeded=0, candidates_executed=0
-                    WHERE run_date=%s AND trigger_source=%s
-                """, (rvol_rows, oss_rows, today, _TRIGGER))
-            conn.commit()
-            _tg(f"⚠️ <b>BACKUP RUNNER: NO CANDIDATES</b>\n"
-                f"options_structure_scan had no qualifying rows for {today}.\n"
-                f"oss_rows={oss_rows}")
-            _unlock(conn)
-            sys.exit(0)
+                    SELECT j.ticker, j.scan_date,
+                           o.pc_skew_pp, o.gex_regime, o.pc_skew_tag,
+                           o.spot, o.front_iv, NULL
+                    FROM options_pipeline_jobs j
+                    JOIN options_structure_scan o
+                      ON o.ticker = j.ticker AND o.scan_date = j.scan_date
+                    WHERE j.scan_date = %s AND j.status = 'PENDING'
+                    ORDER BY o.pc_skew_pp DESC NULLS LAST
+                """, (today,))
+                candidates = cur.fetchall()
+            log.info(f"[backup] {len(candidates)} pre-existing PENDING job(s) found")
+
+            if not candidates:
+                log.warning("[backup] 0 candidates seeded and 0 PENDING jobs — nothing to do")
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE daily_pipeline_runs
+                        SET status='NO_TRADE', completed_at=NOW(),
+                            polygon_rvol_rows=%s, oss_rows=%s,
+                            candidates_seeded=0, candidates_executed=0
+                        WHERE run_date=%s AND trigger_source=%s
+                    """, (rvol_rows, oss_rows, today, _TRIGGER))
+                conn.commit()
+                _tg(f"⚠️ <b>BACKUP RUNNER: NO CANDIDATES</b>\n"
+                    f"options_structure_scan had no qualifying rows for {today}.\n"
+                    f"oss_rows={oss_rows}")
+                _unlock(conn)
+                sys.exit(0)
 
         # ── Execute pipeline ─────────────────────────────────────────────────
         results  = []
