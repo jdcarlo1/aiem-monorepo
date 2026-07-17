@@ -7,10 +7,11 @@ Isolation: reads chain data from Tradier directly; writes to ase_* DB tables
            / aiem_options_structure.py or any Diagram-1/2/3 module.
 Paper-only until separately approved and verified.
 """
-__version__ = "1.0.0"
+__version__ = "1.2.0"
 __all__ = [
     "config", "db", "legs", "catalog", "builder",
     "chain_data", "pricing", "probability", "eligibility",
     "payoff", "greeks", "scoring", "selector",
     "paper_trader", "position_manager", "reporting",
+    "assignment", "risk_classifier",
 ]

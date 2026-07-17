@@ -147,3 +147,4 @@
 - [AIEM direction-agnostic architecture](aiem-direction-agnostic.md) — CALL/PUT/SHORT paper trades; MTM P&L inverts for PUT/SHORT; system prompt requires both strike+expiry per ticker
 - [Specialist Council trace_id propagation](specialist-council-trace-id.md) — pick-phase council runs before _d2_trace_id exists; fix = store council_run_id in pick dict → UPDATE after trace mint; MTM uses mtm_{id}_{date}
 - [ASE Directive v2 remediation](ase-directive-v2-remediation.md) — 7 fixes to reach 322/322 PASS; aggregate() 0→None bug; _I_vega/100 pattern; Charm /365 convention
+- [ASE Sections 9-10 coverage logic](ase-assignment-risk-coverage.md) — bear-call-spread cover (LC@higher) breaks lc_k<=sc_k rule; use net ratio count; ATM threshold 0.40 not 0.60 for DTE≤5
