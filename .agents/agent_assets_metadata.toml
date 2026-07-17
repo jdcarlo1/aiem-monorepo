@@ -486,3 +486,9 @@ id = "zX8EF8GJM5Jcn2ZSpJDat"
 uri = "file://artifacts/stock-scanner-api/lc_evidence_package/open_trades_get_open_trades.csv"
 type = "table"
 title = "open_trades_get_open_trades.csv — 806 rows, full result set"
+
+[[outputs]]
+id = "C1FkGItNPaS5kLhFkvVRl"
+uri = "file://artifacts/stock-scanner-api/ASE_VERIFICATION_REPORT.md"
+type = "text"
+title = "ASE Complete Verification Report"
