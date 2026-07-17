@@ -1,0 +1,64 @@
+# Directive — BREAK Path: Remove Unverified Cause Claim + Require Sign-Off
+**Date:** 2026-07-17
+**File:** tools/verify_chain.sh
+**Status:** Has never fired in a real run (confirmed via `grep -c "^BREAK" evidence_chain.log` = 0),
+but must be fixed before it ever does.
+
+---
+
+## Problem
+
+Line 53 prints a root-cause explanation for any BREAK unconditionally:
+
+```
+print("  Cause: concurrent-write race condition (pre-dates flock fix).")
+```
+
+There is no logic anywhere in the script that verifies this is actually the
+cause. It prints every time a BREAK fires, regardless of what actually caused
+the prev_hash mismatch — including real tampering. And per line 81-82, if the
+entry self-heals (recomputed_brk matches), the chain still gets marked:
+
+```
+=== CHAIN VALID WITH {break_count} DOCUMENTED BREAK(S): all entries verified. ===
+```
+
+with `sys.exit(0)` (no failure), no pause, no requirement for a human to look
+at it. So the first real BREAK — tampering or not — auto-passes with a
+built-in innocent explanation attached, unless this is fixed now.
+
+## Required changes
+
+**1. Remove the unverified cause claim.** Replace line 53 with a neutral
+statement that does not assert a cause the script hasn't verified:
+
+```python
+print("  Cause: UNKNOWN — prev_hash mismatch detected. Do not assume this is benign.")
+```
+
+Do not reintroduce any cause explanation unless the script actually
+distinguishes race-condition timing from tampering with real logic (e.g.
+timestamp proximity to a known flock-fix deploy, file mtime correlation,
+etc.) — not just an assumption baked into a print statement.
+
+**2. Require explicit sign-off before a self-healed BREAK counts as valid.**
+Change the behavior at line 80-82 so that `break_count > 0` does NOT permit
+the script to exit 0 / print "CHAIN VALID" on its own. Instead:
+
+- The script should exit with a distinct non-zero code (not the same as
+  `fail`, so it's distinguishable — e.g. exit 2) and print something like:
+  `"=== CHAIN HAS {break_count} UNRESOLVED BREAK(S) — awaiting manual review.
+  Not auto-approved. ==="`
+- The chain should only be considered fully valid after Joel has reviewed the
+  specific BREAK entry/entries and explicitly approved them — this approval
+  should be a separate, logged step, not something the validator grants
+  itself.
+
+## Evidence required when this is done
+
+Standard requirements apply: raw diff of the changed lines, raw grep -n output
+confirming the new code is in place, sha256 before/after for
+tools/verify_chain.sh, and a real test run demonstrating a BREAK is triggered
+(synthetic/test entry, clearly labeled as such, with explicit approval before
+creation per the Data Immutability Rule) showing the new exit code and message
+fire correctly — not just a description of what the code would do.

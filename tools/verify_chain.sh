@@ -50,7 +50,7 @@ with open(log_file) as f:
             print(f"BREAK at line {line_num} (seq={seq}): prev_hash mismatch — chain continuity gap.")
             print(f"  expected prev_hash: {prev_hash}")
             print(f"  stored  prev_hash:  {stored_prev}")
-            print("  Cause: concurrent-write race condition (pre-dates flock fix).")
+            print("  Cause: UNKNOWN — prev_hash mismatch detected. Do not assume this is benign.")
             canonical_brk = f"{stored_prev}|{seq}|{timestamp}|{cmd}|{exit_code}|{output_sha256}"
             recomputed_brk = hashlib.sha256(canonical_brk.encode()).hexdigest()
             if recomputed_brk == stored_hash:
@@ -79,9 +79,10 @@ with open(log_file) as f:
 print()
 if not fail:
     if break_count > 0:
-        print(f"=== CHAIN VALID WITH {break_count} DOCUMENTED BREAK(S): all {line_num} entries verified. ===")
-        print("    Each break entry is internally valid; gap caused by pre-flock race condition.")
-        print("    Entries after each break form a valid sub-chain. flock fix prevents recurrence.")
+        print(f"=== CHAIN HAS {break_count} UNRESOLVED BREAK(S) — awaiting manual review. Not auto-approved. ===")
+        print("    Each break entry above was internally valid but the chain continuity gap is unverified.")
+        print("    Cause is UNKNOWN. Do not assume benign. Manual review and explicit approval required.")
+        sys.exit(2)
     else:
         print(f"=== CHAIN VALID: all {line_num} entries verified, no tampering detected in the log structure. ===")
     print("NOTE: this confirms internal consistency of the log only. It does NOT prove the")
