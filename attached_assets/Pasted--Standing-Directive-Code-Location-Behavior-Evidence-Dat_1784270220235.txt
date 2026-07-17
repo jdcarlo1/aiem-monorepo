@@ -1,0 +1,60 @@
+# Standing Directive — Code Location & Behavior Evidence
+**Date:** 2026-07-17
+**Applies to:** All agent work on AIEM (and any other Joel project under the standing verification protocol)
+**Status:** Permanent addition to the standing verification block — not a one-time instruction
+
+---
+
+## The gap this closes
+
+In the Round 2 addendum review, the agent asserted specific line numbers and code
+behavior ("line 76 does X", "line 46 does Y") as a described/paraphrased snippet,
+without raw terminal output backing it. That is a narrative claim wearing the
+costume of evidence — it looks precise because it cites line numbers, but nothing
+confirms those line numbers are real.
+
+This directive closes that gap permanently so it doesn't need to be caught after
+the fact on every review.
+
+## New rule
+
+**Any claim about code location, line numbers, or code behavior must be backed by
+raw terminal output — not a described or reconstructed snippet.**
+
+This is not optional and is not satisfied by:
+- Quoting what a line "says" without having run a command that shows it
+- Summarizing what a function does without pasted output confirming it
+- Line-number citations that aren't accompanied by the raw output that produced them
+
+It IS satisfied by, e.g.:
+
+```
+grep -n "<pattern>" <file>
+```
+or
+```
+sed -n '<start>,<end>p' <file>
+```
+
+pasted in full, raw, unedited — showing the actual line numbers and content.
+
+## Where this fits in the existing protocol
+
+This is an addition to the standing verification block already in force:
+
+1. Raw terminal output for execution claims (existing)
+2. Exact before/after diffs (existing)
+3. sha256 before/after for changed files (existing)
+4. Raw SQL + full result set for DB claims (existing)
+5. **Raw grep/sed output for any code-location or code-behavior claim (NEW — this directive)**
+
+Narrative claims — "fixed," "tested," "found," "confirmed," or a described code
+snippet with cited line numbers — are rejected without the matching raw output.
+If the agent cannot produce the evidence, it must say so explicitly rather than
+proceeding on description alone.
+
+## Why
+
+Every round of "assert → get asked for proof → produce proof" is a paid
+round-trip. Building the raw-output requirement into every code-location claim
+up front — instead of it being caught in review — removes that back-and-forth.

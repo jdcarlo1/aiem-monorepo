@@ -1,4 +1,5 @@
 - [AIEM full verification audit](aiem-full-verification-audit.md) — 162 items audited: 121 PASS/27 PROXY/5 CONDITIONAL/8 UNSUPPORTED/1 FAIL; only validated signal=gap_volume; 152 scheduled jobs; aiem_tool_registry cols=tool_name/tool_type/owning_module_or_phase/required_inputs/produced_outputs; d3_governance_events does NOT exist (use d3_governance_decisions)
+- [Standing verification protocol](standing-verification-protocol.md) — 5 permanent rules; Rule 5 (raw grep/sed for code-location claims) added 2026-07-17; narrative/described snippets rejected outright
 - [D14 post-run proof verifier](d14-verifier-wiring.md) — aiem_d14_verifier.py fires within 5 min of 9:42 run; 3 required events + SHA-256 chain; auto-retry + Telegram alert; 3 wiring points (log_finish, watchdog, retry fn)
 - [Directive 14 Tier-1 wiring](d14-tier1-wiring.md) — GARCH/VPIN/Hurst were ALL inert before D14; root cause + exact fix in topic; live-confirmation log tag: [D14_BULL_BEAR]
 - [G1 baseline hash isolation test](g1-baseline-hash-isolation.md) — _D3_BASELINE_HASH=None in standalone Python (d3_startup() never called); must seed from DB before any G1 ALLOW isolation test
