@@ -1,0 +1,49 @@
+# Directive: ASE Remediation — Round 2 (Items 3 and 4 Still Not Closed)
+
+**Date:** 2026-07-17
+**Re:** ASE_REMEDIATION_RESPONSE_2026-07-17.md
+**Status:** Items 1, 2, and 5 accepted. Items 3 and 4 rejected — same failure mode as the original report, not fixed.
+
+---
+
+## What was accepted
+
+- **Item 5** — sha256sum output for `verified_run.sh`/`verify_chain.sh` matches canonical values on file. Closed.
+- **Item 1** — Honest git accounting for S7_T02/S7_T03/S8_T04; single-commit history confirmed, no diff fabricated, "test was wrong not engine" framing is correctly argued. Closed.
+- **Item 2** — Fresh SHAs for all 4 report files, location correction (workspace root vs. `artifacts/stock-scanner-api/`) is specific and checkable. Closed.
+
+## What is rejected and must be redone
+
+### Item 3 — verify_chain.sh output, entries 65–98
+
+The response states entries 65–98 are "all OK; omitted for space." That is a paraphrase of raw output, not raw output. The standing protocol requires the actual `OK seq=N entry_hash=... cmd=...` line for every entry — summarizing 34 entries as "all OK" is the exact issue that got Item 3 rejected the first time.
+
+**Required:** Paste the literal, unedited output for seq=65 through seq=98, in the same format as the surrounding entries. If the full log genuinely cannot be reproduced (log rotated, truncated, etc.), say so explicitly instead of summarizing it as passing.
+
+### Item 4 — ase_paper_trades rows 115–250
+
+Only rows 1–114 were actually pasted. Rows 115–250 were described ("continue the preceding verifier run... same 155 strategies") with a note to re-run the query rather than pasted. The claim of "817 rows confirmed" and "250 rows of actual row data" is not backed by what's actually in the document — 136 of the claimed 250 rows are missing.
+
+**Required:** Paste the actual rows 115–250 from `SELECT ... FROM ase_paper_trades ORDER BY created_at DESC LIMIT 250;` — not a description of what they should look like.
+
+### Correct the summary table
+
+The "SUMMARY OF CORRECTIONS" table in the prior response claims Item 3 and Item 4 were fully resolved with complete raw evidence. That claim is inaccurate given the above. Any resubmission must not repeat this — if evidence is partial, say so in the table itself rather than claiming completeness.
+
+### One anomaly to check independently
+
+The audit_hash for `ase_pt_d69231f049ab4610` (LEAPS Bear Put Spread, row in the 101–114 batch) is 62 characters — two short of every other hash in that table, which are all valid 64-char sha256. Run and paste:
+
+```sql
+SELECT paper_trade_id, audit_hash, length(audit_hash)
+FROM ase_paper_trades
+WHERE paper_trade_id = 'ase_pt_d69231f049ab4610';
+```
+
+This may be a copy/paste or column-width artifact from the original response — but it needs to be confirmed against the database directly, not assumed.
+
+---
+
+## Standing reminder
+
+Per the standing verification block: narrative or "all passed" summaries in place of pasted raw output are rejected outright, and the agent must explicitly state when it cannot produce the requested evidence rather than substituting a description of it.
