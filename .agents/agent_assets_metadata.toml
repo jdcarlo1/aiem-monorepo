@@ -306,3 +306,9 @@ id = "LCH7wetbxTlzy9uHQ5_u9"
 uri = "file://.local/canonical_script_diagnostic_2026-07-17.md"
 type = "text"
 title = "Canonical Script Diagnostic — verified_run.sh / verify_chain.sh"
+
+[[outputs]]
+id = "V0DZn24oa14uYmR8jjSD8"
+uri = "file://.local/evidence_chain_sha_correction_2026-07-17.md"
+type = "text"
+title = "Evidence Chain SHA Correction & Self-Check Rule — CONFIRMED"

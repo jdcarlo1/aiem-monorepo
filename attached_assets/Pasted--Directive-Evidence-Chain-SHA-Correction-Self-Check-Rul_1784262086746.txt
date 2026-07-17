@@ -1,0 +1,43 @@
+# Directive — Evidence Chain SHA Correction & Self-Check Rule
+**Date:** 2026-07-17
+**Trigger:** canonical_script_diagnostic_2026-07-17.md
+
+---
+
+## Background
+
+The standing Evidence Chain Protocol cites:
+- `tools/verified_run.sh` — sha256 `72824bfe...24abd`
+- `tools/verify_chain.sh` — sha256 `7294abeb...1fbec7`
+
+These are the **pre-modification** hashes, recorded at commit `2e0f3a9` (2026-07-12 23:07 UTC). Both files were modified the same week:
+
+- `tools/verified_run.sh` — commit `6156b3b` (2026-07-13 04:39 UTC), added `flock` + PREV_HASH chain. New hash begins `ebb6a2dd…`
+- `tools/verify_chain.sh` — commit `71070ba` (2026-07-13 04:55 UTC), rewritten as single-pass Python. New hash begins `a6161734…`
+
+Every evidence-chain validation since 2026-07-13 04:55 UTC has run against scripts whose real hash does not match the directive. The changes themselves (race-condition fix, single-pass rewrite) are legitimate hardening, not scope drift — adopting current versions as canonical (Option A from the diagnostic).
+
+## Action required before this directive is live
+
+Run and paste raw output:
+```
+sha256sum tools/verified_run.sh tools/verify_chain.sh
+```
+Confirm the full hashes match `ebb6a2dd…` and `a6161734…` as prefixes. Insert the full 64-character hashes below before distributing to any agent.
+
+## Updated canonical SHAs (fill in before use)
+
+- `tools/verified_run.sh` — sha256 `ebb6a2dd________________________________________________________`
+- `tools/verify_chain.sh` — sha256 `a6161734________________________________________________________`
+
+## New rule — Validator self-check
+
+Add to the Standing Evidence Chain Protocol:
+
+> Before `verify_chain.sh` output is accepted as satisfying any directive, the agent must first run `sha256sum` on both `tools/verified_run.sh` and `tools/verify_chain.sh` and paste the raw output alongside the chain-verification output. Claude (or Joel) checks these against the current canonical SHAs on file. A mismatch means the validator itself has drifted from the directive and its output is rejected regardless of what the chain log says.
+
+This closes the gap that let the 2026-07-13 modifications go unnoticed for four days: the old protocol checked log integrity but never checked the validator's own identity against the directive.
+
+## Superseded language
+
+Strike the two old SHA lines (`72824bfe...24abd`, `7294abeb...1fbec7`) from the Standing Evidence Chain Protocol once the new hashes above are confirmed and filled in.
