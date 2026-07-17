@@ -300,3 +300,9 @@ id = "96GprOkcgTwVUGfs4s28s"
 uri = "file://artifacts/stock-scanner-api/ase_bs_greeks_report_BG_AF79AB6DA9173D21.txt"
 type = "text"
 title = "ASE Sections 5+6 Report — BG_AF79AB6DA9173D21 (105/105 PASS)"
+
+[[outputs]]
+id = "LCH7wetbxTlzy9uHQ5_u9"
+uri = "file://.local/canonical_script_diagnostic_2026-07-17.md"
+type = "text"
+title = "Canonical Script Diagnostic — verified_run.sh / verify_chain.sh"

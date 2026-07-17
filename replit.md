@@ -34,6 +34,8 @@ _Describe the high-level user-facing capabilities of this app once they exist._
 
 ## User preferences
 
+- **Long responses go in a file:** Any response that would be long (detailed findings, reports, evidence, multi-section analysis, tables) must be written to a file under `.local/` and presented as a downloadable link. Never paste it as a wall of chat text.
+
 - **Backtesting — always delegate to AIEM:** Any time the user asks for a backtest, historical win rate, signal analysis, or data-driven research query against the scanner's DB tables, I must route it to AIEM (via the chat interface or by instructing the user to ask AIEM directly) rather than running it myself. I may only do the work myself if AIEM is explicitly unavailable or broken. The only exception is when a file edit is needed at the end — that part stays with me.
 
 - **On-demand scoring trigger:** when the user types `score TICKER` (one or more
