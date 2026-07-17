@@ -46,7 +46,7 @@ jobs:
           TELEGRAM_CHAT_ID:     ${{ secrets.TELEGRAM_CHAT_ID }}
           TRIGGER_SOURCE:       ${{ env.TRIGGER_SOURCE }}
         run: |
-          python artifacts/stock-scanner-api/aiem_backup_runner.py
+          python aiem_backup_runner.py
 
       - name: Upload run log on failure
         if: failure()

@@ -58,8 +58,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            artifacts/stock-scanner-api/aiem_watchdog.py
-            artifacts/stock-scanner-api/aiem_backup_runner.py
+            aiem_watchdog.py
+            aiem_backup_runner.py
           sparse-checkout-cone-mode: false
 
       # ── 2. Python runtime ─────────────────────────────────────────────────────
@@ -67,7 +67,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       # ── 3. Minimal dependencies (psycopg2 only) ───────────────────────────────
       - name: Install dependencies
@@ -90,7 +89,7 @@ jobs:
           echo "Dry run    : $DRY_RUN"
           echo "Run ID     : ${{ github.run_id }}"
           echo "=============================="
-          python artifacts/stock-scanner-api/aiem_watchdog.py
+          python aiem_watchdog.py
 
       # ── 5. Capture logs on any failure ────────────────────────────────────────
       - name: Upload logs on failure
