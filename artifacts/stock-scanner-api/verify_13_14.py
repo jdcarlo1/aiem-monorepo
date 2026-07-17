@@ -422,8 +422,20 @@ if closed_row:
     check("FINAL P&L: return_on_capital_realized", ror_stored, exp_ror)
 
 # PERFORMANCE REPORTING — get_open_trades, save_decision_run
+# Insert a fresh OPEN trade so get_open_trades has something real to return
+pt_id2 = insert_paper_trade(
+    evaluation=eval_a, selection=sel, ticker="PERFTEST", thesis="BULLISH",
+    market_regime="BULL_TREND", volatility_regime="HIGH_IV",
+    event_context=None, run_id=run_id + "_perf", underlying_price=150.0,
+)
 open_trades = get_open_trades()
-check_eq("PERFORMANCE REPORTING: get_open_trades returns list", isinstance(open_trades, list), True)
+check_eq("PERFORMANCE REPORTING: get_open_trades no error (not empty)", len(open_trades) > 0, True)
+check_eq("PERFORMANCE REPORTING: first row has paper_trade_id", "paper_trade_id" in (open_trades[0] if open_trades else {}), True)
+check_eq("PERFORMANCE REPORTING: first row status=OPEN", (open_trades[0].get("status") if open_trades else None), "OPEN")
+check_eq("PERFORMANCE REPORTING: first row has legs key", "legs" in (open_trades[0] if open_trades else {}), True)
+if open_trades:
+    legs_val = open_trades[0]["legs"]
+    check_eq("PERFORMANCE REPORTING: legs is list with >=1 entry", isinstance(legs_val, list) and len(legs_val) >= 1, True)
 
 saved = save_decision_run(
     run_id=run_id, ticker="TEST", spot=100.0, thesis="BULLISH",

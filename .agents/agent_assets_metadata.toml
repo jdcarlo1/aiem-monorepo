@@ -480,3 +480,9 @@ id = "WgznhMco-quL2MvFVZXNX"
 uri = "file://artifacts/stock-scanner-api/lc_evidence_package/LC_FULL_EVIDENCE_PACKAGE.txt"
 type = "text"
 title = "LC_FULL_EVIDENCE_PACKAGE.txt — Complete Evidence (18,965 lines, all-in-one)"
+
+[[outputs]]
+id = "zX8EF8GJM5Jcn2ZSpJDat"
+uri = "file://artifacts/stock-scanner-api/lc_evidence_package/open_trades_get_open_trades.csv"
+type = "table"
+title = "open_trades_get_open_trades.csv — 806 rows, full result set"

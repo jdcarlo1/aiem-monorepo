@@ -266,11 +266,15 @@ def get_open_trades() -> List[Dict[str, Any]]:
         with get_conn() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT pt.*, array_agg(row_to_json(pl.*)) AS legs
+                    SELECT pt.*, legs_sub.legs
                     FROM ase_paper_trades pt
-                    LEFT JOIN ase_paper_trade_legs pl ON pl.paper_trade_id = pt.paper_trade_id
+                    LEFT JOIN (
+                        SELECT paper_trade_id,
+                               array_agg(row_to_json(pl.*)) AS legs
+                        FROM ase_paper_trade_legs pl
+                        GROUP BY paper_trade_id
+                    ) legs_sub ON legs_sub.paper_trade_id = pt.paper_trade_id
                     WHERE pt.status = 'OPEN'
-                    GROUP BY pt.paper_trade_id
                     ORDER BY pt.entry_time DESC
                 """)
                 return [dict(r) for r in cur.fetchall()]
