@@ -288,3 +288,9 @@ id = "5OuNW3MibvAwPMvsXKdZJ"
 uri = "file://artifacts/stock-scanner-api/ase_leg_report_LC_CB9CF4CEAABA4D5B.txt"
 type = "text"
 title = "Leg Construction Report — 66/66 PASS (Run LC_CB9CF4CEAABA4D5B)"
+
+[[outputs]]
+id = "IDf98hwk5vuHRKqkJI39A"
+uri = "file://artifacts/stock-scanner-api/ase_math_report_MV_63177CA2F25B6A45.txt"
+type = "text"
+title = "ASE Math Validation Report — MV_63177CA2F25B6A45 (191/191 PASS)"
