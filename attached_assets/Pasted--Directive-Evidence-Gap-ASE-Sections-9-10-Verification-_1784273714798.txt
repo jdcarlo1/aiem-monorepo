@@ -1,0 +1,27 @@
+# Directive: Evidence Gap — ASE Sections 9 & 10 Verification Report
+
+**Status:** Report received (24/24 PASS claimed). Rejected as unconfirmed pending raw evidence per standing verification protocol. Narrative claims of "PASS," "fixed," and "confirmed" are not accepted without the following pasted raw artifacts.
+
+## Required before this report is accepted
+
+### 1. Raw execution logs
+Paste the actual raw terminal output (stdout) of the 24 tests as they executed — not the formatted report. If these tests were run through `verified_run.sh`, paste the raw session log directly from that wrapper.
+
+### 2. Evidence chain validation
+- Paste the full raw output of `verify_chain.sh` for this run.
+- Paste raw `sha256sum` output for both `tools/verified_run.sh` and `tools/verify_chain.sh`, so it can be checked against the canonical values on file:
+  - `tools/verified_run.sh` → `ebb6a2dd6f5fb450ef3732428507e1bc408339eea8c3a3855ed4cecf2866cd26`
+  - `tools/verify_chain.sh` → `972ff44a02eded8816f97b8c1455211d1f224aa571454bc135835a68058d75`
+- If either doesn't match, the chain output is rejected regardless of content — say so explicitly rather than omitting it.
+
+### 3. Before/after diff + hashes for the two bug fixes
+For **BUG 1** (bear call spread coverage misidentification, `risk_classifier.py`) and **BUG 2** (ATM short straddle threshold, `assignment.py`):
+- Exact before/after file diff (not a description of the change)
+- sha256 hash of the file **before** the fix and **after** the fix
+- Confirmation these hashes match the "canonical" hashes listed at the top of the report
+
+### 4. Confirmation of untouched files
+For the claim that `main.py`, `aiem_options_pipeline.py`, and D1/D2/D3 modules were "NOT TOUCHED" — paste raw `git status` / `git diff --stat` (or equivalent) output showing no changes to these files, rather than an assertion.
+
+## Standing reminder
+No task is complete on description alone. If any of the above cannot be produced, say so explicitly rather than resubmitting the narrative report. This is a repeat of the standing "prove it, don't tell me" requirement — it applies to every verification report, not just this one.

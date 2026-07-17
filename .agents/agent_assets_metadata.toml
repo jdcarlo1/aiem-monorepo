@@ -342,3 +342,9 @@ id = "CZ2GQrDmPYw5K8Cde_8cq"
 uri = "file://.local/ASE_Sections_9_10_Verification_Report.txt"
 type = "text"
 title = "ASE Sections 9 & 10 — Full Verification Report"
+
+[[outputs]]
+id = "flUpVToipvGpUIRVDouTT"
+uri = "file://.local/ASE_S9_S10_Raw_Evidence.txt"
+type = "text"
+title = "ASE S9 & S10 — Raw Evidence (per directive requirements)"
