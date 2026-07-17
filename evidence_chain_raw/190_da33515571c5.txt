@@ -1,0 +1,14 @@
+29:def _sha256(data: dict) -> str:
+249:        "trade_ledger":          [{"id": t.get("paper_trade_id"), "ticker": t.get("underlying"),
+250:                                   "pnl": (float(t["net_pnl"]) if t.get("net_pnl") is not None else None),
+256:    report_sha = _sha256(_normalize_for_hash(report_data))
+257:    report_data["report_sha256"] = report_sha
+276:                    trade_ledger, equity_curve, drawdown_curve, report_sha256
+307:                json.dumps(report_data["trade_ledger"], default=str),
+341:def _normalize_for_hash(obj):
+354:        return {k: _normalize_for_hash(v) for k, v in obj.items()}
+356:        return [_normalize_for_hash(i) for i in obj]
+366:_HASH_EXCLUDE_COLS = frozenset({"id", "created_at", "report_id", "report_sha256",
+379:                stored_sha = row.get("report_sha256")
+382:                normalized = _normalize_for_hash(reduced)
+383:                computed = _sha256(normalized)

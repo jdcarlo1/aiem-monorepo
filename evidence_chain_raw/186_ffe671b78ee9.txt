@@ -1,0 +1,20 @@
+            paper_trade_id            | underlying |     strategy_name      | gross_pnl | commission_paid | net_pnl  | return_on_capital_realized | capital_at_risk 
+--------------------------------------+------------+------------------------+-----------+-----------------+----------+----------------------------+-----------------
+ f7df3c4f-0f5a-4373-b3a1-4de21f8810af | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 1d29561d-5b13-4486-8cc9-f051b26656f9 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 36606418-e378-45a2-87b3-b2959cd9988f | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 7965de94-34d8-4491-81d7-0c88772f5308 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 84263723-68b6-4b8b-8829-238f462538aa | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 33a502ce-2ae8-43dc-8710-5ca457e9eee8 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 24ea4da9-5c39-4871-8f1d-7e0212849731 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 8089be1d-7f58-4384-8d00-cf16ee52359e | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ 3944b42c-70ef-4058-badb-a64c343f05e2 | VERIFY     | Bull Call Spread       |           |                 |   5.8000 |                            |            2.10
+ ase_pt_426097d373aa4fbd              | VERIFY     | Bull Call Debit Spread |  580.0000 |          2.6000 | 577.4000 |                     1.4435 |          400.00
+ ase_pt_6083b99595c94b37              | VERIFY     | Bull Call Debit Spread |  580.0000 |          2.6000 | 577.4000 |                     1.4435 |          400.00
+ ase_pt_3bda863231e14809              | VERIFY     | Bull Call Debit Spread |  580.0000 |          2.6000 | 577.4000 |                     1.4435 |          400.00
+ ase_pt_930dbae809cc441f              | TEST       | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_e74a98a001e44700              | TEST       | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_e95d83f0affc4bb8              | VRFY3      | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_6b1cc9d803364251              | VRFY3      | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+ ase_pt_a963675e92cd4d25              | VRFY3      | Bull Call Spread       |   50.0000 |          1.3000 |  48.7000 |                     0.2435 |          200.00
+(17 rows)

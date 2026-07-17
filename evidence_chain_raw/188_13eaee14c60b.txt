@@ -1,0 +1,92 @@
+artifacts/stock-scanner-api/scanner.py:8:    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+artifacts/stock-scanner-api/backtest_grinder.py:16:    "AAPL","MSFT","NVDA","AMD","AVGO","QCOM","TXN","MU","AMAT","KLAC",
+artifacts/stock-scanner-api/backtest_week.py:18:    "AAPL","MSFT","NVDA","AMD","AVGO","QCOM","TXN","MU","AMAT","KLAC",
+artifacts/stock-scanner-api/backtest_morning_vs_grinder.py:25:    "AAPL","MSFT","NVDA","AMD","AVGO","QCOM","TXN","MU","AMAT","KLAC",
+artifacts/stock-scanner-api/backtest_etf_gate.py:28:    "AAPL","MSFT","NVDA","AMD","AVGO","QCOM","TXN","MU","AMAT","KLAC",
+artifacts/stock-scanner-api/backtest_etf_gate.py:42:    "AAPL":"XLK","MSFT":"XLK","TXN":"XLK","MPWR":"XLK","NET":"XLK",
+artifacts/stock-scanner-api/backtest_eod_swing.py:26:    "AAPL","MSFT","NVDA","AMD","AVGO","QCOM","TXN","MU","AMAT","KLAC",
+artifacts/stock-scanner-api/backtest_grinder_losers.py:22:    "AAPL","MSFT","NVDA","AMD","AVGO","QCOM","TXN","MU","AMAT","KLAC",
+artifacts/stock-scanner-api/backtest_grinder_losers.py:206:            TECH   = {"AAPL","MSFT","ANET","CRWD","FTNT","NET","PANW","GOOGL","META"}
+artifacts/stock-scanner-api/backtest_morning_losers.py:28:    "AAPL","MSFT","NVDA","AMD","AVGO","QCOM","TXN","MU","AMAT","KLAC",
+artifacts/stock-scanner-api/backtest_morning_losers.py:49:TECH   = {"AAPL","MSFT","ANET","CRWD","FTNT","NET","PANW","GOOGL","META","NFLX"}
+artifacts/stock-scanner-api/backtest_options.py:32:# De-dupe AAPL typo (APPL → AAPL)
+artifacts/stock-scanner-api/backtest_options.py:35:        s["ticker"] = "AAPL"
+artifacts/stock-scanner-api/sms_alerts.py:1316:            "AAPL":"XLK","MSFT":"XLK","ANET":"XLK","CRWD":"XLK","FTNT":"XLK",
+artifacts/stock-scanner-api/multiday_runner.py:108:    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA","AMD","NFLX",
+artifacts/stock-scanner-api/smart_money.py:10:    "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "GOOG", "AMD",
+artifacts/stock-scanner-api/earnings_calendar.py:72:        print(should_avoid_entry(db_url, "AAPL"))
+artifacts/stock-scanner-api/backtest_harness.py:90:        result = run_backtest(db_url, "AAPL", "2025-01-01", "2025-06-01", example_simple_signal)
+artifacts/stock-scanner-api/news_catalyst_monitor.py:70:        print(check_recent_headlines(db_url, "AAPL"))
+artifacts/stock-scanner-api/opening_snapshot_tracker.py:67:        print(get_todays_snapshots(db_url, "AAPL"))
+artifacts/stock-scanner-api/position_reconciler.py:16:        {"ticker": "AAPL", "qty": 10, "side": "long"},
+artifacts/stock-scanner-api/position_reconciler.py:32:(AAPL/qty 10/long) for exercising the reconciliation logic in
+artifacts/stock-scanner-api/position_reconciler.py:37:broker/DB mismatch on every single run (its fake AAPL position will
+artifacts/stock-scanner-api/position_reconciler.py:73:        {"ticker": "AAPL", "qty": 10, "side": "long"},
+artifacts/stock-scanner-api/aiem_probability_engine/live_query.py:54:    python3 live_query.py --ticker AAPL --json
+artifacts/stock-scanner-api/reddit_sentiment.py:140:    print(get_sentiment_score("AAPL"))
+artifacts/stock-scanner-api/sector_etf_data.py:48:    "AAPL": "XLK", "MSFT": "XLK", "NVDA": "XLK", "AMD":  "XLK",
+artifacts/stock-scanner-api/portfolio_correlation_risk.py:17:    "mega_tech": {"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA"},
+artifacts/stock-scanner-api/portfolio_correlation_risk.py:82:    test_tickers = ["AAPL", "NVDA", "AMD", "MU", "TSLA"]
+artifacts/stock-scanner-api/premarket_open_trader.py:665:        print(evaluate_ticker(db_url, "AAPL", premarket_gap_pct=4.5))
+artifacts/stock-scanner-api/aiem_cta_triggers.py:31:    "NVDA", "AAPL", "MSFT", "META", "GOOGL", "AMZN", "TSLA",
+artifacts/stock-scanner-api/task1-verification-fixes/test_decisions.py:199:print(f"\n[test D1-A] Calling stage3 with source='multi_signal', ticker='AAPL' ...")
+artifacts/stock-scanner-api/task1-verification-fixes/test_decisions.py:201:    result = stage3_lookahead_bias_check("AAPL", {"source": "multi_signal", "raw_score": 5.0})
+artifacts/stock-scanner-api/task1-verification-fixes/test_decisions.py:228:    result = stage3_lookahead_bias_check("AAPL", {"source": "multi_signal", "raw_score": 5.0})
+artifacts/stock-scanner-api/layer9_statistical_edge.py:287:            "raw_amihud": float(amihud_val),   # kept as full-precision float (may be 1e-13 for AAPL)
+artifacts/stock-scanner-api/main.py:3183:    "TSLA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "PLTR", "COIN", "MSTR",
+artifacts/stock-scanner-api/main.py:4828:                "TSLA","AAPL","MSFT","AMZN","META","GOOGL","PLTR","COIN","MSTR",
+artifacts/stock-scanner-api/main.py:14027:    """Parse 'TRADE: BUY MSFT', 'TRADE: BUY MSFT 420c 6/20', 'TRADE: SELL AAPL'."""
+artifacts/stock-scanner-api/main.py:15790:    GET /stock-api/flow-scores?tickers=NVDA,AAPL,MSFT
+artifacts/stock-scanner-api/main.py:15791:    Returns { "NVDA": 67, "AAPL": null, ... }
+artifacts/stock-scanner-api/main.py:15804:    GET /stock-api/call-win-rates?tickers=NVDA,AAPL,MSFT
+artifacts/stock-scanner-api/main.py:15806:    { "NVDA": {"wr": 45, "n": 11}, "AAPL": null, ... }
+artifacts/stock-scanner-api/main.py:15842:    GET /stock-api/historical-similarity?tickers=NVDA,TSLA,AAPL
+artifacts/stock-scanner-api/main.py:15855:    # ?tickers=TSLA:370:385,NVDA:188:192,AAPL:200,AMD
+artifacts/stock-scanner-api/main.py:23748:      "Yesterday you missed NVDA (+8.2%), SMCI (+6.1%), AAPL (+5.3%)...
+artifacts/stock-scanner-api/main.py:29478:    tickers: list of ticker symbols (e.g. ['AAPL','NVDA']) or None for all
+artifacts/stock-scanner-api/main.py:36807:    #   - no uppercase ticker-like token (e.g. AAPL, MSFT, NVDA)
+artifacts/stock-scanner-api/main.py:38125:            "ticker": {"type": "string", "description": "Ticker symbol (e.g. 'AAPL')"},
+artifacts/stock-scanner-api/main.py:38999:                "description": "List of ticker symbols, e.g. ['AAPL','NVDA','TSLA']. Max 50."},
+artifacts/stock-scanner-api/main.py:39032:            "'When AAPL RSI dropped below 30, what happened next?' → ticker=AAPL, indicator=rsi_14, operator=lt. "
+artifacts/stock-scanner-api/main.py:39039:            "ticker":     {"type": "string", "description": "Stock ticker e.g. 'MSFT', 'AAPL', 'SPY'."},
+artifacts/stock-scanner-api/main.py:39073:            "ticker":     {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
+artifacts/stock-scanner-api/main.py:39089:            "ticker":     {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
+artifacts/stock-scanner-api/main.py:39108:            "ticker":     {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
+artifacts/stock-scanner-api/main.py:39124:            "ticker":   {"type": "string", "description": "Ticker symbol e.g. 'AAPL'."},
+artifacts/stock-scanner-api/main.py:40309:            "symbol":    {"type": "string",  "description": "Ticker symbol (e.g. AAPL)"},
+artifacts/stock-scanner-api/main.py:43506:def _aiem_tool_run_level2(symbol: str = "AAPL", days_back: int = 200) -> dict:
+artifacts/stock-scanner-api/main.py:43644:def _aiem_tool_run_backtest(symbol: str = "AAPL",
+artifacts/stock-scanner-api/main.py:43673:def _aiem_tool_walk_forward_validate(symbol: str = "AAPL",
+artifacts/stock-scanner-api/main.py:43692:def _aiem_tool_run_level3(symbol: str = "AAPL",
+artifacts/stock-scanner-api/main.py:48513:    Body: {"ticker": "AAPL"} OR {"mode": "auto"|"find-conflict"|"find-null"}
+artifacts/stock-scanner-api/main.py:51233:    TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "NVDA", "TSLA", "META", "AMZN", "MSFT", "GOOGL"]
+artifacts/stock-scanner-api/main.py:51868:        "AAPL":"XLK","MSFT":"XLK","NVDA":"XLK","GOOGL":"XLK","META":"XLK","AMD":"XLK",
+artifacts/stock-scanner-api/main.py:57578:            "AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL", "AMD",
+artifacts/stock-scanner-api/main.py:59214:    ticker = (request.args.get("ticker") or "AAPL").upper().strip()
+artifacts/stock-scanner-api/main.py:59356:    "AAPL","MSFT","NVDA","TSLA","AMZN","GOOGL","META","AMD","SMCI","PLTR",
+artifacts/stock-scanner-api/main.py:60140:    "AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","AMD","INTC","NFLX",
+artifacts/stock-scanner-api/main.py:69060:        _CORE_UP = ["AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AMD","SPY","QQQ",
+artifacts/stock-scanner-api/ase_full_evidence.py:680:                   option_symbol="AAPL260821C00105000",data_provider="tradier")
+artifacts/stock-scanner-api/ase_full_evidence.py:683:    assert d["option_symbol"] == "AAPL260821C00105000", "symbol roundtrip"
+artifacts/stock-scanner-api/ase_full_evidence.py:718:TEST_TICKER = "AAPL"
+artifacts/stock-scanner-api/ase_full_evidence.py:782:        option_symbol="AAPL260821C00170000",data_provider="tradier",
+artifacts/stock-scanner-api/ase_full_evidence.py:786:        option_symbol="AAPL260821C00185000",data_provider="tradier",
+artifacts/stock-scanner-api/ase_full_evidence.py:852:                           (pt_id,"AAPL","Bull Call Debit Spread","CALL_SPREADS","BULLISH","Bull","OPEN","dup_hash"))
+artifacts/stock-scanner-api/ase_full_evidence.py:894:            option_symbol="AAPL260821C00175000",data_provider="mock",volume=3000,open_interest=9000),
+artifacts/stock-scanner-api/ase_full_evidence.py:900:            option_symbol="AAPL260821P00165000",data_provider="mock",volume=1200,open_interest=4500),
+artifacts/stock-scanner-api/ase_full_evidence.py:905:            option_symbol="AAPL260821C00170000",data_provider="mock",volume=2000,open_interest=7500),
+artifacts/stock-scanner-api/ase_full_evidence.py:908:            option_symbol="AAPL260821C00190000",data_provider="mock",volume=900,open_interest=3200),
+artifacts/stock-scanner-api/ase_full_evidence.py:913:            option_symbol="AAPL260821P00180000",data_provider="mock",volume=1800,open_interest=6000),
+artifacts/stock-scanner-api/ase_full_evidence.py:916:            option_symbol="AAPL260821P00160000",data_provider="mock",volume=700,open_interest=2500),
+artifacts/stock-scanner-api/ase_full_evidence.py:921:            option_symbol="AAPL260821C00175000",data_provider="mock",volume=2200,open_interest=8000),
+artifacts/stock-scanner-api/ase_full_evidence.py:924:            option_symbol="AAPL260918C00175000",data_provider="mock",volume=1500,open_interest=5500),
+artifacts/stock-scanner-api/ase_full_evidence.py:929:            option_symbol="AAPL260821C00180000",data_provider="mock",volume=1600,open_interest=5800),
+artifacts/stock-scanner-api/ase_full_evidence.py:932:            option_symbol="AAPL260918C00170000",data_provider="mock",volume=1100,open_interest=4200),
+artifacts/stock-scanner-api/ase_full_evidence.py:955:            option_symbol="AAPL260821C00175000",data_provider="mock",volume=3000,open_interest=10000),
+artifacts/stock-scanner-api/ase_full_evidence.py:958:            option_symbol="AAPL260821P00175000",data_provider="mock",volume=2800,open_interest=9500),
+artifacts/stock-scanner-api/ase_full_evidence.py:1168:print(f"  Attempting Tradier chain fetch for AAPL (after-hours/weekend = likely empty).")
+artifacts/stock-scanner-api/ase_full_evidence.py:1172:real_spot = get_spot("AAPL")
+artifacts/stock-scanner-api/ase_full_evidence.py:1173:_info(f"  Tradier spot for AAPL: {real_spot!r}")
+artifacts/stock-scanner-api/ase_full_evidence.py:1175:    _ok("7: Live spot price available", f"AAPL={real_spot:.2f}")
+artifacts/stock-scanner-api/ase_full_evidence.py:1176:    exps = get_expirations("AAPL")
+artifacts/stock-scanner-api/ase_full_evidence.py:1181:        chain = get_chain_raw("AAPL", exps[0]) if exps else []

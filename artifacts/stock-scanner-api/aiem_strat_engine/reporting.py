@@ -247,12 +247,13 @@ def generate_report(
         "by_symbol":             by_symbol,
         "by_regime":             by_regime,
         "trade_ledger":          [{"id": t.get("paper_trade_id"), "ticker": t.get("underlying"),
-                                   "pnl": t.get("net_pnl"), "status": t.get("status")} for t in trades],
+                                   "pnl": (float(t["net_pnl"]) if t.get("net_pnl") is not None else None),
+                                   "status": t.get("status")} for t in trades],
         "equity_curve":          equity_curve,
         "drawdown_curve":        dd_curve,
     }
 
-    report_sha = _sha256(report_data)
+    report_sha = _sha256(_normalize_for_hash(report_data))
     report_data["report_sha256"] = report_sha
 
     report_id = _report_id(period_type, period_start)

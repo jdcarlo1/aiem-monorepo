@@ -1,0 +1,12 @@
+ underlying | row_count 
+------------+-----------
+ AAPL       |        33
+ DEDUP      |         2
+ IDEM       |         7
+ PERFTEST   |         1
+ RECOV      |         9
+ TEST       |       756
+ VERIFY     |        12
+ VRFY3      |         3
+ VRFY4      |         2
+(9 rows)
