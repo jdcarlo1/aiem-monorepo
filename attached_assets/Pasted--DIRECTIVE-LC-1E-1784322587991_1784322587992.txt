@@ -1,0 +1,53 @@
+════════════════════════════════════════════════════════════════════════════════
+  DIRECTIVE — LC_1EEE4B5B8B984503 VERIFICATION PACKAGE: INCOMPLETE
+  Status: REJECTED pending additional evidence
+  Date: 2026-07-17
+════════════════════════════════════════════════════════════════════════════════
+
+This is not a request. The submitted package does not meet the standing
+verification protocol. Fix it and resubmit — do not summarize, do not
+paraphrase, do not tell me it's done. Show me.
+
+────────────────────────────────────────────────────────────────────────────────
+WHAT'S MISSING — ALL FOUR ITEMS BELOW ARE REQUIRED, NO EXCEPTIONS
+────────────────────────────────────────────────────────────────────────────────
+
+1. FULL RAW TEST REPORT
+   You referenced ase_leg_report_LC_1EEE4B5B8B984503.txt (2516 lines, one
+   record per test) but did NOT include it. The "T001...PASS" table in the
+   summary is a narrative claim, not evidence. Attach the actual file, complete,
+   unedited. Every one of the 66 records, raw.
+
+2. FULL SQL RESULT SETS — NOT AGGREGATES
+   Every SQL result in the summary was a MIN/MAX/COUNT aggregate. That is not
+   what was asked for. I need the full raw result set (every row) for each
+   query listed in Sections A through whatever the final section is, so I can
+   see which specific rows back each claim — not a single collapsed number.
+
+3. RAW sha256sum COMMAND OUTPUT — LITERALLY PASTED, NOT RETYPED INTO A TABLE
+   Run this and paste the actual terminal output verbatim:
+       sha256sum tools/verified_run.sh tools/verify_chain.sh
+   A table with the hashes copied in is not the same thing. I've caught a
+   truncated hash before. Raw output only.
+
+4. CONFIRM WHETHER ANY SOURCE FILE WAS MODIFIED FOR THIS RUN
+   If legs.py / builder.py / payoff.py / config.py were touched at all in this
+   work, I need the before/after diff and the before/after sha256 for each
+   changed file — no exceptions. If nothing was modified and this was a
+   verification-only run against existing code, say that explicitly, in those
+   words, so it's on the record — do not let it go unstated.
+
+────────────────────────────────────────────────────────────────────────────────
+STANDING RULES — RESTATED
+────────────────────────────────────────────────────────────────────────────────
+
+- No task is complete based on description alone.
+- "Fixed," "tested," "found," "confirmed" without pasted raw evidence = rejected.
+- If you cannot produce a piece of evidence, say so explicitly. Do not skip it
+  silently and hope the summary format covers for it.
+- Everything must go through verified_run.sh / verify_chain.sh as already
+  established. That part of this submission was fine. The rest was not.
+
+I mean this. Do the job right — full raw evidence, every item above, before
+this gets marked complete again.
+════════════════════════════════════════════════════════════════════════════════
