@@ -1,0 +1,32 @@
+# Directive: ASE Verification Report — Remediation Required Before Acceptance
+
+**Date:** 2026-07-17
+**Re:** ASE_COMPLETE_VERIFICATION_REPORT_2026-07-17.md
+**Status:** NOT ACCEPTED — evidence gaps below must be closed against the standing verification block and evidence chain protocol before this report can be marked verified.
+
+The report's PASS totals (559/559) are not in dispute. The problem is evidentiary: several claims are narrative/summarized rather than backed by the raw artifacts the standing protocol requires. Close every item below. Do not summarize, paraphrase, or re-assert conclusions — paste raw output.
+
+## 1. Diffs for all three mid-run test modifications
+Three tests had pass criteria changed rather than code fixed:
+- S7_T02 — sanity lower bound loosened from 0.05 to 0.02
+- S7_T03 — scenario redesigned from short straddle to long straddle
+- S8_T04 — pass condition broadened to accept any rejection reason
+
+For each: paste the exact before/after diff of the test file, plus a one-line justification of why the original test was wrong (not why the new version passes). If any of these were loosened to make a failing result pass rather than fixing a genuine test bug, say so explicitly — do not let this go undocumented.
+
+## 2. Full raw output, not representative samples
+For every section with more than one test (S1–S4: 191 tests, Leg Construction: 66, S5/S6: 105), paste full raw console output for all tests in that section — not one "representative" block per section. If full output is too long to paste inline, provide the exact file path to the full raw report file already referenced (e.g. `ase_math_report_MV_DB3292580C1D48D3.txt`) and confirm its sha256 matches a freshly computed hash, not one carried over from a prior report.
+
+## 3. Full verify_chain.sh output
+The report shows only seq 160–164 of 164 total entries. Paste the full 164-entry chain output, including the documented break at seq=60, so the break can actually be inspected rather than taken on faith.
+
+## 4. Full SQL result sets
+`ase_paper_trades` evidence is a single `SELECT COUNT(*)` → 405. Per the standing protocol this needs the actual raw SQL query + full result set for the specific rows each test touched — not just a row count.
+
+## 5. Raw sha256sum command output
+The SHA table for `tools/verified_run.sh` and `tools/verify_chain.sh` matches the canonical values on file, but it's presented as a table, not pasted terminal output. Run `sha256sum tools/verified_run.sh tools/verify_chain.sh` fresh and paste the raw command + output.
+
+## Standing reminders (apply to this and all future submissions)
+- No task is complete based on description alone. Narrative claims of "fixed," "tested," "confirmed" without pasted raw evidence are rejected.
+- All evidence-producing commands must run through `verified_run.sh`; validate with `verify_chain.sh` before declaring anything complete.
+- If you cannot produce a piece of requested evidence, say so explicitly rather than omitting it.
