@@ -1,0 +1,51 @@
+FINAL DIRECTIVE — AIEM PATTERNS + AUTOMATIC OPTIONS PICKS
+
+AIEM MUST SCAN THE MARKET DIRECTLY. Do not use, import, or depend on candidates from the stock-scanning website.
+
+1. PATTERN ENGINE
+Add automatic detection for ALL supplied patterns:
+• Head & Shoulders, Complex/Inverse Head & Shoulders
+• Double/Triple Tops and Bottoms
+• Diamond Tops/Bottoms
+• Bull/Bear Flags and Pennants
+• Rectangles, Channels and Measured Moves
+• All Triangles, Wedges and Broadening/Megaphone patterns
+• Cup & Handle, Inverted Cup & Handle, Saucers and Rounded Tops/Bottoms
+• All Gap and Island Reversal patterns
+• All supplied bullish/bearish candlestick patterns
+• Gartley, Bat, Butterfly, Crab, Deep Crab, Shark, Cypher, AB=CD, Three Drives
+• Elliott Impulse, Corrective, Zigzag, Flat, Triangle, Double Three, Triple Three
+• Wyckoff Accumulation, Distribution, Spring, Upthrust, SOS/SOW and Climaxes
+• VPA Volume Climax, Shakeout, No Demand/Supply, Stopping Volume, Effort vs. Result and Volume Dry-Up
+
+2. DAILY AIEM-ONLY PIPELINE
+Prove or build this automatic daily process:
+AIEM Polygon market scan → AIEM bullish/bearish candidate selection → data-quality and liquidity filters → all indicators and chart patterns → options-chain analysis → evaluate all supported option strategies → probability and risk analysis → Capital Compounding Score → ranked options picks or NO TRADE → paper-trading pipeline
+AIEM must create its own candidates. Disable and prove no website-scanner feed enters AIEM.
+
+3. DAILY PROOF
+Return:
+• AIEM scheduler/job and run time
+• Polygon universe scanned
+• Candidate-selection rules
+• Stocks scanned and selected
+• Stocks entering the Options Engine
+• Rejections with exact reasons
+• Strategies evaluated
+• Final stock/contract/strategy picks
+• Zero-candidate explanation and alert
+• Logs, database rows, timestamps, trace IDs and candidate IDs
+
+4. STRICT VERIFICATION
+Create a registry for every pattern with source file, function, SHA-256, enabled status and PASS/FAIL.
+Test every detector using real historical, walk-forward/out-of-sample data. Report precision, recall, false positives and false negatives. Failed/unverified detectors remain disabled.
+Prove each final options score actually consumes the detected patterns plus all existing technical, regime, volatility, volume, liquidity, Greeks, IV, skew, open-interest, probability and risk inputs.
+
+FAIL if:
+• AIEM receives stocks from the website scanner
+• AIEM does not run its own Polygon scan
+• any listed pattern is missing
+• patterns are calculated but not consumed
+• candidates are manually inserted
+• zero candidates are unexplained
+• mock or fabricated evidence is used
