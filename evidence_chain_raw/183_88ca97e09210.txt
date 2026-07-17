@@ -1,0 +1,142 @@
+=== ITEM 17: PERFORMANCE VALIDATION ===
+
+--- Raw SQL baseline (all CLOSED trades) ---
+  INFO  closed trade count = 17
+  PASS  at least 1 closed trade exists
+
+--- generate_report: ALL-TIME period ---
+  PASS  generate_report returned dict
+
+--- Net/Gross P/L ---
+  PASS  net_pnl_paper matches SQL sum(net_pnl): got=2027.9 exp=2027.9
+  INFO  SQL gross_total=1990.0 commission_total=14.3
+  INFO  net_pnl_paper=2027.9 (SQL confirms)
+  PASS  net=gross-comm for ase_pt_426097d373aa4: got=577.4
+  PASS  net=gross-comm for ase_pt_6083b99595c94: got=577.4
+  PASS  net=gross-comm for ase_pt_3bda863231e14: got=577.4
+  PASS  net=gross-comm for ase_pt_930dbae809cc4: got=48.7
+  PASS  net=gross-comm for ase_pt_e74a98a001e44: got=48.7
+
+--- Three Return Columns ---
+  PASS  net_pnl_theoretical present
+  PASS  net_pnl_modeled present
+  PASS  net_pnl_paper present
+  PASS  net_pnl_theoretical = SQL-computed EV: got=993.221 exp=993.221
+  PASS  net_pnl_modeled = net_pnl_paper × 1.05: got=2129.295 exp=2129.295
+  INFO  theoretical=993.221  modeled=2129.295  paper=2027.9
+  PASS  three returns distinct (theoretical != paper)
+
+--- Win Rate ---
+  PASS  win_rate matches SQL (wins/closed): got=1.0 exp=1.0
+  PASS  win_count matches SQL: got=17
+  PASS  loss_count matches SQL: got=0
+  INFO  wins=17 losses=0 breakeven=0
+
+--- Profit Factor ---
+  PASS  profit_factor = None (no losses): got=None
+  INFO  no losing trades — profit_factor=None (correct)
+
+--- Expectancy ---
+  PASS  expectancy = mean(net_pnl): got=119.2882 exp=119.2882
+  INFO  expectancy=119.2882
+
+--- Sharpe ---
+  PASS  sharpe independently computed: got=8.6296 exp=8.6296
+  INFO  sharpe=8.6296
+
+--- Sortino ---
+  PASS  sortino = None (no downside deviation or n<2): got=None
+  INFO  sortino=None — no downside deviation (correct for all-win set)
+  INFO  sortino=None
+
+--- Max Drawdown + Equity Curve ---
+  PASS  max_drawdown independently computed: got=0.0 exp=0.0
+  PASS  equity_curve is list: got=True
+  PASS  equity_curve length matches closed count: got=17
+  PASS  drawdown_curve length matches equity_curve: got=17
+  INFO  max_drawdown=0.0  equity_curve[-1]=2027.9
+
+--- Calmar ---
+  PASS  calmar = None (no drawdown): got=None
+  INFO  calmar=None — max_drawdown=0 (no losses, correct)
+  INFO  calmar=None
+
+--- Return on Capital ---
+  PASS  return_on_capital = net_pnl_paper / 100_000: got=0.020279 exp=0.020279
+  INFO  return_on_capital=0.020279
+
+--- Return on Risk (per trade) ---
+  PASS  return_on_risk for ase_pt_426097d373aa4: got=1.4435
+  PASS  return_on_risk for ase_pt_6083b99595c94: got=1.4435
+  PASS  return_on_risk for ase_pt_3bda863231e14: got=1.4435
+
+--- Capital Preservation ---
+  PASS  capital_preservation: no trade capital_at_risk > buying_power: got=0
+  PASS  capital_preservation: no loss exceeds maximum_loss*100: got=0
+
+--- Monthly Returns ---
+  PASS  generate_monthly_report returns dict
+  PASS  monthly equity_curve present
+  PASS  monthly period_type=MONTHLY
+  PASS  monthly net_pnl_paper present
+  INFO  monthly 2026-07-01 to 2026-07-31
+  INFO  monthly net_pnl_paper=2027.9
+
+--- Breakdowns ---
+  PASS  by_family is dict
+  PASS  by_symbol is dict
+  PASS  by_regime is dict
+  PASS  by_family non-empty
+  PASS  by_symbol non-empty
+  INFO  by_family keys: ['CALL_SPREADS', 'CONDOR', 'SINGLE_LEG', 'PUT_SPREADS', 'CALENDAR', 'DIAGONAL', 'BUTTERFLY', 'STRADDLE_STRANGLE', 'RATIO_BACKSPREAD', 'ADVANCED_INCOME_VOL', 'STOCK_PLUS_OPTION', 'SYNTHETIC_COMBINATION', 'EVENT_EXPIRATION', 'CUSTOM', 'SPREAD']
+  INFO  by_regime keys: ['UNKNOWN', 'BULL_TREND', 'BULLISH', 'BULL']
+  PASS  by_family[CALL_SPREADS] has 'count'
+  PASS  by_family[CALL_SPREADS] has 'closed'
+  PASS  by_family[CALL_SPREADS] has 'wins'
+  PASS  by_family[CALL_SPREADS] has 'losses'
+  PASS  by_family[CALL_SPREADS] has 'win_rate'
+  PASS  by_family[CALL_SPREADS] has 'net_pnl'
+  PASS  by_family[CONDOR] has 'count'
+  PASS  by_family[CONDOR] has 'closed'
+  PASS  by_family[CONDOR] has 'wins'
+  PASS  by_family[CONDOR] has 'losses'
+  PASS  by_family[CONDOR] has 'win_rate'
+  PASS  by_family[CONDOR] has 'net_pnl'
+
+--- Brier Score ---
+  PASS  brier_score independently computed: got=0.141423 exp=0.141423
+  INFO  brier_score=0.141423
+
+--- Trade Ledger ---
+  PASS  trade_ledger is list
+  PASS  trade_ledger non-empty
+  PASS  ledger entry has 'id'
+  PASS  ledger entry has 'ticker'
+  PASS  ledger entry has 'pnl'
+  PASS  ledger entry has 'status'
+  PASS  ledger entry has 'id'
+  PASS  ledger entry has 'ticker'
+  PASS  ledger entry has 'pnl'
+  PASS  ledger entry has 'status'
+
+--- Report SHA-256 Integrity ---
+  PASS  fresh report_id present
+  PASS  verify_report_integrity on fresh row: True: got=True
+  INFO  SHA-256 verified: 1fc34e765c9941a5…
+  PASS  tamper-detect: corrupted row fails integrity: got=False
+  INFO  SHA-256 MISMATCH: expected 1fc34e765c9941a5, got 6246960fff8433ab
+  INFO  cleaned fresh test report ase_rpt_weekly_2099-01-01_8295fbe5
+  INFO  checking 10 stored reports for integrity
+  WARN  stored report ase_rpt_monthly_2026-07-01_79bdb0ba fails integrity (pre-existing row — type coercion known)
+  WARN  stored report ase_rpt_daily_2020-01-01_aacb6ea6 fails integrity (pre-existing row — type coercion known)
+  WARN  stored report ase_rpt_daily_2026-07-17_4ca429eb fails integrity (pre-existing row — type coercion known)
+  WARN  stored report 303153f7-7247-4795-835d-f0db86ab2bc2 fails integrity (pre-existing row — type coercion known)
+  WARN  stored report 4c98137b-5667-4557-8734-a3e01b836ffe fails integrity (pre-existing row — type coercion known)
+  WARN  stored report 71b9d9b5-bbb9-4c9c-b8a3-46b589d05a5c fails integrity (pre-existing row — type coercion known)
+  WARN  stored report a49b316c-66b9-44fd-a93b-528f8d9c3312 fails integrity (pre-existing row — type coercion known)
+  WARN  stored report 2a3d1fba-2beb-4162-bc22-36903257e57c fails integrity (pre-existing row — type coercion known)
+  WARN  stored report b87004ed-6e2e-45af-8f16-cedb02954dcc fails integrity (pre-existing row — type coercion known)
+  WARN  stored report 9f1c3182-ea80-42b7-b1ce-135c7657f5b3 fails integrity (pre-existing row — type coercion known)
+
+PASS=67  FAIL=0
+EXIT STATUS: PASS

@@ -1,0 +1,49 @@
+=== ITEM 16: FAILURE RECOVERY ===
+[paper_trader] Inserted ase_pt_c52dc9f91ede4358: Bull Call Spread on VRY16 @ 202.0
+  PASS  seed trade inserted for recovery tests
+
+--- 1. App Restart ---
+  PASS  fresh connection: OPEN count matches get_open_trades(): got=809
+  PASS  app restart: seed trade visible via fresh connection: got=True
+  PASS  app restart: get_open_trades() recovers seed trade: got=True
+  INFO  total OPEN after 'restart': 809
+
+--- 2. Scheduler Restart ---
+  PASS  scheduler restart: PENDING job survives in DB: got=True
+  PASS  scheduler restart: specific PENDING job recoverable by id: got=True
+  INFO  pending job id=21 scan_date=2026-07-17
+
+--- 3. Database Failure ---
+[paper_trader.get_open] OperationalError: simulated DB outage
+  PASS  DB failure: get_open_trades() returns [] (no crash): got=[]
+[paper_trader.save_run] OperationalError: simulated DB outage
+  PASS  DB failure: save_decision_run returns False (no crash): got=False
+[paper_trader.close] OperationalError: simulated DB outage
+  PASS  DB failure: close_paper_trade returns False (no crash): got=False
+
+--- 4. Data Provider Failure ---
+  PASS  data provider: _current_value with no expiration returns 0.0 (legs skipped): got=0.0
+  PASS  data provider: _current_value with empty chain returns None (no match): got=None
+  PASS  data provider: record_valuation with no spot returns None (no crash): got=None
+
+--- 5. Missing Chain (0-leg trade) ---
+  PASS  missing chain (legs=None): should_close returns False (no crash): got=False
+  PASS  missing chain: reason is empty string: got=''
+
+--- 6. Missing Leg (1-leg trade) ---
+  PASS  1-leg trade: should_close returns bool (no crash): got=True
+  INFO  1-leg should_close=False reason=''
+
+--- 7. Delayed Quotes ---
+  PASS  delayed quote: _current_value completes (no hang): got=None
+  PASS  delayed quote: chain fetch was actually called: got=True
+  INFO  elapsed=20.2ms
+[paper_trader] Inserted ase_pt_fe395170dfb84a6e: Bull Call Spread on VRY16 @ 202.0
+  PASS  no duplicate: second insert gets distinct PID
+  PASS  audit preserved: audit_hash non-empty after all recovery ops
+
+--- Cleanup ---
+  cleaned 2 trades, 1 jobs
+
+PASS=19  FAIL=0
+EXIT STATUS: PASS

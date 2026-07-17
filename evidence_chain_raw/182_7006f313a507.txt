@@ -1,0 +1,18 @@
+=== ITEM 17: PERFORMANCE VALIDATION ===
+
+--- Raw SQL baseline (all CLOSED trades) ---
+  INFO  closed trade count = 17
+  PASS  at least 1 closed trade exists
+
+--- generate_report: ALL-TIME period ---
+  PASS  generate_report returned dict
+
+--- Net/Gross P/L ---
+  PASS  net_pnl_paper matches SQL sum(net_pnl): got=2027.9 exp=2027.9
+  INFO  SQL gross_total=1990.0 commission_total=14.3
+  INFO  net_pnl_paper=2027.9 (SQL confirms)
+Traceback (most recent call last):
+  File "/home/runner/workspace/artifacts/stock-scanner-api/verify_item_17_performance.py", line 114, in <module>
+    exp = round(float(t["gross_pnl"]) - float(t["commission_paid"]), 4)
+                ^^^^^^^^^^^^^^^^^^^^^
+TypeError: float() argument must be a string or a real number, not 'NoneType'

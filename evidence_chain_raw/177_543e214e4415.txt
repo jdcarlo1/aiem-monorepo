@@ -1,0 +1,118 @@
+=== ITEM 15: DATABASE VERIFICATION ===
+  PASS  save_decision_run for lifecycle run
+[paper_trader] Inserted ase_pt_6fb2117714874643: Bull Call Spread on VRY15 @ 105.0
+  PASS  insert_paper_trade returned id
+
+--- SQL: Parent Trade ---
+  PASS  parent row exists
+  PASS  parent.underlying: got='VRY15'
+  PASS  parent.strategy_name: got='Bull Call Spread'
+  PASS  parent.status: got='OPEN'
+  PASS  parent.family: got='SPREAD'
+  PASS  parent.thesis: got='BULLISH'
+  PASS  parent.audit_hash non-empty
+  INFO  paper_trade_id=ase_pt_6fb2117714874643
+  INFO  probability_of_profit=0.6100
+  INFO  maximum_profit=600.0000  maximum_loss=400.0000
+  INFO  capital_at_risk=400.00
+
+--- SQL: Every Leg ---
+  PASS  leg count: got=2
+  PASS  leg1.buy_or_sell: got='LONG'
+  PASS  leg2.buy_or_sell: got='SHORT'
+  PASS  leg1.strike: got=100.0
+  PASS  leg2.strike: got=110.0
+  INFO  leg1: LONG CALL K=100.0000 exp=2026-08-31 dte=45
+  INFO  leg2: SHORT CALL K=110.0000 exp=2026-08-31 dte=45
+
+--- SQL: Greeks ---
+  PASS  leg1.delta non-null
+  PASS  leg1.gamma non-null
+  PASS  leg1.theta non-null
+  PASS  leg1.vega non-null
+  PASS  leg1.iv non-null
+  INFO  leg1: Δ=0.5200 Γ=0.0250 Θ=-0.0900 ν=0.1800 ρ=0.0600
+  PASS  leg2.delta non-null
+  PASS  leg2.gamma non-null
+  PASS  leg2.theta non-null
+  PASS  leg2.vega non-null
+  PASS  leg2.iv non-null
+  INFO  leg2: Δ=0.2800 Γ=0.0150 Θ=-0.0500 ν=0.1200 ρ=0.0300
+
+--- SQL: Pricing ---
+  PASS  leg1.bid non-null
+  PASS  leg1.ask non-null
+  PASS  leg1.mid non-null
+  PASS  leg1.modeled_fill non-null
+  PASS  leg1.paper_fill non-null
+  INFO  leg1: bid=3.8000 ask=4.2000 mid=4.0000 fill=4.0000
+  PASS  leg2.bid non-null
+  PASS  leg2.ask non-null
+  PASS  leg2.mid non-null
+  PASS  leg2.modeled_fill non-null
+  PASS  leg2.paper_fill non-null
+  INFO  leg2: bid=1.4000 ask=1.6000 mid=1.5000 fill=-1.5000
+
+--- SQL: Valuation Updates (direct INSERT — no live chain for VRY15) ---
+  PASS  valuation row exists
+  PASS  val.underlying_price: got=108.5
+  PASS  val.paper_value: got=2.8
+  PASS  val.unrealized_pnl: got=280.0
+  INFO  valuation: spot=108.5000 paper_value=2.8000 upnl=280.0000
+  PASS  valuation idempotency: upsert updates in-place: got=290.0
+  PASS  valuation idempotency: exactly 1 row per (pid, date): got=1
+
+--- SQL: Adjustments ---
+  PASS  record_adjustment returned adj_id
+  PASS  adjustment row exists in DB
+  PASS  adj.paper_trade_id FK: got='ase_pt_6fb2117714874643'
+  PASS  adj.adjustment_type: got='ROLL_OUT'
+  PASS  adj.net_cost: got=0.3
+  INFO  adjustment_id=ase_adj_f93a8deb9c2e
+
+--- SQL: Exit + P/L ---
+  PASS  close_paper_trade returned True: got=True
+  PASS  exit.status: got='CLOSED'
+  PASS  exit.close_reason: got='PROFIT_TARGET'
+  PASS  exit.gross_pnl: got=185.0
+  PASS  exit.net_pnl = gross - commission: got=182.4
+  PASS  exit.return_on_capital_realized non-null
+  INFO  gross=185.0000 net=182.4000 commission=2.6000
+  INFO  return_on_capital_realized=0.4560
+
+--- SQL: Performance Summary (generate_report for today) ---
+  PASS  generate_report returned dict
+  PASS  report has win_rate
+  PASS  report has equity_curve
+  PASS  report has net_pnl_paper
+  PASS  report has net_pnl_theoretical
+  PASS  report has net_pnl_modeled
+  PASS  report has report_sha256
+  FAIL  report SHA-256 integrity (stored row): got=False exp=True
+  INFO  SHA-256 MISMATCH: expected df15f650ec15929c, got 570bb9b89c4e51b6
+  INFO  generate_report report_id=ase_rpt_daily_2026-07-17_37f4775f  stored_rid=ase_rpt_daily_2026-07-17_4ca429eb
+
+--- SQL: Foreign Key Constraints ---
+  PASS  FK violation on non-existent parent: raised ForeignKeyViolation: insert or update on table "ase_paper_trade_legs" violates fo
+  PASS  FK violation on adjustment orphan parent: raised ForeignKeyViolation: insert or update on table "ase_adjustments" violates foreign
+  PASS  FK violation on valuation orphan parent: raised ForeignKeyViolation: insert or update on table "ase_position_valuations" violates
+
+--- SQL: No Duplicate Parent Trades ---
+  PASS  no duplicate paper_trade_id values: got=0
+  PASS  UNIQUE violation on duplicate paper_trade_id: raised UniqueViolation: duplicate key value violates unique constraint "ase_paper_tr
+
+--- SQL: No Orphan Legs ---
+  PASS  no orphan legs in DB: got=0
+
+--- SQL: Idempotency ---
+  PASS  save_decision_run idempotent (ON CONFLICT DO UPDATE): got=True
+  PASS  idempotency: exactly 1 row for run_id after double-save: got=1
+
+--- SQL: Transaction Rollback ---
+  PASS  transaction rollback: parent not persisted after exception: got=0
+
+--- Cleanup ---
+  cleaned 1 trade(s) + 1 run(s)
+
+PASS=67  FAIL=1
+EXIT STATUS: FAIL
