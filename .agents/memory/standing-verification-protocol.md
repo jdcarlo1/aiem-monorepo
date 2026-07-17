@@ -1,6 +1,6 @@
 ---
 name: Standing verification protocol
-description: Five-rule evidence protocol for all AIEM (and Joel project) work — permanent, not per-task
+description: Five-rule evidence protocol + lean output format directive — permanent, not per-task
 ---
 
 All five rules are in permanent force. Narrative claims — "fixed," "tested," "found," "confirmed," or described code snippets with cited line numbers — are rejected without the matching raw output. If evidence cannot be produced, say so explicitly instead of substituting a description.
@@ -33,6 +33,22 @@ pasted in full, raw, unedited, showing actual line numbers and content.
 - Quoting what a line "says" without a command that shows it
 - Summarizing what a function does without pasted output confirming it
 - Line-number citations not accompanied by the raw output that produced them
+
+## Lean Output Format Directive (effective 2026-07-17)
+Replaces long-form narrative reports. For any completion claim, output ONLY:
+
+1. **COMMAND + RAW OUTPUT** — literal terminal output only. For test suites: final pass/fail summary line(s) only, not per-test blocks.
+2. **SHA-256** — only for files that changed this session. One line: `sha256sum <file>` before and after. Do not re-hash unchanged files.
+3. **DATA CHANGES** — only if rows were inserted/updated/deleted: exact SQL run + row count affected. If >10 rows need review, attach via `\copy` CSV — do NOT paste rows inline.
+4. **MODIFICATION STATUS** — `git diff HEAD --stat` output only. If empty: `git diff HEAD: no changes.`
+
+Do NOT include:
+- Restated context, section banners, dividers, or headers
+- "Interpretation" or narrative commentary
+- Sample rows described as "representative" — attach real files or omit
+- Re-verification of things that didn't change this session
+
+**Why:** Prior sessions generated 18,000-line packages with prose, repeated headers, and "representative row" descriptions. The directive separates format (lean) from proof standard (unchanged — raw evidence still required).
 
 ## Verify-chain.sh native output format (recorded here for reference)
 `entry_hash=<first 16 hex chars>...` is the script's native OK-line format (`stored_hash[:16]` at line 76). Not a display artifact. FAIL/BREAK paths print the full 64-char hash.

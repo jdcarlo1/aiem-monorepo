@@ -1,0 +1,51 @@
+════════════════════════════════════════════════════════════════
+  LEAN VERIFICATION DIRECTIVE — replaces full narrative reports
+════════════════════════════════════════════════════════════════
+
+Effective immediately: do NOT generate long-form test reports,
+per-test narrative blocks, or embedded "sample rows" writeups.
+Output must be raw command results only — no prose, no repeated
+headers, no restated context. Minimize total lines generated.
+
+For any completion claim, provide ONLY the following, in this
+exact compact form:
+
+1. COMMAND + RAW OUTPUT
+   - Paste the literal terminal output of the command(s) run.
+   - No summary before or after. No "Expected vs Actual" tables.
+   - If a test suite was run, paste ONLY the final pass/fail
+     summary line(s) — not a per-test block.
+
+2. SHA-256 (only for files that changed)
+   - One line: `sha256sum <file>` output, before and after,
+     only for files actually modified this session.
+   - Do not re-hash unchanged files every time.
+
+3. DATA CHANGES (only if rows were inserted/updated/deleted)
+   - The exact SQL run.
+   - Row count affected.
+   - Actual CSV file attached (via \copy) if more than 10 rows
+     need review — do NOT paste rows inline, do NOT describe
+     "representative rows." Attach or don't include.
+
+4. MODIFICATION STATUS (one line)
+   - `git diff HEAD --stat` output only (not full diff unless
+     something changed). If empty, just write: "git diff HEAD:
+     no changes."
+
+Do NOT include:
+- Restated context, headers, dividers, or section banners
+- "Interpretation" or narrative commentary
+- Sample rows described as representative — attach real files
+  instead, or omit
+- Re-verification of things that didn't change this session
+  (e.g. re-hashing unchanged files, re-running unrelated
+  negative-control tests already proven in a prior session)
+
+If a claim can't be backed by real command output, say so in
+one line — do not pad with formatting to look thorough.
+
+Full raw-evidence rigor (grep-verified code claims, no
+paraphrasing, no unapproved deletions) still applies — this
+directive only changes the FORMAT of what gets pasted, not the
+standard of proof required.
