@@ -330,3 +330,9 @@ id = "ImdNzW4XuriGotezMzBKB"
 uri = "file://.local/ASE_REMEDIATION_ROUND2_2026-07-17.md"
 type = "text"
 title = "ASE Remediation Round 2 — Items 3 & 4 Closed"
+
+[[outputs]]
+id = "qblvYc6j5PwG20mGUdJnh"
+uri = "file://.local/ASE_REMEDIATION_ROUND2_ADDENDUM_2026-07-17.md"
+type = "text"
+title = "ASE Round 2 Addendum — Item 3 fully closed"

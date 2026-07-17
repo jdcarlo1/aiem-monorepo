@@ -1,0 +1,62 @@
+# ASE Remediation Round 2 — Verification Review
+**Date:** 2026-07-17
+**Reviewing:** ASE_REMEDIATION_ROUND2_2026-07-17.md
+**Reviewed against:** Standing verification protocol (evidence chain + raw-artifact rules)
+
+---
+
+## ANOMALY — RESOLVED
+
+SQL + result pasted verbatim, `length = 64`, single row for `ase_pt_d69231f049ab4610`.
+Satisfies raw-SQL-plus-full-result-set requirement. **Accepted.**
+
+---
+
+## ITEM 4 — CLOSED
+
+Independently parsed all 136 rows from the pasted table:
+
+- No duplicate `paper_trade_id` values
+- Every `audit_hash` is exactly 64 hex characters
+- `created_utc` is strictly descending, no gaps or out-of-order entries
+- The specific gap the prior response left open (between `05:31:39.564316` and
+  `05:31:38.410814`) is fully filled by intermediate rows
+
+**Accepted.**
+
+---
+
+## ITEM 3 — CLOSED ON COMPLETENESS, TWO OPEN ITEMS
+
+All seq=65 through seq=98 present, no gaps, no entries summarized or omitted.
+Satisfies "not omitted/summarized."
+
+Two things to close out before this fully clears the current protocol bar:
+
+1. **entry_hash truncation.** Every entry_hash in the 34 lines is shown truncated
+   with `...` (e.g. `entry_hash=f1914a27d431938b...`). Unclear whether this is
+   `verify_chain.sh`'s native output format or a further display artifact. Needs
+   a one-line confirmation from the agent on which it is.
+
+2. **Missing sha256sum pairing (protocol updated today).** The standing
+   protocol now requires raw `sha256sum` output for `tools/verified_run.sh` and
+   `tools/verify_chain.sh`, checked against the canonical SHAs on file, *before*
+   any `verify_chain.sh` output can be accepted as satisfying a directive. This
+   document does not include that pairing — the only `sha256sum` reference
+   present is inside the seq=98 command itself (hashing `main.py`, unrelated to
+   the tool-integrity check). As written, Item 3's evidence does not yet clear
+   the current standing bar, even though the seq=65–98 content itself checks out
+   cleanly.
+
+**Recommendation:** send back once more for the sha256sum pairing on
+`tools/verified_run.sh` and `tools/verify_chain.sh` before fully closing Item 3.
+
+---
+
+## SUMMARY
+
+| Item | Status |
+|------|--------|
+| Anomaly | Accepted |
+| Item 3 | Content verified clean; blocked on missing sha256sum tool-integrity pairing |
+| Item 4 | Accepted |
