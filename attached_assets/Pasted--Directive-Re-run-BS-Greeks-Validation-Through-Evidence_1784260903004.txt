@@ -1,0 +1,24 @@
+# Directive: Re-run BS/Greeks Validation Through Evidence Chain Protocol
+
+**Reference run:** BG_AF79AB6DA9173D21 (`ase_bs_greeks_report_BG_AF79AB6DA9173D21.txt`)
+**Status of reference run:** Math independently spot-checked and confirmed consistent (15/15 Section 5 pricing tests + Delta greek recomputed independently, all matched within stated tolerance). However, the run does **not** satisfy the standing Evidence Chain Protocol and cannot be accepted as fully verified until it does.
+
+## What's missing from the original run
+
+1. **No evidence chain.** Zero references to `verified_run.sh` or `verify_chain.sh` anywhere in the report. Every one of the 105 tests must be executed through `verified_run.sh` (hash-chained append-only logging wrapper, sha256 `72824bfe...24abd`), not run directly.
+2. **SQL evidence is boilerplate, not real.** All 105 tests carry the identical query `SELECT COUNT(*) FROM ase_paper_trades` → `291`. This has no relationship to the BS/Greeks math being tested and doesn't prove the run executed against production code paths. Either drop it or replace it with something that actually ties to the test (e.g., a query confirming which code version/module was loaded).
+3. **"Raw Output" fields are reformatted, not raw.** They restate already-computed A/B values rather than pasting actual captured stdout. Need genuine terminal/stdout capture, not templated re-display of derived numbers.
+
+## Required for re-run
+
+- Execute the full BS/Greeks validation suite (Section 5 pricing, Section 6 Greeks, aggregate tests) through `verified_run.sh`.
+- Run `verify_chain.sh` (sha256 `7294abeb...1fbec7`) against the resulting log before declaring the run complete.
+- **Paste the raw `verify_chain.sh` output** in the response — not a summary of it.
+- Paste genuine raw stdout for each test (or a representative sample plus the full log file), not reformatted A/B restatements.
+- If SQL evidence is kept, it must be a query that's actually relevant to what's being validated in that specific test, with the full result set — not one static boilerplate row repeated 105 times.
+- Keep the Code SHA-256 / Config SHA-256 per-test as before — that part checked out fine.
+
+## Not acceptable
+
+- Narrative claims of "ran through evidence chain" or "verified" without the pasted `verify_chain.sh` output.
+- Reordering/splicing multiple partial runs into one report.
