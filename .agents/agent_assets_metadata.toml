@@ -324,3 +324,9 @@ id = "YS8x6NZnNcKhmpaBt2Efm"
 uri = "file://.local/ASE_REMEDIATION_RESPONSE_2026-07-17.md"
 type = "text"
 title = "ASE Remediation Response — All 5 Items Closed"
+
+[[outputs]]
+id = "ImdNzW4XuriGotezMzBKB"
+uri = "file://.local/ASE_REMEDIATION_ROUND2_2026-07-17.md"
+type = "text"
+title = "ASE Remediation Round 2 — Items 3 & 4 Closed"
