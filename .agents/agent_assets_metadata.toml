@@ -276,3 +276,15 @@ id = "-msFJ9XckrygpYWRgyCwn"
 uri = "file://.local/AIEM_LIVE_VERIFICATION_RESULTS.md"
 type = "text"
 title = "AIEM Live Verification Results (Scripts Run 2026-07-16)"
+
+[[outputs]]
+id = "H6pSbBk_OjeSfdb6CicFF"
+uri = "file://artifacts/stock-scanner-api/ase_report_VERIFY_EA4526E84F6340FB.txt"
+type = "text"
+title = "Full Verification Report — 163/163 PASS (Run VERIFY_EA4526E84F6340FB)"
+
+[[outputs]]
+id = "5OuNW3MibvAwPMvsXKdZJ"
+uri = "file://artifacts/stock-scanner-api/ase_leg_report_LC_CB9CF4CEAABA4D5B.txt"
+type = "text"
+title = "Leg Construction Report — 66/66 PASS (Run LC_CB9CF4CEAABA4D5B)"
