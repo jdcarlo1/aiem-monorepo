@@ -1,0 +1,38 @@
+=== PROOF A: OPTIONS ENGINE MODULE STRUCTURE ===
+
+--- File SHAs ---
+SHA256=9978e7102a97911d56e0e751658a8514c7f942684c862f8ebd358d7e243a6bfb  file=aiem_premarket_intel.py  lines=521
+SHA256=4edb8c46df22873aa5cccadf92c4f8d1c328b501504f502fca44e568ae8297c2  file=aiem_multitimeframe.py  lines=429
+SHA256=bca18ed881c210ec329d3d598866cdcc4092cd3c8a744f5f9e7da8be69fd0557  file=aiem_polygon_options_chain.py  lines=534
+SHA256=ce1668de880e478fa9fe27323084b0258a6a64daed87081815f1ab15edd7a818  file=aiem_options_scheduler.py  lines=1490
+
+--- Scheduler sched.add_job() registrations ---
+  sched.add_job(_seed_job, CronTrigger(day_of_week="mon-fri", hour=9, minute=40),
+  sched.add_job(_execute_job_wrapper, CronTrigger(day_of_week="mon-fri", hour=9, minute=45),
+  sched.add_job(_premarket_job, CronTrigger(day_of_week="mon-fri", hour=7, minute=30),
+  sched.add_job(_pm_intraday_update_job,
+  CronTrigger(day_of_week="mon-fri", hour=9, minute=36),
+  sched.add_job(grade_outcomes_job,
+  CronTrigger(day_of_week="mon-fri", hour=16, minute=46),
+  sched.add_job(recover_stale_jobs,
+  sched.add_job(
+
+--- New stages present in _execute_job ---
+FOUND=TRUE   Stage PM: Premarket Intelligence
+FOUND=TRUE   Stage MTF: Multi-Timeframe Analysis
+FOUND=TRUE   Stage PAT: All Verified Patterns
+FOUND=TRUE   Stage OC: Real Polygon Options Chain
+FOUND=TRUE   Stage CCS: Capital Compounding Score
+FOUND=TRUE   Proof logging PM/MTF/PAT/OC
+FOUND=TRUE   options_engine_runs INSERT
+
+--- DB tables in _bootstrap_db ---
+BOOTSTRAPPED=TRUE   options_engine_premarket
+BOOTSTRAPPED=TRUE   options_engine_mtf
+BOOTSTRAPPED=TRUE   options_engine_runs
+
+--- premarket_scan_job function defined ---
+FOUND=TRUE  premarket_scan_job()
+FOUND=TRUE  _seed_from_polygon_universe()
+
+PROOF-A COMPLETE

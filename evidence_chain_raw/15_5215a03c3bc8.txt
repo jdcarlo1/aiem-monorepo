@@ -1,0 +1,38 @@
+=== PROOF C: REAL PIPELINE EXECUTION ===
+
+OSS_MAX_DATE=2026-07-17
+PMD_MAX_DATE=2026-07-16
+OPERATIVE_SCAN_DATE=2026-07-17
+
+--- Step 1: seed_daily_candidates(2026-07-17) ---
+[2026-07-18T01:27:32Z INFO] [seed] skip duplicate MEC 2026-07-17
+[2026-07-18T01:27:32Z INFO] [seed] skip duplicate UMC 2026-07-17
+[2026-07-18T01:27:32Z INFO] [seed] skip duplicate PINS 2026-07-17
+[2026-07-18T01:27:32Z INFO] [seed] scan_date=2026-07-17  seeded=0  skipped=3  candidates=['MEC', 'UMC', 'PINS']
+SEEDED=0
+SKIPPED_DUPES=3
+CANDIDATES=['MEC', 'UMC', 'PINS']
+SEED_ELAPSED=1.55s
+
+--- Step 2: Premarket intel for seeded tickers ---
+[2026-07-18T01:27:32Z WARNING] [polygon_get] /v2/aggs/ticker/MEC/range/1/minute/1784275200000/1784295000000 error: HTTP Error 403: Forbidden
+  PM_INTEL  ticker=MEC  score=0.5  dir=NEUTRAL  bars=0  flags=['NO_PREMARKET_BARS']  elapsed=0.13s
+[2026-07-18T01:27:33Z WARNING] [polygon_get] /v2/aggs/ticker/UMC/range/1/minute/1784275200000/1784295000000 error: HTTP Error 403: Forbidden
+  PM_INTEL  ticker=UMC  score=0.5  dir=NEUTRAL  bars=0  flags=['NO_PREMARKET_BARS']  elapsed=0.1s
+
+--- Step 3: MTF analysis for seeded tickers ---
+  MTF  ticker=MEC  alignment=0.2194  bias=BEARISH  conflict=0.0  timing=INSUFFICIENT_DATA  elapsed=1.82s
+  MTF  ticker=UMC  alignment=0.4239  bias=BEARISH  conflict=0.0  timing=INSUFFICIENT_DATA  elapsed=1.01s
+
+--- Step 4: Real Polygon options chain for first candidate ---
+  CHAIN  ticker=MEC  spot=30.7  calls=0  puts=0  contracts_total=0  expirations=[]  fetch_error=None  elapsed=0.13s
+  STRATEGIES_EVALUATED=0  elapsed=0.0s
+
+--- Step 5: run_pipeline_worker(2026-07-17) ---
+[2026-07-18T01:27:36Z INFO] [worker] scan_date=2026-07-17  executed=0  errors=0
+EXECUTED=0
+ERRORS=0
+WORKER_ELAPSED=0.07s
+
+PROOF-C COMPLETE
+TOTAL_ELAPSED=4.87s

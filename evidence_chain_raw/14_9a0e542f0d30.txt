@@ -1,0 +1,29 @@
+=== PROOF B: TRIGGER CHAIN VERIFICATION ===
+
+--- log_stage() call sites for new Options Engine stages ---
+  LOG_STAGE_CALL  stage=premarket_intel
+  LOG_STAGE_CALL  stage=multitimeframe
+  LOG_STAGE_CALL  stage=pattern_scan_options_engine
+  LOG_STAGE_CALL  stage=options_chain_polygon
+
+--- options_engine_runs trigger_chain_json scheduler_jobs declaration ---
+  "scheduler_jobs": [
+  "premarket_scan@07:30ET",
+  "seed_daily_candidates@09:40ET",
+
+--- Health endpoint (port 5053) ---
+  STATUS=ok
+  SCHEDULER=running
+  PENDING_JOBS=0
+  EXECUTING_JOBS=0
+  DB=ok
+  LAST_HEARTBEAT=2026-07-18 01:22:20.320403
+  CONSECUTIVE_FAILURES=0
+
+--- Full trigger chain sequence in trigger_chain_json ---
+  TRIGGER_CHAIN_ELEMENT  found=TRUE   seed_daily_candidates→run_pipeline_worker→_execute_job
+  TRIGGER_CHAIN_ELEMENT  found=TRUE   premarket_scan@07:30ET
+  TRIGGER_CHAIN_ELEMENT  found=TRUE   seed_daily_candidates@09:40ET
+  TRIGGER_CHAIN_ELEMENT  found=TRUE   run_pipeline_worker@09:45ET
+
+PROOF-B COMPLETE

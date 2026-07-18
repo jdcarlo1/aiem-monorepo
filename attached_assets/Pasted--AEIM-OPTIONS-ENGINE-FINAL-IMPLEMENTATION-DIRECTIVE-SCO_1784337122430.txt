@@ -1,0 +1,304 @@
+# AEIM OPTIONS ENGINE — FINAL IMPLEMENTATION DIRECTIVE
+
+## SCOPE
+- Standalone Options Engine ONLY (do NOT connect to Diagrams 1–3).
+- Do NOT modify or re-verify any previously verified indicators, patterns, or modules.
+- Add ONLY the functionality below.
+- Paper trading only.
+- No mocks, fabricated evidence, or manual database inserts.
+
+==================================================
+DATA FLOW
+==================================================
+
+Polygon Universe Scan
+        ↓
+Premarket Intelligence
+        ↓
+ALL Existing Verified Indicators
+ALL Existing Candlestick Patterns
+ALL Existing Chart Patterns
+ALL Existing Statistical Models
+ALL Existing Probability Models
+ALL Existing Risk Models
+        ↓
+Multi-Timeframe Analysis
+        ↓
+Rank Stock Candidates
+        ↓
+Retrieve Full Polygon Options Chain
+        ↓
+Evaluate ALL Supported Option Strategies
+        ↓
+Capital Compounding Score
+        ↓
+Liquidity + Risk + Probability Validation
+        ↓
+Best Stock + Best Option Strategy
+        ↓
+TRADE or NO TRADE
+        ↓
+Audit / Database / Outcome Tracking
+
+The Options Engine must scan Polygon directly every trading day. It must NOT rely on the stock-scanning website.
+
+==================================================
+PREMARKET INTELLIGENCE (NEW)
+==================================================
+
+Compute for every candidate:
+
+- Premarket gap
+- Premarket high/low
+- Premarket breakout/rejection levels
+- Premarket volume
+- Relative volume
+- Premarket trend quality
+- Premarket support/resistance
+- News/Earnings catalysts
+- Sector strength/weakness
+- S&P/Nasdaq futures
+- Opening auction data (when available)
+
+Create:
+
+- premarket_score
+- premarket_direction
+- premarket_confidence
+- premarket_risk_flags
+
+After 9:30 continue updating:
+
+- Break/fail of PM high
+- Hold/fail of PM low
+- Opening volume confirmation
+- Sector confirmation
+- Market confirmation
+- Continuation vs reversal
+
+Premarket is ONE weighted input only.
+
+==================================================
+MULTI-TIMEFRAME ANALYSIS (NEW)
+==================================================
+
+Analyze together:
+
+Monthly
+Weekly
+Daily
+4H
+1H
+30m
+15m
+5m
+4m
+3m
+2m
+1m
+
+Weights:
+
+Monthly/Weekly → Highest
+Daily → Very High
+4H/1H → High
+30m/15m → Medium
+5m → Low
+1-4m → Entry timing only
+
+Generate:
+
+- timeframe_alignment_score
+- conflict_score
+- dominant_bias
+- entry_timing_status
+
+==================================================
+PATTERNS & INDICATORS
+==================================================
+
+For EVERY stock candidate evaluate ALL existing verified:
+
+- Candlestick patterns
+- Multi-candle patterns
+- Chart patterns
+- Continuation patterns
+- Reversal patterns
+- Breakout patterns
+- Volume patterns
+- Support/Resistance patterns
+- Technical indicators
+- Statistical indicators
+- Volatility indicators
+- Microstructure indicators
+- Options indicators
+- Market Regime indicators
+- Probability Engine outputs
+- Every other existing verified AEIM indicator
+
+Use ALL of them together.
+
+NO SINGLE:
+
+- Candlestick pattern
+- Chart pattern
+- Indicator
+- Timeframe
+- Score
+
+may independently trigger a trade.
+
+Everything must contribute to ONE weighted conclusion.
+
+==================================================
+OPTIONS ENGINE
+==================================================
+
+For each ranked stock:
+
+1. Combine:
+   - All verified indicators
+   - All verified patterns
+   - Premarket score
+   - Multi-timeframe analysis
+   - Probability models
+   - Market regime
+   - Risk framework
+   - Liquidity
+   - Existing options signals
+
+2. Reject conflicting evidence.
+
+3. Retrieve complete Polygon options chain.
+
+4. Evaluate EVERY enabled options strategy.
+
+5. Calculate:
+
+- Probability of Profit
+- Expected Return
+- Expected Loss
+- Max Loss
+- Breakevens
+- Greeks
+- IV
+- IV Rank/Percentile
+- Skew
+- Term Structure
+- Liquidity
+- Bid/Ask Spread
+- Slippage
+- Capital Efficiency
+- Regime Fit
+- Early Exit Behavior
+
+6. Rank using the existing Capital Compounding Score.
+
+7. Select the BEST stock and BEST options strategy.
+
+8. If nothing qualifies:
+
+RETURN NO TRADE.
+
+Capital Preservation always overrides Return.
+
+==================================================
+AUTOMATION
+==================================================
+
+The Options Engine must automatically:
+
+- Start before market open.
+- Scan Polygon every trading day.
+- Complete premarket analysis before/near 9:30 AM ET.
+- Continue live intraday updates.
+- Skip weekends/market holidays.
+- Prevent duplicate runs.
+- Recover failed jobs.
+- Alert on failures.
+- Save every run, rejection, trade, and NO TRADE result.
+
+Use the existing production scheduler if one already exists. Do NOT create a duplicate scheduler.
+
+==================================================
+REQUIRED PROOF
+==================================================
+
+Provide raw evidence showing:
+
+A.
+- Scheduler file
+- Function/class
+- Cron/APScheduler expression
+- Startup registration
+- SHA-256
+
+B.
+Full trigger chain:
+
+Scheduler
+→ Polygon Scan
+→ Premarket
+→ Indicators
+→ Patterns
+→ Multi-Timeframes
+→ Stock Ranking
+→ Options Chain
+→ Strategy Evaluation
+→ Risk Gate
+→ Final Decision
+
+C.
+Real automated trading-day evidence:
+
+- run_id
+- trace_id
+- timestamps
+- stocks scanned
+- option contracts evaluated
+- selected stock
+- selected strategy
+- or NO TRADE
+
+D.
+Database proof:
+
+- tables
+- inserted rows
+- matching IDs
+- timestamps
+
+E.
+Negative controls:
+
+- Polygon unavailable
+- Missing premarket
+- Missing timeframe
+- Conflicting evidence
+- Poor liquidity
+- Duplicate scheduler trigger
+- NO TRADE path
+
+==================================================
+PASS
+==================================================
+
+PASS ONLY IF:
+
+✓ Polygon directly feeds the standalone Options Engine.
+
+✓ Every existing verified indicator and pattern is consumed.
+
+✓ Every new premarket indicator is consumed.
+
+✓ Multi-timeframe analysis is consumed.
+
+✓ All evidence is combined into ONE weighted conclusion.
+
+✓ The engine selects the BEST stock and the BEST options strategy (or NO TRADE).
+
+✓ Daily automation is proven.
+
+✓ Real logs, database records, trace IDs, timestamps, hashes, and runtime evidence prove the entire end-to-end workflow.
+
+FAIL if any claim is supported only by screenshots, summaries, manual runs, mock data, or code that is not executed during a real automated trading-day run.

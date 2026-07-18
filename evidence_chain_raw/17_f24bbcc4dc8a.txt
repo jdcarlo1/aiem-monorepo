@@ -1,0 +1,39 @@
+=== PROOF D: DATABASE PROOF ===
+
+--- Table existence, column counts, row counts ---
+  TABLE=options_engine_premarket             cols=18  rows=0
+  TABLE=options_engine_mtf                   cols= 9  rows=2
+  TABLE=options_engine_runs                  cols=16  rows=0
+  TABLE=options_pipeline_jobs                cols=18  rows=10
+  TABLE=aiem_pipeline_proof_log              cols= 9  rows=0
+
+--- options_engine_premarket: recent rows written by Evidence C ---
+  NO_ROWS_YET
+
+--- options_engine_mtf: recent rows written by Evidence C ---
+  MTF_ROW  id=2  ticker=UMC     run_date=2026-07-17  alignment=0.4239  conflict=0.0000  bias=BEARISH   timing=INSUFFICIENT_DATA     created_at=2026-07-18 01:27:35.889670+00:00
+  MTF_ROW  id=1  ticker=MEC     run_date=2026-07-17  alignment=0.2194  conflict=0.0000  bias=BEARISH   timing=INSUFFICIENT_DATA     created_at=2026-07-18 01:27:34.276563+00:00
+
+--- options_engine_runs: recent rows ---
+  NO_OE_RUNS_YET  (no _execute_job ran — all jobs were DONE from prior run)
+
+--- options_pipeline_jobs DONE rows (prior run) ---
+  OPJ_DONE  id=43  ticker=TER     scan_date=2026-07-17  direction=DONE          score=LONG_PUT  trace_id=bd0c8824abf1a2ad  chain=8850dcdc67f6414b0489  completed=2026-07-17 19:08:49.002498+00:00
+  OPJ_DONE  id=42  ticker=WOLF    scan_date=2026-07-17  direction=DONE          score=LONG_PUT  trace_id=85ce4a65cf97eb62  chain=8b4fd6c03e2600f06ad2  completed=2026-07-17 19:08:49.002498+00:00
+  OPJ_DONE  id=41  ticker=PINS    scan_date=2026-07-17  direction=DONE          score=LONG_PUT  trace_id=2a21c67c2aec3499  chain=06a723af7dacb7916f50  completed=2026-07-17 19:08:49.002498+00:00
+  OPJ_DONE  id=40  ticker=UMC     scan_date=2026-07-17  direction=DONE          score=LONG_PUT  trace_id=e5fbbea92b7e4446  chain=581d3011ff000ae47ae5  completed=2026-07-17 19:08:49.002498+00:00
+  OPJ_DONE  id=39  ticker=MEC     scan_date=2026-07-17  direction=DONE          score=LONG_PUT  trace_id=507f1a059d414577  chain=f83fdd84eaae5cbaf9c2  completed=2026-07-17 19:08:49.002498+00:00
+
+--- options_engine_premarket UNIQUE constraint proof ---
+  UNIQUE_INDEX  options_engine_premarket_pkey: CREATE UNIQUE INDEX options_engine_premarket_pkey ON public.options_engine_premarket USING btree (id)
+  UNIQUE_INDEX  options_engine_premarket_ticker_run_date_key: CREATE UNIQUE INDEX options_engine_premarket_ticker_run_date_key ON public.options_engine_premarket USING btree (ticker, run_date)
+
+--- options_engine_mtf UNIQUE constraint proof ---
+  UNIQUE_INDEX  options_engine_mtf_pkey: CREATE UNIQUE INDEX options_engine_mtf_pkey ON public.options_engine_mtf USING btree (id)
+  UNIQUE_INDEX  options_engine_mtf_ticker_run_date_key: CREATE UNIQUE INDEX options_engine_mtf_ticker_run_date_key ON public.options_engine_mtf USING btree (ticker, run_date)
+
+--- options_engine_runs UNIQUE constraint proof ---
+  UNIQUE_INDEX  options_engine_runs_pkey: CREATE UNIQUE INDEX options_engine_runs_pkey ON public.options_engine_runs USING btree (id)
+  UNIQUE_INDEX  options_engine_runs_run_id_key: CREATE UNIQUE INDEX options_engine_runs_run_id_key ON public.options_engine_runs USING btree (run_id)
+
+PROOF-D COMPLETE

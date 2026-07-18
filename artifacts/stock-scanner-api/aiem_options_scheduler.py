@@ -136,6 +136,63 @@ def _bootstrap_db() -> None:
                         ADD COLUMN IF NOT EXISTS chain_hash VARCHAR(64)
                 """)
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS options_engine_premarket (
+                        id                   BIGSERIAL PRIMARY KEY,
+                        ticker               VARCHAR(20)  NOT NULL,
+                        run_date             DATE         NOT NULL,
+                        premarket_gap        NUMERIC(8,4),
+                        premarket_high       NUMERIC(12,4),
+                        premarket_low        NUMERIC(12,4),
+                        premarket_volume     BIGINT,
+                        pm_rvol              NUMERIC(8,4),
+                        pm_trend_quality     NUMERIC(6,4),
+                        premarket_score      NUMERIC(6,4),
+                        premarket_direction  VARCHAR(12),
+                        premarket_confidence NUMERIC(6,4),
+                        risk_flags_json      JSONB,
+                        raw_data_json        JSONB,
+                        intraday_updated_at  TIMESTAMPTZ,
+                        pm_high_broken       BOOLEAN,
+                        pm_low_held          BOOLEAN,
+                        created_at           TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(ticker, run_date)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS options_engine_mtf (
+                        id                   BIGSERIAL PRIMARY KEY,
+                        ticker               VARCHAR(20)  NOT NULL,
+                        run_date             DATE         NOT NULL,
+                        alignment_score      NUMERIC(6,4),
+                        conflict_score       NUMERIC(6,4),
+                        dominant_bias        VARCHAR(12),
+                        entry_timing_status  VARCHAR(20),
+                        timeframes_json      JSONB,
+                        created_at           TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(ticker, run_date)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS options_engine_runs (
+                        id                   BIGSERIAL PRIMARY KEY,
+                        run_id               VARCHAR(64)  NOT NULL UNIQUE,
+                        trace_id             VARCHAR(48),
+                        ticker               VARCHAR(20)  NOT NULL,
+                        run_date             DATE         NOT NULL,
+                        stocks_scanned       INTEGER      DEFAULT 0,
+                        contracts_evaluated  INTEGER      DEFAULT 0,
+                        selected_ticker      VARCHAR(20),
+                        selected_strategy    VARCHAR(64),
+                        decision             VARCHAR(20),
+                        premarket_score      NUMERIC(6,4),
+                        mtf_alignment_score  NUMERIC(6,4),
+                        pattern_score        NUMERIC(6,4),
+                        final_ccs            NUMERIC(8,4),
+                        trigger_chain_json   JSONB,
+                        created_at           TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("""
                     CREATE INDEX IF NOT EXISTS idx_opj_status_date
                         ON options_pipeline_jobs(status, scan_date)
                 """)
@@ -377,6 +434,102 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
     return {"seeded": seeded, "skipped_duplicates": dupes,
             "candidates": [r[0] for r in candidates]}
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POLYGON UNIVERSE SEED — direct scan, independent of stock-scanning website
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _seed_from_polygon_universe(scan_date: date = None, limit: int = 20) -> list:
+    """
+    Pull top candidates from polygon_rvol_scan (populated by aiem_process directly
+    from Polygon grouped-daily — NOT from the stock-scanning website).
+    Returns list of (ticker,) tuples for use in seed_daily_candidates.
+    Falls back to empty list on any error.
+    """
+    scan_date = scan_date or date.today()
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker
+                FROM polygon_rvol_scan
+                WHERE scan_date = (SELECT MAX(scan_date) FROM polygon_rvol_scan)
+                  AND rvol    >= 1.5
+                  AND volume  >= 500000
+                  AND close_price >= 5.0
+                ORDER BY rvol * ABS(gap_pct) DESC NULLS LAST
+                LIMIT %s
+            """, (limit,))
+            rows = cur.fetchall()
+            log.info(f"[polygon_universe] found {len(rows)} candidates from polygon_rvol_scan")
+            return rows
+    except Exception as e:
+        log.warning(f"[polygon_universe] query failed: {e}")
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PREMARKET SCAN JOB — runs 07:30 ET, computes PM intel for today's candidates
+# ─────────────────────────────────────────────────────────────────────────────
+
+def premarket_scan_job(scan_date: date = None) -> dict:
+    """
+    07:30 ET job: fetch premarket intelligence for all seeded + universe tickers.
+    Stores results in options_engine_premarket for use by _execute_job at 09:45.
+    """
+    scan_date = scan_date or date.today()
+    processed = 0
+    errors    = 0
+
+    # Gather tickers: already-seeded pipeline jobs + polygon universe candidates
+    tickers: list[str] = []
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker FROM options_pipeline_jobs
+                WHERE scan_date = %s AND status IN ('PENDING','CLAIMED','EXECUTING')
+            """, (scan_date,))
+            tickers = [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        log.warning(f"[pm_scan] seeded tickers query failed: {e}")
+
+    # Add polygon universe candidates not already in the list
+    universe_rows = _seed_from_polygon_universe(scan_date, limit=15)
+    for (t,) in universe_rows:
+        if t not in tickers:
+            tickers.append(t)
+
+    if not tickers:
+        log.info(f"[pm_scan] no tickers to scan for {scan_date}")
+        return {"processed": 0, "errors": 0, "tickers": []}
+
+    log.info(f"[pm_scan] running premarket intel for {len(tickers)} tickers: {tickers}")
+
+    try:
+        import aiem_premarket_intel as _pm_mod
+        for ticker in tickers:
+            try:
+                result = _pm_mod.get_premarket_intel(ticker, scan_date, store=True)
+                log.info(
+                    f"[pm_scan] {ticker}: score={result.get('premarket_score','?')} "
+                    f"dir={result.get('premarket_direction','?')} "
+                    f"flags={result.get('premarket_risk_flags',[])}"
+                )
+                processed += 1
+            except Exception as _te:
+                log.warning(f"[pm_scan] {ticker} failed: {_te}")
+                errors += 1
+    except ImportError as _ie:
+        log.error(f"[pm_scan] aiem_premarket_intel not available: {_ie}")
+        errors = len(tickers)
+
+    _tg(
+        f"🌅 <b>OPTIONS ENGINE: Premarket Scan Complete</b>\n"
+        f"scan_date={scan_date}  processed={processed}  errors={errors}\n"
+        f"Tickers: {', '.join(tickers[:processed])}"
+    )
+    return {"processed": processed, "errors": errors, "tickers": tickers}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ATOMIC CLAIM
 # ─────────────────────────────────────────────────────────────────────────────
@@ -509,6 +662,130 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "close_strength":  close_str,
             "pc_skew_tag":     pc_skew_tag,
         }
+
+        # ── Stage PM: Premarket Intelligence ──────────────────────────────────
+        pm_intel: dict = {}
+        try:
+            import aiem_premarket_intel as _pm_mod
+            pm_intel = _pm_mod.get_premarket_intel(
+                ticker, scan_date, prev_close=close_price, store=True)
+            log.info(f"[exec] [{trace_id}] PM score={pm_intel.get('premarket_score','?')} "
+                     f"dir={pm_intel.get('premarket_direction','?')} "
+                     f"bars={pm_intel.get('bars_count',0)}")
+        except Exception as _pm_e:
+            log.debug(f"[exec] [{trace_id}] premarket_intel skipped: {_pm_e}")
+            pm_intel = {"premarket_score": 0.5, "premarket_direction": "NEUTRAL",
+                        "premarket_confidence": 0.0, "premarket_risk_flags": ["SKIPPED"]}
+
+        # ── Stage MTF: Multi-Timeframe Analysis ───────────────────────────────
+        mtf_result: dict = {}
+        try:
+            import aiem_multitimeframe as _mtf_mod
+            mtf_result = _mtf_mod.analyze_ticker(ticker, scan_date, store=True)
+            log.info(f"[exec] [{trace_id}] MTF alignment={mtf_result.get('timeframe_alignment_score','?')} "
+                     f"bias={mtf_result.get('dominant_bias','?')} "
+                     f"timing={mtf_result.get('entry_timing_status','?')}")
+        except Exception as _mtf_e:
+            log.debug(f"[exec] [{trace_id}] multitimeframe skipped: {_mtf_e}")
+            mtf_result = {"timeframe_alignment_score": 0.5, "conflict_score": 0.5,
+                          "dominant_bias": "NEUTRAL", "entry_timing_status": "UNCLEAR"}
+
+        # ── Stage PAT: All Verified Patterns (candlestick/chart/harmonic/EW/VPA/Wyckoff)
+        pattern_score  = 0.5
+        pattern_result: dict = {}
+        try:
+            from aiem_pattern_engine import detect_for_ticker as _detect_pat
+            pattern_result = _detect_pat(ticker, thesis=stock_direction, lookback=60)
+            pattern_score  = pattern_result.get("pattern_score", 0.5)
+            log.info(f"[exec] [{trace_id}] pattern_score={pattern_score:.3f} "
+                     f"({len(pattern_result.get('all_patterns', []))} patterns detected)")
+        except Exception as _pat_e:
+            log.debug(f"[exec] [{trace_id}] pattern detection skipped: {_pat_e}")
+
+        # ── Stage OC: Real Polygon Options Chain ──────────────────────────────
+        options_chain: dict   = {"calls": [], "puts": [], "contracts_total": 0}
+        chain_strategies: list = []
+        best_chain_strategy: dict | None = None
+        contracts_evaluated = 0
+        final_ccs = 0.0
+        try:
+            import aiem_polygon_options_chain as _chain_mod
+            options_chain = _chain_mod.fetch_options_chain(ticker, min_dte=5, max_dte=21)
+            contracts_evaluated = options_chain.get("contracts_total", 0)
+            _direction_bias = (
+                "BULLISH" if stock_direction == "BULL" else
+                "BEARISH" if stock_direction == "BEAR" else "NEUTRAL"
+            )
+            chain_strategies = _chain_mod.evaluate_all_strategies(
+                options_chain, spot, direction_bias=_direction_bias)
+            if chain_strategies:
+                best_chain_strategy = chain_strategies[0]
+            log.info(
+                f"[exec] [{trace_id}] options chain: {contracts_evaluated} contracts, "
+                f"{len(chain_strategies)} strategies, "
+                f"best={best_chain_strategy.get('strategy','none') if best_chain_strategy else 'none'}"
+            )
+        except Exception as _oc_e:
+            log.debug(f"[exec] [{trace_id}] options chain skipped: {_oc_e}")
+
+        # ── Stage CCS: Capital Compounding Score on best real-chain strategy ──
+        try:
+            if best_chain_strategy:
+                from aiem_strat_engine.scoring import compute_capital_compounding_score as _ccs_fn
+                _ccs_result = _ccs_fn(
+                    pop=best_chain_strategy.get("pop", 0.50),
+                    ev_after_costs=float(best_chain_strategy.get("ev_after_costs") or 0.0),
+                    max_loss=float(best_chain_strategy.get("max_loss") or 500),
+                    max_profit=float(best_chain_strategy.get("max_profit") or 1000),
+                    risk_class="DEFINED_RISK",
+                    execution_mode="paper",
+                    liquidity=1.0 if best_chain_strategy.get("liquid") else 0.3,
+                    strategy_direction=best_chain_strategy.get("direction", "NEUTRAL"),
+                    thesis=market_regime,
+                    strategy_vol_thesis="HIGH_IV" if front_iv > 0.40 else "LOW_IV",
+                    vol_regime="HIGH_IV" if front_iv > 0.40 else "LOW_IV",
+                    market_regime=market_regime,
+                    iv_rank=iv_rank if "iv_rank" in dir() else 0.5,
+                    strategy_family=best_chain_strategy.get("strategy", "other").lower()[:20],
+                    pattern_score=pattern_score,
+                    portfolio_capital=100_000.0,
+                )
+                final_ccs = _ccs_result.get("capital_compounding_score", 0.0)
+                best_chain_strategy["ccs"] = final_ccs
+                best_chain_strategy["ccs_components"] = _ccs_result
+                log.info(f"[exec] [{trace_id}] CCS={final_ccs:.4f} "
+                         f"strategy={best_chain_strategy.get('strategy')}")
+        except Exception as _ccs_e:
+            log.debug(f"[exec] [{trace_id}] CCS computation skipped: {_ccs_e}")
+
+        # ── Proof logging: PM + MTF + PAT + OC stages ─────────────────────────
+        try:
+            import aiem_pipeline_proof as _proof
+            _proof.log_stage(trace_id=trace_id, ticker=ticker, thesis=stock_direction,
+                             stage="premarket_intel",
+                             data={k: v for k, v in pm_intel.items()
+                                   if k not in ("sector", "raw_data_json")})
+            _proof.log_stage(trace_id=trace_id, ticker=ticker, thesis=stock_direction,
+                             stage="multitimeframe",
+                             data={"alignment_score": mtf_result.get("timeframe_alignment_score"),
+                                   "conflict_score":  mtf_result.get("conflict_score"),
+                                   "dominant_bias":   mtf_result.get("dominant_bias"),
+                                   "entry_timing":    mtf_result.get("entry_timing_status"),
+                                   "bullish_tfs":     mtf_result.get("bullish_tf_count"),
+                                   "bearish_tfs":     mtf_result.get("bearish_tf_count")})
+            _proof.log_stage(trace_id=trace_id, ticker=ticker, thesis=stock_direction,
+                             stage="pattern_scan_options_engine",
+                             data={"pattern_score": pattern_score,
+                                   "n_patterns": len(pattern_result.get("all_patterns", []))})
+            _proof.log_stage(trace_id=trace_id, ticker=ticker, thesis=stock_direction,
+                             stage="options_chain_polygon",
+                             data={"contracts_total":      contracts_evaluated,
+                                   "strategies_evaluated": len(chain_strategies),
+                                   "best_strategy":        (best_chain_strategy.get("strategy")
+                                                            if best_chain_strategy else None),
+                                   "best_ccs":             final_ccs})
+        except Exception as _pp_e:
+            log.debug(f"[exec] [{trace_id}] proof log skipped: {_pp_e}")
 
         # ── Stage 3: Options analysis ──────────────────────────────────────────
         em_result  = _oi.compute_expected_move(ticker, dte_days=9)
@@ -701,6 +978,64 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         alert_id    = save_result["alert_id"]
         chain_sha   = save_result["audit_chain_sha256"]
         elapsed     = round(time.time() - t_start, 2)
+
+        # ── Write options_engine_runs (full trigger-chain audit record) ────────
+        try:
+            _run_id_oe = f"oe_{ticker}_{scan_date}_{trace_id[:8]}"
+            with psycopg2.connect(_DB_URL, connect_timeout=4) as _oe_c, _oe_c.cursor() as _oe_u:
+                _oe_u.execute("""
+                    INSERT INTO options_engine_runs (
+                        run_id, trace_id, ticker, run_date,
+                        stocks_scanned, contracts_evaluated,
+                        selected_ticker, selected_strategy, decision,
+                        premarket_score, mtf_alignment_score,
+                        pattern_score, final_ccs,
+                        trigger_chain_json
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (run_id) DO NOTHING
+                """, (
+                    _run_id_oe, trace_id, ticker, scan_date,
+                    1, contracts_evaluated,
+                    ticker,
+                    best_chain_strategy.get("strategy") if best_chain_strategy else None,
+                    direction,
+                    pm_intel.get("premarket_score"),
+                    mtf_result.get("timeframe_alignment_score"),
+                    pattern_score, final_ccs,
+                    json.dumps({
+                        "trigger": "seed_daily_candidates→run_pipeline_worker→_execute_job",
+                        "scheduler_jobs": [
+                            "premarket_scan@07:30ET",
+                            "seed_daily_candidates@09:40ET",
+                            "run_pipeline_worker@09:45ET",
+                        ],
+                        "premarket": {k: v for k, v in pm_intel.items()
+                                      if k not in ("sector",)},
+                        "mtf_summary": {
+                            "alignment_score": mtf_result.get("timeframe_alignment_score"),
+                            "dominant_bias":   mtf_result.get("dominant_bias"),
+                            "conflict_score":  mtf_result.get("conflict_score"),
+                            "entry_timing":    mtf_result.get("entry_timing_status"),
+                        },
+                        "pattern_score":        pattern_score,
+                        "n_patterns_detected":  len(pattern_result.get("all_patterns", [])),
+                        "contracts_evaluated":  contracts_evaluated,
+                        "best_chain_strategy":  {
+                            k: v for k, v in (best_chain_strategy or {}).items()
+                            if k not in ("legs", "ccs_components")
+                        } if best_chain_strategy else None,
+                        "final_ccs":            final_ccs,
+                        "req6_call_score":      call_score,
+                        "req6_put_score":       put_score,
+                        "req6_decision":        direction,
+                        "alert_id":             alert_id,
+                        "chain_sha256":         chain_sha,
+                    }),
+                ))
+                _oe_c.commit()
+            log.info(f"[exec] [{trace_id}] options_engine_runs written: {_run_id_oe}")
+        except Exception as _oe_e:
+            log.warning(f"[exec] [{trace_id}] options_engine_runs write failed: {_oe_e}")
 
         # Mark job DONE — compute Merkle chain_hash
         with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
@@ -1040,6 +1375,36 @@ def main():
 
     sched.add_job(_execute_job_wrapper, CronTrigger(day_of_week="mon-fri", hour=9, minute=45),
                   id="run_pipeline_worker", replace_existing=True)
+
+    # 07:30 ET — premarket intelligence scan (before market open)
+    def _premarket_job():
+        log.info("[scheduler] 07:30 premarket scan starting")
+        premarket_scan_job()
+
+    sched.add_job(_premarket_job, CronTrigger(day_of_week="mon-fri", hour=7, minute=30),
+                  id="premarket_scan", replace_existing=True)
+
+    # 09:30 ET — intraday premarket update (break/fail of PM high/low)
+    def _pm_intraday_update_job():
+        log.info("[scheduler] 09:30 intraday PM update starting")
+        try:
+            import aiem_premarket_intel as _pm_mod
+            with psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _u:
+                _u.execute(
+                    "SELECT ticker FROM options_engine_premarket WHERE run_date=%s",
+                    (date.today(),)
+                )
+                for (t,) in _u.fetchall():
+                    try:
+                        _pm_mod.update_intraday(t)
+                    except Exception as _ue:
+                        log.debug(f"[pm_intraday] {t}: {_ue}")
+        except Exception as _pme:
+            log.warning(f"[pm_intraday] failed: {_pme}")
+
+    sched.add_job(_pm_intraday_update_job,
+                  CronTrigger(day_of_week="mon-fri", hour=9, minute=36),
+                  id="pm_intraday_update", replace_existing=True)
 
     # 16:46 ET — grade outcomes
     sched.add_job(grade_outcomes_job,
