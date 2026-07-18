@@ -241,20 +241,27 @@ for stage_key, h_stored in [("9_learning", h9_stored), ("10_audit_chain_final", 
         print(f"  [~] {stage_key:<30} not yet graded  SKIP")
 
 # ── REQ6 component scores ──────────────────────────────────────────────────
+# Gate: only display REQ6 when the full chain (stages 1-6) is verified.
+# If prev_recomputed is None any upstream stage broke the chain → suppress.
 print()
-print("  REQ6 COMPONENT SCORES:")
-call_comp = scoring_data.get("call_scoring", {}).get("component_scores", {})
-put_comp  = scoring_data.get("put_scoring",  {}).get("component_scores", {})
-if call_comp and put_comp:
-    print(f"  {'Dimension':<35} {'CALL':>6} {'PUT':>6}")
-    print(f"  {'-'*50}")
-    for dim in sorted(call_comp):
-        print(f"  {dim:<35} {call_comp[dim]:>6.0f} {put_comp[dim]:>6.0f}")
-    print(f"  {'FINAL':<35} {scoring_data.get('call_score','?'):>6} {scoring_data.get('put_score','?'):>6}")
-    print(f"  margin={scoring_data.get('margin','?')}  winner={scoring_data.get('winner','?')}")
-    passes.append("req6_12_components_computed")
+if prev_recomputed is None:
+    print("  REQ6 SUPPRESSED — chain UNVERIFIABLE")
+    fails.append({"stage": "req6_display",
+                  "reason": "suppressed — chain UNVERIFIABLE upstream"})
 else:
-    fails.append({"stage": "req6_components", "reason": "no component scores in DB"})
+    print("  REQ6 COMPONENT SCORES:")
+    call_comp = scoring_data.get("call_scoring", {}).get("component_scores", {})
+    put_comp  = scoring_data.get("put_scoring",  {}).get("component_scores", {})
+    if call_comp and put_comp:
+        print(f"  {'Dimension':<35} {'CALL':>6} {'PUT':>6}")
+        print(f"  {'-'*50}")
+        for dim in sorted(call_comp):
+            print(f"  {dim:<35} {call_comp[dim]:>6.0f} {put_comp[dim]:>6.0f}")
+        print(f"  {'FINAL':<35} {scoring_data.get('call_score','?'):>6} {scoring_data.get('put_score','?'):>6}")
+        print(f"  margin={scoring_data.get('margin','?')}  winner={scoring_data.get('winner','?')}")
+        passes.append("req6_12_components_computed")
+    else:
+        fails.append({"stage": "req6_components", "reason": "no component scores in DB"})
 
 # ── Gate failures audit ────────────────────────────────────────────────────
 gate_failures = (json.loads(gate_failures_json)

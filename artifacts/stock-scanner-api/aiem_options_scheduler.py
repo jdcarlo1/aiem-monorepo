@@ -910,34 +910,124 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         # ── Stage 4: Risk gates ────────────────────────────────────────────────
         import math as _math
-        put_strike   = round(spot * 0.975 / 5) * 5      # ATM−2.5%
-        put_mid      = round(spot * front_iv * (9/252)**0.5 * 0.85, 2)
-        put_bid      = round(put_mid * 0.93, 2)
-        put_ask      = round(put_mid * 1.07, 2)
-        put_spread   = round((put_ask - put_bid) / put_mid, 4) if put_mid > 0 else 0.20
-        call_strike  = round(spot * 1.025 / 5) * 5
-        call_mid     = round(spot * front_iv * (9/252)**0.5 * 0.40, 2)
-        call_bid     = round(call_mid * 0.88, 2)
-        call_ask     = round(call_mid * 1.12, 2)
-        call_spread  = round((call_ask - call_bid) / call_mid, 4) if call_mid > 0 else 0.25
+
+        _dte = 9                        # strategy DTE target (design parameter)
+        _T   = _dte / 252.0             # fraction of trading year
+
+        # Black-Scholes helpers (standard normal CDF and PDF)
+        _N    = lambda x: 0.5 * (1.0 + _math.erf(x / _math.sqrt(2.0)))
+        _npdf = lambda x: _math.exp(-0.5 * x * x) / _math.sqrt(2.0 * _math.pi)
+
+        def _bs_d1d2(S, K, sig, T):
+            """d1, d2 from Black-Scholes (r=0 simplification)."""
+            if sig <= 0 or T <= 0 or S <= 0 or K <= 0:
+                return 0.0, -0.1
+            d1 = (_math.log(S / K) + 0.5 * sig**2 * T) / (sig * _math.sqrt(T))
+            return d1, d1 - sig * _math.sqrt(T)
+
+        # Strike levels: strategy design parameters (±2.5% from spot)
+        put_strike  = round(spot * 0.975 / 5) * 5
+        call_strike = round(spot * 1.025 / 5) * 5
+
+        # Pricing — unchanged; derived from live spot + front_iv per ticker
+        put_mid    = round(spot * front_iv * _T**0.5 * 0.85, 2)
+        put_bid    = round(put_mid * 0.93, 2)
+        put_ask    = round(put_mid * 1.07, 2)
+        put_spread = round((put_ask - put_bid) / put_mid, 4) if put_mid > 0 else 0.20
+        call_mid   = round(spot * front_iv * _T**0.5 * 0.40, 2)
+        call_bid   = round(call_mid * 0.88, 2)
+        call_ask   = round(call_mid * 1.12, 2)
+        call_spread = round((call_ask - call_bid) / call_mid, 4) if call_mid > 0 else 0.25
+
+        # Black-Scholes greeks — computed live from spot + front_iv (vary per ticker/date)
+        _cd1, _cd2 = _bs_d1d2(spot, call_strike, front_iv, _T)
+        _pd1, _pd2 = _bs_d1d2(spot, put_strike,  front_iv, _T)
+        _sv         = max(spot * front_iv * _math.sqrt(_T), 1e-9)
+        call_delta_bs        = round(_N(_cd1), 4)
+        call_probability_itm = round(_N(_cd2), 4)        # prob call expires ITM
+        call_gamma_bs        = round(_npdf(_cd1) / _sv, 6)
+        call_theta_bs        = round(-(spot * front_iv * _npdf(_cd1)) / (2.0 * _math.sqrt(_T) * 365), 4)
+        call_vega_bs         = round(spot * _math.sqrt(_T) * _npdf(_cd1) / 100.0, 4)
+        put_delta_bs         = round(_N(_pd1) - 1.0, 4)  # put delta (negative)
+        put_probability_itm  = round(1.0 - _N(_pd1), 4)  # prob put expires ITM
+        put_gamma_bs         = round(_npdf(_pd1) / _sv, 6)
+        put_theta_bs         = round(-(spot * front_iv * _npdf(_pd1)) / (2.0 * _math.sqrt(_T) * 365), 4)
+        put_vega_bs          = round(spot * _math.sqrt(_T) * _npdf(_pd1) / 100.0, 4)
+
+        # Live Tradier options chain: volume + OI for target strikes
+        # Also refines delta and probability_itm when greeks are available.
+        # Fallback on any exception: volume=0, OI=0, BS greeks retained.
+        call_vol, call_oi = 0, 0
+        put_vol,  put_oi  = 0, 0
+        try:
+            _tok = "".join(os.environ.get("TRADIER_API_TOKEN_2",
+                           os.environ.get("TRADIER_API_TOKEN", "")).split())
+            if not _tok:
+                raise ValueError("no Tradier token")
+            _exp = scan_date + timedelta(days=13)
+            while _exp.weekday() != 4:          # walk forward to nearest Friday
+                _exp += timedelta(days=1)
+            _url = (
+                f"https://api.tradier.com/v1/markets/options/chains"
+                f"?symbol={ticker}&expiration={_exp.strftime('%Y-%m-%d')}&greeks=true"
+            )
+            _req = urllib.request.Request(
+                _url,
+                headers={"Authorization": f"Bearer {_tok}", "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(_req, timeout=8) as _resp:
+                _raw = json.loads(_resp.read())
+            _opts = (_raw.get("options") or {}).get("option") or []
+            if isinstance(_opts, dict):
+                _opts = [_opts]
+            for _o in _opts:
+                _sk  = float(_o.get("strike") or 0)
+                _typ = _o.get("option_type", "")
+                _grk = _o.get("greeks") or {}
+                if _typ == "call" and abs(_sk - call_strike) < 7.5:
+                    call_vol = int(_o.get("volume") or 0)
+                    call_oi  = int(_o.get("open_interest") or 0)
+                    if _grk.get("delta") is not None:
+                        call_delta_bs        = round(abs(float(_grk["delta"])), 4)
+                        call_probability_itm = call_delta_bs
+                elif _typ == "put" and abs(_sk - put_strike) < 7.5:
+                    put_vol = int(_o.get("volume") or 0)
+                    put_oi  = int(_o.get("open_interest") or 0)
+                    if _grk.get("delta") is not None:
+                        put_delta_bs        = round(float(_grk["delta"]), 4)
+                        put_probability_itm = round(abs(float(_grk["delta"])), 4)
+            log.info(
+                f"[exec] [{trace_id}] Tradier chain expiry={_exp} "
+                f"call δ={call_delta_bs} vol={call_vol} oi={call_oi}  "
+                f"put δ={put_delta_bs} vol={put_vol} oi={put_oi}"
+            )
+        except Exception as _trd_e:
+            log.warning(
+                f"[exec] [{trace_id}] Tradier chain skipped (BS greeks active): {_trd_e}"
+            )
 
         base_fields = {
             **stock_data,
             "expected_move":        em_result["expected_move"],
             "expected_move_pct":    em_result["expected_move_pct"],
-            "dte":                  9,
+            "dte":                  _dte,
             "spot_at_alert":        spot,
         }
         call_data = {
             **base_fields,
-            "delta":               0.28, "gamma": 0.04, "theta": -0.06, "vega": 0.18,
+            "delta":               call_delta_bs,
+            "gamma":               call_gamma_bs,
+            "theta":               call_theta_bs,
+            "vega":                call_vega_bs,
             "iv":                  front_iv,
-            "volume":              320, "open_interest": 880,
+            "volume":              call_vol,
+            "open_interest":       call_oi,
             "bid":                 call_bid, "ask": call_ask,
             "bid_ask_spread_pct":  call_spread,
             "breakeven":           call_strike + (call_bid + call_ask) / 2,
             "premium_at_risk":     round((call_bid + call_ask) / 2 * 100, 2),
-            "probability_estimate":0.28, "expected_return": 0.60,
+            "probability_estimate":call_probability_itm,
+            "expected_return":     0.60,
             "slippage_pct":        round(call_spread * 0.5, 4),
             "entry_premium_lo":    call_bid, "entry_premium_hi": call_ask,
             "profit_target":       round((call_bid + call_ask) * 0.5, 2),
@@ -945,14 +1035,19 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         }
         put_data = {
             **base_fields,
-            "delta":              -0.42, "gamma": 0.05, "theta": -0.04, "vega": 0.22,
+            "delta":               put_delta_bs,
+            "gamma":               put_gamma_bs,
+            "theta":               put_theta_bs,
+            "vega":                put_vega_bs,
             "iv":                  front_iv * 1.05,
-            "volume":              1150, "open_interest": 4200,
+            "volume":              put_vol,
+            "open_interest":       put_oi,
             "bid":                 put_bid, "ask": put_ask,
             "bid_ask_spread_pct":  put_spread,
             "breakeven":           put_strike - (put_bid + put_ask) / 2,
             "premium_at_risk":     round((put_bid + put_ask) / 2 * 100, 2),
-            "probability_estimate":0.42, "expected_return": 0.85,
+            "probability_estimate":put_probability_itm,
+            "expected_return":     0.85,
             "slippage_pct":        round(put_spread * 0.5, 4),
             "entry_premium_lo":    put_bid, "entry_premium_hi": put_ask,
             "profit_target":       round((put_bid + put_ask) * 0.8, 2),
