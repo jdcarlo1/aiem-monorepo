@@ -1,0 +1,100 @@
+====== verified_run.sh ======
+SEQ=20
+TS=2026-07-18T21:23:59Z
+CMD=bash verify_gap_followup.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=cbdbfc87c73c5dae62b0a3f8fa6c40fc09c2629c
+==============================
+
+=== CANONICAL SHA ===
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh
+
+=== verify_chain.sh ===
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
+
+=== GAP 2b: log grep 'missed-seed|startup' — all available log files ===
+
+--- log file inventory + date range ---
+-rw-r--r-- 1 runner runner 26748 Jul 18 20:43 /tmp/logs/artifactsstock-scanner_options-pipeline-_20260718_204327_405.log
+-rw-r--r-- 1 runner runner 11181 Jul 18 18:14 /tmp/logs/artifactsstock-scanner_options-pipeline-_20260718_181441_725.log
+
+--- earliest line in LOG2 ---
+<workflow>
+
+--- earliest line in LOG1 ---
+<workflow>
+
+--- 2026-07-17 21:00-22:00 ET = 2026-07-18 02:00-03:00 UTC ---
+--- grep 'missed-seed|startup' LOG2 (covers 16:44-18:14 UTC Jul 18) ---
+4:<logs>[2026-07-18T16:44:50Z INFO] [startup] aiem_options_scheduler starting…
+7:[2026-07-18T16:45:03Z INFO] [startup] daily_pipeline_runs: SCHEDULED registered for 2026-07-18
+8:[2026-07-18T16:45:03Z INFO] [startup] running stale job recovery…
+9:[2026-07-18T16:45:03Z INFO] [startup] stale recovery: {'recovered': 0, 'failed_permanently': 0}
+10:[2026-07-18T16:45:03Z INFO] [startup] running missed-schedule backfill…
+12:[2026-07-18T16:45:03Z INFO] [startup] backfill: {'backfilled_dates': []}
+53:[2026-07-18T16:45:05Z INFO] [startup] scheduler running — entering keepalive loop
+
+--- grep 'missed-seed|startup' LOG1 (covers 18:14-present UTC Jul 18) ---
+(no matches in LOG1)
+
+--- grep for 2026-07-18T02 or 2026-07-18T01 timestamps in either log ---
+(no matches — window predates all available logs)
+
+--- explicit statement ---
+No log files exist for the 2026-07-17 21:00-22:00 ET (02:00-03:00 UTC Jul 18) window.
+Oldest available log starts at 2026-07-18T16:44:50Z.
+The _before_eod gate result for that window is not present in any log.
+
+=== GAP: SEQ=19 file SHA=5f1e8a0c origin ===
+
+--- file the SHA belongs to ---
+/home/runner/workspace/phase3_gaps_proof.txt
+
+--- exact commands that produced it ---
+  1: bash tools/verified_run.sh "bash verify_gaps_proof.sh" 2>&1 | tee /home/runner/workspace/phase3_gaps_proof.txt
+  2: sha256sum /home/runner/workspace/phase3_gaps_proof.txt
+
+--- raw sha256sum output (re-run now to confirm file unchanged) ---
+5f1e8a0cb70c10716d033d9ee3839a244ebdeb9eaa5ea9b84569a1ddac1bbbeb  /home/runner/workspace/phase3_gaps_proof.txt
+
+==============================
+SEQ=20  EXIT=0  TS_END=2026-07-18T21:24:00Z
+sha256(log)=d495407e2a2475418636cfce83f918bb2e21d1086b6097801fa7e4d7fb4d2db1
+==============================
