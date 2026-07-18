@@ -1,0 +1,22 @@
+DIRECTIVE — Phase III Phase 1 Gap Closure
+
+1. ITEM 4 (was missing): raw SQL + full result set from a REAL production pipeline run (not the synthetic test row) for all 5 new tables:
+   SELECT count(*) FROM oe_indicator_registry;
+   SELECT count(*) FROM oe_indicator_snapshots;
+   SELECT count(*) FROM oe_pattern_registry;
+   SELECT count(*) FROM oe_pattern_snapshots;
+   SELECT count(*) FROM oe_options_metrics;
+   Paste each query + full result. If any is 0, state that plainly.
+
+2. Demonstrate assert_no_missing_indicators and assert_pattern_scan_complete actually blocking through the WRAPPED scheduler path (not standalone python3 -c), same style as the Item 2 freshness test: force each failing condition, paste the raw log line showing gate_failures populated with REGISTRY_MISSING_INDICATOR / REGISTRY_PATTERN_INCOMPLETE.
+
+3. verify_chain.sh for alert_id=25 showed overall FAIL (3/10, break at 1_polygon). State whether this is current state or pre-fix. Paste a verify_chain.sh run showing a full PASS chain (10/10) for at least one alert post-Phase-1, or state if none exists yet.
+
+4. State disposition of test row VERIFY_FRESHNESS_TEST_PHASE3P1_001 — still present, or requesting approval to delete. Do not delete without explicit approval.
+
+--- STANDING CHECKLIST (applies to all of the above) ---
+- Raw evidence only: (1) raw terminal/grep output for every code-location claim, (2) exact before/after diff, (3) sha256 before/after for changed files, (4) raw SQL + full result set for any DB claim. No narrative substitutes.
+- sha256 cross-check required: tools/verified_run.sh must = 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4, tools/verify_chain.sh must = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f. Paste raw sha256sum output; mismatch = validator drifted, evidence rejected.
+- Data Immutability: no deletion/truncation/overwrite of any row/table/file (including test/synthetic data) without Joel's explicit prior approval in-session.
+- Any code-location/line-number/behavior claim needs raw grep -n or sed -n output, not paraphrase.
+- Output format: raw command results only, no prose/headers/summaries. If evidence can't be produced, one line saying so — no padding.
