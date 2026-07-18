@@ -90,8 +90,8 @@ try:
     with psycopg2.connect(_DB_URL, connect_timeout=8,
                           cursor_factory=psycopg2.extras.RealDictCursor) as _c, \
          _c.cursor() as _cur:
-        # Audit events have no is_test_record — truncate entirely (they are test artifacts)
-        _cur.execute("TRUNCATE oe_audit_events RESTART IDENTITY")
+        # Delete test-only audit events; production chain (is_test_record=FALSE) is preserved
+        _cur.execute("DELETE FROM oe_audit_events WHERE is_test_record=TRUE")
         # Test-only rows in other Phase 5 tables
         _cur.execute("DELETE FROM oe_proposal_gate_results WHERE proposal_id IN "
                      "(SELECT proposal_id FROM oe_weight_proposals WHERE is_test_record=TRUE)")
@@ -628,7 +628,8 @@ print(f"\n[{_ts()}] --- AC-19: Duplicate-event prevention — same event_id bloc
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     ev1 = p5.record_audit_event("TEST_EVENT", "verify_ac19",
-                                 details={"test": "ac19"}, db_url=_DB_URL)
+                                 details={"test": "ac19"}, is_test_record=True,
+                                 db_url=_DB_URL)
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("SELECT hash_chain_self FROM oe_audit_events WHERE event_id=%s", (ev1,))
         h1 = cur.fetchone()["hash_chain_self"]
@@ -638,9 +639,9 @@ try:
         cur.execute("""
             INSERT INTO oe_audit_events
                 (event_id, event_type, actor, details, hash_chain_prev,
-                 hash_chain_self)
+                 hash_chain_self, is_test_record)
             VALUES (%s, 'TEST_EVENT', 'test', '{"x":1}'::jsonb,
-                    'GENESIS', 'deadbeef')
+                    'GENESIS', 'deadbeef', TRUE)
             ON CONFLICT (event_id) DO NOTHING
         """, (ev1,))
         conn.commit()
@@ -657,9 +658,9 @@ try:
             cur.execute("""
                 INSERT INTO oe_audit_events
                     (event_id, event_type, actor, details,
-                     hash_chain_prev, hash_chain_self)
+                     hash_chain_prev, hash_chain_self, is_test_record)
                 VALUES ('__dup_hash_test__','T','t','{}',
-                        'GENESIS', %s)
+                        'GENESIS', %s, TRUE)
             """, (h1,))
             conn.commit()
             _emit("AC19.duplicate_hash_chain_self_blocked",
@@ -692,7 +693,7 @@ try:
 
             cur.execute("""
                 SELECT COUNT(*) AS n FROM oe_audit_events
-                WHERE proposal_id=%s
+                WHERE proposal_id=%s AND is_test_record=TRUE
             """, (_TEST_PID,))
             n_audit_rows = cur.fetchone()["n"]
             _require("AC20.audit_events_have_proposal_id",
@@ -709,7 +710,7 @@ except Exception as e:
 print(f"\n[{_ts()}] --- AC-21: Hash-chain verification — walk full chain ---")
 # ─────────────────────────────────────────────────────────────────────────────
 try:
-    chain = p5.verify_audit_chain(_DB_URL)
+    chain = p5.verify_audit_chain(_DB_URL, is_test_record=True)
     print(f"[{_ts()}] {_INFO}  audit chain: n_events={chain['n_events']} "
           f"n_broken={chain['n_broken']} chain_valid={chain['chain_valid']}")
 
@@ -727,7 +728,7 @@ try:
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT id, event_type, actor, hash_chain_self
-            FROM oe_audit_events ORDER BY id
+            FROM oe_audit_events WHERE is_test_record=TRUE ORDER BY id
         """)
         for r in cur.fetchall():
             print(f"[{_ts()}] {_INFO}    chain[{r['id']:03d}] "
@@ -830,7 +831,7 @@ try:
         # Confirm audit_events also has CHALLENGER_PROMOTED event
         cur.execute("""
             SELECT COUNT(*) AS n FROM oe_audit_events
-            WHERE event_type='CHALLENGER_PROMOTED'
+            WHERE event_type='CHALLENGER_PROMOTED' AND is_test_record=TRUE
         """)
         n_promo_audit = cur.fetchone()["n"]
         _require("AC25.audit_event_for_promotion_exists",
@@ -840,7 +841,7 @@ try:
         # Confirm ROLLED_BACK event also recorded
         cur.execute("""
             SELECT COUNT(*) AS n FROM oe_audit_events
-            WHERE event_type='CHAMPION_ROLLED_BACK'
+            WHERE event_type='CHAMPION_ROLLED_BACK' AND is_test_record=TRUE
         """)
         n_rb_audit = cur.fetchone()["n"]
         _require("AC25.audit_event_for_rollback_exists",

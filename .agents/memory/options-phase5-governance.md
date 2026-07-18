@@ -29,11 +29,16 @@ WHERE captured_at > scan_date::timestamptz + INTERVAL '1 day'
 VALUES (%s, ..., %s::timestamptz)  # last param = ts, not NOW()
 ```
 
+## oe_audit_events is_test_record column (added post-SEQ=27)
+`oe_audit_events` now has `is_test_record BOOLEAN NOT NULL DEFAULT FALSE` — added by ALTER TABLE, all 17 existing rows backfilled to TRUE (all confirmed test data via JOIN cross-check).
+
+**Chain namespacing**: `_get_last_audit_hash(cur, is_test_record)` and `verify_audit_chain(db_url, is_test_record)` both filter by this column. Test chain and production chain are fully separate. `seed_initial_champion` uses `is_test_record=False`. All other callers pass the local `is_test` / `_test_bypass` / `prop["is_test_record"]` variable.
+
 ## Verifier idempotency
 `verify_phase5.py` runs a pre-run cleanup before AC-01:
-- `TRUNCATE oe_audit_events RESTART IDENTITY` — hash chain starts clean each run
+- `DELETE FROM oe_audit_events WHERE is_test_record=TRUE` — scoped to test chain only
 - `DELETE FROM oe_* WHERE is_test_record=TRUE` — removes prior test-run state
-- Preserves `champion_v0` (is_test_record=FALSE)
+- Preserves `champion_v0` (is_test_record=FALSE) and any future production events
 
 **Why**: without cleanup, accumulated test state from multiple debug runs causes AC17 rollback target conflicts and AC21 chain break at random rows from prior runs.
 

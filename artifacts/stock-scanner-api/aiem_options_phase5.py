@@ -159,11 +159,12 @@ def _audit_chain_hash(prev_hash: str, event_id: str, event_type: str,
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def _get_last_audit_hash(cur) -> str:
+def _get_last_audit_hash(cur, is_test_record: bool = False) -> str:
     cur.execute("""
         SELECT hash_chain_self FROM oe_audit_events
+        WHERE is_test_record = %s
         ORDER BY id DESC LIMIT 1
-    """)
+    """, (is_test_record,))
     row = cur.fetchone()
     return row["hash_chain_self"] if row else _GENESIS_HASH
 
@@ -173,11 +174,14 @@ def record_audit_event(event_type: str, actor: str = "phase5",
                        proposal_id: Optional[str] = None,
                        details: Optional[dict] = None,
                        db_url: str = "",
+                       is_test_record: bool = False,
                        _cur=None) -> str:
     """
     Append one immutable audit event to oe_audit_events.
     Returns the event_id. Idempotent by event_id dedup.
     Uses hash chain: hash_chain_self = sha256(prev_hash | event_id | event_type | details | ts)
+    is_test_record=True  → test/harness chain (verify_phase5); separate from production chain.
+    is_test_record=False → production governance chain (scheduler, real proposals).
     """
     details = details or {}
     db_url  = db_url or _DB_URL
@@ -185,7 +189,7 @@ def record_audit_event(event_type: str, actor: str = "phase5",
     ts       = _now_s()
 
     def _do(cur):
-        prev_hash = _get_last_audit_hash(cur)
+        prev_hash = _get_last_audit_hash(cur, is_test_record=is_test_record)
         self_hash = _audit_chain_hash(prev_hash, event_id, event_type, details, ts)
         # Use the pre-computed `ts` for created_at so verify_audit_chain can
         # reproduce the exact string used in the hash (avoids second-boundary drift
@@ -193,11 +197,14 @@ def record_audit_event(event_type: str, actor: str = "phase5",
         cur.execute("""
             INSERT INTO oe_audit_events
                 (event_id, event_type, actor, version_id, proposal_id,
-                 details, hash_chain_prev, hash_chain_self, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::timestamptz)
+                 details, hash_chain_prev, hash_chain_self, created_at,
+                 is_test_record)
+            VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::timestamptz,
+                    %s)
             ON CONFLICT (event_id) DO NOTHING
         """, (event_id, event_type, actor, version_id, proposal_id,
-              json.dumps(details, default=str), prev_hash, self_hash, ts))
+              json.dumps(details, default=str), prev_hash, self_hash, ts,
+              is_test_record))
         return event_id
 
     if _cur is not None:
@@ -367,8 +374,13 @@ def bootstrap_phase5(db_url: str = "") -> bool:
                     details         JSONB,
                     hash_chain_prev TEXT        NOT NULL,
                     hash_chain_self TEXT        NOT NULL UNIQUE,
-                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    is_test_record  BOOLEAN     NOT NULL DEFAULT FALSE
                 )
+            """)
+            cur.execute("""
+                ALTER TABLE oe_audit_events
+                ADD COLUMN IF NOT EXISTS is_test_record BOOLEAN NOT NULL DEFAULT FALSE
             """)
 
             conn.commit()
@@ -416,6 +428,7 @@ def seed_initial_champion(db_url: str = "") -> str:
 
         record_audit_event("CHAMPION_SEEDED", "bootstrap", version_id=vid,
                            details={"sha256": sha256, "config_keys": list(config.keys())},
+                           is_test_record=False,
                            db_url=db_url, _cur=cur)
         conn.commit()
         _log(f"seed_initial_champion: seeded {vid} sha256={sha256[:16]}…")
@@ -540,6 +553,7 @@ def create_weight_proposal(change_type: str,
                      "safety_ok": safe,
                      "safety_reason": safety_reason,
                      "is_test_record": _test_bypass},
+            is_test_record=_test_bypass,
             db_url=db_url, _cur=cur,
         )
         conn.commit()
@@ -790,6 +804,7 @@ def validate_proposal_gates(proposal_id: str, db_url: str = "") -> dict:
             proposal_id=proposal_id,
             details={"n_pass": n_pass, "n_fail": n_fail, "n_insuf": n_insuf,
                      "n_sv": n_sv, "all_passed": all_passed, "new_status": new_status},
+            is_test_record=prop["is_test_record"],
             db_url=db_url, _cur=cur,
         )
         conn.commit()
@@ -895,6 +910,7 @@ def create_challenger(proposal_id: str,
                      "run_id": run_id,
                      "can_place_orders": False,
                      "is_test_record": is_test},
+            is_test_record=is_test,
             db_url=db_url, _cur=cur,
         )
         conn.commit()
@@ -1080,6 +1096,7 @@ def promote_challenger(challenger_version_id: str,
                      "new_champion": new_champ_vid,
                      "new_sha256": new_sha,
                      "is_test_record": is_test},
+            is_test_record=is_test,
             db_url=db_url, _cur=cur,
         )
         conn.commit()
@@ -1181,6 +1198,7 @@ def rollback_champion(target_version_id: str,
                      "to_version": target_version_id,
                      "restored_sha256": target["config_sha256"],
                      "is_test_record": is_test},
+            is_test_record=is_test,
             db_url=db_url, _cur=cur,
         )
         conn.commit()
@@ -1198,18 +1216,22 @@ def rollback_champion(target_version_id: str,
 # Section 22 — Audit chain verification
 # ─────────────────────────────────────────────────────────────────────────────
 
-def verify_audit_chain(db_url: str = "") -> dict:
+def verify_audit_chain(db_url: str = "", is_test_record: bool = False) -> dict:
     """
-    Walk the full oe_audit_events table and verify each SHA-256 link.
+    Walk the oe_audit_events chain for the given namespace and verify each SHA-256 link.
     Returns {n_events, n_broken, first_break_id, chain_valid}.
+    is_test_record=True  → walk the test/harness chain only (verify_phase5).
+    is_test_record=False → walk the production governance chain only (scheduler).
     """
     db_url = db_url or _DB_URL
     with _conn(db_url) as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT id, event_id, event_type, actor, details,
                    hash_chain_prev, hash_chain_self, created_at
-            FROM oe_audit_events ORDER BY id ASC
-        """)
+            FROM oe_audit_events
+            WHERE is_test_record = %s
+            ORDER BY id ASC
+        """, (is_test_record,))
         rows = cur.fetchall()
 
     n_events = len(rows)
