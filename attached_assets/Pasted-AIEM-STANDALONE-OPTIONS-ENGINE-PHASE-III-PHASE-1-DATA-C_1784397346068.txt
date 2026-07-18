@@ -1,0 +1,66 @@
+AIEM STANDALONE OPTIONS ENGINE — PHASE III, PHASE 1
+DATA CAPTURE & REGISTRIES
+============================================================
+Standalone Options Engine only. Do not modify/connect to D1-D3.
+No mocks. No fabricated evidence. No manual DB inserts. Paper trading only.
+DO NOT start Phase 2 until this phase is independently verified.
+
+1. SUBSYSTEM INTEGRATION
+Wire capture into every subsystem: Polygon ingestion, premarket scan, intraday
+scan, technical-indicator engine, candlestick engine, chart-pattern engine,
+multi-timeframe analysis, market-regime engine, volatility-regime engine,
+options-chain ingestion, options analytics, strategy generator, strategy
+comparison engine, probability/EV engine, Portfolio Optimization Engine,
+Portfolio Risk Engine, position-sizing engine, Risk Gate, recommendation
+engine, paper execution, position monitoring, exit-management, outcome
+capture, verification system, scheduler/worker/data-quality monitoring.
+No subsystem excluded.
+
+2. INDICATOR REGISTRY
+Auto-register every indicator (no hard-coded partial list). Per indicator:
+canonical ID, name, source subsystem/file/class/function, parameters,
+timeframe, raw value, normalized value, bullish/bearish/neutral, confidence,
+signal timestamp, data timestamp, freshness, quality status, supported/
+opposed final decision, weight, contribution to score, interaction with
+other indicators, regime context, outcome attribution, version, SHA-256.
+Covers: technical, momentum, trend, volatility, volume, breadth, liquidity,
+institutional-flow, premarket, intraday, higher-timeframe, statistical,
+options, portfolio, risk, macro, market-regime indicators.
+New indicators auto-discovered via registry, no Phase III rewrite needed.
+FAIL: missing registered indicator, missing value, silent default, stale
+value, NaN, placeholder, untraceable calculation.
+
+3. PATTERN REGISTRY
+Learn from every registered pattern: candlestick, multi-candle, bullish/
+bearish chart, continuation, reversal, breakout, breakdown, consolidation,
+gap, premarket, intraday, multi-timeframe, volume-confirmed, volatility-
+confirmed, failed patterns, false breakouts/breakdowns, combinations,
+experimental patterns.
+Store per pattern: canonical ID/name, family, ticker, timeframe, start/end
+timestamps, detection confidence, structural measurements, price/volume
+confirmation, volatility confirmation, regime, supporting/contradicting
+indicators, actionable flag, influenced-recommendation flag, outcome,
+failure reason, MFE/MAE, statistical reliability by ticker/sector/
+timeframe/regime, detector version + SHA-256.
+
+4. OPTIONS METRICS CAPTURE
+Capture every options-chain/intelligence input used or available at decision
+time: bid/ask/mid/last, spread/spread%, volume, OI, vol/OI ratio, IV, IV
+rank/percentile, HV, realized vol, VRP, skew/smile/smirk/term structure/
+surface, expected move, probability metrics, all Greeks (delta/gamma/theta/
+vega/rho/vanna/charm/vomma/speed/color/ultima), gamma exposure, dealer
+positioning, put/call ratios, unusual activity, order-flow imbalance,
+liquidity/depth, slippage estimate, fill probability, early-assignment/
+dividend/pin/exercise risk, IV-crush/expansion risk, breakeven probability,
+POP, POT, max profit/loss, capital requirement, BP effect, return on risk,
+EV, capital efficiency.
+
+STRICT VERIFICATION FOR THIS PHASE
+- Registry proof for every subsystem, indicator, pattern.
+- GREP proof of compute paths and consume paths for each.
+- Missing-indicator failure test, missing-pattern failure test, stale-data
+  failure test — all proven to actually fail/block.
+- Real application-generated rows only, no manual inserts.
+- Full standing evidence checklist applies (raw output, before/after diff,
+  sha256, SQL rows, verified_run.sh + verify_chain.sh + canonical-hash
+  cross-check).

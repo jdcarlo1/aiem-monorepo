@@ -272,6 +272,13 @@ def _bootstrap_db() -> None:
                 conn.commit()
             _DB_BOOTSTRAPPED = True
             log.info("[bootstrap] options_pipeline_jobs, job_heartbeats, and aiem_execution_assessments ready")
+            # Phase III Phase 1 — bootstrap registry tables (idempotent, non-fatal)
+            try:
+                import aiem_options_registries as _reg_boot
+                _reg_boot.bootstrap_registries(_DB_URL)
+                log.info("[bootstrap] oe_registries (Phase III Phase 1) tables ready")
+            except Exception as _rb_e:
+                log.warning(f"[bootstrap] oe_registries bootstrap skipped: {_rb_e}")
             return
         except Exception as e:
             last_exc = e
@@ -662,6 +669,52 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         log.error(f"[exec] failed to mark EXECUTING: {e}")
         return {"error": str(e)}
 
+    # ── Phase III Phase 1: Registry helpers (non-fatal — never block pipeline) ──
+    try:
+        import aiem_options_registries as _reg_mod
+        _reg_db     = _DB_URL
+        _reg_ts_now = datetime.utcnow()
+        _reg_ready  = True
+
+        def _rc(family: str, cid: str, raw, norm=None, sig: str = "NEUTRAL",
+                conf=None, d_ts=None, fresh: int = None, q: str = None,
+                sup=None, txt: str = None) -> None:
+            """Register + snap one indicator value. Fully non-fatal."""
+            try:
+                _reg_mod.register_indicator(
+                    cid, cid.replace("_", " ").title(), family,
+                    "aiem_options_scheduler.py", "_execute_job", {}, _reg_db)
+                _reg_mod.snap_indicator(
+                    trace_id, ticker, scan_date, cid, raw, norm, sig, conf,
+                    d_ts or _reg_ts_now, fresh,
+                    q or ("MISSING" if raw is None else "FRESH"),
+                    sup, None, None, None, txt, _reg_db)
+            except Exception as _rce:
+                log.debug(f"[registry] snap {cid}: {_rce}")
+
+        def _rc_pat(cid: str, name: str, family: str, conf=None,
+                    timeframe: str = None, actionable: bool = None,
+                    influenced: bool = None, data: dict = None) -> None:
+            """Register + snap one pattern occurrence. Fully non-fatal."""
+            try:
+                _reg_mod.register_pattern(
+                    cid, name, family, "aiem_pattern_engine.py",
+                    "detect_for_ticker", "1.0", _reg_db)
+                _reg_mod.snap_pattern(
+                    trace_id, ticker, scan_date, cid, timeframe,
+                    conf, actionable, influenced, data or {}, None, _reg_db)
+            except Exception as _rpe:
+                log.debug(f"[registry] pat {cid}: {_rpe}")
+
+    except Exception as _reg_init_e:
+        log.debug(f"[exec] registry init skipped: {_reg_init_e}")
+        _reg_ready  = False
+        _reg_mod    = None
+        _reg_db     = _DB_URL
+        _reg_ts_now = datetime.utcnow()
+        def _rc(*a, **k):     pass  # noqa
+        def _rc_pat(*a, **k): pass  # noqa
+
     t_start = time.time()
 
     try:
@@ -704,6 +757,41 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         pc_skew_tag  = oss[6]
         term_tag     = oss[8]
 
+        # ── REGISTRY: Stage 1 — Polygon ingestion + Options Structure Scan ────
+        if _reg_ready:
+            _pmd_dt  = datetime(pmd[0].year, pmd[0].month, pmd[0].day, 17, 0)
+            _pmd_age = int((_reg_ts_now - _pmd_dt).total_seconds())
+            _pmd_q   = "STALE" if _pmd_age > 172800 else "FRESH"
+            # Polygon ingestion subsystem
+            _rc("POLYGON", "POLY_CLOSE_PRICE",    close_price, min(1.0, close_price/500.0),
+                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+            _rc("POLYGON", "POLY_OPEN_PRICE",     float(pmd[2]), None,
+                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+            _rc("POLYGON", "POLY_VWAP",           vwap, None,
+                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+            _rc("POLYGON", "POLY_CLOSE_STRENGTH", close_str, close_str,
+                "BULLISH" if close_str > 0.6 else "BEARISH" if close_str < 0.4 else "NEUTRAL",
+                None, _pmd_dt, _pmd_age, _pmd_q)
+            # Options Structure Scan subsystem
+            _rc("OSS", "OSS_SPOT",        spot,     None, "NEUTRAL",  None, _pmd_dt, _pmd_age, _pmd_q)
+            _rc("OSS", "OSS_FRONT_IV",    front_iv, front_iv,
+                "HIGH_VOL" if front_iv > 0.40 else "LOW_VOL" if front_iv < 0.20 else "NEUTRAL",
+                None, _pmd_dt, _pmd_age, _pmd_q)
+            _rc("OSS", "OSS_GEX_M",       float(oss[2]) if oss[2] is not None else None,
+                None, "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+            _rc("OSS", "OSS_GEX_REGIME",  None, None, "NEUTRAL",
+                None, _pmd_dt, _pmd_age, _pmd_q, txt=gex_regime)
+            _rc("OSS", "OSS_PC_SKEW_PP",  pc_skew_pp, min(1.0, abs(pc_skew_pp)/30.0),
+                "BEARISH" if pc_skew_tag == "FEAR_PREMIUM"
+                else "BULLISH" if pc_skew_tag == "CALL_SKEW" else "NEUTRAL",
+                None, _pmd_dt, _pmd_age, _pmd_q, txt=pc_skew_tag)
+            _rc("OSS", "OSS_TERM_RATIO",  float(oss[7]) if oss[7] is not None else None, None,
+                "BEARISH" if term_tag == "INVERTED" else "NEUTRAL",
+                None, _pmd_dt, _pmd_age, _pmd_q, txt=term_tag)
+            _rc("OSS", "OSS_BACK_IV",     float(oss[9])/100.0 if oss[9] is not None else None,
+                None, "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+            log.debug(f"[registry] stage1 snapped 11 indicators trace_id={trace_id}")
+
         # ── Stage 2: Stock analysis ────────────────────────────────────────────
         stock_direction = "BEAR" if (
             close_price < vwap and close_str < 0.4 and pc_skew_tag == "FEAR_PREMIUM"
@@ -727,6 +815,31 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "pc_skew_tag":     pc_skew_tag,
         }
 
+        # ── REGISTRY: Stage 2 — Technical-indicator + Market-regime engines ───
+        if _reg_ready:
+            _rc("TECH",   "TECH_STOCK_DIRECTION",   None, None,
+                "BULLISH" if stock_direction == "BULL" else "BEARISH", txt=stock_direction)
+            _rc("TECH",   "TECH_VWAP_POSITION",     None, None,
+                "BULLISH" if close_price >= vwap else "BEARISH",
+                txt=stock_data["vwap_position"])
+            _rc("TECH",   "TECH_CLOSE_STRENGTH",    close_str, close_str,
+                "BULLISH" if close_str > 0.6 else "BEARISH" if close_str < 0.4 else "NEUTRAL")
+            _rc("TECH",   "TECH_IV_CRUSH_RISK",     None, None, "NEUTRAL",
+                txt=stock_data["iv_crush_risk"])
+            _rc("REGIME", "MKT_REGIME_TAG",         None, None,
+                "BEARISH" if "FEAR" in market_regime or "SHORT_GAMMA" in market_regime
+                else "NEUTRAL", txt=market_regime)
+            _rc("REGIME", "MKT_GEX_REGIME",         None, None,
+                "BEARISH" if gex_regime == "SHORT_GAMMA" else "NEUTRAL", txt=gex_regime)
+            _rc("REGIME", "MKT_SKEW_TAG",           None, None,
+                "BEARISH" if pc_skew_tag == "FEAR_PREMIUM" else "NEUTRAL", txt=pc_skew_tag)
+            _rc("REGIME", "MKT_TERM_STRUCTURE",     None, None,
+                "BEARISH" if term_tag == "INVERTED" else "NEUTRAL", txt=term_tag)
+            _rc("VOLREG", "VOLREG_FRONT_IV_CLASS",  None, None,
+                "HIGH_VOL" if front_iv > 0.40 else "LOW_VOL" if front_iv < 0.20 else "NEUTRAL",
+                txt="HIGH_IV" if front_iv > 0.40 else "LOW_IV")
+            log.debug(f"[registry] stage2 snapped 9 indicators trace_id={trace_id}")
+
         # ── Stage PM: Premarket Intelligence ──────────────────────────────────
         pm_intel: dict = {}
         try:
@@ -741,6 +854,32 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             pm_intel = {"premarket_score": 0.5, "premarket_direction": "NEUTRAL",
                         "premarket_confidence": 0.0, "premarket_risk_flags": ["SKIPPED"]}
 
+        # ── REGISTRY: Stage PM — Premarket scan + intraday scan subsystems ────
+        if _reg_ready:
+            _pm_score = float(pm_intel.get("premarket_score") or 0.5)
+            _pm_conf  = float(pm_intel.get("premarket_confidence") or 0.0)
+            _pm_dir   = str(pm_intel.get("premarket_direction") or "NEUTRAL")
+            _pm_q     = "STALE" if "SKIPPED" in str(pm_intel.get("premarket_risk_flags", [])) \
+                        else "FRESH"
+            _pm_sig   = ("BULLISH" if _pm_dir in ("BULL", "BULLISH") else
+                         "BEARISH" if _pm_dir in ("BEAR", "BEARISH") else "NEUTRAL")
+            # Premarket scan subsystem
+            _rc("PM", "PM_SCORE",         _pm_score, _pm_score, _pm_sig, _pm_conf, q=_pm_q)
+            _rc("PM", "PM_DIRECTION",     None, None, _pm_sig,  _pm_conf, q=_pm_q, txt=_pm_dir)
+            _rc("PM", "PM_CONFIDENCE",    _pm_conf, _pm_conf,   "NEUTRAL", q=_pm_q)
+            _rc("PM", "PM_GAP_PCT",       pm_intel.get("premarket_gap"), None, "NEUTRAL", q=_pm_q)
+            _rc("PM", "PM_VOLUME_RATIO",  pm_intel.get("pm_rvol"), None,
+                "BULLISH" if (pm_intel.get("pm_rvol") or 0) > 1.5 else "NEUTRAL", q=_pm_q)
+            _rc("PM", "PM_TREND_QUALITY", pm_intel.get("pm_trend_quality"), None, "NEUTRAL", q=_pm_q)
+            # Intraday scan subsystem (surfaced from premarket module)
+            _rc("INTRA", "INTRA_PM_HIGH_BROKEN",
+                1.0 if pm_intel.get("pm_high_broken") else 0.0, None,
+                "BULLISH" if pm_intel.get("pm_high_broken") else "NEUTRAL", q=_pm_q)
+            _rc("INTRA", "INTRA_PM_LOW_HELD",
+                1.0 if pm_intel.get("pm_low_held") else 0.0, None,
+                "BEARISH" if pm_intel.get("pm_low_held") is False else "NEUTRAL", q=_pm_q)
+            log.debug(f"[registry] stagepm snapped 8 indicators trace_id={trace_id}")
+
         # ── Stage MTF: Multi-Timeframe Analysis ───────────────────────────────
         mtf_result: dict = {}
         try:
@@ -754,6 +893,29 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             mtf_result = {"timeframe_alignment_score": 0.5, "conflict_score": 0.5,
                           "dominant_bias": "NEUTRAL", "entry_timing_status": "UNCLEAR"}
 
+        # ── REGISTRY: Stage MTF — Multi-timeframe analysis subsystem ──────────
+        if _reg_ready:
+            _mtf_al = float(mtf_result.get("timeframe_alignment_score") or 0.5)
+            _mtf_cf = float(mtf_result.get("conflict_score") or 0.5)
+            _mtf_bi = str(mtf_result.get("dominant_bias") or "NEUTRAL")
+            _mtf_q  = "STALE" if (_mtf_al == 0.5 and _mtf_cf == 0.5 and
+                                   _mtf_bi == "NEUTRAL") else "FRESH"
+            _mtf_sig = ("BULLISH" if _mtf_bi == "BULLISH" else
+                        "BEARISH" if _mtf_bi == "BEARISH" else "NEUTRAL")
+            _rc("MTF", "MTF_ALIGNMENT_SCORE",  _mtf_al, _mtf_al,
+                _mtf_sig, q=_mtf_q)
+            _rc("MTF", "MTF_CONFLICT_SCORE",   _mtf_cf, _mtf_cf,
+                "NEUTRAL", q=_mtf_q)
+            _rc("MTF", "MTF_DOMINANT_BIAS",    None, None, _mtf_sig,
+                txt=_mtf_bi, q=_mtf_q)
+            _rc("MTF", "MTF_ENTRY_TIMING",     None, None, "NEUTRAL",
+                txt=str(mtf_result.get("entry_timing_status") or "UNCLEAR"), q=_mtf_q)
+            _rc("MTF", "MTF_BULLISH_TF_COUNT",
+                mtf_result.get("bullish_tf_count"), None, "NEUTRAL", q=_mtf_q)
+            _rc("MTF", "MTF_BEARISH_TF_COUNT",
+                mtf_result.get("bearish_tf_count"), None, "NEUTRAL", q=_mtf_q)
+            log.debug(f"[registry] stagemtf snapped 6 indicators trace_id={trace_id}")
+
         # ── Stage PAT: All Verified Patterns (candlestick/chart/harmonic/EW/VPA/Wyckoff)
         pattern_score  = 0.5
         pattern_result: dict = {}
@@ -765,6 +927,35 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                      f"({len(pattern_result.get('all_patterns', []))} patterns detected)")
         except Exception as _pat_e:
             log.debug(f"[exec] [{trace_id}] pattern detection skipped: {_pat_e}")
+
+        # ── REGISTRY: Stage PAT — Candlestick engine + Chart-pattern engine ───
+        if _reg_ready:
+            _pat_q = "STALE" if pattern_score == 0.5 and not pattern_result else "FRESH"
+            _pat_err_q = "ERROR" if (not pattern_result and pattern_score == 0.5) else _pat_q
+            _rc("PAT", "PAT_SCORE",    pattern_score, pattern_score,
+                "BULLISH" if pattern_score > 0.6 else "BEARISH" if pattern_score < 0.4
+                else "NEUTRAL", q=_pat_err_q)
+            _rc("PAT", "PAT_COUNT",    len(pattern_result.get("all_patterns", [])), None,
+                "NEUTRAL", q=_pat_q)
+            _rc("PAT", "PAT_BULLISH",  len([p for p in pattern_result.get("all_patterns", [])
+                                           if p.get("sentiment","").upper() == "BULLISH"]),
+                None, "NEUTRAL", q=_pat_q)
+            _rc("PAT", "PAT_BEARISH",  len([p for p in pattern_result.get("all_patterns", [])
+                                           if p.get("sentiment","").upper() == "BEARISH"]),
+                None, "NEUTRAL", q=_pat_q)
+            # Register + snap every individual detected pattern
+            for _p in pattern_result.get("all_patterns", []):
+                _p_cid  = f"PAT_{str(_p.get('name','UNKNOWN')).upper().replace(' ','_')[:40]}"
+                _p_fam  = str(_p.get("family", "chart")).lower()
+                _rc_pat(_p_cid, str(_p.get("name","?")), _p_fam,
+                        conf=float(_p.get("confidence") or 0.5),
+                        timeframe=str(_p.get("timeframe", "daily")),
+                        actionable=bool(_p.get("actionable", False)),
+                        influenced=bool(_p.get("influencing", False)),
+                        data={k: v for k, v in _p.items()
+                              if k not in ("name","family","confidence")})
+            log.debug(f"[registry] stagepat snapped 4+{len(pattern_result.get('all_patterns',[]))} "
+                      f"pattern entries trace_id={trace_id}")
 
         # ── Stage OC: Real Polygon Options Chain ──────────────────────────────
         options_chain: dict   = {"calls": [], "puts": [], "contracts_total": 0}
@@ -791,6 +982,20 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             )
         except Exception as _oc_e:
             log.debug(f"[exec] [{trace_id}] options chain skipped: {_oc_e}")
+
+        # ── REGISTRY: Stage OC — Options-chain ingestion + Strategy generator ─
+        if _reg_ready:
+            _oc_q = "FRESH" if contracts_evaluated > 0 else "STALE"
+            _rc("OC", "OC_CONTRACTS_TOTAL", contracts_evaluated, None, "NEUTRAL", q=_oc_q)
+            _rc("OC", "OC_STRATEGIES_COUNT", len(chain_strategies), None, "NEUTRAL", q=_oc_q)
+            _rc("OC", "OC_BEST_STRATEGY",    None, None, "NEUTRAL",
+                txt=(best_chain_strategy.get("strategy") if best_chain_strategy else None),
+                q=_oc_q)
+            _rc("OC", "OC_CHAIN_CALLS_CNT",
+                len(options_chain.get("calls", [])), None, "NEUTRAL", q=_oc_q)
+            _rc("OC", "OC_CHAIN_PUTS_CNT",
+                len(options_chain.get("puts", [])), None, "NEUTRAL", q=_oc_q)
+            log.debug(f"[registry] stageoc snapped 5 indicators trace_id={trace_id}")
 
         # ── Stage EI: Execution Intelligence ──────────────────────────────────
         # Assesses fill probability, liquidity, execution costs, and net edge
@@ -819,6 +1024,27 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             )
         except Exception as _ei_e:
             log.debug(f"[exec] [{trace_id}] execution_intelligence skipped: {_ei_e}")
+
+        # ── REGISTRY: Stage EI — Execution Intelligence + Strategy comparison ─
+        if _reg_ready:
+            _n_ei_all  = len(_ei_assessments)
+            _n_ei_ok   = sum(1 for a in _ei_assessments if getattr(a, "approved", False))
+            _ei_q      = "FRESH" if _n_ei_all > 0 else "STALE"
+            _rc("EI", "EI_STRATEGIES_TOTAL",   _n_ei_all, None, "NEUTRAL", q=_ei_q)
+            _rc("EI", "EI_STRATEGIES_APPROVED", _n_ei_ok, None,
+                "BULLISH" if _n_ei_ok > 0 else "BEARISH", q=_ei_q)
+            _rc("EI", "EI_APPROVAL_RATE",
+                round(_n_ei_ok / _n_ei_all, 4) if _n_ei_all > 0 else None, None,
+                "NEUTRAL", q=_ei_q)
+            if _n_ei_all > 0 and _ei_assessments:
+                _best_ea = _ei_assessments[0]
+                _rc("EI", "EI_BEST_FILL_PROB",
+                    getattr(_best_ea, "fill_probability", None), None, "NEUTRAL", q=_ei_q)
+                _rc("EI", "EI_BEST_LIQ_SCORE",
+                    getattr(_best_ea, "liquidity_score", None), None, "NEUTRAL", q=_ei_q)
+                _rc("EI", "EI_BEST_NET_EDGE",
+                    getattr(_best_ea, "net_expected_edge", None), None, "NEUTRAL", q=_ei_q)
+            log.debug(f"[registry] stageei snapped 6 indicators trace_id={trace_id}")
 
         # ── Stage CCS: Capital Compounding Score on best real-chain strategy ──
         try:
@@ -851,6 +1077,26 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                          f"strategy={best_chain_strategy.get('strategy')}")
         except Exception as _ccs_e:
             log.debug(f"[exec] [{trace_id}] CCS computation skipped: {_ccs_e}")
+
+        # ── REGISTRY: Stage CCS — Portfolio Optimization + Portfolio Risk ──────
+        if _reg_ready:
+            _ccs_q = "FRESH" if final_ccs > 0.0 else "STALE"
+            _rc("CCS", "CCS_SCORE",         final_ccs, final_ccs,
+                "BULLISH" if final_ccs > 0.70 else "BEARISH" if final_ccs < 0.30
+                else "NEUTRAL", q=_ccs_q)
+            _rc("CCS", "CCS_BEST_STRATEGY", None, None, "NEUTRAL",
+                txt=(best_chain_strategy.get("strategy") if best_chain_strategy else None),
+                q=_ccs_q)
+            if best_chain_strategy:
+                _rc("CCS", "CCS_STRATEGY_POP",
+                    best_chain_strategy.get("pop"), None, "NEUTRAL", q=_ccs_q)
+                _rc("CCS", "CCS_STRATEGY_EV",
+                    best_chain_strategy.get("ev_after_costs"), None,
+                    "BULLISH" if (best_chain_strategy.get("ev_after_costs") or 0) > 0
+                    else "BEARISH", q=_ccs_q)
+                _rc("CCS", "CCS_RISK_CLASS",  None, None, "NEUTRAL",
+                    txt=best_chain_strategy.get("risk_class", "UNKNOWN"), q=_ccs_q)
+            log.debug(f"[registry] stageccs snapped 5 indicators trace_id={trace_id}")
 
         # ── Proof logging: PM + MTF + PAT + OC stages ─────────────────────────
         try:
@@ -907,6 +1153,43 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 ),
             },
         }
+
+        # ── REGISTRY: Stage 3 — Options analytics + Volatility-regime engine ──
+        if _reg_ready:
+            _iv_rank_raw = float(ivr_result.get("iv_rank", 0.0) or 0.0)
+            _em_val      = em_result.get("expected_move")
+            _em_pct      = em_result.get("expected_move_pct")
+            # Options analytics subsystem
+            _rc("OPT", "OPT_EXPECTED_MOVE",     _em_val, None, "NEUTRAL")
+            _rc("OPT", "OPT_EXPECTED_MOVE_PCT",  _em_pct, _em_pct/100.0 if _em_pct else None,
+                "NEUTRAL")
+            _rc("OPT", "OPT_IV_RANK",            _iv_rank_raw, _iv_rank_raw/100.0,
+                "HIGH_VOL" if _iv_rank_raw > 50 else "LOW_VOL")
+            _rc("OPT", "OPT_IV_PERCENTILE",
+                ivr_result.get("iv_percentile"), None, "NEUTRAL")
+            _rc("OPT", "OPT_HV_20D",
+                ivr_result.get("historical_vol_20d"), None, "NEUTRAL")
+            _rc("OPT", "OPT_OI_BELOW_SPOT",
+                oi_result.get("oi_below_spot") if not isinstance(oi_result.get("oi_below_spot"),
+                str) else None, None, "NEUTRAL")
+            _rc("OPT", "OPT_OI_ABOVE_SPOT",
+                oi_result.get("oi_above_spot") if not isinstance(oi_result.get("oi_above_spot"),
+                str) else None, None, "NEUTRAL")
+            _rc("OPT", "OPT_BEARISH_SIGNAL_COUNT",
+                bs_result.get("count", 0), None,
+                "BEARISH" if bs_result.get("count", 0) > 0 else "NEUTRAL")
+            # Volatility-regime engine subsystem (full suite)
+            _rc("VOLREG", "VOLREG_IV_RANK",       _iv_rank_raw, _iv_rank_raw/100.0,
+                "HIGH_VOL" if _iv_rank_raw > 50 else "LOW_VOL")
+            _iv_hv20 = ivr_result.get("historical_vol_20d")
+            _vrp     = (round(front_iv - _iv_hv20, 4) if _iv_hv20 and front_iv else None)
+            _rc("VOLREG", "VOLREG_VRP",           _vrp, None,
+                "HIGH_PREM" if (_vrp or 0) > 0.05 else "LOW_PREM" if (_vrp or 0) < -0.05
+                else "NEUTRAL")
+            _rc("VOLREG", "VOLREG_TERM_RATIO",
+                float(oss[7]) if oss[7] is not None else None, None,
+                "BEARISH" if term_tag == "INVERTED" else "NEUTRAL", txt=term_tag)
+            log.debug(f"[registry] stage3 snapped 11 indicators trace_id={trace_id}")
 
         # ── Stage 4: Risk gates ────────────────────────────────────────────────
         import math as _math
@@ -1054,7 +1337,121 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "stop_level":          f"Close above ${spot + 5:.0f}",
         }
 
+        # ── REGISTRY: Stage 4 — BS greeks + Probability/EV + Risk Gate ────────
+        if _reg_ready:
+            # Probability/EV engine subsystem (Black-Scholes)
+            _rc("BS", "BS_CALL_DELTA",    call_delta_bs, abs(call_delta_bs),
+                "BULLISH" if call_delta_bs > 0.4 else "NEUTRAL")
+            _rc("BS", "BS_CALL_GAMMA",    call_gamma_bs, None, "NEUTRAL")
+            _rc("BS", "BS_CALL_THETA",    call_theta_bs, None,
+                "BEARISH" if (call_theta_bs or 0) < -0.05 else "NEUTRAL")
+            _rc("BS", "BS_CALL_VEGA",     call_vega_bs,  None, "NEUTRAL")
+            _rc("BS", "BS_CALL_POP",      call_probability_itm, call_probability_itm,
+                "BULLISH" if call_probability_itm >= 0.35 else "BEARISH")
+            _rc("BS", "BS_CALL_VOLUME",   call_vol,   None,
+                "BULLISH" if call_vol > 100 else "NEUTRAL")
+            _rc("BS", "BS_CALL_OI",       call_oi,    None, "NEUTRAL")
+            _rc("BS", "BS_CALL_SPREAD",   call_spread, None,
+                "BEARISH" if call_spread > 0.15 else "NEUTRAL")
+            _rc("BS", "BS_PUT_DELTA",     put_delta_bs,  abs(put_delta_bs),
+                "BEARISH" if abs(put_delta_bs) > 0.4 else "NEUTRAL")
+            _rc("BS", "BS_PUT_GAMMA",     put_gamma_bs,  None, "NEUTRAL")
+            _rc("BS", "BS_PUT_THETA",     put_theta_bs,  None,
+                "BEARISH" if (put_theta_bs or 0) < -0.05 else "NEUTRAL")
+            _rc("BS", "BS_PUT_VEGA",      put_vega_bs,   None, "NEUTRAL")
+            _rc("BS", "BS_PUT_POP",       put_probability_itm, put_probability_itm,
+                "BEARISH" if put_probability_itm >= 0.35 else "NEUTRAL")
+            _rc("BS", "BS_PUT_VOLUME",    put_vol,   None,
+                "BEARISH" if put_vol > 100 else "NEUTRAL")
+            _rc("BS", "BS_PUT_OI",        put_oi,    None, "NEUTRAL")
+            _rc("BS", "BS_PUT_SPREAD",    put_spread, None,
+                "BEARISH" if put_spread > 0.15 else "NEUTRAL")
+            # Position-sizing engine subsystem
+            _rc("SIZE", "SIZE_CALL_PREMIUM_AT_RISK",
+                call_data.get("premium_at_risk"), None, "NEUTRAL")
+            _rc("SIZE", "SIZE_PUT_PREMIUM_AT_RISK",
+                put_data.get("premium_at_risk"), None, "NEUTRAL")
+            _rc("SIZE", "SIZE_CALL_SLIPPAGE",
+                call_data.get("slippage_pct"), None,
+                "BEARISH" if (call_data.get("slippage_pct") or 0) > 0.10 else "NEUTRAL")
+            _rc("SIZE", "SIZE_PUT_SLIPPAGE",
+                put_data.get("slippage_pct"), None,
+                "BEARISH" if (put_data.get("slippage_pct") or 0) > 0.10 else "NEUTRAL")
+            log.debug(f"[registry] stage4 snapped 20 indicators trace_id={trace_id}")
+            # Options metrics capture — full chain snapshot for CALL and PUT
+            try:
+                _reg_mod.capture_options_metrics(
+                    trace_id, ticker, scan_date, "CALL",
+                    {**call_data, "_data_source": "BS_TRADIER", "iv_rank": iv_rank * 100},
+                    _reg_db)
+                _reg_mod.capture_options_metrics(
+                    trace_id, ticker, scan_date, "PUT",
+                    {**put_data, "_data_source": "BS_TRADIER", "iv_rank": iv_rank * 100},
+                    _reg_db)
+                # Enrich with OSS fields (same for both directions)
+                _reg_mod.enrich_metrics_oss(
+                    trace_id,
+                    pc_skew_pp=pc_skew_pp, pc_skew_tag=pc_skew_tag,
+                    term_ratio=float(oss[7]) if oss[7] is not None else None,
+                    term_tag=term_tag,
+                    front_iv=front_iv,
+                    back_iv=float(oss[9])/100.0 if oss[9] is not None else None,
+                    gex_m=float(oss[2]) if oss[2] is not None else None,
+                    gex_regime=gex_regime,
+                    gamma_flip_price=float(oss[4]) if oss[4] is not None else None,
+                    iv_rank=iv_rank * 100,
+                    db_url=_reg_db,
+                )
+                log.debug(f"[registry] options_metrics captured CALL+PUT trace_id={trace_id}")
+            except Exception as _omc_e:
+                log.debug(f"[registry] options_metrics capture skipped: {_omc_e}")
+
         verify_result = _oi.verify_options_decision_inputs(ticker, call_data, put_data)
+
+        # ── REGISTRY: Failure tests (Phase III Phase 1) ───────────────────────
+        # These are the ONLY registry calls that can block the pipeline.
+        # On failure: inject into verify_result → ready_for_decision=False →
+        # existing gate raises ValueError → job marked FAILED.
+        # Three tests: missing-indicator, pattern-scan-incomplete, stale-data.
+        if _reg_ready:
+            _REQUIRED_IDS = [
+                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
+                "OPT_IV_RANK", "BS_CALL_DELTA", "BS_PUT_DELTA",
+                "BS_CALL_POP", "BS_PUT_POP",
+            ]
+            _CRITICAL_FRESHNESS_IDS = ["POLY_CLOSE_PRICE", "OSS_FRONT_IV"]
+            _reg_gate_failures: list = []
+            try:
+                _reg_mod.assert_no_missing_indicators(trace_id, _REQUIRED_IDS, _reg_db)
+            except _reg_mod.RegistryValidationError as _rve:
+                _reg_gate_failures.append(f"REGISTRY_MISSING_INDICATOR: {_rve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rve}")
+            try:
+                _reg_mod.assert_pattern_scan_complete(trace_id, _reg_db)
+            except _reg_mod.RegistryValidationError as _rpve:
+                _reg_gate_failures.append(f"REGISTRY_PATTERN_INCOMPLETE: {_rpve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rpve}")
+            try:
+                _reg_mod.assert_data_freshness(trace_id, _CRITICAL_FRESHNESS_IDS,
+                                               172800, _reg_db)
+            except _reg_mod.RegistryValidationError as _rfve:
+                _reg_gate_failures.append(f"REGISTRY_STALE_DATA: {_rfve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rfve}")
+            if _reg_gate_failures:
+                _rf_text = "; ".join(_reg_gate_failures)
+                verify_result["gate_failures"] = (
+                    (verify_result.get("gate_failures") or []) +
+                    [f"REGISTRY: {f}" for f in _reg_gate_failures]
+                )
+                verify_result["call_eligible"]      = False
+                verify_result["put_eligible"]       = False
+                verify_result["ready_for_decision"] = False
+                verify_result["verdict"]            = f"REGISTRY VALIDATION FAILED — {_rf_text}"
+                log.error(
+                    f"[exec] [{trace_id}] REGISTRY VALIDATION BLOCKED PIPELINE: {_rf_text}")
+            else:
+                log.debug(f"[exec] [{trace_id}] registry failure tests: all 3 PASS")
+
         if "error" in verify_result:
             raise ValueError(f"verify_options_decision_inputs: {verify_result['error']}")
         if not verify_result.get("ready_for_decision"):
@@ -1067,6 +1464,25 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         put_score    = put_scoring["score"]
         margin       = abs(call_score - put_score)
 
+        # ── REGISTRY: Stage 5 — REQ6 scoring (Recommendation engine inputs) ───
+        if _reg_ready:
+            _rc("REQ6", "REQ6_CALL_SCORE",  call_score, call_score/100.0,
+                "BULLISH" if call_score >= 55 else "BEARISH")
+            _rc("REQ6", "REQ6_PUT_SCORE",   put_score,  put_score/100.0,
+                "BEARISH" if put_score >= 55 else "NEUTRAL")
+            _rc("REQ6", "REQ6_MARGIN",      margin, margin/100.0,
+                "BULLISH" if margin >= 10 else "NEUTRAL")
+            # Capture each of the 12 dimension scores (from call_scoring / put_scoring)
+            for _dim_name, _dim_val in (call_scoring.get("dimensions") or {}).items():
+                _d_cid = f"REQ6_CALL_{str(_dim_name).upper().replace(' ','_')[:30]}"
+                _rc("REQ6", _d_cid, float(_dim_val) if _dim_val is not None else None,
+                    None, "NEUTRAL")
+            for _dim_name, _dim_val in (put_scoring.get("dimensions") or {}).items():
+                _d_cid = f"REQ6_PUT_{str(_dim_name).upper().replace(' ','_')[:30]}"
+                _rc("REQ6", _d_cid, float(_dim_val) if _dim_val is not None else None,
+                    None, "NEUTRAL")
+            log.debug(f"[registry] stage5 REQ6 snapped trace_id={trace_id}")
+
         # ── Stage 6: Decision ──────────────────────────────────────────────────
         if call_score >= put_score and call_score >= 55 and margin >= 10:
             direction = "LONG_CALL"
@@ -1074,6 +1490,20 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             direction = "LONG_PUT"
         else:
             direction = "NO_TRADE"
+
+        # ── REGISTRY: Stage 6 — Decision (Recommendation engine) ────────────────
+        if _reg_ready:
+            _rc("DECISION", "DECISION_DIRECTION", None, None,
+                "BULLISH" if direction == "LONG_CALL" else
+                "BEARISH" if direction == "LONG_PUT" else "NEUTRAL",
+                txt=direction)
+            _rc("DECISION", "DECISION_CALL_SCORE",  call_score, call_score/100.0,
+                "BULLISH" if call_score >= 55 else "NEUTRAL")
+            _rc("DECISION", "DECISION_PUT_SCORE",   put_score,  put_score/100.0,
+                "BEARISH" if put_score >= 55 else "NEUTRAL")
+            _rc("DECISION", "DECISION_MARGIN",      margin, margin/100.0,
+                "BULLISH" if margin >= 10 else "NEUTRAL")
+            log.debug(f"[registry] stage6 snapped direction={direction} trace_id={trace_id}")
 
         if direction == "NO_TRADE":
             with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
@@ -1167,6 +1597,21 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         alert_id    = save_result["alert_id"]
         chain_sha   = save_result["audit_chain_sha256"]
         elapsed     = round(time.time() - t_start, 2)
+
+        # ── REGISTRY: Stage 8 — Paper execution + Verification system ─────────
+        if _reg_ready:
+            # Back-fill alert_id on oe_options_metrics rows now that it's known
+            try:
+                _reg_mod.update_metrics_alert_id(trace_id, alert_id, _reg_db)
+                log.debug(f"[registry] stage8 metrics alert_id={alert_id} linked trace_id={trace_id}")
+            except Exception as _rsa_e:
+                log.debug(f"[registry] stage8 alert_id link skipped: {_rsa_e}")
+            # Scheduler / verification subsystem
+            _rc("VERIFY", "VERIFY_ALERT_ID",   float(alert_id), None, "NEUTRAL",
+                txt=str(alert_id))
+            _rc("VERIFY", "VERIFY_CHAIN_SHA",  None, None, "NEUTRAL",
+                txt=chain_sha[:24] if chain_sha else None)
+            _rc("VERIFY", "VERIFY_ELAPSED_S",  elapsed, None, "NEUTRAL")
 
         # ── Write options_engine_runs (full trigger-chain audit record) ────────
         try:

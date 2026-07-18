@@ -694,6 +694,13 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                     "stage9_learning_hash":  h9,
                     "stage10_chain_final":   h10,
                 })
+                # Phase III Phase 1: update oe_options_metrics with outcome
+                try:
+                    import aiem_options_registries as _om_reg
+                    _om_reg.update_metrics_outcome_by_alert(
+                        aid, outcome_str, round(pnl_pct_val, 6))
+                except Exception as _omr_e:
+                    pass  # non-fatal: registry capture never blocks grading
 
         win_count = sum(1 for g in graded if g["outcome"] == "WIN")
         wr = round(win_count / len(graded) * 100, 1) if graded else None
