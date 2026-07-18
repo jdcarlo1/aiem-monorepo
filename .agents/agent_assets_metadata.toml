@@ -540,3 +540,9 @@ id = "IWfeHc5ETy0GkjHTNGiZE"
 uri = "file://artifacts/stock-scanner-api/ei_verification_report.txt"
 type = "text"
 title = "EI Verification Report — 95 PASS / 0 FAIL"
+
+[[outputs]]
+id = "PAzXzzzpJVz240cE0JE_V"
+uri = "file://artifacts/stock-scanner-api/PORTFOLIO_ENGINE_PHASE2_VERIFIED.md"
+type = "text"
+title = "Portfolio Engine Phase 2 — Verified Work"
