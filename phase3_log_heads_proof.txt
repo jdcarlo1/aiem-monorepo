@@ -1,0 +1,99 @@
+====== verified_run.sh ======
+SEQ=21
+TS=2026-07-18T21:28:18Z
+CMD=bash verify_log_heads.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=f0113dfcf00421fb3237a07c566cb5b9f9796cc0
+==============================
+
+=== sha256sum tools/verified_run.sh tools/verify_chain.sh ===
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh
+
+=== verify_chain.sh raw output ===
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
+
+=== head -20 LOG1 (181441) ===
+<workflow>
+<workflow_name>artifacts/stock-scanner: options-pipeline-scheduler</workflow_name>
+<status>RUNNING</status><run_id>Y1yeOeNRIZOsSQqXFa7qW</run_id><timestamp>2026-07-18T18:14:41.680316+00:00</timestamp>
+<logs>[2026-07-18T16:44:50Z INFO] [startup] aiem_options_scheduler starting…
+[2026-07-18T16:45:02Z INFO] [bootstrap] options_pipeline_jobs, job_heartbeats, and aiem_execution_assessments ready
+[2026-07-18T16:45:02Z INFO] [health] http://0.0.0.0:5053/health
+[2026-07-18T16:45:03Z INFO] [startup] daily_pipeline_runs: SCHEDULED registered for 2026-07-18
+[2026-07-18T16:45:03Z INFO] [startup] running stale job recovery…
+[2026-07-18T16:45:03Z INFO] [startup] stale recovery: {'recovered': 0, 'failed_permanently': 0}
+[2026-07-18T16:45:03Z INFO] [startup] running missed-schedule backfill…
+[2026-07-18T16:45:03Z INFO] [backfill] no missed PENDING jobs
+[2026-07-18T16:45:03Z INFO] [startup] backfill: {'backfilled_dates': []}
+[2026-07-18T16:45:03Z INFO] Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2026-07-18T16:45:03Z INFO] Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2026-07-18T16:45:03Z INFO] Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2026-07-18T16:45:03Z INFO] Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2026-07-18T16:45:03Z INFO] Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2026-07-18T16:45:03Z INFO] Adding job tentatively -- it will be properly scheduled when the scheduler starts
+[2026-07-18T16:45:03Z INFO] Added job "main.<locals>._seed_job" to job store "default"
+[2026-07-18T16:45:03Z INFO] Added job "main.<locals>._execute_job_wrapper" to job store "default"
+
+=== head -20 LOG2 (204327) ===
+<workflow>
+<workflow_name>artifacts/stock-scanner: options-pipeline-scheduler</workflow_name>
+<status>RUNNING</status><run_id>Y1yeOeNRIZOsSQqXFa7qW</run_id><timestamp>2026-07-18T20:43:27.361394+00:00</timestamp>
+<logs>[2026-07-18T18:15:00Z INFO] Running job "recover_stale_jobs (trigger: cron[minute='*/5'], next run at: 2026-07-18 18:20:00 UTC)" (scheduled at 2026-07-18 18:15:00+00:00)
+[2026-07-18T18:15:03Z INFO] Job "recover_stale_jobs (trigger: cron[minute='*/5'], next run at: 2026-07-18 18:20:00 UTC)" executed successfully
+[2026-07-18T18:20:00Z INFO] Running job "recover_stale_jobs (trigger: cron[minute='*/5'], next run at: 2026-07-18 18:25:00 UTC)" (scheduled at 2026-07-18 18:20:00+00:00)
+[2026-07-18T18:20:00Z INFO] Job "recover_stale_jobs (trigger: cron[minute='*/5'], next run at: 2026-07-18 18:25:00 UTC)" executed successfully
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 33490)
+Traceback (most recent call last):
+  File "/nix/store/6334pjf6w2q623rgvwi499qaiym1p6yv-python3-3.11.14/lib/python3.11/socketserver.py", line 317, in _handle_request_noblock
+    self.process_request(request, client_address)
+  File "/nix/store/6334pjf6w2q623rgvwi499qaiym1p6yv-python3-3.11.14/lib/python3.11/socketserver.py", line 348, in process_request
+    self.finish_request(request, client_address)
+  File "/nix/store/6334pjf6w2q623rgvwi499qaiym1p6yv-python3-3.11.14/lib/python3.11/socketserver.py", line 361, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+  File "/nix/store/6334pjf6w2q623rgvwi499qaiym1p6yv-python3-3.11.14/lib/python3.11/socketserver.py", line 755, in __init__
+    self.handle()
+  File "/nix/store/6334pjf6w2q623rgvwi499qaiym1p6yv-python3-3.11.14/lib/python3.11/http/server.py", line 436, in handle
+    self.handle_one_request()
+
+==============================
+SEQ=21  EXIT=0  TS_END=2026-07-18T21:28:21Z
+sha256(log)=e22417e2b2137ecb00c8d8a41546c4905b1596e82845b992b699eeb3732f0feb
+==============================
