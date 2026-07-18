@@ -1,0 +1,340 @@
+====== verified_run.sh ======
+SEQ=13
+TS=2026-07-18T20:38:13Z
+CMD=bash verify_outstanding_items.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=d7d0ccf7e609e0f67419a2bc88fe1a2d0ef0f6a8
+==============================
+
+=== ITEM 1: git diff 47680fc 2cb97e5 --stat ===
+ .../stock-scanner-api/aiem_options_pipeline.py     | 17 ++++++++
+ .../stock-scanner-api/aiem_options_scheduler.py    | 49 ++++++++++++++++++++++
+ 2 files changed, 66 insertions(+)
+
+=== ITEM 1: git diff 47680fc 2cb97e5 -- aiem_options_scheduler.py ===
+diff --git a/artifacts/stock-scanner-api/aiem_options_scheduler.py b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+index a6911d8..c606f77 100644
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -725,6 +725,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         _p2_ready = False
+         _p2       = None
+ 
++    # ── Phase III Phase 3: Analysis & Attribution (non-fatal) ────────────────
++    try:
++        import aiem_options_phase3 as _p3
++        _p3.bootstrap_phase3(_DB_URL)
++        _p3_ready = True
++    except Exception as _p3_init_e:
++        log.debug(f"[exec] phase3 init skipped: {_p3_init_e}")
++        _p3_ready = False
++        _p3       = None
++
+     t_start = time.time()
+ 
+     try:
+@@ -1575,6 +1585,38 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+                      f"call={call_score}  put={put_score}  margin={round(margin,1)} "
+                      f"chain={_nt_chain_hash[:16]}")
+             _write_heartbeat(True)
++            # ── Phase 3: root-cause + KB entry for NO_TRADE decisions ─────────
++            if _p3_ready:
++                try:
++                    _p3.record_root_cause(
++                        alert_id=0,
++                        outcome_type="NO_TRADE",
++                        trace_id=trace_id,
++                        ticker=ticker,
++                        scan_date=scan_date,
++                        direction="NO_TRADE",
++                        scoring_data={"call_score": call_score, "put_score": put_score,
++                                      "margin": round(margin, 1)},
++                        verify_data=verify_result if "verify_result" in dir() else {},
++                        stock_data=stock_data   if "stock_data"   in dir() else {},
++                        db_url=_DB_URL,
++                    )
++                except Exception as _p3_nt_rc_e:
++                    log.debug(f"[phase3] no_trade root_cause skipped: {_p3_nt_rc_e}")
++                try:
++                    _p3.add_knowledge_base_entry(
++                        kb_type="SUCCESS_NO_TRADE",
++                        ticker=ticker,
++                        scan_date=scan_date,
++                        fingerprint={"call_score": call_score, "put_score": put_score,
++                                     "margin": round(margin, 1),
++                                     "trace_id": trace_id},
++                        decision_quality="GOOD",
++                        trace_id=trace_id,
++                        db_url=_DB_URL,
++                    )
++                except Exception as _p3_nt_kb_e:
++                    log.debug(f"[phase3] no_trade kb_entry skipped: {_p3_nt_kb_e}")
+             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
+                     "call_score": call_score, "put_score": put_score,
+                     "trace_id": trace_id, "chain_hash": _nt_chain_hash}
+@@ -1951,6 +1993,13 @@ def grade_outcomes_job() -> dict:
+         n = result.get("graded_count", 0)
+         log.info(f"[grade] graded={n}  wr={result.get('win_rate_pct')}%")
+         _write_heartbeat(True)
++        # ── Phase 3: root-cause batch + scorecard rebuild after grading ────────
++        try:
++            import aiem_options_phase3 as _p3g
++            _p3g.record_root_cause_batch(days_back=30, db_url=_DB_URL)
++            _p3g.rebuild_all_scorecards(db_url=_DB_URL)
++        except Exception as _p3g_e:
++            log.debug(f"[phase3] grade_outcomes_job p3 step skipped: {_p3g_e}")
+         if n:
+             _tg(
+                 f"📊 <b>OPTIONS OUTCOMES GRADED</b>\n"
+
+=== ITEM 1: git diff 47680fc 2cb97e5 -- aiem_options_pipeline.py ===
+diff --git a/artifacts/stock-scanner-api/aiem_options_pipeline.py b/artifacts/stock-scanner-api/aiem_options_pipeline.py
+index 847ebc3..20c7b60 100644
+--- a/artifacts/stock-scanner-api/aiem_options_pipeline.py
++++ b/artifacts/stock-scanner-api/aiem_options_pipeline.py
+@@ -726,6 +726,23 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
+                 except Exception as _p2_e:
+                     pass  # non-fatal: phase2 outcome capture never blocks grading
+ 
++                # Phase III Phase 3: root-cause record for this closed trade
++                try:
++                    import aiem_options_phase3 as _p3
++                    _p3.record_root_cause(
++                        alert_id=aid,
++                        outcome_type=("EXPIRED_WIN" if outcome_str == "WIN" else
++                                      "EXPIRED_LOSS" if outcome_str == "LOSS" else
++                                      "EXPIRED_BREAKEVEN"),
++                        ticker=ticker,
++                        scan_date=alert_date,
++                        direction=direction,
++                        pnl_pct=float(pnl_pct_val),
++                        db_url=_DB_URL,
++                    )
++                except Exception as _p3_e:
++                    pass  # non-fatal: phase3 analysis never blocks grading
++
+         win_count = sum(1 for g in graded if g["outcome"] == "WIN")
+         wr = round(win_count / len(graded) * 100, 1) if graded else None
+ 
+
+=== ITEM 2: exact SQL queries + live results ===
+QUERY: SELECT COUNT(*) FROM oe_root_cause_records;  RESULT: 0
+QUERY: SELECT COUNT(*) FROM oe_attribution_runs;  RESULT: 0
+QUERY: SELECT COUNT(*) FROM oe_indicator_attribution;  RESULT: 0
+QUERY: SELECT COUNT(*) FROM oe_interaction_hypotheses;  RESULT: 0
+QUERY: SELECT COUNT(*) FROM oe_interaction_results;  RESULT: 0
+QUERY: SELECT COUNT(*) FROM oe_strategy_scorecards;  RESULT: 0
+QUERY: SELECT COUNT(*) FROM oe_knowledge_base;  RESULT: 3
+QUERY: SELECT COUNT(*) FROM oe_kb_confidence_log;  RESULT: 12
+QUERY: SELECT COUNT(*) FROM oe_regime_performance;  RESULT: 0
+
+=== ITEM 3a: grep -n _ROOT_CAUSE_CATEGORIES ===
+43:_ROOT_CAUSE_CATEGORIES: List[str] = [
+
+=== ITEM 3a: _ROOT_CAUSE_CATEGORIES block ===
+43:_ROOT_CAUSE_CATEGORIES: List[str] = [
+44:    "DIRECTION_WRONG",
+45:    "MAGNITUDE_WRONG",
+46:    "TIMING_WRONG",
+47:    "ENTRY_TOO_EARLY",
+48:    "ENTRY_TOO_LATE",
+49:    "EXIT_TOO_EARLY",
+50:    "EXIT_TOO_LATE",
+51:    "STRIKE_INCORRECT",
+52:    "EXPIRATION_INCORRECT",
+53:    "WIDTH_INCORRECT",
+54:    "STRATEGY_FAMILY_INCORRECT",
+55:    "POSITION_SIZE_INCORRECT",
+56:    "PROBABILITY_ESTIMATE_WRONG",
+57:    "VOLATILITY_ESTIMATE_WRONG",
+58:    "IV_CRUSH",
+59:    "VOL_EXPANSION_UNEXPECTED",
+60:    "THETA_DECAY",
+61:    "GAMMA_EXPOSURE",
+62:    "LIQUIDITY_DETERIORATION",
+63:    "EXCESSIVE_SPREAD",
+64:    "SLIPPAGE",
+65:    "FILL_DELAY",
+66:    "ASSIGNMENT_RISK",
+67:    "DIVIDEND_RISK",
+68:    "REGIME_CHANGE",
+69:    "REGIME_MISCLASSIFICATION",
+70:    "PATTERN_FAILURE",
+71:    "INDICATOR_FAILURE",
+72:    "CONFLICTING_SIGNALS",
+73:    "SECTOR_REVERSAL",
+74:    "MARKET_REVERSAL",
+75:    "MACRO_EVENT",
+76:    "NEWS_EVENT",
+77:    "PORTFOLIO_CONCENTRATION",
+78:    "CORRELATION_SHOCK",
+79:    "DATA_QUALITY_FAILURE",
+80:    "STALE_DATA",
+81:    "SCHEDULER_FAILURE",
+82:    "WORKER_FAILURE",
+83:    "EXECUTION_FAILURE",
+84:    "RISK_RULE_FAILURE",
+85:    "EXIT_RULE_FAILURE",
+86:]
+
+=== ITEM 3b: grep -n _OUTCOME_TYPES ===
+88:_OUTCOME_TYPES: Tuple[str, ...] = (
+
+=== ITEM 3b: _OUTCOME_TYPES block ===
+88:_OUTCOME_TYPES: Tuple[str, ...] = (
+89:    "CLOSED_WIN",
+90:    "CLOSED_LOSS",
+91:    "EXPIRED_WIN",
+92:    "EXPIRED_LOSS",
+93:    "EXPIRED_BREAKEVEN",
+94:    "BLOCKED",
+95:    "NO_TRADE",
+96:)
+
+=== ITEM 3c: grep -n _DECISION_QUALITY ===
+98:_DECISION_QUALITY: Tuple[str, ...] = ("GOOD", "BAD", "NEUTRAL")
+1591:    if decision_quality and decision_quality not in _DECISION_QUALITY:
+
+=== ITEM 3c: _DECISION_QUALITY block ===
+98:_DECISION_QUALITY: Tuple[str, ...] = ("GOOD", "BAD", "NEUTRAL")
+99:
+
+=== ITEM 3d: grep -n _ATTRIBUTION_METHODS ===
+101:_ATTRIBUTION_METHODS: Tuple[str, ...] = (
+941:    if method not in _ATTRIBUTION_METHODS:
+
+=== ITEM 3d: _ATTRIBUTION_METHODS block ===
+101:_ATTRIBUTION_METHODS: Tuple[str, ...] = (
+102:    "CONDITIONAL",
+103:    "IC",
+104:    "CALIBRATION",
+105:    "BRIER_DELTA",
+106:    "ABLATION",
+107:)
+
+=== ITEM 3e: grep -n _SEGMENT_TYPES ===
+115:_SEGMENT_TYPES: Tuple[str, ...] = (
+1402:    if segment_type not in _SEGMENT_TYPES:
+
+=== ITEM 3e: _SEGMENT_TYPES block ===
+115:_SEGMENT_TYPES: Tuple[str, ...] = (
+116:    "GLOBAL",
+117:    "TICKER",
+118:    "SECTOR",
+119:    "INDUSTRY",
+120:    "REGIME",
+121:    "VOL_REGIME",
+122:    "DTE",
+123:    "STRIKE_ZONE",
+124:    "TIME_OF_DAY",
+125:    "DAY_OF_WEEK",
+126:    "EXIT_METHOD",
+127:    "PORTFOLIO_STATE",
+128:)
+
+=== ITEM 3f: grep -n _KB_TYPES ===
+131:_KB_TYPES: Tuple[str, ...] = (
+1589:    if kb_type not in _KB_TYPES:
+
+=== ITEM 3f: _KB_TYPES block ===
+131:_KB_TYPES: Tuple[str, ...] = (
+132:    "SUCCESS_TRADE",
+133:    "FAILURE_TRADE",
+134:    "SUCCESS_NO_TRADE",
+135:    "MISSED_OPPORTUNITY",
+136:    "OPERATIONAL_FAILURE",
+137:    "DATA_QUALITY_FAILURE",
+138:    "VERIFICATION_FAILURE",
+139:)
+
+=== ITEM 3g: grep -n _REGIME_TYPES ===
+145:_REGIME_TYPES: Tuple[str, ...] = (
+1702:    Returns list of _REGIME_TYPES values that apply.
+1750:    if regime_type not in _REGIME_TYPES:
+1825:        for regime in _REGIME_TYPES:
+
+=== ITEM 3g: _REGIME_TYPES block ===
+145:_REGIME_TYPES: Tuple[str, ...] = (
+146:    "BULL_STRONG",
+147:    "BULL_WEAK",
+148:    "BEAR_STRONG",
+149:    "BEAR_WEAK",
+150:    "SIDEWAYS",
+151:    "TRENDING",
+152:    "MEAN_REVERTING",
+153:    "HIGH_VOL",
+154:    "LOW_VOL",
+155:    "RISING_VOL",
+156:    "FALLING_VOL",
+157:    "RISK_ON",
+158:    "RISK_OFF",
+159:    "RISING_RATES",
+160:    "FALLING_RATES",
+161:    "HIGH_CORRELATION",
+162:    "CORRELATION_BREAKDOWN",
+163:    "EVENT_DRIVEN",
+164:    "EARNINGS_PERIOD",
+165:    "MACRO_ANNOUNCEMENT",
+166:)
+
+=== ITEM 4a: grep -n aiem_closed_loop ===
+(no matches)
+
+=== ITEM 4b: grep -n aiem_d3 ===
+(no matches)
+
+=== ITEM 4c: grep -n aiem_d2 ===
+(no matches)
+
+=== ITEM 4d: grep -n d3_governance ===
+(no matches)
+
+=== ITEM 4e: grep -n aiem_paper_trades ===
+(no matches)
+
+=== ITEM 4f: grep -n aiem_learning_loop ===
+(no matches)
+
+==============================
+SEQ=13  EXIT=0  TS_END=2026-07-18T20:38:15Z
+sha256(log)=19d307792ddbb9550ad5e440a1d243a01be9618940d15b0df87055d075af4f0e
+==============================
+
+=== verify_chain.sh raw output ===
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL

@@ -600,3 +600,9 @@ id = "MCzwDxYX7EBwX2APgHGsf"
 uri = "file://phase3_full_verification.txt"
 type = "text"
 title = "Phase 3 Complete Verification — PASS=41 FAIL=0"
+
+[[outputs]]
+id = "OEWKm44aVqS_h7PyDdV5a"
+uri = "file://phase3_outstanding_items.txt"
+type = "text"
+title = "Phase 3 Outstanding Items — verified_run.sh SEQ=13 + verify_chain.sh"
