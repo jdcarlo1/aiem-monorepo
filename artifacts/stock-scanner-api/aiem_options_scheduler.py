@@ -1056,24 +1056,8 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     getattr(_best_ea, "net_expected_edge", None), None, "NEUTRAL", q=_ei_q)
             log.debug(f"[registry] stageei snapped 6 indicators trace_id={trace_id}")
 
-        # ── Phase 2: Capture every strategy candidate considered ──────────────
-        if _p2_ready:
-            try:
-                _p2.capture_strategy_candidates(
-                    trace_id=trace_id,
-                    ticker=ticker,
-                    scan_date=scan_date,
-                    chain_strategies=chain_strategies,
-                    ei_assessments=_ei_assessments,
-                    call_data=call_data if "call_data" in dir() else {},
-                    put_data=put_data   if "put_data"  in dir() else {},
-                    call_score=call_score if "call_score" in dir() else 0.0,
-                    put_score=put_score   if "put_score"  in dir() else 0.0,
-                    selected_direction="PENDING",
-                    db_url=_DB_URL,
-                )
-            except Exception as _sc_e:
-                log.debug(f"[phase2] strategy candidate capture skipped: {_sc_e}")
+        # (Phase 2 strategy candidate capture moved to after Stage 6 where
+        #  direction, call_data, and put_data are all resolved.)
 
         # ── Stage CCS: Capital Compounding Score on best real-chain strategy ──
         try:
@@ -1534,6 +1518,28 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 "BULLISH" if margin >= 10 else "NEUTRAL")
             log.debug(f"[registry] stage6 snapped direction={direction} trace_id={trace_id}")
 
+        # ── Phase 2: Strategy candidates (all strategies considered this run) ───
+        # Captured here (after Stage 6) so that direction, call_data, and
+        # put_data are all fully resolved — not at Stage EI where they are
+        # still undefined.
+        if _p2_ready:
+            try:
+                _p2.capture_strategy_candidates(
+                    trace_id=trace_id,
+                    ticker=ticker,
+                    scan_date=scan_date,
+                    chain_strategies=chain_strategies,
+                    ei_assessments=_ei_assessments,
+                    call_data=call_data,
+                    put_data=put_data,
+                    call_score=call_score,
+                    put_score=put_score,
+                    selected_direction=direction,
+                    db_url=_DB_URL,
+                )
+            except Exception as _sc_e:
+                log.debug(f"[phase2] strategy candidate capture skipped: {_sc_e}")
+
         # ── Phase 2: Decision record (captures NO_TRADE, APPROVE, SUBSTITUTE) ─
         if _p2_ready:
             try:
@@ -1545,6 +1551,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     verify_result=verify_result,
                     chain_strategies=chain_strategies,
                     stock_data=stock_data,
+                    execution_plan_id=str(job_id),
                     db_url=_DB_URL,
                 )
             except Exception as _dr_e:
@@ -1691,12 +1698,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     stock_data=stock_data,
                     verify_result=verify_result,
                     best_chain_strategy=best_chain_strategy,
+                    call_scoring=call_scoring,
+                    put_scoring=put_scoring,
                     db_url=_DB_URL,
                 )
             except Exception as _tr_e:
                 log.debug(f"[phase2] trade_record capture skipped: {_tr_e}")
             try:
-                _p2.update_decision_alert_id(trace_id, alert_id, _DB_URL)
+                _p2.update_decision_alert_id(trace_id, alert_id, _DB_URL,
+                                             chain_hash=chain_sha)
             except Exception as _uda_e:
                 log.debug(f"[phase2] update_decision_alert_id skipped: {_uda_e}")
 

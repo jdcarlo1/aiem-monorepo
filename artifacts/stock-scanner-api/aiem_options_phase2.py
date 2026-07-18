@@ -422,12 +422,23 @@ def bootstrap_phase2(db_url: str = "") -> bool:
                     ON oe_trade_records(trace_id)
             """)
 
+            # ── Additive column migrations (idempotent) ────────────────────────
+            cur.execute("""
+                ALTER TABLE oe_strategy_candidates
+                    ADD COLUMN IF NOT EXISTS expiration   DATE,
+                    ADD COLUMN IF NOT EXISTS quantity_ratio NUMERIC(8,4)
+            """)
+            cur.execute("""
+                ALTER TABLE oe_decision_records
+                    ADD COLUMN IF NOT EXISTS execution_plan_id VARCHAR(64)
+            """)
+
             conn.commit()
 
         # Populate strategy registry (idempotent upsert)
         _seed_strategy_registry(db_url)
         _BOOTSTRAPPED = True
-        log.info(f"[phase2] bootstrap complete: 5 tables ready, "
+        log.info(f"[phase2] bootstrap complete: 6 tables ready, "
                  f"{len(_STRATEGY_CATALOG)} strategies registered")
         return True
     except Exception as e:
@@ -579,6 +590,7 @@ def capture_strategy_candidates(
                         trace_id, ticker, scan_date,
                         strategy_id, strategy_name, strategy_family,
                         direction, call_put_type, legs_json,
+                        expiration, quantity_ratio,
                         net_debit_credit, max_profit, max_loss,
                         breakeven_lower, breakeven_upper,
                         pop, ev_after_costs,
@@ -591,9 +603,9 @@ def capture_strategy_candidates(
                         full_data_json
                     ) VALUES (
                         %s,%s,%s,  %s,%s,%s,
-                        %s,%s,%s,  %s,%s,%s,
-                        %s,%s,     %s,%s,
-                        %s,%s,%s,%s,
+                        %s,%s,%s,  %s,%s,
+                        %s,%s,%s,  %s,%s,
+                        %s,%s,     %s,%s,%s,%s,
                         %s,%s,     %s,%s,
                         %s,%s,%s,  %s,%s,
                         %s,%s,%s,  %s
@@ -617,12 +629,31 @@ def _build_candidate_row(
 ) -> tuple:
     cat = {s["id"]: s for s in _STRATEGY_CATALOG}.get(strategy_id, {})
     eg  = extra_greeks or {}
+    # expiration: extract from legs[0] or top-level 'expiry'/'expiration' key
+    expiry_raw = cs.get("expiry") or cs.get("expiration")
+    if not expiry_raw:
+        legs = cs.get("legs") or []
+        expiry_raw = legs[0].get("expiry") or legs[0].get("expiration") if legs else None
+    expiry = None
+    if expiry_raw:
+        try:
+            expiry = date.fromisoformat(str(expiry_raw)[:10]) if expiry_raw else None
+        except (ValueError, TypeError):
+            expiry = None
+    # quantity_ratio: for spreads/ratios this is the leg ratio (e.g. 1:2 → 0.5)
+    qty_ratio = cs.get("quantity_ratio") or cs.get("ratio")
+    if qty_ratio is None:
+        legs = cs.get("legs") or []
+        qtys = [abs(float(l.get("quantity", 1))) for l in legs if l.get("quantity")]
+        qty_ratio = (min(qtys) / max(qtys)) if len(qtys) >= 2 and max(qtys) > 0 else 1.0
     return (
         trace_id, ticker, scan_date,
         strategy_id, strategy_name, cat.get("family"),
         cat.get("direction", cs.get("direction")),
         cat.get("call_put"),
         json.dumps(cs.get("legs") or []),
+        expiry,
+        float(qty_ratio) if qty_ratio is not None else None,
         cs.get("net_debit") or cs.get("net_credit"),
         cs.get("max_profit"),
         cs.get("max_loss"),
@@ -656,21 +687,22 @@ def _build_candidate_row(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def capture_decision_record(
-    trace_id:          str,
-    ticker:            str,
-    scan_date:         date,
-    direction:         str,
-    call_score:        float,
-    put_score:         float,
-    margin:            float,
-    call_scoring:      dict,
-    put_scoring:       dict,
-    verify_result:     dict,
-    chain_strategies:  list,
-    stock_data:        dict,
-    alert_id:          Optional[int] = None,
-    chain_hash:        Optional[str] = None,
-    db_url:            str = "",
+    trace_id:           str,
+    ticker:             str,
+    scan_date:          date,
+    direction:          str,
+    call_score:         float,
+    put_score:          float,
+    margin:             float,
+    call_scoring:       dict,
+    put_scoring:        dict,
+    verify_result:      dict,
+    chain_strategies:   list,
+    stock_data:         dict,
+    alert_id:           Optional[int] = None,
+    chain_hash:         Optional[str] = None,
+    execution_plan_id:  Optional[str] = None,
+    db_url:             str = "",
 ) -> Optional[int]:
     """
     Insert one decision record into oe_decision_records.
@@ -706,11 +738,23 @@ def capture_decision_record(
     rejected   = [c.get("strategy") for c in (chain_strategies or [])
                   if c.get("rejected")]
 
+    portfolio_result = {
+        "sector":               stock_data.get("sector"),
+        "sector_strength":      stock_data.get("sector_strength"),
+        "market_regime":        stock_data.get("market_regime"),
+        "account_balance":      stock_data.get("account_balance"),
+        "open_positions_count": stock_data.get("open_positions_count"),
+        "portfolio_heat":       stock_data.get("portfolio_heat"),
+        "portfolio_check":      verify_result.get("portfolio_check"),
+        "concentration_ok":     verify_result.get("concentration_ok"),
+        "correlation_check":    verify_result.get("correlation_check"),
+    }
     try:
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO oe_decision_records (
-                    trace_id, ticker, scan_date, alert_id, decision_ts,
+                    trace_id, ticker, scan_date, alert_id,
+                    execution_plan_id, decision_ts,
                     decision_type, candidate_count,
                     call_score, put_score, score_margin, final_direction,
                     reason_codes, feature_snapshot_json, score_breakdown_json,
@@ -718,7 +762,8 @@ def capture_decision_record(
                     risk_gate_result, portfolio_result,
                     outcome, learning_status, verification_status, chain_hash
                 ) VALUES (
-                    %s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,
+                    %s,%s,
                     %s,%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,
@@ -727,7 +772,8 @@ def capture_decision_record(
                     %s,%s,%s,%s
                 ) RETURNING id
             """, (
-                trace_id, ticker, scan_date, alert_id, datetime.utcnow(),
+                trace_id, ticker, scan_date, alert_id,
+                execution_plan_id, datetime.utcnow(),
                 decision_type, len(chain_strategies or []),
                 round(call_score, 2), round(put_score, 2), round(margin, 2), direction,
                 reason_codes,
@@ -737,7 +783,7 @@ def capture_decision_record(
                 json.dumps(qualifying or []),
                 json.dumps(rejected or []),
                 json.dumps(gate_failures, default=str),
-                json.dumps({}),
+                json.dumps(portfolio_result, default=str),
                 "OPEN" if direction in ("LONG_CALL", "LONG_PUT") else "CLOSED",
                 "PENDING",
                 "UNVERIFIED",
@@ -753,15 +799,19 @@ def capture_decision_record(
         return None
 
 
-def update_decision_alert_id(trace_id: str, alert_id: int, db_url: str = "") -> None:
-    """Back-fill alert_id on decision record after Stage 8 save."""
+def update_decision_alert_id(trace_id: str, alert_id: int,
+                             db_url: str = "",
+                             chain_hash: Optional[str] = None) -> None:
+    """Back-fill alert_id (and chain_hash when available) on decision record after Stage 8."""
     db_url = db_url or _DB_URL
     try:
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
             cur.execute("""
-                UPDATE oe_decision_records SET alert_id=%s
-                WHERE trace_id=%s AND alert_id IS NULL
-            """, (alert_id, trace_id))
+                UPDATE oe_decision_records
+                SET alert_id  = COALESCE(alert_id, %s),
+                    chain_hash = COALESCE(chain_hash, %s)
+                WHERE trace_id=%s
+            """, (alert_id, chain_hash, trace_id))
             conn.commit()
     except Exception as e:
         log.debug(f"[phase2] update_decision_alert_id failed: {e}")
@@ -1070,9 +1120,10 @@ def _calc_strategy_pnl(
             return (None, None, round(pnl, 4), round(pnl / (loss + 1e-9), 6), round(ror, 6))
 
         elif sid in ("BULL_CALL_SPREAD", "BEAR_PUT_SPREAD"):
-            debit = float(cs.get("net_debit") or mid)
-            pnl   = min(mp - debit, max(-debit, pnl := mp * 0.5 - debit))
-            ror   = pnl / debit if debit > 0 else 0.0
+            debit  = float(cs.get("net_debit") or mid)
+            est    = mp * 0.5 - debit        # 50% of max-profit as conservative estimate
+            pnl    = min(mp - debit, max(-debit, est))
+            ror    = pnl / debit if debit > 0 else 0.0
             return (debit, None, round(pnl, 4),
                     round(pnl / debit, 6) if debit > 0 else None, round(ror, 6))
 
@@ -1113,6 +1164,8 @@ def capture_trade_record(
     stock_data:      dict,
     verify_result:   dict,
     best_chain_strategy: Optional[dict] = None,
+    call_scoring:    Optional[dict] = None,
+    put_scoring:     Optional[dict] = None,
     db_url:          str = "",
 ) -> Optional[int]:
     """
@@ -1140,15 +1193,22 @@ def capture_trade_record(
                         else ("LONG_CALL" if direction == "LONG_CALL" else "LONG_PUT"))
 
         subsystem = {
-            "req6_call_score":   call_score,
-            "req6_put_score":    put_score,
+            "req6_call_score":    call_score,
+            "req6_put_score":     put_score,
             "direction_selected": direction,
-            "stock_direction":   stock_data.get("stock_direction"),
-            "market_regime":     stock_data.get("market_regime"),
-            "vwap_position":     stock_data.get("vwap_position"),
-            "close_strength":    stock_data.get("close_strength"),
-            "iv_rank":           stock_data.get("iv_rank"),
-            "gate_failures":     (verify_result.get("gate_failures") or []),
+            # Full stock_data snapshot — directive Section 8: nothing silently discarded
+            "stock_data": {k: v for k, v in stock_data.items()
+                           if not isinstance(v, (bytes, memoryview))},
+            # Full verify_result — all gate outcomes, rule results, model scores
+            "verify_result": {k: v for k, v in verify_result.items()
+                              if not isinstance(v, (bytes, memoryview))},
+            # REQ6 scoring breakdown
+            "call_scoring": {k: v for k, v in (call_scoring or {}).items()
+                             if not isinstance(v, (bytes, memoryview))}
+                            if isinstance(call_scoring, dict) else call_scoring,
+            "put_scoring": {k: v for k, v in (put_scoring or {}).items()
+                            if not isinstance(v, (bytes, memoryview))}
+                           if isinstance(put_scoring, dict) else put_scoring,
         }
 
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
@@ -1191,7 +1251,7 @@ def capture_trade_record(
                 json.dumps(greeks, default=str),
                 sel_data.get("iv"),
                 stock_data.get("market_regime"),
-                stock_data.get("sector_strength"),
+                stock_data.get("sector") or stock_data.get("sector_name"),
                 json.dumps({}),
                 json.dumps(subsystem, default=str),
             ))
