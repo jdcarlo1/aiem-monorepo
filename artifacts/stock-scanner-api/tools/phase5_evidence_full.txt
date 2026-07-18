@@ -1,0 +1,655 @@
+PHASE III / PHASE 5 — FULL RAW EVIDENCE
+Generated: 2026-07-18
+========================================================================
+
+ITEM 7 — sha256sum canonical check
+========================================================================
+
+$ sha256sum /home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run.sh
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  /home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run.sh
+
+$ sha256sum /home/runner/workspace/artifacts/stock-scanner-api/tools/verify_chain.sh
+sha256sum: /home/runner/workspace/artifacts/stock-scanner-api/tools/verify_chain.sh: No such file or directory
+
+$ find /home/runner/workspace/artifacts/stock-scanner-api -name "verify_chain.sh"
+/home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+
+$ sha256sum /home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  /home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+
+NOTE: verify_chain.sh does not live in tools/ — it is at the root of stock-scanner-api/.
+SHA matches canonical. verified_run.sh SHA matches canonical.
+
+
+========================================================================
+ITEM 1 — Raw AC-01..AC-25 terminal output
+(full contents of tools/phase5_verify_seq26.txt)
+========================================================================
+
+====== verified_run.sh ======
+SEQ=27
+TS=2026-07-18T22:31:54Z
+CMD=python verify_phase5.py
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=12a68a8d2773660f09b0ff3050364788a86c9c24
+==============================
+
+[2026-07-18T22:31:54Z] ===== verify_phase5.py START (25 acceptance checkpoints) =====
+[2026-07-18T22:31:55Z] PRE-RUN CLEANUP: truncating Phase 5 test state for clean chain...
+[2026-07-18T22:31:55Z] PRE-RUN CLEANUP: done
+
+[2026-07-18T22:31:55Z] --- AC-01: Bootstrap — 7 tables + CHECK constraints ---
+[phase5] bootstrap_phase5: all 7 tables created/verified
+[2026-07-18T22:31:55Z] PASS  AC01.bootstrap_returns_true  |  result=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_model_versions  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_weight_proposals  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_proposal_gate_results  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_challenger_runs  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_challenger_decisions  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_promotion_events  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_audit_events  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.check_constraint_challenger_runs  |  DB rejected can_place_orders=TRUE (CheckViolation)
+[2026-07-18T22:31:55Z] PASS  AC01.check_constraint_challenger_decisions  |  DB rejected can_place_orders=TRUE (CheckViolation)
+
+[2026-07-18T22:31:55Z] --- AC-02: Champion seeded from live pipeline constants ---
+[phase5] seed_initial_champion: already exists (champion_v0)
+[2026-07-18T22:31:55Z] PASS  AC02.seed_returns_version_id  |  version_id=champion_v0
+[2026-07-18T22:31:55Z] PASS  AC02.champion_v0_in_db  |  row=found
+[2026-07-18T22:31:55Z] PASS  AC02.is_active_true  |  is_active=True
+[2026-07-18T22:31:55Z] PASS  AC02.is_test_record_false  |  is_test_record=False
+[2026-07-18T22:31:55Z] PASS  AC02.config_has_min_pop  |  min_pop=0.35
+[2026-07-18T22:31:55Z] PASS  AC02.config_has_weights  |  D1=0.15
+[2026-07-18T22:31:55Z] PASS  AC02.min_pop_equals_035  |  min_pop=0.35
+[2026-07-18T22:31:55Z] PASS  AC02.max_spread_equals_020  |  max_spread_pct=0.2
+[2026-07-18T22:31:55Z] PASS  AC02.sha256_matches_config  |  stored=ceccc0c502723303... computed=ceccc0c502723303...
+[2026-07-18T22:31:55Z] INFO  champion_v0 sha256=ceccc0c502723303da6b5194... config_keys=21
+
+[2026-07-18T22:31:55Z] --- AC-03: Weight proposal created with all required fields ---
+[phase5] create_weight_proposal: ec19dd1f655a46ffa0affd99 target=min_pop proposed=0.38 status=PENDING
+[2026-07-18T22:31:55Z] PASS  AC03.proposal_created  |  status=PENDING
+[2026-07-18T22:31:55Z] PASS  AC03.proposal_id_present  |  proposal_id=ec19dd1f655a46ffa0affd99
+[2026-07-18T22:31:55Z] PASS  AC03.is_test_record_true  |  is_test_record=True
+[2026-07-18T22:31:55Z] PASS  AC03.all_fields_in_db  |  row present in DB
+[2026-07-18T22:31:55Z] PASS  AC03.target_parameter_correct  |  target_parameter=min_pop
+[2026-07-18T22:31:55Z] PASS  AC03.proposed_value_correct  |  proposed_value=0.38
+[2026-07-18T22:31:55Z] INFO  proposal ec19dd1f655a46ffa0affd99: target=min_pop proposed=0.38
+
+[2026-07-18T22:31:55Z] --- AC-04: Duplicate proposal blocked ---
+[2026-07-18T22:31:55Z] PASS  AC04.duplicate_blocked  |  reason='DUPLICATE_PROPOSAL: identical active proposal exists' status=PENDING
+[2026-07-18T22:31:55Z] PASS  AC04.returns_existing_id  |  returned_id=ec19dd1f655a46ffa0affd99 expected=ec19dd1f655a46ffa0affd99
+[2026-07-18T22:31:55Z] INFO  duplicate blocked, returned existing ec19dd1f655a46ffa0affd99
+
+[2026-07-18T22:31:55Z] --- AC-05/09/10/22: SAMPLE_SIZE + stats gates (n=0 -> INSUFFICIENT_DATA) ---
+[2026-07-18T22:31:55Z] PASS  AC05.SAMPLE_SIZE_insufficient_data  |  result=INSUFFICIENT_DATA detail={'n_graded': 2, 'min_required': 20, 'reason': 'n=2 < min_n=20'}
+[2026-07-18T22:31:55Z] PASS  AC05.sample_size_n_in_detail  |  detail={'n_graded': 2, 'min_required': 20, 'reason': 'n=2 < min_n=20'}
+[2026-07-18T22:31:55Z] PASS  AC09.STAT_SIG_insufficient_data  |  result=INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] PASS  AC10.MULTIPLE_TESTING_insufficient_data  |  result=INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] PASS  AC22.IN_SAMPLE_not_pass_when_n_lt_20  |  result=INSUFFICIENT_DATA (must not be PASS -- no false positives)
+[2026-07-18T22:31:55Z] PASS  AC22.IN_SAMPLE_insufficient_data  |  result=INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO  gate summary: n_pass=6 n_fail=0 n_insuf=12 all_passed=False
+[2026-07-18T22:31:55Z] INFO    SAMPLE_SIZE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    DATA_QUALITY: PASS
+[2026-07-18T22:31:55Z] INFO    POINT_IN_TIME: PASS
+[2026-07-18T22:31:55Z] INFO    LEAKAGE: PASS
+[2026-07-18T22:31:55Z] INFO    STATISTICAL_SIGNIFICANCE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    MULTIPLE_TESTING: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    IN_SAMPLE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    OUT_OF_SAMPLE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    WALK_FORWARD: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    REGIME: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    STRESS: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    TRANSACTION_COST: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    SLIPPAGE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    PORTFOLIO_RISK: PASS
+[2026-07-18T22:31:55Z] INFO    RUNTIME: PASS
+[2026-07-18T22:31:55Z] INFO    END_TO_END: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    RISK_GATE_INTEGRITY: PASS
+[2026-07-18T22:31:55Z] INFO    CAPITAL_PRESERVATION: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] PASS  AC05.proposal_not_validated_due_to_gates  |  all_passed=False
+
+[2026-07-18T22:31:55Z] --- AC-06/07/08: DATA_QUALITY + POINT_IN_TIME + LEAKAGE gates ---
+[2026-07-18T22:31:55Z] PASS  AC06.DATA_QUALITY_pass  |  result=PASS detail={'n_closed': 2, 'n_bad_rows': 0}
+[2026-07-18T22:31:55Z] PASS  AC07.POINT_IN_TIME_pass  |  result=PASS n_violation=0
+[2026-07-18T22:31:55Z] PASS  AC08.LEAKAGE_pass  |  result=PASS n_leaks=0
+
+[2026-07-18T22:31:55Z] --- AC-11: RISK_GATE_INTEGRITY -- min_pop=0.0 -> SAFETY_VIOLATION ---
+[phase5] create_weight_proposal: fd9f7deb03ce4568b3454ab2 target=min_pop proposed=0.0 status=SAFETY_VIOLATION
+[2026-07-18T22:31:55Z] PASS  AC11.min_pop_zero_safety_violation  |  status=SAFETY_VIOLATION reason='SAFETY_VIOLATION: proposed 0.0 < absolute floor 0.2 for min_pop'
+[2026-07-18T22:31:55Z] PASS  AC11.reason_contains_floor  |  reason='SAFETY_VIOLATION: proposed 0.0 < absolute floor 0.2 for min_pop'
+[2026-07-18T22:31:55Z] INFO  SAFETY_VIOLATION: 'SAFETY_VIOLATION: proposed 0.0 < absolute floor 0.2 for min_pop'
+[2026-07-18T22:31:55Z] PASS  AC11.safety_violation_in_db  |  db_status=SAFETY_VIOLATION
+
+[2026-07-18T22:31:55Z] --- AC-12: Portfolio risk gate -- loosening max_open blocked ---
+[phase5] create_weight_proposal: 912aaef38a394b59a3dd47ad target=max_open_positions proposed=100 status=SAFETY_VIOLATION
+[2026-07-18T22:31:55Z] PASS  AC12.loosen_portfolio_blocked  |  status=SAFETY_VIOLATION reason='SAFETY_VIOLATION: proposed 100.0 > absolute ceiling 20 for max_open_positions'
+[2026-07-18T22:31:55Z] INFO  loosen test: status=SAFETY_VIOLATION reason='SAFETY_VIOLATION: proposed 100.0 > absolute ceiling 20 for max_open_positions'
+
+[2026-07-18T22:31:55Z] --- AC-13: Challenger creation BLOCKED when gates not PASS ---
+[2026-07-18T22:31:55Z] PASS  AC13.challenger_blocked_without_validation  |  error='CHALLENGER_BLOCKED' reason='proposal status=VALIDATING (need VALIDATED)'
+[2026-07-18T22:31:55Z] PASS  AC13.blocking_gates_listed  |  blocking_gates=[{'gate_name': 'CAPITAL_PRESERVATION', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'END_TO_END', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'IN_SAMPLE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'MULTIPLE_TESTING', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'OUT_OF_SAMPLE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'REGIME', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'SAMPLE_SIZE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'SLIPPAGE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'STATISTICAL_SIGNIFICANCE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'STRESS', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'TRANSACTION_COST', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'WALK_FORWARD', 'gate_result': 'INSUFFICIENT_DATA'}]
+[2026-07-18T22:31:55Z] INFO  challenger blocked: 12 blocking gates
+
+[2026-07-18T22:31:55Z] --- AC-14: Challenger created (_test_bypass) -- can_place_orders=FALSE ---
+[phase5] create_challenger: challenger_8f218f59f858 run=run_e8e7afa4fbe8 champion=champion_v0 is_test=True can_place_orders=FALSE
+[2026-07-18T22:31:55Z] PASS  AC14.challenger_created  |  challenger_version_id=challenger_8f218f59f858
+[2026-07-18T22:31:55Z] PASS  AC14.can_place_orders_false  |  can_place_orders=False
+[2026-07-18T22:31:55Z] PASS  AC14.is_test_record_true  |  is_test_record=True
+[2026-07-18T22:31:55Z] PASS  AC14.run_in_db  |  run_id=run_e8e7afa4fbe8
+[2026-07-18T22:31:55Z] PASS  AC14.db_can_place_orders_false  |  db.can_place_orders=False
+[2026-07-18T22:31:55Z] INFO  DB run: can_place_orders=False is_test=True
+[2026-07-18T22:31:55Z] INFO  challenger challenger_8f218f59f858 run=run_e8e7afa4fbe8
+[2026-07-18T22:31:55Z] INFO  AC15.check_constraint_verified_in_AC01  |  CHECK(can_place_orders=FALSE) tested in AC-01 -- see results above
+
+[2026-07-18T22:31:55Z] --- AC-16: Unverified-update prevention -- promote without gates -> BLOCKED ---
+[2026-07-18T22:31:55Z] PASS  AC16.promote_without_validation_blocked  |  error='PROMOTION_BLOCKED' reason='proposal status=VALIDATING (need VALIDATED)'
+[2026-07-18T22:31:55Z] PASS  AC16.gate_summary_shows_failures  |  gate_summary={'n_pass': 6, 'n_fail': 0, 'n_insufficient_data': 12}
+
+[2026-07-18T22:31:55Z] --- AC-17: Rollback test (test namespace) -- promote, rollback, sha256 proof ---
+[2026-07-18T22:31:56Z] INFO  test_rb_v0=test_rb_v0_503f853d sha256=cbbf21596662ba9b6570853f...
+[phase5] promote_challenger: challenger_8f218f59f858 -> champion_ebdf5f6eb381 prior=champion_v0 is_test=True
+[2026-07-18T22:31:56Z] PASS  AC17.promote_v2_created  |  new_champion_id=champion_ebdf5f6eb381 is_test=True
+[2026-07-18T22:31:56Z] PASS  AC17.v2_sha_differs_from_rb_v0  |  v2_sha=9c4fa381fe0b6fc3... rb_v0_sha=cbbf21596662ba9b...
+[2026-07-18T22:31:56Z] INFO  promoted to champion_ebdf5f6eb381 sha256=9c4fa381fe0b6fc30b9204f8...
+[2026-07-18T22:31:56Z] PASS  AC17.rb_v0_displaced_after_promotion  |  is_active=False
+[phase5] rollback_champion: champion_ebdf5f6eb381 -> test_rb_v0_503f853d sha256=cbbf21596662ba9b... is_test=True
+[2026-07-18T22:31:56Z] PASS  AC17.rollback_returns_rolled_back  |  status=ROLLED_BACK reason='None'
+[2026-07-18T22:31:56Z] PASS  AC17.rollback_to_version_is_rb_v0  |  to_version=test_rb_v0_503f853d
+[2026-07-18T22:31:56Z] PASS  AC17.rollback_from_version_is_v2  |  from_version=champion_ebdf5f6eb381
+[2026-07-18T22:31:56Z] PASS  AC17.restored_sha256_matches_rb_v0  |  restored_sha=cbbf21596662ba9b6570853f... rb_v0_sha=cbbf21596662ba9b6570853f...
+[2026-07-18T22:31:56Z] PASS  AC17.db_rb_v0_is_active  |  is_active=True
+[2026-07-18T22:31:56Z] PASS  AC17.db_rb_v0_sha256_intact  |  db_sha=cbbf21596662ba9b...
+[2026-07-18T22:31:56Z] INFO  ROLLBACK PROOF: test_v2(9c4fa381fe0b...) -> test_rb_v0(cbbf21596662...) sha_match=True
+
+[2026-07-18T22:31:56Z] --- AC-18: Restart-persistence -- bootstrap re-run is idempotent ---
+[phase5] bootstrap_phase5: all 7 tables created/verified
+[2026-07-18T22:31:56Z] PASS  AC18.bootstrap_idempotent_returns_true  |  result=True
+[2026-07-18T22:31:56Z] PASS  AC18.row_count_unchanged  |  before=3 after=3
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_model_versions
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_weight_proposals
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_proposal_gate_results
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_challenger_runs
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_challenger_decisions
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_promotion_events
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_audit_events
+[2026-07-18T22:31:56Z] INFO  all 7 tables survive re-run, row counts unchanged
+
+[2026-07-18T22:31:56Z] --- AC-19: Duplicate-event prevention -- same event_id blocked ---
+[2026-07-18T22:31:56Z] PASS  AC19.duplicate_event_id_blocked  |  original_hash=b5cb20895c3b5cc6... unchanged=True
+[2026-07-18T22:31:56Z] PASS  AC19.duplicate_hash_chain_self_blocked  |  DB rejected duplicate hash_chain_self (UniqueViolation)
+
+[2026-07-18T22:31:56Z] --- AC-20: Trace continuity -- proposal_id threads through gate_results + audit ---
+[2026-07-18T22:31:56Z] PASS  AC20.gate_results_have_proposal_id  |  gate_rows=18 expected=18
+[2026-07-18T22:31:56Z] PASS  AC20.audit_events_have_proposal_id  |  audit_rows=6
+[2026-07-18T22:31:56Z] INFO  proposal_id=ec19dd1f655a46ffa0affd99: gate_rows=18 audit_rows=6
+
+[2026-07-18T22:31:56Z] --- AC-21: Hash-chain verification -- walk full chain ---
+[2026-07-18T22:31:56Z] INFO  audit chain: n_events=10 n_broken=0 chain_valid=True
+[2026-07-18T22:31:56Z] PASS  AC21.chain_valid  |  n_broken=0 first_break=None
+[2026-07-18T22:31:56Z] PASS  AC21.chain_has_events  |  n_events=10
+[2026-07-18T22:31:56Z] PASS  AC21.no_broken_links  |  n_broken=0
+[2026-07-18T22:31:56Z] INFO    chain[001] PROPOSAL_CREATED               d7b83bbe328899b8...
+[2026-07-18T22:31:56Z] INFO    chain[002] GATES_EVALUATED                caaaea3cbf49a498...
+[2026-07-18T22:31:56Z] INFO    chain[003] GATES_EVALUATED                ad127237df79b7a5...
+[2026-07-18T22:31:56Z] INFO    chain[004] PROPOSAL_SAFETY_REJECTED       a345fe6c3b9c1aaa...
+[2026-07-18T22:31:56Z] INFO    chain[005] PROPOSAL_SAFETY_REJECTED       0c009961937d2bb6...
+[2026-07-18T22:31:56Z] INFO    chain[006] CHALLENGER_CREATED             7a8e7182f7202b96...
+[2026-07-18T22:31:56Z] INFO    chain[007] GATES_EVALUATED                bb7975a5876203b8...
+[2026-07-18T22:31:56Z] INFO    chain[008] CHALLENGER_PROMOTED            783fcb8ec963662d...
+[2026-07-18T22:31:56Z] INFO    chain[009] CHAMPION_ROLLED_BACK           03d356540ea6c902...
+[2026-07-18T22:31:56Z] INFO    chain[010] TEST_EVENT                     b5cb20895c3b5cc6...
+
+[2026-07-18T22:31:56Z] --- AC-23: Registry proof -- indicator + pattern + strategy counts ---
+[2026-07-18T22:31:56Z] PASS  AC23.indicator_registry_queryable  |  count=0 (populated lazily by scan runs)
+[2026-07-18T22:31:56Z] PASS  AC23.pattern_registry_queryable  |  count=0
+[2026-07-18T22:31:56Z] PASS  AC23.strategy_registry_populated  |  count=42
+[2026-07-18T22:31:56Z] INFO  registries: indicators=0 patterns=0 strategies=42
+
+[2026-07-18T22:31:56Z] --- AC-24: Code path grep -- 18 gate names in phase5 module ---
+[2026-07-18T22:31:56Z] PASS  AC24.gate_SAMPLE_SIZE_in_source  |  gate='SAMPLE_SIZE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_DATA_QUALITY_in_source  |  gate='DATA_QUALITY' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_POINT_IN_TIME_in_source  |  gate='POINT_IN_TIME' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_LEAKAGE_in_source  |  gate='LEAKAGE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_STATISTICAL_SIGNIFICANCE_in_source  |  gate='STATISTICAL_SIGNIFICANCE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_MULTIPLE_TESTING_in_source  |  gate='MULTIPLE_TESTING' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_IN_SAMPLE_in_source  |  gate='IN_SAMPLE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_OUT_OF_SAMPLE_in_source  |  gate='OUT_OF_SAMPLE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_WALK_FORWARD_in_source  |  gate='WALK_FORWARD' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_REGIME_in_source  |  gate='REGIME' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_STRESS_in_source  |  gate='STRESS' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_TRANSACTION_COST_in_source  |  gate='TRANSACTION_COST' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_SLIPPAGE_in_source  |  gate='SLIPPAGE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_PORTFOLIO_RISK_in_source  |  gate='PORTFOLIO_RISK' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_RUNTIME_in_source  |  gate='RUNTIME' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_END_TO_END_in_source  |  gate='END_TO_END' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_RISK_GATE_INTEGRITY_in_source  |  gate='RISK_GATE_INTEGRITY' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_CAPITAL_PRESERVATION_in_source  |  gate='CAPITAL_PRESERVATION' found=True
+[2026-07-18T22:31:56Z] PASS  AC24._VALIDATION_GATES_constant_present  |  _VALIDATION_GATES defined
+[2026-07-18T22:31:56Z] PASS  AC24.db_has_18_distinct_gate_results  |  distinct gates in DB=18 expected=18
+[2026-07-18T22:31:56Z] INFO  all 18 gate names present, DB gate rows=18
+
+[2026-07-18T22:31:56Z] --- AC-25: Promotion event audit -- promotion creates oe_promotion_events row ---
+[2026-07-18T22:31:56Z] PASS  AC25.promotion_events_exist  |  count=2
+[2026-07-18T22:31:56Z] INFO  promotion_event: action=PROMOTED challenger=challenger_8f218f59f858 prior=champion_v0 new=champion_ebdf5f6eb381
+[2026-07-18T22:31:56Z] INFO  promotion_event: action=ROLLED_BACK challenger=N/A prior=champion_ebdf5f6eb381 new=test_rb_v0_503f853d
+[2026-07-18T22:31:56Z] PASS  AC25.audit_event_for_promotion_exists  |  CHALLENGER_PROMOTED audit events=1
+[2026-07-18T22:31:56Z] PASS  AC25.audit_event_for_rollback_exists  |  CHAMPION_ROLLED_BACK audit events=1
+
+[2026-07-18T22:31:56Z] --- SCHEDULER WIRING CHECK ---
+[2026-07-18T22:31:56Z] PASS  SCHED.phase5_import  |  grep_count=2
+[2026-07-18T22:31:56Z] PASS  SCHED.bootstrap_phase5  |  grep_count=1
+[2026-07-18T22:31:56Z] PASS  SCHED.seed_initial_champion  |  grep_count=1
+[2026-07-18T22:31:56Z] PASS  SCHED.governance_summary  |  grep_count=1
+
+[2026-07-18T22:31:56Z] --- GOVERNANCE STATE ---
+[2026-07-18T22:31:56Z] INFO  active_champion: {'version_id': 'champion_v0', 'config_sha256': 'ceccc0c502723303da6b51943c3cb2312f664fef8ff5507c17a97cd82d203323'}
+[2026-07-18T22:31:56Z] INFO  proposals: {}
+[2026-07-18T22:31:56Z] INFO  promotions: {}
+[2026-07-18T22:31:56Z] INFO  audit_events: 10
+
+[2026-07-18T22:31:56Z] ===== SUMMARY =====
+[2026-07-18T22:31:56Z] PASS=105  FAIL=0  INFO=1  TOTAL_CHECKS=105
+[2026-07-18T22:31:56Z] OVERALL: PASS
+
+==============================
+SEQ=27  EXIT=0  TS_END=2026-07-18T22:31:56Z
+sha256(log)=36752b9993a25aa3af28ba091f2254b8f42cfb386ddd92ba38ffac623b1d0db7
+==============================
+
+
+========================================================================
+ITEM 2 — Raw SQL queries + full result sets
+========================================================================
+
+--- AC-02: SELECT version_id,version_type,config_sha256,is_active,is_test_record,promoted_by,created_at FROM oe_model_versions WHERE version_id='champion_v0' ---
+{'version_id': 'champion_v0', 'version_type': 'CHAMPION', 'config_sha256': 'ceccc0c502723303da6b51943c3cb2312f664fef8ff5507c17a97cd82d203323', 'is_active': True, 'is_test_record': False, 'promoted_by': 'bootstrap', 'created_at': datetime.datetime(2026, 7, 18, 22, 22, 45, 373245, tzinfo=datetime.timezone.utc)}
+
+--- AC-02: SELECT config_json FROM oe_model_versions WHERE version_id='champion_v0' ---
+keys: ['fdr_alpha', 'max_open_positions', 'max_single_ticker', 'max_spread_pct', 'max_total_risk_usd', 'min_n_for_stats', 'min_pop', 'source', 'version_label', 'weight_D10_technical_confirmation', 'weight_D11_options_flow_confirmation', 'weight_D12_historical_performance', 'weight_D1_directional_probability', 'weight_D2_prob_reach_target', 'weight_D3_expected_return', 'weight_D4_max_premium_loss', 'weight_D5_risk_reward', 'weight_D6_liquidity', 'weight_D7_slippage', 'weight_D8_theta_decay_risk', 'weight_D9_market_regime_fit']
+min_pop: 0.35
+max_spread_pct: 0.2
+full config:
+{
+  "source": "pipeline_constants_2026_07_18",
+  "min_pop": 0.35,
+  "fdr_alpha": 0.05,
+  "version_label": "champion_v0",
+  "max_spread_pct": 0.2,
+  "min_n_for_stats": 20,
+  "max_single_ticker": 2,
+  "max_open_positions": 10,
+  "max_total_risk_usd": 20000.0,
+  "weight_D7_slippage": 0.07,
+  "weight_D6_liquidity": 0.08,
+  "weight_D5_risk_reward": 0.1,
+  "weight_D3_expected_return": 0.08,
+  "weight_D4_max_premium_loss": 0.05,
+  "weight_D8_theta_decay_risk": 0.08,
+  "weight_D2_prob_reach_target": 0.12,
+  "weight_D9_market_regime_fit": 0.1,
+  "weight_D10_technical_confirmation": 0.08,
+  "weight_D12_historical_performance": 0.02,
+  "weight_D1_directional_probability": 0.15,
+  "weight_D11_options_flow_confirmation": 0.07
+}
+
+--- AC-23: SELECT COUNT(*) FROM oe_indicator_registry ---
+[RealDictRow([('n', 0)])]
+
+--- AC-23: SELECT COUNT(*) FROM oe_pattern_registry ---
+[RealDictRow([('n', 0)])]
+
+--- AC-23: SELECT COUNT(*) FROM oe_strategy_registry ---
+[RealDictRow([('n', 42)])]
+
+--- AC-23: SELECT column_name FROM information_schema.columns WHERE table_name='oe_strategy_registry' ORDER BY ordinal_position ---
+['id', 'strategy_id', 'name', 'family', 'direction', 'call_put_type', 'risk_profile', 'max_legs', 'defined_risk', 'enabled', 'registered_at']
+
+--- AC-23: SELECT * FROM oe_strategy_registry LIMIT 10 ---
+{'id': 1,  'strategy_id': 'LONG_CALL',       'name': 'Long Call',               'family': 'directional', 'direction': 'BULLISH',      'call_put_type': 'CALL', 'risk_profile': 'DEFINED_RISK',   'max_legs': 1, 'defined_risk': True,  'enabled': True}
+{'id': 2,  'strategy_id': 'LONG_PUT',        'name': 'Long Put',                'family': 'directional', 'direction': 'BEARISH',      'call_put_type': 'PUT',  'risk_profile': 'DEFINED_RISK',   'max_legs': 1, 'defined_risk': True,  'enabled': True}
+{'id': 3,  'strategy_id': 'SHORT_CALL',      'name': 'Short (Naked) Call',      'family': 'directional', 'direction': 'BEARISH',      'call_put_type': 'CALL', 'risk_profile': 'UNDEFINED_RISK', 'max_legs': 1, 'defined_risk': False, 'enabled': True}
+{'id': 4,  'strategy_id': 'SHORT_PUT',       'name': 'Short Put',               'family': 'directional', 'direction': 'BULLISH',      'call_put_type': 'PUT',  'risk_profile': 'UNDEFINED_RISK', 'max_legs': 1, 'defined_risk': False, 'enabled': True}
+{'id': 5,  'strategy_id': 'COVERED_CALL',    'name': 'Covered Call',            'family': 'income',      'direction': 'NEUTRAL_BULL', 'call_put_type': 'CALL', 'risk_profile': 'COVERED',        'max_legs': 2, 'defined_risk': True,  'enabled': True}
+{'id': 6,  'strategy_id': 'CSP',             'name': 'Cash-Secured Put (CSP)',  'family': 'income',      'direction': 'NEUTRAL_BULL', 'call_put_type': 'PUT',  'risk_profile': 'DEFINED_RISK',   'max_legs': 1, 'defined_risk': True,  'enabled': True}
+{'id': 7,  'strategy_id': 'PROTECTIVE_PUT',  'name': 'Protective Put',          'family': 'income',      'direction': 'NEUTRAL_BULL', 'call_put_type': 'PUT',  'risk_profile': 'DEFINED_RISK',   'max_legs': 2, 'defined_risk': True,  'enabled': True}
+{'id': 8,  'strategy_id': 'COLLAR',          'name': 'Collar',                  'family': 'income',      'direction': 'NEUTRAL',      'call_put_type': 'BOTH', 'risk_profile': 'DEFINED_RISK',   'max_legs': 3, 'defined_risk': True,  'enabled': True}
+{'id': 9,  'strategy_id': 'BULL_CALL_SPREAD','name': 'Bull Call Spread',        'family': 'vertical',    'direction': 'BULLISH',      'call_put_type': 'CALL', 'risk_profile': 'DEFINED_RISK',   'max_legs': 2, 'defined_risk': True,  'enabled': True}
+{'id': 10, 'strategy_id': 'BEAR_PUT_SPREAD', 'name': 'Bear Put Spread',         'family': 'vertical',    'direction': 'BEARISH',      'call_put_type': 'PUT',  'risk_profile': 'DEFINED_RISK',   'max_legs': 2, 'defined_risk': True,  'enabled': True}
+
+--- AC-24: SELECT gate_name, gate_result, gate_detail FROM oe_proposal_gate_results WHERE proposal_id='ec19dd1f655a46ffa0affd99' ORDER BY gate_name ---
+COUNT: 18
+{'gate_name': 'CAPITAL_PRESERVATION',    'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'DATA_QUALITY',            'gate_result': 'PASS',              'gate_detail': {'n_closed': 2, 'n_bad_rows': 0}}
+{'gate_name': 'END_TO_END',              'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'IN_SAMPLE',               'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'LEAKAGE',                 'gate_result': 'PASS',              'gate_detail': {'n_leaks': 0}}
+{'gate_name': 'MULTIPLE_TESTING',        'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'OUT_OF_SAMPLE',           'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'POINT_IN_TIME',           'gate_result': 'PASS',              'gate_detail': {'n_violation': 0}}
+{'gate_name': 'PORTFOLIO_RISK',          'gate_result': 'PASS',              'gate_detail': {'note': 'non-portfolio parameter -- gate not applicable'}}
+{'gate_name': 'REGIME',                  'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'RISK_GATE_INTEGRITY',     'gate_result': 'PASS',              'gate_detail': {'proposed_value': 0.38, 'target_parameter': 'min_pop'}}
+{'gate_name': 'RUNTIME',                 'gate_result': 'PASS',              'gate_detail': {'note': 'pure parameter change -- no runtime impact'}}
+{'gate_name': 'SAMPLE_SIZE',             'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'SLIPPAGE',                'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'STATISTICAL_SIGNIFICANCE','gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'STRESS',                  'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'TRANSACTION_COST',        'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+{'gate_name': 'WALK_FORWARD',            'gate_result': 'INSUFFICIENT_DATA', 'gate_detail': {'reason': 'n=2 < min_n=20; no statistical claim possible', 'n_graded': 2, 'min_required': 20}}
+
+--- AC-21: SELECT id, event_type, hash_chain_prev, hash_chain_self, created_at FROM oe_audit_events ORDER BY id ---
+{'id': 1,  'event_type': 'PROPOSAL_CREATED',        'hash_chain_prev': 'GENESIS',                                                              'hash_chain_self': 'd7b83bbe328899b8bb94d8dcbad30e91f435d70842d087507a3401fc5e6e1bb2', 'created_at': '2026-07-18T22:31:55Z'}
+{'id': 2,  'event_type': 'GATES_EVALUATED',          'hash_chain_prev': 'd7b83bbe328899b8bb94d8dcbad30e91f435d70842d087507a3401fc5e6e1bb2', 'hash_chain_self': 'caaaea3cbf49a498b7f9887b3b9bfe8700433e889487fa57f387beaf3a984d52', 'created_at': '2026-07-18T22:31:55Z'}
+{'id': 3,  'event_type': 'GATES_EVALUATED',          'hash_chain_prev': 'caaaea3cbf49a498b7f9887b3b9bfe8700433e889487fa57f387beaf3a984d52', 'hash_chain_self': 'ad127237df79b7a5423c0c9bd1f62c7ad00ee18304983410b4e1f1248a5bfd3a', 'created_at': '2026-07-18T22:31:55Z'}
+{'id': 4,  'event_type': 'PROPOSAL_SAFETY_REJECTED', 'hash_chain_prev': 'ad127237df79b7a5423c0c9bd1f62c7ad00ee18304983410b4e1f1248a5bfd3a', 'hash_chain_self': 'a345fe6c3b9c1aaa96d4bbf25f9f6fbccea31d73536ecb134822d3ce54d8f04b', 'created_at': '2026-07-18T22:31:55Z'}
+{'id': 5,  'event_type': 'PROPOSAL_SAFETY_REJECTED', 'hash_chain_prev': 'a345fe6c3b9c1aaa96d4bbf25f9f6fbccea31d73536ecb134822d3ce54d8f04b', 'hash_chain_self': '0c009961937d2bb630f2e65c4fbf0a7b0c17df66857cf979f98f2bbb865492f8', 'created_at': '2026-07-18T22:31:55Z'}
+{'id': 6,  'event_type': 'CHALLENGER_CREATED',       'hash_chain_prev': '0c009961937d2bb630f2e65c4fbf0a7b0c17df66857cf979f98f2bbb865492f8', 'hash_chain_self': '7a8e7182f7202b965dc1b9f0c229ca6ac9ec7d54564404fc036e7a91df35b0d6', 'created_at': '2026-07-18T22:31:55Z'}
+{'id': 7,  'event_type': 'GATES_EVALUATED',          'hash_chain_prev': '7a8e7182f7202b965dc1b9f0c229ca6ac9ec7d54564404fc036e7a91df35b0d6', 'hash_chain_self': 'bb7975a5876203b80fba7d8f5270dca810e31f119733e0cf94474c65132c4129', 'created_at': '2026-07-18T22:31:55Z'}
+{'id': 8,  'event_type': 'CHALLENGER_PROMOTED',      'hash_chain_prev': 'bb7975a5876203b80fba7d8f5270dca810e31f119733e0cf94474c65132c4129', 'hash_chain_self': '783fcb8ec963662d8285dd8d3dba114b63e79cc5f561a24625182b97e39b6f51', 'created_at': '2026-07-18T22:31:56Z'}
+{'id': 9,  'event_type': 'CHAMPION_ROLLED_BACK',     'hash_chain_prev': '783fcb8ec963662d8285dd8d3dba114b63e79cc5f561a24625182b97e39b6f51', 'hash_chain_self': '03d356540ea6c902b317a74e03254fd7805184e13264634bc59df50559727309', 'created_at': '2026-07-18T22:31:56Z'}
+{'id': 10, 'event_type': 'TEST_EVENT',               'hash_chain_prev': '03d356540ea6c902b317a74e03254fd7805184e13264634bc59df50559727309', 'hash_chain_self': 'b5cb20895c3b5cc62b2744cbf22d9aeba85c8ca400a86b92e6f068a96c42a6fa', 'created_at': '2026-07-18T22:31:56Z'}
+
+--- AC-25: SELECT * FROM oe_promotion_events ORDER BY id ---
+{'id': 8, 'event_id': 'e5495d66d40e409f968d9cd2', 'challenger_version_id': 'challenger_8f218f59f858', 'prior_champion_id': 'champion_v0',           'new_champion_id': 'champion_ebdf5f6eb381',    'action': 'PROMOTED',    'gates_passed': 18, 'gates_failed': 0, 'gates_total': 18, 'rejected_reason': None,                                  'is_test_record': True}
+{'id': 9, 'event_id': '13f70387fef5463b89ba1c48', 'challenger_version_id': 'N/A',                    'prior_champion_id': 'champion_ebdf5f6eb381', 'new_champion_id': 'test_rb_v0_503f853d',     'action': 'ROLLED_BACK', 'gates_passed': 0,  'gates_failed': 0, 'gates_total': 18, 'rejected_reason': 'manual rollback from champion_ebdf5f6eb381', 'is_test_record': True}
+
+
+========================================================================
+ITEM 3 — grep -n / sed -n for code-location claims
+========================================================================
+
+--- grep -n 18 gate names in aiem_options_phase5.py (excluding comments) ---
+
+73:    "SAMPLE_SIZE",
+74:    "DATA_QUALITY",
+75:    "POINT_IN_TIME",
+76:    "LEAKAGE",
+77:    "STATISTICAL_SIGNIFICANCE",
+78:    "MULTIPLE_TESTING",
+79:    "IN_SAMPLE",
+80:    "OUT_OF_SAMPLE",
+81:    "WALK_FORWARD",
+82:    "REGIME",
+83:    "STRESS",
+84:    "TRANSACTION_COST",
+85:    "SLIPPAGE",
+86:    "PORTFOLIO_RISK",
+87:    "RUNTIME",
+88:    "END_TO_END",
+89:    "RISK_GATE_INTEGRITY",
+90:    "CAPITAL_PRESERVATION",
+701:        _save_gate("SAMPLE_SIZE", r1, d1)
+705:        _save_gate("DATA_QUALITY", r2, d2)
+709:        _save_gate("POINT_IN_TIME", r3, d3)
+713:        _save_gate("LEAKAGE", r4, d4)
+716:        r5, d5 = _run_gate_statistical(n_graded, "STATISTICAL_SIGNIFICANCE")
+717:        _save_gate("STATISTICAL_SIGNIFICANCE", r5, d5)
+719:        r6, d6 = _run_gate_statistical(n_graded, "MULTIPLE_TESTING")
+720:        _save_gate("MULTIPLE_TESTING", r6, d6)
+723:        for gate in ("IN_SAMPLE", "OUT_OF_SAMPLE", "WALK_FORWARD",
+724:                     "REGIME", "STRESS", "TRANSACTION_COST", "SLIPPAGE"):
+743:                    _save_gate("PORTFOLIO_RISK", "FAIL", ...)
+747:                    _save_gate("PORTFOLIO_RISK", "PASS", ...)
+750:                _save_gate("PORTFOLIO_RISK", "PASS", ...)
+753:            _save_gate("PORTFOLIO_RISK", "PASS", ...)
+757:        _save_gate("RUNTIME", "PASS", {"note": "pure parameter change -- no runtime impact"})
+760:        rg16, dg16 = _run_gate_statistical(n_graded, "END_TO_END")
+761:        _save_gate("END_TO_END", rg16, dg16)
+765:        _save_gate("RISK_GATE_INTEGRITY", r17, d17)
+768:        rg18, dg18 = _run_gate_statistical(n_graded, "CAPITAL_PRESERVATION")
+769:        _save_gate("CAPITAL_PRESERVATION", rg18, dg18)
+
+--- sed -n '44,90p' aiem_options_phase5.py (_WHITELISTED_PARAMETERS + _VALIDATION_GATES) ---
+
+_WHITELISTED_PARAMETERS: Dict[str, dict] = {
+    # Risk-gate thresholds
+    "min_pop":               {"floor": 0.20,   "ceil": 0.70,  "type": "float"},
+    "max_spread_pct":        {"floor": 0.05,   "ceil": 0.50,  "type": "float"},
+    # Scoring dimension weights
+    "weight_D1_directional_probability":    {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D2_prob_reach_target":          {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D3_expected_return":            {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D4_max_premium_loss":           {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D5_risk_reward":                {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D6_liquidity":                  {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D7_slippage":                   {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D8_theta_decay_risk":           {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D9_market_regime_fit":          {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D10_technical_confirmation":    {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D11_options_flow_confirmation": {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    "weight_D12_historical_performance":    {"floor": 0.01, "ceil": 0.40, "type": "float"},
+    # Portfolio limits
+    "max_open_positions":    {"floor": 5,      "ceil": 20,    "type": "int"},
+    "max_single_ticker":     {"floor": 1,      "ceil": 5,     "type": "int"},
+    "max_total_risk_usd":    {"floor": 10_000, "ceil": 50_000,"type": "float"},
+    # Attribution learning
+    "fdr_alpha":             {"floor": 0.01,   "ceil": 0.10,  "type": "float"},
+    "min_n_for_stats":       {"floor": 20,     "ceil": 100,   "type": "int"},
+}
+
+_VALIDATION_GATES: List[str] = [
+    "SAMPLE_SIZE",
+    "DATA_QUALITY",
+    "POINT_IN_TIME",
+    "LEAKAGE",
+    "STATISTICAL_SIGNIFICANCE",
+    "MULTIPLE_TESTING",
+    "IN_SAMPLE",
+    "OUT_OF_SAMPLE",
+    "WALK_FORWARD",
+    "REGIME",
+    "STRESS",
+    "TRANSACTION_COST",
+    "SLIPPAGE",
+    "PORTFOLIO_RISK",
+    "RUNTIME",
+    "END_TO_END",
+    "RISK_GATE_INTEGRITY",
+    "CAPITAL_PRESERVATION",
+]
+
+
+========================================================================
+ITEM 4 — git diff HEAD --stat + patch for session commit 6a0382c1
+========================================================================
+
+commit 6a0382c1322563d1337e884fdaa4472b48ef4e4c (HEAD -> main)
+Author: Replit Agent <agent@replit.com>
+Date:   Sat Jul 18 22:33:17 2026 +0000
+
+    Update options engine to ensure data integrity and secure chain verification
+
+ .agents/memory/MEMORY.md                                  |    1 +
+ .agents/memory/options-phase5-governance.md               |   52 +
+ artifacts/stock-scanner-api/aiem_options_phase5.py        | 1276 ++++++++++++++++++++
+ artifacts/stock-scanner-api/aiem_options_scheduler.py     |   18 +
+ artifacts/stock-scanner-api/tools/phase5_verify_seq26.txt |  240 ++++
+ artifacts/stock-scanner-api/verify_phase5.py              |  896 ++++++++++++++
+ ...PHASE-5-ADAPTI_1784412714466.txt                       |   89 ++
+ 7 files changed, 2572 insertions(+)
+
+aiem_options_phase5.py  -- new file (1276 lines), all insertions.
+verify_phase5.py        -- new file (896 lines), all insertions.
+
+aiem_options_scheduler.py diff (net +18 lines):
+
+@@ -745,6 +745,17 @@ def _execute_job(...):
++    try:
++        import aiem_options_phase5 as _p5
++        _p5.bootstrap_phase5(_DB_URL)
++        _p5.seed_initial_champion(_DB_URL)
++        _p5_ready = True
++    except Exception as _p5_init_e:
++        log.warning(f"[phase5] init failed: {_p5_init_e}")
++        _p5_ready = False
++        _p5       = None
+
+@@ -2064,6 +2075,13 @@ def grade_outcomes_job() -> dict:
++        try:
++            import aiem_options_phase5 as _p5g
++            _p5g_summary = _p5g.get_governance_summary(db_url=_DB_URL)
++            log.info(f"[phase5] governance: {_p5g_summary}")
++        except Exception as _p5g_e:
++            log.warning(f"[phase5] grade_outcomes_job p5 step failed: {_p5g_e}")
+
+No deletions. No row/table/file removals. All changes are pure additions.
+
+
+========================================================================
+ITEM 5 — Options-math independent test vectors + mutation check
+========================================================================
+
+Script: /tmp/mutation_test_v2.py
+Run: cd artifacts/stock-scanner-api && python3 /tmp/mutation_test_v2.py; echo "EXIT=$?"
+
+Externally-observed anchors used for TV-01/TV-02 known answers (not agent-invented):
+  verify_chain.sh output for live alert_id=25:
+    "PoP < 35% -- below minimum threshold (value=0.28)"     -> confirms 0.35 is live pipeline PoP gate threshold
+    "bid/ask spread > 20% of mid (value=0.2399)"            -> confirms 0.20 is live pipeline spread gate threshold
+  Both strings from aiem_options_alerts.gate_failures column (live DB, not test data).
+
+Output:
+OK    TV-01 _INITIAL_CHAMPION_CONFIG[min_pop]
+      got=0.35  expected=0.35
+OK    TV-02 _INITIAL_CHAMPION_CONFIG[max_spread_pct]
+      got=0.2  expected=0.2
+OK    TV-03 _WHITELISTED_PARAMETERS[min_pop][floor]
+      got=0.2  expected=0.2
+OK    TV-04 _WHITELISTED_PARAMETERS[min_pop][ceil]
+      got=0.7  expected=0.7
+OK    TV-05 _WHITELISTED_PARAMETERS[max_spread_pct][floor]
+      got=0.05  expected=0.05
+OK    TV-06 _WHITELISTED_PARAMETERS[max_spread_pct][ceil]
+      got=0.5  expected=0.5
+[phase5] create_weight_proposal: c5c23fa199c74283a1ad0025 target=min_pop proposed=0.19 status=SAFETY_VIOLATION
+OK    TV-07 min_pop=0.19 status=SAFETY_VIOLATION
+      got='SAFETY_VIOLATION'  expected='SAFETY_VIOLATION'
+OK    TV-07 min_pop=0.19 reason contains '0.2'
+      got=True  expected=True
+      full reason: 'SAFETY_VIOLATION: proposed 0.19 < absolute floor 0.2 for min_pop'
+[phase5] create_weight_proposal: 62d4f2e346744c97905518f8 target=min_pop proposed=0.71 status=SAFETY_VIOLATION
+OK    TV-08 min_pop=0.71 status=SAFETY_VIOLATION
+      got='SAFETY_VIOLATION'  expected='SAFETY_VIOLATION'
+      full reason: 'SAFETY_VIOLATION: proposed 0.71 > absolute ceiling 0.7 for min_pop'
+[phase5] create_weight_proposal: 8db218bc36f74d61b428394d target=max_spread_pct proposed=0.04 status=SAFETY_VIOLATION
+OK    TV-09 max_spread_pct=0.04 status=SAFETY_VIOLATION
+      got='SAFETY_VIOLATION'  expected='SAFETY_VIOLATION'
+      full reason: 'SAFETY_VIOLATION: proposed 0.04 < absolute floor 0.05 for max_spread_pct'
+[phase5] create_weight_proposal: 878d767c4ad64a7283a81a1b target=max_open_positions proposed=100 status=SAFETY_VIOLATION
+OK    TV-10 max_open_positions=100 status=SAFETY_VIOLATION
+      got='SAFETY_VIOLATION'  expected='SAFETY_VIOLATION'
+      full reason: 'SAFETY_VIOLATION: proposed 100.0 > absolute ceiling 20 for max_open_positions'
+[phase5] create_weight_proposal: ffebc3f68b4047db937548aa target=min_pop proposed=0.4 status=PENDING
+OK    TV-11 min_pop=0.40 not SAFETY_VIOLATION
+      got=True  expected=True
+      status='PENDING'
+[phase5] create_weight_proposal: 012492d76d3b47748ba9d91d target=min_pop proposed=0.19 status=PENDING
+OK    MC-01 corrupted_floor=0.10: min_pop=0.19 no longer SAFETY_VIOLATION
+      got=True  expected=True
+OK    MC-01 floor restored to 0.20
+      got=0.2  expected=0.2
+      MC-01 mutated status='PENDING' reason='ok'
+[phase5] create_weight_proposal: 0a3594690bf341dc9cd3e283 target=max_spread_pct proposed=0.2 status=SAFETY_VIOLATION
+OK    MC-02 corrupted_ceil=0.03: max_spread_pct=0.20 now SAFETY_VIOLATION
+      got='SAFETY_VIOLATION'  expected='SAFETY_VIOLATION'
+OK    MC-02 ceil restored to 0.50
+      got=0.5  expected=0.5
+      MC-02 mutated status='SAFETY_VIOLATION' reason='SAFETY_VIOLATION: proposed 0.2 > absolute ceiling 0.03 for max_spread_pct'
+
+TOTAL=16  OK=16  FAIL=0
+EXIT=0
+
+
+========================================================================
+ITEM 6 — Source trace: "seeded from live pipeline constants"
+========================================================================
+
+--- Scoring weights D1..D12: grep -n in aiem_options_pipeline.py ---
+
+285:        "D1_directional_probability":   0.15,
+286:        "D2_prob_reach_target":         0.12,
+287:        "D3_expected_return":           0.08,
+288:        "D4_max_premium_loss":          0.05,
+289:        "D5_risk_reward":               0.10,
+290:        "D6_liquidity":                 0.08,
+291:        "D7_slippage":                  0.07,
+292:        "D8_theta_decay_risk":          0.08,
+293:        "D9_market_regime_fit":         0.10,
+294:        "D10_technical_confirmation":   0.08,
+295:        "D11_options_flow_confirmation":0.07,
+296:        "D12_historical_performance":   0.02,
+
+--- PoP default value: grep -n in aiem_options_pipeline.py ---
+
+199:    pop = float(contract_data.get("probability_estimate", 0.35))
+
+--- max_spread_pct=0.20: grep across all phase files (no static constant found) ---
+
+$ grep -rn "max_spread|0\.20.*spread|spread.*0\.20" aiem_options_pipeline.py aiem_options_phase1.py aiem_options_phase2.py aiem_options_phase3.py aiem_options_phase4.py
+(no output)
+
+--- max_spread live enforcement: grep -n in main.py ---
+
+38193:            "spread > 20%, slippage > 15%, delta < 0.20, PoP < 35%. "
+40794:    x Bid/ask spread > 20% of mid
+
+--- Live gate rejection evidence from DB (alert_id=25, aiem_options_alerts.gate_failures) ---
+
+"PoP < 35% -- below minimum threshold (value=0.28)"
+"bid/ask spread > 20% of mid (value=0.2399)"
+
+NOTE: 0.35 PoP and 0.20 spread thresholds confirmed as live production values from DB
+gate_failures column. D1..D12 weights confirmed at aiem_options_pipeline.py:285-296.
+No single standalone constant named max_spread=0.20 was located in a phase file;
+value is confirmed through live alert rejection and main.py doc strings at lines 38193/40794.
+
+
+========================================================================
+ITEM 8 — verify_chain.sh full output (alert_id=25, most-recent row at time of run)
+========================================================================
+
+$ cd /home/runner/workspace/artifacts/stock-scanner-api && bash verify_chain.sh 2>&1; echo "EXIT=$?"
+
+========================================================================
+  verify_chain.sh  --  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE -- no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE -- upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE -- upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE -- upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE -- upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE -- upstream break at 5_req6_scoring
+  [checkmark] 7_alert                stored=41d5a81e420e010646d2...  PASS (present)
+  [checkmark] 8_db_write             stored=b7c339b0858abc6abaf9...  PASS (present)
+  [checkmark] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED -- chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% -- below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE -- upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE -- upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE -- upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE -- upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE -- upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed -- chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
+EXIT=3
+
+NOTE: SNAPSHOT_UNAVAILABLE on alert_id=25 -- this alert pre-dates the snapshot capture fix
+(Fix 1 in verify_chain.sh header). No snapshot exists in aiem_options_alert_snapshots
+for alert_id=25. Stages 7/8/audit_chain pass. This is the expected honest result for a
+pre-fix alert per the script's own documented behavior.
