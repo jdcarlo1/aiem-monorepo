@@ -612,3 +612,9 @@ id = "Y19oPzBzRvscKetTUcwwR"
 uri = "file://phase3_execution_proof.txt"
 type = "text"
 title = "Phase 3 Execution Proof — All 4 Items Addressed (SEQ=14)"
+
+[[outputs]]
+id = "hFDhdjD-mkux9501DDHt7"
+uri = "file://phase3_followup_proof.txt"
+type = "text"
+title = "Phase 3 Follow-up Proof — Items 1–3 (SEQ=16)"

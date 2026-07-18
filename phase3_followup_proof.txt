@@ -1,0 +1,323 @@
+====== verified_run.sh ======
+SEQ=16
+TS=2026-07-18T21:02:48Z
+CMD=bash verify_followup_proof.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh
+==============================
+
+=== ITEM 1: grade_outcomes — did it fire today? ===
+
+--- 1a: current system date (UTC) ---
+Sat Jul 18 09:03:28 PM UTC 2026
+
+--- 1b: CronTrigger schedule (sed -n 2189-2193) ---
+    # 16:46 ET — grade outcomes
+    sched.add_job(grade_outcomes_job,
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=46),
+                  id="grade_outcomes", replace_existing=True)
+
+
+--- 1c: grep scheduler log for 'grade_outcomes' (raw) ---
+(no matches)
+
+--- 1d: job_heartbeats re-query (raw SQL) ---
+COLS: ['job_name', 'last_success', 'last_attempt', 'last_error', 'consecutive_failures']
+ROW: ('options_pipeline_scheduler', datetime.datetime(2026, 7, 18, 21, 0, 33, 692511), datetime.datetime(2026, 7, 18, 21, 0, 33, 692511), 'missing Polygon/OSS data for TER 2026-07-17', 0)
+ROW: ('aiem_continuous_research', datetime.datetime(2026, 7, 17, 22, 0, 0, 13077), datetime.datetime(2026, 7, 17, 22, 0, 0, 13077), None, 0)
+ROW: ('regime_monitor', datetime.datetime(2026, 7, 17, 20, 55, 0, 9799), datetime.datetime(2026, 7, 17, 20, 55, 0, 9799), None, 0)
+ROW: ('sector_etf_daily_update', datetime.datetime(2026, 7, 17, 20, 45, 7, 456585), datetime.datetime(2026, 7, 17, 20, 45, 7, 456585), None, 0)
+ROW: ('backup_runner_live_verification_test', datetime.datetime(2026, 7, 17, 18, 1, 9, 699450), datetime.datetime(2026, 7, 17, 18, 1, 9, 699450), None, 0)
+ROW: ('backup_runner_watchdog_audit_proof', datetime.datetime(2026, 7, 17, 15, 0, 5, 755927), datetime.datetime(2026, 7, 17, 15, 0, 5, 755927), None, 0)
+ROW: ('watchdog_github_actions', datetime.datetime(2026, 7, 17, 15, 0, 3, 282522), datetime.datetime(2026, 7, 17, 15, 0, 3, 282522), 'recovery=True | vm_heartbeat=PASS | polygon_scan=FAIL | seed_9_40=PASS | pipeline_9_45=FAIL', 0)
+ROW: ('aiem_morning_scan', datetime.datetime(2026, 7, 17, 13, 7, 0, 42013), datetime.datetime(2026, 7, 17, 13, 7, 0, 42013), None, 0)
+ROW: ('aiem_prediction_grader', datetime.datetime(2026, 7, 16, 20, 35, 0, 18693), datetime.datetime(2026, 7, 16, 20, 35, 0, 18693), None, 0)
+ROW: ('aiem_independent_options_scan', datetime.datetime(2026, 7, 16, 14, 20, 0, 180853), datetime.datetime(2026, 7, 16, 14, 20, 0, 180853), None, 0)
+ROW: ('vix_daily_fetch', None, datetime.datetime(2026, 7, 15, 20, 21, 0, 114914), 'pre-fix state cleared 2026-07-16 — code fix applied this session', 0)
+ROW: ('niche_segment_weekly', None, datetime.datetime(2026, 7, 13, 1, 30, 0, 501373), 'pre-fix state cleared 2026-07-16 — code fix applied this session', 0)
+ROW: ('alpha_model_retrain', datetime.datetime(2026, 7, 13, 1, 0, 50, 591804), datetime.datetime(2026, 7, 13, 1, 0, 50, 591804), None, 0)
+ROW: ('shadow_learning_weekly', datetime.datetime(2026, 7, 13, 0, 30, 0, 305744), datetime.datetime(2026, 7, 13, 0, 30, 0, 305744), None, 0)
+ROW: ('aiem_research_agent', datetime.datetime(2026, 7, 13, 0, 0, 0, 677923), datetime.datetime(2026, 7, 13, 0, 0, 0, 677923), None, 0)
+
+--- 1e: _write_heartbeat success path — does it clear last_error? (sed -n 295-315) ---
+def _write_heartbeat(success: bool, error: str = None) -> None:
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            if success:
+                cur.execute("""
+                    INSERT INTO job_heartbeats (job_name, last_success, last_attempt, consecutive_failures)
+                    VALUES (%s, NOW(), NOW(), 0)
+                    ON CONFLICT (job_name) DO UPDATE
+                    SET last_success=NOW(), last_attempt=NOW(), consecutive_failures=0
+                """, (_HEARTBEAT_JOB_NAME,))
+            else:
+                cur.execute("""
+                    INSERT INTO job_heartbeats (job_name, last_attempt, last_error, consecutive_failures)
+                    VALUES (%s, NOW(), %s, 1)
+                    ON CONFLICT (job_name) DO UPDATE
+                    SET last_attempt=NOW(), last_error=%s,
+                        consecutive_failures=job_heartbeats.consecutive_failures + 1
+                """, (_HEARTBEAT_JOB_NAME, error or "unknown", error or "unknown"))
+            conn.commit()
+    except Exception as e:
+        log.warning(f"[heartbeat] write failed: {e}")
+
+=== ITEM 2: run_date=2026-07-19, created_at=2026-07-18 01:28 UTC ===
+
+--- 2a: _today_et startup assignment (sed -n 2082-2094) ---
+    # ── Step 0: Register today's run as SCHEDULED (dedup signal for backup) ─
+    try:
+        _today_et = date.today()
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _sc0, _sc0.cursor() as _cu0:
+            _cu0.execute("""
+                INSERT INTO daily_pipeline_runs
+                    (run_date, trigger_source, status)
+                VALUES (%s, 'primary', 'SCHEDULED')
+                ON CONFLICT (run_date, trigger_source) DO NOTHING
+            """, (_today_et,))
+            _sc0.commit()
+        log.info(f"[startup] daily_pipeline_runs: SCHEDULED registered for {_today_et}")
+    except Exception as _sc0e:
+
+--- 2b: timezone + date.today() usage (grep -n) ---
+48:import pytz
+55:_ET           = pytz.timezone("America/New_York")
+430:    scan_date = scan_date or date.today()
+520:    scan_date = scan_date or date.today()
+550:    scan_date = scan_date or date.today()
+1629:        expiry_str = (date.today() + timedelta(days=9)).isoformat()
+1894:    scan_date = scan_date or date.today()
+2084:        _today_et = date.today()
+2175:                    (date.today(),)
+
+--- 2c: TEST_CYCLE env vars current state ---
+TEST_CYCLE_OFFSET_SECS: '<unset>'
+TEST_SCAN_DATE: '<unset>'
+
+--- 2d: TEST_CYCLE scan_date assignment (sed -n 2205-2225) ---
+        _raw_test_date = os.environ.get("TEST_SCAN_DATE", "")
+        if _raw_test_date:
+            from datetime import date as _date_cls
+            _test_sd = _date_cls.fromisoformat(_raw_test_date)
+        else:
+            _test_sd = (datetime.now(_ET) - timedelta(days=1)).date()
+
+        _fire_at = datetime.now(_ET) + timedelta(seconds=_test_offset)
+        _test_run_id = uuid.uuid4().hex[:12]
+
+        def _test_cycle_job():
+            log.info(
+                f"[TEST_CYCLE] *** APScheduler fired automatically ***  "
+                f"run_id={_test_run_id}  scan_date={_test_sd}  "
+                f"fire_ts={datetime.utcnow().isoformat()}Z"
+            )
+            seed_result   = seed_daily_candidates(scan_date=_test_sd)
+            worker_result = run_pipeline_worker(scan_date=_test_sd)
+            log.info(
+                f"[TEST_CYCLE] COMPLETE  run_id={_test_run_id}  "
+                f"seeded={seed_result.get('seeded',0)}  "
+
+--- 2e: all seed_daily_candidates call sites (grep -n) ---
+424:def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
+2130:                _ms_seed = seed_daily_candidates(scan_date=_now_et.date())
+2146:        seed_daily_candidates()
+2221:            seed_result   = seed_daily_candidates(scan_date=_test_sd)
+
+--- 2f: options_pipeline_jobs July-19 (raw SQL) ---
+July-19 rows: 0
+
+--- 2g: daily_pipeline_runs full current state (raw SQL) ---
+COLS: ['id', 'run_date', 'trigger_source', 'status', 'candidates_seeded', 'candidates_executed', 'candidates_no_trade', 'candidates_failed', 'started_at', 'completed_at', 'created_at']
+ROW: (20, datetime.date(2026, 7, 19), 'primary', 'RUNNING', 0, None, None, None, datetime.datetime(2026, 7, 18, 1, 28, 59, 4114, tzinfo=datetime.timezone.utc), None, datetime.datetime(2026, 7, 18, 1, 28, 59, 4114, tzinfo=datetime.timezone.utc))
+ROW: (15, datetime.date(2026, 7, 18), 'primary', 'SCHEDULED', None, None, None, None, None, None, datetime.datetime(2026, 7, 18, 1, 12, 17, 508422, tzinfo=datetime.timezone.utc))
+ROW: (12, datetime.date(2026, 7, 17), 'primary', 'RUNNING', 0, 0, 0, 0, datetime.datetime(2026, 7, 18, 1, 27, 32, 710067, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 18, 1, 27, 36, 124238, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 20, 40, 4, 862941, tzinfo=datetime.timezone.utc))
+ROW: (11, datetime.date(2026, 7, 17), 'emergency_run_endpoint', 'COMPLETED', None, None, None, None, None, datetime.datetime(2026, 7, 17, 19, 8, 36, 848081, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 19, 8, 36, 848081, tzinfo=datetime.timezone.utc))
+
+=== ITEM 3: row id=12 (2026-07-17) — all zeros, trace each step ===
+
+--- 3a: options_pipeline_jobs July-17 (raw SQL) ---
+COLS: ['id', 'ticker', 'scan_date', 'status', 'trigger_source', 'created_at']
+ROW: (40, 'UMC', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc))
+ROW: (41, 'PINS', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc))
+ROW: (42, 'WOLF', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc))
+ROW: (43, 'TER', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc))
+ROW: (39, 'MEC', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc))
+
+--- 3b: OSS/PMD row counts July-17 (raw SQL) ---
+OSS July-17 total: 80
+OSS July-17 seed-filtered: 75
+PMD July-17: 7135
+PMD MAX scan_date: 2026-07-17
+
+--- 3c: seed ON CONFLICT DO NOTHING (sed -n 460-476) ---
+                        INSERT INTO options_pipeline_jobs
+                            (ticker, scan_date, status, trigger_source)
+                        VALUES (%s, %s, 'PENDING', 'daily_scheduler')
+                        ON CONFLICT (ticker, scan_date) DO NOTHING
+                    """, (ticker, sd))
+                    if cur.rowcount > 0:
+                        seeded += 1
+                        log.info(f"[seed] seeded {ticker} {sd}")
+                    else:
+                        dupes += 1
+                        log.info(f"[seed] skip duplicate {ticker} {sd}")
+                except Exception as ie:
+                    log.warning(f"[seed] insert error {ticker}: {ie}")
+
+            conn.commit()
+
+    except Exception as e:
+
+--- 3d: oss_rows column — grep scheduler + pipeline (0 matches = never written) ---
+(no matches in aiem_options_scheduler.py)
+(no matches in aiem_options_pipeline.py)
+
+--- 3e: _atomic_claim PENDING gate (sed -n 608-630) ---
+def _atomic_claim(claim_id: str, scan_date: date) -> tuple[int, str] | None:
+    """
+    Atomically claim one PENDING job for scan_date.
+    Uses SELECT ... FOR UPDATE SKIP LOCKED — safe for concurrent callers.
+    Returns (job_id, ticker) or None if nothing available.
+    """
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
+            cur.execute("""
+                WITH candidate AS (
+                    SELECT id FROM options_pipeline_jobs
+                    WHERE status = 'PENDING'
+                      AND scan_date = %s
+                      AND recovery_attempts < %s
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE options_pipeline_jobs
+                SET status = 'CLAIMED',
+                    claim_id = %s,
+                    claimed_at = NOW()
+                FROM candidate
+
+--- 3f: run_pipeline_worker final_status logic (sed -n 1908-1920) ---
+        results.append(result)
+        if "error" in result:
+            skipped += 1
+        else:
+            executed += 1
+
+    log.info(f"[worker] scan_date={scan_date}  executed={executed}  errors={skipped}")
+
+    # Update durable run log with final counts
+    no_trade_count = sum(1 for r in results if r.get("direction") == "NO_TRADE")
+    final_status   = "COMPLETED" if executed > 0 else ("FAILED" if skipped > 0 else "NO_TRADE")
+    first_trace    = next((r.get("trace_id") for r in results if r.get("trace_id")), None)
+    try:
+
+--- 3g: seed ON CONFLICT forces status=RUNNING (sed -n 495-505) ---
+                VALUES (%s, 'primary', 'RUNNING', %s, NOW())
+                ON CONFLICT (run_date, trigger_source) DO UPDATE
+                    SET status='RUNNING',
+                        candidates_seeded=EXCLUDED.candidates_seeded,
+                        started_at=COALESCE(daily_pipeline_runs.started_at, NOW())
+            """, (scan_date, seeded))
+            _dc.commit()
+    except Exception as _de:
+        log.warning(f"[seed] daily_pipeline_runs write failed: {_de}")
+
+    return {"seeded": seeded, "skipped_duplicates": dupes,
+
+--- 3h: worker ON CONFLICT sets status to final_status (sed -n 1924-1935) ---
+                    (run_date, trigger_source, status, trace_id,
+                     candidates_executed, candidates_no_trade, candidates_failed,
+                     completed_at)
+                VALUES (%s, 'primary', %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (run_date, trigger_source) DO UPDATE
+                    SET status=EXCLUDED.status,
+                        trace_id=COALESCE(EXCLUDED.trace_id, daily_pipeline_runs.trace_id),
+                        candidates_executed=EXCLUDED.candidates_executed,
+                        candidates_no_trade=EXCLUDED.candidates_no_trade,
+                        candidates_failed=EXCLUDED.candidates_failed,
+                        completed_at=NOW()
+            """, (scan_date, final_status, first_trace,
+
+--- 3i: 'missing Polygon/OSS data' raise site (sed -n 755-770) ---
+                LIMIT 1
+            """, (ticker,))
+            pmd = cur.fetchone()
+            cur.execute("""
+                SELECT spot, front_iv, gex_m, gex_regime, gamma_flip_price,
+                       pc_skew_pp, pc_skew_tag, term_ratio, term_tag, back_iv
+                FROM options_structure_scan
+                WHERE ticker=%s AND scan_date=%s
+            """, (ticker, scan_date))
+            oss = cur.fetchone()
+
+        if not pmd or not oss:
+            raise ValueError(f"missing Polygon/OSS data for {ticker} {scan_date}")
+
+        close_price  = float(pmd[1])
+        vwap         = float(pmd[3])
+
+--- 3j: _write_heartbeat success path does NOT update last_error (sed -n 295-315) ---
+def _write_heartbeat(success: bool, error: str = None) -> None:
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            if success:
+                cur.execute("""
+                    INSERT INTO job_heartbeats (job_name, last_success, last_attempt, consecutive_failures)
+                    VALUES (%s, NOW(), NOW(), 0)
+                    ON CONFLICT (job_name) DO UPDATE
+                    SET last_success=NOW(), last_attempt=NOW(), consecutive_failures=0
+                """, (_HEARTBEAT_JOB_NAME,))
+            else:
+                cur.execute("""
+                    INSERT INTO job_heartbeats (job_name, last_attempt, last_error, consecutive_failures)
+                    VALUES (%s, NOW(), %s, 1)
+                    ON CONFLICT (job_name) DO UPDATE
+                    SET last_attempt=NOW(), last_error=%s,
+                        consecutive_failures=job_heartbeats.consecutive_failures + 1
+                """, (_HEARTBEAT_JOB_NAME, error or "unknown", error or "unknown"))
+            conn.commit()
+    except Exception as e:
+        log.warning(f"[heartbeat] write failed: {e}")
+
+==============================
+SEQ=16  EXIT=0  TS_END=2026-07-18T21:02:51Z
+==============================
+
+=== verify_chain.sh raw output ===
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
