@@ -469,6 +469,125 @@ def eval_long_strangle(calls: list, puts: list, spot: float, expiry: str) -> Opt
     }
 
 
+def eval_iron_butterfly(calls: list, puts: list, spot: float, expiry: str) -> Optional[dict]:
+    """
+    Sell ATM call + ATM put, buy OTM call wing + OTM put wing.
+    Net credit structure; profits when underlying stays near the short strikes.
+    """
+    exp_calls = _filter_by_expiry(calls, expiry)
+    exp_puts  = _filter_by_expiry(puts,  expiry)
+    sc = _otm_from_atm(exp_calls, spot, "up",   0.0)   # sell ATM call (closest to spot)
+    sp = _otm_from_atm(exp_puts,  spot, "down", 0.0)   # sell ATM put
+    lc = _otm_from_atm(exp_calls, spot, "up",   0.05)  # buy OTM call wing
+    lp = _otm_from_atm(exp_puts,  spot, "down", 0.05)  # buy OTM put wing
+    if not sc or not sp or not lc or not lp:
+        return None
+    net_credit = ((sc["mid"] + sp["mid"]) - (lc["mid"] + lp["mid"])) * 100
+    if net_credit <= 0:
+        return None
+    max_profit  = round(net_credit, 2)
+    wing_width  = round(abs(sc["strike"] - lp["strike"]), 2)
+    max_loss    = round(wing_width * 100 - net_credit, 2)
+    if max_loss <= 0:
+        return None
+    pop = round(max(0.20, min(0.65, 1.0 - abs(sc["delta"]) - abs(sp["delta"]))), 4)
+    return {
+        "strategy":        "IRON_BUTTERFLY",
+        "direction":       "NEUTRAL",
+        "vol_thesis":      "SHORT_VOL",
+        "legs":            [
+            {"action": "SELL", **sc},
+            {"action": "SELL", **sp},
+            {"action": "BUY",  **lc},
+            {"action": "BUY",  **lp},
+        ],
+        "net_debit":       0.0,
+        "net_credit":      round(net_credit, 2),
+        "max_profit":      max_profit,
+        "max_loss":        max_loss,
+        "pop":             pop,
+        "ev_after_costs":  _ev(max_profit, max_loss, pop),
+        "capital_required": round(max_loss, 2),
+        "return_on_risk":  round(max_profit / max_loss, 4) if max_loss else 0.0,
+        "delta":           round(sc["delta"] + sp["delta"] + lc["delta"] + lp["delta"], 4),
+        "slippage_pct":    round((_slippage(sc["bid"], sc["ask"]) +
+                                  _slippage(sp["bid"], sp["ask"])) / 2, 4),
+        "liquid":          sc["liquid"] and sp["liquid"],
+        "assignment_risk": "LOW",
+    }
+
+
+def eval_covered_call(calls: list, spot: float, expiry: str) -> Optional[dict]:
+    """
+    Paper-only (ANALYSIS_ONLY): long 100 shares + sell slightly OTM call.
+    Not eligible for autonomous execution (undefined downside on stock).
+    """
+    exp_calls = _filter_by_expiry(calls, expiry)
+    sc = _otm_from_atm(exp_calls, spot, "up", 0.03)   # sell ~3% OTM call
+    if not sc:
+        return None
+    premium    = sc["mid"] * 100
+    max_profit = round(premium + (sc["strike"] - spot) * 100, 2)
+    max_loss   = round((spot - sc["mid"]) * 100, 2)   # stock collapses to 0 minus premium
+    cost_basis = round(spot * 100, 2)
+    pop        = round(max(0.0, min(1.0, 1.0 - abs(sc["delta"]))), 4)
+    return {
+        "strategy":        "COVERED_CALL",
+        "direction":       "NEUTRAL_BULLISH",
+        "vol_thesis":      "SHORT_VOL",
+        "execution_mode":  "ANALYSIS_ONLY",
+        "legs":            [
+            {"action": "LONG_STOCK", "shares": 100, "price": spot},
+            {"action": "SELL", **sc},
+        ],
+        "net_debit":       round(cost_basis - premium, 2),
+        "net_credit":      round(premium, 2),
+        "max_profit":      max_profit,
+        "max_loss":        max_loss,
+        "capital_required": cost_basis,
+        "pop":             pop,
+        "ev_after_costs":  _ev(max_profit, max_loss, pop),
+        "delta":           round(1.0 + sc["delta"], 4),
+        "slippage_pct":    round(_slippage(sc["bid"], sc["ask"]), 4),
+        "liquid":          sc["liquid"],
+        "assignment_risk": "MEDIUM",
+    }
+
+
+def eval_cash_secured_put(puts: list, spot: float, expiry: str) -> Optional[dict]:
+    """
+    Paper-only (ANALYSIS_ONLY): sell slightly OTM put, hold cash equal to strike × 100.
+    Not eligible for autonomous execution (large cash tie-up, assignment risk).
+    """
+    exp_puts = _filter_by_expiry(puts, expiry)
+    sp = _otm_from_atm(exp_puts, spot, "down", 0.03)  # sell ~3% OTM put
+    if not sp:
+        return None
+    premium    = sp["mid"] * 100
+    max_profit = round(premium, 2)
+    max_loss   = round((sp["strike"] - sp["mid"]) * 100, 2)
+    cash_req   = round(sp["strike"] * 100, 2)
+    pop        = round(max(0.0, min(1.0, 1.0 - abs(sp["delta"]))), 4)
+    return {
+        "strategy":        "CASH_SECURED_PUT",
+        "direction":       "NEUTRAL_BULLISH",
+        "vol_thesis":      "SHORT_VOL",
+        "execution_mode":  "ANALYSIS_ONLY",
+        "legs":            [{"action": "SELL", **sp}],
+        "net_debit":       0.0,
+        "net_credit":      round(premium, 2),
+        "max_profit":      max_profit,
+        "max_loss":        max_loss,
+        "capital_required": cash_req,
+        "pop":             pop,
+        "ev_after_costs":  _ev(max_profit, max_loss, pop),
+        "delta":           round(sp["delta"], 4),
+        "slippage_pct":    round(_slippage(sp["bid"], sp["ask"]), 4),
+        "liquid":          sp["liquid"],
+        "assignment_risk": "HIGH",
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # EVALUATE ALL STRATEGIES
 # ─────────────────────────────────────────────────────────────────────────────
@@ -510,8 +629,15 @@ def evaluate_all_strategies(chain: dict, spot: float,
 
     # Neutral / volatility strategies (always evaluated)
     evaluators += [
-        ("IRON_CONDOR",   lambda: eval_iron_condor(calls, puts, spot, expiry)),
-        ("LONG_STRANGLE", lambda: eval_long_strangle(calls, puts, spot, expiry)),
+        ("IRON_CONDOR",      lambda: eval_iron_condor(calls, puts, spot, expiry)),
+        ("LONG_STRANGLE",    lambda: eval_long_strangle(calls, puts, spot, expiry)),
+        ("IRON_BUTTERFLY",   lambda: eval_iron_butterfly(calls, puts, spot, expiry)),
+    ]
+
+    # ANALYSIS_ONLY income strategies (always evaluated; not paper-traded autonomously)
+    evaluators += [
+        ("COVERED_CALL",     lambda: eval_covered_call(calls, spot, expiry)),
+        ("CASH_SECURED_PUT", lambda: eval_cash_secured_put(puts, spot, expiry)),
     ]
 
     results = []

@@ -201,6 +201,60 @@ def _avg_pm_volume_from_db(ticker: str, run_date: date) -> float:
 # MAIN ENTRY: get_premarket_intel
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _fetch_polygon_news(ticker: str, n: int = 5) -> dict:
+    """
+    Fetch recent Polygon news headlines and extract catalyst flags.
+
+    Implemented:
+      - news_headline_count  — number of articles returned
+      - catalyst_flags       — EARNINGS_NEWS | ANALYST_ACTION | FDA_CATALYST | MA_CATALYST
+      - earnings_in_news     — True if any headline mentions earnings/EPS/results
+
+    Not implemented (requires Polygon paid plan):
+      - S&P/Nasdaq futures (ES/NQ) — current code uses SPY/QQQ PM bars as proxy.
+        Actual /ES /NQ data requires Polygon Launchpad or higher plan.
+      - Opening auction data — first 9:30 AM regular-session bar (from Polygon
+        aggregates) is captured as `opening_first_bar` inside update_intraday().
+
+    Falls back to empty dict if Polygon returns 403/404 (free-plan restriction).
+    """
+    key = _POLYGON_KEY
+    if not key:
+        return {"news_headline_count": 0, "catalyst_flags": [], "earnings_in_news": False}
+    url = (f"{_BASE}/v2/reference/news?ticker={ticker}"
+           f"&limit={n}&order=desc&sort=published_utc&apiKey={key}")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "aiem/1.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode())
+        articles = data.get("results", [])
+        flags: list = []
+        earnings_seen = False
+        for art in articles:
+            combined = ((art.get("title") or "") + " " + (art.get("description") or "")).lower()
+            if any(w in combined for w in ("earnings", " eps ", "quarterly result",
+                                           "q1 ", "q2 ", "q3 ", "q4 ")):
+                if "EARNINGS_NEWS" not in flags:
+                    flags.append("EARNINGS_NEWS")
+                earnings_seen = True
+            if any(w in combined for w in ("upgrade", "downgrade", "price target", "analyst")):
+                if "ANALYST_ACTION" not in flags:
+                    flags.append("ANALYST_ACTION")
+            if any(w in combined for w in ("fda", "clinical trial", "drug approval")):
+                if "FDA_CATALYST" not in flags:
+                    flags.append("FDA_CATALYST")
+            if any(w in combined for w in ("merger", "acquisition", "buyout", "takeover")):
+                if "MA_CATALYST" not in flags:
+                    flags.append("MA_CATALYST")
+        return {
+            "news_headline_count": len(articles),
+            "catalyst_flags":      flags,
+            "earnings_in_news":    earnings_seen,
+        }
+    except Exception:
+        return {"news_headline_count": 0, "catalyst_flags": [], "earnings_in_news": False}
+
+
 def get_premarket_intel(ticker: str, run_date: date = None,
                         prev_close: float = None,
                         store: bool = True) -> dict:
@@ -220,8 +274,19 @@ def get_premarket_intel(ticker: str, run_date: date = None,
       pm_trend_quality     float (r² of price trend)
       pm_support           float
       pm_resistance        float
-      sector               dict
+      sector               dict (SPY/QQQ PM bars proxy; ES/NQ needs paid plan)
+      news_headline_count  int
+      catalyst_flags       list[str]  — EARNINGS_NEWS | ANALYST_ACTION | FDA_CATALYST | MA_CATALYST
+      earnings_in_news     bool
       bars_count           int
+
+    Post-9:30 tracking (via update_intraday()):
+      pm_high_broken, pm_low_held, opening_volume_ok,
+      sector_confirmed, continuation_or_rev, opening_first_bar — all implemented.
+
+    Not yet implemented (requires external data sources beyond current Polygon plan):
+      - Actual ES/NQ futures bars (using SPY/QQQ ETF proxy instead)
+      - Opening auction order book (using first regular-session 1m bar as proxy)
     """
     run_date = run_date or date.today()
     risk_flags: list[str] = []
@@ -277,8 +342,16 @@ def get_premarket_intel(ticker: str, run_date: date = None,
     # ── Support / Resistance ────────────────────────────────────────────────
     pm_support, pm_resistance = _support_resistance(bars)
 
-    # ── Sector proxy ────────────────────────────────────────────────────────
+    # ── Sector proxy (SPY/QQQ PM bars; actual ES/NQ requires Polygon paid plan) ─
     sector = _get_sector_proxy(run_date)
+
+    # ── News / catalyst intelligence ──────────────────────────────────────────
+    news_intel = _fetch_polygon_news(ticker, n=5)
+    if news_intel.get("earnings_in_news"):
+        risk_flags.append("EARNINGS_NEWS_PRESENT")
+    for _cf in news_intel.get("catalyst_flags", []):
+        if _cf not in risk_flags:
+            risk_flags.append(_cf)
 
     # ── Risk flags ──────────────────────────────────────────────────────────
     if pm_rvol < 0.5:
@@ -363,6 +436,9 @@ def get_premarket_intel(ticker: str, run_date: date = None,
         "pm_support":           pm_support,
         "pm_resistance":        pm_resistance,
         "sector":               sector,
+        "news_headline_count":  news_intel.get("news_headline_count", 0),
+        "catalyst_flags":       news_intel.get("catalyst_flags", []),
+        "earnings_in_news":     news_intel.get("earnings_in_news", False),
         "bars_count":           len(bars),
         "prev_close":           round(prev_close, 4),
     }
@@ -419,6 +495,21 @@ def update_intraday(ticker: str, run_date: date = None) -> dict:
     intra_vol   = int(sum(b["v"] for b in intra_bars))
     intra_close = intra_bars[-1]["c"]
 
+    # Opening auction proxy: first regular-session bar (9:30 AM print)
+    # Actual Polygon opening auction book requires Launchpad plan; this is the
+    # first aggregated 1m bar which IS the opening print for all practical purposes.
+    first_bar = intra_bars[0]
+    opening_first_bar = {
+        "open":   round(first_bar["o"], 4),
+        "high":   round(first_bar["h"], 4),
+        "low":    round(first_bar["l"], 4),
+        "close":  round(first_bar["c"], 4),
+        "volume": int(first_bar["v"]),
+        "gap_from_pm_close": round(
+            (first_bar["o"] - float(pm_high or first_bar["o"])) / float(pm_high or 1), 5
+        ),
+    }
+
     pm_high_broken = intra_high > pm_high
     pm_low_held    = intra_low >= pm_low * 0.995   # 0.5% tolerance
 
@@ -455,6 +546,7 @@ def update_intraday(ticker: str, run_date: date = None) -> dict:
         "intra_low":          round(intra_low,  4),
         "intra_close":        round(intra_close, 4),
         "intra_vol_30m":      intra_vol,
+        "opening_first_bar":  opening_first_bar,
     }
 
     try:

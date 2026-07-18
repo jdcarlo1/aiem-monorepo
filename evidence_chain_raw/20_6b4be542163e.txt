@@ -1,0 +1,39 @@
+==============================================================================
+CCS SINGLE-SIGNAL FLIP TEST
+NO_TRADE threshold = 0.35  |  execution_mode = AUTONOMOUS
+==============================================================================
+  Baseline (all signals strong)                             CCS=0.8092  → TRADE
+
+── pm_intel_score flip (0.75 → 0.25) ──────────────────────────────────
+  pm_intel_score → 0.25 (bearish PM)                        CCS=0.7892  → TRADE
+  Actual delta: 0.0200  |  Expected: w(0.04) × Δ(0.50) = 0.0200
+  ✓ Delta matches weight arithmetic.  Decision unchanged (TRADE).
+
+── mtf_alignment_score flip (0.70 → 0.25) ─────────────────────────────
+  mtf_alignment_score → 0.25                                CCS=0.7912  → TRADE
+  Actual delta: 0.0180  |  Expected: w(0.04) × Δ(0.45) = 0.0180
+  ✓ Delta matches weight arithmetic.  Decision unchanged (TRADE).
+
+── Largest-weight signal: pop flip (0.65 → 0.0) ───────────────────────
+  pop → 0.0  (worst possible PoP)                           CCS=0.6652  → TRADE
+  Actual delta: 0.1440  |  Max possible for any signal = weight(0.18)
+  ✓ Decision unchanged (TRADE).  Even largest single signal is not determinative.
+
+── Proof margin ─────────────────────────────────────────────────────────
+  baseline_CCS = 0.8092
+  threshold    = 0.35
+  margin       = 0.4592
+  max_weight   = 0.18  (worst any single signal can do = flip by 0.18)
+  ✓ PROOF HOLDS:  margin (0.4592) > max_weight (0.18)
+    No single signal can flip TRADE → NO_TRADE on this setup.
+
+── Weight sum sanity ────────────────────────────────────────────────────
+  pop(0.18)  +  ev_after_costs(0.18)  +  capital_preservation(0.14)  +  defined_risk_quality(0.1)  +  capital_efficiency(0.1)  +  liquidity(0.1)  +  pm_intel_score(0.04)  +  mtf_alignment_score(0.04)  +  thesis_fit(0.03)  +  regime_fit(0.03)  +  vol_regime_fit(0.02)  +  pattern_confirmation(0.03)  +  diversification_value(0.01)
+  Total = 1.0000000000  (must be 1.00)
+  ✓ Weights sum to exactly 1.00
+
+  ✓ All 13 weight keys present (including pm_intel_score, mtf_alignment_score)
+
+==============================================================================
+ALL ASSERTIONS PASSED — no single signal can alter the TRADE decision.
+==============================================================================

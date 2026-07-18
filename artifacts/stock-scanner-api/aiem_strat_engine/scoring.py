@@ -215,6 +215,8 @@ def compute_capital_compounding_score(
     existing_families:  Optional[list]  = None,
     portfolio_capital:  float           = 100_000.0,
     pattern_score:      float           = 0.5,
+    pm_intel_score:     float           = 0.5,
+    mtf_alignment_score:float           = 0.5,
 ) -> Dict[str, float]:
     """
     Compute the Capital Compounding Score and all individual components.
@@ -234,6 +236,8 @@ def compute_capital_compounding_score(
     sc_vol     = score_vol_fit(strategy_vol_thesis, iv_rank)
     sc_divers  = score_diversification(strategy_family, existing_families)
     sc_pattern = _clamp(float(pattern_score))
+    sc_pm      = _clamp(float(pm_intel_score))
+    sc_mtf     = _clamp(float(mtf_alignment_score))
 
     raw_score = (
         sc_pop     * w["pop"]                   +
@@ -242,6 +246,8 @@ def compute_capital_compounding_score(
         sc_def     * w["defined_risk_quality"]   +
         sc_capeff  * w["capital_efficiency"]     +
         sc_liq     * w["liquidity"]              +
+        sc_pm      * w["pm_intel_score"]         +
+        sc_mtf     * w["mtf_alignment_score"]    +
         sc_thesis  * w["thesis_fit"]             +
         sc_regime  * w["regime_fit"]             +
         sc_vol     * w["vol_regime_fit"]         +
@@ -266,6 +272,8 @@ def compute_capital_compounding_score(
         "score_defined_risk":         round(sc_def,     4),
         "score_cap_efficiency":       round(sc_capeff,  4),
         "score_liquidity":            round(sc_liq,     4),
+        "score_pm_intel":             round(sc_pm,      4),
+        "score_mtf_alignment":        round(sc_mtf,     4),
         "score_thesis_fit":           round(sc_thesis,  4),
         "score_regime_fit":           round(sc_regime,  4),
         "score_vol_fit":              round(sc_vol,     4),

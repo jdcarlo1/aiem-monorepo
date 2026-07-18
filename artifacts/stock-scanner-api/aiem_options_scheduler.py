@@ -749,6 +749,8 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     strategy_family=best_chain_strategy.get("strategy", "other").lower()[:20],
                     pattern_score=pattern_score,
                     portfolio_capital=100_000.0,
+                    pm_intel_score=float(pm_intel.get("premarket_score", 0.5)),
+                    mtf_alignment_score=float(mtf_result.get("timeframe_alignment_score", 0.5)),
                 )
                 final_ccs = _ccs_result.get("capital_compounding_score", 0.0)
                 best_chain_strategy["ccs"] = final_ccs

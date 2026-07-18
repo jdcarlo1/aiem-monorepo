@@ -1,21 +1,27 @@
 """
 aiem_multitimeframe.py — Multi-Timeframe Analysis for the Standalone Options Engine
 
-Analyzes Monthly/Weekly/Daily/4H/1H/30m/15m/5m/1-4m bars from Polygon.
+Analyzes 12 timeframes from Polygon (8 weighted + 4 entry-timing-only).
 
-Weights:
-  Monthly / Weekly  → 0.25 each (highest)
-  Daily             → 0.20 (very high)
-  4H / 1H           → 0.10 each (high)
-  30m / 15m         → 0.04 each (medium)
-  5m                → 0.02 (low)
-  1m                → entry timing only (not weighted in score)
+Weighted timeframes (sum = 1.0):
+  Monthly           → 0.25
+  Weekly            → 0.25
+  Daily             → 0.20
+  4H / 1H           → 0.10 each
+  30m / 15m         → 0.04 each
+  5m                → 0.02
+
+Entry-timing-only (not weighted in alignment score):
+  4m / 3m / 2m / 1m → resolution check; READY requires ≥50% agree with dominant bias
+
+Total timeframes: 12 (Monthly, Weekly, Daily, 4H, 1H, 30m, 15m, 5m, 4m, 3m, 2m, 1m)
 
 Returns per ticker:
-  timeframe_alignment_score   [0,1]  — how much TFs agree
-  conflict_score              [0,1]  — proportion of conflicting TFs
+  timeframe_alignment_score   [0,1]  — weighted agreement across 8 scored TFs
+  conflict_score              [0,1]  — proportion of conflicting scored TFs
   dominant_bias               BULLISH | BEARISH | NEUTRAL
   entry_timing_status         READY | WAIT | CONFLICTED | INSUFFICIENT_DATA
+  entry_timing_tfs            dict with 1m/2m/3m/4m directions
   timeframes_json             full per-TF breakdown
 
 Stores results in options_engine_mtf (UNIQUE ticker+run_date).
@@ -304,12 +310,24 @@ def analyze_ticker(ticker: str, run_date: date = None, store: bool = True) -> di
     bars_5m = _fetch_bars(ticker, 5, "minute", day_5m_from, today_str, 120)
     tf_results["5m"] = _analyze_bars(bars_5m, "5m")
 
-    # 1m — entry timing only (today's session or premarket)
+    # 1m / 2m / 3m / 4m — entry timing only (today's session or premarket)
     bars_1m = _fetch_bars_ms(ticker, 1, "minute", pm_from_ms, to_ms, 120)
     tf_results["1m"] = _analyze_bars(bars_1m, "1m")
     tf_results["1m"]["role"] = "entry_timing_only"
 
-    # ── Alignment score (weighted, excluding 1m) ────────────────────────────
+    bars_2m = _fetch_bars_ms(ticker, 2, "minute", pm_from_ms, to_ms, 60)
+    tf_results["2m"] = _analyze_bars(bars_2m, "2m")
+    tf_results["2m"]["role"] = "entry_timing_only"
+
+    bars_3m = _fetch_bars_ms(ticker, 3, "minute", pm_from_ms, to_ms, 60)
+    tf_results["3m"] = _analyze_bars(bars_3m, "3m")
+    tf_results["3m"]["role"] = "entry_timing_only"
+
+    bars_4m = _fetch_bars_ms(ticker, 4, "minute", pm_from_ms, to_ms, 60)
+    tf_results["4m"] = _analyze_bars(bars_4m, "4m")
+    tf_results["4m"]["role"] = "entry_timing_only"
+
+    # ── Alignment score (weighted, excluding entry-timing TFs) ───────────────
     total_weight  = 0.0
     weighted_score = 0.0
     bullish_count  = 0
@@ -361,24 +379,38 @@ def analyze_ticker(ticker: str, run_date: date = None, store: bool = True) -> di
     else:
         dominant_bias = "NEUTRAL"
 
-    # Entry timing status (based on 5m + 1m)
+    # Entry timing status (based on 5m + all 4 entry-timing TFs: 1m/2m/3m/4m)
+    # READY: 5m agrees with dominant bias AND ≥50% of valid entry-timing TFs agree.
+    # This prevents any single entry-timing TF from triggering READY alone.
     tf_5m = tf_results.get("5m", {})
-    tf_1m = tf_results.get("1m", {})
+    _entry_tf_names = ("1m", "2m", "3m", "4m")
+    entry_tfs_all  = [tf_results.get(t, {}) for t in _entry_tf_names]
+    entry_tfs_valid = [t for t in entry_tfs_all if t.get("status") != "INSUFFICIENT_DATA"]
     if insufficient >= 3:
         entry_timing = "INSUFFICIENT_DATA"
     elif conflict_score >= 0.50:
         entry_timing = "CONFLICTED"
-    elif (tf_5m.get("direction") == dominant_bias and
-          tf_1m.get("direction") in (dominant_bias, "NEUTRAL")):
+    elif tf_5m.get("direction") == dominant_bias and (
+            not entry_tfs_valid or
+            sum(1 for t in entry_tfs_valid
+                if t.get("direction") in (dominant_bias, "NEUTRAL"))
+            / len(entry_tfs_valid) >= 0.50):
         entry_timing = "READY"
     else:
         entry_timing = "WAIT"
+
+    # Collect entry-timing-only directions for transparency
+    entry_timing_tfs = {
+        t: tf_results.get(t, {}).get("direction", "INSUFFICIENT_DATA")
+        for t in _entry_tf_names
+    }
 
     result = {
         "timeframe_alignment_score": alignment_score,
         "conflict_score":            conflict_score,
         "dominant_bias":             dominant_bias,
         "entry_timing_status":       entry_timing,
+        "entry_timing_tfs":          entry_timing_tfs,
         "bullish_tf_count":          bullish_count,
         "bearish_tf_count":          bearish_count,
         "neutral_tf_count":          neutral_count,

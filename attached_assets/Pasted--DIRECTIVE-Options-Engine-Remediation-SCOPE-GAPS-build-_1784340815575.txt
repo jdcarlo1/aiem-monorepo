@@ -1,0 +1,30 @@
+# DIRECTIVE — Options Engine Remediation
+
+## SCOPE GAPS (build, don't just re-verify)
+
+**1. Multi-Timeframe Analysis — incomplete**
+Required: Monthly, Weekly, Daily, 4H, 1H, 30m, 15m, 5m, 4m, 3m, 2m, 1m (12 total), weighted per directive (Monthly/Weekly highest → 1-4m entry-timing only).
+Built: only Daily, 60m, 15m, 5m (4 total).
+Add the missing 8 timeframes with correct weight tier. Provide updated `timeframe_alignment_score`/`conflict_score` proof across all 12.
+
+**2. Premarket Intelligence — incomplete**
+Required: PM gap, PM high/low, breakout/rejection levels, PM volume, relative volume, trend quality, support/resistance, news/earnings catalysts, sector strength/weakness, S&P/Nasdaq futures, opening auction data, plus post-9:30 continuation tracking (break/fail of PM high, hold/fail of PM low, opening volume confirmation, sector confirmation, market confirmation, continuation vs reversal).
+Built: only PM gap, relative volume, trend quality → score/direction/confidence.
+Add: catalysts, sector strength, futures, opening auction, and the full post-9:30 tracking block. State explicitly which are implemented vs. still missing.
+
+**3. One weighted conclusion — not demonstrated**
+Directive requires every indicator/pattern/premarket/MTF signal combine into ONE weighted score, with no single signal able to trigger a trade alone. Provide: the actual CCS weighting formula/code, plus a test where one contributing signal is deliberately flipped and the final decision is shown NOT to change on that signal alone.
+
+**4. Strategy coverage — unconfirmed**
+Only 6 strategies evaluated. Pull the current strategy registry and diff against these 6 — confirm nothing enabled is missing, or add what's missing.
+
+## RE-VERIFY (proof-quality — same build, better evidence)
+
+**5. Chain-tool SHAs** — full raw `sha256sum tools/verified_run.sh tools/verify_chain.sh` output, untruncated, checked against canonical.
+
+**6. Raw grep, not labels** — replace `FOUND=TRUE`/`LOG_STAGE_CALL` summary labels with actual `grep -n` output showing each matched line in context (stage presence, log_stage() call sites, trigger chain elements).
+
+**7. scoring.py** — if modified, provide before/after sha256 + full diff (not just referenced in chain index).
+
+## FORMAT
+Follow LEAN VERIFICATION DIRECTIVE format: raw command output only, no narrative/summary sections, no restated headers.

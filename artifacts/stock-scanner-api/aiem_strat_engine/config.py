@@ -34,6 +34,9 @@ MAX_CAPITAL_AT_RISK_PCT   = 0.05  # 5% portfolio at risk per trade
 PORTFOLIO_CAPITAL         = 100_000  # paper portfolio size
 
 # ── Capital Compounding Score weights ───────────────────────────────────────
+# Total must sum to 1.0.
+# pm_intel_score and mtf_alignment_score were added; thesis_fit/regime_fit/
+# vol_regime_fit/pattern_confirmation/diversification_value reduced to compensate.
 SCORE_WEIGHTS = {
     "pop":                    0.18,
     "ev_after_costs":         0.18,
@@ -41,11 +44,14 @@ SCORE_WEIGHTS = {
     "defined_risk_quality":   0.10,
     "capital_efficiency":     0.10,
     "liquidity":              0.10,
-    "thesis_fit":             0.05,
-    "regime_fit":             0.05,
-    "vol_regime_fit":         0.03,
-    "diversification_value":  0.02,
-    "pattern_confirmation":   0.05,   # 0=contra-thesis patterns, 0.5=neutral, 1=confirming
+    "pm_intel_score":         0.04,   # premarket intelligence signal [0,1]
+    "mtf_alignment_score":    0.04,   # multi-timeframe alignment [0,1]
+    "thesis_fit":             0.03,   # reduced from 0.05
+    "regime_fit":             0.03,   # reduced from 0.05
+    "vol_regime_fit":         0.02,   # reduced from 0.03
+    "pattern_confirmation":   0.03,   # reduced from 0.05; 0=contra, 0.5=neutral, 1=confirming
+    "diversification_value":  0.01,   # reduced from 0.02
+    # Sanity: 0.18+0.18+0.14+0.10+0.10+0.10+0.04+0.04+0.03+0.03+0.02+0.03+0.01 = 1.00
 }
 # Penalty multipliers (applied additively as negative score components)
 SCORE_PENALTIES = {
