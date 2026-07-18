@@ -741,7 +741,7 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                         db_url=_DB_URL,
                     )
                 except Exception as _p3_e:
-                    pass  # non-fatal: phase3 analysis never blocks grading
+                    import logging as _lg; _lg.getLogger("options_pipeline").warning(f"[phase3] pipeline root_cause failed: {_p3_e}")
 
         win_count = sum(1 for g in graded if g["outcome"] == "WIN")
         wr = round(win_count / len(graded) * 100, 1) if graded else None

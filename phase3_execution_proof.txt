@@ -1,0 +1,146 @@
+====== verified_run.sh ======
+SEQ=14
+TS=2026-07-18T20:47:08Z
+CMD=bash verify_execution_proof.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh
+==============================
+
+=== SHA256 BEFORE (from prior session) ===
+aiem_options_scheduler.py  ec07184172335cc434475bc9d12aaa7ec0203e7ca950ac68b455a9665a549d64
+aiem_options_pipeline.py   c9514a3382251be981f20766cf75eb71d9c81bfc463a4ab30754abf7baaec4ce
+
+=== SHA256 AFTER (current) ===
+dd0835b9d202cd717c050c6806608f08396a347d8fefaf8f681ad3b911e72fcd  aiem_options_scheduler.py
+e57a127905ca300266dd78863a29ccaba73e54b8aba445a1d385be4f6090ed1e  aiem_options_pipeline.py
+
+=== ITEM 1a: logging.basicConfig level in scheduler (raw grep -n) ===
+63:logging.basicConfig(
+64:    level=logging.INFO,
+
+=== ITEM 1a: all [phase3] exception handlers now use log.warning (raw grep -n) ===
+734:        log.warning(f"[phase3] init failed: {_p3_init_e}")
+1605:                    log.warning(f"[phase3] no_trade root_cause failed: {_p3_nt_rc_e}")
+1619:                    log.warning(f"[phase3] no_trade kb_entry failed: {_p3_nt_kb_e}")
+2002:            log.warning(f"[phase3] grade_outcomes_job p3 step failed: {_p3g_e}")
+744:                    import logging as _lg; _lg.getLogger("options_pipeline").warning(f"[phase3] pipeline root_cause failed: {_p3_e}")
+
+=== ITEM 1b: grep scheduler log for [phase3] (raw) ===
+log_file: /tmp/logs/artifactsstock-scanner_options-pipeline-_20260718_204327_405.log
+(no phase3 matches — log.warning not yet triggered; no _execute_job run since deploy)
+
+=== ITEM 1b: bootstrap_phase3 direct import + execution test ===
+bootstrap_phase3: SUCCESS — import + schema bootstrap completed without exception
+
+=== ITEM 2: oe_knowledge_base rows with timestamps ===
+QUERY: SELECT kb_id,kb_type,ticker,scan_date,decision_quality,confidence_score,validated_out_of_sample,statistical_gate_passed,created_at FROM oe_knowledge_base ORDER BY created_at;
+ROW: (1, 'FAILURE_TRADE', 'TEST', datetime.date(2026, 7, 18), 'BAD', 70, True, True, datetime.datetime(2026, 7, 18, 20, 24, 16, 622396, tzinfo=datetime.timezone.utc))
+ROW: (2, 'FAILURE_TRADE', 'TEST', datetime.date(2026, 7, 18), 'BAD', 70, True, True, datetime.datetime(2026, 7, 18, 20, 25, 56, 316724, tzinfo=datetime.timezone.utc))
+ROW: (3, 'FAILURE_TRADE', 'TEST', datetime.date(2026, 7, 18), 'BAD', 70, True, True, datetime.datetime(2026, 7, 18, 20, 31, 15, 29642, tzinfo=datetime.timezone.utc))
+
+=== ITEM 2: oe_kb_confidence_log rows with timestamps ===
+QUERY: SELECT log_id,kb_id,old_confidence,new_confidence,change_direction,gate_passed,sample_size,created_at FROM oe_kb_confidence_log ORDER BY created_at;
+ROW: (1, 1, 50, 70, 'INCREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 24, 16, 980197, tzinfo=datetime.timezone.utc))
+ROW: (2, 1, 50, 70, 'INCREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 24, 17, 230489, tzinfo=datetime.timezone.utc))
+ROW: (3, 1, 50, 30, 'DECREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 24, 17, 365736, tzinfo=datetime.timezone.utc))
+ROW: (4, 1, 50, 70, 'INCREASE', True, 25, datetime.datetime(2026, 7, 18, 20, 24, 17, 892907, tzinfo=datetime.timezone.utc))
+ROW: (5, 2, 50, 70, 'INCREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 25, 56, 828665, tzinfo=datetime.timezone.utc))
+ROW: (6, 2, 50, 70, 'INCREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 25, 56, 858783, tzinfo=datetime.timezone.utc))
+ROW: (7, 2, 50, 30, 'DECREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 25, 57, 196933, tzinfo=datetime.timezone.utc))
+ROW: (8, 2, 50, 70, 'INCREASE', True, 25, datetime.datetime(2026, 7, 18, 20, 25, 57, 420727, tzinfo=datetime.timezone.utc))
+ROW: (9, 3, 50, 70, 'INCREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 31, 15, 990129, tzinfo=datetime.timezone.utc))
+ROW: (10, 3, 50, 70, 'INCREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 31, 16, 420327, tzinfo=datetime.timezone.utc))
+ROW: (11, 3, 50, 30, 'DECREASE', False, 5, datetime.datetime(2026, 7, 18, 20, 31, 16, 559569, tzinfo=datetime.timezone.utc))
+ROW: (12, 3, 50, 70, 'INCREASE', True, 25, datetime.datetime(2026, 7, 18, 20, 31, 16, 673881, tzinfo=datetime.timezone.utc))
+
+=== ITEM 3: grade_outcomes_job schedule (raw grep -n) ===
+2190:    sched.add_job(grade_outcomes_job,
+2192:                  id="grade_outcomes", replace_existing=True)
+
+=== ITEM 3: daily_pipeline_runs last 5 rows (raw SQL + result) ===
+QUERY: SELECT column_name FROM information_schema.columns WHERE table_name='daily_pipeline_runs';
+COLUMNS: ['id', 'run_date', 'trigger_source', 'status', 'claim_id', 'trace_id', 'polygon_rvol_rows', 'oss_rows', 'candidates_seeded', 'candidates_executed', 'candidates_no_trade', 'candidates_failed', 'error_text', 'started_at', 'completed_at', 'created_at']
+QUERY: SELECT * FROM daily_pipeline_runs ORDER BY run_date DESC LIMIT 5;
+ROW: (20, datetime.date(2026, 7, 19), 'primary', 'RUNNING', None, None, None, None, 0, None, None, None, None, datetime.datetime(2026, 7, 18, 1, 28, 59, 4114, tzinfo=datetime.timezone.utc), None, datetime.datetime(2026, 7, 18, 1, 28, 59, 4114, tzinfo=datetime.timezone.utc))
+ROW: (15, datetime.date(2026, 7, 18), 'primary', 'SCHEDULED', None, None, None, None, None, None, None, None, None, None, None, datetime.datetime(2026, 7, 18, 1, 12, 17, 508422, tzinfo=datetime.timezone.utc))
+ROW: (12, datetime.date(2026, 7, 17), 'primary', 'RUNNING', None, None, None, None, 0, 0, 0, 0, None, datetime.datetime(2026, 7, 18, 1, 27, 32, 710067, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 18, 1, 27, 36, 124238, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 20, 40, 4, 862941, tzinfo=datetime.timezone.utc))
+ROW: (11, datetime.date(2026, 7, 17), 'emergency_run_endpoint', 'COMPLETED', None, None, None, None, None, None, None, None, None, None, datetime.datetime(2026, 7, 17, 19, 8, 36, 848081, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 19, 8, 36, 848081, tzinfo=datetime.timezone.utc))
+
+=== ITEM 3: job_heartbeats for grade_outcomes ===
+QUERY: SELECT job_name,last_success,last_attempt,consecutive_failures FROM job_heartbeats WHERE job_name LIKE '%grade%' ORDER BY last_attempt DESC;
+ROW: ('aiem_prediction_grader', datetime.datetime(2026, 7, 16, 20, 35, 0, 18693), datetime.datetime(2026, 7, 16, 20, 35, 0, 18693), 0)
+
+=== ITEM 4: grep -n for dir() guard pattern (old — should be 0 matches) ===
+(no matches — dir() pattern removed)
+
+=== ITEM 4: grep -n for locals().get replacement (new — should show lines) ===
+1600:                        verify_data=locals().get("verify_result", {}),
+1601:                        stock_data=locals().get("stock_data", {}),
+
+=== ITEM 4: sed -n context around locals().get lines ===
+1595:                        ticker=ticker,
+1596:                        scan_date=scan_date,
+1597:                        direction="NO_TRADE",
+1598:                        scoring_data={"call_score": call_score, "put_score": put_score,
+1599:                                      "margin": round(margin, 1)},
+1600:                        verify_data=locals().get("verify_result", {}),
+1601:                        stock_data=locals().get("stock_data", {}),
+1602:                        db_url=_DB_URL,
+1603:                    )
+
+=== SYNTAX CHECK post-edit ===
+SYNTAX OK  aiem_options_scheduler.py
+SYNTAX OK  aiem_options_pipeline.py
+
+=== FINAL SHA256 (post-edit) ===
+dd0835b9d202cd717c050c6806608f08396a347d8fefaf8f681ad3b911e72fcd  aiem_options_scheduler.py
+e57a127905ca300266dd78863a29ccaba73e54b8aba445a1d385be4f6090ed1e  aiem_options_pipeline.py
+
+==============================
+SEQ=14  EXIT=0  TS_END=2026-07-18T20:48:05Z
+==============================
+
+=== ITEM 3 SUPPLEMENT: grade_outcomes_job CronTrigger schedule (sed -n 2189-2193) ===
+    # 16:46 ET — grade outcomes
+    sched.add_job(grade_outcomes_job,
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=46),
+                  id="grade_outcomes", replace_existing=True)
+
+
+=== verify_chain.sh raw output ===
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL

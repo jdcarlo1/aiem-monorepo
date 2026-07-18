@@ -1,0 +1,38 @@
+PHASE 3 EVIDENCE REVIEW — STATUS: INCOMPLETE, NOT VERIFIED
+
+CONFIRMED:
+- git diff shows real integration: bootstrap_phase3, record_root_cause, add_knowledge_base_entry,
+  record_root_cause_batch, rebuild_all_scorecards wired into _execute_job, grade_options_outcomes,
+  grade_outcomes_job
+- ITEM 4 grep sweep clean — no stale refs to aiem_closed_loop/aiem_d3/aiem_d2/d3_governance/
+  aiem_paper_trades/aiem_learning_loop
+
+GAP — CODE PRESENCE ≠ EXECUTION PROOF:
+- oe_root_cause_records, oe_attribution_runs, oe_indicator_attribution, oe_interaction_hypotheses,
+  oe_interaction_results, oe_strategy_scorecards, oe_regime_performance = ALL 0 ROWS
+- oe_knowledge_base=3, oe_kb_confidence_log=12 — nonzero, inconsistent with root_cause=0 given
+  record_root_cause() and add_knowledge_base_entry() are called together on every NO_TRADE
+- All phase3 call sites wrapped in bare except Exception: log.debug(...) — a 100% failure rate
+  looks identical to "hasn't run yet" in the evidence submitted so far
+
+REQUIRED BEFORE THIS CAN BE MARKED COMPLETE:
+1. Raw grep of application log for the [phase3] debug lines:
+   "phase3 init skipped", "no_trade root_cause skipped", "no_trade kb_entry skipped",
+   "grade_outcomes_job p3 step skipped"
+   -> confirm whether these calls are throwing on every invocation
+2. Timestamps on the 3 oe_knowledge_base rows and 12 oe_kb_confidence_log rows
+   -> predate this deploy (unrelated), or written by this new code path (meaning KB write works,
+      root_cause write doesn't)
+3. Confirmation grade_outcomes_job has actually fired since deploy — scheduler run log required,
+   not code presence alone
+
+FLAG (not yet confirmed bug, needs direct check):
+- "verify_result" in dir() / "stock_data" in dir() guard pattern is scope-fragile — needs raw
+  grep-confirmed check that it gates correctly, not assumed fine because it's non-fatal
+
+NOTE: verify_chain.sh alert_id=25/TER SNAPSHOT_UNAVAILABLE is the already-closed pre-existing-alert
+timing issue — unrelated to phase3, do not conflate.
+
+Standing protocol applies in full to any response: raw command output only, sha256 before/after
+for files changed this session, exact SQL + row counts, raw grep for every code claim, no
+unapproved deletions.

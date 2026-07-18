@@ -731,7 +731,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _p3.bootstrap_phase3(_DB_URL)
         _p3_ready = True
     except Exception as _p3_init_e:
-        log.debug(f"[exec] phase3 init skipped: {_p3_init_e}")
+        log.warning(f"[phase3] init failed: {_p3_init_e}")
         _p3_ready = False
         _p3       = None
 
@@ -1597,12 +1597,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         direction="NO_TRADE",
                         scoring_data={"call_score": call_score, "put_score": put_score,
                                       "margin": round(margin, 1)},
-                        verify_data=verify_result if "verify_result" in dir() else {},
-                        stock_data=stock_data   if "stock_data"   in dir() else {},
+                        verify_data=locals().get("verify_result", {}),
+                        stock_data=locals().get("stock_data", {}),
                         db_url=_DB_URL,
                     )
                 except Exception as _p3_nt_rc_e:
-                    log.debug(f"[phase3] no_trade root_cause skipped: {_p3_nt_rc_e}")
+                    log.warning(f"[phase3] no_trade root_cause failed: {_p3_nt_rc_e}")
                 try:
                     _p3.add_knowledge_base_entry(
                         kb_type="SUCCESS_NO_TRADE",
@@ -1616,7 +1616,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         db_url=_DB_URL,
                     )
                 except Exception as _p3_nt_kb_e:
-                    log.debug(f"[phase3] no_trade kb_entry skipped: {_p3_nt_kb_e}")
+                    log.warning(f"[phase3] no_trade kb_entry failed: {_p3_nt_kb_e}")
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
                     "call_score": call_score, "put_score": put_score,
                     "trace_id": trace_id, "chain_hash": _nt_chain_hash}
@@ -1999,7 +1999,7 @@ def grade_outcomes_job() -> dict:
             _p3g.record_root_cause_batch(days_back=30, db_url=_DB_URL)
             _p3g.rebuild_all_scorecards(db_url=_DB_URL)
         except Exception as _p3g_e:
-            log.debug(f"[phase3] grade_outcomes_job p3 step skipped: {_p3g_e}")
+            log.warning(f"[phase3] grade_outcomes_job p3 step failed: {_p3g_e}")
         if n:
             _tg(
                 f"📊 <b>OPTIONS OUTCOMES GRADED</b>\n"
