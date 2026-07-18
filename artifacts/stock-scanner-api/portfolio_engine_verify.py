@@ -965,15 +965,16 @@ def test_a5_a6_industry_strike():
          "A5c: ConcentrationResult.industry_pct is non-negative",
          f"got {conc_chips.industry_pct}")
 
-    # A6a: strike_pct field exists and is zero when no overlapping strikes
+    # A6a: strike_pct field exists; with no existing positions, it equals
+    #       candidate_capital / PORTFOLIO_CAPITAL = 2000/100000 = 0.02
     snap_empty = _make_snapshot()
     conc_nostrike = check_concentration(
         snap_empty, "AAPL", 2_000.0, "BCS", None, None, False, False, None, None,
         candidate_strike=150.0,
     )
     _chk(hasattr(conc_nostrike, "strike_pct"), "A6a: ConcentrationResult has strike_pct field")
-    _chk(conc_nostrike.strike_pct == 0.0,
-         "A6a: strike_pct == 0 when no existing positions on that underlying",
+    _chk(abs(conc_nostrike.strike_pct - 0.02) < 0.001,
+         "A6a: strike_pct == candidate_capital/PORTFOLIO_CAPITAL (2000/100000=0.02) when no existing overlap",
          f"got {conc_nostrike.strike_pct}")
 
     # A6b: strike-area concentration breach detected
@@ -1220,11 +1221,13 @@ def test_a11_substitute():
     # A11b: SUBSTITUTE path triggers with correlation REDUCE + concentration breach + EV > 1.0
     # Setup: mega_tech cluster exposed at 32% > 30% → correlation REDUCE
     #        XLK sector at 36% > 35% → sector breach (soft, not hard: 36 < 35*1.1=38.5)
+    # max_loss=500 (not equal to capital) keeps liq_adj_max_loss = 4×500 + 8000 + ~liq_cost
+    # = ~10400 < LIQUIDITY_ADJ_LOSS_LIMIT (12000) — no liquidity hard block fires.
     positions = [
-        _make_position("AAPL",  capital=8_000, sector="XLK"),
-        _make_position("MSFT",  capital=8_000, sector="XLK"),
-        _make_position("GOOGL", capital=8_000, sector="XLK"),
-        _make_position("QCOM",  capital=4_000, sector="XLK"),   # not in mega_tech
+        _make_position("AAPL",  capital=8_000, max_loss=500, sector="XLK"),
+        _make_position("MSFT",  capital=8_000, max_loss=500, sector="XLK"),
+        _make_position("GOOGL", capital=8_000, max_loss=500, sector="XLK"),
+        _make_position("QCOM",  capital=4_000, max_loss=500, sector="XLK"),   # not in mega_tech
     ]
     snap = _make_snapshot(positions)
 
