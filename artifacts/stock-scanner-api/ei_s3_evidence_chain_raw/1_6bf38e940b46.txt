@@ -1,0 +1,142 @@
+======================================================================
+EI SECTION 3 — DB EVIDENCE  (via tools/verified_run.sh)
+run_utc:      2026-07-18T06:06:37.244648Z
+trace_id:     ei_s3_chain_398e4622
+candidate_id: ei_S3_CHAIN_TEST_2026-07-18_b83fe75179d0
+======================================================================
+
+── QUERY 1: Schema introspection ──
+SQL:
+SELECT column_name,
+       data_type,
+       character_maximum_length,
+       numeric_precision,
+       numeric_scale,
+       is_nullable
+FROM information_schema.columns
+WHERE table_name = 'aiem_execution_assessments'
+ORDER BY ordinal_position
+
+column_name                         data_type              nullable
+----------------------------------- ---------------------- --------
+id                                  bigint(64,0)           NO
+candidate_id                        character varying(64)  NO
+trace_id                            character varying(48)  YES
+strategy_id                         character varying(64)  YES
+ticker                              character varying(20)  NO
+scan_date                           date                   NO
+strategy_name                       character varying(64)  YES
+n_legs                              integer(32,0)          YES
+bid                                 numeric(10,4)          YES
+ask                                 numeric(10,4)          YES
+mid                                 numeric(10,4)          YES
+spread_pct                          numeric(8,4)           YES
+volume                              integer(32,0)          YES
+open_interest                       integer(32,0)          YES
+bid_size                            integer(32,0)          YES
+ask_size                            integer(32,0)          YES
+iv                                  numeric(8,4)           YES
+dte                                 integer(32,0)          YES
+fill_probability                    numeric(6,4)           YES
+mid_fill_probability                numeric(6,4)           YES
+expected_entry_price                numeric(10,4)          YES
+conservative_entry_price            numeric(10,4)          YES
+expected_slippage_pct               numeric(8,4)           YES
+expected_slippage_dollars           numeric(10,4)          YES
+spread_cost_dollars                 numeric(10,4)          YES
+commission_dollars                  numeric(10,4)          YES
+market_impact_dollars               numeric(10,4)          YES
+total_transaction_cost              numeric(10,4)          YES
+legging_risk_score                  numeric(6,4)           YES
+exit_liquidity_score                numeric(6,4)           YES
+early_assignment_risk               character varying(10)  YES
+pin_risk_flag                       boolean                YES
+liquidity_score                     numeric(6,4)           YES
+gross_expected_edge                 numeric(10,4)          YES
+net_expected_edge                   numeric(10,4)          YES
+execution_uncertainty               numeric(8,4)           YES
+execution_score                     numeric(6,4)           YES
+approved                            boolean                NO
+rejection_reason                    character varying(200) YES
+position_size_factor                numeric(6,4)           YES
+actual_fill_price                   numeric(10,4)          YES
+actual_slippage                     numeric(10,4)          YES
+actual_transaction_cost             numeric(10,4)          YES
+fill_prob_error                     numeric(8,4)           YES
+entry_price_error                   numeric(10,4)          YES
+slippage_error                      numeric(10,4)          YES
+cost_error                          numeric(10,4)          YES
+config_sha256                       character varying(64)  YES
+raw_assessment_json                 jsonb                  YES
+gating_enabled                      boolean                YES
+created_at                          timestamp with time zone YES
+updated_at                          timestamp with time zone YES
+(52 columns total)
+
+[pre-query-2 save] saved_id=ei_S3_CHAIN_TEST_2026-07-18_b83fe75179d0  (== candidate_id: True)
+
+── QUERY 2: Round-trip read ──
+SQL:
+SELECT candidate_id,
+       trace_id,
+       ticker,
+       strategy_name,
+       fill_probability,
+       liquidity_score,
+       net_expected_edge,
+       approved,
+       config_sha256,
+       raw_assessment_json,
+       gating_enabled,
+       expected_entry_price,
+       exit_liquidity_score,
+       early_assignment_risk,
+       pin_risk_flag,
+       market_impact_dollars
+FROM aiem_execution_assessments
+WHERE candidate_id = 'ei_S3_CHAIN_TEST_2026-07-18_b83fe75179d0'
+
+  candidate_id                   = ei_S3_CHAIN_TEST_2026-07-18_b83fe75179d0
+  trace_id                       = ei_s3_chain_398e4622
+  ticker                         = S3_CHAIN_TEST
+  strategy_name                  = LONG_CALL
+  fill_probability               = 0.9500
+  liquidity_score                = 0.8958
+  net_expected_edge              = 94.1300
+  approved                       = True
+  config_sha256                  = f7b41ab19ebf6a1cec2e60f971ba75e8385d40f167500c0757def5a5158ef8e9  (full 64-char)
+  raw_assessment_json            = <jsonb, 42 keys>
+  gating_enabled                 = False
+  expected_entry_price           = 2.0255
+  exit_liquidity_score           = 0.9349
+  early_assignment_risk          = LOW
+  pin_risk_flag                  = False
+  market_impact_dollars          = 0.0000
+
+[pre-query-3 learning write] record_learning_outcome returned: True
+
+── QUERY 3: Learning outcome row ──
+SQL:
+SELECT actual_fill_price,
+       actual_slippage,
+       actual_transaction_cost,
+       entry_price_error,
+       slippage_error,
+       cost_error
+FROM aiem_execution_assessments
+WHERE candidate_id = 'ei_S3_CHAIN_TEST_2026-07-18_b83fe75179d0'
+
+  actual_fill_price              = 2.0350
+  actual_slippage                = 0.0600
+  actual_transaction_cost        = 4.5000
+  entry_price_error              = 0.0095
+  slippage_error                 = -0.9500
+  cost_error                     = 0.1300
+
+(entry_price_error = actual_fill_price - expected_entry_price)
+(slippage_error    = actual_slippage   - expected_slippage_dollars)
+(cost_error        = actual_transaction_cost - total_transaction_cost)
+
+======================================================================
+SECTION 3 COMPLETE — 3 queries executed, all results printed above
+======================================================================
