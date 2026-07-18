@@ -1,0 +1,402 @@
+================================================================
+GAP 1 — Re-run through verified_run.sh + verify_chain.sh SHAs
+================================================================
+
+--- sha256sum of both wrapper scripts ---
+
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  /home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  /home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+
+CANONICAL CHECK:
+  verified_run.sh expected: 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4 → MATCH
+  verify_chain.sh expected:  ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f → MATCH
+  verify_chain.sh path: artifacts/stock-scanner-api/verify_chain.sh (one level above tools/)
+  Prior sha256sum attempt used wrong path tools/verify_chain.sh → "No such file or directory" was path error, not file missing.
+
+--- Full verified_run.sh wrapped output ---
+
+====== verified_run.sh ======
+SEQ=6
+TS=2026-07-18T19:46:07Z
+CMD=bash verify_phase3_phase2.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=05efbdde8bb5bcfd0d19eb63c3e246f92c54a792
+==============================
+
+=== verify_phase3_phase2.sh  started 2026-07-18T19:46:07Z ===
+script_sha256=7916ec3e927d531348bd5639e08e09d5631b1c8af5aaeee98d9c672cbb9640cf
+
+=== A. File existence + SHA256 ===
+SEQ=1 ts=2026-07-18T19:46:07Z status=PASS name=FILE_EXISTS_aiem_options_phase2.py detail=sha256=ebc66070caa7b7ca2e51c6f66691dccb6f75758d65dc3e00f2abb8f8f943e0bf
+SEQ=2 ts=2026-07-18T19:46:07Z status=PASS name=FILE_EXISTS_aiem_options_scheduler.py detail=sha256=2c53df67224b659f996f0470d8a8988630b6a761b95d2106345f869fdf19a543
+SEQ=3 ts=2026-07-18T19:46:08Z status=PASS name=FILE_EXISTS_aiem_options_pipeline.py detail=sha256=3bc988476ca8bca794b66b0f17638ef316f2065d65994277bff05a0d2a6c6928
+
+=== B. Strategy catalog in aiem_options_phase2.py ===
+SEQ=4 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_COUNT_GE_42 detail=grep count=42 strategy entries in source
+SEQ=5 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_LONG_CALL detail=found in _STRATEGY_CATALOG
+SEQ=6 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_LONG_PUT detail=found in _STRATEGY_CATALOG
+SEQ=7 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_IRON_CONDOR detail=found in _STRATEGY_CATALOG
+SEQ=8 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_IRON_BUTTERFLY detail=found in _STRATEGY_CATALOG
+SEQ=9 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_BULL_CALL_SPREAD detail=found in _STRATEGY_CATALOG
+SEQ=10 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_BEAR_PUT_SPREAD detail=found in _STRATEGY_CATALOG
+SEQ=11 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_LONG_STRADDLE detail=found in _STRATEGY_CATALOG
+SEQ=12 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_COVERED_CALL detail=found in _STRATEGY_CATALOG
+SEQ=13 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_JADE_LIZARD detail=found in _STRATEGY_CATALOG
+SEQ=14 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_BOX_SPREAD detail=found in _STRATEGY_CATALOG
+SEQ=15 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_COLLAR detail=found in _STRATEGY_CATALOG
+SEQ=16 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_RISK_REVERSAL detail=found in _STRATEGY_CATALOG
+SEQ=17 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_SYNTHETIC_LONG detail=found in _STRATEGY_CATALOG
+SEQ=18 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_CALENDAR_CALL detail=found in _STRATEGY_CATALOG
+SEQ=19 ts=2026-07-18T19:46:08Z status=PASS name=CATALOG_HAS_CALL_BACKSPREAD detail=found in _STRATEGY_CATALOG
+
+=== C. Scheduler wiring (raw grep -n) ===
+SEQ=20 ts=2026-07-18T19:46:09Z status=PASS name=PHASE2_IMPORT_IN_SCHEDULER detail=line=720
+SEQ=21 ts=2026-07-18T19:46:09Z status=PASS name=BOOTSTRAP_CALL_IN_SCHEDULER detail=line=721
+SEQ=22 ts=2026-07-18T19:46:09Z status=PASS name=STRATEGY_CANDIDATES_WIRED detail=line=1527
+SEQ=23 ts=2026-07-18T19:46:09Z status=PASS name=DECISION_RECORD_WIRED detail=line=1546
+SEQ=24 ts=2026-07-18T19:46:09Z status=PASS name=COUNTERFACTUAL_SNAP_WIRED detail=line=1671
+SEQ=25 ts=2026-07-18T19:46:09Z status=PASS name=TRADE_RECORD_WIRED detail=line=1687
+SEQ=26 ts=2026-07-18T19:46:09Z status=PASS name=DECISION_ALERT_ID_WIRED detail=line=1708
+
+=== D. Pipeline wiring (raw grep -n) ===
+SEQ=27 ts=2026-07-18T19:46:09Z status=PASS name=PHASE2_IMPORT_IN_PIPELINE detail=line=707
+SEQ=28 ts=2026-07-18T19:46:09Z status=PASS name=CF_OUTCOMES_WIRED_IN_PIPELINE detail=line=708
+SEQ=29 ts=2026-07-18T19:46:10Z status=PASS name=TRADE_EXIT_WIRED_IN_PIPELINE detail=line=718
+
+=== E. DB: Phase 2 tables exist ===
+SEQ=30 ts=2026-07-18T19:46:10Z status=PASS name=TABLE_EXISTS_oe_strategy_registry detail=rows=42
+SEQ=31 ts=2026-07-18T19:46:11Z status=PASS name=TABLE_EXISTS_oe_strategy_candidates detail=rows=0
+SEQ=32 ts=2026-07-18T19:46:11Z status=PASS name=TABLE_EXISTS_oe_counterfactual_snapshots detail=rows=0
+SEQ=33 ts=2026-07-18T19:46:11Z status=PASS name=TABLE_EXISTS_oe_counterfactual_outcomes detail=rows=0
+SEQ=34 ts=2026-07-18T19:46:11Z status=PASS name=TABLE_EXISTS_oe_decision_records detail=rows=0
+SEQ=35 ts=2026-07-18T19:46:12Z status=PASS name=TABLE_EXISTS_oe_trade_records detail=rows=0
+
+=== F. Registry: 42 strategies seeded ===
+SEQ=36 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_42_SEEDED detail=oe_strategy_registry rows=42
+SEQ=37 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_CALL detail=1 row confirmed in oe_strategy_registry
+SEQ=38 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_PUT detail=1 row confirmed in oe_strategy_registry
+SEQ=39 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_IRON_CONDOR detail=1 row confirmed in oe_strategy_registry
+SEQ=40 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_JADE_LIZARD detail=1 row confirmed in oe_strategy_registry
+SEQ=41 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_BOX_SPREAD detail=1 row confirmed in oe_strategy_registry
+
+=== G. CHECK constraint: is_hypothetical=FALSE rejected by DB ===
+SEQ=42 ts=2026-07-18T19:46:12Z status=PASS name=CHECK_CONSTRAINT_FALSE_REJECTED detail=DB correctly rejected is_hypothetical=FALSE with CheckViolation
+SEQ=43 ts=2026-07-18T19:46:13Z status=PASS name=CHECK_CONSTRAINT_NAME_EXISTS detail=conname=oe_cf_outcome_is_hypothetical confirmed in pg_constraint
+
+=== H. Look-ahead gate ===
+SEQ=44 ts=2026-07-18T19:46:13Z status=PASS name=LOOKAHEAD_GATE detail=0 rows where calculated_at < captured_at (no look-ahead)
+
+=== I. Decision record type coverage ===
+SEQ=45 ts=2026-07-18T19:46:13Z status=PASS name=DECISION_RECORDS_TABLE_QUERYABLE detail=oe_decision_records is accessible; rows=0
+SEQ=46 ts=2026-07-18T19:46:13Z status=PASS name=DECISION_RECORDS_EMPTY_PRE_RUN detail=0 rows expected before first Monday pipeline run (2026-07-21)
+
+=== J. Trade record table queryable ===
+SEQ=47 ts=2026-07-18T19:46:13Z status=PASS name=TRADE_RECORDS_TABLE_QUERYABLE detail=oe_trade_records accessible; rows=0
+SEQ=48 ts=2026-07-18T19:46:14Z status=PASS name=TRADE_RECORDS_14_KEY_COLS detail=14/14 required columns confirmed
+
+=== K. Counterfactual snapshot schema ===
+SEQ=49 ts=2026-07-18T19:46:14Z status=PASS name=CF_SNAP_TABLE_QUERYABLE detail=oe_counterfactual_snapshots accessible; rows=0
+SEQ=50 ts=2026-07-18T19:46:14Z status=PASS name=CF_SNAP_10_KEY_COLS detail=10/10 required columns confirmed
+
+=== L. Python syntax checks ===
+SEQ=51 ts=2026-07-18T19:46:14Z status=PASS name=SYNTAX_CLEAN_aiem_options_phase2.py detail=ast.parse OK
+SEQ=52 ts=2026-07-18T19:46:14Z status=PASS name=SYNTAX_CLEAN_aiem_options_scheduler.py detail=ast.parse OK
+SEQ=53 ts=2026-07-18T19:46:15Z status=PASS name=SYNTAX_CLEAN_aiem_options_pipeline.py detail=ast.parse OK
+
+=== M. Non-fatal wiring (every Phase 2 call guarded) ===
+SEQ=54 ts=2026-07-18T19:46:15Z status=PASS name=NONFATAL_capture_strategy_candidates detail=try/except guard found within 25 lines of _p2.capture_strategy_candidates at line 1527
+SEQ=55 ts=2026-07-18T19:46:15Z status=PASS name=NONFATAL_capture_decision_record detail=try/except guard found within 25 lines of _p2.capture_decision_record at line 1546
+SEQ=56 ts=2026-07-18T19:46:15Z status=PASS name=NONFATAL_capture_counterfactual_snapshot detail=try/except guard found within 25 lines of _p2.capture_counterfactual_snapshot at line 1671
+SEQ=57 ts=2026-07-18T19:46:15Z status=PASS name=NONFATAL_capture_trade_record detail=try/except guard found within 25 lines of _p2.capture_trade_record at line 1687
+
+=== N. D1/D2/D3 isolation ===
+SEQ=58 ts=2026-07-18T19:46:15Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_closed_loop detail=no reference to 'aiem_closed_loop' in aiem_options_phase2.py
+SEQ=59 ts=2026-07-18T19:46:15Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_d3 detail=no reference to 'aiem_d3' in aiem_options_phase2.py
+SEQ=60 ts=2026-07-18T19:46:15Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_d2 detail=no reference to 'aiem_d2' in aiem_options_phase2.py
+SEQ=61 ts=2026-07-18T19:46:15Z status=PASS name=NO_CROSSSYS_IMPORT_d3_governance detail=no reference to 'd3_governance' in aiem_options_phase2.py
+SEQ=62 ts=2026-07-18T19:46:15Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_paper_trades detail=no reference to 'aiem_paper_trades' in aiem_options_phase2.py
+SEQ=63 ts=2026-07-18T19:46:15Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_learning_loop detail=no reference to 'aiem_learning_loop' in aiem_options_phase2.py
+
+=== O. git diff HEAD --stat ===
+
+SEQ=64 ts=2026-07-18T19:46:16Z status=PASS name=GIT_DIFF_STAT detail= 
+
+════════════════════════════════════════════════
+PASS=64  FAIL=0  SKIP=0  SEQ=64
+evidence_log_sha256=3fd1811fe5449ac3bad37c3e37d74e214b136a7e49b3e95606fba84bca9f5bba
+script_sha256=7916ec3e927d531348bd5639e08e09d5631b1c8af5aaeee98d9c672cbb9640cf
+════════════════════════════════════════════════
+EXIT=0 (all checks passed or skipped)
+
+==============================
+SEQ=6  EXIT=0  TS_END=2026-07-18T19:46:16Z
+sha256(log)=57966f759121b28a3f2119677c43393bb9c83cdad93301c7a7eb7a2040ee013e
+==============================
+
+================================================================
+GAP 2 — Hardcoded constants in new/changed lines only (commit e4ebb84)
+================================================================
+
+--- Raw grep -n output for each constant ---
+
+aiem_options_phase2.py line 429:
+                    ADD COLUMN IF NOT EXISTS quantity_ratio NUMERIC(8,4)
+  TRACE: NUMERIC(8,4) is the uniform precision/scale used for every NUMERIC column in this
+  file's CREATE TABLE blocks (pop, delta, gamma, theta, vega, slippage_est, risk_adjusted_score,
+  fees_est, entry_iv, exit_iv, mfe_pct, mae_pct — all NUMERIC(8,4)). Established in prior
+  commits; ALTER TABLE applies the same schema pattern to the newly-added column.
+  grep -n confirming prior use: lines 240,242,244,245,249,253,383,384,394,395,398,399 in same file.
+
+aiem_options_phase2.py line 433:
+                    ADD COLUMN IF NOT EXISTS execution_plan_id VARCHAR(64)
+  TRACE: VARCHAR(64) is the uniform width for all ID/label string columns in this file's
+  CREATE TABLE blocks (strategy_id, family, trace_id, exit_reason, regime_suitability,
+  chain_hash, regime, sector, industry — all VARCHAR(64)). Same schema pattern; job_id is
+  an integer cast to str (max 20 chars at INT range); 64 is consistent with all other ID cols.
+  grep -n confirming prior use: lines 209,211,226,229,231,251,315,354,375,395,405,408,409,410.
+
+aiem_options_phase2.py line 640:
+        expiry = date.fromisoformat(str(expiry_raw)[:10]) if expiry_raw else None
+  TRACE: [:10] — ISO 8601 date strings are "YYYY-MM-DD" which is exactly 10 characters.
+  Slicing [:10] extracts the date portion from any datetime string (e.g. "2026-07-18T00:00:00"
+  or "2026-07-18 00:00:00"). No configurable source; this is a property of the ISO 8601 standard.
+
+aiem_options_phase2.py line 647:
+        qtys = [abs(float(l.get("quantity", 1))) for l in legs if l.get("quantity")]
+  TRACE: default 1 — when a leg dict has no "quantity" key, abs(float(1)) = 1.0, representing
+  one contract. This default is never reached because the list comprehension filter
+  `if l.get("quantity")` excludes any leg without a quantity key. The default 1 in get() is
+  a Python no-op guarded by the filter; it cannot produce a wrong ratio.
+
+aiem_options_phase2.py line 648:
+        qty_ratio = (min(qtys) / max(qtys)) if len(qtys) >= 2 and max(qtys) > 0 else 1.0
+  TRACE: >= 2 — a ratio requires at least 2 legs with explicit quantities; single-leg strategies
+  have no ratio. > 0 — zero guard prevents ZeroDivisionError.
+  1.0 — default ratio for single-leg strategies (1 contract / 1 contract = 1.0 by definition).
+  No live source required; these are mathematical constraints on the ratio definition.
+
+aiem_options_phase2.py line 1127 (BULL_CALL_SPREAD P&L):
+            est    = mp * 0.5 - debit        # 50% of max-profit as conservative estimate
+  NOTE: 0.5 was NOT introduced in commit e4ebb84. It was already present in the prior line:
+    -            pnl   = min(mp - debit, max(-debit, pnl := mp * 0.5 - debit))
+  Commit e4ebb84 only refactored the expression to remove the walrus operator (:=). The
+  constant 0.5 predates this session. One-line trace (for completeness): this is a paper
+  P&L approximation used only in _calc_strategy_pnl for outcome grading. At the time of
+  capture the actual spot price at expiry is unknown; 50% of max profit is the standard
+  mid-point estimate for a debit spread held to mid-term. Not a decision gate; does not block
+  or approve any execution.
+
+--- Conditional gate introduced (selected_direction fix) — negative-control proof ---
+
+OLD code (removed in e4ebb84) — grep -n BEFORE:
+  From commit diff: selected_direction="PENDING" was passed at Stage EI.
+  In _build_candidate_row, the gate was:
+    is_sel = (... or (selected_direction not in ("LONG_CALL","LONG_PUT","NO_TRADE") and rank==0))
+  "PENDING" not in ("LONG_CALL","LONG_PUT","NO_TRADE") → True → rank==0 always selected.
+  FAILING CONDITION: any run would mark rank-0 chain strategy as selected regardless of direction.
+
+NEW code — raw grep -n confirming "PENDING" is gone from candidates call:
+  (grep -n '"PENDING"' aiem_options_scheduler.py filtered for candidate/selected_direction → no output)
+
+  grep -n 'selected_direction' aiem_options_scheduler.py:
+  1537:                    selected_direction=direction,
+
+  "PENDING" does not appear anywhere in the capture_strategy_candidates call. selected_direction
+  receives the live `direction` variable (one of "LONG_CALL","LONG_PUT","NO_TRADE") which is
+  resolved at Stage 6 before the candidates call executes.
+
+--- No other conditional gates introduced in new/changed lines ---
+  ALTER TABLE lines: no gate logic.
+  expiry extraction: try/except returns None on parse failure (not a pipeline gate).
+  qty_ratio calculation: assigns a stored value only; no execution gate.
+
+================================================================
+GAP 3 — Git diff + commit provenance
+================================================================
+
+--- git diff HEAD --stat (run 2026-07-18T19:46:xx) ---
+(no output — all changes committed)
+
+--- git log --oneline -3 per file ---
+
+artifacts/stock-scanner-api/aiem_options_phase2.py:
+e4ebb84 Improve data capture and fix scheduler bugs for options trading analysis
+849d160 Add comprehensive tracking for options trading decisions and outcomes
+
+artifacts/stock-scanner-api/aiem_options_scheduler.py:
+e4ebb84 Improve data capture and fix scheduler bugs for options trading analysis
+849d160 Add comprehensive tracking for options trading decisions and outcomes
+287b70e Add comprehensive data capture and registry system for improved observability
+
+artifacts/stock-scanner-api/aiem_options_pipeline.py:
+849d160 Add comprehensive tracking for options trading decisions and outcomes
+287b70e Add comprehensive data capture and registry system for improved observability
+517d1b2 Update verification script to ensure data integrity and proper chaining
+
+All phase2-related changes from this session are in commit e4ebb84
+(2026-07-18T19:40:30Z). No uncommitted working-tree changes exist.
+Full commit diff for phase2 hunks is included inline below.
+
+--- git show e4ebb84 -- aiem_options_phase2.py (phase2-relevant hunks) ---
+
+diff --git a/artifacts/stock-scanner-api/aiem_options_phase2.py b/artifacts/stock-scanner-api/aiem_options_phase2.py
+index efb9d6d..a52dd72 100644
+--- a/artifacts/stock-scanner-api/aiem_options_phase2.py
++++ b/artifacts/stock-scanner-api/aiem_options_phase2.py
+@@ -422,12 +422,23 @@ def bootstrap_phase2(db_url: str = "") -> bool:
+                     ON oe_trade_records(trace_id)
+             """)
+
++            # ── Additive column migrations (idempotent) ────────────────────────
++            cur.execute("""
++                ALTER TABLE oe_strategy_candidates
++                    ADD COLUMN IF NOT EXISTS expiration   DATE,
++                    ADD COLUMN IF NOT EXISTS quantity_ratio NUMERIC(8,4)
++            """)
++            cur.execute("""
++                ALTER TABLE oe_decision_records
++                    ADD COLUMN IF NOT EXISTS execution_plan_id VARCHAR(64)
++            """)
++
+             conn.commit()
+
+         # Populate strategy registry (idempotent upsert)
+         _seed_strategy_registry(db_url)
+         _BOOTSTRAPPED = True
+-        log.info(f"[phase2] bootstrap complete: 5 tables ready, "
++        log.info(f"[phase2] bootstrap complete: 6 tables ready, "
+                  f"{len(_STRATEGY_CATALOG)} strategies registered")
+         return True
+@@ -579,6 +590,7 @@ def capture_strategy_candidates(
+                         trace_id, ticker, scan_date,
+                         strategy_id, strategy_name, strategy_family,
+                         direction, call_put_type, legs_json,
++                        expiration, quantity_ratio,
+                         net_debit_credit, max_profit, max_loss,
+@@ -617,12 +629,31 @@ def _build_candidate_row(
+     cat = {s["id"]: s for s in _STRATEGY_CATALOG}.get(strategy_id, {})
+     eg  = extra_greeks or {}
++    expiry_raw = cs.get("expiry") or cs.get("expiration")
++    if not expiry_raw:
++        legs = cs.get("legs") or []
++        expiry_raw = legs[0].get("expiry") or legs[0].get("expiration") if legs else None
++    expiry = None
++    if expiry_raw:
++        try:
++            expiry = date.fromisoformat(str(expiry_raw)[:10]) if expiry_raw else None
++        except (ValueError, TypeError):
++            expiry = None
++    qty_ratio = cs.get("quantity_ratio") or cs.get("ratio")
++    if qty_ratio is None:
++        legs = cs.get("legs") or []
++        qtys = [abs(float(l.get("quantity", 1))) for l in legs if l.get("quantity")]
++        qty_ratio = (min(qtys) / max(qtys)) if len(qtys) >= 2 and max(qtys) > 0 else 1.0
+     return (
+         ...
++        expiry,
++        float(qty_ratio) if qty_ratio is not None else None,
+         ...
+@@ -687,15 +699,16 @@ def capture_decision_record(
+-    trace_id:          str,
++    trace_id:           str,
+     ...
++    execution_plan_id:  Optional[str] = None,
+@@ -706,11 +738,23 @@ def capture_decision_record(
++    portfolio_result = {
++        "sector":               stock_data.get("sector"),
++        "sector_strength":      stock_data.get("sector_strength"),
++        "market_regime":        stock_data.get("market_regime"),
++        "account_balance":      stock_data.get("account_balance"),
++        "open_positions_count": stock_data.get("open_positions_count"),
++        "portfolio_heat":       stock_data.get("portfolio_heat"),
++        "portfolio_check":      verify_result.get("portfolio_check"),
++        "concentration_ok":     verify_result.get("concentration_ok"),
++        "correlation_check":    verify_result.get("correlation_check"),
++    }
+     INSERT INTO oe_decision_records (
+-        trace_id, ticker, scan_date, alert_id, decision_ts,
++        trace_id, ticker, scan_date, alert_id,
++        execution_plan_id, decision_ts,
+         ...
+-    json.dumps({}),
++    json.dumps(portfolio_result, default=str),
+
+@@ -799,9 +815,13 @@ def update_decision_alert_id(
+-def update_decision_alert_id(trace_id: str, alert_id: int, db_url: str = "") -> None:
++def update_decision_alert_id(trace_id: str, alert_id: int,
++                             db_url: str = "",
++                             chain_hash: Optional[str] = None) -> None:
+-    UPDATE oe_decision_records SET alert_id=%s WHERE trace_id=%s AND alert_id IS NULL
++    UPDATE oe_decision_records
++    SET alert_id  = COALESCE(alert_id, %s),
++        chain_hash = COALESCE(chain_hash, %s)
++    WHERE trace_id=%s
+
+@@ -1120 _calc_strategy_pnl BULL_CALL_SPREAD:
+-            pnl   = min(mp - debit, max(-debit, pnl := mp * 0.5 - debit))
++            est    = mp * 0.5 - debit
++            pnl    = min(mp - debit, max(-debit, est))
+
+@@ -1164 capture_trade_record signature:
++    call_scoring:    Optional[dict] = None,
++    put_scoring:     Optional[dict] = None,
+
+@@ -1193 subsystem dict expanded:
+-    "stock_direction": stock_data.get("stock_direction"),
+-    "market_regime":   stock_data.get("market_regime"),
+-    "vwap_position":   stock_data.get("vwap_position"),
+-    "close_strength":  stock_data.get("close_strength"),
+-    "iv_rank":         stock_data.get("iv_rank"),
+-    "gate_failures":   (verify_result.get("gate_failures") or []),
++    "stock_data": {k: v for k, v in stock_data.items() ...},
++    "verify_result": {k: v for k, v in verify_result.items() ...},
++    "call_scoring": ...,
++    "put_scoring": ...,
+
+@@ -1251 sector field:
+-    stock_data.get("sector_strength"),
++    stock_data.get("sector") or stock_data.get("sector_name"),
+
+--- git show e4ebb84 -- aiem_options_scheduler.py (phase2-relevant hunks) ---
+
+@@ -1056 Stage EI — candidates capture REMOVED:
+-        if _p2_ready:
+-            try:
+-                _p2.capture_strategy_candidates(
+-                    ...
+-                    call_data=call_data if "call_data" in dir() else {},
+-                    put_data=put_data   if "put_data"  in dir() else {},
+-                    call_score=call_score if "call_score" in dir() else 0.0,
+-                    put_score=put_score   if "put_score"  in dir() else 0.0,
+-                    selected_direction="PENDING",
++        # (Phase 2 strategy candidate capture moved to after Stage 6 where
++        #  direction, call_data, and put_data are all resolved.)
+
+@@ -1518 After Stage 6 — candidates capture ADDED:
++        if _p2_ready:
++            try:
++                _p2.capture_strategy_candidates(
++                    ...
++                    call_data=call_data,
++                    put_data=put_data,
++                    call_score=call_score,
++                    put_score=put_score,
++                    selected_direction=direction,
+
+@@ -1551 decision record — execution_plan_id added:
++                    execution_plan_id=str(job_id),
+
+@@ -1698 trade record — call_scoring/put_scoring added:
++                    call_scoring=call_scoring,
++                    put_scoring=put_scoring,
+
+@@ -1709 update_decision_alert_id — chain_hash added:
+-                _p2.update_decision_alert_id(trace_id, alert_id, _DB_URL)
++                _p2.update_decision_alert_id(trace_id, alert_id, _DB_URL,
++                                             chain_hash=chain_sha)
+
+================================================================
+END OF EVIDENCE
+================================================================

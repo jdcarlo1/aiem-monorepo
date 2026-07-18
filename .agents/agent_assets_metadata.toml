@@ -588,3 +588,9 @@ id = "F93Ur3oai0P_duCauZ3-N"
 uri = "file://phase2_verification_2026-07-18.txt"
 type = "text"
 title = "Phase III Phase 2 Verification — PASS=64 FAIL=0"
+
+[[outputs]]
+id = "581ado-07Nmtbw8_PEbru"
+uri = "file://phase2_gap_evidence_2026-07-18.txt"
+type = "text"
+title = "Phase2 Gap Evidence — GAP 1/2/3 Raw Output"

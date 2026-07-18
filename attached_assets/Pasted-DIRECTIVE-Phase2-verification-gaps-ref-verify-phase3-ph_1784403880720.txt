@@ -1,0 +1,25 @@
+DIRECTIVE — Phase2 verification gaps (ref: verify_phase3_phase2.sh 2026-07-18T19:41:53Z)
+
+Standing checklist (applies to every item below):
+- Raw command output only, no paraphrase. Any code-location/behavior claim = raw grep -n or sed -n output.
+- SHA256 before/after for any file changed this session.
+- SQL: exact query + full result set (\copy CSV if >10 rows, no inline "representative" rows).
+- verified_run.sh/verify_chain.sh required for all evidence commands; paste raw sha256sum of both against canonical (verified_run.sh=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4, verify_chain.sh=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f) — mismatch = validator drifted, output rejected.
+- Data immutability: no delete/truncate/overwrite of any row/table/file, incl. self-created/test rows, without Joel's prior explicit approval this session.
+- git diff HEAD --stat output only, or "no changes" if empty.
+- Format: raw output only, no headers/banners/interpretation, no re-verifying anything unchanged this session.
+
+GAP 1 — Evidence chain protocol bypassed
+- Prior log ran as standalone script, not through verified_run.sh, no verify_chain.sh output.
+- Required: re-run all Section A–N checks through verified_run.sh, then verify_chain.sh output, then raw sha256sum of both wrapper scripts vs canonical above.
+
+GAP 2 — No-Hardcoded-Values check for new phase2 code
+- List every hardcoded-looking numeric/decision constant in aiem_options_phase2.py, aiem_options_scheduler.py, aiem_options_pipeline.py (new/changed lines only).
+- For each: raw grep/sed line + one-line trace to live source (API call, DB query, computed formula). "Wired later" not acceptable.
+- Any conditional gate introduced: negative-control proof it actually blocks under the failing condition.
+
+GAP 3 — Empty git diff HEAD --stat
+- Explain: are aiem_options_phase2.py / scheduler / pipeline changes already committed? Paste `git log --follow -p -3 -- <each file>` or equivalent showing when/how these lines entered the repo.
+- If already committed, paste the specific commit diff for the phase2-related hunks (not full-file diff).
+
+State explicitly, per line, if any of the above cannot be produced with real command output — no padding.
