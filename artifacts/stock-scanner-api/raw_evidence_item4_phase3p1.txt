@@ -1,0 +1,199 @@
+====== verified_run.sh ======
+SEQ=4
+TS=2026-07-18T19:01:27Z
+CMD=bash raw_evidence_item4_phase3p1.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=8b43141d1675df8f109f869cc47149180c54bb89
+==============================
+
+## sha256 canonical check
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  /home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  /home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+canonical: verified_run.sh=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+canonical: verify_chain.sh=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+
+## ITEM 1 — raw SQL + full result from all 5 Phase 1 tables
+
+SELECT count(*) FROM oe_indicator_registry;
+ count
+-------
+ 0
+(1 row)
+
+SELECT count(*) FROM oe_indicator_snapshots;
+ count
+-------
+ 1
+(1 row)
+SELECT trace_id, canonical_id, freshness_seconds, quality_status, captured_at FROM oe_indicator_snapshots;
+ trace_id | canonical_id | freshness_seconds | quality_status | captured_at
+ VERIFY_FRESHNESS_TEST_PHASE3P1_001 | POLY_CLOSE_PRICE | 999999 | STALE | 2026-07-18 18:44:39.652449+00:00
+(1 rows) -- only row is synthetic freshness test; 0 rows from real pipeline runs
+
+SELECT count(*) FROM oe_pattern_registry;
+ count
+-------
+ 0
+(1 row)
+
+SELECT count(*) FROM oe_pattern_snapshots;
+ count
+-------
+ 0
+(1 row)
+
+SELECT count(*) FROM oe_options_metrics;
+ count
+-------
+ 0
+(1 row)
+
+NOTE: all 5 tables have 0 rows from real pipeline runs.
+Most recent completed job: id=43 ticker=TER scan_date=2026-07-17 completed_at=2026-07-17T19:08:49Z
+Phase 1 deployed: 2026-07-18T18:20:14Z (commit 287b70e)
+Pipeline runs at 9:45 AM ET on trading days. Next trading day = 2026-07-21 (Monday).
+No post-Phase-1 job has run yet. Tables will populate on first Monday run.
+
+SELECT id, ticker, scan_date, status, completed_at FROM options_pipeline_jobs ORDER BY id DESC LIMIT 3;
+ id | ticker | scan_date | status | completed_at
+ 43 | TER | 2026-07-17 | DONE | 2026-07-17 19:08:49.002498+00:00
+ 42 | WOLF | 2026-07-17 | DONE | 2026-07-17 19:08:49.002498+00:00
+ 41 | PINS | 2026-07-17 | DONE | 2026-07-17 19:08:49.002498+00:00
+
+## ITEM 2 — assert_no_missing_indicators + assert_pattern_scan_complete
+## blocked through the wrapped scheduler gate path (exact try/except from _execute_job lines 1413-1455)
+
+--- grep -n: scheduler gate block source lines 1413-1455 ---
+        # On failure: inject into verify_result → ready_for_decision=False →
+        # existing gate raises ValueError → job marked FAILED.
+        # Three tests: missing-indicator, pattern-scan-incomplete, stale-data.
+        if _reg_ready:
+            _REQUIRED_IDS = [
+                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
+                "OPT_IV_RANK", "BS_CALL_DELTA", "BS_PUT_DELTA",
+                "BS_CALL_POP", "BS_PUT_POP",
+            ]
+            _CRITICAL_FRESHNESS_IDS = ["POLY_CLOSE_PRICE", "OSS_FRONT_IV"]
+            _reg_gate_failures: list = []
+            try:
+                _reg_mod.assert_no_missing_indicators(trace_id, _REQUIRED_IDS, _reg_db)
+            except _reg_mod.RegistryValidationError as _rve:
+                _reg_gate_failures.append(f"REGISTRY_MISSING_INDICATOR: {_rve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rve}")
+            try:
+                _reg_mod.assert_pattern_scan_complete(trace_id, _reg_db)
+            except _reg_mod.RegistryValidationError as _rpve:
+                _reg_gate_failures.append(f"REGISTRY_PATTERN_INCOMPLETE: {_rpve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rpve}")
+            try:
+                _reg_mod.assert_data_freshness(trace_id, _CRITICAL_FRESHNESS_IDS,
+                                               172800, _reg_db)
+            except _reg_mod.RegistryValidationError as _rfve:
+                _reg_gate_failures.append(f"REGISTRY_STALE_DATA: {_rfve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rfve}")
+            if _reg_gate_failures:
+                _rf_text = "; ".join(_reg_gate_failures)
+                verify_result["gate_failures"] = (
+                    (verify_result.get("gate_failures") or []) +
+                    [f"REGISTRY: {f}" for f in _reg_gate_failures]
+                )
+                verify_result["call_eligible"]      = False
+                verify_result["put_eligible"]       = False
+                verify_result["ready_for_decision"] = False
+                verify_result["verdict"]            = f"REGISTRY VALIDATION FAILED — {_rf_text}"
+                log.error(
+                    f"[exec] [{trace_id}] REGISTRY VALIDATION BLOCKED PIPELINE: {_rf_text}")
+            else:
+                log.debug(f"[exec] [{trace_id}] registry failure tests: all 3 PASS")
+
+        if "error" in verify_result:
+
+--- GATE TEST A: assert_no_missing_indicators (trace with zero snapshots → NEVER_SNAPPED) ---
+--- Uses EXACT try/except structure from _execute_job gate block ---
+2026-07-18 19:01:28,614 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY GATE: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED
+2026-07-18 19:01:28,660 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY GATE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001
+2026-07-18 19:01:28,684 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY VALIDATION BLOCKED PIPELINE: REGISTRY_MISSING_INDICATOR: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED; REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001
+
+gate_failures=['REGISTRY: REGISTRY_MISSING_INDICATOR: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED', 'REGISTRY: REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001']
+ready_for_decision=False
+verdict=REGISTRY VALIDATION FAILED — REGISTRY_MISSING_INDICATOR: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED; REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001
+
+--- GATE TEST B: assert_pattern_scan_complete in isolation (trace with no PAT_SCORE row) ---
+--- Same zero-snapshot trace_id: PAT_SCORE count=0 → REGISTRY_PATTERN_INCOMPLETE ---
+2026-07-18 19:01:29,060 ERROR    aiem_options_scheduler [exec] [GATE_TEST_PAT_SCAN_001] REGISTRY GATE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001
+2026-07-18 19:01:29,060 ERROR    aiem_options_scheduler [exec] [GATE_TEST_PAT_SCAN_001] REGISTRY VALIDATION BLOCKED PIPELINE: REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001
+gate_failures=['REGISTRY: REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001']
+ready_for_decision=False
+
+## ITEM 3 — verify_chain.sh: current state and post-Phase-1 alert status
+
+--- aiem_options_alerts most recent 5 rows ---
+SELECT id, ticker, direction, created_at FROM aiem_options_alerts ORDER BY id DESC LIMIT 5;
+ (25, 'TER', 'LONG_PUT', datetime.datetime(2026, 7, 17, 14, 17, 27, 778525, tzinfo=datetime.timezone.utc))
+ (24, 'WOLF', 'LONG_PUT', datetime.datetime(2026, 7, 17, 14, 17, 23, 400492, tzinfo=datetime.timezone.utc))
+ (23, 'PINS', 'LONG_PUT', datetime.datetime(2026, 7, 17, 14, 17, 21, 229482, tzinfo=datetime.timezone.utc))
+ (22, 'UMC', 'LONG_PUT', datetime.datetime(2026, 7, 17, 14, 17, 17, 949038, tzinfo=datetime.timezone.utc))
+ (21, 'MEC', 'LONG_PUT', datetime.datetime(2026, 7, 17, 14, 17, 12, 635725, tzinfo=datetime.timezone.utc))
+(5 rows)
+
+Most recent alert id=25 created_at=2026-07-17 14:17:27.778525+00:00
+Phase 1 deployed: 2026-07-18T18:20:14Z
+All alerts predate Phase 1. No post-Phase-1 alert exists.
+verify_chain.sh 10/10 PASS cannot be demonstrated — no post-Phase-1 pipeline run.
+First opportunity: Monday 2026-07-21 at 9:45 AM ET (next trading day run).
+
+--- verify_chain.sh run on alert_id=25 (most recent; pre-Phase-1) ---
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
+verify_chain.sh exit code: 3
+
+## ITEM 4 — Test row disposition
+
+SELECT trace_id, canonical_id, freshness_seconds, quality_status, captured_at
+FROM oe_indicator_snapshots WHERE trace_id = 'VERIFY_FRESHNESS_TEST_PHASE3P1_001';
+ ('VERIFY_FRESHNESS_TEST_PHASE3P1_001', 'POLY_CLOSE_PRICE', 999999, 'STALE', datetime.datetime(2026, 7, 18, 18, 44, 39, 652449, tzinfo=datetime.timezone.utc))
+(1 rows)
+
+Row is still present. Not deleted. Awaiting explicit approval before any deletion.
+
+--- end of raw evidence item4 ---
+
+==============================
+SEQ=4  EXIT=0  TS_END=2026-07-18T19:01:30Z
+sha256(log)=4814d85e2c06da8fe69f6d98289410aa4f3407a1ef543e7dc04ef9e8f6e5466c
+==============================
