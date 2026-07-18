@@ -504,3 +504,9 @@ id = "9mTfgjyMjwSKdttlxxXvW"
 uri = "file://artifacts/stock-scanner-api/tamper_warn_note.txt"
 type = "text"
 title = "tamper_warn_note.txt — Item 17 WARN note"
+
+[[outputs]]
+id = "r1P2f8SRDK9d_GZf5H1Nq"
+uri = "file://AIEM_PATTERN_ENGINE_DELIVERY.md"
+type = "text"
+title = "AIEM Pattern Engine — Completed Delivery"
