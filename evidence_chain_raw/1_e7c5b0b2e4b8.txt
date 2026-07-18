@@ -1,0 +1,2 @@
+ebb6a2dd6f5fb450ef3732428507e1bc408339eea8c3a3855ed4cecf2866cd26  tools/verified_run.sh
+972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75  tools/verify_chain.sh

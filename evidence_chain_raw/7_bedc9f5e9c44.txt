@@ -1,0 +1,11 @@
+artifacts/stock-scanner-api/d3_negctl_fulltest_subprocess.py:71:    import main as _main
+artifacts/stock-scanner-api/d3_directive6_enforcement_subprocess.py:32:import main as _main
+artifacts/stock-scanner-api/aiem_position_sizing.py:1122:        from main import _tg  # lazy import to avoid circular dependency
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:119:        "website_scanner_import": _check_no_website_import(),
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:141:            "import main",
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:142:            "from main import",
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:143:            "_mkt_gap_volume_scan",
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:144:            "_mkt_nano_cap",
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:145:            "website_scanner",
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:201:            summary["website_scanner_import"] = not data.get("website_scanner_import", True)
+artifacts/stock-scanner-api/aiem_pipeline_proof.py:229:    print(f"  Website scanner import:   {'NONE ✓' if not s.get('website_scanner_import') else 'DETECTED ✗'}")

@@ -1,0 +1,5 @@
+=== FINAL REGISTRY STATE ===
+  status=FAIL                 enabled=False count=42
+  status=INSUFFICIENT_DATA    enabled=False count=10
+  status=PASS                 enabled=True  count=64
+  TOTAL: 116

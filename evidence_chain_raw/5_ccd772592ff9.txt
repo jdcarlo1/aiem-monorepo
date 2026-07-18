@@ -1,0 +1,228 @@
+diff --git a/artifacts/stock-scanner-api/aiem_strat_engine/scoring.py b/artifacts/stock-scanner-api/aiem_strat_engine/scoring.py
+index 4c055eb..57b87b5 100644
+--- a/artifacts/stock-scanner-api/aiem_strat_engine/scoring.py
++++ b/artifacts/stock-scanner-api/aiem_strat_engine/scoring.py
+@@ -12,6 +12,7 @@ The score rewards:
+   + Market regime fit
+   + Volatility regime fit
+   + Diversification value
++  + Pattern confirmation (candlestick/chart/harmonic/Wyckoff/EW vs thesis)
+ 
+ And penalizes:
+   - Max loss size
+@@ -213,6 +214,7 @@ def compute_capital_compounding_score(
+     n_legs:             int             = 2,
+     existing_families:  Optional[list]  = None,
+     portfolio_capital:  float           = 100_000.0,
++    pattern_score:      float           = 0.5,
+ ) -> Dict[str, float]:
+     """
+     Compute the Capital Compounding Score and all individual components.
+@@ -221,28 +223,30 @@ def compute_capital_compounding_score(
+     w = SCORE_WEIGHTS
+ 
+     # Positive components
+-    sc_pop    = score_pop(pop)
+-    sc_ev     = score_ev(ev_after_costs)
+-    sc_capres = score_capital_preservation(max_loss, max_profit, risk_class)
+-    sc_def    = score_defined_risk(risk_class, execution_mode)
+-    sc_capeff = score_capital_efficiency(ev_after_costs, return_on_risk)
+-    sc_liq    = score_liquidity(liquidity)
+-    sc_thesis = score_thesis_fit(strategy_direction, thesis, strategy_vol_thesis, vol_regime)
+-    sc_regime = score_regime_fit(strategy_direction, market_regime)
+-    sc_vol    = score_vol_fit(strategy_vol_thesis, iv_rank)
+-    sc_divers = score_diversification(strategy_family, existing_families)
++    sc_pop     = score_pop(pop)
++    sc_ev      = score_ev(ev_after_costs)
++    sc_capres  = score_capital_preservation(max_loss, max_profit, risk_class)
++    sc_def     = score_defined_risk(risk_class, execution_mode)
++    sc_capeff  = score_capital_efficiency(ev_after_costs, return_on_risk)
++    sc_liq     = score_liquidity(liquidity)
++    sc_thesis  = score_thesis_fit(strategy_direction, thesis, strategy_vol_thesis, vol_regime)
++    sc_regime  = score_regime_fit(strategy_direction, market_regime)
++    sc_vol     = score_vol_fit(strategy_vol_thesis, iv_rank)
++    sc_divers  = score_diversification(strategy_family, existing_families)
++    sc_pattern = _clamp(float(pattern_score))
+ 
+     raw_score = (
+-        sc_pop    * w["pop"]                   +
+-        sc_ev     * w["ev_after_costs"]         +
+-        sc_capres * w["capital_preservation"]   +
+-        sc_def    * w["defined_risk_quality"]   +
+-        sc_capeff * w["capital_efficiency"]     +
+-        sc_liq    * w["liquidity"]              +
+-        sc_thesis * w["thesis_fit"]             +
+-        sc_regime * w["regime_fit"]             +
+-        sc_vol    * w["vol_regime_fit"]         +
+-        sc_divers * w["diversification_value"]
++        sc_pop     * w["pop"]                   +
++        sc_ev      * w["ev_after_costs"]         +
++        sc_capres  * w["capital_preservation"]   +
++        sc_def     * w["defined_risk_quality"]   +
++        sc_capeff  * w["capital_efficiency"]     +
++        sc_liq     * w["liquidity"]              +
++        sc_thesis  * w["thesis_fit"]             +
++        sc_regime  * w["regime_fit"]             +
++        sc_vol     * w["vol_regime_fit"]         +
++        sc_divers  * w["diversification_value"]  +
++        sc_pattern * w["pattern_confirmation"]
+     )
+ 
+     # Penalties
+@@ -256,18 +260,19 @@ def compute_capital_compounding_score(
+     final_score = _clamp(raw_score - total_penalty)
+ 
+     return {
+-        "score_pop":            round(sc_pop,    4),
+-        "score_ev":             round(sc_ev,     4),
+-        "score_capital_pres":   round(sc_capres, 4),
+-        "score_defined_risk":   round(sc_def,    4),
+-        "score_cap_efficiency": round(sc_capeff, 4),
+-        "score_liquidity":      round(sc_liq,    4),
+-        "score_thesis_fit":     round(sc_thesis, 4),
+-        "score_regime_fit":     round(sc_regime, 4),
+-        "score_vol_fit":        round(sc_vol,    4),
+-        "score_diversification":round(sc_divers, 4),
+-        "penalty_total":        round(total_penalty, 4),
+-        "capital_compounding_score": round(final_score, 4),
++        "score_pop":                  round(sc_pop,     4),
++        "score_ev":                   round(sc_ev,      4),
++        "score_capital_pres":         round(sc_capres,  4),
++        "score_defined_risk":         round(sc_def,     4),
++        "score_cap_efficiency":       round(sc_capeff,  4),
++        "score_liquidity":            round(sc_liq,     4),
++        "score_thesis_fit":           round(sc_thesis,  4),
++        "score_regime_fit":           round(sc_regime,  4),
++        "score_vol_fit":              round(sc_vol,     4),
++        "score_diversification":      round(sc_divers,  4),
++        "score_pattern_confirmation": round(sc_pattern, 4),
++        "penalty_total":              round(total_penalty, 4),
++        "capital_compounding_score":  round(final_score,   4),
+     }
+ 
+ 
+diff --git a/artifacts/stock-scanner-api/aiem_strat_scheduler.py b/artifacts/stock-scanner-api/aiem_strat_scheduler.py
+index f92c1f8..13c60b4 100644
+--- a/artifacts/stock-scanner-api/aiem_strat_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_strat_scheduler.py
+@@ -200,6 +200,16 @@ def _seed_candidates():
+             log.info(f"seed_candidates: seeded {seeded} new jobs")
+             _tg(f"📊 ASE Scheduler: seeded {seeded} jobs for {today}")
+ 
++            # ── Proof: record that candidates came from polygon_rvol_scan ──────
++            try:
++                import aiem_pipeline_proof as _proof
++                _proof.log_seed_proof(
++                    candidates=rows,
++                    source_table="polygon_rvol_scan",
++                )
++            except Exception as _pe:
++                log.debug(f"seed proof log skipped: {_pe}")
++
+     except Exception as exc:
+         log.error(f"seed_candidates: {exc}")
+         _tg(f"❌ ASE Scheduler seed error: {exc}")
+@@ -260,6 +270,35 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
+ 
+     vol_regime = "HIGH_IV" if (atm_iv or 0) > 0.40 else "LOW_IV"
+ 
++    # ── Pattern detection (all 5 families, thesis-aligned) ────────────────────
++    pattern_score = 0.5  # neutral default
++    pattern_result: dict = {}
++    try:
++        import aiem_pipeline_proof as _proof
++        from aiem_pattern_engine import detect_for_ticker
++        pattern_result = detect_for_ticker(ticker, thesis=thesis, lookback=60)
++        pattern_score  = pattern_result.get("pattern_score", 0.5)
++        _proof.log_stage(
++            trace_id=run_id, ticker=ticker, thesis=thesis,
++            stage="pattern_scan",
++            data={
++                "pattern_score":       pattern_score,
++                "pass_only_score":     pattern_result.get("pass_only_score", 0.5),
++                "bars_used":           pattern_result.get("bars_used", 0),
++                "n_candlestick":       len(pattern_result.get("candlestick",    [])),
++                "n_chart_structure":   len(pattern_result.get("chart_structure",[])),
++                "n_harmonic":          len(pattern_result.get("harmonic",       [])),
++                "n_wyckoff_vpa":       len(pattern_result.get("wyckoff_vpa",    [])),
++                "n_elliott_wave":      len(pattern_result.get("elliott_wave",   [])),
++                "all_pattern_names":   [p.get("pattern") for p in
++                                        pattern_result.get("all_patterns", [])],
++            },
++        )
++        log.info(f"[{run_id}] pattern_score={pattern_score:.3f} "
++                 f"({len(pattern_result.get('all_patterns',[]))} patterns detected)")
++    except Exception as _pat_err:
++        log.debug(f"[{run_id}] pattern detection skipped: {_pat_err}")
++
+     # Build all eligible strategies
+     strategy_builds = build_all_for_ticker(ticker, thesis, market_regime, vol_regime)
+     log.info(f"[{run_id}] built {len(strategy_builds)} strategies")
+@@ -330,6 +369,7 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
+                 pop_lognormal=prob_info.get("pop_lognormal"),
+                 slippage=slip, capital_at_risk=cap_risk, n_legs=len(legs),
+                 portfolio_capital=PORTFOLIO_CAPITAL,
++                pattern_score=pattern_score,
+             )
+ 
+             fp = strategy_fingerprint(legs)
+@@ -351,6 +391,29 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
+     selection = select(evaluations, thesis, market_regime, iv_rank)
+     log.info(f"[{run_id}] decision={selection.decision} reason={selection.reason[:80]}")
+ 
++    # ── Proof: decision stage ─────────────────────────────────────────────────
++    try:
++        import aiem_pipeline_proof as _proof
++        _proof.log_stage(
++            trace_id=run_id, ticker=ticker, thesis=thesis,
++            stage="decision",
++            data={
++                "decision":        selection.decision,
++                "reason":          selection.reason,
++                "n_evaluated":     len(evaluations),
++                "n_eligible":      sum(1 for e in evaluations if e.eligible),
++                "pattern_score":   pattern_score,
++                "market_regime":   market_regime,
++                "vol_regime":      vol_regime,
++                "best_ccs":        (selection.selected.capital_compounding_score
++                                    if selection.selected else None),
++                "best_strategy":   (selection.selected.strategy_name
++                                    if selection.selected else None),
++            },
++        )
++    except Exception as _de:
++        log.debug(f"[{run_id}] decision proof log skipped: {_de}")
++
+     # Persist decision run
+     save_decision_run(
+         run_id=run_id, ticker=ticker, spot=spot, thesis=thesis,
+@@ -375,8 +438,29 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
+                 f"📈 ASE: {ticker} {thesis}\n"
+                 f"Strategy: {selection.selected.strategy_name}\n"
+                 f"Score: {selection.selected.capital_compounding_score:.3f}\n"
++                f"Pattern: {pattern_score:.3f}\n"
+                 f"ID: {pt_id}"
+             )
++            # ── Proof: paper_trade stage ──────────────────────────────────────
++            try:
++                _proof.log_stage(
++                    trace_id=run_id, ticker=ticker, thesis=thesis,
++                    stage="paper_trade",
++                    data={
++                        "paper_trade_id":  pt_id,
++                        "strategy":        selection.selected.strategy_name,
++                        "ccs":             selection.selected.capital_compounding_score,
++                        "pattern_score":   pattern_score,
++                        "score_pattern_confirmation": (
++                            selection.selected.score_components.get(
++                                "score_pattern_confirmation") if selection.selected else None
++                        ),
++                        "spot":            spot,
++                        "run_id":          run_id,
++                    },
++                )
++            except Exception as _pe2:
++                log.debug(f"[{run_id}] paper_trade proof log skipped: {_pe2}")
+ 
+     return True
+ 
