@@ -1,0 +1,126 @@
+portfolio_engine_verify.py  2026-07-18T08:53:18.917268+00:00
+Section: ALL
+
+[IMPORTS] Module structure
+
+[S1] Portfolio Snapshot Engine
+
+[S2] Aggregate Portfolio Greeks
+
+[S3+S7] Concentration Controls & Risk Budgets
+
+[S4] Correlation & Duplicate-Risk
+
+[S5] Portfolio Stress Test
+
+[S6] Liquidity-Adjusted Valuation
+
+[S8] Portfolio Optimization
+
+[S9+S11+S12] Gate Orchestrator + Audit Evidence
+
+[DB] Table bootstrap
+
+────────────────────────────────────────────────────────────
+  PASS  IMP01: aiem_portfolio_engine package imports
+  PASS  IMP01: run_portfolio_gate exported from package
+  PASS  IMP01: PortfolioDecision exported from package
+  PASS  IMP_CONFIG: aiem_portfolio_engine.config imports
+  PASS  IMP_DB: aiem_portfolio_engine.db imports
+  PASS  IMP_SNAPSHOT: aiem_portfolio_engine.snapshot imports
+  PASS  IMP_GREEKS: aiem_portfolio_engine.greeks imports
+  PASS  IMP_LIMITS: aiem_portfolio_engine.limits imports
+  PASS  IMP_CORRELATION: aiem_portfolio_engine.correlation imports
+  PASS  IMP_STRESS: aiem_portfolio_engine.stress imports
+  PASS  IMP_VALUATION: aiem_portfolio_engine.valuation imports
+  PASS  IMP_OPTIMIZER: aiem_portfolio_engine.optimizer imports
+  PASS  IMP_GATE: aiem_portfolio_engine.gate imports
+  PASS  IMP_SCHED: aiem_strat_scheduler.py is readable for import check
+  PASS  IMP_WIRE: run_portfolio_gate referenced in aiem_strat_scheduler.py
+  PASS  IMP_WIRE: PE_GATING_ENABLED guard in aiem_strat_scheduler.py
+  PASS  P01: empty snapshot reconciled
+  PASS  P01: n_open_positions == 0
+  PASS  P01: cash_available == PORTFOLIO_CAPITAL — got 100000.0
+  PASS  P02: committed_capital sum — got 6500
+  PASS  P02: n_open_positions == 3
+  PASS  P02: cash_available — got 93500.0
+  PASS  P03: _get_sector AAPL — got XLK
+  PASS  P04: LONG_STRADDLE = is_long_vol
+  PASS  P04: IRON_CONDOR = is_short_vol
+  PASS  NC1: bad snapshot reconciled=False
+  PASS  NC1: bad snapshot has reconcile_error
+  PASS  NC2: empty snapshot n_positions==0
+  PASS  P05: empty portfolio delta=0
+  PASS  P05: empty portfolio gamma=0
+  PASS  P05: empty portfolio vega=0
+  PASS  P05: empty portfolio theta=0
+  PASS  P06: single long call delta > 0 — got 45.0
+  PASS  P06: single long call gamma > 0 — got 2.0
+  PASS  P06: single long call theta < 0 (time decay) — got -5.0
+  PASS  P06: single long call vega > 0 — got 15.0
+  PASS  P07: short call delta < 0 — got -45.0
+  PASS  P08: BCS net delta = 20 — expected 20.00, got 20.0000
+  PASS  P09: 2 contracts × 0.50 delta × 100 = 100 — got 100.0
+  PASS  P10: AFTER delta > BEFORE delta — before=45.0000 after=75.0000
+  PASS  NC3: short put delta is non-zero — got 40.0
+  PASS  NC4: CONTRACT_MULTIPLIER is 100 (not 1)
+  PASS  P11: BS fallback for missing greeks gives non-zero delta — got 99.653261
+  PASS  P12: empty portfolio no concentration breaches — got 0 breaches: []
+  PASS  P13: AAPL ticker concentration breach detected — ticker_pct=23.00%
+  PASS  P14: sector concentration breach for XLK — sector_pct=37.00%
+  PASS  NC5: position count limit breach detected
+  PASS  P15: buying power utilization breach — bp_util=84.00%
+  PASS  NC6: undefined-risk strategy always blocked
+  PASS  P16: healthy portfolio passes risk budget — breaches: []
+  PASS  NC7: portfolio delta breach detected — |delta|=400.0 > 300.0
+  PASS  NC8: stress test loss limit breach detected — worst_stress=-20000, limit=15000.0
+  PASS  P17: empty portfolio, no correlation risk — action=APPROVE
+  PASS  P18: mega_tech cluster breach → REDUCE/REJECT — action=REDUCE, clusters=['mega_tech']
+  PASS  P19: intraday_correlation declared NOT_IMPLEMENTED
+  PASS  NC9: extreme correlation score → REJECT — duplicate_risk=0.9
+  PASS  P20: semis cluster detected for NVDA+AMD+INTC — clusters=['semis']
+  PASS  P21: exactly 17 stress scenarios run — got 17
+  PASS  P21: all required scenario names present
+  PASS  P22: long call gains on spot_up_2pct — pl_portfolio=144.00
+  PASS  P23: adding 5 long calls makes spot_down_5pct P/L worse (more negative) — before=-281.25 after=-1312.50
+  PASS  NC10: stress limit breach check runs without error — breach count=10
+  PASS  P24: worst_stress_loss returns finite value — wsl=-1482.75
+  PASS  P24: worst_stress_loss == min pl_combined — wsl=-1482.75 min_pl=-1482.75
+  PASS  P25: conservative <= mid value — cons=196.0 mid=300.0
+  PASS  P26: multi-leg liquidation cost >= 0 — exit_cost=100.00
+  PASS  P27: candidate increases liq-adj max loss
+  PASS  NC11: liquidity limit breach check runs — breach=True
+  PASS  P28: market_depth_L2 declared NOT_IMPLEMENTED in config
+  PASS  P29: optimization returns valid decision — got APPROVE
+  PASS  P29: both utility scores are non-negative
+  PASS  P30: BP exhaustion leads to REJECT or REDUCE — decision=REJECT
+  PASS  NC12: candidate_combination_optimization declared NOT_IMPLEMENTED
+  PASS  P31: zero-EV candidate returns valid decision — got DEFER
+  PASS  P32: PE_GATING_ENABLED == False (observe mode)
+  PASS  P33: pe_config_sha() returns 64-char lowercase hex — got 00de7b8c6a651647...
+  PASS  P34: _evidence_hash is deterministic
+  PASS  P34: evidence hash is 64 chars
+  PASS  P35: evidence hash changes when payload changes
+  PASS  P36: GENESIS_HASH is 64 zeros — got 0000000000000000...
+  PASS  P37: gate_passed() == True in observe mode even for REJECT — pe_gating_enabled=False
+  PASS  P38: gate_passed() == False for REJECT in gating mode
+  PASS  NC13: reconcile failure → REJECT — got REJECT
+  PASS  NC13: reconcile failure → approved_size=0
+  PASS  NC14: chain produces unique hashes at each step
+  PASS  NC14: chain diverges from genesis
+  PASS  NC15: bypass attempt produces different hash (chain breaks)
+  PASS  P39: NOT_IMPLEMENTED_V1 has >= 5 items — got 6
+  PASS  P39: pending_orders declared NOT_IMPLEMENTED
+  PASS  P40: config covers >= 20 keys — got 23
+  PASS  P40: PE_GATING_ENABLED in sha keys
+  PASS  P40: STRESS_TEST_LOSS_LIMIT in sha keys
+  PASS  DB01: bootstrap_portfolio_tables() ran without error
+  PASS  DB_TABLE: ape_portfolio_snapshots exists
+  PASS  DB_TABLE: ape_portfolio_greeks exists
+  PASS  DB_TABLE: ape_stress_results exists
+  PASS  DB_TABLE: ape_gate_decisions exists
+────────────────────────────────────────────────────────────
+
+Total: 97  PASS: 97  FAIL: 0
+config_sha: 00de7b8c6a6516476bc50508b73a090783c3d9de1b10bff69c6eff897298eba4
+timestamp: 2026-07-18T08:53:20.157389+00:00

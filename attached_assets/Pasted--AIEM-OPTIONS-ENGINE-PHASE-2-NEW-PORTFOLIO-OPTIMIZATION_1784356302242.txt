@@ -1,0 +1,449 @@
+# AIEM OPTIONS ENGINE — PHASE 2
+# NEW PORTFOLIO OPTIMIZATION & PORTFOLIO RISK FUNCTIONALITY ONLY
+
+SCOPE:
+Implement only the portfolio-level functionality not already present in the standalone Options Engine.
+
+Do not rebuild existing:
+- Individual strategy mathematics
+- Per-trade maximum profit/loss
+- Per-trade breakevens
+- Existing liquidity filters
+- Existing position-sizing rules
+- Existing capital-preservation logic
+- Existing Risk Gate
+- Existing NO TRADE capability
+
+Reuse and integrate all verified existing components.
+
+====================================================
+1. PORTFOLIO SNAPSHOT ENGINE
+====================================================
+
+Before evaluating a new trade, create a timestamped portfolio snapshot containing:
+
+- Cash and buying power
+- Reserved and committed capital
+- All open stock positions
+- All open options positions
+- Pending and partially filled orders
+- Linked multi-leg strategies
+- Quantities and contract multipliers
+- Current marks and executable values
+- Realized and unrealized P/L
+- Expiration and assignment exposure
+
+The snapshot must be immutable and linked to the recommendation trace ID.
+
+Fail closed if positions, quantities, pending orders, or capital cannot be reconciled.
+
+====================================================
+2. AGGREGATE PORTFOLIO GREEKS
+====================================================
+
+Calculate portfolio-wide:
+
+- Delta
+- Gamma
+- Vega
+- Theta
+- Rho
+- Charm
+- Vanna
+- Vomma
+
+For each option leg:
+
+POSITION_GREEK =
+LEG_GREEK
+× CONTRACT_QUANTITY
+× CONTRACT_MULTIPLIER
+× DIRECTION
+
+Long = +1
+Short = -1
+
+Include stock-equivalent Delta for equity positions.
+
+Calculate Greeks:
+
+- Before the proposed trade
+- After the proposed trade
+- After any proposed resizing or substitution
+
+Update after fills, partial fills, closes, rolls, assignments, exercises, price changes, IV changes, and time decay.
+
+====================================================
+3. PORTFOLIO CONCENTRATION CONTROLS
+====================================================
+
+Calculate and enforce configurable limits for:
+
+- Ticker concentration
+- Sector concentration
+- Industry concentration
+- Strategy-family concentration
+- Expiration concentration
+- Strike-area concentration
+- Bullish and bearish concentration
+- Long-volatility concentration
+- Short-volatility concentration
+- Defined-risk and undefined-risk exposure
+- Maximum simultaneous positions
+- Buying-power utilization
+- Total portfolio risk utilization
+
+No new trade may bypass a hard concentration limit.
+
+====================================================
+4. CORRELATION AND DUPLICATE-RISK ENGINE
+====================================================
+
+Detect portfolio risk that appears diversified by ticker but is driven by the same factor.
+
+Calculate:
+
+- Historical return correlation
+- Intraday correlation
+- Downside correlation
+- Tail-risk correlation
+- Beta similarity
+- Sector and industry overlap
+- Index sensitivity
+- Volatility correlation
+- Common-factor exposure
+- Earnings-event overlap
+- Macro-event overlap
+
+Create correlation clusters.
+
+When a candidate duplicates existing exposure, the engine must:
+
+- Reduce its size
+- Replace it with a less-correlated structure
+- Rank it lower
+- Defer it
+- Reject it
+- Return NO TRADE
+
+====================================================
+5. PORTFOLIO STRESS-TEST ENGINE
+====================================================
+
+Stress-test the existing portfolio before and after every proposed trade.
+
+Required scenarios:
+
+- Underlying moves of ±1%, ±2%, and ±5%
+- Overnight gap up and gap down
+- IV expansion and contraction
+- One-day and multi-day time decay
+- Market-wide volatility spike
+- Volatility collapse
+- Sector shock
+- Index shock
+- Earnings shock
+- Correlation convergence
+- Bid/ask widening
+- Slippage increase
+- Liquidity deterioration
+- Early assignment
+- Exercise and expiration
+- Pin risk
+- Combined price, volatility, and liquidity shocks
+
+Return for every scenario:
+
+- Portfolio P/L before the trade
+- Portfolio P/L after the trade
+- Incremental loss caused by the trade
+- Updated Greeks
+- Updated capital requirement
+- Updated maximum loss
+- Limit breaches
+
+Reject any trade that causes the portfolio to fail a required stress limit.
+
+====================================================
+6. LIQUIDITY-ADJUSTED PORTFOLIO VALUATION
+====================================================
+
+Do not value the portfolio only at midpoint prices.
+
+Calculate:
+
+- Midpoint portfolio value
+- Conservative executable value
+- Estimated liquidation cost
+- Multi-leg exit cost
+- Partial-fill risk
+- Liquidity-adjusted P/L
+- Liquidity-adjusted maximum loss
+
+Use:
+
+- Bid/ask spreads
+- Quote age
+- Volume
+- Open interest
+- Market depth when available
+- Position size relative to liquidity
+- Time of day
+- DTE
+- Volatility regime
+- Estimated slippage
+
+Block a recommendation when its expected advantage disappears after realistic execution and liquidation costs.
+
+====================================================
+7. PORTFOLIO RISK BUDGETING
+====================================================
+
+Maintain real-time remaining risk budgets for:
+
+- Total portfolio
+- Daily loss
+- Individual ticker
+- Sector
+- Industry
+- Correlation cluster
+- Directional exposure
+- Volatility exposure
+- Portfolio Greeks
+- Buying power
+- Stress-tested loss
+- Liquidity-adjusted loss
+
+Every candidate must receive a portfolio-aware maximum position size.
+
+The engine may:
+
+- Approve the original size
+- Reduce the number of contracts
+- Substitute a defined-risk structure
+- Select a lower-risk expiration or strike
+- Defer the trade
+- Reject the trade
+- Return NO TRADE
+
+====================================================
+8. PORTFOLIO OPTIMIZATION ENGINE
+====================================================
+
+Evaluate candidates as additions to the complete existing portfolio.
+
+Compare:
+
+- Existing portfolio with no new trade
+- Existing portfolio plus each candidate
+- Existing portfolio plus eligible candidate combinations
+- Competing uses of capital
+- Correlated and redundant recommendations
+- Whether one candidate should replace another
+
+Optimize for:
+
+- Expected portfolio return
+- Risk-adjusted return
+- Capital preservation
+- Maximum and stress-tested loss
+- Diversification
+- Correlation reduction
+- Greek balance
+- Liquidity
+- Capital efficiency
+- Drawdown control
+- Tail-risk control
+- Regime compatibility
+
+The optimizer must not select a trade merely because it has the highest individual return.
+
+Keeping cash must remain a valid optimized outcome.
+
+====================================================
+9. BEFORE-AND-AFTER PORTFOLIO DECISION
+====================================================
+
+For every candidate, record:
+
+BEFORE:
+- Portfolio Greeks
+- Capital utilization
+- Buying power
+- Ticker and sector exposure
+- Correlation-cluster exposure
+- Directional exposure
+- Volatility exposure
+- Maximum theoretical loss
+- Stress-tested loss
+- Liquidity-adjusted loss
+- Risk-budget utilization
+
+AFTER:
+- All updated values above
+- Incremental risk
+- New limit utilization
+- Any limit breach
+
+FINAL RESULT:
+- APPROVE
+- APPROVE WITH REDUCED SIZE
+- SUBSTITUTE LOWER-RISK STRUCTURE
+- DEFER
+- REJECT
+- NO TRADE
+
+Return exact mathematical reasons for the decision.
+
+====================================================
+10. PORTFOLIO-LEVEL EXIT AND ADJUSTMENT MANAGEMENT
+====================================================
+
+Evaluate existing positions as part of the total portfolio.
+
+Permit recommendations to:
+
+- Close
+- Partially close
+- Roll
+- Hedge
+- Reduce
+- Replace
+- Rebalance
+
+Trigger portfolio action when:
+
+- Aggregate Greeks exceed limits
+- Correlation rises materially
+- Sector or ticker concentration becomes excessive
+- Stress-tested loss exceeds limits
+- Liquidity deteriorates
+- Expiration concentration becomes unsafe
+- Assignment exposure increases
+- Daily-loss capacity is nearly exhausted
+- Another position provides the same exposure more efficiently
+
+An individually profitable trade may still be reduced or closed when it creates unacceptable portfolio risk.
+
+====================================================
+11. PORTFOLIO RISK-GATE INTEGRATION
+====================================================
+
+Required runtime order:
+
+1. Individual candidate passes existing mathematical validation
+2. Current portfolio snapshot is created
+3. Aggregate Greeks are calculated
+4. Concentration is calculated
+5. Correlation clusters are calculated
+6. Stress tests are executed
+7. Liquidity-adjusted risk is calculated
+8. Portfolio risk budget is checked
+9. Portfolio-aware size is calculated
+10. Portfolio optimization is completed
+11. Hard portfolio limits are enforced
+12. Final decision is recorded
+13. Existing paper-order authorization may proceed only after PASS
+
+Fail closed for:
+
+- Missing or unreconciled portfolio data
+- Stale market data
+- Missing Greeks
+- Failed correlation calculation
+- Failed stress testing
+- Unconfirmed capital
+- Hard-limit breach
+- Portfolio Risk Gate unavailable
+- Missing audit evidence
+
+====================================================
+12. NEW PORTFOLIO AUDIT EVIDENCE
+====================================================
+
+Record:
+
+- Trace ID
+- Portfolio snapshot ID
+- Snapshot timestamp
+- Positions and pending orders included
+- Pre-trade portfolio Greeks
+- Post-trade portfolio Greeks
+- Concentration results
+- Correlation clusters
+- Stress-test results
+- Liquidity-adjusted valuation
+- Risk-budget values
+- Original requested size
+- Final approved size
+- Substituted structure, if applicable
+- Limits tested
+- Limits passed and failed
+- Final decision and reason
+- Portfolio Risk Gate status
+- Paper-order authorization status
+- Source-file SHA-256 hashes
+- Previous evidence hash
+- Current evidence-chain hash
+
+Required trace:
+
+Candidate
+→ Portfolio Snapshot
+→ Portfolio Risk Calculations
+→ Portfolio Optimization
+→ Portfolio Risk Gate
+→ Final Recommendation
+→ Paper Order
+→ Position
+→ Outcome
+
+====================================================
+13. STRICT VERIFICATION OF NEW FUNCTIONALITY
+====================================================
+
+Verify only the newly added portfolio-level functionality.
+
+Required positive tests:
+
+- Multi-position portfolio snapshot
+- Aggregate Greeks across stocks and options
+- Multi-leg Greek aggregation
+- Correlated multi-ticker portfolio
+- Sector concentration calculation
+- Stress-test before/after comparison
+- Liquidity-adjusted portfolio valuation
+- Portfolio-aware resizing
+- Lower-risk strategy substitution
+- Portfolio approval
+- Portfolio rejection
+- NO TRADE because keeping cash is superior
+
+Required negative controls:
+
+- Missing open position
+- Incorrect quantity
+- Incorrect contract multiplier
+- Broken multi-leg linkage
+- Missing pending order
+- Stale quote
+- Incorrect Greek sign
+- Correlation-limit breach
+- Sector-limit breach
+- Ticker-limit breach
+- Stress-test-limit breach
+- Risk-budget breach
+- Liquidity failure
+- Broken portfolio snapshot
+- Missing audit record
+- Broken evidence chain
+- Portfolio Risk Gate bypass attempt
+
+Every negative control must fail closed and prevent autonomous paper-order authorization.
+
+Use the existing strict evidence-chain verification method.
+
+No mocks.
+No fabricated evidence.
+No manual database inserts.
+Paper trading only until the complete new Phase 2 functionality passes end to end.

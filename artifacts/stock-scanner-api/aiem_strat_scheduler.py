@@ -231,6 +231,8 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
     from aiem_strat_engine.legs import strategy_fingerprint, net_debit_credit
     from aiem_strat_engine.paper_trader import insert_paper_trade, save_decision_run, _new_run_id
     from aiem_strat_engine.config import config_sha256, PORTFOLIO_CAPITAL
+    from aiem_portfolio_engine import run_portfolio_gate
+    from aiem_portfolio_engine.config import PE_GATING_ENABLED as _PE_GATING
 
     run_id = _new_run_id(ticker, thesis)
     log.info(f"[{run_id}] START {ticker} {thesis}")
@@ -426,6 +428,27 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
 
     # Paper trade if selected
     if selection.decision == "TRADE" and selection.selected:
+        # ── Portfolio Gate (Phase 2) ───────────────────────────────────────────
+        try:
+            pe_decision = run_portfolio_gate(
+                evaluation=selection.selected,
+                selection=selection,
+                ticker=ticker,
+                run_id=run_id,
+                db_url=os.environ.get("DATABASE_URL", ""),
+            )
+            log.info(
+                f"[{run_id}] PortfolioGate decision={pe_decision.decision} "
+                f"gating={_PE_GATING} "
+                f"hash={pe_decision.evidence_hash[:12]}"
+            )
+            if _PE_GATING and not pe_decision.gate_passed():
+                log.info(f"[{run_id}] Portfolio gate BLOCKED trade: "
+                         f"{pe_decision.decision_reasons[:1]}")
+                return True
+        except Exception as _pge:
+            log.warning(f"[{run_id}] Portfolio gate error (non-blocking in observe mode): {_pge}")
+
         pt_id = insert_paper_trade(
             evaluation=selection.selected, selection=selection,
             ticker=ticker, thesis=thesis, market_regime=market_regime,
