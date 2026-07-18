@@ -1,0 +1,29 @@
+DIRECTIVE — Fix hardcoded options inputs + REQ6 display gate
+
+FIX 1: aiem_options_scheduler.py (lines ~930-951)
+- probability_estimate=0.28 (CALL, line 944) and =0.42 (PUT, line 949) are hardcoded literals, not live-derived. Replace with real computed PoP (same method used elsewhere in pipeline, e.g. line 199's formula, or live Tradier-derived calc) for both call_data and put_data.
+- delta=0.28 (line 937) is also hardcoded — replace with real computed/fetched delta.
+- volume=320, open_interest=880 are hardcoded constants — replace with live Tradier values.
+- Confirm bid/ask spread fields stay as-is (already live: spot * front_iv derived).
+
+FIX 2: verify_chain.sh (REQ6 block, lines ~243-267)
+- REQ6 component scores print unconditionally regardless of chain status. Add gate: only print REQ6 scores if chain_passed / status != UNVERIFIABLE. If UNVERIFIABLE, print explicit "REQ6 SUPPRESSED — chain UNVERIFIABLE" instead of scores.
+
+REQUIRED EVIDENCE (no exceptions):
+1. Raw grep/sed -n output showing old and new code for both files (no paraphrase)
+2. Before/after sha256 for both changed files
+3. Before/after git diff --stat (or full diff)
+4. If any DB rows touched: raw SQL + full result set
+5. sha256sum of tools/verified_run.sh and tools/verify_chain.sh, checked against current canonical:
+   - verified_run.sh = 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+   - verify_chain.sh = f1e5c010f5dc8f0f16765c04afeb89e0c55f5ced59b619725a4e4ddd7307d8bc
+   (mismatch = validator drifted, output rejected regardless of content)
+6. verify_chain.sh output confirming log validity for this session's work
+7. Re-run the 25-alert PoP query — confirm values now vary per ticker (not invariant at 0.28/0.42)
+8. Data immutability: no deletes/overwrites of existing alert rows 1-25 without explicit approval — this is a code fix only, not a backfill; do not touch historical rows
+9. No narrative-only claims ("fixed", "confirmed") — raw output only, per Lean Verification Directive format
+
+NO-HARDCODED-VALUES CHECK (applies to this and all future build/fix work):
+- Before claiming either fix complete, list every hardcoded-looking constant remaining in the touched code
+- For each constant, provide raw grep/sed showing the line + a one-line trace to its live source (API call, computed formula, or DB query) — "will be wired later" is not acceptable at completion
+- For the REQ6 gate specifically: provide a negative-control run showing the gate actually suppresses output when status = UNVERIFIABLE, not just that the if-check exists in code
