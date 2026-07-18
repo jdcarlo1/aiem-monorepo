@@ -726,6 +726,23 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                 except Exception as _p2_e:
                     pass  # non-fatal: phase2 outcome capture never blocks grading
 
+                # Phase III Phase 3: root-cause record for this closed trade
+                try:
+                    import aiem_options_phase3 as _p3
+                    _p3.record_root_cause(
+                        alert_id=aid,
+                        outcome_type=("EXPIRED_WIN" if outcome_str == "WIN" else
+                                      "EXPIRED_LOSS" if outcome_str == "LOSS" else
+                                      "EXPIRED_BREAKEVEN"),
+                        ticker=ticker,
+                        scan_date=alert_date,
+                        direction=direction,
+                        pnl_pct=float(pnl_pct_val),
+                        db_url=_DB_URL,
+                    )
+                except Exception as _p3_e:
+                    pass  # non-fatal: phase3 analysis never blocks grading
+
         win_count = sum(1 for g in graded if g["outcome"] == "WIN")
         wr = round(win_count / len(graded) * 100, 1) if graded else None
 

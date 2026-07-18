@@ -725,6 +725,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _p2_ready = False
         _p2       = None
 
+    # ── Phase III Phase 3: Analysis & Attribution (non-fatal) ────────────────
+    try:
+        import aiem_options_phase3 as _p3
+        _p3.bootstrap_phase3(_DB_URL)
+        _p3_ready = True
+    except Exception as _p3_init_e:
+        log.debug(f"[exec] phase3 init skipped: {_p3_init_e}")
+        _p3_ready = False
+        _p3       = None
+
     t_start = time.time()
 
     try:
@@ -1575,6 +1585,38 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                      f"call={call_score}  put={put_score}  margin={round(margin,1)} "
                      f"chain={_nt_chain_hash[:16]}")
             _write_heartbeat(True)
+            # ── Phase 3: root-cause + KB entry for NO_TRADE decisions ─────────
+            if _p3_ready:
+                try:
+                    _p3.record_root_cause(
+                        alert_id=0,
+                        outcome_type="NO_TRADE",
+                        trace_id=trace_id,
+                        ticker=ticker,
+                        scan_date=scan_date,
+                        direction="NO_TRADE",
+                        scoring_data={"call_score": call_score, "put_score": put_score,
+                                      "margin": round(margin, 1)},
+                        verify_data=verify_result if "verify_result" in dir() else {},
+                        stock_data=stock_data   if "stock_data"   in dir() else {},
+                        db_url=_DB_URL,
+                    )
+                except Exception as _p3_nt_rc_e:
+                    log.debug(f"[phase3] no_trade root_cause skipped: {_p3_nt_rc_e}")
+                try:
+                    _p3.add_knowledge_base_entry(
+                        kb_type="SUCCESS_NO_TRADE",
+                        ticker=ticker,
+                        scan_date=scan_date,
+                        fingerprint={"call_score": call_score, "put_score": put_score,
+                                     "margin": round(margin, 1),
+                                     "trace_id": trace_id},
+                        decision_quality="GOOD",
+                        trace_id=trace_id,
+                        db_url=_DB_URL,
+                    )
+                except Exception as _p3_nt_kb_e:
+                    log.debug(f"[phase3] no_trade kb_entry skipped: {_p3_nt_kb_e}")
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
                     "call_score": call_score, "put_score": put_score,
                     "trace_id": trace_id, "chain_hash": _nt_chain_hash}
@@ -1951,6 +1993,13 @@ def grade_outcomes_job() -> dict:
         n = result.get("graded_count", 0)
         log.info(f"[grade] graded={n}  wr={result.get('win_rate_pct')}%")
         _write_heartbeat(True)
+        # ── Phase 3: root-cause batch + scorecard rebuild after grading ────────
+        try:
+            import aiem_options_phase3 as _p3g
+            _p3g.record_root_cause_batch(days_back=30, db_url=_DB_URL)
+            _p3g.rebuild_all_scorecards(db_url=_DB_URL)
+        except Exception as _p3g_e:
+            log.debug(f"[phase3] grade_outcomes_job p3 step skipped: {_p3g_e}")
         if n:
             _tg(
                 f"📊 <b>OPTIONS OUTCOMES GRADED</b>\n"

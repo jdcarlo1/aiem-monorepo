@@ -1,0 +1,78 @@
+AIEM STANDALONE OPTIONS ENGINE — PHASE III, PHASE 3
+ANALYSIS & ATTRIBUTION
+============================================================
+Standalone Options Engine only. Do not modify/connect to D1-D3.
+No mocks. No fabricated evidence. No manual DB inserts. Paper trading only.
+Requires Phase 1 and Phase 2 verified and closed. DO NOT start Phase 4
+until this phase is independently verified.
+
+9. ROOT-CAUSE ANALYSIS
+Deterministic root-cause analysis after each closed trade, expired
+recommendation, blocked decision, No Trade evaluation. Evaluate: direction/
+magnitude/timing correct-or-not, entry/exit too early/late, incorrect
+strike/expiration/width/strategy family/position size/probability estimate/
+volatility estimate, IV crush, vol expansion, theta decay, gamma exposure,
+liquidity deterioration, excessive spread, slippage, fill delay, assignment/
+dividend risk, regime change/misclassification, pattern failure, indicator
+failure, conflicting signals, sector/market reversal, macro/news event,
+portfolio concentration, correlation shock, data-quality failure, stale
+data, scheduler/worker/execution/risk-rule/exit-rule failure.
+Decision quality evaluated separately from financial outcome — a loss is
+not automatically a bad decision; a profit is not automatically a good one.
+
+10. INDICATOR & PATTERN ATTRIBUTION
+Measure contribution of every indicator, pattern, timeframe, subsystem,
+model, rule, strategy, options metric, portfolio constraint, risk control,
+entry/exit rule. Methods: conditional outcome analysis, ablation testing,
+permutation importance, SHAP where compatible, calibration analysis,
+information coefficient, precision/recall, false-positive/negative rate,
+Brier score, log loss, expected calibration error, regime-conditioned
+performance, interaction-effect analysis.
+No causal claims from correlation alone. Store attribution uncertainty +
+sample size.
+
+11. COMBINATION & INTERACTION LEARNING
+Analyze interactions among indicators, patterns, timeframes, options
+metrics, strategies, market/vol regimes, sectors, industries, liquidity
+conditions, portfolio conditions, entry/exit timing (e.g. pattern+volume
+confirmation, pattern+VWAP, momentum+vol regime, skew+term structure,
+IV rank+strategy family, gamma exposure+expiration).
+Apply false-discovery-rate control before accepting any discovered
+relationship.
+
+12. STRATEGY SCORECARDS
+Separate verified scorecard per strategy/configuration: observations,
+executed trades, win/loss/breakeven rate, average/median return, EV,
+profit factor, Sharpe, Sortino, max drawdown, avg MFE/MAE, avg holding
+time, capital efficiency, return on risk, calibration, fill rate,
+slippage, liquidity failures, assignment events, performance by ticker/
+sector/industry/regime/vol-regime/DTE/strike/time-of-day/day-of-week/
+exit-method/portfolio-state.
+Do not aggregate materially different strategy structures into a
+misleading combined score.
+
+13. SUCCESS/FAILURE KNOWLEDGE BASES
+Permanent versioned DBs: successful decisions, failed decisions,
+successful No Trade decisions, missed opportunities, operational failures,
+data-quality failures, verification failures.
+Fingerprint by market conditions, indicator/pattern combinations, options
+metrics, strategy structure, regime, liquidity, Greeks, portfolio state,
+risk conditions, entry/exit timing.
+Repeated failures reduce confidence only after statistical validation;
+repeated successes raise confidence only after out-of-sample validation.
+
+14. MARKET & VOLATILITY REGIME LEARNING
+Learn best-performing indicators/patterns/strategies per regime: strong/
+weak bull, strong/weak bear, sideways, trending, mean-reverting, high/low/
+rising/falling vol, risk-on/off, rising/falling rate, high-correlation/
+correlation-breakdown, event-driven, earnings periods, macro-announcement
+periods. Regime-specific learning must not overwrite global behavior
+without verification.
+
+STRICT VERIFICATION FOR THIS PHASE
+- Attribution method proof against real closed-trade/decision data (no
+  synthetic/mock sample).
+- Multiple-testing correction proven applied before any relationship is
+  accepted.
+- Scorecard aggregation-boundary proof (dissimilar structures not merged).
+- Full standing evidence checklist applies.
