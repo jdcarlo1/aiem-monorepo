@@ -1,0 +1,240 @@
+====== verified_run.sh ======
+SEQ=27
+TS=2026-07-18T22:31:54Z
+CMD=python verify_phase5.py
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=12a68a8d2773660f09b0ff3050364788a86c9c24
+==============================
+
+[2026-07-18T22:31:54Z] ===== verify_phase5.py START (25 acceptance checkpoints) =====
+[2026-07-18T22:31:55Z] PRE-RUN CLEANUP: truncating Phase 5 test state for clean chain...
+[2026-07-18T22:31:55Z] PRE-RUN CLEANUP: done
+
+[2026-07-18T22:31:55Z] --- AC-01: Bootstrap — 7 tables + CHECK constraints ---
+[phase5] bootstrap_phase5: all 7 tables created/verified
+[2026-07-18T22:31:55Z] PASS  AC01.bootstrap_returns_true  |  result=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_model_versions  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_weight_proposals  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_proposal_gate_results  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_challenger_runs  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_challenger_decisions  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_promotion_events  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.table_exists_oe_audit_events  |  exists=True
+[2026-07-18T22:31:55Z] PASS  AC01.check_constraint_challenger_runs  |  DB rejected can_place_orders=TRUE (CheckViolation)
+[2026-07-18T22:31:55Z] PASS  AC01.check_constraint_challenger_decisions  |  DB rejected can_place_orders=TRUE (CheckViolation)
+
+[2026-07-18T22:31:55Z] --- AC-02: Champion seeded from live pipeline constants ---
+[phase5] seed_initial_champion: already exists (champion_v0)
+[2026-07-18T22:31:55Z] PASS  AC02.seed_returns_version_id  |  version_id=champion_v0
+[2026-07-18T22:31:55Z] PASS  AC02.champion_v0_in_db  |  row=found
+[2026-07-18T22:31:55Z] PASS  AC02.is_active_true  |  is_active=True
+[2026-07-18T22:31:55Z] PASS  AC02.is_test_record_false  |  is_test_record=False
+[2026-07-18T22:31:55Z] PASS  AC02.config_has_min_pop  |  min_pop=0.35
+[2026-07-18T22:31:55Z] PASS  AC02.config_has_weights  |  D1=0.15
+[2026-07-18T22:31:55Z] PASS  AC02.min_pop_equals_035  |  min_pop=0.35
+[2026-07-18T22:31:55Z] PASS  AC02.max_spread_equals_020  |  max_spread_pct=0.2
+[2026-07-18T22:31:55Z] PASS  AC02.sha256_matches_config  |  stored=ceccc0c502723303… computed=ceccc0c502723303…
+[2026-07-18T22:31:55Z] INFO  champion_v0 sha256=ceccc0c502723303da6b5194… config_keys=21
+
+[2026-07-18T22:31:55Z] --- AC-03: Weight proposal created with all required fields ---
+[phase5] create_weight_proposal: ec19dd1f655a46ffa0affd99 target=min_pop proposed=0.38 status=PENDING
+[2026-07-18T22:31:55Z] PASS  AC03.proposal_created  |  status=PENDING
+[2026-07-18T22:31:55Z] PASS  AC03.proposal_id_present  |  proposal_id=ec19dd1f655a46ffa0affd99
+[2026-07-18T22:31:55Z] PASS  AC03.is_test_record_true  |  is_test_record=True
+[2026-07-18T22:31:55Z] PASS  AC03.all_fields_in_db  |  row present in DB
+[2026-07-18T22:31:55Z] PASS  AC03.target_parameter_correct  |  target_parameter=min_pop
+[2026-07-18T22:31:55Z] PASS  AC03.proposed_value_correct  |  proposed_value=0.38
+[2026-07-18T22:31:55Z] INFO  proposal ec19dd1f655a46ffa0affd99: target=min_pop proposed=0.38
+
+[2026-07-18T22:31:55Z] --- AC-04: Duplicate proposal blocked ---
+[2026-07-18T22:31:55Z] PASS  AC04.duplicate_blocked  |  reason='DUPLICATE_PROPOSAL: identical active proposal exists' status=PENDING
+[2026-07-18T22:31:55Z] PASS  AC04.returns_existing_id  |  returned_id=ec19dd1f655a46ffa0affd99 expected=ec19dd1f655a46ffa0affd99
+[2026-07-18T22:31:55Z] INFO  duplicate blocked, returned existing ec19dd1f655a46ffa0affd99
+
+[2026-07-18T22:31:55Z] --- AC-05/09/10/22: SAMPLE_SIZE + stats gates (n=0 → INSUFFICIENT_DATA) ---
+[2026-07-18T22:31:55Z] PASS  AC05.SAMPLE_SIZE_insufficient_data  |  result=INSUFFICIENT_DATA detail={'n_graded': 2, 'min_required': 20, 'reason': 'n=2 < min_n=20'}
+[2026-07-18T22:31:55Z] PASS  AC05.sample_size_n_in_detail  |  detail={'n_graded': 2, 'min_required': 20, 'reason': 'n=2 < min_n=20'}
+[2026-07-18T22:31:55Z] PASS  AC09.STAT_SIG_insufficient_data  |  result=INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] PASS  AC10.MULTIPLE_TESTING_insufficient_data  |  result=INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] PASS  AC22.IN_SAMPLE_not_pass_when_n_lt_20  |  result=INSUFFICIENT_DATA (must not be PASS — no false positives)
+[2026-07-18T22:31:55Z] PASS  AC22.IN_SAMPLE_insufficient_data  |  result=INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO  gate summary: n_pass=6 n_fail=0 n_insuf=12 all_passed=False
+[2026-07-18T22:31:55Z] INFO    SAMPLE_SIZE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    DATA_QUALITY: PASS
+[2026-07-18T22:31:55Z] INFO    POINT_IN_TIME: PASS
+[2026-07-18T22:31:55Z] INFO    LEAKAGE: PASS
+[2026-07-18T22:31:55Z] INFO    STATISTICAL_SIGNIFICANCE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    MULTIPLE_TESTING: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    IN_SAMPLE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    OUT_OF_SAMPLE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    WALK_FORWARD: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    REGIME: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    STRESS: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    TRANSACTION_COST: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    SLIPPAGE: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    PORTFOLIO_RISK: PASS
+[2026-07-18T22:31:55Z] INFO    RUNTIME: PASS
+[2026-07-18T22:31:55Z] INFO    END_TO_END: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] INFO    RISK_GATE_INTEGRITY: PASS
+[2026-07-18T22:31:55Z] INFO    CAPITAL_PRESERVATION: INSUFFICIENT_DATA
+[2026-07-18T22:31:55Z] PASS  AC05.proposal_not_validated_due_to_gates  |  all_passed=False
+
+[2026-07-18T22:31:55Z] --- AC-06/07/08: DATA_QUALITY + POINT_IN_TIME + LEAKAGE gates ---
+[2026-07-18T22:31:55Z] PASS  AC06.DATA_QUALITY_pass  |  result=PASS detail={'n_closed': 2, 'n_bad_rows': 0}
+[2026-07-18T22:31:55Z] PASS  AC07.POINT_IN_TIME_pass  |  result=PASS n_violation=0
+[2026-07-18T22:31:55Z] PASS  AC08.LEAKAGE_pass  |  result=PASS n_leaks=0
+
+[2026-07-18T22:31:55Z] --- AC-11: RISK_GATE_INTEGRITY — min_pop=0.0 → SAFETY_VIOLATION ---
+[phase5] create_weight_proposal: fd9f7deb03ce4568b3454ab2 target=min_pop proposed=0.0 status=SAFETY_VIOLATION
+[2026-07-18T22:31:55Z] PASS  AC11.min_pop_zero_safety_violation  |  status=SAFETY_VIOLATION reason='SAFETY_VIOLATION: proposed 0.0 < absolute floor 0.2 for min_pop'
+[2026-07-18T22:31:55Z] PASS  AC11.reason_contains_floor  |  reason='SAFETY_VIOLATION: proposed 0.0 < absolute floor 0.2 for min_pop'
+[2026-07-18T22:31:55Z] INFO  SAFETY_VIOLATION: 'SAFETY_VIOLATION: proposed 0.0 < absolute floor 0.2 for min_pop'
+[2026-07-18T22:31:55Z] PASS  AC11.safety_violation_in_db  |  db_status=SAFETY_VIOLATION
+
+[2026-07-18T22:31:55Z] --- AC-12: Portfolio risk gate — loosening max_open blocked ---
+[phase5] create_weight_proposal: 912aaef38a394b59a3dd47ad target=max_open_positions proposed=100 status=SAFETY_VIOLATION
+[2026-07-18T22:31:55Z] PASS  AC12.loosen_portfolio_blocked  |  status=SAFETY_VIOLATION reason='SAFETY_VIOLATION: proposed 100.0 > absolute ceiling 20 for max_open_positions'
+[2026-07-18T22:31:55Z] INFO  loosen test: status=SAFETY_VIOLATION reason='SAFETY_VIOLATION: proposed 100.0 > absolute ceiling 20 for max_open_positions'
+
+[2026-07-18T22:31:55Z] --- AC-13: Challenger creation BLOCKED when gates not PASS ---
+[2026-07-18T22:31:55Z] PASS  AC13.challenger_blocked_without_validation  |  error='CHALLENGER_BLOCKED' reason='proposal status=VALIDATING (need VALIDATED)'
+[2026-07-18T22:31:55Z] PASS  AC13.blocking_gates_listed  |  blocking_gates=[{'gate_name': 'CAPITAL_PRESERVATION', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'END_TO_END', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'IN_SAMPLE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'MULTIPLE_TESTING', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'OUT_OF_SAMPLE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'REGIME', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'SAMPLE_SIZE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'SLIPPAGE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'STATISTICAL_SIGNIFICANCE', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'STRESS', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'TRANSACTION_COST', 'gate_result': 'INSUFFICIENT_DATA'}, {'gate_name': 'WALK_FORWARD', 'gate_result': 'INSUFFICIENT_DATA'}]
+[2026-07-18T22:31:55Z] INFO  challenger blocked: 12 blocking gates
+
+[2026-07-18T22:31:55Z] --- AC-14: Challenger created (_test_bypass) — can_place_orders=FALSE ---
+[phase5] create_challenger: challenger_8f218f59f858 run=run_e8e7afa4fbe8 champion=champion_v0 is_test=True can_place_orders=FALSE
+[2026-07-18T22:31:55Z] PASS  AC14.challenger_created  |  challenger_version_id=challenger_8f218f59f858
+[2026-07-18T22:31:55Z] PASS  AC14.can_place_orders_false  |  can_place_orders=False
+[2026-07-18T22:31:55Z] PASS  AC14.is_test_record_true  |  is_test_record=True
+[2026-07-18T22:31:55Z] PASS  AC14.run_in_db  |  run_id=run_e8e7afa4fbe8
+[2026-07-18T22:31:55Z] PASS  AC14.db_can_place_orders_false  |  db.can_place_orders=False
+[2026-07-18T22:31:55Z] INFO  DB run: can_place_orders=False is_test=True
+[2026-07-18T22:31:55Z] INFO  challenger challenger_8f218f59f858 run=run_e8e7afa4fbe8
+[2026-07-18T22:31:55Z] INFO  AC15.check_constraint_verified_in_AC01  |  CHECK(can_place_orders=FALSE) tested in AC-01 — see results above
+
+[2026-07-18T22:31:55Z] --- AC-16: Unverified-update prevention — promote without gates → BLOCKED ---
+[2026-07-18T22:31:55Z] PASS  AC16.promote_without_validation_blocked  |  error='PROMOTION_BLOCKED' reason='proposal status=VALIDATING (need VALIDATED)'
+[2026-07-18T22:31:55Z] PASS  AC16.gate_summary_shows_failures  |  gate_summary={'n_pass': 6, 'n_fail': 0, 'n_insufficient_data': 12}
+[2026-07-18T22:31:55Z] INFO  promote blocked: gate_summary={'n_pass': 6, 'n_fail': 0, 'n_insufficient_data': 12}
+
+[2026-07-18T22:31:55Z] --- AC-17: Rollback test (test namespace) — promote, rollback, sha256 proof ---
+[2026-07-18T22:31:56Z] INFO  test_rb_v0=test_rb_v0_503f853d sha256=cbbf21596662ba9b6570853f…
+[phase5] promote_challenger: challenger_8f218f59f858 → champion_ebdf5f6eb381 prior=champion_v0 is_test=True
+[2026-07-18T22:31:56Z] PASS  AC17.promote_v2_created  |  new_champion_id=champion_ebdf5f6eb381 is_test=True
+[2026-07-18T22:31:56Z] PASS  AC17.v2_sha_differs_from_rb_v0  |  v2_sha=9c4fa381fe0b6fc3… rb_v0_sha=cbbf21596662ba9b…
+[2026-07-18T22:31:56Z] INFO  promoted to champion_ebdf5f6eb381 sha256=9c4fa381fe0b6fc30b9204f8…
+[2026-07-18T22:31:56Z] PASS  AC17.rb_v0_displaced_after_promotion  |  is_active=False
+[phase5] rollback_champion: champion_ebdf5f6eb381 → test_rb_v0_503f853d sha256=cbbf21596662ba9b… is_test=True
+[2026-07-18T22:31:56Z] PASS  AC17.rollback_returns_rolled_back  |  status=ROLLED_BACK reason='None'
+[2026-07-18T22:31:56Z] PASS  AC17.rollback_to_version_is_rb_v0  |  to_version=test_rb_v0_503f853d
+[2026-07-18T22:31:56Z] PASS  AC17.rollback_from_version_is_v2  |  from_version=champion_ebdf5f6eb381
+[2026-07-18T22:31:56Z] PASS  AC17.restored_sha256_matches_rb_v0  |  restored_sha=cbbf21596662ba9b6570853f… rb_v0_sha=cbbf21596662ba9b6570853f…
+[2026-07-18T22:31:56Z] PASS  AC17.db_rb_v0_is_active  |  is_active=True
+[2026-07-18T22:31:56Z] PASS  AC17.db_rb_v0_sha256_intact  |  db_sha=cbbf21596662ba9b…
+[2026-07-18T22:31:56Z] INFO  ROLLBACK PROOF: test_v2(9c4fa381fe0b…) → test_rb_v0(cbbf21596662…) sha_match=True
+
+[2026-07-18T22:31:56Z] --- AC-18: Restart-persistence — bootstrap re-run is idempotent ---
+[phase5] bootstrap_phase5: all 7 tables created/verified
+[2026-07-18T22:31:56Z] PASS  AC18.bootstrap_idempotent_returns_true  |  result=True
+[2026-07-18T22:31:56Z] PASS  AC18.row_count_unchanged  |  before=3 after=3
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_model_versions
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_weight_proposals
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_proposal_gate_results
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_challenger_runs
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_challenger_decisions
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_promotion_events
+[2026-07-18T22:31:56Z] PASS  AC18.table_still_exists_oe_audit_events
+[2026-07-18T22:31:56Z] INFO  all 7 tables survive re-run, row counts unchanged
+
+[2026-07-18T22:31:56Z] --- AC-19: Duplicate-event prevention — same event_id blocked ---
+[2026-07-18T22:31:56Z] PASS  AC19.duplicate_event_id_blocked  |  original_hash=b5cb20895c3b5cc6… unchanged=True
+[2026-07-18T22:31:56Z] PASS  AC19.duplicate_hash_chain_self_blocked  |  DB rejected duplicate hash_chain_self (UniqueViolation)
+
+[2026-07-18T22:31:56Z] --- AC-20: Trace continuity — proposal_id threads through gate_results + audit ---
+[2026-07-18T22:31:56Z] PASS  AC20.gate_results_have_proposal_id  |  gate_rows=18 expected=18
+[2026-07-18T22:31:56Z] PASS  AC20.audit_events_have_proposal_id  |  audit_rows=6
+[2026-07-18T22:31:56Z] INFO  proposal_id=ec19dd1f655a46ffa0affd99: gate_rows=18 audit_rows=6
+
+[2026-07-18T22:31:56Z] --- AC-21: Hash-chain verification — walk full chain ---
+[2026-07-18T22:31:56Z] INFO  audit chain: n_events=10 n_broken=0 chain_valid=True
+[2026-07-18T22:31:56Z] PASS  AC21.chain_valid  |  n_broken=0 first_break=None
+[2026-07-18T22:31:56Z] PASS  AC21.chain_has_events  |  n_events=10
+[2026-07-18T22:31:56Z] PASS  AC21.no_broken_links  |  n_broken=0
+[2026-07-18T22:31:56Z] INFO    chain[001] PROPOSAL_CREATED               d7b83bbe328899b8…
+[2026-07-18T22:31:56Z] INFO    chain[002] GATES_EVALUATED                caaaea3cbf49a498…
+[2026-07-18T22:31:56Z] INFO    chain[003] GATES_EVALUATED                ad127237df79b7a5…
+[2026-07-18T22:31:56Z] INFO    chain[004] PROPOSAL_SAFETY_REJECTED       a345fe6c3b9c1aaa…
+[2026-07-18T22:31:56Z] INFO    chain[005] PROPOSAL_SAFETY_REJECTED       0c009961937d2bb6…
+[2026-07-18T22:31:56Z] INFO    chain[006] CHALLENGER_CREATED             7a8e7182f7202b96…
+[2026-07-18T22:31:56Z] INFO    chain[007] GATES_EVALUATED                bb7975a5876203b8…
+[2026-07-18T22:31:56Z] INFO    chain[008] CHALLENGER_PROMOTED            783fcb8ec963662d…
+[2026-07-18T22:31:56Z] INFO    chain[009] CHAMPION_ROLLED_BACK           03d356540ea6c902…
+[2026-07-18T22:31:56Z] INFO    chain[010] TEST_EVENT                     b5cb20895c3b5cc6…
+
+[2026-07-18T22:31:56Z] --- AC-23: Registry proof — indicator + pattern + strategy counts ---
+[2026-07-18T22:31:56Z] PASS  AC23.indicator_registry_queryable  |  count=0 (populated lazily by scan runs)
+[2026-07-18T22:31:56Z] PASS  AC23.pattern_registry_queryable  |  count=0
+[2026-07-18T22:31:56Z] PASS  AC23.strategy_registry_populated  |  count=42
+[2026-07-18T22:31:56Z] INFO  registries: indicators=0 patterns=0 strategies=42
+[2026-07-18T22:31:56Z] INFO    strategy: 1
+[2026-07-18T22:31:56Z] INFO    strategy: 2
+[2026-07-18T22:31:56Z] INFO    strategy: 3
+[2026-07-18T22:31:56Z] INFO    strategy: 4
+[2026-07-18T22:31:56Z] INFO    strategy: 5
+
+[2026-07-18T22:31:56Z] --- AC-24: Code path grep — 18 gate names in phase5 module ---
+[2026-07-18T22:31:56Z] PASS  AC24.gate_SAMPLE_SIZE_in_source  |  gate='SAMPLE_SIZE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_DATA_QUALITY_in_source  |  gate='DATA_QUALITY' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_POINT_IN_TIME_in_source  |  gate='POINT_IN_TIME' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_LEAKAGE_in_source  |  gate='LEAKAGE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_STATISTICAL_SIGNIFICANCE_in_source  |  gate='STATISTICAL_SIGNIFICANCE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_MULTIPLE_TESTING_in_source  |  gate='MULTIPLE_TESTING' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_IN_SAMPLE_in_source  |  gate='IN_SAMPLE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_OUT_OF_SAMPLE_in_source  |  gate='OUT_OF_SAMPLE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_WALK_FORWARD_in_source  |  gate='WALK_FORWARD' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_REGIME_in_source  |  gate='REGIME' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_STRESS_in_source  |  gate='STRESS' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_TRANSACTION_COST_in_source  |  gate='TRANSACTION_COST' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_SLIPPAGE_in_source  |  gate='SLIPPAGE' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_PORTFOLIO_RISK_in_source  |  gate='PORTFOLIO_RISK' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_RUNTIME_in_source  |  gate='RUNTIME' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_END_TO_END_in_source  |  gate='END_TO_END' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_RISK_GATE_INTEGRITY_in_source  |  gate='RISK_GATE_INTEGRITY' found=True
+[2026-07-18T22:31:56Z] PASS  AC24.gate_CAPITAL_PRESERVATION_in_source  |  gate='CAPITAL_PRESERVATION' found=True
+[2026-07-18T22:31:56Z] PASS  AC24._VALIDATION_GATES_constant_present  |  _VALIDATION_GATES defined
+[2026-07-18T22:31:56Z] PASS  AC24.db_has_18_distinct_gate_results  |  distinct gates in DB=18 expected=18
+[2026-07-18T22:31:56Z] INFO  all 18 gate names present, DB gate rows=18
+
+[2026-07-18T22:31:56Z] --- AC-25: Promotion event audit — promotion creates oe_promotion_events row ---
+[2026-07-18T22:31:56Z] PASS  AC25.promotion_events_exist  |  count=2
+[2026-07-18T22:31:56Z] INFO  promotion_event: action=PROMOTED challenger=challenger_8f218f59f858 prior=champion_v0 new=champion_ebdf5f6eb381
+[2026-07-18T22:31:56Z] INFO  promotion_event: action=ROLLED_BACK challenger=N/A prior=champion_ebdf5f6eb381 new=test_rb_v0_503f853d
+[2026-07-18T22:31:56Z] PASS  AC25.audit_event_for_promotion_exists  |  CHALLENGER_PROMOTED audit events=1
+[2026-07-18T22:31:56Z] PASS  AC25.audit_event_for_rollback_exists  |  CHAMPION_ROLLED_BACK audit events=1
+
+[2026-07-18T22:31:56Z] --- SCHEDULER WIRING CHECK ---
+[2026-07-18T22:31:56Z] PASS  SCHED.phase5_import  |  grep_count=2
+[2026-07-18T22:31:56Z] INFO  SCHED.phase5_import: 2 occurrence(s)
+[2026-07-18T22:31:56Z] PASS  SCHED.bootstrap_phase5  |  grep_count=1
+[2026-07-18T22:31:56Z] INFO  SCHED.bootstrap_phase5: 1 occurrence(s)
+[2026-07-18T22:31:56Z] PASS  SCHED.seed_initial_champion  |  grep_count=1
+[2026-07-18T22:31:56Z] INFO  SCHED.seed_initial_champion: 1 occurrence(s)
+[2026-07-18T22:31:56Z] PASS  SCHED.governance_summary  |  grep_count=1
+[2026-07-18T22:31:56Z] INFO  SCHED.governance_summary: 1 occurrence(s)
+
+[2026-07-18T22:31:56Z] --- GOVERNANCE STATE ---
+[2026-07-18T22:31:56Z] INFO  active_champion: {'version_id': 'champion_v0', 'config_sha256': 'ceccc0c502723303da6b51943c3cb2312f664fef8ff5507c17a97cd82d203323'}
+[2026-07-18T22:31:56Z] INFO  proposals: {}
+[2026-07-18T22:31:56Z] INFO  promotions: {}
+[2026-07-18T22:31:56Z] INFO  audit_events: 10
+
+[2026-07-18T22:31:56Z] ===== SUMMARY =====
+[2026-07-18T22:31:56Z] PASS=105  FAIL=0  INFO=1  TOTAL_CHECKS=105
+[2026-07-18T22:31:56Z] OVERALL: PASS
+
+==============================
+SEQ=27  EXIT=0  TS_END=2026-07-18T22:31:56Z
+sha256(log)=36752b9993a25aa3af28ba091f2254b8f42cfb386ddd92ba38ffac623b1d0db7
+==============================

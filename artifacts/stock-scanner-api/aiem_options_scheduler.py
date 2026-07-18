@@ -745,6 +745,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _p4_ready = False
         _p4       = None
 
+    # ── Phase III Phase 5: Adaptive Control & Governance (non-fatal) ─────────
+    try:
+        import aiem_options_phase5 as _p5
+        _p5.bootstrap_phase5(_DB_URL)
+        _p5.seed_initial_champion(_DB_URL)
+        _p5_ready = True
+    except Exception as _p5_init_e:
+        log.warning(f"[phase5] init failed: {_p5_init_e}")
+        _p5_ready = False
+        _p5       = None
+
     t_start = time.time()
 
     try:
@@ -2064,6 +2075,13 @@ def grade_outcomes_job() -> dict:
             _p4g.scan_operational_failures(days_back=7, db_url=_DB_URL)
         except Exception as _p4g_e:
             log.warning(f"[phase4] grade_outcomes_job p4 step failed: {_p4g_e}")
+        # ── Phase 5: Governance summary + audit chain health ─────────────────
+        try:
+            import aiem_options_phase5 as _p5g
+            _p5g_summary = _p5g.get_governance_summary(db_url=_DB_URL)
+            log.info(f"[phase5] governance: {_p5g_summary}")
+        except Exception as _p5g_e:
+            log.warning(f"[phase5] grade_outcomes_job p5 step failed: {_p5g_e}")
         if n:
             _tg(
                 f"📊 <b>OPTIONS OUTCOMES GRADED</b>\n"

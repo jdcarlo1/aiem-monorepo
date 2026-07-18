@@ -1,0 +1,89 @@
+AIEM STANDALONE OPTIONS ENGINE — PHASE III, PHASE 5
+ADAPTIVE CONTROL & GOVERNANCE
+============================================================
+Standalone Options Engine only. Do not modify/connect to D1-D3.
+No mocks. No fabricated evidence. No manual DB inserts. Paper trading only.
+Requires Phases 1-4 verified and closed. This phase governs everything
+capable of changing live paper-trading behavior — highest verification bar.
+
+18. ADAPTIVE WEIGHTING & MODEL UPDATES
+Learning Engine may propose changes to: indicator/pattern/timeframe
+weights, strategy rankings, probability calibration, confidence
+thresholds, entry/exit parameters, position-sizing recommendations,
+regime-specific preferences, portfolio-allocation preferences.
+No proposal active until it passes: minimum sample-size requirement,
+data-quality validation, point-in-time validation, leakage checks,
+statistical significance, multiple-testing correction, in-sample,
+out-of-sample, walk-forward, regime, stress, transaction-cost, slippage,
+portfolio-risk, runtime, end-to-end verification, paper-trading
+validation. One trade or small/recent sample alone may never trigger a
+production weight change.
+
+19. CHAMPION-CHALLENGER CONTROL
+Current verified version = Champion. Every learned revision = Challenger.
+Challenger must: run shadow mode, use identical point-in-time inputs,
+generate independent recommendations, be unable to place orders, be
+compared against Champion, show statistically meaningful improvement,
+avoid increased drawdown/tail risk, pass all portfolio/risk limits, pass
+strict verification. Promotion must be explicit, versioned, auditable,
+reversible.
+
+20. SAFETY & GOVERNANCE
+Learning Engine must never: rewrite source code autonomously, activate a
+new strategy autonomously, override the Risk Gate or Phase II portfolio
+limits, increase risk limits, remove capital-preservation controls, learn
+from fabricated/manually inserted outcomes, use future data, use
+unverified counterfactual results as real trades, promote a model from
+training performance alone, hide a failed test, silently change a weight/
+threshold/rule. Risk Management retains final authority. Any uncertainty,
+missing data, or failed verification must preserve the current verified
+version.
+
+21. VERSIONING, ROLLBACK & AUDIT TRAIL
+Per proposed/approved change: change ID, timestamp, model/config version,
+previous value, proposed value, approved value, reason, supporting
+observations, sample size, statistical tests, validation periods,
+performance comparison, risk comparison, approval status, deployment
+status, rollback version, source/config/dataset/evidence-chain hashes,
+responsible process. Nothing changes silently. One-command rollback to
+previous verified Champion must exist and be tested.
+
+22. REQUIRED DATABASE RELATIONSHIPS
+Fully traceable chain: Decision → Candidate → Input snapshot → Indicators
+→ Patterns → Options-chain snapshot → Strategy candidates → Strategy
+ranking → Portfolio evaluation → Risk evaluation → Recommendation → Order
+→ Position → Exit → Outcome → Root-cause analysis → Attribution →
+Learning proposal → Validation → Challenger version → Promotion/rejection
+→ Audit event → Evidence-chain hash. Every record carries trace ID +
+immutable timestamps.
+
+23-24. STRICT VERIFICATION & END-TO-END ACCEPTANCE
+Full standing evidence-chain protocol. Required: registry proof (every
+subsystem/indicator/pattern/strategy), grep proof of compute + consume
+paths, SQL evidence per test, real paper-trade/runtime evidence, positive
++ negative controls, missing-indicator/pattern failure tests, stale-data
+failure test, look-ahead leakage test, counterfactual-labeling test,
+risk-override prevention test, portfolio-limit prevention test,
+unverified-update prevention test, Champion-Challenger isolation test,
+rollback test, restart-persistence test, duplicate-event prevention test,
+trace continuity test, hash-chain verification.
+Run all evidence through tools/verified_run.sh and tools/verify_chain.sh —
+raw sha256sum of both checked against current canonical hashes on file;
+mismatch = reject regardless of other content.
+No narrative-only proof. No screenshots as sole proof. No repeated generic
+SQL counts. No mock trades. No fabricated timestamps. No manual inserts.
+Produce at least one complete, naturally generated paper-trading trace
+covering ingestion through rollback demonstration (all 25 acceptance
+checkpoints from the master spec).
+
+FINAL ACCEPTANCE STANDARD
+Phase III passes only when the standalone Options Engine demonstrably
+learns from every subsystem, indicator, pattern, options metric, strategy
+(selected and rejected), portfolio decision, risk decision, executed
+trade, No Trade decision, exit, success, failure, and operational
+incident — improving only through statistically validated, point-in-time,
+out-of-sample, walk-forward evidence. No learning update may affect
+autonomous paper trading until strict mathematical, database, runtime,
+portfolio-risk, and end-to-end verification passes. Capital preservation,
+portfolio limits, risk limits, auditability, versioning, and rollback
+always take precedence over performance improvement.
