@@ -558,3 +558,9 @@ id = "KqLfNDavIOjSlBCJPGrX2"
 uri = "file://artifacts/stock-scanner-api/tools/verify_chain_all25_results.txt"
 type = "text"
 title = "verify_chain.sh — All 25 Alerts (complete output)"
+
+[[outputs]]
+id = "N9KOn0MjN1xWpOupmfr0E"
+uri = "file://artifacts/stock-scanner-api/verify_phase3_phase1_output.txt"
+type = "text"
+title = "Phase III Phase 1 Verification Output"

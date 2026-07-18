@@ -1,0 +1,155 @@
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  PHASE III PHASE 1 VERIFICATION — Data Capture & Registries             ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║  anchor_ts : 2026-07-18T18:22:24Z                                       ║
+║  script_sha: 91191a12925ebf1077af0cd1b60005de244e9b4ab01257052913a9702f4║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+── SECTION 1: File existence + SHA-256 ──────────────────────────────────
+  [PASS]  file exists: aiem_options_scheduler.py  sha256=e760d2c8f05f0319…
+  [PASS]  file exists: aiem_options_registries.py  sha256=cbab39e3e951f342…
+  [PASS]  file exists: aiem_options_pipeline.py  sha256=897411d210406051…
+
+── SECTION 2: Grep proofs — 24 subsystem captures in scheduler ──────────
+  [PASS]  GREP [Stage1/POLYGON  POLY_CLOSE_PRICE]
+  [PASS]  GREP [Stage1/POLYGON  POLY_VWAP]
+  [PASS]  GREP [Stage1/POLYGON  POLY_CLOSE_STRENGTH]
+  [PASS]  GREP [Stage1/OSS      OSS_FRONT_IV]
+  [PASS]  GREP [Stage1/OSS      OSS_GEX_REGIME]
+  [PASS]  GREP [Stage1/OSS      OSS_PC_SKEW_PP]
+  [PASS]  GREP [Stage1/OSS      OSS_TERM_RATIO]
+  [PASS]  GREP [Stage1/OSS      OSS_BACK_IV]
+  [PASS]  GREP [Stage2/TECH     TECH_STOCK_DIRECTION]
+  [PASS]  GREP [Stage2/TECH     TECH_IV_CRUSH_RISK]
+  [PASS]  GREP [Stage2/REGIME   MKT_REGIME_TAG]
+  [PASS]  GREP [Stage2/REGIME   MKT_GEX_REGIME]
+  [PASS]  GREP [Stage2/REGIME   MKT_TERM_STRUCTURE]
+  [PASS]  GREP [Stage2/VOLREG   VOLREG_FRONT_IV_CLASS]
+  [PASS]  GREP [StagePM/PM      PM_SCORE]
+  [PASS]  GREP [StagePM/PM      PM_CONFIDENCE]
+  [PASS]  GREP [StagePM/PM      PM_GAP_PCT]
+  [PASS]  GREP [StagePM/INTRA   INTRA_PM_HIGH_BROKEN]
+  [PASS]  GREP [StagePM/INTRA   INTRA_PM_LOW_HELD]
+  [PASS]  GREP [StageMTF        MTF_ALIGNMENT_SCORE]
+  [PASS]  GREP [StageMTF        MTF_CONFLICT_SCORE]
+  [PASS]  GREP [StageMTF        MTF_DOMINANT_BIAS]
+  [PASS]  GREP [StageMTF        MTF_ENTRY_TIMING]
+  [PASS]  GREP [StageMTF        MTF_BULLISH_TF_COUNT]
+  [PASS]  GREP [StagePAT        PAT_SCORE]
+  [PASS]  GREP [StagePAT        PAT_COUNT]
+  [PASS]  GREP [StagePAT        PAT_BULLISH]
+  [PASS]  GREP [StagePAT        PAT_BEARISH]
+  [PASS]  GREP [StagePAT        individual pattern snap]
+  [PASS]  GREP [StageOC         OC_CONTRACTS_TOTAL]
+  [PASS]  GREP [StageOC         OC_STRATEGIES_COUNT]
+  [PASS]  GREP [StageOC         OC_BEST_STRATEGY]
+  [PASS]  GREP [StageOC         OC_CHAIN_CALLS_CNT]
+  [PASS]  GREP [StageEI         EI_STRATEGIES_TOTAL]
+  [PASS]  GREP [StageEI         EI_STRATEGIES_APPROVED]
+  [PASS]  GREP [StageEI         EI_BEST_FILL_PROB]
+  [PASS]  GREP [StageEI         EI_BEST_NET_EDGE]
+  [PASS]  GREP [StageCCS        CCS_SCORE]
+  [PASS]  GREP [StageCCS        CCS_STRATEGY_POP]
+  [PASS]  GREP [StageCCS        CCS_STRATEGY_EV]
+  [PASS]  GREP [Stage3/OPT      OPT_EXPECTED_MOVE]
+  [PASS]  GREP [Stage3/OPT      OPT_IV_RANK]
+  [PASS]  GREP [Stage3/OPT      OPT_OI_BELOW_SPOT]
+  [PASS]  GREP [Stage3/OPT      OPT_BEARISH_SIGNAL]
+  [PASS]  GREP [Stage3/VOLREG   VOLREG_VRP]
+  [PASS]  GREP [Stage3/VOLREG   VOLREG_IV_RANK]
+  [PASS]  GREP [Stage4/BS       BS_CALL_DELTA]
+  [PASS]  GREP [Stage4/BS       BS_PUT_DELTA]
+  [PASS]  GREP [Stage4/BS       BS_CALL_POP]
+  [PASS]  GREP [Stage4/BS       BS_PUT_POP]
+  [PASS]  GREP [Stage4/BS       BS_CALL_GAMMA]
+  [PASS]  GREP [Stage4/BS       BS_PUT_VEGA]
+  [PASS]  GREP [Stage4/SIZE     SIZE_CALL_PREMIUM_AT_RISK]
+  [PASS]  GREP [Stage4/SIZE     SIZE_CALL_SLIPPAGE]
+  [PASS]  GREP [Stage4          capture_options_metrics]
+  [PASS]  GREP [Stage4          enrich_metrics_oss]
+  [PASS]  GREP [Stage5/REQ6     REQ6_CALL_SCORE]
+  [PASS]  GREP [Stage5/REQ6     REQ6_PUT_SCORE]
+  [PASS]  GREP [Stage5/REQ6     REQ6_MARGIN]
+  [PASS]  GREP [Stage5/REQ6     dimension loop CALL]
+  [PASS]  GREP [Stage6/DECISION DECISION_DIRECTION]
+  [PASS]  GREP [Stage6/DECISION DECISION_MARGIN]
+  [PASS]  GREP [Stage8          update_metrics_alert_id]
+  [PASS]  GREP [Stage8          VERIFY_ALERT_ID]
+  [PASS]  GREP [Stage8          VERIFY_CHAIN_SHA]
+  [PASS]  GREP [Stage8          VERIFY_ELAPSED_S]
+
+── SECTION 3: Registries module function surface ────────────────────────
+  [PASS]  GREP [REGISTRIES: def register_indicator]
+  [PASS]  GREP [REGISTRIES: def snap_indicator]
+  [PASS]  GREP [REGISTRIES: def register_pattern]
+  [PASS]  GREP [REGISTRIES: def snap_pattern]
+  [PASS]  GREP [REGISTRIES: def capture_options_metrics]
+  [PASS]  GREP [REGISTRIES: def enrich_metrics_oss]
+  [PASS]  GREP [REGISTRIES: def update_metrics_alert_id]
+  [PASS]  GREP [REGISTRIES: def update_metrics_outcome_by_alert]
+  [PASS]  GREP [REGISTRIES: def update_metrics_outcome]
+  [PASS]  GREP [REGISTRIES: def assert_no_missing_indicators]
+  [PASS]  GREP [REGISTRIES: def assert_pattern_scan_complete]
+  [PASS]  GREP [REGISTRIES: def assert_data_freshness]
+  [PASS]  GREP [REGISTRIES: def bootstrap_registries]
+  [PASS]  GREP [REGISTRIES: class RegistryValidationError]
+
+── SECTION 4: Pipeline outcome wiring ───────────────────────────────────
+  [PASS]  GREP [PIPELINE: outcome wiring import]
+  [PASS]  GREP [PIPELINE: update_metrics_outcome_by_alert call]
+
+── SECTION 5: Registry helper infrastructure in scheduler ───────────────
+  [PASS]  GREP [SCHED: _reg_ready flag]
+  [PASS]  GREP [SCHED: _rc helper defined]
+  [PASS]  GREP [SCHED: _rc_pat helper defined]
+  [PASS]  GREP [SCHED: bootstrap_registries call]
+  [PASS]  GREP [SCHED: non-fatal fallback _rc]
+
+── SECTION 6: Failure test → verify_result injection path ───────────────
+  [PASS]  GREP [GATE: assert_no_missing_indicators call]
+  [PASS]  GREP [GATE: assert_pattern_scan_complete call]
+  [PASS]  GREP [GATE: assert_data_freshness call]
+  [PASS]  GREP [GATE: gate_failures list injection]
+  [PASS]  GREP [GATE: ready_for_decision set False]
+  [PASS]  GREP [GATE: ValueError raised on gate fail]
+
+── SECTION 7: DB table existence (live query) ───────────────────────────
+  INFO  DB raw: FOUND:oe_indicator_registry,oe_indicator_snapshots,oe_options_metrics,oe_pattern_registry,oe_pattern_snapshots|MISSING:
+  [PASS]  DB: table exists — oe_indicator_registry
+  [PASS]  DB: table exists — oe_indicator_snapshots
+  [PASS]  DB: table exists — oe_pattern_registry
+  [PASS]  DB: table exists — oe_pattern_snapshots
+  [PASS]  DB: table exists — oe_options_metrics
+
+── SECTION 8: Failure test — assert_no_missing_indicators must block ────
+  INFO  failure_test raw: BLOCKED_OK:Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED
+  [PASS]  FAILURE_TEST: assert_no_missing_indicators raises RegistryValidationError on zero snaps
+
+── SECTION 9: Failure test — assert_pattern_scan_complete must block ────
+  INFO  pat_test raw: BLOCKED_OK:Pattern scan stage produced no PAT_SCORE snapshot for trace_id=VERIFY_FAKE_TRACE_PHASE3_P1_TEST_00000000
+  [PASS]  FAILURE_TEST: assert_pattern_scan_complete raises RegistryValidationError on no patterns
+
+── SECTION 10: Registry update functions importable ─────────────────────
+  INFO  function check: OK:update_metrics_alert_id|OK:update_metrics_outcome_by_alert|OK:update_metrics_outcome|OK:bootstrap_registries|OK:capture_options_metrics|OK:enrich_metrics_oss|OK:assert_no_missing_indicators|OK:assert_pattern_scan_complete|OK:assert_data_freshness|OK:RegistryValidationError|
+  [PASS]  IMPORTABLE: update_metrics_alert_id
+  [PASS]  IMPORTABLE: update_metrics_outcome_by_alert
+  [PASS]  IMPORTABLE: update_metrics_outcome
+  [PASS]  IMPORTABLE: bootstrap_registries
+  [PASS]  IMPORTABLE: capture_options_metrics
+  [PASS]  IMPORTABLE: enrich_metrics_oss
+  [PASS]  IMPORTABLE: assert_no_missing_indicators
+  [PASS]  IMPORTABLE: assert_pattern_scan_complete
+  [PASS]  IMPORTABLE: assert_data_freshness
+  [PASS]  IMPORTABLE: RegistryValidationError
+
+── SECTION 11: Named subsystem coverage count ───────────────────────────
+  [PASS]  subsystem families found in scheduler: 18 / 18
+  INFO  'family' references in registries.py: 0
+0
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  RESULT  PASS=114   FAIL=0     WARN=0     anchor=2026-07-18T18:22:24Z  ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+  ✓ VERIFICATION PASSED — Phase III Phase 1 wiring complete
