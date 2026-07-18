@@ -1,0 +1,1275 @@
+========================================================================
+  verify_chain.sh  —  alert_id=1  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-15  outcome=EXPIRED_WORTHLESS
+  stored audit_chain_sha256: 0602e19bbcbcf6141a1d6b4c649ce910f363cffcb25118d9b52543f030d54e26
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=1
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=43f447f235c9df396430...  PASS (present)
+  [✓] 8_db_write                     stored=ef61e0febd360f4e2dde...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [✓] 9_learning                     stored=074a91ff4319ab843dbc...  PASS (present)
+  [✓] 10_audit_chain_final           stored=0602e19bbcbcf6141a1d...  PASS (present)
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 6/12 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=2  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-15  outcome=EXPIRED_WORTHLESS
+  stored audit_chain_sha256: ffd8f3410679607a6d8b0cda28634fa24ec8579cc819f52a85671f5e4bbe08ae
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=2
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=43f447f235c9df396430...  PASS (present)
+  [✓] 8_db_write                     stored=ef61e0febd360f4e2dde...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [✓] 9_learning                     stored=7ea8d88c57d954a81bc7...  PASS (present)
+  [✓] 10_audit_chain_final           stored=ffd8f3410679607a6d8b...  PASS (present)
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 6/12 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=3  ticker=NTLA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: d96d4d7467a8426e2d59bf96794d30675db38905e141700b5ca9fb768001511f
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=3
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=7b3ee39c753d303ac196...  PASS (present)
+  [✓] 8_db_write                     stored=d96d4d7467a8426e2d59...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              39     80
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     85     70
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     47     84
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.0   65.9
+  margin=19.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2411)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=4  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: df75951d38a77545e6d541f6ae17c1bead4a408650fc504e0f330e02d25e1b99
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=4
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=365b72a96852a6b72207...  PASS (present)
+  [✓] 8_db_write                     stored=df75951d38a77545e6d5...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=5  ticker=EW  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 162ed380eba813e4f82aa83a864684ac3ea61334315800f17b4936d5f7e2c0b6
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=5
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e81e4a78874e874e5d30...  PASS (present)
+  [✓] 8_db_write                     stored=162ed380eba813e4f82a...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              28     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     50
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     74     92
+  D9_market_regime_fit                    50     90
+  FINAL                                 43.5   70.3
+  margin=26.8  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2405)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=6  ticker=MAA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: a3d56531a145c9be3aa806f51cbac8252c4ea3a8584131788917e58e39b1e6cc
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=6
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e17623b578019112a433...  PASS (present)
+  [✓] 8_db_write                     stored=a3d56531a145c9be3aa8...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              26     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.8   65.7
+  margin=18.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2407)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=7  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: be14ce15b749f00661c0f4f437c6585f879de482a7ebc99f4124a81f92c8c00b
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=7
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=365b72a96852a6b72207...  PASS (present)
+  [✓] 8_db_write                     stored=be14ce15b749f00661c0...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=8  ticker=NTLA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: d482738cbad9f9658f04a83a3149f1e831e2386d38e86b2238fa5704f3c5402d
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=8
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=7b3ee39c753d303ac196...  PASS (present)
+  [✓] 8_db_write                     stored=d482738cbad9f9658f04...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              39     80
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     85     70
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     47     84
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.0   65.9
+  margin=19.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2411)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=9  ticker=EW  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 4aed94e152463395cba934532356398a7844a009a553d0f5ebb5bd5c445d5f4a
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=9
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e81e4a78874e874e5d30...  PASS (present)
+  [✓] 8_db_write                     stored=4aed94e152463395cba9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              28     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     50
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     74     92
+  D9_market_regime_fit                    50     90
+  FINAL                                 43.5   70.3
+  margin=26.8  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2405)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=10  ticker=MAA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 8387de22a2df478e256f63a8ca4f68cc81b0ee6d289e22250015dd29f05af7db
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=10
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e17623b578019112a433...  PASS (present)
+  [✓] 8_db_write                     stored=8387de22a2df478e256f...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              26     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.8   65.7
+  margin=18.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2407)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=11  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 72ac1af3ed22bd6f75f99388705532f9bbef7293c34a8e675ddeeb62b6570e1c
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=11
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=365b72a96852a6b72207...  PASS (present)
+  [✓] 8_db_write                     stored=72ac1af3ed22bd6f75f9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=12  ticker=NTLA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: ebdead5d927cf7c08b8c6b97bf3daf71f0e6ee535cb332558c5dff3510127296
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=12
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=7b3ee39c753d303ac196...  PASS (present)
+  [✓] 8_db_write                     stored=ebdead5d927cf7c08b8c...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              39     80
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     85     70
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     47     84
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.0   65.9
+  margin=19.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2411)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=13  ticker=EW  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 5ba8ef564c678250551a55ea22a44f54112b663fc74fd1d8e52a14a2b011ce75
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=13
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e81e4a78874e874e5d30...  PASS (present)
+  [✓] 8_db_write                     stored=5ba8ef564c678250551a...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              28     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     50
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     74     92
+  D9_market_regime_fit                    50     90
+  FINAL                                 43.5   70.3
+  margin=26.8  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2405)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=14  ticker=MAA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 46b3a5fba967857c52ba578c890783dc4378028ad237e39d88c25a9e2a4342ec
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=14
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e17623b578019112a433...  PASS (present)
+  [✓] 8_db_write                     stored=46b3a5fba967857c52ba...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              26     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.8   65.7
+  margin=18.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2407)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=15  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 9905aaec8155bbb11ad3e9f7fbecd31da3bd5d39fabd567924ec11afc4b83fdf
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=15
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=365b72a96852a6b72207...  PASS (present)
+  [✓] 8_db_write                     stored=9905aaec8155bbb11ad3...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=16  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: bfcbf5dbb270197c1c3a6466d9e4d109e9a2989407a51c5d6d0c42375fe172de
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=16
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=365b72a96852a6b72207...  PASS (present)
+  [✓] 8_db_write                     stored=bfcbf5dbb270197c1c3a...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=17  ticker=NTLA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 6c91784a4918133b95454f5f0acc40326a9f99ac9c1a5f0cb1e788984bdd44cb
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=17
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=7b3ee39c753d303ac196...  PASS (present)
+  [✓] 8_db_write                     stored=6c91784a4918133b9545...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              39     80
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     85     70
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     47     84
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.0   65.9
+  margin=19.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2411)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=18  ticker=EW  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 16a8b0ffd5d8a85676704f830917fd00ecc90622e7f60d5687f2caa4ae1b1cde
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=18
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e81e4a78874e874e5d30...  PASS (present)
+  [✓] 8_db_write                     stored=16a8b0ffd5d8a8567670...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              28     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     50
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     74     92
+  D9_market_regime_fit                    50     90
+  FINAL                                 43.5   70.3
+  margin=26.8  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2405)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=19  ticker=MAA  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: c9e86bafdbf15e56bb43e0e83f6c46d7b08fdfb5375d61d13738597787730804
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=19
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=e17623b578019112a433...  PASS (present)
+  [✓] 8_db_write                     stored=c9e86bafdbf15e56bb43...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              26     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.8   65.7
+  margin=18.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2407)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=20  ticker=PSX  direction=LONG_PUT
+  alert_date=2026-07-16  expiry=2026-07-25  outcome=OPEN
+  stored audit_chain_sha256: 3181a4bac626f4370939218197fc2573eb065baf1fe1109b2b04ebf91afadfde
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=20
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=365b72a96852a6b72207...  PASS (present)
+  [✓] 8_db_write                     stored=3181a4bac626f4370939...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              38     81
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     35
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     80     94
+  D9_market_regime_fit                    50     90
+  FINAL                                 44.8   69.0
+  margin=24.2  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2404)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=21  ticker=MEC  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: 10cce7a2f226d1c8cab2c4a38d437624fbb3e31dda15bd2ec9fe31011982089a
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=21
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=da01b5ffa3238ada874b...  PASS (present)
+  [✓] 8_db_write                     stored=10cce7a2f226d1c8cab2...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              20     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     40     30
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     90     97
+  D9_market_regime_fit                    50     50
+  FINAL                                 45.6   65.7
+  margin=20.1  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2401)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=22  ticker=UMC  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: 5f6b7b12f9d404529da67cd7d3716ec4ca246881aa1cb357cc3616f2fc3ae8ad
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=22
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=8fc841c62afd56cc20ac...  PASS (present)
+  [✓] 8_db_write                     stored=5f6b7b12f9d404529da6...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              32     87
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     50
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     73     92
+  D9_market_regime_fit                    50     90
+  FINAL                                 43.7   70.1
+  margin=26.4  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2415)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=23  ticker=PINS  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: 953436a5210a05b9e1cfeb742326e39fc74cb1f8c8c66f5ee203f8a7955b53df
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=23
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=fae3d217e269f25c23bd...  PASS (present)
+  [✓] 8_db_write                     stored=953436a5210a05b9e1cf...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              28     90
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              20     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     85     70
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             41     65
+  D8_theta_decay_risk                     36     80
+  D9_market_regime_fit                    50     90
+  FINAL                                 41.3   70.3
+  margin=29.0  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2366)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=24  ticker=WOLF  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: 0971caeef30becea5fbf2fb545e413f1ee9473ceecb950de9288baef5dec7ce4
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=24
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=c6b754c4a28b1f7b67ca...  PASS (present)
+  [✓] 8_db_write                     stored=0971caeef30becea5fbf...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              36     83
+  D11_options_flow_confirmation           60     65
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     70     40
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     65
+  D8_theta_decay_risk                     78     93
+  D9_market_regime_fit                    50     50
+  FINAL                                 48.5   66.4
+  margin=17.9  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2414)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              35     84
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     30     30
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     96     99
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.8   65.4
+  margin=18.6  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 4/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+  OVERALL: FAIL
+

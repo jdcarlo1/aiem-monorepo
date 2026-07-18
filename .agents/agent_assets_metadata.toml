@@ -552,3 +552,9 @@ id = "EZD_3IggNjrsvXgnRN55A"
 uri = "file://artifacts/stock-scanner-api/pe_phase2_verification_complete.txt"
 type = "text"
 title = "PE Phase 2 — Complete Verification Evidence"
+
+[[outputs]]
+id = "KqLfNDavIOjSlBCJPGrX2"
+uri = "file://artifacts/stock-scanner-api/tools/verify_chain_all25_results.txt"
+type = "text"
+title = "verify_chain.sh — All 25 Alerts (complete output)"
