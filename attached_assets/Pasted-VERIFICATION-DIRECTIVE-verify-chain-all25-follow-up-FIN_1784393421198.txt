@@ -1,0 +1,43 @@
+VERIFICATION DIRECTIVE — verify_chain_all25 follow-up
+
+FINDING: 25/25 alerts break at 1_polygon (SNAPSHOT_UNAVAILABLE), cascading
+UNVERIFIABLE through stages 2-6 for every alert. Only storage/logging stages
+(7,8,10) pass. Not accepted as partial pass — fix required.
+
+REQUIRED FIXES (raw evidence only, no narrative):
+
+1. Why does 1_polygon have no snapshot for all 25 alert_ids?
+   - raw grep/log output showing the actual failure point
+   - is snapshot capture broken, or never called, or called and discarded?
+
+2. REQ6 scores (D1-D12, FINAL, margin, winner) are displayed for every alert
+   despite the chain that should produce them being UNVERIFIABLE.
+   - trace and paste raw evidence of the actual data source for these scores
+   - if not from a verified polygon snapshot, state exact source
+
+3. alert_id=1 and alert_id=2 (same ticker PSX, same alert_date/expiry) have
+   IDENTICAL REQ6 scores across all 12 dimensions.
+   - raw DB query + result set proving these are independently computed,
+     not duplicated/copied
+
+4. All 25/25 alerts are LONG_PUT; CALL side fails PoP<35% and spread>20%
+   with near-identical values (~0.28 PoP, ~0.24 spread) across unrelated
+   tickers/dates.
+   - raw query tracing these CALL-side values to live quote data
+   - confirm they are not hardcoded/fallback defaults
+
+STANDING CHECKLIST (applies to every item above):
+- Raw terminal output only — no paraphrasing, no "confirmed"/"fixed"/"tested"
+  claims without pasted evidence
+- Raw grep -n / sed -n output for any code location or behavior claim
+- Raw SQL query + full result set for any DB claim (no "representative rows")
+- Before/after sha256 + diff for any file changed
+- sha256sum of tools/verified_run.sh and tools/verify_chain.sh, checked
+  against current canonical:
+    verified_run.sh = 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+    verify_chain.sh = f1e5c010f5dc8f0f16765c04afeb89e0c55f5ced59b619725a4e4ddd7307d8bc
+  Mismatch = validator drifted, output rejected regardless of chain content
+- No deletion/truncation/overwrite of any row/table/file without explicit
+  prior approval in this session
+- If a claim can't be backed by real output, state that in one line — no
+  padding
