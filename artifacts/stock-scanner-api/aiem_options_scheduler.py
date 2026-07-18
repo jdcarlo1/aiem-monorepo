@@ -715,6 +715,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         def _rc(*a, **k):     pass  # noqa
         def _rc_pat(*a, **k): pass  # noqa
 
+    # ── Phase III Phase 2: Strategy/Decision/Outcome capture (non-fatal) ─────
+    try:
+        import aiem_options_phase2 as _p2
+        _p2.bootstrap_phase2(_DB_URL)
+        _p2_ready = True
+    except Exception as _p2_init_e:
+        log.debug(f"[exec] phase2 init skipped: {_p2_init_e}")
+        _p2_ready = False
+        _p2       = None
+
     t_start = time.time()
 
     try:
@@ -1045,6 +1055,25 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 _rc("EI", "EI_BEST_NET_EDGE",
                     getattr(_best_ea, "net_expected_edge", None), None, "NEUTRAL", q=_ei_q)
             log.debug(f"[registry] stageei snapped 6 indicators trace_id={trace_id}")
+
+        # ── Phase 2: Capture every strategy candidate considered ──────────────
+        if _p2_ready:
+            try:
+                _p2.capture_strategy_candidates(
+                    trace_id=trace_id,
+                    ticker=ticker,
+                    scan_date=scan_date,
+                    chain_strategies=chain_strategies,
+                    ei_assessments=_ei_assessments,
+                    call_data=call_data if "call_data" in dir() else {},
+                    put_data=put_data   if "put_data"  in dir() else {},
+                    call_score=call_score if "call_score" in dir() else 0.0,
+                    put_score=put_score   if "put_score"  in dir() else 0.0,
+                    selected_direction="PENDING",
+                    db_url=_DB_URL,
+                )
+            except Exception as _sc_e:
+                log.debug(f"[phase2] strategy candidate capture skipped: {_sc_e}")
 
         # ── Stage CCS: Capital Compounding Score on best real-chain strategy ──
         try:
@@ -1505,6 +1534,22 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 "BULLISH" if margin >= 10 else "NEUTRAL")
             log.debug(f"[registry] stage6 snapped direction={direction} trace_id={trace_id}")
 
+        # ── Phase 2: Decision record (captures NO_TRADE, APPROVE, SUBSTITUTE) ─
+        if _p2_ready:
+            try:
+                _p2.capture_decision_record(
+                    trace_id=trace_id, ticker=ticker, scan_date=scan_date,
+                    direction=direction,
+                    call_score=call_score, put_score=put_score, margin=margin,
+                    call_scoring=call_scoring, put_scoring=put_scoring,
+                    verify_result=verify_result,
+                    chain_strategies=chain_strategies,
+                    stock_data=stock_data,
+                    db_url=_DB_URL,
+                )
+            except Exception as _dr_e:
+                log.debug(f"[phase2] decision_record capture skipped: {_dr_e}")
+
         if direction == "NO_TRADE":
             with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
                 _nt_prev_hash = _get_prev_chain_hash(conn)
@@ -1612,6 +1657,48 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             _rc("VERIFY", "VERIFY_CHAIN_SHA",  None, None, "NEUTRAL",
                 txt=chain_sha[:24] if chain_sha else None)
             _rc("VERIFY", "VERIFY_ELAPSED_S",  elapsed, None, "NEUTRAL")
+
+        # ── Phase 2: Counterfactual snapshot + Trade record ───────────────────
+        if _p2_ready:
+            try:
+                _p2.capture_counterfactual_snapshot(
+                    alert_id=alert_id,
+                    trace_id=trace_id,
+                    ticker=ticker,
+                    scan_date=scan_date,
+                    options_chain=options_chain,
+                    call_data=call_data,
+                    put_data=put_data,
+                    chain_strategies=chain_strategies,
+                    spot=spot,
+                    front_iv=front_iv,
+                    db_url=_DB_URL,
+                )
+            except Exception as _cf_e:
+                log.debug(f"[phase2] counterfactual_snapshot skipped: {_cf_e}")
+            try:
+                _p2.capture_trade_record(
+                    alert_id=alert_id,
+                    trace_id=trace_id,
+                    ticker=ticker,
+                    scan_date=scan_date,
+                    direction=direction,
+                    sel_data=sel_data,
+                    sel_strike=sel_strike,
+                    alert_fields=alert_fields,
+                    call_score=call_score,
+                    put_score=put_score,
+                    stock_data=stock_data,
+                    verify_result=verify_result,
+                    best_chain_strategy=best_chain_strategy,
+                    db_url=_DB_URL,
+                )
+            except Exception as _tr_e:
+                log.debug(f"[phase2] trade_record capture skipped: {_tr_e}")
+            try:
+                _p2.update_decision_alert_id(trace_id, alert_id, _DB_URL)
+            except Exception as _uda_e:
+                log.debug(f"[phase2] update_decision_alert_id skipped: {_uda_e}")
 
         # ── Write options_engine_runs (full trigger-chain audit record) ────────
         try:

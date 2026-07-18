@@ -1,0 +1,69 @@
+AIEM STANDALONE OPTIONS ENGINE — PHASE III, PHASE 2
+STRATEGY, DECISION & OUTCOME CAPTURE
+============================================================
+Standalone Options Engine only. Do not modify/connect to D1-D3.
+No mocks. No fabricated evidence. No manual DB inserts. Paper trading only.
+Requires Phase 1 verified and closed. DO NOT start Phase 3 until this phase
+is independently verified.
+
+5. ADVANCED STRATEGY LEARNING
+Learn separately from every enabled/analysis-only strategy in the canonical
+Strategy Registry (long/short calls/puts, covered calls, CSPs, protective
+puts, collars, all vertical/calendar/diagonal spreads, straddles/strangles,
+iron variants, butterflies, condors, ratio/front/back spreads, risk
+reversals, jade/big lizards, synthetics, conversions/reversals, box
+spreads, custom multi-leg, stock+option combos).
+Per strategy considered: ID, family, exact legs, direction, call/put type,
+strike, expiration, quantity ratio, stock leg if applicable, net debit/
+credit, max profit/loss, breakevens, POP, EV, Greeks, margin/capital
+required, liquidity, slippage, assignment/exercise risk, regime
+suitability, portfolio effect, risk-adjusted score, final ranking,
+selected/rejected status, exact rejection reason.
+Must learn from every strategy considered, not only the one selected.
+
+6. COUNTERFACTUAL STRATEGY LEARNING
+Preserve frozen snapshot of all qualified alternatives at decision time.
+After observation window/trade close, calculate alternative performance
+using historically available data only (no look-ahead).
+Compare: selected vs rejected strategies, different strikes/expirations/
+widths/sizes, debit vs credit, defined vs undefined risk, early vs late
+exit, trade vs no-trade.
+Counterfactuals must: use point-in-time chain data, include realistic
+bid/ask + slippage + fees, respect liquidity/fill assumptions, be labeled
+hypothetical, never be represented as executed trades.
+Must attribute loss cause: direction, structure, strike, expiration, width,
+sizing, entry/exit timing, vol mispricing, liquidity/execution, portfolio
+constraints, regime misclassification.
+
+7. DECISION CAPTURE
+Learning must include: executed paper trades (win/loss/breakeven/partial
+fill), cancelled/expired/rejected orders, risk-blocked, portfolio-blocked,
+liquidity-blocked, data-quality-blocked, No Trade decisions, unexecuted
+recommendations, opportunities missed to system failure.
+Per decision: candidate ID, recommendation ID, execution-plan ID, order ID,
+position ID, trace ID, decision timestamp, full feature snapshot, full
+score breakdown, all qualifying + rejected strategies, Risk Gate result,
+portfolio result, final decision, reason codes, outcome, learning status,
+verification status, chain hash.
+
+8. TRADE & OUTCOME CAPTURE
+Per decision/completed trade: ticker, strategy, exact legs, entry/exit
+timestamps + prices, quantity, fees, slippage, premium paid/received,
+capital reserved, BP effect, max risk/reward, breakevens, Greeks at
+recommendation/entry/monitoring/exit, IV at each stage, underlying + option
+price paths, MFE/MAE, realized P/L, unrealized P/L path, % return, return
+on risk, holding time, exit reason, fill quality, liquidity changes,
+regime, sector/industry, portfolio state/Greeks/correlation/risk budget,
+daily realized+unrealized P/L, every subsystem output/indicator/pattern/
+model score/rule result/verification result consumed. Nothing silently
+discarded.
+
+STRICT VERIFICATION FOR THIS PHASE
+- Registry proof for every strategy.
+- At least 3 structurally different alternatives compared where eligible.
+- Counterfactual-labeling test: hypothetical results never stored/displayed
+  as executed trades.
+- Look-ahead leakage test on counterfactual calc.
+- One real APPROVE, one REJECT, one NO_TRADE, one SUBSTITUTE record (full
+  field dump) with real SQL rows.
+- Full standing evidence checklist applies.

@@ -702,6 +702,30 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                 except Exception as _omr_e:
                     pass  # non-fatal: registry capture never blocks grading
 
+                # Phase III Phase 2: counterfactual outcomes + trade record exit
+                try:
+                    import aiem_options_phase2 as _p2
+                    _p2.calculate_counterfactual_outcomes(
+                        alert_id=aid,
+                        trace_id=str(aid),
+                        ticker=ticker,
+                        expiry=expiry,
+                        final_price=float(final_price),
+                        selected_direction=direction,
+                        selected_pnl=float(pnl),
+                        db_url=_DB_URL,
+                    )
+                    _p2.update_trade_record_exit(
+                        alert_id=aid,
+                        outcome_str=outcome_str,
+                        exit_price=float(intrinsic),
+                        pnl_pct=float(pnl_pct_val),
+                        final_price=float(final_price),
+                        db_url=_DB_URL,
+                    )
+                except Exception as _p2_e:
+                    pass  # non-fatal: phase2 outcome capture never blocks grading
+
         win_count = sum(1 for g in graded if g["outcome"] == "WIN")
         wr = round(win_count / len(graded) * 100, 1) if graded else None
 
