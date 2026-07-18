@@ -35,9 +35,9 @@ PORTFOLIO_CAPITAL         = 100_000  # paper portfolio size
 
 # ── Capital Compounding Score weights ───────────────────────────────────────
 SCORE_WEIGHTS = {
-    "pop":                    0.20,
-    "ev_after_costs":         0.20,
-    "capital_preservation":   0.15,
+    "pop":                    0.18,
+    "ev_after_costs":         0.18,
+    "capital_preservation":   0.14,
     "defined_risk_quality":   0.10,
     "capital_efficiency":     0.10,
     "liquidity":              0.10,
@@ -45,6 +45,7 @@ SCORE_WEIGHTS = {
     "regime_fit":             0.05,
     "vol_regime_fit":         0.03,
     "diversification_value":  0.02,
+    "pattern_confirmation":   0.05,   # 0=contra-thesis patterns, 0.5=neutral, 1=confirming
 }
 # Penalty multipliers (applied additively as negative score components)
 SCORE_PENALTIES = {

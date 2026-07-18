@@ -200,6 +200,16 @@ def _seed_candidates():
             log.info(f"seed_candidates: seeded {seeded} new jobs")
             _tg(f"📊 ASE Scheduler: seeded {seeded} jobs for {today}")
 
+            # ── Proof: record that candidates came from polygon_rvol_scan ──────
+            try:
+                import aiem_pipeline_proof as _proof
+                _proof.log_seed_proof(
+                    candidates=rows,
+                    source_table="polygon_rvol_scan",
+                )
+            except Exception as _pe:
+                log.debug(f"seed proof log skipped: {_pe}")
+
     except Exception as exc:
         log.error(f"seed_candidates: {exc}")
         _tg(f"❌ ASE Scheduler seed error: {exc}")
@@ -259,6 +269,35 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
         pass
 
     vol_regime = "HIGH_IV" if (atm_iv or 0) > 0.40 else "LOW_IV"
+
+    # ── Pattern detection (all 5 families, thesis-aligned) ────────────────────
+    pattern_score = 0.5  # neutral default
+    pattern_result: dict = {}
+    try:
+        import aiem_pipeline_proof as _proof
+        from aiem_pattern_engine import detect_for_ticker
+        pattern_result = detect_for_ticker(ticker, thesis=thesis, lookback=60)
+        pattern_score  = pattern_result.get("pattern_score", 0.5)
+        _proof.log_stage(
+            trace_id=run_id, ticker=ticker, thesis=thesis,
+            stage="pattern_scan",
+            data={
+                "pattern_score":       pattern_score,
+                "pass_only_score":     pattern_result.get("pass_only_score", 0.5),
+                "bars_used":           pattern_result.get("bars_used", 0),
+                "n_candlestick":       len(pattern_result.get("candlestick",    [])),
+                "n_chart_structure":   len(pattern_result.get("chart_structure",[])),
+                "n_harmonic":          len(pattern_result.get("harmonic",       [])),
+                "n_wyckoff_vpa":       len(pattern_result.get("wyckoff_vpa",    [])),
+                "n_elliott_wave":      len(pattern_result.get("elliott_wave",   [])),
+                "all_pattern_names":   [p.get("pattern") for p in
+                                        pattern_result.get("all_patterns", [])],
+            },
+        )
+        log.info(f"[{run_id}] pattern_score={pattern_score:.3f} "
+                 f"({len(pattern_result.get('all_patterns',[]))} patterns detected)")
+    except Exception as _pat_err:
+        log.debug(f"[{run_id}] pattern detection skipped: {_pat_err}")
 
     # Build all eligible strategies
     strategy_builds = build_all_for_ticker(ticker, thesis, market_regime, vol_regime)
@@ -330,6 +369,7 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
                 pop_lognormal=prob_info.get("pop_lognormal"),
                 slippage=slip, capital_at_risk=cap_risk, n_legs=len(legs),
                 portfolio_capital=PORTFOLIO_CAPITAL,
+                pattern_score=pattern_score,
             )
 
             fp = strategy_fingerprint(legs)
@@ -350,6 +390,29 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
     from aiem_strat_engine.selector import select
     selection = select(evaluations, thesis, market_regime, iv_rank)
     log.info(f"[{run_id}] decision={selection.decision} reason={selection.reason[:80]}")
+
+    # ── Proof: decision stage ─────────────────────────────────────────────────
+    try:
+        import aiem_pipeline_proof as _proof
+        _proof.log_stage(
+            trace_id=run_id, ticker=ticker, thesis=thesis,
+            stage="decision",
+            data={
+                "decision":        selection.decision,
+                "reason":          selection.reason,
+                "n_evaluated":     len(evaluations),
+                "n_eligible":      sum(1 for e in evaluations if e.eligible),
+                "pattern_score":   pattern_score,
+                "market_regime":   market_regime,
+                "vol_regime":      vol_regime,
+                "best_ccs":        (selection.selected.capital_compounding_score
+                                    if selection.selected else None),
+                "best_strategy":   (selection.selected.strategy_name
+                                    if selection.selected else None),
+            },
+        )
+    except Exception as _de:
+        log.debug(f"[{run_id}] decision proof log skipped: {_de}")
 
     # Persist decision run
     save_decision_run(
@@ -375,8 +438,29 @@ def _run_one_job(job_id: int, ticker: str, thesis: str, scan_date: date) -> bool
                 f"📈 ASE: {ticker} {thesis}\n"
                 f"Strategy: {selection.selected.strategy_name}\n"
                 f"Score: {selection.selected.capital_compounding_score:.3f}\n"
+                f"Pattern: {pattern_score:.3f}\n"
                 f"ID: {pt_id}"
             )
+            # ── Proof: paper_trade stage ──────────────────────────────────────
+            try:
+                _proof.log_stage(
+                    trace_id=run_id, ticker=ticker, thesis=thesis,
+                    stage="paper_trade",
+                    data={
+                        "paper_trade_id":  pt_id,
+                        "strategy":        selection.selected.strategy_name,
+                        "ccs":             selection.selected.capital_compounding_score,
+                        "pattern_score":   pattern_score,
+                        "score_pattern_confirmation": (
+                            selection.selected.score_components.get(
+                                "score_pattern_confirmation") if selection.selected else None
+                        ),
+                        "spot":            spot,
+                        "run_id":          run_id,
+                    },
+                )
+            except Exception as _pe2:
+                log.debug(f"[{run_id}] paper_trade proof log skipped: {_pe2}")
 
     return True
 

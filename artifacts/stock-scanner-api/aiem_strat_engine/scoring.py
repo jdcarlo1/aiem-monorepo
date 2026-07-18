@@ -12,6 +12,7 @@ The score rewards:
   + Market regime fit
   + Volatility regime fit
   + Diversification value
+  + Pattern confirmation (candlestick/chart/harmonic/Wyckoff/EW vs thesis)
 
 And penalizes:
   - Max loss size
@@ -213,6 +214,7 @@ def compute_capital_compounding_score(
     n_legs:             int             = 2,
     existing_families:  Optional[list]  = None,
     portfolio_capital:  float           = 100_000.0,
+    pattern_score:      float           = 0.5,
 ) -> Dict[str, float]:
     """
     Compute the Capital Compounding Score and all individual components.
@@ -221,28 +223,30 @@ def compute_capital_compounding_score(
     w = SCORE_WEIGHTS
 
     # Positive components
-    sc_pop    = score_pop(pop)
-    sc_ev     = score_ev(ev_after_costs)
-    sc_capres = score_capital_preservation(max_loss, max_profit, risk_class)
-    sc_def    = score_defined_risk(risk_class, execution_mode)
-    sc_capeff = score_capital_efficiency(ev_after_costs, return_on_risk)
-    sc_liq    = score_liquidity(liquidity)
-    sc_thesis = score_thesis_fit(strategy_direction, thesis, strategy_vol_thesis, vol_regime)
-    sc_regime = score_regime_fit(strategy_direction, market_regime)
-    sc_vol    = score_vol_fit(strategy_vol_thesis, iv_rank)
-    sc_divers = score_diversification(strategy_family, existing_families)
+    sc_pop     = score_pop(pop)
+    sc_ev      = score_ev(ev_after_costs)
+    sc_capres  = score_capital_preservation(max_loss, max_profit, risk_class)
+    sc_def     = score_defined_risk(risk_class, execution_mode)
+    sc_capeff  = score_capital_efficiency(ev_after_costs, return_on_risk)
+    sc_liq     = score_liquidity(liquidity)
+    sc_thesis  = score_thesis_fit(strategy_direction, thesis, strategy_vol_thesis, vol_regime)
+    sc_regime  = score_regime_fit(strategy_direction, market_regime)
+    sc_vol     = score_vol_fit(strategy_vol_thesis, iv_rank)
+    sc_divers  = score_diversification(strategy_family, existing_families)
+    sc_pattern = _clamp(float(pattern_score))
 
     raw_score = (
-        sc_pop    * w["pop"]                   +
-        sc_ev     * w["ev_after_costs"]         +
-        sc_capres * w["capital_preservation"]   +
-        sc_def    * w["defined_risk_quality"]   +
-        sc_capeff * w["capital_efficiency"]     +
-        sc_liq    * w["liquidity"]              +
-        sc_thesis * w["thesis_fit"]             +
-        sc_regime * w["regime_fit"]             +
-        sc_vol    * w["vol_regime_fit"]         +
-        sc_divers * w["diversification_value"]
+        sc_pop     * w["pop"]                   +
+        sc_ev      * w["ev_after_costs"]         +
+        sc_capres  * w["capital_preservation"]   +
+        sc_def     * w["defined_risk_quality"]   +
+        sc_capeff  * w["capital_efficiency"]     +
+        sc_liq     * w["liquidity"]              +
+        sc_thesis  * w["thesis_fit"]             +
+        sc_regime  * w["regime_fit"]             +
+        sc_vol     * w["vol_regime_fit"]         +
+        sc_divers  * w["diversification_value"]  +
+        sc_pattern * w["pattern_confirmation"]
     )
 
     # Penalties
@@ -256,18 +260,19 @@ def compute_capital_compounding_score(
     final_score = _clamp(raw_score - total_penalty)
 
     return {
-        "score_pop":            round(sc_pop,    4),
-        "score_ev":             round(sc_ev,     4),
-        "score_capital_pres":   round(sc_capres, 4),
-        "score_defined_risk":   round(sc_def,    4),
-        "score_cap_efficiency": round(sc_capeff, 4),
-        "score_liquidity":      round(sc_liq,    4),
-        "score_thesis_fit":     round(sc_thesis, 4),
-        "score_regime_fit":     round(sc_regime, 4),
-        "score_vol_fit":        round(sc_vol,    4),
-        "score_diversification":round(sc_divers, 4),
-        "penalty_total":        round(total_penalty, 4),
-        "capital_compounding_score": round(final_score, 4),
+        "score_pop":                  round(sc_pop,     4),
+        "score_ev":                   round(sc_ev,      4),
+        "score_capital_pres":         round(sc_capres,  4),
+        "score_defined_risk":         round(sc_def,     4),
+        "score_cap_efficiency":       round(sc_capeff,  4),
+        "score_liquidity":            round(sc_liq,     4),
+        "score_thesis_fit":           round(sc_thesis,  4),
+        "score_regime_fit":           round(sc_regime,  4),
+        "score_vol_fit":              round(sc_vol,     4),
+        "score_diversification":      round(sc_divers,  4),
+        "score_pattern_confirmation": round(sc_pattern, 4),
+        "penalty_total":              round(total_penalty, 4),
+        "capital_compounding_score":  round(final_score,   4),
     }
 
 
