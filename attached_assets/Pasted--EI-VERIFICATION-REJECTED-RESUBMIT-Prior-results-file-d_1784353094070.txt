@@ -1,0 +1,43 @@
+# EI VERIFICATION — REJECTED, RESUBMIT
+
+Prior results file does not satisfy spec. Fix and resubmit with raw evidence per standing protocol (verified_run.sh/verify_chain.sh output, sha256sum of both vs canonical, raw SQL result sets, git diff HEAD --stat). No prose, no restated headers.
+
+## 1. Untested/uncalculated metrics (spec requires, results show none)
+- Expected entry price, expected exit price
+- Market-impact estimate
+- Partial-fill probability
+- Exit-liquidity score
+- Roll-liquidity score
+- Early-assignment risk
+- Pin risk
+Provide calculation + test PASS/FAIL for each, or explicitly state "not implemented."
+
+## 2. Order Management — entire section untested
+- Initial limit price
+- Max acceptable debit / min acceptable credit
+- Price-improvement increments
+- Max repricing attempts
+- Max execution time
+- Cancel conditions
+- Partial-fill handling
+- Multi-leg execution rules
+Provide test coverage or state "not implemented."
+
+## 3. Mislabeled negative controls — retest
+- NC5_LOW_FILL_PROB_REJECTED fired on R2_spread_too_wide, not fill probability. Construct an input that isolates low fill probability as the sole rejection trigger. Paste new reason string.
+- NC6_COSTS_ELIMINATE_EDGE_REJECTED fired on R2_spread_too_wide, not cost-elimination. Construct an input that isolates R8/cost-elimination as the sole trigger. Paste new reason string.
+
+## 4. Audit fields incomplete
+- AUDIT_RAW_JSON_PRESENT showed only 5 keys (strategy, legs_count, per_leg_fp, exec_costs, gating_enabled). Spec requires ~20 fields (candidate ID, trace ID, strategy ID, symbol, contracts, timestamp, bid/ask/mid, spread, volume, OI, quote age, fill prob, slippage, tx cost, liquidity score, gross/net edge, exec score, approval reason, actual fill/slippage/cost). Paste full raw JSON for one candidate.
+- DB_ALL_REQUIRED_COLUMNS_PRESENT claimed 44 columns with no list. Paste raw schema output (\d aiem_execution_assessments or equivalent) showing all 44.
+
+## 5. Learning section incomplete
+Only fill and slippage predicted-vs-actual shown. Spec also requires predicted vs actual entry price, exit price, transaction cost. Paste raw rows for all five.
+
+## 6. FC4 exception
+Confirm in one line: is the FC4 input exception ('str' object has no attribute 'get') an intentionally-injected malformed negative-control input, or a real latent bug being caught incidentally? State which.
+
+## 7. GOOD_STRAT case
+GOOD_STRAT was rejected (R8_costs_eliminate_edge, cost_frac=0.556). Confirm whether any test case in the suite reaches approved=True. If none does, add one and show it passing.
+
+No sign-off on EI_GATING_ENABLED=True until all 7 items above are addressed with raw evidence.

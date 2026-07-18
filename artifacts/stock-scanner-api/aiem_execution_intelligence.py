@@ -40,6 +40,7 @@ import math
 import logging
 import hashlib
 import time
+import datetime
 from dataclasses import dataclass, asdict, field
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -937,6 +938,7 @@ def evaluate_execution_quality(
         size_factor = determine_position_size_factor(
             agg_fill_prob, liq_score, net_edge, gross_edge, exec_costs, approved)
 
+        _rep = leg_metrics[0] if leg_metrics else None
         assessment = ExecutionAssessment(
             candidate_id=candidate_id,
             trace_id=trace_id,
@@ -969,11 +971,64 @@ def evaluate_execution_quality(
             position_size_factor=size_factor,
             config_sha256=_config_sha(),
             raw_json={
-                "strategy":   strategy_name,
-                "legs_count": n_legs_total,
-                "per_leg_fp": per_leg_fp,
-                "exec_costs": exec_costs,
-                "gating_enabled": EI_GATING_ENABLED,
+                # ── Identity ────────────────────────────────────────────────
+                "candidate_id":              candidate_id,
+                "trace_id":                  trace_id,
+                "strategy_id":               f"{strategy_name}_{ticker}_{str(scan_date).replace('-','')}",
+                "symbol":                    ticker,
+                "scan_date":                 str(scan_date),
+                "n_contracts":               n_contracts,
+                "timestamp_utc":             datetime.datetime.utcnow().isoformat() + "Z",
+                # ── Strategy ────────────────────────────────────────────────
+                "strategy":                  strategy_name,
+                "n_legs":                    n_legs_total,
+                "legs_count":                len(leg_metrics),
+                # ── Primary leg quote fields ─────────────────────────────────
+                "bid":                       round(_rep.bid, 4) if _rep else None,
+                "ask":                       round(_rep.ask, 4) if _rep else None,
+                "mid":                       round(_rep.mid, 4) if _rep else None,
+                "spread_pct":                round(_rep.spread_pct, 4) if _rep else None,
+                "volume":                    _rep.volume if _rep else None,
+                "open_interest":             _rep.open_interest if _rep else None,
+                # quote_age_seconds: NOT_IMPLEMENTED — Polygon batch data
+                # carries no per-quote timestamp; real-time feed required.
+                "quote_age_seconds":         None,
+                # ── Execution quality ────────────────────────────────────────
+                "per_leg_fp":                per_leg_fp,
+                "fill_probability":          agg_fill_prob,
+                "mid_fill_probability":      agg_mid_fill_prob,
+                "expected_entry_price":      agg_expected_entry,
+                "conservative_entry_price":  agg_conservative,
+                "expected_slippage_dollars": total_slippage,
+                "spread_cost_dollars":       total_spread_cost,
+                "commission_dollars":        exec_costs["commission_dollars"],
+                "market_impact_dollars":     exec_costs["market_impact_dollars"],
+                "total_transaction_cost":    exec_costs["total_transaction_cost"],
+                "cost_as_pct_of_gross":      exec_costs["cost_as_pct_of_gross"],
+                # ── Scores ──────────────────────────────────────────────────
+                "liquidity_score":           liq_score,
+                "gross_expected_edge":       gross_edge,
+                "net_expected_edge":         net_edge,
+                "execution_uncertainty":     uncertainty,
+                "execution_score":           execution_score,
+                # ── Decision ────────────────────────────────────────────────
+                "approved":                  approved,
+                "rejection_reason":          reason,
+                "gating_enabled":            EI_GATING_ENABLED,
+                # ── Not implemented in v1 ────────────────────────────────────
+                # partial_fill_probability: requires order-book depth data
+                # not available in Polygon daily batch.
+                "partial_fill_probability":  "NOT_IMPLEMENTED",
+                # roll_liquidity_score: requires front/back month OI comparison;
+                # not in scope for v1.
+                "roll_liquidity_score":      "NOT_IMPLEMENTED",
+                # ── Learning outcomes (pre-trade = null) ────────────────────
+                # Filled in by record_learning_outcome() at paper close.
+                "actual_fill_price":         None,
+                "actual_slippage":           None,
+                "actual_transaction_cost":   None,
+                # ── Full cost breakdown ──────────────────────────────────────
+                "exec_costs":                exec_costs,
             },
         )
 
