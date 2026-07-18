@@ -1,0 +1,169 @@
+================================================================
+AIEM OPTIONS ENGINE PHASE 3 — COMPLETE VERIFICATION DOCUMENT
+Generated: 2026-07-18T20:31:08Z
+================================================================
+
+── 1. CANONICAL VERIFIER SHA256 ────────────────────────────────
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh
+Expected verified_run.sh : 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+Expected verify_chain.sh : ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+
+── 2. FILE SHA256 (NEW / CHANGED) ──────────────────────────────
+2c9908aebe8cd70948da3dbe3bf11f7f8a2be98327e09723057b78b6ab917d2f  aiem_options_phase3.py
+ec07184172335cc434475bc9d12aaa7ec0203e7ca950ac68b455a9665a549d64  aiem_options_scheduler.py
+c9514a3382251be981f20766cf75eb71d9c81bfc463a4ab30754abf7baaec4ce  aiem_options_pipeline.py
+117a2ba57ae24f3323fddd5a045ce7abad8c754daa6bc9ce8a5cea887a755100  verify_phase3_phase3.sh
+
+── 3. SYNTAX CHECKS ────────────────────────────────────────────
+SYNTAX OK  aiem_options_phase3.py
+SYNTAX OK  aiem_options_scheduler.py
+SYNTAX OK  aiem_options_pipeline.py
+
+── 4. VERIFIER RUN (verified_run.sh) ───────────────────────────
+====== verified_run.sh ======
+SEQ=10
+TS=2026-07-18T20:31:09Z
+CMD=bash verify_phase3_phase3.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=2cb97e521b2534d5059d55471552568d6446f1a6
+==============================
+
+=== verify_phase3_phase3.sh  started 2026-07-18T20:31:09Z ===
+script_sha256=117a2ba57ae24f3323fddd5a045ce7abad8c754daa6bc9ce8a5cea887a755100
+SEQ=1 ts=2026-07-18T20:31:09Z status=PASS name=FILE_EXISTS_aiem_options_phase3.py detail=sha256=2c9908aebe8cd70948da3dbe3bf11f7f8a2be98327e09723057b78b6ab917d2f
+SEQ=2 ts=2026-07-18T20:31:10Z status=PASS name=FILE_EXISTS_aiem_options_scheduler.py detail=sha256=ec07184172335cc434475bc9d12aaa7ec0203e7ca950ac68b455a9665a549d64
+SEQ=3 ts=2026-07-18T20:31:10Z status=PASS name=FILE_EXISTS_aiem_options_pipeline.py detail=sha256=c9514a3382251be981f20766cf75eb71d9c81bfc463a4ab30754abf7baaec4ce
+SEQ=4 ts=2026-07-18T20:31:10Z status=PASS name=SYNTAX_CLEAN_aiem_options_phase3.py detail=ast.parse OK
+SEQ=5 ts=2026-07-18T20:31:10Z status=PASS name=SYNTAX_CLEAN_aiem_options_scheduler.py detail=ast.parse OK
+SEQ=6 ts=2026-07-18T20:31:10Z status=PASS name=SYNTAX_CLEAN_aiem_options_pipeline.py detail=ast.parse OK
+PASS count=42 all 42 required categories present
+SEQ=7 ts=2026-07-18T20:31:10Z status=PASS name=ROOT_CAUSE_42_CATEGORIES detail=all 42 spec-required categories present
+SEQ=8 ts=2026-07-18T20:31:11Z status=PASS name=REGIME_TYPES_20 detail=PASS count=20
+SEQ=9 ts=2026-07-18T20:31:11Z status=PASS name=KB_TYPES_7 detail=PASS count=7
+SEQ=10 ts=2026-07-18T20:31:11Z status=PASS name=BH_FDR_KNOWN_ANSWER detail=PASS result=[False, True, False, True, False]
+SEQ=11 ts=2026-07-18T20:31:12Z status=PASS name=BH_FDR_EDGE_CASES detail=PASS edge cases: at-threshold=True, over=False, empty=[]
+SEQ=12 ts=2026-07-18T20:31:12Z status=PASS name=FISHER_EXACT_KNOWN_ANSWER detail=PASS p_strong=0.0230<0.05  p_neutral=1.0000~1.0  p_zero=1.0
+SEQ=13 ts=2026-07-18T20:31:13Z status=PASS name=PHASE3_9_TABLES_EXIST detail=PASS 9/9 tables exist rows confirmed
+SEQ=14 ts=2026-07-18T20:31:14Z status=PASS name=SCORECARD_UNIQUE_CONSTRAINT detail=PASS UNIQUE(strategy_id,segment_type,segment_value) enforced by DB
+SEQ=15 ts=2026-07-18T20:31:14Z status=PASS name=SCORECARD_AGGREGATION_BOUNDARY detail=PASS single=[ok], two=[ValueError raised]
+SEQ=16 ts=2026-07-18T20:31:16Z status=PASS name=KB_CONFIDENCE_GATE detail=PASS gates: no-oos=REJECTED  oos-n5=REJECTED  decrease-n5=REJECTED  valid=APPROVED  kb_id=3
+SEQ=17 ts=2026-07-18T20:31:17Z status=PASS name=KB_NO_BYPASSED_INCREASES detail=PASS no gate-bypassed confidence increases in oe_kb_confidence_log
+SEQ=18 ts=2026-07-18T20:31:17Z status=PASS name=REGIME_UNIQUE_CONSTRAINT detail=PASS UNIQUE(strategy_id,regime_type) enforced by DB
+SEQ=19 ts=2026-07-18T20:31:18Z status=PASS name=REGIME_NO_GLOBAL_OVERWRITE detail=PASS oe_regime_performance and oe_strategy_scorecards are separate tables
+SEQ=20 ts=2026-07-18T20:31:18Z status=PASS name=ATTRIBUTION_INSUFFICIENT_DATA_PATH detail=PASS status=INSUFFICIENT_DATA (correct: no closed trades with indicator snapshots yet)
+SEQ=21 ts=2026-07-18T20:31:19Z status=PASS name=INTERACTION_NO_HYPOTHESES_PATH detail=PASS tested=0 (correct: no hypotheses registered yet)
+SEQ=22 ts=2026-07-18T20:31:19Z status=PASS name=SCHED_P3_IMPORT detail=line=730
+SEQ=23 ts=2026-07-18T20:31:19Z status=PASS name=SCHED_P3_READY detail=line=732
+SEQ=24 ts=2026-07-18T20:31:19Z status=PASS name=SCHED_P3_NO_TRADE_ROOT_CAUSE detail=line=1591
+SEQ=25 ts=2026-07-18T20:31:19Z status=PASS name=SCHED_P3_NO_TRADE_KB detail=line=1607
+SEQ=26 ts=2026-07-18T20:31:19Z status=PASS name=SCHED_P3_GRADE_BATCH detail=line=1999
+SEQ=27 ts=2026-07-18T20:31:19Z status=PASS name=SCHED_P3_GRADE_SCORECARD detail=line=2000
+SEQ=28 ts=2026-07-18T20:31:19Z status=PASS name=PIPE_P3_IMPORT detail=line=731
+SEQ=29 ts=2026-07-18T20:31:19Z status=PASS name=PIPE_P3_ROOT_CAUSE detail=line=732
+SEQ=30 ts=2026-07-18T20:31:19Z status=PASS name=NO_CROSSSYS_aiem_closed_loop detail=no reference in aiem_options_phase3.py
+SEQ=31 ts=2026-07-18T20:31:19Z status=PASS name=NO_CROSSSYS_aiem_d3 detail=no reference in aiem_options_phase3.py
+SEQ=32 ts=2026-07-18T20:31:19Z status=PASS name=NO_CROSSSYS_aiem_d2 detail=no reference in aiem_options_phase3.py
+SEQ=33 ts=2026-07-18T20:31:19Z status=PASS name=NO_CROSSSYS_d3_governance detail=no reference in aiem_options_phase3.py
+SEQ=34 ts=2026-07-18T20:31:19Z status=PASS name=NO_CROSSSYS_aiem_paper_trades detail=no reference in aiem_options_phase3.py
+SEQ=35 ts=2026-07-18T20:31:19Z status=PASS name=NO_CROSSSYS_aiem_learning_loop detail=no reference in aiem_options_phase3.py
+SEQ=36 ts=2026-07-18T20:31:20Z status=PASS name=NO_MOCK_PATTERN_mock detail=grep -ciE returned 0
+SEQ=37 ts=2026-07-18T20:31:20Z status=PASS name=NO_MOCK_PATTERN_synthetic detail=grep -ciE returned 0
+SEQ=38 ts=2026-07-18T20:31:20Z status=PASS name=NO_MOCK_PATTERN_fake_datahardcoded_sampledummy_data detail=grep -ciE returned 0
+SEQ=39 ts=2026-07-18T20:31:21Z status=PASS name=ASSERT_NO_LOOKAHEAD_PHASE3 detail=PASS 0 look-ahead violations in oe_root_cause_records
+SEQ=40 ts=2026-07-18T20:31:21Z status=PASS name=ROOT_CAUSE_BATCH_RUNS detail=PASS processed=0 saved=0
+SEQ=41 ts=2026-07-18T20:31:22Z status=PASS name=PHASE3_TABLE_COUNTS_POST_RUN detail=PASS all 9 tables queryable post-test-run
+
+════════════════════════════════════════════════════════════════
+  PASS=41  FAIL=0  SEQ=41
+  OVERALL: PASS
+════════════════════════════════════════════════════════════════
+
+==============================
+SEQ=10  EXIT=0  TS_END=2026-07-18T20:31:22Z
+sha256(log)=841b16edfa3f9f82c389f7751d82e09babd3d4fae9bdf1f28feae1d4f267188e
+==============================
+
+── 5. DB: PHASE 3 TABLE ROW COUNTS ────────────────────────────
+  oe_root_cause_records                    rows=0
+  oe_attribution_runs                      rows=0
+  oe_indicator_attribution                 rows=0
+  oe_interaction_hypotheses                rows=0
+  oe_interaction_results                   rows=0
+  oe_strategy_scorecards                   rows=0
+  oe_knowledge_base                        rows=3
+  oe_kb_confidence_log                     rows=12
+  oe_regime_performance                    rows=0
+  9/9 tables confirmed present
+
+── 6. WIRING GREP EVIDENCE (raw -n) ───────────────────────────
+  aiem_options_scheduler.py — Phase 3 wiring points:
+730:        import aiem_options_phase3 as _p3
+732:        _p3_ready = True
+1591:                    _p3.record_root_cause(
+1607:                    _p3.add_knowledge_base_entry(
+1999:            _p3g.record_root_cause_batch(days_back=30, db_url=_DB_URL)
+2000:            _p3g.rebuild_all_scorecards(db_url=_DB_URL)
+
+  aiem_options_pipeline.py — Phase 3 wiring points:
+731:                    import aiem_options_phase3 as _p3
+732:                    _p3.record_root_cause(
+
+── 7. D1/D2/D3 ISOLATION CHECK ────────────────────────────────
+  aiem_closed_loop                    references=0
+  aiem_d3                             references=0
+  aiem_d2                             references=0
+  d3_governance                       references=0
+  aiem_paper_trades                   references=0
+  aiem_learning_loop                  references=0
+
+── 8. PHASE 3 CONSTANT COVERAGE ───────────────────────────────
+  _ROOT_CAUSE_CATEGORIES  : 42 entries
+  _OUTCOME_TYPES          : 7 entries
+  _DECISION_QUALITY       : 3 entries
+  _ATTRIBUTION_METHODS    : 5 entries
+  _SEGMENT_TYPES          : 12 entries
+  _KB_TYPES               : 7 entries
+  _REGIME_TYPES           : 20 entries
+  _MIN_ATTRIBUTION_SAMPLE : 20
+  _MIN_INTERACTION_SAMPLE : 20
+  _FDR_ALPHA              : 0.05
+
+── 9. BH-FDR KNOWN-ANSWER TEST (STANDALONE) ───────────────────
+  Input   : [0.039, 0.001, 0.21, 0.008, 0.041]
+  Result  : [False, True, False, True, False]
+  Expected: [False, True, False, True, False]
+  Match   : PASS
+
+  Edge p=[0.05] alpha=0.05  → [True]   (expect [True])
+  Edge p=[0.051] alpha=0.05 → [False]  (expect [False])
+  Edge p=[]                 → []         (expect [])
+
+── 10. FISHER EXACT KNOWN-ANSWER TEST (STANDALONE) ─────────────
+  [[8,2],[2,8]]  strong association              p=0.0230  PASS
+  [[5,5],[5,5]]  no association                  p=1.0000  PASS
+  [[0,0],[0,0]]  all-zero edge                   p=1.0000  PASS
+  [[10,0],[0,10]]  perfect association             p=0.0000  PASS
+
+── 11. KB CONFIDENCE GATE PROOF ─────────────────────────────────
+  PASS  increase, no OOS, n=5   → REJECTED
+  PASS  increase, OOS=T, n=5    → REJECTED (n<20)
+  PASS  decrease, n=5           → REJECTED
+  PASS  increase, OOS=T, n=25   → APPROVED
+  PASS  decrease, n=25          → APPROVED
+  PASS  no change               → UNCHANGED (pass)
+
+── 12. AGGREGATION BOUNDARY PROOF ──────────────────────────────
+  PASS  single strategy_id → no exception
+  PASS  two strategy_ids → ValueError raised (correct): Scorecard aggregation boundary violated: cannot merge ['LONG
+
+── 13. COMMIT INFO ─────────────────────────────────────────────
+2cb97e5 Add analysis and attribution for options trading outcomes
+47680fc Update verification scripts and evidence collection for phase 2
+05efbdd Add verification output file for completed trade strategy analysis
+
+================================================================
+END OF VERIFICATION DOCUMENT
+================================================================

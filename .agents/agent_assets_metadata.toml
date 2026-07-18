@@ -594,3 +594,9 @@ id = "581ado-07Nmtbw8_PEbru"
 uri = "file://phase2_gap_evidence_2026-07-18.txt"
 type = "text"
 title = "Phase2 Gap Evidence — GAP 1/2/3 Raw Output"
+
+[[outputs]]
+id = "MCzwDxYX7EBwX2APgHGsf"
+uri = "file://phase3_full_verification.txt"
+type = "text"
+title = "Phase 3 Complete Verification — PASS=41 FAIL=0"
