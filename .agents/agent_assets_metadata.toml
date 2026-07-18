@@ -564,3 +564,9 @@ id = "N9KOn0MjN1xWpOupmfr0E"
 uri = "file://artifacts/stock-scanner-api/verify_phase3_phase1_output.txt"
 type = "text"
 title = "Phase III Phase 1 Verification Output"
+
+[[outputs]]
+id = "2xRmkSxdL0MJmvyRikq3K"
+uri = "file://artifacts/stock-scanner-api/raw_evidence_phase3p1.txt"
+type = "text"
+title = "Phase III Phase 1 Raw Evidence (verified_run.sh wrapped)"

@@ -1,0 +1,553 @@
+====== verified_run.sh ======
+SEQ=1
+TS=2026-07-18T18:27:58Z
+CMD=bash raw_evidence_phase3p1.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=ac8407526dfa236b8f1d40cd90390e0fbdeae6c7
+==============================
+
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 6 — sha256sum of tools/verified_run.sh and verify_chain.sh
+════════════════════════════════════════════════════════════════════════════
+--- tools/verified_run.sh ---
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  /home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run.sh
+--- verify_chain.sh ---
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  /home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+
+Canonical expected:
+  verified_run.sh = 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+  verify_chain.sh = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 2 — Full sha256sum output for the three files
+════════════════════════════════════════════════════════════════════════════
+e760d2c8f05f0319d8a4a142d60603cd81145cd1b30ec204d907551ffa34e903  /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_scheduler.py
+cbab39e3e951f3428865dac39e5d3aaa122050543598d7c3251e2c1a1dd99bb8  /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_registries.py
+897411d210406051e0e0435a604ec75be99ee701132ca9be6d943067dbfba79b  /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_pipeline.py
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 7 — git diff HEAD --stat
+════════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 1 / SECTION 2 — Raw grep -n: every subsystem indicator ID (aiem_options_scheduler.py)
+════════════════════════════════════════════════════════════════════════════
+--- grep -n "POLY_CLOSE_PRICE" ---
+766:            _rc("POLYGON", "POLY_CLOSE_PRICE",    close_price, min(1.0, close_price/500.0),
+1418:                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
+1422:            _CRITICAL_FRESHNESS_IDS = ["POLY_CLOSE_PRICE", "OSS_FRONT_IV"]
+
+--- grep -n "POLY_VWAP" ---
+770:            _rc("POLYGON", "POLY_VWAP",           vwap, None,
+1418:                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
+
+--- grep -n "POLY_CLOSE_STRENGTH" ---
+772:            _rc("POLYGON", "POLY_CLOSE_STRENGTH", close_str, close_str,
+
+--- grep -n "OSS_FRONT_IV" ---
+777:            _rc("OSS", "OSS_FRONT_IV",    front_iv, front_iv,
+1418:                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
+1422:            _CRITICAL_FRESHNESS_IDS = ["POLY_CLOSE_PRICE", "OSS_FRONT_IV"]
+
+--- grep -n "OSS_GEX_REGIME" ---
+782:            _rc("OSS", "OSS_GEX_REGIME",  None, None, "NEUTRAL",
+1418:                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
+
+--- grep -n "OSS_PC_SKEW_PP" ---
+784:            _rc("OSS", "OSS_PC_SKEW_PP",  pc_skew_pp, min(1.0, abs(pc_skew_pp)/30.0),
+
+--- grep -n "OSS_TERM_RATIO" ---
+788:            _rc("OSS", "OSS_TERM_RATIO",  float(oss[7]) if oss[7] is not None else None, None,
+
+--- grep -n "OSS_BACK_IV" ---
+791:            _rc("OSS", "OSS_BACK_IV",     float(oss[9])/100.0 if oss[9] is not None else None,
+
+--- grep -n "TECH_STOCK_DIRECTION" ---
+820:            _rc("TECH",   "TECH_STOCK_DIRECTION",   None, None,
+
+--- grep -n "TECH_IV_CRUSH_RISK" ---
+827:            _rc("TECH",   "TECH_IV_CRUSH_RISK",     None, None, "NEUTRAL",
+
+--- grep -n "MKT_REGIME_TAG" ---
+829:            _rc("REGIME", "MKT_REGIME_TAG",         None, None,
+
+--- grep -n "MKT_GEX_REGIME" ---
+832:            _rc("REGIME", "MKT_GEX_REGIME",         None, None,
+
+--- grep -n "MKT_TERM_STRUCTURE" ---
+836:            _rc("REGIME", "MKT_TERM_STRUCTURE",     None, None,
+
+--- grep -n "VOLREG_FRONT_IV_CLASS" ---
+838:            _rc("VOLREG", "VOLREG_FRONT_IV_CLASS",  None, None,
+
+--- grep -n "PM_CONFIDENCE" ---
+869:            _rc("PM", "PM_CONFIDENCE",    _pm_conf, _pm_conf,   "NEUTRAL", q=_pm_q)
+
+--- grep -n "PM_GAP_PCT" ---
+870:            _rc("PM", "PM_GAP_PCT",       pm_intel.get("premarket_gap"), None, "NEUTRAL", q=_pm_q)
+
+--- grep -n "INTRA_PM_HIGH_BROKEN" ---
+875:            _rc("INTRA", "INTRA_PM_HIGH_BROKEN",
+
+--- grep -n "INTRA_PM_LOW_HELD" ---
+878:            _rc("INTRA", "INTRA_PM_LOW_HELD",
+
+--- grep -n "MTF_ALIGNMENT_SCORE" ---
+905:            _rc("MTF", "MTF_ALIGNMENT_SCORE",  _mtf_al, _mtf_al,
+
+--- grep -n "MTF_CONFLICT_SCORE" ---
+907:            _rc("MTF", "MTF_CONFLICT_SCORE",   _mtf_cf, _mtf_cf,
+
+--- grep -n "MTF_DOMINANT_BIAS" ---
+909:            _rc("MTF", "MTF_DOMINANT_BIAS",    None, None, _mtf_sig,
+
+--- grep -n "MTF_ENTRY_TIMING" ---
+911:            _rc("MTF", "MTF_ENTRY_TIMING",     None, None, "NEUTRAL",
+
+--- grep -n "MTF_BULLISH_TF_COUNT" ---
+913:            _rc("MTF", "MTF_BULLISH_TF_COUNT",
+
+--- grep -n "OC_CONTRACTS_TOTAL" ---
+989:            _rc("OC", "OC_CONTRACTS_TOTAL", contracts_evaluated, None, "NEUTRAL", q=_oc_q)
+
+--- grep -n "OC_STRATEGIES_COUNT" ---
+990:            _rc("OC", "OC_STRATEGIES_COUNT", len(chain_strategies), None, "NEUTRAL", q=_oc_q)
+
+--- grep -n "OC_BEST_STRATEGY" ---
+991:            _rc("OC", "OC_BEST_STRATEGY",    None, None, "NEUTRAL",
+
+--- grep -n "OC_CHAIN_CALLS_CNT" ---
+994:            _rc("OC", "OC_CHAIN_CALLS_CNT",
+
+--- grep -n "EI_STRATEGIES_TOTAL" ---
+1033:            _rc("EI", "EI_STRATEGIES_TOTAL",   _n_ei_all, None, "NEUTRAL", q=_ei_q)
+
+--- grep -n "EI_STRATEGIES_APPROVED" ---
+1034:            _rc("EI", "EI_STRATEGIES_APPROVED", _n_ei_ok, None,
+
+--- grep -n "EI_BEST_FILL_PROB" ---
+1041:                _rc("EI", "EI_BEST_FILL_PROB",
+
+--- grep -n "EI_BEST_NET_EDGE" ---
+1045:                _rc("EI", "EI_BEST_NET_EDGE",
+
+--- grep -n "OPT_EXPECTED_MOVE" ---
+1163:            _rc("OPT", "OPT_EXPECTED_MOVE",     _em_val, None, "NEUTRAL")
+1164:            _rc("OPT", "OPT_EXPECTED_MOVE_PCT",  _em_pct, _em_pct/100.0 if _em_pct else None,
+
+--- grep -n "OPT_OI_BELOW_SPOT" ---
+1172:            _rc("OPT", "OPT_OI_BELOW_SPOT",
+
+--- grep -n "OPT_BEARISH_SIGNAL_COUNT" ---
+1178:            _rc("OPT", "OPT_BEARISH_SIGNAL_COUNT",
+
+--- grep -n "BS_CALL_GAMMA" ---
+1345:            _rc("BS", "BS_CALL_GAMMA",    call_gamma_bs, None, "NEUTRAL")
+
+--- grep -n "BS_PUT_VEGA" ---
+1361:            _rc("BS", "BS_PUT_VEGA",      put_vega_bs,   None, "NEUTRAL")
+
+--- grep -n "SIZE_CALL_PREMIUM_AT_RISK" ---
+1370:            _rc("SIZE", "SIZE_CALL_PREMIUM_AT_RISK",
+
+--- grep -n "SIZE_CALL_SLIPPAGE" ---
+1374:            _rc("SIZE", "SIZE_CALL_SLIPPAGE",
+
+--- grep -n "capture_options_metrics" ---
+1383:                _reg_mod.capture_options_metrics(
+1387:                _reg_mod.capture_options_metrics(
+
+--- grep -n "enrich_metrics_oss" ---
+1392:                _reg_mod.enrich_metrics_oss(
+
+--- grep -n "REQ6_PUT_SCORE" ---
+1471:            _rc("REQ6", "REQ6_PUT_SCORE",   put_score,  put_score/100.0,
+
+--- grep -n "REQ6_MARGIN" ---
+1473:            _rc("REQ6", "REQ6_MARGIN",      margin, margin/100.0,
+
+--- grep -n "DECISION_DIRECTION" ---
+1496:            _rc("DECISION", "DECISION_DIRECTION", None, None,
+
+--- grep -n "DECISION_MARGIN" ---
+1504:            _rc("DECISION", "DECISION_MARGIN",      margin, margin/100.0,
+
+--- grep -n "VERIFY_ALERT_ID" ---
+1610:            _rc("VERIFY", "VERIFY_ALERT_ID",   float(alert_id), None, "NEUTRAL",
+
+--- grep -n "VERIFY_CHAIN_SHA" ---
+1612:            _rc("VERIFY", "VERIFY_CHAIN_SHA",  None, None, "NEUTRAL",
+
+--- grep -n "VERIFY_ELAPSED_S" ---
+1614:            _rc("VERIFY", "VERIFY_ELAPSED_S",  elapsed, None, "NEUTRAL")
+
+--- grep -n "PM_SCORE" ---
+867:            _rc("PM", "PM_SCORE",         _pm_score, _pm_score, _pm_sig, _pm_conf, q=_pm_q)
+
+--- grep -n "PAT_SCORE" ---
+935:            _rc("PAT", "PAT_SCORE",    pattern_score, pattern_score,
+
+--- grep -n "PAT_COUNT" ---
+938:            _rc("PAT", "PAT_COUNT",    len(pattern_result.get("all_patterns", [])), None,
+
+--- grep -n "PAT_BULLISH" ---
+940:            _rc("PAT", "PAT_BULLISH",  len([p for p in pattern_result.get("all_patterns", [])
+
+--- grep -n "PAT_BEARISH" ---
+943:            _rc("PAT", "PAT_BEARISH",  len([p for p in pattern_result.get("all_patterns", [])
+
+--- grep -n "CCS_SCORE" ---
+1084:            _rc("CCS", "CCS_SCORE",         final_ccs, final_ccs,
+
+--- grep -n "CCS_STRATEGY_POP" ---
+1091:                _rc("CCS", "CCS_STRATEGY_POP",
+
+--- grep -n "CCS_STRATEGY_EV" ---
+1093:                _rc("CCS", "CCS_STRATEGY_EV",
+
+--- grep -n "OPT_IV_RANK" ---
+1166:            _rc("OPT", "OPT_IV_RANK",            _iv_rank_raw, _iv_rank_raw/100.0,
+1419:                "OPT_IV_RANK", "BS_CALL_DELTA", "BS_PUT_DELTA",
+
+--- grep -n "VOLREG_VRP" ---
+1186:            _rc("VOLREG", "VOLREG_VRP",           _vrp, None,
+
+--- grep -n "VOLREG_IV_RANK" ---
+1182:            _rc("VOLREG", "VOLREG_IV_RANK",       _iv_rank_raw, _iv_rank_raw/100.0,
+
+--- grep -n "BS_CALL_DELTA" ---
+1343:            _rc("BS", "BS_CALL_DELTA",    call_delta_bs, abs(call_delta_bs),
+1419:                "OPT_IV_RANK", "BS_CALL_DELTA", "BS_PUT_DELTA",
+
+--- grep -n "BS_PUT_DELTA" ---
+1356:            _rc("BS", "BS_PUT_DELTA",     put_delta_bs,  abs(put_delta_bs),
+1419:                "OPT_IV_RANK", "BS_CALL_DELTA", "BS_PUT_DELTA",
+
+--- grep -n "BS_CALL_POP" ---
+1349:            _rc("BS", "BS_CALL_POP",      call_probability_itm, call_probability_itm,
+1420:                "BS_CALL_POP", "BS_PUT_POP",
+
+--- grep -n "BS_PUT_POP" ---
+1362:            _rc("BS", "BS_PUT_POP",       put_probability_itm, put_probability_itm,
+1420:                "BS_CALL_POP", "BS_PUT_POP",
+
+--- grep -n "REQ6_CALL_SCORE" ---
+1469:            _rc("REQ6", "REQ6_CALL_SCORE",  call_score, call_score/100.0,
+
+--- grep -n "REQ6_CALL_" ---
+
+--- grep -n "_rc_pat(_p_cid" [individual pattern snap] ---
+950:                _rc_pat(_p_cid, str(_p.get("name","?")), _p_fam,
+
+--- grep -n "update_metrics_alert_id" [Stage 8] ---
+1605:                _reg_mod.update_metrics_alert_id(trace_id, alert_id, _reg_db)
+
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 1 / SECTION 3 — Raw grep -n: registry function surface (aiem_options_registries.py)
+════════════════════════════════════════════════════════════════════════════
+--- grep -n "def register_indicator" ---
+264:def register_indicator(
+
+--- grep -n "def snap_indicator" ---
+306:def snap_indicator(
+
+--- grep -n "def register_pattern" ---
+361:def register_pattern(
+
+--- grep -n "def snap_pattern" ---
+398:def snap_pattern(
+
+--- grep -n "def capture_options_metrics" ---
+435:def capture_options_metrics(
+
+--- grep -n "def enrich_metrics_oss" ---
+560:def enrich_metrics_oss(
+
+--- grep -n "def update_metrics_alert_id" ---
+522:def update_metrics_alert_id(trace_id: str, alert_id: int, db_url: str = "") -> None:
+712:def update_metrics_alert_id(
+
+--- grep -n "def update_metrics_outcome_by_alert" ---
+734:def update_metrics_outcome_by_alert(
+
+--- grep -n "def update_metrics_outcome" ---
+536:def update_metrics_outcome(
+734:def update_metrics_outcome_by_alert(
+
+--- grep -n "def assert_no_missing_indicators" ---
+601:def assert_no_missing_indicators(
+
+--- grep -n "def assert_pattern_scan_complete" ---
+647:def assert_pattern_scan_complete(trace_id: str, db_url: str = "") -> None:
+
+--- grep -n "def assert_data_freshness" ---
+673:def assert_data_freshness(
+
+--- grep -n "def bootstrap_registries" ---
+72:def bootstrap_registries(db_url: str = "") -> None:
+
+--- grep -n "class RegistryValidationError" ---
+43:class RegistryValidationError(Exception):
+
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 1 / SECTION 4 — Raw grep -n: pipeline outcome wiring (aiem_options_pipeline.py)
+════════════════════════════════════════════════════════════════════════════
+--- grep -n "import aiem_options_registries" ---
+699:                    import aiem_options_registries as _om_reg
+
+--- grep -n "update_metrics_outcome_by_alert" ---
+700:                    _om_reg.update_metrics_outcome_by_alert(
+
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 1 / SECTION 5 — Raw grep -n: registry helper infrastructure (aiem_options_scheduler.py)
+════════════════════════════════════════════════════════════════════════════
+--- grep -n "_reg_ready" ---
+677:        _reg_ready  = True
+711:        _reg_ready  = False
+761:        if _reg_ready:
+819:        if _reg_ready:
+858:        if _reg_ready:
+897:        if _reg_ready:
+932:        if _reg_ready:
+987:        if _reg_ready:
+1029:        if _reg_ready:
+1082:        if _reg_ready:
+1158:        if _reg_ready:
+1341:        if _reg_ready:
+1416:        if _reg_ready:
+1468:        if _reg_ready:
+1495:        if _reg_ready:
+1602:        if _reg_ready:
+
+--- grep -n "def _rc(family" ---
+679:        def _rc(family: str, cid: str, raw, norm=None, sig: str = "NEUTRAL",
+
+--- grep -n "def _rc_pat(" ---
+695:        def _rc_pat(cid: str, name: str, family: str, conf=None,
+716:        def _rc_pat(*a, **k): pass  # noqa
+
+--- grep -n "bootstrap_registries(_DB_URL)" ---
+278:                _reg_boot.bootstrap_registries(_DB_URL)
+
+--- grep -n "def _rc\(\*a" [non-fatal fallback] ---
+715:        def _rc(*a, **k):     pass  # noqa
+
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 1 / SECTION 6 — Raw grep -n: failure gate injection path (aiem_options_scheduler.py)
+════════════════════════════════════════════════════════════════════════════
+--- grep -n "assert_no_missing_indicators" ---
+1425:                _reg_mod.assert_no_missing_indicators(trace_id, _REQUIRED_IDS, _reg_db)
+
+--- grep -n "assert_pattern_scan_complete" ---
+1430:                _reg_mod.assert_pattern_scan_complete(trace_id, _reg_db)
+
+--- grep -n "assert_data_freshness" ---
+1435:                _reg_mod.assert_data_freshness(trace_id, _CRITICAL_FRESHNESS_IDS,
+
+--- grep -n "gate_failures" ---
+1423:            _reg_gate_failures: list = []
+1427:                _reg_gate_failures.append(f"REGISTRY_MISSING_INDICATOR: {_rve}")
+1432:                _reg_gate_failures.append(f"REGISTRY_PATTERN_INCOMPLETE: {_rpve}")
+1438:                _reg_gate_failures.append(f"REGISTRY_STALE_DATA: {_rfve}")
+1440:            if _reg_gate_failures:
+1441:                _rf_text = "; ".join(_reg_gate_failures)
+1442:                verify_result["gate_failures"] = (
+1443:                    (verify_result.get("gate_failures") or []) +
+1444:                    [f"REGISTRY: {f}" for f in _reg_gate_failures]
+
+--- grep -n 'verify_result["ready_for_decision"] = False' ---
+1448:                verify_result["ready_for_decision"] = False
+
+--- grep -n "REGISTRY VALIDATION BLOCKED PIPELINE" ---
+1451:                    f"[exec] [{trace_id}] REGISTRY VALIDATION BLOCKED PIPELINE: {_rf_text}")
+
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 3 — Raw SQL query + full result set (table existence)
+════════════════════════════════════════════════════════════════════════════
+-- Query executed:
+SELECT
+    t.table_name,
+    pg_size_pretty(pg_total_relation_size(quote_ident(t.table_name))) AS total_size,
+    (SELECT count(*) FROM information_schema.columns c
+     WHERE c.table_schema = 'public' AND c.table_name = t.table_name) AS col_count
+FROM information_schema.tables t
+WHERE t.table_schema = 'public'
+  AND t.table_name LIKE 'oe_%'
+ORDER BY t.table_name;
+
+-- Column detail for oe_options_metrics:
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'oe_options_metrics'
+ORDER BY ordinal_position;
+
+-- Result set: --
+table_name                               total_size  col_count
+---------------------------------------------------------------
+oe_indicator_registry                         32 kB         11
+oe_indicator_snapshots                        32 kB         19
+oe_options_metrics                            32 kB         63
+oe_pattern_registry                           24 kB          9
+oe_pattern_snapshots                          24 kB         16
+
+(5 rows)
+
+oe_options_metrics columns:
+    #  column_name                         data_type                      nullable
+  ------------------------------------------------------------------------------
+    1  id                                  bigint                         NO
+    2  trace_id                            character varying              NO
+    3  alert_id                            integer                        YES
+    4  ticker                              character varying              NO
+    5  scan_date                           date                           NO
+    6  direction                           character varying              YES
+    7  strike                              numeric                        YES
+    8  expiry                              date                           YES
+    9  dte                                 integer                        YES
+   10  bid                                 numeric                        YES
+   11  ask                                 numeric                        YES
+   12  mid                                 numeric                        YES
+   13  last_price                          numeric                        YES
+   14  spread                              numeric                        YES
+   15  spread_pct                          numeric                        YES
+   16  volume                              integer                        YES
+   17  open_interest                       integer                        YES
+   18  vol_oi_ratio                        numeric                        YES
+   19  iv                                  numeric                        YES
+   20  iv_rank                             numeric                        YES
+   21  iv_percentile                       numeric                        YES
+   22  hv_20d                              numeric                        YES
+   23  realized_vol                        numeric                        YES
+   24  vrp                                 numeric                        YES
+   25  pc_skew_pp                          numeric                        YES
+   26  pc_skew_tag                         character varying              YES
+   27  term_ratio                          numeric                        YES
+   28  term_tag                            character varying              YES
+   29  front_iv                            numeric                        YES
+   30  back_iv                             numeric                        YES
+   31  expected_move                       numeric                        YES
+   32  expected_move_pct                   numeric                        YES
+   33  probability_itm                     numeric                        YES
+   34  pop                                 numeric                        YES
+   35  delta                               numeric                        YES
+   36  gamma                               numeric                        YES
+   37  theta                               numeric                        YES
+   38  vega                                numeric                        YES
+   39  rho                                 numeric                        YES
+   40  vanna                               numeric                        YES
+   41  charm                               numeric                        YES
+   42  vomma                               numeric                        YES
+   43  speed                               numeric                        YES
+   44  color                               numeric                        YES
+   45  ultima                              numeric                        YES
+   46  gex_m                               numeric                        YES
+   47  gex_regime                          character varying              YES
+   48  gamma_flip_price                    numeric                        YES
+   49  unusual_activity                    boolean                        YES
+   50  oi_buildup_pct                      numeric                        YES
+   51  slippage_pct                        numeric                        YES
+   52  fill_probability                    numeric                        YES
+   53  breakeven                           numeric                        YES
+   54  max_profit                          numeric                        YES
+   55  max_loss                            numeric                        YES
+   56  ev                                  numeric                        YES
+   57  return_on_risk                      numeric                        YES
+   58  premium_at_risk                     numeric                        YES
+   59  capital_requirement                 numeric                        YES
+   60  data_source                         character varying              YES
+   61  outcome                             character varying              YES
+   62  pnl_pct                             numeric                        YES
+   63  captured_at                         timestamp with time zone       YES
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 4 / SECTION 8 — Full uncaught traceback: assert_no_missing_indicators
+════════════════════════════════════════════════════════════════════════════
+python3 (uncaught — no try/except; exception propagates to top level)
+cwd: /home/runner/workspace/artifacts/stock-scanner-api
+
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+  File "/home/runner/workspace/artifacts/stock-scanner-api/aiem_options_registries.py", line 642, in assert_no_missing_indicators
+    raise RegistryValidationError(
+aiem_options_registries.RegistryValidationError: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED
+python3 exit code: 1
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 4 / SECTION 9 — Full uncaught traceback: assert_pattern_scan_complete
+════════════════════════════════════════════════════════════════════════════
+python3 (uncaught — no try/except)
+cwd: /home/runner/workspace/artifacts/stock-scanner-api
+
+Traceback (most recent call last):
+  File "<stdin>", line 8, in <module>
+  File "/home/runner/workspace/artifacts/stock-scanner-api/aiem_options_registries.py", line 668, in assert_pattern_scan_complete
+    raise RegistryValidationError(
+aiem_options_registries.RegistryValidationError: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=VERIFY_FAKE_TRACE_PHASE3_P1_UNCAUGHT_000
+python3 exit code: 1
+
+--- end of raw evidence ---
+
+==============================
+SEQ=1  EXIT=0  TS_END=2026-07-18T18:28:04Z
+sha256(log)=c23fac0a8c5274c570dd087b7f2571193cfd70c66573794834d80fecc302f897
+==============================
+
+════════════════════════════════════════════════════════════════════════════
+## ITEM 5 — verify_chain.sh raw output
+## NOTE: alert_id=25 predates Phase III Phase 1 (no oe_indicator_snapshots
+## existed when that alert was saved). SNAPSHOT_UNAVAILABLE on stage 1_polygon
+## is the expected result for pre-Phase-1 alerts; the OE snapshot tables
+## were empty at alert creation time. This is not a Phase 1 regression.
+## verify_chain.sh exit code: 3 (3/10 checks passed on alert_id=25)
+════════════════════════════════════════════════════════════════════════════
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
+
+════════════════════════════════════════════════════════════════════════════
+## NOTE ON git diff HEAD --stat (ITEM 7)
+## Output was empty — all Phase III Phase 1 changes were committed in
+## checkpoint ac8407526dfa236b8f1d40cd90390e0fbdeae6c7 (confirmed in
+## verified_run.sh header: git_commit=ac8407526dfa236b8f1d40cd90390e0fbdeae6c7)
+## Working tree is clean against HEAD.
+════════════════════════════════════════════════════════════════════════════
