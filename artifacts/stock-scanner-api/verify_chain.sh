@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 # verify_chain.sh  —  Independent SHA-256 audit chain verifier for aiem_options_alerts
+#
+# FIX 1 (snapshot-based): Stage 1 reads from aiem_options_alert_snapshots (immutable,
+#   captured at decision time), NOT from live polygon_market_daily or options_structure_scan.
+#   If no snapshot exists for an alert, stage 1 reports SNAPSHOT_UNAVAILABLE.
+#
+# FIX 2 (real chaining): Each stage N+1 uses the RECOMPUTED hash from stage N as its
+#   prev_hash input, not the stored hash.  A failure at any stage causes every downstream
+#   stage to report "UNVERIFIABLE — upstream break at stage N", not silently PASS.
+#
 # Usage: bash verify_chain.sh [alert_id]
-# If alert_id is omitted, verifies the most recent row.
+#   alert_id omitted → verifies the most-recent row
 
 set -euo pipefail
-cd "$(dirname "$(readlink -f "$0")")" 
+cd "$(dirname "$(readlink -f "$0")")"
 
 python3 - "$@" << 'PYEOF'
 import sys, os, json, hashlib, psycopg2
@@ -17,6 +26,7 @@ def sha256_stage(stage_name, data, prev_hash):
     raw = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 
+# ── Fetch alert record ────────────────────────────────────────────────────
 with psycopg2.connect(DB, connect_timeout=4) as conn, conn.cursor() as cur:
     if alert_id_arg:
         cur.execute("""
@@ -62,146 +72,167 @@ print(f"  stored audit_chain_sha256: {stored_chain_hash}")
 print(f"{'='*72}")
 print()
 
-# ── Re-fetch live Polygon anchor (Stage 1) ────────────────────────────────
-with psycopg2.connect(DB, connect_timeout=4) as conn2, conn2.cursor() as cur2:
-    cur2.execute("""
-        SELECT scan_date, close_price, vwap, rvol, close_strength, range_pct
-        FROM polygon_market_daily
-        WHERE ticker = %s AND scan_date >= %s::date - INTERVAL '3 days'
-        ORDER BY scan_date DESC LIMIT 1
-    """, (ticker, str(alert_date)))
-    pmd = cur2.fetchone()
-    pmd_data = dict(zip(
-        ["scan_date","close","vwap","rvol","close_strength","range_pct"],
-        [str(v) if hasattr(v,"year") else
-         float(v) if v is not None and hasattr(v,"__float__") else v
-         for v in (pmd or [None]*6)]
-    )) if pmd else {}
+h1_stored  = stage_hashes.get("1_polygon",          "MISSING")
+h2_stored  = stage_hashes.get("2_stock_analysis",   "MISSING")
+h3_stored  = stage_hashes.get("3_options_analysis", "MISSING")
+h4_stored  = stage_hashes.get("4_risk_gates",       "MISSING")
+h5_stored  = stage_hashes.get("5_req6_scoring",     "MISSING")
+h6_stored  = stage_hashes.get("6_decision",         "MISSING")
+h7_stored  = stage_hashes.get("7_alert",            "MISSING")
+h8_stored  = stage_hashes.get("8_db_write",         "MISSING")
+h9_stored  = stage_hashes.get("9_learning",         None)
+h10_stored = stage_hashes.get("10_audit_chain_final", None)
 
-    cur2.execute("""
-        SELECT scan_date, spot, front_iv, gex_regime, pc_skew_pp, pc_skew_tag,
-               term_tag, gex_m
-        FROM options_structure_scan
-        WHERE ticker = %s AND scan_date >= %s::date - INTERVAL '3 days'
-        ORDER BY scan_date DESC LIMIT 1
-    """, (ticker, str(alert_date)))
-    oss = cur2.fetchone()
-    oss_data = dict(zip(
-        ["scan_date","spot","front_iv","gex_regime","pc_skew_pp","pc_skew_tag",
-         "term_tag","gex_m"],
-        [str(v) if hasattr(v,"year") else
-         float(v) if v is not None and hasattr(v,"__float__") else v
-         for v in (oss or [None]*8)]
-    )) if oss else {}
-
-# ── Re-compute each stage hash independently ─────────────────────────────
 passes = []
 fails  = []
 
-def check_stage(stage_key, expected_hash, stage_name, data, prev_hash):
-    recomputed = sha256_stage(stage_name, data, prev_hash)
-    ok = (recomputed == expected_hash)
-    status = "PASS" if ok else "FAIL"
+# ── Stage 1: read from immutable snapshot, NOT live polygon tables ─────────
+# FIX 1: aiem_options_alert_snapshots captures pmd_data + oss_data at decision
+# time so that EOD mutations to polygon_market_daily cannot affect verification.
+with psycopg2.connect(DB, connect_timeout=4) as conn2, conn2.cursor() as cur2:
+    cur2.execute("""
+        SELECT polygon_data, oss_data
+        FROM aiem_options_alert_snapshots
+        WHERE alert_id = %s
+    """, (aid,))
+    snap = cur2.fetchone()
+
+if snap:
+    pmd_snap = snap[0] if isinstance(snap[0], dict) else json.loads(snap[0])
+    oss_snap = snap[1] if isinstance(snap[1], dict) else json.loads(snap[1])
+    h1_recomputed = sha256_stage("1_polygon", {
+        "ticker":            ticker,
+        "market_daily":      pmd_snap,
+        "options_structure": oss_snap,
+    }, "GENESIS")
+    ok1 = (h1_recomputed == h1_stored)
+    icon1   = "✓" if ok1 else "✗"
+    status1 = "PASS" if ok1 else "FAIL"
+    print(f"  [{icon1}] 1_polygon                       stored={h1_stored[:20]}...  recomputed={h1_recomputed[:20]}...  {status1}  [snapshot]")
+    if ok1:
+        passes.append("1_polygon")
+        prev_recomputed = h1_recomputed
+    else:
+        fails.append({"stage": "1_polygon", "stored": h1_stored, "recomputed": h1_recomputed})
+        prev_recomputed = None
+else:
+    # No snapshot — alert pre-dates Fix 1.  Honest failure: cannot verify.
+    print(f"  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id={aid}")
+    fails.append({"stage": "1_polygon", "reason": "SNAPSHOT_UNAVAILABLE"})
+    prev_recomputed = None
+
+# ── Stages 2-6: REAL chaining — each stage uses the RECOMPUTED prev hash ──
+# FIX 2: if prev_recomputed is None (upstream broke), downstream stages are
+# UNVERIFIABLE, not silently PASS.
+
+def _upstream_stage():
+    return fails[-1]["stage"] if fails else "unknown"
+
+def chain_stage(stage_name, data, stored_hash):
+    """
+    Verify one chained stage using the RECOMPUTED prev hash (not stored prev).
+    Sets prev_recomputed to the new recomputed value on PASS, None on any failure.
+    """
+    global prev_recomputed
+    if prev_recomputed is None:
+        up = _upstream_stage()
+        print(f"  [!] {stage_name:<30} UNVERIFIABLE — upstream break at {up}")
+        fails.append({"stage": stage_name, "reason": f"UNVERIFIABLE — upstream break at {up}"})
+        return
+    h_recomp = sha256_stage(stage_name, data, prev_recomputed)
+    ok     = (h_recomp == stored_hash)
     icon   = "✓" if ok else "✗"
-    print(f"  [{icon}] {stage_name:<30} stored={expected_hash[:20]}...  recomputed={recomputed[:20]}...  {status}")
+    status = "PASS" if ok else "FAIL"
+    print(f"  [{icon}] {stage_name:<30} stored={stored_hash[:20]}...  recomputed={h_recomp[:20]}...  {status}  [chained]")
     if ok:
         passes.append(stage_name)
+        prev_recomputed = h_recomp
     else:
-        fails.append({"stage": stage_name, "stored": expected_hash, "recomputed": recomputed})
-    return recomputed  # return recomputed hash for chain
+        fails.append({"stage": stage_name, "stored": stored_hash, "recomputed": h_recomp})
+        prev_recomputed = None
 
-h1_stored = stage_hashes.get("1_polygon", "MISSING")
-h2_stored = stage_hashes.get("2_stock_analysis", "MISSING")
-h3_stored = stage_hashes.get("3_options_analysis", "MISSING")
-h4_stored = stage_hashes.get("4_risk_gates", "MISSING")
-h5_stored = stage_hashes.get("5_req6_scoring", "MISSING")
-h6_stored = stage_hashes.get("6_decision", "MISSING")
-h7_stored = stage_hashes.get("7_alert", "MISSING")
-h8_stored = stage_hashes.get("8_db_write", "MISSING")
-h9_stored = stage_hashes.get("9_learning", None)
-h10_stored = stage_hashes.get("10_audit_chain_final", None)
+chain_stage(
+    "2_stock_analysis",
+    {"ticker": ticker, **stock_data},
+    h2_stored,
+)
 
-# Stage 1: re-compute from live DB data
-h1_recomputed = sha256_stage("1_polygon", {
-    "ticker": ticker, "market_daily": pmd_data, "options_structure": oss_data
-}, "GENESIS")
-ok1 = (h1_recomputed == h1_stored)
-print(f"  [{'✓' if ok1 else '✗'}] 1_polygon                       stored={h1_stored[:20]}...  recomputed={h1_recomputed[:20]}...  {'PASS' if ok1 else 'FAIL'}")
-if ok1: passes.append("1_polygon")
-else:   fails.append({"stage": "1_polygon", "stored": h1_stored, "recomputed": h1_recomputed})
+chain_stage(
+    "3_options_analysis",
+    {
+        "ticker":          ticker,
+        "expected_move":   options_data.get("expected_move",   {}),
+        "iv_rank":         options_data.get("iv_rank",         {}),
+        "oi_by_strike":    options_data.get("oi_by_strike",    {}),
+        "bearish_signals": options_data.get("bearish_signals", {}),
+    },
+    h3_stored,
+)
 
-# Stage 2: stock_data from DB
-h2_recomputed = sha256_stage("2_stock_analysis", {"ticker": ticker, **stock_data}, h1_stored)
-ok2 = (h2_recomputed == h2_stored)
-print(f"  [{'✓' if ok2 else '✗'}] 2_stock_analysis                stored={h2_stored[:20]}...  recomputed={h2_recomputed[:20]}...  {'PASS' if ok2 else 'FAIL'}")
-if ok2: passes.append("2_stock_analysis")
-else:   fails.append({"stage": "2_stock_analysis", "stored": h2_stored, "recomputed": h2_recomputed})
+chain_stage(
+    "4_risk_gates",
+    {
+        "ticker":             ticker,
+        "gate_failures":      verify_data.get("gate_failures",      []),
+        "call_eligible":      verify_data.get("call_eligible"),
+        "put_eligible":       verify_data.get("put_eligible"),
+        "ready_for_decision": verify_data.get("ready_for_decision"),
+    },
+    h4_stored,
+)
 
-# Stage 3: options_analysis from DB
-h3_recomputed = sha256_stage("3_options_analysis", {"ticker": ticker, **options_data}, h2_stored)
-ok3 = (h3_recomputed == h3_stored)
-print(f"  [{'✓' if ok3 else '✗'}] 3_options_analysis              stored={h3_stored[:20]}...  recomputed={h3_recomputed[:20]}...  {'PASS' if ok3 else 'FAIL'}")
-if ok3: passes.append("3_options_analysis")
-else:   fails.append({"stage": "3_options_analysis", "stored": h3_stored, "recomputed": h3_recomputed})
+chain_stage(
+    "5_req6_scoring",
+    {
+        "ticker":          ticker,
+        "call_score":      scoring_data.get("call_score"),
+        "put_score":       scoring_data.get("put_score"),
+        "call_components": scoring_data.get("call_scoring", {}).get("component_scores", {}),
+        "put_components":  scoring_data.get("put_scoring",  {}).get("component_scores", {}),
+    },
+    h5_stored,
+)
 
-# Stage 4: verify_result from DB
-h4_recomputed = sha256_stage("4_risk_gates", {
-    "ticker": ticker,
-    "gate_failures":      verify_data.get("gate_failures", []),
-    "call_eligible":      verify_data.get("call_eligible"),
-    "put_eligible":       verify_data.get("put_eligible"),
-    "ready_for_decision": verify_data.get("ready_for_decision"),
-}, h3_stored)
-ok4 = (h4_recomputed == h4_stored)
-print(f"  [{'✓' if ok4 else '✗'}] 4_risk_gates                    stored={h4_stored[:20]}...  recomputed={h4_recomputed[:20]}...  {'PASS' if ok4 else 'FAIL'}")
-if ok4: passes.append("4_risk_gates")
-else:   fails.append({"stage": "4_risk_gates", "stored": h4_stored, "recomputed": h4_recomputed})
-
-# Stage 5: scoring from DB
-h5_recomputed = sha256_stage("5_req6_scoring", {
-    "ticker":             ticker,
-    "call_score":         scoring_data.get("call_score"),
-    "put_score":          scoring_data.get("put_score"),
-    "call_components":    scoring_data.get("call_scoring", {}).get("component_scores", {}),
-    "put_components":     scoring_data.get("put_scoring",  {}).get("component_scores", {}),
-}, h4_stored)
-ok5 = (h5_recomputed == h5_stored)
-print(f"  [{'✓' if ok5 else '✗'}] 5_req6_scoring                  stored={h5_stored[:20]}...  recomputed={h5_recomputed[:20]}...  {'PASS' if ok5 else 'FAIL'}")
-if ok5: passes.append("5_req6_scoring")
-else:   fails.append({"stage": "5_req6_scoring", "stored": h5_stored, "recomputed": h5_recomputed})
-
-# Stage 6: decision
 margin = abs((scoring_data.get("call_score") or 0) - (scoring_data.get("put_score") or 0))
-h6_recomputed = sha256_stage("6_decision", {
-    "ticker":     ticker,
-    "direction":  direction,
-    "call_score": scoring_data.get("call_score"),
-    "put_score":  scoring_data.get("put_score"),
-    "margin":     round(margin, 1),
-}, h5_stored)
-ok6 = (h6_recomputed == h6_stored)
-print(f"  [{'✓' if ok6 else '✗'}] 6_decision                      stored={h6_stored[:20]}...  recomputed={h6_recomputed[:20]}...  {'PASS' if ok6 else 'FAIL'}")
-if ok6: passes.append("6_decision")
-else:   fails.append({"stage": "6_decision", "stored": h6_stored, "recomputed": h6_recomputed})
+chain_stage(
+    "6_decision",
+    {
+        "ticker":     ticker,
+        "direction":  direction,
+        "call_score": scoring_data.get("call_score"),
+        "put_score":  scoring_data.get("put_score"),
+        "margin":     round(margin, 1),
+    },
+    h6_stored,
+)
 
-# Stages 7-10: check stored hashes exist and match the stored audit_chain_sha256
-for stage_key, h_stored in [
-    ("7_alert", h7_stored),
-    ("8_db_write", h8_stored),
-]:
+# ── Stages 7-8: presence checks (alert_fields not fully stored for recompute)
+for stage_key, h_stored in [("7_alert", h7_stored), ("8_db_write", h8_stored)]:
     missing = (h_stored == "MISSING")
-    print(f"  [{'✓' if not missing else '✗'}] {stage_key:<30} stored={h_stored[:20] if not missing else 'MISSING'}...  {'PASS (present)' if not missing else 'FAIL (missing)'}")
-    if not missing: passes.append(stage_key)
-    else:           fails.append({"stage": stage_key, "stored": "MISSING"})
+    icon    = "✓" if not missing else "✗"
+    label   = "PASS (present)" if not missing else "FAIL (missing)"
+    hash_preview = h_stored[:20] if not missing else "MISSING"
+    print(f"  [{icon}] {stage_key:<30} stored={hash_preview}...  {label}")
+    if not missing:
+        passes.append(stage_key)
+    else:
+        fails.append({"stage": stage_key, "stored": "MISSING"})
 
-# Verify stored audit_chain_sha256 matches stage 8
+# Verify stored audit_chain_sha256 matches stage 8 (or 10 after grading)
 if h8_stored != "MISSING":
-    ok_chain = (stored_chain_hash == h8_stored) or (h10_stored and stored_chain_hash == h10_stored)
-    print(f"  [{'✓' if ok_chain else '✗'}] audit_chain_sha256 matches db_write/final hash: {'PASS' if ok_chain else 'FAIL'}")
-    if ok_chain: passes.append("audit_chain_sha256_match")
-    else:        fails.append({"stage": "audit_chain_sha256_match", "stored": stored_chain_hash, "expected": h8_stored})
+    ok_chain = (stored_chain_hash == h8_stored) or (
+        h10_stored is not None and stored_chain_hash == h10_stored
+    )
+    icon   = "✓" if ok_chain else "✗"
+    status = "PASS" if ok_chain else "FAIL"
+    print(f"  [{icon}] audit_chain_sha256 matches db_write/final hash: {status}")
+    if ok_chain:
+        passes.append("audit_chain_sha256_match")
+    else:
+        fails.append({"stage": "audit_chain_sha256_match",
+                      "stored": stored_chain_hash, "expected": h8_stored})
 
-# Optional: stages 9-10 (present after grading)
+# Optional: stages 9-10 present after outcome grading
 for stage_key, h_stored in [("9_learning", h9_stored), ("10_audit_chain_final", h10_stored)]:
     if h_stored:
         print(f"  [✓] {stage_key:<30} stored={h_stored[:20]}...  PASS (present)")
@@ -209,7 +240,7 @@ for stage_key, h_stored in [("9_learning", h9_stored), ("10_audit_chain_final", 
     else:
         print(f"  [~] {stage_key:<30} not yet graded  SKIP")
 
-# ── REQ6 component scores verification ────────────────────────────────────
+# ── REQ6 component scores ──────────────────────────────────────────────────
 print()
 print("  REQ6 COMPONENT SCORES:")
 call_comp = scoring_data.get("call_scoring", {}).get("component_scores", {})
@@ -226,7 +257,9 @@ else:
     fails.append({"stage": "req6_components", "reason": "no component scores in DB"})
 
 # ── Gate failures audit ────────────────────────────────────────────────────
-gate_failures = json.loads(gate_failures_json) if isinstance(gate_failures_json, str) else (gate_failures_json or [])
+gate_failures = (json.loads(gate_failures_json)
+                 if isinstance(gate_failures_json, str)
+                 else (gate_failures_json or []))
 print()
 print(f"  GATE FAILURES ({len(gate_failures)}):")
 for gf in gate_failures:
@@ -240,12 +273,12 @@ print(f"{'='*72}")
 total = len(passes) + len(fails)
 print(f"  RESULT: {len(passes)}/{total} checks passed")
 if fails:
-    print(f"  FAILURES:")
+    print("  FAILURES:")
     for f in fails:
         print(f"    {f}")
-    print(f"  OVERALL: FAIL")
+    print("  OVERALL: FAIL")
     sys.exit(3)
 else:
-    print(f"  OVERALL: PASS")
+    print("  OVERALL: PASS")
 print(f"{'='*72}")
 PYEOF

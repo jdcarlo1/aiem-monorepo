@@ -130,6 +130,15 @@ def _ensure_table() -> None:
                     ON aiem_options_alerts(outcome_status, expiry)
                     WHERE outcome_status = 'OPEN'
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_options_alert_snapshots (
+                    alert_id     INTEGER PRIMARY KEY
+                                 REFERENCES aiem_options_alerts(id),
+                    polygon_data JSONB NOT NULL,
+                    oss_data     JSONB NOT NULL,
+                    captured_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
             conn.commit()
         _TABLE_BOOTSTRAPPED = True
     except Exception as e:
@@ -536,6 +545,13 @@ def save_options_alert(
                 h8,
             ))
             alert_id = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO aiem_options_alert_snapshots (alert_id, polygon_data, oss_data)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (alert_id) DO NOTHING
+            """, (alert_id,
+                  json.dumps(pmd_data, default=str),
+                  json.dumps(oss_data, default=str)))
             conn.commit()
 
         return {

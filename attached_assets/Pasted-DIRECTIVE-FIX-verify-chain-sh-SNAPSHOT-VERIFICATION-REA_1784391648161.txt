@@ -1,0 +1,56 @@
+DIRECTIVE — FIX verify_chain.sh: SNAPSHOT VERIFICATION + REAL STAGE CHAINING
+
+Standalone Options Engine work. Not connected to Diagram 1, 2, or 3.
+Paper trading only. Data immutability rule applies — no delete/truncate/overwrite of any row,
+table, or file without Joel's explicit prior approval this session, even test/synthetic data.
+
+====================================================
+CONFIRMED ROOT CAUSES (do not re-investigate, just fix)
+====================================================
+1. verify_chain.sh re-queries polygon_market_daily / options_structure_scan LIVE at verify time
+   instead of validating against the immutable snapshot captured at decision time. Underlying
+   rows get mutated in-place by later EOD updates (e.g. rvol going from a number to None), so the
+   recomputed hash never matches the stored one — for every alert, permanently. This is a false
+   failure in the checker, not evidence of a bad decision.
+
+2. Stages are NOT actually hash-chained. Each stage verifies against its own STORED previous hash,
+   not the RECOMPUTED one (verify_chain.sh lines 134, 141 confirmed this). A failed stage 1 does
+   not propagate — stages 2-8 pass independently regardless. "9/10 passed" is misleading if this
+   is meant to represent a real chain.
+
+====================================================
+REQUIRED FIX 1 — SNAPSHOT-BASED VERIFICATION
+====================================================
+Stage 1 (and any stage reading from a mutable table) must hash against the RAW INPUT VALUES stored
+at decision time, not re-derive by re-querying the live table. If raw inputs aren't currently
+stored alongside the decision record, add that storage first (append-only, immutable, per existing
+Phase III storage rules), then point verification at the stored snapshot, not the live table.
+
+Prove: mutate a test row's rvol in an isolated transaction, confirm verification still passes
+because it reads the stored snapshot, not the live row. Roll back the isolated test after.
+
+====================================================
+REQUIRED FIX 2 — REAL STAGE CHAINING
+====================================================
+Each stage's hash input must include the RECOMPUTED hash of the prior stage, not the stored one.
+A failure at any stage must cause every downstream stage to fail as "UNVERIFIABLE — upstream break
+at stage N", not silently pass.
+
+Prove: deliberately break stage 1 in an isolated test, confirm stages 2-8 report UNVERIFIABLE
+rather than PASS. Roll back the isolated test after.
+
+====================================================
+STANDING CHECKLIST — apply throughout
+====================================================
+- Raw terminal output for every claim — no paraphrasing, no narrative-only "fixed"/"confirmed"
+- Exact before/after file diff and before/after sha256 for every changed file
+- Raw SQL query + full result set for any DB claim
+- Any code-location/line-number/behavior claim needs raw grep -n / sed -n output in context
+- No delete/truncate/drop/overwrite of any row, table, or file — including this directive's own
+  isolated test data — without Joel's explicit prior approval this session; state what you want to
+  delete and why, wait for approval, then log it
+- Raw sha256sum of tools/verified_run.sh and verify_chain.sh vs current canonical hashes on file,
+  pasted alongside verify_chain.sh output — mismatch = reject regardless of chain content
+- Re-test all 25 existing alerts after the fix; paste raw pass/fail for each, not a summary count
+- Output format: raw results only, no restated headers/banners, no narrative commentary
+- If a claim can't be backed by real output, state that in one line — no padding
