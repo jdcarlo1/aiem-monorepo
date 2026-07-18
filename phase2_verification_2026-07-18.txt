@@ -1,0 +1,104 @@
+=== verify_phase3_phase2.sh  started 2026-07-18T19:41:53Z ===
+script_sha256=7916ec3e927d531348bd5639e08e09d5631b1c8af5aaeee98d9c672cbb9640cf
+
+=== A. File existence + SHA256 ===
+SEQ=1 ts=2026-07-18T19:41:53Z status=PASS name=FILE_EXISTS_aiem_options_phase2.py detail=sha256=ebc66070caa7b7ca2e51c6f66691dccb6f75758d65dc3e00f2abb8f8f943e0bf
+SEQ=2 ts=2026-07-18T19:41:53Z status=PASS name=FILE_EXISTS_aiem_options_scheduler.py detail=sha256=2c53df67224b659f996f0470d8a8988630b6a761b95d2106345f869fdf19a543
+SEQ=3 ts=2026-07-18T19:41:53Z status=PASS name=FILE_EXISTS_aiem_options_pipeline.py detail=sha256=3bc988476ca8bca794b66b0f17638ef316f2065d65994277bff05a0d2a6c6928
+
+=== B. Strategy catalog in aiem_options_phase2.py ===
+SEQ=4 ts=2026-07-18T19:41:53Z status=PASS name=CATALOG_COUNT_GE_42 detail=grep count=42 strategy entries in source
+SEQ=5 ts=2026-07-18T19:41:53Z status=PASS name=CATALOG_HAS_LONG_CALL detail=found in _STRATEGY_CATALOG
+SEQ=6 ts=2026-07-18T19:41:53Z status=PASS name=CATALOG_HAS_LONG_PUT detail=found in _STRATEGY_CATALOG
+SEQ=7 ts=2026-07-18T19:41:53Z status=PASS name=CATALOG_HAS_IRON_CONDOR detail=found in _STRATEGY_CATALOG
+SEQ=8 ts=2026-07-18T19:41:53Z status=PASS name=CATALOG_HAS_IRON_BUTTERFLY detail=found in _STRATEGY_CATALOG
+SEQ=9 ts=2026-07-18T19:41:53Z status=PASS name=CATALOG_HAS_BULL_CALL_SPREAD detail=found in _STRATEGY_CATALOG
+SEQ=10 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_BEAR_PUT_SPREAD detail=found in _STRATEGY_CATALOG
+SEQ=11 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_LONG_STRADDLE detail=found in _STRATEGY_CATALOG
+SEQ=12 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_COVERED_CALL detail=found in _STRATEGY_CATALOG
+SEQ=13 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_JADE_LIZARD detail=found in _STRATEGY_CATALOG
+SEQ=14 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_BOX_SPREAD detail=found in _STRATEGY_CATALOG
+SEQ=15 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_COLLAR detail=found in _STRATEGY_CATALOG
+SEQ=16 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_RISK_REVERSAL detail=found in _STRATEGY_CATALOG
+SEQ=17 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_SYNTHETIC_LONG detail=found in _STRATEGY_CATALOG
+SEQ=18 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_CALENDAR_CALL detail=found in _STRATEGY_CATALOG
+SEQ=19 ts=2026-07-18T19:41:54Z status=PASS name=CATALOG_HAS_CALL_BACKSPREAD detail=found in _STRATEGY_CATALOG
+
+=== C. Scheduler wiring (raw grep -n) ===
+SEQ=20 ts=2026-07-18T19:41:54Z status=PASS name=PHASE2_IMPORT_IN_SCHEDULER detail=line=720
+SEQ=21 ts=2026-07-18T19:41:54Z status=PASS name=BOOTSTRAP_CALL_IN_SCHEDULER detail=line=721
+SEQ=22 ts=2026-07-18T19:41:54Z status=PASS name=STRATEGY_CANDIDATES_WIRED detail=line=1527
+SEQ=23 ts=2026-07-18T19:41:54Z status=PASS name=DECISION_RECORD_WIRED detail=line=1546
+SEQ=24 ts=2026-07-18T19:41:55Z status=PASS name=COUNTERFACTUAL_SNAP_WIRED detail=line=1671
+SEQ=25 ts=2026-07-18T19:41:55Z status=PASS name=TRADE_RECORD_WIRED detail=line=1687
+SEQ=26 ts=2026-07-18T19:41:55Z status=PASS name=DECISION_ALERT_ID_WIRED detail=line=1708
+
+=== D. Pipeline wiring (raw grep -n) ===
+SEQ=27 ts=2026-07-18T19:41:55Z status=PASS name=PHASE2_IMPORT_IN_PIPELINE detail=line=707
+SEQ=28 ts=2026-07-18T19:41:55Z status=PASS name=CF_OUTCOMES_WIRED_IN_PIPELINE detail=line=708
+SEQ=29 ts=2026-07-18T19:41:55Z status=PASS name=TRADE_EXIT_WIRED_IN_PIPELINE detail=line=718
+
+=== E. DB: Phase 2 tables exist ===
+SEQ=30 ts=2026-07-18T19:41:56Z status=PASS name=TABLE_EXISTS_oe_strategy_registry detail=rows=42
+SEQ=31 ts=2026-07-18T19:41:56Z status=PASS name=TABLE_EXISTS_oe_strategy_candidates detail=rows=0
+SEQ=32 ts=2026-07-18T19:41:57Z status=PASS name=TABLE_EXISTS_oe_counterfactual_snapshots detail=rows=0
+SEQ=33 ts=2026-07-18T19:41:57Z status=PASS name=TABLE_EXISTS_oe_counterfactual_outcomes detail=rows=0
+SEQ=34 ts=2026-07-18T19:41:57Z status=PASS name=TABLE_EXISTS_oe_decision_records detail=rows=0
+SEQ=35 ts=2026-07-18T19:41:57Z status=PASS name=TABLE_EXISTS_oe_trade_records detail=rows=0
+
+=== F. Registry: 42 strategies seeded ===
+SEQ=36 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_42_SEEDED detail=oe_strategy_registry rows=42
+SEQ=37 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_LONG_CALL detail=1 row confirmed in oe_strategy_registry
+SEQ=38 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_LONG_PUT detail=1 row confirmed in oe_strategy_registry
+SEQ=39 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_IRON_CONDOR detail=1 row confirmed in oe_strategy_registry
+SEQ=40 ts=2026-07-18T19:41:58Z status=PASS name=REGISTRY_HAS_JADE_LIZARD detail=1 row confirmed in oe_strategy_registry
+SEQ=41 ts=2026-07-18T19:41:58Z status=PASS name=REGISTRY_HAS_BOX_SPREAD detail=1 row confirmed in oe_strategy_registry
+
+=== G. CHECK constraint: is_hypothetical=FALSE rejected by DB ===
+SEQ=42 ts=2026-07-18T19:41:59Z status=PASS name=CHECK_CONSTRAINT_FALSE_REJECTED detail=DB correctly rejected is_hypothetical=FALSE with CheckViolation
+SEQ=43 ts=2026-07-18T19:41:59Z status=PASS name=CHECK_CONSTRAINT_NAME_EXISTS detail=conname=oe_cf_outcome_is_hypothetical confirmed in pg_constraint
+
+=== H. Look-ahead gate ===
+SEQ=44 ts=2026-07-18T19:41:59Z status=PASS name=LOOKAHEAD_GATE detail=0 rows where calculated_at < captured_at (no look-ahead)
+
+=== I. Decision record type coverage ===
+SEQ=45 ts=2026-07-18T19:41:59Z status=PASS name=DECISION_RECORDS_TABLE_QUERYABLE detail=oe_decision_records is accessible; rows=0
+SEQ=46 ts=2026-07-18T19:41:59Z status=PASS name=DECISION_RECORDS_EMPTY_PRE_RUN detail=0 rows expected before first Monday pipeline run (2026-07-21)
+
+=== J. Trade record table queryable ===
+SEQ=47 ts=2026-07-18T19:41:59Z status=PASS name=TRADE_RECORDS_TABLE_QUERYABLE detail=oe_trade_records accessible; rows=0
+SEQ=48 ts=2026-07-18T19:42:00Z status=PASS name=TRADE_RECORDS_14_KEY_COLS detail=14/14 required columns confirmed
+
+=== K. Counterfactual snapshot schema ===
+SEQ=49 ts=2026-07-18T19:42:00Z status=PASS name=CF_SNAP_TABLE_QUERYABLE detail=oe_counterfactual_snapshots accessible; rows=0
+SEQ=50 ts=2026-07-18T19:42:00Z status=PASS name=CF_SNAP_10_KEY_COLS detail=10/10 required columns confirmed
+
+=== L. Python syntax checks ===
+SEQ=51 ts=2026-07-18T19:42:00Z status=PASS name=SYNTAX_CLEAN_aiem_options_phase2.py detail=ast.parse OK
+SEQ=52 ts=2026-07-18T19:42:00Z status=PASS name=SYNTAX_CLEAN_aiem_options_scheduler.py detail=ast.parse OK
+SEQ=53 ts=2026-07-18T19:42:00Z status=PASS name=SYNTAX_CLEAN_aiem_options_pipeline.py detail=ast.parse OK
+
+=== M. Non-fatal wiring (every Phase 2 call guarded) ===
+SEQ=54 ts=2026-07-18T19:42:00Z status=PASS name=NONFATAL_capture_strategy_candidates detail=try/except guard found within 25 lines of _p2.capture_strategy_candidates at line 1527
+SEQ=55 ts=2026-07-18T19:42:00Z status=PASS name=NONFATAL_capture_decision_record detail=try/except guard found within 25 lines of _p2.capture_decision_record at line 1546
+SEQ=56 ts=2026-07-18T19:42:00Z status=PASS name=NONFATAL_capture_counterfactual_snapshot detail=try/except guard found within 25 lines of _p2.capture_counterfactual_snapshot at line 1671
+SEQ=57 ts=2026-07-18T19:42:00Z status=PASS name=NONFATAL_capture_trade_record detail=try/except guard found within 25 lines of _p2.capture_trade_record at line 1687
+
+=== N. D1/D2/D3 isolation ===
+SEQ=58 ts=2026-07-18T19:42:00Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_closed_loop detail=no reference to 'aiem_closed_loop' in aiem_options_phase2.py
+SEQ=59 ts=2026-07-18T19:42:00Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_d3 detail=no reference to 'aiem_d3' in aiem_options_phase2.py
+SEQ=60 ts=2026-07-18T19:42:00Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_d2 detail=no reference to 'aiem_d2' in aiem_options_phase2.py
+SEQ=61 ts=2026-07-18T19:42:00Z status=PASS name=NO_CROSSSYS_IMPORT_d3_governance detail=no reference to 'd3_governance' in aiem_options_phase2.py
+SEQ=62 ts=2026-07-18T19:42:00Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_paper_trades detail=no reference to 'aiem_paper_trades' in aiem_options_phase2.py
+SEQ=63 ts=2026-07-18T19:42:00Z status=PASS name=NO_CROSSSYS_IMPORT_aiem_learning_loop detail=no reference to 'aiem_learning_loop' in aiem_options_phase2.py
+
+=== O. git diff HEAD --stat ===
+
+SEQ=64 ts=2026-07-18T19:42:00Z status=PASS name=GIT_DIFF_STAT detail= 
+
+════════════════════════════════════════════════
+PASS=64  FAIL=0  SKIP=0  SEQ=64
+evidence_log_sha256=9bf1981745d7e86cd9ae78d94dd7b6c01d732d6cee3ccac15800460df47451a3
+script_sha256=7916ec3e927d531348bd5639e08e09d5631b1c8af5aaeee98d9c672cbb9640cf
+════════════════════════════════════════════════
+EXIT=0 (all checks passed or skipped)
