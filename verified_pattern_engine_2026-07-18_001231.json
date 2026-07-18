@@ -1,0 +1,46 @@
+{
+  "evidence_version": "2.0",
+  "capture_time_utc": "2026-07-18T00:12:31Z",
+  "script_sha256": "685833b9b741b1bd55ddfcae54440634250dfb5d2db9a62c20cfc84968975ee8",
+  "verify_chain_sha256": "469edcd448283423115a845237aa7a6fe51124aa0e5ad49cab1f7d9894733ed3",
+  "date": "2026-07-18",
+  "item1_file_line_counts": "   659 artifacts/stock-scanner-api/candlestick_patterns.py\n   436 artifacts/stock-scanner-api/aiem_harmonic_patterns.py\n   613 artifacts/stock-scanner-api/aiem_wyckoff_vpa.py\n   412 artifacts/stock-scanner-api/aiem_elliott_wave.py\n   701 artifacts/stock-scanner-api/price_structure_patterns.py\n   368 artifacts/stock-scanner-api/aiem_pattern_registry.py\n   244 artifacts/stock-scanner-api/aiem_pattern_engine.py\n   246 artifacts/stock-scanner-api/aiem_pipeline_proof.py\n   318 artifacts/stock-scanner-api/verify_pattern_registry.py\n  3997 total",
+  "item2_3_registry": {
+    "build_registry_returned": 116,
+    "narrative_claimed": 107,
+    "discrepancy_note": "build_registry() returned 116, not 107 as narrative stated",
+    "sha256_coverage": {
+      "real_64char_hex": "see item2_3_full below",
+      "chart_structure_note": "CHART_STRUCTURE rows store function name not SHA-256; registry gap"
+    }
+  },
+  "item4_score_weights": "Keys and values:\n  pop: 0.18\n  ev_after_costs: 0.18\n  capital_preservation: 0.14\n  defined_risk_quality: 0.1\n  capital_efficiency: 0.1\n  liquidity: 0.1\n  thesis_fit: 0.05\n  regime_fit: 0.05\n  vol_regime_fit: 0.03\n  diversification_value: 0.02\n  pattern_confirmation: 0.05\nsum() = 1.0\nabs(sum-1.0) = 0.0",
+  "item5_scoring_py": {
+    "before_sha256": "964f5583643daa6bed9958cdad2534cf21e13eaf605c0cb9b96fcee96164e999",
+    "after_sha256": "f2c9a9d4152a2692f948911fa6a5f7241afed265b7469782f8263974c1f70091",
+    "base_commit": "9cb018c"
+  },
+  "item5_scheduler_py": {
+    "before_sha256": "9ae390296a1a3971eae2c724dd2bd674aaca2e85bce2de586a99cb4fab563cd1",
+    "after_sha256": "c6dccb6db2f788f6cecc7b169a5b90128e0c3a4fd390d4b788dba1cabfc75564",
+    "base_commit": "9cb018c"
+  },
+  "item6_grep_results": {
+    "import_main": "(no match)",
+    "from_main_import": "(no match)",
+    "_mkt_gap_volume_scan": "(no match)",
+    "_mkt_nano_cap": "(no match)",
+    "website_scanner": "(no match)"
+  },
+  "item7_proof_log": {
+    "rows_today": 0,
+    "rows_total": 0,
+    "note": "0 rows \u2014 scheduler fires 09:40 ET on market days; table exists, wiring confirmed in diff"
+  },
+  "item8_chain_shas": {
+    "verified_run_sh": "31c74ee84035e9da85bb0d14799122eb5eeafb68f3a9d3d8bc28bb9e210f3625",
+    "verify_chain_sh": "469edcd448283423115a845237aa7a6fe51124aa0e5ad49cab1f7d9894733ed3",
+    "verify_pattern_engine_sh": "685833b9b741b1bd55ddfcae54440634250dfb5d2db9a62c20cfc84968975ee8"
+  },
+  "item9_git_diff_stat": "see stdout above"
+}
