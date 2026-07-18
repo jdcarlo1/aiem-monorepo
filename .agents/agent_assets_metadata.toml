@@ -516,3 +516,9 @@ id = "FtAQNSk4tBvJNh4YmxK60"
 uri = "file://verified_pattern_engine_2026-07-18_001231.json"
 type = "unspecified"
 title = "Evidence Bundle JSON"
+
+[[outputs]]
+id = "6TQXyfJVglaeKaJ-5f6oM"
+uri = "file://artifacts/stock-scanner-api/AIEM_OPTIONS_ENGINE_FINAL_VERIFICATION.md"
+type = "text"
+title = "AIEM Options Engine — Final Verification"
