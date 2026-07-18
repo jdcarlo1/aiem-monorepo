@@ -68,6 +68,17 @@ SCORE_PENALTIES = {
 # ── NO_TRADE baseline score ─────────────────────────────────────────────────
 NO_TRADE_SCORE = 0.35   # strategies must beat this to be selected
 
+# ── Execution Intelligence (EI) thresholds ──────────────────────────────────
+# EI_GATING_ENABLED: set to True ONLY after execution_intelligence_verify.py
+#   passes all checks against live data.  In observe mode (False) EI assesses
+#   and logs but does NOT gate the pipeline.
+EI_GATING_ENABLED          = False
+EI_MIN_FILL_PROB           = 0.30   # minimum fill probability to allow trade
+EI_MIN_LIQUIDITY_SCORE     = 0.25   # minimum EI liquidity score
+EI_MIN_NET_EDGE            = -0.50  # net edge floor in dollars (lenient — catches only negative EV after all costs)
+EI_MAX_SPREAD_PCT          = 0.35   # maximum bid/ask spread as fraction of mid (35%)
+EI_MAX_TRANSACTION_COST_FRAC = 0.30 # transaction costs cannot exceed 30% of gross edge
+
 # ── DTE buckets for template instantiation ──────────────────────────────────
 DTE_SLOTS = {
     "ZERO_DTE": (0, 1),

@@ -1,0 +1,230 @@
+AIEM OPTIONS ENGINE — EXECUTION INTELLIGENCE ENGINE
+
+OBJECTIVE
+
+The Options Engine currently identifies mathematically favorable option strategies. This enhancement ensures that every recommendation is also executable under real market conditions. No trade may be approved solely because it has a favorable theoretical expected value. The engine must determine whether the trade can realistically be entered, managed, and exited after accounting for execution quality and transaction costs.
+
+⸻
+
+REQUIRED MARKET INPUTS
+
+Before approving any option trade, evaluate:
+
+* Bid price
+* Ask price
+* Mid-price
+* Last trade
+* Bid size
+* Ask size
+* Option volume
+* Open interest
+* Bid/Ask spread
+* Spread as a percentage of premium
+* Underlying stock liquidity
+* Quote age
+* Quote stability
+* Strike
+* Expiration
+* Days to expiration (DTE)
+* Moneyness
+* Implied volatility
+* Current market regime
+* Time of day
+* Number of option legs
+
+Reject or reduce confidence if required execution data is stale, incomplete, inconsistent, or unavailable.
+
+⸻
+
+EXECUTION MODEL
+
+Estimate for every candidate:
+
+* Fill probability
+* Mid-price fill probability
+* Expected entry price
+* Conservative entry price
+* Expected exit price
+* Expected slippage (per leg and total)
+* Bid/Ask spread cost
+* Commission and fee estimate
+* Market-impact estimate
+* Partial-fill probability
+* Legging risk (multi-leg strategies)
+* Exit-liquidity score
+* Roll-liquidity score
+* Early-assignment risk
+* Pin risk
+* Total expected transaction cost
+
+For multi-leg strategies, evaluate both the individual legs and the complete order.
+
+⸻
+
+EXECUTION-ADJUSTED EDGE
+
+Calculate an execution-adjusted expected value.
+
+Expected Net Edge =
+
+* Gross Expected Trade Edge
+* Minus expected slippage
+* Minus bid/ask spread cost
+* Minus commissions and fees
+* Minus estimated market impact
+* Minus execution uncertainty
+
+The engine must rank trades using the net edge, not the theoretical edge.
+
+⸻
+
+LIQUIDITY SCORE
+
+Create a normalized execution-liquidity score using:
+
+* Spread width
+* Spread percentage
+* Open interest
+* Volume
+* Bid size
+* Ask size
+* Quote freshness
+* Quote stability
+* Underlying liquidity
+* Number of legs
+* Historical fill quality (if available)
+
+This score becomes one of the final decision inputs.
+
+⸻
+
+TRADE REJECTION RULES
+
+Automatically reject or downgrade trades when:
+
+* Expected execution costs eliminate the expected edge.
+* Spread exceeds configured limits.
+* Open interest is below minimum.
+* Volume is insufficient.
+* Bid/Ask sizes are inadequate.
+* Fill probability is below threshold.
+* Quote data is stale.
+* Exit liquidity is insufficient.
+* Market impact exceeds limits.
+* Legging risk is excessive.
+* Required execution data is missing.
+
+“No Trade” must always remain a valid outcome.
+
+⸻
+
+ORDER MANAGEMENT
+
+Determine before submission:
+
+* Initial limit price
+* Maximum acceptable debit
+* Minimum acceptable credit
+* Price-improvement increments
+* Maximum repricing attempts
+* Maximum execution time
+* Cancel conditions
+* Partial-fill handling
+* Multi-leg execution rules
+
+The engine must never chase fills beyond the approved execution-adjusted value.
+
+⸻
+
+POSITION SIZING
+
+Execution quality must directly affect position size.
+
+Poorer execution quality should reduce allowable position size or reject the trade entirely.
+
+Position sizing must consider:
+
+* Fill probability
+* Liquidity score
+* Expected slippage
+* Spread quality
+* Market impact
+* Exit liquidity
+
+⸻
+
+CONTINUOUS MONITORING
+
+Recalculate execution quality:
+
+* Before approval
+* Immediately before order submission
+* While orders remain unfilled
+* Before exits
+* Before adjustments
+* Before rolls
+
+If execution quality deteriorates below acceptable limits, the order must be repriced, resized, canceled, or rejected.
+
+⸻
+
+AUDIT REQUIREMENTS
+
+Store for every candidate:
+
+* Candidate ID
+* Trace ID
+* Strategy ID
+* Symbol
+* Option contracts
+* Timestamp
+* Bid/Ask/Mid
+* Spread
+* Volume
+* Open Interest
+* Quote age
+* Fill probability
+* Slippage estimate
+* Transaction-cost estimate
+* Liquidity score
+* Gross expected edge
+* Net expected edge
+* Final execution score
+* Approval or rejection reason
+* Actual fill price (if filled)
+* Actual slippage
+* Actual transaction cost
+
+All records must integrate into the existing AIEM audit trail and end-to-end evidence chain.
+
+⸻
+
+LEARNING
+
+After every completed paper trade compare:
+
+* Predicted fill probability vs actual fill.
+* Predicted entry vs actual entry.
+* Predicted exit vs actual exit.
+* Predicted slippage vs actual slippage.
+* Predicted transaction cost vs actual cost.
+
+Record prediction error to improve future execution estimates.
+
+No automatic model updates may bypass the existing verification and governance framework.
+
+⸻
+
+VERIFICATION REQUIREMENTS
+
+Before enabling this subsystem:
+
+* Mathematical validation of all execution calculations.
+* Runtime validation using live paper-trading data.
+* Database verification confirming every execution metric is stored.
+* Audit verification confirming complete traceability.
+* Negative-control testing proving trades fail when execution requirements are violated.
+* Fail-closed behavior whenever execution inputs are missing or invalid.
+* Full end-to-end evidence demonstrating that execution intelligence influences the final Options Engine recommendation.
+
+This subsystem must not participate in autonomous paper trading until every verification requirement passes.

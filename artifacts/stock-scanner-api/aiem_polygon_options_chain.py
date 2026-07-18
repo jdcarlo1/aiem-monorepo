@@ -133,8 +133,10 @@ def fetch_options_chain(ticker: str,
 
         spread_pct = ((ask - bid) / mid) if mid > 0 else 1.0
 
-        volume = int(day_data.get("volume",       0) or 0)
-        oi     = int(c.get("open_interest",       0) or 0)
+        volume   = int(day_data.get("volume",       0) or 0)
+        oi       = int(c.get("open_interest",       0) or 0)
+        bid_size = int(quote.get("bid_size",         0) or 0)
+        ask_size = int(quote.get("ask_size",         0) or 0)
 
         contract = {
             "ticker":          ticker,
@@ -148,6 +150,8 @@ def fetch_options_chain(ticker: str,
             "bid_ask_spread_pct": round(spread_pct, 4),
             "volume":          volume,
             "open_interest":   oi,
+            "bid_size":        bid_size,
+            "ask_size":        ask_size,
             "implied_volatility": float(implied_iv) if implied_iv else None,
             "delta":  float(greeks.get("delta",  0.0) or 0.0),
             "gamma":  float(greeks.get("gamma",  0.0) or 0.0),

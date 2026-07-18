@@ -205,9 +205,73 @@ def _bootstrap_db() -> None:
                         consecutive_failures INTEGER DEFAULT 0
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS aiem_execution_assessments (
+                        id                        BIGSERIAL PRIMARY KEY,
+                        candidate_id              VARCHAR(64) NOT NULL UNIQUE,
+                        trace_id                  VARCHAR(48),
+                        strategy_id               VARCHAR(64),
+                        ticker                    VARCHAR(20)  NOT NULL,
+                        scan_date                 DATE         NOT NULL,
+                        strategy_name             VARCHAR(64),
+                        n_legs                    INTEGER,
+                        bid                       NUMERIC(10,4),
+                        ask                       NUMERIC(10,4),
+                        mid                       NUMERIC(10,4),
+                        spread_pct                NUMERIC(8,4),
+                        volume                    INTEGER,
+                        open_interest             INTEGER,
+                        bid_size                  INTEGER,
+                        ask_size                  INTEGER,
+                        iv                        NUMERIC(8,4),
+                        dte                       INTEGER,
+                        fill_probability          NUMERIC(6,4),
+                        mid_fill_probability      NUMERIC(6,4),
+                        expected_entry_price      NUMERIC(10,4),
+                        conservative_entry_price  NUMERIC(10,4),
+                        expected_slippage_pct     NUMERIC(8,4),
+                        expected_slippage_dollars NUMERIC(10,4),
+                        spread_cost_dollars       NUMERIC(10,4),
+                        commission_dollars        NUMERIC(10,4),
+                        market_impact_dollars     NUMERIC(10,4),
+                        total_transaction_cost    NUMERIC(10,4),
+                        legging_risk_score        NUMERIC(6,4),
+                        exit_liquidity_score      NUMERIC(6,4),
+                        early_assignment_risk     VARCHAR(10),
+                        pin_risk_flag             BOOLEAN DEFAULT FALSE,
+                        liquidity_score           NUMERIC(6,4),
+                        gross_expected_edge       NUMERIC(10,4),
+                        net_expected_edge         NUMERIC(10,4),
+                        execution_uncertainty     NUMERIC(8,4),
+                        execution_score           NUMERIC(6,4),
+                        approved                  BOOLEAN NOT NULL,
+                        rejection_reason          VARCHAR(200),
+                        position_size_factor      NUMERIC(6,4),
+                        actual_fill_price         NUMERIC(10,4),
+                        actual_slippage           NUMERIC(10,4),
+                        actual_transaction_cost   NUMERIC(10,4),
+                        fill_prob_error           NUMERIC(8,4),
+                        entry_price_error         NUMERIC(10,4),
+                        slippage_error            NUMERIC(10,4),
+                        cost_error                NUMERIC(10,4),
+                        config_sha256             VARCHAR(64),
+                        raw_assessment_json       JSONB,
+                        gating_enabled            BOOLEAN DEFAULT FALSE,
+                        created_at                TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at                TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_ei_ticker_date
+                        ON aiem_execution_assessments(ticker, scan_date)
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_ei_trace_id
+                        ON aiem_execution_assessments(trace_id)
+                """)
                 conn.commit()
             _DB_BOOTSTRAPPED = True
-            log.info("[bootstrap] options_pipeline_jobs and job_heartbeats ready")
+            log.info("[bootstrap] options_pipeline_jobs, job_heartbeats, and aiem_execution_assessments ready")
             return
         except Exception as e:
             last_exc = e
@@ -727,6 +791,34 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             )
         except Exception as _oc_e:
             log.debug(f"[exec] [{trace_id}] options chain skipped: {_oc_e}")
+
+        # ── Stage EI: Execution Intelligence ──────────────────────────────────
+        # Assesses fill probability, liquidity, execution costs, and net edge
+        # for every strategy candidate.  In OBSERVE mode (EI_GATING_ENABLED=False)
+        # all strategies pass through unchanged — assessments are saved to DB only.
+        # In GATING mode (True) only EI-approved strategies continue to CCS.
+        _ei_assessments: list = []
+        try:
+            import aiem_execution_intelligence as _ei_mod
+            _ei_strategies, _ei_assessments = _ei_mod.filter_strategies_by_execution(
+                chain_strategies,
+                trace_id=trace_id,
+                scan_date=scan_date,
+                ticker=ticker,
+                spot=spot,
+                db_url=_DB_URL,
+            )
+            if _ei_strategies is not None and len(_ei_strategies) > 0:
+                chain_strategies     = _ei_strategies
+                best_chain_strategy  = chain_strategies[0]
+            n_ei_approved = sum(1 for a in _ei_assessments if a.approved)
+            log.info(
+                f"[exec] [{trace_id}] EI: {n_ei_approved}/{len(_ei_assessments)} "
+                f"strategies approved "
+                f"({'GATING' if _ei_mod.EI_GATING_ENABLED else 'OBSERVE'})"
+            )
+        except Exception as _ei_e:
+            log.debug(f"[exec] [{trace_id}] execution_intelligence skipped: {_ei_e}")
 
         # ── Stage CCS: Capital Compounding Score on best real-chain strategy ──
         try:
