@@ -546,3 +546,9 @@ id = "PAzXzzzpJVz240cE0JE_V"
 uri = "file://artifacts/stock-scanner-api/PORTFOLIO_ENGINE_PHASE2_VERIFIED.md"
 type = "text"
 title = "Portfolio Engine Phase 2 — Verified Work"
+
+[[outputs]]
+id = "EZD_3IggNjrsvXgnRN55A"
+uri = "file://artifacts/stock-scanner-api/pe_phase2_verification_complete.txt"
+type = "text"
+title = "PE Phase 2 — Complete Verification Evidence"

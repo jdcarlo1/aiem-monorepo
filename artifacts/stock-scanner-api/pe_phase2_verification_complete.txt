@@ -1,0 +1,525 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║   AIEM PORTFOLIO ENGINE PHASE 2 — COMPLETE VERIFICATION EVIDENCE           ║
+║   Generated: 2026-07-18 15:40:17 UTC                                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+════════════════════════════════════════════════════════════════════════════════
+ SECTION 1 — FULL 177-TEST VERIFY (via verified_run.sh)
+════════════════════════════════════════════════════════════════════════════════
+====== verified_run.sh ======
+SEQ=3
+TS=2026-07-18T15:40:17Z
+CMD=python portfolio_engine_verify.py --section ALL
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=f1e5c010f5dc8f0f16765c04afeb89e0c55f5ced59b619725a4e4ddd7307d8bc
+git_commit=ff239c5b3d55597103fe87d6e110c710484a93ac
+==============================
+
+portfolio_engine_verify.py  2026-07-18T15:40:18.150293+00:00
+Section: ALL
+
+[IMPORTS] Module structure
+
+[S1] Portfolio Snapshot Engine
+
+[S2] Aggregate Portfolio Greeks
+
+[S3+S7] Concentration Controls & Risk Budgets
+
+[S4] Correlation & Duplicate-Risk
+
+[S5] Portfolio Stress Test
+
+[S6] Liquidity-Adjusted Valuation
+
+[S8] Portfolio Optimization
+
+[S9+S11+S12] Gate Orchestrator + Audit Evidence
+
+[A1] Exit Management
+
+[A2] Correlation additions
+
+[A3] Audit log trace_id
+
+[A4] Stale data detection
+
+[A5+A6] Industry & Strike Concentration
+
+[A7] Daily loss budget enforcement
+
+[A8] Higher-order greeks
+
+[A9] New stress scenarios
+
+[A10] Additional negative controls
+
+[A11] SUBSTITUTE_LOWER_RISK decision
+
+[A12+A13] PortfolioDecision fields & 13-step gate ordering
+
+[DB] Table bootstrap
+
+────────────────────────────────────────────────────────────
+  PASS  IMP01: aiem_portfolio_engine package imports
+  PASS  IMP01: run_portfolio_gate exported from package
+  PASS  IMP01: PortfolioDecision exported from package
+  PASS  IMP01: evaluate_exit exported from package
+  PASS  IMP01: GATE_STEPS exported from package
+  PASS  IMP_CONFIG: aiem_portfolio_engine.config imports
+  PASS  IMP_DB: aiem_portfolio_engine.db imports
+  PASS  IMP_SNAPSHOT: aiem_portfolio_engine.snapshot imports
+  PASS  IMP_GREEKS: aiem_portfolio_engine.greeks imports
+  PASS  IMP_LIMITS: aiem_portfolio_engine.limits imports
+  PASS  IMP_CORRELATION: aiem_portfolio_engine.correlation imports
+  PASS  IMP_STRESS: aiem_portfolio_engine.stress imports
+  PASS  IMP_VALUATION: aiem_portfolio_engine.valuation imports
+  PASS  IMP_OPTIMIZER: aiem_portfolio_engine.optimizer imports
+  PASS  IMP_GATE: aiem_portfolio_engine.gate imports
+  PASS  IMP_EXIT_MGMT: aiem_portfolio_engine.exit_mgmt imports
+  PASS  IMP_SCHED: aiem_strat_scheduler.py is readable for import check
+  PASS  IMP_WIRE: run_portfolio_gate referenced in aiem_strat_scheduler.py
+  PASS  IMP_WIRE: PE_GATING_ENABLED guard in aiem_strat_scheduler.py
+  PASS  P01: empty snapshot reconciled
+  PASS  P01: n_open_positions == 0
+  PASS  P01: cash_available == PORTFOLIO_CAPITAL — got 100000.0
+  PASS  P02: committed_capital sum — got 6500
+  PASS  P02: n_open_positions == 3
+  PASS  P02: cash_available — got 93500.0
+  PASS  P03: _get_sector AAPL — got XLK
+  PASS  P04: LONG_STRADDLE = is_long_vol
+  PASS  P04: IRON_CONDOR = is_short_vol
+  PASS  NC1: bad snapshot reconciled=False
+  PASS  NC1: bad snapshot has reconcile_error
+  PASS  NC2: empty snapshot n_positions==0
+  PASS  P05: empty portfolio delta=0
+  PASS  P05: empty portfolio gamma=0
+  PASS  P05: empty portfolio vega=0
+  PASS  P05: empty portfolio theta=0
+  PASS  P06: single long call delta > 0 — got 45.0
+  PASS  P06: single long call gamma > 0 — got 2.0
+  PASS  P06: single long call theta < 0 (time decay) — got -5.0
+  PASS  P06: single long call vega > 0 — got 15.0
+  PASS  P07: short call delta < 0 — got -45.0
+  PASS  P08: BCS net delta = 20 — expected 20.00, got 20.0000
+  PASS  P09: 2 contracts × 0.50 delta × 100 = 100 — got 100.0
+  PASS  P10: AFTER delta > BEFORE delta — before=45.0000 after=75.0000
+  PASS  NC3: short put delta is non-zero — got 40.0
+  PASS  NC4: CONTRACT_MULTIPLIER is 100 (not 1)
+  PASS  P11: BS fallback for missing greeks gives non-zero delta — got 99.653261
+  PASS  P12: empty portfolio no concentration breaches — got 0 breaches: []
+  PASS  P13: AAPL ticker concentration breach detected — ticker_pct=23.00%
+  PASS  P14: sector concentration breach for XLK — sector_pct=37.00%
+  PASS  NC5: position count limit breach detected
+  PASS  P15: buying power utilization breach — bp_util=84.00%
+  PASS  NC6: undefined-risk strategy always blocked
+  PASS  P16: healthy portfolio passes risk budget — breaches: []
+  PASS  NC7: portfolio delta breach detected — |delta|=400.0 > 300.0
+  PASS  NC8: stress test loss limit breach detected — worst_stress=-20000, limit=15000.0
+  PASS  P12b: ConcentrationResult has industry_pct field
+  PASS  P12b: ConcentrationResult has strike_pct field
+  PASS  P17: empty portfolio, no correlation risk — action=APPROVE
+  PASS  P18: mega_tech cluster breach → REDUCE/REJECT — action=REDUCE, clusters=['mega_tech']
+  PASS  P19: intraday_correlation declared NOT_IMPLEMENTED
+  PASS  NC9: extreme correlation score → REJECT — duplicate_risk=0.9
+  PASS  P20: semis cluster detected for NVDA+AMD+INTC — clusters=['semis']
+  PASS  P21: exactly 20 stress scenarios run — got 20
+  PASS  P21: all required scenario names present — missing=set()
+  PASS  P22: long call gains on spot_up_2pct — pl_portfolio=144.00
+  PASS  P23: adding 5 long calls makes spot_down_5pct P/L worse (more negative) — before=-281.25 after=-1312.50
+  PASS  NC10: stress limit breach check runs without error — breach count=13
+  PASS  P24: worst_stress_loss == min pl_combined — wsl=-1757.25 min_pl=-1757.25
+  PASS  P25: conservative <= mid value — cons=196.0 mid=300.0
+  PASS  P26: multi-leg liquidation cost >= 0 — exit_cost=100.00
+  PASS  P27: candidate increases liq-adj max loss
+  PASS  NC11: liquidity limit breach check runs — breach=True
+  PASS  P28: market_depth_L2 declared NOT_IMPLEMENTED in config
+  PASS  P29: optimization returns valid decision — got APPROVE
+  PASS  P29: both utility scores are non-negative
+  PASS  P30: BP exhaustion leads to REJECT or REDUCE — decision=REJECT
+  PASS  NC12: candidate_combination_optimization declared NOT_IMPLEMENTED
+  PASS  P31: zero-EV candidate returns valid decision — got DEFER
+  PASS  P32: PE_GATING_ENABLED == False (observe mode)
+  PASS  P33: pe_config_sha() returns 64-char lowercase hex — got 1799776c18b69ae5...
+  PASS  P34: _evidence_hash is deterministic
+  PASS  P34: evidence hash is 64 chars
+  PASS  P35: evidence hash changes when payload changes
+  PASS  P36: GENESIS_HASH is 64 zeros — got 0000000000000000...
+  PASS  P37: gate_passed() == True in observe mode even for REJECT — pe_gating_enabled=False
+  PASS  P38: gate_passed() == False for REJECT in gating mode
+  PASS  NC13: reconcile failure → REJECT — got REJECT
+  PASS  NC13: reconcile failure → approved_size=0
+  PASS  NC14: chain produces unique hashes at each step
+  PASS  NC14: chain diverges from genesis
+  PASS  NC15: bypass attempt produces different hash (chain breaks)
+  PASS  P39: NOT_IMPLEMENTED_V1 has >= 9 items — got 9
+  PASS  P39: pending_orders declared NOT_IMPLEMENTED
+  PASS  P40: config covers >= 20 keys — got 26
+  PASS  P40: PE_GATING_ENABLED in sha keys
+  PASS  P40: STRESS_TEST_LOSS_LIMIT in sha keys
+  PASS  P40: MAX_INDUSTRY_CONCENTRATION in sha keys
+  PASS  EA1: EXIT_ACTIONS contains all 6 actions — got ('HOLD', 'CLOSE', 'REDUCE', 'HEDGE', 'ROLL', 'ADJUST')
+  PASS  EA2: healthy position → HOLD — got action=HOLD
+  PASS  EA2: HOLD urgency == LOW
+  PASS  EA3: 92.5% of max_loss → CLOSE — got action=CLOSE, P&L=-1850 max_loss=2000
+  PASS  EA3: CLOSE urgency == HIGH
+  PASS  EA3: CLOSE target_size == 0
+  PASS  EA4: DTE=5 ≤ 7 → ROLL — got action=ROLL
+  PASS  EA4: ROLL urgency == HIGH
+  PASS  EA5: n_contracts=5 > 3 → REDUCE — got action=REDUCE
+  PASS  EA5: REDUCE target_size = 5//2 = 2 — got target_size=2
+  PASS  EA6: recommend_portfolio_exits returns list
+  PASS  EA6: one recommendation per open position — got 2 for 2 positions
+  PASS  EA7: ExitRecommendation.to_dict() has 'position_id' key
+  PASS  EA7: ExitRecommendation.to_dict() has 'ticker' key
+  PASS  EA7: ExitRecommendation.to_dict() has 'action' key
+  PASS  EA7: ExitRecommendation.to_dict() has 'urgency' key
+  PASS  EA7: ExitRecommendation.to_dict() has 'reasons' key
+  PASS  A2a: CorrelationResult has beta_similarity_score field
+  PASS  A2b: beta_similarity_score > 0 when AMD in same cluster as NVDA — got 0.75
+  PASS  A2b: _beta_similarity=0 for tickers not sharing a named cluster — got 0.0
+  PASS  A2c: tail_risk_correlation declared NOT_IMPLEMENTED in config.NOT_IMPLEMENTED_V1
+  PASS  A2d: macro_event_overlap declared NOT_IMPLEMENTED
+  PASS  A2e: earnings_overlap declared NOT_IMPLEMENTED
+  PASS  A3a: PortfolioDecision has trace_id field
+  PASS  A3b: PortfolioDecision.trace_id == run_id passed in — expected run_17dad65b6956, got run_17dad65b6956
+  PASS  A4a: position with valid bid/ask not flagged stale — stale=[]
+  PASS  A4b: position with bid=0 ask=0 flagged as stale — stale=['TSLA']
+  PASS  A4c: stock-only position not flagged as stale (no option legs) — stale=[]
+  PASS  A5a: INDUSTRY_GROUPS has >= 5 industry groups — got 7 groups: ['cloud_infra', 'consumer_chips', 'ev_auto', 'social_media', 'streaming', 'biotech_dev', 'crypto_mining']
+  PASS  A5b: consumer_chips industry concentration breach detected — industry_pct=28.00%, limit=25.00%
+  PASS  A5c: ConcentrationResult.industry_pct is non-negative — got 0.28
+  PASS  A6a: ConcentrationResult has strike_pct field
+  PASS  A6a: strike_pct == candidate_capital/PORTFOLIO_CAPITAL (2000/100000=0.02) when no existing overlap — got 0.02
+  PASS  A6b: strike-area concentration breach detected — strike_pct=35.00%, limit=0.30
+  PASS  A7a: daily_loss_remaining == DAILY_LOSS_LIMIT when no realized PnL — expected 2000.0, got 2000.0
+  PASS  A7b: daily loss breach when realized PnL < -DAILY_LOSS_LIMIT — daily_realized_pnl=-2500.0, limit=2000.0
+  PASS  A7c: partial daily loss (50% of limit) does NOT breach — daily_realized_pnl=-1000.0
+  PASS  A8a: single long call rho == 0.02 × 100 = 2.0 — got rho=2.0
+  PASS  A8b: single long call charm != 0 (BS fallback) — got charm=0.029571
+  PASS  A8c: single long call vanna != 0 (BS fallback) — got vanna=5.519984
+  PASS  A8d: single long call vomma != 0 (BS fallback) — got vomma=-9.527644
+  PASS  A8e: PortfolioGreeks.to_dict() has 'delta' key
+  PASS  A8e: PortfolioGreeks.to_dict() has 'gamma' key
+  PASS  A8e: PortfolioGreeks.to_dict() has 'theta' key
+  PASS  A8e: PortfolioGreeks.to_dict() has 'vega' key
+  PASS  A8e: PortfolioGreeks.to_dict() has 'rho' key
+  PASS  A8e: PortfolioGreeks.to_dict() has 'charm' key
+  PASS  A8e: PortfolioGreeks.to_dict() has 'vanna' key
+  PASS  A8e: PortfolioGreeks.to_dict() has 'vomma' key
+  PASS  A9a: total stress scenarios == 20 — got 20
+  PASS  A9b: assignment_risk scenario present in _SCENARIOS
+  PASS  A9c: exercise_risk scenario present in _SCENARIOS
+  PASS  A9d: index_shock scenario present in _SCENARIOS
+  PASS  A9e: assignment_risk spot_change_pct == -0.08 — got -0.08
+  PASS  NC16: zero-capital positions don't trigger industry breach — industry_pct=5.00%
+  PASS  NC17: strikes > 5% apart do NOT trigger strike-area breach — strike_pct=15.00%
+  PASS  NC18: daily loss exactly equal to DAILY_LOSS_LIMIT does NOT breach (boundary is strict >) — daily_realized_pnl=-2000.0
+  PASS  NC19: detect_stale_quotes([]) returns [] — got []
+  PASS  NC20: bid=None ask=None treated as stale (no market data) — stale=['META']
+  PASS  A11a: SUBSTITUTE constant == 'SUBSTITUTE_LOWER_RISK' — got 'SUBSTITUTE_LOWER_RISK'
+  PASS  A11b-pre: mega_tech cluster at 32% → correlation REDUCE — action=REDUCE
+  PASS  A11b-pre: XLK sector at 36% → soft sector breach — sector_pct=36.00%
+  PASS  A11b: SUBSTITUTE triggered when correlation=REDUCE + concentration breach + EV=500 > 1 — got decision=SUBSTITUTE_LOWER_RISK, corr_action=REDUCE, n_conc_breaches=1, ev=500.0
+  PASS  A11c: SUBSTITUTE approved_size = max(1, requested//2) — requested=2, got approved_size=1
+  PASS  A12a: PortfolioDecision has executed_steps field
+  PASS  A12a: executed_steps is a list — type=<class 'list'>
+  PASS  A12b: greeks.to_dict() has all 8 greek keys — missing=set()
+  PASS  A12c: GATE_STEPS has exactly 13 entries — got 13
+  PASS  A13a: GATE_STEPS[0] == 'S01_reconcile_positions' — got 'S01_reconcile_positions'
+  PASS  A13b: GATE_STEPS[12] == 'S13_optimize_decide' — got 'S13_optimize_decide'
+  PASS  A13c: GATE_STEPS contains S02_greeks_before
+  PASS  A13c: GATE_STEPS contains S08_greeks_after
+  PASS  A13d: GATE_STEPS contains S05_stress_before
+  PASS  A13d: GATE_STEPS contains S10_stress_after
+  PASS  A13e: GATE_STEPS exported from aiem_portfolio_engine package
+  PASS  DB01: bootstrap_portfolio_tables() ran without error
+  PASS  DB_TABLE: ape_portfolio_snapshots exists
+  PASS  DB_TABLE: ape_portfolio_greeks exists
+  PASS  DB_TABLE: ape_stress_results exists
+  PASS  DB_TABLE: ape_gate_decisions exists
+────────────────────────────────────────────────────────────
+
+Total: 177  PASS: 177  FAIL: 0
+config_sha: 1799776c18b69ae5a6a7a5471b76f7a72bbb01db790e67544d32cf434dd75758
+timestamp: 2026-07-18T15:40:20.207126+00:00
+
+==============================
+SEQ=3  EXIT=0  TS_END=2026-07-18T15:40:20Z
+sha256(log)=20b02b28ae1a04bbc0318328328f5128b92fe5e2fa626e0aab6a9ad7d5cb3adb
+==============================
+
+════════════════════════════════════════════════════════════════════════════════
+ SECTION 2 — B2 MATH CORRECTNESS (Charm/Vanna/Vomma + Beta + Stress)
+════════════════════════════════════════════════════════════════════════════════
+pe_evidence_b2.py  2026-07-18T15:40:20.594383+00:00
+Python: 3.11.14
+
+[B2-GREEKS] Charm / Vanna / Vomma — independent formula + FD cross-check
+Reference: Hull 11e App.19, Haug 'Complete Guide' 2e p.70
+Tolerance: analytic vs FD ≤2% rel; module vs ref ≤1e-05 abs
+
+  TV1_ATM_28d: S=150.0 K=150.0 T=0.0767y σ=0.3
+    d1=0.041545  d2=-0.041545  φ(d1)=0.398598
+    analytic  charm=0.00029571  vanna=0.055200  vomma=-0.095276
+    FD        charm=0.00029576  vanna=0.055200  vomma=-0.095276
+  PASS  TV1_ATM_28d charm: analytic vs FD ≤2% — |rel|=0.0002
+  PASS  TV1_ATM_28d vanna: analytic vs FD ≤2% — |rel|=0.0000
+  PASS  TV1_ATM_28d vomma: analytic vs FD ≤2% — |rel|=0.0000
+    module    charm=0.00029571  vanna=0.055200  vomma=-0.095276
+  PASS  TV1_ATM_28d charm: module vs reference ≤1e-5 — diff=3.45e-09
+  PASS  TV1_ATM_28d vanna: module vs reference ≤1e-5 — diff=4.14e-09
+  PASS  TV1_ATM_28d vomma: module vs reference ≤1e-5 — diff=3.32e-09
+
+  TV2_OTM_60d: S=150.0 K=165.0 T=0.1644y σ=0.4
+    d1=-0.506604  d2=-0.668781  φ(d1)=0.350897
+    analytic  charm=0.00195561  vanna=0.586683  vomma=18.075598
+    FD        charm=0.00195585  vanna=0.586685  vomma=18.075771
+  PASS  TV2_OTM_60d charm: analytic vs FD ≤2% — |rel|=0.0001
+  PASS  TV2_OTM_60d vanna: analytic vs FD ≤2% — |rel|=0.0000
+  PASS  TV2_OTM_60d vomma: analytic vs FD ≤2% — |rel|=0.0000
+    module    charm=0.00195561  vanna=0.586683  vomma=18.075598
+  PASS  TV2_OTM_60d charm: module vs reference ≤1e-5 — diff=6.20e-10
+  PASS  TV2_OTM_60d vanna: module vs reference ≤1e-5 — diff=4.13e-09
+  PASS  TV2_OTM_60d vomma: module vs reference ≤1e-5 — diff=4.46e-09
+
+  TV3_ITM_45d: S=160.0 K=150.0 T=0.1233y σ=0.25
+    d1=0.779114  d2=0.691333  φ(d1)=0.294508
+    analytic  charm=-0.00226226  vanna=-0.814413  vomma=35.647204
+    FD        charm=-0.00226275  vanna=-0.814419  vomma=35.647914
+  PASS  TV3_ITM_45d charm: analytic vs FD ≤2% — |rel|=0.0002
+  PASS  TV3_ITM_45d vanna: analytic vs FD ≤2% — |rel|=0.0000
+  PASS  TV3_ITM_45d vomma: analytic vs FD ≤2% — |rel|=0.0000
+    module    charm=-0.00226226  vanna=-0.814413  vomma=35.647204
+  PASS  TV3_ITM_45d charm: module vs reference ≤1e-5 — diff=6.48e-10
+  PASS  TV3_ITM_45d vanna: module vs reference ≤1e-5 — diff=3.35e-09
+  PASS  TV3_ITM_45d vomma: module vs reference ≤1e-5 — diff=3.88e-09
+
+  [MUTATION] TV3_ITM_45d: σ +10% must shift charm/vanna/vomma ≥5%
+    σ=0.25: charm=-0.00226226  vanna=-0.814413  vomma=35.647204
+    σ=0.275: charm=-0.00212620  vanna=-0.695848  vomma=28.016236
+  PASS  MUTATION charm ≥5% shift on σ+10% — rel=6.0%
+  PASS  MUTATION vanna ≥5% shift on σ+10% — rel=14.6%
+  PASS  MUTATION vomma ≥5% shift on σ+10% — rel=21.4%
+
+[B2-BETA] beta_similarity_score — cluster-membership correctness
+Reference: correlation.py lines 154-166: 0.0/0.75/1.0 stepped scale
+CORRELATION_GROUPS: mega_tech, semis, ev_meme, biotech_meme, crypto_adjacent
+
+  TV1 AMD/NVDA (semis):
+    reference=0.75  module=0.75  (shared=1→0.75)
+  PASS  B2-BETA TV1 AMD/NVDA (semis): module == reference — ref=0.75 mod=0.75
+  TV2 META/NVDA (mega_tech):
+    reference=0.75  module=0.75  (META+NVDA both in mega_tech → shared=1→0.75)
+  PASS  B2-BETA TV2 META/NVDA (mega_tech): module == reference — ref=0.75 mod=0.75
+  TV3 AMZN/MSFT/GOOGL (mega_tech):
+    reference=1.0  module=1.0  (shared≥2→1.0)
+  PASS  B2-BETA TV3 AMZN/MSFT/GOOGL (mega_tech): module == reference — ref=1.0 mod=1.0
+  TV4 TSLA/COIN (no shared):
+    reference=0.0  module=0.0  (ev_meme vs crypto_adjacent → 0.0)
+  PASS  B2-BETA TV4 TSLA/COIN (no shared): module == reference — ref=0.0 mod=0.0
+  TV5 empty existing list:
+    reference=0.0  module=0.0  (no existing → 0.0 by definition)
+  PASS  B2-BETA TV5 empty existing list: module == reference — ref=0.0 mod=0.0
+  MUTATION: INTC/NVDA (semis cluster) ref=0.75 vs NFLX/NVDA ref=0.0
+  PASS  B2-BETA MUTATION: same_cluster > no_cluster — INTC=0.75 > NFLX=0.0
+  PASS  B2-BETA MUTATION: module returns 0.0 for ticker with no cluster membership — mod=0.0
+
+[B2-STRESS] Stress scenario P&L — delta-gamma approximation
+Reference: stress.py parametric: pl = (Δ·dS + ½·Γ·dS²) × qty × 100
+
+  spot_up_2pct: expected=94.0  ref=94.0000  module=94.0000
+  PASS  B2-STRESS spot_up_2pct: hand-calc matches formula ref — hand=94.0 ref=94.0000
+  PASS  B2-STRESS spot_up_2pct: module matches reference — ref=94.0000 mod=94.0000
+  spot_down_5pct: expected=-200.0  ref=-200.0000  module=-200.0000
+  PASS  B2-STRESS spot_down_5pct: hand-calc matches formula ref — hand=-200.0 ref=-200.0000
+  PASS  B2-STRESS spot_down_5pct: module matches reference — ref=-200.0000 mod=-200.0000
+  spot_up_5pct: expected=250.0  ref=250.0000  module=250.0000
+  PASS  B2-STRESS spot_up_5pct: hand-calc matches formula ref — hand=250.0 ref=250.0000
+  PASS  B2-STRESS spot_up_5pct: module matches reference — ref=250.0000 mod=250.0000
+  spot_down_2pct: expected=-86.0  ref=-86.0000  module=-86.0000
+  PASS  B2-STRESS spot_down_2pct: hand-calc matches formula ref — hand=-86.0 ref=-86.0000
+  PASS  B2-STRESS spot_down_2pct: module matches reference — ref=-86.0000 mod=-86.0000
+  assignment_risk: expected=-292.2  ref=-292.2500  module=-292.2500
+  PASS  B2-STRESS assignment_risk: hand-calc matches formula ref — hand=-292.25 ref=-292.2500
+  PASS  B2-STRESS assignment_risk: module matches reference — ref=-292.2500 mod=-292.2500
+  MUTATION delta 0.45→0.55: 94.0→114.0 (21.3% change)
+  PASS  B2-STRESS MUTATION: delta +22% shifts spot_up_2pct P/L ≥10% — change=21.3%
+
+────────────────────────────────────────────────────────────
+Total B2: 39  PASS: 39  FAIL: 0
+
+════════════════════════════════════════════════════════════════════════════════
+ SECTION 3 — RAW CODE LOCATION EVIDENCE (grep -n)
+════════════════════════════════════════════════════════════════════════════════
+
+--- GATE_STEPS (gate.py) ---
+31:from .config import PE_GATING_ENABLED, pe_config_sha, NOT_IMPLEMENTED_V1, GATE_STEPS
+242:        _steps.append(GATE_STEPS[0])   # S01_reconcile_positions
+258:        _steps.append(GATE_STEPS[1])   # S02_greeks_before
+262:        _steps.append(GATE_STEPS[2])   # S03_concentration_before
+285:        _steps.append(GATE_STEPS[3])   # S04_correlation_risk
+294:        _steps.append(GATE_STEPS[4])   # S05_stress_before
+302:        _steps.append(GATE_STEPS[5])   # S06_liquidity_before
+310:        _steps.append(GATE_STEPS[6])   # S07_risk_budget_before
+315:        _steps.append(GATE_STEPS[7])   # S08_greeks_after
+323:        _steps.append(GATE_STEPS[8])   # S09_concentration_after
+340:        _steps.append(GATE_STEPS[9])   # S10_stress_after
+348:        _steps.append(GATE_STEPS[10])  # S11_liquidity_after
+356:        _steps.append(GATE_STEPS[11])  # S12_risk_budget_after
+361:        _steps.append(GATE_STEPS[12])  # S13_optimize_decide
+
+--- executed_steps (gate.py) ---
+107:    executed_steps:      List[str] = field(default_factory=list)
+465:            executed_steps     = _steps,
+
+--- run_portfolio_gate wiring (aiem_strat_scheduler.py) ---
+234:    from aiem_portfolio_engine import run_portfolio_gate
+235:    from aiem_portfolio_engine.config import PE_GATING_ENABLED as _PE_GATING
+433:            pe_decision = run_portfolio_gate(
+
+--- INDUSTRY_GROUPS / MAX_INDUSTRY_CONCENTRATION (config.py) ---
+15:MAX_INDUSTRY_CONCENTRATION    = 0.25
+43:INDUSTRY_GROUPS: dict = {
+83:    "MAX_TICKER_CONCENTRATION", "MAX_SECTOR_CONCENTRATION", "MAX_INDUSTRY_CONCENTRATION",
+91:    "MAX_INDUSTRY_CONCENTRATION", "MAX_STRIKE_AREA_CONC",
+
+--- SUBSTITUTE_LOWER_RISK (optimizer.py) ---
+37:SUBSTITUTE            = "SUBSTITUTE_LOWER_RISK"
+224:        decision      = SUBSTITUTE
+226:            f"SUBSTITUTE_LOWER_RISK: EV={candidate_ev:.2f} positive but "
+
+--- industry_pct / strike_pct / daily_realized_pnl (limits.py) ---
+39:    industry_pct:             float
+40:    strike_pct:               float
+56:            "industry_pct":              round(self.industry_pct, 4),
+57:            "strike_pct":                round(self.strike_pct, 4),
+140:    industry_pct = 0.0
+146:        industry_pct = industry_capital / max(PORTFOLIO_CAPITAL, 1)
+147:        if industry_pct > MAX_INDUSTRY_CONCENTRATION:
+149:                "MAX_INDUSTRY_CONCENTRATION", industry_pct, MAX_INDUSTRY_CONCENTRATION,
+150:                f"industry={cand_industry_group}: {industry_pct:.1%} > {MAX_INDUSTRY_CONCENTRATION:.1%}",
+154:    strike_pct = 0.0
+165:        strike_pct = strike_capital / max(PORTFOLIO_CAPITAL, 1)
+166:        if strike_pct > MAX_STRIKE_AREA_CONC:
+168:                "MAX_STRIKE_AREA_CONC", strike_pct, MAX_STRIKE_AREA_CONC,
+169:                f"{candidate_ticker} strike±5% area: {strike_pct:.1%} > {MAX_STRIKE_AREA_CONC:.1%}",
+281:        industry_pct             = industry_pct,
+
+--- detect_stale_quotes (snapshot.py) ---
+268:def detect_stale_quotes(snapshot: PortfolioSnapshot) -> List[str]:
+
+--- exit_mgmt exports (__init__.py) ---
+7:from .exit_mgmt import (
+9:    EXIT_ACTIONS, ExitRecommendation, evaluate_exit, recommend_portfolio_exits,
+16:    "EXIT_ACTIONS", "ExitRecommendation", "evaluate_exit", "recommend_portfolio_exits",
+
+--- NOT_IMPLEMENTED_V1 (config.py) ---
+69:NOT_IMPLEMENTED_V1 = [
+
+════════════════════════════════════════════════════════════════════════════════
+ SECTION 4 — RAW SQL: 4 APE_ TABLES (\d equivalent)
+════════════════════════════════════════════════════════════════════════════════
+
+=== \d ape_portfolio_snapshots  (0 rows) ===
+  snapshot_id                         character varying         nullable=NO
+  trace_id                            character varying         nullable=YES
+  snapshot_ts                         timestamp with time zone  nullable=NO
+  cash_available                      numeric                   nullable=YES
+  buying_power                        numeric                   nullable=YES
+  reserved_capital                    numeric                   nullable=YES
+  committed_capital                   numeric                   nullable=YES
+  n_open_positions                    integer                   nullable=YES
+  total_market_value                  numeric                   nullable=YES
+  total_unrealized_pnl                numeric                   nullable=YES
+  positions_json                      jsonb                     nullable=YES
+  pending_orders_json                 jsonb                     nullable=YES
+  reconciled                          boolean                   nullable=NO
+  reconcile_error                     text                      nullable=YES
+  created_at                          timestamp with time zone  nullable=YES
+
+=== \d ape_portfolio_greeks  (0 rows) ===
+  id                                  bigint                    nullable=NO
+  snapshot_id                         character varying         nullable=NO
+  phase                               character varying         nullable=NO
+  portfolio_delta                     numeric                   nullable=YES
+  portfolio_gamma                     numeric                   nullable=YES
+  portfolio_theta                     numeric                   nullable=YES
+  portfolio_vega                      numeric                   nullable=YES
+  portfolio_rho                       numeric                   nullable=YES
+  portfolio_charm                     numeric                   nullable=YES
+  portfolio_vanna                     numeric                   nullable=YES
+  portfolio_vomma                     numeric                   nullable=YES
+  stock_equiv_delta                   numeric                   nullable=YES
+  total_delta                         numeric                   nullable=YES
+  n_positions                         integer                   nullable=YES
+  computed_at                         timestamp with time zone  nullable=YES
+
+=== \d ape_stress_results  (0 rows) ===
+  id                                  bigint                    nullable=NO
+  snapshot_id                         character varying         nullable=NO
+  phase                               character varying         nullable=NO
+  scenario                            character varying         nullable=NO
+  spot_change_pct                     numeric                   nullable=YES
+  iv_change_pct                       numeric                   nullable=YES
+  time_decay_days                     integer                   nullable=YES
+  pl_portfolio                        numeric                   nullable=YES
+  pl_candidate                        numeric                   nullable=YES
+  pl_combined                         numeric                   nullable=YES
+  incremental_loss                    numeric                   nullable=YES
+  limit_breach                        boolean                   nullable=YES
+  breach_details                      text                      nullable=YES
+  computed_at                         timestamp with time zone  nullable=YES
+
+=== \d ape_gate_decisions  (7 rows) ===
+  id                                  bigint                    nullable=NO
+  candidate_id                        character varying         nullable=NO
+  trace_id                            character varying         nullable=YES
+  snapshot_id                         character varying         nullable=YES
+  ticker                              character varying         nullable=NO
+  scan_date                           date                      nullable=NO
+  strategy_name                       character varying         nullable=YES
+  requested_size                      integer                   nullable=YES
+  approved_size                       integer                   nullable=YES
+  concentration_json                  jsonb                     nullable=YES
+  correlation_json                    jsonb                     nullable=YES
+  stress_json                         jsonb                     nullable=YES
+  liquidity_json                      jsonb                     nullable=YES
+  budget_json                         jsonb                     nullable=YES
+  optimization_json                   jsonb                     nullable=YES
+  greeks_before_json                  jsonb                     nullable=YES
+  greeks_after_json                   jsonb                     nullable=YES
+  decision                            character varying         nullable=NO
+  decision_reasons                    jsonb                     nullable=YES
+  limits_tested                       jsonb                     nullable=YES
+  limits_passed                       jsonb                     nullable=YES
+  limits_failed                       jsonb                     nullable=YES
+  pe_gating_enabled                   boolean                   nullable=NO
+  config_sha256                       character varying         nullable=YES
+  prev_evidence_hash                  character varying         nullable=YES
+  evidence_hash                       character varying         nullable=YES
+  created_at                          timestamp with time zone  nullable=YES
+
+════════════════════════════════════════════════════════════════════════════════
+ SECTION 5 — GIT DIFF STAT + SHA256 CHECKSUMS
+════════════════════════════════════════════════════════════════════════════════
+
+--- git diff HEAD --stat ---
+
+--- git log --oneline -5 ---
+ff239c5 Update verification scripts and evidence collection for portfolio engine phase 2
+373cce5 Add new portfolio risk management features and enhance verification tests
+617c7d7 Add comprehensive report detailing completed portfolio engine work
+864d01d Add portfolio risk and optimization engine with gate
+d9f0f74 Add full SQL query details and evidence chain verification
+
+--- sha256sum of evidence scripts ---
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh
+f1e5c010f5dc8f0f16765c04afeb89e0c55f5ced59b619725a4e4ddd7307d8bc  verify_chain.sh
+77bd1e2b3405bb40a54a1f25b95e6a8cbd4bca3715f48e0588fac94840c2b083  portfolio_engine_verify.py
+db58e16e7d4af9acbeeceaebc1bef609ce15ca3130f5f39a601e130f7c086696  tools/pe_evidence_b2.py
+
+════════════════════════════════════════════════════════════════════════════════
+ END OF VERIFICATION REPORT
+════════════════════════════════════════════════════════════════════════════════
