@@ -258,5 +258,14 @@ with psycopg2.connect(url, connect_timeout=5) as conn, conn.cursor() as cur:
 PYEOF
 
 echo ""
+echo "## git diff HEAD --stat"
+git --no-optional-locks -C "$ROOT" diff HEAD --stat
+GIT_DIFF_EXIT=$?
+if [ -z "$(git --no-optional-locks -C "$ROOT" diff HEAD --stat)" ]; then
+    echo "git diff HEAD: no changes"
+fi
+echo "git diff HEAD --stat exit code: $GIT_DIFF_EXIT"
+
+echo ""
 echo "--- end of raw evidence item4 ---"
 exit 0

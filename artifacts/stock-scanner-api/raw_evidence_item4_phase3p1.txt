@@ -1,11 +1,11 @@
 ====== verified_run.sh ======
-SEQ=4
-TS=2026-07-18T19:01:27Z
+SEQ=5
+TS=2026-07-18T19:06:17Z
 CMD=bash raw_evidence_item4_phase3p1.sh
 CWD=/home/runner/workspace/artifacts/stock-scanner-api
 sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
 sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
-git_commit=8b43141d1675df8f109f869cc47149180c54bb89
+git_commit=c7dce6a451d5b37bb788a29d88f96fa2b3bde175
 ==============================
 
 ## sha256 canonical check
@@ -112,9 +112,9 @@ SELECT id, ticker, scan_date, status, completed_at FROM options_pipeline_jobs OR
 
 --- GATE TEST A: assert_no_missing_indicators (trace with zero snapshots → NEVER_SNAPPED) ---
 --- Uses EXACT try/except structure from _execute_job gate block ---
-2026-07-18 19:01:28,614 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY GATE: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED
-2026-07-18 19:01:28,660 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY GATE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001
-2026-07-18 19:01:28,684 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY VALIDATION BLOCKED PIPELINE: REGISTRY_MISSING_INDICATOR: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED; REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001
+2026-07-18 19:06:21,572 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY GATE: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED
+2026-07-18 19:06:21,595 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY GATE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001
+2026-07-18 19:06:21,612 ERROR    aiem_options_scheduler [exec] [GATE_TEST_MISSING_IND_001] REGISTRY VALIDATION BLOCKED PIPELINE: REGISTRY_MISSING_INDICATOR: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED; REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001
 
 gate_failures=['REGISTRY: REGISTRY_MISSING_INDICATOR: Required indicators not captured: POLY_CLOSE_PRICE=NEVER_SNAPPED, POLY_VWAP=NEVER_SNAPPED, OSS_FRONT_IV=NEVER_SNAPPED, OSS_GEX_REGIME=NEVER_SNAPPED, OPT_IV_RANK=NEVER_SNAPPED, BS_CALL_DELTA=NEVER_SNAPPED, BS_PUT_DELTA=NEVER_SNAPPED, BS_CALL_POP=NEVER_SNAPPED, BS_PUT_POP=NEVER_SNAPPED', 'REGISTRY: REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_MISSING_IND_001']
 ready_for_decision=False
@@ -122,8 +122,8 @@ verdict=REGISTRY VALIDATION FAILED — REGISTRY_MISSING_INDICATOR: Required indi
 
 --- GATE TEST B: assert_pattern_scan_complete in isolation (trace with no PAT_SCORE row) ---
 --- Same zero-snapshot trace_id: PAT_SCORE count=0 → REGISTRY_PATTERN_INCOMPLETE ---
-2026-07-18 19:01:29,060 ERROR    aiem_options_scheduler [exec] [GATE_TEST_PAT_SCAN_001] REGISTRY GATE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001
-2026-07-18 19:01:29,060 ERROR    aiem_options_scheduler [exec] [GATE_TEST_PAT_SCAN_001] REGISTRY VALIDATION BLOCKED PIPELINE: REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001
+2026-07-18 19:06:21,748 ERROR    aiem_options_scheduler [exec] [GATE_TEST_PAT_SCAN_001] REGISTRY GATE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001
+2026-07-18 19:06:21,749 ERROR    aiem_options_scheduler [exec] [GATE_TEST_PAT_SCAN_001] REGISTRY VALIDATION BLOCKED PIPELINE: REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001
 gate_failures=['REGISTRY: REGISTRY_PATTERN_INCOMPLETE: Pattern scan stage produced no PAT_SCORE snapshot for trace_id=GATE_TEST_PAT_SCAN_001']
 ready_for_decision=False
 
@@ -191,9 +191,14 @@ FROM oe_indicator_snapshots WHERE trace_id = 'VERIFY_FRESHNESS_TEST_PHASE3P1_001
 
 Row is still present. Not deleted. Awaiting explicit approval before any deletion.
 
+## git diff HEAD --stat
+ artifacts/stock-scanner-api/raw_evidence_item4_phase3p1.sh | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+git diff HEAD --stat exit code: 0
+
 --- end of raw evidence item4 ---
 
 ==============================
-SEQ=4  EXIT=0  TS_END=2026-07-18T19:01:30Z
-sha256(log)=4814d85e2c06da8fe69f6d98289410aa4f3407a1ef543e7dc04ef9e8f6e5466c
+SEQ=5  EXIT=0  TS_END=2026-07-18T19:06:23Z
+sha256(log)=e6ec2ae54b7df000c39df4466a5abcbd01438cf4d8c7f966df3e9f562fa81c31
 ==============================
