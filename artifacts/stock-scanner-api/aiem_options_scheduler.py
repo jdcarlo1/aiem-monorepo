@@ -735,6 +735,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _p3_ready = False
         _p3       = None
 
+    # ── Phase III Phase 4: Portfolio & Operational Learning (non-fatal) ───────
+    try:
+        import aiem_options_phase4 as _p4
+        _p4.bootstrap_phase4(_DB_URL)
+        _p4_ready = True
+    except Exception as _p4_init_e:
+        log.warning(f"[phase4] init failed: {_p4_init_e}")
+        _p4_ready = False
+        _p4       = None
+
     t_start = time.time()
 
     try:
@@ -1567,6 +1577,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except Exception as _dr_e:
                 log.debug(f"[phase2] decision_record capture skipped: {_dr_e}")
 
+        # ── Phase 4: portfolio context snapshot at decision time ──────────────
+        if _p4_ready:
+            try:
+                _p4.capture_portfolio_context(
+                    alert_id=None, trace_id=trace_id,
+                    ticker=ticker, scan_date=scan_date,
+                    db_url=_DB_URL,
+                )
+            except Exception as _p4_pc_e:
+                log.debug(f"[phase4] capture_portfolio_context skipped: {_p4_pc_e}")
+
         if direction == "NO_TRADE":
             with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
                 _nt_prev_hash = _get_prev_chain_hash(conn)
@@ -1617,6 +1638,30 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     )
                 except Exception as _p3_nt_kb_e:
                     log.warning(f"[phase3] no_trade kb_entry failed: {_p3_nt_kb_e}")
+            # ── Phase 4: record NO_TRADE candidate for outcome tracking ─────────
+            if _p4_ready:
+                try:
+                    _p4.record_no_trade_candidate(
+                        job_id=job_id, trace_id=trace_id,
+                        ticker=ticker, scan_date=scan_date,
+                        call_score=float(call_score),
+                        put_score=float(put_score),
+                        rejection_reasons=[
+                            "NO_TRADE: neither direction meets score+margin gates",
+                            f"call_score={call_score} put_score={put_score} "
+                            f"margin={round(margin, 1)}",
+                        ],
+                        market_snapshot={
+                            "call_score": float(call_score),
+                            "put_score":  float(put_score),
+                            "margin":     round(float(margin), 1),
+                            "trace_id":   trace_id,
+                        },
+                        spot_at_rejection=None,
+                        db_url=_DB_URL,
+                    )
+                except Exception as _p4_nt_e:
+                    log.warning(f"[phase4] record_no_trade_candidate failed: {_p4_nt_e}")
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
                     "call_score": call_score, "put_score": put_score,
                     "trace_id": trace_id, "chain_hash": _nt_chain_hash}
@@ -1873,6 +1918,18 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             log.error(f"[exec] failed to write FAILED status: {de}")
 
         _write_heartbeat(False, err_msg)
+        # ── Phase 4: record operational incident ─────────────────────────────
+        if _p4_ready:
+            try:
+                _p4.record_incident(
+                    failure_source="options_pipeline_scheduler:_execute_job",
+                    error_text=err_msg,
+                    ticker=ticker, scan_date=scan_date,
+                    reference_id=f"opj_{job_id}",
+                    db_url=_DB_URL,
+                )
+            except Exception as _p4_inc_e:
+                log.debug(f"[phase4] record_incident skipped: {_p4_inc_e}")
         _tg(
             f"❌ <b>OPTIONS PIPELINE FAILED</b>\n"
             f"job_id={job_id}  ticker={ticker}  trace_id={trace_id}\n"
@@ -2000,6 +2057,13 @@ def grade_outcomes_job() -> dict:
             _p3g.rebuild_all_scorecards(db_url=_DB_URL)
         except Exception as _p3g_e:
             log.warning(f"[phase3] grade_outcomes_job p3 step failed: {_p3g_e}")
+        # ── Phase 4: No-Trade outcome tracking + operational failure scan ───────
+        try:
+            import aiem_options_phase4 as _p4g
+            _p4g.track_no_trade_outcomes(days_back=30, db_url=_DB_URL)
+            _p4g.scan_operational_failures(days_back=7, db_url=_DB_URL)
+        except Exception as _p4g_e:
+            log.warning(f"[phase4] grade_outcomes_job p4 step failed: {_p4g_e}")
         if n:
             _tg(
                 f"📊 <b>OPTIONS OUTCOMES GRADED</b>\n"

@@ -637,18 +637,37 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
                 # ── Stage 9: Learning hash ─────────────────────────────────────
                 stage_hashes = json.loads(sh_raw) if isinstance(sh_raw, str) else (sh_raw or {})
                 prev_chain   = stage_hashes.get("8_db_write", prev_hash)
+                # ── Phase 4: portfolio learning guard (hard invariant) ────────
+                # Profitable trades that violated portfolio limits at entry must
+                # NOT be learned as acceptable.  Guard forces decision_quality=BAD.
+                _p4_decision_quality = "PASS"
+                _p4_violated_limits: list = []
+                try:
+                    import aiem_options_phase4 as _p4pl
+                    _p4_guard = _p4pl.apply_portfolio_learning_guard(
+                        alert_id=aid,
+                        pnl_pct=pnl_pct_val,
+                        db_url=_DB_URL,
+                    )
+                    _p4_decision_quality = _p4_guard.get("decision_quality", "PASS")
+                    _p4_violated_limits  = _p4_guard.get("violated_limits", [])
+                except Exception:
+                    pass
                 learning_data = {
-                    "alert_id":       aid,
-                    "ticker":         ticker,
-                    "direction":      direction,
-                    "strike":         float(strike_f),
-                    "expiry":         str(expiry),
-                    "entry_prem":     entry_prem,
-                    "final_price":    final_price,
-                    "intrinsic":      round(intrinsic, 4),
-                    "pnl":            round(pnl, 4),
-                    "pnl_pct":        round(pnl_pct_val, 4),
-                    "outcome":        outcome_str,
+                    "alert_id":              aid,
+                    "ticker":                ticker,
+                    "direction":             direction,
+                    "strike":                float(strike_f),
+                    "expiry":                str(expiry),
+                    "entry_prem":            entry_prem,
+                    "final_price":           final_price,
+                    "intrinsic":             round(intrinsic, 4),
+                    "pnl":                   round(pnl, 4),
+                    "pnl_pct":               round(pnl_pct_val, 4),
+                    "outcome":               outcome_str,
+                    "decision_quality":      _p4_decision_quality,
+                    "portfolio_violated":    bool(_p4_violated_limits),
+                    "portfolio_violations":  _p4_violated_limits,
                 }
                 h9  = _compute_stage_hash("9_learning", learning_data, prev_chain)
 

@@ -1,0 +1,120 @@
+====== verified_run.sh ======
+SEQ=22
+TS=2026-07-18T21:45:37Z
+CMD=python verify_phase4.py
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=41cd9576002d153ef3f61e08d682a71ae6c94fd9
+==============================
+
+[2026-07-18T21:45:37Z] ===== verify_phase4.py START =====
+[2026-07-18T21:45:37Z] INFO  DB_URL=set
+
+[2026-07-18T21:45:37Z] --- SECTION A: bootstrap_phase4 ---
+[2026-07-18T21:45:40Z] PASS  A.bootstrap_phase4_returns_true  |  result=True
+[2026-07-18T21:45:40Z] PASS  A.table_exists_oe_portfolio_context  |  exists=True
+[2026-07-18T21:45:40Z] PASS  A.table_exists_oe_no_trade_candidates  |  exists=True
+[2026-07-18T21:45:40Z] PASS  A.table_exists_oe_incidents  |  exists=True
+
+[2026-07-18T21:45:40Z] --- SECTION B: Section 17 — classify_incident (TEST-3) ---
+[2026-07-18T21:45:40Z] PASS  B.classify_TER_is_OPERATIONAL  |  classification=OPERATIONAL
+[2026-07-18T21:45:40Z] PASS  B.classify_TER_type_is_MISSING_DATA  |  failure_type=MISSING_DATA
+[2026-07-18T21:45:40Z] PASS  B.classify_TER_has_recommendation  |  recommendation='Check polygon_market_daily + options_structure_scan for scan'
+[2026-07-18T21:45:40Z] INFO  TER classify → type=MISSING_DATA cls=OPERATIONAL
+[2026-07-18T21:45:40Z] PASS  B.model_error_still_OPERATIONAL  |  cls=OPERATIONAL ftype=UNKNOWN_OPERATIONAL
+[2026-07-18T21:45:40Z] INFO  model gate error classify → cls=OPERATIONAL ftype=UNKNOWN_OPERATIONAL
+
+[2026-07-18T21:45:40Z] INFO  Running scan_operational_failures(days_back=14) ...
+[2026-07-18T21:45:40Z] INFO  B.scan_operational_failures_result  |  new_incidents=4 sources=['job_heartbeats:niche_segment_weekly', 'job_heartbeats:vix_daily_fetch', 'job_heartbeats:watchdog_github_actions', 'job_heartbeats:options_pipeline_scheduler']
+[2026-07-18T21:45:40Z] INFO  TER incidents in DB: 1
+[2026-07-18T21:45:40Z] INFO    id=4 type=MISSING_DATA cls=OPERATIONAL err='missing Polygon/OSS data for TER 2026-07-17'
+[2026-07-18T21:45:41Z] PASS  B.TER_incident_classification_is_OPERATIONAL  |  classification=OPERATIONAL
+[2026-07-18T21:45:41Z] PASS  B.TER_incident_type_is_MISSING_DATA  |  failure_type=MISSING_DATA
+[2026-07-18T21:45:41Z] PASS  B.TER_incident_in_DB  |  db_row=(4, 'MISSING_DATA', 'OPERATIONAL')
+[2026-07-18T21:45:41Z] INFO  DB incident id=4 type=MISSING_DATA cls=OPERATIONAL
+
+[2026-07-18T21:45:41Z] --- SECTION C: Section 16 — No-Trade Learning (TEST-2) ---
+[2026-07-18T21:45:41Z] PASS  C.real_NO_TRADE_job_exists  |  count=1
+[2026-07-18T21:45:41Z] INFO  NO_TRADE job: id=29 ticker=MEC scan_date=2026-07-15 trace=1e13a3d06db72a71
+
+[2026-07-18T21:45:41Z] INFO  Running backfill_no_trade_candidates() ...
+[2026-07-18T21:45:41Z] INFO  C.backfill_result  |  filled=1 skipped=0 error=None
+[2026-07-18T21:45:41Z] PASS  C.oe_no_trade_candidates_has_rows  |  count=1
+[2026-07-18T21:45:41Z] INFO  candidate: id=1 job_id=29 ticker=MEC scan_date=2026-07-15 call=57.0 put=57.0
+[2026-07-18T21:45:41Z] PASS  C.MEC_2026_07_15_backfilled  |  row=(1, 'MEC', datetime.date(2026, 7, 15))
+
+[2026-07-18T21:45:41Z] INFO  Running track_no_trade_outcomes(days_back=30) ...
+[2026-07-18T21:45:41Z] INFO  C.track_no_trade_outcomes  |  graded=0
+[2026-07-18T21:45:41Z] INFO  outcome: ticker=MEC scan_date=2026-07-15 class=None t1=None t5=None
+
+[2026-07-18T21:45:41Z] INFO  Running compute_rejection_rates() ...
+[2026-07-18T21:45:41Z] INFO  rejection_rates: {"n_total": 1, "n_classified": 0, "n_false_rejection": 0, "n_correct_rejection": 0, "false_rejection_rate": null, "correct_rejection_rate": null, "statistical_claim": false, "reason": "n_classified=0 < min_n=20; rates are descriptive only"}
+[2026-07-18T21:45:41Z] PASS  C.rejection_rates_n_total_real  |  n_total=1
+[2026-07-18T21:45:41Z] PASS  C.rejection_rates_statistical_claim_false_when_n_lt_20  |  statistical_claim=False n_classified=0
+[2026-07-18T21:45:41Z] PASS  C.rejection_rates_has_honest_reason  |  reason='n_classified=0 < min_n=20; rates are descriptive only'
+[2026-07-18T21:45:41Z] PASS  C.TEST2_PASS_statistical_claim_suppressed_below_n20  |  n_classified=0 statistical_claim=False
+[2026-07-18T21:45:41Z] INFO  TEST-2: HONEST — n_classified=0<20, statistical_claim=False, rates are descriptive only.
+
+[2026-07-18T21:45:41Z] --- SECTION D: Section 15 — Portfolio Learning Guard (TEST-1) ---
+[2026-07-18T21:45:41Z] INFO  D.portfolio_book_state  |  n_open=23 total_risk=$29299 top_tickers=[('PSX', 6), ('NTLA', 4), ('MAA', 4), ('EW', 4), ('UMC', 1)]
+[2026-07-18T21:45:41Z] PASS  D.book_has_data_for_violation_test  |  n_open=23
+[2026-07-18T21:45:41Z] INFO  Book violates limits: n_open=23>=10 OR total_risk=$29299>=20000
+
+[2026-07-18T21:45:41Z] INFO  capture_portfolio_context(alert_id=25) ...
+[2026-07-18T21:45:41Z] INFO  context: {"captured": true, "n_open": 23, "total_risk_usd": 29299.0, "violations": ["MAX_OPEN_POSITIONS: 23 >= 10", "MAX_SINGLE_TICKER: NTLA appears 4x > 2", "MAX_SINGLE_TICKER: PSX appears 6x > 2", "MAX_SINGLE_TICKER: EW appears 4x > 2", "MAX_SINGLE_TICKER: MAA appears 4x > 2", "MAX_TOTAL_RISK_USD: $29299 >= $20000"], "any_violation": true}
+[2026-07-18T21:45:41Z] PASS  D.capture_succeeded  |  captured=True error=None
+[2026-07-18T21:45:41Z] INFO  D.portfolio_context_violations  |  n_open=23 any_violation=True violations=['MAX_OPEN_POSITIONS: 23 >= 10', 'MAX_SINGLE_TICKER: NTLA appears 4x > 2', 'MAX_SINGLE_TICKER: PSX appears 6x > 2', 'MAX_SINGLE_TICKER: EW appears 4x > 2', 'MAX_SINGLE_TICKER: MAA appears 4x > 2', 'MAX_TOTAL_RISK_USD: $29299 >= $20000']
+[2026-07-18T21:45:41Z] PASS  D.context_row_in_DB  |  trace_id=p4test_verify_25
+[phase4] portfolio_guard: alert_id=25 pnl_pct=10.00% FORCED BAD — violations: ['MAX_OPEN_POSITIONS: 23 >= 10', 'MAX_SINGLE_TICKER: NTLA appears 4x > 2', 'MAX_SINGLE_TICKER: PSX appears 6x > 2', 'MAX_SINGLE_TICKER: EW appears 4x > 2', 'MAX_SINGLE_TICKER: MAA appears 4x > 2', 'MAX_TOTAL_RISK_USD: $29299 >= $20000']
+[2026-07-18T21:45:41Z] INFO  DB row: id=1 alert_id=25 n_open=23 risk=$29299 any_viol=True
+[2026-07-18T21:45:41Z] INFO  DB violations: ['MAX_OPEN_POSITIONS: 23 >= 10', 'MAX_SINGLE_TICKER: NTLA appears 4x > 2', 'MAX_SINGLE_TICKER: PSX appears 6x > 2', 'MAX_SINGLE_TICKER: EW appears 4x > 2', 'MAX_SINGLE_TICKER: MAA appears 4x > 2', 'MAX_TOTAL_RISK_USD: $29299 >= $20000']
+
+[2026-07-18T21:45:41Z] INFO  apply_portfolio_learning_guard(alert_id=25, pnl_pct=0.10) ...
+[2026-07-18T21:45:41Z] INFO  guard result: {"decision_quality": "BAD", "violated_limits": ["MAX_OPEN_POSITIONS: 23 >= 10", "MAX_SINGLE_TICKER: NTLA appears 4x > 2", "MAX_SINGLE_TICKER: PSX appears 6x > 2", "MAX_SINGLE_TICKER: EW appears 4x > 2", "MAX_SINGLE_TICKER: MAA appears 4x > 2", "MAX_TOTAL_RISK_USD: $29299 >= $20000"], "reason": "profitable_but_portfolio_limits_violated_at_entry"}
+[2026-07-18T21:45:41Z] PASS  D.guard_returns_valid_decision_quality  |  decision_quality=BAD
+[2026-07-18T21:45:41Z] PASS  D.TEST1_PASS_guard_forces_BAD_on_profitable_violated_trade  |  decision_quality=BAD violations=['MAX_OPEN_POSITIONS: 23 >= 10', 'MAX_SINGLE_TICKER: NTLA appears 4x > 2', 'MAX_SINGLE_TICKER: PSX appears 6x > 2', 'MAX_SINGLE_TICKER: EW appears 4x > 2', 'MAX_SINGLE_TICKER: MAA appears 4x > 2', 'MAX_TOTAL_RISK_USD: $29299 >= $20000'] pnl_pct=0.10
+[2026-07-18T21:45:41Z] PASS  D.guard_reason_mentions_portfolio  |  reason='profitable_but_portfolio_limits_violated_at_entry'
+[2026-07-18T21:45:41Z] PASS  D.guard_violated_limits_non_empty  |  violated_limits=['MAX_OPEN_POSITIONS: 23 >= 10', 'MAX_SINGLE_TICKER: NTLA appears 4x > 2', 'MAX_SINGLE_TICKER: PSX appears 6x > 2', 'MAX_SINGLE_TICKER: EW appears 4x > 2', 'MAX_SINGLE_TICKER: MAA appears 4x > 2', 'MAX_TOTAL_RISK_USD: $29299 >= $20000']
+[2026-07-18T21:45:41Z] INFO  TEST-1: PROOF — profitable trade with violations → decision_quality=BAD (NOT learned as acceptable)
+[2026-07-18T21:45:41Z] PASS  D.guard_PASS_on_loss_even_with_violations  |  decision_quality_on_loss=PASS
+[2026-07-18T21:45:41Z] INFO  loss trade decision_quality=PASS (guard does not penalise losses as portfolio violations)
+
+[2026-07-18T21:45:41Z] INFO  Running backfill_portfolio_context() ...
+[2026-07-18T21:45:43Z] INFO  D.backfill_portfolio_context  |  filled=24 error=None
+[2026-07-18T21:45:43Z] INFO  oe_portfolio_context: total=25 with_violations=25
+[2026-07-18T21:45:43Z] INFO  D.portfolio_learning_report  |  {"total_captures": 25, "with_violations": 25, "profitable_and_violated": 0, "guard_status": "no_profitable_violated_graded_yet"}
+
+[2026-07-18T21:45:43Z] --- SECTION E: Pipeline wiring — Stage 9 learning_data ---
+[2026-07-18T21:45:43Z] PASS  E.pipeline_has_decision_quality_field  |  matches=3
+[2026-07-18T21:45:43Z] INFO  668:                    "decision_quality":      _p4_decision_quality,
+[2026-07-18T21:45:43Z] INFO  669:                    "portfolio_violated":    bool(_p4_violated_limits),
+[2026-07-18T21:45:43Z] INFO  670:                    "portfolio_violations":  _p4_violated_limits,
+[2026-07-18T21:45:43Z] PASS  E.pipeline_imports_phase4  |  grep hits=2
+[2026-07-18T21:45:43Z] INFO  646:                    import aiem_options_phase4 as _p4pl
+[2026-07-18T21:45:43Z] INFO  647:                    _p4_guard = _p4pl.apply_portfolio_learning_guard(
+
+[2026-07-18T21:45:43Z] --- SECTION F: Scheduler wiring ---
+[2026-07-18T21:45:43Z] PASS  F.scheduler_phase4_import  |  grep_count=2 pattern='import aiem_options_phase4'
+[2026-07-18T21:45:43Z] INFO  F.scheduler_phase4_import: 2 occurrence(s)
+[2026-07-18T21:45:43Z] PASS  F.scheduler_bootstrap_phase4  |  grep_count=1 pattern='bootstrap_phase4'
+[2026-07-18T21:45:43Z] INFO  F.scheduler_bootstrap_phase4: 1 occurrence(s)
+[2026-07-18T21:45:43Z] PASS  F.scheduler_capture_portfolio_ctx  |  grep_count=2 pattern='capture_portfolio_context'
+[2026-07-18T21:45:43Z] INFO  F.scheduler_capture_portfolio_ctx: 2 occurrence(s)
+[2026-07-18T21:45:43Z] PASS  F.scheduler_record_no_trade  |  grep_count=2 pattern='record_no_trade_candidate'
+[2026-07-18T21:45:43Z] INFO  F.scheduler_record_no_trade: 2 occurrence(s)
+[2026-07-18T21:45:43Z] PASS  F.scheduler_record_incident  |  grep_count=2 pattern='record_incident'
+[2026-07-18T21:45:43Z] INFO  F.scheduler_record_incident: 2 occurrence(s)
+[2026-07-18T21:45:43Z] PASS  F.scheduler_track_no_trade  |  grep_count=1 pattern='track_no_trade_outcomes'
+[2026-07-18T21:45:43Z] INFO  F.scheduler_track_no_trade: 1 occurrence(s)
+[2026-07-18T21:45:43Z] PASS  F.scheduler_scan_op_failures  |  grep_count=1 pattern='scan_operational_failures'
+[2026-07-18T21:45:43Z] INFO  F.scheduler_scan_op_failures: 1 occurrence(s)
+
+[2026-07-18T21:45:43Z] ===== SUMMARY =====
+[2026-07-18T21:45:43Z] PASS=35  FAIL=0  INFO=7  TOTAL_CHECKS=35
+[2026-07-18T21:45:43Z] OVERALL: PASS
+
+==============================
+SEQ=22  EXIT=0  TS_END=2026-07-18T21:45:43Z
+sha256(log)=0dfe65a7779b8922356c895608ba0d59b2dbd0c46b2ded5a15264ceeb1b00e76
+==============================

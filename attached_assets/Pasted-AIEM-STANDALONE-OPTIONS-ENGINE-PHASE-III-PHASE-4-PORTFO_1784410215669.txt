@@ -1,0 +1,44 @@
+AIEM STANDALONE OPTIONS ENGINE — PHASE III, PHASE 4
+PORTFOLIO & OPERATIONAL LEARNING
+============================================================
+Standalone Options Engine only. Do not modify/connect to D1-D3.
+No mocks. No fabricated evidence. No manual DB inserts. Paper trading only.
+Requires Phases 1-3 verified and closed. DO NOT start Phase 5 until this
+phase is independently verified.
+
+15. PORTFOLIO LEARNING
+Connect directly to Phase II Portfolio Optimization and Portfolio Risk
+Engine. Learn from: position sizing, total capital allocation, cash
+utilization, BP utilization, reserved capital, ticker/sector/industry/
+strategy/expiration/strike concentration, volatility exposure, portfolio
+Greeks, correlation, diversification, drawdown, daily P/L, risk-adjusted
+return, blocked vs accepted recommendations, competing uses of capital.
+Optimize the whole portfolio, not isolated trade win rate. A trade that
+profits while violating portfolio objectives must not be learned as
+acceptable.
+
+16. NO-TRADE LEARNING
+Treat No Trade as a first-class decision. Per No Trade: store all
+candidates considered, exact rejection reasons, point-in-time market
+snapshot, track subsequent underlying/options outcomes, determine whether
+avoiding the trade preserved capital or rejected a valid opportunity,
+attribute rejection to responsible rules, measure false-rejection and
+correct-rejection rates. Include No Trade performance in calibration/
+learning reports.
+
+17. OPERATIONAL & SYSTEM-FAILURE LEARNING
+Learn from non-market failures: missed/delayed scans, Polygon outages,
+missing chains, stale quotes, partial data, rate limits, worker crashes,
+scheduler failures, DB failures, duplicate processing, stale claims, queue
+failures, execution failures, alert failures, verification-chain failures.
+Operational failures must generate incidents/remediation recommendations
+and must never be mislabeled as trading-model errors.
+
+STRICT VERIFICATION FOR THIS PHASE
+- Portfolio-limit prevention test: a profitable trade that violates
+  portfolio objectives is proven NOT learned as acceptable.
+- False-rejection / correct-rejection rate calculation proven against real
+  No Trade history, not narrative claim.
+- Operational-vs-model-error mislabeling test: at least one real
+  operational failure proven correctly classified as operational.
+- Full standing evidence checklist applies.
