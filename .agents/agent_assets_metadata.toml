@@ -636,3 +636,9 @@ id = "CkrjHjtymqfr1oP5POyyx"
 uri = "file://phase3_gap_followup_proof.txt"
 type = "text"
 title = "Phase 3 Gap Follow-up Proof — SEQ=20 EXIT=0"
+
+[[outputs]]
+id = "qphjUYuNa9fgNEQv1_9q2"
+uri = "file://artifacts/stock-scanner-api/tools/phase5_evidence_full.txt"
+type = "text"
+title = "Phase 5 Full Evidence Package"
