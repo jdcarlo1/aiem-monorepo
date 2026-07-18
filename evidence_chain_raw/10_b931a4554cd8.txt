@@ -1,0 +1,81 @@
+INSUFFICIENT_DATA COUNT: 10
+
+pattern_name  : abandoned_baby_bearish
+source_file   : candlestick_patterns.py
+function_name : is_abandoned_baby_bearish
+function_sha  : 308bd0925872bf149b307b361c774cdd534d86bf7e148a2f718117f80b97ca28
+fires(n)      : 1
+notes         : fires=1 universe_pos=3668 — below min_signals=3
+enabled       : False
+
+pattern_name  : concealing_baby_swallow
+source_file   : candlestick_patterns.py
+function_name : is_concealing_baby_swallow
+function_sha  : db6c1fe87d2d0b96d5227ab7bc62954cc2c49fcd969ffc774d875b1a30b9d459
+fires(n)      : 0
+notes         : fires=0 universe_pos=3496 — below min_signals=3
+enabled       : False
+
+pattern_name  : falling_three_methods
+source_file   : candlestick_patterns.py
+function_name : is_falling_three_methods
+function_sha  : 13728767e4c354fb3d965d1ce610d169867c30702f7c80f5f2ed172ffb68142a
+fires(n)      : 0
+notes         : fires=0 universe_pos=3668 — below min_signals=3
+enabled       : False
+
+pattern_name  : rising_three_methods
+source_file   : candlestick_patterns.py
+function_name : is_rising_three_methods
+function_sha  : 063271d8fc09cca90e093c124ab219ac470c6431ac3cae070c08890b9edb6f12
+fires(n)      : 0
+notes         : fires=0 universe_pos=3496 — below min_signals=3
+enabled       : False
+
+pattern_name  : three_stars_south
+source_file   : candlestick_patterns.py
+function_name : is_three_stars_south
+function_sha  : b1773a14a31b94631f9fd3c28d7de40669409a32ca642241211435610777bfee
+fires(n)      : 0
+notes         : fires=0 universe_pos=3496 — below min_signals=3
+enabled       : False
+
+pattern_name  : harmonic_bat
+source_file   : aiem_harmonic_patterns.py
+function_name : _check_bat
+function_sha  : f356b3257daf9cd2e9012f4c3c66b25d01350b0cf8f471f9a1ac00ea94b7ba84
+fires(n)      : 0
+notes         : fires=0 universe_pos=7164 — below min_signals=3
+enabled       : False
+
+pattern_name  : harmonic_butterfly
+source_file   : aiem_harmonic_patterns.py
+function_name : _check_butterfly
+function_sha  : 11ae874be421a2ad75cf6bac5adafe85ee4cc08b0ceb0470a28a0891b1394649
+fires(n)      : 0
+notes         : fires=0 universe_pos=7164 — below min_signals=3
+enabled       : False
+
+pattern_name  : harmonic_crab
+source_file   : aiem_harmonic_patterns.py
+function_name : _check_crab
+function_sha  : f47cdf32136a1ec7748c8704c2c0b88a2b5f00a9a27c1ab0fcb9800e954ce7e7
+fires(n)      : 0
+notes         : fires=0 universe_pos=7164 — below min_signals=3
+enabled       : False
+
+pattern_name  : harmonic_cypher
+source_file   : aiem_harmonic_patterns.py
+function_name : _check_cypher
+function_sha  : f4077507c9e7f7aca0e1d65f73abbf277b94fd8710923ef004258c61b5837cc0
+fires(n)      : 0
+notes         : fires=0 universe_pos=7164 — below min_signals=3
+enabled       : False
+
+pattern_name  : harmonic_gartley
+source_file   : aiem_harmonic_patterns.py
+function_name : _check_gartley
+function_sha  : c99164165198a22928ab8648cd298e4ba07b0405d85e711d09a65aca04e3e050
+fires(n)      : 0
+notes         : fires=0 universe_pos=7164 — below min_signals=3
+enabled       : False
