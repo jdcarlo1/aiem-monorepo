@@ -8,11 +8,14 @@ IMPLEMENTED:
 - Named correlation groups (mega_tech, semis, ev_meme, biotech_meme, crypto_adjacent)
 - Historical return correlation from polygon_market_daily (30-day EOD window)
 - Sector/industry overlap via TICKER_SECTOR_MAP
-- Beta similarity (proxy: same sector ETF → same systematic risk)
+- Beta similarity (proxy: same named cluster → same systematic-risk factor)
 
-NOT_IMPLEMENTED v1:
+NOT_IMPLEMENTED v1 (see NOT_IMPLEMENTED_V1 in config.py):
 - Intraday correlation (no intraday bar history available)
 - Common-factor exposure beyond sector/beta (no Fama-French factor model)
+- Tail-risk correlation (no multi-asset tail model)
+- Macro-event overlap (no FOMC/CPI calendar feed)
+- Earnings overlap (no earnings date API)
 """
 from __future__ import annotations
 import os, math
@@ -49,12 +52,13 @@ class CorrelationCluster:
 
 @dataclass
 class CorrelationResult:
-    clusters:               List[CorrelationCluster]
+    clusters:                List[CorrelationCluster]
     candidate_overlap_score: float   # 0 = no overlap, 1 = full duplicate
-    duplicate_risk_score:   float    # 0-1, combines cluster + EOD correlation
-    action:                 str      # APPROVE / REDUCE / REJECT
-    historical_corr:        Optional[float]  # EOD 30-day correlation, None if unavailable
-    not_implemented_items:  List[str] = field(default_factory=list)
+    duplicate_risk_score:    float   # 0-1, combines cluster + EOD correlation
+    action:                  str     # APPROVE / REDUCE / REJECT
+    historical_corr:         Optional[float]        # EOD 30-day Pearson, None if unavailable
+    beta_similarity_score:   Optional[float] = None # 0-1 same-factor proxy via cluster membership
+    not_implemented_items:   List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -66,10 +70,14 @@ class CorrelationResult:
                 for c in self.clusters
             ],
             "candidate_overlap_score": round(self.candidate_overlap_score, 4),
-            "duplicate_risk_score": round(self.duplicate_risk_score, 4),
-            "action": self.action,
+            "duplicate_risk_score":    round(self.duplicate_risk_score, 4),
+            "action":                  self.action,
             "historical_corr": (
                 round(self.historical_corr, 4) if self.historical_corr is not None else None
+            ),
+            "beta_similarity_score": (
+                round(self.beta_similarity_score, 4)
+                if self.beta_similarity_score is not None else None
             ),
             "not_implemented_items": self.not_implemented_items,
         }
@@ -129,6 +137,35 @@ def _pearson_corr(xs: List[float], ys: List[float]) -> Optional[float]:
     return cov / (sx * sy)
 
 
+def _beta_similarity(
+    candidate_ticker: str,
+    existing_tickers: List[str],
+) -> Optional[float]:
+    """
+    Proxy beta similarity score (0-1) based on shared named-cluster membership.
+
+    Two tickers in the same named cluster share the same systematic-risk factor
+    (e.g., NVDA + AMD are both driven by AI chip demand, TSLA + RIVN by EV sentiment).
+    Score:
+      - 1.0  if candidate shares a named cluster with ≥2 existing positions
+      - 0.75 if candidate shares a named cluster with 1 existing position
+      - 0.0  if no shared named cluster
+    """
+    if not existing_tickers:
+        return 0.0
+    shared = 0
+    for cluster_set in CORRELATION_GROUPS.values():
+        if candidate_ticker.upper() in cluster_set:
+            for t in existing_tickers:
+                if t.upper() in cluster_set:
+                    shared += 1
+    if shared >= 2:
+        return 1.0
+    if shared == 1:
+        return 0.75
+    return 0.0
+
+
 def check_correlation(
     snapshot: PortfolioSnapshot,
     candidate_ticker: str,
@@ -178,6 +215,9 @@ def check_correlation(
         if max_corr > 0:
             historical_corr = round(max_corr, 4)
 
+    # ── Beta similarity (named-cluster proxy) ─────────────────────────────────
+    beta_sim = _beta_similarity(candidate_ticker, existing_tickers)
+
     # ── Overlap score ─────────────────────────────────────────────────────────
     cluster_breach = any(c.action in ("REDUCE", "REJECT") for c in clusters)
     eod_high       = historical_corr is not None and historical_corr >= CORRELATION_HIGH_THRESHOLD
@@ -200,11 +240,21 @@ def check_correlation(
     else:
         action = "APPROVE"
 
+    # NOT_IMPLEMENTED items reported on every result
+    not_impl = [
+        NOT_IMPLEMENTED_V1[0],   # intraday_correlation
+        NOT_IMPLEMENTED_V1[3],   # common_factor_exposure
+        NOT_IMPLEMENTED_V1[6],   # tail_risk_correlation
+        NOT_IMPLEMENTED_V1[7],   # macro_event_overlap
+        NOT_IMPLEMENTED_V1[8],   # earnings_overlap
+    ]
+
     return CorrelationResult(
         clusters                = clusters,
         candidate_overlap_score = overlap_score,
         duplicate_risk_score    = dup_score,
         action                  = action,
         historical_corr         = historical_corr,
-        not_implemented_items   = [NOT_IMPLEMENTED_V1[0], NOT_IMPLEMENTED_V1[3]],
+        beta_similarity_score   = beta_sim,
+        not_implemented_items   = not_impl,
     )

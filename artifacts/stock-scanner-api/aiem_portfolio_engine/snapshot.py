@@ -265,6 +265,28 @@ def build_snapshot(trace_id: str, db_url: str) -> PortfolioSnapshot:
         )
 
 
+def detect_stale_quotes(snapshot: PortfolioSnapshot) -> List[str]:
+    """
+    Return a list of tickers whose option legs ALL have bid=0 and ask=0.
+    A position where every option leg has zero bid/ask is treated as having
+    stale or invalid market data and should not be used for risk calculations.
+
+    Stock-only legs (asset_type='STOCK') are excluded from the staleness check.
+    """
+    stale: List[str] = []
+    for pos in snapshot.positions:
+        option_legs = [lg for lg in pos.legs if lg.asset_type in ("CALL", "PUT")]
+        if not option_legs:
+            continue
+        all_stale = all(
+            (lg.bid is None or lg.bid == 0.0) and (lg.ask is None or lg.ask == 0.0)
+            for lg in option_legs
+        )
+        if all_stale:
+            stale.append(pos.ticker)
+    return stale
+
+
 def save_snapshot(snap: PortfolioSnapshot, db_url: str) -> str:
     """Persist snapshot to ape_portfolio_snapshots. Returns snapshot_id."""
     positions_list = []

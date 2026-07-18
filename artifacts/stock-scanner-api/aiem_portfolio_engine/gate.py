@@ -28,7 +28,7 @@ from typing import List, Dict, Any, Optional
 
 import psycopg2
 
-from .config import PE_GATING_ENABLED, pe_config_sha, NOT_IMPLEMENTED_V1
+from .config import PE_GATING_ENABLED, pe_config_sha, NOT_IMPLEMENTED_V1, GATE_STEPS
 from .db import bootstrap_portfolio_tables
 from .snapshot import PortfolioSnapshot, build_snapshot, save_snapshot
 from .greeks import PortfolioGreeks, compute_portfolio_greeks, save_portfolio_greeks
@@ -104,6 +104,7 @@ class PortfolioDecision:
     greeks_after:        Optional[Dict] = None
     reconcile_error:     Optional[str] = None
     not_implemented:     List[str] = field(default_factory=list)
+    executed_steps:      List[str] = field(default_factory=list)
 
     def gate_passed(self) -> bool:
         """True if the gate allows the trade to proceed."""
@@ -235,8 +236,10 @@ def run_portfolio_gate(
 
         # ── Extract candidate info ────────────────────────────────────────────
         c = _extract_candidate_info(evaluation, selection, ticker)
+        _steps: List[str] = []
 
         # ── Step 1: Build portfolio snapshot ─────────────────────────────────
+        _steps.append(GATE_STEPS[0])   # S01_reconcile_positions
         snapshot = build_snapshot(run_id, db_url)
         try:
             save_snapshot(snapshot, db_url)
@@ -251,9 +254,18 @@ def run_portfolio_gate(
                 config_sha, db_url,
             )
 
-        # ── Steps 2–7: BEFORE computations ───────────────────────────────────
+        # ── Step 2: BEFORE Greeks ─────────────────────────────────────────────
+        _steps.append(GATE_STEPS[1])   # S02_greeks_before
         greeks_before = compute_portfolio_greeks(snapshot.positions)
 
+        # ── Step 3: Concentration BEFORE ──────────────────────────────────────
+        _steps.append(GATE_STEPS[2])   # S03_concentration_before
+        # Derive first candidate strike for strike-area concentration check
+        _cand_strike = None
+        for _leg in c.get("candidate_legs", []):
+            if _leg.get("strike") is not None:
+                _cand_strike = float(_leg["strike"])
+                break
         conc_before = check_concentration(
             snapshot=snapshot,
             candidate_ticker=c["ticker"],
@@ -266,8 +278,11 @@ def run_portfolio_gate(
             candidate_expiry=c["expiry"],
             candidate_sector=c["sector"],
             candidate_is_undefined_risk=c["is_undefined_risk"],
+            candidate_strike=_cand_strike,
         )
 
+        # ── Step 4: Correlation risk ───────────────────────────────────────────
+        _steps.append(GATE_STEPS[3])   # S04_correlation_risk
         correlation = check_correlation(
             snapshot=snapshot,
             candidate_ticker=c["ticker"],
@@ -275,44 +290,75 @@ def run_portfolio_gate(
             db_url=db_url,
         )
 
+        # ── Step 5: Stress scenarios BEFORE ───────────────────────────────────
+        _steps.append(GATE_STEPS[4])   # S05_stress_before
         stress_before = run_stress_tests(
             snapshot=snapshot,
             candidate_legs=None,
             candidate_spot=c["spot"],
         )
 
+        # ── Step 6: Liquidity valuation BEFORE ────────────────────────────────
+        _steps.append(GATE_STEPS[5])   # S06_liquidity_before
         valuation_before = compute_liquidity_adjusted_valuation(
             snapshot=snapshot,
             candidate_legs=None,
             candidate_capital=0.0,
         )
 
-        wsl_before = worst_stress_loss(stress_before)
+        # ── Step 7: Risk budget BEFORE ────────────────────────────────────────
+        _steps.append(GATE_STEPS[6])   # S07_risk_budget_before
+        wsl_before    = worst_stress_loss(stress_before)
         budget_before = check_risk_budget(snapshot, greeks_before, wsl_before)
 
-        # ── Steps 8–12: AFTER computations ───────────────────────────────────
+        # ── Step 8: AFTER Greeks ──────────────────────────────────────────────
+        _steps.append(GATE_STEPS[7])   # S08_greeks_after
         greeks_after = compute_portfolio_greeks(
             snapshot.positions,
             candidate_legs=c["candidate_legs"],
             candidate_spot=c["spot"],
         )
 
+        # ── Step 9: Concentration AFTER (re-evaluate with candidate legs) ─────
+        _steps.append(GATE_STEPS[8])   # S09_concentration_after
+        conc_after = check_concentration(
+            snapshot=snapshot,
+            candidate_ticker=c["ticker"],
+            candidate_capital=c["capital"],
+            candidate_strategy_name=c["strategy_name"],
+            candidate_strategy_family=c["strategy_family"],
+            candidate_direction=c["direction"],
+            candidate_is_long_vol=c["is_long_vol"],
+            candidate_is_short_vol=c["is_short_vol"],
+            candidate_expiry=c["expiry"],
+            candidate_sector=c["sector"],
+            candidate_is_undefined_risk=c["is_undefined_risk"],
+            candidate_strike=_cand_strike,
+        )
+
+        # ── Step 10: Stress scenarios AFTER ───────────────────────────────────
+        _steps.append(GATE_STEPS[9])   # S10_stress_after
         stress_after = run_stress_tests(
             snapshot=snapshot,
             candidate_legs=c["candidate_legs"],
             candidate_spot=c["spot"],
         )
 
+        # ── Step 11: Liquidity valuation AFTER ────────────────────────────────
+        _steps.append(GATE_STEPS[10])  # S11_liquidity_after
         valuation_after = compute_liquidity_adjusted_valuation(
             snapshot=snapshot,
             candidate_legs=c["candidate_legs"],
             candidate_capital=c["capital"],
         )
 
-        wsl_after = worst_stress_loss(stress_after)
+        # ── Step 12: Risk budget AFTER ────────────────────────────────────────
+        _steps.append(GATE_STEPS[11])  # S12_risk_budget_after
+        wsl_after    = worst_stress_loss(stress_after)
         budget_after = check_risk_budget(snapshot, greeks_after, wsl_after)
 
-        # ── Step 13: Optimize ─────────────────────────────────────────────────
+        # ── Step 13: Optimize & decide ────────────────────────────────────────
+        _steps.append(GATE_STEPS[12])  # S13_optimize_decide
         optimization = optimize_portfolio(
             snapshot                = snapshot,
             candidate_ticker        = c["ticker"],
@@ -416,6 +462,7 @@ def run_portfolio_gate(
             greeks_after       = greeks_after.to_dict(),
             reconcile_error    = None,
             not_implemented    = NOT_IMPLEMENTED_V1,
+            executed_steps     = _steps,
         )
 
         _save_gate_decision(decision, c, db_url)

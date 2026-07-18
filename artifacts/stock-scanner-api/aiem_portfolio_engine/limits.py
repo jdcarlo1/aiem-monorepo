@@ -12,27 +12,32 @@ from .snapshot import PortfolioSnapshot, PortfolioPosition
 from .greeks import PortfolioGreeks
 from .config import (
     PORTFOLIO_CAPITAL, CONTRACT_MULTIPLIER,
-    MAX_TICKER_CONCENTRATION, MAX_SECTOR_CONCENTRATION, MAX_STRATEGY_FAMILY_CONC,
-    MAX_EXPIRATION_CONCENTRATION, MAX_BULLISH_CONCENTRATION, MAX_BEARISH_CONCENTRATION,
+    MAX_TICKER_CONCENTRATION, MAX_SECTOR_CONCENTRATION,
+    MAX_INDUSTRY_CONCENTRATION, MAX_STRATEGY_FAMILY_CONC,
+    MAX_EXPIRATION_CONCENTRATION, MAX_STRIKE_AREA_CONC,
+    MAX_BULLISH_CONCENTRATION, MAX_BEARISH_CONCENTRATION,
     MAX_LONG_VOL_CONCENTRATION, MAX_SHORT_VOL_CONCENTRATION, MAX_UNDEFINED_RISK_EXPOSURE,
     MAX_SIMULTANEOUS_POSITIONS, MAX_BUYING_POWER_UTILIZATION, MAX_PORTFOLIO_RISK_UTILIZATION,
     DAILY_LOSS_LIMIT, STRESS_TEST_LOSS_LIMIT, LIQUIDITY_ADJ_LOSS_LIMIT,
     MAX_PORTFOLIO_DELTA, MAX_PORTFOLIO_GAMMA, MAX_PORTFOLIO_VEGA, MAX_PORTFOLIO_THETA,
+    INDUSTRY_GROUPS,
 )
 
 
 @dataclass
 class ConcentrationBreach:
-    limit_name:   str
+    limit_name:    str
     current_value: float
-    limit_value:  float
-    details:      str
+    limit_value:   float
+    details:       str
 
 
 @dataclass
 class ConcentrationResult:
     ticker_pct:               float
     sector_pct:               float
+    industry_pct:             float
+    strike_pct:               float
     strategy_family_pct:      float
     expiration_pct:           float
     directional_bullish_pct:  float
@@ -46,18 +51,20 @@ class ConcentrationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "ticker_pct": round(self.ticker_pct, 4),
-            "sector_pct": round(self.sector_pct, 4),
-            "strategy_family_pct": round(self.strategy_family_pct, 4),
-            "expiration_pct": round(self.expiration_pct, 4),
-            "directional_bullish_pct": round(self.directional_bullish_pct, 4),
-            "directional_bearish_pct": round(self.directional_bearish_pct, 4),
-            "long_vol_pct": round(self.long_vol_pct, 4),
-            "short_vol_pct": round(self.short_vol_pct, 4),
-            "n_positions_after": self.n_positions_after,
-            "buying_power_utilization": round(self.buying_power_utilization, 4),
-            "risk_utilization": round(self.risk_utilization, 4),
-            "n_breaches": len(self.breaches),
+            "ticker_pct":                round(self.ticker_pct, 4),
+            "sector_pct":                round(self.sector_pct, 4),
+            "industry_pct":              round(self.industry_pct, 4),
+            "strike_pct":                round(self.strike_pct, 4),
+            "strategy_family_pct":       round(self.strategy_family_pct, 4),
+            "expiration_pct":            round(self.expiration_pct, 4),
+            "directional_bullish_pct":   round(self.directional_bullish_pct, 4),
+            "directional_bearish_pct":   round(self.directional_bearish_pct, 4),
+            "long_vol_pct":              round(self.long_vol_pct, 4),
+            "short_vol_pct":             round(self.short_vol_pct, 4),
+            "n_positions_after":         self.n_positions_after,
+            "buying_power_utilization":  round(self.buying_power_utilization, 4),
+            "risk_utilization":          round(self.risk_utilization, 4),
+            "n_breaches":                len(self.breaches),
             "breaches": [
                 {"limit": b.limit_name, "value": round(b.current_value, 4),
                  "limit_val": round(b.limit_value, 4), "details": b.details}
@@ -89,6 +96,8 @@ def check_concentration(
     candidate_expiry: Optional[str],
     candidate_sector: Optional[str],
     candidate_is_undefined_risk: bool = False,
+    candidate_industry: Optional[str] = None,
+    candidate_strike: Optional[float] = None,
 ) -> ConcentrationResult:
     """
     Compute all concentration metrics after adding the candidate position.
@@ -97,7 +106,6 @@ def check_concentration(
     breaches: List[ConcentrationBreach] = []
 
     all_positions = list(snapshot.positions)
-    total_capital = snapshot.committed_capital + candidate_capital
 
     # ── Ticker concentration ──────────────────────────────────────────────────
     ticker_capital = sum(
@@ -121,6 +129,45 @@ def check_concentration(
             "MAX_SECTOR_CONCENTRATION", sector_pct, MAX_SECTOR_CONCENTRATION,
             f"sector={cand_sector}: {sector_pct:.1%} > {MAX_SECTOR_CONCENTRATION:.1%}",
         ))
+
+    # ── Industry concentration (finer-grained than sector) ────────────────────
+    cand_industry_group = candidate_industry
+    if cand_industry_group is None:
+        for grp_name, grp_set in INDUSTRY_GROUPS.items():
+            if candidate_ticker.upper() in grp_set:
+                cand_industry_group = grp_name
+                break
+    industry_pct = 0.0
+    if cand_industry_group:
+        industry_set = INDUSTRY_GROUPS.get(cand_industry_group, set())
+        industry_capital = sum(
+            p.capital_at_risk for p in all_positions if p.ticker.upper() in industry_set
+        ) + candidate_capital
+        industry_pct = industry_capital / max(PORTFOLIO_CAPITAL, 1)
+        if industry_pct > MAX_INDUSTRY_CONCENTRATION:
+            breaches.append(ConcentrationBreach(
+                "MAX_INDUSTRY_CONCENTRATION", industry_pct, MAX_INDUSTRY_CONCENTRATION,
+                f"industry={cand_industry_group}: {industry_pct:.1%} > {MAX_INDUSTRY_CONCENTRATION:.1%}",
+            ))
+
+    # ── Strike-area concentration (±5% of candidate strike, same underlying) ─
+    strike_pct = 0.0
+    if candidate_strike is not None and candidate_strike > 0:
+        strike_low  = candidate_strike * 0.95
+        strike_high = candidate_strike * 1.05
+        strike_capital = sum(
+            p.capital_at_risk for p in all_positions
+            if p.ticker == candidate_ticker and any(
+                lg.strike is not None and strike_low <= lg.strike <= strike_high
+                for lg in p.legs
+            )
+        ) + candidate_capital
+        strike_pct = strike_capital / max(PORTFOLIO_CAPITAL, 1)
+        if strike_pct > MAX_STRIKE_AREA_CONC:
+            breaches.append(ConcentrationBreach(
+                "MAX_STRIKE_AREA_CONC", strike_pct, MAX_STRIKE_AREA_CONC,
+                f"{candidate_ticker} strike±5% area: {strike_pct:.1%} > {MAX_STRIKE_AREA_CONC:.1%}",
+            ))
 
     # ── Strategy-family concentration ─────────────────────────────────────────
     cand_fam = (candidate_strategy_family or candidate_strategy_name or "").upper()
@@ -231,6 +278,8 @@ def check_concentration(
     return ConcentrationResult(
         ticker_pct               = ticker_pct,
         sector_pct               = sector_pct,
+        industry_pct             = industry_pct,
+        strike_pct               = strike_pct,
         strategy_family_pct      = fam_pct,
         expiration_pct           = exp_pct,
         directional_bullish_pct  = bull_pct,
@@ -256,13 +305,13 @@ class RiskBudget:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "daily_loss_remaining": round(self.daily_loss_remaining, 2),
+            "daily_loss_remaining":      round(self.daily_loss_remaining, 2),
             "portfolio_delta_remaining": round(self.portfolio_delta_remaining, 4),
-            "portfolio_vega_remaining": round(self.portfolio_vega_remaining, 4),
+            "portfolio_vega_remaining":  round(self.portfolio_vega_remaining, 4),
             "portfolio_theta_floor_gap": round(self.portfolio_theta_floor_gap, 4),
-            "buying_power_remaining": round(self.buying_power_remaining, 2),
-            "stress_loss_remaining": round(self.stress_loss_remaining, 2),
-            "n_breaches": len(self.breaches),
+            "buying_power_remaining":    round(self.buying_power_remaining, 2),
+            "stress_loss_remaining":     round(self.stress_loss_remaining, 2),
+            "n_breaches":                len(self.breaches),
             "breaches": [
                 {"limit": b.limit_name, "value": round(b.current_value, 4),
                  "limit_val": round(b.limit_value, 4), "details": b.details}
@@ -272,15 +321,27 @@ class RiskBudget:
 
 
 def check_risk_budget(
-    snapshot: PortfolioSnapshot,
-    greeks_after: PortfolioGreeks,
+    snapshot:          PortfolioSnapshot,
+    greeks_after:      PortfolioGreeks,
     worst_stress_loss: float = 0.0,
+    daily_realized_pnl: float = 0.0,
 ) -> RiskBudget:
     """
     Check remaining risk budget across all budget dimensions.
-    worst_stress_loss: the worst-case stress scenario P/L (negative = loss).
+
+    worst_stress_loss   : worst-case stress scenario P/L (negative = loss).
+    daily_realized_pnl  : today's realized P&L on closed positions (negative = loss).
     """
     breaches: List[ConcentrationBreach] = []
+
+    # ── Daily loss budget enforcement ─────────────────────────────────────────
+    daily_loss_used = abs(min(daily_realized_pnl, 0.0))
+    daily_loss_remaining = DAILY_LOSS_LIMIT - daily_loss_used
+    if daily_loss_used > DAILY_LOSS_LIMIT:
+        breaches.append(ConcentrationBreach(
+            "DAILY_LOSS_LIMIT", daily_loss_used, DAILY_LOSS_LIMIT,
+            f"daily realized loss ${daily_loss_used:.2f} exceeds daily limit ${DAILY_LOSS_LIMIT:.2f}",
+        ))
 
     # ── Delta ─────────────────────────────────────────────────────────────────
     abs_delta = abs(greeks_after.total_delta)
@@ -325,7 +386,7 @@ def check_risk_budget(
         ))
 
     return RiskBudget(
-        daily_loss_remaining      = DAILY_LOSS_LIMIT,   # intraday P/L tracking NOT_IMPLEMENTED
+        daily_loss_remaining      = daily_loss_remaining,
         portfolio_delta_remaining = delta_remaining,
         portfolio_vega_remaining  = vega_remaining,
         portfolio_theta_floor_gap = theta_gap,

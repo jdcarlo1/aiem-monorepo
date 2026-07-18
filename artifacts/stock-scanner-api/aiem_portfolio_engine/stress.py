@@ -73,6 +73,13 @@ _SCENARIOS: List[Tuple[str, float, float, int]] = [
     ("sector_shock",          -0.06, +0.15, 0),
     ("correlation_convergence",0.00, +0.08, 0),
     ("combined_shock",        -0.05, +0.25, 1),
+    # ── Additional required scenarios ─────────────────────────────────────────
+    # assignment_risk: short option approaching expiry goes deep ITM (acute loss scenario)
+    ("assignment_risk",       -0.08, +0.25, 0),
+    # exercise_risk: long deep-ITM option exercised early; underlying reverses
+    ("exercise_risk",         +0.10, -0.10, 0),
+    # index_shock: broad-market crash (SPX -8%, vol spike +30%)
+    ("index_shock",           -0.08, +0.30, 0),
 ]
 
 

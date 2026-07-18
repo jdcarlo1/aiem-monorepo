@@ -214,6 +214,21 @@ def optimize_portfolio(
             f"(no_trade={no_trade_score:.3f} vs candidate={candidate_score:.3f})"
         )
 
+    elif (
+        correlation.action == "REDUCE"
+        and len(concentration.breaches) >= 1
+        and candidate_ev > 1.0
+    ):
+        # Positive EV but correlation + concentration overlap → suggest alternative structure
+        approved_size = max(1, requested_contracts // 2)
+        decision      = SUBSTITUTE
+        reasons.append(
+            f"SUBSTITUTE_LOWER_RISK: EV={candidate_ev:.2f} positive but "
+            f"correlation={correlation.action} + {len(concentration.breaches)} "
+            f"concentration breach(es); suggest alternative lower-risk structure"
+        )
+        reasons.append(f"utility delta: {score_delta:+.3f}")
+
     elif correlation.action == "REDUCE" or any(
         b for b in concentration.breaches if b.current_value > b.limit_value
     ):

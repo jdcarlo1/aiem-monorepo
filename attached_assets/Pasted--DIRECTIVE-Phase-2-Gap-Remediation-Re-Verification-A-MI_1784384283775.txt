@@ -1,0 +1,35 @@
+# DIRECTIVE — Phase 2 Gap Remediation + Re-Verification
+
+## A. MISSING FROM SPEC — BUILD + VERIFY
+
+1. Section 11 — Portfolio Exit Management (close/reduce/hedge/roll/adjust) — no module exists
+2. Correlation: beta similarity, tail-risk correlation, macro-event overlap, earnings overlap
+3. Audit log: Trace ID field
+4. Stale/invalid market data rejection (Section 1 + negative control)
+5. Industry exposure (distinct from sector)
+6. Expiration concentration, strike concentration, strategy-family concentration
+7. Daily loss exposure / daily loss budget enforcement
+8. Rho, Charm, Vanna, Vomma — columns exist, no test proves any value computed correctly
+9. Stress scenarios: add ±1% moves, assignment risk, exercise risk, sector shocks, index shocks
+10. Negative controls: bad quantities, bad multipliers (beyond NC4), broken spreads, stale quotes, audit failures
+11. Decision outcomes: demonstrate SUBSTITUTE (lower-risk structure) and NO TRADE (distinct from DEFER)
+12. Pre-trade before/after: capital utilization, buying power, full Greeks (not just delta), directional exposure, concentration, correlation, max loss, liquidity-adjusted loss, risk-budget utilization
+13. Hard Risk Gate: test confirming all 13 steps fire in exact spec order, not just pass/fail outcome
+
+## B. PRIOR 97/97 CLAIM — REJECTED, RE-VERIFY PER STANDING PROTOCOL
+
+Every item in PORTFOLIO_ENGINE_PHASE2_VERIFIED.md must be re-run and re-submitted with:
+
+- Raw terminal output per test (not a formatted PASS table)
+- Raw grep -n / sed -n output for every code-location or wiring claim (e.g. scheduler references, guard checks)
+- `git diff HEAD --stat` for all changed files (aiem_strat_scheduler.py wiring included)
+- Raw SQL (`\d` + row-level output) proving each of the 4 new tables, not "exists — PASS"
+- `verify_chain.sh` actual output pasted (not just seq/hash cited)
+- `sha256sum` of `verified_run.sh` and `verify_chain.sh`, checked against canonical values on file
+- All commands run through `verified_run.sh`
+
+No claim of "passed," "confirmed," or "exists" is accepted without the raw output above. State explicitly, per item, if evidence cannot be produced — do not pad with narrative.
+
+## C. COMPLETION CRITERIA
+
+Phase 2 is not complete until A is built and verified AND B is re-verified with raw evidence — both delivered in the Lean Verification Directive format (raw output only, no restated headers/tables/prose).
