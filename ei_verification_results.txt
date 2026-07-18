@@ -1,0 +1,103 @@
+[EI] evaluate_execution_quality EXCEPTION for FC4 <object object at 0x7fc0cac64870>: 'str' object has no attribute 'get'
+PASS  MODULE_IMPORT  (aiem_execution_intelligence imported)
+
+────────────────────────────────────────────────────────────
+  1. Mathematical Validation
+────────────────────────────────────────────────────────────
+PASS  FILL_PROB_HIGH_QUALITY_LEG  (fp=0.95 (expected ≥0.75))
+PASS  FILL_PROB_LOW_QUALITY_LEG  (fp=0.05 (expected ≤0.35))
+PASS  MID_FILL_LE_FILL_PROB  (mid_fill=0.855 ≤ fill=0.95)
+PASS  MID_FILL_LE_FILL_PROB_LOW  (mid_fill=0.0375 ≤ fill=0.05)
+PASS  FILL_PROB_BOUNDED_bid=0  (f=0.0)
+PASS  FILL_PROB_BOUNDED_bid=1.0  (f=0.95)
+PASS  FILL_PROB_BOUNDED_bid=0.01  (f=0.05)
+PASS  LIQUIDITY_SCORE_HIGH_QUALITY  (lq=0.975 (expected ≥0.65))
+PASS  LIQUIDITY_SCORE_ZERO_MID  (lq=0.0 (expected 0.0))
+PASS  LIQUIDITY_SCORE_BOUNDED  (ls=0.975)
+PASS  LIQUIDITY_SCORE_BOUNDED  (ls=0.0)
+PASS  COMMISSION_GT_ZERO  (commission=1.36)
+PASS  COST_TOTAL_EQUALS_PARTS  (total=4.8725)
+PASS  NET_EDGE_REASONABLE  (gross=50.0 net=42.1275 uncertainty=3.0)
+PASS  NET_EDGE_LT_GROSS  (net=42.1275 < gross=50.0)
+PASS  LEGGING_RISK_1LEG_ZERO  (lr=0.0)
+PASS  LEGGING_RISK_INCREASES_WITH_LEGS  (lr4=0.5904 > lr1=0.0)
+PASS  POSITION_SIZE_ZERO_IF_REJECTED  (psf=0.0)
+PASS  POSITION_SIZE_BOUNDED_APPROVED  (psf=0.925)
+
+────────────────────────────────────────────────────────────
+  2. Runtime Validation
+────────────────────────────────────────────────────────────
+PASS  RUNTIME_RETURNS_ASSESSMENT  (type=ExecutionAssessment)
+PASS  RUNTIME_CANDIDATE_ID_FORMAT  (candidate_id=ei_TEST_2026-07-18_fd66a028b2dc)
+PASS  RUNTIME_FILL_PROB_BOUNDED  (fill_prob=0.598)
+PASS  RUNTIME_LIQUIDITY_BOUNDED  (liq=0.8237)
+PASS  RUNTIME_TOTAL_COST_GT_ZERO  (total_cost=19.445)
+PASS  RUNTIME_NET_LT_GROSS  (net=11.334 gross=35.0)
+PASS  RUNTIME_N_LEGS_CORRECT  (n_legs=2)
+PASS  RUNTIME_CONFIG_SHA256_PRESENT  (sha256=f7b41ab19ebf6a1c…)
+PASS  RUNTIME_EXECUTION_SCORE_BOUNDED  (exec_score=0.7004)
+PASS  RUNTIME_POSITION_SIZE_FACTOR_BOUNDED  (psf=0.0)
+  GOOD_STRAT assessment: approved=False  reason=R8_costs_eliminate_edge: cost_frac=0.556 > 0.3
+  fill_prob=0.598  liq=0.8237  net_edge=11.334  exec_score=0.7004
+
+────────────────────────────────────────────────────────────
+  3. Database Verification
+────────────────────────────────────────────────────────────
+PASS  DB_URL_PRESENT  (DATABASE_URL configured)
+PASS  DB_TABLE_EXISTS  (aiem_execution_assessments)
+PASS  DB_ALL_REQUIRED_COLUMNS_PRESENT  (44 columns verified)
+PASS  DB_INDEX_TICKER_DATE  (idx_ei_ticker_date)
+PASS  DB_INDEX_TRACE_ID  (idx_ei_trace_id)
+PASS  DB_SAVE_RETURNS_CANDIDATE_ID  (candidate_id=ei_VERIFY_c1d99ddb)
+PASS  DB_ROUND_TRIP_READ  (row found candidate_id=ei_VERIFY_c1d99ddb)
+PASS  DB_TRACE_ID_STORED  (trace_id=verify_01ef1bcba454)
+PASS  DB_TICKER_STORED  (ticker=TEST)
+PASS  DB_CONFIG_SHA256_STORED  (sha256=f7b41ab19ebf6a1c…)
+PASS  DB_RAW_JSON_STORED  (raw_assessment_json not null)
+PASS  DB_GATING_ENABLED_STORED  (gating_enabled=False)
+PASS  DB_LEARNING_OUTCOME_RECORDED  (candidate_id=ei_VERIFY_c1d99ddb)
+PASS  DB_LEARNING_OUTCOME_STORED  (fill=2.5200 slip=0.0500)
+
+────────────────────────────────────────────────────────────
+  4. Audit Traceability
+────────────────────────────────────────────────────────────
+PASS  AUDIT_TRACE_ID_PROPAGATED  (trace_id=verify_01ef1bcba454)
+PASS  AUDIT_CANDIDATE_ID_UNIQUE  (candidate_id=ei_AUDIT_TEST_2026-07-18_eede62589a26)
+PASS  AUDIT_CONFIG_SHA256_64_CHARS  (sha256=f7b41ab19ebf6a1c…)
+PASS  AUDIT_RAW_JSON_PRESENT  (keys=['strategy', 'legs_count', 'per_leg_fp', 'exec_costs', 'gating_enabled'])
+PASS  AUDIT_SCAN_DATE_STORED  (scan_date=2026-07-18)
+
+────────────────────────────────────────────────────────────
+  5. Negative Controls — Rejection Rules
+────────────────────────────────────────────────────────────
+PASS  NC1_NO_QUOTE_REJECTED  (reason=R1_no_quote: call strike=100.0)
+PASS  NC2_SPREAD_TOO_WIDE_REJECTED  (reason=R2_spread_too_wide: call strike=100.0 spread=1.800 > 0.35)
+PASS  NC3_OI_INSUFFICIENT_REJECTED  (reason=R3_oi_insufficient: call strike=100.0 OI=5 < 50)
+PASS  NC4_VOLUME_INSUFFICIENT_REJECTED  (reason=R4_volume_insufficient: call strike=100.0 vol=2 < 20)
+PASS  NC5_LOW_FILL_PROB_REJECTED  (reason=R2_spread_too_wide: call strike=100.0 spread=1.600 > 0.35)
+PASS  NC6_COSTS_ELIMINATE_EDGE_REJECTED  (reason=R2_spread_too_wide: call strike=100.0 spread=1.670 > 0.35)
+
+────────────────────────────────────────────────────────────
+  6. Fail-Closed Behavior
+────────────────────────────────────────────────────────────
+PASS  FC1_EMPTY_LEGS_REJECTED  (reason=R10_no_option_legs)
+PASS  FC2_MISSING_EV_NO_CRASH  (approved=False net=-19.445)
+PASS  FC3_NONE_VALUES_REJECTED  (reason=R1_no_quote: call strike=100.0)
+PASS  FC4_EXCEPTION_RETURNS_REJECTED  (reason=EI_EXCEPTION: 'str' object has no attribute 'get')
+
+────────────────────────────────────────────────────────────
+  7. End-to-End Evidence: EI influences Options Engine recommendation
+────────────────────────────────────────────────────────────
+PASS  E2E_OBSERVE_MODE_PASSES_ALL  (2/2 strategies returned)
+PASS  E2E_ALL_ASSESSMENTS_RETURNED  (2 assessments for 2 strategies)
+PASS  E2E_GATING_REJECTS_BAD_STRATEGY  (2/2 rejected)
+PASS  E2E_GATING_FILTERS_PIPELINE  (0/2 passed gating)
+PASS  E2E_SCHEDULER_FILE_EXISTS  (/home/runner/workspace/artifacts/stock-scanner-api/aiem_options_scheduler.py)
+PASS  E2E_SCHEDULER_HAS_EI_STAGE  (Stage EI wired into aiem_options_scheduler.py)
+PASS  E2E_SCHEDULER_BOOTSTRAPS_EI_TABLE  (aiem_execution_assessments in scheduler bootstrap)
+
+════════════════════════════════════════════════════════════
+  RESULTS: 66 PASS  /  0 FAIL
+════════════════════════════════════════════════════════════
+ALL VERIFICATION REQUIREMENTS PASSED.
+EI_GATING_ENABLED may now be set to True in config.py to activate gating.

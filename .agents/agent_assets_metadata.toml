@@ -528,3 +528,9 @@ id = "xBpdQgsB8wLK9xxTaqxDL"
 uri = "file://aiem_options_remediation_summary.md"
 type = "text"
 title = "AIEM Options Engine Remediation — Completed Work Summary"
+
+[[outputs]]
+id = "ZvFHTXrHXuLWURvFXO9Ci"
+uri = "file://ei_verification_results.txt"
+type = "text"
+title = "EI Verification Results — 66 PASS / 0 FAIL"
