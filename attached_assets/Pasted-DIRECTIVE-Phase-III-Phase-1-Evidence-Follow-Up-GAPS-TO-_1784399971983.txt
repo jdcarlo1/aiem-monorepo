@@ -1,0 +1,47 @@
+DIRECTIVE — Phase III Phase 1 Evidence Follow-Up
+
+GAPS TO CLOSE (from raw_evidence_phase3p1.txt review):
+
+1. NO-HARDCODED-VALUES CHECK (new registry/snapshot code this phase)
+   - List every hardcoded-looking numeric constant introduced in
+     aiem_options_registries.py / aiem_options_scheduler.py this phase
+     (thresholds, defaults, fallback values in capture_options_metrics,
+     enrich_metrics_oss, assert_* functions, etc.)
+   - For each: raw grep/sed line + one-line trace to live source
+     (API call, computed formula, or DB query)
+   - "will be wired later" is not acceptable
+
+2. assert_data_freshness — UNTESTED
+   - Provide same negative-control treatment as assert_no_missing_indicators
+     and assert_pattern_scan_complete: run against stale/fake data,
+     paste raw uncaught traceback proving it actually raises
+   - Confirm _CRITICAL_FRESHNESS_IDS list is complete (currently only
+     seen as POLY_CLOSE_PRICE, OSS_FRONT_IV)
+
+3. BEFORE/AFTER SHA256 FOR THE THREE CHANGED FILES
+   - Item 2 gave only current-state hashes with no prior/baseline pair
+   - git diff HEAD --stat was empty (changes already committed at
+     ac8407526dfa236b8f1d40cd90390e0fbdeae6c7)
+   - Provide: git show --stat on that commit, OR diff against the
+     immediate parent commit, so the actual Phase 3 Part 1 changes to
+     these 3 files are visible and distinguishable from pre-existing code
+
+STANDING CHECKLIST (required on this and every directive):
+- Raw terminal output only — no paraphrasing, no narrative summaries
+  standing in for evidence
+- Raw grep -n / sed -n for any code location, call chain, or
+  function-existence claim
+- sha256 before/after for any file actually changed this session
+- Raw SQL query + full result set for any DB claim
+- sha256sum of tools/verified_run.sh and tools/verify_chain.sh,
+  checked against current canonical (verified_run.sh=8146a523...,
+  verify_chain.sh=ca7896c7...) — mismatch = validator drifted, output rejected
+- verify_chain.sh output required before declaring any directive complete
+- Data immutability: no delete/truncate/overwrite of any row, table,
+  or file (including "test"/"synthetic" data) without explicit prior
+  approval this session
+- Lean format: raw output only, no repeated headers/banners/dividers,
+  no restated context, no re-verification of anything unchanged
+  this session
+- If any item can't be backed by real command output, say so in one
+  line — no padding

@@ -570,3 +570,9 @@ id = "2xRmkSxdL0MJmvyRikq3K"
 uri = "file://artifacts/stock-scanner-api/raw_evidence_phase3p1.txt"
 type = "text"
 title = "Phase III Phase 1 Raw Evidence (verified_run.sh wrapped)"
+
+[[outputs]]
+id = "f2M4hT4FX_MucIRxVb_1K"
+uri = "file://artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt"
+type = "text"
+title = "Phase III Phase 1 Gap-Closure Evidence (SEQ=3, EXIT=0)"

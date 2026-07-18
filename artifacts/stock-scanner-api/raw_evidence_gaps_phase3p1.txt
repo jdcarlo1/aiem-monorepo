@@ -1,0 +1,1700 @@
+====== verified_run.sh ======
+SEQ=3
+TS=2026-07-18T18:44:36Z
+CMD=bash raw_evidence_gaps_phase3p1.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=6578c677024355419d8e524e9e3566a6c2b12f75
+==============================
+
+## ITEM 6 — sha256sum canonical check (required header)
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  /home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  /home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+canonical: verified_run.sh=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+canonical: verify_chain.sh=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+
+## ITEM 3 — BEFORE/AFTER SHA256 for the three changed files
+
+--- git log --oneline -5 ---
+6578c67 Provide raw evidence and verification outputs for system checks
+ac84075 Provide complete verification file for phase III phase 1
+287b70e Add comprehensive data capture and registry system for improved observability
+4f280e6 Update option pricing calculations and verification checks
+a25e0eb Update option data calculations and analysis script
+
+--- git show --stat 287b70e (Phase 1 code commit) ---
+commit 287b70e3b21ce91958d2791cc94216392269ea0d
+Author: Replit Agent <agent@replit.com>
+Date:   Sat Jul 18 18:20:14 2026 +0000
+
+    Add comprehensive data capture and registry system for improved observability
+    
+    Introduce new registry modules and update existing components to capture and store detailed indicator, pattern, and options metrics data, enhancing pipeline observability and verification capabilities.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: 94579601-cfe1-45d6-91d8-a1e5df71ac23
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/XMDGbMz
+    Replit-Helium-Checkpoint-Created: true
+
+ .../stock-scanner-api/aiem_options_pipeline.py     |   7 +
+ .../stock-scanner-api/aiem_options_registries.py   | 836 +++++++++++++++++++++
+ .../stock-scanner-api/aiem_options_scheduler.py    | 445 +++++++++++
+ .../stock-scanner-api/verify_phase3_phase1.sh      | 420 +++++++++++
+ ...GINE-PHASE-III-PHASE-1-DATA-C_1784397346068.txt |  66 ++
+ 5 files changed, 1774 insertions(+)
+
+--- SHA256 BEFORE (at 287b70e^ = 4f280e6, pre-Phase-1 parent) ---
+aiem_options_scheduler.py  BEFORE: ccb485c364608d49c358d58b51c8ce0a1882bc6a7f72c865443b881334e29eef
+aiem_options_pipeline.py   BEFORE: 6f393bd9c24608c0106f896968e4a5299d59a1b9bb59f0bc7e84d025906b95fa
+aiem_options_registries.py BEFORE: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+(empty-file SHA = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 means file did not exist in parent)
+
+--- SHA256 AFTER (HEAD = current) ---
+e760d2c8f05f0319d8a4a142d60603cd81145cd1b30ec204d907551ffa34e903  /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_scheduler.py
+cbab39e3e951f3428865dac39e5d3aaa122050543598d7c3251e2c1a1dd99bb8  /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_registries.py
+897411d210406051e0e0435a604ec75be99ee701132ca9be6d943067dbfba79b  /home/runner/workspace/artifacts/stock-scanner-api/aiem_options_pipeline.py
+
+--- git diff 287b70e^ 287b70e --stat (insertions/deletions for these 3 files) ---
+diff --git a/artifacts/stock-scanner-api/aiem_options_pipeline.py b/artifacts/stock-scanner-api/aiem_options_pipeline.py
+index 8b8e6e3..b7ea7df 100644
+--- a/artifacts/stock-scanner-api/aiem_options_pipeline.py
++++ b/artifacts/stock-scanner-api/aiem_options_pipeline.py
+@@ -694,6 +694,13 @@ def grade_options_outcomes(days_back: int = 30) -> dict:
+                     "stage9_learning_hash":  h9,
+                     "stage10_chain_final":   h10,
+                 })
++                # Phase III Phase 1: update oe_options_metrics with outcome
++                try:
++                    import aiem_options_registries as _om_reg
++                    _om_reg.update_metrics_outcome_by_alert(
++                        aid, outcome_str, round(pnl_pct_val, 6))
++                except Exception as _omr_e:
++                    pass  # non-fatal: registry capture never blocks grading
+ 
+         win_count = sum(1 for g in graded if g["outcome"] == "WIN")
+         wr = round(win_count / len(graded) * 100, 1) if graded else None
+diff --git a/artifacts/stock-scanner-api/aiem_options_registries.py b/artifacts/stock-scanner-api/aiem_options_registries.py
+new file mode 100644
+index 0000000..aa16f14
+--- /dev/null
++++ b/artifacts/stock-scanner-api/aiem_options_registries.py
+@@ -0,0 +1,836 @@
++"""
++aiem_options_registries.py  —  Phase III Phase 1: Data Capture & Registries
++
++Five DB tables provide full per-run observability for the standalone AIEM Options Engine.
++
++Tables
++------
++  oe_indicator_registry   — canonical metadata per indicator (auto-discovered at runtime)
++  oe_indicator_snapshots  — per-run per-indicator raw/normalised values + quality
++  oe_pattern_registry     — canonical pattern definitions (candlestick / chart / harmonic / etc.)
++  oe_pattern_snapshots    — per-run pattern occurrences with detection metadata
++  oe_options_metrics      — complete options-chain snapshot at decision time (all Greeks + flow)
++
++Design rules
++------------
++* Isolation: imports NOTHING from main.py / D1-D3 AIEM systems.
++* Auto-discovery: subsystems call register_indicator() / register_pattern() at the point
++  of computation — no static lists.  Missing registration → MISSING row → failure test fires.
++* Non-fatal by default: every public call catches its own exceptions; pipeline never dies
++  from a registry error unless assert_* raises RegistryValidationError.
++* Failure gates (assert_*) are the ONLY path that can block a pipeline run:
++    - assert_no_missing_indicators  — any required indicator with quality_status MISSING
++    - assert_pattern_scan_complete  — pattern stage must have logged at least one entry
++    - assert_data_freshness         — critical indicators must not be stale beyond threshold
++"""
++
++import hashlib
++import json
++import os
++import threading
++from datetime import datetime, date
++from typing import Any, Dict, List, Optional
++
++import psycopg2
++import psycopg2.extras
++
++_DB_URL = os.environ.get("DATABASE_URL", "")
++
++# ─────────────────────────────────────────────────────────────────────────────
++# SENTINEL / EXCEPTION
++# ─────────────────────────────────────────────────────────────────────────────
++
++class RegistryValidationError(Exception):
++    """Raised by assert_* functions when a required capture condition fails."""
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# IN-PROCESS REGISTRATION CACHE  (avoids repeated DB upserts per indicator)
++# ─────────────────────────────────────────────────────────────────────────────
++
++_REG_CACHE_LOCK = threading.Lock()
++_INDICATOR_CACHE: Dict[str, str] = {}   # canonical_id → sha256
++_PATTERN_CACHE:   Dict[str, str] = {}   # canonical_id → sha256
++
++def _ind_sha(canonical_id: str, source_file: str, params: dict) -> str:
++    payload = f"{canonical_id}|{source_file}|{json.dumps(params, sort_keys=True)}"
++    return hashlib.sha256(payload.encode()).hexdigest()
++
++def _pat_sha(canonical_id: str, source_file: str, detector_version: str) -> str:
++    payload = f"{canonical_id}|{source_file}|{detector_version}"
++    return hashlib.sha256(payload.encode()).hexdigest()
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# BOOTSTRAP  (idempotent — call once at scheduler startup)
++# ─────────────────────────────────────────────────────────────────────────────
++
++_BOOTSTRAPPED = False
++_BOOTSTRAP_LOCK = threading.Lock()
++
++
++def bootstrap_registries(db_url: str = "") -> None:
++    global _BOOTSTRAPPED
++    with _BOOTSTRAP_LOCK:
++        if _BOOTSTRAPPED:
++            return
++        db_url = db_url or _DB_URL
++        try:
++            with psycopg2.connect(db_url, connect_timeout=6) as conn, conn.cursor() as cur:
++
++                # ── oe_indicator_registry ─────────────────────────────────────
++                cur.execute("""
++                    CREATE TABLE IF NOT EXISTS oe_indicator_registry (
++                        id               SERIAL PRIMARY KEY,
++                        canonical_id     VARCHAR(128) UNIQUE NOT NULL,
++                        name             VARCHAR(256)        NOT NULL,
++                        family           VARCHAR(64),
++                        source_file      VARCHAR(256),
++                        source_function  VARCHAR(256),
++                        parameters       JSONB    DEFAULT '{}',
++                        timeframe        VARCHAR(32),
++                        sha256           VARCHAR(64),
++                        registered_at    TIMESTAMPTZ DEFAULT NOW(),
++                        updated_at       TIMESTAMPTZ DEFAULT NOW()
++                    )
++                """)
++                cur.execute("""
++                    CREATE INDEX IF NOT EXISTS oe_ir_family_idx
++                        ON oe_indicator_registry(family)
++                """)
++
++                # ── oe_indicator_snapshots ────────────────────────────────────
++                cur.execute("""
++                    CREATE TABLE IF NOT EXISTS oe_indicator_snapshots (
++                        id                BIGSERIAL   PRIMARY KEY,
++                        trace_id          VARCHAR(64) NOT NULL,
++                        ticker            VARCHAR(20) NOT NULL,
++                        scan_date         DATE        NOT NULL,
++                        canonical_id      VARCHAR(128) NOT NULL,
++                        raw_value         NUMERIC,
++                        raw_value_text    TEXT,
++                        normalized_value  NUMERIC,
++                        signal_direction  VARCHAR(16),
++                        confidence        NUMERIC,
++                        signal_ts         TIMESTAMPTZ,
++                        data_ts           TIMESTAMPTZ,
++                        freshness_seconds INTEGER,
++                        quality_status    VARCHAR(32) DEFAULT 'FRESH',
++                        supported_decision BOOLEAN,
++                        weight            NUMERIC,
++                        contribution_score NUMERIC,
++                        regime_context    VARCHAR(64),
++                        captured_at       TIMESTAMPTZ DEFAULT NOW()
++                    )
++                """)
++                cur.execute("""
++                    CREATE INDEX IF NOT EXISTS oe_is_trace_idx
++                        ON oe_indicator_snapshots(trace_id, canonical_id)
++                """)
++                cur.execute("""
++                    CREATE INDEX IF NOT EXISTS oe_is_quality_idx
++                        ON oe_indicator_snapshots(trace_id, quality_status)
++                """)
++
++                # ── oe_pattern_registry ───────────────────────────────────────
++                cur.execute("""
++                    CREATE TABLE IF NOT EXISTS oe_pattern_registry (
++                        id               SERIAL PRIMARY KEY,
++                        canonical_id     VARCHAR(128) UNIQUE NOT NULL,
++                        name             VARCHAR(256)        NOT NULL,
++                        family           VARCHAR(64),
++                        source_file      VARCHAR(256),
++                        source_function  VARCHAR(256),
++                        detector_version VARCHAR(32),
++                        sha256           VARCHAR(64),
++                        registered_at    TIMESTAMPTZ DEFAULT NOW()
++                    )
++                """)
++
++                # ── oe_pattern_snapshots ──────────────────────────────────────
++                cur.execute("""
++                    CREATE TABLE IF NOT EXISTS oe_pattern_snapshots (
++                        id                     BIGSERIAL   PRIMARY KEY,
++                        trace_id               VARCHAR(64) NOT NULL,
++                        ticker                 VARCHAR(20) NOT NULL,
++                        scan_date              DATE        NOT NULL,
++                        canonical_id           VARCHAR(128) NOT NULL,
++                        timeframe              VARCHAR(32),
++                        detection_confidence   NUMERIC,
++                        actionable             BOOLEAN,
++                        influenced_recommendation BOOLEAN,
++                        pattern_data           JSONB,
++                        regime                 VARCHAR(64),
++                        outcome                VARCHAR(32) DEFAULT 'OPEN',
++                        failure_reason         TEXT,
++                        mfe_pct                NUMERIC,
++                        mae_pct                NUMERIC,
++                        captured_at            TIMESTAMPTZ DEFAULT NOW()
++                    )
++                """)
++                cur.execute("""
++                    CREATE INDEX IF NOT EXISTS oe_ps_trace_idx
++                        ON oe_pattern_snapshots(trace_id)
++                """)
++
++                # ── oe_options_metrics ────────────────────────────────────────
++                cur.execute("""
++                    CREATE TABLE IF NOT EXISTS oe_options_metrics (
++                        id                BIGSERIAL   PRIMARY KEY,
++                        trace_id          VARCHAR(64) NOT NULL,
++                        alert_id          INTEGER,
++                        ticker            VARCHAR(20) NOT NULL,
++                        scan_date         DATE        NOT NULL,
++                        direction         VARCHAR(12),
++                        strike            NUMERIC,
++                        expiry            DATE,
++                        dte               INTEGER,
++                        bid               NUMERIC,
++                        ask               NUMERIC,
++                        mid               NUMERIC,
++                        last_price        NUMERIC,
++                        spread            NUMERIC,
++                        spread_pct        NUMERIC,
++                        volume            INTEGER,
++                        open_interest     INTEGER,
++                        vol_oi_ratio      NUMERIC,
++                        iv                NUMERIC,
++                        iv_rank           NUMERIC,
++                        iv_percentile     NUMERIC,
++                        hv_20d            NUMERIC,
++                        realized_vol      NUMERIC,
++                        vrp               NUMERIC,
++                        pc_skew_pp        NUMERIC,
++                        pc_skew_tag       VARCHAR(32),
++                        term_ratio        NUMERIC,
++                        term_tag          VARCHAR(32),
++                        front_iv          NUMERIC,
++                        back_iv           NUMERIC,
++                        expected_move     NUMERIC,
++                        expected_move_pct NUMERIC,
++                        probability_itm   NUMERIC,
++                        pop               NUMERIC,
++                        delta             NUMERIC,
++                        gamma             NUMERIC,
++                        theta             NUMERIC,
++                        vega              NUMERIC,
++                        rho               NUMERIC,
++                        vanna             NUMERIC,
++                        charm             NUMERIC,
++                        vomma             NUMERIC,
++                        speed             NUMERIC,
++                        color             NUMERIC,
++                        ultima            NUMERIC,
++                        gex_m             NUMERIC,
++                        gex_regime        VARCHAR(32),
++                        gamma_flip_price  NUMERIC,
++                        unusual_activity  BOOLEAN,
++                        oi_buildup_pct    NUMERIC,
++                        slippage_pct      NUMERIC,
++                        fill_probability  NUMERIC,
++                        breakeven         NUMERIC,
++                        max_profit        NUMERIC,
++                        max_loss          NUMERIC,
++                        ev                NUMERIC,
++                        return_on_risk    NUMERIC,
++                        premium_at_risk   NUMERIC,
++                        capital_requirement NUMERIC,
++                        data_source       VARCHAR(32),
++                        outcome           VARCHAR(32) DEFAULT 'OPEN',
++                        pnl_pct           NUMERIC,
++                        captured_at       TIMESTAMPTZ DEFAULT NOW()
++                    )
++                """)
++                cur.execute("""
++                    CREATE INDEX IF NOT EXISTS oe_om_trace_dir_idx
++                        ON oe_options_metrics(trace_id, direction)
++                """)
++                cur.execute("""
++                    CREATE INDEX IF NOT EXISTS oe_om_alert_idx
++                        ON oe_options_metrics(alert_id)
++                        WHERE alert_id IS NOT NULL
++                """)
++
++                conn.commit()
++            _BOOTSTRAPPED = True
++        except Exception as e:
++            print(f"[oe_registries] WARNING: bootstrap failed: {e}")
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# INDICATOR REGISTRY
++# ─────────────────────────────────────────────────────────────────────────────
++
++def register_indicator(
++    canonical_id:    str,
++    name:            str,
++    family:          str,
++    source_file:     str,
++    source_function: str,
++    params:          dict,
++    db_url:          str = "",
++) -> None:
++    """
++    Upsert a canonical indicator definition.  Idempotent — safe to call on
++    every pipeline run.  Uses in-process cache to skip the DB round-trip when
++    already registered in this process lifetime.
++    """
++    db_url = db_url or _DB_URL
++    sha = _ind_sha(canonical_id, source_file, params)
++    with _REG_CACHE_LOCK:
++        if _INDICATOR_CACHE.get(canonical_id) == sha:
++            return
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO oe_indicator_registry
++                    (canonical_id, name, family, source_file, source_function,
++                     parameters, sha256, updated_at)
++                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
++                ON CONFLICT (canonical_id) DO UPDATE
++                    SET name=EXCLUDED.name, family=EXCLUDED.family,
++                        source_file=EXCLUDED.source_file,
++                        source_function=EXCLUDED.source_function,
++                        parameters=EXCLUDED.parameters,
++                        sha256=EXCLUDED.sha256,
++                        updated_at=NOW()
++            """, (canonical_id, name, family, source_file, source_function,
++                  json.dumps(params), sha))
++            conn.commit()
++        with _REG_CACHE_LOCK:
++            _INDICATOR_CACHE[canonical_id] = sha
++    except Exception as e:
++        print(f"[oe_registries] register_indicator {canonical_id} failed: {e}")
++
++
++def snap_indicator(
++    trace_id:          str,
++    ticker:            str,
++    scan_date,
++    canonical_id:      str,
++    raw_value,
++    normalized_value:  Optional[float] = None,
++    signal_direction:  str = "NEUTRAL",
++    confidence:        Optional[float] = None,
++    data_ts:           Optional[datetime] = None,
++    freshness_seconds: Optional[int] = None,
++    quality_status:    str = "FRESH",
++    supported_decision: Optional[bool] = None,
++    weight:            Optional[float] = None,
++    contribution_score: Optional[float] = None,
++    regime_context:    Optional[str] = None,
++    raw_value_text:    Optional[str] = None,
++    db_url:            str = "",
++) -> None:
++    """
++    Record one indicator value for this pipeline run.
++    raw_value=None → quality_status is forced to MISSING.
++    """
++    db_url = db_url or _DB_URL
++    if raw_value is None and quality_status not in ("ERROR", "STALE"):
++        quality_status = "MISSING"
++    try:
++        rv_num  = float(raw_value) if raw_value is not None else None
++        rv_norm = float(normalized_value) if normalized_value is not None else None
++        rv_text = raw_value_text or (str(raw_value) if raw_value is not None else None)
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO oe_indicator_snapshots
++                    (trace_id, ticker, scan_date, canonical_id,
++                     raw_value, raw_value_text, normalized_value,
++                     signal_direction, confidence, signal_ts, data_ts,
++                     freshness_seconds, quality_status,
++                     supported_decision, weight, contribution_score, regime_context)
++                VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s,NOW(),%s, %s,%s, %s,%s,%s,%s)
++            """, (
++                trace_id, ticker.upper(), scan_date, canonical_id,
++                rv_num, rv_text, rv_norm,
++                signal_direction, confidence, data_ts,
++                freshness_seconds, quality_status,
++                supported_decision, weight, contribution_score, regime_context,
++            ))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] snap_indicator {canonical_id} failed: {e}")
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# PATTERN REGISTRY
++# ─────────────────────────────────────────────────────────────────────────────
++
++def register_pattern(
++    canonical_id:     str,
++    name:             str,
++    family:           str,
++    source_file:      str,
++    source_function:  str,
++    detector_version: str,
++    db_url:           str = "",
++) -> None:
++    """Upsert a canonical pattern definition. Idempotent."""
++    db_url = db_url or _DB_URL
++    sha = _pat_sha(canonical_id, source_file, detector_version)
++    with _REG_CACHE_LOCK:
++        if _PATTERN_CACHE.get(canonical_id) == sha:
++            return
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO oe_pattern_registry
++                    (canonical_id, name, family, source_file, source_function,
++                     detector_version, sha256)
++                VALUES (%s,%s,%s,%s,%s,%s,%s)
++                ON CONFLICT (canonical_id) DO UPDATE
++                    SET name=EXCLUDED.name, family=EXCLUDED.family,
++                        source_file=EXCLUDED.source_file,
++                        source_function=EXCLUDED.source_function,
++                        detector_version=EXCLUDED.detector_version,
++                        sha256=EXCLUDED.sha256
++            """, (canonical_id, name, family, source_file, source_function,
++                  detector_version, sha))
++            conn.commit()
++        with _REG_CACHE_LOCK:
++            _PATTERN_CACHE[canonical_id] = sha
++    except Exception as e:
++        print(f"[oe_registries] register_pattern {canonical_id} failed: {e}")
++
++
++def snap_pattern(
++    trace_id:                  str,
++    ticker:                    str,
++    scan_date,
++    canonical_id:              str,
++    timeframe:                 Optional[str] = None,
++    detection_confidence:      Optional[float] = None,
++    actionable:                Optional[bool] = None,
++    influenced_recommendation: Optional[bool] = None,
++    pattern_data:              Optional[dict] = None,
++    regime:                    Optional[str] = None,
++    db_url:                    str = "",
++) -> None:
++    """Record one pattern occurrence for this pipeline run."""
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO oe_pattern_snapshots
++                    (trace_id, ticker, scan_date, canonical_id, timeframe,
++                     detection_confidence, actionable, influenced_recommendation,
++                     pattern_data, regime)
++                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
++            """, (
++                trace_id, ticker.upper(), scan_date, canonical_id, timeframe,
++                detection_confidence, actionable, influenced_recommendation,
++                json.dumps(pattern_data or {}), regime,
++            ))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] snap_pattern {canonical_id} failed: {e}")
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# OPTIONS METRICS CAPTURE
++# ─────────────────────────────────────────────────────────────────────────────
++
++def capture_options_metrics(
++    trace_id:  str,
++    ticker:    str,
++    scan_date,
++    direction: str,
++    data:      dict,
++    db_url:    str = "",
++) -> None:
++    """
++    Capture the full options-chain metric snapshot for one direction (CALL or PUT).
++    Called twice per run — once for call_data, once for put_data.
++    alert_id is NULL at this point; call update_metrics_alert_id() after Stage 8.
++    """
++    db_url = db_url or _DB_URL
++
++    def _f(key, default=None):
++        v = data.get(key, default)
++        return float(v) if v is not None else None
++
++    def _i(key, default=None):
++        v = data.get(key, default)
++        return int(v) if v is not None else None
++
++    # Derived fields
++    bid  = _f("bid")
++    ask  = _f("ask")
++    mid  = round((bid + ask) / 2, 4) if bid is not None and ask is not None else None
++    vol  = _f("volume")
++    oi   = _f("open_interest")
++    voi  = round(vol / oi, 4) if vol and oi else None
++    iv   = _f("iv")
++    iv_rank = _f("iv_rank")
++    rr   = (_f("profit_target") / _f("premium_at_risk")
++            if _f("profit_target") and _f("premium_at_risk") else None)
++    ev   = ((_f("probability_estimate") * _f("expected_return")) -
++            ((1 - _f("probability_estimate")) * 1.0)
++            if _f("probability_estimate") is not None and _f("expected_return") is not None
++            else None)
++
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                INSERT INTO oe_options_metrics (
++                    trace_id, ticker, scan_date, direction,
++                    bid, ask, mid, spread, spread_pct,
++                    volume, open_interest, vol_oi_ratio,
++                    iv, iv_rank,
++                    expected_move, expected_move_pct,
++                    probability_itm, pop,
++                    delta, gamma, theta, vega,
++                    slippage_pct, fill_probability,
++                    breakeven, max_loss, ev, return_on_risk,
++                    premium_at_risk,
++                    dte, data_source
++                ) VALUES (
++                    %s,%s,%s,%s,
++                    %s,%s,%s,%s,%s,
++                    %s,%s,%s,
++                    %s,%s,
++                    %s,%s,
++                    %s,%s,
++                    %s,%s,%s,%s,
++                    %s,%s,
++                    %s,%s,%s,%s,
++                    %s,
++                    %s,%s
++                )
++            """, (
++                trace_id, ticker.upper(), scan_date, direction.upper(),
++                bid, ask, mid,
++                round(ask - bid, 4) if ask and bid else None,
++                _f("bid_ask_spread_pct"),
++                _i("volume"), _i("open_interest"), voi,
++                iv, iv_rank,
++                _f("expected_move"), _f("expected_move_pct"),
++                _f("probability_estimate"), _f("probability_estimate"),
++                _f("delta"), _f("gamma"), _f("theta"), _f("vega"),
++                _f("slippage_pct"), None,
++                _f("breakeven"), _f("premium_at_risk"), ev, rr,
++                _f("premium_at_risk"),
++                _i("dte"), data.get("_data_source", "BS_TRADIER"),
++            ))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] capture_options_metrics {direction} failed: {e}")
++
++
++def update_metrics_alert_id(trace_id: str, alert_id: int, db_url: str = "") -> None:
++    """Backfill alert_id on oe_options_metrics rows after Stage 8 save."""
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                UPDATE oe_options_metrics SET alert_id=%s
++                WHERE trace_id=%s AND alert_id IS NULL
++            """, (alert_id, trace_id))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] update_metrics_alert_id failed: {e}")
++
++
++def update_metrics_outcome(
++    trace_id: str,
++    outcome:  str,
++    pnl_pct:  Optional[float],
++    db_url:   str = "",
++) -> None:
++    """Record WIN/LOSS/EXPIRED_WORTHLESS and pnl_pct on oe_options_metrics at grading time."""
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                UPDATE oe_options_metrics
++                SET outcome=%s, pnl_pct=%s
++                WHERE trace_id=%s
++            """, (outcome, pnl_pct, trace_id))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] update_metrics_outcome failed: {e}")
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# ENRICHMENT: push OSS + pattern fields into options_metrics after full run
++# ─────────────────────────────────────────────────────────────────────────────
++
++def enrich_metrics_oss(
++    trace_id:         str,
++    pc_skew_pp:       Optional[float],
++    pc_skew_tag:      Optional[str],
++    term_ratio:       Optional[float],
++    term_tag:         Optional[str],
++    front_iv:         Optional[float],
++    back_iv:          Optional[float],
++    gex_m:            Optional[float],
++    gex_regime:       Optional[str],
++    gamma_flip_price: Optional[float],
++    iv_rank:          Optional[float],
++    db_url:           str = "",
++) -> None:
++    """Update OSS-derived columns on oe_options_metrics (same for CALL and PUT rows)."""
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                UPDATE oe_options_metrics
++                SET pc_skew_pp=%s, pc_skew_tag=%s,
++                    term_ratio=%s,  term_tag=%s,
++                    front_iv=%s,    back_iv=%s,
++                    gex_m=%s,       gex_regime=%s,
++                    gamma_flip_price=%s,
++                    iv_rank=%s
++                WHERE trace_id=%s
++            """, (
++                pc_skew_pp, pc_skew_tag, term_ratio, term_tag,
++                front_iv, back_iv, gex_m, gex_regime, gamma_flip_price,
++                iv_rank, trace_id,
++            ))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] enrich_metrics_oss failed: {e}")
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# FAILURE GATES  (assert_* raise RegistryValidationError to block pipeline)
++# ─────────────────────────────────────────────────────────────────────────────
++
++def assert_no_missing_indicators(
++    trace_id:     str,
++    required_ids: List[str],
++    db_url:       str = "",
++) -> None:
++    """
++    Raise RegistryValidationError if any required indicator has quality_status='MISSING'
++    in oe_indicator_snapshots for this trace_id.
++
++    Called by _execute_job before Stage 5 REQ6 scoring.
++    """
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                SELECT canonical_id, quality_status
++                FROM oe_indicator_snapshots
++                WHERE trace_id = %s
++                  AND canonical_id = ANY(%s)
++                  AND quality_status IN ('MISSING', 'ERROR')
++            """, (trace_id, required_ids))
++            bad_rows = cur.fetchall()
++
++            # Also detect required IDs that were never snapped at all
++            cur.execute("""
++                SELECT canonical_id FROM oe_indicator_snapshots
++                WHERE trace_id = %s AND canonical_id = ANY(%s)
++            """, (trace_id, required_ids))
++            snapped_ids = {r[0] for r in cur.fetchall()}
++            never_snapped = [cid for cid in required_ids if cid not in snapped_ids]
++
++    except Exception as e:
++        raise RegistryValidationError(f"DB query failed in assert_no_missing: {e}")
++
++    failures = []
++    for cid, status in bad_rows:
++        failures.append(f"{cid}={status}")
++    for cid in never_snapped:
++        failures.append(f"{cid}=NEVER_SNAPPED")
++
++    if failures:
++        raise RegistryValidationError(
++            f"Required indicators not captured: {', '.join(failures)}"
++        )
++
++
++def assert_pattern_scan_complete(trace_id: str, db_url: str = "") -> None:
++    """
++    Raise RegistryValidationError if the pattern-scan stage produced no snapshots
++    for this trace_id.  Fires when aiem_pattern_engine import failed entirely.
++    """
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            # Either a pattern_snapshot row exists, or PAT_SCORE was snapped as FRESH/STALE
++            cur.execute("""
++                SELECT COUNT(*)
++                FROM oe_indicator_snapshots
++                WHERE trace_id = %s
++                  AND canonical_id = 'PAT_SCORE'
++                  AND quality_status NOT IN ('ERROR')
++            """, (trace_id,))
++            count = cur.fetchone()[0]
++    except Exception as e:
++        raise RegistryValidationError(f"DB query failed in assert_pattern_scan: {e}")
++
++    if count == 0:
++        raise RegistryValidationError(
++            f"Pattern scan stage produced no PAT_SCORE snapshot for trace_id={trace_id}"
++        )
++
++
++def assert_data_freshness(
++    trace_id:          str,
++    critical_ids:      List[str],
++    max_stale_seconds: int,
++    db_url:            str = "",
++) -> None:
++    """
++    Raise RegistryValidationError if any critical indicator has
++    freshness_seconds > max_stale_seconds in oe_indicator_snapshots.
++
++    Typical usage: max_stale_seconds=172800 (48h) for EOD Polygon data.
++    """
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                SELECT canonical_id, freshness_seconds
++                FROM oe_indicator_snapshots
++                WHERE trace_id = %s
++                  AND canonical_id = ANY(%s)
++                  AND freshness_seconds IS NOT NULL
++                  AND freshness_seconds > %s
++            """, (trace_id, critical_ids, max_stale_seconds))
++            stale_rows = cur.fetchall()
++    except Exception as e:
++        raise RegistryValidationError(f"DB query failed in assert_data_freshness: {e}")
++
++    if stale_rows:
++        stale_desc = ", ".join(
++            f"{cid}={int(s)}s (>{max_stale_seconds}s)"
++            for cid, s in stale_rows
++        )
++        raise RegistryValidationError(f"Stale data detected: {stale_desc}")
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# CONVENIENCE: dump registry for admin / verification use
++# ─────────────────────────────────────────────────────────────────────────────
++
++def update_metrics_alert_id(
++    trace_id: str,
++    alert_id: int,
++    db_url:   str = "",
++) -> None:
++    """
++    Back-fill alert_id on oe_options_metrics rows once the alert has been
++    persisted in Stage 8 (save_options_alert returns alert_id).
++    """
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                UPDATE oe_options_metrics
++                SET alert_id=%s
++                WHERE trace_id=%s AND alert_id IS NULL
++            """, (alert_id, trace_id))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] update_metrics_alert_id tid={trace_id} failed: {e}")
++
++
++def update_metrics_outcome_by_alert(
++    alert_id: int,
++    outcome:  str,
++    pnl_pct:  Optional[float],
++    db_url:   str = "",
++) -> None:
++    """
++    Record WIN/LOSS/EXPIRED_WORTHLESS + pnl_pct on oe_options_metrics rows
++    that belong to the given alert_id.  Called by grade_options_outcomes.
++    """
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                UPDATE oe_options_metrics
++                SET outcome=%s, pnl_pct=%s
++                WHERE alert_id=%s
++            """, (outcome, pnl_pct, alert_id))
++            conn.commit()
++    except Exception as e:
++        print(f"[oe_registries] update_metrics_outcome_by_alert aid={alert_id} failed: {e}")
++
++
++def get_registry_summary(db_url: str = "") -> dict:
++    """Return counts and families from oe_indicator_registry."""
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("SELECT COUNT(*) FROM oe_indicator_registry")
++            n_indicators = cur.fetchone()[0]
++            cur.execute("SELECT family, COUNT(*) FROM oe_indicator_registry GROUP BY family ORDER BY COUNT(*) DESC")
++            families = {r[0]: r[1] for r in cur.fetchall()}
++            cur.execute("SELECT COUNT(*) FROM oe_pattern_registry")
++            n_patterns = cur.fetchone()[0]
++            cur.execute("SELECT COUNT(DISTINCT trace_id) FROM oe_indicator_snapshots")
++            n_runs_snapped = cur.fetchone()[0]
++            cur.execute("SELECT COUNT(*) FROM oe_options_metrics")
++            n_metrics = cur.fetchone()[0]
++        return {
++            "indicators_registered": n_indicators,
++            "families": families,
++            "patterns_registered": n_patterns,
++            "runs_with_indicator_snapshots": n_runs_snapped,
++            "options_metrics_rows": n_metrics,
++        }
++    except Exception as e:
++        return {"error": str(e)}
++
++
++def get_run_snapshot(trace_id: str, db_url: str = "") -> dict:
++    """Return all indicator/pattern snapshots for one trace_id. Used by verify_chain.sh."""
++    db_url = db_url or _DB_URL
++    try:
++        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
++            cur.execute("""
++                SELECT canonical_id, raw_value, raw_value_text, normalized_value,
++                       signal_direction, quality_status, freshness_seconds, captured_at
++                FROM oe_indicator_snapshots
++                WHERE trace_id = %s
++                ORDER BY captured_at
++            """, (trace_id,))
++            indicators = [
++                dict(zip(["canonical_id","raw_value","raw_value_text","normalized_value",
++                          "signal_direction","quality_status","freshness_seconds","captured_at"],
++                         r))
++                for r in cur.fetchall()
++            ]
++            cur.execute("""
++                SELECT canonical_id, detection_confidence, actionable, regime, captured_at
++                FROM oe_pattern_snapshots
++                WHERE trace_id = %s
++                ORDER BY captured_at
++            """, (trace_id,))
++            patterns = [
++                dict(zip(["canonical_id","detection_confidence","actionable","regime","captured_at"], r))
++                for r in cur.fetchall()
++            ]
++            cur.execute("""
++                SELECT direction, delta, gamma, theta, vega, iv, iv_rank,
++                       probability_itm, pop, volume, open_interest,
++                       expected_move, slippage_pct, premium_at_risk,
++                       data_source, outcome
++                FROM oe_options_metrics
++                WHERE trace_id = %s
++                ORDER BY direction
++            """, (trace_id,))
++            cols = ["direction","delta","gamma","theta","vega","iv","iv_rank",
++                    "probability_itm","pop","volume","open_interest",
++                    "expected_move","slippage_pct","premium_at_risk","data_source","outcome"]
++            metrics = [dict(zip(cols, r)) for r in cur.fetchall()]
++        return {
++            "trace_id":   trace_id,
++            "indicators": indicators,
++            "patterns":   patterns,
++            "metrics":    metrics,
++            "counts": {
++                "indicators": len(indicators),
++                "patterns":   len(patterns),
++                "metrics":    len(metrics),
++            },
++        }
++    except Exception as e:
++        return {"error": str(e)}
+diff --git a/artifacts/stock-scanner-api/aiem_options_scheduler.py b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+index fc92097..918b554 100644
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -272,6 +272,13 @@ def _bootstrap_db() -> None:
+                 conn.commit()
+             _DB_BOOTSTRAPPED = True
+             log.info("[bootstrap] options_pipeline_jobs, job_heartbeats, and aiem_execution_assessments ready")
++            # Phase III Phase 1 — bootstrap registry tables (idempotent, non-fatal)
++            try:
++                import aiem_options_registries as _reg_boot
++                _reg_boot.bootstrap_registries(_DB_URL)
++                log.info("[bootstrap] oe_registries (Phase III Phase 1) tables ready")
++            except Exception as _rb_e:
++                log.warning(f"[bootstrap] oe_registries bootstrap skipped: {_rb_e}")
+             return
+         except Exception as e:
+             last_exc = e
+@@ -662,6 +669,52 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         log.error(f"[exec] failed to mark EXECUTING: {e}")
+         return {"error": str(e)}
+ 
++    # ── Phase III Phase 1: Registry helpers (non-fatal — never block pipeline) ──
++    try:
++        import aiem_options_registries as _reg_mod
++        _reg_db     = _DB_URL
++        _reg_ts_now = datetime.utcnow()
++        _reg_ready  = True
++
++        def _rc(family: str, cid: str, raw, norm=None, sig: str = "NEUTRAL",
++                conf=None, d_ts=None, fresh: int = None, q: str = None,
++                sup=None, txt: str = None) -> None:
++            """Register + snap one indicator value. Fully non-fatal."""
++            try:
++                _reg_mod.register_indicator(
++                    cid, cid.replace("_", " ").title(), family,
++                    "aiem_options_scheduler.py", "_execute_job", {}, _reg_db)
++                _reg_mod.snap_indicator(
++                    trace_id, ticker, scan_date, cid, raw, norm, sig, conf,
++                    d_ts or _reg_ts_now, fresh,
++                    q or ("MISSING" if raw is None else "FRESH"),
++                    sup, None, None, None, txt, _reg_db)
++            except Exception as _rce:
++                log.debug(f"[registry] snap {cid}: {_rce}")
++
++        def _rc_pat(cid: str, name: str, family: str, conf=None,
++                    timeframe: str = None, actionable: bool = None,
++                    influenced: bool = None, data: dict = None) -> None:
++            """Register + snap one pattern occurrence. Fully non-fatal."""
++            try:
++                _reg_mod.register_pattern(
++                    cid, name, family, "aiem_pattern_engine.py",
++                    "detect_for_ticker", "1.0", _reg_db)
++                _reg_mod.snap_pattern(
++                    trace_id, ticker, scan_date, cid, timeframe,
++                    conf, actionable, influenced, data or {}, None, _reg_db)
++            except Exception as _rpe:
++                log.debug(f"[registry] pat {cid}: {_rpe}")
++
++    except Exception as _reg_init_e:
++        log.debug(f"[exec] registry init skipped: {_reg_init_e}")
++        _reg_ready  = False
++        _reg_mod    = None
++        _reg_db     = _DB_URL
++        _reg_ts_now = datetime.utcnow()
++        def _rc(*a, **k):     pass  # noqa
++        def _rc_pat(*a, **k): pass  # noqa
++
+     t_start = time.time()
+ 
+     try:
+@@ -704,6 +757,41 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         pc_skew_tag  = oss[6]
+         term_tag     = oss[8]
+ 
++        # ── REGISTRY: Stage 1 — Polygon ingestion + Options Structure Scan ────
++        if _reg_ready:
++            _pmd_dt  = datetime(pmd[0].year, pmd[0].month, pmd[0].day, 17, 0)
++            _pmd_age = int((_reg_ts_now - _pmd_dt).total_seconds())
++            _pmd_q   = "STALE" if _pmd_age > 172800 else "FRESH"
++            # Polygon ingestion subsystem
++            _rc("POLYGON", "POLY_CLOSE_PRICE",    close_price, min(1.0, close_price/500.0),
++                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
++            _rc("POLYGON", "POLY_OPEN_PRICE",     float(pmd[2]), None,
++                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
++            _rc("POLYGON", "POLY_VWAP",           vwap, None,
++                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
++            _rc("POLYGON", "POLY_CLOSE_STRENGTH", close_str, close_str,
++                "BULLISH" if close_str > 0.6 else "BEARISH" if close_str < 0.4 else "NEUTRAL",
++                None, _pmd_dt, _pmd_age, _pmd_q)
++            # Options Structure Scan subsystem
++            _rc("OSS", "OSS_SPOT",        spot,     None, "NEUTRAL",  None, _pmd_dt, _pmd_age, _pmd_q)
++            _rc("OSS", "OSS_FRONT_IV",    front_iv, front_iv,
++                "HIGH_VOL" if front_iv > 0.40 else "LOW_VOL" if front_iv < 0.20 else "NEUTRAL",
++                None, _pmd_dt, _pmd_age, _pmd_q)
++            _rc("OSS", "OSS_GEX_M",       float(oss[2]) if oss[2] is not None else None,
++                None, "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
++            _rc("OSS", "OSS_GEX_REGIME",  None, None, "NEUTRAL",
++                None, _pmd_dt, _pmd_age, _pmd_q, txt=gex_regime)
++            _rc("OSS", "OSS_PC_SKEW_PP",  pc_skew_pp, min(1.0, abs(pc_skew_pp)/30.0),
++                "BEARISH" if pc_skew_tag == "FEAR_PREMIUM"
++                else "BULLISH" if pc_skew_tag == "CALL_SKEW" else "NEUTRAL",
++                None, _pmd_dt, _pmd_age, _pmd_q, txt=pc_skew_tag)
++            _rc("OSS", "OSS_TERM_RATIO",  float(oss[7]) if oss[7] is not None else None, None,
++                "BEARISH" if term_tag == "INVERTED" else "NEUTRAL",
++                None, _pmd_dt, _pmd_age, _pmd_q, txt=term_tag)
++            _rc("OSS", "OSS_BACK_IV",     float(oss[9])/100.0 if oss[9] is not None else None,
++                None, "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
++            log.debug(f"[registry] stage1 snapped 11 indicators trace_id={trace_id}")
++
+         # ── Stage 2: Stock analysis ────────────────────────────────────────────
+         stock_direction = "BEAR" if (
+             close_price < vwap and close_str < 0.4 and pc_skew_tag == "FEAR_PREMIUM"
+@@ -727,6 +815,31 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+             "pc_skew_tag":     pc_skew_tag,
+         }
+ 
++        # ── REGISTRY: Stage 2 — Technical-indicator + Market-regime engines ───
++        if _reg_ready:
++            _rc("TECH",   "TECH_STOCK_DIRECTION",   None, None,
++                "BULLISH" if stock_direction == "BULL" else "BEARISH", txt=stock_direction)
++            _rc("TECH",   "TECH_VWAP_POSITION",     None, None,
++                "BULLISH" if close_price >= vwap else "BEARISH",
++                txt=stock_data["vwap_position"])
++            _rc("TECH",   "TECH_CLOSE_STRENGTH",    close_str, close_str,
++                "BULLISH" if close_str > 0.6 else "BEARISH" if close_str < 0.4 else "NEUTRAL")
++            _rc("TECH",   "TECH_IV_CRUSH_RISK",     None, None, "NEUTRAL",
++                txt=stock_data["iv_crush_risk"])
++            _rc("REGIME", "MKT_REGIME_TAG",         None, None,
++                "BEARISH" if "FEAR" in market_regime or "SHORT_GAMMA" in market_regime
++                else "NEUTRAL", txt=market_regime)
++            _rc("REGIME", "MKT_GEX_REGIME",         None, None,
++                "BEARISH" if gex_regime == "SHORT_GAMMA" else "NEUTRAL", txt=gex_regime)
++            _rc("REGIME", "MKT_SKEW_TAG",           None, None,
++                "BEARISH" if pc_skew_tag == "FEAR_PREMIUM" else "NEUTRAL", txt=pc_skew_tag)
++            _rc("REGIME", "MKT_TERM_STRUCTURE",     None, None,
++                "BEARISH" if term_tag == "INVERTED" else "NEUTRAL", txt=term_tag)
++            _rc("VOLREG", "VOLREG_FRONT_IV_CLASS",  None, None,
++                "HIGH_VOL" if front_iv > 0.40 else "LOW_VOL" if front_iv < 0.20 else "NEUTRAL",
++                txt="HIGH_IV" if front_iv > 0.40 else "LOW_IV")
++            log.debug(f"[registry] stage2 snapped 9 indicators trace_id={trace_id}")
++
+         # ── Stage PM: Premarket Intelligence ──────────────────────────────────
+         pm_intel: dict = {}
+         try:
+@@ -741,6 +854,32 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+             pm_intel = {"premarket_score": 0.5, "premarket_direction": "NEUTRAL",
+                         "premarket_confidence": 0.0, "premarket_risk_flags": ["SKIPPED"]}
+ 
++        # ── REGISTRY: Stage PM — Premarket scan + intraday scan subsystems ────
++        if _reg_ready:
++            _pm_score = float(pm_intel.get("premarket_score") or 0.5)
++            _pm_conf  = float(pm_intel.get("premarket_confidence") or 0.0)
++            _pm_dir   = str(pm_intel.get("premarket_direction") or "NEUTRAL")
++            _pm_q     = "STALE" if "SKIPPED" in str(pm_intel.get("premarket_risk_flags", [])) \
++                        else "FRESH"
++            _pm_sig   = ("BULLISH" if _pm_dir in ("BULL", "BULLISH") else
++                         "BEARISH" if _pm_dir in ("BEAR", "BEARISH") else "NEUTRAL")
++            # Premarket scan subsystem
++            _rc("PM", "PM_SCORE",         _pm_score, _pm_score, _pm_sig, _pm_conf, q=_pm_q)
++            _rc("PM", "PM_DIRECTION",     None, None, _pm_sig,  _pm_conf, q=_pm_q, txt=_pm_dir)
++            _rc("PM", "PM_CONFIDENCE",    _pm_conf, _pm_conf,   "NEUTRAL", q=_pm_q)
++            _rc("PM", "PM_GAP_PCT",       pm_intel.get("premarket_gap"), None, "NEUTRAL", q=_pm_q)
++            _rc("PM", "PM_VOLUME_RATIO",  pm_intel.get("pm_rvol"), None,
++                "BULLISH" if (pm_intel.get("pm_rvol") or 0) > 1.5 else "NEUTRAL", q=_pm_q)
++            _rc("PM", "PM_TREND_QUALITY", pm_intel.get("pm_trend_quality"), None, "NEUTRAL", q=_pm_q)
++            # Intraday scan subsystem (surfaced from premarket module)
++            _rc("INTRA", "INTRA_PM_HIGH_BROKEN",
++                1.0 if pm_intel.get("pm_high_broken") else 0.0, None,
++                "BULLISH" if pm_intel.get("pm_high_broken") else "NEUTRAL", q=_pm_q)
++            _rc("INTRA", "INTRA_PM_LOW_HELD",
++                1.0 if pm_intel.get("pm_low_held") else 0.0, None,
++                "BEARISH" if pm_intel.get("pm_low_held") is False else "NEUTRAL", q=_pm_q)
++            log.debug(f"[registry] stagepm snapped 8 indicators trace_id={trace_id}")
++
+         # ── Stage MTF: Multi-Timeframe Analysis ───────────────────────────────
+         mtf_result: dict = {}
+         try:
+@@ -754,6 +893,29 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+             mtf_result = {"timeframe_alignment_score": 0.5, "conflict_score": 0.5,
+                           "dominant_bias": "NEUTRAL", "entry_timing_status": "UNCLEAR"}
+ 
++        # ── REGISTRY: Stage MTF — Multi-timeframe analysis subsystem ──────────
++        if _reg_ready:
++            _mtf_al = float(mtf_result.get("timeframe_alignment_score") or 0.5)
++            _mtf_cf = float(mtf_result.get("conflict_score") or 0.5)
++            _mtf_bi = str(mtf_result.get("dominant_bias") or "NEUTRAL")
++            _mtf_q  = "STALE" if (_mtf_al == 0.5 and _mtf_cf == 0.5 and
++                                   _mtf_bi == "NEUTRAL") else "FRESH"
++            _mtf_sig = ("BULLISH" if _mtf_bi == "BULLISH" else
++                        "BEARISH" if _mtf_bi == "BEARISH" else "NEUTRAL")
++            _rc("MTF", "MTF_ALIGNMENT_SCORE",  _mtf_al, _mtf_al,
++                _mtf_sig, q=_mtf_q)
++            _rc("MTF", "MTF_CONFLICT_SCORE",   _mtf_cf, _mtf_cf,
++                "NEUTRAL", q=_mtf_q)
++            _rc("MTF", "MTF_DOMINANT_BIAS",    None, None, _mtf_sig,
++                txt=_mtf_bi, q=_mtf_q)
++            _rc("MTF", "MTF_ENTRY_TIMING",     None, None, "NEUTRAL",
++                txt=str(mtf_result.get("entry_timing_status") or "UNCLEAR"), q=_mtf_q)
++            _rc("MTF", "MTF_BULLISH_TF_COUNT",
++                mtf_result.get("bullish_tf_count"), None, "NEUTRAL", q=_mtf_q)
++            _rc("MTF", "MTF_BEARISH_TF_COUNT",
++                mtf_result.get("bearish_tf_count"), None, "NEUTRAL", q=_mtf_q)
++            log.debug(f"[registry] stagemtf snapped 6 indicators trace_id={trace_id}")
++
+         # ── Stage PAT: All Verified Patterns (candlestick/chart/harmonic/EW/VPA/Wyckoff)
+         pattern_score  = 0.5
+         pattern_result: dict = {}
+@@ -766,6 +928,35 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         except Exception as _pat_e:
+             log.debug(f"[exec] [{trace_id}] pattern detection skipped: {_pat_e}")
+ 
++        # ── REGISTRY: Stage PAT — Candlestick engine + Chart-pattern engine ───
++        if _reg_ready:
++            _pat_q = "STALE" if pattern_score == 0.5 and not pattern_result else "FRESH"
++            _pat_err_q = "ERROR" if (not pattern_result and pattern_score == 0.5) else _pat_q
++            _rc("PAT", "PAT_SCORE",    pattern_score, pattern_score,
++                "BULLISH" if pattern_score > 0.6 else "BEARISH" if pattern_score < 0.4
++                else "NEUTRAL", q=_pat_err_q)
++            _rc("PAT", "PAT_COUNT",    len(pattern_result.get("all_patterns", [])), None,
++                "NEUTRAL", q=_pat_q)
++            _rc("PAT", "PAT_BULLISH",  len([p for p in pattern_result.get("all_patterns", [])
++                                           if p.get("sentiment","").upper() == "BULLISH"]),
++                None, "NEUTRAL", q=_pat_q)
++            _rc("PAT", "PAT_BEARISH",  len([p for p in pattern_result.get("all_patterns", [])
++                                           if p.get("sentiment","").upper() == "BEARISH"]),
++                None, "NEUTRAL", q=_pat_q)
++            # Register + snap every individual detected pattern
++            for _p in pattern_result.get("all_patterns", []):
++                _p_cid  = f"PAT_{str(_p.get('name','UNKNOWN')).upper().replace(' ','_')[:40]}"
++                _p_fam  = str(_p.get("family", "chart")).lower()
++                _rc_pat(_p_cid, str(_p.get("name","?")), _p_fam,
++                        conf=float(_p.get("confidence") or 0.5),
++                        timeframe=str(_p.get("timeframe", "daily")),
++                        actionable=bool(_p.get("actionable", False)),
++                        influenced=bool(_p.get("influencing", False)),
++                        data={k: v for k, v in _p.items()
++                              if k not in ("name","family","confidence")})
++            log.debug(f"[registry] stagepat snapped 4+{len(pattern_result.get('all_patterns',[]))} "
++                      f"pattern entries trace_id={trace_id}")
++
+         # ── Stage OC: Real Polygon Options Chain ──────────────────────────────
+         options_chain: dict   = {"calls": [], "puts": [], "contracts_total": 0}
+         chain_strategies: list = []
+@@ -792,6 +983,20 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         except Exception as _oc_e:
+             log.debug(f"[exec] [{trace_id}] options chain skipped: {_oc_e}")
+ 
++        # ── REGISTRY: Stage OC — Options-chain ingestion + Strategy generator ─
++        if _reg_ready:
++            _oc_q = "FRESH" if contracts_evaluated > 0 else "STALE"
++            _rc("OC", "OC_CONTRACTS_TOTAL", contracts_evaluated, None, "NEUTRAL", q=_oc_q)
++            _rc("OC", "OC_STRATEGIES_COUNT", len(chain_strategies), None, "NEUTRAL", q=_oc_q)
++            _rc("OC", "OC_BEST_STRATEGY",    None, None, "NEUTRAL",
++                txt=(best_chain_strategy.get("strategy") if best_chain_strategy else None),
++                q=_oc_q)
++            _rc("OC", "OC_CHAIN_CALLS_CNT",
++                len(options_chain.get("calls", [])), None, "NEUTRAL", q=_oc_q)
++            _rc("OC", "OC_CHAIN_PUTS_CNT",
++                len(options_chain.get("puts", [])), None, "NEUTRAL", q=_oc_q)
++            log.debug(f"[registry] stageoc snapped 5 indicators trace_id={trace_id}")
++
+         # ── Stage EI: Execution Intelligence ──────────────────────────────────
+         # Assesses fill probability, liquidity, execution costs, and net edge
+         # for every strategy candidate.  In OBSERVE mode (EI_GATING_ENABLED=False)
+@@ -820,6 +1025,27 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         except Exception as _ei_e:
+             log.debug(f"[exec] [{trace_id}] execution_intelligence skipped: {_ei_e}")
+ 
++        # ── REGISTRY: Stage EI — Execution Intelligence + Strategy comparison ─
++        if _reg_ready:
++            _n_ei_all  = len(_ei_assessments)
++            _n_ei_ok   = sum(1 for a in _ei_assessments if getattr(a, "approved", False))
++            _ei_q      = "FRESH" if _n_ei_all > 0 else "STALE"
++            _rc("EI", "EI_STRATEGIES_TOTAL",   _n_ei_all, None, "NEUTRAL", q=_ei_q)
++            _rc("EI", "EI_STRATEGIES_APPROVED", _n_ei_ok, None,
++                "BULLISH" if _n_ei_ok > 0 else "BEARISH", q=_ei_q)
++            _rc("EI", "EI_APPROVAL_RATE",
++                round(_n_ei_ok / _n_ei_all, 4) if _n_ei_all > 0 else None, None,
++                "NEUTRAL", q=_ei_q)
++            if _n_ei_all > 0 and _ei_assessments:
++                _best_ea = _ei_assessments[0]
++                _rc("EI", "EI_BEST_FILL_PROB",
++                    getattr(_best_ea, "fill_probability", None), None, "NEUTRAL", q=_ei_q)
++                _rc("EI", "EI_BEST_LIQ_SCORE",
++                    getattr(_best_ea, "liquidity_score", None), None, "NEUTRAL", q=_ei_q)
++                _rc("EI", "EI_BEST_NET_EDGE",
++                    getattr(_best_ea, "net_expected_edge", None), None, "NEUTRAL", q=_ei_q)
++            log.debug(f"[registry] stageei snapped 6 indicators trace_id={trace_id}")
++
+         # ── Stage CCS: Capital Compounding Score on best real-chain strategy ──
+         try:
+             if best_chain_strategy:
+@@ -852,6 +1078,26 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         except Exception as _ccs_e:
+             log.debug(f"[exec] [{trace_id}] CCS computation skipped: {_ccs_e}")
+ 
++        # ── REGISTRY: Stage CCS — Portfolio Optimization + Portfolio Risk ──────
++        if _reg_ready:
++            _ccs_q = "FRESH" if final_ccs > 0.0 else "STALE"
++            _rc("CCS", "CCS_SCORE",         final_ccs, final_ccs,
++                "BULLISH" if final_ccs > 0.70 else "BEARISH" if final_ccs < 0.30
++                else "NEUTRAL", q=_ccs_q)
++            _rc("CCS", "CCS_BEST_STRATEGY", None, None, "NEUTRAL",
++                txt=(best_chain_strategy.get("strategy") if best_chain_strategy else None),
++                q=_ccs_q)
++            if best_chain_strategy:
++                _rc("CCS", "CCS_STRATEGY_POP",
++                    best_chain_strategy.get("pop"), None, "NEUTRAL", q=_ccs_q)
++                _rc("CCS", "CCS_STRATEGY_EV",
++                    best_chain_strategy.get("ev_after_costs"), None,
++                    "BULLISH" if (best_chain_strategy.get("ev_after_costs") or 0) > 0
++                    else "BEARISH", q=_ccs_q)
++                _rc("CCS", "CCS_RISK_CLASS",  None, None, "NEUTRAL",
++                    txt=best_chain_strategy.get("risk_class", "UNKNOWN"), q=_ccs_q)
++            log.debug(f"[registry] stageccs snapped 5 indicators trace_id={trace_id}")
++
+         # ── Proof logging: PM + MTF + PAT + OC stages ─────────────────────────
+         try:
+             import aiem_pipeline_proof as _proof
+@@ -908,6 +1154,43 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+             },
+         }
+ 
++        # ── REGISTRY: Stage 3 — Options analytics + Volatility-regime engine ──
++        if _reg_ready:
++            _iv_rank_raw = float(ivr_result.get("iv_rank", 0.0) or 0.0)
++            _em_val      = em_result.get("expected_move")
++            _em_pct      = em_result.get("expected_move_pct")
++            # Options analytics subsystem
++            _rc("OPT", "OPT_EXPECTED_MOVE",     _em_val, None, "NEUTRAL")
++            _rc("OPT", "OPT_EXPECTED_MOVE_PCT",  _em_pct, _em_pct/100.0 if _em_pct else None,
++                "NEUTRAL")
++            _rc("OPT", "OPT_IV_RANK",            _iv_rank_raw, _iv_rank_raw/100.0,
++                "HIGH_VOL" if _iv_rank_raw > 50 else "LOW_VOL")
++            _rc("OPT", "OPT_IV_PERCENTILE",
++                ivr_result.get("iv_percentile"), None, "NEUTRAL")
++            _rc("OPT", "OPT_HV_20D",
++                ivr_result.get("historical_vol_20d"), None, "NEUTRAL")
++            _rc("OPT", "OPT_OI_BELOW_SPOT",
++                oi_result.get("oi_below_spot") if not isinstance(oi_result.get("oi_below_spot"),
++                str) else None, None, "NEUTRAL")
++            _rc("OPT", "OPT_OI_ABOVE_SPOT",
++                oi_result.get("oi_above_spot") if not isinstance(oi_result.get("oi_above_spot"),
++                str) else None, None, "NEUTRAL")
++            _rc("OPT", "OPT_BEARISH_SIGNAL_COUNT",
++                bs_result.get("count", 0), None,
++                "BEARISH" if bs_result.get("count", 0) > 0 else "NEUTRAL")
++            # Volatility-regime engine subsystem (full suite)
++            _rc("VOLREG", "VOLREG_IV_RANK",       _iv_rank_raw, _iv_rank_raw/100.0,
++                "HIGH_VOL" if _iv_rank_raw > 50 else "LOW_VOL")
++            _iv_hv20 = ivr_result.get("historical_vol_20d")
++            _vrp     = (round(front_iv - _iv_hv20, 4) if _iv_hv20 and front_iv else None)
++            _rc("VOLREG", "VOLREG_VRP",           _vrp, None,
++                "HIGH_PREM" if (_vrp or 0) > 0.05 else "LOW_PREM" if (_vrp or 0) < -0.05
++                else "NEUTRAL")
++            _rc("VOLREG", "VOLREG_TERM_RATIO",
++                float(oss[7]) if oss[7] is not None else None, None,
++                "BEARISH" if term_tag == "INVERTED" else "NEUTRAL", txt=term_tag)
++            log.debug(f"[registry] stage3 snapped 11 indicators trace_id={trace_id}")
++
+         # ── Stage 4: Risk gates ────────────────────────────────────────────────
+         import math as _math
+ 
+@@ -1054,7 +1337,121 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+             "stop_level":          f"Close above ${spot + 5:.0f}",
+         }
+ 
++        # ── REGISTRY: Stage 4 — BS greeks + Probability/EV + Risk Gate ────────
++        if _reg_ready:
++            # Probability/EV engine subsystem (Black-Scholes)
++            _rc("BS", "BS_CALL_DELTA",    call_delta_bs, abs(call_delta_bs),
++                "BULLISH" if call_delta_bs > 0.4 else "NEUTRAL")
++            _rc("BS", "BS_CALL_GAMMA",    call_gamma_bs, None, "NEUTRAL")
++            _rc("BS", "BS_CALL_THETA",    call_theta_bs, None,
++                "BEARISH" if (call_theta_bs or 0) < -0.05 else "NEUTRAL")
++            _rc("BS", "BS_CALL_VEGA",     call_vega_bs,  None, "NEUTRAL")
++            _rc("BS", "BS_CALL_POP",      call_probability_itm, call_probability_itm,
++                "BULLISH" if call_probability_itm >= 0.35 else "BEARISH")
++            _rc("BS", "BS_CALL_VOLUME",   call_vol,   None,
++                "BULLISH" if call_vol > 100 else "NEUTRAL")
++            _rc("BS", "BS_CALL_OI",       call_oi,    None, "NEUTRAL")
++            _rc("BS", "BS_CALL_SPREAD",   call_spread, None,
++                "BEARISH" if call_spread > 0.15 else "NEUTRAL")
++            _rc("BS", "BS_PUT_DELTA",     put_delta_bs,  abs(put_delta_bs),
++                "BEARISH" if abs(put_delta_bs) > 0.4 else "NEUTRAL")
++            _rc("BS", "BS_PUT_GAMMA",     put_gamma_bs,  None, "NEUTRAL")
++            _rc("BS", "BS_PUT_THETA",     put_theta_bs,  None,
++                "BEARISH" if (put_theta_bs or 0) < -0.05 else "NEUTRAL")
++            _rc("BS", "BS_PUT_VEGA",      put_vega_bs,   None, "NEUTRAL")
++            _rc("BS", "BS_PUT_POP",       put_probability_itm, put_probability_itm,
++                "BEARISH" if put_probability_itm >= 0.35 else "NEUTRAL")
++            _rc("BS", "BS_PUT_VOLUME",    put_vol,   None,
++                "BEARISH" if put_vol > 100 else "NEUTRAL")
++            _rc("BS", "BS_PUT_OI",        put_oi,    None, "NEUTRAL")
++            _rc("BS", "BS_PUT_SPREAD",    put_spread, None,
++                "BEARISH" if put_spread > 0.15 else "NEUTRAL")
++            # Position-sizing engine subsystem
++            _rc("SIZE", "SIZE_CALL_PREMIUM_AT_RISK",
++                call_data.get("premium_at_risk"), None, "NEUTRAL")
++            _rc("SIZE", "SIZE_PUT_PREMIUM_AT_RISK",
++                put_data.get("premium_at_risk"), None, "NEUTRAL")
++            _rc("SIZE", "SIZE_CALL_SLIPPAGE",
++                call_data.get("slippage_pct"), None,
++                "BEARISH" if (call_data.get("slippage_pct") or 0) > 0.10 else "NEUTRAL")
++            _rc("SIZE", "SIZE_PUT_SLIPPAGE",
++                put_data.get("slippage_pct"), None,
++                "BEARISH" if (put_data.get("slippage_pct") or 0) > 0.10 else "NEUTRAL")
++            log.debug(f"[registry] stage4 snapped 20 indicators trace_id={trace_id}")
++            # Options metrics capture — full chain snapshot for CALL and PUT
++            try:
++                _reg_mod.capture_options_metrics(
++                    trace_id, ticker, scan_date, "CALL",
++                    {**call_data, "_data_source": "BS_TRADIER", "iv_rank": iv_rank * 100},
++                    _reg_db)
++                _reg_mod.capture_options_metrics(
++                    trace_id, ticker, scan_date, "PUT",
++                    {**put_data, "_data_source": "BS_TRADIER", "iv_rank": iv_rank * 100},
++                    _reg_db)
++                # Enrich with OSS fields (same for both directions)
++                _reg_mod.enrich_metrics_oss(
++                    trace_id,
++                    pc_skew_pp=pc_skew_pp, pc_skew_tag=pc_skew_tag,
++                    term_ratio=float(oss[7]) if oss[7] is not None else None,
++                    term_tag=term_tag,
++                    front_iv=front_iv,
++                    back_iv=float(oss[9])/100.0 if oss[9] is not None else None,
++                    gex_m=float(oss[2]) if oss[2] is not None else None,
++                    gex_regime=gex_regime,
++                    gamma_flip_price=float(oss[4]) if oss[4] is not None else None,
++                    iv_rank=iv_rank * 100,
++                    db_url=_reg_db,
++                )
++                log.debug(f"[registry] options_metrics captured CALL+PUT trace_id={trace_id}")
++            except Exception as _omc_e:
++                log.debug(f"[registry] options_metrics capture skipped: {_omc_e}")
++
+         verify_result = _oi.verify_options_decision_inputs(ticker, call_data, put_data)
++
++        # ── REGISTRY: Failure tests (Phase III Phase 1) ───────────────────────
++        # These are the ONLY registry calls that can block the pipeline.
++        # On failure: inject into verify_result → ready_for_decision=False →
++        # existing gate raises ValueError → job marked FAILED.
++        # Three tests: missing-indicator, pattern-scan-incomplete, stale-data.
++        if _reg_ready:
++            _REQUIRED_IDS = [
++                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
++                "OPT_IV_RANK", "BS_CALL_DELTA", "BS_PUT_DELTA",
++                "BS_CALL_POP", "BS_PUT_POP",
++            ]
++            _CRITICAL_FRESHNESS_IDS = ["POLY_CLOSE_PRICE", "OSS_FRONT_IV"]
++            _reg_gate_failures: list = []
++            try:
++                _reg_mod.assert_no_missing_indicators(trace_id, _REQUIRED_IDS, _reg_db)
++            except _reg_mod.RegistryValidationError as _rve:
++                _reg_gate_failures.append(f"REGISTRY_MISSING_INDICATOR: {_rve}")
++                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rve}")
++            try:
++                _reg_mod.assert_pattern_scan_complete(trace_id, _reg_db)
++            except _reg_mod.RegistryValidationError as _rpve:
++                _reg_gate_failures.append(f"REGISTRY_PATTERN_INCOMPLETE: {_rpve}")
++                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rpve}")
++            try:
++                _reg_mod.assert_data_freshness(trace_id, _CRITICAL_FRESHNESS_IDS,
++                                               172800, _reg_db)
++            except _reg_mod.RegistryValidationError as _rfve:
++                _reg_gate_failures.append(f"REGISTRY_STALE_DATA: {_rfve}")
++                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rfve}")
++            if _reg_gate_failures:
++                _rf_text = "; ".join(_reg_gate_failures)
++                verify_result["gate_failures"] = (
++                    (verify_result.get("gate_failures") or []) +
++                    [f"REGISTRY: {f}" for f in _reg_gate_failures]
++                )
++                verify_result["call_eligible"]      = False
++                verify_result["put_eligible"]       = False
++                verify_result["ready_for_decision"] = False
++                verify_result["verdict"]            = f"REGISTRY VALIDATION FAILED — {_rf_text}"
++                log.error(
++                    f"[exec] [{trace_id}] REGISTRY VALIDATION BLOCKED PIPELINE: {_rf_text}")
++            else:
++                log.debug(f"[exec] [{trace_id}] registry failure tests: all 3 PASS")
++
+         if "error" in verify_result:
+             raise ValueError(f"verify_options_decision_inputs: {verify_result['error']}")
+         if not verify_result.get("ready_for_decision"):
+@@ -1067,6 +1464,25 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         put_score    = put_scoring["score"]
+         margin       = abs(call_score - put_score)
+ 
++        # ── REGISTRY: Stage 5 — REQ6 scoring (Recommendation engine inputs) ───
++        if _reg_ready:
++            _rc("REQ6", "REQ6_CALL_SCORE",  call_score, call_score/100.0,
++                "BULLISH" if call_score >= 55 else "BEARISH")
++            _rc("REQ6", "REQ6_PUT_SCORE",   put_score,  put_score/100.0,
++                "BEARISH" if put_score >= 55 else "NEUTRAL")
++            _rc("REQ6", "REQ6_MARGIN",      margin, margin/100.0,
++                "BULLISH" if margin >= 10 else "NEUTRAL")
++            # Capture each of the 12 dimension scores (from call_scoring / put_scoring)
++            for _dim_name, _dim_val in (call_scoring.get("dimensions") or {}).items():
++                _d_cid = f"REQ6_CALL_{str(_dim_name).upper().replace(' ','_')[:30]}"
++                _rc("REQ6", _d_cid, float(_dim_val) if _dim_val is not None else None,
++                    None, "NEUTRAL")
++            for _dim_name, _dim_val in (put_scoring.get("dimensions") or {}).items():
++                _d_cid = f"REQ6_PUT_{str(_dim_name).upper().replace(' ','_')[:30]}"
++                _rc("REQ6", _d_cid, float(_dim_val) if _dim_val is not None else None,
++                    None, "NEUTRAL")
++            log.debug(f"[registry] stage5 REQ6 snapped trace_id={trace_id}")
++
+         # ── Stage 6: Decision ──────────────────────────────────────────────────
+         if call_score >= put_score and call_score >= 55 and margin >= 10:
+             direction = "LONG_CALL"
+@@ -1075,6 +1491,20 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         else:
+             direction = "NO_TRADE"
+ 
++        # ── REGISTRY: Stage 6 — Decision (Recommendation engine) ────────────────
++        if _reg_ready:
++            _rc("DECISION", "DECISION_DIRECTION", None, None,
++                "BULLISH" if direction == "LONG_CALL" else
++                "BEARISH" if direction == "LONG_PUT" else "NEUTRAL",
++                txt=direction)
++            _rc("DECISION", "DECISION_CALL_SCORE",  call_score, call_score/100.0,
++                "BULLISH" if call_score >= 55 else "NEUTRAL")
++            _rc("DECISION", "DECISION_PUT_SCORE",   put_score,  put_score/100.0,
++                "BEARISH" if put_score >= 55 else "NEUTRAL")
++            _rc("DECISION", "DECISION_MARGIN",      margin, margin/100.0,
++                "BULLISH" if margin >= 10 else "NEUTRAL")
++            log.debug(f"[registry] stage6 snapped direction={direction} trace_id={trace_id}")
++
+         if direction == "NO_TRADE":
+             with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+                 _nt_prev_hash = _get_prev_chain_hash(conn)
+@@ -1168,6 +1598,21 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
+         chain_sha   = save_result["audit_chain_sha256"]
+         elapsed     = round(time.time() - t_start, 2)
+ 
++        # ── REGISTRY: Stage 8 — Paper execution + Verification system ─────────
++        if _reg_ready:
++            # Back-fill alert_id on oe_options_metrics rows now that it's known
++            try:
++                _reg_mod.update_metrics_alert_id(trace_id, alert_id, _reg_db)
++                log.debug(f"[registry] stage8 metrics alert_id={alert_id} linked trace_id={trace_id}")
++            except Exception as _rsa_e:
++                log.debug(f"[registry] stage8 alert_id link skipped: {_rsa_e}")
++            # Scheduler / verification subsystem
++            _rc("VERIFY", "VERIFY_ALERT_ID",   float(alert_id), None, "NEUTRAL",
++                txt=str(alert_id))
++            _rc("VERIFY", "VERIFY_CHAIN_SHA",  None, None, "NEUTRAL",
++                txt=chain_sha[:24] if chain_sha else None)
++            _rc("VERIFY", "VERIFY_ELAPSED_S",  elapsed, None, "NEUTRAL")
++
+         # ── Write options_engine_runs (full trigger-chain audit record) ────────
+         try:
+             _run_id_oe = f"oe_{ticker}_{scan_date}_{trace_id[:8]}"
+
+## ITEM 1 — HARDCODED NUMERIC CONSTANTS (Phase 1 new code only)
+
+--- Source: aiem_options_registries.py (entire file is Phase 1) ---
+
+=== connect_timeout=6 (bootstrap_registries only) ===
+79:            with psycopg2.connect(db_url, connect_timeout=6) as conn, conn.cursor() as cur:
+trace: psycopg2 DDL CREATE TABLE can take slightly longer than transactional queries;
+       6s used only for bootstrap (line 79); all other connections use 4s.
+
+=== connect_timeout=4 (all other DB calls in registries) ===
+284:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+336:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+377:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+414:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+475:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+526:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+545:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+577:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+614:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+654:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+687:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+723:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+746:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+761:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+787:        with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
+trace: 4s matches existing codebase standard (grep main.py for connect_timeout=4).
+
+=== round(..., 4) in capture_options_metrics / enrich_metrics_oss ===
+461:    mid  = round((bid + ask) / 2, 4) if bid is not None and ask is not None else None
+464:    voi  = round(vol / oi, 4) if vol and oi else None
+505:                round(ask - bid, 4) if ask and bid else None,
+trace: 4 decimal places = standard financial precision for bid/ask/mid/voi;
+       bid, ask come from _execute_job Stage 4 call_bid/call_ask (Tradier chain data);
+       vol/oi come from Stage 4 chain data; rr = profit_target/premium_at_risk.
+
+=== ev formula: (1 - prob) * 1.0 ===
+470:            ((1 - _f("probability_estimate")) * 1.0)
+trace: ev = (prob * expected_return) - ((1 - prob) * 1.0)
+       The 1.0 is the normalised loss-per-unit when option expires worthless
+       (i.e., 100% of premium paid). expected_return and probability_estimate
+       come from Stage 4 enrich_metrics_oss call; these are pipeline-computed,
+       not hardcoded (source: aiem_options_intel.py get_put_call_pop / REQ6).
+
+--- Source: aiem_options_scheduler.py — PHASE 1 CAPTURE BLOCKS ONLY (lines 760-1450) ---
+
+=== 172800 (48h stale threshold, lines 764 + 1436) ===
+764:            _pmd_q   = "STALE" if _pmd_age > 172800 else "FRESH"
+1436:                                               172800, _reg_db)
+trace: 48*3600 seconds = 48h. Polygon EOD data published by 5PM ET;
+       pipeline runs at 9:45 AM next trading day = ~17h gap normal;
+       >48h = missed at least one full trading day = STALE. Passed
+       directly to assert_data_freshness(max_stale_seconds=172800) at line 1436.
+
+=== 500.0 normalization (POLY_CLOSE_PRICE) ===
+766:            _rc("POLYGON", "POLY_CLOSE_PRICE",    close_price, min(1.0, close_price/500.0),
+trace: normalised_value = min(1.0, close_price/500.0). Scales equity price
+       range [0..500] to [0..1]; stored in oe_indicator_snapshots.normalized_value
+       for display/comparison only. Does NOT gate pipeline decisions.
+
+=== 0.6 / 0.4 (close_strength quality labels) ===
+773:                "BULLISH" if close_str > 0.6 else "BEARISH" if close_str < 0.4 else "NEUTRAL",
+797:            close_price < vwap and close_str < 0.4 and pc_skew_tag == "FEAR_PREMIUM"
+826:                "BULLISH" if close_str > 0.6 else "BEARISH" if close_str < 0.4 else "NEUTRAL")
+trace: close_str = (close-low)/(high-low) from polygon_market_daily.
+       >0.6 = closed in upper 40% of range = BULLISH label.
+       <0.4 = closed in lower 40% of range = BEARISH label.
+       Label stored in signal_direction col of oe_indicator_snapshots. Display only.
+
+=== 0.40 / 0.20 (front_iv quality labels) ===
+778:                "HIGH_VOL" if front_iv > 0.40 else "LOW_VOL" if front_iv < 0.20 else "NEUTRAL",
+839:                "HIGH_VOL" if front_iv > 0.40 else "LOW_VOL" if front_iv < 0.20 else "NEUTRAL",
+840:                txt="HIGH_IV" if front_iv > 0.40 else "LOW_IV")
+1063:                    strategy_vol_thesis="HIGH_IV" if front_iv > 0.40 else "LOW_IV",
+1064:                    vol_regime="HIGH_IV" if front_iv > 0.40 else "LOW_IV",
+trace: front_iv = front_iv_pct/100.0 from oss[3] (aiem_options_intel.py
+       get_options_structure_scan, col index 3 = front_iv_pct).
+       >0.40 = 40% IV = HIGH_VOL; <0.20 = 20% IV = LOW_VOL. Display label only.
+
+=== /100.0 conversions (pct → decimal) ===
+754:        front_iv     = front_iv_pct / 100.0
+791:            _rc("OSS", "OSS_BACK_IV",     float(oss[9])/100.0 if oss[9] is not None else None,
+1141:        iv_rank = float(ivr_result["iv_rank"]) / 100.0
+1164:            _rc("OPT", "OPT_EXPECTED_MOVE_PCT",  _em_pct, _em_pct/100.0 if _em_pct else None,
+1166:            _rc("OPT", "OPT_IV_RANK",            _iv_rank_raw, _iv_rank_raw/100.0,
+1182:            _rc("VOLREG", "VOLREG_IV_RANK",       _iv_rank_raw, _iv_rank_raw/100.0,
+1233:        call_vega_bs         = round(spot * _math.sqrt(_T) * _npdf(_cd1) / 100.0, 4)
+1238:        put_vega_bs          = round(spot * _math.sqrt(_T) * _npdf(_pd1) / 100.0, 4)
+1398:                    back_iv=float(oss[9])/100.0 if oss[9] is not None else None,
+1469:            _rc("REQ6", "REQ6_CALL_SCORE",  call_score, call_score/100.0,
+1471:            _rc("REQ6", "REQ6_PUT_SCORE",   put_score,  put_score/100.0,
+1473:            _rc("REQ6", "REQ6_MARGIN",      margin, margin/100.0,
+1500:            _rc("DECISION", "DECISION_CALL_SCORE",  call_score, call_score/100.0,
+1502:            _rc("DECISION", "DECISION_PUT_SCORE",   put_score,  put_score/100.0,
+1504:            _rc("DECISION", "DECISION_MARGIN",      margin, margin/100.0,
+trace: front_iv_pct/100.0 (line 754, pre-existing) and oss[9]/100.0 (back_iv,
+       line 792) both convert Tradier/Polygon IV from percentage-points to decimal.
+       These values come directly from aiem_options_intel.get_options_structure_scan.
+
+=== 30.0 normalization (OSS_PC_SKEW_PP) ===
+784:            _rc("OSS", "OSS_PC_SKEW_PP",  pc_skew_pp, min(1.0, abs(pc_skew_pp)/30.0),
+trace: normalised_value = min(1.0, abs(pc_skew_pp)/30.0).
+       pc_skew_pp = put_call_skew in percentage-points from oss[6]
+       (aiem_options_intel.get_options_structure_scan). Typical range ±30pp;
+       >30pp is extreme. Display normalization only.
+
+=== 17 hours in _pmd_dt (Stage 1) ===
+762:            _pmd_dt  = datetime(pmd[0].year, pmd[0].month, pmd[0].day, 17, 0)
+763:            _pmd_age = int((_reg_ts_now - _pmd_dt).total_seconds())
+767:                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+769:                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+771:                "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
+trace: datetime(pmd[0].year, pmd[0].month, pmd[0].day, 17, 0) = 5PM on scan_date.
+       pmd[0] is scan_date from polygon_market_daily (per polygon-market-daily-eod-date-bug
+       memory: pmd uses MAX(scan_date)/LIMIT 1 DESC). 5PM chosen as typical EOD publish time.
+
+## ITEM 2 — assert_data_freshness: UNCAUGHT TRACEBACK
+
+--- Step 1: INSERT test row with freshness_seconds=999999 ---
+SQL:
+INSERT INTO oe_indicator_snapshots
+    (trace_id, ticker, scan_date, canonical_id, freshness_seconds, quality_status)
+VALUES
+    ('VERIFY_FRESHNESS_TEST_PHASE3P1_001', 'TEST', CURRENT_DATE,
+     'POLY_CLOSE_PRICE', 999999, 'STALE')
+ON CONFLICT DO NOTHING;
+rowcount=1
+
+--- Step 2: Confirm row exists (raw SQL result) ---
+('VERIFY_FRESHNESS_TEST_PHASE3P1_001', 'POLY_CLOSE_PRICE', 999999, 'STALE', datetime.datetime(2026, 7, 18, 18, 44, 39, 652449, tzinfo=datetime.timezone.utc))
+(1 rows)
+
+--- Step 3: assert_data_freshness uncaught traceback ---
+python3 -c (no try/except; max_stale_seconds=3600; row has freshness_seconds=999999)
+
+Traceback (most recent call last):
+  File "<stdin>", line 6, in <module>
+  File "/home/runner/workspace/artifacts/stock-scanner-api/aiem_options_registries.py", line 705, in assert_data_freshness
+    raise RegistryValidationError(f"Stale data detected: {stale_desc}")
+aiem_options_registries.RegistryValidationError: Stale data detected: POLY_CLOSE_PRICE=999999s (>3600s)
+python3 exit code: 1
+
+--- _CRITICAL_FRESHNESS_IDS list (grep -n, scheduler line 1418-1423) ---
+1422:            _CRITICAL_FRESHNESS_IDS = ["POLY_CLOSE_PRICE", "OSS_FRONT_IV"]
+1435:                _reg_mod.assert_data_freshness(trace_id, _CRITICAL_FRESHNESS_IDS,
+
+--- Full assert_data_freshness call in scheduler (line 1436 context) ---
+        # On failure: inject into verify_result → ready_for_decision=False →
+        # existing gate raises ValueError → job marked FAILED.
+        # Three tests: missing-indicator, pattern-scan-incomplete, stale-data.
+        if _reg_ready:
+            _REQUIRED_IDS = [
+                "POLY_CLOSE_PRICE", "POLY_VWAP", "OSS_FRONT_IV", "OSS_GEX_REGIME",
+                "OPT_IV_RANK", "BS_CALL_DELTA", "BS_PUT_DELTA",
+                "BS_CALL_POP", "BS_PUT_POP",
+            ]
+            _CRITICAL_FRESHNESS_IDS = ["POLY_CLOSE_PRICE", "OSS_FRONT_IV"]
+            _reg_gate_failures: list = []
+            try:
+                _reg_mod.assert_no_missing_indicators(trace_id, _REQUIRED_IDS, _reg_db)
+            except _reg_mod.RegistryValidationError as _rve:
+                _reg_gate_failures.append(f"REGISTRY_MISSING_INDICATOR: {_rve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rve}")
+            try:
+                _reg_mod.assert_pattern_scan_complete(trace_id, _reg_db)
+            except _reg_mod.RegistryValidationError as _rpve:
+                _reg_gate_failures.append(f"REGISTRY_PATTERN_INCOMPLETE: {_rpve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rpve}")
+            try:
+                _reg_mod.assert_data_freshness(trace_id, _CRITICAL_FRESHNESS_IDS,
+                                               172800, _reg_db)
+            except _reg_mod.RegistryValidationError as _rfve:
+                _reg_gate_failures.append(f"REGISTRY_STALE_DATA: {_rfve}")
+                log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rfve}")
+            if _reg_gate_failures:
+                _rf_text = "; ".join(_reg_gate_failures)
+                verify_result["gate_failures"] = (
+                    (verify_result.get("gate_failures") or []) +
+                    [f"REGISTRY: {f}" for f in _reg_gate_failures]
+                )
+
+## ITEM 5 — verify_chain.sh output
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
+verify_chain.sh exit code: 3
+
+--- end of raw evidence gaps ---
+
+==============================
+SEQ=3  EXIT=0  TS_END=2026-07-18T18:44:47Z
+sha256(log)=312e70243b65f6f61ba7051514c7e085f69457c80e7a19bb849292338ad9e7e7
+==============================
