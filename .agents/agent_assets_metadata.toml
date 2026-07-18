@@ -624,3 +624,9 @@ id = "a_uDfHgK2lugUnnc5bcPq"
 uri = "file://phase3_followup2_proof.txt"
 type = "text"
 title = "Phase 3 Follow-up #2 Proof — SEQ=18 EXIT=0"
+
+[[outputs]]
+id = "bEyW_h2n1ZqollW6PtNGG"
+uri = "file://phase3_gaps_proof.txt"
+type = "text"
+title = "Phase 3 Gaps Proof — SEQ=19 EXIT=0"

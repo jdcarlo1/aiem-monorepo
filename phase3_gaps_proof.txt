@@ -1,0 +1,215 @@
+====== verified_run.sh ======
+SEQ=19
+TS=2026-07-18T21:19:07Z
+CMD=bash verify_gaps_proof.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=8fdce0374d63ee5b1096ab23a327a68bb75d5e31
+==============================
+
+=== CANONICAL SHA CHECK ===
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh
+
+=== verify_chain.sh ===
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 SUPPRESSED — chain UNVERIFIABLE
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 3/10 checks passed
+  FAILURES:
+    {'stage': '1_polygon', 'reason': 'SNAPSHOT_UNAVAILABLE'}
+    {'stage': '2_stock_analysis', 'reason': 'UNVERIFIABLE — upstream break at 1_polygon'}
+    {'stage': '3_options_analysis', 'reason': 'UNVERIFIABLE — upstream break at 2_stock_analysis'}
+    {'stage': '4_risk_gates', 'reason': 'UNVERIFIABLE — upstream break at 3_options_analysis'}
+    {'stage': '5_req6_scoring', 'reason': 'UNVERIFIABLE — upstream break at 4_risk_gates'}
+    {'stage': '6_decision', 'reason': 'UNVERIFIABLE — upstream break at 5_req6_scoring'}
+    {'stage': 'req6_display', 'reason': 'suppressed — chain UNVERIFIABLE upstream'}
+  OVERALL: FAIL
+
+=== GAP 1: SHA 656bc1ff origin ===
+--- command that produced it ---
+sha256sum /home/runner/workspace/phase3_followup2_proof.txt
+--- raw output ---
+656bc1ff7f61e62e7a0f9b2b55a155960486dc7a8448edf0aa4ed2b5e9584a53  /home/runner/workspace/phase3_followup2_proof.txt
+
+--- /home/runner/workspace/phase3_followup2_proof.txt is the file written by:
+    bash tools/verified_run.sh 'bash verify_followup2_proof.sh' 2>&1 | tee /home/runner/workspace/phase3_followup2_proof.txt
+--- the sha256(log)=7d28915a... in SEQ=18 is verified_run.sh internal evidence_chain.log, a different file ---
+--- these are two distinct files; 656bc1ff is the SHA of phase3_followup2_proof.txt (the tee output file) ---
+
+=== GAP 2a: full _atomic_claim WHERE clause (sed -n 600-640) ===
+    )
+    return {"processed": processed, "errors": errors, "tickers": tickers}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ATOMIC CLAIM
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _atomic_claim(claim_id: str, scan_date: date) -> tuple[int, str] | None:
+    """
+    Atomically claim one PENDING job for scan_date.
+    Uses SELECT ... FOR UPDATE SKIP LOCKED — safe for concurrent callers.
+    Returns (job_id, ticker) or None if nothing available.
+    """
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
+            cur.execute("""
+                WITH candidate AS (
+                    SELECT id FROM options_pipeline_jobs
+                    WHERE status = 'PENDING'
+                      AND scan_date = %s
+                      AND recovery_attempts < %s
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE options_pipeline_jobs
+                SET status = 'CLAIMED',
+                    claim_id = %s,
+                    claimed_at = NOW()
+                FROM candidate
+                WHERE options_pipeline_jobs.id = candidate.id
+                RETURNING options_pipeline_jobs.id, options_pipeline_jobs.ticker
+            """, (scan_date, _MAX_RECOVERY_TRIES, claim_id))
+            row = cur.fetchone()
+            conn.commit()
+            return row   # (id, ticker) or None
+    except Exception as e:
+        log.error(f"[claim] atomic claim failed: {e}")
+        return None
+
+
+=== GAP 2b: missed-seed gate incl _before_eod def/assign (sed -n 2108,2143) ===
+    # If the VM restarted AFTER the 9:40 seed window but BEFORE EOD, and
+    # today has zero rows in options_pipeline_jobs, seed + execute immediately.
+    try:
+        _now_et = datetime.now(_ET)
+        _is_weekday = _now_et.weekday() < 5          # Mon=0 … Fri=4
+        _after_window = _now_et.hour > 9 or (_now_et.hour == 9 and _now_et.minute >= 46)
+        _before_eod   = _now_et.hour < 15 or (_now_et.hour == 15 and _now_et.minute <= 30)
+        if _is_weekday and _after_window and _before_eod:
+            with psycopg2.connect(_DB_URL, connect_timeout=4) as _sc, _sc.cursor() as _scu:
+                _scu.execute(
+                    "SELECT COUNT(*) FROM options_pipeline_jobs WHERE scan_date = %s",
+                    (_now_et.date(),)
+                )
+                _today_count = _scu.fetchone()[0]
+            if _today_count == 0:
+                log.warning(
+                    f"[startup] missed-seed detected: 0 rows for {_now_et.date()} "
+                    f"(VM restarted after 09:45 window). Seeding + executing now…"
+                )
+                _tg("[MISSED-SEED RECOVERY] OPTIONS PIPELINE\n"
+                    + f"date={_now_et.date()}  time={_now_et.strftime('%H:%M ET')}\n"
+                    + "VM restarted after 09:45 window. Seeding + executing now.")
+                _ms_seed = seed_daily_candidates(scan_date=_now_et.date())
+                log.info(f"[startup] missed-seed result: {_ms_seed}")
+                if _ms_seed.get("seeded", 0) > 0:
+                    _ms_exec = run_pipeline_worker(scan_date=_now_et.date())
+                    log.info(f"[startup] missed-seed exec: {_ms_exec}")
+            else:
+                log.info(f"[startup] no missed-seed: {_today_count} row(s) already exist for {_now_et.date()}")
+    except Exception as _ms_e:
+        log.warning(f"[startup] missed-seed check error: {_ms_e}")
+
+    # ── Step 3: APScheduler ─────────────────────────────────────────────────
+    sched = BackgroundScheduler(timezone=_ET)
+
+    # 09:40 ET — seed daily candidates
+
+=== GAP 2c: 09:45 ET cron registration incl day_of_week (sed -n 2148,2160) ===
+    sched.add_job(_seed_job, CronTrigger(day_of_week="mon-fri", hour=9, minute=40),
+                  id="seed_daily_candidates", replace_existing=True)
+
+    # 09:45 ET — execute pipeline
+    def _execute_job_wrapper():
+        log.info("[scheduler] 09:45 pipeline worker starting")
+        run_pipeline_worker()
+
+    sched.add_job(_execute_job_wrapper, CronTrigger(day_of_week="mon-fri", hour=9, minute=45),
+                  id="run_pipeline_worker", replace_existing=True)
+
+    # 07:30 ET — premarket intelligence scan (before market open)
+    def _premarket_job():
+
+=== GAP 2d: test-cycle scan_date assignment + call site (sed -n 2197,2237) ===
+                  id="stale_recovery", replace_existing=True)
+
+    # ── TEST CYCLE (only when TEST_CYCLE_OFFSET_SECS is set) ────────────────
+    # Proves the scheduler fires jobs automatically at a scheduled time.
+    # Set TEST_CYCLE_OFFSET_SECS=N to fire a full seed+execute cycle N seconds
+    # from now.  TEST_SCAN_DATE overrides the scan date (default: yesterday).
+    _test_offset = int(os.environ.get("TEST_CYCLE_OFFSET_SECS", "0"))
+    if _test_offset > 0:
+        _raw_test_date = os.environ.get("TEST_SCAN_DATE", "")
+        if _raw_test_date:
+            from datetime import date as _date_cls
+            _test_sd = _date_cls.fromisoformat(_raw_test_date)
+        else:
+            _test_sd = (datetime.now(_ET) - timedelta(days=1)).date()
+
+        _fire_at = datetime.now(_ET) + timedelta(seconds=_test_offset)
+        _test_run_id = uuid.uuid4().hex[:12]
+
+        def _test_cycle_job():
+            log.info(
+                f"[TEST_CYCLE] *** APScheduler fired automatically ***  "
+                f"run_id={_test_run_id}  scan_date={_test_sd}  "
+                f"fire_ts={datetime.utcnow().isoformat()}Z"
+            )
+            seed_result   = seed_daily_candidates(scan_date=_test_sd)
+            worker_result = run_pipeline_worker(scan_date=_test_sd)
+            log.info(
+                f"[TEST_CYCLE] COMPLETE  run_id={_test_run_id}  "
+                f"seeded={seed_result.get('seeded',0)}  "
+                f"executed={worker_result.get('executed',0)}  "
+                f"errors={worker_result.get('errors',0)}"
+            )
+
+        sched.add_job(
+            _test_cycle_job,
+            DateTrigger(run_date=_fire_at, timezone=_ET),
+            id="test_cycle_auto",
+            replace_existing=True,
+        )
+        log.info(
+            f"[TEST_CYCLE] one-shot job scheduled — fires automatically at "
+
+=== GAP 3: job_heartbeats schema + SELECT * WHERE job_name='aiem_prediction_grader' ===
+SCHEMA:
+  ('job_name', 'character varying')
+  ('last_success', 'timestamp without time zone')
+  ('last_attempt', 'timestamp without time zone')
+  ('last_error', 'text')
+  ('consecutive_failures', 'integer')
+COLS: ['job_name', 'last_success', 'last_attempt', 'last_error', 'consecutive_failures']
+ROW: ('aiem_prediction_grader', datetime.datetime(2026, 7, 16, 20, 35, 0, 18693), datetime.datetime(2026, 7, 16, 20, 35, 0, 18693), None, 0)
+
+==============================
+SEQ=19  EXIT=0  TS_END=2026-07-18T21:19:09Z
+sha256(log)=39b43b735394ade5992730bf7f565ce69fdb07909ea0176ed8df8da7d7e34391
+==============================
