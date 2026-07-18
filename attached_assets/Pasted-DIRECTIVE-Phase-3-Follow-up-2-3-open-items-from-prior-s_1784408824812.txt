@@ -1,0 +1,26 @@
+DIRECTIVE — Phase 3 Follow-up #2 (3 open items from prior submission)
+
+Run everything through verified_run.sh. Validate with verify_chain.sh before claiming complete. Paste raw sha256sum of tools/verified_run.sh and tools/verify_chain.sh against canonical (verified_run.sh=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4, verify_chain.sh=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f) — mismatch = rejected regardless of content.
+
+ITEM 1 — grade_outcomes heartbeat identity
+- grep -rn "grade_outcomes\|_HEARTBEAT_JOB_NAME" on the scheduler/job file(s) — raw output, no paraphrase
+- Confirm (or refute) whether the grade_outcomes job writes its heartbeat under the name "aiem_prediction_grader" or another string
+- Re-run scheduler log grep for whatever name is confirmed, raw output
+
+ITEM 2 — system clock/TZ at time of 07-19 orphan row
+- `date -u` and `date` (local) right now, raw output
+- `cat /etc/timezone` or `echo $TZ`, raw output
+- If containerized/cloud: raw output of whatever confirms host clock source (e.g. `timedatectl` or equivalent)
+- State plainly if this cannot resolve after the fact what the clock read at 2026-07-18 01:28 UTC — no invented reconstruction
+
+ITEM 3 — id=12 worker execution trace (01:27:32–01:27:36 UTC window, 2026-07-17)
+- grep application/worker logs for that exact timestamp window, raw output (or state none exist)
+- raw SQL: full row for options_pipeline_jobs ids 39-43 including recovery_attempts, claimed_at, claim_id columns (not just id/ticker/status/trigger_source/created_at shown previously)
+- Trace whether run_pipeline_worker was invoked at all in that window, or whether daily_pipeline_runs id=12 was written by a different code path — cite the exact call site (file:line) with raw sed/grep, not description
+
+Standing requirements (apply to every item above):
+- No narrative "confirmed/fixed/found" without pasted raw output
+- Raw grep/sed for any code-location or call-chain claim
+- Raw SQL + full result set for any DB claim
+- No deletion/truncation/overwrite of any row or file without my prior explicit approval this session
+- If something can't be evidenced, say so in one line — no padding

@@ -1,0 +1,222 @@
+====== verified_run.sh ======
+SEQ=18
+TS=2026-07-18T21:10:59Z
+CMD=bash verify_followup2_proof.sh
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=4a3fb455144f14d66a4ea89c2336bdccc1cbf934
+==============================
+
+=== ITEM 1: grade_outcomes heartbeat identity ===
+
+--- 1a: grep -n 'grade_outcomes|_HEARTBEAT_JOB_NAME' in scheduler ---
+60:_HEARTBEAT_JOB_NAME  = "options_pipeline_scheduler"
+304:                """, (_HEARTBEAT_JOB_NAME,))
+312:                """, (_HEARTBEAT_JOB_NAME, error or "unknown", error or "unknown"))
+1989:def grade_outcomes_job() -> dict:
+2002:            log.warning(f"[phase3] grade_outcomes_job p3 step failed: {_p3g_e}")
+2038:                """, (_HEARTBEAT_JOB_NAME,))
+2190:    sched.add_job(grade_outcomes_job,
+2192:                  id="grade_outcomes", replace_existing=True)
+
+--- 1b: _HEARTBEAT_JOB_NAME definition (sed -n 58-62) ---
+_STALE_EXEC_SECS     = 600    # 10 min → EXECUTING too old
+_MAX_RECOVERY_TRIES  = 3
+_HEARTBEAT_JOB_NAME  = "options_pipeline_scheduler"
+_SCHEDULER_NAME      = "aiem_options_scheduler"
+
+
+--- 1c: grade_outcomes_job _write_heartbeat call site (sed -n 1989-2012) ---
+def grade_outcomes_job() -> dict:
+    try:
+        import aiem_options_pipeline as _pipe
+        result = _pipe.grade_options_outcomes(days_back=30)
+        n = result.get("graded_count", 0)
+        log.info(f"[grade] graded={n}  wr={result.get('win_rate_pct')}%")
+        _write_heartbeat(True)
+        # ── Phase 3: root-cause batch + scorecard rebuild after grading ────────
+        try:
+            import aiem_options_phase3 as _p3g
+            _p3g.record_root_cause_batch(days_back=30, db_url=_DB_URL)
+            _p3g.rebuild_all_scorecards(db_url=_DB_URL)
+        except Exception as _p3g_e:
+            log.warning(f"[phase3] grade_outcomes_job p3 step failed: {_p3g_e}")
+        if n:
+            _tg(
+                f"📊 <b>OPTIONS OUTCOMES GRADED</b>\n"
+                f"Graded: {n}  |  Win rate: {result.get('win_rate_pct')}%"
+            )
+        return result
+    except Exception as e:
+        log.error(f"[grade] error: {e}")
+        _write_heartbeat(False, str(e))
+        return {"error": str(e)}
+
+--- 1d: grep scheduler logs for 'grade_outcomes' (both log files, raw) ---
+(no matches in LOG1)
+23:[2026-07-18T16:45:03Z INFO] Added job "grade_outcomes_job" to job store "default"
+31:[2026-07-18T16:45:03Z INFO] [scheduler] job=grade_outcomes  next=2026-07-20 16:46:00+00:00
+
+--- 1e: grep scheduler logs for 'options_pipeline_scheduler' (heartbeat name, raw) ---
+(no matches in LOG1)
+(no matches in LOG2)
+
+=== ITEM 2: system clock/TZ at time of 2026-07-18 01:28 UTC orphan row ===
+
+--- 2a: date -u (UTC) ---
+Sat Jul 18 09:10:59 PM UTC 2026
+
+--- 2b: date (local) ---
+Sat Jul 18 09:10:59 PM UTC 2026
+
+--- 2c: /etc/timezone ---
+/etc/timezone does not exist
+
+--- 2d: TZ env var ---
+TZ=<unset>
+
+--- 2e: timedatectl ---
+timedatectl not available
+
+--- 2f: clock source reconstruction capability ---
+Cannot reconstruct what the clock read at 2026-07-18 01:28 UTC after the fact.
+No /etc/timezone, TZ unset, timedatectl unavailable, log files for that window absent.
+
+=== ITEM 3: id=12 worker execution trace (01:27:32-01:27:36 UTC, 2026-07-17) ===
+
+--- 3a: grep logs for 01:27 timestamp window (both log files) ---
+(no matches in LOG1)
+(no matches in LOG2)
+
+--- 3b: earliest timestamp in LOG2 (oldest available log) ---
+[2026-07-18T16:44:50Z
+
+--- 3c: full options_pipeline_jobs rows 39-43 incl claimed_at/claim_id/recovery_attempts ---
+COLS: ['id', 'ticker', 'scan_date', 'status', 'trigger_source', 'created_at', 'claimed_at', 'claim_id', 'recovery_attempts']
+ROW: (39, 'MEC', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc), None, 'backup_f9e24b2fe54e487f', 0)
+ROW: (40, 'UMC', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 14, 17, 15, 14569, tzinfo=datetime.timezone.utc), 'sched_65d91f5c12e1463c8a64', 0)
+ROW: (41, 'PINS', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 14, 17, 18, 726893, tzinfo=datetime.timezone.utc), 'sched_3d9b625a45034bf6bbb9', 0)
+ROW: (42, 'WOLF', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 14, 17, 22, 83779, tzinfo=datetime.timezone.utc), 'sched_f025c29f80174ea58dda', 0)
+ROW: (43, 'TER', datetime.date(2026, 7, 17), 'DONE', 'daily_scheduler', datetime.datetime(2026, 7, 17, 14, 15, 47, 838246, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 14, 17, 25, 199288, tzinfo=datetime.timezone.utc), 'sched_c00fff176f6846b4a495', 0)
+
+--- 3d: claim_id prefix 'backup_' — grep scheduler + pipeline for origin ---
+(no matches in aiem_options_scheduler.py)
+(no matches in aiem_options_pipeline.py)
+(no aiem_options_backup*.py files)
+
+--- 3e: all run_pipeline_worker call sites (grep -n) ---
+1889:def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
+1980:        result = run_pipeline_worker(scan_date=sd)
+2133:                    _ms_exec = run_pipeline_worker(scan_date=_now_et.date())
+2154:        run_pipeline_worker()
+2222:            worker_result = run_pipeline_worker(scan_date=_test_sd)
+
+--- 3f: backfill_missed_jobs — does it write daily_pipeline_runs? (sed -n 1947-1988) ---
+def backfill_missed_jobs() -> dict:
+    """
+    On startup: look for PENDING jobs from the last 24 h (missed during downtime).
+    Execute them now.  This is the recovery path for VM reboots and process crashes.
+    """
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT scan_date FROM options_pipeline_jobs
+                WHERE status = 'PENDING'
+                  AND scan_date >= CURRENT_DATE - INTERVAL '1 day'
+                ORDER BY scan_date ASC
+            """)
+            missed_dates = [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        log.error(f"[backfill] query failed: {e}")
+        return {"error": str(e)}
+
+    if not missed_dates:
+        log.info("[backfill] no missed PENDING jobs")
+        return {"backfilled_dates": []}
+
+    log.warning(f"[backfill] found missed jobs for dates: {missed_dates}")
+    _tg(
+        f"🔁 <b>OPTIONS PIPELINE: Startup Backfill</b>\n"
+        f"Found {len(missed_dates)} date(s) with PENDING jobs from before restart:\n"
+        f"{', '.join(str(d) for d in missed_dates)}\n"
+        f"Executing now..."
+    )
+
+    all_results = {}
+    for sd in missed_dates:
+        log.info(f"[backfill] running worker for {sd}")
+        result = run_pipeline_worker(scan_date=sd)
+        all_results[str(sd)] = result
+
+    return {"backfilled_dates": [str(d) for d in missed_dates], "results": all_results}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GRADE OUTCOMES (4:46 PM job — stages 9-10)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+--- 3g: recover_stale_jobs — does it write daily_pipeline_runs? grep -n ---
+(no daily_pipeline_runs writes in recover_stale_jobs)
+
+--- 3h: daily_pipeline_runs completed_at write sites (grep -n) ---
+128:                        completed_at        TIMESTAMPTZ,
+1577:                    SET status='DONE', completed_at=NOW(),
+1820:                SET status='DONE', completed_at=NOW(),
+1867:                    SET status='FAILED', completed_at=NOW(),
+1926:                     completed_at)
+1934:                        completed_at=NOW()
+
+--- 3i: run_pipeline_worker started_at/completed_at INSERT (sed -n 1920-1942) ---
+    try:
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _wc, _wc.cursor() as _wu:
+            _wu.execute("""
+                INSERT INTO daily_pipeline_runs
+                    (run_date, trigger_source, status, trace_id,
+                     candidates_executed, candidates_no_trade, candidates_failed,
+                     completed_at)
+                VALUES (%s, 'primary', %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (run_date, trigger_source) DO UPDATE
+                    SET status=EXCLUDED.status,
+                        trace_id=COALESCE(EXCLUDED.trace_id, daily_pipeline_runs.trace_id),
+                        candidates_executed=EXCLUDED.candidates_executed,
+                        candidates_no_trade=EXCLUDED.candidates_no_trade,
+                        candidates_failed=EXCLUDED.candidates_failed,
+                        completed_at=NOW()
+            """, (scan_date, final_status, first_trace,
+                  executed, no_trade_count, skipped))
+            _wc.commit()
+    except Exception as _we:
+        log.warning(f"[worker] daily_pipeline_runs write failed: {_we}")
+
+    return {"executed": executed, "errors": skipped, "jobs": results}
+
+
+--- 3j: seed_daily_candidates daily_pipeline_runs INSERT (sed -n 491-502) ---
+        with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc, _dc.cursor() as _cu:
+            _cu.execute("""
+                INSERT INTO daily_pipeline_runs
+                    (run_date, trigger_source, status, candidates_seeded, started_at)
+                VALUES (%s, 'primary', 'RUNNING', %s, NOW())
+                ON CONFLICT (run_date, trigger_source) DO UPDATE
+                    SET status='RUNNING',
+                        candidates_seeded=EXCLUDED.candidates_seeded,
+                        started_at=COALESCE(daily_pipeline_runs.started_at, NOW())
+            """, (scan_date, seeded))
+            _dc.commit()
+    except Exception as _de:
+
+--- 3k: summary of 01:27 UTC window evidence gap ---
+LOG2 earliest entry: [2026-07-18T16:44:50Z
+LOG1 earliest entry: [2026-07-18T18:15:00Z
+Earliest available log coverage: no logs prior to 2026-07-18T16:44 UTC
+01:27:32-01:27:36 UTC window: no log files exist for that session
+
+--- 3l: id=12 full DB row ---
+COLS: ['id', 'run_date', 'trigger_source', 'status', 'candidates_seeded', 'candidates_executed', 'candidates_no_trade', 'candidates_failed', 'started_at', 'completed_at', 'created_at']
+ROW: (12, datetime.date(2026, 7, 17), 'primary', 'RUNNING', 0, 0, 0, 0, datetime.datetime(2026, 7, 18, 1, 27, 32, 710067, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 18, 1, 27, 36, 124238, tzinfo=datetime.timezone.utc), datetime.datetime(2026, 7, 17, 20, 40, 4, 862941, tzinfo=datetime.timezone.utc))
+
+==============================
+SEQ=18  EXIT=0  TS_END=2026-07-18T21:11:01Z
+sha256(log)=7d28915a793bd53b9b3a2e9d6195c3be0b3addb4753e219f34158f8ce78f2f8a
+==============================
