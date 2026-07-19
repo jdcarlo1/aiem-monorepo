@@ -1,0 +1,39 @@
+# DIRECTIVE — DPL Phase 3 Remediation
+
+SCOPE: Options Engine only. Not D1/D2/D3. If any step requires touching D1/D2/D3, stop and flag.
+
+STATUS: Phase 3 NOT closed. Criterion 1 (replay vs original for 2 real past decisions) unmet by your own declaration. 12/12 PASS is harness-vs-fixtures, not reproducibility proof. Items below due before/with the Monday 2026-07-20 09:45 ET live-fire evidence.
+
+## 1. Mutation check — redo in place
+Current evidence uses two separate rows (A theta=0.03, B theta=1.50), not one mutated stored input re-replayed. Also theta=1.50 saturates D8 to 0 — proves floor sensitivity only.
+Required: single Decision ID, alter ONE stored input in place, re-run replay, raw before/after output. Use a non-saturating theta. State whether the original row was restored and under what approval.
+
+## 2. _REQ6_WEIGHTS duplication
+Raw grep: every location REQ6 weights are defined. Prove replay and production read the SAME source, not two copies. If duplicated, state it plainly — replay will match today and silently drift on any weight change.
+
+## 3. Version pinning — full DDL
+Paste full DDL for oe_decision_replay_inputs (all 14 columns). Map each directive-required input to a column: market snapshot, indicators, pattern detections, options chain, Greeks, probability calc, risk calc, portfolio state, config version, model version, strategy version, rule version, data-source timestamps. Any not stored: list as NOT_STORED, no substitutes.
+
+## 4. Replay code pinning
+State whether replay_decision() calls live scoring functions or decision-time-pinned logic. If live: how is a post-decision code change detected as invalidating replay? Raw grep of the call path.
+
+## 5. SEQ regression
+Phase 2 reached SEQ=5; this run is SEQ=3. Explain. If moving verifiers to dpl/ reset the chain, say so and show raw log — an append-only hash chain must not go backwards.
+
+## 6. tools/verified_run.sh in git diff HEAD --stat
+Shows `| 0`. Content sha256 matches canonical. Explain why it appears in an uncommitted diff (mode bit?). Raw `git diff HEAD -- tools/verified_run.sh`.
+
+## 7. Row A / Row B provenance
+is_test_record TRUE or FALSE for both. If FALSE, they are permanent production rows created without pre-authorization — report as procedural deviation and register in oe_known_synthetic_rows.
+
+## Standing requirements (all items)
+- Raw terminal output only. No paraphrase. Lean format, no narrative.
+- Any claim about code location/behavior: raw grep -n or sed -n in context.
+- DB claims: exact SQL + full result set.
+- sha256 before/after + `git diff HEAD --stat` for changed files.
+- Run through verified_run.sh; paste verify_chain.sh output; paste raw sha256sum of tools/verified_run.sh (canonical 8146a523…) and artifacts/stock-scanner-api/verify_chain.sh (canonical ca7896c7…).
+- Data Immutability Rule: no delete/truncate/drop/overwrite of any row, table, or file — including your own test data — without my explicit prior approval.
+- Rule 8: no file containing an unapproved destructive statement may be executed for any purpose, including evidence gathering.
+- No-hardcoded-values: list every constant introduced this phase with a one-line live-source trace.
+- Math/quant: state the formula/reference before running; independent known-answer vectors, not self-derived.
+- If something cannot be produced, say so in one line. No padding.
