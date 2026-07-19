@@ -1,0 +1,34 @@
+# DPL Phase 3 — Round 5 Directive
+
+R4.1, R4.2, R4.5, R4.6 accepted. Open items below.
+
+## R5.1 — canonical hash still unrun
+SEQ=3 and SEQ=4 executed through `987f83ca…`. You propose `ba7faf8d…` as canonical. Same defect as A2.
+"Comment-only, no behavioral change" is not accepted — R4.2 disproved a comment that asserted wrong behavior.
+Pick one, raw output either way:
+- Run once through `ba7faf8d…`, show SEQ=5 EXIT=0, then record it; or
+- Record `987f83ca…` as canonical and revert the R4.6 comment to a later cycle.
+
+## R5.2 — register the five mislabeled rows
+All five `is_test_record=FALSE` rows are synthetic fixture (`P3TEST_A`, single input_hash, alert_id NULL). They are permanently locked by the immutability trigger and will pollute every future Criterion 1 query.
+Register all five in `oe_known_synthetic_rows` with reason and origin, same as the Phase 2 rows. Raw INSERT + full result set. Do not delete.
+
+## R5.3 — stop the verifier creating false production rows
+C16 explicitly passes `is_test_record=False`. That is why two of the five exist.
+Change C16 to use `is_test_record=True` for its own fixture row and test the trigger's FALSE path against an already-registered synthetic row. Raw grep of the changed lines + negative control showing the trigger still blocks.
+
+## R5.4 — replay wiring: approve with split
+Approved to implement the R4.3 wiring at lines 1715 and 1906, with:
+- `verification_status='CODE_DRIFT'` UPDATE built, not left as a comment.
+- Telegram alert built.
+- Log-only (no halt) accepted HERE only, because the decision is already committed.
+State explicitly in the code comment and in your reply: this is a post-decision detector, not a gate. It does not satisfy any pre-trade blocking requirement.
+
+## R5.5 — date
+You cited "Monday 2026-07-21." 07-21 is a Tuesday. Monday is 2026-07-20. You corrected this once in R3.6 and regressed. Confirm the correct date.
+
+## R5.6 — Criterion 1
+Remains blocked, 0 eligible rows. Do not close Phase 3. After the first live scheduler decision, replay it and report raw.
+
+## Standing
+Raw output only. sha256 cross-check of `tools/verified_run.sh` + `artifacts/stock-scanner-api/verify_chain.sh` vs canonical, untruncated. `git diff HEAD --stat` and `git status --porcelain` captured AFTER all work. No live-file mutation, no deletions, no self-authorized restores.

@@ -1725,6 +1725,43 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                             alert_id=None,
                             db_url=_DB_URL,
                         )
+                        # ── DPL Phase 3: Post-capture replay check ──────────
+                        # POST-DECISION DETECTOR ONLY — NOT a pre-trade gate.
+                        # The decision is already committed before this runs.
+                        # This does NOT satisfy any pre-trade blocking requirement.
+                        try:
+                            _rpl_nt = _dpl.replay_decision(
+                                _dpl_nt_result["decision_id"]
+                            )
+                            if not _rpl_nt["full_match"]:
+                                _mm_nt = (
+                                    f"[DPL MISMATCH] NO_TRADE "
+                                    f"decision_id={_dpl_nt_result['decision_id'][:16]} "
+                                    f"call_match={_rpl_nt['call_match']} "
+                                    f"put_match={_rpl_nt['put_match']} "
+                                    f"dir_match={_rpl_nt['direction_match']}"
+                                )
+                                log.critical(_mm_nt)
+                                _tg(_mm_nt)
+                        except _dpl.ReplayCodeDriftError as _rce_nt:
+                            _dm_nt = (
+                                f"[DPL CODE_DRIFT] NO_TRADE "
+                                f"decision_id={_dpl_nt_result['decision_id'][:16]}: {_rce_nt}"
+                            )
+                            log.critical(_dm_nt)
+                            _tg(_dm_nt)
+                            try:
+                                with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc_nt,                                      _dc_nt.cursor() as _du_nt:
+                                    _du_nt.execute(
+                                        "UPDATE oe_decision_audit "
+                                        "SET verification_status='CODE_DRIFT' "
+                                        "WHERE decision_id=%s",
+                                        (_dpl_nt_result["decision_id"],)
+                                    )
+                            except Exception as _dbu_nt:
+                                log.warning(f"[dpl] CODE_DRIFT status update failed: {_dbu_nt}")
+                        except Exception as _re_nt:
+                            log.warning(f"[dpl] replay check NO_TRADE failed: {_re_nt}")
                     except Exception as _p3_nt_e:
                         log.warning(
                             f"[dpl] capture_replay_inputs NO_TRADE failed "
@@ -1916,6 +1953,43 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         alert_id=alert_id,
                         db_url=_DB_URL,
                     )
+                    # ── DPL Phase 3: Post-capture replay check ──────────────
+                    # POST-DECISION DETECTOR ONLY — NOT a pre-trade gate.
+                    # The decision is already committed before this runs.
+                    # This does NOT satisfy any pre-trade blocking requirement.
+                    try:
+                        _rpl = _dpl.replay_decision(
+                            _dpl_trade_result["decision_id"]
+                        )
+                        if not _rpl["full_match"]:
+                            _mm = (
+                                f"[DPL MISMATCH] TRADE "
+                                f"decision_id={_dpl_trade_result['decision_id'][:16]} "
+                                f"call_match={_rpl['call_match']} "
+                                f"put_match={_rpl['put_match']} "
+                                f"dir_match={_rpl['direction_match']}"
+                            )
+                            log.critical(_mm)
+                            _tg(_mm)
+                    except _dpl.ReplayCodeDriftError as _rce:
+                        _dm = (
+                            f"[DPL CODE_DRIFT] TRADE "
+                            f"decision_id={_dpl_trade_result['decision_id'][:16]}: {_rce}"
+                        )
+                        log.critical(_dm)
+                        _tg(_dm)
+                        try:
+                            with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc,                                  _dc.cursor() as _du:
+                                _du.execute(
+                                    "UPDATE oe_decision_audit "
+                                    "SET verification_status='CODE_DRIFT' "
+                                    "WHERE decision_id=%s",
+                                    (_dpl_trade_result["decision_id"],)
+                                )
+                        except Exception as _dbu:
+                            log.warning(f"[dpl] CODE_DRIFT status update failed: {_dbu}")
+                    except Exception as _re:
+                        log.warning(f"[dpl] replay check TRADE failed: {_re}")
                 except Exception as _p3_e:
                     log.warning(
                         f"[dpl] capture_replay_inputs TRADE failed "

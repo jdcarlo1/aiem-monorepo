@@ -555,29 +555,11 @@ except Exception as _e:
 #      We write a row with is_test_record=FALSE then attempt UPDATE — must fail.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_prod_decision_id = None
+# C16 no longer writes its own is_test_record=FALSE row (doing so pollutes
+# oe_decision_replay_inputs with new synthetic FALSE rows on every verifier run).
+# Tests trigger against pre-registered synthetic row from oe_known_synthetic_rows.
+_C16_KNOWN_FALSE = "ee74327806f841a7a4034dcc"
 try:
-    _prod_audit = write_decision(
-        input_data ={"ticker": "P3TEST_PROD", "call_score": 60.0, "put_score": 50.0},
-        output_data={"direction": "LONG_CALL", "trace_id": "p3verif_prod"},
-        is_test_record=False,
-    )
-    _prod_decision_id = _prod_audit["decision_id"]
-
-    capture_replay_inputs(
-        decision_id    = _prod_decision_id,
-        direction      = "LONG_CALL",
-        call_score     = 60.0,
-        put_score      = 50.0,
-        call_data      = _CALL_DATA_A,
-        put_data       = _PUT_DATA,
-        stock_data     = _STOCK_DATA,
-        verify_result  = _VERIFY_RESULT,
-        iv_rank        = _IV_RANK,
-        alert_id       = None,
-        is_test_record = False,
-    )
-
     _blocked = False
     _block_msg = ""
     conn2 = psycopg2.connect(_DB_URL, connect_timeout=8,
@@ -587,7 +569,7 @@ try:
             cur2.execute(
                 "UPDATE oe_decision_replay_inputs SET alert_id=999 "
                 "WHERE decision_id=%s",
-                (_prod_decision_id,)
+                (_C16_KNOWN_FALSE,)
             )
         conn2.commit()
         _block_msg = "UPDATE succeeded — trigger not blocking (FAIL)"
