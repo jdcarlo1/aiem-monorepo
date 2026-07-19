@@ -672,3 +672,9 @@ id = "cLmxqrSZ25wcvQ-Cc2xtZ"
 uri = "file://dpl_phase2_items67_evidence.txt"
 type = "text"
 title = "DPL Phase 2 — Items 6–7 Evidence"
+
+[[outputs]]
+id = "E0yghx47AEpv5BwTu0b6L"
+uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_Evidence_R4.1-R4.9.txt"
+type = "text"
+title = "DPL Phase 3 — Complete Verified Evidence (R4.1–R4.9)"
