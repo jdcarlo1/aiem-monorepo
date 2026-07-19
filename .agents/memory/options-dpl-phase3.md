@@ -73,7 +73,33 @@ Real-decision replay evidence: PENDING Monday 2026-07-20 09:45 ET (first live sc
 - Phase 3 stays OPEN
 - After first real scheduler decision Monday 2026-07-20 09:45 ET, replay it and report raw
 
-## File sha256 after Round 5 (all live)
+## Round 6 additions
+
+### oe_known_synthetic_rows — 10 rows total (R5.2 + R6.2)
+Added SEQ=3/4/5 C16 false-production rows (ef3a765a, d73cc2f1, e391103d) in R6.2.
+Criterion 1 SQL now returns 0 eligible rows.
+
+### oe_known_synthetic_rows immutability trigger (R6.2)
+trg_oe_known_synthetic_immutable (BEFORE UPDATE OR DELETE) — matches trg_oe_replay_immutable pattern.
+Negative control confirmed: UPDATE on ee74327806 blocked with expected error.
+
+### verification_status check constraint fix (R6.1 — bug surfaced during branch exercise)
+Old allowed values: VERIFIED, PENDING, TAMPERED — CODE_DRIFT was MISSING.
+The CODE_DRIFT branch in the scheduler would log.critical + _tg() correctly but the DB UPDATE would
+silently fail (caught by except Exception as _dbu: log.warning). Fixed by ALTER TABLE to add
+CODE_DRIFT and WEIGHTS_DRIFT. Confirmed T2/NT2 DB update writes CODE_DRIFT after fix.
+
+### Criterion 1 SQL (canonical — JOIN form, not NOT IN)
+SELECT d.decision_id, d.created_at
+FROM   oe_decision_replay_inputs d
+LEFT JOIN oe_known_synthetic_rows s ON s.decision_id = d.decision_id
+WHERE  d.is_test_record = FALSE AND s.decision_id IS NULL
+
+### Branch exercise harness: dpl/exercise_replay_branches.py
+6 branches confirmed (T1/T2/T3 TRADE, NT1/NT2/NT3 NO_TRADE). _tg() STUBBED.
+T2/NT2 DB UPDATE verified: verification_status = CODE_DRIFT in oe_decision_audit.
+
+## File sha256 after Round 6 (all live)
 - tools/verified_run.sh:          ba7faf8da204815544b147d56c824252fbd7f260d9b3d9d864c2006ee7492410  ← CANONICAL
 - verify_chain.sh:                 ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (UNCHANGED)
 - aiem_options_scheduler.py:       2d5c1466c58f9393d79451c0e5d94943f07ceffaebe6e762861c327d5a031ca5
