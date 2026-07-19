@@ -1,0 +1,45 @@
+# DPL Phase 3 — Round 4.7 Directive
+
+Output format: LEAN. Raw command output only. No prose, no headers, no restated context.
+
+## R4.7.1 — input_hash scope (BLOCKING)
+All 9 FALSE rows carry input_hash=0d481fee across two different tickers (P3TEST_A, P3TEST_PROD).
+- Raw sed/grep of the input_hash computation. List every field entering the hashed payload.
+- If ticker is in the payload, explain how two tickers produce one hash. If it is not, state which C-checks depend on input_hash and whether each can fail.
+- Negative control: alter one hashed input, show input_hash changes. Show the run and the rollback.
+
+## R4.7.2 — R4.6 /tmp claim (BLOCKING)
+dpl/README.md states pre-14:51:15Z runs used a /tmp-backed counter. R4.2 raw evidence showed the old block read LOG_FILE at SCRIPT_DIR, not /tmp.
+- `git show <commit-in-effect-before-14:51:15Z>:tools/verified_run.sh` — SEQ block only.
+- Correct the README or substantiate it. New sha256 before/after.
+
+## R4.7.3 — R4.5 causes are prose (BLOCKING)
+- `git log -p` / sed showing when weights entered the combined_hash computation.
+- Stored weights snapshot for ee74327806 and 64d956c7ee. Current _REQ6_SCORING_WEIGHTS D12 value.
+- 64d956c7ee's stated cause is a weight change but the raised error is CODE_DRIFT, not WEIGHTS_DRIFT. Show why the R7.7 classification did not fire, or withdraw the cause.
+
+## R4.7.4 — unreplayable rows carry VERIFIED
+Both rows are verification_status=VERIFIED and provably unreplayable. No DB marker.
+- Propose (do NOT implement): immutable registration table + reason per row.
+- New verifier check at C27: no VERIFIED row fails replay outside the registration. C20–C26 are taken.
+
+## R4.7.5 — proposed pre-trade gate
+- Raw sed showing where write_decision() sits relative to the proposed insertion point. If the audit row commits before the gate, state that a gated NO_TRADE leaves an audit row asserting TRADE.
+- State whether the hash covers raw source text or a normalized form. A gate that trips on reformatting is not acceptable.
+- No implementation this round.
+
+## R4.7.6 — evidence chain
+R4.3–R4.6 showed no verified_run.sh header and no verify_chain.sh run.
+- Re-run the R4.4/R4.5 SQL and replay_decision() calls through verified_run.sh. Paste SEQ header, TS_END, EXIT, sha256(log).
+- Paste verify_chain.sh output.
+
+## Standing requirements (all apply)
+- Raw terminal output for every claim. No paraphrase. Raw grep -n / sed -n for any code, line-number, or behavior claim.
+- Before/after diff + sha256 for every file changed this session.
+- Raw SQL + full result set for any DB claim; CSV via \copy if >10 rows.
+- `git diff HEAD --stat`, or state "no changes".
+- sha256sum tools/verified_run.sh (canonical 467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae) and artifacts/stock-scanner-api/verify_chain.sh (canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f). Mismatch = output rejected.
+- Data immutability: no delete, truncate, drop, or overwrite of any row, table, or file — including your own test data — without explicit prior approval. State the intent, wait, then log it. Unapproved deletion is a violation to report, not self-correct.
+- Any negative control writing an is_test_record=FALSE row to a production table uses SAVEPOINT+rollback or an offline schema.
+- If a claim cannot be backed by real output, say so in one line. No padding.
+- Verifier PASS is not execution authorization. Nothing in this round authorizes autonomous operation.
