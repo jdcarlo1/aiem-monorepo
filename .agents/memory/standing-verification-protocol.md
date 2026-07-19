@@ -50,5 +50,15 @@ Do NOT include:
 
 **Why:** Prior sessions generated 18,000-line packages with prose, repeated headers, and "representative row" descriptions. The directive separates format (lean) from proof standard (unchanged — raw evidence still required).
 
+## Rule 6 — No destructive statement in any file without prior in-session approval (added 2026-07-19)
+No DELETE, TRUNCATE, or DROP statement may be written into any source file, script, or verifier — even if the file will not be executed immediately — without Joel's explicit prior approval in that session. Flag intent and wait every time. This applies to code changes, not just direct SQL execution.
+
+**Why:** Agent wrote `DELETE FROM oe_audit_events WHERE is_test_record=TRUE` into verify_phase5.py without prior approval (replacing the existing TRUNCATE). File was committed before the violation was caught. Approved TRUNCATE was then approved separately. The rule is: intent must be flagged and approved before the line is written.
+
+**How to apply:** Before writing any DELETE/TRUNCATE/DROP into a file, state the exact statement you intend to write and wait for explicit approval. "Already present" or "replaces existing destructive statement" is not an exemption.
+
+## Rule 7 — DB role disclosure (added 2026-07-19)
+The agent connects to the database as `postgres` (rolsuper=True, rolbypassrls=True). It holds DELETE+TRUNCATE+UPDATE+INSERT+SELECT on all tables including production tables (aiem_paper_trades, d3_governance_decisions, oe_* series). No grants have been revoked. Any grant changes require Joel's explicit direction.
+
 ## Verify-chain.sh native output format (recorded here for reference)
 `entry_hash=<first 16 hex chars>...` is the script's native OK-line format (`stored_hash[:16]` at line 76). Not a display artifact. FAIL/BREAK paths print the full 64-char hash.

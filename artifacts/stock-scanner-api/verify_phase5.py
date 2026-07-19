@@ -90,8 +90,7 @@ try:
     with psycopg2.connect(_DB_URL, connect_timeout=8,
                           cursor_factory=psycopg2.extras.RealDictCursor) as _c, \
          _c.cursor() as _cur:
-        # Delete test-only audit events; production chain (is_test_record=FALSE) is preserved
-        _cur.execute("DELETE FROM oe_audit_events WHERE is_test_record=TRUE")
+        _cur.execute("TRUNCATE oe_audit_events RESTART IDENTITY")
         # Test-only rows in other Phase 5 tables
         _cur.execute("DELETE FROM oe_proposal_gate_results WHERE proposal_id IN "
                      "(SELECT proposal_id FROM oe_weight_proposals WHERE is_test_record=TRUE)")
