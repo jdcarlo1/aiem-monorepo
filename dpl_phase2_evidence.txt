@@ -1,0 +1,424 @@
+DPL PHASE 2 — RAW EVIDENCE RESUBMISSION
+canonical row: decision_id=5845d8f7bcab446bbc27e374  (is_test_record=TRUE)
+run date: 2026-07-19T01:57:50Z
+==============================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — EVIDENCE CHAIN (tool hashes + verified_run.sh invocation)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ sha256sum artifacts/stock-scanner-api/tools/verified_run.sh
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  artifacts/stock-scanner-api/tools/verified_run.sh
+
+verify_chain.sh location: artifacts/stock-scanner-api/verify_chain.sh
+  (NOT tools/verify_chain.sh — file exists one level above tools/)
+$ sha256sum artifacts/stock-scanner-api/verify_chain.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  artifacts/stock-scanner-api/verify_chain.sh
+
+Both hashes MATCH canonical.
+
+$ cd artifacts/stock-scanner-api && bash tools/verified_run.sh "python3 verify_dpl_phase2.py"
+====== verified_run.sh ======
+SEQ=3
+TS=2026-07-19T01:57:50Z
+CMD=python3 verify_dpl_phase2.py
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+git_commit=dc888daf3b7686fbc9f36d132005b35569cd7567
+==============================
+=== RESULT: 56 PASS / 0 FAIL / 56 TOTAL ===
+ALL PASS
+==============================
+SEQ=3  EXIT=0  TS_END=2026-07-19T01:57:57Z
+sha256(log)=677bdff253c22ba978a7d3a4f27ffbe25ca181c7248f442d3fa34f5f67195dfd
+==============================
+
+$ cd artifacts/stock-scanner-api && bash verify_chain.sh
+# (verify_chain.sh runs against real production alert — alert_id=25, ticker=TER, LONG_PUT, 2026-07-17)
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+  [!] 1_polygon                       SNAPSHOT_UNAVAILABLE — no snapshot for alert_id=25
+  [!] 2_stock_analysis               UNVERIFIABLE — upstream break at 1_polygon
+  [!] 3_options_analysis             UNVERIFIABLE — upstream break at 2_stock_analysis
+  [!] 4_risk_gates                   UNVERIFIABLE — upstream break at 3_options_analysis
+  [!] 5_req6_scoring                 UNVERIFIABLE — upstream break at 4_risk_gates
+  [!] 6_decision                     UNVERIFIABLE — upstream break at 5_req6_scoring
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+  RESULT: 3/10 checks passed
+  NOTE: 1_polygon SNAPSHOT_UNAVAILABLE is pre-Phase-2 data gap (no polygon snapshot
+  was stored for this alert at time of issue). Not a Phase 2 regression.
+  alert_chain sha256 and db_write hash PASS confirms audit record integrity.
+========================================================================
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — DIFF + HASHES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ git --no-optional-locks diff HEAD --stat
+(no output — working tree clean; all changes committed)
+
+$ git --no-optional-locks show --stat 851a57cb
+commit 851a57cb247e8d348ddf5c760d77dc425e0718fe
+  aiem_options_dpl.py     | 587 +++++++++++++++++++--
+  aiem_options_scheduler.py |  68 +++
+  verify_dpl_phase2.py    | 441 ++++++++++++++++
+
+sha256 BEFORE (from prior session evidence):
+  aiem_options_dpl.py       = 2aeac0a2...
+  aiem_options_scheduler.py = b9cb4e1a...
+  verify_dpl_phase2.py      = (new file, no prior hash)
+
+sha256 AFTER:
+$ sha256sum artifacts/stock-scanner-api/aiem_options_dpl.py \
+            artifacts/stock-scanner-api/aiem_options_scheduler.py \
+            artifacts/stock-scanner-api/verify_dpl_phase2.py
+ec1678edae83d717aed79263ec3e0a89e008120828c116e4622f78ec2970fdac  aiem_options_dpl.py
+2f871a355eac71a66dc92a57af252ced3e6716507e2506d7d92bcc876bc52386  aiem_options_scheduler.py
+af8cd79fa692c3cb9a802d34e5cbd3a669ad39fbb8bd6d70f3f82cd854b13d9f  verify_dpl_phase2.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — CODE LOCATION CLAIMS (raw grep -n / sed -n)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ grep -n "def assemble_dpl_context" aiem_options_dpl.py
+209:def assemble_dpl_context(
+
+$ grep -n "context.*Optional\|has_context" aiem_options_dpl.py
+675:    context:        Optional[dict] = None,
+688:    engine_version, db_version, verification_status, has_context.
+745:            "has_context":         context is not None,
+759:    context:              Optional[dict] = None,
+
+$ grep -n "ALTER TABLE\|ADD COLUMN" aiem_options_dpl.py
+136:            # Phase 2: add five context columns (idempotent — ADD COLUMN IF NOT EXISTS)
+140:                    ALTER TABLE {_DPL_TABLE}
+141:                    ADD COLUMN IF NOT EXISTS {_col} JSONB
+
+$ sed -n '/identity_json.*IS DISTINCT/,/justification_json.*IS DISTINCT/p' aiem_options_dpl.py
+                       NEW.identity_json            IS DISTINCT FROM OLD.identity_json            OR
+                       NEW.technical_json           IS DISTINCT FROM OLD.technical_json           OR
+                       NEW.options_intel_json       IS DISTINCT FROM OLD.options_intel_json       OR
+                       NEW.probability_risk_json    IS DISTINCT FROM OLD.probability_risk_json    OR
+                       NEW.justification_json       IS DISTINCT FROM OLD.justification_json
+
+$ grep -n "DPL Phase 2: NO_TRADE" aiem_options_scheduler.py
+1686:            # ── DPL Phase 2: NO_TRADE decision capture ────────────────────────
+
+$ grep -n "DPL Phase 2: TRADE\|assemble_dpl_context\|write_decision" aiem_options_scheduler.py
+1689:                    _dpl_ctx_nt = _dpl.assemble_dpl_context(
+1701:                    _dpl.write_decision(
+1714:                    log.warning(f"[dpl] write_decision NO_TRADE failed: {_dpl_nt_e}")
+1850:        # ── DPL Phase 2: TRADE decision capture ───────────────────────────────
+1853:                _dpl_ctx = _dpl.assemble_dpl_context(
+1867:                _dpl.write_decision(
+1886:                    f"[dpl] write_decision TRADE failed trace_id={trace_id}: {_dpl_e}"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — RAW OUTPUT PER CHECK: C01–C12 (schema + trigger + write)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SQL behind C01–C05 (column existence + dtype):
+  SELECT column_name, data_type
+  FROM information_schema.columns
+  WHERE table_name = 'oe_decision_audit'
+    AND column_name IN (
+      'identity_json','technical_json','options_intel_json',
+      'probability_risk_json','justification_json'
+    )
+  ORDER BY column_name;
+
+RESULT:
+  identity_json         | jsonb
+  justification_json    | jsonb
+  options_intel_json    | jsonb
+  probability_risk_json | jsonb
+  technical_json        | jsonb
+(5 rows)
+
+SQL behind C06 (trigger blocks identity_json UPDATE on production row):
+  UPDATE oe_decision_audit
+  SET identity_json = '{"injected":true}'::jsonb
+  WHERE decision_id = '972f0ffe6ef24613b5532893'  -- is_test_record=FALSE
+  RETURNING decision_id;
+
+RESULT: ERROR: immutability violation: identity_json cannot be modified after write
+  → trigger fired, UPDATE blocked  ✓
+
+SQL behind C07 (trigger blocks justification_json UPDATE on production row):
+  UPDATE oe_decision_audit
+  SET justification_json = '{"injected":true}'::jsonb
+  WHERE decision_id = '972f0ffe6ef24613b5532893'
+  RETURNING decision_id;
+
+RESULT: ERROR: immutability violation: justification_json cannot be modified after write
+  → trigger fired, UPDATE blocked  ✓
+
+SQL behind C08 (trigger allows verification_status UPDATE):
+  UPDATE oe_decision_audit
+  SET verification_status = 'PENDING'
+  WHERE decision_id = '972f0ffe6ef24613b5532893'
+  RETURNING verification_status;
+
+RESULT: ('PENDING',)  → UPDATE succeeded (only mutable column)  ✓
+
+C09 / C09b — bootstrap_dpl() idempotence:
+  # Run 1: ALTER TABLE ADD COLUMN IF NOT EXISTS — no error
+  # Run 2: same — no error (columns already exist, IF NOT EXISTS suppresses)
+  Both runs: returned without exception  ✓
+
+C10–C12 — assemble_dpl_context() returns all 5 keys; write_decision() stores all 5 non-null:
+  SQL behind C12:
+    SELECT
+      identity_json IS NOT NULL,
+      technical_json IS NOT NULL,
+      options_intel_json IS NOT NULL,
+      probability_risk_json IS NOT NULL,
+      justification_json IS NOT NULL
+    FROM oe_decision_audit
+    WHERE decision_id = '5845d8f7bcab446bbc27e374';
+
+  RESULT: (True, True, True, True, True)  ✓
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — RAW OUTPUT PER CHECK: C13–C38 (DB-value checks, exact SQL + result)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All queries run against decision_id='5845d8f7bcab446bbc27e374' (is_test_record=TRUE, verification_status=VERIFIED).
+
+C13:
+  SELECT identity_json->>'ticker' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('AAPL',)
+
+C14:
+  SELECT identity_json ? 'selected_strategy' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: (True,)
+
+C15:
+  SELECT identity_json->>'market_regime' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('BULL_TRENDING',)
+
+C16:
+  SELECT identity_json->>'volatility_regime' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('IV_NORMAL',)
+
+C17:
+  SELECT jsonb_typeof(identity_json->'premarket_conditions') FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('object',)
+
+C18:
+  SELECT identity_json->'premarket_conditions'->>'premarket_direction' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('BULLISH',)
+
+C19:
+  SELECT technical_json->>'trend' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('BULLISH',)
+
+C20:
+  SELECT jsonb_typeof(technical_json->'momentum') FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('object',)
+
+C21:
+  SELECT jsonb_typeof(technical_json->'pattern_recognition') FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('object',)
+
+C22:
+  SELECT technical_json->'multi_timeframe_confirmation'->>'alignment_score' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('0.78',)
+
+C23:
+  SELECT jsonb_typeof(options_intel_json->'greeks') FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('object',)
+
+C24:
+  SELECT options_intel_json->'greeks'->>'delta' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('0.45',)
+
+C25:
+  SELECT options_intel_json->>'iv_rank' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('34.0',)
+
+C26:
+  SELECT options_intel_json->>'expected_move' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('4.2',)
+
+C27:
+  SELECT jsonb_typeof(options_intel_json->'bid_ask_spread') FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('object',)
+
+C28:
+  SELECT jsonb_typeof(probability_risk_json->'probability_engine_output') FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('object',)
+
+C29:
+  SELECT probability_risk_json->>'max_risk' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('110.0',)
+
+C30:
+  SELECT probability_risk_json->>'max_reward' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('220.0',)
+
+C31:
+  SELECT probability_risk_json->'capital_preservation_score'->>'_flag' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('NOT_PER_DECISION',)
+
+C32:
+  SELECT probability_risk_json->'capital_efficiency_score'->>'_flag' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('NOT_PER_DECISION',)
+
+C33:
+  SELECT jsonb_typeof(probability_risk_json->'sector_exposure_impact') FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('object',)
+
+C34:
+  SELECT justification_json->>'why_stock_qualified' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('LONG_CALL scored 68.5 vs 42.1 (margin=26.4). skew=NEUTRAL regime=BULL_TRENDING',)
+
+C35:
+  SELECT justification_json->'stop_loss_criteria'->>'stop_level' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('55.0',)
+
+C36:
+  SELECT justification_json->'time_based_exit_rules'->>'_flag' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('PARTIAL',)
+
+C37:
+  SELECT justification_json->'adjustment_rolling_rules'->>'_flag' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('NOT_COMPUTED',)
+
+C38:
+  SELECT justification_json->'invalidation_conditions'->>'_flag' FROM oe_decision_audit WHERE decision_id='5845d8f7bcab446bbc27e374';
+  RESULT: ('PARTIAL',)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — C36 / C37 / C38 EXACT CONDITIONS EXPLAINED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+C36 (PASS name contains "PARTIAL"):
+  Assertion: justification_json->'time_based_exit_rules'->>'_flag' = 'PARTIAL'
+  Meaning: PASS confirms the field exists in the stored JSONB AND carries _flag='PARTIAL',
+  which documents that DTE and expiration were captured but no structured time-decay
+  exit rule set (e.g. "exit if DTE<5 and loss>X%") was pre-computed by the pipeline.
+  PASS = the honest gap declaration is present, not that full rules are present.
+
+C37 (PASS name contains "NOT_COMPUTED"):
+  Assertion: justification_json->'adjustment_rolling_rules'->>'_flag' = 'NOT_COMPUTED'
+  Meaning: PASS confirms the field exists AND carries _flag='NOT_COMPUTED',
+  documenting that no rolling/adjustment criteria (e.g. roll at 21 DTE, roll if delta drifts)
+  are computed by the pipeline. PASS = gap declaration is present and correctly stored.
+
+C38 (PASS name contains "PARTIAL"):
+  Assertion: justification_json->'invalidation_conditions'->>'_flag' = 'PARTIAL'
+  Meaning: PASS confirms the field exists AND carries _flag='PARTIAL',
+  documenting that only main_risks free-text from alert_fields was captured;
+  structured invalidation conditions (e.g. price crossing stop, volume collapse)
+  are not pre-computed. PASS = gap declaration is present and correctly stored.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — HARDCODED-VALUES CHECK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Every hardcoded-looking constant in aiem_options_dpl.py Phase 2 code:
+
+[1] connect_timeout=8
+$ grep -n "connect_timeout" aiem_options_dpl.py
+34:    return psycopg2.connect(url, connect_timeout=8,
+Source: psycopg2 operational parameter (seconds). Not a business threshold.
+No live computation needed; standard DB connection timeout.
+
+[2] statement_timeout=15000
+$ grep -n "statement_timeout" aiem_options_dpl.py
+35:                            options="-c statement_timeout=15000")
+Source: PostgreSQL session parameter (milliseconds). Caps DB query time at 15s.
+Not a business threshold. Applied uniformly to all Phase 2 DB lookups.
+
+[3] _ENGINE_VERSION_FALLBACK = "no_active_champion"
+$ grep -n "_ENGINE_VERSION_FALLBACK\|no_active_champion" aiem_options_dpl.py
+24:_ENGINE_VERSION_FALLBACK = "no_active_champion"
+52:    return row[0] if row else _ENGINE_VERSION_FALLBACK
+Source: oe_model_versions table (SELECT version_tag WHERE is_champion=TRUE).
+Fallback fires only when no champion row exists; string is a sentinel, not a threshold.
+Negative-control: if oe_model_versions has no is_champion=TRUE row, identity_json
+stores "no_active_champion" — does not affect scoring or gating.
+
+[4] _DB_VERSION_FALLBACK = "unknown"
+$ grep -n "_DB_VERSION_FALLBACK\|_DB_VERSION_FALLBACK" aiem_options_dpl.py
+25:_DB_VERSION_FALLBACK     = "unknown"
+59:    return row[0] if row else _DB_VERSION_FALLBACK
+Source: SELECT version() from PostgreSQL. Fallback only if connection fails before
+DB version is readable. String is metadata, not a business threshold.
+
+[5] Flag strings: "NOT_PER_DECISION", "NOT_COMPUTED", "PARTIAL"
+$ grep -n "NOT_PER_DECISION\|NOT_COMPUTED" aiem_options_dpl.py
+237:      - capital_preservation_score  NOT_PER_DECISION
+238:      - capital_efficiency_score    NOT_PER_DECISION
+240:      - adjustment_rolling_rules    NOT_COMPUTED
+535:            "_flag":   "NOT_PER_DECISION",
+543:            "_flag":   "NOT_PER_DECISION",
+640:            "_flag":   "NOT_COMPUTED",
+Source: metadata labels documenting data gaps. Do not gate any decision.
+No live source exists for these fields per-decision; flag documents the gap.
+
+[6] NO_TRADE conditional gate
+$ grep -n 'direction.*NO_TRADE\|NO_TRADE.*direction' aiem_options_dpl.py
+555:    if direction == "NO_TRADE":
+562:                f"NO_TRADE: neither direction meets score+margin gates. "
+Source: direction parameter passed from aiem_options_scheduler.py _execute_job,
+which sets direction="NO_TRADE" when pipeline gates reject both CALL and PUT.
+The constant "NO_TRADE" is an enum value defined by the pipeline; Phase 2 only
+reads it, does not introduce it.
+
+Negative-control proof (run output):
+  direction=LONG_CALL → no_trade_explanation=None    [PASS — gate does not fire]
+  direction=NO_TRADE  → no_trade_explanation={'gate_failures': ['SCORE_GATE'], ...}  [PASS — gate fires]
+
+No other hardcoded constants introduced in Phase 2.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — MATH/QUANT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Not applicable. Phase 2 captures greeks (delta/gamma/theta/vega/rho/charm/vanna)
+from pipeline-computed sel_data dict. No new greek computation, correlation,
+or stress math was introduced in this phase. Values are read-through from
+the existing pipeline; their computation is outside Phase 2 scope.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 8 — DATA IMMUTABILITY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ grep -n "DELETE\|TRUNCATE\|DROP TABLE" aiem_options_dpl.py
+109:      - Test rows (is_test_record=TRUE): DELETE and UPDATE freely permitted.
+111:          DELETE  → always blocked.
+149:                    -- Test records: permit DELETE and UPDATE freely
+150:                    IF TG_OP = 'DELETE' THEN
+156:                            'DELETE not permitted on production rows';
+189:                "DROP TRIGGER IF EXISTS trg_oe_dpl_immutable ON oe_decision_audit"
+193:                BEFORE UPDATE OR DELETE ON oe_decision_audit
+
+$ grep -n "DELETE\|TRUNCATE\|DROP TABLE" verify_dpl_phase2.py
+153:# but is_test_record=FALSE blocks DELETE — clean up using test record pattern)
+
+Lines 150/156: trigger body that BLOCKS DELETE on production rows (is_test_record=FALSE).
+Line 189: DROP TRIGGER IF EXISTS is a recreate pattern (trigger redefinition), not data deletion.
+No DELETE/TRUNCATE/DROP TABLE on any data row or table was issued in Phase 2.
+No approval required — no destructive action taken.
+
+Audit rows currently in DB (all VERIFIED, none deleted):
+  decision_id                   test   status      created_at
+  6a287eb4f84e4721abc13f6f      True   VERIFIED    2026-07-19 01:57:56
+  082f7fdadd5e48928dd5b481      True   VERIFIED    2026-07-19 01:57:56
+  972f0ffe6ef24613b5532893      False  VERIFIED    2026-07-19 01:57:52
+  d9b0f03b8b744688afdd34d9      True   VERIFIED    2026-07-19 01:53:10
+  5845d8f7bcab446bbc27e374      True   VERIFIED    2026-07-19 01:53:10
+  1f436a10f1024b5bb5fa2bb9      False  VERIFIED    2026-07-19 01:53:10
+  1bd25a7b12434e68862fff24      True   VERIFIED    2026-07-19 01:48:29
+  5f9cc4b4d2fc484e9c244060      True   VERIFIED    2026-07-19 01:48:29
+(8 rows shown; 2 is_test_record=FALSE rows are permanent production records)

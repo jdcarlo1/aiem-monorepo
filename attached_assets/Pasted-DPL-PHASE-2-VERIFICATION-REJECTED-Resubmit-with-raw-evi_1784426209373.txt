@@ -1,0 +1,16 @@
+DPL PHASE 2 VERIFICATION — REJECTED. Resubmit with raw evidence.
+
+The submitted verifier output is a PASS-label list only. Labels are narrative claims. Fix and resubmit:
+
+1. RAW OUTPUT PER CHECK — paste the actual command + raw terminal/SQL output behind each check. For DB-value checks (C13–C38): exact SQL query + full result set. No paraphrase, no labels-only.
+2. C36/C37/C38 — explain in one line each what PASS means when the check name says PARTIAL / NOT_COMPUTED. State the exact condition asserted.
+3. EVIDENCE CHAIN — all evidence commands via verified_run.sh. Paste verify_chain.sh output. Then paste raw sha256sum of tools/verified_run.sh and tools/verify_chain.sh; must match canonical:
+   verified_run.sh = 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+   verify_chain.sh = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+   Mismatch = validator drifted = output rejected.
+4. DIFF + HASHES — git diff HEAD --stat (or "no changes"); sha256 before/after for files changed this session only.
+5. CODE CLAIMS — any claim about code location/line/behavior: raw grep -n or sed -n output showing the line in context. Described snippets rejected.
+6. HARDCODED-VALUES CHECK — list every hardcoded-looking constant in code new this phase; for each, raw grep/sed of the line + one-line trace to live source (API/DB/formula). "Wired later" not acceptable. Negative-control proof for any conditional gate introduced.
+7. MATH/QUANT (if any Greeks-beyond-delta/gamma, correlation, or stress math in this phase): known-answer test vectors from an external reference (state the reference before running); second independent method cross-check within tolerance; mutation check proving the test fails when a known value is broken.
+8. DATA IMMUTABILITY — no delete/truncate/drop/overwrite of any row, table, or file (including your own test data) without explicit prior approval. State what + why, wait, then log. Unapproved deletion = protocol violation to report, not self-correct.
+9. FORMAT — raw command results only. No headers, banners, restated context, or narrative. Test suites: final summary line only. Data changes: exact SQL + row count; >10 rows → real CSV via \copy attached. If a claim can't be backed by real output, say so in one line.

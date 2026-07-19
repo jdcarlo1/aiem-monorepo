@@ -654,3 +654,9 @@ id = "REhYLOGw4zVXud35Nhbsa"
 uri = "file://dpl_phase2_verification.txt"
 type = "text"
 title = "DPL Phase 2 Verification — 56 PASS / 0 FAIL"
+
+[[outputs]]
+id = "H0nkbSoEVqt_M1ayawv-B"
+uri = "file://dpl_phase2_evidence.txt"
+type = "text"
+title = "DPL Phase 2 — Raw Evidence (all 9 requirements)"
