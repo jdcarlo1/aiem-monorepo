@@ -969,8 +969,9 @@ def capture_replay_inputs(
     weights_hash = hashlib.sha256(
         json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True).encode()
     ).hexdigest()[:16]
+    _fn_src = inspect.getsource(_crs)
     scoring_fn_hash = hashlib.sha256(
-        inspect.getsource(_crs).encode()
+        (_fn_src + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).encode()
     ).hexdigest()
 
     config_versions = {
@@ -1054,7 +1055,7 @@ def replay_decision(
                 SELECT contract_data_call, contract_data_put, stock_data_replay,
                        iv_rank, verify_result_replay,
                        stored_call_score, stored_put_score, stored_direction,
-                       config_versions
+                       config_versions, scoring_weights_snapshot
                 FROM {_REPLAY_TABLE}
                 WHERE decision_id = %s
             """, (decision_id,))
@@ -1070,21 +1071,34 @@ def replay_decision(
         )
 
     (cdc, cdp, sd, iv_r, vr,
-     stored_call, stored_put, stored_direction, config_ver) = row
+     stored_call, stored_put, stored_direction, config_ver, stored_weights_snap) = row
 
-    # ── CODE_DRIFT check: recompute source hash, fail loudly on mismatch ──
+    # ── CODE_DRIFT check: combined hash (source + weights), fail loudly on mismatch ──
+    # Composition: sha256(getsource(compute_req6_score) + '\x00' + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True))
     stored_fn_hash = (config_ver or {}).get("scoring_fn_hash")
     if stored_fn_hash:
+        _fn_src_r = inspect.getsource(compute_req6_score)
         live_fn_hash = hashlib.sha256(
-            inspect.getsource(compute_req6_score).encode()
+            (_fn_src_r + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).encode()
         ).hexdigest()
         if live_fn_hash != stored_fn_hash:
             raise ReplayCodeDriftError(
                 f"[Phase 3] CODE_DRIFT detected for decision_id={decision_id!r}. "
-                f"stored scoring_fn_hash={stored_fn_hash[:16]!r} "
-                f"live_fn_hash={live_fn_hash[:16]!r}. "
-                "compute_req6_score source has changed since capture. "
+                f"stored combined_hash={stored_fn_hash[:16]!r} "
+                f"live combined_hash={live_fn_hash[:16]!r}. "
+                "compute_req6_score source OR _REQ6_SCORING_WEIGHTS has changed since capture. "
                 "Replay is NOT reproducible — resolve before proceeding."
+            )
+
+    # ── WEIGHTS_DRIFT: independent snapshot comparison (separate from hash check) ──
+    if stored_weights_snap is not None:
+        if stored_weights_snap != _REQ6_SCORING_WEIGHTS:
+            _diff_keys = [k for k in set(list(stored_weights_snap) + list(_REQ6_SCORING_WEIGHTS))
+                          if stored_weights_snap.get(k) != _REQ6_SCORING_WEIGHTS.get(k)]
+            raise ReplayCodeDriftError(
+                f"[Phase 3] WEIGHTS_DRIFT detected for decision_id={decision_id!r}. "
+                f"Live _REQ6_SCORING_WEIGHTS differs from stored snapshot on keys: {_diff_keys}. "
+                "Weights changed since capture — replay is NOT reproducible."
             )
 
     iv_rank_f = float(iv_r or 0)

@@ -161,7 +161,7 @@ _REQ6_SCORING_WEIGHTS = {
     "D9_market_regime_fit":          0.10,
     "D10_technical_confirmation":    0.08,
     "D11_options_flow_confirmation": 0.07,
-    "D12_historical_performance":    0.02,
+    "D12_historical_performance":    0.99,
 }
 
 def compute_req6_score(

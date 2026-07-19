@@ -675,6 +675,71 @@ except Exception as _e:
     chk("C18_null_scores_return_none", False, str(_e))
 
 
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# C19: WEIGHTS_DRIFT via snapshot comparison (independent of combined hash check)
+#      Insert test row: config_versions={} (hash check skips), scoring_weights_snapshot
+#      has D12_historical_performance=0.99 (live=0.02). Expect WEIGHTS_DRIFT error.
+# ───────────────────────────────────────────────────────────────────────────────
+
+try:
+    import copy as _copy
+    _wdrift_audit = write_decision(
+        input_data ={"ticker": "P3TEST_WDRIFT", "call_score": 60.0, "put_score": 50.0},
+        output_data={"direction": "LONG_CALL", "trace_id": "p3verif_wdrift"},
+        is_test_record=True,
+    )
+    _wdrift_id = _wdrift_audit["decision_id"]
+
+    _bad_snap = _copy.deepcopy(_REQ6_SCORING_WEIGHTS)
+    _bad_snap["D12_historical_performance"] = 0.99
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO oe_decision_replay_inputs (
+                decision_id, replay_schema_version, is_test_record,
+                contract_data_call, contract_data_put, stock_data_replay,
+                iv_rank, verify_result_replay, config_versions, data_source_timestamps,
+                scoring_weights_snapshot,
+                stored_call_score, stored_put_score, stored_direction
+            ) VALUES (%s, '1', TRUE, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (decision_id) DO NOTHING
+        """, (
+            _wdrift_id,
+            json.dumps(_CALL_DATA_A),
+            json.dumps(_PUT_DATA),
+            json.dumps(_STOCK_DATA),
+            round(_IV_RANK, 6),
+            json.dumps(_VERIFY_RESULT),
+            json.dumps({}),
+            json.dumps({}),
+            json.dumps(_bad_snap),
+            round(_exp_call_A, 1),
+            round(_exp_put_A, 1),
+            "LONG_CALL",
+        ))
+        conn.commit()
+
+    _wdrift_raised = False
+    _wdrift_msg = ""
+    try:
+        replay_decision(_wdrift_id)
+    except ReplayCodeDriftError as _wde:
+        _wdrift_raised = True
+        _wdrift_msg = str(_wde)
+    except Exception as _we:
+        _wdrift_msg = f"wrong exception: {type(_we).__name__}: {_we}"
+
+    chk("C19_weights_drift_snapshot", _wdrift_raised and "WEIGHTS_DRIFT" in _wdrift_msg,
+        _wdrift_msg if not _wdrift_raised else "")
+    if _wdrift_raised:
+        print(f"  [C19 detail] {_wdrift_msg[:160]}")
+        print(f"  [C19 detail] D12_bad={_bad_snap['D12_historical_performance']}  "
+              f"D12_live={_REQ6_SCORING_WEIGHTS['D12_historical_performance']}")
+except Exception as _e:
+    chk("C19_weights_drift_snapshot", False, str(_e))
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
