@@ -195,7 +195,8 @@ def bootstrap_dpl(db_url=None) -> bool:
                 FOR EACH ROW EXECUTE FUNCTION _oe_dpl_guard_immutability()
             """)
         conn.commit()
-        bootstrap_dpl_phase3(db_url)  # Phase 3: replay inputs table (idempotent)
+        bootstrap_dpl_phase3(db_url)           # Phase 3: replay inputs table (idempotent)
+        bootstrap_governance_tables(db_url)    # Phase 3 P2: governance tables (idempotent)
         return True
     except Exception:
         conn.rollback()
@@ -939,19 +940,186 @@ def bootstrap_dpl_phase3(db_url=None) -> bool:
         conn.close()
 
 
+def bootstrap_governance_tables(db_url=None) -> bool:
+    """
+    Idempotent CREATE TABLE for the three Phase 2 governance tables:
+      - oe_unreplayable_rows     : exemption registry for unreplayable decisions
+      - oe_synthetic_row_corrections: corrections to immutable synthetic-row reason text
+      - oe_gate_events           : engine-integrity gate suppression audit trail
+    Also adds origin attribution columns to oe_decision_replay_inputs.
+    Safe to call multiple times.  Called automatically by bootstrap_dpl().
+    """
+    conn = _conn(db_url)
+    try:
+        with conn.cursor() as cur:
+            # oe_synthetic_row_corrections
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS oe_synthetic_row_corrections (
+                    correction_id        TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    decision_id          TEXT NOT NULL
+                                         REFERENCES oe_known_synthetic_rows(decision_id),
+                    field_corrected      TEXT NOT NULL,
+                    original_value       TEXT NOT NULL,
+                    corrected_value      TEXT NOT NULL,
+                    correction_rationale TEXT NOT NULL,
+                    evidence_ref         TEXT,
+                    authenticated_by     TEXT NOT NULL,
+                    prev_hash            TEXT NOT NULL DEFAULT 'GENESIS',
+                    chain_hash           TEXT,
+                    is_test_record       BOOLEAN NOT NULL DEFAULT FALSE,
+                    registered_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _oe_synth_corrections_guard()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF OLD.is_test_record THEN RETURN NEW; END IF;
+                    RAISE EXCEPTION
+                        'oe_synthetic_row_corrections is append-only: '
+                        'modification of production rows is not permitted';
+                END; $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                   WHERE tgname='trg_oe_synth_corrections_immutable') THEN
+                        CREATE TRIGGER trg_oe_synth_corrections_immutable
+                        BEFORE UPDATE OR DELETE ON oe_synthetic_row_corrections
+                        FOR EACH ROW EXECUTE FUNCTION _oe_synth_corrections_guard();
+                    END IF;
+                END $$
+            """)
+
+            # oe_unreplayable_rows
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS oe_unreplayable_rows (
+                    exemption_id             TEXT PRIMARY KEY
+                                             DEFAULT gen_random_uuid()::text,
+                    decision_id              TEXT NOT NULL UNIQUE
+                                             REFERENCES oe_decision_audit(decision_id),
+                    primary_reason_code      TEXT NOT NULL,
+                    secondary_observation    TEXT,
+                    exception_class          TEXT NOT NULL,
+                    evidence_seq             INTEGER,
+                    log_sha256               TEXT,
+                    evidence_ref             TEXT,
+                    evidence_ref_json        JSONB,
+                    commit_sha               TEXT,
+                    stored_hash              TEXT,
+                    current_hash             TEXT,
+                    hash_scheme_version      TEXT NOT NULL DEFAULT '1',
+                    source_state_recoverable BOOLEAN NOT NULL DEFAULT FALSE,
+                    tested_commits           TEXT[],
+                    authenticated_by         TEXT NOT NULL,
+                    prev_hash                TEXT NOT NULL DEFAULT 'GENESIS',
+                    chain_hash               TEXT,
+                    is_test_record           BOOLEAN NOT NULL DEFAULT FALSE,
+                    registered_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT oe_unreplayable_rows_reason_code_check
+                        CHECK (primary_reason_code IN (
+                            'ERA_INCOMPATIBLE_HASH','SOURCE_CHANGED',
+                            'WEIGHTS_DRIFT','UNVERIFIABLE','SCHEMA_MISMATCH'))
+                )
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _oe_unreplayable_guard()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF OLD.is_test_record THEN RETURN NEW; END IF;
+                    RAISE EXCEPTION
+                        'oe_unreplayable_rows is append-only: '
+                        'modification of production rows is not permitted';
+                END; $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                   WHERE tgname='trg_oe_unreplayable_immutable') THEN
+                        CREATE TRIGGER trg_oe_unreplayable_immutable
+                        BEFORE UPDATE OR DELETE ON oe_unreplayable_rows
+                        FOR EACH ROW EXECUTE FUNCTION _oe_unreplayable_guard();
+                    END IF;
+                END $$
+            """)
+
+            # oe_gate_events
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS oe_gate_events (
+                    gate_event_id    TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    gate_name        TEXT NOT NULL,
+                    fired_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    ticker           TEXT,
+                    trace_id         TEXT,
+                    live_hash        TEXT,
+                    expected_hash    TEXT,
+                    mismatch_detail  TEXT,
+                    decision_context JSONB,
+                    action_taken     TEXT NOT NULL DEFAULT 'BLOCKED',
+                    CHECK (action_taken IN ('BLOCKED','ALLOWED','LOGGED')),
+                    is_test_record   BOOLEAN NOT NULL DEFAULT FALSE,
+                    authenticated_by TEXT NOT NULL DEFAULT 'scheduler',
+                    prev_hash        TEXT NOT NULL DEFAULT 'GENESIS',
+                    chain_hash       TEXT
+                )
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _oe_gate_events_guard()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF OLD.is_test_record THEN RETURN NEW; END IF;
+                    RAISE EXCEPTION
+                        'oe_gate_events is append-only: '
+                        'modification of production rows is not permitted';
+                END; $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                   WHERE tgname='trg_oe_gate_events_immutable') THEN
+                        CREATE TRIGGER trg_oe_gate_events_immutable
+                        BEFORE UPDATE OR DELETE ON oe_gate_events
+                        FOR EACH ROW EXECUTE FUNCTION _oe_gate_events_guard();
+                    END IF;
+                END $$
+            """)
+
+            # Origin attribution columns for oe_decision_replay_inputs (Item 15)
+            for _col_ddl in [
+                "ALTER TABLE oe_decision_replay_inputs ADD COLUMN IF NOT EXISTS origin_type           TEXT",
+                "ALTER TABLE oe_decision_replay_inputs ADD COLUMN IF NOT EXISTS scheduler_job_id      TEXT",
+                "ALTER TABLE oe_decision_replay_inputs ADD COLUMN IF NOT EXISTS worker_pid            INTEGER",
+                "ALTER TABLE oe_decision_replay_inputs ADD COLUMN IF NOT EXISTS deployment_commit_sha TEXT",
+            ]:
+                cur.execute(_col_ddl)
+
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def capture_replay_inputs(
-    decision_id:    str,
-    direction:      str,
-    call_score:     float,
-    put_score:      float,
-    call_data:      dict,
-    put_data:       dict,
-    stock_data:     dict,
-    verify_result:  dict,
-    iv_rank:        float,
-    alert_id:       Optional[int] = None,
-    is_test_record: bool = False,
-    db_url:         Optional[str] = None,
+    decision_id:            str,
+    direction:              str,
+    call_score:             float,
+    put_score:              float,
+    call_data:              dict,
+    put_data:               dict,
+    stock_data:             dict,
+    verify_result:          dict,
+    iv_rank:                float,
+    alert_id:               Optional[int]  = None,
+    is_test_record:         bool           = False,
+    db_url:                 Optional[str]  = None,
+    # Origin attribution (Item 15)
+    origin_type:            Optional[str]  = None,
+    scheduler_job_id:       Optional[str]  = None,
+    worker_pid:             Optional[int]  = None,
+    deployment_commit_sha:  Optional[str]  = None,
 ) -> bool:
     """
     Persist the raw inputs required to deterministically replay this decision.
@@ -960,10 +1128,17 @@ def capture_replay_inputs(
     iv_rank               — 0-1 float (same value passed to compute_req6_score).
     is_test_record        — True for verifier/test rows; FALSE for all production calls.
 
+    Origin attribution (Item 15):
+      origin_type           — 'scheduled_pipeline' | 'manual' | 'test' | 'backfill'
+      scheduler_job_id      — job ID from oe_options_pipeline_jobs if applicable
+      worker_pid            — os.getpid() of the worker process
+      deployment_commit_sha — git HEAD at time of execution
+
     Idempotent via ON CONFLICT DO NOTHING on the decision_id PK.
     Returns True on success.
     """
     import datetime as _dt
+    import os as _os
     from aiem_options_pipeline import compute_req6_score as _crs
 
     weights_hash = hashlib.sha256(
@@ -973,6 +1148,10 @@ def capture_replay_inputs(
     scoring_fn_hash = hashlib.sha256(
         (_fn_src + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).encode()
     ).hexdigest()
+
+    # Auto-populate origin fields if not supplied
+    if worker_pid is None:
+        worker_pid = _os.getpid()
 
     config_versions = {
         "req6_weights_hash":     weights_hash,
@@ -997,25 +1176,30 @@ def capture_replay_inputs(
                     iv_rank, verify_result_replay,
                     config_versions, data_source_timestamps,
                     scoring_weights_snapshot,
-                    stored_call_score, stored_put_score, stored_direction
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    stored_call_score, stored_put_score, stored_direction,
+                    origin_type, scheduler_job_id, worker_pid, deployment_commit_sha
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (decision_id) DO NOTHING
             """, (
                 decision_id,
                 alert_id,
                 _REPLAY_SCHEMA_VERSION,
                 is_test_record,
-                json.dumps(call_data,                default=str),
-                json.dumps(put_data,                 default=str),
-                json.dumps(stock_data,               default=str),
+                json.dumps(call_data,     default=str),
+                json.dumps(put_data,      default=str),
+                json.dumps(stock_data,    default=str),
                 round(float(iv_rank), 6),
-                json.dumps(verify_result,            default=str),
+                json.dumps(verify_result, default=str),
                 json.dumps(config_versions),
                 json.dumps(data_source_timestamps),
                 json.dumps(_REQ6_SCORING_WEIGHTS),
                 round(float(call_score), 1),
                 round(float(put_score),  1),
                 direction,
+                origin_type,
+                scheduler_job_id,
+                worker_pid,
+                deployment_commit_sha,
             ))
         conn.commit()
         return True

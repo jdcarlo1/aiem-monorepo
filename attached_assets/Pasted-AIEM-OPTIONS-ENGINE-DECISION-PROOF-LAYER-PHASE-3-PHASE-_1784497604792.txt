@@ -1,0 +1,365 @@
+AIEM OPTIONS ENGINE — DECISION PROOF LAYER PHASE 3
+PHASE 2: INSTITUTIONAL AUDIT, INTEGRITY, AND GOVERNANCE HARDENING
+
+PREREQUISITE: PHASE 1 MUST PASS
+OBJECTIVE: Add stronger cryptographic integrity, independent approval, replay governance, database immutability, and durable institutional evidence.
+
+====================================================
+
+1. IMPLEMENT THE ENGINE INTEGRITY GATE
+    ====================================================
+
+Implement a live gate protecting:
+
+* compute_req6_score
+* _REQ6_SCORING_WEIGHTS
+* All decision-affecting dependencies
+
+Use a versioned canonical engine manifest and compute one root integrity hash.
+
+The manifest should include:
+
+* Scoring function AST hash
+* Weight hash
+* Imported helper hashes
+* Configuration hashes
+* Model artifact hashes
+* Feature schema hash
+* Python version
+* Dependency versions
+* Runtime flags
+* Integrity schema version
+
+Suppress decisions when the live root hash differs from the approved root hash.
+
+Required negative controls:
+
+* Change a scoring weight.
+* Change scoring logic.
+* Change a helper function.
+* Change configuration.
+* Change a model artifact.
+
+Every change must cause the gate to block.
+
+====================================================
+2. DEFINE CANONICAL SERIALIZATION
+
+Document and enforce:
+
+* AST normalization method
+* ast.dump parameters
+* JSON encoding
+* sort_keys=True
+* separators=(”,”, “:”)
+* ensure_ascii=False
+* allow_nan=False
+* UTF-8 encoding
+* Component separator
+* Canonicalization version
+* Python version
+
+The same approved state must always produce the same hash.
+
+====================================================
+3. PROTECT THE APPROVED HASH
+
+The same automated process must not be able to modify both the engine and its approved reference.
+
+Required:
+
+* Independent authenticated approver.
+* Protected pull-request approval, signed commit, or cryptographic signature.
+* Read-only production reference.
+* Exact commit SHA.
+* Exact engine root hash.
+* Approval timestamp.
+* Approver identity.
+* Signature or protected review evidence.
+
+A free-form approved_by field is insufficient.
+
+====================================================
+4. IMPLEMENT NON-SELF-APPROVAL
+
+Prove that the approver is different from:
+
+* The code-producing agent.
+* The deployment identity.
+* The runtime process.
+
+Reject:
+
+* Missing approval.
+* Forged approval.
+* Mismatched commit.
+* Mismatched root hash.
+* Self-issued approval.
+* Invalid signature.
+
+====================================================
+5. IMPLEMENT C27 END-TO-END REPLAY GOVERNANCE
+
+Create oe_unreplayable_rows or equivalent.
+
+For every non-test VERIFIED decision:
+
+* Replay successfully, or
+* Have an approved and verifiable exemption.
+
+An exemption must include:
+
+* Decision ID
+* Reason code
+* Exception class
+* Evidence SEQ
+* Archived log SHA-256
+* Git commit
+* Input hash
+* Scorer or engine root hash
+* Database identity
+* Timestamp
+* Approver identity
+
+Missing or invalid evidence must FAIL.
+
+Unexpected replay exceptions must FAIL.
+
+====================================================
+6. USE STRUCTURED EVIDENCE REFERENCES
+
+Replace unstructured log-grep-only proof with canonical JSON evidence records containing:
+
+* decision_id
+* trace_id
+* exception_class
+* SEQ
+* log_sha256
+* commit_sha
+* engine_root_hash
+* replay_input_hash
+* database fingerprint
+* event timestamp
+* previous hash
+* evidence hash
+
+Digitally sign or externally anchor these records where possible.
+
+====================================================
+7. IMPLEMENT COMPLETE CRYPTOGRAPHIC CHAINING
+
+Every verification event must contain:
+
+* SEQ
+* Previous hash
+* Canonical payload
+* Current hash
+* Timestamp
+* Command
+* Exit code
+* Commit SHA
+* Tree status
+* Log SHA-256
+
+Required:
+
+* Full sequence with no omitted entries.
+* Recompute every hash.
+* Verify every link.
+* Detect missing, duplicated, reordered, reset, or modified records.
+* Negative control proving one altered event breaks the chain.
+
+====================================================
+8. PROTECT SEQUENCE AND EVIDENCE STORAGE
+
+Use atomic sequence allocation and immutable evidence storage.
+
+Required:
+
+* Concurrency-safe allocation.
+* Exclusive log creation.
+* Rollback detection.
+* Durable retention.
+* Backup.
+* Restore test.
+* Access-control proof.
+* External or immutable evidence anchoring.
+
+====================================================
+9. IMPLEMENT CORRECTION, EXEMPTION, AND GATE TABLES
+
+Implement:
+
+* oe_synthetic_row_corrections
+* oe_unreplayable_rows
+* oe_gate_events
+
+Requirements:
+
+* Append-only.
+* No UPDATE or DELETE for application roles.
+* Strict reason-code constraints.
+* Evidence reference required.
+* Authenticated creator.
+* Independent approval where required.
+* Previous hash.
+* Chain hash.
+* DDL audit trail.
+
+====================================================
+10. STRENGTHEN DATABASE IMMUTABILITY
+
+Use separate roles for:
+
+* Application
+* Verification
+* Approval
+* Administration
+
+Prove application and verifier roles cannot:
+
+* Disable triggers.
+* Alter evidence tables.
+* Delete evidence.
+* Rewrite history.
+* Change permissions.
+* Drop tables.
+
+Record all DDL affecting audit structures.
+
+====================================================
+11. PROVIDE RAW DATABASE EVIDENCE
+
+For every database claim provide:
+
+* Exact SQL.
+* Raw output.
+* Database name and schema.
+* Server timestamp.
+* Transaction ID when available.
+* Isolation level.
+* Result SHA-256.
+* Verification SEQ.
+* Database fingerprint without credentials.
+
+====================================================
+12. PROVE NO UNAUTHORIZED DATABASE MUTATIONS
+
+Required:
+
+* Before-and-after hashes for relevant tables.
+* Database audit logs.
+* DDL audit evidence.
+* Trigger-effect evidence.
+* Sequence-effect evidence.
+* Transaction boundaries.
+* Separation of verifier writes from concurrent production writes.
+
+====================================================
+13. CORRECT HISTORICAL REASON CODES
+
+Preserve both known facts and uncertainty.
+
+Use:
+
+* primary_reason_code
+* secondary_observation
+* source_state_recoverable
+* tested_commits
+* stored_hash
+* current_hash
+* hash_scheme_version
+* evidence_ref
+
+Example:
+
+primary_reason_code = ERA_INCOMPATIBLE_HASH
+secondary_observation = STORED_HASH_NOT_FOUND_IN_TESTED_GIT_HISTORY
+source_state_recoverable = FALSE
+
+Do not claim an unrecoverable source state is definitively known.
+
+====================================================
+14. CORRECT OVERSTATED EVIDENCE LANGUAGE
+
+Until the entire phase passes, title the report:
+
+INTERIM EVIDENCE AND OPEN FINDINGS RECORD — PHASE 3 NOT YET VERIFIED
+
+Do not use:
+
+* Complete verified evidence
+* Physically impossible
+* Confirms no SHA-256 collision
+
+Use precise evidence-based language.
+
+====================================================
+15. VERIFY COMPLETE ORIGIN ATTRIBUTION
+
+Enumerate every call site of:
+
+* write_decision
+* capture_replay_inputs
+* save_options_alert
+
+Store in every row:
+
+* Origin type
+* Scheduler job ID
+* Worker ID
+* Process ID
+* Deployment ID
+* Commit SHA
+* Trace ID
+
+Prove each origin using scheduler and worker logs.
+
+====================================================
+16. VERIFY JOB RECOVERY AND IDEMPOTENCY
+
+Every job must end in:
+
+* COMPLETED
+* NO_TRADE
+* SUPPRESSED
+* FAILED
+* RETRY_PENDING
+
+Required:
+
+* No indefinitely PROCESSING jobs.
+* Stale-job recovery.
+* Atomic claim.
+* Retry limits.
+* Idempotency.
+* No duplicate decisions.
+* No duplicate alerts.
+* Recovery audit events.
+
+====================================================
+17. FINAL PHASE 2 STRICT VERIFICATION
+
+After implementation:
+
+1. Commit all files.
+2. Confirm TREE=CLEAN.
+3. Record canonical script hashes.
+4. Record the engine root hash.
+5. Run all positive tests.
+6. Run all negative controls.
+7. Run complete chain verification.
+8. Run replay verification for all VERIFIED rows.
+9. Verify all exemptions.
+10. Prove independent approval.
+11. Prove evidence retention and restoration.
+12. Provide exact commands, SQL, raw outputs, file paths, and SHA-256 values.
+
+FINAL ACCEPTANCE RULE:
+
+Phase 3 may be marked VERIFIED only when Phase 1 and Phase 2 both pass with preserved, reproducible, raw evidence.
+
+Until then:
+
+PHASE 3: OPEN
+PRODUCTION APPROVAL: DENIED

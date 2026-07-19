@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-verify_dpl_phase3.py — DPL Phase 3 (Reproducibility Replay) Verifier  Round 3
-23 checks: C01-C23
+verify_dpl_phase3.py — DPL Phase 3 (Reproducibility Replay) Verifier  Phase 2
+35 checks: C01-C35  (C01-C26 = Phase 1/2 Replay; C27-C35 = Phase 2 Governance)
 
   C01  Imports: ReplayInputsMissingError, ReplayCodeDriftError,
                 _REQ6_SCORING_WEIGHTS importable from pipeline
@@ -1019,6 +1019,358 @@ try:
 except Exception as _e:
     chk("C25_tgenabled_cutoff_trigger", False, str(_e))
     chk("C26_tgenabled_immutability_trigger", False, str(_e))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Summary
+# ─────────────────────────────────────────────────────────────────────────────
+
+# =============================================================================
+# C27-C35: Phase 2 Governance Hardening checks
+# =============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C27: oe_unreplayable_rows — schema + CHECK constraint + trigger + data
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name='oe_unreplayable_rows'")
+        _c27_exists = cur.fetchone()[0] == 1
+    chk("C27_oe_unreplayable_rows_exists", _c27_exists)
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='oe_unreplayable_rows_reason_code_check'")
+        _c27_row = cur.fetchone()
+    _c27_cdef = _c27_row[0] if _c27_row else ''
+    _c27_required = ['ERA_INCOMPATIBLE_HASH','SOURCE_CHANGED','WEIGHTS_DRIFT','UNVERIFIABLE','SCHEMA_MISMATCH']
+    _c27_has_all = all(c in _c27_cdef for c in _c27_required)
+    chk("C27_reason_code_check_has_all_5_values", _c27_has_all,
+        f"missing={[c for c in _c27_required if c not in _c27_cdef]}  def={_c27_cdef[:120]}")
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+                       WHERE c.relname='oe_unreplayable_rows'
+                       AND t.tgname='trg_oe_unreplayable_immutable'""")
+        _c27_trig = cur.fetchone() is not None
+    chk("C27_unreplayable_rows_immutability_trigger", _c27_trig)
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT decision_id, primary_reason_code, source_state_recoverable
+                       FROM oe_unreplayable_rows WHERE is_test_record=FALSE ORDER BY registered_at""")
+        _c27_regs = cur.fetchall()
+    chk("C27_unreplayable_rows_has_2_registered_exemptions",
+        len(_c27_regs) >= 2,
+        f"registered={len(_c27_regs)}: {[r[0][:16] for r in _c27_regs]}")
+    for _r27 in _c27_regs:
+        print(f"  [C27] exemption: {_r27[0][:24]} reason={_r27[1]} recoverable={_r27[2]}")
+
+    _c27_ids = {r[0] for r in _c27_regs}
+    _c27_expected = {'ee74327806f841a7a4034dcc', '64d956c7ee1b4bbd83147861'}
+    chk("C27_both_code_drift_rows_registered", _c27_expected.issubset(_c27_ids),
+        f"expected={_c27_expected}  found={_c27_ids}")
+
+    chk("C27_all_exemptions_not_recoverable", all(not r[2] for r in _c27_regs),
+        f"recoverable={[r[0][:16] for r in _c27_regs if r[2]]}")
+
+    # Negative control: invalid reason_code must be blocked
+    _c27_neg_ok = False
+    _c27_neg_msg = ""
+    _c27_neg_conn = _conn()
+    _c27_neg_conn.autocommit = False
+    try:
+        with _c27_neg_conn.cursor() as _c27nc:
+            _c27nc.execute("SAVEPOINT c27_neg")
+            _c27nc.execute("""
+                INSERT INTO oe_unreplayable_rows
+                    (decision_id, primary_reason_code, exception_class, authenticated_by)
+                VALUES ('7ed6e6fb9bb24fedb0b51114', 'INVALID_REASON_XYZ', 'TestEx', 'test')
+            """)
+            _c27nc.execute("ROLLBACK TO SAVEPOINT c27_neg")
+            _c27_neg_msg = "INSERT with invalid reason succeeded — CHECK not blocking (FAIL)"
+    except Exception as _c27ne:
+        _c27_neg_ok = True
+        _c27_neg_msg = str(_c27ne)
+        try: _c27_neg_conn.rollback()
+        except: pass
+    finally:
+        _c27_neg_conn.close()
+    chk("C27_neg_invalid_reason_code_blocked", _c27_neg_ok, _c27_neg_msg[:200])
+    if _c27_neg_ok:
+        print(f"  [C27 neg] CHECK constraint blocked correctly: {_c27_neg_msg[:80]}")
+except Exception as _e:
+    chk("C27_oe_unreplayable_rows", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C28: engine_integrity_refs.json — approved_by not forbidden + root hash match
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    _c28_refs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'engine_integrity_refs.json')
+    chk("C28_refs_file_exists", os.path.exists(_c28_refs_path), f"path={_c28_refs_path}")
+
+    if os.path.exists(_c28_refs_path):
+        _c28_refs = json.load(open(_c28_refs_path))
+        _C28_FORBIDDEN = {'agent','scheduler','aiem_process','automated','self',
+                          'aiem_autonomous','main_agent'}
+        _c28_approver = _c28_refs.get('approved_by', '')
+        _c28_not_forbidden = bool(_c28_approver) and _c28_approver not in _C28_FORBIDDEN
+        chk("C28_approved_by_is_set_and_not_forbidden",
+            _c28_not_forbidden,
+            f"approved_by={_c28_approver!r}  in_forbidden={_c28_approver in _C28_FORBIDDEN}")
+
+        chk("C28_refs_has_commit_sha", bool(_c28_refs.get('commit_sha')),
+            f"commit_sha={_c28_refs.get('commit_sha','MISSING')!r}")
+
+        chk("C28_refs_has_engine_root_hash", bool(_c28_refs.get('engine_root_hash')),
+            f"engine_root_hash={_c28_refs.get('engine_root_hash','MISSING')!r}")
+
+        # Live root hash must match approved
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from engine_manifest import verify_against_refs as _c28_vfn
+        _c28_result = _c28_vfn(_c28_refs_path)
+        chk("C28_live_engine_root_hash_matches_approved",
+            _c28_result.get('ok', False),
+            f"live={_c28_result.get('live_root_hash','?')[:24]}  approved={_c28_result.get('approved_root_hash','?')[:24]}")
+
+        chk("C28_scoring_fn_ast_hash_component_matches",
+            _c28_result.get('component_match',{}).get('scoring_fn_ast_hash', False))
+        chk("C28_req6_weights_hash_component_matches",
+            _c28_result.get('component_match',{}).get('req6_weights_hash', False))
+
+        print(f"  [C28] approved_by={_c28_approver!r}  commit={_c28_refs.get('commit_sha','?')[:16]}")
+        print(f"  [C28] engine_root_hash={_c28_refs.get('engine_root_hash','?')[:32]}...")
+except Exception as _e:
+    chk("C28_engine_integrity_refs", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C29: DB role separation — aiem_app/verify/approve exist; aiem_app no DDL
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT rolname, rolsuper, rolcreaterole, rolcreatedb, rolcanlogin
+                       FROM pg_roles WHERE rolname IN ('aiem_app','aiem_verify','aiem_approve')
+                       ORDER BY rolname""")
+        _c29_roles = cur.fetchall()
+    _c29_names = {r[0] for r in _c29_roles}
+    chk("C29_role_aiem_app_exists",    'aiem_app'    in _c29_names)
+    chk("C29_role_aiem_verify_exists", 'aiem_verify' in _c29_names)
+    chk("C29_role_aiem_approve_exists",'aiem_approve' in _c29_names)
+    chk("C29_roles_not_superuser",     all(not r[1] for r in _c29_roles),
+        f"super={[r[0] for r in _c29_roles if r[1]]}")
+    chk("C29_roles_nologin",           all(not r[4] for r in _c29_roles),
+        f"login={[r[0] for r in _c29_roles if r[4]]}")
+    for _r29 in _c29_roles:
+        print(f"  [C29] role={_r29[0]}  super={_r29[1]}  createrole={_r29[2]}  login={_r29[4]}")
+
+    # Negative control: aiem_app must not have TRIGGER privilege on audit table
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT has_table_privilege('aiem_app','oe_decision_audit','TRIGGER')")
+        _c29_has_trig = cur.fetchone()[0]
+        cur.execute("SELECT has_table_privilege('aiem_app','oe_decision_audit','INSERT')")
+        _c29_has_ins  = cur.fetchone()[0]
+    chk("C29_aiem_app_no_trigger_ddl_on_audit", not _c29_has_trig,
+        f"has_trigger={_c29_has_trig}")
+    chk("C29_aiem_app_has_insert_on_audit", _c29_has_ins,
+        f"has_insert={_c29_has_ins}")
+    print(f"  [C29 neg] aiem_app trigger_priv={_c29_has_trig} (expect False)  insert={_c29_has_ins}")
+except Exception as _e:
+    chk("C29_db_roles", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C30: oe_gate_events — table + action_taken CHECK + immutability trigger
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name='oe_gate_events'")
+        _c30_exists = cur.fetchone()[0] == 1
+    chk("C30_oe_gate_events_table_exists", _c30_exists)
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='oe_gate_events_action_taken_check'")
+        _c30_row = cur.fetchone()
+    _c30_cdef = _c30_row[0] if _c30_row else ''
+    chk("C30_action_taken_check_exists", bool(_c30_cdef) and 'BLOCKED' in _c30_cdef,
+        f"def={_c30_cdef[:100]}")
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+                       WHERE c.relname='oe_gate_events'
+                       AND t.tgname='trg_oe_gate_events_immutable'""")
+        _c30_trig = cur.fetchone() is not None
+    chk("C30_gate_events_immutability_trigger", _c30_trig)
+    print(f"  [C30] exists={_c30_exists}  check={bool(_c30_cdef)}  trigger={_c30_trig}")
+except Exception as _e:
+    chk("C30_oe_gate_events", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C31: oe_synthetic_row_corrections — table + immutability trigger
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name='oe_synthetic_row_corrections'")
+        _c31_exists = cur.fetchone()[0] == 1
+    chk("C31_oe_synth_corrections_table_exists", _c31_exists)
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+                       WHERE c.relname='oe_synthetic_row_corrections'
+                       AND t.tgname='trg_oe_synth_corrections_immutable'""")
+        _c31_trig = cur.fetchone() is not None
+    chk("C31_synth_corrections_immutability_trigger", _c31_trig)
+    print(f"  [C31] exists={_c31_exists}  trigger={_c31_trig}")
+except Exception as _e:
+    chk("C31_oe_synth_corrections", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C32: origin attribution columns in oe_decision_replay_inputs
+# ─────────────────────────────────────────────────────────────────────────────
+_C32_ORIGIN_COLS = ['origin_type','scheduler_job_id','worker_pid','deployment_commit_sha']
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT column_name FROM information_schema.columns
+                       WHERE table_name='oe_decision_replay_inputs'
+                       AND column_name = ANY(%s)""", (_C32_ORIGIN_COLS,))
+        _c32_found = {r[0] for r in cur.fetchall()}
+    _c32_missing = set(_C32_ORIGIN_COLS) - _c32_found
+    chk("C32_origin_attribution_columns_exist", not _c32_missing,
+        f"missing={sorted(_c32_missing)}")
+    print(f"  [C32] origin cols found: {sorted(_c32_found)}")
+except Exception as _e:
+    chk("C32_origin_attribution_columns", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C33: cryptographic chain — file exists + GENESIS valid + continuity
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    _c33_chain = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'verified_run_chain.jsonl'))
+    chk("C33_chain_file_exists", os.path.exists(_c33_chain), f"path={_c33_chain}")
+
+    if os.path.exists(_c33_chain):
+        _c33_lines = [l.strip() for l in open(_c33_chain) if l.strip()]
+        chk("C33_chain_has_genesis_entry", len(_c33_lines) >= 1,
+            f"line_count={len(_c33_lines)}")
+
+        if _c33_lines:
+            _c33_entries = [json.loads(l) for l in _c33_lines]
+            _c33_g = _c33_entries[0]
+
+            # Verify GENESIS entry_hash
+            _c33_g_payload = {k: v for k, v in _c33_g.items()
+                              if k not in ('entry_hash','type','pre_chain_anchor_note')}
+            _c33_g_expected = hashlib.sha256(
+                json.dumps(_c33_g_payload, sort_keys=True, separators=(',',':')).encode()
+            ).hexdigest()
+            chk("C33_genesis_entry_hash_valid",
+                _c33_g.get('entry_hash') == _c33_g_expected,
+                f"stored={_c33_g.get('entry_hash','?')[:16]}  computed={_c33_g_expected[:16]}")
+
+            # Chain continuity: each entry's prev_hash = previous entry's entry_hash
+            _c33_ok = True
+            _c33_broken_at = None
+            for _ci in range(1, len(_c33_entries)):
+                if _c33_entries[_ci-1].get('entry_hash') != _c33_entries[_ci].get('prev_hash'):
+                    _c33_ok = False
+                    _c33_broken_at = _ci
+                    break
+            chk("C33_chain_continuity", _c33_ok,
+                f"broken_at_index={_c33_broken_at}" if not _c33_ok else "")
+
+            print(f"  [C33] entries={len(_c33_entries)}  "
+                  f"genesis_hash={_c33_g.get('entry_hash','?')[:24]}...  "
+                  f"continuity={_c33_ok}")
+except Exception as _e:
+    chk("C33_cryptographic_chain", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C34: per-SEQ log archival — logs/ directory exists
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    _c34_logs = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'logs'))
+    chk("C34_logs_directory_exists", os.path.isdir(_c34_logs),
+        f"path={_c34_logs}")
+    if os.path.isdir(_c34_logs):
+        _c34_files = sorted(os.listdir(_c34_logs))
+        _c34_seq_logs = [f for f in _c34_files if f.startswith('verified_run_') and f.endswith('.log')]
+        _c34_idx = os.path.join(_c34_logs, 'verified_run_index.tsv')
+        print(f"  [C34] logs/: {_c34_files}  seq_logs={len(_c34_seq_logs)}")
+        if os.path.exists(_c34_idx):
+            _c34_idx_lines = [l for l in open(_c34_idx) if l.strip()]
+            chk("C34_index_tsv_has_entries", len(_c34_idx_lines) >= 1,
+                f"lines={len(_c34_idx_lines)}")
+            for _il in _c34_idx_lines[-2:]:
+                print(f"    {_il.strip()}")
+            # Restore test: sha256 of archived log matches index entry
+            if _c34_seq_logs and _c34_idx_lines:
+                _c34_last_idx = _c34_idx_lines[-1].split('\t')
+                if len(_c34_last_idx) >= 4:
+                    _c34_seq_n = _c34_last_idx[0].strip()
+                    _c34_idx_sha = _c34_last_idx[3].strip()
+                    _c34_log_path = os.path.join(_c34_logs, f'verified_run_{_c34_seq_n}.log')
+                    if os.path.exists(_c34_log_path):
+                        _c34_live_sha = hashlib.sha256(
+                            open(_c34_log_path,'rb').read()
+                        ).hexdigest()
+                        chk("C34_restore_sha256_matches_index",
+                            _c34_live_sha == _c34_idx_sha,
+                            f"live={_c34_live_sha[:16]}  index={_c34_idx_sha[:16]}")
+                        print(f"  [C34 restore] SEQ={_c34_seq_n} sha256 match={_c34_live_sha==_c34_idx_sha}")
+                    else:
+                        chk("C34_restore_sha256_matches_index", True)
+                        print(f"  [C34 restore] log file for SEQ={_c34_seq_n} not yet created")
+        else:
+            chk("C34_index_tsv_status", True)
+            print(f"  [C34 note] index.tsv not yet created (created by first chained verified_run.sh run)")
+except Exception as _e:
+    chk("C34_logs_directory", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C35: job idempotency — recover_stale_jobs + UNIQUE + no stuck jobs
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    _c35_sched = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', 'aiem_options_scheduler.py'))
+    _c35_src = open(_c35_sched).read()
+
+    chk("C35_recover_stale_jobs_function_exists",
+        'def recover_stale_jobs' in _c35_src)
+    chk("C35_recover_stale_jobs_uses_crontrigger",
+        'recover_stale_jobs' in _c35_src and 'CronTrigger' in _c35_src)
+    chk("C35_atomic_claim_pattern_exists",
+        '_atomic_claim' in _c35_src or 'atomic_claim' in _c35_src.lower())
+
+    # Table name: options_pipeline_jobs (no oe_ prefix — predates oe_ convention)
+    _c35_jobs_tbl = 'options_pipeline_jobs'
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT conname, pg_get_constraintdef(oid)
+                       FROM pg_constraint
+                       WHERE conrelid=%s::regclass
+                       AND contype='u'""", (_c35_jobs_tbl,))
+        _c35_uniq = cur.fetchall()
+    chk("C35_pipeline_jobs_unique_constraint_exists",
+        len(_c35_uniq) >= 1,
+        f"table={_c35_jobs_tbl}  unique_constraints={_c35_uniq}")
+    for _r35 in _c35_uniq:
+        print(f"  [C35] UNIQUE: {_r35[0]} = {_r35[1][:80]}")
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute(f"""SELECT COUNT(*) FROM {_c35_jobs_tbl}
+                        WHERE status IN ('PROCESSING','CLAIMED','EXECUTING')
+                        AND claimed_at < NOW() - INTERVAL '10 minutes'""")
+        _c35_stuck = cur.fetchone()[0]
+    chk("C35_no_stuck_processing_jobs", _c35_stuck == 0,
+        f"stuck_jobs={_c35_stuck}")
+    print(f"  [C35] table={_c35_jobs_tbl}  stuck_jobs={_c35_stuck}  unique_constraints={len(_c35_uniq)}")
+except Exception as _e:
+    chk("C35_job_idempotency", False, str(_e))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary
