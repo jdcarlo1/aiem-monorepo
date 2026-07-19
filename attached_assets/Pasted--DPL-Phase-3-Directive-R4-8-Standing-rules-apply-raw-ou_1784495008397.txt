@@ -1,0 +1,84 @@
+# DPL Phase 3 — Directive R4.8
+
+Standing rules apply: raw output only, no prose-only claims, no production writes,
+negative controls offline or SAVEPOINT+rollback, run everything through
+`verified_run.sh`.
+
+## R4.8.1 — Errata mechanism for immutable false audit text
+
+`oe_known_synthetic_rows.reason` for the three rows says `ticker=P3TEST_A`.
+R4.7.1 proved all 8 used `P3TEST_PROD`. The table is immutable; the false text
+cannot be edited.
+
+Deliver:
+1. Raw `SELECT decision_id, reason FROM oe_known_synthetic_rows` — full text, all rows.
+2. Proposal (no implementation) for an append-only correction table:
+   `oe_synthetic_row_corrections(correction_id, decision_id FK, corrected_field,
+   asserted_value, actual_value, evidence_ref, corrected_at, corrected_by)`
+   plus a BEFORE UPDATE OR DELETE immutability trigger.
+3. State whether any other verifier check or prior round consumed those reason
+   strings as evidence. Raw grep.
+
+## R4.8.2 — Independent corroboration via key-set
+
+R4.7.1's preimage has 3 keys. Scheduler TRADE path hashes 5
+(`ticker, trace_id, call_score, put_score, direction`).
+
+Deliver: raw computation showing the 5-key production payload cannot produce
+`0d481fee…` for any ticker. Offline. State this as the primary non-reason-string
+proof that the 8 rows are non-production.
+
+## R4.8.3 — Identify the 64d956c7ee source change
+
+"Inside the 1307531→b733b9e window" is not an answer.
+
+Deliver:
+1. `git log --oneline 1307531..b733b9e -- <path>/aiem_options_dpl.py` (and pipeline file).
+2. `git log -p` restricted to `compute_req6_score`.
+3. Per candidate commit: `sha256(inspect.getsource(compute_req6_score))` computed
+   at that commit, compared to stored `0bc8dd98911f691f…`.
+4. Name the exact commit, or state raw evidence that it is unrecoverable.
+
+## R4.8.4 — Harden `oe_unreplayable_rows` before any implementation
+
+As drafted it is an unguarded exemption path: no immutability trigger,
+unconstrained `registered_by`. C27 could be made to pass by writing rows.
+
+Deliver a revised proposal (still no implementation) with:
+- BEFORE UPDATE OR DELETE immutability trigger (match `oe_criterion1_exclusions`).
+- `registered_by` CHECK against an explicit allowed set.
+- `evidence_ref` NOT NULL pointing to a verifier run SEQ + log sha256.
+- A registration precondition: the row's replay failure must be reproducible in
+  the same verifier run that registers it.
+- State explicitly what prevents this table from being used to suppress a genuine
+  regression.
+
+## R4.8.5 — Normalized hash for the pre-flight gate
+
+R4.7.5 correctly rejects a gate on unnormalized `inspect.getsource` output, then
+proposes no remedy.
+
+Deliver:
+1. Raw comparison of `sha256(inspect.getsource(compute_req6_score))` vs
+   `sha256(ast.dump(ast.parse(src)))` across: current source; current source
+   reindented; current source with a comment added; current source with a local
+   variable renamed.
+2. State which mutations the AST hash absorbs and which it still trips on.
+3. Proposal (no implementation) for an engine-integrity pre-flight check placed
+   BEFORE `save_options_alert()` at line 1847, comparing live normalized hash to
+   a published reference constant. Include the failure mode and the acknowledgment
+   /re-approval path for a legitimate scoring change.
+
+## R4.8.6 — TREE=DIRTY discrepancy at SEQ=12
+
+`TREE=DIRTY` but `git diff HEAD --stat` showed only `dpl/README.md`. Per R4.1 every
+`verified_run.sh` run dirties `tools/verified_run_seq`.
+
+Deliver: `git status --porcelain` and `git diff HEAD --stat` captured immediately
+after a SEQ=13 run, in the same log. Explain the SEQ=12 omission.
+
+## R4.8.7 — Close-out
+
+Run through `verified_run.sh`. Paste header (SEQ, TS, CMD, CWD, both canonical
+sha256 + ✓, git_commit, TREE), full check summary, EXIT, TS_END, sha256(log).
+State Criterion 1 status and whether Phase 3 remains open.
