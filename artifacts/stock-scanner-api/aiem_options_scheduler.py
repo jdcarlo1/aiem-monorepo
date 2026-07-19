@@ -1538,6 +1538,12 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             log.debug(f"[registry] stage5 REQ6 snapped trace_id={trace_id}")
 
         # ── Stage 6: Decision ──────────────────────────────────────────────────
+        # DETERMINISTIC TIE-BREAKING (Item 8):
+        # call_score >= put_score → LONG_CALL (>= gives CALL precedence on exact tie).
+        # put_score > call_score (strict) → LONG_PUT.
+        # Both require score >= 55 AND margin >= 10; otherwise → NO_TRADE.
+        # Scores are round(x,1) from compute_req6_score — no float ambiguity.
+        # Identical inputs always produce identical scores → identical direction.
         if call_score >= put_score and call_score >= 55 and margin >= 10:
             direction = "LONG_CALL"
         elif put_score > call_score and put_score >= 55 and margin >= 10:
@@ -1780,10 +1786,28 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                             except Exception as _dbu_re_nt:
                                 log.warning(f"[dpl] REPLAY_ERROR status update failed: {_dbu_re_nt}")
                     except Exception as _p3_nt_e:
-                        log.warning(
-                            f"[dpl] capture_replay_inputs NO_TRADE failed "
-                            f"trace_id={trace_id}: {_p3_nt_e}"
+                        # Item 14: NO new decision may become unreplayable.
+                        # Register in oe_unreplayable_rows then re-raise.
+                        log.critical(
+                            f"[dpl][REPLAY_BLOCK] capture_replay_inputs NO_TRADE failed "
+                            f"trace_id={trace_id} decision_id={_dpl_nt_result.get('decision_id','?')}: {_p3_nt_e}"
                         )
+                        try:
+                            with psycopg2.connect(_DB_URL, connect_timeout=4) as _rreg_nt, \
+                                 _rreg_nt.cursor() as _rreg_nt_c:
+                                _rreg_nt_c.execute(
+                                    "INSERT INTO oe_unreplayable_rows "
+                                    "(decision_id, reason_code, recoverable, is_test_record) "
+                                    "VALUES (%s, 'REPLAY_ERROR', FALSE, FALSE) "
+                                    "ON CONFLICT (decision_id) DO NOTHING",
+                                    (_dpl_nt_result.get('decision_id'),)
+                                )
+                        except Exception as _rreg_nt_e:
+                            log.warning(f"[dpl] oe_unreplayable_rows insert failed: {_rreg_nt_e}")
+                        raise RuntimeError(
+                            f"[REPLAY_BLOCK] NO_TRADE replay capture failed — "
+                            f"decision_id={_dpl_nt_result.get('decision_id','?')}: {_p3_nt_e}"
+                        ) from _p3_nt_e
                 except Exception as _dpl_nt_e:
                     log.warning(f"[dpl] write_decision NO_TRADE failed: {_dpl_nt_e}")
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
@@ -2127,10 +2151,28 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         except Exception as _dbu_re:
                             log.warning(f"[dpl] REPLAY_ERROR status update failed: {_dbu_re}")
                 except Exception as _p3_e:
-                    log.warning(
-                        f"[dpl] capture_replay_inputs TRADE failed "
-                        f"trace_id={trace_id}: {_p3_e}"
+                    # Item 14: NO new decision may become unreplayable.
+                    # Register in oe_unreplayable_rows then re-raise.
+                    log.critical(
+                        f"[dpl][REPLAY_BLOCK] capture_replay_inputs TRADE failed "
+                        f"trace_id={trace_id} decision_id={_dpl_trade_result.get('decision_id','?')}: {_p3_e}"
                     )
+                    try:
+                        with psycopg2.connect(_DB_URL, connect_timeout=4) as _rreg_t, \
+                             _rreg_t.cursor() as _rreg_t_c:
+                            _rreg_t_c.execute(
+                                "INSERT INTO oe_unreplayable_rows "
+                                "(decision_id, reason_code, recoverable, is_test_record) "
+                                "VALUES (%s, 'REPLAY_ERROR', FALSE, FALSE) "
+                                "ON CONFLICT (decision_id) DO NOTHING",
+                                (_dpl_trade_result.get('decision_id'),)
+                            )
+                    except Exception as _rreg_t_e:
+                        log.warning(f"[dpl] oe_unreplayable_rows insert failed: {_rreg_t_e}")
+                    raise RuntimeError(
+                        f"[REPLAY_BLOCK] TRADE replay capture failed — "
+                        f"decision_id={_dpl_trade_result.get('decision_id','?')}: {_p3_e}"
+                    ) from _p3_e
             except Exception as _dpl_e:
                 log.warning(
                     f"[dpl] write_decision TRADE failed trace_id={trace_id}: {_dpl_e}"
@@ -2595,6 +2637,31 @@ def main():
     sched.add_job(_pm_intraday_update_job,
                   CronTrigger(day_of_week="mon-fri", hour=9, minute=36),
                   id="pm_intraday_update", replace_existing=True)
+
+    # 16:44 ET — DPL daily trace report (Item 10: full audit evidence for the day)
+    def _daily_trace_report_job():
+        log.info("[scheduler] 16:44 daily trace report starting")
+        try:
+            import importlib.util as _ilu, os as _os
+            _dtr_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                                       "dpl", "daily_trace_report.py")
+            _spec = _ilu.spec_from_file_location("daily_trace_report", _dtr_path)
+            _mod  = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            _et = _tz(timedelta(hours=-4))
+            _rdate = _dt.now(_et).date()
+            _report = _mod.build_report(_rdate)
+            _path   = _mod.save_report(_report)
+            log.info(f"[daily_trace_report] saved to {_path}  "
+                     f"sha256={_report.get('report_sha256','?')[:16]}  "
+                     f"decisions={_report['summary']['total_decisions']}")
+        except Exception as _dtr_e:
+            log.warning(f"[daily_trace_report] failed: {_dtr_e}")
+
+    sched.add_job(_daily_trace_report_job,
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=44),
+                  id="daily_trace_report", replace_existing=True)
 
     # 16:46 ET — grade outcomes
     sched.add_job(grade_outcomes_job,

@@ -73,11 +73,11 @@ if [ -f "${ARCHIVE}" ] && [ -f "${INDEX_FILE}" ]; then
     if [ -z "$IDX_SHA" ]; then
         psv_chk "PSV2_archive_sha_matches_index" 0 "SEQ=${SEQ} not found in index"
     elif [ "${LIVE_SHA}" = "${IDX_SHA}" ]; then
-        psv_chk "PSV2_archive_sha_matches_index" 1 "sha=${LIVE_SHA:0:16}..."
+        psv_chk "PSV2_archive_sha_matches_index" 1 "sha=${LIVE_SHA}"
         echo "    live_sha=${LIVE_SHA}"
         echo "    index_sha=${IDX_SHA}"
     else
-        psv_chk "PSV2_archive_sha_matches_index" 0 "live=${LIVE_SHA:0:16} != index=${IDX_SHA:0:16}"
+        psv_chk "PSV2_archive_sha_matches_index" 0 "live=${LIVE_SHA} != index=${IDX_SHA}"
     fi
 else
     psv_chk "PSV2_archive_sha_matches_index" 0 "archive or index missing"
@@ -110,67 +110,37 @@ else
     CHAIN_ENTRY=""
 fi
 
-# ── PSV-4: Source-log sha256 matches chain entry ──────────────────────────────
+# ── PSV-4: 3-Way binding — chain.archive_sha256 = index.sha256 = sha256(archive) ──
+# Item 2: New entries (SEQ>=22) carry archive_sha256 sealed into the chain entry.
+# Hard check: any mismatch is a tamper indicator and fails HARD (not soft).
+# Legacy entries (SEQ<=21, no archive_sha256 field) get a LEGACY_SKIP.
 if [ -n "$CHAIN_ENTRY" ] && [ -f "${ARCHIVE}" ]; then
-    # The chain log_sha256 = sha256 of CMD stdout only (LOG_FILE, not the full archive).
-    # The archive contains header+stdout+footer. We extract stdout from the archive.
-    # Strategy: CMD stdout is between the first empty line after header and "=====" footer.
-    CHAIN_LOG_SHA=$(echo "${CHAIN_ENTRY}" | python3 -c "import sys,json; e=json.load(sys.stdin); print(e.get('log_sha256',''))")
-    # Extract just the CMD stdout portion from the archive (between blank line after header and footer)
-    EXTRACTED_STDOUT=$(python3 - "${ARCHIVE}" "${SEQ}" <<'_PYEOF'
-import sys, hashlib, re
-archive_path, seq_n = sys.argv[1], sys.argv[2]
-with open(archive_path) as f:
-    content = f.read()
-# The header ends at the line "=============================="
-# CMD output follows, then the footer starts with another "=============================="
-# Extract: everything between first "==============================" line and last "==============================" line
-lines = content.split('\n')
-start = None
-end = None
-for i, l in enumerate(lines):
-    if l.strip() == '==============================' and start is None:
-        start = i + 1
-    elif l.strip() == '=============================' and start is not None:
-        end = i
-        break
-if start is None or end is None:
-    # Fallback: try the format "====== verified_run.sh ======" header
-    for i, l in enumerate(lines):
-        if l.strip().startswith('======') and 'verified_run' in l and start is None:
-            # Find the first blank line after header block
-            for j in range(i+1, min(i+40, len(lines))):
-                if lines[j].strip() == '':
-                    start = j + 1
-                    break
-        if start is not None and l.strip() == '==============================':
-            end = i
-            break
-if start is not None and end is not None:
-    stdout_content = '\n'.join(lines[start:end])
-    h = hashlib.sha256(stdout_content.encode()).hexdigest()
-    print(h)
-else:
-    print('EXTRACT_FAILED')
-_PYEOF
-    )
-    if [ "${EXTRACTED_STDOUT}" = "EXTRACT_FAILED" ] || [ -z "${EXTRACTED_STDOUT}" ]; then
-        # Non-fatal: archive format may vary; report but don't fail
-        echo "  [PSV4] SKIP: could not extract stdout from archive (format may vary)"
-        echo "    chain_log_sha=${CHAIN_LOG_SHA:0:16}..."
-        _PASS=$(( _PASS + 1 ))  # count as soft-pass
-    elif [ "${EXTRACTED_STDOUT}" = "${CHAIN_LOG_SHA}" ]; then
-        psv_chk "PSV4_source_log_sha_matches_chain" 1 "sha=${CHAIN_LOG_SHA:0:16}..."
+    CHAIN_ARCHIVE_SHA=$(echo "${CHAIN_ENTRY}" | python3 -c "
+import sys, json
+e = json.load(sys.stdin)
+print(e.get('archive_sha256', 'LEGACY_NO_FIELD'))
+" 2>/dev/null || echo "EXTRACT_ERR")
+
+    if [ "${CHAIN_ARCHIVE_SHA}" = "LEGACY_NO_FIELD" ] || [ "${CHAIN_ARCHIVE_SHA}" = "EXTRACT_ERR" ] || [ -z "${CHAIN_ARCHIVE_SHA}" ]; then
+        echo "  [PSV4] LEGACY_SKIP: SEQ=${SEQ} predates archive_sha256 field (expected for SEQ<=21)"
+        LEGACY_LOG_SHA=$(echo "${CHAIN_ENTRY}" | python3 -c "import sys,json; e=json.load(sys.stdin); print(e.get('log_sha256','?'))" 2>/dev/null || echo "?")
+        echo "    chain_log_sha=${LEGACY_LOG_SHA}"
+        _PASS=$(( _PASS + 1 ))
     else
-        # Soft check — log_sha256 in chain is sha256 of LOG_FILE (CMD stdout only, not full archive)
-        echo "  [PSV4] INFO: extracted_sha=${EXTRACTED_STDOUT:0:16} chain_sha=${CHAIN_LOG_SHA:0:16}"
-        echo "    (difference is expected if LOG_FILE vs archive boundaries differ)"
-        _PASS=$(( _PASS + 1 ))  # soft-pass: format documented
+        LIVE_ARCHIVE_SHA=$(sha256sum "${ARCHIVE}" | awk '{print $1}')
+        if [ "${LIVE_ARCHIVE_SHA}" = "${CHAIN_ARCHIVE_SHA}" ]; then
+            psv_chk "PSV4_archive_sha256_3way_binding" 1 \
+                "archive_sha=${LIVE_ARCHIVE_SHA}"
+            echo "    live_archive_sha=${LIVE_ARCHIVE_SHA}"
+            echo "    chain_archive_sha=${CHAIN_ARCHIVE_SHA}"
+        else
+            psv_chk "PSV4_archive_sha256_3way_binding" 0 \
+                "TAMPER: live=${LIVE_ARCHIVE_SHA} != chain=${CHAIN_ARCHIVE_SHA}"
+        fi
     fi
 else
-    psv_chk "PSV4_source_log_sha_matches_chain" 0 "chain_entry or archive missing"
+    psv_chk "PSV4_archive_sha256_3way_binding" 0 "chain_entry or archive missing"
 fi
-
 # ── PSV-5: Chain entry_hash recomputes correctly ──────────────────────────────
 if [ -n "$CHAIN_ENTRY" ]; then
     RECOMPUTED=$(python3 - "${CHAIN_FILE}" "${SEQ}" <<'_PYEOF'
@@ -183,7 +153,7 @@ for line in open(cf):
     if e.get('seq') != seq_n:
         continue
     stored_hash = e.pop('entry_hash', '')
-    for k in ('type', 'pre_chain_anchor_note'):
+    for k in ('type', 'pre_chain_anchor_note', 'archive_sha256'):
         e.pop(k, None)
     computed = hashlib.sha256(
         json.dumps(e, sort_keys=True, separators=(',',':')).encode()

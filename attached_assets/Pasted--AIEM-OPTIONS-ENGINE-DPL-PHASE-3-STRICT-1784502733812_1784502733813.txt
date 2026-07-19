@@ -1,0 +1,283 @@
+===========================================================
+AIEM OPTIONS ENGINE
+DPL PHASE 3 — STRICT REMEDIATION DIRECTIVE
+(Condensed Version)
+===========================================================
+
+The verification report is strong (114 PASS + 9 Post-Seal PASS), but Phase 3 remains CONDITIONAL PASS. Before autonomous paper trading, the following items must be completed and STRICTLY VERIFIED using the real repository, database, scheduler, workers, and evidence chain.
+
+NO MOCKS.
+NO MANUAL DATABASE INSERTS.
+NO NARRATIVE-ONLY PROOF.
+ALL EVIDENCE MUST BE REPRODUCIBLE.
+
+===========================================================
+1. EVIDENCE CHAIN
+===========================================================
+
+• Eliminate the initial FileNotFoundError.
+• Use ONE canonical evidence-chain file everywhere.
+• All tools (writer, verifier, report generator, post-seal verifier) must reference the same chain.
+• Missing chain file must fail closed.
+• Remove obsolete references.
+
+Verify with:
+- GREP proof
+- Positive test
+- Negative test
+
+===========================================================
+2. CRYPTOGRAPHIC CHAIN INTEGRITY
+===========================================================
+
+Cryptographically bind:
+
+Archive SHA
+=
+Index SHA
+=
+Chain Entry SHA
+
+Any mismatch must immediately fail verification.
+
+===========================================================
+3. POST-SEAL VERIFICATION
+===========================================================
+
+Investigate the empty-content SHA issue.
+
+Ensure:
+• Non-empty extraction
+• Correct archive hashing
+• No ambiguous extraction boundaries
+
+===========================================================
+4. INDEPENDENT APPROVAL
+===========================================================
+
+Metadata alone is insufficient.
+
+Approval must come from an independent source such as:
+
+• Protected GitHub Approval
+• Signed Commit
+• External CI
+• External IAM
+• Digital Signature
+
+The deployment agent must NEVER be able to approve itself.
+
+===========================================================
+5. DATABASE ROLE ISOLATION
+===========================================================
+
+Deploy separate runtime identities:
+
+• aiem_app
+• aiem_verify
+• aiem_approve
+
+Application must NOT:
+
+• modify approvals
+• disable triggers
+• truncate tables
+• update immutable rows
+• elevate privileges
+
+===========================================================
+6. IMMUTABLE EVIDENCE STORAGE
+===========================================================
+
+Every completed verification must automatically:
+
+• seal logs
+• upload externally
+• retention lock
+• version lock
+• record external SHA
+• preserve evidence outside Replit
+
+===========================================================
+7. CRASH RECOVERY
+===========================================================
+
+Perform live crash-injection testing during:
+
+• job claim
+• market data
+• decision generation
+• evidence sealing
+• paper execution
+• outcome recording
+
+Must prove:
+
+• automatic recovery
+• no duplicate trades
+• no duplicate evidence
+• no corruption
+
+===========================================================
+8. DETERMINISTIC DECISIONS
+===========================================================
+
+Implement deterministic tie-breaking.
+
+Identical inputs must ALWAYS produce:
+
+• identical rankings
+• identical selected contracts
+• identical outputs
+
+Test with shuffled inputs and concurrent workers.
+
+===========================================================
+9. EXTERNAL AUDIT
+===========================================================
+
+Independent reviewer must rerun:
+
+• verifier
+• replay
+• evidence chain
+• database
+• repository
+
+using the exact Git commit.
+
+===========================================================
+10. AUTOMATIC TRACE REPORTS
+===========================================================
+
+Automatically generate daily reports containing:
+
+• scheduler trigger
+• trace IDs
+• decision IDs
+• strategy
+• rejected alternatives
+• risk gate
+• execution
+• reconciliation
+• chain head
+• recoveries
+• failures
+
+===========================================================
+11. CHAIN HISTORY
+===========================================================
+
+Explain the sequence gap (0 → 15).
+
+Prove:
+
+• migration
+OR
+• archive
+OR
+• historical chain
+
+No missing sequence may be unexplained.
+
+===========================================================
+12. COMPLETE RAW EVIDENCE
+===========================================================
+
+Do NOT truncate:
+
+• SQL
+• exceptions
+• hashes
+• logs
+• verifier output
+
+Always preserve complete raw evidence.
+
+===========================================================
+13. REPLAY TOLERANCE
+===========================================================
+
+Resolve the 1e9 vs 1e-9 inconsistency.
+
+One canonical tolerance only.
+
+Verify with boundary tests and mutation tests.
+
+===========================================================
+14. REPLAY GUARANTEE
+===========================================================
+
+No NEW autonomous decision may ever become unreplayable.
+
+Capture permanently:
+
+• raw inputs
+• normalized inputs
+• code hash
+• weights
+• configuration
+• timestamps
+• candidate ordering
+
+Block execution if replay data is incomplete.
+
+===========================================================
+15. LIVE BROKER SAFETY (REQUIRED BEFORE LIVE MONEY)
+===========================================================
+
+Complete end-to-end verification of:
+
+• broker authentication
+• reconciliation
+• duplicate-order prevention
+• partial fills
+• rejected orders
+• cancel/replace
+• stale quotes
+• API failures
+• buying power
+• position sizing
+• Greeks
+• daily loss limits
+• portfolio exposure
+• emergency kill switch
+• restart recovery
+• fail-closed behavior
+
+===========================================================
+FINAL APPROVAL REQUIREMENTS
+===========================================================
+
+Return ONE complete evidence package containing:
+
+• Git Commit SHA
+• Changed-file manifest
+• SHA-256 hashes
+• Database migrations
+• Raw verifier output
+• SQL evidence
+• Chain evidence
+• Post-seal evidence
+• External immutable-storage proof
+• Runtime role proof
+• Crash-recovery proof
+• Deterministic replay proof
+• Daily trace reports
+• Paper-trading verification
+• Independent auditor verification
+
+===========================================================
+STATUS
+===========================================================
+
+DPL Phase 3:
+CONDITIONAL PASS
+
+Paper Trading:
+APPROVE ONLY AFTER ITEMS 1–14 PASS.
+
+Live Money:
+BLOCKED UNTIL ITEM 15 PASSES AND ALL PRODUCTION BLOCKERS ARE VERIFIED.
+
+ANY FAILED VERIFICATION MUST AUTOMATICALLY HALT AUTONOMOUS TRADING.

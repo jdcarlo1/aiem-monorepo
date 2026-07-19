@@ -1,0 +1,56 @@
+{
+  "subject": "Cryptographic evidence chain SEQ gap explanation",
+  "documented_at": "2026-07-19T23:30:00Z",
+  "documented_by": "DPL Phase 3 / Phase 2 Strict Remediation — Item 11",
+
+  "gap_summary": "Chain SEQ numbers 1-14 are absent. The chain jumps from SEQ=0 (GENESIS) to SEQ=15.",
+
+  "missing_seqs": "1-14",
+
+  "root_cause": "/tmp era: SEQ counter was stored in /tmp/portfolio_engine_verify_seq before workspace session 2026-07-19. /tmp is reset on every Replit VM restart. Runs in sessions prior to 2026-07-19 incremented the counter but the counter reset to 0 each time, causing SEQ collisions and eventual loss when the VM restarted.",
+
+  "era_history": {
+    "era_1": {
+      "seq_range": "1-2",
+      "seq_storage": "/tmp/portfolio_engine_verify_seq",
+      "durability": "LOST — /tmp resets on VM restart",
+      "log_file": "/tmp — NOT preserved",
+      "note": "These runs existed only in memory and /tmp. No durable evidence exists."
+    },
+    "era_2": {
+      "seq_range": "3",
+      "seq_storage": "tools/verified_run_last.log (LOG_FILE in SCRIPT_DIR)",
+      "durability": "PARTIAL — SCRIPT_DIR is workspace-durable but LOG_FILE is overwritten each run",
+      "note": "SEQ=3 log was overwritten by subsequent runs."
+    },
+    "era_3_missing": {
+      "seq_range": "4-14",
+      "seq_storage": "tools/verified_run_seq (workspace-durable, commit 9d3b41a)",
+      "durability": "SEQ file durable but archive (tools/logs/) did not exist yet",
+      "note": "SEQ 4-14 were incremented and logged to verified_run_last.log which is overwritten each run. No per-SEQ archives existed before the logs/ directory was introduced."
+    }
+  },
+
+  "genesis_entry_hash": "ece76bc53443f10d199861ac6531fd223dfff1305e449b54d18bb8e17e7fba94",
+
+  "genesis_explanation": "SEQ=0 is a synthetic GENESIS entry created on 2026-07-19T14:51:15Z to anchor the forward chain. Its pre_chain_anchor_note field documents the /tmp era. All subsequent chain entries (SEQ=15+) chain from this GENESIS. The GENESIS entry_hash covers the SHA-256 of the last known durable log (verified_run_last.log at the time of anchoring).",
+
+  "chain_continuity_proof": {
+    "method": "prev_hash linkage from GENESIS forward",
+    "genesis_seq": 0,
+    "first_run_seq": 15,
+    "gap_is_structural": true,
+    "gap_explanation_type": "migration",
+    "verifiable": "Yes — every entry from SEQ=15 forward has verified prev_hash continuity (C33 PASS). The gap 1-14 is documented here, not in the chain, because retroactive insertion would break chain integrity."
+  },
+
+  "why_not_retroactively_filled": "Inserting entries for SEQ 1-14 would require rewriting existing chain entries (changing their prev_hash values), which would break the integrity of all subsequent entries and defeat the purpose of a cryptographic hash chain. The gap is instead documented here.",
+
+  "audit_status": "DOCUMENTED — gap is explainable, structural, and non-exploitable. No trades occurred during the /tmp era (paper trading was not yet active). No evidence was tampered with; the evidence simply did not persist.",
+
+  "references": [
+    "tools/verified_run.sh header comment: 'SEQ CHAIN DISCONTINUITY NOTE (recorded 2026-07-19)'",
+    "dpl/dpl_phase3_p2_remediation_report.md: Chain State at Report Time",
+    "dpl/verify_dpl_phase3.py: C33_chain_file_exists (chain is verified forward from GENESIS)"
+  ]
+}

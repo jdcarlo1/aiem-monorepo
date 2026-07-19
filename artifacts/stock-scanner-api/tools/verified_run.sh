@@ -37,7 +37,8 @@ CHAIN_FILE="${SCRIPT_DIR}/verified_run_chain.jsonl"
 LOGS_DIR="${SCRIPT_DIR}/logs"
 INDEX_FILE="${LOGS_DIR}/verified_run_index.tsv"
 
-CMD="${1:-python3 dpl/verify_dpl_phase3.py}"
+# Accept full command as all positional args (quoted or space-separated)
+CMD="${*:-python3 dpl/verify_dpl_phase3.py}"
 
 # ── Create logs/ directory (idempotent) ───────────────────────────────────
 mkdir -p "${LOGS_DIR}"
@@ -193,16 +194,35 @@ TREE_OUTER=$(grep "^TREE=" "${FULL_TMP}" | cut -d= -f2-)
 SCORING_FN_AST_OUTER=$(grep "^scoring_fn_ast_hash=" "${FULL_TMP}" | cut -d= -f2-)
 REQ6_WEIGHTS_OUTER=$(grep "^req6_weights_hash=" "${FULL_TMP}" | cut -d= -f2-)
 
-# Append chain entry (atomic: temp file + mv)
+# ── Item 2: 3-Way Binding — Archive first, then chain ─────────────────────
+# Per-SEQ archive is written BEFORE the chain entry so that archive_sha256
+# can be sealed into the chain entry as an immutable field.
+# Binding: chain.archive_sha256 = index.sha256 = sha256sum(SEQ_LOG)
+# This allows any third party to verify the archive without trusting the chain.
+SEQ_LOG="${LOGS_DIR}/verified_run_${SEQ}.log"
+cp "${FULL_TMP}" "${SEQ_LOG}"
+chmod 444 "${SEQ_LOG}"
+rm -f "${FULL_TMP}"
+
+# Canonical archive SHA (anchors 3-way binding)
+SEQ_LOG_SHA=$(sha256sum "${SEQ_LOG}" | awk '{print $1}')
+echo "[verified_run] archive_sha256=${SEQ_LOG_SHA}"
+echo "[verified_run] archive=${SEQ_LOG}"
+
+# Append chain entry (atomic: temp file + cat)
+# NOTE: archive_sha256 is NOT part of the entry_hash payload — it is a
+# separate binding field. entry_hash covers log_sha256 and all other
+# decision metadata fields. archive_sha256 binds the chain to the physical
+# archive file and to the index entry.
 CHAIN_TMP="${CHAIN_FILE}.${SEQ}.tmp"
 python3 - \
     "${SEQ}" "${RUN_TS}" "${TS_END_OUTER:-unknown}" "${CMD}" \
     "${EXIT_CODE_OUTER:-1}" "${GIT_COMMIT_OUTER:-unknown}" \
     "${TREE_OUTER:-UNKNOWN}" "${LOG_SHA_OUTER:-unknown}" \
     "${SCORING_FN_AST_OUTER:-UNKNOWN}" "${REQ6_WEIGHTS_OUTER:-UNKNOWN}" \
-    "${PREV_HASH}" "${ENTRY_HASH_OUTER:-UNKNOWN}" > "${CHAIN_TMP}" <<'_PYEOF'
+    "${PREV_HASH}" "${ENTRY_HASH_OUTER:-UNKNOWN}" "${SEQ_LOG_SHA}" > "${CHAIN_TMP}" <<'_PYEOF'
 import sys, json
-seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha, sfah, rwh, prev, entry_hash = sys.argv[1:]
+seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha, sfah, rwh, prev, entry_hash, archive_sha = sys.argv[1:]
 entry = {
     "seq":                 int(seq_n),
     "ts":                  ts,
@@ -212,6 +232,7 @@ entry = {
     "commit":              commit,
     "tree":                tree,
     "log_sha256":          log_sha,
+    "archive_sha256":      archive_sha,
     "scoring_fn_ast_hash": sfah,
     "req6_weights_hash":   rwh,
     "prev_hash":           prev,
@@ -222,18 +243,8 @@ _PYEOF
 cat "${CHAIN_TMP}" >> "${CHAIN_FILE}"
 rm -f "${CHAIN_TMP}"
 
-# Per-SEQ archive (full output = header + CMD output + footer)
-SEQ_LOG="${LOGS_DIR}/verified_run_${SEQ}.log"
-cp "${FULL_TMP}" "${SEQ_LOG}"
-chmod 444 "${SEQ_LOG}"
-rm -f "${FULL_TMP}"
-
-# sha256 of the ARCHIVED file (not LOG_FILE which is CMD-only)
-# The index records sha256(archive) so restore integrity can be verified by
-# recomputing sha256(verified_run_N.log) and comparing to the index entry.
-SEQ_LOG_SHA=$(sha256sum "${SEQ_LOG}" | awk '{print $1}')
-
 # Append to index TSV (SEQ, TS_END, EXIT, SEQ_LOG_SHA256, CMD)
+# index sha256 = chain.archive_sha256 = sha256sum(SEQ_LOG)  ← 3-way binding
 printf '%s\t%s\t%s\t%s\t%s\n' \
     "${SEQ}" "${TS_END_OUTER:-unknown}" "${EXIT_CODE_OUTER:-1}" \
     "${SEQ_LOG_SHA}" "${CMD}" >> "${INDEX_FILE}"

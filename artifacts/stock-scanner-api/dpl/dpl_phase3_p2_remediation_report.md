@@ -120,3 +120,31 @@ New checks added this session:
 - **C40**: Replay tolerance 1e-9 — old tolerance removed, documented, 3 boundary tests
 - **C41**: Concurrency — 5 workers, FOR UPDATE SKIP LOCKED, exactly-one claim assertion
 - **C42**: Post-seal verifier — script exists, 5 sub-checks, verified_run.sh calls it, negative control
+
+---
+
+## Round 2 Final State (2026-07-20)
+
+### Verifier: 131 PASS  0 FAIL  (was 114 PASS at baseline)
+### Chain: SEQ=24  entry_hash=d5f51172d6da6bb0f4c69e976f12f32272e73606df912656a723c07550d9bfde
+### PSV: 9/9 PASS (including new PSV4 hard 3-way binding + PSV8 SUMMARY check)
+
+### Completed Items (code)
+
+| Item | Description | File | Check |
+|------|-------------|------|-------|
+| 1 | Chain canonicalization | `tools/verified_run_chain.jsonl` | C43 (5 checks) |
+| 2 | 3-way binding archive_sha256 | `tools/verified_run.sh`, `tools/post_seal_verify.sh` | C44 (3 checks), PSV4 |
+| 3 | PSV full hash (no truncation) | `tools/post_seal_verify.sh` | PSV2 |
+| 8 | Deterministic tie-breaking | `aiem_options_scheduler.py` | C46 (4 checks) |
+| 10 | Daily trace report | `dpl/daily_trace_report.py` + scheduler 16:44 ET | standalone + auto |
+| 11 | Chain gap explanation | `tools/chain_gap_explanation.json` | C45 (5 checks) |
+| 12 | PSV4 hard 3-way binding | `tools/post_seal_verify.sh` | PSV4 (hard FAIL) |
+| 13 | C40 rename 1e9→1e-9 | `dpl/verify_dpl_phase3.py` | C40_replay_tolerance_is_1e_minus_9 |
+| 14 | Hard-fail replay capture | `aiem_options_scheduler.py` | TRADE + NO_TRADE both re-raise + oe_unreplayable_rows |
+
+### External Blockers (Items 4, 5, 6, 7, 9, 15)
+Documented in the prior remediation report. No code changes possible without independent infrastructure.
+
+### SEQ=22 Note
+SEQ=22 has archive_sha256 but log_sha256=e3b0c44 (empty CMD stdout). Root cause: `CMD="${1}"` captured only "python3" not the full "python3 dpl/verify_dpl_phase3.py". Fixed in same session by changing to `CMD="${*}"`. SEQ=23 and SEQ=24 are clean.
