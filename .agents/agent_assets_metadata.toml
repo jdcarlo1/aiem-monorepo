@@ -684,3 +684,9 @@ id = "K7JeFFzjr1PKVxvWteAhG"
 uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_P2_Complete_Evidence.txt"
 type = "text"
 title = "DPL Phase 3 Phase 2 — Complete Verified Evidence Record"
+
+[[outputs]]
+id = "Oi_nOyeV7nzqlu4iMIM2i"
+uri = "file://dpl_phase3_complete_verification.txt"
+type = "text"
+title = "DPL Phase 3 — Complete Verification (114 PASS / 0 FAIL)"

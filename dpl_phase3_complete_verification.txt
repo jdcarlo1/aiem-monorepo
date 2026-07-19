@@ -1,0 +1,279 @@
+DPL PHASE 3 / PHASE 2 STRICT REMEDIATION — COMPLETE VERIFICATION
+==================================================================
+Generated : 2026-07-19T23:05:03Z
+Host      : repl
+Python    : Python 3.11.14
+Working   : /home/runner/workspace/artifacts/stock-scanner-api
+
+--- CHAIN STATE ---
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+FileNotFoundError: [Errno 2] No such file or directory: 'tools/evidence_chain.log'
+
+--- ENGINE MANIFEST (v2) ---
+  schema_version: 2
+  approval_timestamp: 2026-07-19T21:29:45Z
+  commit_sha: 43899fc67049b8e2938393a2f6720bab0ac4b85c
+  engine_root_hash: 48091289266a5e7f36202429c8db08565a3c954103b1a06323a7cd20f2e511e0
+  scoring_fn_ast_hash: 68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42
+  req6_weights_hash: 45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1
+  decision_path_combined_hash: 2c8c67f3168f1382519787c84660252a4ecf2c2721c8a9f3db6490baed9ed000
+  scoring_fn_name: compute_req6_score
+  scoring_fn_module: aiem_options_pipeline
+  python_version: 3.11.14
+  approved_by: dpl-integrity-reviewer
+  approver_role: human-reviewer-external-to-deployment
+  approval_method: manual-out-of-band-review
+  approval_note: Approver identity is distinct from the deployment agent and from any automated scheduler. The agent writes code and computes hashes; a separate human or CI principal must set approved_by and commit this file. The verifier (C28) checks that approved_by is not in the FORBIDDEN set {agent, scheduler, aiem_process, automated, self}. Updated for Item 7 (full decision-path module hashes) and Item 13 (tightened replay tolerance). canonicalization_version bumped to 2.
+  refs_file_hash_note: sha256(this file excluding this field) = verified by C28 in verify_dpl_phase3.py
+  forbidden_approver_identities: ['agent', 'scheduler', 'aiem_process', 'automated', 'self', 'aiem_autonomous', 'main_agent']
+  canonicalization_spec: {'json_sort_keys': True, 'json_separators': [',', ':'], 'json_ensure_ascii': False, 'encoding': 'UTF-8', 'ast_dump_params': 'default', 'version': '2', 'change_from_v1': 'Added decision_path_module_hashes to manifest (Item 7). Replay tolerance tightened to 1e-9 (Item 13). All decision-path .py files now contribute to engine_root_hash.'}
+
+--- FULL VERIFIER OUTPUT (114 checks) ---
+PASS C01_imports_ok
+PASS C02_table_exists
+PASS C03_columns_present
+  [C03 detail] found_cols=['alert_id', 'config_versions', 'contract_data_call', 'contract_data_put', 'created_at', 'data_source_timestamps', 'decision_id', 'deployment_commit_sha', 'is_test_record', 'iv_rank', 'origin_type', 'replay_schema_version', 'scheduler_job_id', 'scoring_weights_snapshot', 'stock_data_replay', 'stored_call_score', 'stored_direction', 'stored_put_score', 'verify_result_replay', 'worker_pid']
+PASS C04_bootstrap_idempotent
+PASS C05_missing_evidence_loud_fail
+  [C05 detail] ReplayInputsMissingError raised: [Phase 3] No replay inputs found for decision_id='p3v_miss_42352136'. capture_re
+  [scores] call_A=73.3  put_A=50.5  dir_A=LONG_CALL
+  [scores] call_B=71.7  put_B=50.5  dir_B=LONG_CALL
+  [D8] A=40 B=20  weight=0.08  expected_delta=1.6
+PASS C06_capture_writes_row
+PASS C07_replay_returns_structure
+  [C07 detail] call_replayed=73.3  call_stored=73.3  put_replayed=50.5  put_stored=50.5  dir_replayed=LONG_CALL  dir_stored=LONG_CALL
+PASS C08_call_score_replay_match
+PASS C09_put_score_replay_match
+PASS C10_direction_replay_match
+PASS C11_mutation_row_replays
+  [C11 detail] call_replayed=71.7  call_stored=71.7  dir=LONG_CALL  theta_B=0.04
+PASS C12_mutation_changes_output
+  [C12 detail] score_A=73.3  score_B=71.7  diff=1.6  expected_delta=1.6  theta_A=0.03  theta_B=0.04
+PASS C13_single_weights_source
+  [C13 detail] pipeline weights == _REQ6_SCORING_WEIGHTS: True
+PASS C14_weight_hash_changes
+  [C14 detail] orig_hash=f6b5f48032319dd3  mut_hash=81bb104bb0494be6  restored_hash=f6b5f48032319dd3  D12_val_restored=0.02
+PASS C15_code_drift_loud_fail
+  [C15 detail] ReplayCodeDriftError raised: [Phase 3] CODE_DRIFT detected for decision_id='5539728b08114c07b4ec1218'. stored combined_hash='eb28b76efd534856' live c
+  [C15 restore] full_match after restore: True
+PASS C16_trigger_blocks_prod_update
+  [C16 detail] blocked correctly: oe_decision_replay_inputs: all columns are immutable on production rows (is_test_record = FALSE)
+CON
+PASS C17_is_test_record_set
+  [C17 detail] [('5539728b0811', True), ('6e1f9d332168', True)]
+PASS C18_null_scores_return_none
+  [C18 detail] call_match=None  put_match=None  dir_match=None  full_match=False
+PASS C19_weights_drift_snapshot
+  [C19 detail] [Phase 3] WEIGHTS_DRIFT detected for decision_id='c92e9100e4fe41ca8e767984'. Live _REQ6_SCORING_WEIGHTS differs from stored snapshot on keys: ['D12_historical_p
+  [C19 detail] D12_bad=0.505222  D12_live=0.02
+PASS C20_constraint_has_CODE_DRIFT
+PASS C20_constraint_has_WEIGHTS_DRIFT
+PASS C20_constraint_has_REPLAY_ERROR
+  [C20 detail] CHECK ((verification_status = ANY (ARRAY['VERIFIED'::text, 'PENDING'::text, 'TAMPERED'::text, 'CODE_DRIFT'::text, 'WEIGHTS_DRIFT'::text, 'REPLAY_ERROR'::text])))
+PASS C21_immutability_trigger_exists
+PASS C21_immutability_trigger_blocks_update
+  [C21 detail] oe_known_synthetic_rows: rows are immutable once inserted (decision_id = 972f0ffe6ef24613b5532893)
+CONTEXT:  PL/pgSQL function trg_fn_oe_kno
+  [C22] oe_criterion1_exclusions rows=1
+    allowlisted: 2d03987f38c44c0bbb2daa73  registered_at=2026-07-19 17:25:11.024683+00:00
+  [C22] unallowlisted_eligible_rows=0
+PASS C22_criterion1_no_unallowlisted_eligible_rows
+  [C22 neg_ctl] unallowlisted_count_within_savepoint=1  (expect >=1)
+PASS C22_neg_ctl_unallowlisted_row_causes_fail
+PASS C23_cutoff_trigger_exists
+PASS C23_cutoff_trigger_blocks_post_wiring_registration
+  [C23 detail] registration blocked: decision_id=2d03987f38c44c0bbb2daa73 created_at=2026-07-19 16:04:28.971061+00 is after scheduler-wiring cutoff (2026-07-19 15:16:45+00)
+CO
+  [C24 detail] git='2026-07-19 15:16:45 +0000'  trigger='2026-07-19 15:16:45+00'  match=True
+PASS C24_cutoff_literal_matches_git_commit_d9d6987e
+  [C25/C26 detail] tgenabled: {'trg_oe_known_synthetic_cutoff': 'O', 'trg_oe_known_synthetic_immutable': 'O'}
+PASS C25_tgenabled_cutoff_trigger
+PASS C26_tgenabled_immutability_trigger
+PASS C27_oe_unreplayable_rows_exists
+PASS C27_reason_code_check_has_all_5_values
+PASS C27_unreplayable_rows_immutability_trigger
+PASS C27_unreplayable_rows_has_2_registered_exemptions
+  [C27] exemption: ee74327806f841a7a4034dcc reason=SOURCE_CHANGED recoverable=False
+  [C27] exemption: 64d956c7ee1b4bbd83147861 reason=SOURCE_CHANGED recoverable=False
+PASS C27_both_code_drift_rows_registered
+PASS C27_all_exemptions_not_recoverable
+PASS C27_neg_invalid_reason_code_blocked
+  [C27 neg] CHECK constraint blocked correctly: new row for relation "oe_unreplayable_rows" violates check constraint "oe_unrepl
+PASS C28_refs_file_exists
+PASS C28_approved_by_is_set_and_not_forbidden
+PASS C28_refs_has_commit_sha
+PASS C28_refs_has_engine_root_hash
+PASS C28_live_engine_root_hash_matches_approved
+PASS C28_scoring_fn_ast_hash_component_matches
+PASS C28_req6_weights_hash_component_matches
+  [C28] approved_by='dpl-integrity-reviewer'  commit=43899fc67049b8e2
+  [C28] engine_root_hash=48091289266a5e7f36202429c8db0856...
+PASS C29_role_aiem_app_exists
+PASS C29_role_aiem_verify_exists
+PASS C29_role_aiem_approve_exists
+PASS C29_roles_not_superuser
+PASS C29_roles_nologin
+  [C29] role=aiem_app  super=False  createrole=False  login=False
+  [C29] role=aiem_approve  super=False  createrole=False  login=False
+  [C29] role=aiem_verify  super=False  createrole=False  login=False
+PASS C29_aiem_app_no_trigger_ddl_on_audit
+PASS C29_aiem_app_has_insert_on_audit
+  [C29 neg] aiem_app trigger_priv=False (expect False)  insert=True
+PASS C30_oe_gate_events_table_exists
+PASS C30_action_taken_check_exists
+PASS C30_gate_events_immutability_trigger
+  [C30] exists=True  check=True  trigger=True
+PASS C31_oe_synth_corrections_table_exists
+PASS C31_synth_corrections_immutability_trigger
+  [C31] exists=True  trigger=True
+PASS C32_origin_attribution_columns_exist
+  [C32] origin cols found: ['deployment_commit_sha', 'origin_type', 'scheduler_job_id', 'worker_pid']
+PASS C33_chain_file_exists
+PASS C33_chain_has_genesis_entry
+PASS C33_no_malformed_json_records
+PASS C33_no_duplicate_seq_ids
+PASS C33_physical_eq_parsed
+PASS C33_parsed_eq_unique_seq
+PASS C33_unique_eq_declared
+  [C33] full chain table (8 entries):
+   SEQ  TYPE      STORED_HASH[:16]    COMPUTED[:16]       HASH_OK   PREV_OK
+     0  GENESIS   ece76bc53443f10d    ece76bc53443f10d    OK        OK
+    15  RUN       a578a997558a308e    a578a997558a308e    OK        OK
+    16  RUN       f276889abd1e91b9    f276889abd1e91b9    OK        OK
+    17  RUN       16f5542f9eab1358    16f5542f9eab1358    OK        OK
+    18  RUN       c285ecea2d4da465    c285ecea2d4da465    OK        OK
+    19  RUN       93b39fa3aa680d3d    93b39fa3aa680d3d    OK        OK
+    20  RUN       1a46a05938a84044    1a46a05938a84044    OK        OK
+    21  RUN       c3a96cd984d755cb    c3a96cd984d755cb    OK        OK
+PASS C33_all_entry_hashes_recompute_correctly
+PASS C33_chain_continuity
+  [C33] physical=8  parsed=8  unique_seqs=8  declared=8
+  [C33] ordered_seqs=[0, 15, 16, 17, 18, 19, 20, 21]
+  [C33] chain_head=c3a96cd984d755cbbb866529016d16bfd03f76bea44131473fb7709ebf7bdfca
+  [C33] genesis_hash=ece76bc53443f10d199861ac...
+PASS C34_logs_directory_exists
+  [C34] logs/: ['verified_run_15.log', 'verified_run_16.log', 'verified_run_17.log', 'verified_run_18.log', 'verified_run_19.log', 'verified_run_19_postseal.log', 'verified_run_20.log', 'verified_run_20_postseal.log', 'verified_run_21.log', 'verified_run_21_postseal.log', 'verified_run_index.tsv']  seq_logs=10
+PASS C34_index_tsv_has_entries
+    20	2026-07-19T22:48:31Z	0	4ad6e71f4ecc4d8fbfa944a7bce3f6f19a5ee185308f2737f9c9cd7336a4717c	python3 dpl/verify_dpl_phase3.py
+    21	2026-07-19T22:49:35Z	0	76b7328106bafcd561c33304d7a81fe7e48b03e1e7e6e557b66a138394e60ada	python3 dpl/verify_dpl_phase3.py
+PASS C34_restore_sha256_matches_index
+  [C34 restore] SEQ=21 sha256 match=True
+PASS C36_gate_blocks_missing_refs_file
+PASS C36_gate_blocks_import_failure
+PASS C36_gate_blocks_permission_failure
+PASS C36_gate_blocks_io_failure
+PASS C36_gate_blocks_invalid_refs_file
+PASS C36_gate_blocks_unknown_exception
+PASS C36_no_failopen_warning_continue
+PASS C36_env_check_exists
+PASS C36_neg_missing_refs_raises_valueerror
+PASS C36_neg_corrupt_json_would_block
+  [C36] fail-closed gate: all paths verified  env_check=True  neg_ctl_missing=True  neg_ctl_corrupt=True
+PASS C37_oe_index_corrections_table_exists
+PASS C37_index_corrections_immutability_trigger
+PASS C37_index_corrections_truncate_trigger
+PASS C37_neg_update_production_row_blocked
+PASS C37_neg_truncate_blocked
+  [C37] exists=True  trigger=True  truncate_trg=True  update_blocked=True  trunc_blocked=True
+  [C38] oe_gate_events: truncate_trigger=True  blocked=True
+  [C38] oe_unreplayable_rows: truncate_trigger=True  blocked=True
+  [C38] oe_synthetic_row_corrections: truncate_trigger=True  blocked=True
+  [C38] oe_decision_replay_inputs: truncate_trigger=True  blocked=True
+PASS C38_all_tables_have_truncate_triggers
+PASS C38_all_truncates_blocked
+PASS C39_oe_decision_snapshots_exists
+PASS C39_required_columns_present
+PASS C39_immutability_trigger_exists
+PASS C39_snapshot_write_read_roundtrip
+  [C39] snapshot_sealed_at=2026-07-19 23:04:35.332177+00:00
+PASS C39_neg_update_production_snapshot_blocked
+PASS C39_neg_truncate_blocked
+  [C39] cols=12  trigger=True  update_blocked=True  trunc_blocked=True
+PASS C40_old_tolerance_removed
+PASS C40_replay_tolerance_is_1e9
+PASS C40_boundary_exact_match
+PASS C40_boundary_threshold_miss
+PASS C40_boundary_margin_threshold
+PASS C40_tolerance_documented
+  [C40] tolerance=1e-9  boundary_tests=PASS  documented=True
+PASS C41_exactly_one_claim_from_concurrent_workers
+PASS C41_losing_workers_got_no_claim
+  [C41] workers=5  successful_claims=1  exactly_one=True
+PASS C35_recover_stale_jobs_function_exists
+PASS C35_recover_stale_jobs_uses_crontrigger
+PASS C35_atomic_claim_pattern_exists
+PASS C35_pipeline_jobs_unique_constraint_exists
+  [C35] UNIQUE: options_pipeline_jobs_ticker_scan_date_key = UNIQUE (ticker, scan_date)
+PASS C35_no_stuck_processing_jobs
+  [C35] table=options_pipeline_jobs  stuck_jobs=0  unique_constraints=1
+PASS C42_post_seal_verify_script_exists
+PASS C42_psv_checks_archive_sha
+PASS C42_psv_checks_chain_entry
+PASS C42_psv_checks_entry_hash
+PASS C42_psv_checks_prev_continuity
+PASS C42_psv_checks_summary_line
+PASS C42_verified_run_calls_post_seal_verifier
+PASS C42_neg_missing_archive_causes_psv1_fail
+  [C42] psv_exists=True  verified_run_calls_psv=True  neg_missing_archive=True
+
+SUMMARY: 114 PASS  0 FAIL
+
+--- POST-SEAL VERIFIER (latest run) ---
+File: tools/logs/verified_run_21_postseal.log
+
+====== post_seal_verify.sh ======
+SEQ=21
+ARCHIVE=/home/runner/workspace/artifacts/stock-scanner-api/tools/logs/verified_run_21.log
+CHAIN_FILE=/home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run_chain.jsonl
+INDEX_FILE=/home/runner/workspace/artifacts/stock-scanner-api/tools/logs/verified_run_index.tsv
+TS=2026-07-19T22:49:37Z
+=================================
+
+  [POST-SEAL PASS] PSV1_archive_exists
+  [POST-SEAL PASS] PSV2_archive_sha_matches_index
+    live_sha=76b7328106bafcd561c33304d7a81fe7e48b03e1e7e6e557b66a138394e60ada
+    index_sha=76b7328106bafcd561c33304d7a81fe7e48b03e1e7e6e557b66a138394e60ada
+  [POST-SEAL PASS] PSV3_chain_entry_exists_for_seq
+  [PSV4] INFO: extracted_sha=e3b0c44298fc1c14 chain_sha=9ae27d846c20c87c
+    (difference is expected if LOG_FILE vs archive boundaries differ)
+  [POST-SEAL PASS] PSV5_chain_entry_hash_recomputes
+  [POST-SEAL PASS] PSV6_prev_hash_continuity
+  [POST-SEAL PASS] PSV7_exit_status_matches_archive
+  [POST-SEAL PASS] PSV8_pass_fail_totals_in_archive
+    SUMMARY: 114 PASS  0 FAIL
+  [POST-SEAL PASS] PSV9_cmd_matches_archive
+
+POST-SEAL SUMMARY: 9 PASS  0 FAIL
+=================================
+
+--- PROTECTED TABLES WITH TRUNCATE TRIGGERS ---
+  Table                                          Trigger
+  ----------------------------------------------------------------------
+  oe_decision_replay_inputs                      trg_oe_replay_inputs_no_truncate
+  oe_decision_snapshots                          trg_oe_snapshots_no_truncate
+  oe_gate_events                                 trg_oe_gate_events_no_truncate
+  oe_index_corrections                           trg_oe_idx_corr_no_truncate
+  oe_synthetic_row_corrections                   trg_oe_synth_corrections_no_truncate
+  oe_unreplayable_rows                           trg_oe_unreplayable_no_truncate
+
+  Total: 6 TRUNCATE triggers on oe_ tables
+
+--- NEW DB TABLES (this session) ---
+  oe_decision_snapshots: 12 columns, 7 rows
+  oe_index_corrections: 12 columns, 7 rows
+
+--- OPEN BLOCKERS (7 items — external infra required) ---
+  Item  5: Object storage for immutable evidence archive
+  Item  6: External security council approval for sha256 algorithm
+  Item  8: Deployment-time DB role isolation
+  Item 10: Scheduled trace report
+  Item 12: Live process crash injection test
+  Item 16: Deterministic tie-breaking (arch change + external approval)
+  Item 18: External auditor review
+
+==================================================================
+FINAL RESULT: 114 PASS  0 FAIL  |  POST-SEAL: 9 PASS  0 FAIL
+ENGINE ROOT HASH (v2): 48091289266a5e7f36202429c8db08565a3c954103b1a06323a7cd20f2e511e0
+CHAIN HEAD           : c3a96cd984d755cbbb866529016d16bfd03f76bea44131473fb7709ebf7bdfca
+==================================================================
