@@ -802,24 +802,97 @@ except Exception as _e:
     chk("C21_immutability_trigger", False, str(_e))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# C22: Criterion 1 JOIN SQL — eligible FALSE rows not in registry (print every run)
+# C22: Criterion 1 allowlist check (R8.1)
+# oe_criterion1_exclusions is the allowlist of known-ok eligible rows.
+# C22_criterion1_no_unallowlisted_eligible_rows FAILs if any FALSE row that is
+# absent from oe_known_synthetic_rows is ALSO absent from the allowlist.
+# Negative control: SAVEPOINT-protected INSERT of un-allowlisted FALSE rows shows
+# the check correctly returns unallowlisted_count>=1 and would FAIL.
 # ─────────────────────────────────────────────────────────────────────────────
 try:
+    import os as _c22_os
+    # Ensure allowlist table exists (idempotent)
+    with _conn() as _c22_init, _c22_init.cursor() as _c22_icur:
+        _c22_icur.execute("""
+            CREATE TABLE IF NOT EXISTS oe_criterion1_exclusions (
+                decision_id   TEXT PRIMARY KEY,
+                reason        TEXT NOT NULL,
+                registered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+    # Query allowlisted decision_ids
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT decision_id, registered_at FROM oe_criterion1_exclusions ORDER BY registered_at")
+        _c22_allowlist = cur.fetchall()
+    print(f"  [C22] oe_criterion1_exclusions rows={len(_c22_allowlist)}")
+    for _r in _c22_allowlist:
+        print(f"    allowlisted: {_r[0]}  registered_at={_r[1]}")
+
+    # Query eligible rows NOT in either whitelist (oe_known_synthetic_rows OR exclusions)
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT d.decision_id, d.created_at
             FROM   oe_decision_replay_inputs d
             LEFT JOIN oe_known_synthetic_rows s ON s.decision_id = d.decision_id
+            LEFT JOIN oe_criterion1_exclusions e ON e.decision_id = d.decision_id
             WHERE  d.is_test_record = FALSE
             AND    s.decision_id IS NULL
+            AND    e.decision_id IS NULL
         """)
-        _c22_rows = cur.fetchall()
-    print(f"  [C22 Criterion1] eligible_rows={len(_c22_rows)}")
-    for _r22 in _c22_rows:
-        print(f"    {_r22[0]}  {_r22[1]}")
-    chk("C22_criterion1_sql_runs", True, f"eligible_rows={len(_c22_rows)}")
+        _c22_unallowlisted = cur.fetchall()
+    print(f"  [C22] unallowlisted_eligible_rows={len(_c22_unallowlisted)}")
+    for _r22 in _c22_unallowlisted:
+        print(f"    UNALLOWLISTED: {_r22[0]}  {_r22[1]}")
+    chk("C22_criterion1_no_unallowlisted_eligible_rows",
+        len(_c22_unallowlisted) == 0,
+        f"unallowlisted_eligible_rows={len(_c22_unallowlisted)}: "
+        + "; ".join(str(r[0]) for r in _c22_unallowlisted))
+
+    # C22 negative control: SAVEPOINT-protected INSERT of un-allowlisted FALSE rows,
+    # then run the check SQL to prove it returns unallowlisted_count >= 1.
+    _c22_neg_did = "c22negctrl" + _c22_os.urandom(7).hex()
+    _c22_neg_count = -1
+    _c22_neg_conn = _conn()
+    _c22_neg_conn.autocommit = False
+    try:
+        with _c22_neg_conn.cursor() as _nc:
+            _nc.execute("SAVEPOINT c22_neg_ctl")
+            _nc.execute("""
+                INSERT INTO oe_decision_audit
+                    (decision_id, input_hash, output_hash,
+                     engine_version, db_version, is_test_record)
+                VALUES (%s, 'negctl_in', 'negctl_out', 'negctl_eng', 'negctl_db', FALSE)
+            """, (_c22_neg_did,))
+            _nc.execute("""
+                INSERT INTO oe_decision_replay_inputs
+                    (decision_id, contract_data_call, contract_data_put,
+                     stock_data_replay, iv_rank, verify_result_replay,
+                     config_versions, data_source_timestamps, is_test_record)
+                VALUES (%s, '{}', '{}', '{}', 0.35, '{}', '{}', '{}', FALSE)
+            """, (_c22_neg_did,))
+            _nc.execute("""
+                SELECT COUNT(*)
+                FROM   oe_decision_replay_inputs d
+                LEFT JOIN oe_known_synthetic_rows s ON s.decision_id = d.decision_id
+                LEFT JOIN oe_criterion1_exclusions e ON e.decision_id = d.decision_id
+                WHERE  d.is_test_record = FALSE
+                AND    s.decision_id IS NULL
+                AND    e.decision_id IS NULL
+            """)
+            _c22_neg_count = _nc.fetchone()[0]
+            _nc.execute("ROLLBACK TO SAVEPOINT c22_neg_ctl")
+            _nc.execute("RELEASE SAVEPOINT c22_neg_ctl")
+    finally:
+        _c22_neg_conn.rollback()
+        _c22_neg_conn.close()
+    print(f"  [C22 neg_ctl] unallowlisted_count_within_savepoint={_c22_neg_count}  (expect >=1)")
+    chk("C22_neg_ctl_unallowlisted_row_causes_fail",
+        _c22_neg_count >= 1,
+        f"count={_c22_neg_count}")
 except Exception as _e:
-    chk("C22_criterion1_sql_runs", False, str(_e))
+    chk("C22_criterion1_no_unallowlisted_eligible_rows", False, str(_e))
+    chk("C22_neg_ctl_unallowlisted_row_causes_fail", False, f"(exception in C22 setup): {str(_e)[:120]}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C23: registry cutoff trigger exists and blocks post-wiring-commit registrations
@@ -877,6 +950,75 @@ try:
     print(f"  [C23 detail] {_c23_msg[:160]}")
 except Exception as _e:
     chk("C23_cutoff_trigger", False, str(_e))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C24: cutoff trigger literal matches git committer timestamp of d9d6987e (R8.7)
+# Reads _cutoff from pg_get_functiondef(); reads git timestamp via subprocess;
+# compares both as TIMESTAMPTZ via DB cast — fails on any mismatch.
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    import subprocess as _sp, re as _re_mod
+    _c24_git_raw = None
+    try:
+        _c24_git_raw = _sp.check_output(
+            ["git", "--no-optional-locks", "log", "--format=%ci", "-n1", "d9d6987e"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            stderr=_sp.DEVNULL
+        ).decode().strip()
+    except Exception as _ge:
+        _c24_git_raw = None
+
+    _c24_trigger_cutoff = None
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT pg_get_functiondef(oid) FROM pg_proc "
+                    "WHERE proname='trg_fn_oe_known_synthetic_cutoff'")
+        _c24_fndef = cur.fetchone()
+    if _c24_fndef:
+        _c24_m = _re_mod.search(r"_cutoff\s+TIMESTAMPTZ\s*:=\s*'([^']+)'", _c24_fndef[0])
+        _c24_trigger_cutoff = _c24_m.group(1) if _c24_m else None
+
+    _c24_match = False
+    _c24_detail = f"git={_c24_git_raw!r}  trigger={_c24_trigger_cutoff!r}"
+    if _c24_git_raw and _c24_trigger_cutoff:
+        with _conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT %s::timestamptz = %s::timestamptz",
+                        (_c24_git_raw, _c24_trigger_cutoff))
+            _c24_match = cur.fetchone()[0]
+
+    print(f"  [C24 detail] {_c24_detail}  match={_c24_match}")
+    chk("C24_cutoff_literal_matches_git_commit_d9d6987e",
+        _c24_match,
+        _c24_detail + f"  match={_c24_match}")
+except Exception as _e:
+    chk("C24_cutoff_literal_matches_git_commit_d9d6987e", False, str(_e))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C25: tgenabled='O' for trg_oe_known_synthetic_cutoff (R8.7)
+# C26: tgenabled='O' for trg_oe_known_synthetic_immutable (R8.7)
+# 'O' = trigger fires for all transactions (ENABLE / default-on).
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT tgname, tgenabled
+            FROM   pg_trigger
+            WHERE  tgname IN (
+                'trg_oe_known_synthetic_cutoff',
+                'trg_oe_known_synthetic_immutable'
+            )
+            ORDER BY tgname
+        """)
+        _c25_rows = {r[0]: r[1] for r in cur.fetchall()}
+    print(f"  [C25/C26 detail] tgenabled: {_c25_rows}")
+    chk("C25_tgenabled_cutoff_trigger",
+        _c25_rows.get("trg_oe_known_synthetic_cutoff") == "O",
+        f"tgenabled={_c25_rows.get('trg_oe_known_synthetic_cutoff')!r}")
+    chk("C26_tgenabled_immutability_trigger",
+        _c25_rows.get("trg_oe_known_synthetic_immutable") == "O",
+        f"tgenabled={_c25_rows.get('trg_oe_known_synthetic_immutable')!r}")
+except Exception as _e:
+    chk("C25_tgenabled_cutoff_trigger", False, str(_e))
+    chk("C26_tgenabled_immutability_trigger", False, str(_e))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary

@@ -49,6 +49,21 @@ CHAIN_SH="$(cd "${SCRIPT_DIR}/.." && pwd)/verify_chain.sh"
 echo "sha256(verify_chain.sh)=$(sha256sum "${CHAIN_SH}" 2>/dev/null | awk '{print $1}' || echo MISSING)"
 GIT_ROOT=$(git --no-optional-locks -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || echo unknown)
 echo "git_commit=$(git --no-optional-locks -C "${SCRIPT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)"
+# ── Working tree state (R8.6) ─────────────────────────────────────────────
+GIT_PORCELAIN=$(git --no-optional-locks -C "${GIT_ROOT}" status --porcelain 2>/dev/null || true)
+if [ -z "${GIT_PORCELAIN}" ]; then
+    echo "TREE=CLEAN"
+else
+    echo "TREE=DIRTY"
+    echo "git_status_porcelain:"
+    while IFS= read -r _vl; do echo "  ${_vl}"; done <<< "${GIT_PORCELAIN}"
+    echo "sha256_modified_files:"
+    while IFS= read -r _vl; do
+        _vrel="${_vl:3}"
+        _vfp="${GIT_ROOT}/${_vrel}"
+        [ -f "${_vfp}" ] && echo "  ${_vrel}=$(sha256sum "${_vfp}" | awk '{print $1}')" || true
+    done <<< "${GIT_PORCELAIN}"
+fi
 echo "=============================="
 echo ""
 

@@ -135,12 +135,29 @@ R7.2 neg-ctrl row (1 row) is the only current entry. From Mon 09:45 ET each
 real scheduler decision adds a new FALSE row — those must be replayed per R7.8
 and NOT registered as synthetic.
 
-## File sha256 after Round 7 (all live)
-- tools/verified_run.sh:          ba7faf8da204815544b147d56c824252fbd7f260d9b3d9d864c2006ee7492410  ← CANONICAL
+## File sha256 after Round 8 (all live, SEQ=10 confirmed)
+- tools/verified_run.sh:           467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae  ← CANONICAL (R8.6 patch)
 - verify_chain.sh:                 ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (UNCHANGED)
-- aiem_options_scheduler.py:       9742516775490f3d375da5391f5538fed0faacbf75f78486a019b115e961f2ff  (R7)
-- dpl/verify_dpl_phase3.py:        7ef73c6c32e5d7eefa9b4264b477c68b2cd63efd21df66eb933525794bdb5cd1  (R7)
-- dpl/exercise_replay_branches.py: 74ac1d0890ac825313bbc920bacb93e8de90e16fae9699fd6f20f75860fd95cb  (R7)
+- aiem_options_scheduler.py:       9742516775490f3d375da5391f5538fed0faacbf75f78486a019b115e961f2ff  (R7, unchanged in R8)
+- dpl/verify_dpl_phase3.py:        16f4cb8a2969c62861cc70ae222adee14dec320cb524fefa3ec26d9f0a66d3f3  (R8: C22 rewrite + C24-C26)
+- dpl/exercise_replay_branches.py: 38ad12f0cc016138f304942e2a0002ec865faf8b48a991697ea9b1ab7d10756f  (R8.4: 6 distinct IDs)
+- dpl/exercise_real_tg.py:         d10fa4f0299bacdd9547f2b446ac8ef9a2394aff72157315752dbdede1b07633  (R8.3: new)
+- dpl/_r8_db_setup.py:             de94154feea02125788ecb6d7bca02e04538fb21e530a71e61527916d127a344  (R8 setup, ephemeral)
+
+## Round 8 changes
+- R8.1: oe_criterion1_exclusions table + immutability trigger; 2d03987f38c44c0bbb2daa73 registered;
+  C22 now FAILs on unallowlisted rows; SAVEPOINT neg-ctl proves it (count=1 within savepoint, rollback)
+- R8.2 protocol violation: R7.2 wrote permanent FALSE row without SAVEPOINT. Standing rule: all future
+  neg-controls writing to production tables use SAVEPOINT+rollback or offline DB.
+- R8.3: exercise_real_tg.py; T3 branch with REAL _tg; message_id=1995 status=200 chat_id=8609255707
+- R8.4: exercise_replay_branches.py rewritten; 6 distinct decision_ids; per-branch DB SELECT verified:
+  T1=VERIFIED(no write), T2=CODE_DRIFT, T3=REPLAY_ERROR, NT1=VERIFIED(no write), NT2=CODE_DRIFT, NT3=REPLAY_ERROR
+- R8.5: verify_chain.sh EXIT=3, 3/10 PASS — 1_polygon SNAPSHOT_UNAVAILABLE (unchanged since R6)
+- R8.6: verified_run.sh patched: TREE=CLEAN|DIRTY + git_status_porcelain + sha256_modified_files in header
+- R8.7: cutoff trigger updated with commit comment (d9d6987e); C24 asserts literal==git timestamp via DB cast;
+  C25/C26 assert tgenabled='O' for cutoff+immutability triggers
+- R8.8: pending Monday 2026-07-20 09:45 ET
+- SEQ=10: 31 PASS 0 FAIL; TREE=DIRTY (R8 edits staged at HEAD=83225f25)
 - aiem_options_pipeline.py:        bbcddcc13bd364bd4a49c4eb728b48f90194cc40ef676280e16c8e8d64a741e6
 - aiem_options_dpl.py:             82eddc574fb06bc6c62bfb14670dfc3baa9e6c803d0752a70bf0b0965a5b2cf1
 

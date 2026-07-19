@@ -1,0 +1,154 @@
+# DPL Phase 3 — Round 8 Directive
+
+R7 accepted in part. C20/C21/C23 closed. SEQ=8 disclosure noted and correct.
+Below are rejections and required work. Lean format: raw output only, no prose padding.
+
+---
+
+## R8.1 — C22 is vacuous. Fix it.
+
+`C22_criterion1_sql_runs` asserts only that the SQL executed. `eligible_rows=1` is a
+detail line, not an assertion. It cannot fail. Same class as the R2 collided sentinels.
+
+Required:
+- Add table `oe_criterion1_exclusions` (decision_id PK, reason text, registered_at) OR an
+  explicit allowlist constant in the verifier — your choice, state which and why.
+- C22 must FAIL when `eligible_rows` contains any decision_id not in that allowlist.
+- Register `2d03987f38c44c0bbb2daa73` there with reason = R7.2 cutoff negative control.
+- Negative control: insert a fake un-allowlisted eligible row (rolled back), show C22 FAIL.
+
+Deliver: DDL, raw verifier output showing C22 FAIL on the negative control and PASS after.
+
+---
+
+## R8.2 — Protocol violation: R7.2 negative control
+
+The R7.2 control created a permanent FALSE row that the cutoff trigger blocks from
+registration and the immutability rule blocks from deletion. `eligible_rows` is
+permanently non-zero. After R3.2 you committed to `_test_mode=True` (rollback) or an
+offline copy for all mutation/negative-control proofs. This repeated the pattern.
+
+Deliver, one line each:
+- Acknowledge as a protocol violation.
+- State why rollback or an offline DB was not used here.
+- State the standing rule you will apply for every future negative control that writes to
+  a production table.
+
+No deletion. The row stays.
+
+---
+
+## R8.3 — Telegram: prove the live path end to end
+
+R7.4 proved a direct API POST returns 200. The branch exercise used a STUBBED `_tg`.
+The claim that the scheduler's `_tg()` calls the same endpoint is prose.
+
+Required:
+- `sed -n` of the full `_tg()` body in `aiem_options_telegram_notifier.py`.
+- `sed -n` of the scheduler's inline `_tg` definition/import, showing token + endpoint.
+- `grep -n` of every `_tg(` call site in the scheduler.
+- One branch exercise run with the REAL `_tg` (not stubbed) on a single branch, showing
+  the message arriving in chat 8609255707 with status/message_id.
+
+---
+
+## R8.4 — Per-branch DB status must be observed, not inferred
+
+All six branches ran against `458a5fc893d24613`; only the final status was read. T2/NT2
+`CODE_DRIFT` and T3 `REPLAY_ERROR` were each overwritten before being observed. R6.1's
+defect was an UPDATE that appeared to work.
+
+Required: six distinct decision_ids, one per branch, OR a `SELECT verification_status`
+immediately after each branch. Paste all six raw reads with decision_id.
+
+---
+
+## R8.5 — `verify_chain.sh` has not been run since R6
+
+Its sha256 is pasted; its output is not. Standing Evidence Chain Protocol requires
+running it and pasting output before any directive is declared complete.
+
+Required: raw `verify_chain.sh` output for the R8 verifier run, full text including
+break count and exit code.
+
+---
+
+## R8.6 — `verified_run.sh` header must describe what actually ran
+
+SEQ=9 recorded `git_commit=0021016b` while the three files that ran were `M` from it.
+You disclosed it, but the header field is structurally misleading and this has recurred
+R4 through R7.
+
+Required patch to `tools/verified_run.sh` header block:
+- `git status --porcelain` output
+- sha256 of every file listed as modified
+- a `TREE=CLEAN|DIRTY` line
+
+Then: before/after sha256 of `verified_run.sh`, and run it once so the new canonical hash
+is the hash of a script that has actually executed. Do not propose a canonical hash for a
+version never run — that is the A2/R4.6 defect class.
+
+---
+
+## R8.7 — Cutoff literal traceability
+
+`_cutoff := '2026-07-19 15:16:45+00'` is a hardcoded literal tied to commit d9d6987e only
+by prose.
+
+Required:
+- Comment inside the trigger function body naming commit `d9d6987e` as its source.
+- C23 assertion that the function's cutoff literal equals the committer timestamp of
+  d9d6987e, read from git at verify time — FAIL on mismatch.
+- `pg_trigger.tgenabled` status asserted for both `trg_oe_known_synthetic_cutoff` and
+  `trg_fn_oe_known_synthetic_immutable` — existence alone is not enough.
+
+---
+
+## R8.8 — Criterion 1 (Monday 2026-07-20 09:45 ET)
+
+On the first real scheduler decision, paste unedited:
+`decision_id`, `alert_id`, `is_test_record`, `input_hash`, `created_at`, and the full
+`replay_decision()` return dict. Then run the C22 SQL and paste `eligible_rows` with
+allowlist applied. No summary, no interpretation.
+
+Phase 3 stays OPEN until this exists.
+
+---
+
+# Standing requirements — apply to every item above
+
+**Raw evidence.** No task is complete on description alone. Required: (1) raw terminal
+output of actual execution, including raw `grep -n` / `sed -n` for ANY claim about code
+location, line numbers, call chains, or whether a pattern exists — never paraphrase;
+(2) exact before/after diff; (3) sha256 before/after for every file changed this session;
+(4) raw SQL + full result set for any DB claim. If you cannot produce evidence for a
+claim, say so in one line. Narrative claims of "fixed"/"tested"/"confirmed" are rejected.
+
+**Evidence chain.** Run all evidence-producing commands through `verified_run.sh`.
+Validate with `verify_chain.sh` and paste its output before declaring complete. Paste raw
+`sha256sum` for BOTH `tools/verified_run.sh` and `artifacts/stock-scanner-api/verify_chain.sh`,
+checked against canonical `ba7faf8d…` and `ca7896c7…`. Mismatch = validator drift =
+output rejected regardless of content.
+
+**Data immutability.** Never delete, truncate, drop, or overwrite any row, table, or file
+— including data you created or label test/synthetic/cleanup — without explicit prior
+approval in this session. State what you want to delete and why, wait, then log it. Any
+unapproved deletion is a violation to report, not self-correct.
+
+**No hardcoded values.** List every numeric/decision literal in new code; for each, raw
+`grep`/`sed` of the line plus a one-line trace to its live source. "Wired later" is not
+acceptable at completion. Every conditional gate introduced needs a negative control
+showing it blocks under the failing condition.
+
+**Math/quant correctness.** Where formulas are involved: state the reference formula
+before running, use externally-derived known-answer vectors, cross-check by a second
+method where feasible, and mutation-check that the test catches a deliberately broken value.
+
+**Verifier PASS is not execution authorization.** A passing check proves the code did what
+it was written to do. C01–C27 only test what someone thought to test. Do not treat any
+PASS count as clearance for autonomous operation.
+
+**Output format.** Raw command results only. No restated context, banners, dividers,
+narrative commentary, or "representative" sample rows. Test suites: final summary line
+only. Data changes >10 rows: `\copy` CSV, never inline. Close with `git diff HEAD --stat`
+and `git status --porcelain`.
