@@ -1,0 +1,31 @@
+DPL PHASE 2 — FOLLOW-UP DIRECTIVE (evidence gaps; Phase 2 NOT closed until all items answered)
+
+ITEM 1 — C08 production-row mutation (972f0ffe6ef24613b5532893)
+- C08 set verification_status='PENDING'; final row listing shows VERIFIED. Account for this.
+- If a restore UPDATE already ran: paste the exact SQL + RETURNING result and its timestamp.
+- If not yet restored: this directive is approval for the single UPDATE restoring verification_status='VERIFIED' on that one row only. Paste SQL + RETURNING result.
+- State explicitly whether the C06–C08 tests against a prod-flagged row were pre-authorized in the Phase 2 directive. If not, log as procedural deviation — report, do not self-correct further.
+
+ITEM 2 — truncated BEFORE hashes
+- Paste full 64-char sha256 BEFORE values for aiem_options_dpl.py and aiem_options_scheduler.py from the prior session's raw sha256sum output. 8-char prefixes rejected.
+
+ITEM 3 — verify_chain.sh location change
+- File now at artifacts/stock-scanner-api/verify_chain.sh, not tools/. Paste git log line(s) (commit hash + date) showing when/why it moved.
+- Paste raw output proving no stale copy remains: ls tools/ | grep -i verify (or equivalent showing absence).
+
+ITEM 4 — verify_chain.sh run gaps
+- Re-run verify_chain.sh through verified_run.sh wrapper. Paste full output including EXIT code.
+- Paste raw terminal output (not summary lines) of the NO_TRADE negative control: both direction=LONG_CALL and direction=NO_TRADE runs.
+
+ITEM 5 — live-fire proof (due after first real cycle, Monday 2026-07-21)
+- Paste raw SQL SELECT of the first real (non-synthetic) decision row: decision_id, direction, all 5 context JSONBs non-null check, verification_status, created_at.
+- Paste raw scheduler log lines showing assemble_dpl_context + write_decision fired with trace_id for that decision.
+- No synthetic values; if no decision occurs Monday, state that in one line.
+
+STANDING RULES (apply to every item):
+- Raw evidence only: exact commands + raw output. Raw grep -n / sed -n for any code claim. Raw SQL + full result set for any DB claim. Narrative claims rejected.
+- sha256sum cross-check of verified_run.sh and verify_chain.sh vs canonical (8146a523... / ca7896c7...) pasted with this response.
+- Data Immutability Rule: no DELETE/TRUNCATE/DROP/overwrite of any row, table, or file without prior approval this session. Item 1 grants one specific UPDATE only.
+- Rule 8: never execute a file containing an unapproved destructive statement, for any purpose.
+- Math/quant rule: N/A this directive (no new computation).
+- Lean format: command + raw output only; no headers, no narrative; one line per unanswerable claim.
