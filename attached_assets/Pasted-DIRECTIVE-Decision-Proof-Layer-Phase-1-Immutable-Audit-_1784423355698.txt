@@ -1,0 +1,23 @@
+DIRECTIVE — Decision Proof Layer, Phase 1: Immutable Audit Record
+
+SCOPE ISOLATION: This is Options Engine work only (the standalone Decision Proof / Explainability / Reproducibility engine). It is NOT part of Diagram 1 (Master Orchestrator), Diagram 2 (Trading & Analysis Pipeline), or Diagram 3 (Governance Layer). Do not touch, wire into, or share tables/pipeline code with D1/D2/D3. If any step seems to require touching D1/D2/D3, stop and flag it — do not proceed.
+
+Scope: audit infrastructure only. No decision-content capture yet (that's Phase 2/3).
+
+Build:
+1. New append-only audit table for recommendations. Schema must include: unique Decision ID, Parent Decision ID (nullable, for updates), UTC timestamp, hash of decision inputs, hash of recommendation output, verification status, engine version, database version.
+2. Enforce immutability: no UPDATE or DELETE permitted on existing rows at the application layer; any "update" to a decision must insert a new row referencing the prior Decision ID as parent.
+3. Reject-on-integrity-failure gate: any write whose input/output hash can't be verified against stored values must be rejected, not silently accepted.
+4. Do NOT implement execution-quality fields (fill probability, slippage, commission) — out of scope, paper-mode only.
+
+No destructive SQL (DELETE/TRUNCATE/DROP) may be added anywhere without prior approval. If cleanup/reset is needed for testing, state intent and wait.
+
+Required evidence (lean format, no narrative):
+- schema DDL + git diff HEAD --stat
+- sha256 before/after for changed files
+- raw SQL insert + raw SELECT proving an update creates a new row (not an overwrite) with correct parent linkage
+- raw test proving a tampered hash is rejected (negative control)
+- raw grep -n for any hardcoded version/config literals in the new code, with a one-line trace to live source for each
+- run through verified_run.sh, then paste verify_chain.sh output + raw sha256sum of both wrapper scripts against canonical
+
+If any of this can't be produced, state that plainly — no padding.

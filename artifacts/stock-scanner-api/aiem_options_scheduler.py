@@ -756,6 +756,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _p5_ready = False
         _p5       = None
 
+    # ── DPL Phase 1: Immutable Audit Record (non-fatal) ──────────────────────
+    try:
+        import aiem_options_dpl as _dpl
+        _dpl.bootstrap_dpl(_DB_URL)
+        _dpl_ready = True
+    except Exception as _dpl_init_e:
+        log.warning(f"[dpl] init failed: {_dpl_init_e}")
+        _dpl_ready = False
+        _dpl       = None
+
     t_start = time.time()
 
     try:
