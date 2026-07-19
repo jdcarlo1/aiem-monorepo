@@ -1,0 +1,61 @@
+=== DPL Phase 2 Verifier ===
+
+[PASS] C09_bootstrap_idempotent_first
+[PASS] C09b_bootstrap_idempotent_second
+[PASS] C01_identity_json_exists — dtype=jsonb
+[PASS] C02_technical_json_exists — dtype=jsonb
+[PASS] C03_options_intel_json_exists — dtype=jsonb
+[PASS] C04_probability_risk_json_exists — dtype=jsonb
+[PASS] C05_justification_json_exists — dtype=jsonb
+[PASS] C01_identity_json_is_jsonb
+[PASS] C02_technical_json_is_jsonb
+[PASS] C03_options_intel_json_is_jsonb
+[PASS] C04_probability_risk_json_is_jsonb
+[PASS] C05_justification_json_is_jsonb
+[PASS] C06_trigger_blocks_identity_json_update
+[PASS] C07_trigger_blocks_justification_json_update
+[PASS] C08_trigger_allows_verif_status_update
+[PASS] C10_ctx_has_identity
+[PASS] C10_ctx_has_technical
+[PASS] C10_ctx_has_options_intel
+[PASS] C10_ctx_has_probability_risk
+[PASS] C10_ctx_has_justification
+[PASS] C11_write_decision_with_context_succeeds
+[PASS] C11b_write_decision_returns_VERIFIED
+[PASS] C11c_write_decision_has_context
+[PASS] C12_identity_json_stored_non_null
+[PASS] C12_technical_json_stored_non_null
+[PASS] C12_options_intel_json_stored_non_null
+[PASS] C12_probability_risk_json_stored_non_null
+[PASS] C12_justification_json_stored_non_null
+[PASS] C13_identity_ticker_correct
+[PASS] C14_identity_selected_strategy
+[PASS] C15_identity_market_regime
+[PASS] C16_identity_volatility_regime
+[PASS] C17_identity_premarket_conditions_dict
+[PASS] C18_identity_premarket_direction
+[PASS] C19_technical_trend
+[PASS] C20_technical_momentum_dict
+[PASS] C21_technical_pattern_recognition_dict
+[PASS] C22_technical_mtf_alignment_score
+[PASS] C23_options_greeks_dict
+[PASS] C24_options_greeks_delta_set
+[PASS] C25_options_iv_rank_set
+[PASS] C26_options_expected_move_set
+[PASS] C27_options_bid_ask_spread_dict
+[PASS] C28_prob_risk_probability_engine_output
+[PASS] C29_prob_risk_max_risk_set
+[PASS] C30_prob_risk_max_reward_set
+[PASS] C31_prob_risk_capital_preservation_flagged
+[PASS] C32_prob_risk_capital_efficiency_flagged
+[PASS] C33_prob_risk_sector_exposure_dict
+[PASS] C34_just_why_stock_qualified_set
+[PASS] C35_just_stop_loss_criteria_dict
+[PASS] C36_just_time_exit_flagged_PARTIAL
+[PASS] C37_just_adjustment_rolling_flagged_NOT_COMPUTED
+[PASS] C38_just_invalidation_flagged_PARTIAL
+[PASS] C38b_no_trade_explanation_populated
+[PASS] C38c_write_decision_no_context_backward_compat
+
+=== RESULT: 56 PASS / 0 FAIL / 56 TOTAL ===
+ALL PASS
