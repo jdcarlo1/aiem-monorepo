@@ -1,0 +1,49 @@
+# DPL PHASE 3 — ROUND 3 DIRECTIVE
+
+Round 2 is NOT accepted. 18/18 PASS does not close Phase 3.
+
+## R3.1 — Drift hash does not cover the weights
+`sha256(inspect.getsource(compute_req6_score))` excludes `_REQ6_SCORING_WEIGHTS` (pipeline.py:152, module scope). A weight value change leaves the hash identical.
+- Extend the captured hash to cover the weights dict AND the scoring function source (state the exact composition).
+- `replay_decision()` must compare stored `scoring_weights_snapshot` to live weights and raise on mismatch.
+- Raw grep/sed of both the capture and replay code paths.
+
+## R3.2 — Real negative control
+Comment-sentinel monkeypatch is insufficient.
+- Mutate one real value in `_REQ6_SCORING_WEIGHTS`, run replay, paste raw output showing the drift error raised.
+- Restore, re-run, paste output. Restore requires my prior approval — request it, do not self-authorize.
+
+## R3.3 — SEQ durability
+SEQ=1 after Phase 3 previously reached SEQ=3 = counter wiped again. Do not mark ✅.
+- State in one line whether the counter is still in `/tmp`.
+- Propose (do not execute) a durable location + the wrapper change required.
+
+## R3.4 — Verifier self-certification
+`dpl/verify_dpl_phase3.py` changed this session and is the artifact claiming 18/18.
+- Paste full before/after diff of that file.
+- Paste before AND after sha256 (full 64 chars) for all three changed files.
+
+## R3.5 — Raw proofs (verifier PASS lines are not evidence)
+- `grep -rn "_REQ6\|weights =" *.py` — unannotated, complete output.
+- `sed -n '145,160p;290,305p' aiem_options_pipeline.py`
+- Raw psql: attempt `UPDATE oe_decision_replay_inputs SET iv_rank=... WHERE is_test_record=FALSE` — paste the exception.
+- `SELECT is_test_record, count(*) FROM oe_decision_replay_inputs GROUP BY 1;` — full result set.
+
+## R3.6 — Date
+R6 cites "Monday 2026-07-21" (a Tuesday); prior submission said 2026-07-20 09:45 ET. State the correct date.
+
+---
+
+## STANDING REQUIREMENTS (all apply)
+1. Raw terminal output for every claim. Raw `grep -n`/`sed -n` for any code location, line number, or behavior claim. No paraphrase.
+2. Before/after diff + before/after sha256 (full 64 chars, no truncation) for every file changed this session.
+3. Any DB claim: exact SQL + full result set. >10 rows via `\copy` CSV, never inline.
+4. `git diff HEAD --stat` output, or "no changes".
+5. All evidence commands run through `tools/verified_run.sh`; validate with `artifacts/stock-scanner-api/verify_chain.sh` and paste its output.
+6. Paste raw `sha256sum tools/verified_run.sh artifacts/stock-scanner-api/verify_chain.sh` — must match canonical 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4 / ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f. Mismatch = output rejected.
+7. Data immutability: no delete, truncate, drop, or overwrite of any row/table/file — including your own test/synthetic data — without my explicit prior approval this session. Unapproved deletion is a violation to report, not self-correct.
+8. No hardcoded values: list every numeric/decision constant in new code with raw grep + one-line trace to its live source.
+9. Math/quant: any scoring-formula claim needs an externally-derived expected value stated before the run, plus a mutation check proving the test is not vacuous.
+10. If a claim cannot be backed by real command output, say so in one line. No padding.
+
+Output format: raw command results only. No narrative, no headers, no restated context, no re-verification of anything unchanged this session.
