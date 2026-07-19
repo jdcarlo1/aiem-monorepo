@@ -1683,6 +1683,35 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     )
                 except Exception as _p4_nt_e:
                     log.warning(f"[phase4] record_no_trade_candidate failed: {_p4_nt_e}")
+            # ── DPL Phase 2: NO_TRADE decision capture ────────────────────────
+            if _dpl_ready:
+                try:
+                    _dpl_ctx_nt = _dpl.assemble_dpl_context(
+                        ticker=ticker, scan_date=scan_date, trace_id=trace_id,
+                        direction="NO_TRADE",
+                        stock_data=locals().get("stock_data", {}),
+                        verify_result=locals().get("verify_result", {}),
+                        chain_strategies=locals().get("chain_strategies", []),
+                        pm_intel=locals().get("pm_intel", {}),
+                        mtf_result=locals().get("mtf_result", {}),
+                        pattern_result=locals().get("pattern_result", {}),
+                        call_score=call_score, put_score=put_score,
+                        db_url=_DB_URL,
+                    )
+                    _dpl.write_decision(
+                        input_data={"ticker": ticker, "trace_id": trace_id,
+                                    "call_score": float(call_score),
+                                    "put_score":  float(put_score)},
+                        output_data={"direction": "NO_TRADE",
+                                     "chain_hash": _nt_chain_hash,
+                                     "trace_id":   trace_id},
+                        context=_dpl_ctx_nt,
+                        is_test_record=False,
+                        db_url=_DB_URL,
+                    )
+                    log.info(f"[dpl] NO_TRADE decision written trace_id={trace_id}")
+                except Exception as _dpl_nt_e:
+                    log.warning(f"[dpl] write_decision NO_TRADE failed: {_dpl_nt_e}")
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
                     "call_score": call_score, "put_score": put_score,
                     "trace_id": trace_id, "chain_hash": _nt_chain_hash}
@@ -1817,6 +1846,45 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                                              chain_hash=chain_sha)
             except Exception as _uda_e:
                 log.debug(f"[phase2] update_decision_alert_id skipped: {_uda_e}")
+
+        # ── DPL Phase 2: TRADE decision capture ───────────────────────────────
+        if _dpl_ready:
+            try:
+                _dpl_ctx = _dpl.assemble_dpl_context(
+                    ticker=ticker, scan_date=scan_date, trace_id=trace_id,
+                    direction=direction, alert_id=alert_id,
+                    sel_data=sel_data, stock_data=stock_data,
+                    verify_result=verify_result,
+                    chain_strategies=chain_strategies,
+                    best_chain_strategy=best_chain_strategy,
+                    sel_strike=sel_strike, expiry_str=expiry_str,
+                    alert_fields=alert_fields, pm_intel=pm_intel,
+                    mtf_result=mtf_result, pattern_result=pattern_result,
+                    em_result=em_result, ivr_result=ivr_result,
+                    call_score=call_score, put_score=put_score,
+                    db_url=_DB_URL,
+                )
+                _dpl.write_decision(
+                    input_data={"ticker": ticker, "trace_id": trace_id,
+                                "call_score": float(call_score),
+                                "put_score":  float(put_score),
+                                "direction":  direction},
+                    output_data={"alert_id":   alert_id,
+                                 "direction":  direction,
+                                 "chain_sha":  chain_sha,
+                                 "trace_id":   trace_id},
+                    context=_dpl_ctx,
+                    is_test_record=False,
+                    db_url=_DB_URL,
+                )
+                log.info(
+                    f"[dpl] TRADE decision written trace_id={trace_id} "
+                    f"alert_id={alert_id}"
+                )
+            except Exception as _dpl_e:
+                log.warning(
+                    f"[dpl] write_decision TRADE failed trace_id={trace_id}: {_dpl_e}"
+                )
 
         # ── Write options_engine_runs (full trigger-chain audit record) ────────
         try:

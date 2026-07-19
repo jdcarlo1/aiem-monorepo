@@ -1,0 +1,28 @@
+DIRECTIVE — Decision Proof Layer, Phase 2: Decision-Context + Justification Capture
+
+SCOPE ISOLATION: This is Options Engine work only (the standalone Decision Proof / Explainability / Reproducibility engine). It is NOT part of Diagram 1 (Master Orchestrator), Diagram 2 (Trading & Analysis Pipeline), or Diagram 3 (Governance Layer). Do not touch, wire into, or share tables/pipeline code with D1/D2/D3. If any step seems to require touching D1/D2/D3, stop and flag it — do not proceed.
+
+Prerequisite: Phase 1 (immutable audit record) must be verified closed before this starts.
+
+Scope: wire existing computed outputs into the Phase 1 audit record. This is capture, not new capability — every field must trace to a value already computed elsewhere in the pipeline.
+
+For every recommendation, capture into the audit record:
+- Identity/context: recommendation ID, timestamp, ticker, selected strategy, strike(s), expiration, position size, market regime, volatility regime, premarket conditions
+- Technical evidence: trend, momentum, pattern-recognition results, support/resistance, multi-timeframe confirmation
+- Options intelligence: Greeks, IV Rank, IV Percentile, Expected Move, Open Interest, Volume, Bid/Ask spread, liquidity score
+- Probability/risk: Probability Engine output, Expected Value, Risk/Reward, Max Risk, Max Reward, Portfolio Risk Engine output, portfolio Greeks impact, sector exposure impact, correlation impact, buying power impact, Capital Preservation Score, Capital Efficiency Score, Confidence Score
+- Justification: why the stock qualified, why competing candidates were rejected, why this strategy/expiration/strikes/size were selected over alternatives, expected catalyst/entry/exit, profit target and profit-taking plan, stop-loss criteria, time-based exit rules, adjustment/rolling rules, invalidation conditions, or a "No Trade" explanation when applicable
+
+Explicitly OUT of scope for this phase: execution-quality fields (fill probability, estimated slippage, commission estimate) — paper-mode, not applicable.
+
+For every field above, before claiming completion: state its live source (which existing function/table/computation it's pulled from) and provide raw grep/sed showing the line + trace. Any field that can't be traced to a live source must be flagged, not silently stubbed or hardcoded.
+
+No destructive SQL may be added without prior approval.
+
+Required evidence (lean format, no narrative):
+- field-by-field live-source trace as described above (this is the core deliverable of this phase)
+- raw SQL insert + full row dump for one real (not fabricated) recommendation showing every field populated
+- git diff HEAD --stat, sha256 before/after for changed files
+- run through verified_run.sh, then paste verify_chain.sh output + raw sha256sum of both wrapper scripts against canonical
+
+If any of this can't be produced, state that plainly — no padding.
