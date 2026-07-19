@@ -1,0 +1,47 @@
+# DPL PHASE 3 — ROUND 3 FIX LIST
+
+## APPROVED — do first
+**A1.** Restore `D12_historical_performance` 0.99 → 0.02 in `aiem_options_pipeline.py`, restart options-pipeline-scheduler. Paste before/after sha256; restored file must hash to `bbcddcc1…`. Re-run full suite — C14 and C19 must PASS. 19/19 is the only accepted close-out.
+
+## NOT APPROVED — answer before patching
+**A2.** SEQ durability. Do not apply the SCRIPT_DIR patch yet. One line each:
+- Full path + raw `ls -la` of the append-only evidence log. If it is also under /tmp, the counter is not the problem.
+- Why is SEQ a separate stateful file instead of derived from the log's last entry?
+If the log is durable: implement SEQ as `last_seq_in_log + 1`, delete the counter file. Otherwise fix log durability first. Either way paste before/after sha256 + full diff of `verified_run.sh`; new hash is canonical only after I record it. Run nothing through the patched script until then.
+
+## FIX
+**F1. Diff contradicts hash table.** `git diff HEAD --stat` lists 2 files and omits `aiem_options_pipeline.py`, but the sha256 table shows it MUTATED (`bbcddcc1…` → `d8f730f3…`). One terminal block, this order: `git diff HEAD --stat`, `git status --porcelain`, `sha256sum aiem_options_pipeline.py`. State whether the diff was captured before the mutation.
+
+**F2. Mutation ran on a test row.** R3.2 says "raised on real row." The replay used `f4ba2a38392f43519538d959`, which C17 shows as `is_test_record=TRUE`. Correct the claim, or show the production `alert_id=25` decision_id in the replay output.
+
+**F3. `exit=0` on drift.** `ReplayCodeDriftError` raised, process exits 0. Raw grep of every `replay_decision()` call site + whether the exception reaches a non-zero exit. If a harness caught an expected failure, show that line.
+
+**F4. Silent exemptions.** `if stored_weights_snap is not None` and the equivalent hash-check exemption mean every pre-existing row passes unchecked. Exempt rows must return `UNVERIFIABLE — no stored hash/snapshot`, never a pass. Show the code change + a raw run against an exempt row.
+
+**F5. Sentinel collision.** C14/C19 went vacuous because the 0.99 sentinel equalled the live value. Derive the sentinel so collision is impossible — randomize per run, or assert `!=` live value before use and fail loudly if equal.
+
+**F6. Criterion 1 will fail Monday as built.** `verify_chain.sh` on alert_id=25 returns 3/10 — `1_polygon SNAPSHOT_UNAVAILABLE`, `6_decision UNVERIFIABLE`. No intraday snapshot captured at decision time; 2026-07-20 09:45 ET produces the same result unless capture is wired first. Raw grep of where the snapshot write should occur, why it did not fire for alert_id=25, and whether a pre-open fix is possible. If not, one line saying so.
+
+**F7. R3.1 table overstated.** "C14+C15+C19 all pass (pre-mutation)" alongside a live 2 FAIL is narrative. Report current-state results only.
+
+## PROTOCOL
+Mutating a live production file and leaving the scheduler on the wrong value required prior approval, not retroactive. Log it as a violation; do not self-correct the record. Future mutation proofs run against a copy or test-flagged path, never live `aiem_options_pipeline.py`.
+
+## ACCEPTED — no action
+sha256 cross-check (both match canonical). R3.1 combined-hash construction. Independent WEIGHTS_DRIFT path. R3.6 date correction.
+
+---
+## STANDING REQUIREMENTS (every submission)
+- Raw terminal output of actual execution. Raw `grep -n`/`sed -n` for every claim about code location, line numbers, or behavior — no paraphrase.
+- Exact before/after diff + sha256 before/after for every file changed this session.
+- DB claims: exact SQL + full result set; >10 rows via `\copy` CSV, never inline or "representative".
+- `git diff HEAD --stat`, or "git diff HEAD: no changes".
+- All evidence commands through `verified_run.sh`; validate with `verify_chain.sh` and paste output.
+- Raw `sha256sum tools/verified_run.sh` and `sha256sum artifacts/stock-scanner-api/verify_chain.sh` vs canonical:
+  - `verified_run.sh` = 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+  - `verify_chain.sh` = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+  Mismatch = validator drifted, output rejected regardless of content.
+- Data immutability: no delete, truncate, drop, or overwrite of any row, table, or file — including your own test data — without my explicit prior approval in this session. State intent, wait, then log.
+- Quant/math: independently sourced known-answer vectors, formula stated before running, second-method cross-check where feasible, mutation check proving the test is not vacuous.
+- No hardcoded values: list every numeric constant in new code, raw grep + one-line trace to its live source. "Wired later" is not phase-complete.
+- Format: raw command results only. No headers, banners, restated context, or interpretation. If a claim cannot be backed by real output, say so in one line.

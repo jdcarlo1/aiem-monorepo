@@ -463,8 +463,15 @@ try:
         json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True).encode()
     ).hexdigest()[:16]
 
-    # Mutate in-memory (dict is mutable; compute_req6_score uses the same object)
-    _REQ6_SCORING_WEIGHTS["D12_historical_performance"] = 0.99
+    # Mutate in-memory with a random sentinel — assert no collision with live value (F5)
+    import random as _r14
+    _D12_live = _REQ6_SCORING_WEIGHTS["D12_historical_performance"]
+    _sentinel_14 = round(_r14.uniform(0.10, 0.89), 6)
+    while abs(_sentinel_14 - _D12_live) < 1e-5:
+        _sentinel_14 = round(_r14.uniform(0.10, 0.89), 6)
+    assert abs(_sentinel_14 - _D12_live) >= 1e-5, (
+        f"C14 sentinel collision: {_sentinel_14} == live D12={_D12_live}")
+    _REQ6_SCORING_WEIGHTS["D12_historical_performance"] = _sentinel_14
     _hash_mut = hashlib.sha256(
         json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True).encode()
     ).hexdigest()[:16]
@@ -638,13 +645,21 @@ try:
     _null_id = _null_audit["decision_id"]
     # Insert replay row with NULL stored scores (is_test_record=TRUE)
     with _conn() as conn, conn.cursor() as cur:
+        # Compute live combined hash + live weights so F4 UNVERIFIABLE checks pass;
+        # test is about NULL scores reaching the comparison, not hash checks.
+        import inspect as _insp18, hashlib as _hs18
+        _fn_src18 = _insp18.getsource(compute_req6_score)
+        _live_hash18 = _hs18.sha256(
+            (_fn_src18 + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).encode()
+        ).hexdigest()
         cur.execute("""
             INSERT INTO oe_decision_replay_inputs (
                 decision_id, replay_schema_version, is_test_record,
                 contract_data_call, contract_data_put, stock_data_replay,
                 iv_rank, verify_result_replay, config_versions, data_source_timestamps,
+                scoring_weights_snapshot,
                 stored_call_score, stored_put_score, stored_direction
-            ) VALUES (%s, '1', TRUE, %s, %s, %s, %s, %s, %s, %s, NULL, NULL, NULL)
+            ) VALUES (%s, '1', TRUE, %s, %s, %s, %s, %s, %s, %s, %s, NULL, NULL, NULL)
             ON CONFLICT (decision_id) DO NOTHING
         """, (
             _null_id,
@@ -653,8 +668,9 @@ try:
             json.dumps(_STOCK_DATA),
             round(_IV_RANK, 6),
             json.dumps(_VERIFY_RESULT),
-            json.dumps({}),   # config_versions empty — no scoring_fn_hash stored → no CODE_DRIFT check
+            json.dumps({"scoring_fn_hash": _live_hash18}),  # live hash → hash check passes
             json.dumps({}),
+            json.dumps(_REQ6_SCORING_WEIGHTS),              # live weights → snapshot check passes
         ))
         conn.commit()
 
@@ -692,8 +708,20 @@ try:
     )
     _wdrift_id = _wdrift_audit["decision_id"]
 
+    # Compute live combined hash so hash check passes; only snapshot comparison fires (F4+F5)
+    import inspect as _insp19, hashlib as _hs19, random as _r19
+    _fn_src19 = _insp19.getsource(compute_req6_score)
+    _live_hash19 = _hs19.sha256(
+        (_fn_src19 + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).encode()
+    ).hexdigest()
     _bad_snap = _copy.deepcopy(_REQ6_SCORING_WEIGHTS)
-    _bad_snap["D12_historical_performance"] = 0.99
+    _D12_live19 = _bad_snap["D12_historical_performance"]
+    _sentinel_19 = round(_r19.uniform(0.10, 0.89), 6)
+    while abs(_sentinel_19 - _D12_live19) < 1e-5:
+        _sentinel_19 = round(_r19.uniform(0.10, 0.89), 6)
+    assert abs(_sentinel_19 - _D12_live19) >= 1e-5, (
+        f"C19 sentinel collision: {_sentinel_19} == live D12={_D12_live19}")
+    _bad_snap["D12_historical_performance"] = _sentinel_19
 
     with _conn() as conn, conn.cursor() as cur:
         cur.execute("""
@@ -712,9 +740,9 @@ try:
             json.dumps(_STOCK_DATA),
             round(_IV_RANK, 6),
             json.dumps(_VERIFY_RESULT),
+            json.dumps({"scoring_fn_hash": _live_hash19}),  # hash matches live → passes
             json.dumps({}),
-            json.dumps({}),
-            json.dumps(_bad_snap),
+            json.dumps(_bad_snap),  # sentinel_19 != live D12 → WEIGHTS_DRIFT fires
             round(_exp_call_A, 1),
             round(_exp_put_A, 1),
             "LONG_CALL",

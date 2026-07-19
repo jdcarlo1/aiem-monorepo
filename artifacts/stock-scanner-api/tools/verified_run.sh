@@ -12,19 +12,19 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCK_FILE="/tmp/portfolio_engine_verify.lock"
-SEQ_FILE="/tmp/portfolio_engine_verify_seq"
 LOG_FILE="${SCRIPT_DIR}/verified_run_last.log"
 
 CMD="${1:-python portfolio_engine_verify.py --section ALL}"
 
-# ── Monotonic sequence number (flock-protected) ───────────────────────────
+# ── Monotonic sequence number: derived from last run's log (durable) ──────
+# SEQ_FILE removed (was /tmp — ephemeral). State lives in LOG_FILE (workspace).
+SEQ_TMP="/tmp/portfolio_engine_verify_seq_$$"
 (
   flock -x 200
-  SEQ=$(cat "${SEQ_FILE}" 2>/dev/null || echo 0)
-  SEQ=$((SEQ + 1))
-  echo "${SEQ}" > "${SEQ_FILE}"
+  LAST_SEQ=$(grep -m1 "^SEQ=" "${LOG_FILE}" 2>/dev/null | cut -d= -f2 | tr -d ' \r' || echo 0)
+  echo "$(( ${LAST_SEQ:-0} + 1 ))" > "${SEQ_TMP}"
 ) 200>"${LOCK_FILE}"
-SEQ=$(cat "${SEQ_FILE}")
+SEQ=$(cat "${SEQ_TMP}"); rm -f "${SEQ_TMP}"
 
 RUN_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
