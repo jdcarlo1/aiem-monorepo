@@ -1,0 +1,76 @@
+# DPL Phase 3 — R7 Directive
+
+R6 accepted in part. CODE_DRIFT constraint bug was a real catch. Items below are open.
+
+## R7.1 — Full FALSE-row census, method not count
+R4.4 said 5. R6.2 found 3 more that already existed at R5.2 registration time (15:11:59Z). Two consecutive incomplete censuses.
+- Raw SQL + full result set: every row in `oe_decision_replay_inputs` with `is_test_record=FALSE`, all columns, ordered by `created_at`.
+- Raw SQL + full result set: every row in `oe_known_synthetic_rows`.
+- Raw grep -rn for every call site of `capture_replay_inputs` across the repo. For each, show the `is_test_record` argument via sed -n with line context.
+- State in one line why R5.2's enumeration missed 3 rows and what now prevents a 9th appearing in R8.
+
+## R7.2 — Registry cutoff rule (structural)
+"Eligible = FALSE rows not in registry" lets any inconvenient row be registered away.
+- Add a DB-level constraint or trigger blocking INSERT into `oe_known_synthetic_rows` for any `decision_id` whose `oe_decision_replay_inputs.created_at` is later than the R5.4 scheduler-wiring commit time.
+- Raw DDL + negative control: attempt a registration that must be blocked, paste the raw error.
+
+## R7.3 — T3/NT3 silent failure
+Generic exception → `log.warning`, no `_tg()`, no status write. A DB timeout during replay = undetected drift, no alert.
+- Change both branches to `log.critical` + `_tg()` + `UPDATE oe_decision_audit SET verification_status='REPLAY_ERROR'` (add value to the check constraint).
+- Raw sed -n of both changed blocks at their line numbers in `aiem_options_scheduler.py`.
+- Re-run the branch exercise; paste raw T3/NT3 output showing `_tg` called and the DB row updated.
+
+## R7.4 — Prove `_tg()` delivers
+Every alert proof to date used a stub. No round has shown a real message land.
+- Fire one real Telegram alert from the live code path. Paste raw function return/response and the message ID or API response body.
+
+## R7.5 — Pin the exercise harness
+`dpl/exercise_replay_branches.py` is untracked and unhashed. Commit it. Report sha256 and the commit hash.
+
+## R7.6 — Verifier checks for all R6/R7 work
+verify_dpl_phase3.py is unchanged from R5 — R6 added zero enforcement. Add and run:
+- C20: `oe_decision_audit` verification_status check constraint contains CODE_DRIFT, WEIGHTS_DRIFT, REPLAY_ERROR. Assert on raw `pg_get_constraintdef`.
+- C21: immutability trigger exists on `oe_known_synthetic_rows`; negative control UPDATE must be blocked.
+- C22: run the R6.2 Criterion 1 JOIN SQL and print the eligible-row count every run.
+- C23: registry cutoff constraint from R7.2 exists and blocks.
+- Each with a mutation/negative control proving the check is not vacuous.
+
+## R7.7 — WEIGHTS_DRIFT
+No code path writes it. Either wire the WEIGHTS_DRIFT branch to write that status (raw sed -n of the line) or state in one line that the enum value is unused and why it stays.
+
+## R7.8 — Criterion 1
+Monday 2026-07-20 09:45 ET. After the first real scheduler decision: run `replay_decision()` against it and paste the raw result — unedited, pass or fail. Report the row's `decision_id`, `alert_id`, `is_test_record`, and `input_hash`. Do not close Phase 3 without it.
+
+---
+
+## Standing requirements — all apply to every item above
+
+**Evidence**
+- No task complete on description alone. Raw terminal output of actual execution required.
+- Any claim about code location, line numbers, or behavior requires raw `grep -n` / `sed -n` output showing the line in context. Paraphrased code is rejected.
+- Any claim about whether a function/pattern exists requires raw grep output, never narration.
+- Exact before/after diff and sha256 before/after for every file changed this session.
+- Any DB claim requires the exact SQL run + full result set. >10 rows: `\copy` to CSV and attach, never inline samples or "representative rows".
+- `git diff HEAD --stat` output, or "git diff HEAD: no changes".
+- If a claim cannot be backed by real command output, say so in one line. No padding.
+
+**Evidence chain**
+- Run all evidence-producing commands through `verified_run.sh`. Validate with `verify_chain.sh` and paste its output.
+- Paste raw `sha256sum` for both, checked against canonical:
+  - `tools/verified_run.sh` = ba7faf8da204815544b147d56c824252fbd7f260d9b3d9d864c2006ee7492410
+  - `artifacts/stock-scanner-api/verify_chain.sh` = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+- Mismatch = validator drift; output rejected regardless of chain content.
+- Commit source before the verifier run, not after. Report the git_commit in the header block.
+
+**Data immutability**
+- Never delete, truncate, drop, or overwrite any row, table, or file — including data you created or label test/synthetic/cleanup — without my explicit prior approval in this session. State what and why, wait, then log it.
+- Any unapproved deletion is a protocol violation to report, not self-correct.
+
+**Live files**
+- No mutation of a live production file while the scheduler runs. Use `_test_mode=True` or an offline copy. Stop the scheduler or scope to a non-live path first.
+
+**Format**
+- Raw command results only. No restated context, headers, dividers, banners, or interpretation. Test suites: final pass/fail summary line only. No re-hashing files unchanged this session, no re-running already-proven negative controls.
+
+**Verifier PASS is not execution authorization**
+- A PASS proves the code did what it was written to do. It does not prove it is safe to run unsupervised. Phase completion and autonomous-execution clearance are separate approvals with separate evidence.

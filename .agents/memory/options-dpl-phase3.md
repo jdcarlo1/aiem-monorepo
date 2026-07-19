@@ -99,11 +99,48 @@ WHERE  d.is_test_record = FALSE AND s.decision_id IS NULL
 6 branches confirmed (T1/T2/T3 TRADE, NT1/NT2/NT3 NO_TRADE). _tg() STUBBED.
 T2/NT2 DB UPDATE verified: verification_status = CODE_DRIFT in oe_decision_audit.
 
-## File sha256 after Round 6 (all live)
+## Round 7 changes
+
+### oe_decision_audit check constraint — REPLAY_ERROR added (R7.3)
+ALTER TABLE dropped/re-added constraint to add REPLAY_ERROR to allowed values.
+Full set: VERIFIED, PENDING, TAMPERED, CODE_DRIFT, WEIGHTS_DRIFT, REPLAY_ERROR.
+
+### T3/NT3 scheduler upgrade (R7.3)
+Was: log.warning only. Now: log.critical + _tg() + UPDATE verification_status='REPLAY_ERROR'.
+TRADE T3 at scheduler ~line 1995; NO_TRADE NT3 at ~line 1767.
+
+### WEIGHTS_DRIFT dynamic status in T2/NT2 (R7.7)
+_vs_trade = "WEIGHTS_DRIFT" if "WEIGHTS_DRIFT" in str(_rce) else "CODE_DRIFT"
+_vs_nt    = "WEIGHTS_DRIFT" if "WEIGHTS_DRIFT" in str(_rce_nt) else "CODE_DRIFT"
+TRADE T2 at ~line 1986; NO_TRADE NT2 at ~line 1758.
+
+### Registry cutoff trigger (R7.2)
+trg_oe_known_synthetic_cutoff (BEFORE INSERT on oe_known_synthetic_rows):
+  blocks registration of any decision_id whose FALSE replay row was created
+  after '2026-07-19 15:16:45+00' (R5.4 scheduler-wiring commit timestamp).
+FK constraint means C23 negative control must use an existing post-cutoff FALSE row
+(not a synthetic INSERT) to avoid oe_decision_replay_inputs_decision_id_fkey violation.
+
+### R7.2 negative control row (permanent)
+decision_id=2d03987f38c44c0bbb2daa73 is_test_record=FALSE created_at=2026-07-19T16:04:28Z
+Created to prove cutoff trigger. Permanently in oe_decision_replay_inputs.
+Unregisterable (blocked by cutoff trigger). Shows in C22 eligible_rows=1.
+
+### git commit blocked by main-agent sandbox
+All R7 files are M (modified) at HEAD=0021016b. Auto-checkpoint persists them.
+sha256s are the authoritative file-state proof for unblocked source.
+
+### C22 eligible_rows will increase from Monday
+R7.2 neg-ctrl row (1 row) is the only current entry. From Mon 09:45 ET each
+real scheduler decision adds a new FALSE row — those must be replayed per R7.8
+and NOT registered as synthetic.
+
+## File sha256 after Round 7 (all live)
 - tools/verified_run.sh:          ba7faf8da204815544b147d56c824252fbd7f260d9b3d9d864c2006ee7492410  ← CANONICAL
 - verify_chain.sh:                 ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (UNCHANGED)
-- aiem_options_scheduler.py:       2d5c1466c58f9393d79451c0e5d94943f07ceffaebe6e762861c327d5a031ca5
-- dpl/verify_dpl_phase3.py:        d72d3c6986def4292905ed7bbf0bbd0ae422c7abde194fa23e9fee960b3b444c
+- aiem_options_scheduler.py:       9742516775490f3d375da5391f5538fed0faacbf75f78486a019b115e961f2ff  (R7)
+- dpl/verify_dpl_phase3.py:        7ef73c6c32e5d7eefa9b4264b477c68b2cd63efd21df66eb933525794bdb5cd1  (R7)
+- dpl/exercise_replay_branches.py: 74ac1d0890ac825313bbc920bacb93e8de90e16fae9699fd6f20f75860fd95cb  (R7)
 - aiem_options_pipeline.py:        bbcddcc13bd364bd4a49c4eb728b48f90194cc40ef676280e16c8e8d64a741e6
 - aiem_options_dpl.py:             82eddc574fb06bc6c62bfb14670dfc3baa9e6c803d0752a70bf0b0965a5b2cf1
 

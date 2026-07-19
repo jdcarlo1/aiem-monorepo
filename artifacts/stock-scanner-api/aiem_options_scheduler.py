@@ -1752,16 +1752,33 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                             _tg(_dm_nt)
                             try:
                                 with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc_nt,                                      _dc_nt.cursor() as _du_nt:
+                                    _vs_nt = "WEIGHTS_DRIFT" if "WEIGHTS_DRIFT" in str(_rce_nt) else "CODE_DRIFT"
                                     _du_nt.execute(
                                         "UPDATE oe_decision_audit "
-                                        "SET verification_status='CODE_DRIFT' "
+                                        "SET verification_status=%s "
+                                        "WHERE decision_id=%s",
+                                        (_vs_nt, _dpl_nt_result["decision_id"],)
+                                    )
+                            except Exception as _dbu_nt:
+                                log.warning(f"[dpl] drift status update failed: {_dbu_nt}")
+                        except Exception as _re_nt:
+                            _re_msg_nt = (
+                                f"[DPL REPLAY_ERROR] NO_TRADE "
+                                f"decision_id={_dpl_nt_result['decision_id'][:16]}: {_re_nt}"
+                            )
+                            log.critical(_re_msg_nt)
+                            _tg(_re_msg_nt)
+                            try:
+                                with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc_re_nt, \
+                                     _dc_re_nt.cursor() as _du_re_nt:
+                                    _du_re_nt.execute(
+                                        "UPDATE oe_decision_audit "
+                                        "SET verification_status='REPLAY_ERROR' "
                                         "WHERE decision_id=%s",
                                         (_dpl_nt_result["decision_id"],)
                                     )
-                            except Exception as _dbu_nt:
-                                log.warning(f"[dpl] CODE_DRIFT status update failed: {_dbu_nt}")
-                        except Exception as _re_nt:
-                            log.warning(f"[dpl] replay check NO_TRADE failed: {_re_nt}")
+                            except Exception as _dbu_re_nt:
+                                log.warning(f"[dpl] REPLAY_ERROR status update failed: {_dbu_re_nt}")
                     except Exception as _p3_nt_e:
                         log.warning(
                             f"[dpl] capture_replay_inputs NO_TRADE failed "
@@ -1980,16 +1997,33 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         _tg(_dm)
                         try:
                             with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc,                                  _dc.cursor() as _du:
+                                _vs_trade = "WEIGHTS_DRIFT" if "WEIGHTS_DRIFT" in str(_rce) else "CODE_DRIFT"
                                 _du.execute(
                                     "UPDATE oe_decision_audit "
-                                    "SET verification_status='CODE_DRIFT' "
+                                    "SET verification_status=%s "
+                                    "WHERE decision_id=%s",
+                                    (_vs_trade, _dpl_trade_result["decision_id"],)
+                                )
+                        except Exception as _dbu:
+                            log.warning(f"[dpl] drift status update failed: {_dbu}")
+                    except Exception as _re:
+                        _re_msg = (
+                            f"[DPL REPLAY_ERROR] TRADE "
+                            f"decision_id={_dpl_trade_result['decision_id'][:16]}: {_re}"
+                        )
+                        log.critical(_re_msg)
+                        _tg(_re_msg)
+                        try:
+                            with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc_re, \
+                                 _dc_re.cursor() as _du_re:
+                                _du_re.execute(
+                                    "UPDATE oe_decision_audit "
+                                    "SET verification_status='REPLAY_ERROR' "
                                     "WHERE decision_id=%s",
                                     (_dpl_trade_result["decision_id"],)
                                 )
-                        except Exception as _dbu:
-                            log.warning(f"[dpl] CODE_DRIFT status update failed: {_dbu}")
-                    except Exception as _re:
-                        log.warning(f"[dpl] replay check TRADE failed: {_re}")
+                        except Exception as _dbu_re:
+                            log.warning(f"[dpl] REPLAY_ERROR status update failed: {_dbu_re}")
                 except Exception as _p3_e:
                     log.warning(
                         f"[dpl] capture_replay_inputs TRADE failed "

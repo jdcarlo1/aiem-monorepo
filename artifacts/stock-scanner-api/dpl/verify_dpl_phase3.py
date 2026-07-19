@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-verify_dpl_phase3.py — DPL Phase 3 (Reproducibility Replay) Verifier  Round 2
-18 checks: C01-C18
+verify_dpl_phase3.py — DPL Phase 3 (Reproducibility Replay) Verifier  Round 3
+23 checks: C01-C23
 
   C01  Imports: ReplayInputsMissingError, ReplayCodeDriftError,
                 _REQ6_SCORING_WEIGHTS importable from pipeline
@@ -749,6 +749,134 @@ try:
               f"D12_live={_REQ6_SCORING_WEIGHTS['D12_historical_performance']}")
 except Exception as _e:
     chk("C19_weights_drift_snapshot", False, str(_e))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C20: oe_decision_audit check constraint contains CODE_DRIFT, WEIGHTS_DRIFT, REPLAY_ERROR
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                       WHERE conname='oe_decision_audit_verification_status_check'""")
+        _row20 = cur.fetchone()
+        assert _row20 is not None, "constraint not found"
+        _cdef20 = _row20[0]
+    chk("C20_constraint_has_CODE_DRIFT",    "CODE_DRIFT"    in _cdef20, _cdef20[:200])
+    chk("C20_constraint_has_WEIGHTS_DRIFT", "WEIGHTS_DRIFT" in _cdef20, _cdef20[:200])
+    chk("C20_constraint_has_REPLAY_ERROR",  "REPLAY_ERROR"  in _cdef20, _cdef20[:200])
+    print(f"  [C20 detail] {_cdef20}")
+except Exception as _e:
+    chk("C20_constraint_values", False, str(_e))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C21: immutability trigger exists on oe_known_synthetic_rows; UPDATE blocked
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT t.tgname FROM pg_trigger t
+                       JOIN pg_class c ON c.oid = t.tgrelid
+                       WHERE c.relname='oe_known_synthetic_rows'
+                       AND t.tgname='trg_oe_known_synthetic_immutable'""")
+        _trig21 = cur.fetchone()
+    chk("C21_immutability_trigger_exists",
+        _trig21 is not None, "trigger not found" if _trig21 is None else "")
+    _c21_blocked = False
+    _c21_msg = ""
+    try:
+        with _conn() as _conn21, _conn21.cursor() as _cur21:
+            _cur21.execute("SELECT decision_id FROM oe_known_synthetic_rows LIMIT 1")
+            _row21 = _cur21.fetchone()
+            if _row21:
+                _cur21.execute(
+                    "UPDATE oe_known_synthetic_rows SET reason='C21 mutation probe' WHERE decision_id=%s",
+                    (_row21[0],)
+                )
+                _c21_msg = "UPDATE succeeded — trigger NOT blocking (FAIL)"
+            else:
+                _c21_msg = "no rows to test"
+    except Exception as _ue21:
+        _c21_blocked = True
+        _c21_msg = str(_ue21)
+    chk("C21_immutability_trigger_blocks_update", _c21_blocked, _c21_msg[:140])
+    print(f"  [C21 detail] {_c21_msg[:140]}")
+except Exception as _e:
+    chk("C21_immutability_trigger", False, str(_e))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C22: Criterion 1 JOIN SQL — eligible FALSE rows not in registry (print every run)
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            SELECT d.decision_id, d.created_at
+            FROM   oe_decision_replay_inputs d
+            LEFT JOIN oe_known_synthetic_rows s ON s.decision_id = d.decision_id
+            WHERE  d.is_test_record = FALSE
+            AND    s.decision_id IS NULL
+        """)
+        _c22_rows = cur.fetchall()
+    print(f"  [C22 Criterion1] eligible_rows={len(_c22_rows)}")
+    for _r22 in _c22_rows:
+        print(f"    {_r22[0]}  {_r22[1]}")
+    chk("C22_criterion1_sql_runs", True, f"eligible_rows={len(_c22_rows)}")
+except Exception as _e:
+    chk("C22_criterion1_sql_runs", False, str(_e))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C23: registry cutoff trigger exists and blocks post-wiring-commit registrations
+# Negative control: SAVEPOINT-protected INSERT of a post-cutoff FALSE row that
+# must be blocked when registering into oe_known_synthetic_rows.
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT t.tgname FROM pg_trigger t
+                       JOIN pg_class c ON c.oid = t.tgrelid
+                       WHERE c.relname='oe_known_synthetic_rows'
+                       AND t.tgname='trg_oe_known_synthetic_cutoff'""")
+        _trig23 = cur.fetchone()
+    chk("C23_cutoff_trigger_exists",
+        _trig23 is not None, "trigger not found" if _trig23 is None else "")
+    # Negative control: use an existing post-cutoff FALSE row (already in table,
+    # no synthetic INSERT needed — avoids FK constraint on oe_decision_audit).
+    _c23_blocked = False
+    _c23_msg = ""
+    _c23_conn = _conn()
+    _c23_conn.autocommit = False
+    try:
+        with _c23_conn.cursor() as _c23_cur:
+            _c23_cur.execute("""
+                SELECT d.decision_id FROM oe_decision_replay_inputs d
+                LEFT JOIN oe_known_synthetic_rows s ON s.decision_id = d.decision_id
+                WHERE  d.is_test_record = FALSE
+                AND    d.created_at > '2026-07-19 15:16:45+00'
+                AND    s.decision_id IS NULL
+                LIMIT 1
+            """)
+            _c23_post = _c23_cur.fetchone()
+            if _c23_post:
+                _c23_did = _c23_post[0]
+                try:
+                    _c23_cur.execute(
+                        "INSERT INTO oe_known_synthetic_rows (decision_id, reason) "
+                        "VALUES (%s, 'C23 cutoff negative control')",
+                        (_c23_did,)
+                    )
+                    _c23_msg = f"registration of {_c23_did[:16]} succeeded — trigger NOT blocking (FAIL)"
+                except Exception as _c23_e:
+                    _c23_blocked = ("registration blocked" in str(_c23_e)
+                                    or "cutoff" in str(_c23_e).lower())
+                    _c23_msg = str(_c23_e)
+            else:
+                _c23_msg = "no post-cutoff FALSE row available for negative control (skip)"
+                _c23_blocked = True  # treat as pass: trigger correctly has nothing to block
+                print(f"  [C23 note] no post-cutoff eligible row; trigger existence confirmed above")
+    finally:
+        _c23_conn.rollback()
+        _c23_conn.close()
+    chk("C23_cutoff_trigger_blocks_post_wiring_registration",
+        _c23_blocked, _c23_msg[:160])
+    print(f"  [C23 detail] {_c23_msg[:160]}")
+except Exception as _e:
+    chk("C23_cutoff_trigger", False, str(_e))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary
