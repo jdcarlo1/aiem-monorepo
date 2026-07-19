@@ -690,3 +690,9 @@ id = "Oi_nOyeV7nzqlu4iMIM2i"
 uri = "file://dpl_phase3_complete_verification.txt"
 type = "text"
 title = "DPL Phase 3 — Complete Verification (114 PASS / 0 FAIL)"
+
+[[outputs]]
+id = "ND6OFb6BcBHgd5UfAZACS"
+uri = "file://artifacts/stock-scanner-api/dpl/dpl_phase3_complete_verification_round2.txt"
+type = "text"
+title = "DPL Phase 3 Round 2 — Complete Verification Report"
