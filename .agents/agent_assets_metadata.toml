@@ -666,3 +666,9 @@ id = "sl7pWCuzctBpOK3-2Mmbh"
 uri = "file://dpl_phase2_followup_evidence.txt"
 type = "text"
 title = "DPL Phase 2 — Follow-Up Evidence (Items 1–5)"
+
+[[outputs]]
+id = "cLmxqrSZ25wcvQ-Cc2xtZ"
+uri = "file://dpl_phase2_items67_evidence.txt"
+type = "text"
+title = "DPL Phase 2 — Items 6–7 Evidence"

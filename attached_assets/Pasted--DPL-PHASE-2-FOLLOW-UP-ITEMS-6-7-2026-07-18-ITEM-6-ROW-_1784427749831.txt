@@ -1,0 +1,19 @@
+# DPL PHASE 2 — FOLLOW-UP ITEMS 6–7 (2026-07-18)
+
+## ITEM 6 — ROW 1f436a10 ACCOUNTING
+The original Phase 2 run created TWO permanent is_test_record=FALSE rows: 972f0ffe… and 1f436a10…. Your follow-up addressed only 972f0ffe. For 1f436a10, provide:
+1. Raw SQL + full result: SELECT decision_id, is_test_record, verification_status, input_hash, output_hash, identity_json, LEFT(created_at::text,23) FROM oe_decision_audit WHERE decision_id LIKE '1f436a10%';
+2. sed -n of the verifier lines that INSERTed it (which check it serves, what values it carries)
+3. Whether any UPDATE has touched it since INSERT — raw evidence, not narrative
+DO NOT modify, restore, or delete either row. 972f0ffe disposition is pending Joel's decision — no action authorized.
+
+## ITEM 7 — DATE CORRECTION (Item 5 due date)
+Monday is 2026-07-20; 2026-07-21 is Tuesday. Your report says the live-fire proof comes "Monday 2026-07-21" — internally inconsistent. Confirm the exact calendar date of the scheduler's next options-pipeline fire, backed by raw evidence (grep of cron/scheduler config or scheduler-table SQL). Item 5 live-fire proof is due after that cycle completes.
+
+## STANDING RULES — APPLY IN FULL
+- Raw evidence only: raw terminal output; raw grep -n / sed -n for any code-location or code-behavior claim; raw SQL + full result set for any DB claim. Narrative "confirmed/checked" without pasted output = rejected.
+- Run all evidence commands through tools/verified_run.sh.
+- Paste with response: sha256sum tools/verified_run.sh (canonical 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4) and sha256sum artifacts/stock-scanner-api/verify_chain.sh (canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f). Mismatch = response rejected. Path note: verify_chain.sh canonical location is artifacts/stock-scanner-api/verify_chain.sh — never tools/.
+- Data Immutability Rule: no DELETE/TRUNCATE/DROP/overwrite of any row, table, or file — including test/synthetic data — without Joel's explicit prior approval. Rule 8: never execute a file containing an unapproved destructive statement, for any purpose.
+- If a claim cannot be backed by real command output, state that in one line. No padding.
+- Lean format: commands + raw output only; no restated context, banners, or interpretation.

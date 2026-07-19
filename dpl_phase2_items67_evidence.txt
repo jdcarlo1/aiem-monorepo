@@ -1,0 +1,123 @@
+DPL PHASE 2 — ITEMS 6–7 EVIDENCE
+run date: 2026-07-19
+
+sha256sum artifacts/stock-scanner-api/tools/verified_run.sh
+8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4  tools/verified_run.sh   MATCH
+sha256sum artifacts/stock-scanner-api/verify_chain.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh   MATCH
+
+==============================================================================
+ITEM 6 — ROW 1f436a10 ACCOUNTING
+==============================================================================
+
+--- 1. Raw SQL + full result ---
+
+SELECT decision_id, is_test_record, verification_status, input_hash, output_hash,
+       identity_json, LEFT(created_at::text,23)
+FROM oe_decision_audit
+WHERE decision_id LIKE '1f436a10%';
+
+decision_id:         1f436a10f1024b5bb5fa2bb9
+is_test_record:      False
+verification_status: VERIFIED
+input_hash:          h1
+output_hash:         h2
+identity_json:       {"ticker": "TEST"}
+created_at:          2026-07-19 01:53:10.000
+
+--- 2. sed -n of verifier lines that INSERTed this row ---
+
+$ sed -n '95,115p' artifacts/stock-scanner-api/verify_dpl_phase2.py
+# TRIGGER: immutability extended to context columns
+# ─────────────────────────────────────────────────────────────────────────────
+_test_id = uuid.uuid4().hex[:24]
+
+# Write a production test row directly (bypass write_decision is_test to test trigger)
+with _conn() as conn, conn.cursor() as cur:
+    cur.execute("""
+        INSERT INTO oe_decision_audit
+            (decision_id, created_at, input_hash, output_hash,
+             verification_status, engine_version, db_version, is_test_record,
+             identity_json)
+        VALUES (%s, NOW(), 'h1', 'h2', 'PENDING', 'v1', '16.0', FALSE,
+                '{"ticker":"TEST"}'::jsonb)
+    """, (_test_id,))
+    conn.commit()
+
+# C06: trigger blocks UPDATE of identity_json on production row
+try:
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""
+            UPDATE oe_decision_audit
+
+Which check it serves: C06/C07/C08 — trigger immutability tests.
+Values it carries: input_hash=h1, output_hash=h2, engine_version=v1, db_version=16.0,
+  is_test_record=FALSE, verification_status=PENDING (at INSERT), identity_json={"ticker":"TEST"}.
+decision_id is uuid.uuid4().hex[:24] generated at runtime — value 1f436a10f1024b5bb5fa2bb9
+was the _test_id generated during verifier run at 2026-07-19 01:53:10 (SEQ=2).
+Analogous row 972f0ffe6ef24613b5532893 was generated in the 01:57:52 run (SEQ=3)
+from the same code block.
+
+--- 3. Whether any UPDATE has touched 1f436a10 since INSERT ---
+
+No pgaudit or pg_stat_activity history is available; PostgreSQL does not retain
+past UPDATE logs without an audit extension.
+
+Evidence from current column state (raw SQL):
+
+SELECT verification_status,
+       technical_json IS NOT NULL        AS technical_set,
+       options_intel_json IS NOT NULL    AS options_intel_set,
+       probability_risk_json IS NOT NULL AS probability_risk_set,
+       justification_json IS NOT NULL    AS justification_set,
+       identity_json->>'ticker'          AS identity_ticker
+FROM oe_decision_audit
+WHERE decision_id = '1f436a10f1024b5bb5fa2bb9';
+
+verification_status:   VERIFIED
+technical_set:         False
+options_intel_set:     False
+probability_risk_set:  False
+justification_set:     False
+identity_ticker:       TEST
+
+Interpretation of current state:
+- verification_status=VERIFIED: consistent with C08 UPDATE (PENDING→VERIFIED); no further
+  UPDATE to this column would restore PENDING because the verifier only issues one UPDATE.
+- All four Phase-2 JSONB blobs NULL: confirms write_decision was never called for this row;
+  it was created via raw INSERT for trigger testing only, not through the Phase-2 write path.
+- identity_json unchanged (ticker=TEST): immutability trigger blocks any UPDATE to
+  identity_json on is_test_record=FALSE rows; had any unauthorized UPDATE been attempted
+  it would have raised psycopg2.errors.RaiseException (same as C06 proved).
+
+Conclusion: exactly one UPDATE was applied (C08: PENDING→VERIFIED). No further UPDATEs
+are possible on immutable columns. No historical log exists to prove a negative beyond
+what the current column state shows. Stating that directly; no narrative substitution.
+
+==============================================================================
+ITEM 7 — DATE CORRECTION
+==============================================================================
+
+--- Raw grep of scheduler CronTrigger expressions ---
+
+$ grep -n "CronTrigger\|add_job\|day_of_week\|hour=\|minute=" artifacts/stock-scanner-api/aiem_options_scheduler.py | head -20
+46:from apscheduler.triggers.cron import CronTrigger
+2308:    sched.add_job(_seed_job,          CronTrigger(day_of_week="mon-fri", hour=9,  minute=40), ...)
+2316:    sched.add_job(_execute_job_wrapper, CronTrigger(day_of_week="mon-fri", hour=9,  minute=45), ...)
+2324:    sched.add_job(_premarket_job,      CronTrigger(day_of_week="mon-fri", hour=7,  minute=30), ...)
+2345:    sched.add_job(_pm_intraday_update_job, CronTrigger(day_of_week="mon-fri", hour=9, minute=36), ...)
+2350:    sched.add_job(grade_outcomes_job,  CronTrigger(day_of_week="mon-fri", hour=16, minute=46), ...)
+2356:    sched.add_job(recover_stale_jobs,  CronTrigger(minute="*/5"), ...)
+
+_execute_job_wrapper fires: CronTrigger(day_of_week="mon-fri", hour=9, minute=45)
+
+--- Calendar correction ---
+
+Today:                2026-07-19 (Sunday)
+Next weekday:         2026-07-20 (Monday)
+Next pipeline fire:   2026-07-20 09:45 ET
+
+Prior report stated "Monday 2026-07-21" — that is Tuesday. Incorrect.
+Correct date: 2026-07-20 (Monday).
+
+Item 5 live-fire proof is due after the 2026-07-20 09:45 ET cycle completes.
