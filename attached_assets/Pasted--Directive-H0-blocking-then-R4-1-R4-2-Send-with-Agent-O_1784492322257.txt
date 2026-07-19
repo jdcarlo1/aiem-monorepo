@@ -1,0 +1,36 @@
+# Directive — H0 (blocking), then R4.1 / R4.2
+
+Send with `Agent Operating Constraints`. Do not proceed past H0 until it passes.
+
+## H0 — verified_run.sh canonical provenance
+Three values are in circulation. Resolve before any other work.
+- `8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4`
+- `467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae` ("R8.6")
+- `237a7e9ee64eca92…` (R4 patched, truncated)
+
+1. `sha256sum tools/verified_run.sh` — raw, untruncated.
+2. `git log --follow -p -- tools/verified_run.sh` — full output. Every commit touching this file.
+3. For each of the three values above: state which commit it corresponds to, or "no commit matches."
+4. `git status --porcelain tools/verified_run.sh` — is the working copy dirty.
+5. If the on-disk file differs from every committed version: state that in one line. Do not commit, do not restore, do not re-baseline.
+
+No canonical is recorded under this directive. Recording waits on R4.1.
+
+## R4.1 — run before canonical
+1. Run the patched script once. Raw SEQ, EXIT, TS_END, sha256(log), full C01–C19 summary.
+2. Confirm SEQ=3. If not 3, stop and report.
+3. Restart VM (or flush /tmp), run again, show SEQ=4. Durability proof.
+
+## R4.2 — grep -m1 defect
+`LAST_SEQ=$(grep -m1 "^SEQ=" "${LOG_FILE}")` returns the FIRST match. Comment says "last log line."
+- Raw: show the redirect line. Is LOG_FILE `>` or `>>`.
+- If appended, SEQ freezes at the oldest value. Fix with `grep "^SEQ=" | tail -1` or equivalent, then re-run R4.1.
+
+## Standing (every reply)
+- Raw command output only. No prose substitution. Raw `grep -n`/`sed -n` for any code-location claim.
+- sha256 before/after, changed files this session only.
+- Raw SQL + full result set for any DB claim; >10 rows via `\copy`.
+- Wrapper cross-check: `tools/verified_run.sh` + `artifacts/stock-scanner-api/verify_chain.sh`, untruncated. verify_chain.sh canonical = `ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f`. verified_run.sh canonical = UNRESOLVED pending H0.
+- `git diff HEAD --stat` and `git status --porcelain` AFTER all work.
+- No mutation of live production files. No deletions. No self-authorized restores.
+- If a claim cannot be evidenced, say so in one line.
