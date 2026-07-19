@@ -1698,7 +1698,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         call_score=call_score, put_score=put_score,
                         db_url=_DB_URL,
                     )
-                    _dpl.write_decision(
+                    _dpl_nt_result = _dpl.write_decision(
                         input_data={"ticker": ticker, "trace_id": trace_id,
                                     "call_score": float(call_score),
                                     "put_score":  float(put_score)},
@@ -1710,6 +1710,26 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         db_url=_DB_URL,
                     )
                     log.info(f"[dpl] NO_TRADE decision written trace_id={trace_id}")
+                    # ── DPL Phase 3: Replay inputs capture ─────────────────
+                    try:
+                        _dpl.capture_replay_inputs(
+                            decision_id=_dpl_nt_result["decision_id"],
+                            direction="NO_TRADE",
+                            call_score=float(call_score),
+                            put_score=float(put_score),
+                            call_data=call_data,
+                            put_data=put_data,
+                            stock_data=locals().get("stock_data", {}),
+                            verify_result=locals().get("verify_result", {}),
+                            iv_rank=iv_rank,
+                            alert_id=None,
+                            db_url=_DB_URL,
+                        )
+                    except Exception as _p3_nt_e:
+                        log.warning(
+                            f"[dpl] capture_replay_inputs NO_TRADE failed "
+                            f"trace_id={trace_id}: {_p3_nt_e}"
+                        )
                 except Exception as _dpl_nt_e:
                     log.warning(f"[dpl] write_decision NO_TRADE failed: {_dpl_nt_e}")
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
@@ -1864,7 +1884,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     call_score=call_score, put_score=put_score,
                     db_url=_DB_URL,
                 )
-                _dpl.write_decision(
+                _dpl_trade_result = _dpl.write_decision(
                     input_data={"ticker": ticker, "trace_id": trace_id,
                                 "call_score": float(call_score),
                                 "put_score":  float(put_score),
@@ -1881,6 +1901,26 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     f"[dpl] TRADE decision written trace_id={trace_id} "
                     f"alert_id={alert_id}"
                 )
+                # ── DPL Phase 3: Replay inputs capture ─────────────────────
+                try:
+                    _dpl.capture_replay_inputs(
+                        decision_id=_dpl_trade_result["decision_id"],
+                        direction=direction,
+                        call_score=float(call_score),
+                        put_score=float(put_score),
+                        call_data=call_data,
+                        put_data=put_data,
+                        stock_data=stock_data,
+                        verify_result=verify_result,
+                        iv_rank=iv_rank,
+                        alert_id=alert_id,
+                        db_url=_DB_URL,
+                    )
+                except Exception as _p3_e:
+                    log.warning(
+                        f"[dpl] capture_replay_inputs TRADE failed "
+                        f"trace_id={trace_id}: {_p3_e}"
+                    )
             except Exception as _dpl_e:
                 log.warning(
                     f"[dpl] write_decision TRADE failed trace_id={trace_id}: {_dpl_e}"

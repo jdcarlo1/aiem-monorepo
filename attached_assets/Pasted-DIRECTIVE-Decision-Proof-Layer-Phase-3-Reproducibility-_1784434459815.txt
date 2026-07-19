@@ -1,0 +1,29 @@
+DIRECTIVE — Decision Proof Layer, Phase 3: Reproducibility Replay
+
+SCOPE ISOLATION: This is Options Engine work only (the standalone Decision Proof / Explainability / Reproducibility engine). It is NOT part of Diagram 1 (Master Orchestrator), Diagram 2 (Trading & Analysis Pipeline), or Diagram 3 (Governance Layer). Do not touch, wire into, or share tables/pipeline code with D1/D2/D3. If any step seems to require touching D1/D2/D3, stop and flag it — do not proceed.
+
+Prerequisite: Phase 1 and Phase 2 must be verified closed before this starts.
+
+Scope: prove a recommendation can be regenerated solely from stored evidence — not just that the fields exist.
+
+Store, in addition to Phase 2's content, every raw input needed to replay the decision:
+- Market snapshot, indicator values, pattern detections, options chain snapshot, Greeks snapshot, probability calculations, risk calculations, portfolio state
+- Configuration version, model version, strategy version, rule version, data-source timestamps
+
+Build a replay function that takes ONLY the stored evidence for a given Decision ID (no live data, no re-fetching) and regenerates the recommendation output.
+
+This phase is not complete on "the replay function exists" — it's complete only when:
+1. Replay output is proven byte-for-byte or field-for-field identical to the original stored recommendation, for a real (not fabricated) past decision.
+2. A mutation check: deliberately alter one stored input, re-run replay, confirm the output changes accordingly (proves replay is actually using the stored inputs, not hardcoded/cached).
+3. A missing-evidence check: replay must fail loudly (not fall back to a default) when required stored evidence is incomplete for a given Decision ID.
+
+Do not accept "documented-unverifiable" as a substitute for an actual replay match on this phase. If replay cannot be run for a given case, state that plainly rather than asserting a match without running it.
+
+Required evidence (lean format, no narrative):
+- raw replay run output vs. original stored output, side by side, for at least 2 real past decisions
+- mutation-check raw output (before/after change, confirming output changed)
+- missing-evidence check raw output (confirming loud failure, not silent fallback)
+- git diff HEAD --stat, sha256 before/after for changed files
+- run through verified_run.sh, then paste verify_chain.sh output + raw sha256sum of both wrapper scripts against canonical
+
+If any of this can't be produced, state that plainly — no padding.

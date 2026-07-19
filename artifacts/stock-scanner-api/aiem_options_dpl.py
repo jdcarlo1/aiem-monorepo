@@ -194,6 +194,7 @@ def bootstrap_dpl(db_url=None) -> bool:
                 FOR EACH ROW EXECUTE FUNCTION _oe_dpl_guard_immutability()
             """)
         conn.commit()
+        bootstrap_dpl_phase3(db_url)  # Phase 3: replay inputs table (idempotent)
         return True
     except Exception:
         conn.rollback()
@@ -824,3 +825,251 @@ def verify_decision(
         raise
     finally:
         conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 3: REPRODUCIBILITY REPLAY
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ReplayInputsMissingError(Exception):
+    """
+    Raised by replay_decision() when no replay inputs exist for the given
+    decision_id.  This is an intentional loud failure — never silently fall back
+    to live data or cached defaults.
+    """
+
+
+_REPLAY_TABLE          = "oe_decision_replay_inputs"
+_REPLAY_SCHEMA_VERSION = "1"
+
+# REQ6 scoring weights — canonical copy for version-hash computation.
+# MUST stay in sync with aiem_options_pipeline.compute_req6_score().
+_REQ6_WEIGHTS = {
+    "D1_directional_probability":    0.15,
+    "D2_prob_reach_target":          0.12,
+    "D3_expected_return":            0.08,
+    "D4_max_premium_loss":           0.05,
+    "D5_risk_reward":                0.10,
+    "D6_liquidity":                  0.08,
+    "D7_slippage":                   0.07,
+    "D8_theta_decay_risk":           0.08,
+    "D9_market_regime_fit":          0.10,
+    "D10_technical_confirmation":    0.08,
+    "D11_options_flow_confirmation": 0.07,
+    "D12_historical_performance":    0.02,
+}
+
+
+def bootstrap_dpl_phase3(db_url=None) -> bool:
+    """
+    Idempotent CREATE TABLE for oe_decision_replay_inputs.
+    Safe to call multiple times.  Called automatically by bootstrap_dpl().
+    """
+    conn = _conn(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {_REPLAY_TABLE} (
+                    decision_id             TEXT    PRIMARY KEY
+                                            REFERENCES {_DPL_TABLE}(decision_id),
+                    alert_id                INTEGER,
+                    replay_schema_version   TEXT    NOT NULL DEFAULT '1',
+                    -- Exact call_data dict passed to compute_req6_score("CALL")
+                    contract_data_call      JSONB   NOT NULL,
+                    -- Exact put_data dict passed to compute_req6_score("PUT")
+                    contract_data_put       JSONB   NOT NULL,
+                    -- Full stock_data dict (same as Phase 2 stock_analysis_json)
+                    stock_data_replay       JSONB   NOT NULL,
+                    -- iv_rank as 0-1 float (same value passed to compute_req6_score)
+                    iv_rank                 NUMERIC(8,6) NOT NULL,
+                    -- verify_result dict
+                    verify_result_replay    JSONB   NOT NULL,
+                    -- Configuration version stamps
+                    config_versions         JSONB   NOT NULL,
+                    -- Timestamps of upstream data sources at decision time
+                    data_source_timestamps  JSONB   NOT NULL,
+                    -- Stored recommendation scores (for replay comparison)
+                    stored_call_score       NUMERIC(5,1),
+                    stored_put_score        NUMERIC(5,1),
+                    stored_direction        TEXT,
+                    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def capture_replay_inputs(
+    decision_id:   str,
+    direction:     str,
+    call_score:    float,
+    put_score:     float,
+    call_data:     dict,
+    put_data:      dict,
+    stock_data:    dict,
+    verify_result: dict,
+    iv_rank:       float,
+    alert_id:      Optional[int] = None,
+    db_url:        Optional[str] = None,
+) -> bool:
+    """
+    Persist the raw inputs required to deterministically replay this decision.
+
+    call_data / put_data  — the exact dicts passed to compute_req6_score().
+    iv_rank               — 0-1 float (same value passed to compute_req6_score).
+
+    Idempotent via ON CONFLICT DO NOTHING on the decision_id PK.
+    Returns True on success.
+    """
+    import datetime as _dt
+
+    weights_hash = hashlib.sha256(
+        json.dumps(_REQ6_WEIGHTS, sort_keys=True).encode()
+    ).hexdigest()[:16]
+
+    config_versions = {
+        "req6_weights_hash":     weights_hash,
+        "replay_schema_version": _REPLAY_SCHEMA_VERSION,
+        "dpl_module":            "aiem_options_dpl.py",
+    }
+    data_source_timestamps = {
+        "polygon_scan_date": str(stock_data.get("scan_date", "")),
+        "oss_scan_date":     str(stock_data.get("oss_scan_date", "")),
+        "captured_at_utc":   _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+    conn = _conn(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                INSERT INTO {_REPLAY_TABLE} (
+                    decision_id, alert_id, replay_schema_version,
+                    contract_data_call, contract_data_put, stock_data_replay,
+                    iv_rank, verify_result_replay,
+                    config_versions, data_source_timestamps,
+                    stored_call_score, stored_put_score, stored_direction
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (decision_id) DO NOTHING
+            """, (
+                decision_id,
+                alert_id,
+                _REPLAY_SCHEMA_VERSION,
+                json.dumps(call_data,     default=str),
+                json.dumps(put_data,      default=str),
+                json.dumps(stock_data,    default=str),
+                round(float(iv_rank), 6),
+                json.dumps(verify_result, default=str),
+                json.dumps(config_versions),
+                json.dumps(data_source_timestamps),
+                round(float(call_score), 1),
+                round(float(put_score),  1),
+                direction,
+            ))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def replay_decision(
+    decision_id: str,
+    db_url:      Optional[str] = None,
+) -> dict:
+    """
+    Replay a past decision using ONLY the stored inputs. No live data.
+    No re-fetching.
+
+    Raises ReplayInputsMissingError (no fallback) when no replay inputs exist
+    for the given decision_id.
+
+    Returns:
+        decision_id, call_score_replayed, put_score_replayed,
+        call_score_stored, put_score_stored,
+        direction_replayed, direction_stored,
+        call_match (|diff| < 0.05), put_match (|diff| < 0.05),
+        direction_match, full_match,
+        call_scoring (full compute_req6_score result),
+        put_scoring  (full compute_req6_score result).
+    """
+    from aiem_options_pipeline import compute_req6_score
+
+    conn = _conn(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT contract_data_call, contract_data_put, stock_data_replay,
+                       iv_rank, verify_result_replay,
+                       stored_call_score, stored_put_score, stored_direction
+                FROM {_REPLAY_TABLE}
+                WHERE decision_id = %s
+            """, (decision_id,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        raise ReplayInputsMissingError(
+            f"[Phase 3] No replay inputs found for decision_id={decision_id!r}. "
+            "capture_replay_inputs() must be called at decision write time. "
+            "This is an intentional hard failure — no silent fallback is permitted."
+        )
+
+    (cdc, cdp, sd, iv_r, vr,
+     stored_call, stored_put, stored_direction) = row
+
+    iv_rank_f = float(iv_r or 0)
+
+    call_result = compute_req6_score(
+        contract_data=cdc,
+        direction="CALL",
+        stock_data=sd,
+        iv_rank=iv_rank_f,
+        verify_result=vr,
+    )
+    put_result = compute_req6_score(
+        contract_data=cdp,
+        direction="PUT",
+        stock_data=sd,
+        iv_rank=iv_rank_f,
+        verify_result=vr,
+    )
+
+    call_r = call_result["score"]
+    put_r  = put_result["score"]
+    margin = abs(call_r - put_r)
+
+    # Direction thresholds mirror aiem_options_scheduler._execute_job() Stage 6
+    if call_r >= put_r and call_r >= 55 and margin >= 10:
+        dir_r = "LONG_CALL"
+    elif put_r > call_r and put_r >= 55 and margin >= 10:
+        dir_r = "LONG_PUT"
+    else:
+        dir_r = "NO_TRADE"
+
+    call_match = abs(call_r - float(stored_call or 0)) < 0.05
+    put_match  = abs(put_r  - float(stored_put  or 0)) < 0.05
+    dir_match  = (dir_r == stored_direction)
+
+    return {
+        "decision_id":          decision_id,
+        "call_score_replayed":  call_r,
+        "put_score_replayed":   put_r,
+        "call_score_stored":    float(stored_call or 0),
+        "put_score_stored":     float(stored_put  or 0),
+        "direction_replayed":   dir_r,
+        "direction_stored":     stored_direction,
+        "call_match":           call_match,
+        "put_match":            put_match,
+        "direction_match":      dir_match,
+        "full_match":           call_match and put_match and dir_match,
+        "call_scoring":         call_result,
+        "put_scoring":          put_result,
+    }
