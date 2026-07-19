@@ -1,0 +1,821 @@
+AIEM OPTIONS ENGINE — DPL PHASE 3 / PHASE 2
+STRICT REMEDIATION AND RE-VERIFICATION DIRECTIVE
+FUTURE AUTONOMOUS MONEY-HANDLING SYSTEM
+
+CURRENT STATUS
+This phase is NOT approved for autonomous live-money trading.
+
+The existing evidence shows that substantial DPL functionality is working, but the issues below must be corrected and strictly re-verified before this phase can receive final approval.
+
+MANDATORY RULES
+
+- Paper trading only until every requirement below passes.
+- No mocks.
+- No fabricated evidence.
+- No manual database inserts used as runtime proof.
+- No narrative-only proof.
+- Preserve every failed verification run.
+- Run all verification through tools/verified_run.sh.
+- Append every run to the cryptographic evidence chain.
+- Any failed critical requirement keeps the complete phase in FAIL status.
+- Do not label this phase VERIFIED COMPLETE until all remediation and runtime proof passes.
+
+====================================================
+1. CHANGE THE ENGINE INTEGRITY GATE TO FAIL-CLOSED
+====================================================
+
+CURRENT PROBLEM
+
+The integrity gate blocks a confirmed hash mismatch, but it may continue when:
+
+- The integrity reference file is missing.
+- The file is unreadable.
+- The JSON is invalid.
+- The verifier cannot import.
+- An I/O error occurs.
+- Hash calculation fails.
+- An unexpected exception occurs.
+
+This is not acceptable for an autonomous money-handling system.
+
+REQUIRED PRODUCTION BEHAVIOR
+
+- Verified exact match: ALLOW.
+- Hash mismatch: BLOCK.
+- Missing reference file: BLOCK.
+- Invalid reference file: BLOCK.
+- Import failure: BLOCK.
+- File permission failure: BLOCK.
+- I/O failure: BLOCK.
+- Hash computation failure: BLOCK.
+- Unknown verification exception: BLOCK.
+
+When integrity cannot be verified, the engine may only:
+
+- Monitor positions.
+- Reconcile broker positions.
+- Send alerts.
+- Reduce risk.
+- Close positions.
+- Perform emergency liquidation.
+
+It must not:
+
+- Open new positions.
+- Increase existing positions.
+- Re-enter trades.
+- Perform risk-increasing rolls.
+- Create new autonomous order submissions.
+
+IMPLEMENTATION REQUIREMENTS
+
+- Add an explicit production environment check.
+- Production must never skip the integrity gate.
+- Development bypasses must be impossible in production.
+- Store every block in oe_gate_events.
+- Store trace_id, job_id, deployment commit, exception class, error details, expected hash, calculated hash and timestamp.
+- Confirm no alert, decision approval or order intent is created after the gate blocks.
+
+MANDATORY NEGATIVE CONTROLS
+
+1. Delete the integrity reference file. Pipeline must block.
+2. Corrupt the JSON. Pipeline must block.
+3. Remove read permission. Pipeline must block.
+4. Force verifier import failure. Pipeline must block.
+5. Force hash-calculation exception. Pipeline must block.
+6. Modify one protected component. Pipeline must block.
+7. Confirm zero new-order intents after every blocked test.
+
+====================================================
+2. CORRECT CRYPTOGRAPHIC CHAIN ACCOUNTING
+====================================================
+
+CURRENT PROBLEM
+
+The report says the chain contains four entries but identifies:
+
+- SEQ 0
+- SEQ 15
+- SEQ 16
+- SEQ 17
+- SEQ 18
+
+This equals five entries.
+
+REQUIRED FIX
+
+The verifier must automatically calculate and compare:
+
+- Physical JSONL line count.
+- Successfully parsed entry count.
+- Unique sequence count.
+- Declared total count.
+- Ordered sequence list.
+- Duplicate sequence IDs.
+- Missing sequence records.
+- Malformed JSON records.
+- entry_hash recomputation.
+- prev_hash continuity.
+- Final chain head.
+
+REQUIRED ASSERTIONS
+
+physical_line_count == parsed_entry_count
+parsed_entry_count == unique_sequence_count
+unique_sequence_count == declared_total_count
+
+For every entry:
+
+stored_entry_hash == sha256(canonical_entry_payload)
+current.prev_hash == previous.entry_hash
+
+MANDATORY OUTPUT
+
+Print and preserve:
+
+- Physical line count.
+- Parsed record count.
+- Unique sequence count.
+- Ordered sequence values.
+- Every stored entry hash.
+- Every recomputed entry hash.
+- Every prev_hash comparison.
+- Final chain-head hash.
+
+====================================================
+3. VERIFY THE FINAL RUN AFTER IT IS SEALED
+====================================================
+
+CURRENT PROBLEM
+
+The final passing SEQ 18 run verified the archived SEQ 17 log. It did not prove the integrity of its own final sealed archive within the same verification process.
+
+REQUIRED PROCESS
+
+Separate the process into:
+
+A. Execute tests.
+B. Close and flush the raw log.
+C. Create the final archive.
+D. Calculate archive SHA-256.
+E. Write the archive index.
+F. Append the chain entry.
+G. Run an independent post-seal verifier.
+
+The post-seal verifier must verify the same final run:
+
+- Archive exists.
+- Archive SHA-256 matches the index.
+- Source-log SHA-256 matches the chain metadata.
+- Chain entry recomputes exactly.
+- prev_hash continuity passes.
+- Exit status matches the archived log.
+- PASS and FAIL totals match the archived log.
+- Command matches the archived log metadata.
+
+MANDATORY NEGATIVE CONTROL
+
+Change one byte in a copied archive and prove the post-seal verifier returns FAIL.
+
+====================================================
+4. PROHIBIT RETROACTIVE EVIDENCE MODIFICATION
+====================================================
+
+CURRENT PROBLEM
+
+Historical index hash values were retroactively corrected.
+
+Historical evidence must not be overwritten, even when the original value is incorrect.
+
+REQUIRED FIX
+
+Preserve the original record and append a correction event containing:
+
+- correction_id
+- target_seq
+- target_record_hash
+- original_value
+- corrected_value
+- correction_reason
+- created_at
+- created_by
+- approved_by
+- previous_correction_hash
+- correction_hash
+- approval signature or approval reference
+
+The effective corrected value may be determined through the correction chain, but the original record must remain unchanged.
+
+MANDATORY NEGATIVE CONTROLS
+
+- UPDATE historical index row: BLOCKED.
+- DELETE historical index row: BLOCKED.
+- TRUNCATE historical index: BLOCKED.
+- Correction without approval: BLOCKED.
+- Correction without old and new values: BLOCKED.
+- Broken correction hash chain: VERIFICATION FAIL.
+- Duplicate correction ID: BLOCKED.
+
+====================================================
+5. USE REAL IMMUTABLE EVIDENCE STORAGE
+====================================================
+
+CURRENT PROBLEM
+
+chmod 444 does not create financial-grade immutable evidence. A privileged user can change permissions or replace the file.
+
+REQUIRED FIX
+
+After every final verification or autonomous decision, copy the required evidence to independent immutable storage using:
+
+- Object lock or retention lock.
+- Versioning.
+- Delete protection.
+- Separate security credentials.
+- Separate storage account or project.
+- Independent timestamp.
+- Replication to a second storage location.
+- No overwrite permission for the application.
+- No delete permission for the application.
+
+STORE
+
+- Raw verification log.
+- Per-sequence archive.
+- Chain file or chain head.
+- Deployment manifest.
+- Approval object.
+- Decision evidence package.
+- Broker order and response evidence.
+- Final outcome evidence.
+
+MANDATORY EVIDENCE
+
+Provide:
+
+- Storage provider.
+- Bucket or vault identifier.
+- Object key.
+- Version ID.
+- Retention-until timestamp.
+- SHA-256.
+- Upload timestamp.
+- Writer identity.
+- Proof that the application cannot overwrite or delete the object.
+
+====================================================
+6. CRYPTOGRAPHICALLY PROVE HUMAN APPROVAL
+====================================================
+
+CURRENT PROBLEM
+
+approved_by='dpl-integrity-reviewer' is only a text value. It does not prove that a real independent reviewer approved the exact deployment.
+
+REQUIRED FIX
+
+Use a detached digital signature created by a separately controlled human-review key.
+
+THE SIGNED PAYLOAD MUST INCLUDE
+
+- Complete engine root hash.
+- Complete deployment-manifest hash.
+- Git commit SHA.
+- Signed release tag.
+- Container or image digest.
+- Dependency-lock hash.
+- Database-migration hash.
+- Risk-policy hash.
+- Strategy-registry hash.
+- Environment.
+- Release ID.
+- Approval timestamp.
+- Approval expiration.
+- Approver identity.
+- Approval scope.
+
+SECURITY REQUIREMENTS
+
+- The deployment environment must contain only the public verification key.
+- The deployment environment must never possess the private approval key.
+- The automated application cannot create its own valid approval.
+- Production deployment must block without a valid unexpired signature.
+
+MANDATORY NEGATIVE CONTROLS
+
+- Change one byte in approval payload: FAIL.
+- Use wrong signer: FAIL.
+- Missing signature: FAIL.
+- Expired approval: FAIL.
+- Approval for different commit: FAIL.
+- Approval for different environment: FAIL.
+- Application-generated approval: BLOCKED.
+
+====================================================
+7. HASH THE COMPLETE PRODUCTION DECISION PATH
+====================================================
+
+CURRENT PROBLEM
+
+The current engine-root hash appears to cover only the scoring-function AST and scoring weights.
+
+This does not protect the entire trading decision and execution path.
+
+REQUIRED COMPLETE MANIFEST
+
+Hash every production component involved in:
+
+- Market-data ingestion.
+- Data validation.
+- Stale-data detection.
+- Input normalization.
+- Indicator calculations.
+- Feature calculations.
+- Market-regime calculation.
+- Options-chain processing.
+- Strategy generation.
+- Strike selection.
+- Expiration selection.
+- Leg construction.
+- Debit and credit calculation.
+- Breakeven calculation.
+- Maximum-loss calculation.
+- Maximum-reward calculation.
+- Probability calculations.
+- Liquidity filters.
+- Execution-cost calculations.
+- Portfolio-risk calculations.
+- Position sizing.
+- Risk gate.
+- Final decision.
+- No-trade decision.
+- Order-intent generation.
+- Broker adapter.
+- Entry logic.
+- Exit logic.
+- Emergency controls.
+- Scheduler.
+- Runtime configuration.
+- Database migrations.
+- Dependency lockfiles.
+- Strategy registry.
+- Risk policy.
+
+Create a deterministic hash-of-hashes over the complete manifest.
+
+Any protected component change must invalidate the current approval.
+
+MANDATORY NEGATIVE CONTROL
+
+Mutate each protected component one at a time and prove production blocks the deployment or trade.
+
+====================================================
+8. PROVE ACTUAL DATABASE ROLE SEPARATION
+====================================================
+
+CURRENT PROBLEM
+
+The database roles exist, but the evidence does not prove that the production processes actually operate under those restricted roles.
+
+REQUIRED RUNTIME IDENTITIES
+
+Use separate login identities or strictly enforced SET ROLE paths for:
+
+- aiem_app
+- aiem_verify
+- aiem_approve
+
+During runtime, capture:
+
+SELECT
+    current_user,
+    session_user,
+    current_setting('role', true);
+
+PROVE
+
+- The application does not connect as database owner.
+- The application does not connect as superuser.
+- The application cannot assume approval privileges.
+- The verifier cannot modify production evidence.
+- The approval role cannot modify engine code or prior evidence.
+- PUBLIC schema permissions are restricted.
+- No SECURITY DEFINER function creates a privilege bypass.
+
+MANDATORY NEGATIVE CONTROLS USING THE REAL APP IDENTITY
+
+- ALTER TABLE: FAIL.
+- DROP TABLE: FAIL.
+- DROP TRIGGER: FAIL.
+- DISABLE TRIGGER: FAIL.
+- UPDATE immutable record: FAIL.
+- DELETE immutable record: FAIL.
+- TRUNCATE protected table: FAIL.
+- CREATE ROLE: FAIL.
+- SET ROLE aiem_approve: FAIL.
+- Replace protected function: FAIL.
+- Insert approval record: FAIL.
+- Modify historical evidence: FAIL.
+
+Capture the exact SQL, identity, timestamp and database error for every test.
+
+====================================================
+9. COMPLETE APPEND-ONLY DATABASE PROTECTION
+====================================================
+
+CURRENT PROBLEM
+
+The current evidence primarily proves UPDATE blocking. Complete append-only evidence requires protection from all destructive operations.
+
+REQUIRED PROTECTION
+
+Block unauthorized:
+
+- UPDATE.
+- DELETE.
+- TRUNCATE.
+- Trigger disabling.
+- Trigger dropping.
+- Table dropping.
+- Table replacement.
+- Protected-function replacement.
+- Partition removal.
+- Sequence manipulation.
+- Schema replacement.
+- Unauthorized database restore.
+- Owner-based bypass.
+
+RECOMMENDED DESIGN
+
+- Separate evidence schema.
+- Restricted ownership.
+- Event triggers for protected DDL.
+- Separate evidence writer.
+- External immutable copy.
+- Periodic complete database fingerprint.
+- Alert on any attempted destructive action.
+
+MANDATORY NEGATIVE CONTROLS
+
+Run every destructive operation under the actual application identity and capture the exact failure evidence.
+
+====================================================
+10. CAPTURE A REAL SCHEDULED PAPER-TRADE TRACE
+====================================================
+
+CURRENT PROBLEM
+
+The new origin-attribution columns exist, but no real scheduled decision has proven they are populated through the complete runtime path.
+
+REQUIRED TEST
+
+Run a genuine automatically scheduled paper-trading cycle.
+
+Do not manually trigger the process.
+Do not manually insert database evidence.
+
+Propagate one trace_id through:
+
+1. Scheduler trigger.
+2. Job creation.
+3. Atomic job claim.
+4. Worker process.
+5. Deployment commit.
+6. Market-data snapshot.
+7. Options-chain snapshot.
+8. Candidate generation.
+9. Decision replay inputs.
+10. Strategy alternatives.
+11. Rejected alternatives.
+12. Risk gate.
+13. Final decision.
+14. Order intent.
+15. Paper-broker submission.
+16. Broker response.
+17. Fill or rejection.
+18. Open-position record.
+19. Exit decision.
+20. Exit order.
+21. Closed-position record.
+22. Outcome record.
+23. Learning record.
+24. Audit record.
+25. Cryptographic chain entry.
+
+REQUIRED POPULATED IDENTIFIERS
+
+- trace_id
+- scheduler_job_id
+- worker_pid
+- deployment_commit_sha
+- market_snapshot_id
+- options_chain_snapshot_id
+- candidate_id
+- decision_id
+- replay_input_id
+- risk_gate_event_id
+- order_intent_id
+- broker_order_id
+- position_id
+- outcome_id
+- learning_id
+- audit_log_id
+- chain entry hash
+
+All timestamps must show correct stage ordering.
+
+====================================================
+11. PERFORM REAL CONCURRENCY TESTING
+====================================================
+
+CURRENT PROBLEM
+
+The presence of an atomic-claim code pattern does not prove exactly-once execution.
+
+REQUIRED TEST
+
+Start multiple workers simultaneously against the same pending job.
+
+EXPECTED RESULT
+
+- Exactly one successful claim.
+- Exactly one authoritative decision.
+- Exactly one order intent.
+- Exactly one broker submission.
+- All losing workers receive no claim.
+- No duplicate alert.
+- No duplicate position.
+- No duplicate audit decision.
+
+REQUIRED IDENTIFIERS
+
+- decision_id
+- order_intent_id
+- strategy_fingerprint
+- deterministic broker_client_order_id
+- execution_attempt_id
+
+A uniqueness constraint on only ticker and scan_date is not sufficient broker-level duplicate protection.
+
+====================================================
+12. PERFORM CRASH-RECOVERY TESTING
+====================================================
+
+Kill the worker separately at each stage:
+
+- Immediately after claim.
+- After data capture.
+- After decision creation.
+- Before risk-gate completion.
+- After risk-gate approval.
+- Before broker submission.
+- During broker submission.
+- After broker acceptance.
+- Before local broker-response persistence.
+- After local persistence.
+- Before acknowledgement.
+- During exit submission.
+
+FOR EVERY TEST, PROVE
+
+- No duplicate order.
+- No lost accepted order.
+- Unknown broker state is reconciled before retry.
+- Deterministic client order ID prevents duplication.
+- Recovery remains auditable.
+- Position state matches broker state.
+- Failed execution attempt remains permanently recorded.
+- Only one final authoritative result exists.
+
+====================================================
+13. TIGHTEN REPLAY SCORE TOLERANCE
+====================================================
+
+CURRENT PROBLEM
+
+Replay currently permits a score difference of less than 0.05.
+
+REQUIRED FIX
+
+Use exact deterministic equality whenever possible.
+
+Use Decimal or deterministic fixed-precision math for decision-critical calculations where appropriate.
+
+When floating-point tolerance cannot be eliminated:
+
+- Document the mathematical reason.
+- Use the smallest defensible tolerance.
+- Prove the tolerance cannot change any decision result.
+
+MANDATORY BOUNDARY TESTS
+
+Test values immediately below, exactly at and immediately above every threshold for:
+
+- Trade versus no trade.
+- Call versus put.
+- Strategy selection.
+- Candidate ranking.
+- Confidence tier.
+- Position size.
+- Capital allocation.
+- Risk-gate approval.
+- Exit trigger.
+- Stop-loss trigger.
+- Profit target.
+
+Replay must reproduce the identical final decision, not merely approximately similar scores.
+
+====================================================
+14. PREVENT NEW UNREPLAYABLE TRADES
+====================================================
+
+CURRENT PROBLEM
+
+Two historical decisions were classified as unreplayable because the source state changed.
+
+For future autonomous money handling, source changes must not prevent decision reconstruction.
+
+BEFORE A DECISION BECOMES ORDER-ELIGIBLE, STORE
+
+- Full options-chain snapshot.
+- Underlying bid and ask.
+- Option bid and ask for every considered leg.
+- Last trade and quote timestamps.
+- Greeks.
+- Implied volatility.
+- IV rank and percentile.
+- Interest-rate assumption.
+- Dividend assumption.
+- Corporate-action state.
+- Market-regime inputs.
+- Every calculated feature.
+- Portfolio state.
+- Available cash.
+- Buying power.
+- Open positions.
+- Pending orders.
+- Existing portfolio Greeks.
+- Current risk limits.
+- Every candidate strategy.
+- Every rejected alternative.
+- Rejection reasons.
+- Data provider.
+- Data-quality status.
+- Decision code and configuration hashes.
+- Broker payload.
+- Broker response.
+
+REQUIRED RULE
+
+If the complete replay package cannot be successfully sealed, the trade must be blocked.
+
+Historical exceptions may remain accurately labeled, but no new autonomous live-money decision may rely on an unreplayable exemption.
+
+====================================================
+15. RUN THE FINAL VERIFICATION ON A CLEAN RELEASE
+====================================================
+
+CURRENT PROBLEM
+
+The final passing verification occurred while the Git working tree was dirty.
+
+REQUIRED FINAL RELEASE CONDITIONS
+
+- git status --porcelain returns no output.
+- All changes are committed.
+- Release tag is signed.
+- Exact commit SHA is recorded.
+- Tests run from a clean checkout.
+- Dependencies are locked.
+- Database migration version is recorded.
+- Container or deployment image digest is recorded.
+- No untracked importable files exist.
+- Runtime configuration is included in the manifest.
+- The tested artifact is the exact artifact deployed.
+
+MANDATORY NEGATIVE CONTROL
+
+Add an untracked importable module and prove release verification rejects the build.
+
+====================================================
+16. ADD AN INDEPENDENT VERIFIER
+====================================================
+
+CURRENT PROBLEM
+
+The implementation and its verifier may contain the same assumptions or defects.
+
+REQUIRED FIX
+
+Create at least one independent verification implementation that does not import or reuse the primary scoring and verification functions.
+
+THE INDEPENDENT VERIFIER MUST INCLUDE
+
+- Independent score calculation.
+- Independent decision replay.
+- Independent hash calculation.
+- SQL-only database evidence checks.
+- Black-box pipeline tests.
+- Broker sandbox reconciliation.
+- Property-based testing.
+- Mutation testing.
+
+MANDATORY MUTATIONS THAT MUST PRODUCE FAIL
+
+- Remove the integrity gate.
+- Change the gate to fail-open.
+- Delete the integrity file.
+- Disable an immutability trigger.
+- Modify a scoring weight.
+- Modify strategy leg ordering.
+- Remove a required replay input.
+- Bypass a risk limit.
+- Submit duplicate order intent.
+- Simulate lost broker response.
+- Corrupt an archived log.
+- Corrupt the chain.
+- Claim one job with two workers.
+- Alter the deployment manifest.
+- Use an expired approval signature.
+
+====================================================
+17. CORRECT ALL REPORT CONTRADICTIONS
+====================================================
+
+The final evidence report must:
+
+- Correct the four-entry versus five-entry discrepancy.
+- Correct SOURCE_CHANGED versus CODE_DRIFT exemption wording.
+- Explain the relationship between commit d9d6987e and commit 43899fc....
+- Identify the exact tested commit.
+- Identify the exact approved deployment artifact.
+- Identify the exact deployed container or image digest.
+- Clearly separate legacy pre-chain evidence from fully chained evidence.
+- Clearly distinguish implementation tests from real runtime proof.
+- Avoid the phrase VERIFIED COMPLETE until all post-seal, runtime and independent verification passes.
+
+====================================================
+18. REQUIRED FINAL EVIDENCE PACKAGE
+====================================================
+
+Provide one complete evidence package containing:
+
+1. Clean Git-status proof.
+2. Exact commit SHA.
+3. Signed release tag.
+4. Complete deployment manifest.
+5. Complete component hash list.
+6. Container or image digest.
+7. Dependency-lock hash.
+8. Database-migration hash.
+9. Risk-policy hash.
+10. Strategy-registry hash.
+11. Raw verified_run log.
+12. Final per-sequence archive.
+13. Archive index.
+14. Full JSONL chain.
+15. Chain-count evidence.
+16. Independent chain-verification output.
+17. Post-seal verification output.
+18. Immutable-storage object proof.
+19. Signed human approval.
+20. Production database identity proof.
+21. Database privilege negative controls.
+22. Integrity-gate negative controls.
+23. Immutability negative controls.
+24. Real scheduled paper-trade trace.
+25. Concurrency test evidence.
+26. Crash-recovery evidence.
+27. Broker idempotency evidence.
+28. Replay boundary tests.
+29. Mutation-testing output.
+30. Exact SQL evidence tied to each check.
+31. Complete PASS/FAIL matrix.
+32. SHA-256 of the entire evidence package.
+
+====================================================
+19. FINAL ACCEPTANCE STANDARD
+====================================================
+
+Mark this phase PASS only when:
+
+- Every requirement above passes.
+- No critical issue remains.
+- No high-severity issue remains.
+- The integrity gate is completely fail-closed.
+- The final run uses a clean committed release.
+- The final sealed run is independently verified after sealing.
+- Evidence is stored externally in immutable storage.
+- Human approval is cryptographically verified.
+- Actual runtime database roles are proven.
+- A real scheduled paper-trading trace is complete.
+- Concurrency testing proves exactly one execution.
+- Crash-recovery testing proves no duplicate orders.
+- Broker idempotency is proven.
+- Independent verification agrees with the primary verifier.
+
+UNTIL EVERY REQUIREMENT PASSES:
+
+DPL PHASE 3 / PHASE 2 STATUS = REMEDIATION REQUIRED
+TRADING MODE = PAPER TRADING ONLY
+AUTONOMOUS LIVE-MONEY TRADING = DISABLED
+NEW BROKER RISK = PROHIBITED
