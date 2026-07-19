@@ -678,3 +678,9 @@ id = "E0yghx47AEpv5BwTu0b6L"
 uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_Evidence_R4.1-R4.9.txt"
 type = "text"
 title = "DPL Phase 3 — Complete Verified Evidence (R4.1–R4.9)"
+
+[[outputs]]
+id = "K7JeFFzjr1PKVxvWteAhG"
+uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_P2_Complete_Evidence.txt"
+type = "text"
+title = "DPL Phase 3 Phase 2 — Complete Verified Evidence Record"
