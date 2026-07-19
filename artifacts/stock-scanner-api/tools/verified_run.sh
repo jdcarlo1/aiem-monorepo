@@ -238,4 +238,23 @@ printf '%s\t%s\t%s\t%s\t%s\n' \
     "${SEQ}" "${TS_END_OUTER:-unknown}" "${EXIT_CODE_OUTER:-1}" \
     "${SEQ_LOG_SHA}" "${CMD}" >> "${INDEX_FILE}"
 
+# ── Item 3: Independent post-seal verifier ────────────────────────────────────
+# Runs AFTER the archive + chain entry are sealed. Verifies integrity of the
+# sealed artifact without importing any DPL Python code.
+POST_SEAL_SCRIPT="${SCRIPT_DIR}/post_seal_verify.sh"
+if [ -x "${POST_SEAL_SCRIPT}" ] || [ -f "${POST_SEAL_SCRIPT}" ]; then
+    echo ""
+    echo "====== post_seal_verify.sh (Item 3) ======"
+    bash "${POST_SEAL_SCRIPT}" \
+        "${SEQ}" "${CHAIN_FILE}" "${INDEX_FILE}" "${LOGS_DIR}" \
+        2>&1 | tee -a "${SEQ_LOG%.log}_postseal.log" || {
+        POST_SEAL_EXIT=$?
+        echo "[post_seal_verify] WARNING: post-seal checks had ${POST_SEAL_EXIT} failure(s)" >&2
+        # Post-seal failures are WARNING level only (the primary run already sealed).
+        # The failure is recorded in the log; the primary exit code is not changed.
+    }
+else
+    echo "[post_seal_verify] INFO: post_seal_verify.sh not found or not executable — skipping"
+fi
+
 exit "${EXIT_CODE_OUTER:-1}"

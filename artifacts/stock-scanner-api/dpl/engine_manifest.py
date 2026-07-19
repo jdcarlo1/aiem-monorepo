@@ -1,19 +1,33 @@
 #!/usr/bin/env python3
 """
-engine_manifest.py — Canonical Engine Integrity Manifest  [Items 1+2]
+engine_manifest.py — Canonical Engine Integrity Manifest  [Items 1+2+7 — Remediation]
 
 CANONICAL SERIALIZATION SPEC  (Item 2):
   AST normalization  : ast.dump(ast.parse(src))  — default params, no indent, no attributes
   JSON encoding      : sort_keys=True, separators=(',',':'), ensure_ascii=False, allow_nan=False
   Byte encoding      : UTF-8
   Component separator: '\\x00' (NUL byte between AST dump and weights JSON in combined hash)
-  Canonicalization v : '1'
+  Canonicalization v : '2'  (bumped for Item 7: full decision-path modules added)
   Engine root hash   : sha256(json.dumps(manifest_without_root_hash, **JSON_KW).encode('utf-8'))
+
+Item 7 expansion — full decision path modules hashed:
+  The engine manifest previously hashed only:
+    compute_req6_score + _REQ6_SCORING_WEIGHTS + math module + python version
+
+  Now includes all modules in the complete decision path:
+    aiem_options_pipeline.py      — compute_req6_score (scoring core)
+    aiem_options_dpl.py           — replay_decision, capture_replay_inputs (DPL layer)
+    aiem_options_scheduler.py     — _execute_job (orchestrator: stages 1-12)
+    engine_manifest.py            — this file (integrity manifest itself)
+    aiem_options_dpl._REPLAY_TABLE — constant value
+    aiem_options_dpl._REPLAY_SCHEMA_VERSION — constant value
 
 Negative controls (all must block):
   Change a scoring weight      -> req6_weights_hash changes -> engine_root_hash changes
   Change scoring logic         -> scoring_fn_ast_hash changes -> engine_root_hash changes
   Change a helper function     -> helper_hashes changes -> engine_root_hash changes
+  Change DPL replay logic      -> decision_path_module_hashes changes -> engine_root_hash changes
+  Change scheduler stage logic -> decision_path_module_hashes changes -> engine_root_hash changes
   Change configuration         -> config_hash changes -> engine_root_hash changes
   Change a model artifact      -> model_artifact_hashes changes (N/A: none used)
 """
@@ -30,8 +44,8 @@ import sys
 # ---------------------------------------------------------------------------
 # CANONICAL SERIALIZATION CONSTANTS
 # ---------------------------------------------------------------------------
-_CANON_VERSION            = "1"
-_INTEGRITY_SCHEMA_VERSION = "1"
+_CANON_VERSION            = "2"   # bumped: Item 7 adds full decision-path module hashes
+_INTEGRITY_SCHEMA_VERSION = "2"
 _JSON_KW = dict(sort_keys=True, separators=(',', ':'), ensure_ascii=False)
 # allow_nan=False is the json module default; we enforce by not passing allow_nan=True
 
@@ -142,24 +156,88 @@ def build_manifest() -> dict:
     runtime_flags = {}
 
     # ------------------------------------------------------------------
+    # 10. Full decision-path module hashes (Item 7 — Remediation)
+    #     Every Python file in the complete pipeline decision path is
+    #     hashed here.  Any change to any of these files changes
+    #     engine_root_hash, which invalidates the approved refs and
+    #     causes the integrity gate to BLOCK production execution.
+    #
+    #     Decision path:
+    #       aiem_options_pipeline.py  — compute_req6_score (scoring core)
+    #       aiem_options_dpl.py       — DPL: capture_replay_inputs, replay_decision
+    #       aiem_options_scheduler.py — orchestrator: _execute_job stages 1-12
+    #       engine_manifest.py        — this file (hash of the hasher)
+    #
+    #     IMPORTANT: the hash is of the raw file bytes, not the imported
+    #     module source, so edits that don't affect import (e.g. comments
+    #     in a function not imported) still change the hash.  This is
+    #     intentional — any change to a decision-path file requires a new
+    #     approval cycle.
+    # ------------------------------------------------------------------
+    def _hash_decision_path_file(filename: str) -> str:
+        path = os.path.join(_api_dir, filename)
+        if not os.path.exists(path):
+            return f'FILE_NOT_FOUND:{filename}'
+        return _sha256_bytes(open(path, 'rb').read())
+
+    def _hash_decision_path_this_file() -> str:
+        path = os.path.abspath(__file__)
+        if not os.path.exists(path):
+            return f'FILE_NOT_FOUND:{path}'
+        return _sha256_bytes(open(path, 'rb').read())
+
+    # Constant values in DPL that affect replay schema
+    try:
+        import importlib as _impl
+        _dpl_mod = _impl.import_module('aiem_options_dpl')
+        _dpl_replay_table          = getattr(_dpl_mod, '_REPLAY_TABLE', 'UNKNOWN')
+        _dpl_replay_schema_version = getattr(_dpl_mod, '_REPLAY_SCHEMA_VERSION', 'UNKNOWN')
+    except Exception as _em:
+        _dpl_replay_table          = f'IMPORT_ERROR:{_em}'
+        _dpl_replay_schema_version = f'IMPORT_ERROR:{_em}'
+
+    decision_path_module_hashes = {
+        'aiem_options_pipeline.py':  _hash_decision_path_file('aiem_options_pipeline.py'),
+        'aiem_options_dpl.py':       _hash_decision_path_file('aiem_options_dpl.py'),
+        'aiem_options_scheduler.py': _hash_decision_path_file('aiem_options_scheduler.py'),
+        'engine_manifest.py':        _hash_decision_path_this_file(),
+        # DPL constants that determine replay schema
+        '_REPLAY_TABLE_value':          _dpl_replay_table,
+        '_REPLAY_SCHEMA_VERSION_value': str(_dpl_replay_schema_version),
+        # Combined hash of all decision-path file bytes
+        'decision_path_combined_hash': _sha256_str('\x00'.join([
+            _hash_decision_path_file('aiem_options_pipeline.py'),
+            _hash_decision_path_file('aiem_options_dpl.py'),
+            _hash_decision_path_file('aiem_options_scheduler.py'),
+            _hash_decision_path_this_file(),
+        ])),
+        'note': (
+            'All files in the complete decision path are hashed. '
+            'Any change to any file invalidates engine_root_hash and '
+            'requires a new approval cycle before production execution.'
+        ),
+    }
+
+    # ------------------------------------------------------------------
     # Assemble manifest (engine_root_hash excluded at this stage)
     # ------------------------------------------------------------------
     manifest = {
-        'canonicalization_version':  _CANON_VERSION,
-        'integrity_schema_version':  _INTEGRITY_SCHEMA_VERSION,
-        'python_version':            python_version,
-        'scoring_fn_name':           'compute_req6_score',
-        'scoring_fn_module':         'aiem_options_pipeline',
-        'scoring_fn_ast_hash':       scoring_fn_ast_hash,
-        'req6_weights_hash':         req6_weights_hash,
-        'weights_snapshot':          dict(_REQ6_SCORING_WEIGHTS),
-        'helper_hashes':             helper_hashes,
-        'config_hash':               config_hash,
-        'model_artifact_hashes':     model_artifact_hashes,
-        'feature_schema':            feature_schema,
-        'feature_schema_hash':       feature_schema_hash,
-        'package_versions':          package_versions,
-        'runtime_flags':             runtime_flags,
+        'canonicalization_version':      _CANON_VERSION,
+        'integrity_schema_version':      _INTEGRITY_SCHEMA_VERSION,
+        'python_version':                python_version,
+        'scoring_fn_name':               'compute_req6_score',
+        'scoring_fn_module':             'aiem_options_pipeline',
+        'scoring_fn_ast_hash':           scoring_fn_ast_hash,
+        'req6_weights_hash':             req6_weights_hash,
+        'weights_snapshot':              dict(_REQ6_SCORING_WEIGHTS),
+        'helper_hashes':                 helper_hashes,
+        'config_hash':                   config_hash,
+        'model_artifact_hashes':         model_artifact_hashes,
+        'feature_schema':                feature_schema,
+        'feature_schema_hash':           feature_schema_hash,
+        'package_versions':              package_versions,
+        'runtime_flags':                 runtime_flags,
+        'decision_path_module_hashes':   decision_path_module_hashes,
         'note_model_artifacts': (
             'compute_req6_score uses no trained ML model artifacts; '
             'aiem_probability_engine models are a separate non-overlapping subsystem'

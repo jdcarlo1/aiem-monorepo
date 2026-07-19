@@ -1093,6 +1093,146 @@ def bootstrap_governance_tables(db_url=None) -> bool:
             ]:
                 cur.execute(_col_ddl)
 
+            # ── Item 9: TRUNCATE protection (statement-level triggers) ────────
+            # Row-level BEFORE UPDATE/DELETE triggers do not fire on TRUNCATE.
+            # Add statement-level TRUNCATE triggers for all 4 protected tables.
+            for _tbl9, _trg9 in [
+                ('oe_synthetic_row_corrections', 'trg_oe_synth_corrections_no_truncate'),
+                ('oe_unreplayable_rows',         'trg_oe_unreplayable_no_truncate'),
+                ('oe_gate_events',               'trg_oe_gate_events_no_truncate'),
+                ('oe_decision_replay_inputs',    'trg_oe_replay_inputs_no_truncate'),
+            ]:
+                cur.execute(f"""
+                    CREATE OR REPLACE FUNCTION _trg_fn_{_trg9}()
+                    RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN
+                        RAISE EXCEPTION
+                            '{_tbl9}: TRUNCATE is prohibited on this protected table';
+                    END; $$
+                """)
+                cur.execute(f"""
+                    DO $$ BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                       WHERE tgname='{_trg9}') THEN
+                            CREATE TRIGGER {_trg9}
+                            BEFORE TRUNCATE ON {_tbl9}
+                            FOR EACH STATEMENT EXECUTE FUNCTION _trg_fn_{_trg9}();
+                        END IF;
+                    END $$
+                """)
+
+            # ── Item 14: Full decision snapshot table ─────────────────────────
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS oe_decision_snapshots (
+                    snapshot_id               TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    decision_id               TEXT NOT NULL UNIQUE,
+                    options_chain_json        JSONB,
+                    underlying_quote          JSONB,
+                    portfolio_state           JSONB,
+                    risk_limits               JSONB,
+                    market_regime_inputs      JSONB,
+                    all_candidates_json       JSONB,
+                    rejected_alternatives_json JSONB,
+                    data_quality_status       TEXT,
+                    snapshot_sealed_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    is_test_record            BOOLEAN NOT NULL DEFAULT FALSE
+                )
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _oe_decision_snapshots_guard()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF OLD.is_test_record THEN RETURN NEW; END IF;
+                    RAISE EXCEPTION
+                        'oe_decision_snapshots is append-only: '
+                        'modification of production rows is not permitted';
+                END; $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                   WHERE tgname='trg_oe_decision_snapshots_immutable') THEN
+                        CREATE TRIGGER trg_oe_decision_snapshots_immutable
+                        BEFORE UPDATE OR DELETE ON oe_decision_snapshots
+                        FOR EACH ROW EXECUTE FUNCTION _oe_decision_snapshots_guard();
+                    END IF;
+                END $$
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _trg_fn_trg_oe_snapshots_no_truncate()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION
+                        'oe_decision_snapshots: TRUNCATE is prohibited on this protected table';
+                END; $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                   WHERE tgname='trg_oe_snapshots_no_truncate') THEN
+                        CREATE TRIGGER trg_oe_snapshots_no_truncate
+                        BEFORE TRUNCATE ON oe_decision_snapshots
+                        FOR EACH STATEMENT EXECUTE FUNCTION _trg_fn_trg_oe_snapshots_no_truncate();
+                    END IF;
+                END $$
+            """)
+
+            # ── Item 4: Index corrections table (retroactive modification log) ─
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS oe_index_corrections (
+                    correction_id        TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    target_seq           INTEGER NOT NULL,
+                    target_record_hash   TEXT,
+                    original_value       TEXT NOT NULL,
+                    corrected_value      TEXT NOT NULL,
+                    correction_reason    TEXT NOT NULL,
+                    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    created_by           TEXT NOT NULL,
+                    approved_by          TEXT NOT NULL,
+                    prev_correction_hash TEXT NOT NULL DEFAULT 'GENESIS',
+                    correction_hash      TEXT,
+                    is_test_record       BOOLEAN NOT NULL DEFAULT FALSE
+                )
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _oe_index_corrections_guard()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF OLD.is_test_record THEN RETURN NEW; END IF;
+                    RAISE EXCEPTION
+                        'oe_index_corrections is append-only: '
+                        'historical correction records are immutable';
+                END; $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                   WHERE tgname='trg_oe_index_corrections_immutable') THEN
+                        CREATE TRIGGER trg_oe_index_corrections_immutable
+                        BEFORE UPDATE OR DELETE ON oe_index_corrections
+                        FOR EACH ROW EXECUTE FUNCTION _oe_index_corrections_guard();
+                    END IF;
+                END $$
+            """)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _trg_fn_trg_oe_idx_corr_no_truncate()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    RAISE EXCEPTION
+                        'oe_index_corrections: TRUNCATE is prohibited';
+                END; $$
+            """)
+            cur.execute("""
+                DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                                   WHERE tgname='trg_oe_idx_corr_no_truncate') THEN
+                        CREATE TRIGGER trg_oe_idx_corr_no_truncate
+                        BEFORE TRUNCATE ON oe_index_corrections
+                        FOR EACH STATEMENT EXECUTE FUNCTION _trg_fn_trg_oe_idx_corr_no_truncate();
+                    END IF;
+                END $$
+            """)
+
         conn.commit()
         return True
     except Exception:
@@ -1322,16 +1462,26 @@ def replay_decision(
     else:
         dir_r = "NO_TRADE"
 
+    # ── Item 13: Tightened replay tolerance ──────────────────────────────────
+    # compute_req6_score stores scores rounded to 1 decimal (round(x, 1)).
+    # Replayed scores are also rounded to 1 decimal before comparison.
+    # Exact equality on rounded values is achievable; tolerance is 0.0.
+    # The only non-exactness is float→Decimal rounding in the DB NUMERIC column,
+    # which can add ≤5e-14 error; we use 1e-9 as the documented defensible bound.
+    # This tolerance CANNOT change any decision result: all thresholds are integers
+    # (55, 10) so a 1e-9 diff cannot flip LONG_CALL/LONG_PUT/NO_TRADE.
+    _REPLAY_TOLERANCE = 1e-9  # documented: IEEE754 NUMERIC round-trip only
+
     # NULL-safe comparisons: if stored score is NULL, match is None (not False)
     if stored_call is None:
         call_match = None
     else:
-        call_match = abs(call_r - float(stored_call)) < 0.05
+        call_match = abs(round(call_r, 1) - round(float(stored_call), 1)) <= _REPLAY_TOLERANCE
 
     if stored_put is None:
         put_match = None
     else:
-        put_match = abs(put_r - float(stored_put)) < 0.05
+        put_match = abs(round(put_r, 1) - round(float(stored_put), 1)) <= _REPLAY_TOLERANCE
 
     if stored_direction is None:
         dir_match = None
