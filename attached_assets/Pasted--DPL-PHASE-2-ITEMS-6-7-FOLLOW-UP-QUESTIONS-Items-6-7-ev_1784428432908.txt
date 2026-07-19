@@ -1,0 +1,28 @@
+# DPL PHASE 2 — ITEMS 6–7 FOLLOW-UP QUESTIONS
+
+Items 6–7 evidence ACCEPTED. Answer the following before Phase 2 close-out.
+
+## Q1 — Wrapper log for the Items 6–7 run
+Submission included wrapper sha256 MATCHes but no verified_run.sh SEQ entry and no verify_chain.sh validation output for that run.
+- Paste the verified_run.sh log entry (SEQ, EXIT) for the Items 6–7 evidence commands, and verify_chain.sh output validating the chain.
+- If the commands were run outside the wrapper, state that in one line — do not re-run destructive or state-changing commands to backfill.
+
+## Q2 — verification_status mutability
+"No further UPDATEs are possible on immutable columns" is accepted, but verification_status is the trigger carve-out column and remains permanently mutable on rows 1f436a10 and 972f0ffe.
+- Confirm in writing that VERIFIED on these rows is not locked and can be changed at any time via the carve-out.
+- No code change requested.
+
+## Row disposition — NO ACTION
+Disposition of the two permanent is_test_record=FALSE synthetic rows (972f0ffe, 1f436a10) is pending Joel's decision. Do not UPDATE, flip, register, or otherwise touch these rows until directed.
+
+## Item 5 reminder
+Live-fire real decision row is due after the Monday 2026-07-20 09:45 ET cycle (not 07-21).
+
+## STANDING REQUIREMENTS (apply in full)
+1. Raw evidence only: raw terminal output for every claim; raw grep -n / sed -n for any code-location or code-behavior claim; raw SQL + full result set for any DB claim; before/after sha256 + diff for any changed file. Narrative "confirmed/fixed/tested" without pasted raw output is rejected. If a claim cannot be backed by real output, state that in one line.
+2. sha256 cross-check: paste raw sha256sum for tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against canonical (8146a523… / ca7896c7…). Mismatch = validator output rejected.
+3. Evidence chain: run evidence commands through verified_run.sh; validate with verify_chain.sh and paste its output.
+4. Data Immutability Rule: no DELETE/TRUNCATE/DROP/overwrite of any row, table, or file — including test/synthetic data — without Joel's explicit prior approval. Rule 8: a file containing an unapproved destructive statement may not be executed for any purpose until reverted or approved.
+5. Lean format: raw command results only; no restated context, banners, or narrative padding.
+
+Signed: ______________________  Date: __________
