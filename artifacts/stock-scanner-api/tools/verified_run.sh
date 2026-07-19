@@ -64,6 +64,28 @@ else
         [ -f "${_vfp}" ] && echo "  ${_vrel}=$(sha256sum "${_vfp}" | awk '{print $1}')" || true
     done <<< "${GIT_PORCELAIN}"
 fi
+# ── Scoring function integrity (R4.9.5) ───────────────────────────────────
+# Records sha256(AST(compute_req6_score)) and sha256(_REQ6_SCORING_WEIGHTS)
+# so an uncommitted source state is captured in the run log header.
+_SCORER_DIR="$(dirname "${SCRIPT_DIR}")"
+_SCORING_HASHES=$(python3 - "${_SCORER_DIR}" <<'_PYEOF'
+import sys, ast, hashlib, json
+_d = sys.argv[1]
+sys.path.insert(0, _d)
+try:
+    from aiem_options_pipeline import compute_req6_score, _REQ6_SCORING_WEIGHTS
+    import inspect
+    _src  = inspect.getsource(compute_req6_score)
+    _ah   = hashlib.sha256(ast.dump(ast.parse(_src)).encode()).hexdigest()
+    _wh   = hashlib.sha256(json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True).encode()).hexdigest()
+    print(f"scoring_fn_ast_hash={_ah}")
+    print(f"req6_weights_hash={_wh}")
+except Exception as _e:
+    print(f"scoring_fn_ast_hash=ERROR:{_e}")
+    print(f"req6_weights_hash=ERROR:{_e}")
+_PYEOF
+)
+echo "${_SCORING_HASHES}"
 echo "=============================="
 echo ""
 

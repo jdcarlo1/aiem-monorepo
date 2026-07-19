@@ -1,0 +1,44 @@
+# DPL Phase 3 — Directive R4.9
+
+Rules: evidence over prose. Raw unedited output only. No implementation of gates or tables except where stated. All negative controls offline or SAVEPOINT+rollback. Run everything through verified_run.sh.
+
+## R4.9.1 — Gate blindness to weights (BLOCKING)
+R4.8.3 proves sha256(compute_req6_score src) is IDENTICAL at 1307531 and b733b9e; b733b9e changed only D12 0.02→0.99. The R4.8.5 gate hashes the function only, so it would NOT have tripped on the real incident.
+- Confirm or refute this in one offline run: compute AST hash of compute_req6_score at both weight values, show both digests.
+- Revise the proposal: norm_hash = sha256(ast.dump(ast.parse(src)) + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)). Show revised gate block. No implementation.
+- State whether any other module-level constant feeds compute_req6_score. grep to prove.
+
+## R4.9.2 — evidence_ref points at a truncated log (BLOCKING)
+verified_run.sh writes verified_run_last.log via tee without -a (established in H0/R4.2). Therefore SEQ=12's log no longer exists.
+- Raw: ls -la of the log dir, cat of the SEQ header in verified_run_last.log, sha256sum of it. State whether it equals the SEQ=12 or SEQ=13 digest.
+- If historical logs are not retained, the R4.8.4 evidence_ref scheme is unverifiable. Propose per-SEQ archival (e.g. logs/verified_run_<SEQ>.log + append-only index of SEQ,TS_END,sha256) and state the verified_run.sh patch. No implementation yet.
+
+## R4.9.3 — C27 must validate evidence_ref end to end
+Restate C27 so it: parses SEQ and sha256; confirms the archived log file exists; recomputes sha256 and compares; greps the log for the decision_id AND the drift exception class. Registration with a well-formed but unresolvable evidence_ref must FAIL. Show pseudocode only.
+
+## R4.9.4 — reason_code assignment
+reason_code is single-valued. State the code for each row and justify:
+- ee74327806 (stored 4fbe78c9… = current HEAD source)
+- 64d956c7ee (stored 0bc8dd98… = no committed version)
+If SOURCE_CHANGED cannot be evidenced for an uncommitted state, say so plainly rather than choosing a code the evidence does not support.
+
+## R4.9.5 — Uncommitted-source hole
+A replay input was captured against source that never entered git. verified_run.sh records git_commit and TREE but not the source.
+- Propose adding to the run header: sha256(ast.dump(ast.parse(inspect.getsource(compute_req6_score)))) and sha256(json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).
+- Implementation APPROVED for this item only. Show before/after diff of the patched lines, old and new sha256(verified_run.sh), and declare the new canonical.
+
+## R4.9.6 — Gate approval cannot be self-approval
+dpl/engine_integrity_refs.json is agent-editable in-repo.
+- Propose a verifier check: commit_sha in the JSON equals the most recent commit touching compute_req6_score or _REQ6_SCORING_WEIGHTS, and approved_by is not the agent identity. Next free check ID.
+- State what a suppressed trade leaves in the DB. If the answer is nothing, propose an append-only gate-event table (decision context, live hash, expected hash, TS) — not oe_decision_audit. No implementation.
+
+## R4.9.7 — Non-scheduler-origin proof, corrected framing
+- Show the NO_TRADE capture_replay_inputs call site key set (sed), not only TRADE.
+- State explicitly that the primary proof all 8 rows are non-production is that every created_at precedes the wiring commit d9d6987e at 2026-07-19T15:16:45Z, with the key-set argument as corroboration. Paste the created_at list against that timestamp.
+
+## R4.9.8 — Date correction
+R4.8.7 says "Monday 2026-07-21 09:45 ET". 2026-07-19 is a Sunday; Monday is 2026-07-20. R7 and R8 said 07-20.
+- Paste the raw scheduler schedule config/cron and the computed next fire time. Correct the record.
+
+## R4.9.9 — Close-out
+Run through verified_run.sh. Report SEQ, TS, git_commit, TREE, porcelain, diff --stat, EXIT, TS_END, sha256(log), canonical script hashes, and per-file sha256 for every file written. Confirm no production table mutated and no rows deleted. Restate Criterion 1 and Phase 3 status.

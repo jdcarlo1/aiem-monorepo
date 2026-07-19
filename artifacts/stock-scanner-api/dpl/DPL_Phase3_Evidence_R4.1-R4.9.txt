@@ -1,0 +1,475 @@
+================================================================================
+  AIEM OPTIONS ENGINE — DECISION PROOF LAYER (DPL) PHASE 3
+  Reproducibility Replay — Complete Verified Evidence Record
+  Rounds R4.1 through R4.9 (2026-07-19)
+================================================================================
+
+CANONICAL SCRIPT HASHES (as of R4.9.5)
+  sha256(tools/verified_run.sh)  = 597862e1c39e507251dc57a4f50499909a7797c51b16e0e2769057cb040ca9c1  [NEW — R4.9.5]
+  sha256(verify_chain.sh)        = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  [UNCHANGED]
+
+PRIOR CANONICAL (R4.8 era, before R4.9.5 patch):
+  sha256(tools/verified_run.sh)  = 467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae
+
+CRITERION 1 STATUS:   BLOCKED (no live scheduler decisions)
+PHASE 3 STATUS:       OPEN
+NEXT EVIDENCE WINDOW: 2026-07-20 09:45 ET (Monday)
+
+================================================================================
+SEQ CHAIN SUMMARY
+================================================================================
+
+Era 1  commit=339cce1  TS=2026-07-19T04:30Z  state=/tmp/portfolio_engine_verify_seq (resets on VM restart)
+Era 2  commit=333c964  TS=2026-07-19T14:43Z  state=tools/verified_run_last.log (LOG_FILE, durable)
+Era 3  commit=9d3b41a  TS=2026-07-19T14:54Z  state=tools/verified_run_seq (workspace-durable, current)
+
+SEQ=1   TS_END=2026-07-19T14:33Z  era=1 (/tmp)
+SEQ=2   TS_END=2026-07-19T14:34Z  era=1 (/tmp)
+SEQ=3   TS_END=2026-07-19T14:51:15Z  era=2 (LOG_FILE)
+SEQ=4   TS_END=2026-07-19T14:51:34Z  era=3
+SEQ=5   TS_END=2026-07-19T15:11:05Z  era=3
+SEQ=6   TS_END=2026-07-19T15:26Z     era=3
+...
+SEQ=12  TS_END=2026-07-19T20:54:54Z  sha256(log)=6cabafcc8d04d6178f50a9cb5e7f786a0c66003872d631abce1f905d3a5fc112
+SEQ=13  TS_END=2026-07-19T21:07:35Z  sha256(log)=91a975054db1da96e20799605c7e79b9c0745018cb57b2a771337ceec6a8613e
+SEQ=14  TS_END=2026-07-19T21:21:54Z  sha256(log)=baac6e1fc39945362d18ee2dba2d6e0c25adb96c634d92ea15a0c71ad647280f
+
+CORRECTION (README R4.7.2): prior claim "era-1 covers SEQ=1–3" was wrong. Only SEQ=1,2 were
+era-1 (/tmp). SEQ=3 was era-2 (LOG_FILE; durable). README sha256 after fix=38ffd3b7cdd46dc6...
+
+================================================================================
+R4.9.1 — Gate blindness to weights [BLOCKING FINDING + REVISED PROPOSAL]
+================================================================================
+
+OFFLINE COMPUTATION:
+
+  AST_only hash (D12=0.02, live):   68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42
+  AST_only hash (D12=0.99, simulated): 68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42
+  AST hash changes with D12 change: False
+
+  revised_norm_hash (D12=0.02):     d405fd3d63c7fd4132a4a7a467ff751ee526d20e916ee31e99ef5a8b800ea8d8
+  revised_norm_hash (D12=0.99):     63032df1b7b479a7aca230608a2cc5ef6766deb6360ac74a900e8a3c8666007c
+  Revised gate WOULD trip on D12 change: True
+
+  sha256(weights D12=0.02): f6b5f48032319dd36e4a6d14a638c32eb06d1332d766f7810b75b21c31d88c67
+  sha256(weights D12=0.99): 2728db435085c66921cd46ba638d5e46e8da759fcf77732380ec9d7332144b6e
+
+CONFIRMATION: The R4.8.5 gate (AST-only) would NOT have tripped on the D12 0.02→0.99 incident
+because D12 lives in _REQ6_SCORING_WEIGHTS (a module-level dict), not in the compute_req6_score
+function body. The AST hash of the function is identical at both weight values.
+
+REVISED GATE FORMULA:
+  norm_hash = sha256(ast.dump(ast.parse(inspect.getsource(compute_req6_score)))
+              + "\x00"
+              + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True))
+
+This covers both source code changes and weight changes.
+
+OTHER MODULE-LEVEL CONSTANTS FEEDING compute_req6_score (grep):
+  aiem_options_pipeline.py:152  _REQ6_SCORING_WEIGHTS = { ... }
+  aiem_options_pipeline.py:299  weights = _REQ6_SCORING_WEIGHTS  [inside function body]
+
+Only _REQ6_SCORING_WEIGHTS. No other module-level constant is read by compute_req6_score.
+(Function reads contract_data, direction, stock_data, iv_rank, verify_result parameters only,
+ plus _REQ6_SCORING_WEIGHTS accessed as the global at line 299.)
+
+REVISED GATE BLOCK (no implementation):
+
+  # In aiem_options_scheduler.py, BEFORE save_options_alert() at line 1847
+  import ast as _ast_pf, json as _json_pf
+  _fn_src_pf = _inspect.getsource(_crs)
+  _live_norm_hash = _hashlib.sha256(
+      (_ast_pf.dump(_ast_pf.parse(_fn_src_pf))
+       + "\x00"
+       + _json_pf.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).encode()
+  ).hexdigest()
+  if _live_norm_hash != _ENGINE_INTEGRITY_REF["norm_hash"]:
+      _gate_msg = (
+          f"[ENGINE_INTEGRITY_GATE] Scoring function or weights changed. "
+          f"live={_live_norm_hash[:16]} expected={_ENGINE_INTEGRITY_REF['norm_hash'][:16]}. "
+          "Trade suppressed. Update dpl/engine_integrity_refs.json and restart."
+      )
+      log.critical(_gate_msg); _tg(_gate_msg)
+      return {"direction": "NO_TRADE", "reason": "ENGINE_INTEGRITY_GATE"}
+
+================================================================================
+R4.9.2 — Historical log availability
+================================================================================
+
+  ls -la tools/verified_run_last.log:
+    -rw-r--r-- 1 runner runner 903 Jul 19 21:07 tools/verified_run_last.log
+    sha256 = 91a975054db1da96e20799605c7e79b9c0745018cb57b2a771337ceec6a8613e
+
+  This equals the SEQ=13 digest. SEQ=12 log (6cabafcc...) is gone — overwritten by tee.
+
+  No logs/ directory exists. verified_run.sh writes via `tee "${LOG_FILE}"` without -a flag
+  (verified_run.sh line 97: `eval "${CMD}" 2>&1 | tee "${LOG_FILE}"`). Every run truncates
+  the previous log. Only the MOST RECENT run's log survives.
+
+  PROBLEM: The R4.8.4 evidence_ref scheme (format "SEQ=N sha256=<log_sha256>") points to a
+  log that no longer exists after the next run. C27's evidence_ref validation is unverifiable
+  for any run other than the most recent.
+
+  PROPOSED PER-SEQ ARCHIVAL:
+    1. Per-SEQ log file: logs/verified_run_<SEQ>.log (SCRIPT_DIR/logs/)
+    2. Append-only index: logs/verified_run_index.tsv  (SEQ\tTS_END\tsha256\n)
+    3. verified_run.sh patch (no implementation):
+       - Change: LOG_FILE="${SCRIPT_DIR}/verified_run_last.log"
+         To:     LOG_FILE="${SCRIPT_DIR}/logs/verified_run_${SEQ}.log"
+                 mkdir -p "${SCRIPT_DIR}/logs"
+                 LAST_LOG="${SCRIPT_DIR}/verified_run_last.log"  # symlink or copy
+       - After TS_END/sha256 footer:
+         echo "${SEQ}\t${TS_END}\t${LOG_SHA}" >> "${SCRIPT_DIR}/logs/verified_run_index.tsv"
+    4. logs/ must be .gitignored or added to the repo (logs grow indefinitely; recommend .gitignore
+       with explicit tracking of index.tsv only).
+
+================================================================================
+R4.9.3 — C27 end-to-end evidence_ref validation (pseudocode)
+================================================================================
+
+  # C27: no VERIFIED row fails replay unless registered as unreplayable with verifiable evidence
+  def check_c27(conn, archived_log_dir):
+      cur.execute("""SELECT decision_id FROM oe_decision_audit
+                     WHERE verification_status='VERIFIED' AND is_test_record=FALSE""")
+      for (did,) in cur.fetchall():
+          try:
+              replay_decision(did, db_url=DB_URL)
+          except (ReplayCodeDriftError, ReplayInputsMissingError) as exc:
+              drift_class = type(exc).__name__
+
+              # 1. Must be registered
+              cur.execute("SELECT evidence_ref FROM oe_unreplayable_rows WHERE decision_id=%s", (did,))
+              row = cur.fetchone()
+              if row is None:
+                  FAIL(f"C27: VERIFIED row {did[:16]} fails replay ({drift_class}) but not registered")
+                  continue
+              evidence_ref = row[0]
+
+              # 2. Parse evidence_ref — format: "SEQ=N sha256=<64hex>"
+              m = re.fullmatch(r"SEQ=(\d+) sha256=([0-9a-f]{64})", evidence_ref)
+              if not m:
+                  FAIL(f"C27: evidence_ref for {did[:16]} malformed: {evidence_ref!r}")
+                  continue
+              ref_seq, ref_sha = int(m.group(1)), m.group(2)
+
+              # 3. Archived log must exist
+              log_path = os.path.join(archived_log_dir, f"verified_run_{ref_seq}.log")
+              if not os.path.exists(log_path):
+                  FAIL(f"C27: archived log SEQ={ref_seq} missing for {did[:16]}")
+                  continue
+
+              # 4. sha256 must match
+              actual_sha = sha256_of_file(log_path)
+              if actual_sha != ref_sha:
+                  FAIL(f"C27: sha256 mismatch for SEQ={ref_seq} log: stored={ref_sha[:16]} actual={actual_sha[:16]}")
+                  continue
+
+              # 5. Log must contain decision_id AND drift exception class
+              log_text = open(log_path).read()
+              if did not in log_text:
+                  FAIL(f"C27: decision_id {did[:16]} not found in referenced log SEQ={ref_seq}")
+                  continue
+              if drift_class not in log_text:
+                  FAIL(f"C27: exception class {drift_class} not found in referenced log SEQ={ref_seq}")
+                  continue
+
+              # All checks pass — this row is legitimately exempt
+              PASS(f"C27: {did[:16]} registered + evidence verified SEQ={ref_seq}")
+
+  Rule: a well-formed but unresolvable evidence_ref (file missing, sha256 mismatch, or
+  decision_id absent from the log) causes C27 to FAIL, not skip.
+
+================================================================================
+R4.9.4 — reason_code assignment for CODE_DRIFT rows
+================================================================================
+
+  ee74327806:
+    stored scoring_fn_hash = 4fbe78c96e9f609bc30144515a2df67d3b89f88d5b88db2f6da64af360403c66
+    sha256(current compute_req6_score source) = 4fbe78c96e9f609bc30144515a2df67d3b89f88d5b88db2f6da64af360403c66
+    STATUS: stored hash MATCHES current source (source-only scheme, pre-b733b9e capture)
+    CODE_DRIFT fires because: live_fn_hash = sha256(source+weights) = eb28b76efd534856...
+                              stored = sha256(source_only) = 4fbe78c9...
+                              These are ERA-INCOMPATIBLE (different composition schemes)
+    reason_code = ERA_INCOMPATIBLE_HASH
+    Justification: The source has not changed. The hash computation scheme changed in b733b9e
+    (09:27Z). The divergence is entirely attributable to the scheme change, not source mutation.
+
+  64d956c7ee:
+    stored scoring_fn_hash = 0bc8dd98911f691fb3aaf8f2a6bb92c147b13b21d8608e514a4638df626c2d03
+    sha256(current source) = 4fbe78c96e9f609b... (no match)
+    sha256 at commits 1307531, b733b9e = 7af29c7505... (no match)
+    sha256 at pre-R3 commits = b09e371d90... (no match)
+    STATUS: stored hash matches NO committed version in history
+    CODE_DRIFT fires because: era-incompatible scheme (same as above) AND source was different
+    reason_code: SOURCE_CHANGED cannot be evidenced — the source that produced 0bc8dd98 was
+    never committed. The uncommitted state at 09:24Z (between commits 1307531 09:07Z and
+    b733b9e 09:27Z) is not recoverable from git history.
+    CORRECT ASSIGNMENT: reason_code = ERA_INCOMPATIBLE_HASH
+    Justification: The ERA_INCOMPATIBLE_HASH cause is independently sufficient and fully
+    evidenced. The additional source change is real but unattributable to any commit.
+    Assigning SOURCE_CHANGED would imply we know the exact source that changed; we do not.
+    ERA_INCOMPATIBLE_HASH is the honest code: it captures what is evidenced.
+    NOTE: This code does not preclude the additional fact that the source was in an
+    uncommitted state. The correction table (R4.8.1 proposal) would record this as an
+    asserted_value/actual_value pair if implemented.
+
+================================================================================
+R4.9.5 — verified_run.sh patch (IMPLEMENTATION APPROVED)
+================================================================================
+
+BEFORE (lines 69–93 of old file):
+  fi
+  echo "=============================="
+  echo ""
+  # ── Run the command ...
+
+AFTER (patched lines 70–94):
+  fi
+  # ── Scoring function integrity (R4.9.5) ───────────────────────────────────
+  # Records sha256(AST(compute_req6_score)) and sha256(_REQ6_SCORING_WEIGHTS)
+  # so an uncommitted source state is captured in the run log header.
+  _SCORER_DIR="$(dirname "${SCRIPT_DIR}")"
+  _SCORING_HASHES=$(python3 - "${_SCORER_DIR}" <<'_PYEOF'
+  import sys, ast, hashlib, json
+  _d = sys.argv[1]
+  sys.path.insert(0, _d)
+  try:
+      from aiem_options_pipeline import compute_req6_score, _REQ6_SCORING_WEIGHTS
+      import inspect
+      _src  = inspect.getsource(compute_req6_score)
+      _ah   = hashlib.sha256(ast.dump(ast.parse(_src)).encode()).hexdigest()
+      _wh   = hashlib.sha256(json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True).encode()).hexdigest()
+      print(f"scoring_fn_ast_hash={_ah}")
+      print(f"req6_weights_hash={_wh}")
+  except Exception as _e:
+      print(f"scoring_fn_ast_hash=ERROR:{_e}")
+      print(f"req6_weights_hash=ERROR:{_e}")
+  _PYEOF
+  )
+  echo "${_SCORING_HASHES}"
+  echo "=============================="
+  echo ""
+  # ── Run the command ...
+
+OLD sha256(verified_run.sh) = 467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae
+NEW sha256(verified_run.sh) = 597862e1c39e507251dc57a4f50499909a7797c51b16e0e2769057cb040ca9c1  ← NEW CANONICAL
+
+LIVE VERIFICATION (SEQ=14 header):
+  scoring_fn_ast_hash=68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42
+  req6_weights_hash=f6b5f48032319dd36e4a6d14a638c32eb06d1332d766f7810b75b21c31d88c67
+
+  req6_weights_hash matches: sha256(weights D12=0.02) = f6b5f48032319dd36e4a6d14a638c32eb06d1332d766f7810b75b21c31d88c67 ✓
+  scoring_fn_ast_hash matches: AST_only hash (D12=0.02) = 68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42 ✓
+
+  NOTE: The header records AST hash and weights hash SEPARATELY (not the combined norm_hash
+  from the revised R4.9.1 proposal). The combined norm_hash would be:
+    sha256("68e0bf8941fc4c16...dump..." + "\x00" + '{"D12_historical_performance": 0.02, ...}')
+    = d405fd3d63c7fd4132a4a7a467ff751ee526d20e916ee31e99ef5a8b800ea8d8
+
+================================================================================
+R4.9.6 — Gate approval cannot be self-approval
+================================================================================
+
+  PROPOSED VERIFIER CHECK (next free ID after C26 = C27 reserved → C28):
+
+  Pseudocode for C28:
+    if not os.path.exists("dpl/engine_integrity_refs.json"):
+        SKIP("C28: refs file not present (gate not yet implemented)")
+        return
+    refs = json.load(open("dpl/engine_integrity_refs.json"))
+    commit_sha = refs.get("commit_sha")
+    approved_by = refs.get("approved_by")
+
+    # 1. commit_sha must equal most recent commit touching compute_req6_score or _REQ6_SCORING_WEIGHTS
+    last_commit = subprocess.check_output([
+        "git","--no-optional-locks","log","-1","--format=%H",
+        "--","aiem_options_pipeline.py","aiem_options_dpl.py"
+    ]).strip().decode()
+    if commit_sha != last_commit:
+        FAIL(f"C28: engine_integrity_refs.json commit_sha={commit_sha[:12]} "
+             f"!= last commit touching scored files={last_commit[:12]}")
+
+    # 2. approved_by must not be the agent identity
+    FORBIDDEN = {"agent", "replit-agent", "main_agent", "auto", ""}
+    if not approved_by or approved_by.lower() in FORBIDDEN:
+        FAIL(f"C28: approved_by={approved_by!r} is a forbidden self-approval identity")
+
+    PASS("C28: engine_integrity_refs.json commit_sha and approved_by verified")
+
+  WHAT A SUPPRESSED TRADE LEAVES IN THE DB:
+    A gate trip (ENGINE_INTEGRITY_GATE) fires BEFORE save_options_alert() at line 1847.
+    Therefore:
+      - oe_decision_audit: NO row written
+      - oe_decision_replay_inputs: NO row written
+      - aiem_options_alerts: NO row written
+      - options_pipeline_jobs: job status left as PROCESSING (not COMPLETED/FAILED)
+    The trade is completely invisible to the audit trail. The only record is the
+    scheduler log (log.critical) and a Telegram message.
+
+  PROPOSED oe_gate_events TABLE (no implementation):
+    CREATE TABLE oe_gate_events (
+        gate_event_id  TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        gate_name      TEXT NOT NULL,   -- 'ENGINE_INTEGRITY_GATE'
+        fired_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ticker         TEXT,
+        trace_id       TEXT,
+        live_hash      TEXT NOT NULL,   -- live norm_hash (first 16 chars min)
+        expected_hash  TEXT NOT NULL,   -- from refs file
+        decision_context JSONB,         -- call_score, put_score, direction that would have been taken
+        is_test_record BOOLEAN NOT NULL DEFAULT FALSE
+    );
+    -- BEFORE UPDATE OR DELETE immutability trigger (matches existing pattern)
+    This table is NOT oe_decision_audit. Gate events are a separate audit class:
+    they represent suppressed potential decisions, not taken decisions.
+
+================================================================================
+R4.9.7 — Non-scheduler-origin proof, corrected framing
+================================================================================
+
+NO_TRADE capture_replay_inputs call site (sed -n '1700,1720p' aiem_options_scheduler.py):
+
+  _dpl_nt_result = _dpl.write_decision(
+      input_data={"ticker": ticker, "trace_id": trace_id,
+                  "call_score": float(call_score),
+                  "put_score":  float(put_score)},
+      ...
+  )
+  ...
+  _dpl.capture_replay_inputs(
+      decision_id=_dpl_nt_result["decision_id"],
+      direction="NO_TRADE",
+      ...
+  )
+
+NO_TRADE input_data KEY SET: {"ticker", "trace_id", "call_score", "put_score"}  — 4 keys
+TRADE   input_data KEY SET: {"ticker", "trace_id", "call_score", "put_score", "direction"}  — 5 keys
+
+The 8-row preimage is a 3-key dict. Neither call site produces a 3-key dict. Both are
+therefore structurally incompatible with the shared hash 0d481fee...
+
+PRIMARY PROOF (corrected framing):
+  All 8 rows with the shared 0d481fee hash have created_at BEFORE the scheduler
+  wiring commit d9d6987e at 2026-07-19T15:16:45Z. The scheduler was not wired to call
+  capture_replay_inputs before that commit; it was physically impossible for these rows
+  to originate from a live scheduler run.
+
+  created_at list vs wiring cutoff:
+    ee74327806f841a7a4034dcc | 2026-07-19T09:04:42Z  < 15:16:45Z  ✓ pre-wiring
+    90ab047a16004ee394620345 | 2026-07-19T09:22:39Z  < 15:16:45Z  ✓ pre-wiring
+    64d956c7ee1b4bbd83147861 | 2026-07-19T09:24:48Z  < 15:16:45Z  ✓ pre-wiring
+    43fc85d578a940069f0dc94d | 2026-07-19T14:33:21Z  < 15:16:45Z  ✓ pre-wiring
+    9d54962e4cb946a58d557ce2 | 2026-07-19T14:34:23Z  < 15:16:45Z  ✓ pre-wiring
+    ef3a765a417843e6a620f010 | 2026-07-19T14:51:15Z  < 15:16:45Z  ✓ pre-wiring
+    d73cc2f132794e5ea67abac0 | 2026-07-19T14:51:34Z  < 15:16:45Z  ✓ pre-wiring
+    e391103d68324a6d8acd4507 | 2026-07-19T15:11:05Z  < 15:16:45Z  ✓ pre-wiring
+    2d03987f38c44c0bbb2daa73 | 2026-07-19T16:04:28Z  > 15:16:45Z  → R7.2 neg-control only
+                                                                      (in oe_criterion1_exclusions)
+
+  KEY-SET CORROBORATION: 3-key preimage is incompatible with both the TRADE (5-key) and
+  NO_TRADE (4-key) production call sites. A 60-combination scan of real-looking 5-key
+  dicts confirms no SHA-256 collision.
+
+================================================================================
+R4.9.8 — Date correction
+================================================================================
+
+RAW SCHEDULER CONFIG (aiem_options_scheduler.py lines 2456–2464):
+  sched.add_job(_seed_job,
+                CronTrigger(day_of_week="mon-fri", hour=9, minute=40), ...)
+  # 09:45 ET — execute pipeline
+  sched.add_job(_execute_job_wrapper,
+                CronTrigger(day_of_week="mon-fri", hour=9, minute=45), ...)
+
+COMPUTED NEXT FIRE TIME:
+  from apscheduler.triggers.cron import CronTrigger
+  t = CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone="America/New_York")
+  now = datetime(2026, 7, 19, 21, 9, 0, tzinfo=utc)   # Sunday evening
+  next_fire = 2026-07-20T09:45:00-04:00  (= 2026-07-20T13:45:00Z)
+
+CORRECTION: R4.8.7 stated "Monday 2026-07-21 09:45 ET". This is wrong.
+  2026-07-19 = Sunday. Next trading Monday = 2026-07-20.
+  2026-07-21 = Tuesday. R4.8.7 was off by one day.
+  CORRECTED: first live evidence window = Monday 2026-07-20 09:45 ET.
+  (R7 and R8 correctly stated 07-20; only R4.8.7 introduced the error.)
+
+================================================================================
+R4.9.9 — Close-out (SEQ=14)
+================================================================================
+
+====== verified_run.sh ======
+SEQ=14
+TS=2026-07-19T21:21:53Z
+CMD=python3 dpl/r4_9_closeout.py
+CWD=/home/runner/workspace/artifacts/stock-scanner-api
+sha256(verified_run.sh)=597862e1c39e507251dc57a4f50499909a7797c51b16e0e2769057cb040ca9c1  ← NEW CANONICAL
+sha256(verify_chain.sh)=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  ✓ unchanged
+git_commit=9b60b34829c686901c8e180d94f22a0b14823a55
+TREE=DIRTY
+git_status_porcelain:
+   M artifacts/stock-scanner-api/tools/verified_run.sh
+   M artifacts/stock-scanner-api/tools/verified_run_seq
+  ?? artifacts/stock-scanner-api/dpl/r4_9_closeout.py
+  ?? attached_assets/Pasted--DPL-Phase-3-Directive-R4-9-...txt
+sha256_modified_files:
+  artifacts/stock-scanner-api/tools/verified_run.sh=597862e1c39e507251dc57a4f50499909a7797c51b16e0e2769057cb040ca9c1
+  artifacts/stock-scanner-api/tools/verified_run_seq=9a92adbc0cee38ef658c71ce1b1bf8c65668f166bfb213644c895ccb1ad07a25
+scoring_fn_ast_hash=68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42
+req6_weights_hash=f6b5f48032319dd36e4a6d14a638c32eb06d1332d766f7810b75b21c31d88c67
+==============================
+
+git diff HEAD --stat (inside run):
+  artifacts/stock-scanner-api/tools/verified_run.sh  | 22 ++++++++++++++++++++++
+  artifacts/stock-scanner-api/tools/verified_run_seq |  2 +-
+  2 files changed, 23 insertions(+), 1 deletion(-)
+
+CRITERION 1:
+  total is_test_record=FALSE rows:  9
+  rows with non-NULL alert_id:      0
+  unregistered rows:                0
+  CRITERION_1_STATUS: BLOCKED
+  R6_STATUS: OPEN
+  PHASE_3_STATUS: OPEN
+  NEXT_EVIDENCE_WINDOW: 2026-07-20 09:45 ET
+
+PRODUCTION TABLE ROW COUNTS (no mutations this session):
+  oe_decision_replay_inputs: 68 rows
+  oe_decision_audit:         97 rows
+  oe_known_synthetic_rows:   10 rows
+  oe_criterion1_exclusions:   1 rows
+  oe_unreplayable_rows:    NOT YET CREATED (proposal only)
+
+SEQ=14  EXIT=0  TS_END=2026-07-19T21:21:54Z
+sha256(log)=baac6e1fc39945362d18ee2dba2d6e0c25adb96c634d92ea15a0c71ad647280f
+
+PER-FILE sha256s THIS SESSION:
+  tools/verified_run.sh       = 597862e1c39e507251dc57a4f50499909a7797c51b16e0e2769057cb040ca9c1  [MODIFIED — R4.9.5]
+  dpl/README.md               = 38ffd3b7cdd46dc6b0b22ba32a39e7ead2af14b560ffc0fc4147c82cc445e003  [R4.7.2 fix]
+  dpl/r4_7_6_evidence.py      = 65edaf5192c1bcc9c41bce1c27908fa933591861376d7d25deb65cbb61e1f7d1  [untracked]
+  dpl/r4_8_closeout.py        = e2d3494e3a6be4b5d5bbb9ef2fda0ff4faf26014a8aa560966d3765e04f27bbe  [untracked]
+  dpl/r4_9_closeout.py        = b3a0adebdad3a854b8e9564d21b574fb5f13cd267bdea99edef0425c06f96737  [untracked]
+
+NO production tables mutated. No rows deleted. No TRUNCATE/DROP executed.
+All negative controls were offline Python computations.
+No writes to oe_decision_replay_inputs, oe_decision_audit,
+oe_known_synthetic_rows, or oe_criterion1_exclusions.
+
+================================================================================
+OPEN PROPOSALS (no implementation yet except R4.9.5)
+================================================================================
+
+1. oe_synthetic_row_corrections  (R4.8.1)  — append-only errata for immutable reason text
+2. oe_unreplayable_rows          (R4.8.4)  — hardened exemption table with immutability trigger,
+                                              reason_code CHECK, evidence_ref NOT NULL
+3. Per-SEQ log archival          (R4.9.2)  — logs/verified_run_<SEQ>.log + index.tsv
+4. C27 evidence_ref validation   (R4.9.3)  — end-to-end: parse SEQ+sha256, confirm archived
+                                              log exists, recompute sha256, grep for decision_id
+                                              and drift class
+5. C28 self-approval gate check  (R4.9.6)  — commit_sha = last commit touching scored files;
+                                              approved_by not in FORBIDDEN set
+6. oe_gate_events                (R4.9.6)  — append-only gate-suppression audit table
+7. Engine integrity gate         (R4.9.1+R4.8.5 revised) — before save_options_alert();
+                                              norm_hash = sha256(AST + "\x00" + weights)
+
+================================================================================
+END OF EVIDENCE RECORD
+================================================================================
