@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "description": "Registry of cryptographic evidence runs that were preserved but are formally classified as defective. These runs remain in the chain (immutable) but must be excluded from claims of clean successful verification.",
+  "defective_runs": [
+    {
+      "seq": 22,
+      "status": "INCOMPLETE_COMMAND_CAPTURE",
+      "reason_code": "CMD_ARG_CAPTURE_BUG",
+      "description": "SEQ=22 was produced by verified_run.sh with CMD='python3' (bare) instead of 'python3 dpl/verify_dpl_phase3.py'. Root cause: verified_run.sh used CMD=${1} which captured only the first shell word when called as 'bash tools/verified_run.sh python3 dpl/verify_dpl_phase3.py'. The bare 'python3' read empty stdin and exited 0, producing no output. log_sha256 = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (sha256 of empty string).",
+      "log_sha256_expected": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256_in_chain": "67ae0555ccf971e129704cf021683966d61f5b6e3e09fe70bdec653b31447cb3",
+      "entry_hash": "9604ed1240addfad2805900220279c284efcedbf078ab78745b32429da4ec195",
+      "ts_end": "2026-07-19T23:26:16Z",
+      "defect_discovery_timestamp": "2026-07-19T23:28:00Z",
+      "correcting_fix": "CMD=${*} (all args) instead of CMD=${1} (first arg only)",
+      "corrected_in_seq": 23,
+      "chain_integrity": "PRESERVED — SEQ=22 is immutable in the chain. prev_hash continuity is valid from SEQ=21 through SEQ=22 to SEQ=23. The defective run does NOT break chain continuity.",
+      "exclusions": [
+        "SEQ=22 must not be cited as a successful verification run",
+        "SEQ=22 must not be included in any PASS count",
+        "SEQ=22 archive content is valid (header + footer only, no CMD output)"
+      ],
+      "included_in_clean_runs": false
+    }
+  ],
+  "clean_sealed_runs": [23, 24],
+  "registry_sha256_note": "sha256 of this file is verified by C50 in verify_dpl_phase3.py"
+}

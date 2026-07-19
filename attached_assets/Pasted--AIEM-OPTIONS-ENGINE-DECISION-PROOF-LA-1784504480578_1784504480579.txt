@@ -1,0 +1,565 @@
+============================================================
+AIEM OPTIONS ENGINE — DECISION PROOF LAYER
+STRICT FOLLOW-UP REMEDIATION DIRECTIVE
+============================================================
+
+SCOPE
+
+This directive applies ONLY to the Decision Proof Layer.
+
+Do not modify or claim verification of:
+
+- Options strategy mathematics
+- Probability calibration
+- Portfolio optimization
+- Portfolio risk
+- Execution intelligence
+- Learning engine
+- Full Options Engine
+
+The objective is to correct the remaining DPL evidence, report, replay, approval, and runtime-verification weaknesses identified in the Round 2 report.
+
+No mocks.
+No fabricated evidence.
+No narrative-only proof.
+No manual database inserts to manufacture passing results.
+All fixes must be verified through repeatable commands, SQL evidence, logs, hashes, and negative controls.
+
+============================================================
+1. FIX OR FORMALLY CLASSIFY THE FAILED END-TO-END REPLAY
+============================================================
+
+The current report shows alert_id=25 with:
+
+- Polygon snapshot unavailable
+- Stock analysis unverifiable
+- Options analysis unverifiable
+- Risk gates unverifiable
+- REQ6 scoring unverifiable
+- Decision unverifiable
+- 3/10 checks passed
+- OVERALL FAIL
+
+Required action:
+
+A. Determine whether alert_id=25 is:
+
+1. A legacy decision created before mandatory snapshot enforcement, or
+2. A current DPL capture failure.
+
+B. If it is a legacy decision:
+
+- Bind it to an immutable legacy cutoff.
+- Store the exact decision timestamp.
+- Store the snapshot-enforcement activation timestamp.
+- Store the immutable exemption reason.
+- Prove the decision predates enforcement.
+- Ensure no post-cutoff decision can receive the same exemption.
+- Add a negative control showing a post-cutoff unreplayable decision is rejected.
+
+C. If it is not a legacy decision:
+
+- Identify and fix the missing snapshot-capture path.
+- Fail closed before decision completion when required evidence is missing.
+- Prevent alert creation, trade eligibility, or final decision status when snapshot capture fails.
+- Verify both TRADE and NO_TRADE paths.
+
+Required proof:
+
+- One legacy replay correctly classified as LEGACY_UNREPLAYABLE, if applicable.
+- One current fully replayable decision.
+- One negative control proving missing current evidence blocks completion.
+- SQL evidence tied to each test.
+- Full trace_id, decision_id, alert_id, timestamps, and hashes.
+
+============================================================
+2. CORRECT THE POST-SEAL VERIFIER CONTRADICTION
+============================================================
+
+The report currently shows:
+
+POST-SEAL VERIFY FULL OUTPUT — SEQ=24
+
+followed by:
+
+ERROR: missing arguments SEQ CHAIN_FILE INDEX_FILE LOGS_DIR
+
+The same report later claims:
+
+PSV 9/9 PASS
+
+This contradiction must be removed.
+
+Required action:
+
+- Execute post_seal_verify.sh using the correct arguments.
+- Capture the complete successful output.
+- Include the actual SEQ=24 verification output in the report.
+- Do not include a failed test invocation under a heading that implies successful production evidence.
+- Clearly distinguish negative controls from authoritative successful runs.
+
+The successful PSV must independently verify:
+
+1. Archive exists.
+2. Archive SHA-256 recomputes correctly.
+3. Index SHA matches archive SHA.
+4. Chain archive SHA matches index and archive.
+5. Entry hash recomputes correctly.
+6. prev_hash continuity is valid.
+7. SEQ identity is correct.
+8. Verifier SUMMARY is present and valid.
+9. Exit code is correctly bound.
+
+Required negative controls:
+
+- Missing archive fails.
+- Modified archive fails.
+- Modified index fails.
+- Modified chain entry fails.
+- Wrong previous hash fails.
+- Missing SUMMARY fails.
+- Wrong SEQ fails.
+
+============================================================
+3. PROVE OR CORRECT INDEPENDENT APPROVAL
+============================================================
+
+The current JSON fields:
+
+- approved_by
+- approver_role
+- approval_method
+
+are metadata only.
+
+They do not independently prove that a separate reviewer approved the exact final engine hash.
+
+Required action:
+
+Implement one of the following:
+
+OPTION A — CRYPTOGRAPHIC APPROVAL
+
+- Separate approver identity.
+- Approver signs the final engine_root_hash.
+- Signature includes:
+  - engine_root_hash
+  - commit SHA
+  - config hash
+  - weights hash
+  - manifest version
+  - approval timestamp
+- Verifier validates the signature.
+- Developer or scheduler cannot generate the approval signature.
+- Any code or hash change invalidates approval.
+
+OPTION B — EXTERNAL CI APPROVAL
+
+- Separate protected CI principal.
+- CI reviews or receives approved hash.
+- CI creates a signed approval artifact.
+- Deployment requires the signed artifact.
+- Deployment fails closed if approval is absent or mismatched.
+
+If neither option is available:
+
+- Mark independent approval as EXTERNAL BLOCKER.
+- Do not call approval independently proven.
+- Label current fields as approval metadata only.
+
+Required proof:
+
+- Positive signature or CI verification.
+- Negative control with altered engine hash.
+- Negative control with altered commit SHA.
+- Negative control with missing approval.
+- Negative control with forbidden/self-approval identity.
+
+============================================================
+4. PROVE THE APPROVAL TIMELINE
+============================================================
+
+The final report must prove this exact sequence:
+
+1. Final code commit created.
+2. Final decision-path files frozen.
+3. Final config and scoring weights frozen.
+4. Engine manifest generated.
+5. engine_root_hash generated.
+6. Separate approval applied to that exact hash.
+7. Verification executed.
+8. Evidence archive sealed.
+9. Post-seal verifier completed.
+10. No relevant files changed afterward.
+
+Required evidence:
+
+- Git commit SHA.
+- Git commit timestamp.
+- File hashes.
+- Manifest generation timestamp.
+- Approval timestamp.
+- Verifier start and end timestamps.
+- Archive seal timestamp.
+- Chain append timestamp.
+- Post-seal verification timestamp.
+- Working tree clean proof.
+- Proof that live file hashes still match approved hashes.
+
+Fail if approval predates the final relevant code or manifest state.
+
+============================================================
+5. REMOVE ALL REPORT CONTRADICTIONS
+============================================================
+
+The final report must contain one authoritative state.
+
+Current contradictions include:
+
+- Different blocker counts.
+- Different blocker numbering.
+- Items marked OPEN in one section and DONE later.
+- Older PASS totals mixed with the final total.
+- Historical chain counts mixed with current counts.
+- PSV error shown beside PSV PASS claims.
+- SEQ=22 retained without clear defective-run classification.
+
+Required action:
+
+- Mark old reports as SUPERSEDED, or remove them from the final report.
+- Maintain one final disposition table.
+- Maintain one final blocker table.
+- Maintain one final verifier result.
+- Maintain one final chain state.
+- Maintain one final PSV result.
+- Add report_schema_version.
+- Add generated_from_commit_sha.
+- Add generated_from_chain_head.
+- Add authoritative=true to the final summary.
+- Add superseded_by reference to older reports.
+
+Required check:
+
+The verifier must scan the final report for contradictory final statuses and fail if more than one authoritative conclusion exists.
+
+============================================================
+6. CORRECTLY DESCRIBE THE CHAIN GAP
+============================================================
+
+SEQ 1–14 do not have durable evidence.
+
+The correct statement is:
+
+“Forward cryptographic continuity is verified from the synthetic GENESIS entry through the current chain head. SEQ 1–14 are not reconstructed and do not contain durable verification evidence.”
+
+Do not claim uninterrupted historical evidence across SEQ 1–14.
+
+Required action:
+
+- Keep the gap explanation immutable.
+- Keep the synthetic GENESIS clearly labeled.
+- Preserve the first fully durable run number.
+- Do not retroactively manufacture entries.
+- Ensure every future report uses the accurate wording.
+- Verify all hashes and prev_hash values from GENESIS forward.
+
+============================================================
+7. FORMALLY CLASSIFY SEQ=22
+============================================================
+
+SEQ=22 captured an empty command output due to incorrect command argument handling.
+
+Required action:
+
+- Preserve SEQ=22 unchanged in the chain.
+- Mark it with a formal status such as:
+  DEFECTIVE_VERIFICATION_RUN
+  or
+  INCOMPLETE_COMMAND_CAPTURE
+- Store the reason code.
+- Store the defect discovery timestamp.
+- Store the correcting commit SHA.
+- Exclude SEQ=22 from claims of clean successful verification.
+- Do not delete or rewrite it.
+
+Required proof:
+
+- Chain remains valid.
+- SEQ=22 remains immutable.
+- SEQ=23 and SEQ=24 contain complete command capture.
+- Reports distinguish valid sealed runs from defective preserved runs.
+
+============================================================
+8. PROVE LIVE RUNTIME ENFORCEMENT
+============================================================
+
+Static verifier checks are not sufficient.
+
+The live DPL workflow must prove that required controls are actually used by the production scheduler and decision process.
+
+Required runtime evidence:
+
+A. DATABASE ROLE
+
+- Print the actual database current_user/session_user used by the scheduler.
+- Prove the scheduler is not using owner, superuser, or migration privileges.
+- Prove the runtime role cannot:
+  - alter triggers
+  - drop protected tables
+  - truncate protected tables
+  - update immutable evidence
+  - modify integrity refs
+  - bypass snapshot enforcement
+
+B. SNAPSHOT CAPTURE
+
+For every current decision:
+
+- Snapshot captured before final decision eligibility.
+- Snapshot tied to decision_id and trace_id.
+- Snapshot sealed and immutable.
+- Missing snapshot causes hard failure.
+- TRADE and NO_TRADE both require capture.
+
+C. CHAIN SEALING
+
+- Evidence archive created.
+- Hash computed.
+- Index written.
+- Chain appended.
+- Post-seal verifier completed.
+- Final completion status occurs only after all required proof succeeds.
+
+D. FAILURE HANDLING
+
+Prove fail-closed behavior for:
+
+- database failure
+- archive write failure
+- hash mismatch
+- chain append failure
+- post-seal verification failure
+- snapshot failure
+- code drift
+- weights drift
+- manifest mismatch
+- approval mismatch
+
+No warning-and-continue behavior is permitted.
+
+============================================================
+9. ADD CRASH-CONSISTENCY VERIFICATION
+============================================================
+
+Test real process interruption at each critical boundary:
+
+1. Before snapshot write.
+2. During snapshot write.
+3. After snapshot write but before decision write.
+4. After decision write but before archive seal.
+5. After archive seal but before chain append.
+6. After chain append but before post-seal verification.
+7. After post-seal verification but before final completion status.
+
+Required behavior:
+
+- No partially verified decision becomes eligible.
+- No duplicate decision is created.
+- No duplicate chain entry is created.
+- Recovery is idempotent.
+- Stale jobs are recoverable.
+- The system resumes from the correct durable checkpoint.
+- Any incomplete record is visibly marked PENDING, FAILED, or RECOVERY_REQUIRED.
+- No incomplete record is marked VERIFIED.
+
+Use actual subprocess termination or worker kill.
+Do not satisfy this with an in-process exception alone.
+
+============================================================
+10. VERIFY ONE COMPLETE CURRENT DPL TRACE
+============================================================
+
+Run one new paper-trading or NO_TRADE decision through the entire DPL.
+
+Required trace evidence:
+
+- scheduler_job_id
+- worker_pid
+- deployment_commit_sha
+- trace_id
+- candidate_id
+- decision_id
+- alert_id, if created
+- source data timestamps
+- Polygon snapshot identifier and hash
+- stock analysis snapshot and hash
+- options analysis snapshot and hash
+- risk gate evidence and hash
+- scoring inputs
+- scoring weights snapshot
+- call score
+- put score
+- direction
+- alternative strategies evaluated
+- reasons alternatives failed
+- selected outcome
+- no-trade justification, if applicable
+- expected entry
+- expected exit
+- target
+- stop criteria
+- invalidation conditions
+- portfolio impact
+- final evidence archive SHA
+- chain SEQ
+- entry_hash
+- prev_hash
+- post-seal verification result
+- immutable database rows
+
+The independent verifier must reproduce the exact stored decision from preserved evidence.
+
+Required final result:
+
+- 10/10 stages PASS
+- No SNAPSHOT_UNAVAILABLE
+- No UNVERIFIABLE stage
+- No suppressed proof output
+- No skipped required stage
+- No manual intervention
+
+============================================================
+11. ADD COMPLETE NEGATIVE-CONTROL COVERAGE
+============================================================
+
+Add and execute negative controls for:
+
+- Missing Polygon snapshot.
+- Modified Polygon snapshot.
+- Missing stock-analysis evidence.
+- Modified options-analysis evidence.
+- Missing risk-gate evidence.
+- Changed scoring weights.
+- Changed scoring code.
+- Changed config.
+- Changed scheduler code.
+- Missing approval.
+- Self-approval.
+- Modified approval.
+- Missing archive.
+- Modified archive.
+- Modified index.
+- Broken prev_hash.
+- Duplicate SEQ.
+- Duplicate decision claim.
+- Runtime elevated DB role.
+- Snapshot capture exception.
+- Chain append exception.
+- Post-seal verifier exception.
+- Process crash during sealing.
+- Attempted UPDATE.
+- Attempted DELETE.
+- Attempted TRUNCATE.
+
+Each negative control must demonstrate a loud failure and blocked completion.
+
+============================================================
+12. FINAL REPORT FORMAT
+============================================================
+
+Produce one final authoritative report with these sections:
+
+SECTION 1 — Scope
+
+State that this verifies only the Decision Proof Layer.
+
+SECTION 2 — Environment
+
+- commit SHA
+- branch
+- Python version
+- database version
+- runtime role
+- scheduler identity
+- verifier hashes
+- manifest hashes
+
+SECTION 3 — Final Verifier Output
+
+Complete unedited output.
+
+SECTION 4 — Current End-to-End Trace
+
+One fully replayable current decision with all stages PASS.
+
+SECTION 5 — Post-Seal Verification
+
+Complete successful PSV output.
+
+SECTION 6 — Chain State
+
+- physical entry count
+- parsed entry count
+- unique SEQ count
+- valid entry count
+- defective preserved entry count
+- chain head
+- GENESIS
+- gap statement
+
+SECTION 7 — Approval Evidence
+
+Signed approval or clearly marked external blocker.
+
+SECTION 8 — Negative Controls
+
+Every negative control and result.
+
+SECTION 9 — Crash Recovery
+
+Actual process-kill evidence and recovery outcome.
+
+SECTION 10 — Open Blockers
+
+Only genuine unresolved external blockers.
+
+SECTION 11 — Final Disposition
+
+Use only one of:
+
+PASS
+PASS WITH EXTERNAL BLOCKERS
+FAIL
+
+Do not use PASS if the current end-to-end decision replay fails.
+
+============================================================
+13. FINAL ACCEPTANCE CRITERIA
+============================================================
+
+The Decision Proof Layer may be marked PASS only if:
+
+- The verifier passes.
+- A new current decision is replayable end-to-end.
+- Every required evidence snapshot exists.
+- Stored and replayed outputs match.
+- Runtime enforcement is proven.
+- Missing evidence fails closed.
+- The chain is valid from GENESIS forward.
+- Defective historical runs are properly classified.
+- Post-seal verification completes successfully.
+- The final report contains no contradictions.
+- Approval is either independently proven or correctly marked external.
+- Crash recovery prevents partial decisions from becoming verified.
+- All negative controls fail loudly.
+- No mock or manually manufactured evidence is used.
+
+Until all acceptance criteria pass, use:
+
+DPL CODE CONTROLS: PASS
+DPL CURRENT END-TO-END REPLAY: PENDING OR FAIL
+DPL PRODUCTION CERTIFICATION: NOT APPROVED
+
+============================================================
+END OF DIRECTIVE
+============================================================

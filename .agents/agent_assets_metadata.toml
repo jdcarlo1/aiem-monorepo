@@ -696,3 +696,9 @@ id = "ND6OFb6BcBHgd5UfAZACS"
 uri = "file://artifacts/stock-scanner-api/dpl/dpl_phase3_complete_verification_round2.txt"
 type = "text"
 title = "DPL Phase 3 Round 2 — Complete Verification Report"
+
+[[outputs]]
+id = "D1jJKoyxIXMWMpUvHxiZd"
+uri = "file://artifacts/stock-scanner-api/dpl/dpl_phase3_final_authoritative_report.txt"
+type = "text"
+title = "DPL Phase 3 — Final Authoritative Report (Schema v2, SEQ=25)"

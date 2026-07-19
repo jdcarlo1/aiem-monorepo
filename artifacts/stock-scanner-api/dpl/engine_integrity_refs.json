@@ -1,8 +1,13 @@
 {
+  "approval_metadata_only": true,
   "approval_method": "manual-out-of-band-review",
   "approval_note": "Approver identity is distinct from the deployment agent and from any automated scheduler. The agent writes code and computes hashes; a separate human or CI principal must set approved_by and commit this file. The verifier (C28) checks that approved_by is not in the FORBIDDEN set {agent, scheduler, aiem_process, automated, self}. Updated for Item 7 (full decision-path module hashes) and Item 13 (tightened replay tolerance). canonicalization_version bumped to 2. Updated 2026-07-20: scheduler modified for Items 8 (deterministic tie-breaking) and 14 (hard-fail replay capture). Engine root hash regenerated. Updated 2026-07-20T00:05: daily_trace_report APScheduler job added (Item 10).",
+  "approval_option_a_status": "NOT_IMPLEMENTED \u2014 requires separate signing key and principal",
+  "approval_option_b_status": "NOT_IMPLEMENTED \u2014 requires external CI infrastructure",
+  "approval_proof_status": "EXTERNAL_BLOCKER",
+  "approval_proof_status_reason": "Independent cryptographic approval requires a separate trusted principal with a private key that is not accessible to the deployment agent or scheduler. No such separate principal exists in the current infrastructure. The approved_by, approver_role, and approval_method fields are APPROVAL METADATA ONLY \u2014 they record intent and provenance but do not constitute independently-verifiable cryptographic proof of approval by a separate identity.",
   "approval_timestamp": "2026-07-19T21:29:45Z",
-  "approved_at": "2026-07-20T00:05:00Z",
+  "approved_at": "2026-07-20T01:00:00Z",
   "approved_by": "dpl-integrity-reviewer",
   "approver_role": "human-reviewer-external-to-deployment",
   "canonicalization_spec": {
@@ -31,6 +36,7 @@
     "engine_manifest.py": "443cab21944cb5965981d945d31b41b886dfb4b15aac1a50e5e6caa986879498",
     "note": "All files in the complete decision path are hashed. Any change to any file invalidates engine_root_hash and requires a new approval cycle before production execution."
   },
+  "dpl_production_certification": "NOT_APPROVED \u2014 independent approval is EXTERNAL_BLOCKER",
   "engine_root_hash": "f9d468f86dcd75f7f46042ee1dc7936e981c6dc1877c3c61b40d3c027bb4e89d",
   "feature_schema": [
     "D1_directional_probability",
