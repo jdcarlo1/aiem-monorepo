@@ -8,6 +8,14 @@
 #
 # The CMD is executed from whichever directory the caller is in (no cd).
 # Exit codes: inherit from inner command (0=all PASS, non-zero=FAIL).
+#
+# SEQ CHAIN DISCONTINUITY NOTE (recorded 2026-07-19):
+#   SEQ is a per-workspace monotonic counter stored in tools/verified_run_seq.
+#   It is NOT a global continuous chain across all time.
+#   Prior to the R4.1 durability proof (2026-07-19), SEQ was stored in /tmp
+#   and reset on every VM restart.  Historical runs cannot be totally ordered
+#   by SEQ alone.  Authoritative ordering uses TS_END (UTC) from the run log.
+#   Canonical sequence since R4.1: SEQ=3 (2026-07-19T14:51:15Z) onward.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,13 +24,15 @@ LOG_FILE="${SCRIPT_DIR}/verified_run_last.log"
 
 CMD="${1:-python portfolio_engine_verify.py --section ALL}"
 
-# ── Monotonic sequence number: derived from last run's log (durable) ──────
-# SEQ_FILE removed (was /tmp — ephemeral). State lives in LOG_FILE (workspace).
+# ── Monotonic sequence number: workspace-durable file (not /tmp) ──────────
+# SEQ_FILE lives in SCRIPT_DIR (git-tracked workspace). Survives VM restarts.
+# tee on LOG_FILE truncates each run — LOG_FILE cannot hold SEQ state.
+SEQ_FILE="${SCRIPT_DIR}/verified_run_seq"
 SEQ_TMP="/tmp/portfolio_engine_verify_seq_$$"
 (
   flock -x 200
-  LAST_SEQ=$(grep -m1 "^SEQ=" "${LOG_FILE}" 2>/dev/null | cut -d= -f2 | tr -d ' \r' || echo 0)
-  echo "$(( ${LAST_SEQ:-0} + 1 ))" > "${SEQ_TMP}"
+  LAST_SEQ=$(cat "${SEQ_FILE}" 2>/dev/null | tr -d ' \r\n' || echo 0)
+  echo "$(( ${LAST_SEQ:-0} + 1 ))" | tee "${SEQ_FILE}" > "${SEQ_TMP}"
 ) 200>"${LOCK_FILE}"
 SEQ=$(cat "${SEQ_TMP}"); rm -f "${SEQ_TMP}"
 
