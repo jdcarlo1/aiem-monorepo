@@ -60,5 +60,12 @@ No DELETE, TRUNCATE, or DROP statement may be written into any source file, scri
 ## Rule 7 — DB role disclosure (added 2026-07-19)
 The agent connects to the database as `postgres` (rolsuper=True, rolbypassrls=True). It holds DELETE+TRUNCATE+UPDATE+INSERT+SELECT on all tables including production tables (aiem_paper_trades, d3_governance_decisions, oe_* series). No grants have been revoked. Any grant changes require Joel's explicit direction.
 
+## Rule 8 — Revert-then-verify, never verify-then-revert (added 2026-07-19)
+When a file is known to contain an unapproved destructive statement (DELETE/TRUNCATE/DROP), that file may not be executed for any purpose — including evidence-gathering, verification, or snapshot capture — until it is reverted or explicitly approved.
+
+**Why:** The DELETE run at ~23:35:47Z on 2026-07-18 was executed as "evidence-gathering" before the code was reverted. This deleted 17 test rows and the log was later overwritten, making the exact run timestamp unrecoverable. The execution itself caused the harm; the reason for running it was irrelevant.
+
+**How to apply:** Order of operations is always REVERT first → VERIFY after. There is no exception for "before snapshot," "evidence capture," or "just checking." If the file contains destructive code, revert it before touching it.
+
 ## Verify-chain.sh native output format (recorded here for reference)
 `entry_hash=<first 16 hex chars>...` is the script's native OK-line format (`stored_hash[:16]` at line 76). Not a display artifact. FAIL/BREAK paths print the full 64-char hash.

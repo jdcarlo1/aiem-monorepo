@@ -642,3 +642,9 @@ id = "qphjUYuNa9fgNEQv1_9q2"
 uri = "file://artifacts/stock-scanner-api/tools/phase5_evidence_full.txt"
 type = "text"
 title = "Phase 5 Full Evidence Package"
+
+[[outputs]]
+id = "B0PiZxMDT95Rd1gcapto5"
+uri = "file://artifacts/stock-scanner-api/tools/phase5_reconciliation_2026-07-19.txt"
+type = "text"
+title = "Phase 5 Reconciliation Report — 2026-07-19"
