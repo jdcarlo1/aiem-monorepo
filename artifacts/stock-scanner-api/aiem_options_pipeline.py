@@ -149,6 +149,21 @@ def _ensure_table() -> None:
 # REQ6 SCORER  (12 dimensions → 0-100 score)
 # ─────────────────────────────────────────────────────────────────────────────
 
+_REQ6_SCORING_WEIGHTS = {
+    "D1_directional_probability":    0.15,
+    "D2_prob_reach_target":          0.12,
+    "D3_expected_return":            0.08,
+    "D4_max_premium_loss":           0.05,
+    "D5_risk_reward":                0.10,
+    "D6_liquidity":                  0.08,
+    "D7_slippage":                   0.07,
+    "D8_theta_decay_risk":           0.08,
+    "D9_market_regime_fit":          0.10,
+    "D10_technical_confirmation":    0.08,
+    "D11_options_flow_confirmation": 0.07,
+    "D12_historical_performance":    0.02,
+}
+
 def compute_req6_score(
     contract_data: dict,
     direction: str,         # "CALL" or "PUT"
@@ -281,20 +296,7 @@ def compute_req6_score(
     scores["D12_historical_performance"] = 50   # neutral — no historical win rate yet
 
     # ── Final 0-100 score (weighted average) ──────────────────────────────────
-    weights = {
-        "D1_directional_probability":   0.15,
-        "D2_prob_reach_target":         0.12,
-        "D3_expected_return":           0.08,
-        "D4_max_premium_loss":          0.05,
-        "D5_risk_reward":               0.10,
-        "D6_liquidity":                 0.08,
-        "D7_slippage":                  0.07,
-        "D8_theta_decay_risk":          0.08,
-        "D9_market_regime_fit":         0.10,
-        "D10_technical_confirmation":   0.08,
-        "D11_options_flow_confirmation":0.07,
-        "D12_historical_performance":   0.02,
-    }
+    weights = _REQ6_SCORING_WEIGHTS
     total = sum(scores[k] * weights[k] for k in weights)
     final_score = round(total, 1)
 

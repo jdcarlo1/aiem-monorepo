@@ -8,6 +8,7 @@ No execution-quality fields (fill probability, slippage, commission) — paper-m
 """
 
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -838,31 +839,24 @@ class ReplayInputsMissingError(Exception):
     to live data or cached defaults.
     """
 
+class ReplayCodeDriftError(Exception):
+    """
+    Raised by replay_decision() when compute_req6_score source has changed
+    since the decision was captured.  Status: CODE_DRIFT.
+    Never silently proceed — a changed scoring function invalidates reproducibility.
+    """
+
 
 _REPLAY_TABLE          = "oe_decision_replay_inputs"
 _REPLAY_SCHEMA_VERSION = "1"
 
-# REQ6 scoring weights — canonical copy for version-hash computation.
-# MUST stay in sync with aiem_options_pipeline.compute_req6_score().
-_REQ6_WEIGHTS = {
-    "D1_directional_probability":    0.15,
-    "D2_prob_reach_target":          0.12,
-    "D3_expected_return":            0.08,
-    "D4_max_premium_loss":           0.05,
-    "D5_risk_reward":                0.10,
-    "D6_liquidity":                  0.08,
-    "D7_slippage":                   0.07,
-    "D8_theta_decay_risk":           0.08,
-    "D9_market_regime_fit":          0.10,
-    "D10_technical_confirmation":    0.08,
-    "D11_options_flow_confirmation": 0.07,
-    "D12_historical_performance":    0.02,
-}
+# REQ6 scoring weights — single authoritative source in aiem_options_pipeline.
+from aiem_options_pipeline import _REQ6_SCORING_WEIGHTS
 
 
 def bootstrap_dpl_phase3(db_url=None) -> bool:
     """
-    Idempotent CREATE TABLE for oe_decision_replay_inputs.
+    Idempotent CREATE TABLE + ALTER + TRIGGER for oe_decision_replay_inputs.
     Safe to call multiple times.  Called automatically by bootstrap_dpl().
     """
     conn = _conn(db_url)
@@ -874,26 +868,67 @@ def bootstrap_dpl_phase3(db_url=None) -> bool:
                                             REFERENCES {_DPL_TABLE}(decision_id),
                     alert_id                INTEGER,
                     replay_schema_version   TEXT    NOT NULL DEFAULT '1',
-                    -- Exact call_data dict passed to compute_req6_score("CALL")
+                    is_test_record          BOOLEAN NOT NULL DEFAULT FALSE,
                     contract_data_call      JSONB   NOT NULL,
-                    -- Exact put_data dict passed to compute_req6_score("PUT")
                     contract_data_put       JSONB   NOT NULL,
-                    -- Full stock_data dict (same as Phase 2 stock_analysis_json)
                     stock_data_replay       JSONB   NOT NULL,
-                    -- iv_rank as 0-1 float (same value passed to compute_req6_score)
                     iv_rank                 NUMERIC(8,6) NOT NULL,
-                    -- verify_result dict
                     verify_result_replay    JSONB   NOT NULL,
-                    -- Configuration version stamps
                     config_versions         JSONB   NOT NULL,
-                    -- Timestamps of upstream data sources at decision time
                     data_source_timestamps  JSONB   NOT NULL,
-                    -- Stored recommendation scores (for replay comparison)
+                    scoring_weights_snapshot JSONB,
                     stored_call_score       NUMERIC(5,1),
                     stored_put_score        NUMERIC(5,1),
                     stored_direction        TEXT,
                     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
+            """)
+            # Additive ALTER for tables already created without new columns
+            for col_ddl in [
+                "ALTER TABLE {t} ADD COLUMN IF NOT EXISTS is_test_record BOOLEAN NOT NULL DEFAULT FALSE",
+                "ALTER TABLE {t} ADD COLUMN IF NOT EXISTS scoring_weights_snapshot JSONB",
+            ]:
+                cur.execute(col_ddl.format(t=_REPLAY_TABLE))
+            # scoring_fn_hash stored inside config_versions JSONB (no separate column)
+            # Migrate existing test rows: set is_test_record=TRUE where parent audit row is test
+            cur.execute(f"""
+                UPDATE {_REPLAY_TABLE} ri
+                SET    is_test_record = TRUE
+                FROM   {_DPL_TABLE} da
+                WHERE  ri.decision_id    = da.decision_id
+                  AND  da.is_test_record = TRUE
+                  AND  ri.is_test_record = FALSE
+            """)
+            # Immutability trigger: block UPDATE/DELETE on non-test rows
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION _oe_replay_guard_immutability()
+                RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF TG_OP = 'DELETE' THEN
+                        IF OLD.is_test_record THEN RETURN OLD; END IF;
+                        RAISE EXCEPTION
+                            'oe_decision_replay_inputs is append-only: '
+                            'DELETE not permitted on production rows';
+                    END IF;
+                    IF OLD.is_test_record THEN RETURN NEW; END IF;
+                    RAISE EXCEPTION
+                        'oe_decision_replay_inputs: all columns are immutable '
+                        'on production rows (is_test_record = FALSE)';
+                END;
+                $$
+            """)
+            cur.execute(f"""
+                DO $$ BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_trigger
+                        WHERE tgname='trg_oe_replay_immutable'
+                          AND tgrelid='{_REPLAY_TABLE}'::regclass
+                    ) THEN
+                        CREATE TRIGGER trg_oe_replay_immutable
+                        BEFORE DELETE OR UPDATE ON {_REPLAY_TABLE}
+                        FOR EACH ROW EXECUTE FUNCTION _oe_replay_guard_immutability();
+                    END IF;
+                END $$
             """)
         conn.commit()
         return True
@@ -905,35 +940,42 @@ def bootstrap_dpl_phase3(db_url=None) -> bool:
 
 
 def capture_replay_inputs(
-    decision_id:   str,
-    direction:     str,
-    call_score:    float,
-    put_score:     float,
-    call_data:     dict,
-    put_data:      dict,
-    stock_data:    dict,
-    verify_result: dict,
-    iv_rank:       float,
-    alert_id:      Optional[int] = None,
-    db_url:        Optional[str] = None,
+    decision_id:    str,
+    direction:      str,
+    call_score:     float,
+    put_score:      float,
+    call_data:      dict,
+    put_data:       dict,
+    stock_data:     dict,
+    verify_result:  dict,
+    iv_rank:        float,
+    alert_id:       Optional[int] = None,
+    is_test_record: bool = False,
+    db_url:         Optional[str] = None,
 ) -> bool:
     """
     Persist the raw inputs required to deterministically replay this decision.
 
     call_data / put_data  — the exact dicts passed to compute_req6_score().
     iv_rank               — 0-1 float (same value passed to compute_req6_score).
+    is_test_record        — True for verifier/test rows; FALSE for all production calls.
 
     Idempotent via ON CONFLICT DO NOTHING on the decision_id PK.
     Returns True on success.
     """
     import datetime as _dt
+    from aiem_options_pipeline import compute_req6_score as _crs
 
     weights_hash = hashlib.sha256(
-        json.dumps(_REQ6_WEIGHTS, sort_keys=True).encode()
+        json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True).encode()
     ).hexdigest()[:16]
+    scoring_fn_hash = hashlib.sha256(
+        inspect.getsource(_crs).encode()
+    ).hexdigest()
 
     config_versions = {
         "req6_weights_hash":     weights_hash,
+        "scoring_fn_hash":       scoring_fn_hash,
         "replay_schema_version": _REPLAY_SCHEMA_VERSION,
         "dpl_module":            "aiem_options_dpl.py",
     }
@@ -949,23 +991,27 @@ def capture_replay_inputs(
             cur.execute(f"""
                 INSERT INTO {_REPLAY_TABLE} (
                     decision_id, alert_id, replay_schema_version,
+                    is_test_record,
                     contract_data_call, contract_data_put, stock_data_replay,
                     iv_rank, verify_result_replay,
                     config_versions, data_source_timestamps,
+                    scoring_weights_snapshot,
                     stored_call_score, stored_put_score, stored_direction
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (decision_id) DO NOTHING
             """, (
                 decision_id,
                 alert_id,
                 _REPLAY_SCHEMA_VERSION,
-                json.dumps(call_data,     default=str),
-                json.dumps(put_data,      default=str),
-                json.dumps(stock_data,    default=str),
+                is_test_record,
+                json.dumps(call_data,                default=str),
+                json.dumps(put_data,                 default=str),
+                json.dumps(stock_data,               default=str),
                 round(float(iv_rank), 6),
-                json.dumps(verify_result, default=str),
+                json.dumps(verify_result,            default=str),
                 json.dumps(config_versions),
                 json.dumps(data_source_timestamps),
+                json.dumps(_REQ6_SCORING_WEIGHTS),
                 round(float(call_score), 1),
                 round(float(put_score),  1),
                 direction,
@@ -1007,7 +1053,8 @@ def replay_decision(
             cur.execute(f"""
                 SELECT contract_data_call, contract_data_put, stock_data_replay,
                        iv_rank, verify_result_replay,
-                       stored_call_score, stored_put_score, stored_direction
+                       stored_call_score, stored_put_score, stored_direction,
+                       config_versions
                 FROM {_REPLAY_TABLE}
                 WHERE decision_id = %s
             """, (decision_id,))
@@ -1023,7 +1070,22 @@ def replay_decision(
         )
 
     (cdc, cdp, sd, iv_r, vr,
-     stored_call, stored_put, stored_direction) = row
+     stored_call, stored_put, stored_direction, config_ver) = row
+
+    # ── CODE_DRIFT check: recompute source hash, fail loudly on mismatch ──
+    stored_fn_hash = (config_ver or {}).get("scoring_fn_hash")
+    if stored_fn_hash:
+        live_fn_hash = hashlib.sha256(
+            inspect.getsource(compute_req6_score).encode()
+        ).hexdigest()
+        if live_fn_hash != stored_fn_hash:
+            raise ReplayCodeDriftError(
+                f"[Phase 3] CODE_DRIFT detected for decision_id={decision_id!r}. "
+                f"stored scoring_fn_hash={stored_fn_hash[:16]!r} "
+                f"live_fn_hash={live_fn_hash[:16]!r}. "
+                "compute_req6_score source has changed since capture. "
+                "Replay is NOT reproducible — resolve before proceeding."
+            )
 
     iv_rank_f = float(iv_r or 0)
 
@@ -1054,22 +1116,36 @@ def replay_decision(
     else:
         dir_r = "NO_TRADE"
 
-    call_match = abs(call_r - float(stored_call or 0)) < 0.05
-    put_match  = abs(put_r  - float(stored_put  or 0)) < 0.05
-    dir_match  = (dir_r == stored_direction)
+    # NULL-safe comparisons: if stored score is NULL, match is None (not False)
+    if stored_call is None:
+        call_match = None
+    else:
+        call_match = abs(call_r - float(stored_call)) < 0.05
+
+    if stored_put is None:
+        put_match = None
+    else:
+        put_match = abs(put_r - float(stored_put)) < 0.05
+
+    if stored_direction is None:
+        dir_match = None
+    else:
+        dir_match = (dir_r == stored_direction)
+
+    full_match = (call_match is True and put_match is True and dir_match is True)
 
     return {
         "decision_id":          decision_id,
         "call_score_replayed":  call_r,
         "put_score_replayed":   put_r,
-        "call_score_stored":    float(stored_call or 0),
-        "put_score_stored":     float(stored_put  or 0),
+        "call_score_stored":    float(stored_call) if stored_call is not None else None,
+        "put_score_stored":     float(stored_put)  if stored_put  is not None else None,
         "direction_replayed":   dir_r,
         "direction_stored":     stored_direction,
         "call_match":           call_match,
         "put_match":            put_match,
         "direction_match":      dir_match,
-        "full_match":           call_match and put_match and dir_match,
+        "full_match":           full_match,
         "call_scoring":         call_result,
         "put_scoring":          put_result,
     }

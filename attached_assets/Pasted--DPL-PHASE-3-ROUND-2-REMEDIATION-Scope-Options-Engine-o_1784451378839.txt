@@ -1,0 +1,81 @@
+# DPL PHASE 3 — ROUND 2 REMEDIATION
+
+Scope: Options Engine only. Do not touch D1/D2/D3 tables, code, or config.
+Phase 3 remains OPEN. Items 1, 6, 7 accepted. Items below must close before Phase 3 closes.
+
+## R1 — _REQ6_WEIGHTS: single authoritative source
+Direction given (you asked): delete `_REQ6_WEIGHTS` from `aiem_options_dpl.py:847`.
+Import the live weights dict from `aiem_options_pipeline.py` and hash THAT object for `config_versions.req6_weights_hash`.
+Do NOT change the weight values. Do NOT alter scoring behavior in `aiem_options_pipeline.py`.
+If the dict is function-local at pipeline.py:284 and not importable, lift it to a module-level constant in pipeline.py and have `compute_req6_score()` reference it — value-identical, no behavior change.
+Also: store the resolved weights dict itself in the replay row, not only its hash.
+
+Prove: raw grep showing zero remaining definitions in dpl.py; raw grep of the new import + hash line; before/after sha256 + `git diff HEAD --stat`; raw output showing a deliberate pipeline weight change moves the hash (then revert the weight and show the revert).
+
+## R2 — Replay code pinning
+Replay currently calls the LIVE `compute_req6_score`. Reproducibility requires detection of post-decision code change.
+Implement: at decision time, store a sha256 of the scoring function source (`inspect.getsource`) in the replay row. At replay, recompute and compare. On mismatch, replay must fail loudly with an explicit CODE_DRIFT status — not warn, not proceed.
+
+Prove: raw grep of the store path and the compare path; raw output of a negative control — mutate the scoring function source, run replay, show the loud failure; restore and show pass.
+
+## R3 — Missing spec inputs
+`oe_decision_replay_inputs` maps nothing for: pattern detections, portfolio state, model version, strategy version. Market snapshot is "(partial)".
+For each of the five: either add the column and populate it, or state in one line that the upstream value does not exist yet and name the source that would produce it. "Will be wired later" is not accepted at phase close.
+State explicitly what "partial" excludes for market snapshot.
+
+Prove: DDL after change via `information_schema.columns`; raw SQL + full result of one populated row.
+
+## R4 — Replay table integrity
+`oe_decision_replay_inputs` shows only PK + FK. No immutability trigger, no `is_test_record`.
+(a) Paste raw `pg_trigger` listing for this table. If no trigger exists, add one matching the `oe_decision_audit` policy (block UPDATE/DELETE on non-test rows).
+(b) Add `is_test_record` to this table rather than inheriting test status via FK.
+(c) State what `replay_decision()` does when `stored_call_score` / `stored_put_score` / `stored_direction` are NULL — does the comparison pass, fail, or skip? Show the raw code path.
+
+## R5 — SEQ chain durability
+Move the SEQ counter out of `/tmp` to DB or a persisted file so the chain survives container restarts.
+Do not modify `tools/verified_run.sh` without pasting before/after sha256 and flagging the canonical-hash change for approval.
+Until this lands, label every chain claim with its container lifetime.
+
+## R6 — Criterion 1
+Replay vs original stored output for 2 REAL past decisions. Blocked until the Monday 2026-07-20 09:45 ET cycle produces real rows in `oe_decision_replay_inputs`. Submit as soon as available. "Documented-unverifiable" is not accepted for this criterion.
+
+## R7 — Restoration authority (procedural)
+Your Item 1 restore was self-authorized as "part of the same authorized mutation sequence." The boundary is what I approved, not what follows from it. Confirm in writing: any write not literally named in the directive requires approval first, including restores.
+
+---
+
+## STANDING REQUIREMENTS — all of the below apply to this directive
+
+**Evidence**
+- No task complete on description alone. Raw terminal output for every claim.
+- Any claim about code location, line numbers, or behavior requires raw `grep -n` / `sed -n` output in context. Paraphrase rejected.
+- Before/after sha256 + exact diff for every changed file.
+- Raw SQL + full result set for any DB claim. >10 rows: `\copy` CSV attached, never inline, never "representative rows."
+- If a claim cannot be backed by real output, say so in one line. No padding.
+
+**Evidence chain**
+- Run all evidence-producing commands through `tools/verified_run.sh`. Validate with `artifacts/stock-scanner-api/verify_chain.sh` and paste output.
+- Paste raw `sha256sum` for both, checked against canonical:
+  - `tools/verified_run.sh` = 8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4
+  - `artifacts/stock-scanner-api/verify_chain.sh` = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+- Mismatch = validator drifted = output rejected regardless of content.
+
+**Data immutability**
+- No delete, truncate, drop, or overwrite of any row, table, or file — including data you created or label test/synthetic/cleanup — without my explicit prior approval in this session.
+- State what and why, wait, then log it. Unapproved deletion is a violation to report, not self-correct.
+- Rule 8: a file known to contain an unapproved destructive statement may not be executed for ANY purpose, including evidence-gathering, until reverted or approved.
+
+**Math / quant correctness**
+- State the formula and reference BEFORE running any test against it.
+- Independent known-answer vectors derived externally, not invented by you.
+- Cross-check by a second method where feasible.
+- Mutation check: break a known-correct value in place, confirm the suite catches it, restore, show the restore.
+
+**No hardcoded values**
+- List every numeric/decision constant in new code before claiming completion.
+- For each: raw grep of the line + one-line trace to its live source.
+- Negative control for every conditional gate introduced — show it blocks under the failing condition.
+
+**Output format**
+- Raw command results only. No prose narrative, no restated context, no banners, no re-verification of anything unchanged this session.
+- `git diff HEAD --stat` output, or "git diff HEAD: no changes".
