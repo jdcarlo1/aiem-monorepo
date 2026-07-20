@@ -16293,12 +16293,18 @@ except Exception as _e_l9_sched:
 # The vm_pressure watchdog above is the emergency catch; this is the prevention.
 try:
     def _nightly_memory_reset():
-        import sys as _nmr_sys
-        print("[NIGHTLY-RESET] 3:00 AM ET scheduled memory reset — exiting cleanly "
-              "for platform auto-restart", flush=True)
-        _nmr_sys.stdout.flush()
-        _nmr_sys.stderr.flush()
-        os._exit(0)
+        import sys as _nmr_sys, gc as _nmr_gc
+        _is_prod = os.environ.get("REPLIT_DEPLOYMENT") == "1"
+        if _is_prod:
+            print("[NIGHTLY-RESET] 3:00 AM ET — production mode: running gc.collect() "
+                  "instead of exit (exit triggers crash loop on deployment platform)", flush=True)
+            _nmr_gc.collect()
+        else:
+            print("[NIGHTLY-RESET] 3:00 AM ET scheduled memory reset — exiting cleanly "
+                  "for platform auto-restart", flush=True)
+            _nmr_sys.stdout.flush()
+            _nmr_sys.stderr.flush()
+            os._exit(0)
 
     _scheduler.add_job(
         _nightly_memory_reset,

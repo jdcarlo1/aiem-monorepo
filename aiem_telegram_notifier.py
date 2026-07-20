@@ -2777,9 +2777,16 @@ def main():
     )
 
     def _nightly_notifier_reset():
-        log.info("[NIGHTLY-RESET] 3:04 AM ET scheduled memory reset — exiting cleanly for platform restart")
-        import sys as _s; _s.stdout.flush()
-        import os as _o; _o._exit(0)
+        import os as _o, gc as _gc
+        _is_prod = _o.environ.get("REPLIT_DEPLOYMENT") == "1"
+        if _is_prod:
+            log.info("[NIGHTLY-RESET] 3:04 AM ET — production mode: running gc.collect() "
+                     "instead of exit (exit triggers crash loop on deployment platform)")
+            _gc.collect()
+        else:
+            log.info("[NIGHTLY-RESET] 3:04 AM ET scheduled memory reset — exiting cleanly for platform restart")
+            import sys as _s; _s.stdout.flush()
+            _o._exit(0)
 
     scheduler.add_job(
         _nightly_notifier_reset,

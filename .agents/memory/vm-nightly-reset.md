@@ -15,14 +15,21 @@ The Reserved VM runs 6 processes: stock-api, aiem-process, aiem-telegram, api-se
 
 **How to apply:** If the watchdog ever needs to be revisited, check both `rss_pct` (this process) AND `vm_pressure_pct` (whole VM).
 
-## Fix Layer 2 — Nightly 3 AM Memory Reset
-Each service schedules a clean `os._exit(0)` at 3 AM ET (market closed, no scans):
-- stock-api: 3:00 AM via APScheduler `CronTrigger(hour=3, minute=0, timezone=_ET)`, job id `nightly_memory_reset`
+## Fix Layer 2 — Nightly 3 AM Memory Reset (UPDATED July 2026)
+
+**CRITICAL: os._exit(0) in production causes crash loops.**
+
+When any process exits in the monorepo deployment, the platform cascade-SIGTERMs all other processes, then tries to restart all 4 runnable services simultaneously. If they don't come up fast enough, healthchecks time out and the deployment enters a crash loop that can last hours (confirmed: nclexai.org down all morning July 20, 2026).
+
+**Fix (July 2026):** All three nightly reset functions now check `os.environ.get("REPLIT_DEPLOYMENT") == "1"`:
+- If **production**: call `gc.collect()` only — NO exit. Memory relief is partial but the site stays up.
+- If **dev**: keep `os._exit(0)` — platform restarts individual dev workflow, no cascade.
+
+**Why `os._exit(0)` not `sys.exit()`:** `sys.exit()` raises SystemExit which APScheduler catches and swallows. `os._exit(0)` bypasses all Python exception handling. This distinction only matters in dev now.
+
+Schedule (unchanged):
+- stock-api: 3:00 AM ET, job id `nightly_memory_reset`
 - aiem-process: 3:02 AM, job id `aiem_process_nightly_reset`
 - aiem-telegram notifier: 3:04 AM, job id `nightly_notifier_reset`
 
-Staggered by 2 min each so DB isn't hammered by simultaneous cold starts.
-
-**Why `os._exit(0)` not `sys.exit()`:** `sys.exit()` raises SystemExit which APScheduler catches and swallows. `os._exit(0)` bypasses all Python exception handling and truly terminates the process so the platform restarts it.
-
-**Result:** Memory resets from ~1.5 GB back to ~370 MB every night. Emergency watchdog catches any unexpected daytime spike.
+**Result:** Memory resets from ~1.5 GB back to ~370 MB every night in dev. In prod, gc.collect() gives partial relief; the vm_pressure watchdog (82% threshold) handles any daytime emergency.
