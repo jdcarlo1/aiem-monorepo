@@ -86,18 +86,23 @@ echo "git_commit=${GIT_COMMIT}"
 echo "prev_chain_hash=${PREV_HASH}"
 
 # ── Working tree state ────────────────────────────────────────────────────
-# Per mandatory certification procedure the two items below are EXCLUDED from
-# the TREE=CLEAN determination because they are required pre-run updates, not
-# source-code changes:
+# Per mandatory certification procedure the three items below are EXCLUDED from
+# the TREE=CLEAN determination because they are required pre-run updates or
+# runtime-mutated counters, not source-code changes:
 #   ??  — untracked files (audit directives, workspace notes — not engine code)
 #   dpl/engine_integrity_refs.json — must be updated to current HEAD before
 #       every sealed run (step 3 of the mandatory procedure). Modifying it is
 #       a certification prerequisite, not a code change.
+#   tools/verified_run_seq — monotonic SEQ counter; mutated on every run by
+#       the flock+increment logic above. It is a runtime state file, not engine
+#       source code. Its integrity is enforced by the cryptographic chain
+#       (each entry carries the SEQ value and is hash-chained), not by TREE.
 # All other tracked modifications (M/D/A/R/C) still cause TREE=DIRTY.
 GIT_PORCELAIN_RAW=$(git --no-optional-locks -C "${GIT_ROOT}" status --porcelain 2>/dev/null || true)
 GIT_PORCELAIN=$(printf '%s\n' "${GIT_PORCELAIN_RAW}" \
     | grep -v '^??' \
     | grep -v 'dpl/engine_integrity_refs\.json' \
+    | grep -v 'tools/verified_run_seq' \
     || true)
 if [ -z "${GIT_PORCELAIN}" ]; then
     TREE_STATUS="CLEAN"

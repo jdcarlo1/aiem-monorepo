@@ -14,7 +14,7 @@
       "defect_discovery_timestamp": "2026-07-19T23:28:00Z",
       "correcting_fix": "CMD=${*} (all args) instead of CMD=${1} (first arg only)",
       "corrected_in_seq": 23,
-      "chain_integrity": "PRESERVED — SEQ=22 is immutable in the chain. prev_hash continuity is valid from SEQ=21 through SEQ=22 to SEQ=23. The defective run does NOT break chain continuity.",
+      "chain_integrity": "PRESERVED \u2014 SEQ=22 is immutable in the chain. prev_hash continuity is valid from SEQ=21 through SEQ=22 to SEQ=23. The defective run does NOT break chain continuity.",
       "exclusions": [
         "SEQ=22 must not be cited as a successful verification run",
         "SEQ=22 must not be included in any PASS count",
@@ -40,7 +40,7 @@
     {
       "seq": 36,
       "reason_code": "DIRTY_TREE_AT_RUNTIME",
-      "description": "SEQ=36 ran with TREE=DIRTY (5 dirty paths including dpl/verify_dpl_phase3.py, tools/defective_runs_registry.json, tools/verified_run_seq, tools/a8_baseline_seq32.json, attached_assets R6 directive). Self-exemption from SEQ=35 registration was an error — same defect class applies. Registered per A14 directive.",
+      "description": "SEQ=36 ran with TREE=DIRTY (5 dirty paths including dpl/verify_dpl_phase3.py, tools/defective_runs_registry.json, tools/verified_run_seq, tools/a8_baseline_seq32.json, attached_assets R6 directive). Self-exemption from SEQ=35 registration was an error \u2014 same defect class applies. Registered per A14 directive.",
       "registered_at": "2026-07-20T09:00:00Z",
       "git_status_at_run": [
         "M  artifacts/stock-scanner-api/dpl/verify_dpl_phase3.py",
@@ -54,7 +54,7 @@
     {
       "seq": 37,
       "reason_code": "DIRTY_TREE_AT_RUNTIME",
-      "description": "SEQ=37 ran with TREE=DIRTY (8 dirty paths: 6M + 1?? + verified_run_seq). All A14-A20 blocking and B15-B17 non-blocking R7 items are fully implemented in this run. The DIRTY state is a workflow constraint — git commit is blocked during an active session; the auto-commit at task completion will clean the tree. An additional Layer-1/Layer-2 ordering bug was discovered during this run (A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean) and is fixed in this same session. SEQ=38 (post-auto-commit) will be the first run on a clean tree.",
+      "description": "SEQ=37 ran with TREE=DIRTY (8 dirty paths: 6M + 1?? + verified_run_seq). All A14-A20 blocking and B15-B17 non-blocking R7 items are fully implemented in this run. The DIRTY state is a workflow constraint \u2014 git commit is blocked during an active session; the auto-commit at task completion will clean the tree. An additional Layer-1/Layer-2 ordering bug was discovered during this run (A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean) and is fixed in this same session. SEQ=38 (post-auto-commit) will be the first run on a clean tree.",
       "registered_at": "2026-07-20T04:05:00Z",
       "git_commit_at_run": "7000bc7909a6bd0763a3f78976591d602521f6d9",
       "git_status_at_run": [
@@ -78,7 +78,7 @@
         "C52C_genuine_replay_pass (pre-existing)",
         "C28_live_engine_root_hash_matches_approved (pre-existing)",
         "C28_approved_by_in_allowlist_and_engine_hash_match (pre-existing: empty allowlist)",
-        "A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean (Layer-1/Layer-2 ordering bug — fixed in this session)"
+        "A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean (Layer-1/Layer-2 ordering bug \u2014 fixed in this session)"
       ],
       "archive_sha256": "b03559cba55b01b7075172f41d2e2629ecd41f862cb60e2b439c66d8120915c9",
       "exit_code": 1,
@@ -98,7 +98,7 @@
     {
       "seq": 38,
       "reason_code": "DIRTY_TREE_AT_RUNTIME",
-      "description": "SEQ=38 ran with TREE=DIRTY — tools/verified_run.sh was M (TREE filter fix uncommitted). Key fixes in this run: C52A resolved (9 contaminated rows moved to is_test_record=TRUE; prod namespace = 0 rows); engine_root_hash updated (5de49257); refs commit_sha updated (df03bdab). Two regressions discovered and fixed this session: C16 (_C16_KNOWN_FALSE was a contaminated row, now is_test_record=TRUE → SAVEPOINT approach adopted); A8 cascade (double-prefix A8_REMOVAL_VIOLATION:A8_REMOVAL_VIOLATION → startswith filter added to Layer-1). After auto-commit, SEQ=39 will be the first TREE=CLEAN run (verified_run.sh committed; refs.json excluded from TREE check; update refs commit_sha to new HEAD before running).",
+      "description": "SEQ=38 ran with TREE=DIRTY \u2014 tools/verified_run.sh was M (TREE filter fix uncommitted). Key fixes in this run: C52A resolved (9 contaminated rows moved to is_test_record=TRUE; prod namespace = 0 rows); engine_root_hash updated (5de49257); refs commit_sha updated (df03bdab). Two regressions discovered and fixed this session: C16 (_C16_KNOWN_FALSE was a contaminated row, now is_test_record=TRUE \u2192 SAVEPOINT approach adopted); A8 cascade (double-prefix A8_REMOVAL_VIOLATION:A8_REMOVAL_VIOLATION \u2192 startswith filter added to Layer-1). After auto-commit, SEQ=39 will be the first TREE=CLEAN run (verified_run.sh committed; refs.json excluded from TREE check; update refs commit_sha to new HEAD before running).",
       "registered_at": "2026-07-20T04:30:00Z",
       "git_commit_at_run": "df03bdab008e94b866b63e3b403e7b3f4c44cfc2",
       "git_status_at_run": [
@@ -110,7 +110,7 @@
       "fail_count": 7,
       "total_checks": 189,
       "fails": [
-        "C16_trigger_blocks_prod_update (C52A regression: _C16_KNOWN_FALSE row now is_test_record=TRUE — fixed this session via SAVEPOINT approach)",
+        "C16_trigger_blocks_prod_update (C52A regression: _C16_KNOWN_FALSE row now is_test_record=TRUE \u2014 fixed this session via SAVEPOINT approach)",
         "C48_independent_approval_obtained (external blocker)",
         "C52B_scheduler_origin_decision_exists (environmental: no Monday scheduler decision yet)",
         "C52B_live_trade_decision_exists (environmental: no live trade yet)",
@@ -120,10 +120,34 @@
       ],
       "archive_sha256": "4c2b78db827aeaa1d48818b771176852da50799a9931eb2eafb9e910fc36514c",
       "exit_code": 1
+    },
+    {
+      "seq": 39,
+      "reason_code": "DIRTY_TREE_AT_RUNTIME",
+      "description": "SEQ=39 ran with TREE=DIRTY \u2014 tools/verified_run_seq was M (runtime counter, not source code). Two additional fixable issues discovered: (1) verified_run_seq excluded from TREE filter (added to grep -v list alongside refs.json); (2) A8 Layer-1 cascade artifact caused KeyError in else-branch supersede-registry lookup (fixed: separate _a8_cascade_arts before registry lookup). After fixes, SEQ=40 will be TREE=CLEAN with 5 external FAILs.",
+      "registered_at": "2026-07-20T05:00:00Z",
+      "git_commit_at_run": "9a1af0d9c3973d53a9054b8af18f0f4d182f24e8",
+      "git_status_at_run": [
+        "M  artifacts/stock-scanner-api/tools/verified_run_seq (excluded by TREE filter fix)",
+        "?? attached_assets/Pasted--INSTITUTIONAL-AUDIT-REMEDIATION-STRICT-V-..."
+      ],
+      "pass_count": 183,
+      "fail_count": 6,
+      "total_checks": 189,
+      "fails": [
+        "C48_independent_approval_obtained (external blocker)",
+        "C52B_scheduler_origin_decision_exists (environmental)",
+        "C52B_live_trade_decision_exists (environmental)",
+        "C52C_genuine_replay_pass (environmental)",
+        "C28_approved_by_in_allowlist_and_engine_hash_match (external blocker)",
+        "A8_enforcement_error (cascade artifact KeyError in supersede-registry lookup \u2014 fixed this session)"
+      ],
+      "archive_sha256": "6b1f2925900c03f3076cf25b3f9f3eb04037f71ca6ec0e666be6fb641c2e3499",
+      "exit_code": 1
     }
   ],
   "clean_sealed_runs": [],
-  "clean_sealed_runs_note": "All runs SEQ=23-38 are DIRTY. SEQ=39 is expected to be the first TREE=CLEAN run after auto-commit: verified_run.sh (TREE filter) is committed; refs.json is excluded from TREE determination; update refs commit_sha to new HEAD before running SEQ=39.",
+  "clean_sealed_runs_note": "SEQ=40 is the first expected TREE=CLEAN run. verified_run.sh now excludes verified_run_seq (runtime counter) in addition to refs.json and ?? untracked. A8 cascade artifact KeyError fixed (separate _a8_cascade_arts before registry lookup).",
   "a15_evidence": {
     "SEQ=23": "TREE=DIRTY  git_commit=bc7fad30  dirty=6M+3??",
     "SEQ=24": "TREE=DIRTY  git_commit=bc7fad30  dirty=6M+3??",
@@ -139,8 +163,9 @@
     "SEQ=35": "TREE=DIRTY  (registered defective)",
     "SEQ=36": "TREE=DIRTY  (registered defective)",
     "SEQ=37": "TREE=DIRTY  git_commit=7000bc79  dirty=8paths (R7 workflow constraint)",
-    "SEQ=38": "TREE=DIRTY  git_commit=df03bdab  dirty=verified_run.sh+verify_dpl_phase3.py+defective_runs_registry.json M (refs.json M but excluded by TREE filter)"
+    "SEQ=38": "TREE=DIRTY  git_commit=df03bdab  dirty=verified_run.sh+verify_dpl_phase3.py+defective_runs_registry.json M (refs.json M but excluded by TREE filter)",
+    "SEQ=39": "TREE=DIRTY  git_commit=9a1af0d9  dirty=verified_run_seq M (runtime counter, excluded from filter after this run)"
   },
   "registry_sha256_note": "sha256 of this file is verified by C50 in verify_dpl_phase3.py",
-  "total_defective": 6
+  "total_defective": 7
 }

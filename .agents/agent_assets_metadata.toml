@@ -756,3 +756,9 @@ id = "FNWTkRHnzOsREBSfxvYUC"
 uri = "file://artifacts/stock-scanner-api/dpl/R8_Session_Summary.md"
 type = "text"
 title = "R8 Session Summary — DPL Phase 3"
+
+[[outputs]]
+id = "LetNyx4VKkyN8boS3snO9"
+uri = "file://artifacts/stock-scanner-api/dpl/R8_Institutional_Audit_Evidence.md"
+type = "text"
+title = "Institutional Audit Evidence Package — All 11 Items"

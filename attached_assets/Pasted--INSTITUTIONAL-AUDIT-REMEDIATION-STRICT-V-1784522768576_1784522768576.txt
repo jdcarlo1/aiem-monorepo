@@ -1,0 +1,201 @@
+===========================================================
+INSTITUTIONAL AUDIT REMEDIATION
+STRICT VERIFICATION REQUIRED
+===========================================================
+
+STATUS:
+The session summary documents the intended fixes, but several items require
+additional proof before they should be considered institutionally verified.
+
+===========================================================
+1. TRIGGER BYPASS AUDIT
+===========================================================
+
+The C52A fix disables triggers, updates production data, then re-enables
+triggers.
+
+REQUIRE:
+
+✓ Verify triggers were re-enabled.
+✓ Verify no trigger remained disabled.
+✓ Verify no rows bypassed hash-chain protection.
+✓ Produce before/after trigger state.
+✓ Produce catalog query proving trigger status.
+✓ Record immutable audit evidence.
+
+FAIL if any trigger remains disabled.
+
+===========================================================
+2. HASH REFERENCE UPDATE
+===========================================================
+
+engine_integrity_refs.json was manually synchronized.
+
+REQUIRE:
+
+✓ Recalculate every hash independently.
+✓ Verify hashes directly from source files.
+✓ Verify commit SHA matches HEAD.
+✓ Verify engine root hash is deterministic.
+✓ Verify combined hash reproducibility.
+
+Never trust manually entered hash values.
+
+===========================================================
+3. TREE FILTER REVIEW
+===========================================================
+
+verified_run.sh now ignores:
+
+- ??
+- engine_integrity_refs.json
+
+Institutional concern:
+
+A whitelist can unintentionally hide real modifications.
+
+REQUIRE:
+
+Whitelist must:
+
+✓ Match exact filename only.
+✓ Never ignore directories.
+✓ Never ignore wildcards.
+✓ Log every excluded file.
+✓ Cryptographically record exclusions.
+✓ Verify exclusions cannot expand automatically.
+
+===========================================================
+4. SAVEPOINT NEGATIVE CONTROL
+===========================================================
+
+C16 now uses SAVEPOINT.
+
+REQUIRE:
+
+Verify:
+
+✓ rollback executed
+✓ inserted row removed
+✓ no orphan rows remain
+✓ trigger actually fired
+✓ failure occurs when trigger removed
+✓ success occurs when trigger enabled
+
+Negative controls required.
+
+===========================================================
+5. A8 REMOVAL FILTER
+===========================================================
+
+The one-line exclusion is reasonable but requires proof.
+
+Verify:
+
+✓ legitimate removals still detected
+✓ recursive artifacts only ignored
+✓ historical runs unaffected
+✓ regression tests added
+
+===========================================================
+6. DEFECTIVE RUN REGISTRY
+===========================================================
+
+Verify registry automatically updates.
+
+Never allow manual editing without:
+
+✓ hash
+✓ timestamp
+✓ signer
+✓ chain entry
+
+===========================================================
+7. CLEAN RUN CERTIFICATION
+===========================================================
+
+Do not certify TREE=CLEAN until independent verification proves:
+
+✓ no hidden modifications
+✓ whitelist behaved correctly
+✓ hashes recomputed independently
+✓ repository reproducible from clean clone
+
+===========================================================
+8. DATABASE FORENSICS
+===========================================================
+
+Run verification:
+
+✓ no production contamination
+✓ no orphan records
+✓ no duplicate decision IDs
+✓ no replay corruption
+✓ referential integrity
+✓ foreign keys valid
+
+===========================================================
+9. END-TO-END REPRODUCIBILITY
+===========================================================
+
+Institutional verification requires:
+
+Fresh clone
+↓
+Install dependencies
+↓
+Run verifier
+↓
+Identical hashes
+↓
+Identical PASS/FAIL
+↓
+Identical chain hashes
+
+Any deviation = FAIL
+
+===========================================================
+10. EVIDENCE PACKAGE
+===========================================================
+
+Provide:
+
+✓ SQL evidence
+✓ Git evidence
+✓ SHA-256 evidence
+✓ runtime logs
+✓ verifier logs
+✓ chain logs
+✓ trigger status
+✓ database counts
+✓ environment metadata
+
+Narrative summaries alone are not sufficient.
+
+===========================================================
+11. REMAINING EXTERNAL BLOCKERS
+===========================================================
+
+Do not mark project COMPLETE until:
+
+✓ independent approval obtained
+✓ scheduler fires automatically
+✓ live TRADE decision captured
+✓ replay verification passes
+
+===========================================================
+FINAL CERTIFICATION REQUIREMENT
+===========================================================
+
+PASS requires:
+
+✓ mathematical correctness
+✓ runtime correctness
+✓ database correctness
+✓ cryptographic integrity
+✓ deterministic reproducibility
+✓ independent verification
+✓ complete audit evidence
+
+Any missing evidence keeps certification at
+"NOT YET INSTITUTIONALLY VERIFIED."

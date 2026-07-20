@@ -3355,19 +3355,26 @@ try:
         # Layer-2 runs AFTER Layer-1. Exclude them from the removal check to avoid
         # false A8_REMOVAL_VIOLATION entries. (Layer-2 adds them on every run.)
         _A8_L1_META_EXCL = {'A8_baseline_erosion_clean', 'A8_baseline_file_missing'}
-        _a8_removed  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
+        _a8_removed_raw  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
         # A8_REMOVAL_VIOLATION:* names are Layer-1 enforcement artifacts — their presence
-        # depends on the violation state each run, not deliberate check removal. Exclude
-        # them to prevent cascading double-prefix violations across runs.
-        _a8_viol     = [n for n in sorted(_a8_removed)
-                        if n not in _A8_SUPERSEDE_REGISTRY
-                        and not n.startswith('A8_REMOVAL_VIOLATION:')]
+        # depends on the violation state each run, not deliberate check removal. Separate
+        # them before any supersede-registry lookup to prevent cascading double-prefix
+        # violations and KeyErrors when the artifact name is not in the registry.
+        _a8_cascade_arts = {n for n in _a8_removed_raw if n.startswith('A8_REMOVAL_VIOLATION:')}
+        _a8_removed      = _a8_removed_raw - _a8_cascade_arts
+        _a8_viol         = [n for n in sorted(_a8_removed)
+                            if n not in _A8_SUPERSEDE_REGISTRY]
         if _a8_viol:
             print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_viol)} prior-run removal violation(s):")
             for _v in _a8_viol:
                 print(f"  VIOLATION: {_v}")
                 _FAIL.append(f"A8_REMOVAL_VIOLATION:{_v}")
         else:
+            if _a8_cascade_arts:
+                print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_cascade_arts)} cascade artifact(s) "
+                      f"suppressed (Layer-1 enforcement names — not check removals):")
+                for _ca in sorted(_a8_cascade_arts):
+                    print(f"  CASCADE_ARTIFACT: {_ca}")
             print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_removed)} removed check(s), "
                   f"all in supersede registry — OK")
             for _rn in sorted(_a8_removed):
