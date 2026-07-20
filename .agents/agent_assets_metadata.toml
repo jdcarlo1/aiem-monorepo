@@ -714,3 +714,9 @@ id = "rywuZKWZKfMQKBhMWpznY"
 uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_Audit_Response_2026-07-20.txt"
 type = "text"
 title = "DPL Phase 3 Audit Response — 2026-07-20"
+
+[[outputs]]
+id = "IimIdWR0YXhegEukdnENH"
+uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_R2_Session_Report.txt"
+type = "text"
+title = "DPL Phase 3 R2 — Session Completion Report"

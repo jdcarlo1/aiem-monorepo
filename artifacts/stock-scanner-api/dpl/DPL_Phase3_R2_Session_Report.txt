@@ -1,0 +1,235 @@
+===========================================================================
+  DPL PHASE 3 — AUDIT RESPONSE R2 — SESSION COMPLETION REPORT
+  Generated: 2026-07-19 22:06 EDT (Sunday)
+  Prepared for: Monday 09:45 ET scheduler run
+===========================================================================
+
+SEAL CHAIN PROGRESSION THIS SESSION
+-------------------------------------
+  SEQ=29  176 PASS   9 FAIL   9 PSV PASS   (start of session)
+  SEQ=30  181 PASS   5 FAIL   9 PSV PASS
+  SEQ=31  182 PASS   5 FAIL   9 PSV PASS
+  SEQ=32  183 PASS   4 FAIL   9 PSV PASS   ← FINAL SEALED STATE
+
+FINAL CHAIN ENTRY (SEQ=32)
+---------------------------
+  entry_hash:        fa387ed3e35f6e214de26125c8a67414...
+  ts (UTC):          2026-07-20T02:04:07Z
+  engine_root_hash:  4ff60253f52e37d5b1b65dbae40c56f960a835b59bab7871...
+  commit_sha:        fc1ddf1a43b53c5fef9f2e4e4760bcdc20ea2253
+  refs_updated_at:   2026-07-20T01:58:28Z
+  approved_by:       null  (A2 compliant — no approval performed)
+  approved_at:       null  (A2 compliant)
+  approval_method:   NONE_PERFORMED
+  dpl_production_certification: NOT_APPROVED — independent approval is EXTERNAL_BLOCKER
+
+
+===========================================================================
+  BLOCKING ITEMS — WHAT WAS FIXED
+===========================================================================
+
+A1 — DATE TRUTH (prior session, confirmed this session)
+--------------------------------------------------------
+  The ET timestamp when fixes were physically applied was Sunday 2026-07-19
+  (~21:46 EDT), not Monday 2026-07-20. Commits f7581e6 and fc1ddf1 exist
+  in git history and are the anchoring evidence.  The claim "2026-07-20 =
+  Monday" was incorrect; no code was re-applied.
+
+A2 — APPROVAL FIELDS NULLED (prior session, confirmed this session)
+--------------------------------------------------------------------
+  engine_integrity_refs.json now carries:
+    approved_by:        null
+    approver_role:      null
+    approval_timestamp: null
+    approval_method:    NONE_PERFORMED
+  These fields reflect the honest state: no independent approval has been
+  performed.  The dpl_production_certification field explicitly states the
+  external blocker.
+
+A3 — S10 MULTI-ATTRIBUTE PREDICATE + NEGATIVE CONTROL (completed)
+-------------------------------------------------------------------
+  verify_dpl_phase3.py C52B block updated:
+  • S10 query now filters on 5 independent attributes simultaneously:
+      alert_id IS NOT NULL (INTEGER, not TEXT)
+      origin_type = 'SCHEDULER'
+      scheduler_job_id IS NOT NULL
+      worker_pid IS NOT NULL
+      EXISTS in oe_decision_audit (cross-table join)
+      NOT EXISTS in oe_contamination_exclusions (is_test_record=FALSE)
+  • Negative-control harness uses SAVEPOINT isolation on a test fixture;
+    UPDATE is rolled back after confirming the S10 predicate correctly
+    excludes the hand-set row.
+  • trace_id removed from SELECT (column does not exist in this schema).
+  • alert_id type corrected: INTEGER (was incorrectly set as 'NC_FAKE_ALERT'
+    string → caused psycopg2 DataError → entire C52B block exception).
+
+
+===========================================================================
+  ARTIFACT / CONTROL ITEMS — WHAT WAS FIXED
+===========================================================================
+
+B6 — RESTORE C52 CHECKS (completed prior session, confirmed SEQ=32)
+--------------------------------------------------------------------
+  Three checks restored to verifier:
+    C52_decision_audit_row_immutable    — PASS (trigger confirmed)
+    C52_replay_returns_structure        — PASS (see below)
+    C52_verification_status_is_verified — PASS
+
+B7 — STRICT C48 PREDICATE (completed)
+--------------------------------------
+  C48 block now has two separate checks:
+    C48_dpl_certification_not_approved  — PASS (correct NOT_APPROVED state)
+    C48_approved_by_null_or_not_forbidden — PASS (null is A2-compliant)
+    C48_approved_at_field_present         — FAIL (expected; see below)
+  The approved_at check is strict per B7: it FAILS when approved_at is null,
+  which is the honest documented state (external blocker).
+
+B8 — GATE FAIL-CLOSED (completed prior session, confirmed running)
+-------------------------------------------------------------------
+  aiem_options_scheduler.py gate logic at pipeline entry:
+    • Raises RuntimeError if dpl_production_certification != 'APPROVED'
+    • Raises RuntimeError if approved_at is null
+    • Raises RuntimeError if approved_by is in the forbidden identity set
+      {agent, scheduler, aiem_process, automated, self, aiem_autonomous,
+       main_agent}
+  Scheduler workflow restarted and confirmed running.
+  Effect: Monday 09:45 ET pipeline run will BLOCK with a loud error unless
+  an independent human approver sets all three approval fields.
+
+B9 — C47B SOURCE TREE CHECK (completed)
+-----------------------------------------
+  C47B_no_stray_dpl_py_files check: verifies no .py files exist in
+  dpl/ root outside the permitted set. Six stray files moved to
+  dpl/historical_evidence/ (exercise_real_tg.py, etc.).
+
+C28 — NULL-SAFE APPROVED_BY (completed this session)
+------------------------------------------------------
+  C28_approved_by_null_or_not_forbidden: semantics corrected.
+  null approved_by → PASS (A2 correct, no approver yet).
+  Non-null approved_by in forbidden set → FAIL.
+  Previously: bool(None) = False → always failed when approved_by=null.
+
+C52_replay_returns_structure — ROOT CAUSE + FIX (completed this session)
+-------------------------------------------------------------------------
+  Root cause (3 layers):
+    1. Test fixture rows had scoring_weights_snapshot = NULL
+    2. Test fixture rows had config_versions.scoring_fn_hash = NULL
+    3. replay_decision() raises ReplayCodeDriftError on either null
+       (hard fail by design — no silent fallback permitted)
+
+  Fix applied:
+    Before calling replay_decision on the test fixture, the verifier now:
+    1. Imports _REQ6_SCORING_WEIGHTS from aiem_options_pipeline
+    2. Computes the live combined hash:
+         sha256(getsource(compute_req6_score) + '\x00' +
+                json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True))
+    3. UPDATEs the test fixture row with both values (test rows are
+       mutable per trigger policy: trg_oe_replay_immutable allows
+       UPDATE on is_test_record=TRUE)
+    4. Calls replay_decision(test_did) — now succeeds and returns the
+       expected dict with keys: full_match, call_score_replayed,
+       put_score_replayed, put_score_stored, call_score_stored,
+       direction_replayed
+    5. Check PASSES: C52_replay_returns_structure → PASS
+
+  Additional schema discovery: alert_id column is INTEGER (not TEXT).
+  C52B negative-control UPDATE corrected from 'NC_FAKE_ALERT' → 999999.
+
+
+===========================================================================
+  REMAINING 4 FAILS — CLASSIFICATION
+===========================================================================
+
+Each of the 4 remaining FAILs is correctly classified. None are fixable
+before Monday's scheduler run.
+
+  1. C48_approved_at_field_present
+     Classification: EXPECTED / EXTERNAL BLOCKER
+     Reason: B7 strict predicate. approved_at=null because no independent
+     approval has been performed. This is the correct and honest state.
+     Resolution: requires an independent human approver to set approved_at,
+     approved_by, and approver_role in engine_integrity_refs.json and then
+     re-seal a verification run to confirm.
+
+  2. C52A_verifier_fixtures_contaminate_prod_namespace
+     Classification: KNOWN ARCHITECTURAL DEFECT — documented by check itself
+     Reason: Test fixture rows (is_test_record=TRUE) coexist in the same
+     table (oe_decision_replay_inputs) as production rows. oe_contamination_
+     exclusions documents them but the namespace is still shared.
+     Resolution: requires schema isolation (Option 2 — separate test schema
+     with search_path isolation). Deferred; out of scope for R2.
+
+  3. C52B_genuine_scheduler_decision_exists
+     Classification: PENDING LIVE EVIDENCE
+     Reason: Sunday 22:06 EDT. The Monday 09:45 ET scheduler run has not
+     occurred yet. No production (is_test_record=FALSE) row with all 5 S10
+     attributes set exists in oe_decision_replay_inputs.
+     Resolution: will auto-resolve after first Monday scheduler run — IF the
+     gate passes (i.e. independent approval has been obtained first). Without
+     approval, the gate blocks the run and this check remains pending.
+
+  4. C52C_genuine_replay_pass
+     Classification: PENDING LIVE EVIDENCE — blocked by C52B
+     Reason: Cannot replay a genuine production decision that does not yet
+     exist. This check will auto-pass after C52B resolves and that decision
+     is replayed with replay_decision().
+     Resolution: same as C52B — Monday scheduler run after approval.
+
+
+===========================================================================
+  FILES MODIFIED THIS SESSION
+===========================================================================
+
+  artifacts/stock-scanner-api/dpl/verify_dpl_phase3.py
+    • C28_approved_by_null_or_not_forbidden (null-safe semantics)
+    • C48_approved_by_null_or_not_forbidden (null-safe semantics)
+    • C52B S10 SELECT: removed trace_id (column does not exist)
+    • C52B negative control: alert_id=999999 (INTEGER, was string)
+    • C52_replay_returns_structure: SAVEPOINT-patch with live weights+hash
+
+  artifacts/stock-scanner-api/dpl/engine_integrity_refs.json
+    • engine_root_hash regenerated against current code
+    • commit_sha updated to fc1ddf1a43b53c5fef9f2e4e4760bcdc20ea2253
+    • refs_updated_at: 2026-07-20T01:58:28Z
+    • approved_by / approved_at / approval_timestamp: null (A2)
+
+  artifacts/stock-scanner-api/aiem_options_scheduler.py
+    (modified prior session, confirmed running)
+    • Gate fail-closed at pipeline entry (B8)
+
+  artifacts/stock-scanner-api/tools/verified_run_chain.jsonl
+    • SEQ=30, SEQ=31, SEQ=32 appended
+
+  artifacts/stock-scanner-api/tools/verified_run_sha256_index.txt
+    • 3 new archive entries
+
+
+===========================================================================
+  WHAT NEEDS TO HAPPEN BEFORE MONDAY 09:45 ET
+===========================================================================
+
+  The scheduler gate (B8) will BLOCK the pipeline run unless ALL THREE
+  of the following are set in engine_integrity_refs.json by an independent
+  human approver:
+
+    approved_by:        <approver name — must NOT be in forbidden set>
+    approved_at:        <ISO-8601 timestamp of approval>
+    approver_role:      <role of approver>
+
+  AND dpl_production_certification must be changed from:
+    "NOT_APPROVED — independent approval is EXTERNAL_BLOCKER"
+  to:
+    "APPROVED"
+
+  After those fields are set, one final verified_run.sh seal is needed
+  to confirm C48_approved_at_field_present transitions from FAIL → PASS.
+
+  If approval is NOT obtained before 09:45 ET Monday:
+    • The scheduler raises RuntimeError and exits cleanly
+    • No trades are placed
+    • The error is logged to the scheduler workflow console
+    • This is the correct and intended behavior per B8
+
+===========================================================================
+  END OF REPORT
+===========================================================================
