@@ -1,10 +1,10 @@
 {
   "schema_version": "1",
-  "run_ts": "2026-07-20T02:04:14Z",
-  "total_pass": 183,
-  "total_fail": 4,
+  "run_ts": "2026-07-20T03:02:45Z",
+  "total_pass": 177,
+  "total_fail": 6,
   "total_pending": 0,
-  "all_checks": 187,
+  "all_checks": 183,
   "reconciliation": {
     "sum_eq_total": true,
     "pass_plus_fail_eq_all": true
@@ -66,12 +66,6 @@
     "C47_neg_post_enforcement_registration_blocked",
     "C47_neg_update_production_row_blocked",
     "C47B_source_tree_clean",
-    "C48_approval_proof_status_is_external_blocker",
-    "C48_approval_metadata_only_flag_set",
-    "C48_dpl_certification_not_approved",
-    "C48_approved_by_null_or_not_forbidden",
-    "C48_neg_self_approval_is_forbidden",
-    "C48_chain_head_has_ts_end",
     "C49_db_role_gap_documented_external_blocker",
     "C49_ddl_privilege_gap_documented",
     "C49_truncate_blocked_by_trigger",
@@ -93,6 +87,7 @@
     "C51_neg_missing_summary_fails",
     "C52_decision_audit_row_immutable",
     "C52_replay_returns_structure",
+    "C52_replay_code_drift_raises_error",
     "C52_verification_status_is_verified",
     "C52A_contamination_registry_exists",
     "C52A_all_contaminated_rows_documented",
@@ -118,7 +113,6 @@
     "C27_all_exemptions_not_recoverable",
     "C27_neg_invalid_reason_code_blocked",
     "C28_refs_file_exists",
-    "C28_approved_by_null_or_not_forbidden",
     "C28_refs_has_commit_sha",
     "C28_refs_has_engine_root_hash",
     "C28_live_engine_root_hash_matches_approved",
@@ -195,9 +189,11 @@
     "C42_neg_missing_archive_causes_psv1_fail"
   ],
   "fail_list": [
-    "C48_approved_at_field_present",
+    "C48_independent_approval_obtained",
     "C52A_verifier_fixtures_contaminate_prod_namespace",
-    "C52B_genuine_scheduler_decision_exists",
-    "C52C_genuine_replay_pass"
+    "C52B_scheduler_origin_decision_exists",
+    "C52B_live_trade_decision_exists",
+    "C52C_genuine_replay_pass",
+    "C28_approved_by_in_allowlist_and_engine_hash_match"
   ]
 }

@@ -2,10 +2,10 @@
   "approval_metadata_only": true,
   "approval_method": "NONE_PERFORMED",
   "approval_note": "No independent approval has been performed. All three approval identity fields are null. No external reviewer exists. dpl_production_certification reflects NOT_APPROVED status accurately. Gate will block production execution.",
-  "approval_option_a_status": "NOT_IMPLEMENTED \u2014 requires separate signing key and principal",
-  "approval_option_b_status": "NOT_IMPLEMENTED \u2014 requires external CI infrastructure",
+  "approval_option_a_status": "NOT_IMPLEMENTED — requires separate signing key and principal",
+  "approval_option_b_status": "NOT_IMPLEMENTED — requires external CI infrastructure",
   "approval_proof_status": "EXTERNAL_BLOCKER",
-  "approval_proof_status_reason": "Independent cryptographic approval requires a separate trusted principal with a private key that is not accessible to the deployment agent or scheduler. No such separate principal exists in the current infrastructure. The approved_by, approver_role, and approval_method fields are APPROVAL METADATA ONLY \u2014 they record intent and provenance but do not constitute independently-verifiable cryptographic proof of approval by a separate identity.",
+  "approval_proof_status_reason": "Independent cryptographic approval requires a separate trusted principal with a private key that is not accessible to the deployment agent or scheduler. No such separate principal exists in the current infrastructure. The approved_by, approver_role, and approval_method fields are APPROVAL METADATA ONLY — they record intent and provenance but do not constitute independently-verifiable cryptographic proof of approval by a separate identity.",
   "approval_timestamp": null,
   "approved_at": null,
   "approved_at_note": "approved_at is NULL because approval by a separate independent principal is an EXTERNAL BLOCKER (no separate signing key available). A non-null approved_at must be <= report_generated_at at generation time. Future timestamps are prohibited by C54_timestamp_order_valid.",
@@ -38,7 +38,7 @@
     "engine_manifest.py": "443cab21944cb5965981d945d31b41b886dfb4b15aac1a50e5e6caa986879498",
     "note": "All files in the complete decision path are hashed. Any change to any file invalidates engine_root_hash and requires a new approval cycle before production execution."
   },
-  "dpl_production_certification": "NOT_APPROVED \u2014 independent approval is EXTERNAL_BLOCKER",
+  "dpl_production_certification": "NOT_APPROVED — independent approval is EXTERNAL_BLOCKER",
   "engine_root_hash": "4ff60253f52e37d5b1b65dbae40c56f960a835b59bab78714036b9dabb55f4b4",
   "feature_schema": [
     "D1_directional_probability",
@@ -71,6 +71,8 @@
   "req6_weights_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "schema_version": "2",
   "scoring_fn_ast_hash": "68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42",
+  "scoring_fn_combined_hash": "eb28b76efd53485602c648744c60642f87a6bb0c09ce02b0f0071ee2cfc6583a",
+  "scoring_fn_combined_hash_note": "sha256(getsource(compute_req6_score) + '\\x00' + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)) — same computation as replay_decision combined_hash check. Used by C52_replay_returns_structure fixture patch.",
   "scoring_fn_module": "aiem_options_pipeline",
   "scoring_fn_name": "compute_req6_score",
   "weights_snapshot": {

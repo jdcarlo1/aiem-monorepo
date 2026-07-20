@@ -1,74 +1,79 @@
 ---
-name: DPL Phase 3 — Reproducibility Replay & Part 1 Remediation
-description: Complete state after Part 1 remediation — SEQ=27 sealed, 179 PASS / 3 FAIL (all classified), Part 1 gate PASSED
+name: DPL Phase 3 — Reproducibility Replay & R4 Remediation
+description: Complete state after R4 audit-response — SEQ=35 sealed, 177 PASS / 6 FAIL (all classified), PSV9 PASS
 ---
 
-## Current state (SEQ=27, Part 1 Remediation COMPLETE)
+## Current state (SEQ=35, R4 COMPLETE)
 
-**Chain:** 14 entries: SEQ 0 (GENESIS), 15–27. SEQ 1–14 not reconstructed.
-**Verifier:** dpl/verify_dpl_phase3.py — C01–C54 (179 PASS, 3 FAIL — all correctly classified)
-**PSV:** 9/9 PASS for SEQ=27 (post_seal_verify.sh 4-arg: SEQ CHAIN_FILE INDEX_FILE LOGS_DIR)
-**Part 1 report:** dpl/dpl_phase3_part1_remediation_report.txt
-**Part 1 gate:** PASSED — all fixable items resolved; 3 FAIL = 1 IMPLEMENTATION_DEFECT + 2 PENDING_LIVE_EVIDENCE
+**Chain:** 21 entries: SEQ 0 (GENESIS), 15–35. SEQ 1–14 not reconstructed.
+**Verifier:** dpl/verify_dpl_phase3.py — C01–C54 + R4 additions (177 PASS, 6 FAIL — all correctly classified)
+**PSV:** 9/9 PASS for SEQ=35
+**R4 response:** dpl/DPL_Phase3_R4_Response.txt (read-and-report items A7/A8/A9/B12)
 
-## 3 Remaining Failures (correctly classified)
+## 6 Remaining Failures (all correctly classified)
 
-**C52A_verifier_fixtures_contaminate_prod_namespace** — INTENTIONAL FAIL (IMPLEMENTATION_DEFECT)  
-9 oe_decision_replay_inputs rows have is_test_record=FALSE, origin_type=NULL — verifier fixture contamination.  
-UPDATE trigger blocks in-place correction. 8 registered in oe_synthetic_row_corrections. 1 (2d03987f) in contamination_registry.json only (FK gap). Root cause fixed: current code uses is_test_record=TRUE.
+| Check | Classification | Notes |
+|---|---|---|
+| C48_independent_approval_obtained | EXTERNAL_BLOCKER | approved_at/approved_by null; allowlist empty |
+| C28_approved_by_in_allowlist_and_engine_hash_match | EXTERNAL_BLOCKER | allowlist=set() — no external reviewer |
+| C52A_verifier_fixtures_contaminate_prod_namespace | IMPLEMENTATION_DEFECT | 9 rows documented in contamination_registry.json |
+| C52B_scheduler_origin_decision_exists | PENDING | Unblocks Mon–Fri 9:45 AM ET (any market day) |
+| C52B_live_trade_decision_exists | PENDING_LIVE_EVIDENCE | Unblocks on a TRADE market day |
+| C52C_genuine_replay_pass | DEPENDENCY_BLOCKED | Blocked by C52B |
 
-**C52B_genuine_scheduler_decision_exists** — FAIL (PENDING_LIVE_EVIDENCE)  
-No oe_decision_replay_inputs row with origin_type='SCHEDULER' AND alert_id IS NOT NULL.  
-**Unblocks:** options-pipeline-scheduler fires Mon–Fri 9:45 AM ET. Next: Mon 2026-07-21 13:45 UTC.
+## R4 Code Changes Applied (SEQ=35)
 
-**C52C_genuine_replay_pass** — FAIL (DEPENDENCY_BLOCKED by C52B)  
-Will auto-run (double replay + determinism check) once C52B passes.
+**C2 — C48 collapsed:** 7 granular C48 checks → single `C48_independent_approval_obtained`.
+FAIL when approved_at=None OR approved_by=None. All 7 superseded in A8 registry.
 
-## 4 External Blockers (unchanged from Phase 3 final)
+**A4 — C52_replay_returns_structure non-tautological:**
+- Fixture patched with `scoring_fn_combined_hash` from `engine_integrity_refs.json`
+  (sha256(getsource + "\x00" + weights_json) — same type replay_decision uses; NOT live getsource).
+- Added `C52_replay_code_drift_raises_error` negative control.
+- Critical implementation note: negative control must COMMIT wrong hash before calling
+  replay_decision (NOT use SAVEPOINT) because replay_decision opens its own DB connection
+  and only sees committed data. SAVEPOINT-only leaves wrong hash invisible to replay_decision.
 
-1. **Independent crypto approval** — C48 correctly PENDING_INDEPENDENT_APPROVAL (approved_at=null).
-2. **Current E2E replay** — C52B/C FAIL. Unblocks on first live market-day scheduler run.
-3. **Low-privilege DB role** — Replit PG is always postgres. aiem_app role exists (C29 PASS).
-4. **Crash-consistency process kill** — Requires isolated test environment.
+**A5 — C28 blocklist → allowlist:**
+- `_C28_APPROVED_IDENTITIES = set()` (fail-closed, empty = no reviewer).
+- Supersedes `C28_approved_by_null_or_not_forbidden`.
+- Gate also requires engine_root_hash runtime match.
 
-## Part 1 Remediation items completed
+**C52B FORK split:**
+- `C52B_scheduler_origin_decision_exists` — alert_id may be null (unblocks any market day).
+- `C52B_live_trade_decision_exists` — alert_id IS NOT NULL (TRADE day only).
+- Supersedes `C52B_genuine_scheduler_decision_exists`.
 
-1. approved_at → null + PENDING_INDEPENDENT_APPROVAL (no future timestamp). C54 added with 3 neg controls.
-2. test_registry_seq25.json (176 checks, reconciled). last_run_results.json written on every run.
-3. 9 contaminated rows documented (8 DB + 1 file-only). contamination_registry.json created.
-4. C52 split into C52-A (DEFECT), C52-B (PENDING), C52-C (BLOCKED).
-5. Chain count wording: Genesis:1, RUN:13, Total:14. MISSING HISTORY note in C33 print.
-6. SEQ=26 registered as defective (INVALID_CMD_INVOCATION, exit 127).
-7. evidence_manifest.json v2: 16 files with SHA-256 (manifest_version=2, sealed_seq=27).
+**A8 Enforcement:** `_A8_SUPERSEDE_REGISTRY` dict at end of verifier; 9 new entries from R4.
+Violation = FAIL appended to _FAIL list. 0 violations at SEQ=35.
 
-## Alert_id=25 classification
+**Certification text:** printed before SUMMARY; updates based on C52B PASS status.
 
-LEGACY_UNREPLAYABLE — oe_legacy_decision_cutoff (cutoff_id=1).  
-alert_created_at=2026-07-17T14:17Z < enforcement_activation_at=2026-07-19T09:04Z.
+**B5 — excluded_from column dropped** from `oe_contamination_exclusions` (vestigial).
 
-## SEQ=22 / SEQ=26 formal classifications
+## Key hash values
 
-SEQ=22 — INCOMPLETE_COMMAND_CAPTURE (CMD=${1} only, fixed to CMD=${*} in SEQ=23)  
-SEQ=26 — INVALID_CMD_INVOCATION (label args passed as CMD, exit 127; re-run = SEQ=27)
+- `scoring_fn_combined_hash` in refs: `eb28b76efd53485602c648744c60642f87a6bb0c09ce02b0f0071ee2cfc6583a`
+  (sha256(getsource(compute_req6_score) + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)))
+- `scoring_fn_ast_hash` in refs: `68e0bf89...` — DIFFERENT computation (AST dump only); do not confuse
+- `engine_root_hash` in refs: `4ff60253f52e37d5b1b65dbae40c56f960a835b59bab78714036b9dabb55f4b4`
 
-## Key files (Part 1 state)
+## Key files
 
-- `dpl/verify_dpl_phase3.py` — C01–C54
-- `dpl/engine_integrity_refs.json` — approved_at=null, PENDING_INDEPENDENT_APPROVAL
+- `dpl/verify_dpl_phase3.py` — C01–C54 + R4 additions
+- `dpl/engine_integrity_refs.json` — scoring_fn_combined_hash added (R4 A4)
 - `dpl/contamination_registry.json` — 9 contaminated rows documented
-- `dpl/test_registry_seq25.json` — SEQ=25 baseline (176 checks, reconciled)
-- `dpl/evidence_manifest.json` — v2, 16 files, SHA-256 for all
-- `dpl/dpl_phase3_part1_remediation_report.txt` — Part 1 report
-- `tools/defective_runs_registry.json` — SEQ=22 + SEQ=26
-- `tools/last_run_results.json` — machine-readable live results (179 PASS / 3 FAIL)
+- `dpl/DPL_Phase3_R4_Response.txt` — R4 read-and-report response
+- `tools/last_run_results.json` — 177 PASS / 6 FAIL (SEQ=35)
+- `tools/verified_run_chain.jsonl` — 21 entries SEQ=0,15-35
 
-## Chain head
+## Chain head (SEQ=35)
 
-SEQ=27  ts_end=2026-07-20T00:24:02Z
-archive_sha256=56db725f0e0037cc630b46d9fdfb584f939c34cfd4aec8a14fa3007b2b998ff5
+entry_hash=69c829416fdf0ddc266f077c77273ff29feb70fbef1ccd2e5e2838aa030dc0ab
+archive_sha256=2b6e84944e7aa2674fb0eb70fe16b8d685b924079c846d3505012c095fdc86d4
+ts_end=2026-07-20T03:02:45Z
 
-## Part 2 gate condition
+## Next unblock condition
 
-Run `bash tools/verified_run.sh` after Mon 2026-07-21 09:45 ET and confirm C52B = PASS.
-
-UPDATE 2026-07-20: B1 FIX applied (origin_type was never written — structural defect not external blocker). oe_contamination_exclusions table created with 9 rows (including 2d03987f). SEQ=28 sealed 179 PASS/3 FAIL/9 PSV PASS. Status: CONDITIONAL (zero impl defects, live trade pending). S5 reconciler written at tools/reconcile_sealed_log.py. S8 independent approval = EXTERNAL_BLOCKER.
+Run `bash tools/verified_run.sh` after Mon 2026-07-21 09:45 ET to check C52B_scheduler_origin_decision_exists.
+TRADE market day needed for C52B_live_trade_decision_exists and C52C_genuine_replay_pass.

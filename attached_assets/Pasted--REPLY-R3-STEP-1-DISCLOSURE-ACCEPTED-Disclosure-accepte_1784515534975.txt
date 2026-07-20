@@ -1,0 +1,37 @@
+# REPLY — R3 STEP 1 DISCLOSURE ACCEPTED
+
+Disclosure accepted. No code changes were made — correct.
+Proceed with Directive R4 as issued. Order below. Raw output only, no narrative.
+
+## Constraint (unchanged)
+Do not set approved_by, approved_at, approver_role, or dpl_production_certification.
+
+## Blocking — do first
+- A7 — verify_chain.sh verifies aiem_options_alerts, not verified_run_chain.jsonl.
+  Every prior citation of it as run-chain verification is a miscite. List each round
+  that cited it. Prove execution (stdout + exit code) vs hash-only.
+- A8 — Check set is not append-only. Re-derive SEQ=32 FAIL count with the 3
+  removed-failing checks counted as still FAILING. State the corrected number.
+- A9 — Prove SEQ=15 prev_hash == SEQ=0 entry_hash. If not, chain is truncated at 1–14.
+- A4 — C52_replay_returns_structure is tautological. Fix so stored hash is written
+  before, and independent of, the live getsource. Ship a code-drift negative control.
+- A5 — Replace forbidden-identity blocklist with allowlist. Gate must recompute
+  engine_root_hash and commit_sha at runtime and fail closed on mismatch.
+
+## Carried
+- B5 — Enforce oe_contamination_exclusions in code, or delete the 8 asserted consumers.
+- B12 — Produce the alert_id=25 row + snapshot backing the round-2 citation.
+- C2 — Collapse C48 back to one check. Let it FAIL.
+
+## C52B split (decided — do not deviate)
+- C52B_scheduler_origin_decision_exists — satisfiable pre-Monday. Requires
+  origin_type=SCHEDULER, scheduler_job_id, worker_pid, decision_id FK,
+  is_test_record=FALSE. alert_id may be null. Ship with hand-set negative control.
+- C52B_live_trade_decision_exists — strict predicate unchanged, alert_id NOT NULL.
+  Expected to FAIL at Monday's pre-run seal. Do not rename, weaken, or defer it.
+- Certification summary must read: "scheduler-originated decision proven;
+  live trade not proven" whenever the strict check fails.
+
+## Seal
+One sealed run after all of the above. Report raw: SEQ, PASS/FAIL counts,
+FAIL names, PSV, entry_hash, commit_sha, TREE clean/dirty.

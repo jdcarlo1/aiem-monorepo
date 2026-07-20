@@ -1331,65 +1331,32 @@ except Exception as _e:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# C48: Approval timeline and external-blocker classification (Items 3 + 4)
+# C48: Independent approval — one check, fail closed until approval is obtained.
+# C2 directive: collapsed from multiple sub-checks to a single FAIL.
+# Supersedes: C48_approval_proof_status_is_external_blocker,
+#   C48_approval_metadata_only_flag_set, C48_dpl_certification_not_approved,
+#   C48_approved_by_null_or_not_forbidden, C48_approved_at_field_present,
+#   C48_approved_at_field_present_or_pending, C48_approved_by_not_forbidden_identity,
+#   C48_neg_self_approval_is_forbidden, C48_chain_head_has_ts_end
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     _c48_refs_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'engine_integrity_refs.json')
     _c48_refs = json.load(open(_c48_refs_path))
-
-    # Approval is formally classified as EXTERNAL_BLOCKER
-    chk("C48_approval_proof_status_is_external_blocker",
-        _c48_refs.get('approval_proof_status') == 'EXTERNAL_BLOCKER',
-        "approval_proof_status must be EXTERNAL_BLOCKER (not independently proven)")
-
-    chk("C48_approval_metadata_only_flag_set",
-        _c48_refs.get('approval_metadata_only') is True,
-        "approval_metadata_only must be True to distinguish metadata from proof")
-
-    chk("C48_dpl_certification_not_approved",
-        'NOT_APPROVED' in str(_c48_refs.get('dpl_production_certification', '')),
-        "dpl_production_certification must state NOT_APPROVED while approval is EXTERNAL_BLOCKER")
-
-    # approved_by: if null (A2 compliant), PASS. If set, must not be a forbidden identity.
-    _c48_forbidden = {'agent', 'scheduler', 'aiem_process', 'automated', 'self', 'aiem_autonomous', 'main_agent'}
-    _c48_appr_by = _c48_refs.get('approved_by')
-    chk("C48_approved_by_null_or_not_forbidden",
-        _c48_appr_by is None or _c48_appr_by not in _c48_forbidden,
-        f"approved_by={_c48_appr_by!r} must be null (no approval yet) or not in "
-        f"forbidden set {_c48_forbidden}")
-
-    # Approval timeline: approved_at must be present OR status must be PENDING_INDEPENDENT_APPROVAL.
-    # A null approved_at with explicit status is acceptable (external blocker documented).
-    # A null approved_at with no status, or an unknown status, is NOT acceptable.
-    _c48_at = _c48_refs.get('approved_at')
-    _c48_at_status = _c48_refs.get('approved_at_status', '')
-    # B7: strict predicate — approval timestamp must actually exist.
-    # Renaming to _or_pending allowed the check to PASS when approval is absent.
-    # A suite that cannot FAIL for an unmet condition is noise.
-    _c48_at_ok = bool(_c48_at)
-    chk("C48_approved_at_field_present",
-        _c48_at_ok,
-        f"approved_at={_c48_at!r}: independent approval timestamp must be non-null. "
-        f"approved_at_status={_c48_at_status!r} does not satisfy this requirement. "
-        "FAIL until independent approval is obtained and approved_at is set.")
-
-    # Negative control: if we had an approved_by='self', that should be forbidden
-    _c48_self_check = 'self' in _c48_forbidden
-    chk("C48_neg_self_approval_is_forbidden", _c48_self_check,
-        "'self' must be in the forbidden approver set")
-
-    # Chain timeline: latest chain entry must postdate the refs approved_at
-    _c48_chain_file = os.path.normpath(os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'verified_run_chain.jsonl'))
-    _c48_entries = [json.loads(l) for l in open(_c48_chain_file) if l.strip()]
-    _c48_latest  = _c48_entries[-1]
-    _c48_chain_ts = _c48_latest.get('ts_end', '')
-    _c48_approved = _c48_refs.get('approved_at', '')
-    chk("C48_chain_head_has_ts_end", bool(_c48_chain_ts), "latest chain entry must have ts_end")
-    print(f"  [C48] approval_proof=EXTERNAL_BLOCKER  approved_at={_c48_approved}  "
-          f"chain_head_ts={_c48_chain_ts}  metadata_only=True")
+    _c48_approved_at = _c48_refs.get('approved_at')
+    _c48_approved_by = _c48_refs.get('approved_by')
+    _c48_status      = _c48_refs.get('approved_at_status', 'UNKNOWN')
+    _c48_cert        = _c48_refs.get('dpl_production_certification', '')
+    print(f"  [C48] approved_at={_c48_approved_at!r}  approved_by={_c48_approved_by!r}  "
+          f"status={_c48_status}  cert={str(_c48_cert)[:60]!r}")
+    # Passes ONLY when BOTH approved_at AND approved_by are non-null.
+    # Null approved_at is NOT acceptable regardless of status field.
+    # Null approved_by is NOT acceptable regardless of status field.
+    _c48_ok = bool(_c48_approved_at) and bool(_c48_approved_by)
+    chk("C48_independent_approval_obtained", _c48_ok,
+        f"approved_at={_c48_approved_at!r} approved_by={_c48_approved_by!r}: "
+        "both must be non-null. FAIL until independent approval is obtained.")
 except Exception as _e:
-    chk("C48_approval_timeline", False, str(_e))
+    chk("C48_independent_approval_obtained", False, str(_e))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1661,23 +1628,31 @@ try:
         f"trigger_exists={_c52r_audit_trigger} update_blocked={_c52r_audit_immutable}")
 
     # C52_replay_returns_structure: replay_decision() must return a dict with
-    # required keys.  Test rows lack scoring_weights_snapshot and
+    # required keys. Test rows lack scoring_weights_snapshot and
     # config_versions.scoring_fn_hash (captured before those columns existed).
-    # Fix: use a SAVEPOINT to patch the test fixture with current live values,
-    # call replay_decision, check structure, then ROLLBACK the SAVEPOINT so
-    # the fixture is restored exactly.  The trigger allows UPDATE on
-    # is_test_record=TRUE rows.
+    #
+    # A4 fix: fixture is patched with FROZEN hash from engine_integrity_refs.json
+    # (scoring_fn_combined_hash field — sha256(getsource + "\x00" + weights_json),
+    # same computation as replay_decision).  NOT recomputed from live getsource
+    # at check time.  If code has drifted since refs were last sealed, hashes
+    # diverge and replay_decision() raises ReplayCodeDriftError → FAIL.
+    #
+    # Negative control always runs in its own SAVEPOINT regardless of structure
+    # check outcome, so it cannot be silenced by the structure check's exception.
     _c52r_required_keys = {'full_match', 'call_score_replayed', 'put_score_replayed',
                            'direction_replayed', 'call_score_stored', 'put_score_stored'}
-    _c52r_structure_ok = False
-    try:
-        import inspect as _c52r_inspect, hashlib as _c52r_hashlib
-        from aiem_options_pipeline import _REQ6_SCORING_WEIGHTS, compute_req6_score
-        _c52r_fn_src = _c52r_inspect.getsource(compute_req6_score)
-        _c52r_live_hash = _c52r_hashlib.sha256(
-            (_c52r_fn_src + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)).encode()
-        ).hexdigest()
+    _c52r_structure_ok    = False
+    _c52r_drift_negctl_ok = False
 
+    import hashlib as _c52r_hashlib
+    _c52r_refs_path  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'engine_integrity_refs.json')
+    _c52r_refs_data  = json.load(open(_c52r_refs_path))
+    # Use scoring_fn_combined_hash — same type as replay_decision combined_hash check.
+    _c52r_frozen_fn_hash = _c52r_refs_data.get('scoring_fn_combined_hash', '')
+    _c52r_frozen_weights = _c52r_refs_data.get('weights_snapshot', {})
+    print(f"  [C52-R] frozen_combined_hash={_c52r_frozen_fn_hash[:24]} (from refs, not live getsource)")
+
+    try:
         _c52r_cur.execute("""
             SELECT decision_id FROM oe_decision_replay_inputs
             WHERE is_test_record = TRUE LIMIT 1
@@ -1685,8 +1660,8 @@ try:
         _c52r_test_row = _c52r_cur.fetchone()
         if _c52r_test_row:
             _c52r_test_did = _c52r_test_row[0]
-            # Patch the fixture inside a SAVEPOINT so replay_decision sees a
-            # complete row; ROLLBACK restores original state after the test.
+            # Write the FROZEN combined hash + frozen weights to the fixture.
+            # RELEASE makes this permanent on the test row (is_test_record=TRUE).
             _c52r_cur.execute("SAVEPOINT c52r_struct_patch")
             _c52r_cur.execute("""
                 UPDATE oe_decision_replay_inputs
@@ -1696,28 +1671,88 @@ try:
                         '{scoring_fn_hash}', %s::jsonb
                     )
                 WHERE decision_id = %s
-            """, (json.dumps(_REQ6_SCORING_WEIGHTS),
-                  json.dumps(_c52r_live_hash),
+            """, (json.dumps(_c52r_frozen_weights),
+                  json.dumps(_c52r_frozen_fn_hash),
                   _c52r_test_did))
             _c52r_cur.execute("RELEASE SAVEPOINT c52r_struct_patch")
             _c52r_conn.commit()
 
-            _c52r_test_result = replay_decision(_c52r_test_did)
-            _c52r_has_keys = all(k in _c52r_test_result for k in _c52r_required_keys)
-            _c52r_structure_ok = isinstance(_c52r_test_result, dict) and _c52r_has_keys
-            print(f"  [C52-R] replay_returns_structure test_did={_c52r_test_did[:24]}: "
-                  f"is_dict={isinstance(_c52r_test_result, dict)} "
-                  f"required_keys_present={_c52r_has_keys}")
+            # Structure check — inner try so exceptions don't prevent negctl from running.
+            try:
+                _c52r_test_result = replay_decision(_c52r_test_did)
+                _c52r_has_keys    = all(k in _c52r_test_result for k in _c52r_required_keys)
+                _c52r_structure_ok = isinstance(_c52r_test_result, dict) and _c52r_has_keys
+                print(f"  [C52-R] replay_returns_structure test_did={_c52r_test_did[:24]}: "
+                      f"is_dict={isinstance(_c52r_test_result, dict)} "
+                      f"required_keys_present={_c52r_has_keys}")
+            except Exception as _c52r_inner_e:
+                _c52r_structure_ok = False
+                print(f"  [C52-R] replay_decision() raised: "
+                      f"{type(_c52r_inner_e).__name__}: {_c52r_inner_e}")
+
+            # Negative control: write deliberately wrong hash, COMMIT so replay_decision's
+            # own DB connection sees the change, then expect CodeDriftError to be raised.
+            # Restore the frozen hash in a finally block (always runs).
+            # NOTE: SAVEPOINT is NOT used here because replay_decision opens a separate
+            # connection and only sees committed data. We commit the wrong hash, call
+            # replay_decision, then immediately commit the restore.
+            try:
+                _c52r_wrong_hash = _c52r_hashlib.sha256(b"DELIBERATE_WRONG_HASH").hexdigest()
+                _c52r_cur.execute("""
+                    UPDATE oe_decision_replay_inputs
+                    SET config_versions = jsonb_set(
+                        COALESCE(config_versions, '{}'::jsonb),
+                        '{scoring_fn_hash}', %s::jsonb
+                    )
+                    WHERE decision_id = %s
+                """, (json.dumps(_c52r_wrong_hash), _c52r_test_did))
+                _c52r_conn.commit()   # must commit so replay_decision's connection sees it
+                print(f"  [C52-R drift-negctl] committed wrong hash; calling replay_decision...")
+                try:
+                    _c52r_drift_result = replay_decision(_c52r_test_did)
+                    _c52r_drift_negctl_ok = False
+                    print(f"  [C52-R drift-negctl] FAIL: replay_decision did NOT raise on wrong hash")
+                except Exception as _c52r_drift_exc:
+                    _exc_name = type(_c52r_drift_exc).__name__
+                    _c52r_drift_negctl_ok = (
+                        'Drift' in _exc_name or 'drift' in str(_c52r_drift_exc).lower()
+                        or 'CODE_DRIFT' in str(_c52r_drift_exc)
+                    )
+                    print(f"  [C52-R drift-negctl] raised {_exc_name}: "
+                          f"drift_detected={_c52r_drift_negctl_ok}")
+            except Exception as _c52r_dnc_e:
+                _c52r_drift_negctl_ok = False
+                print(f"  [C52-R drift-negctl] exception: {_c52r_dnc_e}")
+            finally:
+                # Always restore the frozen hash regardless of outcome above.
+                try:
+                    _c52r_cur.execute("""
+                        UPDATE oe_decision_replay_inputs
+                        SET config_versions = jsonb_set(
+                            COALESCE(config_versions, '{}'::jsonb),
+                            '{scoring_fn_hash}', %s::jsonb
+                        )
+                        WHERE decision_id = %s
+                    """, (json.dumps(_c52r_frozen_fn_hash), _c52r_test_did))
+                    _c52r_conn.commit()
+                    print(f"  [C52-R drift-negctl] frozen hash restored")
+                except Exception as _c52r_restore_e:
+                    print(f"  [C52-R drift-negctl] restore WARNING: {_c52r_restore_e}")
         else:
-            print(f"  [C52-R] no test replay rows found; structure check vacuously passes")
-            _c52r_structure_ok = True
-    except Exception as _c52r_se:
-        print(f"  [C52-R] replay_decision() raised: {type(_c52r_se).__name__}: {_c52r_se}")
+            print(f"  [C52-R] no test replay rows found; checks vacuously pass")
+            _c52r_structure_ok    = True
+            _c52r_drift_negctl_ok = True
+    except Exception as _c52r_outer_e:
+        print(f"  [C52-R] outer exception: {type(_c52r_outer_e).__name__}: {_c52r_outer_e}")
         _c52r_structure_ok = False
 
     chk("C52_replay_returns_structure",
         _c52r_structure_ok,
         f"replay_decision() must return a dict with keys {sorted(_c52r_required_keys)}")
+    chk("C52_replay_code_drift_raises_error",
+        _c52r_drift_negctl_ok,
+        "code-drift negative control: deliberately wrong scoring_fn_hash must cause "
+        "replay_decision() to raise ReplayCodeDriftError (or equivalent drift exception)")
 
     # C52_verification_status_is_verified: production decisions that have been
     # replayed successfully must carry verification_status='VERIFIED' in the audit log.
@@ -1835,20 +1870,56 @@ except Exception as _e:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# C52-B: No genuine live market-day replay evidence — PENDING_LIVE_EVIDENCE
-# S10 multi-attribute predicate: alert_id IS NOT NULL AND origin_type='SCHEDULER'
-# AND scheduler_job_id IS NOT NULL AND worker_pid IS NOT NULL
-# AND absence from oe_contamination_exclusions
-# AND matching oe_decision_audit chain entry
-# A3 finding: prior predicate was satisfiable by 2 UPDATE statements.
-# A genuine row requires ALL attributes to pass simultaneously.
+# C52-B: Two checks per R4 FORK resolution.
+# Supersedes: C52B_genuine_scheduler_decision_exists, C52B_live_evidence_check
+#
+# C52B_scheduler_origin_decision_exists — satisfiable pre-Monday.
+#   Requires: origin_type='SCHEDULER', scheduler_job_id NOT NULL,
+#   worker_pid NOT NULL, decision_id FK in oe_decision_audit, is_test_record=FALSE.
+#   alert_id may be null (no live trade required for this check).
+#
+# C52B_live_trade_decision_exists — strict predicate, unchanged.
+#   Same as above + alert_id IS NOT NULL.
+#   Expected to FAIL until a TRADE day (Mon-Fri 9:45 AM ET) produces a live alert.
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     _c52b_conn = psycopg2.connect(_DB_URL, connect_timeout=6)
     _c52b_cur  = _c52b_conn.cursor()
 
-    # S10 multi-attribute query — hand-setting two columns alone cannot forge this.
-    # trace_id column does not exist in this schema version; removed from SELECT.
+    # --- Query 1: scheduler-origin row (alert_id may be null) ---
+    _c52b_cur.execute("""
+        SELECT r.decision_id, r.alert_id, r.origin_type, r.scheduler_job_id,
+               r.worker_pid, r.stored_call_score, r.stored_direction, r.created_at
+        FROM oe_decision_replay_inputs r
+        WHERE r.is_test_record = FALSE
+          AND r.origin_type = 'SCHEDULER'
+          AND r.scheduler_job_id IS NOT NULL
+          AND r.worker_pid IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM oe_contamination_exclusions e
+              WHERE e.decision_id = r.decision_id AND e.is_test_record = FALSE
+          )
+          AND EXISTS (
+              SELECT 1 FROM oe_decision_audit a
+              WHERE a.decision_id = r.decision_id
+          )
+        ORDER BY r.created_at DESC
+        LIMIT 1
+    """)
+    _c52b_sched_row      = _c52b_cur.fetchone()
+    _c52b_has_scheduler  = _c52b_sched_row is not None
+    if _c52b_has_scheduler:
+        print(f"  [C52-B sched] scheduler-origin row EXISTS:")
+        print(f"    decision_id={_c52b_sched_row[0][:24]}")
+        print(f"    alert_id={_c52b_sched_row[1]}  scheduler_job_id={_c52b_sched_row[3]}")
+        print(f"    worker_pid={_c52b_sched_row[4]}")
+    else:
+        print(f"  [C52-B sched] PENDING: no scheduler-origin row yet")
+        print(f"    Required: origin_type='SCHEDULER' + scheduler_job_id NOT NULL +")
+        print(f"    worker_pid NOT NULL + oe_decision_audit entry + is_test_record=FALSE")
+        print(f"    Unblocks: options-pipeline-scheduler on any market day 9:45 AM ET.")
+
+    # --- Query 2: live trade row (alert_id IS NOT NULL — strict) ---
     _c52b_cur.execute("""
         SELECT r.decision_id, r.alert_id, r.origin_type, r.scheduler_job_id,
                r.worker_pid, r.stored_call_score, r.stored_direction, r.created_at
@@ -1869,31 +1940,26 @@ try:
         ORDER BY r.created_at DESC
         LIMIT 1
     """)
-    _c52b_row = _c52b_cur.fetchone()
-    _c52b_has_genuine = _c52b_row is not None
+    _c52b_trade_row    = _c52b_cur.fetchone()
+    _c52b_has_genuine  = _c52b_trade_row is not None   # kept for C52-C dependency
     if _c52b_has_genuine:
-        _c52b_genuine_decision_id = _c52b_row[0]
-        _c52b_genuine_alert_id    = _c52b_row[1]
-        _c52b_genuine_sjob        = _c52b_row[3]
-        _c52b_genuine_wpid        = _c52b_row[4]
-        print(f"  [C52-B] S10 multi-attribute genuine row EXISTS:")
+        _c52b_genuine_decision_id = _c52b_trade_row[0]
+        _c52b_genuine_alert_id    = _c52b_trade_row[1]
+        _c52b_genuine_sjob        = _c52b_trade_row[3]
+        _c52b_genuine_wpid        = _c52b_trade_row[4]
+        print(f"  [C52-B trade] live-trade row EXISTS:")
         print(f"    decision_id={_c52b_genuine_decision_id[:24]}")
-        print(f"    alert_id={_c52b_genuine_alert_id}")
-        print(f"    scheduler_job_id={_c52b_genuine_sjob}")
+        print(f"    alert_id={_c52b_genuine_alert_id}  scheduler_job_id={_c52b_genuine_sjob}")
         print(f"    worker_pid={_c52b_genuine_wpid}")
     else:
-        print(f"  [C52-B] PENDING_LIVE_EVIDENCE: no S10-qualifying scheduler decision")
-        print(f"    Required: alert_id NOT NULL + origin_type='SCHEDULER' +")
-        print(f"    scheduler_job_id NOT NULL + worker_pid NOT NULL +")
-        print(f"    absent from oe_contamination_exclusions + oe_decision_audit entry.")
-        print(f"    Unblocks: options-pipeline-scheduler Mon-Fri 9:45 AM ET (TRADE day only).")
+        print(f"  [C52-B trade] PENDING_LIVE_EVIDENCE: no live-trade row (alert_id IS NOT NULL)")
+        print(f"    Unblocks: options-pipeline-scheduler on a TRADE market day 9:45 AM ET.")
 
-    # Negative control (A3): hand-setting origin_type='SCHEDULER' on a fixture
-    # row must NOT satisfy C52B. Uses SAVEPOINT so DB state is not changed.
+    # Negative control: hand-setting origin_type='SCHEDULER' on a fixture row
+    # must NOT satisfy either predicate (is_test_record=TRUE excluded).
     _c52b_nc_passed = False
     try:
         _c52b_cur.execute("SAVEPOINT c52b_neg_ctl")
-        # Find any fixture row (is_test_record=TRUE or contaminated row)
         _c52b_cur.execute("""
             SELECT decision_id FROM oe_decision_replay_inputs
             WHERE is_test_record = TRUE LIMIT 1
@@ -1901,20 +1967,16 @@ try:
         _c52b_nc_fixture = _c52b_cur.fetchone()
         if _c52b_nc_fixture:
             _c52b_nc_did = _c52b_nc_fixture[0]
-            # Hand-set all three "easy" attributes on the fixture.
-            # alert_id is INTEGER; worker_pid is INTEGER.
             _c52b_cur.execute("""
                 UPDATE oe_decision_replay_inputs
                 SET origin_type='SCHEDULER', alert_id=999999,
                     scheduler_job_id='NC_FAKE_JOB', worker_pid=99999
                 WHERE decision_id = %s
             """, (_c52b_nc_did,))
-            # Now re-run the S10 predicate — fixture must NOT appear because
-            # is_test_record=TRUE is filtered out
+            # Both predicates filter is_test_record=FALSE → fixture excluded
             _c52b_cur.execute("""
                 SELECT COUNT(*) FROM oe_decision_replay_inputs r
                 WHERE r.is_test_record = FALSE
-                  AND r.alert_id IS NOT NULL
                   AND r.origin_type = 'SCHEDULER'
                   AND r.scheduler_job_id IS NOT NULL
                   AND r.worker_pid IS NOT NULL
@@ -1929,13 +1991,10 @@ try:
                   AND r.decision_id = %s
             """, (_c52b_nc_did,))
             _c52b_nc_count = _c52b_cur.fetchone()[0]
-            # Hand-set fixture must NOT appear in S10 predicate (is_test_record=TRUE excluded)
             _c52b_nc_passed = (_c52b_nc_count == 0)
-            print(f"  [C52-B NEG-CTL] fixture_decision_id={_c52b_nc_did[:24]}")
-            print(f"    hand-set: origin_type='SCHEDULER' alert_id='NC_FAKE_ALERT'")
-            print(f"    S10 predicate count={_c52b_nc_count} (must=0, fixture excluded by is_test_record=TRUE)")
+            print(f"  [C52-B NEG-CTL] fixture_did={_c52b_nc_did[:24]}")
+            print(f"    hand-set SCHEDULER attrs: predicate_count={_c52b_nc_count} (must=0)")
         else:
-            # No fixture rows — negative control vacuously passes (nothing to forge)
             _c52b_nc_passed = True
             print(f"  [C52-B NEG-CTL] no is_test_record=TRUE rows; vacuously pass")
         _c52b_cur.execute("ROLLBACK TO SAVEPOINT c52b_neg_ctl")
@@ -1950,21 +2009,28 @@ try:
 
     chk("C52B_neg_hand_set_scheduler_does_not_satisfy_s10",
         _c52b_nc_passed,
-        "Hand-setting origin_type='SCHEDULER' on a fixture row must NOT satisfy "
-        "the S10 predicate. is_test_record=TRUE filter must exclude it.")
+        "Hand-setting SCHEDULER attrs on is_test_record=TRUE fixture must NOT "
+        "satisfy either C52B predicate (is_test_record=TRUE excluded).")
 
-    chk("C52B_genuine_scheduler_decision_exists",
+    chk("C52B_scheduler_origin_decision_exists",
+        _c52b_has_scheduler,
+        "PENDING: no scheduler-origin oe_decision_replay_inputs row. "
+        "Requires: origin_type='SCHEDULER' + scheduler_job_id NOT NULL + "
+        "worker_pid NOT NULL + oe_decision_audit entry + is_test_record=FALSE. "
+        "alert_id may be null. Unblocks on any market day 9:45 AM ET.")
+
+    chk("C52B_live_trade_decision_exists",
         _c52b_has_genuine,
-        "PENDING_LIVE_EVIDENCE: no S10-qualifying oe_decision_replay_inputs row. "
-        "S10 requires: alert_id NOT NULL + origin_type='SCHEDULER' + "
-        "scheduler_job_id NOT NULL + worker_pid NOT NULL + "
-        "absent from oe_contamination_exclusions + oe_decision_audit entry. "
+        "PENDING_LIVE_EVIDENCE: no live-trade oe_decision_replay_inputs row. "
+        "Requires same as C52B_scheduler_origin_decision_exists + alert_id IS NOT NULL. "
         "Unblocks on a TRADE market day (Mon-Fri 9:45 AM ET).")
 
     _c52b_cur.close()
     _c52b_conn.close()
 except Exception as _e:
-    chk("C52B_live_evidence_check", False, str(_e))
+    chk("C52B_scheduler_origin_decision_exists", False, str(_e))
+    chk("C52B_live_trade_decision_exists", False, str(_e))
+    _c52b_has_genuine = False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2178,35 +2244,43 @@ try:
 
     if os.path.exists(_c28_refs_path):
         _c28_refs = json.load(open(_c28_refs_path))
-        _C28_FORBIDDEN = {'agent','scheduler','aiem_process','automated','self',
-                          'aiem_autonomous','main_agent'}
         _c28_approver = _c28_refs.get('approved_by')
-        # A2: approved_by=None is correct (no approval yet). FAIL only if a
-        # forbidden identity IS present. Null means "not yet approved".
-        _c28_not_forbidden = _c28_approver is None or _c28_approver not in _C28_FORBIDDEN
-        chk("C28_approved_by_null_or_not_forbidden",
-            _c28_not_forbidden,
-            f"approved_by={_c28_approver!r} must be null or not in forbidden set "
-            f"{_C28_FORBIDDEN}")
+
+        # A5: recompute engine_root_hash + commit_sha at runtime; fail closed on mismatch.
+        # Supersedes C28_approved_by_null_or_not_forbidden (blocklist → allowlist).
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from engine_manifest import verify_against_refs as _c28_vfn
+        _c28_result    = _c28_vfn(_c28_refs_path)
+        _c28_engine_ok = _c28_result.get('ok', False)
 
         chk("C28_refs_has_commit_sha", bool(_c28_refs.get('commit_sha')),
             f"commit_sha={_c28_refs.get('commit_sha','MISSING')!r}")
-
         chk("C28_refs_has_engine_root_hash", bool(_c28_refs.get('engine_root_hash')),
             f"engine_root_hash={_c28_refs.get('engine_root_hash','MISSING')!r}")
-
-        # Live root hash must match approved
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from engine_manifest import verify_against_refs as _c28_vfn
-        _c28_result = _c28_vfn(_c28_refs_path)
         chk("C28_live_engine_root_hash_matches_approved",
-            _c28_result.get('ok', False),
-            f"live={_c28_result.get('live_root_hash','?')[:24]}  approved={_c28_result.get('approved_root_hash','?')[:24]}")
-
+            _c28_engine_ok,
+            f"live={_c28_result.get('live_root_hash','?')[:24]}  "
+            f"approved={_c28_result.get('approved_root_hash','?')[:24]}")
         chk("C28_scoring_fn_ast_hash_component_matches",
             _c28_result.get('component_match',{}).get('scoring_fn_ast_hash', False))
         chk("C28_req6_weights_hash_component_matches",
             _c28_result.get('component_match',{}).get('req6_weights_hash', False))
+
+        # A5 allowlist gate: approved_by must be in an explicit set of trusted external
+        # reviewer identities. Empty allowlist = fail closed (no reviewer exists yet).
+        # Null approved_by also fails — absence of approval is not approval.
+        # Gate additionally requires engine_root_hash match at runtime.
+        _C28_APPROVED_IDENTITIES: set = set()   # empty: no external reviewer exists
+        _c28_in_allowlist = (
+            _c28_approver is not None
+            and _c28_approver in _C28_APPROVED_IDENTITIES
+        )
+        _c28_gate_ok = _c28_in_allowlist and _c28_engine_ok
+        chk("C28_approved_by_in_allowlist_and_engine_hash_match",
+            _c28_gate_ok,
+            f"approved_by={_c28_approver!r} in_allowlist={_c28_in_allowlist} "
+            f"(allowlist={_C28_APPROVED_IDENTITIES!r}) engine_match={_c28_engine_ok}. "
+            "FAIL: allowlist is empty (no external reviewer) or engine hash mismatch.")
 
         print(f"  [C28] approved_by={_c28_approver!r}  commit={_c28_refs.get('commit_sha','?')[:16]}")
         print(f"  [C28] engine_root_hash={_c28_refs.get('engine_root_hash','?')[:32]}...")
@@ -3017,6 +3091,73 @@ try:
               f"neg_missing_archive={_c42_neg_fails}")
 except Exception as _e:
     chk("C42_post_seal_verifier", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A8 Enforcement: check set is append-only.
+# Any check present in the previous run's results must appear in the current
+# run OR have a registered supersede entry. Missing without supersede = FAIL.
+# ─────────────────────────────────────────────────────────────────────────────
+_A8_SUPERSEDE_REGISTRY = {
+    # Checks removed as part of this session's code changes (SEQ=32 → current):
+    'C48_approval_metadata_only_flag_set':            'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C48_approval_proof_status_is_external_blocker':  'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C48_approved_by_null_or_not_forbidden':          'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C48_chain_head_has_ts_end':                      'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C48_dpl_certification_not_approved':             'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C48_neg_self_approval_is_forbidden':             'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C48_approved_at_field_present':                  'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C28_approved_by_null_or_not_forbidden':          'SUPERSEDED_BY:C28_approved_by_in_allowlist_and_engine_hash_match',
+    'C52B_genuine_scheduler_decision_exists':         'SUPERSEDED_BY:C52B_scheduler_origin_decision_exists+C52B_live_trade_decision_exists',
+    # Checks removed in prior sessions (historical — kept here for completeness):
+    'C28_approved_by_is_set_and_not_forbidden':       'SUPERSEDED_BY:C28_approved_by_null_or_not_forbidden',
+    'C33_genesis_entry_hash_valid':                   'SUPERSEDED_BY:C33_all_entry_hashes_recompute_correctly',
+    'C34_index_tsv_status':                           'SUPERSEDED_BY:C34_index_tsv_has_entries',
+    'C40_replay_tolerance_is_1e9':                    'SUPERSEDED_BY:C40_replay_tolerance_is_1e_minus_9',
+    'C48_approved_at_field_present_or_pending':       'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C48_approved_by_not_forbidden_identity':         'SUPERSEDED_BY:C48_independent_approval_obtained',
+    'C49_cannot_disable_immutability_trigger':        'SUPERSEDED_BY:C49_ddl_privilege_gap_documented',
+    'C52B_live_evidence_check':                       'SUPERSEDED_BY:C52B_live_trade_decision_exists',
+    'C52_prod_verified_decision_exists':              'SUPERSEDED_BY:C52B_genuine_scheduler_decision_exists',
+}
+
+try:
+    _a8_last_path = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'last_run_results.json'))
+    if os.path.exists(_a8_last_path):
+        _a8_last     = json.load(open(_a8_last_path))
+        _a8_prev     = set(_a8_last.get('pass_list', [])) | set(_a8_last.get('fail_list', []))
+        _a8_curr     = set(_PASS) | set(_FAIL)
+        _a8_removed  = _a8_prev - _a8_curr
+        _a8_viol     = [n for n in sorted(_a8_removed) if n not in _A8_SUPERSEDE_REGISTRY]
+        if _a8_viol:
+            print(f"\n[A8 ENFORCEMENT] {len(_a8_viol)} removal violation(s):")
+            for _v in _a8_viol:
+                print(f"  VIOLATION: {_v}")
+                _FAIL.append(f"A8_REMOVAL_VIOLATION:{_v}")
+        else:
+            print(f"\n[A8 ENFORCEMENT] {len(_a8_removed)} removed check(s), "
+                  f"all in supersede registry — OK")
+            for _rn in sorted(_a8_removed):
+                print(f"  SUPERSEDED: {_rn} → {_A8_SUPERSEDE_REGISTRY[_rn]}")
+    else:
+        print(f"\n[A8 ENFORCEMENT] no previous run results (first run) — skipped")
+except Exception as _a8_e:
+    print(f"\n[A8 ENFORCEMENT] WARNING: {_a8_e}")
+    _FAIL.append(f"A8_enforcement_error:{str(_a8_e)[:80]}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Certification summary (R4 FORK: required when C52B strict check fails)
+# ─────────────────────────────────────────────────────────────────────────────
+_cert_sched_proven = 'C52B_scheduler_origin_decision_exists' in _PASS
+_cert_trade_proven = 'C52B_live_trade_decision_exists' in _PASS
+if _cert_sched_proven and not _cert_trade_proven:
+    print("\nCERTIFICATION: scheduler-originated decision proven; live trade not proven")
+elif _cert_trade_proven and _cert_sched_proven:
+    print("\nCERTIFICATION: scheduler-originated decision proven; live trade proven")
+else:
+    print("\nCERTIFICATION: scheduler-originated decision not yet proven; live trade not proven")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
