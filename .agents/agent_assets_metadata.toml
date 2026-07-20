@@ -738,3 +738,9 @@ id = "Tazkswd1sFn5ZjtBXWSa3"
 uri = "file://artifacts/stock-scanner-api/tools/logs/verified_run_35.log"
 type = "unspecified"
 title = "SEQ=35 Sealed Run Log (177P / 6F / PSV 9/9)"
+
+[[outputs]]
+id = "gmijYZQ6UeKj4DzORxgQ6"
+uri = "file://artifacts/stock-scanner-api/tools/R6_findings_seq36.txt"
+type = "text"
+title = "R6 Audit Response Findings — SEQ=36 (178P / 6F)"
