@@ -762,3 +762,9 @@ id = "LetNyx4VKkyN8boS3snO9"
 uri = "file://artifacts/stock-scanner-api/dpl/R8_Institutional_Audit_Evidence.md"
 type = "text"
 title = "Institutional Audit Evidence Package — All 11 Items"
+
+[[outputs]]
+id = "pYjRLYntM5f6R9RqDYTqj"
+uri = "file://artifacts/stock-scanner-api/dpl/R8_Audit_Session_Complete.md"
+type = "text"
+title = "R8 Complete Session Summary"
