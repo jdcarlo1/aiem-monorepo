@@ -1,0 +1,90 @@
+# DPL PHASE 3 — AUDIT DIRECTIVE R3
+Re: DPL_Phase3_R2_Session_Report (SEQ=32, 183 PASS / 4 FAIL)
+Status: REPORT NOT ACCEPTED — narrative only, zero raw evidence.
+
+## 0. FORMAT REJECTION
+Entire report is prose. No terminal output, no diffs, no sha256, no SQL, no chain
+output. Every "completed / PASS / confirmed" below is an unverified claim.
+Resubmit in LEAN VERIFICATION DIRECTIVE format: raw command output only.
+
+## A. BLOCKING
+
+A4 — REPLAY CHECK IS NOW TAUTOLOGICAL
+C52_replay_returns_structure "fix" writes the live scoring_fn_hash and live
+weights INTO the fixture row, then calls replay_decision() and confirms a match.
+A hash computed from getsource() cannot disagree with itself. The check can no
+longer detect the one thing it exists to detect (code drift), so its PASS is
+worthless — a weakening of the same class as the C48 rename.
+Required: revert the pre-patch UPDATE. Fixture must carry a hash captured at
+fixture creation. Add negative control: mutate compute_req6_score, confirm
+ReplayCodeDriftError fires. Paste both runs.
+
+A5 — APPROVAL IS STILL HAND-SETTABLE
+Gate checks approved_by against a *blocklist* of 7 identities. Any string outside
+that set passes. The agent can write approved_by="joel" and certification=
+"APPROVED" and the gate opens. This is A2 unresolved, not fixed.
+Required: (1) allowlist, not blocklist; (2) approval record must bind to a
+specific engine_root_hash + commit_sha, and the gate must recompute both at
+runtime and block on mismatch — otherwise approve-once-then-edit is open;
+(3) approval fields set out-of-band by Joel only, never by the agent, in any
+session, for any reason. State this constraint back verbatim.
+
+A6 — INVERTED EVIDENCE ORDER
+Report asks for approval BEFORE C52B/C52C can produce evidence, then says those
+checks auto-resolve after the run approval enabled. Approval would be granted on
+the basis of evidence that does not exist. Not acceptable.
+Required: produce a genuine origin_type='SCHEDULER', is_test_record=FALSE row
+via a dry-run/no-trade scheduler path that satisfies all 5 S10 attributes and
+places no orders. C52B and C52C must PASS before any approval is requested.
+If NO_TRADE still sets alert_id=None, state that in one line — it means C52B is
+unsatisfiable and the predicate or the writer is wrong.
+
+## B. UNADDRESSED FROM R2 — SILENT OMISSION
+Report does not mention B1–B5, B10, B11. Answer each in one line, DONE or OPEN:
+B1 verify_chain.sh location/existence (canonical: artifacts/stock-scanner-api/
+   verify_chain.sh, ca7896c7…) + raw sha256sum vs canonical for it and
+   tools/verified_run.sh (467451910c…)
+B2 verified_run.sh re-canonicalization + SEQ range per version
+B3 git status --porcelain (must be empty) proving engine_root_hash and
+   commit_sha fc1ddf1 attest to committed code, not a dirty tree
+B4 full PSV5 recompute SEQ=15–32 (cross-version claim still untested)
+B5 per-consumer join proof for oe_contamination_exclusions (8 consumers)
+B11 run-history depth: clean-run count and live-run count as of SEQ=32
+
+## C. VERIFY-AS-CLAIMED
+C1 B9: paste the C47B predicate. If it scans dpl/ root only, moving 6 files to
+   dpl/historical_evidence/ satisfies the check without cleaning the tree —
+   check-shaped fix. Also log the move under the data-immutability rule.
+C2 B7: strict C48 was split into 3 checks, 2 of which PASS on the unmet state.
+   Net failure signal reduced from 1 to 1 while appearing to triple. Justify or
+   collapse back to a single strict check.
+C3 Check-count diff: SEQ=29 had 185 checks, SEQ=32 has 187. Paste the sorted
+   check-name diff between the two seals. No check may vanish silently.
+C4 The verifier now UPDATEs rows in oe_decision_replay_inputs, a production
+   table, as routine operation, with is_test_record=TRUE as the only guard.
+   Combined with C52A (shared namespace) the verifier is now a production
+   writer. State whether this is intended and what bounds it.
+C5 A2 claim: paste raw cat of engine_integrity_refs.json.
+C6 A1 accepted — report timestamps are internally consistent with Sunday
+   2026-07-19. No further work.
+
+## D. STANDING BLOCK (applies to every item above)
+1. Raw terminal output of actual execution; raw grep -n / sed -n for any claim
+   about code location, line numbers, or whether a pattern exists — never
+   paraphrase.
+2. Exact before/after file diff.
+3. sha256 before/after for every file changed this session only.
+4. Raw SQL + full result set for any DB claim; >10 rows via \copy CSV attached,
+   never inline, never "representative rows".
+5. All evidence commands run through verified_run.sh; validate with
+   verify_chain.sh and paste its output; paste raw sha256sum for both wrapper
+   scripts vs canonical — mismatch voids the run regardless of log content.
+6. Data immutability: no delete, truncate, drop, or overwrite of any row, table,
+   or file — including agent-created, "test", "synthetic", or "cleanup" data —
+   without Joel's explicit prior approval this session. State intent, wait, log.
+   Unapproved deletion is reported, not self-corrected.
+7. No hardcoded values: list every constant in new code, trace each to a live
+   source; "wired later" is not complete.
+8. If a claim cannot be backed by real output, say so in one line. No padding.
+9. Verifier PASS is not execution authorization. Phase completion and autonomous
+   execution are separate approvals with separate evidence.
