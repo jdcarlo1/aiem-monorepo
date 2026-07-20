@@ -774,3 +774,9 @@ id = "P4JSvxE176EpkpokYX2QG"
 uri = "file://DPL_Phase3_R8_Completion_Summary.md"
 type = "text"
 title = "DPL Phase 3 R8 — Completion Summary"
+
+[[outputs]]
+id = "P-FSijKqJFHV0yJ2cirDq"
+uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_R10_Audit_Response.md"
+type = "text"
+title = "DPL Phase 3 R10 Audit Response — SEQ=46 Sealed"
