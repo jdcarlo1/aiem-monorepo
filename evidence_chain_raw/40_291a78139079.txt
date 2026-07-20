@@ -1,0 +1,49 @@
+diff --git a/artifacts/stock-scanner-api/aiem_paper_recovery.py b/artifacts/stock-scanner-api/aiem_paper_recovery.py
+index a940dc2..adc7de3 100644
+--- a/artifacts/stock-scanner-api/aiem_paper_recovery.py
++++ b/artifacts/stock-scanner-api/aiem_paper_recovery.py
+@@ -243,6 +243,44 @@ def try_claim(business_date: datetime.date, execution_id: str,
+                   f"for {date_str} attempt=#{row3[1]} trigger={trigger_source}")
+             return True
+ 
++        # Step 2c — scheduled_942 overrides a COMPLETED/SKIPPED zero-picks row.
++        # Root cause (2026-07-20): startup_recovery at 9:00 AM finds NO_CANDIDATES,
++        # calls mark_skipped() → ledger status=SKIPPED, picks_count=NULL.  At 9:42
++        # the scheduled run hits try_claim(), INSERT fails (UNIQUE conflict), all
++        # UPDATE paths fail (row is not PENDING/CLAIMED/EXECUTING) → returns False →
++        # the real scheduled run is silently skipped.
++        # Fix: if the caller is "scheduled_942" AND the existing row is terminal
++        # (COMPLETED or SKIPPED) with picks_count IS NULL or 0 (no real trades
++        # were ever placed), steal the row so the scheduled run can proceed.
++        # Guard: picks_count > 0 means actual trades were executed — do NOT override.
++        if trigger_source == "scheduled_942":
++            cur.execute("""
++                UPDATE paper_trade_job_ledger
++                SET status          = 'CLAIMED',
++                    execution_id    = %s,
++                    trigger_source  = %s,
++                    claimed_at      = NOW(),
++                    recovery_attempts = recovery_attempts + 1
++                WHERE business_date = %s
++                  AND status        IN ('COMPLETED', 'SKIPPED')
++                  AND (picks_count IS NULL OR picks_count = 0)
++                RETURNING id, recovery_attempts
++            """, (execution_id, trigger_source, date_str))
++            row2c = cur.fetchone()
++            if row2c:
++                conn.commit()
++                _log_evidence({
++                    "event": "LEDGER_CLAIMED",
++                    "via": "OVERRIDE_ZERO_PICKS_SCHEDULED_942",
++                    "business_date": date_str,
++                    "execution_id": execution_id,
++                    "trigger_source": trigger_source,
++                    "recovery_attempt": row2c[1],
++                })
++                print(f"[paper_recovery] CLAIMED (override zero-picks, scheduled_942 preempts) "
++                      f"{date_str} execution_id={execution_id} trigger={trigger_source}")
++                return True
++
+         cur.execute("""
+             SELECT status, execution_id, trigger_source, claimed_at, completed_at
+             FROM paper_trade_job_ledger WHERE business_date = %s

@@ -1,0 +1,23 @@
+
+=== CASE A: SKIPPED/picks_count=NULL from startup_recovery ===
+    scheduled_942 tries to claim — must return True (Step 2c)
+[paper_recovery] CLAIMED (override zero-picks, scheduled_942 preempts) 2020-01-06 execution_id=exec_negctl_a trigger=scheduled_942
+  fetchone called 5 times  (expected 5 — stopped at Step 2c)
+  try_claim returned: True
+  EXPECTED return=True, fetchone_calls=5 -> PASS
+
+=== CASE B: COMPLETED/picks_count=3 (real trades placed) ===
+    scheduled_942 tries to claim — must return False (guard holds)
+[paper_recovery] claim DENIED for 2020-01-06: status=COMPLETED owner=old_exec caller=scheduled_942
+  fetchone called 6 times  (expected 6 — reached final SELECT)
+  try_claim returned: False
+  EXPECTED return=False, fetchone_calls=6 -> PASS
+
+=== CASE C: No row exists for today ===
+    scheduled_942 tries to claim — must return True (Step 1: INSERT)
+[paper_recovery] CLAIMED 2020-01-06 execution_id=exec_negctl_c trigger=scheduled_942
+  fetchone called 1 times  (expected 1 — stopped at Step 1)
+  try_claim returned: True
+  EXPECTED return=True, fetchone_calls=1 -> PASS
+
+=== SUMMARY: 3/3 PASS ===

@@ -1,0 +1,55 @@
+# Paper Trading — Fix Dedup Preemption of Scheduled 9:42 AM Run
+
+## Priority
+This is the top priority — getting daily paper trading to actually execute automatically
+every day, not just have its trigger fire.
+
+## The problem (confirmed 2026-07-20)
+The 9:42 AM ET CronTrigger has the correct timezone and does fire. But on 2026-07-20 it
+produced NO execution because a `startup_recovery` run had already logged a row at 9:00 AM
+ET (id=20, status=NO_CANDIDATES, trades_inserted=0). Whatever dedup/ledger check gates the
+scheduled run treated "a row already exists for today" as "today is done" and skipped the
+9:42 run entirely — even though that earlier row reflected zero candidates checked, not a
+real completed attempt.
+
+## Required — investigate first, raw evidence only
+1. `grep -n` the dedup/gating logic that decides whether the scheduled 9:42 run proceeds
+   (likely near `trigger_source="scheduled_942"` in main.py). Paste the raw grep output
+   and the surrounding function in full via `sed -n`.
+2. State plainly: what exact condition currently causes a skip? (e.g. "any row exists for
+   today" vs "a row with status=SUCCESS exists for today")
+
+## Required fix
+The scheduled 9:42 AM run must proceed unless a row for today already shows a REAL
+completed execution attempt (i.e. status SUCCESS or FAILED with trades actually attempted/
+inserted) — not merely because some earlier process (startup_recovery, internal_watchdog)
+logged a placeholder/zero-candidate row. A NO_CANDIDATES row from an earlier check should
+never block the scheduled run from actually trying at 9:42.
+
+Decide and state which of these two behaviors you're implementing, then apply it:
+- (a) scheduled run always executes at 9:42 regardless of any earlier row today, and the
+  ledger just records both entries, or
+- (b) scheduled run executes unless today's existing row has status SUCCESS or a real
+  FAILED-after-attempt state (NO_CANDIDATES does not count as "already handled")
+
+## Evidence required for the fix
+1. Exact diff (before/after) of the changed gating logic
+2. sha256 before/after of the changed file
+3. Negative control — actually execute (not narrate) these cases through the real gating function with a mock/test row:
+   - today has a NO_CANDIDATES row from startup_recovery → scheduled run must still proceed
+   - today has a SUCCESS row with trades already inserted → scheduled run should not double-execute (or should, if you chose option (a) — state which)
+   - today has no row at all → scheduled run proceeds normally
+   Paste raw output for each case.
+4. `git diff HEAD --stat`
+
+## Standing requirements apply
+Raw evidence only, no narrative-only claims, data immutability rule, verified_run.sh
+evidence chain, sha256 cross-check against current canonical (tools/verified_run.sh —
+confirm which value is canonical once the consolidation directive from earlier today is
+complete).
+
+## Note
+Tomorrow (2026-07-21) is still effectively the first live test of the 9:42 trigger running
+end-to-end without a pre-empting recovery row — that alone doesn't confirm this dedup fix
+works. This directive needs to land and be verified before market open tomorrow if possible,
+otherwise the same failure mode repeats.

@@ -1,0 +1,12 @@
+
+=== CASE A: SKIPPED/picks_count=NULL (NO_CANDIDATES from startup_recovery) ===
+Traceback (most recent call last):
+  File "/tmp/negctl_test.py", line 43, in <module>
+    clean()
+  File "/tmp/negctl_test.py", line 14, in clean
+    with psycopg2.connect(DB, connect_timeout=5) as c, c.cursor() as cu:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/psycopg2/__init__.py", line 122, in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+psycopg2.OperationalError: connection to server at "helium" (172.24.0.3), port 5432 failed: timeout expired
