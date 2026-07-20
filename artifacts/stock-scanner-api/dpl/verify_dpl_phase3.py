@@ -1297,10 +1297,13 @@ except Exception as _e:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C47B: Source-tree cleanliness (B9) — dpl/*.py against approved allowlist
-# C47 only checked oe_legacy_decision_cutoff; it asserted nothing about the
-# source tree. Six stray .py files were present and unreported by any check.
-# This check enumerates dpl/*.py against an explicit allowlist and FAILs on
-# any unlisted file.
+# SCOPE: intentionally limited to the dpl/ directory only (not the full repo).
+# Rationale: dpl/ is the boundary of the DPL subsystem; stray .py files inside
+# dpl/ represent an uncontrolled expansion of the DPL code surface.
+# Files outside dpl/ are governed by their own module ownership and are out
+# of scope for this check. Check name uses suffix _dpl_scope to make this
+# explicit. (Supersedes C47B_source_tree_clean — name change only, same logic.)
+# For a full-repo .py inventory use: git ls-files '*.py'
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     import glob as _c47b_glob
@@ -1319,15 +1322,15 @@ try:
         'daily_trace_report.py',    # daily trace report generator
     }
     _c47b_unlisted = _c47b_found - _c47b_allowlist
-    print(f"  [C47B] dpl/*.py found={sorted(_c47b_found)}")
+    print(f"  [C47B] scope=dpl_dir_only  dpl/*.py found={sorted(_c47b_found)}")
     print(f"  [C47B] unlisted={sorted(_c47b_unlisted)}")
-    chk("C47B_source_tree_clean",
+    chk("C47B_source_tree_clean_dpl_scope",
         len(_c47b_unlisted) == 0,
         f"unlisted .py files in dpl/: {sorted(_c47b_unlisted)}. "
         "Each must be added to the allowlist with a documented reason, "
         "or removed from dpl/.")
 except Exception as _e:
-    chk("C47B_source_tree_check", False, str(_e))
+    chk("C47B_source_tree_check_dpl_scope", False, str(_e))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1380,9 +1383,21 @@ try:
     if _c49_is_super:
         print(f"  [C49] EXTERNAL_BLOCKER: current_user={_c49_current} is superuser "
               f"(Replit managed DB infrastructure — separate aiem_app low-privilege role required)")
+        # N5 (R6): All three aiem_* roles (aiem_app/aiem_verify/aiem_approve) are NOLOGIN.
+        # A NOLOGIN role cannot open a DB connection and therefore cannot enforce any
+        # constraint at runtime. Every immutability assertion in this run is made by
+        # the postgres superuser, who can ALTER or DROP the trigger before asserting.
+        # No login-capable enforcing role exists. This is the honest restatement of
+        # what was previously described only as "gap documented".
+        print(f"  [C49] NO_LOGIN_CAPABLE_ENFORCING_ROLE: all aiem_app/aiem_verify/aiem_approve "
+              f"are NOLOGIN — every immutability PASS in this run is asserted by postgres superuser "
+              f"(can disable trigger first). EXTERNAL_BLOCKER: requires infra change.")
         chk("C49_db_role_gap_documented_external_blocker", True,
-            f"Replit PG runs as '{_c49_current}' (superuser). Separate aiem_app role is EXTERNAL BLOCKER. "
-            "Trigger-level controls (TRUNCATE/UPDATE) are enforced regardless of role.")
+            f"Replit PG runs as '{_c49_current}' (superuser). "
+            "No login-capable enforcing role exists: all aiem_* roles are NOLOGIN and cannot connect. "
+            "Every immutability PASS is asserted by the owner role (postgres), "
+            "which can ALTER the trigger before asserting. "
+            "EXTERNAL_BLOCKER: low-privilege login-capable role requires infra change outside Replit managed DB.")
     else:
         chk("C49_current_user_is_not_superuser", True,
             f"current_user={_c49_current} is not superuser")
@@ -3094,9 +3109,19 @@ except Exception as _e:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# A8 Enforcement: check set is append-only.
-# Any check present in the previous run's results must appear in the current
-# run OR have a registered supersede entry. Missing without supersede = FAIL.
+# A8 Enforcement: check set is append-only (TWO-LAYER: prior-run + SEQ=32 baseline).
+#
+# Layer 1 (prior-run): any check present in last_run_results.json must appear
+#   in the current run OR have a registered supersede entry.
+#   Catches single-hop removals.
+#
+# Layer 2 (SEQ=32 audit-epoch baseline): any check present in
+#   tools/a8_baseline_seq32.json must appear in the current run OR have a
+#   registered supersede entry.
+#   Catches multi-run erosion that Layer 1 misses (e.g. removed at SEQ=N,
+#   re-introduced at SEQ=N+1 so Layer 1 sees no delta).
+#
+# SEQ=32 is the audit-epoch baseline: 187 checks, established before R4 changes.
 # ─────────────────────────────────────────────────────────────────────────────
 _A8_SUPERSEDE_REGISTRY = {
     # Checks removed as part of this session's code changes (SEQ=32 → current):
@@ -3109,6 +3134,8 @@ _A8_SUPERSEDE_REGISTRY = {
     'C48_approved_at_field_present':                  'SUPERSEDED_BY:C48_independent_approval_obtained',
     'C28_approved_by_null_or_not_forbidden':          'SUPERSEDED_BY:C28_approved_by_in_allowlist_and_engine_hash_match',
     'C52B_genuine_scheduler_decision_exists':         'SUPERSEDED_BY:C52B_scheduler_origin_decision_exists+C52B_live_trade_decision_exists',
+    # N3 (R6): C47B renamed to make dpl/-only scope explicit in check name:
+    'C47B_source_tree_clean':                         'SUPERSEDED_BY:C47B_source_tree_clean_dpl_scope',
     # Checks removed in prior sessions (historical — kept here for completeness):
     'C28_approved_by_is_set_and_not_forbidden':       'SUPERSEDED_BY:C28_approved_by_null_or_not_forbidden',
     'C33_genesis_entry_hash_valid':                   'SUPERSEDED_BY:C33_all_entry_hashes_recompute_correctly',
@@ -3121,6 +3148,7 @@ _A8_SUPERSEDE_REGISTRY = {
     'C52_prod_verified_decision_exists':              'SUPERSEDED_BY:C52B_genuine_scheduler_decision_exists',
 }
 
+# ── Layer 1: prior-run comparison ─────────────────────────────────────────────
 try:
     _a8_last_path = os.path.normpath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'last_run_results.json'))
@@ -3131,20 +3159,54 @@ try:
         _a8_removed  = _a8_prev - _a8_curr
         _a8_viol     = [n for n in sorted(_a8_removed) if n not in _A8_SUPERSEDE_REGISTRY]
         if _a8_viol:
-            print(f"\n[A8 ENFORCEMENT] {len(_a8_viol)} removal violation(s):")
+            print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_viol)} prior-run removal violation(s):")
             for _v in _a8_viol:
                 print(f"  VIOLATION: {_v}")
                 _FAIL.append(f"A8_REMOVAL_VIOLATION:{_v}")
         else:
-            print(f"\n[A8 ENFORCEMENT] {len(_a8_removed)} removed check(s), "
+            print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_removed)} removed check(s), "
                   f"all in supersede registry — OK")
             for _rn in sorted(_a8_removed):
                 print(f"  SUPERSEDED: {_rn} → {_A8_SUPERSEDE_REGISTRY[_rn]}")
     else:
-        print(f"\n[A8 ENFORCEMENT] no previous run results (first run) — skipped")
+        print(f"\n[A8 Layer-1 ENFORCEMENT] no previous run results (first run) — skipped")
 except Exception as _a8_e:
-    print(f"\n[A8 ENFORCEMENT] WARNING: {_a8_e}")
+    print(f"\n[A8 Layer-1 ENFORCEMENT] WARNING: {_a8_e}")
     _FAIL.append(f"A8_enforcement_error:{str(_a8_e)[:80]}")
+
+# ── Layer 2: SEQ=32 audit-epoch baseline (multi-run erosion guard) ─────────────
+try:
+    _a8_bl_path = os.path.normpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'a8_baseline_seq32.json'))
+    if os.path.exists(_a8_bl_path):
+        _a8_bl      = json.load(open(_a8_bl_path))
+        _a8_bl_set  = {c['name'] for c in _a8_bl.get('checks', [])}
+        _a8_curr2   = set(_PASS) | set(_FAIL)
+        _a8_eroded  = _a8_bl_set - _a8_curr2
+        _a8_bl_viol = [n for n in sorted(_a8_eroded) if n not in _A8_SUPERSEDE_REGISTRY]
+        _a8_bl_reg  = [n for n in sorted(_a8_eroded) if n in _A8_SUPERSEDE_REGISTRY]
+        print(f"\n[A8 Layer-2 ENFORCEMENT] SEQ=32 baseline: {_a8_bl.get('total')} checks")
+        print(f"  eroded (not in current run): {len(_a8_eroded)}")
+        print(f"  registered supersedes: {len(_a8_bl_reg)}")
+        print(f"  unregistered violations: {len(_a8_bl_viol)}")
+        if _a8_bl_reg:
+            for _rn in _a8_bl_reg:
+                print(f"  SUPERSEDED: {_rn} → {_A8_SUPERSEDE_REGISTRY[_rn]}")
+        if _a8_bl_viol:
+            for _v in _a8_bl_viol:
+                print(f"  BASELINE_VIOLATION: {_v}")
+                _FAIL.append(f"A8_BASELINE_VIOLATION:{_v}")
+            chk("A8_baseline_erosion_clean", False,
+                f"{len(_a8_bl_viol)} check(s) removed from SEQ=32 baseline without supersede entry")
+        else:
+            chk("A8_baseline_erosion_clean", True,
+                f"all {len(_a8_eroded)} SEQ=32 erosions are registered supersedes — no unregistered removals")
+    else:
+        print(f"\n[A8 Layer-2 ENFORCEMENT] a8_baseline_seq32.json missing — skipped")
+        _FAIL.append("A8_baseline_file_missing")
+except Exception as _a8_bl_e:
+    print(f"\n[A8 Layer-2 ENFORCEMENT] WARNING: {_a8_bl_e}")
+    _FAIL.append(f"A8_baseline_error:{str(_a8_bl_e)[:80]}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3158,6 +3220,15 @@ elif _cert_trade_proven and _cert_sched_proven:
     print("\nCERTIFICATION: scheduler-originated decision proven; live trade proven")
 else:
     print("\nCERTIFICATION: scheduler-originated decision not yet proven; live trade not proven")
+# N4 (R6): A12 genesis anchor provenance is an accepted unresolved gap.
+# The GENESIS chain entry timestamp is identical to the timestamp of the
+# removed fabricated approval. No independent creation evidence exists.
+# This gap cannot be closed without an external witness to the GENESIS write.
+# It is recorded here as an accepted unresolved gap and does NOT affect the
+# integrity of post-GENESIS chain entries, which are independently verifiable.
+print("CERTIFICATION_GAP_A12: genesis anchor provenance unresolvable — "
+      "ts identical to removed fabricated approval; "
+      "accepted unresolved gap; trusted genesis origin cannot be established")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,52 @@
+# DPL Part-1 Audit Directive R6
+Scope: SEQ=35 (177 PASS / 6 FAIL, all=183, EXIT=1, entry_hash 69c829416fdf0ddc…)
+Status: SEQ=35 REJECTED as sealed evidence. Content credited, seal not accepted.
+
+## BLOCKING
+
+**W1 — verified_run.sh drift.**
+Header sha256=59263365878a67411fa0c325ae0dc0ece86fd742efafd31610cfbae61e22448e.
+Canonical=467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae.
+Under the standing rule the validator has drifted and all output is rejected regardless of content.
+Deliver: `git log --follow -p tools/verified_run.sh`, raw `sha256sum`, and either (a) a diff justifying re-canonicalization or (b) revert to canonical. No sealed run is accepted until this resolves.
+Also state in one line whether verify_chain.sh was executed this run or hash-only. If hash-only, stop citing it as chain validation.
+
+**W2 — A8 reports OK while the check set shrank.**
+Line 340: "0 removed check(s), all in supersede registry — OK". all=183 at SEQ=35 vs 187 at SEQ=32.
+Deliver: raw per-SEQ check counts for 32/33/34/35, the 4-check delta by name, each one's supersede-registry entry or absence, and raw grep showing A8's comparison scope. If A8 compares only against the immediately prior run, say so — that makes it blind to multi-run erosion and it must be re-scoped to the SEQ=32 baseline.
+
+**W3 — two commits, dirty tree, self-modified verifier.**
+Header git_commit=73395dd9684a4b31; C28 detail commit=fc1ddf1a43b53c5f. TREE=DIRTY includes dpl/verify_dpl_phase3.py and dpl/engine_integrity_refs.json.
+Deliver: raw `git status --porcelain`, `git diff HEAD --stat`, the commit each refs field was generated against, and a clean-tree re-run. Refs must attest to the commit that ran. A verifier edited in the same uncommitted state that produced its own PASS is not evidence.
+
+## NON-BLOCKING
+
+**N1 — SCHEDULER-origin claim vs three runs of evidence.**
+R2 claimed origin_type='SCHEDULER' was wired and the scheduler restarted. SEQ=33/34/35 show zero SCHEDULER-origin rows.
+Deliver: raw grep of every write path passing origin_type, raw SQL `SELECT origin_type, count(*) FROM oe_decision_replay_inputs GROUP BY 1`, and scheduler process/restart evidence. If the fix is not live, retract the R2 claim explicitly.
+
+**N2 — clean_runs stale.** C50 reports clean_runs=[23, 24] across ten subsequent runs. Deliver the definition (raw grep) and either updated membership or a statement that no run since 24 qualifies, with the reason.
+
+**N3 — C47B scope.** Check globs dpl/*.py only. Deliver raw `git ls-files '*.py'` for the repo and a scope widened beyond one directory, or mark C47B as directory-scoped in its name.
+
+**N4 — A12 unaddressed.** Genesis anchor provenance (timestamp identical to the removed fabricated approval) is still open. Recomputing correctly is not the same property as trusted origin. Deliver the anchor's creation evidence or record it as an accepted unresolved gap in the certification text.
+
+**N5 — C29 roles are NOLOGIN.** aiem_app / aiem_verify / aiem_approve all login=False. Every immutability PASS is a PASS against postgres superuser, who can drop the trigger first. Deliver the plan and blocker for a login-capable low-privilege role, or restate C49 as "no enforcing role exists" rather than "gap documented".
+
+## CREDITED — do not regress
+C48 strict FAIL with null approval fields and cert NOT_APPROVED. C28 allowlist-based, allowlist=set(), failing. C52B split shipped, both halves failing, hand-set negative control predicate_count=0. C52-R frozen hash from refs not live getsource, drift negative control raised and restored. Certification line verbatim correct. EXIT=1.
+None of these may be renamed, deferred, split, or weakened. Any change to them requires a supersede-registry entry and explicit callout.
+
+## STANDING VERIFICATION BLOCK — applies to every item above
+1. Raw terminal output of actual execution. No paraphrase.
+2. Exact before/after file diff for every changed file.
+3. sha256 before/after for every changed file.
+4. Raw SQL + full result set for any DB claim (>10 rows via \copy CSV attachment, never inline samples).
+5. Any claim about code location, line numbers, or behavior requires raw `grep -n` / `sed -n` output showing the line in context.
+6. All evidence-producing commands run through verified_run.sh; paste sha256sum for tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh checked against canonical before the output is accepted.
+7. Data immutability: no delete, truncate, drop, or overwrite of any row, table, or file — including agent-created, "test", or "synthetic" — without prior explicit approval in-session. Unapproved deletion is a violation to report, not self-correct.
+8. Math/quant work: independent known-answer vectors, stated reference formula, second-method cross-check, and a mutation check proving the test is not vacuous.
+9. If a claim cannot be backed by real command output, say so in one line. No padding.
+
+## OUTPUT FORMAT
+Raw command results only. No prose, no headers, no restated context. One sealed run at the end reporting reported vs re-derived FAIL counts. No approval fields written.

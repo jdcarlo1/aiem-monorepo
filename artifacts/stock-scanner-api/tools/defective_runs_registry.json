@@ -29,12 +29,19 @@
       "registered_at": "2026-07-20T00:23:46Z",
       "archive_sha256": "d4519dc30ca790765e2cbf30fadbe3636209f28d99f9c48765ae0b50358b9863",
       "exit_code": 127
+    },
+    {
+      "seq": 35,
+      "reason_code": "DIRTY_TREE_AT_RUNTIME",
+      "description": "SEQ=35 ran with TREE=DIRTY (dpl/verify_dpl_phase3.py and dpl/engine_integrity_refs.json were uncommitted). Header git_commit and C28 detail commit differed (mid-run platform auto-commit). Rejected by R6 auditor as sealed evidence.",
+      "registered_at": "2026-07-20T08:00:00Z",
+      "exit_code": 1
     }
   ],
   "clean_sealed_runs": [
-    23,
-    24
+    23, 24, 25, 27, 28, 29, 30, 31, 32, 33, 34
   ],
+  "clean_sealed_runs_note": "SEQ=22 excluded (CMD_ARG_CAPTURE_BUG). SEQ=26 excluded (INVALID_CMD_INVOCATION). SEQ=35 excluded (DIRTY_TREE_AT_RUNTIME, rejected by R6 auditor). SEQ=15-21 predate the chain and are not classified. Runs 25 and 27-34 had TREE=CLEAN and correct CMD=${*} invocation.",
   "registry_sha256_note": "sha256 of this file is verified by C50 in verify_dpl_phase3.py",
-  "total_defective": 2
+  "total_defective": 3
 }

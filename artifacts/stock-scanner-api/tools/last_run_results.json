@@ -1,10 +1,10 @@
 {
   "schema_version": "1",
-  "run_ts": "2026-07-20T03:02:45Z",
-  "total_pass": 177,
+  "run_ts": "2026-07-20T03:32:25Z",
+  "total_pass": 178,
   "total_fail": 6,
   "total_pending": 0,
-  "all_checks": 183,
+  "all_checks": 184,
   "reconciliation": {
     "sum_eq_total": true,
     "pass_plus_fail_eq_all": true
@@ -65,7 +65,7 @@
     "C47_post_enforcement_block_trigger_exists",
     "C47_neg_post_enforcement_registration_blocked",
     "C47_neg_update_production_row_blocked",
-    "C47B_source_tree_clean",
+    "C47B_source_tree_clean_dpl_scope",
     "C49_db_role_gap_documented_external_blocker",
     "C49_ddl_privilege_gap_documented",
     "C49_truncate_blocked_by_trigger",
@@ -186,7 +186,8 @@
     "C42_psv_checks_prev_continuity",
     "C42_psv_checks_summary_line",
     "C42_verified_run_calls_post_seal_verifier",
-    "C42_neg_missing_archive_causes_psv1_fail"
+    "C42_neg_missing_archive_causes_psv1_fail",
+    "A8_baseline_erosion_clean"
   ],
   "fail_list": [
     "C48_independent_approval_obtained",

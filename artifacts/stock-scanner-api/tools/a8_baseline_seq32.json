@@ -1,0 +1,754 @@
+{
+  "seq": 32,
+  "total": 187,
+  "checks": [
+    {
+      "name": "C01_imports_ok",
+      "result": "PASS"
+    },
+    {
+      "name": "C02_table_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C03_columns_present",
+      "result": "PASS"
+    },
+    {
+      "name": "C04_bootstrap_idempotent",
+      "result": "PASS"
+    },
+    {
+      "name": "C05_missing_evidence_loud_fail",
+      "result": "PASS"
+    },
+    {
+      "name": "C06_capture_writes_row",
+      "result": "PASS"
+    },
+    {
+      "name": "C07_replay_returns_structure",
+      "result": "PASS"
+    },
+    {
+      "name": "C08_call_score_replay_match",
+      "result": "PASS"
+    },
+    {
+      "name": "C09_put_score_replay_match",
+      "result": "PASS"
+    },
+    {
+      "name": "C10_direction_replay_match",
+      "result": "PASS"
+    },
+    {
+      "name": "C11_mutation_row_replays",
+      "result": "PASS"
+    },
+    {
+      "name": "C12_mutation_changes_output",
+      "result": "PASS"
+    },
+    {
+      "name": "C13_single_weights_source",
+      "result": "PASS"
+    },
+    {
+      "name": "C14_weight_hash_changes",
+      "result": "PASS"
+    },
+    {
+      "name": "C15_code_drift_loud_fail",
+      "result": "PASS"
+    },
+    {
+      "name": "C16_trigger_blocks_prod_update",
+      "result": "PASS"
+    },
+    {
+      "name": "C17_is_test_record_set",
+      "result": "PASS"
+    },
+    {
+      "name": "C18_null_scores_return_none",
+      "result": "PASS"
+    },
+    {
+      "name": "C19_weights_drift_snapshot",
+      "result": "PASS"
+    },
+    {
+      "name": "C20_constraint_has_CODE_DRIFT",
+      "result": "PASS"
+    },
+    {
+      "name": "C20_constraint_has_WEIGHTS_DRIFT",
+      "result": "PASS"
+    },
+    {
+      "name": "C20_constraint_has_REPLAY_ERROR",
+      "result": "PASS"
+    },
+    {
+      "name": "C21_immutability_trigger_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C21_immutability_trigger_blocks_update",
+      "result": "PASS"
+    },
+    {
+      "name": "C22_criterion1_no_unallowlisted_eligible_rows",
+      "result": "PASS"
+    },
+    {
+      "name": "C22_neg_ctl_unallowlisted_row_causes_fail",
+      "result": "PASS"
+    },
+    {
+      "name": "C23_cutoff_trigger_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C23_cutoff_trigger_blocks_post_wiring_registration",
+      "result": "PASS"
+    },
+    {
+      "name": "C24_cutoff_literal_matches_git_commit_d9d6987e",
+      "result": "PASS"
+    },
+    {
+      "name": "C25_tgenabled_cutoff_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C26_tgenabled_immutability_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C43_chain_file_exists_and_canonical",
+      "result": "PASS"
+    },
+    {
+      "name": "C43_all_tools_reference_canonical_chain",
+      "result": "PASS"
+    },
+    {
+      "name": "C43_chain_pos_test_parses_all_entries",
+      "result": "PASS"
+    },
+    {
+      "name": "C43_neg_no_second_chain_file",
+      "result": "PASS"
+    },
+    {
+      "name": "C43_missing_chain_would_fail_closed",
+      "result": "PASS"
+    },
+    {
+      "name": "C44_chain_archive_sha_equals_file_sha",
+      "result": "PASS"
+    },
+    {
+      "name": "C44_chain_archive_sha_equals_index_sha",
+      "result": "PASS"
+    },
+    {
+      "name": "C44_index_sha_equals_file_sha",
+      "result": "PASS"
+    },
+    {
+      "name": "C45_gap_explanation_file_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C45_gap_explains_missing_seqs",
+      "result": "PASS"
+    },
+    {
+      "name": "C45_gap_explains_root_cause",
+      "result": "PASS"
+    },
+    {
+      "name": "C45_gap_has_genesis_anchor",
+      "result": "PASS"
+    },
+    {
+      "name": "C45_genesis_hash_matches_chain",
+      "result": "PASS"
+    },
+    {
+      "name": "C46_direction_uses_gte_for_call",
+      "result": "PASS"
+    },
+    {
+      "name": "C46_scores_rounded_before_comparison",
+      "result": "PASS"
+    },
+    {
+      "name": "C46_identical_inputs_produce_identical_scores",
+      "result": "PASS"
+    },
+    {
+      "name": "C46_tied_scores_with_small_margin_are_no_trade",
+      "result": "PASS"
+    },
+    {
+      "name": "C47_legacy_cutoff_table_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C47_alert_id_25_registered_as_legacy",
+      "result": "PASS"
+    },
+    {
+      "name": "C47_alert_predates_enforcement",
+      "result": "PASS"
+    },
+    {
+      "name": "C47_immutability_trigger_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C47_post_enforcement_block_trigger_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C47_neg_post_enforcement_registration_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C47_neg_update_production_row_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C47B_source_tree_clean",
+      "result": "PASS"
+    },
+    {
+      "name": "C48_approval_proof_status_is_external_blocker",
+      "result": "PASS"
+    },
+    {
+      "name": "C48_approval_metadata_only_flag_set",
+      "result": "PASS"
+    },
+    {
+      "name": "C48_dpl_certification_not_approved",
+      "result": "PASS"
+    },
+    {
+      "name": "C48_approved_by_null_or_not_forbidden",
+      "result": "PASS"
+    },
+    {
+      "name": "C48_approved_at_field_present",
+      "result": "FAIL"
+    },
+    {
+      "name": "C48_neg_self_approval_is_forbidden",
+      "result": "PASS"
+    },
+    {
+      "name": "C48_chain_head_has_ts_end",
+      "result": "PASS"
+    },
+    {
+      "name": "C49_db_role_gap_documented_external_blocker",
+      "result": "PASS"
+    },
+    {
+      "name": "C49_ddl_privilege_gap_documented",
+      "result": "PASS"
+    },
+    {
+      "name": "C49_truncate_blocked_by_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C49_update_immutable_audit_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_defective_runs_registry_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_seq22_is_registered_defective",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_seq22_has_reason_code",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_seq22_has_correcting_seq",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_seq22_excluded_from_clean_runs",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_seq22_log_sha256_is_empty_string_sha",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_clean_runs_include_23_and_24",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_seq22_preserved_in_chain",
+      "result": "PASS"
+    },
+    {
+      "name": "C50_chain_continuity_through_seq22",
+      "result": "PASS"
+    },
+    {
+      "name": "C51_baseline_psv24_passes",
+      "result": "PASS"
+    },
+    {
+      "name": "C51_neg_wrong_seq_fails",
+      "result": "PASS"
+    },
+    {
+      "name": "C51_neg_missing_archive_fails",
+      "result": "PASS"
+    },
+    {
+      "name": "C51_neg_modified_archive_fails",
+      "result": "PASS"
+    },
+    {
+      "name": "C51_neg_corrupted_index_sha_fails",
+      "result": "PASS"
+    },
+    {
+      "name": "C51_neg_missing_summary_fails",
+      "result": "PASS"
+    },
+    {
+      "name": "C52_decision_audit_row_immutable",
+      "result": "PASS"
+    },
+    {
+      "name": "C52_replay_returns_structure",
+      "result": "PASS"
+    },
+    {
+      "name": "C52_verification_status_is_verified",
+      "result": "PASS"
+    },
+    {
+      "name": "C52A_verifier_fixtures_contaminate_prod_namespace",
+      "result": "FAIL"
+    },
+    {
+      "name": "C52A_contamination_registry_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C52A_all_contaminated_rows_documented",
+      "result": "PASS"
+    },
+    {
+      "name": "C52A_contaminated_ids_excluded_from_c52c",
+      "result": "PASS"
+    },
+    {
+      "name": "C52B_neg_hand_set_scheduler_does_not_satisfy_s10",
+      "result": "PASS"
+    },
+    {
+      "name": "C52B_genuine_scheduler_decision_exists",
+      "result": "FAIL"
+    },
+    {
+      "name": "C52C_genuine_replay_pass",
+      "result": "FAIL"
+    },
+    {
+      "name": "C53_gap_explanation_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C53_has_corrected_continuity_statement",
+      "result": "PASS"
+    },
+    {
+      "name": "C53_corrected_statement_mentions_genesis",
+      "result": "PASS"
+    },
+    {
+      "name": "C53_corrected_statement_says_seqs_not_reconstructed",
+      "result": "PASS"
+    },
+    {
+      "name": "C53_genesis_labeled_synthetic",
+      "result": "PASS"
+    },
+    {
+      "name": "C53_first_fully_durable_run_is_15",
+      "result": "PASS"
+    },
+    {
+      "name": "C53_has_no_retroactive_entry_claim",
+      "result": "PASS"
+    },
+    {
+      "name": "C54_approved_at_not_future_when_present",
+      "result": "PASS"
+    },
+    {
+      "name": "C54_approved_at_status_is_not_unknown",
+      "result": "PASS"
+    },
+    {
+      "name": "C54_neg_future_ts_detected",
+      "result": "PASS"
+    },
+    {
+      "name": "C54_neg_past_ts_ok",
+      "result": "PASS"
+    },
+    {
+      "name": "C54_neg_empty_ts_detectable",
+      "result": "PASS"
+    },
+    {
+      "name": "C27_oe_unreplayable_rows_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C27_reason_code_check_has_all_5_values",
+      "result": "PASS"
+    },
+    {
+      "name": "C27_unreplayable_rows_immutability_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C27_unreplayable_rows_has_2_registered_exemptions",
+      "result": "PASS"
+    },
+    {
+      "name": "C27_both_code_drift_rows_registered",
+      "result": "PASS"
+    },
+    {
+      "name": "C27_all_exemptions_not_recoverable",
+      "result": "PASS"
+    },
+    {
+      "name": "C27_neg_invalid_reason_code_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C28_refs_file_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C28_approved_by_null_or_not_forbidden",
+      "result": "PASS"
+    },
+    {
+      "name": "C28_refs_has_commit_sha",
+      "result": "PASS"
+    },
+    {
+      "name": "C28_refs_has_engine_root_hash",
+      "result": "PASS"
+    },
+    {
+      "name": "C28_live_engine_root_hash_matches_approved",
+      "result": "PASS"
+    },
+    {
+      "name": "C28_scoring_fn_ast_hash_component_matches",
+      "result": "PASS"
+    },
+    {
+      "name": "C28_req6_weights_hash_component_matches",
+      "result": "PASS"
+    },
+    {
+      "name": "C29_role_aiem_app_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C29_role_aiem_verify_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C29_role_aiem_approve_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C29_roles_not_superuser",
+      "result": "PASS"
+    },
+    {
+      "name": "C29_roles_nologin",
+      "result": "PASS"
+    },
+    {
+      "name": "C29_aiem_app_no_trigger_ddl_on_audit",
+      "result": "PASS"
+    },
+    {
+      "name": "C29_aiem_app_has_insert_on_audit",
+      "result": "PASS"
+    },
+    {
+      "name": "C30_oe_gate_events_table_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C30_action_taken_check_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C30_gate_events_immutability_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C31_oe_synth_corrections_table_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C31_synth_corrections_immutability_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C32_origin_attribution_columns_exist",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_chain_file_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_chain_has_genesis_entry",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_no_malformed_json_records",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_no_duplicate_seq_ids",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_physical_eq_parsed",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_parsed_eq_unique_seq",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_unique_eq_declared",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_all_entry_hashes_recompute_correctly",
+      "result": "PASS"
+    },
+    {
+      "name": "C33_chain_continuity",
+      "result": "PASS"
+    },
+    {
+      "name": "C34_logs_directory_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C34_index_tsv_has_entries",
+      "result": "PASS"
+    },
+    {
+      "name": "C34_restore_sha256_matches_index",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_gate_blocks_missing_refs_file",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_gate_blocks_import_failure",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_gate_blocks_permission_failure",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_gate_blocks_io_failure",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_gate_blocks_invalid_refs_file",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_gate_blocks_unknown_exception",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_no_failopen_warning_continue",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_env_check_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_neg_missing_refs_raises_valueerror",
+      "result": "PASS"
+    },
+    {
+      "name": "C36_neg_corrupt_json_would_block",
+      "result": "PASS"
+    },
+    {
+      "name": "C37_oe_index_corrections_table_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C37_index_corrections_immutability_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C37_index_corrections_truncate_trigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C37_neg_update_production_row_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C37_neg_truncate_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C38_all_tables_have_truncate_triggers",
+      "result": "PASS"
+    },
+    {
+      "name": "C38_all_truncates_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C39_oe_decision_snapshots_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C39_required_columns_present",
+      "result": "PASS"
+    },
+    {
+      "name": "C39_immutability_trigger_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C39_snapshot_write_read_roundtrip",
+      "result": "PASS"
+    },
+    {
+      "name": "C39_neg_update_production_snapshot_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C39_neg_truncate_blocked",
+      "result": "PASS"
+    },
+    {
+      "name": "C40_old_tolerance_removed",
+      "result": "PASS"
+    },
+    {
+      "name": "C40_replay_tolerance_is_1e_minus_9",
+      "result": "PASS"
+    },
+    {
+      "name": "C40_boundary_exact_match",
+      "result": "PASS"
+    },
+    {
+      "name": "C40_boundary_threshold_miss",
+      "result": "PASS"
+    },
+    {
+      "name": "C40_boundary_margin_threshold",
+      "result": "PASS"
+    },
+    {
+      "name": "C40_tolerance_documented",
+      "result": "PASS"
+    },
+    {
+      "name": "C41_exactly_one_claim_from_concurrent_workers",
+      "result": "PASS"
+    },
+    {
+      "name": "C41_losing_workers_got_no_claim",
+      "result": "PASS"
+    },
+    {
+      "name": "C35_recover_stale_jobs_function_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C35_recover_stale_jobs_uses_crontrigger",
+      "result": "PASS"
+    },
+    {
+      "name": "C35_atomic_claim_pattern_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C35_pipeline_jobs_unique_constraint_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C35_no_stuck_processing_jobs",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_post_seal_verify_script_exists",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_psv_checks_archive_sha",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_psv_checks_chain_entry",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_psv_checks_entry_hash",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_psv_checks_prev_continuity",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_psv_checks_summary_line",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_verified_run_calls_post_seal_verifier",
+      "result": "PASS"
+    },
+    {
+      "name": "C42_neg_missing_archive_causes_psv1_fail",
+      "result": "PASS"
+    }
+  ]
+}
