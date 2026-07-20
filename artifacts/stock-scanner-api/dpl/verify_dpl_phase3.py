@@ -1640,10 +1640,28 @@ try:
         len(_c52a_undocumented) == 0,
         f"undocumented contaminated rows: {list(_c52a_undocumented)}")
 
-    # Negative control: contaminated row must never be used for C52-C certification
+    # DB-enforced exclusion: contaminated rows in oe_contamination_exclusions cannot enter C52C
+    _c52a_excl_tbl_exists = False
+    try:
+        _c52a_cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name='oe_contamination_exclusions'")
+        _c52a_excl_tbl_exists = _c52a_cur.fetchone()[0] > 0
+        if _c52a_excl_tbl_exists:
+            _c52a_cur.execute("""
+                SELECT COUNT(*) FROM oe_contamination_exclusions e
+                JOIN oe_decision_replay_inputs r ON r.decision_id = e.decision_id
+                WHERE e.is_test_record = FALSE AND r.is_test_record = FALSE
+                  AND r.origin_type = 'SCHEDULER'
+            """)
+            _c52a_crossleak = _c52a_cur.fetchone()[0]
+        else:
+            _c52a_crossleak = -1
+    except Exception as _exc_e:
+        _c52a_excl_tbl_exists = False
+        _c52a_crossleak = -1
     chk("C52A_contaminated_ids_excluded_from_c52c",
-        True,  # structural: C52-C uses origin_type='SCHEDULER' filter, excludes NULL-origin rows
-        "C52-C query filters origin_type='SCHEDULER' which excludes all NULL-origin fixtures")
+        _c52a_excl_tbl_exists and _c52a_crossleak == 0,
+        f"DB-enforced: oe_contamination_exclusions table exists={_c52a_excl_tbl_exists} "
+        f"cross_leak_count={_c52a_crossleak} (must be 0)")
 
     _c52a_cur.close()
     _c52a_conn.close()

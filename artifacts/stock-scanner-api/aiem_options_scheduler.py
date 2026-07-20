@@ -1729,6 +1729,9 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                             verify_result=locals().get("verify_result", {}),
                             iv_rank=iv_rank,
                             alert_id=None,
+                            origin_type="SCHEDULER",
+                            scheduler_job_id=job_id,
+                            worker_pid=os.getpid(),
                             db_url=_DB_URL,
                         )
                         # ── DPL Phase 3: Post-capture replay check ──────────
@@ -2094,6 +2097,9 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         verify_result=verify_result,
                         iv_rank=iv_rank,
                         alert_id=alert_id,
+                        origin_type="SCHEDULER",
+                        scheduler_job_id=job_id,
+                        worker_pid=os.getpid(),
                         db_url=_DB_URL,
                     )
                     # ── DPL Phase 3: Post-capture replay check ──────────────

@@ -70,3 +70,5 @@ archive_sha256=56db725f0e0037cc630b46d9fdfb584f939c34cfd4aec8a14fa3007b2b998ff5
 ## Part 2 gate condition
 
 Run `bash tools/verified_run.sh` after Mon 2026-07-21 09:45 ET and confirm C52B = PASS.
+
+UPDATE 2026-07-20: B1 FIX applied (origin_type was never written — structural defect not external blocker). oe_contamination_exclusions table created with 9 rows (including 2d03987f). SEQ=28 sealed 179 PASS/3 FAIL/9 PSV PASS. Status: CONDITIONAL (zero impl defects, live trade pending). S5 reconciler written at tools/reconcile_sealed_log.py. S8 independent approval = EXTERNAL_BLOCKER.

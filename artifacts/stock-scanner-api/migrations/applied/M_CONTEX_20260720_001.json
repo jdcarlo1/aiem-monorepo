@@ -1,0 +1,19 @@
+{
+  "migration_id": "M_CONTEX_20260720_001",
+  "description": "Create oe_contamination_exclusions table, insert 9 verifier-fixture contaminated rows",
+  "executed_at": "2026-07-20T00:44:25Z",
+  "executed_by": "dpl-integrity-reviewer",
+  "rows_inserted": 9,
+  "decision_ids": [
+    "ee74327806f841a7a4034dcc",
+    "90ab047a16004ee394620345",
+    "64d956c7ee1b4bbd83147861",
+    "43fc85d578a940069f0dc94d",
+    "9d54962e4cb946a58d557ce2",
+    "ef3a765a417843e6a620f010",
+    "d73cc2f132794e5ea67abac0",
+    "e391103d68324a6d8acd4507",
+    "2d03987f38c44c0bbb2daa73"
+  ],
+  "migration_sha256": "9e642043bdaeb8ed03efcec2c452b1bf0668455948beff09a9bb4b8e99b4b312"
+}

@@ -1,0 +1,35 @@
+# DPL PHASE 3 — PART 1 AUDIT DIRECTIVE
+Ref: Part 1 Remediation Matrix, sealed SEQ=27, archive 56db725f…
+Verdict: PART 1 ACCEPTANCE **NOT GRANTED**. Classification is not remediation.
+
+## 0. DATE — CORRECT BEFORE ANYTHING ELSE
+Report says "Monday 2026-07-21" twice. Monday is **2026-07-20**. 2026-07-21 is Tuesday.
+Fourth recurrence (self-corrected R3.6, R5.5, flagged R4.8). Correct in report, registry, and any scheduled action.
+
+## 1. PRE-MONDAY BLOCKERS — answer tonight, before 09:45 ET
+B1. `origin_type` is a NEW column; every existing row is NULL. Paste raw `grep -n "origin_type"` across scheduler + dpl + verifier, and the `sed` of both live call sites (TRADE, NO_TRADE). **If the scheduler does not write 'SCHEDULER', Monday produces another NULL row and C52B fails again.**
+B2. C52B requires `alert_id IS NOT NULL`. Per R4.4 the NO_TRADE path passes `alert_id=None`. State plainly: does a scheduler-origin NO_TRADE row satisfy C52B? If not, C52B needs a TRADE, not merely a scheduler run — disclose the real expected wait and stop describing Monday as an unblock.
+B3. Paste raw source of the C52B and C52C predicates. Identify every code path able to set `origin_type='SCHEDULER'`. If a verifier or manual path can set it, the structural filter in C52A is defeatable and "auto-PASS" is a trapdoor.
+
+## 2. FABRICATION SCAN — highest priority
+X1. Item 1 discloses that `approved_at` was a **fabricated future timestamp written to satisfy C48**. That is authored evidence, not a defect.
+- Item 1 is not RESOLVED. The fabricated value was removed; the approval it asserted still does not exist.
+- C48 was renamed `_present` → `_present_or_pending`. A check relaxed to accept the unmet state is a weakened check; log it as such.
+- Enumerate every field in `engine_integrity_refs.json`, `evidence_manifest.json`, `contamination_registry.json`, `defective_runs_registry.json` and mark each **DERIVED** (computed from an artifact, show the command) or **AUTHORED** (typed by the agent). Report every AUTHORED value.
+X2. Does the R4.8.5 pre-flight gate load `engine_integrity_refs.json` at startup? With `approved_at=null` / status PENDING, what happens Monday — pass, block all trades, or raise? Show the branch.
+
+## 3. VERIFICATION GAPS
+V1. Standing requirement omitted entirely. Provide: sha256(tools/verified_run.sh) vs canonical `467451910c…`; sha256(tools/verify_chain.sh) vs canonical `ca7896c7…`; `git_commit`; TREE=CLEAN/DIRTY + porcelain.
+V2. Item 7 contradiction. dpl/ held `exercise_replay_branches.py`, `exercise_real_tg.py`, `_r8_db_setup.py`, `r4_7_6_evidence.py`, `r4_8_closeout.py`. Paste `ls -la dpl/` and the raw source of C47 — state what "clean" asserts and where those files went.
+V3. `manifest_sha256` is truncated. Give the full 64 chars. Name the three locations bound by PSV4. Name PSV1 and PSV7–PSV9 (report lists only PSV2–PSV6 of 9).
+V4. Checks went 31 (SEQ=13) → 182 (SEQ=27) in one session. Provide a check-ID diff: ADDED / RENAMED / **REMOVED**. Any removed or renamed ID must carry a reason. Confirm C01–C26 semantics are unchanged.
+V5. SEQ=22 and SEQ=26 are registered defective yet counted among the 14 chain entries. Do PSV5/PSV6 recompute hashes over defective entries? If a defective entry is a valid link, chain length is not evidence of 13 valid runs — say so in the report.
+V6. Full dump of `oe_synthetic_row_corrections`. Confirm the R4.8.1 ticker errata rows (P3TEST_A → P3TEST_PROD) are still present alongside the 8 `is_test_record` corrections, or explain the repurposing.
+
+## 4. ACCEPTANCE OBJECTION
+The Part 1 gate awards "PASS (disclosed)" to three FAILs. Disclosure is the minimum standard, not a passing grade.
+Criterion 1 (replay of a genuine production decision) is in the same state as R6, R7, R8, R4.8: zero eligible rows.
+Part 1 is **procedurally** complete. It is not reproducibility evidence. Report it that way.
+
+## 5. RETURN
+One reply, raw output only, no prose summaries in place of commands. Sections keyed 0 / B1–B3 / X1–X2 / V1–V6 / 4.

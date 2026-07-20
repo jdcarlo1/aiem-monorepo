@@ -1269,7 +1269,8 @@ def capture_replay_inputs(
     is_test_record        — True for verifier/test rows; FALSE for all production calls.
 
     Origin attribution (Item 15):
-      origin_type           — 'scheduled_pipeline' | 'manual' | 'test' | 'backfill'
+      origin_type           — 'SCHEDULER' | 'scheduled_pipeline' | 'manual' | 'test' | 'backfill'
+                              Use 'SCHEDULER' for all calls originating from aiem_options_scheduler._execute_job.
       scheduler_job_id      — job ID from oe_options_pipeline_jobs if applicable
       worker_pid            — os.getpid() of the worker process
       deployment_commit_sha — git HEAD at time of execution

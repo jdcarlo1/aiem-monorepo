@@ -1,0 +1,71 @@
+# DPL PHASE 3 — PART 1 AUDIT DIRECTIVE, SUPPLEMENT
+Companion to DPL_P1_AUDIT_DIRECTIVE.md. Contains only items not in that file. Section keys match the second audit.
+
+## S1 (§1, §19) — STATUS MODEL
+Replace "PART 1 ACCEPTANCE — PASSED" with **CONDITIONAL / NOT YET COMPLETE**.
+Allowed gate logic: PASS = zero unresolved FAIL + all mandatory live evidence. CONDITIONAL = only external live evidence outstanding, zero implementation defects. FAIL = any implementation, evidence, or integrity defect.
+Store execution status and classification as separate fields. Permitted execution values: PASS / FAIL / BLOCKED / NOT_RUN / ERROR / SKIPPED_WITH_AUTHORIZED_EXCEPTION. BLOCKED, IMPLEMENTATION_DEFECT and PENDING_LIVE_EVIDENCE are never PASS.
+```
+{"check_id":"C52B","execution_status":"FAIL","classification":"PENDING_LIVE_EVIDENCE",
+ "acceptance_impact":"BLOCKING","remediation_status":"OPEN"}
+```
+Emit this shape for C52A, C52B, C52C.
+
+## S2 (§7) — DETERMINISM IS NOT CORRECTNESS
+C52C's double replay proves repeatability only. It cannot show the decision was mathematically, economically, or risk-correct.
+Add independent recomputation of the genuine scheduler decision: options-leg validity, breakeven, max loss, max profit, probability, expected value, transaction cost, risk limits, strategy selection, and no-trade reason where applicable.
+The independent verifier must not call the production functions that produced the decision.
+
+## S3 (§3, §16) — CONTAMINATION MUST BE DB-ENFORCED
+"Cannot be corrected in-place" is not established. Registry files and application-side filters are not remediation.
+Evaluate and report on each: controlled migration correcting the rows; move to a quarantine namespace; immutable DB-level tombstone/exclusion enforced against every consumer. State why the selected control is complete.
+Proof required: before/after SQL, affected IDs, migration ID + SHA-256, transaction timestamp, executing identity, row-count reconciliation, FK/trigger validation, rollback procedure, post-migration integrity check.
+Negative controls: (a) a contaminated row cannot enter production replay; (b) a new verifier fixture cannot be written as a production row.
+
+## S4 (§4) — 2d03987f38c44c0bbb2daa73
+A JSON-only record is not authoritative. Create a DB-level exclusion or tombstone for this row and prove exclusion from production decisions, replay, model training, probability calibration, performance calculations, audit statistics, and reporting totals.
+
+## S5 (§15) — INDEPENDENT RECONCILIATION
+The verifier currently authors, executes, counts and reports its own checks. Add a separate reconciler that parses the sealed raw log and independently counts PASS/FAIL/BLOCKED/SKIPPED/ERROR/NOT_RUN; rejects duplicate, missing, unknown, or contradictory check IDs; compares against the canonical registry; verifies registry and log hashes; exits nonzero on mismatch.
+It must not import the verifier's counting or classification functions.
+
+## S6 (§10, §11) — RUN-COUNT TAXONOMY
+Do not use chain-entry count as a proxy for successful runs. Report and reconcile separately: physical chain entries / valid completed runs / failed runs / defective runs / synthetic anchors / live production runs.
+Genesis must carry `{"seq":0,"entry_type":"SYNTHETIC_ANCHOR","contains_runtime_evidence":false,"eligible_for_acceptance":false}` and be excluded from completed-run counts.
+
+## S7 (§12) — SEPARATE THE CONCLUSIONS
+Report four distinct verdicts, never merged: (A) cryptographic integrity — evidence unaltered after sealing; (B) evidentiary validity — evidence reflects genuine runtime behavior; (C) functional correctness; (D) independent verification by a separate verifier.
+PSV2–PSV6 establish (A) only.
+
+## S8 (§13) — INDEPENDENT APPROVAL
+Report must state INDEPENDENT APPROVAL: NOT YET OBTAINED. The verifier may not approve its own output.
+Approval record requires: reviewer identity/ID, actual approval timestamp, signature over the evidence package, reviewed archive SHA-256, reviewed chain head, approval scope, exceptions, conflict-of-interest confirmation.
+
+## S9 (§14) — MANIFEST COMPLETENESS
+"16 files, 0 missing" proves only that the manifest found what it listed. Build a specification-to-evidence coverage matrix: requirement ID, required artifact, actual artifact, path, SHA-256, generating process, generation timestamp, verification method, reviewer result, PASS/FAIL, exception reason.
+Negative control: omit a required artifact and prove the completeness verifier fails.
+
+## S10 (§17) — GENUINE-ROW DEFINITION
+`origin_type='SCHEDULER'` alone is insufficient. Define a genuine production row by multiple independently validated attributes: scheduler execution ID, job ID, event signature, alert_id, trace_id, data-snapshot hash, creation timestamp inside the run window, execution-service identity, environment ID, non-test flag, source-event FK, audit-chain entry, absence from all synthetic/test registries.
+Negative control: setting `origin_type='SCHEDULER'` by hand must not satisfy C52B.
+
+## S11 (§5) — SCHEDULER EVIDENCE CAPTURE
+C52B evidence must show automatic trigger, not invocation: scheduler configured before execution, remained running, correct timezone and scheduled time, no manual API call, no manual shell command, no direct DB insert, genuine market-data ingestion, unique run ID, trace-ID propagation, scheduler event timestamp, decision-input creation, decision execution, risk-gate execution, audit-row creation, replay-input creation, run outcome, no duplicate execution, no uncaught exceptions, append-only chain inclusion.
+
+## S12 (§6) — C52C EXECUTION PROOF
+On the genuine row, run replay twice and show identical: input hash, code hash, configuration hash, data-snapshot hash, decision, scores, selected strategy, risk result, rejection reasons, expected value, confidence, audit evidence; plus no unrecorded nondeterministic dependency. Runtime PASS only — DEPENDENCY_BLOCKED is not satisfaction.
+
+## S13 (§8) — DATE HANDLING
+Beyond correcting 07-21 → 07-20: derive the execution date from an authoritative calendar/timezone function. Verify America/New_York, DST offset, market holiday calendar, trading-day status, early-close status, and UTC conversion. Never hard-code a weekday label separately from its date.
+
+## S14 (§9) — CHAIN CONTINUITY WORDING
+Classify as PARTIAL CHAIN CONTINUITY FROM SEQ=15 FORWARD, with the literal statement: "The cryptographic chain proves continuity only across the retained and validated entries. It does not prove the contents, execution, or existence of missing SEQ 1–14." Do not reconstruct SEQ 1–14.
+
+## S15 (§18) — NEGATIVE CONTROLS TO ADD AND SEAL
+Prove the verifier fails when: approved_at is in the future; approval is self-issued; a manifest file is missing; a fixture is marked production; a fixture is mislabeled SCHEDULER; alert_id is fabricated; trace_id is missing; replay output differs; code hash differs; configuration differs; input data differs; a chain entry is deleted; a chain entry is reordered; a defective run is counted valid; a BLOCKED test is counted PASS; a FAIL is reclassified acceptable; a required test is not executed; a duplicate check ID exists; a manual DB insert attempts to satisfy live evidence.
+Each control must fail the acceptance gate while the harness itself records PASS.
+
+## S16 (§20) — RE-RUN SEQUENCE AND FINAL RULE
+Order: auto-trigger scheduler on a confirmed trading day → capture genuine decision → C52B → C52C → independent recomputation → contamination remediation → full verifier → independent reconciler → chain verifier → all negative controls → new manifest → seal → independent approval → replacement report.
+Do not mark Part 1 PASSED until C52A, C52B, C52C all PASS; independent approval complete; all blocking defects closed; all mandatory live evidence present; all negative controls PASS; final chain verification PASS.
+Until then the only accurate status is: **DPL PHASE 3 PART 1 — NOT YET INSTITUTIONALLY APPROVED**.
