@@ -1,0 +1,20 @@
+commit 517d1b23dcd01b88e1100eeaa274ee5aa451058c
+Author: Replit Agent <agent@replit.com>
+Date:   Sat Jul 18 16:30:33 2026 +0000
+
+    Update verification script to ensure data integrity and proper chaining
+    
+    Refactor `verify_chain.sh` to use snapshot data for stage 1 verification and implement proper hash chaining. Modify `aiem_options_pipeline.py` to store snapshot data and create a new proof script `tools/proof_snapshot_fix.py` to validate the changes.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: 5548a10b-fe18-4ad0-8ea4-87cc452257ab
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/XMDGbMz
+    Replit-Helium-Checkpoint-Created: true
+
+ .../stock-scanner-api/aiem_options_pipeline.py     |  16 ++
+ .../stock-scanner-api/tools/proof_snapshot_fix.py  | 296 ++++++++++++++++++++
+ artifacts/stock-scanner-api/verify_chain.sh        | 299 ++++++++++++---------
+ ...-sh-SNAPSHOT-VERIFICATION-REA_1784391648161.txt |  56 ++++
+ 4 files changed, 534 insertions(+), 133 deletions(-)
