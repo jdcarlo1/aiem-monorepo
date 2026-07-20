@@ -798,3 +798,9 @@ id = "5rEh8jk4p-OQa9Vxrxnfi"
 uri = "file://dpl_code_review.md"
 type = "text"
 title = "DPL Code Review — all 9 files, HEAD 1a907879, tree CLEAN"
+
+[[outputs]]
+id = "p3Bimsd-USuS7JzJQJ8VO"
+uri = "file://D11_pre_run_findings_2026-07-20.md"
+type = "text"
+title = "D11 Pre-Run Findings — 2026-07-20"
