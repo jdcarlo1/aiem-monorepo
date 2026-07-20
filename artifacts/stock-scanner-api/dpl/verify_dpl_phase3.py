@@ -3356,11 +3356,16 @@ try:
         # false A8_REMOVAL_VIOLATION entries. (Layer-2 adds them on every run.)
         _A8_L1_META_EXCL = {'A8_baseline_erosion_clean', 'A8_baseline_file_missing'}
         _a8_removed_raw  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
-        # A8_REMOVAL_VIOLATION:* names are Layer-1 enforcement artifacts — their presence
-        # depends on the violation state each run, not deliberate check removal. Separate
-        # them before any supersede-registry lookup to prevent cascading double-prefix
-        # violations and KeyErrors when the artifact name is not in the registry.
-        _a8_cascade_arts = {n for n in _a8_removed_raw if n.startswith('A8_REMOVAL_VIOLATION:')}
+        # A8_REMOVAL_VIOLATION:* and A8_enforcement_error:* names are Layer-1 enforcement
+        # artifacts — their presence depends on the violation/exception state each run, not
+        # deliberate check removal. Separate them before any supersede-registry lookup to
+        # prevent cascading double-prefix violations and KeyErrors when the artifact name is
+        # not in the registry. A8_enforcement_error:* names are produced by the except block
+        # in this same Layer-1 section; carrying them forward as "removed checks" would be
+        # circular and incorrect.
+        _a8_cascade_arts = {n for n in _a8_removed_raw
+                            if n.startswith('A8_REMOVAL_VIOLATION:')
+                            or n.startswith('A8_enforcement_error:')}
         _a8_removed      = _a8_removed_raw - _a8_cascade_arts
         _a8_viol         = [n for n in sorted(_a8_removed)
                             if n not in _A8_SUPERSEDE_REGISTRY]

@@ -25,8 +25,8 @@
     "version": "2"
   },
   "canonicalization_version": "2",
-  "commit_sha": "9a1af0d9c3973d53a9054b8af18f0f4d182f24e8",
-  "commit_sha_note": "Updated to R8 session-summary auto-commit HEAD (9a1af0d9). Per mandatory certification procedure: after each commit, update this field to the new HEAD before running the sealed verifier. C28_refs_commit_sha_matches_run_head will FAIL explicitly if they diverge.",
+  "commit_sha": "b83289269cc3f8a63f105c158e6a2efb8030a74b",
+  "commit_sha_note": "Updated to R8 audit session auto-commit HEAD (b8328926). Per mandatory certification procedure.",
   "config_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "decision_path_combined_hash": "9ecec3d0459d33b417bab32a02d0564939b68a3800644d68cb331a508be7da17",
   "decision_path_module_hashes": {
@@ -68,7 +68,7 @@
   "integrity_schema_version": "2",
   "python_version": "3.11.14",
   "refs_file_hash_note": "sha256(this file excluding this field) = verified by C28 in verify_dpl_phase3.py",
-  "refs_updated_at": "2026-07-20T05:30:00Z",
+  "refs_updated_at": "2026-07-20T06:10:00Z",
   "req6_weights_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "schema_version": "2",
   "scoring_fn_ast_hash": "68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42",

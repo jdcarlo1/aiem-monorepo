@@ -1,0 +1,444 @@
+R8 INSTITUTIONAL AUDIT — MANDATORY REMEDIATION DIRECTIVE
+
+CURRENT DECISION
+
+R8 is NOT APPROVED.
+
+Do not describe R8 as complete, institutionally verified, production-ready, or passed end to end.
+
+Keep the Options Engine in paper-trading/shadow mode only. Production brokerage execution must remain technically disabled until every item below passes in one new sealed run.
+
+The uploaded R8 summary is narrative documentation. It is not sufficient proof by itself.
+
+⸻
+
+1. PRODUCE THE ACTUAL FINAL SEALED RUN
+
+SEQ 38 and SEQ 39 were TREE=DIRTY and are defective runs.
+
+SEQ 40 has not been proven. Do not report expected, approximate, projected, or “next session” results.
+
+Run a new verifier execution and require:
+
+* TREE=CLEAN
+* exact PASS count
+* exact FAIL count
+* exact SKIP count
+* process exit code
+* UTC and America/New_York start/end timestamps
+* Git commit SHA
+* repository root hash
+* verifier script SHA-256
+* verification-chain script SHA-256
+* log SHA-256
+* previous-chain hash
+* current-chain hash
+* database evidence identifiers
+* no uncaught exception
+* no manually inserted proof rows
+* no modification after sealing
+
+Any remaining failure means the overall result is FAIL.
+
+Do not add a run to clean_sealed_runs manually merely because it was expected to be clean. Registration must occur only after the run validates successfully through an append-only controlled process.
+
+⸻
+
+2. REPAIR THE TREE=CLEAN CONTROL
+
+The current exclusions are too broad and can hide unauthorized changes.
+
+Prohibited behavior
+
+Do not use this rule:
+
+grep -v '^??'
+
+It suppresses every untracked file, including possible Python code, shell scripts, SQL migrations, configuration files, secrets-handling files, or verification bypasses.
+
+Do not blindly exclude:
+
+dpl/engine_integrity_refs.json
+
+This is a security-sensitive approval artifact containing hashes and commit information. Changing it must be visible and independently authorized.
+
+Required implementation
+
+Replace exclusion-based cleanliness with an explicit allowlist.
+
+At minimum:
+
+set -euo pipefail
+ALLOWED_RUNTIME_PATHS=(
+  "tools/verified_run_seq"
+)
+git status --porcelain=v1 -z > /tmp/git_status.bin
+python3 tools/check_clean_tree.py \
+  --status-file /tmp/git_status.bin \
+  --allow-exact "tools/verified_run_seq"
+
+check_clean_tree.py must:
+
+1. Parse NUL-delimited Git status safely.
+2. Fail on every tracked modification except explicitly permitted runtime-state files.
+3. Fail on every untracked executable or code/configuration file.
+4. Allow only exact known generated evidence paths.
+5. Reject path traversal, renamed files, symlinks, directories, wildcard exclusions, and prefix matches.
+6. Print every detected path and its classification.
+7. Produce a SHA-256 digest of the complete status input.
+8. Record the allowlist and status digest in the sealed run header.
+
+Allowed untracked evidence should be written only into a dedicated generated-artifact directory with a strict filename schema and content hash. Prefer creating the log after the pre-run cleanliness check rather than ignoring arbitrary untracked files.
+
+⸻
+
+3. REMOVE THE CIRCULAR HASH-APPROVAL PROCESS
+
+Do not “fix” an engine hash mismatch by automatically copying the live hash into the approved-hash file.
+
+That proves only that the two values were made equal.
+
+Implement two separate artifacts:
+
+engine_manifest.generated.json
+engine_approval.signed.json
+
+engine_manifest.generated.json
+
+Generated automatically from the exact committed source tree. It must contain:
+
+* commit SHA
+* repository root hash
+* included file paths
+* SHA-256 for every included file
+* generation timestamp
+* manifest schema version
+* deterministic canonical JSON hash
+
+engine_approval.signed.json
+
+Created only after independent review. It must contain:
+
+* approved manifest hash
+* approved commit SHA
+* reviewer identity
+* reviewer role/organization
+* approval timestamp
+* approval scope
+* approval expiration or version
+* reviewer public-key ID
+* detached digital signature
+
+The verifier must recompute the live manifest and validate the reviewer’s signature.
+
+The builder, Replit agent, scheduler, engine process, and verifier process must not be able to create or overwrite the independent approval signature.
+
+A mismatch must hard-fail. It must never trigger automatic resynchronization.
+
+⸻
+
+4. PRESERVE THE PRODUCTION-CONTAMINATION HISTORY
+
+The nine production-classified verifier records were changed to test records. Do not treat a corrected count of zero as complete forensic proof.
+
+Create an immutable correction ledger containing, for each affected row:
+
+* table name
+* primary key
+* original is_test_record value
+* corrected value
+* original creation timestamp
+* correction timestamp
+* correcting database identity
+* application identity
+* transaction ID
+* reason code
+* incident ID
+* authorization identity
+* before-image hash
+* after-image hash
+* previous-ledger hash
+* current-ledger hash
+
+Do not delete or overwrite the historical correction evidence.
+
+Add a test that proves:
+
+1. Verifier-created records cannot enter the production namespace.
+2. The production/test classification cannot be changed through ordinary application credentials.
+3. Corrections require a dedicated break-glass role.
+4. Every correction creates an immutable audit event.
+5. Unauthorized correction attempts are blocked and logged.
+
+The clean production count must be accompanied by the correction ledger, not substituted for it.
+
+⸻
+
+5. FIX THE C16 IMMUTABILITY TEST
+
+The SAVEPOINT approach is reasonable only if the negative control is executed using the same database role and pathway that production code uses.
+
+Provide evidence for all of the following:
+
+* exact trigger definition from pg_get_triggerdef
+* trigger enabled state
+* trigger-function source hash
+* table owner
+* application database role
+* verifier database role
+* whether either role has BYPASSRLS
+* whether either role is superuser
+* blocked UPDATE using the production application role
+* blocked DELETE using the production application role
+* blocked primary-key modification
+* blocked hash/chain-field modification
+* allowed insert through the approved pathway
+* full rollback verification
+* zero persistent test rows after rollback
+
+Do not accept only the trigger’s error message as proof.
+
+Add negative controls that temporarily target a known non-protected test table to prove the test would fail when protection is absent.
+
+⸻
+
+6. STRENGTHEN THE A8 CASCADE TEST
+
+The current report supplies only scenario statements.
+
+Provide executable regression tests proving:
+
+* a legitimately removed baseline check is detected
+* a cascade artifact is separated from canonical check names
+* unknown names fail closed rather than being silently suppressed
+* double-prefix and triple-prefix inputs do not crash
+* malformed registry entries fail cleanly
+* duplicate supersede mappings are rejected
+* an attacker cannot name a real violation to resemble a cascade artifact and bypass detection
+
+Do not suppress violations solely by string prefix.
+
+Use a typed record such as:
+
+@dataclass(frozen=True)
+class ViolationRecord:
+    check_id: str
+    violation_type: Literal["BASELINE_REMOVAL", "CASCADE_ARTIFACT"]
+    source_run_id: int
+    source_hash: str
+
+Classification must be based on structured provenance, not a user-controlled name.
+
+⸻
+
+7. QUARANTINE THE SIX NON-REPLAYABLE PRODUCTION ROWS
+
+The six production audit rows with no replay input are not fully reproducible.
+
+Do not call the database “all clean” while these exceptions exist.
+
+Create explicit fields or an immutable linked exception table containing:
+
+replayability_status = LEGACY_NON_REPLAYABLE
+eligible_for_verification = FALSE
+eligible_for_performance_statistics = FALSE
+eligible_for_training = FALSE
+exception_reason
+exception_approved_by
+exception_timestamp
+source_activation_timestamp
+
+The verifier must prove these rows:
+
+* predate capture activation
+* cannot be used to pass replay coverage
+* cannot enter model training
+* cannot enter calibration statistics
+* cannot support a production-readiness claim
+* remain visible in exception reporting
+
+All newly created production decisions must have complete replay inputs. Add a database constraint or deferred transaction-level enforcement so a production decision cannot commit without the required replay package.
+
+⸻
+
+8. CORRECT AND PROVE THE SCHEDULER
+
+The report says Monday, July 21, 2026. That date is Tuesday.
+
+Do not hard-code or narratively infer the next scheduler execution.
+
+Provide machine-generated evidence showing:
+
+* scheduler name
+* scheduler implementation
+* configured timezone
+* cron expression or trigger definition
+* current next_run_time
+* actual fire timestamp
+* worker identity
+* worker boot ID
+* scheduler heartbeat before and after firing
+* job claim timestamp
+* unique run ID
+* origin type
+* decision ID
+* completion status
+* retry count
+* duplicate count
+* failure/dead-letter status
+
+The verifier must establish the causal chain:
+
+SCHEDULER_FIRE
+→ JOB_CLAIM
+→ MARKET_DATA_CAPTURE
+→ ANALYSIS
+→ PROBABILITY
+→ PORTFOLIO_RISK
+→ RISK_GATE
+→ DECISION
+→ REPLAY_INPUT_CAPTURE
+→ AUDIT_RECORD
+→ PAPER_EXECUTION_OR_NO_TRADE
+→ OUTCOME_TRACKING
+
+Every stage must share the same immutable trace_id or cryptographically linked identifiers.
+
+A manually invoked pipeline does not satisfy the scheduler check.
+
+⸻
+
+9. DO NOT REQUIRE A FORCED TRADE
+
+C52C must not encourage the engine to produce a TRADE merely to pass verification.
+
+A legitimate NO_TRADE decision is required when conditions do not satisfy the strategy and risk rules.
+
+Replace any test that waits indefinitely for a natural live TRADE with a controlled, historically replayable qualification test:
+
+* use frozen point-in-time market data
+* use the production decision pathway
+* keep execution in paper mode
+* verify that a known qualifying historical case produces TRADE
+* verify that a known disqualifying case produces NO_TRADE
+* prove the Risk Gate can veto a mathematically attractive candidate
+* prove no thresholds were lowered to manufacture a passing TRADE
+
+A real scheduler-generated production observation may be required as operational evidence, but it must not override risk logic or require unsafe live execution.
+
+⸻
+
+10. IMPLEMENT GENUINE INDEPENDENT APPROVAL
+
+The current empty reviewer allowlist correctly means approval has not occurred.
+
+Do not add a reviewer name merely to make the check pass.
+
+Required process:
+
+1. Generate and seal the complete audit package.
+2. Give the package and exact source commit to an independent reviewer.
+3. Reviewer verifies source, manifests, database evidence, run logs, negative controls, and chain integrity.
+4. Reviewer signs the exact manifest hash with a key unavailable to the builder and runtime.
+5. Store the detached signature and certificate/public-key reference.
+6. Verify the signature cryptographically during every production startup.
+7. Fail closed if the approval is absent, expired, revoked, mismatched, or invalid.
+
+The source-code allowlist must not be the sole authority for reviewer identities. Use a separately administered trust store or environment-protected public-key registry.
+
+⸻
+
+11. PROVE THAT THE VERIFIER ITSELF IS TRUSTWORTHY
+
+Provide hashes and independent tests for:
+
+* tools/verified_run.sh
+* tools/verify_chain.sh, if applicable
+* dpl/verify_dpl_phase3.py
+* tree-cleanliness checker
+* manifest generator
+* signature verifier
+* database evidence queries
+* defective-run registry validator
+
+The verifier must fail when:
+
+* a log byte is changed
+* a chain entry is deleted
+* two chain entries are reordered
+* the previous hash is wrong
+* a result count is edited
+* the source commit changes
+* the verifier changes
+* an approved manifest changes
+* an untracked Python file is introduced
+* a failed run is placed in clean_sealed_runs
+* evidence is generated after sealing
+* duplicate sequence numbers exist
+
+Record each negative-control result in the sealed evidence package.
+
+⸻
+
+12. REQUIRED FINAL DELIVERABLE
+
+Return one complete evidence package containing:
+
+1. FINAL_AUDIT_RESULT.json
+2. source_manifest.json
+3. source_manifest.sha256
+4. independent_approval.json
+5. independent_approval.sig
+6. verifier_manifest.json
+7. git_status_before.bin
+8. git_status_before.sha256
+9. sealed_run.log
+10. sealed_run.log.sha256
+11. verified_run_chain.jsonl
+12. chain_validation_report.json
+13. database_forensics.sql
+14. database_forensics_output.txt
+15. trigger_definitions.sql
+16. scheduler_evidence.json
+17. trace_timeline.json
+18. negative_controls.json
+19. production_correction_ledger.jsonl
+20. legacy_replay_exceptions.json
+21. defective_runs_registry.json
+22. exact file inventory with SHA-256
+
+FINAL_AUDIT_RESULT.json must report exact results, not approximate results:
+
+{
+  "overall_status": "PASS_OR_FAIL",
+  "sequence": 0,
+  "tree_status": "CLEAN_OR_DIRTY",
+  "pass_count": 0,
+  "fail_count": 0,
+  "skip_count": 0,
+  "exit_code": 0,
+  "commit_sha": "",
+  "source_root_hash": "",
+  "verifier_root_hash": "",
+  "log_sha256": "",
+  "chain_valid": false,
+  "independent_signature_valid": false,
+  "scheduler_trace_valid": false,
+  "database_forensics_valid": false,
+  "production_execution_enabled": false
+}
+
+The final audit passes only when:
+
+* TREE=CLEAN under the corrected strict policy
+* zero failed mandatory checks
+* zero unexplained skipped checks
+* complete replayability for all post-activation records
+* correction history preserved
+* scheduler causal trace proven
+* negative controls pass
+* cryptographic chain validates
+* independently signed approval validates
+* production execution remains disabled until the complete gate passes
+
+Do not return another narrative-only summary. Return the raw artifacts, commands, outputs, hashes, SQL evidence, and exact file paths needed for independent reproduction.

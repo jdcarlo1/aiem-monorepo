@@ -1,10 +1,10 @@
 {
   "schema_version": "1",
-  "run_ts": "2026-07-20T04:52:02Z",
+  "run_ts": "2026-07-20T05:09:06Z",
   "total_pass": 183,
-  "total_fail": 6,
+  "total_fail": 5,
   "total_pending": 0,
-  "all_checks": 189,
+  "all_checks": 188,
   "reconciliation": {
     "sum_eq_total": true,
     "pass_plus_fail_eq_all": true
@@ -199,7 +199,6 @@
     "C52B_scheduler_origin_decision_exists",
     "C52B_live_trade_decision_exists",
     "C52C_genuine_replay_pass",
-    "C28_approved_by_in_allowlist_and_engine_hash_match",
-    "A8_enforcement_error:'A8_REMOVAL_VIOLATION:A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean'"
+    "C28_approved_by_in_allowlist_and_engine_hash_match"
   ]
 }

@@ -144,6 +144,15 @@
       ],
       "archive_sha256": "6b1f2925900c03f3076cf25b3f9f3eb04037f71ca6ec0e666be6fb641c2e3499",
       "exit_code": 1
+    },
+    {
+      "seq": 40,
+      "reason_code": "A8_L1_CASCADE_ARTIFACT",
+      "description": "A8 Layer-1 carried forward A8_enforcement_error:* artifact from SEQ=39 exception block. The cascade filter suppressed A8_REMOVAL_VIOLATION:* but not A8_enforcement_error:* names. Fix: cascade filter now also suppresses A8_enforcement_error:* names (circular \u2014 exception-catch artifacts are not check removals). TREE=CLEAN; all other checks correct; only this spurious 6th FAIL affected.",
+      "correcting_seq": 41,
+      "log_sha256": "227d7d11292b7e26f3c59729c88ac989f681497467eceb0e9cb4a72bcb53a27c",
+      "git_commit": "b83289269cc3f8a63f105c158e6a2efb8030a74b",
+      "registered_at": "2026-07-20T05:15:00Z"
     }
   ],
   "clean_sealed_runs": [],
@@ -167,5 +176,5 @@
     "SEQ=39": "TREE=DIRTY  git_commit=9a1af0d9  dirty=verified_run_seq M (runtime counter, excluded from filter after this run)"
   },
   "registry_sha256_note": "sha256 of this file is verified by C50 in verify_dpl_phase3.py",
-  "total_defective": 7
+  "total_defective": 8
 }
