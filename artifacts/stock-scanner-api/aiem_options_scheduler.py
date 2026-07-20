@@ -2754,7 +2754,7 @@ def main():
         log.info("[scheduler] 09:40 seed job starting")
         seed_daily_candidates()
 
-    sched.add_job(_seed_job, CronTrigger(day_of_week="mon-fri", hour=9, minute=40),
+    sched.add_job(_seed_job, CronTrigger(day_of_week="mon-fri", hour=9, minute=40, timezone=_ET),
                   id="seed_daily_candidates", replace_existing=True)
 
     # 09:45 ET — execute pipeline
@@ -2762,7 +2762,7 @@ def main():
         log.info("[scheduler] 09:45 pipeline worker starting")
         run_pipeline_worker()
 
-    sched.add_job(_execute_job_wrapper, CronTrigger(day_of_week="mon-fri", hour=9, minute=45),
+    sched.add_job(_execute_job_wrapper, CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
                   id="run_pipeline_worker", replace_existing=True)
 
     # 07:30 ET — premarket intelligence scan (before market open)
@@ -2770,7 +2770,7 @@ def main():
         log.info("[scheduler] 07:30 premarket scan starting")
         premarket_scan_job()
 
-    sched.add_job(_premarket_job, CronTrigger(day_of_week="mon-fri", hour=7, minute=30),
+    sched.add_job(_premarket_job, CronTrigger(day_of_week="mon-fri", hour=7, minute=30, timezone=_ET),
                   id="premarket_scan", replace_existing=True)
 
     # 09:30 ET — intraday premarket update (break/fail of PM high/low)
@@ -2792,7 +2792,7 @@ def main():
             log.warning(f"[pm_intraday] failed: {_pme}")
 
     sched.add_job(_pm_intraday_update_job,
-                  CronTrigger(day_of_week="mon-fri", hour=9, minute=36),
+                  CronTrigger(day_of_week="mon-fri", hour=9, minute=36, timezone=_ET),
                   id="pm_intraday_update", replace_existing=True)
 
     # 16:44 ET — DPL daily trace report (Item 10: full audit evidence for the day)
@@ -2817,12 +2817,12 @@ def main():
             log.warning(f"[daily_trace_report] failed: {_dtr_e}")
 
     sched.add_job(_daily_trace_report_job,
-                  CronTrigger(day_of_week="mon-fri", hour=16, minute=44),
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=44, timezone=_ET),
                   id="daily_trace_report", replace_existing=True)
 
     # 16:46 ET — grade outcomes
     sched.add_job(grade_outcomes_job,
-                  CronTrigger(day_of_week="mon-fri", hour=16, minute=46),
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=46, timezone=_ET),
                   id="grade_outcomes", replace_existing=True)
 
     # Every 5 min — stale recovery

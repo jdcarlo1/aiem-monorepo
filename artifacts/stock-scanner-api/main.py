@@ -16206,6 +16206,18 @@ try:
                 _tg_send(_msg)
             except Exception as _hbe2:
                 print(f"[aiem_paper_heartbeat] telegram send error: {_hbe2}")
+        elif _row[0] in ("NO_CANDIDATES", "SUCCESS") and (_row[1] is None or int(_row[1]) == 0):
+            _msg = (
+                f"⚠️ AIEM paper-trading ZERO PICKS today {_today} "
+                f"(status={_row[0]}, trades_inserted={_row[1]}). "
+                f"Pipeline ran to COMPLETED but no picks survived all gates — "
+                f"check CorrelationGuard, signal sources, and sizing gates."
+            )
+            print(f"[aiem_paper_heartbeat] ZERO_PICKS — {_msg}")
+            try:
+                _tg_send(_msg)
+            except Exception as _hbe3:
+                print(f"[aiem_paper_heartbeat] telegram send error: {_hbe3}")
         else:
             print(f"[aiem_paper_heartbeat] OK — today's status={_row[0]} trades={_row[1]}")
 
