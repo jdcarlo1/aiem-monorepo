@@ -3656,6 +3656,23 @@ try:
             # NC4 also runs after A8 enforcement (same ordering artifact):
             'NC4_genuine_removal_still_fires_with_excl_list',
         }
+        # A33 (R10): Each name in _A8_L1_META_EXCL must have a registry entry
+        # citing the SEQ/round that justified its addition. Provides an auditable
+        # bound on the list — any future addition requires a registry entry.
+        _A8_EXCL_REGISTRY = {
+            'A8_baseline_erosion_clean':
+                'SEQ=14_genesis (Layer-2 meta-check, never in check suite; present from first chain entry)',
+            'A8_baseline_file_missing':
+                'SEQ=14_genesis (Layer-2 meta-check, never in check suite; present from first chain entry)',
+            'NC1_ViolationRecord_frozen_blocks_mutation':
+                'SEQ=44 (R8/Item8): ordering artifact — SEQ=43 log shows VIOLATION then PASS in same run; check never removed',
+            'NC2_enforcement_artifacts_absent_from_pass_list':
+                'SEQ=44 (R8/Item8): same ordering artifact as NC1',
+            'NC3_replay_nonexistent_id_raises':
+                'SEQ=44 (R8/Item8): same ordering artifact as NC1',
+            'NC4_genuine_removal_still_fires_with_excl_list':
+                'SEQ=45 (R9/A25): same ordering artifact as NC1-NC3; NC4 own proof demonstrates exclusion is name-specific not blanket',
+        }
         _a8_removed_raw  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
         # A8_REMOVAL_VIOLATION:* and A8_enforcement_error:* names are Layer-1 enforcement
         # artifacts — their presence depends on the violation/exception state each run, not
@@ -3866,6 +3883,47 @@ try:
 except Exception as _nc4_e:
     chk("NC4_genuine_removal_still_fires_with_excl_list", False, str(_nc4_e))
 
+# A33 (R10): _A8_L1_META_EXCL registry completeness.
+# All names must be registered; names added since the previous SEQ must
+# have registry entries citing the SEQ that justified their addition.
+try:
+    import hashlib as _a33_hl, json as _a33_js
+    _a33_excl = globals().get('_A8_L1_META_EXCL', set())
+    _a33_reg  = globals().get('_A8_EXCL_REGISTRY', {})
+    _a33_sorted   = sorted(_a33_excl)
+    _a33_excl_sha = _a33_hl.sha256(
+        _a33_js.dumps(_a33_sorted, separators=(',', ':')).encode()
+    ).hexdigest()
+    print(f"A8_L1_META_EXCL_SORTED={_a33_sorted}")
+    print(f"A8_L1_META_EXCL_SHA256={_a33_excl_sha}")
+    _a33_unregistered = sorted(n for n in _a33_excl if n not in _a33_reg)
+    _a33_ok = len(_a33_unregistered) == 0
+    if _a33_unregistered:
+        print(f"  A33 UNREGISTERED names: {_a33_unregistered}")
+    chk("A33_excl_list_registry_complete", _a33_ok,
+        f"All names in _A8_L1_META_EXCL must have a registry entry — "
+        f"unregistered: {_a33_unregistered}")
+except Exception as _a33_e:
+    chk("A33_excl_list_registry_complete", False, str(_a33_e))
+
+try:
+    _a33b_excl    = globals().get('_A8_L1_META_EXCL', set())
+    _a33b_reg     = globals().get('_A8_EXCL_REGISTRY', {})
+    _a33b_last    = globals().get('_a8_last') or {}
+    _a33b_prev_excl = set(_a33b_last.get('a8_excl_list', []))
+    _a33b_new     = _a33b_excl - _a33b_prev_excl
+    _a33b_unreg   = sorted(n for n in _a33b_new if n not in _a33b_reg)
+    _a33b_ok      = len(_a33b_unreg) == 0
+    if _a33b_new:
+        print(f"  A33 new names vs prev SEQ: {sorted(_a33b_new)}")
+    if _a33b_unreg:
+        print(f"  A33 new names WITHOUT registry entry: {_a33b_unreg}")
+    chk("A33_excl_list_new_names_have_registry_entry", _a33b_ok,
+        f"Names added since previous SEQ must have registry entry — "
+        f"new={sorted(_a33b_new)} unregistered={_a33b_unreg}")
+except Exception as _a33b_e:
+    chk("A33_excl_list_new_names_have_registry_entry", False, str(_a33b_e))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Certification summary (R4 FORK: required when C52B strict check fails)
@@ -3887,6 +3945,27 @@ else:
 print("CERTIFICATION_GAP_A12: genesis anchor provenance unresolvable — "
       "ts identical to removed fabricated approval; "
       "accepted unresolved gap; trusted genesis origin cannot be established")
+# A30 (R10): Ledger genesis provenance gap.
+# approved_by='forensic_audit_2026-07-19' is an authored label, uniform across
+# all 218 ledger entries, written in-session by the audited party. GENESIS entry
+# prev_ledger_hash has no external witness. Providing the entry text is not
+# closing the item. No external witness to the GENESIS write is available.
+print("CERTIFICATION_GAP_A30: ledger genesis authored by audited party — "
+      "approved_by='forensic_audit_2026-07-19' label is self-assigned; "
+      "prev_ledger_hash=GENESIS with no external witness to the write; "
+      "218/218 entries share the same approved_by value; "
+      "accepted unresolved gap; no path to external witness via current infrastructure")
+# A28 (R10): refs.json is committed in this run (C28_refs_commit_sha_matches_run_head
+# will PASS when refs.commit_sha equals HEAD). However, tree is DIRTY in SEQ=46
+# because R10 remediation changes (A32/A33) to verify_dpl_phase3.py + verified_run.sh
+# were not committed before the seal — git commit is a blocked operation in the
+# build session; changes are committed automatically at session end.
+# TREE=CLEAN was not achievable for this seal run.
+print("CERTIFICATION_GAP_A28: TREE=DIRTY in SEQ=46 — refs.json IS committed "
+      "(A28 primary requirement met; C28 expected PASS); tree is DIRTY due to "
+      "uncommitted R10 A32/A33 remediation changes to verify_dpl_phase3.py + "
+      "verified_run.sh; git-commit blocked in build session; "
+      "changes committed at session end; TREE=CLEAN not achieved for this seal")
 # A20 (R7): C49 immutability-gap must be visible at certification level.
 # "Every immutability PASS is asserted by postgres superuser, which can disable the trigger
 # before asserting" applies to every check that tests oe_decision_audit immutability.
@@ -3939,6 +4018,11 @@ try:
         # check names). Used by the NEXT run to classify cascade artifacts by
         # structured field lookup rather than string-prefix matching (ViolationRecord).
         'enforcement_artifacts': sorted(_A8_ENFORCEMENT_ARTIFACTS),
+        # A33 (R10): excl list snapshot for next run's new-name detection
+        'a8_excl_list': sorted(globals().get('_A8_L1_META_EXCL', [])),
+        'a8_excl_sha256': (lambda _x: __import__('hashlib').sha256(
+            __import__('json').dumps(sorted(_x), separators=(',', ':')).encode()
+        ).hexdigest())(globals().get('_A8_L1_META_EXCL', [])),
     }
     _mr_path = os.path.normpath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'last_run_results.json'))

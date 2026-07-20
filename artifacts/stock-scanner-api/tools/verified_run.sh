@@ -158,26 +158,43 @@ LOG_SHA=$(sha256sum "${LOG_FILE}" | awk '{print $1}')
 SCORING_FN_AST_HASH=$(echo "${_SCORING_HASHES}" | grep "^scoring_fn_ast_hash=" | cut -d= -f2-)
 REQ6_WEIGHTS_HASH=$(echo "${_SCORING_HASHES}"   | grep "^req6_weights_hash="   | cut -d= -f2-)
 
+# A32 (R10): sha256 of last_run_results.json — chain-anchors the structured results
+# file that A8 Layer-1 trusts for cascade classification (B19 remediation).
+LAST_RESULTS_SHA=$(sha256sum "${SCRIPT_DIR}/last_run_results.json" 2>/dev/null \
+    | awk '{print $1}' || echo "MISSING_last_run_results")
+echo "last_run_results_sha256=${LAST_RESULTS_SHA}"
+
+# A33 (R10): sha256 of _A8_L1_META_EXCL sorted list — verifier emits
+# A8_L1_META_EXCL_SHA256=<hash> in LOG_FILE; capture it here.
+_EXCL_SHA=$(grep '^A8_L1_META_EXCL_SHA256=' "${LOG_FILE}" 2>/dev/null | tail -1 \
+    | cut -d= -f2- || echo "MISSING_excl_sha")
+echo "A8_L1_META_EXCL_SHA256_FOOTER=${_EXCL_SHA}"
+
 # ── Compute chain entry_hash ───────────────────────────────────────────────
+# A32: last_run_results_sha256 and a8_l1_excl_sha256 are included in the
+# entry_hash payload so tampering with either file is chain-detectable.
 ENTRY_HASH=$(python3 - \
     "${SEQ}" "${RUN_TS}" "${TS_END}" "${CMD}" "${EXIT_CODE}" \
     "${GIT_COMMIT}" "${TREE_STATUS:-UNKNOWN}" "${LOG_SHA}" \
     "${SCORING_FN_AST_HASH:-UNKNOWN}" "${REQ6_WEIGHTS_HASH:-UNKNOWN}" \
-    "${PREV_HASH}" <<'_PYEOF'
+    "${PREV_HASH}" "${LAST_RESULTS_SHA:-MISSING_last_run_results}" \
+    "${_EXCL_SHA:-MISSING_excl_sha}" <<'_PYEOF'
 import sys, hashlib, json
-seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha, sfah, rwh, prev = sys.argv[1:]
+seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha, sfah, rwh, prev, lrsha, a8sha = sys.argv[1:]
 payload = {
+    "a8_l1_excl_sha256":   a8sha,
+    "cmd":                 cmd,
+    "commit":              commit,
+    "exit_code":           int(exit_c),
+    "last_run_results_sha256": lrsha,
+    "log_sha256":          log_sha,
+    "prev_hash":           prev,
+    "req6_weights_hash":   rwh,
+    "scoring_fn_ast_hash": sfah,
     "seq":                 int(seq_n),
+    "tree":                tree,
     "ts":                  ts,
     "ts_end":              ts_end,
-    "cmd":                 cmd,
-    "exit_code":           int(exit_c),
-    "commit":              commit,
-    "tree":                tree,
-    "log_sha256":          log_sha,
-    "scoring_fn_ast_hash": sfah,
-    "req6_weights_hash":   rwh,
-    "prev_hash":           prev,
 }
 h = hashlib.sha256(
     json.dumps(payload, sort_keys=True, separators=(',',':')).encode()
@@ -204,6 +221,8 @@ GIT_COMMIT_OUTER=$(grep "^git_commit=" "${FULL_TMP}" | cut -d= -f2-)
 TREE_OUTER=$(grep "^TREE=" "${FULL_TMP}" | cut -d= -f2-)
 SCORING_FN_AST_OUTER=$(grep "^scoring_fn_ast_hash=" "${FULL_TMP}" | cut -d= -f2-)
 REQ6_WEIGHTS_OUTER=$(grep "^req6_weights_hash=" "${FULL_TMP}" | cut -d= -f2-)
+LAST_RESULTS_OUTER=$(grep "^last_run_results_sha256=" "${FULL_TMP}" | cut -d= -f2- || echo MISSING_last_run_results)
+A8_EXCL_SHA_OUTER=$(grep "^A8_L1_META_EXCL_SHA256_FOOTER=" "${FULL_TMP}" | cut -d= -f2- || echo MISSING_excl_sha)
 
 # ── Item 2: 3-Way Binding — Archive first, then chain ─────────────────────
 # Per-SEQ archive is written BEFORE the chain entry so that archive_sha256
@@ -231,23 +250,28 @@ python3 - \
     "${EXIT_CODE_OUTER:-1}" "${GIT_COMMIT_OUTER:-unknown}" \
     "${TREE_OUTER:-UNKNOWN}" "${LOG_SHA_OUTER:-unknown}" \
     "${SCORING_FN_AST_OUTER:-UNKNOWN}" "${REQ6_WEIGHTS_OUTER:-UNKNOWN}" \
-    "${PREV_HASH}" "${ENTRY_HASH_OUTER:-UNKNOWN}" "${SEQ_LOG_SHA}" > "${CHAIN_TMP}" <<'_PYEOF'
+    "${PREV_HASH}" "${LAST_RESULTS_OUTER:-MISSING_last_run_results}" \
+    "${A8_EXCL_SHA_OUTER:-MISSING_excl_sha}" \
+    "${ENTRY_HASH_OUTER:-UNKNOWN}" "${SEQ_LOG_SHA}" > "${CHAIN_TMP}" <<'_PYEOF'
 import sys, json
-seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha, sfah, rwh, prev, entry_hash, archive_sha = sys.argv[1:]
+(seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha,
+ sfah, rwh, prev, lrsha, a8sha, entry_hash, archive_sha) = sys.argv[1:]
 entry = {
-    "seq":                 int(seq_n),
-    "ts":                  ts,
-    "ts_end":              ts_end,
-    "cmd":                 cmd,
-    "exit_code":           int(exit_c),
-    "commit":              commit,
-    "tree":                tree,
-    "log_sha256":          log_sha,
-    "archive_sha256":      archive_sha,
-    "scoring_fn_ast_hash": sfah,
-    "req6_weights_hash":   rwh,
-    "prev_hash":           prev,
-    "entry_hash":          entry_hash,
+    "a8_l1_excl_sha256":       a8sha,
+    "archive_sha256":          archive_sha,
+    "cmd":                     cmd,
+    "commit":                  commit,
+    "entry_hash":              entry_hash,
+    "exit_code":               int(exit_c),
+    "last_run_results_sha256": lrsha,
+    "log_sha256":              log_sha,
+    "prev_hash":               prev,
+    "req6_weights_hash":       rwh,
+    "scoring_fn_ast_hash":     sfah,
+    "seq":                     int(seq_n),
+    "tree":                    tree,
+    "ts":                      ts,
+    "ts_end":                  ts_end,
 }
 print(json.dumps(entry, sort_keys=True, separators=(',',':')))
 _PYEOF

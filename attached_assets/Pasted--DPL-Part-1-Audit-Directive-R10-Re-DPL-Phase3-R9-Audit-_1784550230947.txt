@@ -1,0 +1,56 @@
+# DPL Part-1 Audit Directive R10
+Re: DPL_Phase3_R9_Audit_Response.md (SEQ=45, sealed 2026-07-20T12:03:14Z)
+
+## TIME-CRITICAL — before 09:45 ET
+1. Commit `dpl/engine_integrity_refs.json` and re-seal as SEQ=46 with TREE=CLEAN (A28).
+2. Add `sha256(tools/last_run_results.json)` to the chain entry schema before the post-run seal (A32).
+If neither is possible in time, print both as CERTIFICATION_GAP lines in the post-run seal. Do not weaken a check to close them.
+
+## ACCEPTED AS SOUND
+- A21 seal is real: SEQ=45, 08:03 ET, `prev_chain_hash` = SEQ=44 `entry_hash`, chain unbroken.
+- A24 verified independently: `sha256(verified_run.sh)` 861c60da… → 24e12899…, TREE=DIRTY at SEQ=45.
+- A25 NC4 construction is valid; sentinel ∉ excl fires, NC1 ∈ excl does not. Spurious-removal proof rests on two facts in one sealed log — genuine.
+- A26 migration applied with 5 passing C27 checks.
+- B18 arithmetic reconciles all four runs: 195 → 198 (+1 PASS, +3 artifacts) → 195 (−3) → 201 (+6).
+- CANNOT TRACE / OPEN labels used instead of invented answers. Correct behavior.
+- 6 FAILs left failing, production execution disabled, status held at NOT YET INSTITUTIONALLY VERIFIED.
+
+## BLOCKING
+
+**A28 — SEQ=45 violates the rule A24 inserted.**
+The comment you added to `verified_run.sh` reads: refs.json "must be committed before each sealed run, not excused during it." SEQ=45 then ran with it uncommitted. Result: the pre-run baseline for Monday's live decision is a tree that exists in no commit. `C28_refs_commit_sha_matches_run_head` PASSes against 0c26566d while the executed tree ≠ 0c26566d. A19 is not resolved; it moved.
+Required: commit refs.json, re-seal CLEAN, or state in the certification line that the pre-run baseline was uncommitted.
+
+**A29 — C52A was cleared by reclassification, and the ledger shows the same operation applied to 152 decisions.**
+C52A went FAIL (SEQ=35/36) → PASS by moving 9 rows to `is_test_record=TRUE`. The ledger shows `corrected_field: is_test_record` at 100% across 218 entries / 152 distinct decision_ids, all `approved_by` identical.
+Required, per check: population row count before and after the reclassification batch for C52A, C52B_scheduler_origin, C52B_live_trade, C52C_genuine_replay, C52C_historical_replay_eligible. State explicitly whether `C52C_historical_replay_eligible_row_exists` FAILs because eligible rows were reclassified out of the production namespace.
+
+**A30 — ledger genesis is A2/A12/A27 class, not closed.**
+`approved_by='forensic_audit_2026-07-19'` is an authored label, uniform 218/218, written in-session by the audited party, `prev_ledger_hash=GENESIS` with no external witness. Providing the entry is not closing the item.
+Required: external witness to the GENESIS write, or CERTIFICATION_GAP_A30 printed at certification level alongside A12.
+
+**A31 — the missing 153rd exception.**
+"Discrepancy of 1 is unresolved" is not acceptable for a reclassification ledger. Take the set difference between the auditor's 153 exception decision_ids and the 152 live `target_pk` values and name the missing id, its current `is_test_record` value, and whether a ledger entry exists for it.
+
+**A32 — B19 escalated to blocking for the post-run seal.**
+A8 Layer-1 trusts `last_run_results.json`, which the verifier writes and the chain does not cover. Between the pre-run and post-run seals this is a live suppression vector for exactly the run being certified.
+Required: `sha256(last_run_results.json)` in the SEQ=46 chain entry, or regenerate it from the archived log at runtime.
+
+**A33 — `_A8_L1_META_EXCL` grew again.**
+NC4 was added to the exclusion list in the same round it was created. The list remains agent-editable with no bound.
+Required: emit sorted contents + sha256 of the list in every sealed header, and add a check that any name added since the previous SEQ appears in a registry entry citing the SEQ that justified it.
+
+## NON-BLOCKING
+
+- **B21** — A22 headers omit `prev_chain_hash` and `CMD` for SEQ=42/43/44. Continuity is proven only for 44→45. Supply both fields for all three.
+- **B22** — For 5 sampled double-written `target_pk`: both `recorded_at`, `ledger_hash`, `prev_ledger_hash`; confirm no target_pk has a third entry.
+- **B23** — `registered_by ... DEFAULT 'verify_dpl_phase3.py'` auto-attributes any inserter; drop the default. Add a check that `evidence_ref`'s SEQ + sha256 resolve to a real chain entry rather than matching a regex.
+- **B24** — Reported vs re-derived FAIL counts still omitted. Standing requirement since R5.
+
+## B25 — CANNOT TRACE is now closed
+Definitions restated; answer each on the merits.
+- **A10** — Retraction scope was short. Citations of verify_chain.sh runs in R6, R7.6, R8.5, R4.7.6, R4.8.7 remain unretracted.
+- **A11** — SEQ=22 and SEQ=26 are the same two runs that failed PSV5 recompute and produced zero parseable checks. Two independent anomalies on identical SEQs is not accepted as coincidence.
+- **B15** — Prove the "pre-ALTER TABLE rows" explanation for 196 NULL `origin_type` rows: DDL timestamp vs `max(created_at)`.
+- **B16** — Supply the 3 commit diffs behind the verified_run.sh re-canonicalization, the SEQ→runner-version map, and label verify_chain.sh NOT_EXECUTED in the sealed header.
+- **B17** — B5 exclusion-table enforcement: `oe_contamination_exclusions` is still referenced by zero non-verifier code paths.

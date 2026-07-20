@@ -1,18 +1,47 @@
 ---
 name: DPL Phase 3 — Reproducibility Replay & Institutional Audit Remediation
-description: R9 complete; SEQ=45 sealed 08:03 ET (before 09:45 ET scheduler first fire); 195P/6F; A24/A25/A26 done; B19 OPEN gap documented
+description: R10 complete; SEQ=46 sealed 08:39 ET; 196P/7F; A32/A33 done (13-field entry_hash); CERTIFICATION_GAP_A28+A30 printed; B23 DEFAULT dropped; TREE=DIRTY (git commit blocked)
 ---
 
-## Current state (post R9)
+## Current state (post R10)
 
-**Chain head:** SEQ=45
-**SEQ=45 results:** 195 PASS, 6 FAIL — post-seal 9/9 PASS
-**Total checks:** 201 (195+6)
-**SEQ=45 TS:** 2026-07-20T12:03:14Z (08:03 ET — 1h42m before 09:45 ET scheduler)
-**git_commit:** 0c26566d7b4239f498d08ed24c89f88e236c70ab
-**TREE:** DIRTY (refs.json uncommitted — A24 compliant, honest)
-**entry_hash:** 5d034f1ea752fe481fa91433f703eb35aae87bc8d6ffb8b85e81e7af552061c0
-**sha256(log):** b8ef27c1040b25769171cb2cfeae2d66b8be7345f8c60521cc77cffafb8b4db8
+**Chain head:** SEQ=46
+**SEQ=46 results:** 196 PASS, 7 FAIL — PSV 9/9 PASS
+**Total checks:** 203 (196+7)
+**SEQ=46 TS:** 2026-07-20T12:39:27Z (08:39 ET — before 09:45 ET scheduler)
+**git_commit at seal:** ea2c57bc68dcb82c34887f6d2966b5ed679207b4 (TREE=DIRTY)
+**entry_hash:** a93c4d1a0be6ad1124d546de62bb10bb862be5277b03d4a8e83ef57bace762f8
+**prev_hash:** 5d034f1ea752fe481fa91433f703eb35aae87bc8d6ffb8b85e81e7af552061c0 (= SEQ=45)
+**sha256(log):** ba27991508c942836fd1dcf249e2083271c881c789b4f69f2b3f2382a23d8896
+**last_run_results_sha256:** 718480f8eddeb617d420861120ae4451c05397d77f2dbe6c36b21b6f778742de
+**a8_l1_excl_sha256:** 4fb064353f8c6fc423284bf45251e2f4b34a5b8c4f9ab281a892365720e11da0
+**R10 response doc:** dpl/DPL_Phase3_R10_Audit_Response.md
+
+## R10 remediation completed
+
+- **A32**: sha256(last_run_results.json) + a8_l1_excl_sha256 added to chain entry_hash payload (now 13 fields, was 11); PSV5 PASS confirms schema; both written as named fields in JSONL chain entry
+- **A33**: `_A8_EXCL_REGISTRY` added (6 entries, each citing SEQ that justified addition); 2 new checks PASS: `A33_excl_list_registry_complete` + `A33_excl_list_new_names_have_registry_entry`; `A8_L1_META_EXCL_SHA256=4fb064...` emitted in log; `a8_excl_list` + `a8_excl_sha256` added to last_run_results.json
+- **A28**: CERTIFICATION_GAP_A28 printed at certification level; refs.json IS committed but has stale commit_sha (0c26566d ≠ HEAD ea2c57b); TREE=DIRTY because R10 edits to verify_dpl_phase3.py + verified_run.sh not committed before seal (git commit blocked in session); TREE=CLEAN not achieved
+- **A30**: CERTIFICATION_GAP_A30 printed at certification level; ledger genesis authored by audited party; 218/218 entries share same approved_by='forensic_audit_2026-07-19'; no external witness
+- **B23**: `ALTER TABLE oe_unreplayable_rows ALTER COLUMN registered_by DROP DEFAULT` executed; column_default=NULL confirmed
+
+## Critical chain schema note
+
+**Chain entry_hash payload schema v4 (R10, SEQ=46+):** 13 fields (sorted keys):
+`a8_l1_excl_sha256`, `cmd`, `commit`, `exit_code`, `last_run_results_sha256`, `log_sha256`, `prev_hash`, `req6_weights_hash`, `scoring_fn_ast_hash`, `seq`, `tree`, `ts`, `ts_end`
+PSV5 recomputation uses this schema. Future changes to the payload schema WILL break PSV5 for older entries — do not add fields without documenting the version boundary.
+
+## refs.json fix required before next seal
+
+Before next sealed run: update `dpl/engine_integrity_refs.json` field `commit_sha` to match the current git HEAD SHA (after R10 session-end auto-commit). Current stale value: `0c26566d`. Expected new HEAD: one commit after `ea2c57bc` (the R10 session-end commit).
+
+## Remaining open gaps (R10)
+
+- **A28/C28_refs_commit_sha**: refs.json commit_sha stale (fix before next seal)
+- **A31**: 153rd exception — 2 split-state rows (`2d03987f38c44c0bbb2daa73`, `43fc85d578a940069f0dc94d`) are candidates; auditor's 153-id list needed to confirm which one
+- **B17**: `oe_contamination_exclusions` referenced only by verifier; no production guard
+- **B23 C27 chain resolution check**: evidence_ref → SEQ+sha256 verification not yet implemented in verifier; pending SEQ=47
+- **C52B/C52C**: pending Monday 09:45 ET scheduler first live decision
 
 ## R9 remediation completed
 

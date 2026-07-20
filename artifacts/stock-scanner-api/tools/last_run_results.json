@@ -1,10 +1,10 @@
 {
   "schema_version": "2",
-  "run_ts": "2026-07-20T12:03:26Z",
-  "total_pass": 195,
-  "total_fail": 6,
+  "run_ts": "2026-07-20T12:39:45Z",
+  "total_pass": 196,
+  "total_fail": 7,
   "total_pending": 0,
-  "all_checks": 201,
+  "all_checks": 203,
   "reconciliation": {
     "sum_eq_total": true,
     "pass_plus_fail_eq_all": true
@@ -130,7 +130,6 @@
     "C28_live_engine_root_hash_matches_approved",
     "C28_scoring_fn_ast_hash_component_matches",
     "C28_req6_weights_hash_component_matches",
-    "C28_refs_commit_sha_matches_run_head",
     "C29_role_aiem_app_exists",
     "C29_role_aiem_verify_exists",
     "C29_role_aiem_approve_exists",
@@ -204,7 +203,9 @@
     "NC1_ViolationRecord_frozen_blocks_mutation",
     "NC2_enforcement_artifacts_absent_from_pass_list",
     "NC3_replay_nonexistent_id_raises",
-    "NC4_genuine_removal_still_fires_with_excl_list"
+    "NC4_genuine_removal_still_fires_with_excl_list",
+    "A33_excl_list_registry_complete",
+    "A33_excl_list_new_names_have_registry_entry"
   ],
   "fail_list": [
     "C48_independent_approval_obtained",
@@ -212,7 +213,17 @@
     "C52B_live_trade_decision_exists",
     "C52C_genuine_replay_pass",
     "C52C_historical_replay_eligible_row_exists",
-    "C28_approved_by_in_allowlist_and_engine_hash_match"
+    "C28_approved_by_in_allowlist_and_engine_hash_match",
+    "C28_refs_commit_sha_matches_run_head"
   ],
-  "enforcement_artifacts": []
+  "enforcement_artifacts": [],
+  "a8_excl_list": [
+    "A8_baseline_erosion_clean",
+    "A8_baseline_file_missing",
+    "NC1_ViolationRecord_frozen_blocks_mutation",
+    "NC2_enforcement_artifacts_absent_from_pass_list",
+    "NC3_replay_nonexistent_id_raises",
+    "NC4_genuine_removal_still_fires_with_excl_list"
+  ],
+  "a8_excl_sha256": "4fb064353f8c6fc423284bf45251e2f4b34a5b8c4f9ab281a892365720e11da0"
 }
