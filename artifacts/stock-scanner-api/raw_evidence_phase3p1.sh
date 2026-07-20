@@ -24,7 +24,7 @@ sep() {
 sep "ITEM 6 — sha256sum of tools/verified_run.sh and verify_chain.sh"
 # ══════════════════════════════════════════════════════════════════════════════
 echo "--- tools/verified_run.sh ---"
-sha256sum "$ROOT/artifacts/stock-scanner-api/tools/verified_run.sh"
+sha256sum "$ROOT/tools/verified_run.sh"
 echo "--- verify_chain.sh ---"
 sha256sum "$ROOT/artifacts/stock-scanner-api/verify_chain.sh"
 echo ""

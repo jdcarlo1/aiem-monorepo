@@ -3484,7 +3484,7 @@ try:
 
         # verified_run.sh calls post_seal_verify.sh
         _c42_vrs = os.path.normpath(os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'verified_run.sh'))
+            os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tools', 'verified_run.sh'))
         _c42_vrs_src = open(_c42_vrs).read()
         chk("C42_verified_run_calls_post_seal_verifier",
             'post_seal_verify.sh' in _c42_vrs_src,

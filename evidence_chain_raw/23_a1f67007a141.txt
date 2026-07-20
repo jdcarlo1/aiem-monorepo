@@ -1,0 +1,2 @@
+hello_from_canonical
+ebb6a2dd6f5fb450ef3732428507e1bc408339eea8c3a3855ed4cecf2866cd26  tools/verified_run.sh

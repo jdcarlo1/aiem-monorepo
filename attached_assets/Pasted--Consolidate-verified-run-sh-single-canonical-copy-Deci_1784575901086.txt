@@ -1,0 +1,28 @@
+# Consolidate verified_run.sh — single canonical copy
+
+## Decision
+Canonical path = `tools/verified_run.sh`. This is the path already referenced throughout
+the verification protocol and existing directives — keeping it avoids touching every
+prior reference.
+
+## Approved action (Joel's explicit approval for this step only)
+Archive (do NOT delete) the other three copies — move, don't remove, per the standing
+data immutability rule:
+- `verified_run.sh` (project root)
+- `artifacts/stock-scanner-api/tools/verified_run.sh`
+- `.local/verified_run.sh`
+
+Move each to `_archive/duplicate_verified_run/<original_path_flattened>.sh` (create the
+dir if needed). Do not overwrite anything already in `_archive/`.
+
+## Required steps + raw evidence for each
+1. `sha256sum` on all four copies BEFORE moving anything — paste raw output (confirms current state matches what was already found: 31c74ee8/ebb6a2dd/22e19289/aab1e779).
+2. Move the three non-canonical copies to `_archive/duplicate_verified_run/` — paste the raw `mv` commands and their output (or `git mv` if tracked).
+3. `grep -rn "verified_run.sh" --include="*.py" --include="*.sh" --include="*.yml" .` across the whole repo — paste raw output. For every hit that references one of the three archived paths, update it to point at `tools/verified_run.sh` instead. Paste each edit as a diff.
+4. Re-run `grep -rn "verified_run.sh"` after edits — paste raw output — confirm zero remaining references to the three archived paths.
+5. `sha256sum tools/verified_run.sh` — paste raw output. This becomes the new sole canonical value going forward.
+6. `git diff HEAD --stat` — paste raw output showing exactly what changed.
+7. Run one real command through `tools/verified_run.sh` end-to-end (anything simple, e.g. an `ls` or existing check script) and paste the raw output, confirming the surviving canonical copy actually executes.
+
+## Not required
+- No need to re-litigate which of the three prior "canonical" values (8146a523, 467451910c, etc.) was ever correct — none of them matter once there's one file.

@@ -12,7 +12,7 @@ PYDIR="$ROOT/artifacts/stock-scanner-api"
 
 # ══════════════════════════════════════════════════════════════════════════════
 echo "## ITEM 6 — sha256sum canonical check (required header)"
-sha256sum "$ROOT/artifacts/stock-scanner-api/tools/verified_run.sh"
+sha256sum "$ROOT/tools/verified_run.sh"
 sha256sum "$ROOT/artifacts/stock-scanner-api/verify_chain.sh"
 echo "canonical: verified_run.sh=8146a523cdc7fcecdf26451789f6792db8a7091bb0669f07a9c2caf4670119f4"
 echo "canonical: verify_chain.sh=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f"
