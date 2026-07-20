@@ -1981,18 +1981,26 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "call_scoring": call_scoring, "put_scoring": put_scoring,
         }
 
-        # ── Engine Integrity Gate (Item 1 — DPL Remediation: FAIL-CLOSED) ────
-        # PRODUCTION RULE: every exception path that cannot verify integrity BLOCKS.
-        # Only exact hash match → ALLOW.  All other outcomes → BLOCK + log + raise.
-        #
-        # Allowed bypass: AIEM_ENV=development AND refs file is absent (CI/dev without refs).
-        # Production (AIEM_ENV != 'development') NEVER skips the gate for any reason.
-        #
-        # Stored in oe_gate_events: gate_name, ticker, trace_id, live_hash,
-        #   expected_hash, mismatch_detail, action_taken, exc_class, exc_detail.
+        # ── Engine Integrity Gate (F2/F3/F4/F6 — R11 remediation) ─────────────
+        # Extracted to dpl/integrity_gate.py. Gate enforces:
+        #   Step 1: refs file exists (no bypass for any environment, F4)
+        #   Step 2: engine root-hash matches refs (hash-match integrity)
+        #   Steps 4-5: dpl_production_certification starts APPROVED + approved_at set
+        #   Step 6: approved_by in APPROVED_IDENTITIES allowlist (not blocklist, F2)
+        #   Step 7: refs.commit_sha == live git HEAD at call time (F3)
+        # Every exception path raises IntegrityGateError → block.
+        import os as _ieg_os, sys as _ieg_sys
+        _ieg_refs_path = _ieg_os.path.join(
+            _ieg_os.path.dirname(_ieg_os.path.abspath(__file__)),
+            'dpl', 'engine_integrity_refs.json'
+        )
+        _ieg_dpl_dir = _ieg_os.path.dirname(_ieg_refs_path)
+        if _ieg_dpl_dir not in _ieg_sys.path:
+            _ieg_sys.path.insert(0, _ieg_dpl_dir)
+
         def _ieg_log_block(reason: str, exc_cls: str = '', exc_detail: str = '',
                            live_hash: str = '', expected_hash: str = '') -> None:
-            """Best-effort append to oe_gate_events; never swallows the block."""
+            """Best-effort DB event log on block; never swallows the block."""
             try:
                 import psycopg2 as _pg_ieg
                 _c = _pg_ieg.connect(_DB_URL, connect_timeout=3)
@@ -2008,139 +2016,30 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except Exception as _le:
                 log.warning(f"[integrity_gate] gate_event log failed (block still raised): {_le}")
 
-        import os as _ieg_os, sys as _ieg_sys
-        _ieg_env = _ieg_os.environ.get('AIEM_ENV', 'production').lower()
-        _ieg_refs_path = _ieg_os.path.join(
-            _ieg_os.path.dirname(_ieg_os.path.abspath(__file__)),
-            'dpl', 'engine_integrity_refs.json'
-        )
+        from integrity_gate import run_integrity_gate, IntegrityGateError
+        try:
+            _ieg_result = run_integrity_gate(
+                _ieg_refs_path,
+                block_fn=_ieg_log_block,
+                log_fn=log.info,
+            )
+        except IntegrityGateError as _ieg_e:
+            raise ValueError(str(_ieg_e))
 
-        # Missing refs file: BLOCK in production; skip in development
-        if not _ieg_os.path.exists(_ieg_refs_path):
-            if _ieg_env == 'development':
-                log.info("[integrity_gate] refs file absent + AIEM_ENV=development: gate skipped")
-            else:
-                _ieg_log_block('REFS_FILE_MISSING', exc_detail=_ieg_refs_path)
-                raise ValueError(
-                    f"[ENGINE_INTEGRITY_GATE] BLOCKED: refs file missing at {_ieg_refs_path}. "
-                    "Production environment requires engine_integrity_refs.json."
-                )
-        else:
-            _ieg_result: dict = {}
-            _ieg_block_reason: str = ''
-            _ieg_exc_cls: str = ''
-            _ieg_exc_detail: str = ''
+        # ── Trace: RISK_GATE (integrity gate passed) ──────────────────────
+        if _strace_ctx is not None:
             try:
-                _ieg_dpl_dir = _ieg_os.path.dirname(_ieg_refs_path)
-                if _ieg_dpl_dir not in _ieg_sys.path:
-                    _ieg_sys.path.insert(0, _ieg_dpl_dir)
-                from engine_manifest import verify_against_refs as _ieg_verify
-                _ieg_result = _ieg_verify(_ieg_refs_path)
-            except ImportError as _e:
-                _ieg_block_reason = 'IMPORT_FAILURE'
-                _ieg_exc_cls, _ieg_exc_detail = type(_e).__name__, str(_e)
-            except PermissionError as _e:
-                _ieg_block_reason = 'FILE_PERMISSION_FAILURE'
-                _ieg_exc_cls, _ieg_exc_detail = type(_e).__name__, str(_e)
-            except (OSError, IOError) as _e:
-                _ieg_block_reason = 'IO_FAILURE'
-                _ieg_exc_cls, _ieg_exc_detail = type(_e).__name__, str(_e)
-            except (ValueError, TypeError, KeyError) as _e:
-                _ieg_block_reason = 'INVALID_REFS_FILE'
-                _ieg_exc_cls, _ieg_exc_detail = type(_e).__name__, str(_e)
-            except Exception as _e:
-                _ieg_block_reason = 'UNKNOWN_VERIFICATION_EXCEPTION'
-                _ieg_exc_cls, _ieg_exc_detail = type(_e).__name__, str(_e)
-
-            if _ieg_block_reason:
-                # Any exception during verification → BLOCK
-                _ieg_log_block(_ieg_block_reason, _ieg_exc_cls, _ieg_exc_detail)
-                raise ValueError(
-                    f"[ENGINE_INTEGRITY_GATE] BLOCKED: {_ieg_block_reason} "
-                    f"({_ieg_exc_cls}: {_ieg_exc_detail}). "
-                    "Cannot verify engine integrity — pipeline blocked."
+                _strace_ctx.write_stage(
+                    "RISK_GATE",
+                    ticker=ticker, scan_date=scan_date, job_id=job_id,
+                    completion_status="PASS",
+                    metadata={
+                        "gate": "ENGINE_INTEGRITY",
+                        "root_hash": _ieg_result.get("live_root_hash", "")[:24],
+                    },
                 )
-            elif not _ieg_result.get('ok'):
-                # Hash mismatch → BLOCK
-                _ieg_log_block(
-                    'HASH_MISMATCH',
-                    live_hash=_ieg_result.get('live_root_hash', ''),
-                    expected_hash=_ieg_result.get('approved_root_hash', ''),
-                    exc_detail=(
-                        f"live={_ieg_result.get('live_root_hash','?')[:32]}"
-                        f" != approved={_ieg_result.get('approved_root_hash','?')[:32]}"
-                    ),
-                )
-                raise ValueError(
-                    f"[ENGINE_INTEGRITY_GATE] BLOCKED: HASH_MISMATCH "
-                    f"live={_ieg_result.get('live_root_hash','?')[:32]} "
-                    f"!= approved={_ieg_result.get('approved_root_hash','?')[:32]}. "
-                    "Pipeline blocked until refs updated and approved."
-                )
-            else:
-                log.info(
-                    f"[integrity_gate] PASS engine_root_hash="
-                    f"{_ieg_result['live_root_hash'][:24]}..."
-                )
-                # ── Trace: RISK_GATE (engine integrity gate passed) ─────────────
-                if _strace_ctx is not None:
-                    try:
-                        _strace_ctx.write_stage(
-                            "RISK_GATE",
-                            ticker=ticker, scan_date=scan_date, job_id=job_id,
-                            completion_status="PASS",
-                            metadata={
-                                "gate": "ENGINE_INTEGRITY",
-                                "root_hash": _ieg_result.get("live_root_hash", "")[:24],
-                            },
-                        )
-                    except Exception as _st_rg_e:
-                        log.debug(f"[scheduler_trace] RISK_GATE: {_st_rg_e}")
-                # B8: Fail-closed approval check — engine must be independently approved
-                # before any production execution (Stage 8). Hash-match alone is insufficient.
-                try:
-                    import json as _ieg_json
-                    _ieg_refs_data  = _ieg_json.load(open(_ieg_refs_path))
-                    _ieg_cert       = _ieg_refs_data.get('dpl_production_certification', '')
-                    _ieg_appr_at    = _ieg_refs_data.get('approved_at')
-                    _ieg_appr_by    = _ieg_refs_data.get('approved_by')
-                    _ieg_forbidden  = _ieg_refs_data.get('forbidden_approver_identities') or []
-                    if not str(_ieg_cert).upper().startswith('APPROVED'):
-                        _ieg_log_block('NOT_APPROVED',
-                                       exc_detail=str(_ieg_cert)[:120])
-                        raise ValueError(
-                            "[ENGINE_INTEGRITY_GATE] BLOCKED: dpl_production_certification "
-                            f"is '{str(_ieg_cert)[:80]}'. Engine requires independent "
-                            "approval before production execution (Stage 8)."
-                        )
-                    if not _ieg_appr_at:
-                        _ieg_log_block('APPROVED_AT_NULL',
-                                       exc_detail='approved_at is null')
-                        raise ValueError(
-                            "[ENGINE_INTEGRITY_GATE] BLOCKED: approved_at is null. "
-                            "Independent approval timestamp required before production "
-                            "execution (Stage 8)."
-                        )
-                    if _ieg_appr_by in _ieg_forbidden:
-                        _ieg_log_block('SELF_APPROVAL',
-                                       exc_detail=f'approved_by={_ieg_appr_by!r}')
-                        raise ValueError(
-                            f"[ENGINE_INTEGRITY_GATE] BLOCKED: approved_by={_ieg_appr_by!r} "
-                            "is in forbidden_approver_identities. Self-approval not permitted."
-                        )
-                    log.info(
-                        f"[integrity_gate] APPROVAL_PASS approved_by={_ieg_appr_by!r} "
-                        f"approved_at={_ieg_appr_at}"
-                    )
-                except ValueError:
-                    raise  # re-raise gate-block ValueError as-is
-                except Exception as _ieg_appr_exc:
-                    _ieg_log_block('APPROVAL_CHECK_EXCEPTION',
-                                   exc_detail=str(_ieg_appr_exc))
-                    raise ValueError(
-                        "[ENGINE_INTEGRITY_GATE] BLOCKED: approval check raised "
-                        f"unexpected exception: {_ieg_appr_exc}"
-                    )
+            except Exception as _st_rg_e:
+                log.debug(f"[scheduler_trace] RISK_GATE: {_st_rg_e}")
 
         # ── Stage 8: DB persist ────────────────────────────────────────────────
         save_result = _pipe.save_options_alert(

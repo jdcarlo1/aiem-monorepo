@@ -1,0 +1,79 @@
+# DPL R11 — Exit Criteria Before Operator Approval
+Issued 2026-07-20 · Reviewer input to Joel's decision. NOT an approval and not a C48/C28 identity.
+
+## TIER 1 — must be fixed and proven
+
+**F1. C49 leaves an immutability trigger disabled.**
+`ALTER TABLE oe_decision_audit DISABLE TRIGGER trg_oe_decision_audit_immutable` has no
+rollback on the success path and no matching ENABLE anywhere.
+Required: wrap in SAVEPOINT + unconditional ROLLBACK TO, or drop the probe entirely.
+Proof: post-run `SELECT tgenabled FROM pg_trigger` for every immutability trigger, in the
+sealed log.
+
+**F2. Gate uses a blocklist, not the allowlist.**
+`aiem_options_scheduler.py`: `if _ieg_appr_by in _ieg_forbidden`. A5 was fixed in the
+verifier only.
+Required: gate reads the same allowlist C28 reads; empty allowlist blocks.
+Proof: negative control — approved_by set to an unlisted string, gate raises.
+
+**F3. Gate does not recheck commit_sha at runtime.**
+Required: gate compares refs.commit_sha to git HEAD and blocks on mismatch.
+Proof: negative control — refs.commit_sha altered by one char, gate raises.
+
+**F4. `AIEM_ENV=development` + missing refs.json skips the gate entirely.**
+Required: remove the bypass, or bind it to a value that cannot be set in the deployment
+environment. C36 currently *requires the bypass string to be present* in order to pass —
+that check must be inverted.
+Proof: negative control — refs.json moved aside in production env, gate raises.
+
+**F5. refs.commit_sha 0c26566d ≠ HEAD 1a907879.**
+Required: refs.commit_sha == HEAD at seal time, tree CLEAN, no exemption for refs.json.
+Proof: `C28_refs_commit_sha_matches_run_head` PASSes on its own merits.
+
+## TIER 2 — checks that cannot fail must be fixed or deleted
+
+**F6. C36 (11 checks)** is substring grep over scheduler source. Replace with an executed
+gate call asserting the raise, per path. Same treatment for C35, C40, C46.
+
+**F7. C49** records PASS for the unmet state (`_db_role_gap_documented_external_blocker`
+fires *because* current_user is superuser; `_ddl_privilege_gap_documented` fires *because*
+the ALTER succeeded). Convert to FAIL or remove from the count. A documented gap is not a
+passing control.
+
+**F8. C34** passes when the artifact is absent. Absence must FAIL.
+
+**F9. `C50_chain_continuity_through_seq22`** is hardcoded `True`. Compute it or delete it.
+
+**F10. `reconciliation.sum_eq_total`** is `X == X`; `pass_plus_fail_eq_all` is hardcoded
+`True`. Delete both — they back the B18/B24 arithmetic and prove nothing.
+
+**F11. A33 is closed-loop.** `_A8_L1_META_EXCL` vs `_A8_EXCL_REGISTRY` — both literals in
+the same file, edited together; prior list read from the verifier's own output; excl sha
+grepped from the verifier's own log. Either derive the sha independently in the runner, or
+label A33 as documentation and stop counting it as a control.
+
+**F12. CERTIFICATION_GAP_A28 / _A19 are unconditional prints** with hardcoded state
+("TREE=DIRTY in SEQ=46"). Derive from actual state or delete.
+
+**F13. `verified_run.sh` sentinel fallbacks are dead.**
+`$(grep … | cut -d= -f2- || echo SENTINEL)` — `||` binds to `cut`, which exits 0 on empty
+input. Missing values silently become empty strings inside the entry_hash payload.
+
+## TIER 3 — required in the sealed run that follows
+
+- Reported vs re-derived FAIL count, counting removed-failing checks as still failing
+  (standing since R5).
+- Per-check PASS count before and after F7, so the enforcement delta is visible.
+- TREE=CLEAN with no allowlist entries beyond `tools/verified_run_seq`.
+- C48 and C28 still FAIL. They are not in scope here and must not be renamed, split,
+  deferred, or made satisfiable.
+
+## WHAT THIS DOES AND DOES NOT DO
+
+If F1–F13 are fixed and proven by sealed run, I will say the engine is sound enough for
+Joel to approve as operator. That is a statement about the code, not an approval.
+
+The approval itself is Joel's, recorded in his own name, with `approver_role` stating he
+is the operator and not independent of deployment. C48 as written continues to FAIL, and
+that FAIL is the honest record — it is not to be cleared by adding any identity, including
+the reviewer's, to `_C28_APPROVED_IDENTITIES`.

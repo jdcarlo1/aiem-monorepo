@@ -166,8 +166,8 @@ echo "last_run_results_sha256=${LAST_RESULTS_SHA}"
 
 # A33 (R10): sha256 of _A8_L1_META_EXCL sorted list — verifier emits
 # A8_L1_META_EXCL_SHA256=<hash> in LOG_FILE; capture it here.
-_EXCL_SHA=$(grep '^A8_L1_META_EXCL_SHA256=' "${LOG_FILE}" 2>/dev/null | tail -1 \
-    | cut -d= -f2- || echo "MISSING_excl_sha")
+_EXCL_SHA=$(grep '^A8_L1_META_EXCL_SHA256=' "${LOG_FILE}" 2>/dev/null | tail -1 | cut -d= -f2-)
+if [ -z "${_EXCL_SHA}" ]; then _EXCL_SHA="MISSING_excl_sha"; fi
 echo "A8_L1_META_EXCL_SHA256_FOOTER=${_EXCL_SHA}"
 
 # ── Compute chain entry_hash ───────────────────────────────────────────────
@@ -221,8 +221,10 @@ GIT_COMMIT_OUTER=$(grep "^git_commit=" "${FULL_TMP}" | cut -d= -f2-)
 TREE_OUTER=$(grep "^TREE=" "${FULL_TMP}" | cut -d= -f2-)
 SCORING_FN_AST_OUTER=$(grep "^scoring_fn_ast_hash=" "${FULL_TMP}" | cut -d= -f2-)
 REQ6_WEIGHTS_OUTER=$(grep "^req6_weights_hash=" "${FULL_TMP}" | cut -d= -f2-)
-LAST_RESULTS_OUTER=$(grep "^last_run_results_sha256=" "${FULL_TMP}" | cut -d= -f2- || echo MISSING_last_run_results)
-A8_EXCL_SHA_OUTER=$(grep "^A8_L1_META_EXCL_SHA256_FOOTER=" "${FULL_TMP}" | cut -d= -f2- || echo MISSING_excl_sha)
+_LAST_RESULTS_TMP=$(grep "^last_run_results_sha256=" "${FULL_TMP}" | cut -d= -f2-)
+LAST_RESULTS_OUTER="${_LAST_RESULTS_TMP:-MISSING_last_run_results}"
+_A8_EXCL_TMP=$(grep "^A8_L1_META_EXCL_SHA256_FOOTER=" "${FULL_TMP}" | cut -d= -f2-)
+A8_EXCL_SHA_OUTER="${_A8_EXCL_TMP:-MISSING_excl_sha}"
 
 # ── Item 2: 3-Way Binding — Archive first, then chain ─────────────────────
 # Per-SEQ archive is written BEFORE the chain entry so that archive_sha256

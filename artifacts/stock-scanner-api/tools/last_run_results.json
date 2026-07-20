@@ -1,14 +1,10 @@
 {
   "schema_version": "2",
-  "run_ts": "2026-07-20T12:39:45Z",
-  "total_pass": 196,
-  "total_fail": 7,
+  "run_ts": "2026-07-20T13:37:44Z",
+  "total_pass": 194,
+  "total_fail": 8,
   "total_pending": 0,
-  "all_checks": 203,
-  "reconciliation": {
-    "sum_eq_total": true,
-    "pass_plus_fail_eq_all": true
-  },
+  "all_checks": 202,
   "pass_list": [
     "C01_imports_ok",
     "C02_table_exists",
@@ -71,8 +67,7 @@
     "C47B_source_tree_clean_dpl_scope",
     "C48_neg_self_approval_is_forbidden",
     "C48_approval_metadata_only_flag_set",
-    "C49_db_role_gap_documented_external_blocker",
-    "C49_ddl_privilege_gap_documented",
+    "C49_immutability_trigger_still_enabled_post_probe",
     "C49_truncate_blocked_by_trigger",
     "C49_update_immutable_audit_blocked",
     "C50_defective_runs_registry_exists",
@@ -130,6 +125,7 @@
     "C28_live_engine_root_hash_matches_approved",
     "C28_scoring_fn_ast_hash_component_matches",
     "C28_req6_weights_hash_component_matches",
+    "C28_refs_commit_sha_matches_run_head",
     "C29_role_aiem_app_exists",
     "C29_role_aiem_verify_exists",
     "C29_role_aiem_approve_exists",
@@ -155,16 +151,15 @@
     "C34_logs_directory_exists",
     "C34_index_tsv_has_entries",
     "C34_restore_sha256_matches_index",
-    "C36_gate_blocks_missing_refs_file",
-    "C36_gate_blocks_import_failure",
-    "C36_gate_blocks_permission_failure",
-    "C36_gate_blocks_io_failure",
-    "C36_gate_blocks_invalid_refs_file",
-    "C36_gate_blocks_unknown_exception",
+    "C36_scheduler_imports_integrity_gate",
+    "C36_dev_bypass_string_absent",
     "C36_no_failopen_warning_continue",
-    "C36_env_check_exists",
-    "C36_neg_missing_refs_raises_valueerror",
-    "C36_neg_corrupt_json_would_block",
+    "C36_neg_missing_refs_raises_integrity_gate_error",
+    "C36_neg_missing_refs_reason_is_refs_file_missing",
+    "C36_neg_corrupt_refs_raises_integrity_gate_error",
+    "C36_gate_allowlist_check_wired",
+    "C36_gate_commit_sha_check_wired",
+    "C36_gate_no_env_bypass",
     "C37_oe_index_corrections_table_exists",
     "C37_index_corrections_immutability_trigger",
     "C37_index_corrections_truncate_trigger",
@@ -204,20 +199,22 @@
     "NC2_enforcement_artifacts_absent_from_pass_list",
     "NC3_replay_nonexistent_id_raises",
     "NC4_genuine_removal_still_fires_with_excl_list",
-    "A33_excl_list_registry_complete",
     "A33_excl_list_new_names_have_registry_entry"
   ],
   "fail_list": [
     "C48_independent_approval_obtained",
+    "C49_db_role_gap_is_unmet_control",
+    "C49_ddl_privilege_gap_is_unmet_control",
     "C52B_scheduler_origin_decision_exists",
     "C52B_live_trade_decision_exists",
     "C52C_genuine_replay_pass",
     "C52C_historical_replay_eligible_row_exists",
-    "C28_approved_by_in_allowlist_and_engine_hash_match",
-    "C28_refs_commit_sha_matches_run_head"
+    "C28_approved_by_in_allowlist_and_engine_hash_match"
   ],
   "enforcement_artifacts": [],
   "a8_excl_list": [
+    "A33_excl_list_new_names_have_registry_entry",
+    "A33_excl_list_registry_complete",
     "A8_baseline_erosion_clean",
     "A8_baseline_file_missing",
     "NC1_ViolationRecord_frozen_blocks_mutation",
@@ -225,5 +222,5 @@
     "NC3_replay_nonexistent_id_raises",
     "NC4_genuine_removal_still_fires_with_excl_list"
   ],
-  "a8_excl_sha256": "4fb064353f8c6fc423284bf45251e2f4b34a5b8c4f9ab281a892365720e11da0"
+  "a8_excl_sha256": "bfa5db476cf3de1dfd3f557462d1b16b72b90c2472393d7248aca28ada2bef11"
 }
