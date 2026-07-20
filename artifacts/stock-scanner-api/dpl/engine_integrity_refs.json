@@ -25,8 +25,8 @@
     "version": "2"
   },
   "canonicalization_version": "2",
-  "commit_sha": "a06c68032f87259582d247c8ee81609d58893f9a",
-  "commit_sha_note": "Updated to R11 pre-seal HEAD (a06c680) before SEQ=47 sealed run. Reflects F1-F13 remediation: integrity_gate.py extraction (F2/F3/F4), verifier fixes (F1/F6/F7/F8/F9/F10/F11/F12), verified_run.sh sentinel (F13). Per mandatory certification procedure.",
+  "commit_sha": "ff0ebf24a0c7701e4971379f69330e5dd401e6a8",
+  "commit_sha_note": "Updated to SEQ=50 pre-seal HEAD (ff0ebf24) before sealed run. W1 neg control added (C36_neg_non_allowlisted_identity_raises), B18 A33 supersede entry added, C48/C28 language updated (OPERATOR_APPROVAL_PENDING). Per mandatory certification procedure.",
   "config_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "decision_path_combined_hash": "72c776a6399673e009238e40a233b70fa3c7438174dd8a112caa803e8f2d8102",
   "decision_path_module_hashes": {
@@ -68,7 +68,7 @@
   "integrity_schema_version": "2",
   "python_version": "3.11.14",
   "refs_file_hash_note": "sha256(this file excluding this field) = verified by C28 in verify_dpl_phase3.py",
-  "refs_updated_at": "2026-07-20T13:00:00Z",
+  "refs_updated_at": "2026-07-20T13:53:00Z",
   "req6_weights_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "schema_version": "2",
   "scoring_fn_ast_hash": "68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42",

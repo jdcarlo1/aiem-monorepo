@@ -1458,7 +1458,8 @@ try:
     _c48_ok = bool(_c48_approved_at) and bool(_c48_approved_by)
     chk("C48_independent_approval_obtained", _c48_ok,
         f"approved_at={_c48_approved_at!r} approved_by={_c48_approved_by!r}: "
-        "both must be non-null. FAIL until independent approval is obtained.")
+        "OPERATOR_APPROVAL_PENDING: both approved_at and approved_by must be non-null. "
+        "Set in refs.json to record operator approval (C48/C28 are operator-gated, not infra-blocked).")
 
     # A18 (R7): restored neg-control checks — NOT subsumed by C48_independent_approval_obtained.
     # Subsumption FAILS on two independent inputs:
@@ -1484,7 +1485,7 @@ try:
     chk("C48_approval_metadata_only_flag_set", _c48_meta_only,
         f"approval_metadata_only={_c48_meta_only!r}. "
         "True = approval fields are metadata-only intent, NOT cryptographic proof by a separate "
-        "principal. Must remain True until a real independent approval is obtained; must be set "
+        "principal. Must remain True until a real operator approval is obtained; must be set "
         "to False only when approval_proof_status is no longer EXTERNAL_BLOCKER.")
 
 except Exception as _e:
@@ -2638,7 +2639,7 @@ try:
         # reviewer identities. Empty allowlist = fail closed (no reviewer exists yet).
         # Null approved_by also fails — absence of approval is not approval.
         # Gate additionally requires engine_root_hash match at runtime.
-        _C28_APPROVED_IDENTITIES: set = set()   # empty: no external reviewer exists
+        _C28_APPROVED_IDENTITIES: set = set()   # empty: no operator approval recorded yet
         _c28_in_allowlist = (
             _c28_approver is not None
             and _c28_approver in _C28_APPROVED_IDENTITIES
@@ -2648,7 +2649,9 @@ try:
             _c28_gate_ok,
             f"approved_by={_c28_approver!r} in_allowlist={_c28_in_allowlist} "
             f"(allowlist={_C28_APPROVED_IDENTITIES!r}) engine_match={_c28_engine_ok}. "
-            "FAIL: allowlist is empty (no external reviewer) or engine hash mismatch.")
+            "OPERATOR_APPROVAL_PENDING: APPROVED_IDENTITIES is empty (no operator approval "
+        "recorded yet) or engine hash mismatch. Populate approved_by + approved_at + "
+        "APPROVED_IDENTITIES in refs.json + integrity_gate.py to unblock (operator-gated).")
 
         # A19 (R7): reconcile refs.commit_sha to run git_commit.
         # Three values must agree: refs.commit_sha, run git_commit, refs-file last-touched commit.
@@ -3019,6 +3022,37 @@ try:
         _c36_corrupt_reason = f"WRONG_EXCEPTION: {_c36_ue2}"
     chk("C36_neg_corrupt_refs_raises_integrity_gate_error", _c36_corrupt_blocked,
         f"Corrupt refs must raise IntegrityGateError; got={_c36_corrupt_reason[:80]!r}")
+
+    # Neg control 3 (W1/F2): non-allowlisted approved_by → NOT_IN_APPROVED_IDENTITIES
+    # F2 proof requirement (exit criteria): "approved_by set to an unlisted string, gate raises."
+    # Fixtures: real engine_root_hash so hash check passes; certification='APPROVED_FOR_NEGCTL';
+    # approved_at non-null; approved_by NOT in APPROVED_IDENTITIES (empty set) → gate raises.
+    _c36_negctl_path = _c36_os.path.join(_c36_dpl_dir, '_negctl_refs_tmp.json')
+    _c36_negctl_blocked = False
+    _c36_negctl_reason  = ''
+    try:
+        _c36_real_refs = json.load(open(
+            _c36_os.path.join(_c36_dpl_dir, 'engine_integrity_refs.json')))
+        _c36_negctl_refs = dict(_c36_real_refs)
+        _c36_negctl_refs['dpl_production_certification'] = 'APPROVED_FOR_NEGCTL_TEST'
+        _c36_negctl_refs['approved_at']                  = '2026-01-01T00:00:00Z'
+        _c36_negctl_refs['approved_by']                  = 'not_in_allowlist_negctl'
+        with open(_c36_negctl_path, 'w') as _fng:
+            json.dump(_c36_negctl_refs, _fng)
+        try:
+            _c36_gate(_c36_negctl_path)
+        except _c36_err as _c36_e3:
+            _c36_negctl_blocked = True
+            _c36_negctl_reason  = str(_c36_e3)
+        except Exception as _c36_ue3:
+            _c36_negctl_reason = f'WRONG_EXCEPTION: {_c36_ue3}'
+    finally:
+        if _c36_os.path.exists(_c36_negctl_path):
+            _c36_os.remove(_c36_negctl_path)
+    chk("C36_neg_non_allowlisted_identity_raises",
+        _c36_negctl_blocked and 'NOT_IN_APPROVED_IDENTITIES' in _c36_negctl_reason,
+        f"Non-allowlisted approved_by must raise IntegrityGateError(NOT_IN_APPROVED_IDENTITIES);"
+        f" got={_c36_negctl_reason[:120]!r}")
 
     # Source-inspect the gate module for wired controls (F2/F3/F4)
     _c36_gate_src = _c36_insp.getsource(_c36_gate)
@@ -3643,6 +3677,13 @@ _A8_SUPERSEDE_REGISTRY = {
     'C49_cannot_disable_immutability_trigger':
         'SUPERSEDED_BY:C49_ddl_privilege_gap_documented — gap documentation is the honest '
         'assertion given superuser runtime role in Replit managed DB',
+    # B18 (Joel R11): A33_excl_list_registry_complete converted to documentation per F11;
+    # A33_excl_list_new_names_have_registry_entry (in excl-list, ordering artifact)
+    # remains as the live control; net -1 from count is intentional and documented here.
+    'A33_excl_list_registry_complete':
+        'SUPERSEDED_BY:A33_excl_list_new_names_have_registry_entry — F11 (R11): '
+        'A33 converted from chk() to documentation print (closed-loop concern); '
+        'new check verifies excl registry completeness and runs in same suite (excl-list timing artifact only)',
     'C52B_live_evidence_check':
         'SUPERSEDED_BY:C52B_live_trade_decision_exists — renamed for clarity',
     'C52_prod_verified_decision_exists':
