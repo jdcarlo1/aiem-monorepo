@@ -1971,6 +1971,51 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     f"[integrity_gate] PASS engine_root_hash="
                     f"{_ieg_result['live_root_hash'][:24]}..."
                 )
+                # B8: Fail-closed approval check — engine must be independently approved
+                # before any production execution (Stage 8). Hash-match alone is insufficient.
+                try:
+                    import json as _ieg_json
+                    _ieg_refs_data  = _ieg_json.load(open(_ieg_refs_path))
+                    _ieg_cert       = _ieg_refs_data.get('dpl_production_certification', '')
+                    _ieg_appr_at    = _ieg_refs_data.get('approved_at')
+                    _ieg_appr_by    = _ieg_refs_data.get('approved_by')
+                    _ieg_forbidden  = _ieg_refs_data.get('forbidden_approver_identities') or []
+                    if not str(_ieg_cert).upper().startswith('APPROVED'):
+                        _ieg_log_block('NOT_APPROVED',
+                                       exc_detail=str(_ieg_cert)[:120])
+                        raise ValueError(
+                            "[ENGINE_INTEGRITY_GATE] BLOCKED: dpl_production_certification "
+                            f"is '{str(_ieg_cert)[:80]}'. Engine requires independent "
+                            "approval before production execution (Stage 8)."
+                        )
+                    if not _ieg_appr_at:
+                        _ieg_log_block('APPROVED_AT_NULL',
+                                       exc_detail='approved_at is null')
+                        raise ValueError(
+                            "[ENGINE_INTEGRITY_GATE] BLOCKED: approved_at is null. "
+                            "Independent approval timestamp required before production "
+                            "execution (Stage 8)."
+                        )
+                    if _ieg_appr_by in _ieg_forbidden:
+                        _ieg_log_block('SELF_APPROVAL',
+                                       exc_detail=f'approved_by={_ieg_appr_by!r}')
+                        raise ValueError(
+                            f"[ENGINE_INTEGRITY_GATE] BLOCKED: approved_by={_ieg_appr_by!r} "
+                            "is in forbidden_approver_identities. Self-approval not permitted."
+                        )
+                    log.info(
+                        f"[integrity_gate] APPROVAL_PASS approved_by={_ieg_appr_by!r} "
+                        f"approved_at={_ieg_appr_at}"
+                    )
+                except ValueError:
+                    raise  # re-raise gate-block ValueError as-is
+                except Exception as _ieg_appr_exc:
+                    _ieg_log_block('APPROVAL_CHECK_EXCEPTION',
+                                   exc_detail=str(_ieg_appr_exc))
+                    raise ValueError(
+                        "[ENGINE_INTEGRITY_GATE] BLOCKED: approval check raised "
+                        f"unexpected exception: {_ieg_appr_exc}"
+                    )
 
         # ── Stage 8: DB persist ────────────────────────────────────────────────
         save_result = _pipe.save_options_alert(

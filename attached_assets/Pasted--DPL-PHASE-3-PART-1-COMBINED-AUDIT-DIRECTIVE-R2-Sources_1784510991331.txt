@@ -1,0 +1,152 @@
+# DPL PHASE 3 — PART 1 COMBINED AUDIT DIRECTIVE R2
+Sources: Claude audit R2 [C] + second-model institutional audit [O]
+Ref: DPL_Phase3_Audit_Response_2026-07-20.txt
+Issued: 2026-07-19 (Sunday)
+
+## COMBINED VERDICT
+CONDITIONAL — NOT YET INSTITUTIONALLY APPROVED.
+[O] grades Architecture PASS / Engineering PASS / Verification PASS WITH
+CONDITIONS. [C] does not concur with "no fabricated implementation claims
+detected" (see A1) or with C52B "FIXED" (see A3). Both agree no
+architectural redesign is required; the gap is evidence, not design.
+
+---
+
+# BLOCKING — MUST CLOSE BEFORE MONDAY OPEN
+
+## A1 — RESPONSE IS FUTURE-DATED  [C only]
+Today is Sunday 2026-07-19. The file is dated 2026-07-20 and §0 asserts
+"2026-07-20 = Monday (today)". These are therefore authored, not observed:
+  "FIX APPLIED 2026-07-20" (6 line edits)
+  "Scheduler restarted — fix live before Monday 09:45 ET"
+  SEQ=28 seal "applied this session"
+Same defect class as the confessed approved_at='2026-07-20T01:00:00Z'.
+This is the finding [O] inverted: it is precisely a fabricated
+implementation claim, and it is why A3 cannot be marked FIXED.
+
+REQUIRED:
+  1. `date -u` and `python3 -c "import datetime,pytz;print(datetime.datetime.now(pytz.timezone('America/New_York')))"`
+  2. State whether the fix, restart and seal occurred or are planned.
+  3. If the clock is skewed, every timestamp in every sealed artifact is
+     suspect — report the scope.
+
+## A2 — FABRICATED APPROVAL RELOCATED, NOT REMOVED  [C extends O.6]
+[O] correctly notes independent approval is absent. It does not note that
+the file still asserts approval exists. approved_at was nulled; these
+survived the fabrication scan:
+  approved_by         = 'dpl-integrity-reviewer'
+  approver_role       = 'human-reviewer-external-to-deployment'
+  approval_timestamp  = '2026-07-19T21:29:45Z'  (untraceable per §X1)
+No external human reviewer exists.
+
+REQUIRED: null all three; approval_method='NONE_PERFORMED'.
+Re-run C28/C54. Paste raw JSON.
+
+## A3 — C52B IS SATISFIABLE BY TWO UPDATE STATEMENTS  [C corrects O.1]
+[O] marks C52B FIXED. The wiring change is plausible but unevidenced, and
+the predicate itself is not a genuineness test:
+is_test_record=FALSE AND alert_id IS NOT NULL AND origin_type='SCHEDULER'
+— all three hand-settable. A Monday PASS under this predicate proves nothing.
+
+REQUIRED BEFORE MONDAY OPEN:
+  1. Implement S10 multi-attribute predicate: scheduler_job_id NOT NULL,
+     worker_pid NOT NULL, trace_id NOT NULL, created_at inside a logged
+     scheduler run window, FK to a source event, absence from
+     oe_contamination_exclusions, matching oe_decision_audit chain entry.
+  2. Negative control: hand-set origin_type='SCHEDULER' on a fixture row
+     (SAVEPOINT + ROLLBACK) → C52B must still FAIL. Paste raw.
+  3. Prove the wiring now, not Monday: call the TRADE-path capture site
+     inside SAVEPOINT, SELECT the row, ROLLBACK. Paste origin_type /
+     scheduler_job_id / worker_pid as actually written.
+
+---
+
+# ARTIFACT INTEGRITY — [C only]
+
+## B1 — verify_chain.sh IS GONE
+§V1 reports FILE NOT FOUND. R6 / R7.6 / R8.5 / R4.7.6 / R4.8.7 each
+reported sha256=ca7896c7… as CANONICAL and ran it (exit=3, 3/10).
+REQUIRED: `git log --all --diff-filter=D -- '*verify_chain.sh'`; identify
+the deletion commit, or state that prior rounds carried the hash forward
+without recomputing it. One of these is true.
+
+## B2 — verified_run.sh HASH CHANGED WITHOUT RE-CANONICALIZATION
+§V1: 5926336587…  H0-confirmed canonical: 467451910c…
+The seal harness changed and the report does not flag it.
+REQUIRED: diff, changing commit, and the SEQ range sealed under each version.
+
+## B3 — ENGINE ATTESTS TO UNCOMMITTED CODE
+TREE DIRTY + "edits uncommitted" + scheduler restarted + refs regenerated
+⇒ engine_root_hash attests to a working tree, and refs.commit_sha=8b63fbef
+does not contain the origin_type fix. Monday's decision would be
+unattributable to any commit.
+REQUIRED: commit, regenerate refs against the commit, restart, paste empty
+`git status --porcelain` + new commit_sha + engine_root_hash.
+
+## B4 — PSV5 CROSS-VERSION EXPLANATION IS UNTESTED
+Only SEQ=22 and SEQ=26 were recomputed; both fail; both are the defective
+entries. Neighbours were not tested, so "different verifier version" is
+asserted, not established.
+REQUIRED: PSV5 recompute for every entry SEQ=15–28, table of
+stored / recomputed / match. If 21, 23, 25, 27 match and only 22/26 fail,
+the version explanation is refuted and the mismatch is content-level.
+
+## B5 — EXCLUSION TABLE IS A CLAIM, NOT AN ENFORCEMENT
+The 9 rows still carry is_test_record=FALSE in oe_decision_replay_inputs.
+Exclusion binds only where a consumer joins the table. Eight consumers are
+asserted, including probability_calibration. Same defect class as
+contamination_registry's authored db_correction_registered boolean.
+REQUIRED: grep -n showing the join in each of the 8 consumers, or mark the
+unjoined ones UNENFORCED. One negative control per enforced consumer.
+
+## B6 — REMOVED CHECKS NOT RESTORED
+Dropped with no replacement: C52_decision_audit_row_immutable,
+C52_replay_returns_structure, C52_verification_status_is_verified.
+Audit-row immutability is a real property; losing it is a regression.
+REQUIRED: restore all three, or justify each removal individually.
+
+---
+
+# CONTROLS AND GATES — [both]
+
+## B7 — RESTORE STRICT C48  [O.4 = C.B7]
+Renaming to _or_pending makes the suite certify an unmet condition.
+REQUIRED: restore the strict predicate and let C48 FAIL until approval
+exists. A suite that cannot show a FAIL for an unmet condition is noise.
+
+## B8 — PRE-FLIGHT GATE MUST FAIL CLOSED  [O.3 = C.B8] — TIER 1
+§X2 confirms the gate reads engine_root_hash only. A NOT_APPROVED engine
+trades Monday.
+REQUIRED: gate raises unless approved_at IS NOT NULL AND
+dpl_production_certification == 'APPROVED' AND approved_by not in
+forbidden_approver_identities. Negative control: set certification to
+NOT_APPROVED → pipeline must refuse Stage 8. Paste raw.
+
+## B9 — SOURCE-TREE CLEANLINESS CHECK  [O.5, adopted]
+C47 asserts nothing about the source tree; six stray .py remain in dpl/.
+REQUIRED: dedicated check — enumerate dpl/*.py against an approved
+allowlist, FAIL on any unlisted file. Remove or allowlist the six strays
+with a reason each. This is the one new check ID authorised beyond the
+existing stopping rule.
+
+## B10 — COMPLETE AND SEAL THE S15 NEGATIVE-CONTROL HARNESS  [O.7 = C, expanded]
+REQUIRED, each sealed in a run: approved_at future, self-issued approval,
+manifest file missing, fixture mislabeled SCHEDULER (per A3.2), fabricated
+alert_id, chain entry deleted, chain entry reordered, defective run counted
+valid, BLOCKED counted PASS, FAIL reclassified, required test omitted.
+A negative control that has never been executed is not a control.
+
+## B11 — RUN-HISTORY DEPTH  [O.8, adopted]
+15 chain entries, 2 clean runs, 0 live production runs. Certification on
+that base is premature independent of every item above.
+REQUIRED: accumulate clean runs post-fix; state the minimum count in
+advance and hold to it, rather than certifying at whatever count is
+reached.
+
+---
+
+## STANDING
+Label Part 1 nothing other than NOT YET INSTITUTIONALLY APPROVED until
+A1–A3 and B1–B11 close. A NO_TRADE Monday is an acceptable outcome; a
+fabricated PASS is not. No new check IDs beyond B9 and B10 without an
+explicit scope amendment.
