@@ -1,0 +1,20 @@
+        id="gex_options_alert_0935",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _send_gex_options_alert(),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        id="gex_options_alert_0945",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _send_gex_options_alert(),
+        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),
+        id="gex_options_alert",
+        replace_existing=True,
+    )
+    # Loop B - prediction grader: 4:35 PM ET Mon-Fri
+    # Grades T+1 / T+3 / T+5 outcomes for Loop B predictions using Tradier history.
+    def _run_aiem_grader_job():
+        try:
+            import threading as _agj_thr

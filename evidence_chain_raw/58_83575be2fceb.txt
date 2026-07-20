@@ -1,0 +1,10 @@
+5946:    # lambda defers name lookup to call time — _send_gex_options_alert is defined
+5949:        lambda: _send_gex_options_alert(),
+5951:        id="gex_options_alert_0935",
+5955:        lambda: _send_gex_options_alert(),
+5957:        id="gex_options_alert_0945",
+5961:        lambda: _send_gex_options_alert(),
+5963:        id="gex_options_alert",
+13965:        _send_gex_options_alert()
+65051:def _send_gex_options_alert() -> None:
+65287:    _gex_thr.Thread(target=_send_gex_options_alert, daemon=True).start()

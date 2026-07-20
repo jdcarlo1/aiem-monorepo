@@ -1,0 +1,37 @@
+# DIRECTIVE — Options Structure Scan: Final Retime + Outstanding Verification Items
+
+## Scope confirmation (required first, same as prior directive)
+This is AIEM's own options pipeline (`options_structure_scan`, scanning Polygon data directly via `_send_gex_options_alert()` in main.py) — NOT the StockScanner AI website. Confirm via raw grep before touching anything.
+
+## Assumption flagged for Joel's confirmation
+Joel specified "9:35, 915, 1005" — interpreted as **9:35 / 9:50 / 10:05** (typo correction: 915→950, matching the 10-minute-spacing rationale discussed). If this is wrong, stop and get correct times before implementing.
+
+## Task — change second run time
+Current state (already implemented, per VR#55/#56): 9:35 AM ET, 9:45 AM ET, 10:05 AM ET.
+Change the middle run from **9:45 AM to 9:50 AM ET**. Keep 9:35 AM and 10:05 AM as-is.
+
+Reasoning on file: 9:35 keeps the 5-minute buffer after the 9:30 open (avoids opening-auction noise); moving the second run to 9:50 gives a full 10-minute gap from both 9:35 and from the 9:40 AM `seed_daily_candidates` job on either side — avoids the second scan landing too close to the seed job's read.
+
+## Evidence required for this specific change (per standing protocol)
+- Raw grep/sed of current CronTrigger definitions (confirm 9:45 is what's on file now, at the line number already documented)
+- Exact diff changing only the 9:45→9:50 minute value
+- sha256 before/after
+- git diff HEAD --stat
+- Confirm `seed_daily_candidates` (9:40 AM) is untouched
+
+## Outstanding items from prior directive — NOT yet closed, required before this can be considered fully verified
+
+1. **Live confirmation of the new schedule.** No run has fired yet under the new times. First real test is tomorrow (Tue July 21) at 9:35 AM ET. Report back with raw evidence after that run — do not claim "working" before then.
+
+2. **9:35 vs 9:50 row-by-row comparison** (the original 9:35-vs-9:45 comparison query on file needs its time literal updated to 9:50). This was blocked last session by DB connection-pool saturation (9 workflows holding the pool at max, confirmed via health endpoint port 5053). Must be run and evidenced with raw SQL + full result set once the DB is reachable and the new schedule has fired at least once.
+
+3. **Root cause of the 5 failed candidates at 12:38 PM on July 20 is still open.** Not explained by data staleness (ruled out with real numbers). Registry-gate failure (`assert_no_missing_indicators`, `assert_pattern_scan_complete`, `assert_data_freshness`) is the leading unconfirmed hypothesis. Needs `oe_decision_audit` rows for July 20 with `verdict` field, or prior session logs — both currently unavailable. Report if/when either becomes accessible; otherwise state clearly this remains unresolved, not closed.
+
+4. **DB connection-pool saturation is a recurring blocker, not resolved.** 9 workflows holding the pool at max blocked evidence-gathering twice now (this directive's predecessor, and the candidate-failure investigation). This needs its own root-cause look — what is holding 9 connections open, and why — separate from the scan-timing work. Flag as a candidate for its own directive; do not fold fixes into this one.
+
+5. **Race-condition tradeoff needs Joel's explicit sign-off, not just the agent's judgment call.** Prior session's agent-only conclusion ("partial data better than zero") stands for now, but should be revisited once live evidence from item 1 confirms whether the scan reliably finishes within its window.
+
+## Explicitly excluded from this directive
+- Do not act on items 2-5 beyond what's listed (investigate/report only, no unrequested fixes)
+- No deletion/overwrite of any row/table/file without prior explicit approval
+- Do not touch `seed_daily_candidates` timing
