@@ -316,6 +316,10 @@ class CorrelationGuard:
                         SELECT ticker, signal_source, trade_date, trade_type
                         FROM aiem_paper_trades
                         WHERE status = 'OPEN'
+                          AND (is_test_data IS NULL OR is_test_data = FALSE)
+                          AND signal_source NOT IN ('test_source','pos_cap_test',
+                              'pos_cap_conc_test','live_verification_test')
+                          AND trade_date <= '2099-01-01'::date - INTERVAL '1 day'
                         ORDER BY trade_date DESC
                     """)
                     rows = [dict(r) for r in cur.fetchall()]

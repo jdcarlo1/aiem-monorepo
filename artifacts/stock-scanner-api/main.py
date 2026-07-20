@@ -45665,12 +45665,15 @@ def _aiem_paper_pick_candidates() -> list:
                      expiry=_exp)
 
             # ── 3. Unusual calls log (intraday accumulation) ─────────────────
+            # Use DISTINCT ON ticker so LIMIT 20 = 20 unique names, not 20 rows
+            # of the same few tickers (SNDK was appearing 5× in top-10, wasting slots).
             _cu.execute("""
-                SELECT ticker, prem, vol_oi, urgency, strike, expiry
+                SELECT DISTINCT ON (ticker) ticker, prem, vol_oi, urgency, strike, expiry
                 FROM unusual_calls_log
                 WHERE last_seen >= NOW() - INTERVAL '2 days'
                   AND prem >= 75000
-                ORDER BY prem DESC LIMIT 10
+                ORDER BY ticker, prem DESC
+                LIMIT 20
             """)
             for _t, _prem, _voi, _urg, _strk, _exp in _cu.fetchall():
                 _score = (float(_prem or 0) / 100000) * (float(_voi or 1))
@@ -63083,7 +63086,7 @@ def _polygon_full_market_scan() -> list:
             if _avg < 10_000:
                 continue
             _rvol = _vol / _avg
-            if _rvol < 5.0:
+            if _rvol < 2.0:
                 continue
 
             _range = (_high - _low) if _high > _low else 1

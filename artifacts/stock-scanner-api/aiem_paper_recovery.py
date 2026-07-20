@@ -155,6 +155,34 @@ def try_claim(business_date: datetime.date, execution_id: str,
                   f"execution_id={execution_id} trigger={trigger_source}")
             return True
 
+        # Step 2a-pre — claim a PENDING row (admin reset or first-ever insert)
+        # PENDING is the initial state and the state an admin sets when manually
+        # resetting a row.  The INSERT above will fail (ON CONFLICT DO NOTHING)
+        # when the row already exists, so we need a separate UPDATE path.
+        cur.execute("""
+            UPDATE paper_trade_job_ledger
+            SET status          = 'CLAIMED',
+                execution_id    = %s,
+                trigger_source  = %s,
+                claimed_at      = NOW()
+            WHERE business_date = %s
+              AND status        = 'PENDING'
+            RETURNING id
+        """, (execution_id, trigger_source, date_str))
+        row_pending = cur.fetchone()
+        if row_pending:
+            conn.commit()
+            _log_evidence({
+                "event": "LEDGER_CLAIMED",
+                "via": "UPDATE_PENDING",
+                "business_date": date_str,
+                "execution_id": execution_id,
+                "trigger_source": trigger_source,
+            })
+            print(f"[paper_recovery] CLAIMED (from PENDING) {date_str} "
+                  f"execution_id={execution_id} trigger={trigger_source}")
+            return True
+
         # Step 2a — steal stale CLAIMED row (crashed before execution started)
         cur.execute("""
             UPDATE paper_trade_job_ledger
