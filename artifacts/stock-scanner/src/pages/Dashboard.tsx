@@ -16497,6 +16497,14 @@ function BearFlowTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }
                     </div>
                     <div style={{ fontFamily: BB_F, color: "#475569", fontSize: 10, marginBottom: 6 }}>/100 composite</div>
                     <div style={{ fontFamily: BB_F, color: "#e2e8f0", fontSize: 12, fontWeight: 700 }}>{premFmt} put flow</div>
+                    {r.top_strike > 0 && (
+                      <div style={{ fontFamily: BB_F, color: "#f87171", fontSize: 13, fontWeight: 800, marginTop: 4, letterSpacing: "-0.02em" }}>
+                        ${r.top_strike}P &nbsp;
+                        <span style={{ fontWeight: 600, color: "#fca5a5", fontSize: 11 }}>
+                          {r.expiry ? new Date(r.expiry + "T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
+                        </span>
+                      </div>
+                    )}
                     {r.regime && r.regime !== "unknown" && (
                       <div style={{ fontFamily: BB_F, color: "#64748b", fontSize: 10, marginTop: 2 }}>regime: {r.regime}</div>
                     )}

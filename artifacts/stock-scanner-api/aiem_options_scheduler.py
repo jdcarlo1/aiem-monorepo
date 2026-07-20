@@ -2521,7 +2521,15 @@ def backfill_missed_jobs() -> dict:
     """
     On startup: look for PENDING jobs from the last 24 h (missed during downtime).
     Execute them now.  This is the recovery path for VM reboots and process crashes.
+    Skipped on weekends: market data is always >48 h stale on Sat/Sun, so every
+    job would hit REGISTRY_STALE_DATA and fail — matching the Mon-Fri CronTrigger
+    guards on the seed and execute jobs.
     """
+    _today_dow = datetime.now(_ET).weekday()  # Mon=0 … Sun=6
+    if _today_dow >= 5:
+        log.info(f"[backfill] skipping — today is {'Saturday' if _today_dow == 5 else 'Sunday'} "
+                 f"(no market data, all registry checks would fail with REGISTRY_STALE_DATA)")
+        return {"backfilled_dates": [], "skipped_reason": "weekend"}
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
             cur.execute("""

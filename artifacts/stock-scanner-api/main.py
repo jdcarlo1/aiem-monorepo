@@ -352,7 +352,11 @@ def _lw_read_proc_status():
 _LW_MAX_THREADS = 400
 _LW_MAX_RSS_PCT = 70.0
 
-_LW_MAX_VM_PRESSURE_PCT = 90.0
+# Raised from 90 → 96: Replit IDE processes (tsserver, ty, pid2) consume ~30%
+# of the 8 GB VM on their own, so stock-api routinely pushes the system above
+# the old 90% threshold during the first ~30s of startup even when memory
+# usage is healthy.  96% leaves ~330 MB headroom before true OOM risk.
+_LW_MAX_VM_PRESSURE_PCT = 96.0
 # Cold-start grace: main.py is 20k+ lines; prod imports (numpy/pandas/sklearn/
 # xgboost/psycopg2/...) take 60-120s before @app.route decorators are all
 # registered. Without a grace period the watchdog fires os._exit(1) after 3×30s
@@ -69263,24 +69267,42 @@ def bear_flow():
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
 
-            # Pillar 1: Put flow (quality-filtered)
+            # Pillar 1: Put flow — best_strike picks the strike with the highest premium
             cur.execute("""
-                SELECT ticker,
-                       MAX(vol_oi)::float   AS max_voi,
-                       MAX(prem)::bigint    AS max_prem,
-                       COUNT(*)             AS signal_count,
-                       MIN(strike)::float   AS top_strike,
-                       MIN(expiry)::text    AS near_expiry,
-                       AVG(otm_pct)::float  AS avg_otm,
-                       MAX(iv)::float       AS max_iv,
-                       BOOL_OR(spread_flag) AS any_spread,
-                       SUM(prem)::bigint    AS total_prem
-                FROM unusual_puts_log
-                WHERE last_seen  >= NOW() - INTERVAL '5 days'
-                  AND closing_flag = FALSE
-                  AND vol_oi >= 1.5
-                  AND prem   >= 50000
-                GROUP BY ticker
+                WITH agg AS (
+                    SELECT ticker,
+                           MAX(vol_oi)::float   AS max_voi,
+                           MAX(prem)::bigint    AS max_prem,
+                           COUNT(*)             AS signal_count,
+                           AVG(otm_pct)::float  AS avg_otm,
+                           MAX(iv)::float       AS max_iv,
+                           BOOL_OR(spread_flag) AS any_spread,
+                           SUM(prem)::bigint    AS total_prem
+                    FROM unusual_puts_log
+                    WHERE last_seen  >= NOW() - INTERVAL '5 days'
+                      AND closing_flag = FALSE
+                      AND vol_oi >= 1.5
+                      AND prem   >= 50000
+                    GROUP BY ticker
+                ),
+                best_strike AS (
+                    SELECT DISTINCT ON (ticker)
+                           ticker,
+                           strike::float AS top_strike,
+                           expiry::text  AS near_expiry
+                    FROM unusual_puts_log
+                    WHERE last_seen  >= NOW() - INTERVAL '5 days'
+                      AND closing_flag = FALSE
+                      AND vol_oi >= 1.5
+                      AND prem   >= 50000
+                    ORDER BY ticker, prem DESC
+                )
+                SELECT a.ticker, a.max_voi, a.max_prem, a.signal_count,
+                       COALESCE(bs.top_strike, 0)::float  AS top_strike,
+                       COALESCE(bs.near_expiry, '')::text AS near_expiry,
+                       a.avg_otm, a.max_iv, a.any_spread, a.total_prem
+                FROM agg a
+                LEFT JOIN best_strike bs ON a.ticker = bs.ticker
             """)
             put_rows = {r[0]: r for r in cur.fetchall()}
 
