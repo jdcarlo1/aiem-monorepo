@@ -1,0 +1,22 @@
+# Directive — Final Close-Out: verified_run.sh / Archive Disposition (2026-07-20)
+
+Decision (Joel): leave both flagged items archived as-is. No restore. This closes the verified_run.sh consolidation thread.
+
+## Disposition
+1. **`artifacts/stock-scanner-api/tools/verified_run.sh` (308-line version with `scoring_fn_ast_hash`, `req6_weights_hash`, `engine_root_hash`, `TREE=CLEAN/DIRTY` gate):** stays archived. Known accepted gap — canonical `tools/verified_run.sh` does not detect tampering of the REQ6 scoring function or dirty-tree execution. This is a documentation-only decision; no code change.
+2. **Root `verified_run.sh` (AIEM Failover Evidence Capture Script, mislabeled under `_archive/duplicate_verified_run/`):** stays archived in place, despite not being an actual duplicate. If failover evidence for the `options-pipeline-external-failover` directive is ever needed again, it will need to be located in that archive folder rather than a dedicated path.
+3. **`local_verified_run.sh` (stale D12 logger):** stays archived — confirmed genuine duplicate/dead, no action needed.
+4. Root `verify_chain.sh` and `verify_pattern_engine.sh` broken references: confirmed dead code, zero callers anywhere (scheduler/pipeline/main/workflows). No fix needed, no action taken.
+
+## Required from agent
+1. Acknowledge this disposition in writing — no further changes to any of the 3 archived files.
+2. Confirm one more time via raw grep that nothing else in the active codebase (scheduler, pipeline, cron, workflows) references any of the 3 archived paths, so this is safe to leave alone permanently.
+3. `git diff HEAD --stat` — expect no changes, documentation-only directive.
+
+## Standing checklist (applies in full — not abbreviated)
+- Raw terminal output only — no paraphrased grep, no narrative "confirmed" claims
+- Data Immutability Rule: no further delete/archive without explicit prior approval
+- Evidence Chain Protocol: sha256 cross-check of verified_run.sh/verify_chain.sh pasted if any command is run
+- Output format: raw results only, no restated headers/context, no summary tables
+
+This closes the verified_run.sh / snapshot-bug evidence-hygiene thread. Next up: paper trading cron issue (separate directive to follow).
