@@ -1,0 +1,7 @@
+5941:    # lambda defers name lookup to call time — _send_gex_options_alert is defined
+5944:        lambda: _send_gex_options_alert(),
+5945:        CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),
+5946:        id="gex_options_alert",
+13948:        _send_gex_options_alert()
+65034:def _send_gex_options_alert() -> None:
+65270:    _gex_thr.Thread(target=_send_gex_options_alert, daemon=True).start()

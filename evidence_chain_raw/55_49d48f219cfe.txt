@@ -1,0 +1,1 @@
+8efe071b3d7ab3bd1b87e18486900d654469b71616ec2d4e0f886a496cfbfe99  artifacts/stock-scanner-api/main.py

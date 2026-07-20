@@ -1,0 +1,4 @@
+39:                  AND scan_date >= CURRENT_DATE - INTERVAL '2 days'
+105:                ORDER BY scan_date DESC LIMIT 1
+119:                  AND scan_date >= CURRENT_DATE - INTERVAL '400 days'
+291:                "scan_date >= CURRENT_DATE - INTERVAL '2 days'",

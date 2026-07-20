@@ -5934,12 +5934,29 @@ try:
         id="aiem_independent_options_scan",
         replace_existing=True,
     )
-    # GEX + Skew + Term Structure: 10:05 AM ET Mon-Fri
+    # GEX + Skew + Term Structure — 3 runs per day Mon-Fri:
+    #   09:35 AM ET — preopen seed window: populates options_structure_scan BEFORE
+    #                 seed_daily_candidates (09:40) and _execute_job_wrapper (09:45)
+    #                 in options-pipeline-scheduler. Fixes 0-candidate seed on same day.
+    #   09:45 AM ET — second run: refreshes IV/gamma after open; captures new tickers
+    #   10:05 AM ET — original run: kept for full mid-morning intraday pass
     # Scans optionable names from unusual_calls_log + conviction_stack_watchlist
     # for gamma exposure regime, put/call skew, and term structure shape.
     # Saves results to options_structure_scan — feeds skew_velocity in Layer 9.
     # lambda defers name lookup to call time — _send_gex_options_alert is defined
     # later in this file (line ~62700) and is not yet in scope during scheduler setup.
+    _scheduler.add_job(
+        lambda: _send_gex_options_alert(),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=35, timezone=_ET),
+        id="gex_options_alert_0935",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        lambda: _send_gex_options_alert(),
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=45, timezone=_ET),
+        id="gex_options_alert_0945",
+        replace_existing=True,
+    )
     _scheduler.add_job(
         lambda: _send_gex_options_alert(),
         CronTrigger(day_of_week="mon-fri", hour=10, minute=5, timezone=_ET),

@@ -1,0 +1,31 @@
+# DIRECTIVE — Options Structure Scan: Retime + Dual-Run
+
+## Task
+`options_structure_scan` currently runs at 7:30 AM ET (premarket) — before options markets open (~9:30 AM ET) and before quotes/IV stabilize. Change schedule to run TWICE:
+- 9:35 AM ET
+- 9:45 AM ET
+
+Do not remove the 7:30 AM run's downstream dependents until you've confirmed nothing else in the pipeline depends on a 7:30 AM populated table.
+
+## Required investigation before changing anything
+1. Raw grep/sed showing the current CronTrigger definition for the scan job (file + line numbers).
+2. Raw grep showing every place that reads from `options_structure_scan` and what scan_date/time assumption each caller makes (this includes `seed_daily_candidates`, which pulled 0 candidates today because the table wasn't populated yet at its 5:40 AM run).
+3. State explicitly: does moving the scan to 9:35/9:45 require also moving `seed_daily_candidates` or any other consumer's schedule? If yes, list what and propose new times with reasoning.
+
+## Implementation
+4. Update CronTrigger(s) to fire at 9:35 AM ET and 9:45 AM ET (both, not replacing one with the other).
+5. Compare the two runs' output row-by-row for the same tickers/scan_date — report what changed between 9:35 and 9:45 (new tickers populated, IV/gamma values shifted, rows unchanged, etc.) as raw SQL output, not a summary.
+
+## Evidence required (per standing verification protocol)
+- Raw grep/sed for all code-location claims — no paraphrasing
+- Exact before/after diff for every changed file
+- sha256 before/after for every changed file
+- sha256 cross-check of tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical values on file — mismatch = reject regardless of chain content
+- Raw SQL query + full result set for the 9:35 vs 9:45 row comparison (via verified_run.sh)
+- git diff HEAD --stat, or "no changes" if empty
+- If any item can't be evidenced, state that in one line — no narrative padding
+
+## Explicitly excluded from this directive
+- Do not touch `seed_daily_candidates` timing yet unless step 3 shows it's required — flag and wait for approval before changing it
+- No deletion/overwrite of any existing row/table/file without prior explicit approval, including "test" data
+- This is diagnostic + retiming only — no unrelated fixes bundled in
