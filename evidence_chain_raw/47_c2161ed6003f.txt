@@ -1,0 +1,26 @@
+        # ── Stage 1: Pull Polygon data from DB ────────────────────────────────
+        # polygon_market_daily is EOD data — it never contains today's date
+        # on the same calendar day.  Use the most recent available row for
+        # the ticker so missed-seed recovery still executes correctly.
+        with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT scan_date, close_price, open_price, vwap, close_strength
+                FROM polygon_market_daily
+                WHERE ticker=%s
+                ORDER BY scan_date DESC
+                LIMIT 1
+            """, (ticker,))
+            pmd = cur.fetchone()
+            cur.execute("""
+                SELECT spot, front_iv, gex_m, gex_regime, gamma_flip_price,
+                       pc_skew_pp, pc_skew_tag, term_ratio, term_tag, back_iv
+                FROM options_structure_scan
+                WHERE ticker=%s AND scan_date=%s
+            """, (ticker, scan_date))
+            oss = cur.fetchone()
+
+        if not pmd or not oss:
+            raise ValueError(f"missing Polygon/OSS data for {ticker} {scan_date}")
+
+        # ── Trace: MARKET_DATA_CAPTURE ─────────────────────────────────────────
+        if _strace_ctx is not None:

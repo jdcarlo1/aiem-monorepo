@@ -1,0 +1,32 @@
+# Directive — Options Engine Morning Run: Root Cause Investigation (2026-07-21)
+
+Separate system from AIEM/D1/D2/D3 paper trading — do not conflate with the paper_trade_job_ledger fix. This covers the Options Engine's own 9:45 AM scheduled pipeline only.
+
+## Known facts on record (2026-07-20)
+- 9:45 AM job started 3 hours late (12:38 PM ET), seeded 5 candidates, 0 executed, 5 failed
+- Has never been observed completing a full cycle from a correctly-timed 9:45 AM start
+- picks_count=0 completed runs are not distinguished from SKIPPED days — no distinct alert for a silent zero-candidate day
+- aiem_process_predictions rows for July 20 (ids 88-92) written at 10:47 AM ET, after the premarket backup window closes (9:25 AM ET) — source unattributed
+
+## Required — Part 1: Why did it start late?
+1. Identify the actual scheduler/cron mechanism for the 9:45 AM options job (raw grep for the trigger definition — cron expression, APScheduler config, systemd timer, whatever it actually is).
+2. Raw logs/timestamps for the last 5 trading days showing actual start time vs scheduled 9:45 AM start time — is 3-hours-late typical, a one-off, or worsening?
+3. If a watchdog/fallback mechanism exists (similar to AIEM's internal_watchdog for paper trading), identify it and whether it's what actually triggered the 12:38 PM start on July 20 — raw evidence, not narrative.
+4. Any resource contention, dependency ordering, or startup-sequencing issue that could delay it (e.g. waiting on another job/service that itself starts late).
+
+## Required — Part 2: Why did all 5 candidates fail once started?
+1. Raw error/exception output for each of the 5 failed candidates from July 20 — exact failure reason per candidate, not a summary count.
+2. Whether the failures are related to the late start (e.g. market data no longer fresh/premarket window closed) or an independent bug.
+3. Root-cause the aiem_process_predictions rows written at 10:47 AM (ids 88-92) — what process wrote them, and why after the premarket backup window closed at 9:25 AM.
+
+## Required — Part 3: Alerting gap
+1. Confirm whether picks_count=0 completed runs currently trigger any alert distinct from a SKIPPED day. If not, propose (don't yet implement) a loud alert for a silent zero-candidate day, pending Joel's review.
+
+## Standing checklist (applies in full — not abbreviated)
+- Raw terminal/log/SQL output only — no paraphrased claims, no narrative "confirmed"/"found" without pasted evidence
+- Raw grep/sed for any claim about code location, scheduler config, or call chains
+- Data Immutability Rule: no delete/modify of any row without explicit approval
+- Evidence Chain Protocol: all evidence via verified_run.sh, validated via verify_chain.sh, sha256 cross-check of both scripts pasted
+- Output format: raw results only, no restated headers/context, no summary tables
+
+This is a diagnostic-only directive — no fix should be implemented yet. Root cause first; fix directive follows once the cause is established with raw evidence.

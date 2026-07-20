@@ -1,0 +1,32 @@
+    # ── Step 2b: Missed-SEED detection — VM restarted after 9:45 window ────
+    # If the VM restarted AFTER the 9:40 seed window but BEFORE EOD, and
+    # today has zero rows in options_pipeline_jobs, seed + execute immediately.
+    try:
+        _now_et = datetime.now(_ET)
+        _is_weekday = _now_et.weekday() < 5          # Mon=0 … Fri=4
+        _after_window = _now_et.hour > 9 or (_now_et.hour == 9 and _now_et.minute >= 46)
+        _before_eod   = _now_et.hour < 15 or (_now_et.hour == 15 and _now_et.minute <= 30)
+        if _is_weekday and _after_window and _before_eod:
+            with psycopg2.connect(_DB_URL, connect_timeout=4) as _sc, _sc.cursor() as _scu:
+                _scu.execute(
+                    "SELECT COUNT(*) FROM options_pipeline_jobs WHERE scan_date = %s",
+                    (_now_et.date(),)
+                )
+                _today_count = _scu.fetchone()[0]
+            if _today_count == 0:
+                log.warning(
+                    f"[startup] missed-seed detected: 0 rows for {_now_et.date()} "
+                    f"(VM restarted after 09:45 window). Seeding + executing now…"
+                )
+                _tg("[MISSED-SEED RECOVERY] OPTIONS PIPELINE\n"
+                    + f"date={_now_et.date()}  time={_now_et.strftime('%H:%M ET')}\n"
+                    + "VM restarted after 09:45 window. Seeding + executing now.")
+                _ms_seed = seed_daily_candidates(scan_date=_now_et.date())
+                log.info(f"[startup] missed-seed result: {_ms_seed}")
+                if _ms_seed.get("seeded", 0) > 0:
+                    _ms_exec = run_pipeline_worker(scan_date=_now_et.date())
+                    log.info(f"[startup] missed-seed exec: {_ms_exec}")
+            else:
+                log.info(f"[startup] no missed-seed: {_today_count} row(s) already exist for {_now_et.date()}")
+    except Exception as _ms_e:
+        log.warning(f"[startup] missed-seed check error: {_ms_e}")

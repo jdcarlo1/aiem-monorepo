@@ -1,0 +1,6 @@
+77:def _tg(text: str) -> bool:
+2454:def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
+2565:    _tg(
+2613:            _tg(
+2736:                _tg("[MISSED-SEED RECOVERY] OPTIONS PIPELINE\n"
+2887:    _tg(
