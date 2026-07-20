@@ -726,3 +726,9 @@ id = "uvrhDljRrxi9M-6ezA7cV"
 uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_R3_Step1_Disclosure.txt"
 type = "text"
 title = "DPL Phase 3 R3 — Step 1 Disclosure (raw findings)"
+
+[[outputs]]
+id = "PHZVPWCgjSEGbvT0J2W52"
+uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_R4_Response.txt"
+type = "text"
+title = "DPL Phase 3 R4 — Response (A7/A8/A9 + B12, read-and-report only)"

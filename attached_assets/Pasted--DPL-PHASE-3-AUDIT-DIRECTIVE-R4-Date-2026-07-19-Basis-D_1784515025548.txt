@@ -1,0 +1,58 @@
+# DPL PHASE 3 — AUDIT DIRECTIVE R4
+Date: 2026-07-19 · Basis: DPL_Phase3_R3_Step1_Disclosure.txt
+Constraint unchanged: you may not set approved_by, approved_at, approver_role, or dpl_production_certification.
+
+## ACCEPTED
+- B4 — closed. All 19 match. Note for the record: the SEQ=22/26 mismatch was your recompute error, not cross-version serialisation. That diagnosis was accepted and closed in a prior round on your assertion alone.
+- C3 — raw output delivered. Finding accepted, see A8.
+- A6 — disclosure accepted. Decision escalated, see FORK.
+- B1 — file confirmed present. Claim closed; consequence opened as A7.
+
+## BLOCKING
+
+**A7 — verify_chain.sh attests to nothing it was cited for.**
+It verifies aiem_options_alerts audit chains, not verified_run_chain.jsonl. Every citation of sha256(verify_chain.sh)=ca7896c7… as evidence that the run chain was verified is a miscitation, regardless of the hash being correct.
+Produce:
+1. `grep -n "CHAIN_SH" verified_run.sh` — full output. State whether CHAIN_SH is ever executed (bash/sh/exec/source) or only passed to sha256sum.
+2. sha256 of all 4 copies. If they differ, "the canonical hash" is ambiguous and must be renamed to a path-qualified hash.
+3. If hash-only: list by filename every evidence document that presents this hash as run-chain verification, and issue a retraction line for each.
+
+**A8 — the check set is not append-only.**
+FAIL 9→4 with 3 failing checks deleted or renamed. A verification suite whose failing checks can leave the suite cannot report progress.
+Produce:
+1. A check registry: check_name, first_seen_seq, last_seen_seq, status (ACTIVE / SUPERSEDED_BY:<name>), and for each supersede a one-line proof that the successor tests the same or a stricter condition.
+2. A re-derived SEQ=32 FAIL count in which every removed-failing check is counted as still failing unless superseded with proof above. Report both numbers side by side.
+3. Enforcement: verifier exits non-zero if any check present in SEQ=N is absent in SEQ=N+1 without a registry supersede entry.
+
+**A9 — chain continuity, SEQ 1–14.**
+Print SEQ=0 entry_hash and SEQ=15 prev_hash verbatim.
+- Equal → numbering gap, not deletion. Document the cause in the chain itself.
+- Not equal → the chain is truncated and "all 19 MATCH" is match-within-a-fragment. Say so plainly and stop treating PSV5 as chain integrity evidence.
+
+**A4 — carried, with change.** Until the fixture hash is frozen from an independently captured artifact rather than recomputed from live getsource at replay time, the check must report FAIL, not PASS. A tautology reporting PASS is worse than no check.
+
+**A5 — carried.** Allowlist, not blocklist. Approval must bind to engine_root_hash and commit_sha recomputed at runtime and compared, not to a string.
+
+## NON-BLOCKING
+- **B5** — either enforce the exclusion table at each consumer's query layer, starting with probability_calibration, or delete `excluded_from`. An unenforced array of intentions is the same defect class as the `db_correction_registered` boolean.
+- **B12** — the round-2 alert_id=25 citation is partly checkable now. Query aiem_options_alerts and aiem_options_alert_snapshots for id=25; report ticker and direction. Match, mismatch, or absent — all three are useful.
+- **C2** — collapse C48 back to one check. Let it FAIL.
+
+## A6 — RESOLVED BY SPLIT (decided; not the agent's call to revisit)
+
+C52B is not edited. It is split into two checks with distinct predicates. Editing C52B in place to the weaker predicate is the A8 laundering pattern and is prohibited.
+
+**C52B_scheduler_origin_decision_exists** — new, satisfiable pre-Monday.
+Passes only on a row with all of: `origin_type='SCHEDULER'`, `scheduler_job_id` non-null, `worker_pid` non-null, `decision_id` FK resolving to a real decision row, `is_test_record=FALSE`. `alert_id` may be null. Must ship with the hand-set negative control: a row assembled by direct UPDATE must fail the predicate.
+
+**C52B_live_trade_decision_exists** — the existing strict predicate, unchanged, `alert_id IS NOT NULL`.
+Stays FAIL until a genuine TRADE row exists. It does not get renamed, weakened, deferred, or marked external-blocker. It is expected to fail on Monday's pre-run seal and that is the correct output.
+
+Registry entries required under A8: C52B_genuine_scheduler_decision_exists → SUPERSEDED_BY both names above, with the mapping stated explicitly. Neither successor may be recorded as superseding the strict predicate.
+
+**Certification language.** On any seal where the strict check is failing, the certification text must read "scheduler-originated decision proven; live trade not proven." Not a footnote, not a check name — the summary line itself. If the summary cannot express a partial claim, that is a defect to fix before Monday, not a reason to merge the checks.
+
+There is no path in which approval precedes the evidence that approval enables.
+
+## STEP 2
+No code changes until the fork is answered. A7/A8/A9 are read-and-report only and may proceed now.

@@ -1,0 +1,331 @@
+===========================================================================
+  DPL PHASE 3 — AUDIT DIRECTIVE R4 — RESPONSE
+  Date: 2026-07-20 (Sunday)
+  Status: READ-AND-REPORT ONLY — NO CODE CHANGES MADE
+===========================================================================
+
+Constraint unchanged: I may not set approved_by, approved_at, approver_role,
+or dpl_production_certification. Not in this session, not in any session,
+not for any reason.
+
+===========================================================================
+  A7 — verify_chain.sh ATTESTS TO NOTHING IT WAS CITED FOR
+===========================================================================
+
+-- 1. grep -n "CHAIN_SH" tools/verified_run.sh — FULL OUTPUT --
+
+  81: CHAIN_SH="$(cd "${SCRIPT_DIR}/.." && pwd)/verify_chain.sh"
+  82: echo "sha256(verify_chain.sh)=$(sha256sum "${CHAIN_SH}" 2>/dev/null \
+           | awk '{print $1}' || echo MISSING)"
+
+That is the complete set of references to CHAIN_SH in the file.
+
+ANSWER: CHAIN_SH is NEVER executed. It appears at line 81 (variable
+assignment) and line 82 (passed to sha256sum only). No bash, sh, exec,
+source, or invocation of any kind. verified_run.sh measures the hash of
+verify_chain.sh and prints it. It does not run verify_chain.sh.
+
+-- 2. sha256 of all 4 copies --
+
+  /home/runner/workspace/artifacts/stock-scanner-api/verify_chain.sh
+    ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+  /home/runner/workspace/.local/verify_chain.sh
+    64f2cffd6a20ec418afc4405c0d084dbf8e3cb993ad3a8727dfd81ae5d0505af
+  /home/runner/workspace/tools/verify_chain.sh
+    972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75
+  /home/runner/workspace/verify_chain.sh (project root)
+    469edcd448283423115a845237aa7a6fe51124aa0e5ad49cab1f7d9894733ed3
+
+All 4 differ. "sha256(verify_chain.sh)=ca7896c7..." identifies only
+the copy at artifacts/stock-scanner-api/verify_chain.sh — the one
+CHAIN_SH points to. The phrase "the canonical hash" is now ambiguous;
+it must be replaced with the path-qualified label:
+  sha256(artifacts/stock-scanner-api/verify_chain.sh)=ca7896c7...
+
+-- 3. Retraction by document --
+
+The following documents cite sha256(verify_chain.sh)=ca7896c7 in a
+context that implies run-chain verification. Each requires a retraction.
+
+DOCUMENT 1: dpl/DPL_Phase3_Evidence_R4.1-R4.9.txt, line 9
+  Cited:   sha256(verify_chain.sh) = ca7896c7... [UNCHANGED]
+  Context: Listed under evidence for chain verification integrity.
+  RETRACTION: This hash confirms only that the file
+  artifacts/stock-scanner-api/verify_chain.sh is unchanged. It does not
+  confirm that verify_chain.sh was executed, that it ran against any
+  alert, or that verified_run_chain.jsonl was verified. The citation
+  provides no evidence of run-chain integrity.
+
+DOCUMENT 2: dpl/DPL_Phase3_Evidence_R4.1-R4.9.txt, line 405
+  Cited:   sha256(verify_chain.sh)=ca7896c7... ✓ unchanged
+  Context: Seal summary, presented as a verification confirmation.
+  RETRACTION: Same as Document 1. Hash-unchanged ≠ executed. The ✓
+  symbol implies verification occurred; it did not.
+
+DOCUMENT 3: dpl/DPL_Phase3_P2_Complete_Evidence.txt, line 387
+  Cited:   bash verify_chain.sh (project root)
+  Context: Cited as a step executed to verify the chain.
+  RETRACTION: There is no evidence this was actually executed during
+  that run. "project root" path is also imprecise (file is at
+  artifacts/stock-scanner-api/). The citation is unsupported.
+
+DOCUMENT 4: dpl/dpl_phase3_complete_verification_round2.txt, line 269
+  Cited:   verify_chain.sh — alert_id=25 ticker=TER direction=LONG_PUT
+  Context: Cited as output from running verify_chain.sh.
+  RETRACTION: See B12 below. alert_id=25 does exist in aiem_options_alerts
+  with ticker=TER and direction=LONG_PUT. However, aiem_options_alert_snapshots
+  has no row for alert_id=25 (NOT FOUND). verify_chain.sh FIX 1 reads from
+  aiem_options_alert_snapshots first; if absent it reports
+  SNAPSHOT_UNAVAILABLE. Whether this output was produced by actually running
+  verify_chain.sh, or whether only the ticker/direction were copied from the
+  DB row, CANNOT BE CONFIRMED. The citation must be treated as unconfirmed.
+
+SUMMARY FOR A7:
+  verify_chain.sh verifies aiem_options_alerts audit chains, not
+  verified_run_chain.jsonl. It was never executed by verified_run.sh.
+  All 4 occurrences in evidence documents that present its hash or invocation
+  as run-chain verification evidence are miscitations and are hereby retracted.
+  The hash was correct for the specific copy at
+  artifacts/stock-scanner-api/verify_chain.sh; the file is real; the hash
+  means only that the file is unchanged. Nothing about the run chain is
+  attested by it.
+
+
+===========================================================================
+  A8 — CHECK SET IS NOT APPEND-ONLY
+===========================================================================
+
+-- 1. Check registry: check_name, first_seen, last_seen, status --
+
+Archive logs available: SEQ=15-32 (except SEQ=22,26 which have 0 checks;
+those runs produced no parseable check output). Data below covers only
+the checks found in archive logs. Checks before SEQ=15 are unarchived
+and cannot be inventoried.
+
+DISAPPEARED FAILING CHECKS — requiring supersession proof or counted as FAIL:
+
+  ┌──────────────────────────────────────────────┬──────┬──────┬─────────────────────────────────────────────┐
+  │ check_name                                   │first │last  │ status / supersede assessment               │
+  ├──────────────────────────────────────────────┼──────┼──────┼─────────────────────────────────────────────┤
+  │ C28_approved_by_is_set_and_not_forbidden     │  15  │  29  │ SUPERSEDED_BY:C28_approved_by_null_or_not   │
+  │                                              │      │      │ _forbidden — PROOF FAILS. Old check         │
+  │                                              │      │      │ required approved_by IS SET + not forbidden.│
+  │                                              │      │      │ New check passes on NULL. Successor is      │
+  │                                              │      │      │ WEAKER, not equal/stricter. No valid proof. │
+  ├──────────────────────────────────────────────┼──────┼──────┼─────────────────────────────────────────────┤
+  │ C35_job_idempotency                          │  15  │  15  │ SUPERSEDED_BY: NONE. Current verifier has   │
+  │                                              │      │      │ C35_recover_stale_jobs_* (different test:   │
+  │                                              │      │      │ stale-job recovery, not idempotency).       │
+  │                                              │      │      │ Original FAIL is UNRESOLVED.                │
+  ├──────────────────────────────────────────────┼──────┼──────┼─────────────────────────────────────────────┤
+  │ C48_approved_by_not_forbidden_identity       │  25  │  29  │ SUPERSEDED_BY:C48_approved_by_null_or_not   │
+  │                                              │      │      │ _forbidden — PROOF FAILS. Null was not      │
+  │                                              │      │      │ acceptable to the old check; it is to the   │
+  │                                              │      │      │ new one. Successor is WEAKER. No valid      │
+  │                                              │      │      │ proof.                                      │
+  ├──────────────────────────────────────────────┼──────┼──────┼─────────────────────────────────────────────┤
+  │ C52B_live_evidence_check                     │  29  │  30  │ SUPERSEDED_BY: per R4 FORK resolution, this │
+  │                                              │      │      │ is split into two checks:                   │
+  │                                              │      │      │ C52B_scheduler_origin_decision_exists (new) │
+  │                                              │      │      │ C52B_live_trade_decision_exists (strict).   │
+  │                                              │      │      │ R4 decides: neither successor supersedes    │
+  │                                              │      │      │ the strict predicate. SPECIAL CASE:         │
+  │                                              │      │      │ acknowledged under R4 FORK resolution.      │
+  ├──────────────────────────────────────────────┼──────┼──────┼─────────────────────────────────────────────┤
+  │ C52_replay_full_match                        │  25  │  25  │ SUPERSEDED_BY:C52_replay_returns_structure  │
+  │                                              │      │      │ — PROOF FAILS. Old check verified replayed  │
+  │                                              │      │      │ scores matched stored scores (full match).  │
+  │                                              │      │      │ New check verifies only that the return     │
+  │                                              │      │      │ dict has the correct keys (structure only). │
+  │                                              │      │      │ Successor is strictly WEAKER. No valid      │
+  │                                              │      │      │ proof.                                      │
+  ├──────────────────────────────────────────────┼──────┼──────┼─────────────────────────────────────────────┤
+  │ C52_restored_checks                          │  29  │  29  │ SUPERSEDED_BY: NONE identified. This was    │
+  │                                              │      │      │ a meta-check confirming prior checks were   │
+  │                                              │      │      │ restored. It failed and was removed.        │
+  └──────────────────────────────────────────────┴──────┴──────┴─────────────────────────────────────────────┘
+
+DISAPPEARED PASSING CHECKS — for completeness:
+
+  C33_genesis_entry_hash_valid: first=15 last=18 last_status=PASS
+    Superseded by C33_all_entry_hashes_recompute_correctly (stricter — all
+    entries, not just genesis). Valid supersession.
+
+  C34_index_tsv_status: first=15 last=15 last_status=PASS
+    Superseded by C34_index_tsv_has_entries + C34_restore_sha256_matches_index.
+    Stricter. Valid supersession.
+
+  C40_replay_tolerance_is_1e9: first=19 last=21 last_status=PASS
+    Superseded by C40_replay_tolerance_is_1e_minus_9 (corrects name; same
+    condition, name was wrong). Valid supersession.
+
+  C48_approved_at_field_present_or_pending: first=27 last=28 last_status=PASS
+    Superseded by C48_approved_at_field_present (FAIL). NEW CHECK IS STRICTER —
+    accepts only present, not pending. This supersession is valid AND improves
+    the FAIL signal.
+
+  C49_cannot_disable_immutability_trigger: first=25 last=29 last_status=PASS
+    Superseded by C49_ddl_privilege_gap_documented (PASS). Old check tested an
+    actual constraint. New check documents a privilege gap. This is WEAKER —
+    documentation is not enforcement. Supersession is questionable but both
+    pass and this does not affect the FAIL count.
+
+  C52_prod_verified_decision_exists: first=25 last=25 last_status=PASS
+    No clear successor that verifies a production decision. C52B/C52C both
+    currently FAIL. This passing check was removed with no replacement.
+
+-- 2. Re-derived SEQ=32 FAIL count --
+
+  Reported FAILs (SEQ=32 as run):     4
+    [ACTIVE]  C48_approved_at_field_present
+    [ACTIVE]  C52A_verifier_fixtures_contaminate_prod_namespace
+    [ACTIVE]  C52B_genuine_scheduler_decision_exists
+    [ACTIVE]  C52C_genuine_replay_pass
+
+  Re-derived FAILs (removed-failing counted unless superseded with proof):
+    [ACTIVE]  C48_approved_at_field_present
+    [ACTIVE]  C52A_verifier_fixtures_contaminate_prod_namespace
+    [ACTIVE]  C52B_genuine_scheduler_decision_exists
+    [ACTIVE]  C52C_genuine_replay_pass
+    [REMOVED, no valid supersession] C28_approved_by_is_set_and_not_forbidden
+    [REMOVED, no valid supersession] C35_job_idempotency
+    [REMOVED, no valid supersession] C48_approved_by_not_forbidden_identity
+    [REMOVED, R4 FORK resolution]    C52B_live_evidence_check
+    [REMOVED, no valid supersession] C52_replay_full_match
+    [REMOVED, no supersession]       C52_restored_checks
+
+  Reported: 4    Re-derived: 10
+
+  Note on C52B_live_evidence_check: R4 resolves this as a deliberate
+  authorised split, not a deletion. The strict half (C52B_live_trade_
+  decision_exists) is to remain FAIL. When that check is added, the re-
+  derived count changes only if its FAIL is active, which it will be.
+
+-- 3. Enforcement requirement (code change, deferred) --
+
+  Required (NOT implemented in this step): verifier exits non-zero if any
+  check present in SEQ=N is absent in SEQ=N+1 without a registry supersede
+  entry. This is a code change. It is logged here as a required item but
+  NOT acted on until cleared to do so.
+
+
+===========================================================================
+  A9 — CHAIN CONTINUITY, SEQ 1–14
+===========================================================================
+
+SEQ=0 entry_hash (verbatim):
+  ece76bc53443f10d199861ac6531fd223dfff1305e449b54d18bb8e17e7fba94
+
+SEQ=15 prev_hash (verbatim):
+  ece76bc53443f10d199861ac6531fd223dfff1305e449b54d18bb8e17e7fba94
+
+EQUAL: True
+
+ANSWER: Numbering gap, not deletion. SEQ=15 chains directly to SEQ=0.
+The GENESIS entry self-documents the situation:
+
+  SEQ=0 field "pre_chain_anchor_note":
+  "SEQ=1..14 predate the chain; last known log sha256 anchored here.
+   SEQ=14 sha256=baac6e1fc39945362d18ee2dba2d6e0c25adb96c634d92ea15a0c71ad647280f
+   (verified 2026-07-19T21:29:45Z)."
+
+PLAIN STATEMENT:
+  SEQ=1 through SEQ=14 ran before the chain mechanism existed. Their
+  logs are not in the chain and cannot be verified via PSV5. The "all 19
+  MATCH" result covers only SEQ=0 (GENESIS) and SEQ=15 through SEQ=32
+  — a 19-entry fragment of a 33-run history. PSV5 is match-within-a-
+  fragment. It is not whole-history chain integrity evidence for those
+  14 earlier runs. The SEQ=0 GENESIS anchor captures a sha256 of the
+  SEQ=14 log file, but this is a claimed value written at chain-creation
+  time, not an independently verifiable chain entry.
+
+
+===========================================================================
+  B12 — ROUND-2 alert_id=25 CITATION CHECKABLE
+===========================================================================
+
+RAW QUERY RESULTS:
+
+  aiem_options_alerts WHERE id=25:
+    id=25, ticker='TER', direction='LONG_PUT',
+    alert_date=2026-07-17, outcome_status='OPEN',
+    created_at=2026-07-17T14:17:27Z
+
+  aiem_options_alert_snapshots WHERE alert_id=25:
+    NOT FOUND
+
+ASSESSMENT:
+  The Round-2 citation "verify_chain.sh — alert_id=25 ticker=TER
+  direction=LONG_PUT" is partially consistent with the DB: alert_id=25
+  is real, ticker=TER, direction=LONG_PUT all match the live row.
+
+  However: aiem_options_alert_snapshots has NO row for alert_id=25.
+  verify_chain.sh FIX 1 reads from aiem_options_alert_snapshots first.
+  If no snapshot exists, it reports SNAPSHOT_UNAVAILABLE. The cited
+  output shows only ticker and direction — it does not show the full
+  stage-verification result. It is consistent with the data having been
+  read from the DB row directly rather than from a complete verify_chain.sh
+  execution. CANNOT CONFIRM the cited output was produced by an actual
+  verify_chain.sh run. Not provably fabricated (data is correct); not
+  provably the product of a real run (snapshot absent, no stage output
+  shown). Status: UNCONFIRMED.
+
+
+===========================================================================
+  C2 (NON-BLOCKING) — C48 COLLAPSE NOTED
+===========================================================================
+
+  Required: collapse C48 back to one check, let it FAIL.
+  This is a code change. Deferred until cleared to proceed.
+
+
+===========================================================================
+  B5 (NON-BLOCKING) — oe_contamination_exclusions STATUS
+===========================================================================
+
+  Per R4: either enforce at each consumer's query layer starting with
+  probability_calibration, or delete excluded_from.
+  This is a code change. Deferred until cleared to proceed.
+  Current state: UNENFORCED. Zero non-verifier Python files reference
+  the table. The excluded_from array is documented intent only.
+
+
+===========================================================================
+  A6 FORK — RESOLVED BY R4 (acknowledged, code change deferred)
+===========================================================================
+
+  R4 decides: C52B splits into two checks:
+    1. C52B_scheduler_origin_decision_exists — new, satisfiable pre-Monday.
+       Passes on: origin_type='SCHEDULER', scheduler_job_id non-null,
+       worker_pid non-null, decision_id FK resolves to real row,
+       is_test_record=FALSE. alert_id may be null.
+       Must ship with hand-set negative control.
+    2. C52B_live_trade_decision_exists — existing strict predicate,
+       alert_id IS NOT NULL, unchanged, stays FAIL.
+  Certification text when strict check fails: "scheduler-originated
+  decision proven; live trade not proven."
+  Registry entry: C52B_genuine_scheduler_decision_exists →
+  SUPERSEDED_BY C52B_scheduler_origin_decision_exists and
+  C52B_live_trade_decision_exists. Neither supersedes the strict predicate.
+  Implementation is a code change — deferred until cleared.
+
+
+===========================================================================
+  ITEMS STILL OPEN AFTER THIS RESPONSE
+===========================================================================
+
+  A4 — tautological fixture check must report FAIL until frozen from an
+       independently captured artifact. Code change required.
+  A5 — allowlist + runtime recompute of engine_root_hash and commit_sha.
+       Code change required.
+  A8 — enforcement: verifier must exit non-zero on check removal without
+       registry supersede. Code change required.
+  C2 — collapse C48 to one FAIL. Code change required.
+  B5 — enforce exclusion table at consumer query layer, or delete.
+       Code change required.
+  A6 FORK — C52B split as specified. Code change required.
+
+  All above are deferred pending clearance to proceed to code changes.
+  No code has been modified in this response.
+
+===========================================================================
