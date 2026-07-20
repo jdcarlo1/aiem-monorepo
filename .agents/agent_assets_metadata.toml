@@ -792,3 +792,9 @@ id = "7vsFJKWajEYcXmLIKp7eh"
 uri = "file://dpl_code_review.zip"
 type = "unspecified"
 title = "DPL Code Review — 9 files | zip sha256: 2ef04c6f067d80aa1a2f52bbd3f86fe0e35627251ca26ec377f212b7a0912692"
+
+[[outputs]]
+id = "5rEh8jk4p-OQa9Vxrxnfi"
+uri = "file://dpl_code_review.md"
+type = "text"
+title = "DPL Code Review — all 9 files, HEAD 1a907879, tree CLEAN"
