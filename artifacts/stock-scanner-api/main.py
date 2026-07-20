@@ -11488,13 +11488,35 @@ def admin_aiem_process_run_scan():
     if not _admin_ok():
         return jsonify({"error": "unauthorized"}), 403
     try:
-        import urllib.request as _ur2
+        import urllib.request as _ur2, json as _json_rs
         _req = _ur2.Request("http://localhost:5055/run-scan", data=b"", method="POST")
         with _ur2.urlopen(_req, timeout=8) as _r:
-            return jsonify({"status": "triggered", "aiem_process": _r.read().decode()}), 202
+            _resp = _json_rs.loads(_r.read().decode())
+        return jsonify({
+            "status":    "triggered",
+            "run_id":    _resp.get("run_id"),
+            "poll_url":  "/stock-api/admin/aiem-process/last-scan-status",
+        }), 202
     except Exception as _e:
         return jsonify({"error": str(_e),
                         "hint": "aiem-process service may still be restarting"}), 503
+
+
+@app.route("/stock-api/admin/aiem-process/last-scan-status", methods=["GET"])
+def admin_aiem_process_last_scan_status():
+    """Return the last scan run result (proxied from aiem-process :5055/status)."""
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        import urllib.request as _ur2, json as _json_ls
+        _run_id = request.args.get("run_id", "")
+        _url = "http://localhost:5055/status"
+        if _run_id:
+            _url += f"?run_id={_run_id}"
+        with _ur2.urlopen(_url, timeout=5) as _r:
+            return jsonify(_json_ls.loads(_r.read().decode())), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e), "hint": "aiem-process may be restarting"}), 503
 
 
 @app.route("/stock-api/nano-morning/send-watch", methods=["POST"])

@@ -50,18 +50,63 @@ from datetime import datetime, timedelta, date
 _AIEM_PROCESS_PORT = int(os.environ.get("AIEM_PROCESS_PORT", "5055"))
 
 def _start_process_health_server():
-    import socketserver
+    """Start the single HTTP server on port 5055.
+
+    Handles ALL paths from the start so no second bind is needed:
+      GET  /          → health check (always 200)
+      GET  /status    → last scan result from _LAST_SCAN
+      POST /run-scan  → trigger scan via _SCAN_FN_REGISTRY["run_scan"] (503 until registered)
+      POST /run-grade → trigger grade via _SCAN_FN_REGISTRY["run_grade"] (503 until registered)
+    _admin_server() will register the real callables and create the DB table — no new bind.
+    """
+    import socketserver, json as _json_hs
     from http.server import BaseHTTPRequestHandler
     class _H(BaseHTTPRequestHandler):
         def do_GET(self):
-            body = b'{"status":"ok"}'
+            if self.path.startswith("/status"):
+                with _STATE_LOCK:
+                    snap = dict(_LAST_SCAN)
+                body = _json_hs.dumps(snap if snap else {"status": "no_scan_yet"}).encode()
+            else:
+                body = b'{"status":"ok"}'
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def do_POST(self):
+            import uuid as _u, json as _jp
+            if self.path == "/run-scan":
+                fn = _SCAN_FN_REGISTRY.get("run_scan")
+                if fn is None:
+                    self.send_response(503)
+                    body = b'{"error":"not_ready","hint":"scheduler still loading"}'
+                else:
+                    _rid = str(_u.uuid4())
+                    threading.Thread(target=fn, args=(_rid,), daemon=True).start()
+                    self.send_response(200)
+                    body = _jp.dumps({"status": "triggered", "run_id": _rid}).encode()
+            elif self.path == "/run-grade":
+                fn = _SCAN_FN_REGISTRY.get("run_grade")
+                if fn is None:
+                    self.send_response(503)
+                    body = b'{"error":"not_ready","hint":"scheduler still loading"}'
+                else:
+                    threading.Thread(target=fn, daemon=True).start()
+                    self.send_response(200)
+                    body = b'{"status":"grade_triggered"}'
+            else:
+                self.send_response(404)
+                body = b'{"error":"not_found"}'
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def log_message(self, *a):
             pass
+
     class _S(socketserver.TCPServer):
         allow_reuse_address = True
     try:
@@ -163,6 +208,9 @@ _STATE = {
     "gap_patterns": {},  # signal → {in_picks, in_misses} tallies
 }
 _STATE_LOCK = threading.Lock()
+_PREMARKET_SCAN_LOCK = threading.Lock()   # one premarket scan at a time
+_LAST_SCAN: dict = {}                      # in-memory record of the last triggered scan
+_SCAN_FN_REGISTRY: dict = {}              # populated once _run_manual_scan is defined
 
 # Rotating cursor for the deep-ITM options-probability segment scans.
 # Mutable dict so aiem_optprob can advance it across the 6 daily runs.
@@ -174,6 +222,35 @@ _optprob_cursor_state: dict = {"cursor": 0}
 # ─────────────────────────────────────────────────────────────
 def _db():
     return psycopg2.connect(DB_URL, connect_timeout=10)
+
+
+def _db_log_scan(run_id, trigger_source, status, started_at=None, completed_at=None,
+                  freshness_date=None, candidate_count=None, error_message=None):
+    """Upsert a row in premarket_scan_runs. Silently ignores errors."""
+    try:
+        conn = _db()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO premarket_scan_runs
+                    (run_id, trigger_source, triggered_at, started_at, completed_at,
+                     status, source_freshness_date, candidate_count, error_message)
+                VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    status                = EXCLUDED.status,
+                    started_at            = COALESCE(premarket_scan_runs.started_at,
+                                                     EXCLUDED.started_at),
+                    completed_at          = EXCLUDED.completed_at,
+                    source_freshness_date = EXCLUDED.source_freshness_date,
+                    candidate_count       = EXCLUDED.candidate_count,
+                    error_message         = EXCLUDED.error_message
+            """, (run_id, trigger_source, started_at, completed_at, status,
+                   freshness_date, candidate_count, error_message))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as _dls_e:
+        log.warning(f"_db_log_scan error (non-fatal): {_dls_e}")
 
 
 _US_HOLIDAYS_2026 = {
@@ -403,6 +480,8 @@ def _polygon_grouped_daily_universe() -> list:
                     "gap_pct":            0.0,
                     "float_shares":       None,
                 })
+            with _STATE_LOCK:
+                _STATE["source_freshness_date"] = date_str
             return out
         except Exception as e:
             log.warning(f"grouped_daily {date_str}: {e}")
@@ -726,6 +805,8 @@ def aiem_warmup():
     log.info(f"warmup complete in {time.time()-t0:.1f}s — {len(s2):,} candidates cached for premarket scan")
     with _STATE_LOCK:
         _STATE["universe"] = s2
+    freshness_date = _STATE.get("source_freshness_date")
+    return freshness_date, len(s2)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -766,10 +847,11 @@ def aiem_premarket_scan():
 
     if not universe:
         log.info("premarket_scan: no candidates after funnel")
-        return
+        return 0
 
     log.info(f"premarket_scan: scoring {len(universe)} candidates")
 
+    _n_written = 0
     conn = None
     try:
         conn = _db()
@@ -807,7 +889,8 @@ def aiem_premarket_scan():
         with _STATE_LOCK:
             _STATE["picks"] = top10
 
-        log.info(f"premarket_scan: wrote {len(top10)} predictions")
+        _n_written = len(top10)
+        log.info(f"premarket_scan: wrote {_n_written} predictions")
         for p in top10[:3]:
             log.info(f"  #{p['ticker']} conf={p['confidence']} gap={p['gap_pct']:.1f}% — {p['reasoning'][:70]}")
 
@@ -820,6 +903,7 @@ def aiem_premarket_scan():
         if conn:
             try: conn.close()
             except: pass
+    return _n_written
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1886,18 +1970,76 @@ def main():
     log.info("[aiem_firstcandle] first-candle capture (9:36 AM) + outcome fill (4:45 PM) scheduled")
 
     # ── Admin HTTP server (port 5055) for manual scan triggers ──────────────
-    def _run_manual_scan():
-        log.info("admin: manual warmup + premarket scan triggered")
+    def _run_manual_scan(run_id, trigger_source="gha"):
+        # Non-blocking acquire — if a scan is already running, skip safely
+        if not _PREMARKET_SCAN_LOCK.acquire(blocking=False):
+            log.info(f"[run_id={run_id}] premarket scan already running — skipped")
+            with _STATE_LOCK:
+                _LAST_SCAN.update({"run_id": run_id, "status": "skipped",
+                                    "reason": "scan_already_running"})
+            _db_log_scan(run_id, trigger_source, "skipped",
+                          error_message="scan_already_running")
+            return
+
+        started_at = datetime.now(ET)
+        log.info(f"[run_id={run_id}] warmup + premarket scan starting")
+        _db_log_scan(run_id, trigger_source, "running", started_at=started_at)
+        freshness_date, universe_size, candidate_count = None, 0, 0
         try:
-            aiem_warmup()
-            aiem_premarket_scan()
-            log.info("admin: manual scan complete")
+            wu = aiem_warmup()
+            if wu:
+                freshness_date, universe_size = wu
+            candidate_count = aiem_premarket_scan() or 0
+            completed_at = datetime.now(ET)
+            log.info(f"[run_id={run_id}] scan complete — candidates={candidate_count} "
+                     f"freshness={freshness_date} universe={universe_size}")
+            with _STATE_LOCK:
+                _LAST_SCAN.update({
+                    "run_id":                run_id,
+                    "status":               "success",
+                    "trigger_source":       trigger_source,
+                    "started_at":           started_at.isoformat(),
+                    "completed_at":         completed_at.isoformat(),
+                    "source_freshness_date": str(freshness_date) if freshness_date else None,
+                    "universe_size":         universe_size,
+                    "candidate_count":       candidate_count,
+                })
+            _db_log_scan(run_id, trigger_source, "success",
+                          started_at, completed_at, freshness_date, candidate_count)
         except Exception as _e:
-            log.error(f"admin: manual scan error: {_e}")
+            _err = str(_e)[:500]
+            log.error(f"[run_id={run_id}] scan error: {_err}")
+            with _STATE_LOCK:
+                _LAST_SCAN.update({"run_id": run_id, "status": "error", "error": _err})
+            _db_log_scan(run_id, trigger_source, "error",
+                          started_at, datetime.now(ET), error_message=_err)
+        finally:
+            _PREMARKET_SCAN_LOCK.release()
 
     def _admin_server():
-        from http.server import HTTPServer, BaseHTTPRequestHandler
-        import threading as _t2
+        # ── Ensure the scan-run ledger table exists ──────────────────────
+        try:
+            _sc = _db()
+            _scu = _sc.cursor()
+            _scu.execute("""
+                CREATE TABLE IF NOT EXISTS premarket_scan_runs (
+                    id                    SERIAL      PRIMARY KEY,
+                    run_id                TEXT        NOT NULL UNIQUE,
+                    trigger_source        TEXT        NOT NULL DEFAULT 'gha',
+                    triggered_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    started_at            TIMESTAMPTZ,
+                    completed_at          TIMESTAMPTZ,
+                    status                TEXT        NOT NULL DEFAULT 'triggered',
+                    source_freshness_date DATE,
+                    candidate_count       INTEGER,
+                    error_message         TEXT
+                )
+            """)
+            _sc.commit()
+            _sc.close()
+            log.info("premarket_scan_runs table ready")
+        except Exception as _ste:
+            log.warning(f"premarket_scan_runs init (non-fatal): {_ste}")
 
         def _run_manual_grade():
             log.info("admin: manual grade triggered")
@@ -1908,39 +2050,11 @@ def main():
             except Exception as _e:
                 log.error(f"admin: manual grade error: {_e}")
 
-        class _H(BaseHTTPRequestHandler):
-            def do_GET(self):
-                # Deployment startup healthcheck hits GET on the service's
-                # base path ("/aiem-process/" -> "/" on this port). Without
-                # this handler, BaseHTTPRequestHandler has no do_GET at all
-                # and replies 501 Unsupported method, which the deploy
-                # health-checker retries ~100x before giving up — this is
-                # what produced the "frozen on publish" symptom.
-                body = b'{"status":"ok"}'
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(body)
-
-            def do_POST(self):
-                if self.path == "/run-scan":
-                    _t2.Thread(target=_run_manual_scan, daemon=True).start()
-                    body = b'{"status":"triggered"}'
-                elif self.path == "/run-grade":
-                    _t2.Thread(target=_run_manual_grade, daemon=True).start()
-                    body = b'{"status":"grade_triggered"}'
-                else:
-                    self.send_response(404); self.end_headers(); return
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(body)
-            def log_message(self, *a): pass   # suppress access logs
-
-        try:
-            HTTPServer(("0.0.0.0", 5055), _H).serve_forever()
-        except Exception as _ae:
-            log.warning(f"admin server error: {_ae}")
+        # Register callables in the shared registry so the early health server
+        # (already bound to port 5055) can dispatch them. No second bind needed.
+        _SCAN_FN_REGISTRY["run_scan"]  = _run_manual_scan
+        _SCAN_FN_REGISTRY["run_grade"] = _run_manual_grade
+        log.info("Admin trigger functions registered in _SCAN_FN_REGISTRY — :5055 ready")
 
     threading.Thread(target=_admin_server, daemon=True).start()
     log.info("Admin trigger server listening on :5055")
