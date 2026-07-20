@@ -1,0 +1,394 @@
+1,4c1,2
+< #!/usr/bin/env bash
+< # tools/verified_run.sh — DPL verified evidence runner with cryptographic chain + per-SEQ archival.
+< # Wraps any verifier script with flock, monotonic SEQ, SHA-256 log anchoring,
+< # cryptographic chain (verified_run_chain.jsonl), and per-SEQ log archival.
+---
+> #!/bin/bash
+> # verified_run.sh
+6,7c4
+< # Usage (from artifacts/stock-scanner-api/):
+< #   bash tools/verified_run.sh "python3 dpl/verify_dpl_phase3.py"
+---
+> # Usage: ./verified_run.sh "<command to run>"
+9c6,8
+< # Exit codes: inherit from inner command (0 = all PASS, non-zero = FAIL).
+---
+> # Wraps a command execution in a tamper-evident, append-only hash chain.
+> # Each log entry's hash depends on the previous entry's hash, so altering
+> # or deleting any past entry breaks the chain from that point forward.
+11,30c10,15
+< # CRYPTOGRAPHIC CHAIN (Item 7):
+< #   Each run appends one JSON line to tools/verified_run_chain.jsonl.
+< #   entry_hash = sha256(canonical JSON of {seq, ts, ts_end, cmd, exit_code,
+< #                commit, tree, log_sha256, scoring_fn_ast_hash,
+< #                req6_weights_hash, prev_hash})
+< #   JSON: sort_keys=True, separators=(',',':')
+< #   prev_hash of SEQ=N is entry_hash of SEQ=N-1 (GENESIS for the first entry).
+< #   Tampering with any entry breaks the chain; verify_chain.sh detects this.
+< #
+< # PER-SEQ LOG ARCHIVAL (Item 8):
+< #   tools/logs/verified_run_<SEQ>.log — full run log (header + output + footer)
+< #   tools/logs/verified_run_index.tsv — index: SEQ, TS_END, EXIT, LOG_SHA256, CMD
+< #   Archived logs are made read-only (chmod 444) immediately after writing.
+< #   Restore proof: sha256sum of restored file must match index entry.
+< #
+< # SEQ CHAIN DISCONTINUITY NOTE (recorded 2026-07-19):
+< #   SEQ is a per-workspace monotonic counter in tools/verified_run_seq.
+< #   Prior to R4.1 (2026-07-19) SEQ was in /tmp and reset on VM restart.
+< #   Authoritative ordering uses TS_END (UTC). Canonical chain starts with the
+< #   GENESIS entry in verified_run_chain.jsonl anchoring SEQ=14 log sha256.
+---
+> # This does NOT prove the command was run by an honest process — an agent
+> # with filesystem access could still choose not to use this script and
+> # fabricate a log by hand. What it DOES do: make it much harder to quietly
+> # edit or backdate a SINGLE entry after the fact without the whole chain
+> # visibly breaking, and it gives Joel a mechanical, non-narrative way to
+> # check consistency himself or hand to Claude to check.
+33,111c18,38
+< SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+< LOCK_FILE="/tmp/portfolio_engine_verify.lock"
+< LOG_FILE="${SCRIPT_DIR}/verified_run_last.log"
+< CHAIN_FILE="${SCRIPT_DIR}/verified_run_chain.jsonl"
+< LOGS_DIR="${SCRIPT_DIR}/logs"
+< INDEX_FILE="${LOGS_DIR}/verified_run_index.tsv"
+< 
+< # Accept full command as all positional args (quoted or space-separated)
+< CMD="${*:-python3 dpl/verify_dpl_phase3.py}"
+< 
+< # ── Create logs/ directory (idempotent) ───────────────────────────────────
+< mkdir -p "${LOGS_DIR}"
+< 
+< # ── Monotonic SEQ (workspace-durable, survives VM restarts) ───────────────
+< SEQ_FILE="${SCRIPT_DIR}/verified_run_seq"
+< SEQ_TMP="/tmp/portfolio_engine_verify_seq_$$"
+< (
+<   flock -x 200
+<   LAST_SEQ=$(cat "${SEQ_FILE}" 2>/dev/null | tr -d ' \r\n' || echo 0)
+<   echo "$(( ${LAST_SEQ:-0} + 1 ))" | tee "${SEQ_FILE}" > "${SEQ_TMP}"
+< ) 200>"${LOCK_FILE}"
+< SEQ=$(cat "${SEQ_TMP}"); rm -f "${SEQ_TMP}"
+< 
+< # ── Read prev_hash from chain (GENESIS if chain file absent or empty) ──────
+< PREV_HASH=$(python3 - "${CHAIN_FILE}" <<'_PYEOF'
+< import sys, json
+< try:
+<     lines = [l.strip() for l in open(sys.argv[1]) if l.strip()]
+<     last  = json.loads(lines[-1]) if lines else {}
+<     print(last.get('entry_hash', 'GENESIS'))
+< except Exception:
+<     print('GENESIS')
+< _PYEOF
+< )
+< 
+< RUN_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+< 
+< # ── Full-run stdout capture (header + CMD output + footer) ────────────────
+< FULL_TMP="/tmp/verified_run_full_${SEQ}_$$.log"
+< 
+< {
+< # ── Header ────────────────────────────────────────────────────────────────
+< echo "====== verified_run.sh ======"
+< echo "SEQ=${SEQ}"
+< echo "TS=${RUN_TS}"
+< echo "CMD=${CMD}"
+< echo "CWD=$(pwd)"
+< echo "sha256(verified_run.sh)=$(sha256sum "${SCRIPT_DIR}/verified_run.sh" | awk '{print $1}')"
+< CHAIN_SH="$(cd "${SCRIPT_DIR}/.." && pwd)/verify_chain.sh"
+< echo "sha256(verify_chain.sh)=$(sha256sum "${CHAIN_SH}" 2>/dev/null | awk '{print $1}' || echo MISSING)  [NOT_EXECUTED]"
+< GIT_ROOT=$(git --no-optional-locks -C "${SCRIPT_DIR}" rev-parse --show-toplevel 2>/dev/null || echo unknown)
+< GIT_COMMIT=$(git --no-optional-locks -C "${SCRIPT_DIR}" rev-parse HEAD 2>/dev/null || echo unknown)
+< echo "git_commit=${GIT_COMMIT}"
+< echo "prev_chain_hash=${PREV_HASH}"
+< 
+< # ── Working tree state (strict NUL-delimited check via check_clean_tree.py) ───
+< # Replaces the former broad grep-v exclusions with an explicit allowlist.
+< # Allowlist (exact paths only, no wildcards or prefix matches):
+< #   tools/verified_run_seq  — runtime monotonic counter mutated by flock above
+< # NOTE: dpl/engine_integrity_refs.json is NOT allowlisted (A24 remediation).
+< #   refs.json carries approval fields, commit_sha, and engine hashes — the
+< #   highest-risk file in the system. It must be committed before each sealed run,
+< #   not excused during it. An uncommitted refs.json update produces TREE=DIRTY,
+< #   which is the correct and honest outcome.
+< # Untracked .py/.sh/.json/.env files FAIL; untracked .log evidence files PASS.
+< # Renames, symlinks, path traversal, and directories always FAIL.
+< _STATUS_BIN="/tmp/git_status_${SEQ}_$$.bin"
+< git --no-optional-locks -C "${GIT_ROOT}" status --porcelain=v1 -z 2>/dev/null \
+<     > "${_STATUS_BIN}" || true
+< _TREE_EXIT=0
+< python3 "${SCRIPT_DIR}/check_clean_tree.py" \
+<     --status-file "${_STATUS_BIN}" \
+<     --allow-exact "tools/verified_run_seq" \
+<     --repo-root "${GIT_ROOT}" \
+<     || _TREE_EXIT=$?
+< rm -f "${_STATUS_BIN}"
+< if [ "${_TREE_EXIT}" -eq 0 ]; then
+<     TREE_STATUS="CLEAN"
+<     echo "TREE=CLEAN"
+---
+> 
+> LOG_FILE="${VERIFIED_LOG_FILE:-./evidence_chain.log}"
+> CMD="$1"
+> 
+> if [ -z "$CMD" ]; then
+>   echo "Usage: $0 \"<command>\"" >&2
+>   exit 1
+> fi
+> 
+> # Acquire exclusive lock for the entire script so concurrent invocations
+> # serialize on PREV_HASH/SEQ read and log append. Without this lock two
+> # concurrent calls read the same PREV_HASH and SEQ, both compute seq=N,
+> # and the second writer produces a duplicate entry that breaks the chain.
+> # FD 9 is reserved for the lock; do not use it inside commands passed here.
+> LOCK_FILE="${LOG_FILE}.lock"
+> exec 9>"$LOCK_FILE"
+> flock -x 9
+> 
+> # Get previous hash (or genesis value if log is empty/doesn't exist)
+> if [ -f "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
+>   PREV_HASH=$(tail -n 1 "$LOG_FILE" | python3 -c "import sys,json; print(json.load(sys.stdin)['entry_hash'])")
+113,114c40
+<     TREE_STATUS="DIRTY"
+<     echo "TREE=DIRTY"
+---
+>   PREV_HASH="GENESIS_0000000000000000000000000000000000000000000000000000000000"
+117,147c43,48
+< # ── Scoring function integrity (R4.9.5 + engine root hash) ────────────────
+< _SCORER_DIR="$(dirname "${SCRIPT_DIR}")"
+< _SCORING_HASHES=$(python3 - "${_SCORER_DIR}" <<'_PYEOF'
+< import sys, ast, hashlib, json
+< _d = sys.argv[1]
+< sys.path.insert(0, _d)
+< try:
+<     from aiem_options_pipeline import compute_req6_score, _REQ6_SCORING_WEIGHTS
+<     import inspect, os
+<     _src  = inspect.getsource(compute_req6_score)
+<     _ah   = hashlib.sha256(ast.dump(ast.parse(_src)).encode()).hexdigest()
+<     _wh   = hashlib.sha256(json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True, separators=(',',':')).encode()).hexdigest()
+<     print(f"scoring_fn_ast_hash={_ah}")
+<     print(f"req6_weights_hash={_wh}")
+<     # Engine root hash (canonical manifest)
+<     try:
+<         sys.path.insert(0, os.path.join(_d, 'dpl'))
+<         from engine_manifest import build_manifest
+<         _m = build_manifest()
+<         print(f"engine_root_hash={_m['engine_root_hash']}")
+<     except Exception as _em:
+<         print(f"engine_root_hash=ERROR:{_em}")
+< except Exception as _e:
+<     print(f"scoring_fn_ast_hash=ERROR:{_e}")
+<     print(f"req6_weights_hash=ERROR:{_e}")
+<     print(f"engine_root_hash=ERROR:{_e}")
+< _PYEOF
+< )
+< echo "${_SCORING_HASHES}"
+< echo "=============================="
+< echo ""
+---
+> TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6NZ")
+> if [ -f "$LOG_FILE" ]; then
+>   SEQ=$(( $(wc -l < "$LOG_FILE") + 1 ))
+> else
+>   SEQ=1
+> fi
+149c50
+< # ── Run the command ────────────────────────────────────────────────────────
+---
+> # Execute the actual command, capture stdout+stderr combined, and exit code
+151,152c52,53
+< eval "${CMD}" 2>&1 | tee "${LOG_FILE}"
+< EXIT_CODE=${PIPESTATUS[0]}
+---
+> OUTPUT=$(eval "$CMD" 2>&1)
+> EXIT_CODE=$?
+155,159c56
+< TS_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+< LOG_SHA=$(sha256sum "${LOG_FILE}" | awk '{print $1}')
+< 
+< SCORING_FN_AST_HASH=$(echo "${_SCORING_HASHES}" | grep "^scoring_fn_ast_hash=" | cut -d= -f2-)
+< REQ6_WEIGHTS_HASH=$(echo "${_SCORING_HASHES}"   | grep "^req6_weights_hash="   | cut -d= -f2-)
+---
+> OUTPUT_SHA256=$(printf '%s' "$OUTPUT" | sha256sum | awk '{print $1}')
+161,260c58,65
+< # A32 (R10): sha256 of last_run_results.json — chain-anchors the structured results
+< # file that A8 Layer-1 trusts for cascade classification (B19 remediation).
+< LAST_RESULTS_SHA=$(sha256sum "${SCRIPT_DIR}/last_run_results.json" 2>/dev/null \
+<     | awk '{print $1}' || echo "MISSING_last_run_results")
+< echo "last_run_results_sha256=${LAST_RESULTS_SHA}"
+< 
+< # A33 (R10): sha256 of _A8_L1_META_EXCL sorted list — verifier emits
+< # A8_L1_META_EXCL_SHA256=<hash> in LOG_FILE; capture it here.
+< _EXCL_SHA=$(grep '^A8_L1_META_EXCL_SHA256=' "${LOG_FILE}" 2>/dev/null | tail -1 | cut -d= -f2-)
+< if [ -z "${_EXCL_SHA}" ]; then _EXCL_SHA="MISSING_excl_sha"; fi
+< echo "A8_L1_META_EXCL_SHA256_FOOTER=${_EXCL_SHA}"
+< 
+< # ── Compute chain entry_hash ───────────────────────────────────────────────
+< # A32: last_run_results_sha256 and a8_l1_excl_sha256 are included in the
+< # entry_hash payload so tampering with either file is chain-detectable.
+< ENTRY_HASH=$(python3 - \
+<     "${SEQ}" "${RUN_TS}" "${TS_END}" "${CMD}" "${EXIT_CODE}" \
+<     "${GIT_COMMIT}" "${TREE_STATUS:-UNKNOWN}" "${LOG_SHA}" \
+<     "${SCORING_FN_AST_HASH:-UNKNOWN}" "${REQ6_WEIGHTS_HASH:-UNKNOWN}" \
+<     "${PREV_HASH}" "${LAST_RESULTS_SHA:-MISSING_last_run_results}" \
+<     "${_EXCL_SHA:-MISSING_excl_sha}" <<'_PYEOF'
+< import sys, hashlib, json
+< seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha, sfah, rwh, prev, lrsha, a8sha = sys.argv[1:]
+< payload = {
+<     "a8_l1_excl_sha256":   a8sha,
+<     "cmd":                 cmd,
+<     "commit":              commit,
+<     "exit_code":           int(exit_c),
+<     "last_run_results_sha256": lrsha,
+<     "log_sha256":          log_sha,
+<     "prev_hash":           prev,
+<     "req6_weights_hash":   rwh,
+<     "scoring_fn_ast_hash": sfah,
+<     "seq":                 int(seq_n),
+<     "tree":                tree,
+<     "ts":                  ts,
+<     "ts_end":              ts_end,
+< }
+< h = hashlib.sha256(
+<     json.dumps(payload, sort_keys=True, separators=(',',':')).encode()
+< ).hexdigest()
+< print(h)
+< _PYEOF
+< )
+< 
+< echo ""
+< echo "=============================="
+< echo "SEQ=${SEQ}  EXIT=${EXIT_CODE}  TS_END=${TS_END}"
+< echo "sha256(log)=${LOG_SHA}"
+< echo "entry_hash=${ENTRY_HASH}"
+< echo "=============================="
+< 
+< } 2>&1 | tee "${FULL_TMP}"
+< 
+< # Retrieve values computed inside the subshell
+< EXIT_CODE_OUTER=$(grep "^SEQ=${SEQ}  EXIT=" "${FULL_TMP}" | sed 's/.*EXIT=\([0-9]*\).*/\1/' || echo 1)
+< LOG_SHA_OUTER=$(grep "^sha256(log)=" "${FULL_TMP}" | cut -d= -f2-)
+< ENTRY_HASH_OUTER=$(grep "^entry_hash=" "${FULL_TMP}" | cut -d= -f2-)
+< TS_END_OUTER=$(grep "^SEQ=${SEQ}  EXIT=" "${FULL_TMP}" | sed 's/.*TS_END=\(.*\)/\1/' || echo unknown)
+< GIT_COMMIT_OUTER=$(grep "^git_commit=" "${FULL_TMP}" | cut -d= -f2-)
+< TREE_OUTER=$(grep "^TREE=" "${FULL_TMP}" | cut -d= -f2-)
+< SCORING_FN_AST_OUTER=$(grep "^scoring_fn_ast_hash=" "${FULL_TMP}" | cut -d= -f2-)
+< REQ6_WEIGHTS_OUTER=$(grep "^req6_weights_hash=" "${FULL_TMP}" | cut -d= -f2-)
+< _LAST_RESULTS_TMP=$(grep "^last_run_results_sha256=" "${FULL_TMP}" | cut -d= -f2-)
+< LAST_RESULTS_OUTER="${_LAST_RESULTS_TMP:-MISSING_last_run_results}"
+< _A8_EXCL_TMP=$(grep "^A8_L1_META_EXCL_SHA256_FOOTER=" "${FULL_TMP}" | cut -d= -f2-)
+< A8_EXCL_SHA_OUTER="${_A8_EXCL_TMP:-MISSING_excl_sha}"
+< 
+< # ── Item 2: 3-Way Binding — Archive first, then chain ─────────────────────
+< # Per-SEQ archive is written BEFORE the chain entry so that archive_sha256
+< # can be sealed into the chain entry as an immutable field.
+< # Binding: chain.archive_sha256 = index.sha256 = sha256sum(SEQ_LOG)
+< # This allows any third party to verify the archive without trusting the chain.
+< SEQ_LOG="${LOGS_DIR}/verified_run_${SEQ}.log"
+< cp "${FULL_TMP}" "${SEQ_LOG}"
+< chmod 444 "${SEQ_LOG}"
+< rm -f "${FULL_TMP}"
+< 
+< # Canonical archive SHA (anchors 3-way binding)
+< SEQ_LOG_SHA=$(sha256sum "${SEQ_LOG}" | awk '{print $1}')
+< echo "[verified_run] archive_sha256=${SEQ_LOG_SHA}"
+< echo "[verified_run] archive=${SEQ_LOG}"
+< 
+< # Append chain entry (atomic: temp file + cat)
+< # NOTE: archive_sha256 is NOT part of the entry_hash payload — it is a
+< # separate binding field. entry_hash covers log_sha256 and all other
+< # decision metadata fields. archive_sha256 binds the chain to the physical
+< # archive file and to the index entry.
+< CHAIN_TMP="${CHAIN_FILE}.${SEQ}.tmp"
+< python3 - \
+<     "${SEQ}" "${RUN_TS}" "${TS_END_OUTER:-unknown}" "${CMD}" \
+<     "${EXIT_CODE_OUTER:-1}" "${GIT_COMMIT_OUTER:-unknown}" \
+<     "${TREE_OUTER:-UNKNOWN}" "${LOG_SHA_OUTER:-unknown}" \
+<     "${SCORING_FN_AST_OUTER:-UNKNOWN}" "${REQ6_WEIGHTS_OUTER:-UNKNOWN}" \
+<     "${PREV_HASH}" "${LAST_RESULTS_OUTER:-MISSING_last_run_results}" \
+<     "${A8_EXCL_SHA_OUTER:-MISSING_excl_sha}" \
+<     "${ENTRY_HASH_OUTER:-UNKNOWN}" "${SEQ_LOG_SHA}" > "${CHAIN_TMP}" <<'_PYEOF'
+< import sys, json
+< (seq_n, ts, ts_end, cmd, exit_c, commit, tree, log_sha,
+<  sfah, rwh, prev, lrsha, a8sha, entry_hash, archive_sha) = sys.argv[1:]
+---
+> # Canonical string that gets hashed to produce this entry's hash.
+> # Order matters and must never change, or old entries become unverifiable.
+> CANONICAL="${PREV_HASH}|${SEQ}|${TIMESTAMP}|${CMD}|${EXIT_CODE}|${OUTPUT_SHA256}"
+> ENTRY_HASH=$(printf '%s' "$CANONICAL" | sha256sum | awk '{print $1}')
+> 
+> # Write the log entry as a single JSON line (append-only)
+> python3 -c "
+> import json
+262,276c67,73
+<     "a8_l1_excl_sha256":       a8sha,
+<     "archive_sha256":          archive_sha,
+<     "cmd":                     cmd,
+<     "commit":                  commit,
+<     "entry_hash":              entry_hash,
+<     "exit_code":               int(exit_c),
+<     "last_run_results_sha256": lrsha,
+<     "log_sha256":              log_sha,
+<     "prev_hash":               prev,
+<     "req6_weights_hash":       rwh,
+<     "scoring_fn_ast_hash":     sfah,
+<     "seq":                     int(seq_n),
+<     "tree":                    tree,
+<     "ts":                      ts,
+<     "ts_end":                  ts_end,
+---
+>     'seq': $SEQ,
+>     'timestamp_utc': '$TIMESTAMP',
+>     'command': '''$CMD''',
+>     'exit_code': $EXIT_CODE,
+>     'output_sha256': '$OUTPUT_SHA256',
+>     'prev_hash': '$PREV_HASH',
+>     'entry_hash': '$ENTRY_HASH'
+278,306c75,76
+< print(json.dumps(entry, sort_keys=True, separators=(',',':')))
+< _PYEOF
+< cat "${CHAIN_TMP}" >> "${CHAIN_FILE}"
+< rm -f "${CHAIN_TMP}"
+< 
+< # Append to index TSV (SEQ, TS_END, EXIT, SEQ_LOG_SHA256, CMD)
+< # index sha256 = chain.archive_sha256 = sha256sum(SEQ_LOG)  ← 3-way binding
+< printf '%s\t%s\t%s\t%s\t%s\n' \
+<     "${SEQ}" "${TS_END_OUTER:-unknown}" "${EXIT_CODE_OUTER:-1}" \
+<     "${SEQ_LOG_SHA}" "${CMD}" >> "${INDEX_FILE}"
+< 
+< # ── Item 3: Independent post-seal verifier ────────────────────────────────────
+< # Runs AFTER the archive + chain entry are sealed. Verifies integrity of the
+< # sealed artifact without importing any DPL Python code.
+< POST_SEAL_SCRIPT="${SCRIPT_DIR}/post_seal_verify.sh"
+< if [ -x "${POST_SEAL_SCRIPT}" ] || [ -f "${POST_SEAL_SCRIPT}" ]; then
+<     echo ""
+<     echo "====== post_seal_verify.sh (Item 3) ======"
+<     bash "${POST_SEAL_SCRIPT}" \
+<         "${SEQ}" "${CHAIN_FILE}" "${INDEX_FILE}" "${LOGS_DIR}" \
+<         2>&1 | tee -a "${SEQ_LOG%.log}_postseal.log" || {
+<         POST_SEAL_EXIT=$?
+<         echo "[post_seal_verify] WARNING: post-seal checks had ${POST_SEAL_EXIT} failure(s)" >&2
+<         # Post-seal failures are WARNING level only (the primary run already sealed).
+<         # The failure is recorded in the log; the primary exit code is not changed.
+<     }
+< else
+<     echo "[post_seal_verify] INFO: post_seal_verify.sh not found or not executable — skipping"
+< fi
+---
+> print(json.dumps(entry))
+> " >> "$LOG_FILE"
+308c78,90
+< exit "${EXIT_CODE_OUTER:-1}"
+---
+> # Also persist full raw output alongside, keyed by seq + output hash,
+> # so the output can be inspected later without re-running the command.
+> RAW_DIR="${LOG_FILE%.log}_raw"
+> mkdir -p "$RAW_DIR"
+> printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
+> 
+> echo "--- verified_run: entry #$SEQ logged ---"
+> echo "command:      $CMD"
+> echo "exit_code:    $EXIT_CODE"
+> echo "output_sha256: $OUTPUT_SHA256"
+> echo "entry_hash:   $ENTRY_HASH"
+> echo "--- raw output follows ---"
+> echo "$OUTPUT"

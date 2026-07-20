@@ -1,0 +1,8 @@
+=== callers of verify_chain.sh (root) ===
+(no matches in scheduler/pipeline/main/workflows)
+=== find all .sh .yml .py that contain 'verify_pattern_engine' ===
+(no external callers found)
+=== find all .sh .yml .py that call root verify_chain.sh (no path prefix) from workspace root ===
+/home/runner/workspace/tools/verify_chain.sh:4:# Usage: ./verify_chain.sh [path/to/evidence_chain.log]
+/home/runner/workspace/verify_chain.sh:3:# Usage: bash verify_chain.sh verified_evidence_<timestamp>.json
+/home/runner/workspace/verify_chain.sh:12:    echo "Usage: bash verify_chain.sh verified_evidence_<timestamp>.json"
