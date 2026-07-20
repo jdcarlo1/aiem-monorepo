@@ -768,3 +768,9 @@ id = "pYjRLYntM5f6R9RqDYTqj"
 uri = "file://artifacts/stock-scanner-api/dpl/R8_Audit_Session_Complete.md"
 type = "text"
 title = "R8 Complete Session Summary"
+
+[[outputs]]
+id = "P4JSvxE176EpkpokYX2QG"
+uri = "file://DPL_Phase3_R8_Completion_Summary.md"
+type = "text"
+title = "DPL Phase 3 R8 — Completion Summary"
