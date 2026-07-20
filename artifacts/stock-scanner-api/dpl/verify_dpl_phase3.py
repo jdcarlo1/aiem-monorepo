@@ -1358,6 +1358,34 @@ try:
     chk("C48_independent_approval_obtained", _c48_ok,
         f"approved_at={_c48_approved_at!r} approved_by={_c48_approved_by!r}: "
         "both must be non-null. FAIL until independent approval is obtained.")
+
+    # A18 (R7): restored neg-control checks — NOT subsumed by C48_independent_approval_obtained.
+    # Subsumption FAILS on two independent inputs:
+    #   (1) approved_by="self" (in forbidden list): C48_independent_approval_obtained PASSES
+    #       (non-null) but C48_neg_self_approval_is_forbidden FAILS → not subsumed.
+    #   (2) approval_metadata_only=False (real approval claimed): C48_independent_approval_obtained
+    #       may PASS (fields set) but C48_approval_metadata_only_flag_set FAILS → not subsumed.
+    # These checks test conditions the positive predicate cannot detect.
+    _c48_forbidden = set(_c48_refs.get('forbidden_approver_identities', []))
+    _c48_by = _c48_refs.get('approved_by')
+    if _c48_by is not None:
+        _c48_self_approval = _c48_by.lower() in {f.lower() for f in _c48_forbidden}
+        chk("C48_neg_self_approval_is_forbidden", not _c48_self_approval,
+            f"approved_by={_c48_by!r} is in forbidden_approver_identities="
+            f"{sorted(_c48_forbidden)!r}")
+    else:
+        # approved_by=None: self-approval impossible (no value to evaluate)
+        chk("C48_neg_self_approval_is_forbidden", True,
+            "approved_by=None — self-approval impossible; forbidden-identity check N/A "
+            "until approval field is set")
+
+    _c48_meta_only = _c48_refs.get('approval_metadata_only', False)
+    chk("C48_approval_metadata_only_flag_set", _c48_meta_only,
+        f"approval_metadata_only={_c48_meta_only!r}. "
+        "True = approval fields are metadata-only intent, NOT cryptographic proof by a separate "
+        "principal. Must remain True until a real independent approval is obtained; must be set "
+        "to False only when approval_proof_status is no longer EXTERNAL_BLOCKER.")
+
 except Exception as _e:
     chk("C48_independent_approval_obtained", False, str(_e))
 
@@ -1478,11 +1506,49 @@ try:
                 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
                 "SEQ=22 log_sha256 must match sha256 of empty string")
 
-        # Clean runs must include 23 and 24
+        # A16 (R7): All listed clean_sealed_runs must have TREE=CLEAN in archived log.
+        # Supersedes C50_clean_runs_include_23_and_24: A15 established SEQ=23 and 24 are DIRTY —
+        # the prior list membership claim was false. Evidence-based check is strictly stronger
+        # than list membership. Passes trivially when clean_sealed_runs=[].
         _c50_clean = _c50_reg.get('clean_sealed_runs', [])
-        chk("C50_clean_runs_include_23_and_24",
-            23 in _c50_clean and 24 in _c50_clean,
-            f"clean_sealed_runs={_c50_clean}")
+        _c50_logs_dir = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'logs'))
+        _c50_dirty_in_list = []
+        for _c50_seq in _c50_clean:
+            _c50_log = os.path.join(_c50_logs_dir, f'verified_run_{_c50_seq}.log')
+            if not os.path.exists(_c50_log):
+                _c50_dirty_in_list.append((_c50_seq, 'ARCHIVE_MISSING'))
+                continue
+            _c50_tree = None
+            with open(_c50_log) as _f50:
+                for _l50 in _f50:
+                    if _l50.startswith('TREE='):
+                        _c50_tree = _l50.strip().split('=', 1)[1]
+                        break
+            if _c50_tree != 'CLEAN':
+                _c50_dirty_in_list.append((_c50_seq, f'TREE={_c50_tree!r}'))
+        chk("C50_clean_sealed_runs_all_verified_clean",
+            len(_c50_dirty_in_list) == 0,
+            f"clean_sealed_runs={_c50_clean}  dirty_entries={_c50_dirty_in_list}. "
+            "All listed seqs must have TREE=CLEAN in archived log.")
+        print(f"  [C50] clean_sealed_runs={_c50_clean}  "
+              f"dirty_in_list={_c50_dirty_in_list}")
+
+        # A16 (R7): Negative control — inject known-DIRTY SEQ=23 and verify detection.
+        # A15 confirmed SEQ=23 archived log reads TREE=DIRTY (6 modified + 3 untracked).
+        _c50_nc_log = os.path.join(_c50_logs_dir, 'verified_run_23.log')
+        _c50_nc_tree = None
+        if os.path.exists(_c50_nc_log):
+            with open(_c50_nc_log) as _f50nc:
+                for _l50nc in _f50nc:
+                    if _l50nc.startswith('TREE='):
+                        _c50_nc_tree = _l50nc.strip().split('=', 1)[1]
+                        break
+        _c50_nc_detected = (_c50_nc_tree is not None and _c50_nc_tree != 'CLEAN')
+        chk("C50_neg_control_dirty_seq_detected_as_dirty",
+            _c50_nc_detected,
+            f"SEQ=23 archived TREE={_c50_nc_tree!r} — must be non-CLEAN "
+            "(A15 evidence: SEQ=23 is DIRTY; detection logic must catch it)")
 
         # Chain integrity: SEQ=22 must still be in chain (immutable)
         _c50_chain_file = os.path.normpath(os.path.join(
@@ -2296,6 +2362,28 @@ try:
             f"approved_by={_c28_approver!r} in_allowlist={_c28_in_allowlist} "
             f"(allowlist={_C28_APPROVED_IDENTITIES!r}) engine_match={_c28_engine_ok}. "
             "FAIL: allowlist is empty (no external reviewer) or engine hash mismatch.")
+
+        # A19 (R7): reconcile refs.commit_sha to run git_commit.
+        # Three values must agree: refs.commit_sha, run git_commit, refs-file last-touched commit.
+        # When they differ, decisions cannot be attributed to a single auditable commit.
+        import subprocess as _c28_sp
+        _c28_run_commit = _c28_sp.run(
+            ['git', '--no-optional-locks', '-C',
+             os.path.dirname(os.path.abspath(__file__)), 'rev-parse', 'HEAD'],
+            capture_output=True, text=True).stdout.strip()
+        _c28_refs_commit = _c28_refs.get('commit_sha', '')
+        _c28_commit_match = bool(_c28_run_commit) and (_c28_run_commit == _c28_refs_commit)
+        if not _c28_commit_match:
+            print(f"  [C28] ATTRIBUTION_GAP: refs.commit_sha={_c28_refs_commit[:16]!r} "
+                  f"!= run git_commit={_c28_run_commit[:16]!r}. "
+                  "EXTERNAL_ACTION_REQUIRED: after each code commit, update commit_sha in "
+                  "engine_integrity_refs.json to match run git HEAD, then re-seal.")
+        chk("C28_refs_commit_sha_matches_run_head",
+            _c28_commit_match,
+            f"refs.commit_sha={_c28_refs_commit[:16]!r} vs run_git_commit={_c28_run_commit[:16]!r}. "
+            "Must match for decisions to be attributable to a single auditable commit. "
+            "EXTERNAL_ACTION_REQUIRED: update commit_sha in engine_integrity_refs.json to "
+            "current git HEAD after each commit cycle.")
 
         print(f"  [C28] approved_by={_c28_approver!r}  commit={_c28_refs.get('commit_sha','?')[:16]}")
         print(f"  [C28] engine_root_hash={_c28_refs.get('engine_root_hash','?')[:32]}...")
@@ -3124,28 +3212,112 @@ except Exception as _e:
 # SEQ=32 is the audit-epoch baseline: 187 checks, established before R4 changes.
 # ─────────────────────────────────────────────────────────────────────────────
 _A8_SUPERSEDE_REGISTRY = {
-    # Checks removed as part of this session's code changes (SEQ=32 → current):
-    'C48_approval_metadata_only_flag_set':            'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C48_approval_proof_status_is_external_blocker':  'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C48_approved_by_null_or_not_forbidden':          'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C48_chain_head_has_ts_end':                      'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C48_dpl_certification_not_approved':             'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C48_neg_self_approval_is_forbidden':             'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C48_approved_at_field_present':                  'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C28_approved_by_null_or_not_forbidden':          'SUPERSEDED_BY:C28_approved_by_in_allowlist_and_engine_hash_match',
-    'C52B_genuine_scheduler_decision_exists':         'SUPERSEDED_BY:C52B_scheduler_origin_decision_exists+C52B_live_trade_decision_exists',
-    # N3 (R6): C47B renamed to make dpl/-only scope explicit in check name:
-    'C47B_source_tree_clean':                         'SUPERSEDED_BY:C47B_source_tree_clean_dpl_scope',
-    # Checks removed in prior sessions (historical — kept here for completeness):
-    'C28_approved_by_is_set_and_not_forbidden':       'SUPERSEDED_BY:C28_approved_by_null_or_not_forbidden',
-    'C33_genesis_entry_hash_valid':                   'SUPERSEDED_BY:C33_all_entry_hashes_recompute_correctly',
-    'C34_index_tsv_status':                           'SUPERSEDED_BY:C34_index_tsv_has_entries',
-    'C40_replay_tolerance_is_1e9':                    'SUPERSEDED_BY:C40_replay_tolerance_is_1e_minus_9',
-    'C48_approved_at_field_present_or_pending':       'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C48_approved_by_not_forbidden_identity':         'SUPERSEDED_BY:C48_independent_approval_obtained',
-    'C49_cannot_disable_immutability_trigger':        'SUPERSEDED_BY:C49_ddl_privilege_gap_documented',
-    'C52B_live_evidence_check':                       'SUPERSEDED_BY:C52B_live_trade_decision_exists',
-    'C52_prod_verified_decision_exists':              'SUPERSEDED_BY:C52B_genuine_scheduler_decision_exists',
+    # A17.3 (R7): each entry carries a rationale line explaining why the superseding check
+    # is at least as strong on every input the removed check failed on (subsumption requirement).
+    # A18 (R7): C48_neg_self_approval_is_forbidden and C48_approval_metadata_only_flag_set
+    # are RESTORED as separate checks — removed from registry; subsumption proof FAILED.
+    # A16 (R7): C50_clean_runs_include_23_and_24 superseded — A15 falsified SEQ=23/24 clean claim.
+
+    # ── Active supersedes: SEQ=32 baseline → current ──────────────────────────
+    # REMOVED: C48_approval_proof_status_is_external_blocker
+    # Original: PASS when refs.approval_proof_status == 'EXTERNAL_BLOCKER' string
+    # Superseding: C48_independent_approval_obtained checks actual credential fields directly
+    # Subsumption: approved_at=None fails both (status string can lie; fields cannot) ✓
+    'C48_approval_proof_status_is_external_blocker':
+        'SUPERSEDED_BY:C48_independent_approval_obtained — string-status check strictly weaker '
+        'than null-field check; any null credential fails both; string can be forged',
+
+    # REMOVED: C48_approved_by_null_or_not_forbidden
+    # Original: PASS when approved_by is None OR not in blocklist (negative gate only)
+    # Superseding: C48_independent_approval_obtained (null) + C48_neg_self_approval_is_forbidden
+    # Subsumption: approved_by in blocklist fails both old and C48_neg check ✓
+    'C48_approved_by_null_or_not_forbidden':
+        'SUPERSEDED_BY:C48_independent_approval_obtained+C48_neg_self_approval_is_forbidden — '
+        'null gate + positive forbidden gate together strictly stronger than single negative gate',
+
+    # REMOVED: C48_chain_head_has_ts_end
+    # Original: PASS when chain head entry has ts_end field
+    # Superseding: C33/C44 three-way binding verifies ts_end as part of chain integrity
+    # Subsumption: missing ts_end fails C44_three_way_binding which is run every time ✓
+    'C48_chain_head_has_ts_end':
+        'SUPERSEDED_BY:C48_independent_approval_obtained — ts_end verified by C33/C44 '
+        'three-way binding; C48 block reserved for approval credential checks only',
+
+    # REMOVED: C48_dpl_certification_not_approved
+    # Original: PASS when dpl_production_certification string ≠ approved
+    # Superseding: C48_independent_approval_obtained checks actual approval fields
+    # Subsumption: cert_string='APPROVED' but fields null fails both ✓
+    'C48_dpl_certification_not_approved':
+        'SUPERSEDED_BY:C48_independent_approval_obtained — direct field check strictly stronger '
+        'than freetext string match; null fields fail both; string alone is not proof',
+
+    # REMOVED: C48_approved_at_field_present
+    # Original: PASS when approved_at key exists (even if null)
+    # Superseding: C48_independent_approval_obtained requires non-null (strictly stronger)
+    # Subsumption: null value fails both (key-present-but-null fails new check) ✓
+    'C48_approved_at_field_present':
+        'SUPERSEDED_BY:C48_independent_approval_obtained — non-null requirement strictly '
+        'stronger than key-presence; null value fails both checks',
+
+    # REMOVED: C28_approved_by_null_or_not_forbidden
+    # Original: negative gate — PASS when approved_by is None or not in blocklist
+    # Superseding: positive allowlist gate + engine hash match (two independent predicates)
+    # Subsumption: approved_by in blocklist fails both; positive allowlist also catches
+    # identities not in blocklist but not in allowlist either ✓
+    'C28_approved_by_null_or_not_forbidden':
+        'SUPERSEDED_BY:C28_approved_by_in_allowlist_and_engine_hash_match — positive allowlist '
+        '+ engine-hash gate strictly stronger than negative blocklist alone; any blocklist '
+        'failure also fails allowlist check',
+
+    # REMOVED: C52B_genuine_scheduler_decision_exists
+    # Original: single check for any scheduler-originated decision
+    # Superseding: split into two specialized checks for clearer evidence attribution
+    # Subsumption: any input failing old check fails at least one of the two new checks ✓
+    'C52B_genuine_scheduler_decision_exists':
+        'SUPERSEDED_BY:C52B_scheduler_origin_decision_exists+C52B_live_trade_decision_exists — '
+        'split for clearer attribution; union strictly stronger; old-fail implies new-fail',
+
+    # REMOVED: C47B_source_tree_clean  [N3, R6]
+    # Original: check for stray .py files in dpl/ directory
+    # Superseding: identical logic; scope boundary made explicit in check name
+    # Subsumption: same predicate; all inputs that failed old check fail new check ✓
+    'C47B_source_tree_clean':
+        'SUPERSEDED_BY:C47B_source_tree_clean_dpl_scope — rename only; identical predicate; '
+        'scope boundary (dpl/ only) made explicit in check name per N3 directive',
+
+    # REMOVED: C50_clean_runs_include_23_and_24  [A16, R7]
+    # Original: PASS when 23 and 24 are in clean_sealed_runs list (list membership only)
+    # Superseding: C50_clean_sealed_runs_all_verified_clean reads TREE= from archived logs
+    # Subsumption: list membership without TREE=CLEAN evidence fails new check;
+    # A15 established SEQ=23/24 are TREE=DIRTY — prior list was false ✓
+    'C50_clean_runs_include_23_and_24':
+        'SUPERSEDED_BY:C50_clean_sealed_runs_all_verified_clean — A15 falsified SEQ=23/24 '
+        'clean claim; new check requires archived TREE=CLEAN evidence per listed entry; '
+        'list membership alone insufficient',
+
+    # ── Historical supersedes (prior sessions) ───────────────────────────────
+    'C28_approved_by_is_set_and_not_forbidden':
+        'SUPERSEDED_BY:C28_approved_by_null_or_not_forbidden — intermediate step; '
+        'further superseded by positive allowlist gate above',
+    'C33_genesis_entry_hash_valid':
+        'SUPERSEDED_BY:C33_all_entry_hashes_recompute_correctly — all-entry check '
+        'subsumes single-entry check',
+    'C34_index_tsv_status':
+        'SUPERSEDED_BY:C34_index_tsv_has_entries — content check subsumes existence check',
+    'C40_replay_tolerance_is_1e9':
+        'SUPERSEDED_BY:C40_replay_tolerance_is_1e_minus_9 — typo correction; same predicate',
+    'C48_approved_at_field_present_or_pending':
+        'SUPERSEDED_BY:C48_independent_approval_obtained — subsumed by non-null check',
+    'C48_approved_by_not_forbidden_identity':
+        'SUPERSEDED_BY:C48_independent_approval_obtained+C48_neg_self_approval_is_forbidden — '
+        'covered by restored neg-control',
+    'C49_cannot_disable_immutability_trigger':
+        'SUPERSEDED_BY:C49_ddl_privilege_gap_documented — gap documentation is the honest '
+        'assertion given superuser runtime role in Replit managed DB',
+    'C52B_live_evidence_check':
+        'SUPERSEDED_BY:C52B_live_trade_decision_exists — renamed for clarity',
+    'C52_prod_verified_decision_exists':
+        'SUPERSEDED_BY:C52B_genuine_scheduler_decision_exists — further superseded via split',
 }
 
 # ── Layer 1: prior-run comparison ─────────────────────────────────────────────
@@ -3156,7 +3328,11 @@ try:
         _a8_last     = json.load(open(_a8_last_path))
         _a8_prev     = set(_a8_last.get('pass_list', [])) | set(_a8_last.get('fail_list', []))
         _a8_curr     = set(_PASS) | set(_FAIL)
-        _a8_removed  = _a8_prev - _a8_curr
+        # Layer-2 meta-checks cannot be in _a8_curr at Layer-1 evaluation time because
+        # Layer-2 runs AFTER Layer-1. Exclude them from the removal check to avoid
+        # false A8_REMOVAL_VIOLATION entries. (Layer-2 adds them on every run.)
+        _A8_L1_META_EXCL = {'A8_baseline_erosion_clean', 'A8_baseline_file_missing'}
+        _a8_removed  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
         _a8_viol     = [n for n in sorted(_a8_removed) if n not in _A8_SUPERSEDE_REGISTRY]
         if _a8_viol:
             print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_viol)} prior-run removal violation(s):")
@@ -3229,6 +3405,25 @@ else:
 print("CERTIFICATION_GAP_A12: genesis anchor provenance unresolvable — "
       "ts identical to removed fabricated approval; "
       "accepted unresolved gap; trusted genesis origin cannot be established")
+# A20 (R7): C49 immutability-gap must be visible at certification level.
+# "Every immutability PASS is asserted by postgres superuser, which can disable the trigger
+# before asserting" applies to every check that tests oe_decision_audit immutability.
+# Printing this only inside C49 makes the run headline read as NNN enforced when it is not.
+# Affected checks: C16, C21, C23, C27, C30, C37, C38, C39, C47, C49.
+print("CERTIFICATION_GAP_C49: immutability assertions made by postgres superuser "
+      "(can disable trigger before asserting) — affects checks: "
+      "C16/C21/C23/C27/C30/C37/C38/C39/C47/C49. "
+      "All PASS results for these checks are conditional on the runtime DB role gap. "
+      "EXTERNAL_BLOCKER: low-privilege login-capable role required; "
+      "no path available via Replit managed DB infrastructure.")
+# A19 (R7): refs.commit_sha and run git_commit attribution gap at certification level.
+# check C28_refs_commit_sha_matches_run_head makes this FAIL explicitly in every run where
+# they diverge. Until engine_integrity_refs.json.commit_sha is updated to the current git
+# HEAD immediately before each sealed run, Monday decisions cannot be attributed to a single
+# auditable commit. This is an accepted process gap requiring an external update step.
+print("CERTIFICATION_GAP_A19: refs.commit_sha != run git_commit — Monday decisions not "
+      "attributable to a single commit. EXTERNAL_ACTION_REQUIRED: update commit_sha in "
+      "engine_integrity_refs.json to current git HEAD before each sealed run.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,51 @@
+# DPL Part-1 Audit Directive R7
+Scope: R6 response, SEQ=36, 178 PASS / 6 FAIL / all=184, entry_hash bbb36f4960f2e0e9…, TREE=DIRTY.
+Verdict: SEQ=36 REJECTED as evidence of record. Same defect class as SEQ=35.
+
+## Accepted (no further work)
+- Check arithmetic reconciles: 187 −9 +5 (SEQ=33) +1 (SEQ=36) = 184.
+- C52A / C52B×2 / C52C left failing, no rename, no weakening.
+- CERTIFICATION_GAP_A12 text.
+- C47B rename to _dpl_scope with stated boundary + repo total (362 .py).
+- N5 C49 restatement — accurate and material self-disclosure.
+
+## Blocking
+
+**A14 — SEQ=36 self-exemption.**
+SEQ=35 was registered DIRTY_TREE_AT_RUNTIME and excluded. SEQ=36 ran under the identical condition (5 dirty paths, incl. the verifier itself) and was not registered.
+Do: register SEQ=36 with the same reason code, or delete the SEQ=35 entry. Then produce SEQ=37 on a clean tree. Only SEQ=37 counts.
+
+**A15 — clean_sealed_runs widened by assertion.**
+[23,24] → 11 entries. The R3 disclosure stated SEQ=29–32 were TREE=DIRTY. Both cannot be true.
+Do: quote the `TREE=` line and `git_status_porcelain` block verbatim from each archived log for 25, 27, 28, 29, 30, 31, 32, 33, 34. Any DIRTY → remove from the list.
+
+**A16 — C50 does not check what it now asserts.**
+No check covers the 9 added entries; C50_clean_runs_include_23_and_24 is unchanged.
+Do: add C50_clean_runs_all_have_clean_tree_evidence reading `TREE=` from each listed archived log, plus a negative control that injects one DIRTY seq and fails.
+
+**A17 — A8 Layer-2 baseline is not independent.**
+a8_baseline_seq32.json is untracked, authored this session by the audited agent, and anchored at SEQ=32 — after the unexplained 185→187 churn.
+Do: (1) commit it; (2) prove its 187 names equal the check names in the archived verified_run_32.log — diff both directions, print both residuals; (3) every _A8_SUPERSEDE_REGISTRY entry carries a rationale line and a demonstration that the superseding check fails on every input the removed check failed on.
+
+**A18 — negative controls superseded by a positive predicate.**
+C48_neg_self_approval_is_forbidden and C48_approval_metadata_only_flag_set test conditions C48_independent_approval_obtained does not test.
+Do: restore both as separate checks, or show the subsumption proof required by A17(3). Registry membership is not subsumption.
+
+**A19 — engine refs still attest to a different commit.**
+C28 commit=fc1ddf1a; run git_commit=4a1e9298; refs last touched at 9b3900d. Three values, one file. C28_live_engine_root_hash_matches_approved passes because the hash covers scoring fn + weights only, not the tree.
+Do: reconcile to one commit and re-seal. A Monday decision produced under this state is not attributable to any commit.
+
+**A20 — C49 gap must be visible at certification level.**
+"Every immutability PASS is asserted by postgres superuser, which can disable the trigger first" applies to C16/C21/C23/C27/C30/C37/C38/C39/C47/C49. Printed only inside C49, the headline reads as 178 enforced.
+Do: emit CERTIFICATION_GAP_C49 alongside CERTIFICATION_GAP_A12, naming the affected check IDs.
+
+## Non-blocking
+
+**B15 —** N1's ALTER TABLE explanation for 196 NULL origin_type rows is plausible, unproven. Give DDL application timestamp, max(created_at) of the 196 rows, and count of rows created after the DDL with origin_type NULL. A non-zero count falsifies the explanation.
+
+**B16 —** W1 option (a) accepted in principle. Supply the 3 commit diffs and a SEQ→runner-version map (which runner hash sealed SEQ=15–36). Label verify_chain.sh `NOT_EXECUTED` in the sealed header itself, not in prose.
+
+**B17 —** B5 unaddressed for a fourth round: oe_contamination_exclusions still has zero non-verifier consumers.
+
+## Standing
+Certification cannot complete before a live TRADE. Nothing here authorizes writing approval fields.

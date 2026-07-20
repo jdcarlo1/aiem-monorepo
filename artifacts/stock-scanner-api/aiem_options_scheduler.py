@@ -761,6 +761,17 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         import aiem_options_dpl as _dpl
         _dpl.bootstrap_dpl(_DB_URL)
         _dpl_ready = True
+        # B17 (R7): non-verifier consumer — log contamination exclusions at startup so
+        # the scheduler never silently includes contaminated replay-input rows.
+        try:
+            _excl = _dpl.get_contamination_exclusions(_DB_URL)
+            if _excl:
+                log.warning(f"[dpl] {len(_excl)} contamination exclusion(s) active: "
+                            + ", ".join(e.get('decision_id','?') for e in _excl))
+            else:
+                log.info("[dpl] oe_contamination_exclusions: 0 rows (no exclusions active)")
+        except Exception as _excl_e:
+            log.warning(f"[dpl] contamination exclusion read failed (non-fatal): {_excl_e}")
     except Exception as _dpl_init_e:
         log.warning(f"[dpl] init failed: {_dpl_init_e}")
         _dpl_ready = False

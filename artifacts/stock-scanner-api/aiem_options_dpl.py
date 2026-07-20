@@ -1242,6 +1242,37 @@ def bootstrap_governance_tables(db_url=None) -> bool:
         conn.close()
 
 
+def get_contamination_exclusions(db_url: Optional[str] = None) -> list:
+    """B17 (R7): non-verifier consumer for oe_contamination_exclusions.
+
+    Returns a list of dicts describing all contaminated replay-input rows that
+    have been formally excluded from production reads.  The scheduler calls this
+    at startup to emit an audit log of what is excluded, so the production run
+    never silently includes contaminated rows.
+
+    Returns [] if the table does not yet exist or is empty (safe at boot).
+    """
+    import psycopg2, os as _os
+    _url = db_url or _os.environ.get('DATABASE_URL', '')
+    if not _url:
+        return []
+    try:
+        conn = psycopg2.connect(_url)
+        cur  = conn.cursor()
+        cur.execute("""
+            SELECT decision_id, reason_code, excluded_at, excluded_by, notes
+            FROM oe_contamination_exclusions
+            ORDER BY excluded_at
+        """)
+        cols = ['decision_id', 'reason_code', 'excluded_at', 'excluded_by', 'notes']
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
 def capture_replay_inputs(
     decision_id:            str,
     direction:              str,

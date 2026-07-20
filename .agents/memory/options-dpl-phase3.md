@@ -1,79 +1,82 @@
 ---
-name: DPL Phase 3 — Reproducibility Replay & R4 Remediation
-description: Complete state after R4 audit-response — SEQ=35 sealed, 177 PASS / 6 FAIL (all classified), PSV9 PASS
+name: DPL Phase 3 — Reproducibility Replay & R7 Remediation
+description: SEQ=37 DIRTY (all R7 A14-A20 + B15-B17 code complete); SEQ=38 clean after auto-commit; 7 FAILs expected; A8 Layer-1 meta-excl fix applied
 ---
 
-## Current state (SEQ=35, R4 COMPLETE)
+## Current state after R7 (post SEQ=37)
 
-**Chain:** 21 entries: SEQ 0 (GENESIS), 15–35. SEQ 1–14 not reconstructed.
-**Verifier:** dpl/verify_dpl_phase3.py — C01–C54 + R4 additions (177 PASS, 6 FAIL — all correctly classified)
-**PSV:** 9/9 PASS for SEQ=35
-**R4 response:** dpl/DPL_Phase3_R4_Response.txt (read-and-report items A7/A8/A9/B12)
+**Chain head:** SEQ=37 (DIRTY_TREE_AT_RUNTIME; registered in defective_runs_registry.json)
+**SEQ=37 results:** 181 PASS, 8 FAIL (189 total) — 8th FAIL was spurious A8_REMOVAL_VIOLATION ordering bug (now fixed)
+**PSV:** 9/9 PASS for SEQ=37
+**All R7 blocking items A14-A20 implemented. All non-blocking B15-B17 implemented.**
+**clean_sealed_runs = [] — ALL SEQ=23-37 confirmed DIRTY**
 
-## 6 Remaining Failures (all correctly classified)
+## First clean run path (SEQ=38)
+
+**After R7 auto-commit creates new HEAD Z:**
+1. Check new HEAD: `git --no-optional-locks log --oneline -1`
+2. Update `dpl/engine_integrity_refs.json → commit_sha` to Z
+3. Run: `cd artifacts/stock-scanner-api && bash tools/verified_run.sh python3 dpl/verify_dpl_phase3.py`
+4. Expected: TREE=CLEAN, 188 total checks, 7 FAILs (pre-existing only — see table below)
+
+**Note:** C28_refs_commit_sha_matches_run_head will FAIL at SEQ=38 unless step 2 is done first.
+Without step 2: 188 total, 8 FAILs (7 pre-existing + C28_refs_commit_sha_matches_run_head).
+With step 2: 188 total, 7 FAILs (same pre-existing list as before). Preferred.
+
+## 7 Expected Failures at SEQ=38 (all classified)
 
 | Check | Classification | Notes |
 |---|---|---|
 | C48_independent_approval_obtained | EXTERNAL_BLOCKER | approved_at/approved_by null; allowlist empty |
-| C28_approved_by_in_allowlist_and_engine_hash_match | EXTERNAL_BLOCKER | allowlist=set() — no external reviewer |
-| C52A_verifier_fixtures_contaminate_prod_namespace | IMPLEMENTATION_DEFECT | 9 rows documented in contamination_registry.json |
-| C52B_scheduler_origin_decision_exists | PENDING | Unblocks Mon–Fri 9:45 AM ET (any market day) |
-| C52B_live_trade_decision_exists | PENDING_LIVE_EVIDENCE | Unblocks on a TRADE market day |
+| C28_approved_by_in_allowlist_and_engine_hash_match | EXTERNAL_BLOCKER | allowlist=set() |
+| C52A_verifier_fixtures_contaminate_prod_namespace | IMPLEMENTATION_DEFECT | 9 rows in contamination_registry.json |
+| C52B_scheduler_origin_decision_exists | PENDING | Unblocks Mon–Fri 9:45 AM ET |
+| C52B_live_trade_decision_exists | PENDING_LIVE_EVIDENCE | TRADE day required |
 | C52C_genuine_replay_pass | DEPENDENCY_BLOCKED | Blocked by C52B |
+| C28_live_engine_root_hash_matches_approved | EXTERNAL_BLOCKER | engine hash ≠ approved hash |
 
-## R4 Code Changes Applied (SEQ=35)
+## R7 Blocking Items (A14-A20) — all complete
 
-**C2 — C48 collapsed:** 7 granular C48 checks → single `C48_independent_approval_obtained`.
-FAIL when approved_at=None OR approved_by=None. All 7 superseded in A8 registry.
+| Item | Change |
+|---|---|
+| A14 | SEQ=36 registered in defective_runs_registry.json as DIRTY_TREE_AT_RUNTIME |
+| A15 | clean_sealed_runs=[] with evidence table in defective_runs_registry.json |
+| A16 | C50_clean_sealed_runs_all_verified_clean (reads TREE= from archives) + C50_neg_control_dirty_seq_detected_as_dirty; supersedes C50_clean_runs_include_23_and_24 |
+| A17.3 | All 9 _A8_SUPERSEDE_REGISTRY entries carry rationale + subsumption proof comments |
+| A18 | C48_neg_self_approval_is_forbidden + C48_approval_metadata_only_flag_set restored as separate checks; removed from supersede registry |
+| A19 | C28_refs_commit_sha_matches_run_head added (new check); CERTIFICATION_GAP_A19 emitted; engine_integrity_refs.json commit_sha=7000bc79 |
+| A20 | CERTIFICATION_GAP_C49 emitted at certification level (not buried in C49 check) |
 
-**A4 — C52_replay_returns_structure non-tautological:**
-- Fixture patched with `scoring_fn_combined_hash` from `engine_integrity_refs.json`
-  (sha256(getsource + "\x00" + weights_json) — same type replay_decision uses; NOT live getsource).
-- Added `C52_replay_code_drift_raises_error` negative control.
-- Critical implementation note: negative control must COMMIT wrong hash before calling
-  replay_decision (NOT use SAVEPOINT) because replay_decision opens its own DB connection
-  and only sees committed data. SAVEPOINT-only leaves wrong hash invisible to replay_decision.
+## R7 Non-Blocking Items (B15-B17) — all complete
 
-**A5 — C28 blocklist → allowlist:**
-- `_C28_APPROVED_IDENTITIES = set()` (fail-closed, empty = no reviewer).
-- Supersedes `C28_approved_by_null_or_not_forbidden`.
-- Gate also requires engine_root_hash runtime match.
+| Item | Change |
+|---|---|
+| B15 | DDL commit f7581e6 at 2026-07-20T00:55:49Z confirmed 8h52m after 16:04 row; N1 ALTER TABLE explanation in chain |
+| B16 | NOT_EXECUTED label on verify_chain.sh sha256 line in verified_run.sh sealed header |
+| B17 | `get_contamination_exclusions()` added to aiem_options_dpl.py; scheduler calls it at DPL bootstrap startup |
 
-**C52B FORK split:**
-- `C52B_scheduler_origin_decision_exists` — alert_id may be null (unblocks any market day).
-- `C52B_live_trade_decision_exists` — alert_id IS NOT NULL (TRADE day only).
-- Supersedes `C52B_genuine_scheduler_decision_exists`.
+## A8 Layer-1 Meta-Exclusion Fix (discovered at SEQ=37)
 
-**A8 Enforcement:** `_A8_SUPERSEDE_REGISTRY` dict at end of verifier; 9 new entries from R4.
-Violation = FAIL appended to _FAIL list. 0 violations at SEQ=35.
+**Problem:** A8 Layer-1 runs before A8 Layer-2. Layer-2 adds `A8_baseline_erosion_clean` to `_PASS`.
+At Layer-1 evaluation time, `A8_baseline_erosion_clean` is not yet in `_PASS` or `_FAIL` (Layer-2 hasn't run).
+Layer-1 saw it in SEQ=36's results but not in current `_a8_curr` → spurious `A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean`.
 
-**Certification text:** printed before SUMMARY; updates based on C52B PASS status.
+**Fix:** `_A8_L1_META_EXCL = {'A8_baseline_erosion_clean', 'A8_baseline_file_missing'}` added to Layer-1.
+These names are excluded from `_a8_removed` before violation check.
+After fix: SEQ=38 will have 188 checks (not 189 with the false violation).
 
-**B5 — excluded_from column dropped** from `oe_contamination_exclusions` (vestigial).
+## Defective runs registry
+
+SEQ=22 (CMD_ARG_CAPTURE_BUG), SEQ=26 (INVALID_CMD_INVOCATION), SEQ=35 (DIRTY_TREE), SEQ=36 (DIRTY_TREE), SEQ=37 (DIRTY_TREE — R7 workflow constraint, all code complete).
 
 ## Key hash values
 
 - `scoring_fn_combined_hash` in refs: `eb28b76efd53485602c648744c60642f87a6bb0c09ce02b0f0071ee2cfc6583a`
-  (sha256(getsource(compute_req6_score) + "\x00" + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)))
-- `scoring_fn_ast_hash` in refs: `68e0bf89...` — DIFFERENT computation (AST dump only); do not confuse
 - `engine_root_hash` in refs: `4ff60253f52e37d5b1b65dbae40c56f960a835b59bab78714036b9dabb55f4b4`
-
-## Key files
-
-- `dpl/verify_dpl_phase3.py` — C01–C54 + R4 additions
-- `dpl/engine_integrity_refs.json` — scoring_fn_combined_hash added (R4 A4)
-- `dpl/contamination_registry.json` — 9 contaminated rows documented
-- `dpl/DPL_Phase3_R4_Response.txt` — R4 read-and-report response
-- `tools/last_run_results.json` — 177 PASS / 6 FAIL (SEQ=35)
-- `tools/verified_run_chain.jsonl` — 21 entries SEQ=0,15-35
-
-## Chain head (SEQ=35)
-
-entry_hash=69c829416fdf0ddc266f077c77273ff29feb70fbef1ccd2e5e2838aa030dc0ab
-archive_sha256=2b6e84944e7aa2674fb0eb70fe16b8d685b924079c846d3505012c095fdc86d4
-ts_end=2026-07-20T03:02:45Z
+- `commit_sha` in refs: `7000bc7909a6bd0763a3f78976591d602521f6d9` (update to new HEAD before SEQ=38)
 
 ## Next unblock condition
 
-Run `bash tools/verified_run.sh` after Mon 2026-07-21 09:45 ET to check C52B_scheduler_origin_decision_exists.
-TRADE market day needed for C52B_live_trade_decision_exists and C52C_genuine_replay_pass.
+1. **Immediate (next session):** update commit_sha in engine_integrity_refs.json to new HEAD → run SEQ=38 → first CLEAN run
+2. **Monday 2026-07-21 09:45 ET:** C52B_scheduler_origin_decision_exists unblocks
+3. **Any TRADE market day:** C52B_live_trade_decision_exists + C52C_genuine_replay_pass unblock

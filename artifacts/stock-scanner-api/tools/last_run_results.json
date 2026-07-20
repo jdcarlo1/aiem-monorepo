@@ -1,10 +1,10 @@
 {
   "schema_version": "1",
-  "run_ts": "2026-07-20T03:32:25Z",
-  "total_pass": 178,
-  "total_fail": 6,
+  "run_ts": "2026-07-20T04:03:53Z",
+  "total_pass": 181,
+  "total_fail": 8,
   "total_pending": 0,
-  "all_checks": 184,
+  "all_checks": 189,
   "reconciliation": {
     "sum_eq_total": true,
     "pass_plus_fail_eq_all": true
@@ -66,6 +66,8 @@
     "C47_neg_post_enforcement_registration_blocked",
     "C47_neg_update_production_row_blocked",
     "C47B_source_tree_clean_dpl_scope",
+    "C48_neg_self_approval_is_forbidden",
+    "C48_approval_metadata_only_flag_set",
     "C49_db_role_gap_documented_external_blocker",
     "C49_ddl_privilege_gap_documented",
     "C49_truncate_blocked_by_trigger",
@@ -76,7 +78,8 @@
     "C50_seq22_has_correcting_seq",
     "C50_seq22_excluded_from_clean_runs",
     "C50_seq22_log_sha256_is_empty_string_sha",
-    "C50_clean_runs_include_23_and_24",
+    "C50_clean_sealed_runs_all_verified_clean",
+    "C50_neg_control_dirty_seq_detected_as_dirty",
     "C50_seq22_preserved_in_chain",
     "C50_chain_continuity_through_seq22",
     "C51_baseline_psv24_passes",
@@ -115,9 +118,9 @@
     "C28_refs_file_exists",
     "C28_refs_has_commit_sha",
     "C28_refs_has_engine_root_hash",
-    "C28_live_engine_root_hash_matches_approved",
     "C28_scoring_fn_ast_hash_component_matches",
     "C28_req6_weights_hash_component_matches",
+    "C28_refs_commit_sha_matches_run_head",
     "C29_role_aiem_app_exists",
     "C29_role_aiem_verify_exists",
     "C29_role_aiem_approve_exists",
@@ -195,6 +198,8 @@
     "C52B_scheduler_origin_decision_exists",
     "C52B_live_trade_decision_exists",
     "C52C_genuine_replay_pass",
-    "C28_approved_by_in_allowlist_and_engine_hash_match"
+    "C28_live_engine_root_hash_matches_approved",
+    "C28_approved_by_in_allowlist_and_engine_hash_match",
+    "A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean"
   ]
 }

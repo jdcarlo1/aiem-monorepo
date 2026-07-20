@@ -744,3 +744,9 @@ id = "gmijYZQ6UeKj4DzORxgQ6"
 uri = "file://artifacts/stock-scanner-api/tools/R6_findings_seq36.txt"
 type = "text"
 title = "R6 Audit Response Findings — SEQ=36 (178P / 6F)"
+
+[[outputs]]
+id = "xYIwyl7hjCIy2Xs8888x1"
+uri = "file://artifacts/stock-scanner-api/DPL_R7_Findings_Report.md"
+type = "text"
+title = "DPL R7 Audit Response — Findings Report"

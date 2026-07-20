@@ -25,7 +25,8 @@
     "version": "2"
   },
   "canonicalization_version": "2",
-  "commit_sha": "fc1ddf1a43b53c5fef9f2e4e4760bcdc20ea2253",
+  "commit_sha": "7000bc7909a6bd0763a3f78976591d602521f6d9",
+  "commit_sha_note": "A19 (R7): updated to current HEAD (7000bc79). After each auto-commit cycle this field must be updated to the new HEAD SHA before the next sealed run, so that refs.commit_sha == run git_commit == refs-file last-touched commit. The check C28_refs_commit_sha_matches_run_head will FAIL explicitly if they diverge.",
   "config_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "decision_path_combined_hash": "2c8c67f3168f1382519787c84660252a4ecf2c2721c8a9f3db6490baed9ed000",
   "decision_path_module_hashes": {
