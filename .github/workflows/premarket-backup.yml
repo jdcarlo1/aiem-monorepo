@@ -1,0 +1,108 @@
+name: AIEM Premarket Backup
+
+# Fires every 15 min during the premarket window (7:00–9:15 AM ET = 11:00–13:15 UTC)
+# Mon-Fri. Calls aiem-process warmup + premarket scan so D1→D2→D3 runs even if the
+# Replit scheduler booted late (e.g. after the 3 AM nightly reset).
+#
+# The endpoint (/stock-api/admin/aiem-process/run-scan) proxies to
+# localhost:5055/run-scan which runs:
+#   1. aiem_warmup()        → Polygon full-market snapshot (seeds D1 universe)
+#   2. aiem_premarket_scan() → Tradier live prices + D1/D2 scoring + DB write
+# After this, the open_watcher at 9:30 AM ET picks up the predictions and
+# runs the D3 governance + Telegram alerts as normal.
+#
+# This workflow NEVER executes trades — it only populates prediction tables.
+
+on:
+  schedule:
+    # 7:00–7:45 AM ET (11:00–11:45 UTC) every 15 min
+    - cron: '0,15,30,45 11 * * 1-5'
+    # 8:00–8:45 AM ET (12:00–12:45 UTC) every 15 min
+    - cron: '0,15,30,45 12 * * 1-5'
+    # 9:00 AM and 9:15 AM ET (13:00 and 13:15 UTC)
+    - cron: '0,15 13 * * 1-5'
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Set to "true" to log only, skip the actual scan trigger'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: aiem-premarket-backup
+  cancel-in-progress: false
+
+jobs:
+  premarket-scan:
+    name: Trigger AIEM Premarket Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Trigger warmup + premarket scan
+        env:
+          REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
+          ADMIN_TOKEN:    ${{ secrets.ADMIN_TOKEN }}
+          DRY_RUN:        ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          echo "=== AIEM Premarket Backup ==="
+          echo "UTC time : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Run ID   : ${{ github.run_id }}"
+          echo "Dry run  : ${DRY_RUN}"
+          echo "=============================="
+
+          # Window guard: only act 7:00–9:20 AM ET (11:00–13:20 UTC)
+          HOUR_UTC=$(date -u +%H)
+          MIN_UTC=$(date -u +%M)
+          TIME_UTC=$(( HOUR_UTC * 60 + MIN_UTC ))
+          WINDOW_START=$(( 11 * 60 ))       # 7:00 AM ET
+          WINDOW_END=$(( 13 * 60 + 20 ))    # 9:20 AM ET
+
+          if [ "${TIME_UTC}" -lt "${WINDOW_START}" ] || [ "${TIME_UTC}" -gt "${WINDOW_END}" ]; then
+            echo "Outside premarket window (${HOUR_UTC}:${MIN_UTC} UTC) — no action"
+            exit 0
+          fi
+
+          echo "In premarket window — triggering D1/D2/D3 scan..."
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY RUN — skipping actual trigger"
+            exit 0
+          fi
+
+          RESPONSE=$(curl -sf -X POST \
+            "${REPLIT_APP_URL}/stock-api/admin/aiem-process/run-scan" \
+            -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --max-time 20 \
+            --retry 1 --retry-delay 5 2>&1) || RESPONSE='{"error":"curl failed or timeout"}'
+
+          echo "Response: ${RESPONSE}"
+
+          # Parse status
+          STATUS=$(echo "${RESPONSE}" | python3 -c \
+            "import sys,json
+try:
+    d=json.load(sys.stdin)
+    if 'error' in d:
+        print(f'ERROR: {d[\"error\"]}')
+        hint = d.get('hint','')
+        if hint:
+            print(f'Hint: {hint}')
+        sys.exit(1)
+    print(f'OK: {d.get(\"status\",\"unknown\")} — {d.get(\"aiem_process\",\"\")}')
+except Exception as e:
+    print(f'PARSE ERROR: {e}')
+    sys.exit(1)" 2>&1) || true
+
+          echo "${STATUS}"
+
+          # Soft failure: aiem-process may still be booting, log but don't fail the job
+          # The next 15-min run will retry automatically
+          if echo "${STATUS}" | grep -q "ERROR"; then
+            echo "WARNING: scan trigger failed — will retry at next 15-min interval"
+            exit 0
+          fi
+
+          echo "Premarket scan triggered. Predictions will be available in ~60s at /stock-api/aiem-predictions"
