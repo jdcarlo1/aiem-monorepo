@@ -14,15 +14,27 @@
       "defect_discovery_timestamp": "2026-07-19T23:28:00Z",
       "correcting_fix": "CMD=${*} (all args) instead of CMD=${1} (first arg only)",
       "corrected_in_seq": 23,
-      "chain_integrity": "PRESERVED — SEQ=22 is immutable in the chain. prev_hash continuity is valid from SEQ=21 through SEQ=22 to SEQ=23. The defective run does NOT break chain continuity.",
+      "chain_integrity": "PRESERVED \u2014 SEQ=22 is immutable in the chain. prev_hash continuity is valid from SEQ=21 through SEQ=22 to SEQ=23. The defective run does NOT break chain continuity.",
       "exclusions": [
         "SEQ=22 must not be cited as a successful verification run",
         "SEQ=22 must not be included in any PASS count",
         "SEQ=22 archive content is valid (header + footer only, no CMD output)"
       ],
       "included_in_clean_runs": false
+    },
+    {
+      "seq": 26,
+      "reason_code": "INVALID_CMD_INVOCATION",
+      "description": "verified_run.sh called with label args instead of CMD; shell interpreted them as CMD, exit 127",
+      "registered_at": "2026-07-20T00:23:46Z",
+      "archive_sha256": "d4519dc30ca790765e2cbf30fadbe3636209f28d99f9c48765ae0b50358b9863",
+      "exit_code": 127
     }
   ],
-  "clean_sealed_runs": [23, 24],
-  "registry_sha256_note": "sha256 of this file is verified by C50 in verify_dpl_phase3.py"
+  "clean_sealed_runs": [
+    23,
+    24
+  ],
+  "registry_sha256_note": "sha256 of this file is verified by C50 in verify_dpl_phase3.py",
+  "total_defective": 2
 }

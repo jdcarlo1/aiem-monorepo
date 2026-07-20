@@ -1,0 +1,119 @@
+{
+  "contaminated_rows": [
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "ee74327806f841a7a4034dcc",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "90ab047a16004ee394620345",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "64d956c7ee1b4bbd83147861",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "43fc85d578a940069f0dc94d",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "9d54962e4cb946a58d557ce2",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "ef3a765a417843e6a620f010",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "d73cc2f132794e5ea67abac0",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": true,
+      "decision_id": "e391103d68324a6d8acd4507",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    },
+    {
+      "actual_classification": "VERIFIER_FIXTURE",
+      "alert_id": null,
+      "correction_rationale": "origin_type=NULL, alert_id=NULL, scheduler_job_id=NULL confirm no scheduler origin",
+      "db_correction_registered": false,
+      "decision_id": "2d03987f38c44c0bbb2daa73",
+      "file_correction_registered": true,
+      "origin_type": null,
+      "scheduler_job_id": null,
+      "stored_is_test_record": false,
+      "table": "oe_decision_replay_inputs"
+    }
+  ],
+  "db_corrections_registered": 8,
+  "description": "Verifier-fixture rows incorrectly stored with is_test_record=FALSE in oe_decision_replay_inputs. Root cause: prior verifier code (C06/C16) used is_test_record=FALSE for test fixtures; fixed to use is_test_record=TRUE in current verifier. UPDATE trigger prevents correcting is_test_record on existing rows in-place. 8 rows registered in oe_synthetic_row_corrections (field_corrected=is_test_record). 1 row (2d03987f) registered here only \u2014 no FK-compatible oe_known_synthetic_rows entry.",
+  "file_only_corrections": 1,
+  "generated_at": "2026-07-20T00:17:35Z",
+  "registry_version": "1",
+  "sha256": "accb6693b305b264ea46cc6f6e7f9f608862c59f3cbe3772cdcfe65f24bcfab4",
+  "total_contaminated": 9
+}

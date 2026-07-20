@@ -1,0 +1,1490 @@
+{
+  "registry_version": "1",
+  "source_run": "SEQ=25",
+  "generated_at": "2026-07-20T00:16:28Z",
+  "total_checks": 176,
+  "total_pass": 175,
+  "total_fail": 1,
+  "total_pending": 0,
+  "category_totals": {
+    "APPROVAL_METADATA": {
+      "pass": 7,
+      "fail": 0
+    },
+    "CHAIN_GAP_STATEMENT": {
+      "pass": 7,
+      "fail": 0
+    },
+    "CHAIN_INTEGRITY": {
+      "pass": 27,
+      "fail": 0
+    },
+    "CODE_WEIGHT_DRIFT_DETECTION": {
+      "pass": 3,
+      "fail": 0
+    },
+    "CURRENT_DPL_TRACE": {
+      "pass": 4,
+      "fail": 1
+    },
+    "DB_RUNTIME_ROLE": {
+      "pass": 4,
+      "fail": 0
+    },
+    "DEFECTIVE_RUNS_REGISTRY": {
+      "pass": 9,
+      "fail": 0
+    },
+    "DETERMINISM_AND_CONCURRENCY": {
+      "pass": 17,
+      "fail": 0
+    },
+    "EXEMPTION_AND_ROLE_REGISTRY": {
+      "pass": 27,
+      "fail": 0
+    },
+    "IMMUTABILITY_TRIGGERS": {
+      "pass": 2,
+      "fail": 0
+    },
+    "LEGACY_CUTOFF_ENFORCEMENT": {
+      "pass": 7,
+      "fail": 0
+    },
+    "NULL_SCORES_AND_CONSTRAINTS": {
+      "pass": 5,
+      "fail": 0
+    },
+    "PSV_NEGATIVE_CONTROLS": {
+      "pass": 6,
+      "fail": 0
+    },
+    "REPLAY_INFRASTRUCTURE": {
+      "pass": 12,
+      "fail": 0
+    },
+    "SYNTHETIC_ROW_ENFORCEMENT": {
+      "pass": 9,
+      "fail": 0
+    },
+    "TABLE_PROTECTION_AND_PSV": {
+      "pass": 29,
+      "fail": 0
+    }
+  },
+  "reconciliation": {
+    "sum_category_pass_eq_total_pass": true,
+    "sum_category_fail_eq_total_fail": true,
+    "all_checks_accounted": true
+  },
+  "checks": [
+    {
+      "seq": 1,
+      "check_id": "C01_imports_ok",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 2,
+      "check_id": "C02_table_exists",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 3,
+      "check_id": "C03_columns_present",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 4,
+      "check_id": "C04_bootstrap_idempotent",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 5,
+      "check_id": "C05_missing_evidence_loud_fail",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 6,
+      "check_id": "C06_capture_writes_row",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 7,
+      "check_id": "C07_replay_returns_structure",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 8,
+      "check_id": "C08_call_score_replay_match",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 9,
+      "check_id": "C09_put_score_replay_match",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 10,
+      "check_id": "C10_direction_replay_match",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 11,
+      "check_id": "C11_mutation_row_replays",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 12,
+      "check_id": "C12_mutation_changes_output",
+      "category": "REPLAY_INFRASTRUCTURE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 13,
+      "check_id": "C13_single_weights_source",
+      "category": "CODE_WEIGHT_DRIFT_DETECTION",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 14,
+      "check_id": "C14_weight_hash_changes",
+      "category": "CODE_WEIGHT_DRIFT_DETECTION",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 15,
+      "check_id": "C15_code_drift_loud_fail",
+      "category": "CODE_WEIGHT_DRIFT_DETECTION",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 16,
+      "check_id": "C16_trigger_blocks_prod_update",
+      "category": "IMMUTABILITY_TRIGGERS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 17,
+      "check_id": "C17_is_test_record_set",
+      "category": "IMMUTABILITY_TRIGGERS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 18,
+      "check_id": "C18_null_scores_return_none",
+      "category": "NULL_SCORES_AND_CONSTRAINTS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 19,
+      "check_id": "C19_weights_drift_snapshot",
+      "category": "NULL_SCORES_AND_CONSTRAINTS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 20,
+      "check_id": "C20_constraint_has_CODE_DRIFT",
+      "category": "NULL_SCORES_AND_CONSTRAINTS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 21,
+      "check_id": "C20_constraint_has_WEIGHTS_DRIFT",
+      "category": "NULL_SCORES_AND_CONSTRAINTS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 22,
+      "check_id": "C20_constraint_has_REPLAY_ERROR",
+      "category": "NULL_SCORES_AND_CONSTRAINTS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 23,
+      "check_id": "C21_immutability_trigger_exists",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 24,
+      "check_id": "C21_immutability_trigger_blocks_update",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 25,
+      "check_id": "C22_criterion1_no_unallowlisted_eligible_rows",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 26,
+      "check_id": "C22_neg_ctl_unallowlisted_row_causes_fail",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 27,
+      "check_id": "C23_cutoff_trigger_exists",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 28,
+      "check_id": "C23_cutoff_trigger_blocks_post_wiring_registration",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 29,
+      "check_id": "C24_cutoff_literal_matches_git_commit_d9d6987e",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 30,
+      "check_id": "C25_tgenabled_cutoff_trigger",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 31,
+      "check_id": "C26_tgenabled_immutability_trigger",
+      "category": "SYNTHETIC_ROW_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 32,
+      "check_id": "C43_chain_file_exists_and_canonical",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 33,
+      "check_id": "C43_all_tools_reference_canonical_chain",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 34,
+      "check_id": "C43_chain_pos_test_parses_all_entries",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 35,
+      "check_id": "C43_neg_no_second_chain_file",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 36,
+      "check_id": "C43_missing_chain_would_fail_closed",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 37,
+      "check_id": "C44_chain_archive_sha_equals_file_sha",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 38,
+      "check_id": "C44_chain_archive_sha_equals_index_sha",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 39,
+      "check_id": "C44_index_sha_equals_file_sha",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 40,
+      "check_id": "C45_gap_explanation_file_exists",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 41,
+      "check_id": "C45_gap_explains_missing_seqs",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 42,
+      "check_id": "C45_gap_explains_root_cause",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 43,
+      "check_id": "C45_gap_has_genesis_anchor",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 44,
+      "check_id": "C45_genesis_hash_matches_chain",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 45,
+      "check_id": "C46_direction_uses_gte_for_call",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 46,
+      "check_id": "C46_scores_rounded_before_comparison",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 47,
+      "check_id": "C46_identical_inputs_produce_identical_scores",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 48,
+      "check_id": "C46_tied_scores_with_small_margin_are_no_trade",
+      "category": "DETERMINISM_AND_CONCURRENCY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 49,
+      "check_id": "C47_legacy_cutoff_table_exists",
+      "category": "LEGACY_CUTOFF_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 50,
+      "check_id": "C47_alert_id_25_registered_as_legacy",
+      "category": "LEGACY_CUTOFF_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 51,
+      "check_id": "C47_alert_predates_enforcement",
+      "category": "LEGACY_CUTOFF_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 52,
+      "check_id": "C47_immutability_trigger_exists",
+      "category": "LEGACY_CUTOFF_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 53,
+      "check_id": "C47_post_enforcement_block_trigger_exists",
+      "category": "LEGACY_CUTOFF_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 54,
+      "check_id": "C47_neg_post_enforcement_registration_blocked",
+      "category": "LEGACY_CUTOFF_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 55,
+      "check_id": "C47_neg_update_production_row_blocked",
+      "category": "LEGACY_CUTOFF_ENFORCEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 56,
+      "check_id": "C48_approval_proof_status_is_external_blocker",
+      "category": "APPROVAL_METADATA",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 57,
+      "check_id": "C48_approval_metadata_only_flag_set",
+      "category": "APPROVAL_METADATA",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 58,
+      "check_id": "C48_dpl_certification_not_approved",
+      "category": "APPROVAL_METADATA",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 59,
+      "check_id": "C48_approved_by_not_forbidden_identity",
+      "category": "APPROVAL_METADATA",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 60,
+      "check_id": "C48_approved_at_field_present",
+      "category": "APPROVAL_METADATA",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 61,
+      "check_id": "C48_neg_self_approval_is_forbidden",
+      "category": "APPROVAL_METADATA",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 62,
+      "check_id": "C48_chain_head_has_ts_end",
+      "category": "APPROVAL_METADATA",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 63,
+      "check_id": "C49_db_role_gap_documented_external_blocker",
+      "category": "DB_RUNTIME_ROLE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 64,
+      "check_id": "C49_cannot_disable_immutability_trigger",
+      "category": "DB_RUNTIME_ROLE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 65,
+      "check_id": "C49_truncate_blocked_by_trigger",
+      "category": "DB_RUNTIME_ROLE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 66,
+      "check_id": "C49_update_immutable_audit_blocked",
+      "category": "DB_RUNTIME_ROLE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 67,
+      "check_id": "C50_defective_runs_registry_exists",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 68,
+      "check_id": "C50_seq22_is_registered_defective",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 69,
+      "check_id": "C50_seq22_has_reason_code",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 70,
+      "check_id": "C50_seq22_has_correcting_seq",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 71,
+      "check_id": "C50_seq22_excluded_from_clean_runs",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 72,
+      "check_id": "C50_seq22_log_sha256_is_empty_string_sha",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 73,
+      "check_id": "C50_clean_runs_include_23_and_24",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 74,
+      "check_id": "C50_seq22_preserved_in_chain",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 75,
+      "check_id": "C50_chain_continuity_through_seq22",
+      "category": "DEFECTIVE_RUNS_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 76,
+      "check_id": "C51_baseline_psv24_passes",
+      "category": "PSV_NEGATIVE_CONTROLS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 77,
+      "check_id": "C51_neg_wrong_seq_fails",
+      "category": "PSV_NEGATIVE_CONTROLS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 78,
+      "check_id": "C51_neg_missing_archive_fails",
+      "category": "PSV_NEGATIVE_CONTROLS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 79,
+      "check_id": "C51_neg_modified_archive_fails",
+      "category": "PSV_NEGATIVE_CONTROLS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 80,
+      "check_id": "C51_neg_corrupted_index_sha_fails",
+      "category": "PSV_NEGATIVE_CONTROLS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 81,
+      "check_id": "C51_neg_missing_summary_fails",
+      "category": "PSV_NEGATIVE_CONTROLS",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 82,
+      "check_id": "C52_prod_verified_decision_exists",
+      "category": "CURRENT_DPL_TRACE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 83,
+      "check_id": "C52_replay_returns_structure",
+      "category": "CURRENT_DPL_TRACE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 84,
+      "check_id": "C52_replay_full_match",
+      "category": "CURRENT_DPL_TRACE",
+      "status": "FAIL",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 85,
+      "check_id": "C52_verification_status_is_verified",
+      "category": "CURRENT_DPL_TRACE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 86,
+      "check_id": "C52_decision_audit_row_immutable",
+      "category": "CURRENT_DPL_TRACE",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 87,
+      "check_id": "C53_gap_explanation_exists",
+      "category": "CHAIN_GAP_STATEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 88,
+      "check_id": "C53_has_corrected_continuity_statement",
+      "category": "CHAIN_GAP_STATEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 89,
+      "check_id": "C53_corrected_statement_mentions_genesis",
+      "category": "CHAIN_GAP_STATEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 90,
+      "check_id": "C53_corrected_statement_says_seqs_not_reconstructed",
+      "category": "CHAIN_GAP_STATEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 91,
+      "check_id": "C53_genesis_labeled_synthetic",
+      "category": "CHAIN_GAP_STATEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 92,
+      "check_id": "C53_first_fully_durable_run_is_15",
+      "category": "CHAIN_GAP_STATEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 93,
+      "check_id": "C53_has_no_retroactive_entry_claim",
+      "category": "CHAIN_GAP_STATEMENT",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 94,
+      "check_id": "C27_oe_unreplayable_rows_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 95,
+      "check_id": "C27_reason_code_check_has_all_5_values",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 96,
+      "check_id": "C27_unreplayable_rows_immutability_trigger",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 97,
+      "check_id": "C27_unreplayable_rows_has_2_registered_exemptions",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 98,
+      "check_id": "C27_both_code_drift_rows_registered",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 99,
+      "check_id": "C27_all_exemptions_not_recoverable",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 100,
+      "check_id": "C27_neg_invalid_reason_code_blocked",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 101,
+      "check_id": "C28_refs_file_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 102,
+      "check_id": "C28_approved_by_is_set_and_not_forbidden",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 103,
+      "check_id": "C28_refs_has_commit_sha",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 104,
+      "check_id": "C28_refs_has_engine_root_hash",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 105,
+      "check_id": "C28_live_engine_root_hash_matches_approved",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 106,
+      "check_id": "C28_scoring_fn_ast_hash_component_matches",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 107,
+      "check_id": "C28_req6_weights_hash_component_matches",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 108,
+      "check_id": "C29_role_aiem_app_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 109,
+      "check_id": "C29_role_aiem_verify_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 110,
+      "check_id": "C29_role_aiem_approve_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 111,
+      "check_id": "C29_roles_not_superuser",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 112,
+      "check_id": "C29_roles_nologin",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 113,
+      "check_id": "C29_aiem_app_no_trigger_ddl_on_audit",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 114,
+      "check_id": "C29_aiem_app_has_insert_on_audit",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 115,
+      "check_id": "C30_oe_gate_events_table_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 116,
+      "check_id": "C30_action_taken_check_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 117,
+      "check_id": "C30_gate_events_immutability_trigger",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 118,
+      "check_id": "C31_oe_synth_corrections_table_exists",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 119,
+      "check_id": "C31_synth_corrections_immutability_trigger",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 120,
+      "check_id": "C32_origin_attribution_columns_exist",
+      "category": "EXEMPTION_AND_ROLE_REGISTRY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 121,
+      "check_id": "C33_chain_file_exists",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 122,
+      "check_id": "C33_chain_has_genesis_entry",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 123,
+      "check_id": "C33_no_malformed_json_records",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 124,
+      "check_id": "C33_no_duplicate_seq_ids",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 125,
+      "check_id": "C33_physical_eq_parsed",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 126,
+      "check_id": "C33_parsed_eq_unique_seq",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 127,
+      "check_id": "C33_unique_eq_declared",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 128,
+      "check_id": "C33_all_entry_hashes_recompute_correctly",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 129,
+      "check_id": "C33_chain_continuity",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 130,
+      "check_id": "C34_logs_directory_exists",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 131,
+      "check_id": "C34_index_tsv_has_entries",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 132,
+      "check_id": "C34_restore_sha256_matches_index",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 133,
+      "check_id": "C36_gate_blocks_missing_refs_file",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 134,
+      "check_id": "C36_gate_blocks_import_failure",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 135,
+      "check_id": "C36_gate_blocks_permission_failure",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 136,
+      "check_id": "C36_gate_blocks_io_failure",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 137,
+      "check_id": "C36_gate_blocks_invalid_refs_file",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 138,
+      "check_id": "C36_gate_blocks_unknown_exception",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 139,
+      "check_id": "C36_no_failopen_warning_continue",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 140,
+      "check_id": "C36_env_check_exists",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 141,
+      "check_id": "C36_neg_missing_refs_raises_valueerror",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 142,
+      "check_id": "C36_neg_corrupt_json_would_block",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 143,
+      "check_id": "C37_oe_index_corrections_table_exists",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 144,
+      "check_id": "C37_index_corrections_immutability_trigger",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 145,
+      "check_id": "C37_index_corrections_truncate_trigger",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 146,
+      "check_id": "C37_neg_update_production_row_blocked",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 147,
+      "check_id": "C37_neg_truncate_blocked",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 148,
+      "check_id": "C38_all_tables_have_truncate_triggers",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 149,
+      "check_id": "C38_all_truncates_blocked",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 150,
+      "check_id": "C39_oe_decision_snapshots_exists",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 151,
+      "check_id": "C39_required_columns_present",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 152,
+      "check_id": "C39_immutability_trigger_exists",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 153,
+      "check_id": "C39_snapshot_write_read_roundtrip",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 154,
+      "check_id": "C39_neg_update_production_snapshot_blocked",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 155,
+      "check_id": "C39_neg_truncate_blocked",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 156,
+      "check_id": "C40_old_tolerance_removed",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 157,
+      "check_id": "C40_replay_tolerance_is_1e_minus_9",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 158,
+      "check_id": "C40_boundary_exact_match",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 159,
+      "check_id": "C40_boundary_threshold_miss",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 160,
+      "check_id": "C40_boundary_margin_threshold",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 161,
+      "check_id": "C40_tolerance_documented",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 162,
+      "check_id": "C41_exactly_one_claim_from_concurrent_workers",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 163,
+      "check_id": "C41_losing_workers_got_no_claim",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 164,
+      "check_id": "C35_recover_stale_jobs_function_exists",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 165,
+      "check_id": "C35_recover_stale_jobs_uses_crontrigger",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 166,
+      "check_id": "C35_atomic_claim_pattern_exists",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 167,
+      "check_id": "C35_pipeline_jobs_unique_constraint_exists",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 168,
+      "check_id": "C35_no_stuck_processing_jobs",
+      "category": "CHAIN_INTEGRITY",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 169,
+      "check_id": "C42_post_seal_verify_script_exists",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 170,
+      "check_id": "C42_psv_checks_archive_sha",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 171,
+      "check_id": "C42_psv_checks_chain_entry",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 172,
+      "check_id": "C42_psv_checks_entry_hash",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 173,
+      "check_id": "C42_psv_checks_prev_continuity",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 174,
+      "check_id": "C42_psv_checks_summary_line",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 175,
+      "check_id": "C42_verified_run_calls_post_seal_verifier",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    },
+    {
+      "seq": 176,
+      "check_id": "C42_neg_missing_archive_causes_psv1_fail",
+      "category": "TABLE_PROTECTION_AND_PSV",
+      "status": "PASS",
+      "source_run": "SEQ=25",
+      "source_log": "tools/logs/verified_run_25.log"
+    }
+  ]
+}

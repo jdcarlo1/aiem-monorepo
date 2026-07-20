@@ -1,0 +1,260 @@
+===========================================================
+AIEM OPTIONS ENGINE — DECISION PROOF LAYER
+FINAL REMEDIATION — PART 1 OF 2
+REPORT, EVIDENCE, REPLAY, AND CHAIN INTEGRITY
+
+The previous report is NOT accepted.
+
+Fix every item below. Do not provide narrative explanations without objective evidence. Do not mark an item PASS unless it is implemented, tested, and traceable to sealed evidence.
+
+===========================================================
+0. REQUIRED REMEDIATION MATRIX
+
+The new report must begin with a Remediation Matrix containing:
+
+• Issue ID
+• Original finding
+• Root cause
+• Exact fix
+• Files/functions/database objects modified
+• Commit SHA and relevant SHA-256 hashes
+• Test performed
+• Negative control
+• Evidence reference
+• Result: PASS / FAIL / PENDING / EXTERNAL BLOCKER
+
+Include totals for:
+
+• Total issues
+• Resolved
+• Failed
+• Pending
+• External blockers
+• New defects
+• Regressions
+
+Fail report generation if any prior issue is missing or lacks evidence.
+
+===========================================================
+
+1. FIX TIMESTAMP AND APPROVAL ORDER
+    ===========================================================
+
+The previous report contained an approval timestamp later than the report-generation timestamp.
+
+Required:
+
+• Remove placeholder or future timestamps.
+• Record actual UTC timestamps automatically.
+• Generate the report only after approval.
+• Enforce:
+
+report_generated_at >= approved_at
+
+Negative controls:
+
+• Future approval timestamp must fail.
+• Missing approval timestamp must fail.
+• Modified timestamp must invalidate verification.
+
+===========================================================
+2. FIX PASS/FAIL TOTALS
+
+The previous category totals did not equal the claimed 175 PASS.
+
+Required:
+
+• Create one machine-readable test registry.
+• Assign every test a unique ID and one category.
+• Generate category and grand totals automatically.
+• Prevent duplicate or missing test counts.
+• Abort report generation if totals do not reconcile.
+
+Required equations:
+
+sum(category PASS) = total PASS
+sum(category FAIL) = total FAIL
+all tests = PASS + FAIL + PENDING
+
+Provide the complete test registry and reconciliation output.
+
+===========================================================
+3. REMOVE TEST-FIXTURE CONTAMINATION
+
+Verifier fixtures were incorrectly stored as production records with is_test_record=FALSE.
+
+Required:
+
+• Identify every synthetic or verifier-created row.
+• Preserve invalid historical evidence through a correction/quarantine registry.
+• Mark all fixtures is_test_record=TRUE.
+• Prevent synthetic data from being classified as production.
+• Use an isolated test schema or test database.
+• Add provenance fields such as source_origin, verifier_run_id, and fixture_id.
+• Block verifier identities from creating production-designated records.
+
+Negative controls:
+
+• Fixture marked production must fail.
+• Missing provenance must fail.
+• Test record used for certification must fail.
+
+===========================================================
+4. COMPLETE A GENUINE PRODUCTION REPLAY
+
+Run a real market-day scheduler cycle. No manual trigger and no verifier fixture may satisfy this requirement.
+
+Capture and seal:
+
+• Scheduler run
+• Real market and options data
+• Complete stock/options replay snapshots
+• Scoring weights
+• Market and volatility regime
+• Risk output
+• Execution-intelligence output
+• Portfolio impact
+• Decision, direction, strategy, scores, confidence, and explanation
+• Alternatives evaluated and rejection reasons
+• Entry, exit, stop, and invalidation rules
+
+Replay must reproduce:
+
+• Scores
+• Direction
+• Strategy
+• Confidence
+• Expected value
+• Risk result
+• Capital-preservation result
+• Explanation and alternative rejection reasons
+
+Run replay twice from the same sealed inputs and require identical results.
+
+Categorical values and hashes must match exactly. Numeric tolerance must be defined and no greater than 1e-9 unless technically justified.
+
+Provide:
+
+• decision_id
+• alert_id
+• trace_id
+• scheduler_run_id
+• snapshot IDs
+• audit ID
+• chain sequence/hash
+• SQL rows
+• scheduler logs
+• replay logs
+• complete timeline
+
+===========================================================
+5. CORRECT C52 CLASSIFICATION
+
+Separate C52 into:
+
+C52-A — verifier fixture incorrectly classified as production
+Result: IMPLEMENTATION DEFECT
+
+C52-B — no genuine live market-day replay evidence
+Result: PENDING LIVE EVIDENCE
+
+C52-C — genuine replay result
+Result: PASS only after exact reproduction
+
+Do not classify all three as one external blocker.
+
+===========================================================
+6. FIX CHAIN COUNTS AND WORDING
+
+The previous report stated both 11 and 12 entries.
+
+Required:
+
+• Report Genesis count separately.
+• Report RUN-entry count separately.
+• Report total entries consistently.
+
+Example:
+
+Genesis: 1
+RUN entries: 11
+Total entries: 12
+
+Use identical counts in the chain table, summary, post-seal section, and final disposition.
+
+Replace “all SEQs present” with accurate wording:
+
+“All retained entries expected in the current reconstructed chain are present. Historical SEQ 1–14 are absent, were not reconstructed, and contain no durable verification evidence.”
+
+Clearly state the verified continuity boundary and missing history.
+
+===========================================================
+7. RUN FROM A CLEAN SOURCE TREE
+
+Preferred requirement:
+
+• Commit all intended changes.
+• Require empty git status.
+• Record exact commit SHA.
+• Record git status before and after verification.
+
+If a dirty tree is unavoidable, provide:
+
+• Modified and untracked file manifest
+• SHA-256 for every runtime-relevant file
+• Root hash
+• Imported-module list
+• Proof no excluded file affected runtime
+
+A dirty composite state may not be represented by commit SHA alone.
+
+Negative controls:
+
+• Modified file after sealing must fail.
+• Untracked imported module must fail.
+• Manifest alteration must fail.
+
+===========================================================
+8. COMPLETE SEALED EVIDENCE PACKAGE
+
+Provide:
+
+• Final report
+• Remediation Matrix
+• Machine-readable results
+• Full unedited verifier log
+• Test registry and totals
+• verified_run_chain.jsonl
+• Archive and archive SHA-256
+• Index and index SHA-256
+• Post-seal verification output
+• Source manifest and root hash
+• SQL evidence
+• Trigger and constraint definitions
+• Genuine production replay inputs and outputs
+• Scheduler and decision logs
+
+Create a top-level manifest listing every file, purpose, size, and SHA-256. Seal the manifest into the chain.
+
+===========================================================
+PART 1 ACCEPTANCE GATE
+
+Part 1 passes only when:
+
+[ ] Remediation Matrix is complete
+[ ] Timestamp order is valid
+[ ] PASS/FAIL totals reconcile
+[ ] No test fixture is represented as production
+[ ] Genuine production replay passes
+[ ] Replay is deterministic
+[ ] C52 is accurately separated
+[ ] Chain counts are consistent
+[ ] Missing SEQs are accurately described
+[ ] Source-tree state is fully reproducible
+[ ] Evidence package is complete and sealed
+
+Until every item passes:
+
+NOT APPROVED — REMEDIATION REQUIRED
+
+END PART 1

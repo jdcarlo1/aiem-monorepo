@@ -1,0 +1,122 @@
+{
+  "base_dir": "/home/runner/workspace/artifacts/stock-scanner-api",
+  "files": [
+    {
+      "exists": true,
+      "path": "aiem_options_dpl.py",
+      "purpose": "DPL core: capture_replay_inputs(), replay_decision()",
+      "sha256": "333364edf05924955444e0daefb5c070c0e2692a278a2cf77f13b25cb66797e7",
+      "size_bytes": 69616
+    },
+    {
+      "exists": true,
+      "path": "dpl/verify_dpl_phase3.py",
+      "purpose": "Main verifier C01-C54 (Part 1 remediation applied)",
+      "sha256": "4d0b4737f6aa9049df59fc37368a81953b24151ec972caa1e99c13a92567663e",
+      "size_bytes": 149197
+    },
+    {
+      "exists": true,
+      "path": "dpl/engine_integrity_refs.json",
+      "purpose": "Engine integrity refs: approved_at=NULL PENDING",
+      "sha256": "c11c3635df6af93c9388df71009197c433ce8c2ce928ba26a13c7a8cc2bc2964",
+      "size_bytes": 5311
+    },
+    {
+      "exists": true,
+      "path": "dpl/contamination_registry.json",
+      "purpose": "Fixture contamination: 9 misclassified rows documented",
+      "sha256": "980ec001ccedb53455eb9c731e1b403d1f72597ff71203ec585c8014e5061add",
+      "size_bytes": 5059
+    },
+    {
+      "exists": true,
+      "path": "dpl/test_registry_seq25.json",
+      "purpose": "Machine-readable SEQ=25 baseline registry (176 checks)",
+      "sha256": "a4ded7b2d2a3635fa504cd4e2cc1994e04f1bf7814f520f69941751ab7ae0c64",
+      "size_bytes": 42963
+    },
+    {
+      "exists": true,
+      "path": "dpl/evidence_manifest.json",
+      "purpose": "Evidence package manifest with SHA-256 for all key files",
+      "sha256": "911b80138ddd399e851097cb48db7671b7395cbe1a860bc9d2b397df5a3b4f8b",
+      "size_bytes": 4205
+    },
+    {
+      "exists": true,
+      "path": "tools/verified_run_chain.jsonl",
+      "purpose": "Cryptographic hash chain: GENESIS + SEQ 15-27",
+      "sha256": "f8255802bf9f7fc5018a7d269dfe70283ef5e393d58cb7fb2c54af46bad05351",
+      "size_bytes": 8995
+    },
+    {
+      "exists": true,
+      "path": "tools/verified_run.sh",
+      "purpose": "Sealing script",
+      "sha256": "59263365878a67411fa0c325ae0dc0ece86fd742efafd31610cfbae61e22448e",
+      "size_bytes": 12206
+    },
+    {
+      "exists": true,
+      "path": "tools/post_seal_verify.sh",
+      "purpose": "Post-seal verifier (9 checks)",
+      "sha256": "c15aee227c470326a74e81fb634cc2ac77538713a013d414e0b9d01dcea97795",
+      "size_bytes": 10818
+    },
+    {
+      "exists": true,
+      "path": "tools/chain_gap_explanation.json",
+      "purpose": "Chain gap explanation: SEQ 1-14 absent, not reconstructed",
+      "sha256": "26290c1c4d1861d2c51491c5b5c6312ceac32f6461598e95ee2ab96bc70319fb",
+      "size_bytes": 4143
+    },
+    {
+      "exists": true,
+      "path": "tools/defective_runs_registry.json",
+      "purpose": "Defective runs registry: SEQ=22 (INCOMPLETE), SEQ=26 (INVALID_CMD)",
+      "sha256": "de3baddb2ab71782642ae01463aec332d64f8da54a0e01bbcdd9d4d06cd8680b",
+      "size_bytes": 2369
+    },
+    {
+      "exists": true,
+      "path": "tools/logs/verified_run_index.tsv",
+      "purpose": "Log index: TSV with SEQ, TS, SHA, CMD",
+      "sha256": "cbc3181825690cd873f0799ac86dd35eb7edfd0196c54dfd25c87ec327e098b4",
+      "size_bytes": 1591
+    },
+    {
+      "exists": true,
+      "path": "tools/logs/verified_run_27.log",
+      "purpose": "Sealed log SEQ=27: 179 PASS 3 FAIL (Part 1 remediation)",
+      "sha256": "56db725f0e0037cc630b46d9fdfb584f939c34cfd4aec8a14fa3007b2b998ff5",
+      "size_bytes": 19894
+    },
+    {
+      "exists": true,
+      "path": "tools/logs/verified_run_27_postseal.log",
+      "purpose": "Post-seal output SEQ=27: 9/9 PASS",
+      "sha256": "ad3aa05c7b9a8d1521967e8ba8d5fb6cdeadc27b95519d2cd261ffbe34b5cdee",
+      "size_bytes": 1246
+    },
+    {
+      "exists": true,
+      "path": "tools/last_run_results.json",
+      "purpose": "Machine-readable last run results (PASS/FAIL lists)",
+      "sha256": "6b172d4be4e02bff44b5b991bcb2158322687efae45c2b8f7c16d6543022c53d",
+      "size_bytes": 7539
+    },
+    {
+      "exists": true,
+      "path": "dpl/dpl_phase3_final_authoritative_report.txt",
+      "purpose": "Prior report (SUPERSEDED by Part 1 report)",
+      "sha256": "ba7afef5d27852f12b92701dccef2f03a242f87afb892feef0ed1da1c8984734",
+      "size_bytes": 24861
+    }
+  ],
+  "generated_at": "2026-07-20T00:24:44Z",
+  "manifest_sha256": "6a53c031a89ad4a84053ead71426fb30b21769769dd7c2ef851dc5d4fc10f578",
+  "manifest_version": "2",
+  "note": "Part 1 Remediation evidence package. SHA-256 computed at generation time.",
+  "sealed_seq": 27
+}
