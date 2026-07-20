@@ -720,3 +720,9 @@ id = "IimIdWR0YXhegEukdnENH"
 uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_R2_Session_Report.txt"
 type = "text"
 title = "DPL Phase 3 R2 — Session Completion Report"
+
+[[outputs]]
+id = "uvrhDljRrxi9M-6ezA7cV"
+uri = "file://artifacts/stock-scanner-api/dpl/DPL_Phase3_R3_Step1_Disclosure.txt"
+type = "text"
+title = "DPL Phase 3 R3 — Step 1 Disclosure (raw findings)"
