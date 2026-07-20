@@ -85,52 +85,32 @@ GIT_COMMIT=$(git --no-optional-locks -C "${SCRIPT_DIR}" rev-parse HEAD 2>/dev/nu
 echo "git_commit=${GIT_COMMIT}"
 echo "prev_chain_hash=${PREV_HASH}"
 
-# ── Working tree state ────────────────────────────────────────────────────
-# Per mandatory certification procedure the three items below are EXCLUDED from
-# the TREE=CLEAN determination because they are required pre-run updates or
-# runtime-mutated counters, not source-code changes:
-#   ??  — untracked files (audit directives, workspace notes — not engine code)
-#   dpl/engine_integrity_refs.json — must be updated to current HEAD before
-#       every sealed run (step 3 of the mandatory procedure). Modifying it is
-#       a certification prerequisite, not a code change.
-#   tools/verified_run_seq — monotonic SEQ counter; mutated on every run by
-#       the flock+increment logic above. It is a runtime state file, not engine
-#       source code. Its integrity is enforced by the cryptographic chain
-#       (each entry carries the SEQ value and is hash-chained), not by TREE.
-# All other tracked modifications (M/D/A/R/C) still cause TREE=DIRTY.
-GIT_PORCELAIN_RAW=$(git --no-optional-locks -C "${GIT_ROOT}" status --porcelain 2>/dev/null || true)
-GIT_PORCELAIN=$(printf '%s\n' "${GIT_PORCELAIN_RAW}" \
-    | grep -v '^??' \
-    | grep -v 'dpl/engine_integrity_refs\.json' \
-    | grep -v 'tools/verified_run_seq' \
-    || true)
-if [ -z "${GIT_PORCELAIN}" ]; then
+# ── Working tree state (strict NUL-delimited check via check_clean_tree.py) ───
+# Replaces the former broad grep-v exclusions with an explicit allowlist.
+# Allowlist (exact paths only, no wildcards or prefix matches):
+#   tools/verified_run_seq  — runtime monotonic counter mutated by flock above
+#   dpl/engine_integrity_refs.json — TEMPORARY pending Item 3 two-artifact model
+#     (engine_manifest.generated.json + engine_approval.signed.json). Will be
+#     permanently removed from allowlist once the two-artifact model is implemented.
+# Untracked .py/.sh/.json/.env files FAIL; untracked .log evidence files PASS.
+# Renames, symlinks, path traversal, and directories always FAIL.
+_STATUS_BIN="/tmp/git_status_${SEQ}_$$.bin"
+git --no-optional-locks -C "${GIT_ROOT}" status --porcelain=v1 -z 2>/dev/null \
+    > "${_STATUS_BIN}" || true
+_TREE_EXIT=0
+python3 "${SCRIPT_DIR}/check_clean_tree.py" \
+    --status-file "${_STATUS_BIN}" \
+    --allow-exact "tools/verified_run_seq" \
+    --allow-exact "dpl/engine_integrity_refs.json" \
+    --repo-root "${GIT_ROOT}" \
+    || _TREE_EXIT=$?
+rm -f "${_STATUS_BIN}"
+if [ "${_TREE_EXIT}" -eq 0 ]; then
     TREE_STATUS="CLEAN"
     echo "TREE=CLEAN"
-    if [ -n "${GIT_PORCELAIN_RAW}" ]; then
-        echo "TREE_EXCLUDED_CHANGES (not counted as dirty — pre-run procedure files):"
-        while IFS= read -r _vl; do echo "  (excluded) ${_vl}"; done <<< "${GIT_PORCELAIN_RAW}"
-    fi
 else
     TREE_STATUS="DIRTY"
     echo "TREE=DIRTY"
-    echo "git_status_porcelain:"
-    while IFS= read -r _vl; do echo "  ${_vl}"; done <<< "${GIT_PORCELAIN}"
-    if [ -n "${GIT_PORCELAIN_RAW}" ]; then
-        echo "TREE_EXCLUDED_CHANGES (pre-run procedure files, shown for transparency):"
-        while IFS= read -r _excl; do
-            printf '%s\n' "${GIT_PORCELAIN_RAW}" | grep -v "${_excl}" > /dev/null || \
-            echo "  (excluded) ${_excl}"
-        done
-        printf '%s\n' "${GIT_PORCELAIN_RAW}" | grep '^??' | while IFS= read -r _vl; do echo "  (excluded-untracked) ${_vl}"; done || true
-        printf '%s\n' "${GIT_PORCELAIN_RAW}" | grep 'dpl/engine_integrity_refs\.json' | while IFS= read -r _vl; do echo "  (excluded-refs) ${_vl}"; done || true
-    fi
-    echo "sha256_modified_files:"
-    while IFS= read -r _vl; do
-        _vrel="${_vl:3}"
-        _vfp="${GIT_ROOT}/${_vrel}"
-        [ -f "${_vfp}" ] && echo "  ${_vrel}=$(sha256sum "${_vfp}" | awk '{print $1}')" || true
-    done <<< "${GIT_PORCELAIN}"
 fi
 
 # ── Scoring function integrity (R4.9.5 + engine root hash) ────────────────

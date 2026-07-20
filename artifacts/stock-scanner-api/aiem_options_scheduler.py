@@ -655,6 +655,36 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
     log.info(f"[exec] START job_id={job_id} ticker={ticker} "
              f"scan_date={scan_date} trace_id={trace_id} claim_id={claim_id}")
 
+    # ── Scheduler causal trace (R8 Item 8 — non-fatal) ────────────────────────
+    _strace_ctx = None
+    try:
+        import sys as _strace_sys
+        import os as _strace_os
+        _strace_dpl_dir = _strace_os.path.join(
+            _strace_os.path.dirname(_strace_os.path.abspath(__file__)), 'dpl')
+        if _strace_dpl_dir not in _strace_sys.path:
+            _strace_sys.path.insert(0, _strace_dpl_dir)
+        import scheduler_trace as _sched_trace_mod
+        _sched_trace_mod.bootstrap(_DB_URL)
+        _strace_ctx = _sched_trace_mod.TraceContext(
+            trace_id=trace_id,
+            db_url=_DB_URL,
+        )
+        _strace_ctx.write_stage(
+            "SCHEDULER_FIRE",
+            ticker=ticker,
+            scan_date=scan_date,
+            job_id=job_id,
+            job_claim_timestamp=datetime.utcnow().isoformat() + "Z",
+            metadata={
+                "claim_id": claim_id,
+                "scheduler_name": _SCHEDULER_NAME,
+                "cron": "09:45 ET Mon-Fri",
+            },
+        )
+    except Exception as _strace_init_e:
+        log.debug(f"[scheduler_trace] init/SCHEDULER_FIRE failed (non-fatal): {_strace_init_e}")
+
     # Mark EXECUTING + heartbeat
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
@@ -760,6 +790,19 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
     try:
         import aiem_options_dpl as _dpl
         _dpl.bootstrap_dpl(_DB_URL)
+        # R8 Item 4/7: Correction ledger + quarantine tables
+        try:
+            import sys as _cl_sys, os as _cl_os
+            _cl_dpl_dir = _cl_os.path.join(
+                _cl_os.path.dirname(_cl_os.path.abspath(__file__)), 'dpl')
+            if _cl_dpl_dir not in _cl_sys.path:
+                _cl_sys.path.insert(0, _cl_dpl_dir)
+            import correction_ledger as _corr_ledger
+            _corr_ledger.bootstrap(_DB_URL)
+            _corr_ledger.populate_known_corrections(_DB_URL)
+            _corr_ledger.populate_legacy_non_replayable(_DB_URL)
+        except Exception as _cl_e:
+            log.debug(f"[correction_ledger] init failed (non-fatal): {_cl_e}")
         _dpl_ready = True
         # B17 (R7): non-verifier consumer — log contamination exclusions at startup so
         # the scheduler never silently includes contaminated replay-input rows.
@@ -807,6 +850,22 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
 
         if not pmd or not oss:
             raise ValueError(f"missing Polygon/OSS data for {ticker} {scan_date}")
+
+        # ── Trace: MARKET_DATA_CAPTURE ─────────────────────────────────────────
+        if _strace_ctx is not None:
+            try:
+                _strace_ctx.write_stage(
+                    "MARKET_DATA_CAPTURE",
+                    ticker=ticker, scan_date=scan_date, job_id=job_id,
+                    metadata={
+                        "pmd_date": str(pmd[0]),
+                        "has_oss": oss is not None,
+                        "close_price": float(pmd[1]) if pmd[1] else None,
+                        "spot": float(oss[0]) if oss[0] else None,
+                    },
+                )
+            except Exception as _st_mdc_e:
+                log.debug(f"[scheduler_trace] MARKET_DATA_CAPTURE: {_st_mdc_e}")
 
         close_price  = float(pmd[1])
         vwap         = float(pmd[3])
@@ -1576,6 +1635,23 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 "BULLISH" if margin >= 10 else "NEUTRAL")
             log.debug(f"[registry] stage6 snapped direction={direction} trace_id={trace_id}")
 
+        # ── Trace: DECISION ────────────────────────────────────────────────────
+        if _strace_ctx is not None:
+            try:
+                _strace_ctx.write_stage(
+                    "DECISION",
+                    ticker=ticker, scan_date=scan_date, job_id=job_id,
+                    completion_status=direction,
+                    metadata={
+                        "direction":  direction,
+                        "call_score": float(call_score),
+                        "put_score":  float(put_score),
+                        "margin":     round(float(margin), 1),
+                    },
+                )
+            except Exception as _st_dec_e:
+                log.debug(f"[scheduler_trace] DECISION: {_st_dec_e}")
+
         # ── Phase 2: Strategy candidates (all strategies considered this run) ───
         # Captured here (after Stage 6) so that direction, call_data, and
         # put_data are all fully resolved — not at Stage EI where they are
@@ -1824,6 +1900,30 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         ) from _p3_nt_e
                 except Exception as _dpl_nt_e:
                     log.warning(f"[dpl] write_decision NO_TRADE failed: {_dpl_nt_e}")
+
+            # ── Trace: PAPER_EXECUTION_OR_NO_TRADE (NO_TRADE path) ────────────
+            if _strace_ctx is not None:
+                try:
+                    _strace_ctx.write_stage(
+                        "PAPER_EXECUTION_OR_NO_TRADE",
+                        ticker=ticker, scan_date=scan_date, job_id=job_id,
+                        completion_status="NO_TRADE",
+                        metadata={
+                            "direction": "NO_TRADE",
+                            "call_score": float(call_score),
+                            "put_score": float(put_score),
+                            "chain_hash": _nt_chain_hash[:24] if _nt_chain_hash else None,
+                        },
+                    )
+                    _strace_ctx.write_stage(
+                        "OUTCOME_TRACKING",
+                        ticker=ticker, scan_date=scan_date, job_id=job_id,
+                        completion_status="WIRED",
+                        metadata={"p3_ready": _p3_ready, "p4_ready": _p4_ready},
+                    )
+                except Exception as _st_pent_e:
+                    log.debug(f"[scheduler_trace] PAPER_EXECUTION_NO_TRADE: {_st_pent_e}")
+
             return {"job_id": job_id, "ticker": ticker, "direction": "NO_TRADE",
                     "call_score": call_score, "put_score": put_score,
                     "trace_id": trace_id, "chain_hash": _nt_chain_hash}
@@ -1982,6 +2082,20 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     f"[integrity_gate] PASS engine_root_hash="
                     f"{_ieg_result['live_root_hash'][:24]}..."
                 )
+                # ── Trace: RISK_GATE (engine integrity gate passed) ─────────────
+                if _strace_ctx is not None:
+                    try:
+                        _strace_ctx.write_stage(
+                            "RISK_GATE",
+                            ticker=ticker, scan_date=scan_date, job_id=job_id,
+                            completion_status="PASS",
+                            metadata={
+                                "gate": "ENGINE_INTEGRITY",
+                                "root_hash": _ieg_result.get("live_root_hash", "")[:24],
+                            },
+                        )
+                    except Exception as _st_rg_e:
+                        log.debug(f"[scheduler_trace] RISK_GATE: {_st_rg_e}")
                 # B8: Fail-closed approval check — engine must be independently approved
                 # before any production execution (Stage 8). Hash-match alone is insufficient.
                 try:
@@ -2298,6 +2412,18 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         except Exception as _oe_e:
             log.warning(f"[exec] [{trace_id}] options_engine_runs write failed: {_oe_e}")
 
+        # ── Trace: AUDIT_RECORD ────────────────────────────────────────────────
+        if _strace_ctx is not None:
+            try:
+                _strace_ctx.write_stage(
+                    "AUDIT_RECORD",
+                    ticker=ticker, scan_date=scan_date, job_id=job_id,
+                    alert_id=alert_id,
+                    metadata={"run_id": _run_id_oe, "chain_sha": chain_sha[:24] if chain_sha else None},
+                )
+            except Exception as _st_ar_e:
+                log.debug(f"[scheduler_trace] AUDIT_RECORD: {_st_ar_e}")
+
         # Mark job DONE — compute Merkle chain_hash
         with _pg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
             _done_prev_hash = _get_prev_chain_hash(conn)
@@ -2318,6 +2444,32 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             f"elapsed={elapsed}s trace_id={trace_id}"
         )
         _write_heartbeat(True)
+
+        # ── Trace: PAPER_EXECUTION_OR_NO_TRADE (TRADE path) ───────────────────
+        if _strace_ctx is not None:
+            try:
+                _strace_ctx.write_stage(
+                    "PAPER_EXECUTION_OR_NO_TRADE",
+                    ticker=ticker, scan_date=scan_date, job_id=job_id,
+                    alert_id=alert_id,
+                    completion_status=direction,
+                    metadata={
+                        "direction": direction,
+                        "alert_id": alert_id,
+                        "sel_score": float(sel_score),
+                        "opj_chain": _done_chain_hash[:24],
+                    },
+                )
+                _strace_ctx.write_stage(
+                    "OUTCOME_TRACKING",
+                    ticker=ticker, scan_date=scan_date, job_id=job_id,
+                    alert_id=alert_id,
+                    completion_status="WIRED",
+                    metadata={"learning_loop": "grade_outcomes@16:46ET",
+                              "p3_ready": _p3_ready, "p4_ready": _p4_ready},
+                )
+            except Exception as _st_pet_e:
+                log.debug(f"[scheduler_trace] PAPER_EXECUTION_TRADE: {_st_pet_e}")
 
         _tg(
             f"✅ <b>OPTIONS PIPELINE COMPLETE</b>\n"
@@ -2403,6 +2555,28 @@ def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
             break   # no more PENDING jobs
         job_id, ticker = claimed
         log.info(f"[worker] claimed job_id={job_id} ticker={ticker} claim_id={claim_id}")
+
+        # ── Trace: JOB_CLAIM ─────────────────────────────────────────────────
+        try:
+            import sys as _jc_sys, os as _jc_os
+            _jc_dpl_dir = _jc_os.path.join(
+                _jc_os.path.dirname(_jc_os.path.abspath(__file__)), 'dpl')
+            if _jc_dpl_dir not in _jc_sys.path:
+                _jc_sys.path.insert(0, _jc_dpl_dir)
+            import scheduler_trace as _jc_st_mod
+            _jc_st_mod.bootstrap(_DB_URL)
+            _jc_tid = hashlib.sha256(
+                f"{ticker}{scan_date}{claim_id}".encode()
+            ).hexdigest()[:16]
+            _jc_ctx = _jc_st_mod.TraceContext(trace_id=_jc_tid, db_url=_DB_URL)
+            _jc_ctx.write_stage(
+                "JOB_CLAIM",
+                ticker=ticker, scan_date=scan_date, job_id=job_id,
+                job_claim_timestamp=datetime.utcnow().isoformat() + "Z",
+                metadata={"claim_id": claim_id, "worker_pid": os.getpid()},
+            )
+        except Exception as _jc_e:
+            log.debug(f"[scheduler_trace] JOB_CLAIM: {_jc_e}")
 
         result = _execute_job(job_id, ticker, scan_date, claim_id)
         results.append(result)

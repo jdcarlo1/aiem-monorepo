@@ -610,6 +610,81 @@ try:
 except Exception as _e:
     chk("C16_trigger_blocks_prod_update", False, str(_e))
 
+# C16 expanded: DELETE is also blocked on oe_decision_replay_inputs prod rows
+try:
+    _c16d_uuid  = "c16d_sp_" + _c16_uuid_mod.uuid4().hex[:16]
+    _c16d_blocked = False
+    _c16d_conn = psycopg2.connect(_DB_URL, connect_timeout=8,
+                                   options="-c statement_timeout=5000")
+    _c16d_conn.autocommit = False
+    try:
+        with _c16d_conn.cursor() as _c16d_cur:
+            _c16d_cur.execute("""
+                INSERT INTO oe_decision_audit
+                    (decision_id, input_hash, output_hash,
+                     engine_version, db_version, is_test_record)
+                VALUES (%s, 'c16d_in', 'c16d_out', 'c16d_eng', 'c16d_db', FALSE)
+            """, (_c16d_uuid,))
+            _c16d_cur.execute("""
+                INSERT INTO oe_decision_replay_inputs
+                    (decision_id, contract_data_call, contract_data_put,
+                     stock_data_replay, iv_rank, verify_result_replay,
+                     config_versions, data_source_timestamps, is_test_record)
+                VALUES (%s, '{}', '{}', '{}', 0.35, '{}', '{}', '{}', FALSE)
+            """, (_c16d_uuid,))
+            _c16d_cur.execute("SAVEPOINT c16d_trigger_test")
+            try:
+                _c16d_cur.execute(
+                    "DELETE FROM oe_decision_replay_inputs WHERE decision_id=%s",
+                    (_c16d_uuid,)
+                )
+                _c16d_cur.execute("RELEASE SAVEPOINT c16d_trigger_test")
+                _c16d_blocked = False
+            except Exception as _c16d_trig_err:
+                _c16d_cur.execute("ROLLBACK TO SAVEPOINT c16d_trigger_test")
+                _c16d_blocked = True
+                print(f"  [C16 DELETE detail] blocked correctly: {str(_c16d_trig_err)[:100]}")
+    finally:
+        _c16d_conn.rollback()
+        _c16d_conn.close()
+    chk("C16_trigger_blocks_prod_delete", _c16d_blocked,
+        "immutability trigger must also block DELETE on is_test_record=FALSE rows")
+except Exception as _c16d_e:
+    chk("C16_trigger_blocks_prod_delete", False, str(_c16d_e))
+
+# C16 expanded: trigger definition readable via pg_get_triggerdef
+try:
+    with psycopg2.connect(_DB_URL, connect_timeout=6) as _c16t_conn, \
+         _c16t_conn.cursor() as _c16t_cur:
+        _c16t_cur.execute("""
+            SELECT pg_get_triggerdef(t.oid)
+            FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid
+            WHERE c.relname = 'oe_decision_replay_inputs'
+              AND t.tgname = 'trg_oe_replay_immutable'
+            LIMIT 1
+        """)
+        _c16t_row = _c16t_cur.fetchone()
+        if _c16t_row:
+            _c16t_def = _c16t_row[0]
+            print(f"  [C16 trigger def] {_c16t_def[:140]}")
+            _c16t_has_update = 'UPDATE' in _c16t_def.upper()
+            _c16t_has_delete = 'DELETE' in _c16t_def.upper()
+            chk("C16_trigger_def_covers_update",
+                _c16t_has_update,
+                f"trigger definition must mention UPDATE: {_c16t_def[:80]}")
+            chk("C16_trigger_def_covers_delete",
+                _c16t_has_delete,
+                f"trigger definition must mention DELETE: {_c16t_def[:80]}")
+        else:
+            chk("C16_trigger_def_covers_update", False,
+                "trg_oe_replay_immutable not found in pg_trigger")
+            chk("C16_trigger_def_covers_delete", False,
+                "trg_oe_replay_immutable not found in pg_trigger")
+except Exception as _c16t_e:
+    chk("C16_trigger_def_covers_update", False, str(_c16t_e))
+    chk("C16_trigger_def_covers_delete", False, str(_c16t_e))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # C17: is_test_record is TRUE on all test rows written by this verifier
@@ -1343,6 +1418,8 @@ try:
         'verify_dpl_phase2.py',     # phase 2 verifier
         'verify_dpl_phase1.py',     # phase 1 verifier
         'daily_trace_report.py',    # daily trace report generator
+        'correction_ledger.py',     # R8 Item 3: hash-chained correction ledger + quarantine table
+        'scheduler_trace.py',       # R8 Item 1: 12-stage causal chain trace for scheduler
     }
     _c47b_unlisted = _c47b_found - _c47b_allowlist
     print(f"  [C47B] scope=dpl_dir_only  dpl/*.py found={sorted(_c47b_found)}")
@@ -2182,6 +2259,105 @@ try:
         _c52c_conn.close()
 except Exception as _e:
     chk("C52C_genuine_replay_error", False, str(_e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C52C_historical: Frozen historical replay — uses any scheduler-origin row
+# (alert_id may be NULL) for replay determinism proof.
+# Purpose: provides replay evidence even when C52B_live_trade is still PENDING.
+# Uses oe_decision_replay_inputs rows with origin_type='SCHEDULER' that are not
+# in the contamination exclusion table and are not non-replayable (oe_legacy_replay_exceptions).
+# Satisfies R8 Item 5: C52C frozen historical replay.
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    _c52ch_conn = psycopg2.connect(_DB_URL, connect_timeout=6)
+    _c52ch_cur  = _c52ch_conn.cursor()
+    # Find any scheduler-origin row that is NOT excluded by contamination or
+    # the legacy non-replayable exception registry
+    _c52ch_cur.execute("""
+        SELECT r.decision_id, r.alert_id, r.origin_type, r.created_at,
+               r.stored_call_score, r.stored_direction
+        FROM oe_decision_replay_inputs r
+        WHERE r.is_test_record = FALSE
+          AND r.origin_type = 'SCHEDULER'
+          AND NOT EXISTS (
+              SELECT 1 FROM oe_contamination_exclusions e
+              WHERE e.decision_id = r.decision_id AND e.is_test_record = FALSE
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM oe_legacy_replay_exceptions lre
+              WHERE lre.decision_id = r.decision_id::text
+          )
+          AND EXISTS (
+              SELECT 1 FROM oe_decision_audit a
+              WHERE a.decision_id = r.decision_id
+          )
+        ORDER BY r.created_at DESC
+        LIMIT 1
+    """)
+    _c52ch_row = _c52ch_cur.fetchone()
+    _c52ch_cur.close()
+    _c52ch_conn.close()
+
+    if _c52ch_row is None:
+        print(f"  [C52C-historical] PENDING: no eligible scheduler-origin replay row")
+        chk("C52C_historical_replay_eligible_row_exists", False,
+            "No scheduler-origin row found (not contaminated, not non-replayable). "
+            "Unblocks after first 9:45 AM ET scheduler run with successful replay capture.")
+    else:
+        _c52ch_did     = _c52ch_row[0]
+        _c52ch_alert   = _c52ch_row[1]
+        _c52ch_origin  = _c52ch_row[2]
+        _c52ch_ts      = _c52ch_row[3]
+        _c52ch_stored_cs = _c52ch_row[4]
+        _c52ch_stored_dir = _c52ch_row[5]
+        print(f"  [C52C-historical] eligible row: decision_id={_c52ch_did[:24]}")
+        print(f"    origin={_c52ch_origin}  alert_id={_c52ch_alert}  created_at={_c52ch_ts}")
+        print(f"    stored_call_score={_c52ch_stored_cs}  stored_direction={_c52ch_stored_dir}")
+
+        chk("C52C_historical_replay_eligible_row_exists", True,
+            f"decision_id={_c52ch_did[:24]} origin={_c52ch_origin} "
+            f"alert_id={_c52ch_alert} ts={_c52ch_ts}")
+
+        # Run replay twice (determinism check)
+        _c52ch_r1 = replay_decision(_c52ch_did)
+        _c52ch_r2 = replay_decision(_c52ch_did)
+
+        _c52ch_match1  = _c52ch_r1.get('full_match', False)
+        _c52ch_match2  = _c52ch_r2.get('full_match', False)
+        _c52ch_det     = (
+            _c52ch_r1.get('call_score_replayed') == _c52ch_r2.get('call_score_replayed') and
+            _c52ch_r1.get('put_score_replayed')  == _c52ch_r2.get('put_score_replayed')  and
+            _c52ch_r1.get('direction_replayed')  == _c52ch_r2.get('direction_replayed')
+        )
+        print(f"  [C52C-historical] run1_match={_c52ch_match1} run2_match={_c52ch_match2} "
+              f"deterministic={_c52ch_det}")
+        print(f"    r1: call={_c52ch_r1.get('call_score_replayed')} "
+              f"stored={_c52ch_r1.get('call_score_stored')}")
+        print(f"    r2: call={_c52ch_r2.get('call_score_replayed')} "
+              f"stored={_c52ch_r2.get('call_score_stored')}")
+
+        chk("C52C_historical_replay_run1_matches_stored", _c52ch_match1,
+            f"historical row run1: call={_c52ch_r1.get('call_score_replayed')} "
+            f"stored={_c52ch_r1.get('call_score_stored')}")
+        chk("C52C_historical_replay_run2_matches_stored", _c52ch_match2,
+            f"historical row run2: call={_c52ch_r2.get('call_score_replayed')} "
+            f"stored={_c52ch_r2.get('call_score_stored')}")
+        chk("C52C_historical_replay_is_deterministic", _c52ch_det,
+            "historical frozen replay run1 and run2 must produce identical scores "
+            "from same sealed inputs")
+
+        if _c52ch_match1 and _c52ch_match2 and _c52ch_det:
+            chk("C52C_historical_frozen_replay_pass", True,
+                f"decision_id={_c52ch_did[:24]} alert_id={_c52ch_alert} "
+                f"call={_c52ch_r1.get('call_score_replayed')} VERIFIED x2 "
+                f"(frozen historical — no live trade required)")
+        else:
+            chk("C52C_historical_frozen_replay_pass", False,
+                f"historical replay score mismatch or non-determinism detected")
+
+except Exception as _c52ch_e:
+    chk("C52C_historical_replay_error", False, str(_c52ch_e))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3222,6 +3398,51 @@ except Exception as _e:
 # ─────────────────────────────────────────────────────────────────────────────
 # A8 Enforcement: check set is append-only (TWO-LAYER: prior-run + SEQ=32 baseline).
 #
+# ─────────────────────────────────────────────────────────────────────────────
+# A8 ViolationRecord: provenance-based classification of check-removal events.
+# The violation_type field is determined by STRUCTURED DATA from last_run_results
+# (which field the name appears in), NOT by string-prefix matching.
+# This eliminates the circular double-prefix problem (CASCADE_ARTIFACT names
+# produced by enforcement carry an A8_REMOVAL_VIOLATION: prefix which was
+# previously indistinguishable from genuine check names starting with that prefix).
+# ─────────────────────────────────────────────────────────────────────────────
+from dataclasses import dataclass
+try:
+    from typing import Literal
+except ImportError:
+    Literal = str  # type: ignore[assignment,misc]
+
+@dataclass(frozen=True)
+class ViolationRecord:
+    """
+    Typed provenance record for a check-removal event detected by A8 Layer-1.
+
+    Attributes:
+        check_id: The name of the check that was removed.
+        violation_type: Provenance class — determined by which field in
+            last_run_results.json this name came from (structured data),
+            not by string-prefix matching.
+            - BASELINE_REMOVAL: name was in pass_list or fail_list (genuine
+              check output); absent in current run without a registered supersede.
+            - CASCADE_ARTIFACT: name was in enforcement_artifacts (produced by
+              the A8 enforcement mechanism itself, not a genuine check). Carrying
+              it forward as a "removed check" would be circular.
+        source_run_id: The 'run_ts' of the prior last_run_results.json that
+            first surfaced this name.
+        source_hash: SHA-256 of the prior last_run_results.json content
+            (truncated to 24 hex chars). Allows external witnesses to verify
+            that the provenance claim matches the actual file on disk.
+    """
+    check_id: str
+    violation_type: str          # Literal["BASELINE_REMOVAL", "CASCADE_ARTIFACT"]
+    source_run_id: str
+    source_hash: str
+
+# Running set of enforcement artifacts emitted BY this run's A8 mechanism.
+# Written to last_run_results.json so the next run can use structured field lookup
+# (not string-prefix matching) to classify cascade vs genuine removals.
+_A8_ENFORCEMENT_ARTIFACTS: set = set()
+
 # Layer 1 (prior-run): any check present in last_run_results.json must appear
 #   in the current run OR have a registered supersede entry.
 #   Catches single-hop removals.
@@ -3354,7 +3575,19 @@ try:
         # Layer-2 meta-checks cannot be in _a8_curr at Layer-1 evaluation time because
         # Layer-2 runs AFTER Layer-1. Exclude them from the removal check to avoid
         # false A8_REMOVAL_VIOLATION entries. (Layer-2 adds them on every run.)
-        _A8_L1_META_EXCL = {'A8_baseline_erosion_clean', 'A8_baseline_file_missing'}
+        # Exclusion set: checks that CANNOT be in _a8_curr at Layer-1 evaluation time
+        # because they run AFTER Layer-1 finishes. False removal violations would fire
+        # otherwise (the check passes later, but A8 has already evaluated). The next run's
+        # last_run_results.json will contain them in pass_list, so exclusion must persist.
+        _A8_L1_META_EXCL = {
+            # A8 Layer-2 meta-check — added by Layer-2 which runs after Layer-1:
+            'A8_baseline_erosion_clean',
+            'A8_baseline_file_missing',
+            # R8 Item 8 negative controls — defined after Layer-1 section (ordering artifact):
+            'NC1_ViolationRecord_frozen_blocks_mutation',
+            'NC2_enforcement_artifacts_absent_from_pass_list',
+            'NC3_replay_nonexistent_id_raises',
+        }
         _a8_removed_raw  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
         # A8_REMOVAL_VIOLATION:* and A8_enforcement_error:* names are Layer-1 enforcement
         # artifacts — their presence depends on the violation/exception state each run, not
@@ -3363,23 +3596,52 @@ try:
         # not in the registry. A8_enforcement_error:* names are produced by the except block
         # in this same Layer-1 section; carrying them forward as "removed checks" would be
         # circular and incorrect.
-        _a8_cascade_arts = {n for n in _a8_removed_raw
-                            if n.startswith('A8_REMOVAL_VIOLATION:')
-                            or n.startswith('A8_enforcement_error:')}
+        # ── Provenance-based cascade classification (ViolationRecord approach) ────
+        # Use enforcement_artifacts field (structured data) if present in last run;
+        # fall back to string prefix only when enforcement_artifacts is absent
+        # (i.e. on the first run after this change where the field doesn't exist yet).
+        import hashlib as _a8_hashlib
+        _a8_file_hash = _a8_hashlib.sha256(
+            open(_a8_last_path, 'rb').read()).hexdigest()[:24]
+        _a8_prev_run_ts = _a8_last.get('run_ts', 'unknown')
+        _a8_prev_enforcement_arts = set(_a8_last.get('enforcement_artifacts') or [])
+        if _a8_prev_enforcement_arts:
+            # Provenance-based: name is a cascade artifact IFF it appears in the
+            # enforcement_artifacts field of last_run_results.json (structured data).
+            _a8_cascade_arts = {n for n in _a8_removed_raw
+                                if n in _a8_prev_enforcement_arts}
+        else:
+            # Fallback: string-prefix heuristic (backwards compat — first run only)
+            _a8_cascade_arts = {n for n in _a8_removed_raw
+                                if n.startswith('A8_REMOVAL_VIOLATION:')
+                                or n.startswith('A8_enforcement_error:')}
         _a8_removed      = _a8_removed_raw - _a8_cascade_arts
-        _a8_viol         = [n for n in sorted(_a8_removed)
-                            if n not in _A8_SUPERSEDE_REGISTRY]
+        # Build typed ViolationRecord objects for clear provenance tracking
+        _a8_viol_records = [
+            ViolationRecord(
+                check_id=n,
+                violation_type="BASELINE_REMOVAL",
+                source_run_id=_a8_prev_run_ts,
+                source_hash=_a8_file_hash,
+            )
+            for n in sorted(_a8_removed)
+            if n not in _A8_SUPERSEDE_REGISTRY
+        ]
+        _a8_viol = [r.check_id for r in _a8_viol_records]
         if _a8_viol:
             print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_viol)} prior-run removal violation(s):")
-            for _v in _a8_viol:
-                print(f"  VIOLATION: {_v}")
-                _FAIL.append(f"A8_REMOVAL_VIOLATION:{_v}")
+            for r in _a8_viol_records:
+                print(f"  VIOLATION[{r.violation_type}]: {r.check_id}")
+                print(f"    source_run={r.source_run_id}  file_sha={r.source_hash}")
+                _viol_name = f"A8_REMOVAL_VIOLATION:{r.check_id}"
+                _FAIL.append(_viol_name)
+                _A8_ENFORCEMENT_ARTIFACTS.add(_viol_name)
         else:
             if _a8_cascade_arts:
                 print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_cascade_arts)} cascade artifact(s) "
-                      f"suppressed (Layer-1 enforcement names — not check removals):")
+                      f"suppressed (enforcement names, typed by enforcement_artifacts field):")
                 for _ca in sorted(_a8_cascade_arts):
-                    print(f"  CASCADE_ARTIFACT: {_ca}")
+                    print(f"  CASCADE_ARTIFACT[provenance={'field' if _a8_prev_enforcement_arts else 'prefix'}]: {_ca}")
             print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_removed)} removed check(s), "
                   f"all in supersede registry — OK")
             for _rn in sorted(_a8_removed):
@@ -3388,7 +3650,9 @@ try:
         print(f"\n[A8 Layer-1 ENFORCEMENT] no previous run results (first run) — skipped")
 except Exception as _a8_e:
     print(f"\n[A8 Layer-1 ENFORCEMENT] WARNING: {_a8_e}")
-    _FAIL.append(f"A8_enforcement_error:{str(_a8_e)[:80]}")
+    _ea_name = f"A8_enforcement_error:{str(_a8_e)[:80]}"
+    _FAIL.append(_ea_name)
+    _A8_ENFORCEMENT_ARTIFACTS.add(_ea_name)
 
 # ── Layer 2: SEQ=32 audit-epoch baseline (multi-run erosion guard) ─────────────
 try:
@@ -3411,7 +3675,9 @@ try:
         if _a8_bl_viol:
             for _v in _a8_bl_viol:
                 print(f"  BASELINE_VIOLATION: {_v}")
-                _FAIL.append(f"A8_BASELINE_VIOLATION:{_v}")
+                _bv_name = f"A8_BASELINE_VIOLATION:{_v}"
+                _FAIL.append(_bv_name)
+                _A8_ENFORCEMENT_ARTIFACTS.add(_bv_name)
             chk("A8_baseline_erosion_clean", False,
                 f"{len(_a8_bl_viol)} check(s) removed from SEQ=32 baseline without supersede entry")
         else:
@@ -3420,9 +3686,78 @@ try:
     else:
         print(f"\n[A8 Layer-2 ENFORCEMENT] a8_baseline_seq32.json missing — skipped")
         _FAIL.append("A8_baseline_file_missing")
+        _A8_ENFORCEMENT_ARTIFACTS.add("A8_baseline_file_missing")
 except Exception as _a8_bl_e:
     print(f"\n[A8 Layer-2 ENFORCEMENT] WARNING: {_a8_bl_e}")
-    _FAIL.append(f"A8_baseline_error:{str(_a8_bl_e)[:80]}")
+    _a8_bl_err_name = f"A8_baseline_error:{str(_a8_bl_e)[:80]}"
+    _FAIL.append(_a8_bl_err_name)
+    _A8_ENFORCEMENT_ARTIFACTS.add(_a8_bl_err_name)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Item 8 — Verifier negative controls
+# These tests MUST detect failure conditions.  A check that cannot catch its
+# own failure mode is not a meaningful safeguard.
+# All three controls probe mechanisms added in R8:
+#   NC1: ViolationRecord (typed frozen dataclass) rejects mutation
+#   NC2: Enforcement artifacts (A8 cascade names) are absent from _PASS list
+#   NC3: replay_decision with a nonexistent decision_id raises, not silently passes
+# ─────────────────────────────────────────────────────────────────────────────
+print("\n[Item 8 Negative Controls]")
+
+# NC1: ViolationRecord must be frozen (mutating any field raises FrozenInstanceError)
+try:
+    from dataclasses import FrozenInstanceError
+    _nc1_vr = ViolationRecord(
+        check_id="NC1_test",
+        violation_type="BASELINE_REMOVAL",
+        source_run_id="negctl_run",
+        source_hash="negctl_hash",
+    )
+    _nc1_blocked = False
+    try:
+        object.__setattr__(_nc1_vr, 'check_id', 'MUTATED')
+        # If we get here, the field was not blocked — but object.__setattr__
+        # bypasses frozen check.  Use the natural assignment path:
+        _nc1_vr.check_id = 'MUTATED'   # type: ignore[misc]
+        _nc1_blocked = False
+    except (FrozenInstanceError, AttributeError, TypeError):
+        _nc1_blocked = True
+    print(f"  NC1 ViolationRecord.frozen mutation_blocked={_nc1_blocked}")
+    chk("NC1_ViolationRecord_frozen_blocks_mutation", _nc1_blocked,
+        "ViolationRecord(frozen=True) must raise on direct field assignment")
+except Exception as _nc1_e:
+    chk("NC1_ViolationRecord_frozen_blocks_mutation", False, str(_nc1_e))
+
+# NC2: Enforcement artifacts injected by A8 must not silently appear in _PASS
+# If any A8 cascade name crossed into _PASS, the audit summary is inflated.
+try:
+    _nc2_cross = _A8_ENFORCEMENT_ARTIFACTS & set(_PASS)
+    _nc2_clean = len(_nc2_cross) == 0
+    print(f"  NC2 enforcement_artifacts∩PASS={sorted(_nc2_cross)} (expect empty)")
+    chk("NC2_enforcement_artifacts_absent_from_pass_list", _nc2_clean,
+        f"enforcement artifact(s) found in _PASS — audit inflation: {sorted(_nc2_cross)}"
+        if not _nc2_clean else "")
+except Exception as _nc2_e:
+    chk("NC2_enforcement_artifacts_absent_from_pass_list", False, str(_nc2_e))
+
+# NC3: replay_decision with a fabricated nonexistent decision_id must raise
+# (not silently return a passing score).  Tests fail-closed replay path.
+try:
+    _nc3_raised = False
+    _nc3_exc_name = None
+    _nc3_fake_did = "negctl_fake_" + __import__('uuid').uuid4().hex[:16]
+    try:
+        replay_decision(_nc3_fake_did)
+    except Exception as _nc3_e:
+        _nc3_raised = True
+        _nc3_exc_name = type(_nc3_e).__name__
+    print(f"  NC3 nonexistent_id raised={_nc3_raised} exc={_nc3_exc_name}")
+    chk("NC3_replay_nonexistent_id_raises", _nc3_raised,
+        f"replay_decision with nonexistent decision_id must raise — "
+        f"got exc={_nc3_exc_name}")
+except Exception as _nc3_meta_e:
+    chk("NC3_replay_nonexistent_id_raises", False, str(_nc3_meta_e))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3481,7 +3816,7 @@ try:
     import datetime as _mr_dt
     _mr_now = _mr_dt.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
     _mr_results = {
-        'schema_version': '1',
+        'schema_version': '2',
         'run_ts': _mr_now,
         'total_pass': len(_PASS),
         'total_fail': len(_FAIL),
@@ -3493,6 +3828,10 @@ try:
         },
         'pass_list': _PASS,
         'fail_list': _FAIL,
+        # enforcement_artifacts: names added by the A8 mechanism itself (not genuine
+        # check names). Used by the NEXT run to classify cascade artifacts by
+        # structured field lookup rather than string-prefix matching (ViolationRecord).
+        'enforcement_artifacts': sorted(_A8_ENFORCEMENT_ARTIFACTS),
     }
     _mr_path = os.path.normpath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'last_run_results.json'))
