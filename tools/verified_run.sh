@@ -86,5 +86,23 @@ echo "command:      $CMD"
 echo "exit_code:    $EXIT_CODE"
 echo "output_sha256: $OUTPUT_SHA256"
 echo "entry_hash:   $ENTRY_HASH"
+
+# DPL post-seal verification — runs after each seal when DPL chain files are present.
+# post_seal_verify.sh checks 3-way binding (archive sha / index sha / chain sha),
+# entry-hash recomputation, and prev-hash chain continuity for the latest sealed entry.
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_DPL_CHAIN="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/verified_run_chain.jsonl"
+_DPL_PSV="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/post_seal_verify.sh"
+if [ -f "${_DPL_CHAIN}" ] && [ -f "${_DPL_PSV}" ]; then
+  _DPL_SEQ=$(python3 -c "
+import json, sys
+entries = [json.loads(l.strip()) for l in open('${_DPL_CHAIN}') if l.strip()]
+print(entries[-1]['seq'])
+" 2>/dev/null || echo "0")
+  _DPL_IDX="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/logs/verified_run_index.tsv"
+  _DPL_LOGS="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/logs"
+  bash "${_DPL_PSV}" "${_DPL_SEQ}" "${_DPL_CHAIN}" "${_DPL_IDX}" "${_DPL_LOGS}" || true
+fi
+
 echo "--- raw output follows ---"
 echo "$OUTPUT"

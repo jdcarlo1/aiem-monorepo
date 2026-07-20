@@ -1,0 +1,37 @@
+# DPL Phase 3 — Freeze Directive
+
+Scope change, not a code change. The check suite stops growing. Nothing is deleted or disabled.
+
+## FROZEN — still running, no longer extended
+
+- `oe_classification_correction_ledger` and all correction/reclassification work
+- `oe_contamination_exclusions` and the exclusion registry
+- A8 Layer-1 / Layer-2 baselines, `_A8_L1_META_EXCL`, `_A8_EXCL_REGISTRY`, `_A8_SUPERSEDE_REGISTRY`
+- Run hash chain, SEQ ledger, `verified_run_chain.jsonl`, PSV1–PSV9, tree-clean checks
+- Meta-checks: A33, reconciliation, chain-continuity, negative controls on negative controls
+- External-approval machinery in C48 / C28
+
+Rules for frozen components: leave the tables, code and checks in place; do not add checks; do not open remediation rounds on their findings; report anomalies in the run log only.
+
+## MAINTAINED — the only three that stay active
+
+1. **Decision log** — `oe_decision_audit`, write-only, immutability trigger intact
+2. **Replay inputs** — `oe_decision_replay_inputs`, plus C52C genuine replay
+3. **Pre-flight gate** — refuse to execute when evidence is missing or running code ≠ approved code
+
+## MUST FINISH BEFORE THE FREEZE TAKES EFFECT
+
+- **F1–F13**, in flight. Gate correctness is the whole point: blocklist removed from the scheduler path (not bypassed), `commit_sha` rechecked at runtime, no dev-env bypass, and a negative control where a non-allowlisted approver stops a real decision.
+- **C52C genuine replay PASS** — one real decision reproduced from stored evidence. This was the purpose of the layer.
+- **R12 A38** — per-row evidence that each of the 9 rows reclassified to `is_test_record=TRUE` was a verifier fixture and not a production decision. Decision log integrity depends on this; it does not freeze with the ledger.
+- **`engine_integrity_refs.json` `commit_sha` accurate at seal** — the gate rechecks it at runtime, so a stale value is a live defect, not a paperwork item.
+
+## DROPPED
+
+R12 items A34, A35, A36, A37, A39, A40 (print wording), A42 are closed without further response — each concerns frozen machinery. Approval is owner risk acceptance by the system owner; set `approved_by` to his own identity and disclose the relationship in the certification line. No further audit rounds on this layer.
+
+## SEQUENCE — do this in order
+
+1. Finish the four MUST FINISH items above, each with the standing evidence checklist (raw output, diff, sha256, verified_run.sh/verify_chain.sh cross-check).
+2. Once all four are done and evidenced, apply the FROZEN/MAINTAINED split exactly as specified above — stop extending the frozen components, keep the three maintained items active, and report anomalies in the run log only from that point forward.
+3. Confirm in writing when the freeze is in effect: list all four MUST FINISH items with their evidence references, and state explicitly "freeze in effect as of [date/SEQ]." Do not declare the freeze in effect before all four are done.
