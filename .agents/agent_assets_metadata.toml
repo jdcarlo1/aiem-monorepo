@@ -750,3 +750,9 @@ id = "xYIwyl7hjCIy2Xs8888x1"
 uri = "file://artifacts/stock-scanner-api/DPL_R7_Findings_Report.md"
 type = "text"
 title = "DPL R7 Audit Response — Findings Report"
+
+[[outputs]]
+id = "FNWTkRHnzOsREBSfxvYUC"
+uri = "file://artifacts/stock-scanner-api/dpl/R8_Session_Summary.md"
+type = "text"
+title = "R8 Session Summary — DPL Phase 3"
