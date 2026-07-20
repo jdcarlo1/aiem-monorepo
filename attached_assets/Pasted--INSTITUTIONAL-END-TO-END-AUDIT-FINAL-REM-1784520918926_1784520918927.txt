@@ -1,0 +1,260 @@
+===========================================================
+INSTITUTIONAL END-TO-END AUDIT
+FINAL REMEDIATION DIRECTIVE
+===========================================================
+
+STATUS
+
+Overall Verification:
+PASS: 181
+FAIL: 8
+Total Checks: 189
+
+Production Verification Status:
+NOT YET CERTIFIABLE
+
+The engineering work requested in R7 has largely been completed.
+
+The remaining failures fall into two categories:
+
+1. Genuine certification blockers
+2. Expected environmental/runtime blockers
+
+-----------------------------------------------------------
+COMPLETED REMEDIATIONS
+-----------------------------------------------------------
+
+PASS
+
+✓ Defective run registry corrected
+✓ clean_sealed_runs corrected
+✓ TREE verification rewritten
+✓ Supersede registry documented correctly
+✓ Approval validation restored
+✓ Commit SHA verification added
+✓ Certification gap reporting improved
+✓ DDL timing verified
+✓ verify_chain labeling corrected
+✓ Production contamination reader added
+✓ Layer-1 ordering bug fixed
+
+No additional implementation work required on these items.
+
+-----------------------------------------------------------
+REMAINING FINDINGS
+-----------------------------------------------------------
+
+1. Independent Approval
+
+Current Failure:
+C48_independent_approval_obtained
+
+Problem:
+No independent reviewer has approved the engine.
+
+Required Fix:
+
+• External reviewer must approve.
+• approved_by must not be engine identity.
+• approved_at must exist.
+• Add reviewer to allowlist.
+
+-----------------------------------------------------------
+
+2. Production Namespace Contamination
+
+Current Failure:
+C52A
+
+Problem:
+
+Verifier fixtures still exist inside production namespace.
+
+Required Fix:
+
+• Remove contaminated rows.
+• Separate test data from production data.
+• Ensure production database contains zero verifier fixtures.
+
+-----------------------------------------------------------
+
+3. Scheduler-Origin Proof
+
+Current Failure:
+C52B
+
+Problem:
+
+System has not yet produced a scheduler-generated production decision.
+
+Required Fix:
+
+Allow automatic scheduler to execute during live market.
+
+Do NOT manually trigger.
+
+Capture:
+
+• timestamps
+• scheduler logs
+• audit trail
+• database evidence
+
+-----------------------------------------------------------
+
+4. Live Trade Evidence
+
+Current Failure:
+C52B Live Trade
+
+Problem:
+
+No live production trade evidence yet.
+
+Required Fix:
+
+Run next live paper session.
+
+Capture:
+
+• decision
+• execution
+• audit chain
+• database records
+
+-----------------------------------------------------------
+
+5. Genuine Replay Verification
+
+Current Failure:
+C52C
+
+Blocked by:
+
+Missing scheduler-origin decision.
+
+After scheduler evidence exists:
+
+Run complete replay verification.
+
+Replay must reproduce identical output.
+
+-----------------------------------------------------------
+
+6. Engine Root Hash
+
+Current Failure:
+C28
+
+Problem:
+
+Approved engine hash differs from runtime hash.
+
+Required Fix:
+
+After final commit:
+
+Update approved engine hash.
+
+Re-sign approval.
+
+Re-run verifier.
+
+-----------------------------------------------------------
+
+7. Approval Allowlist
+
+Current Failure:
+
+approved_by_in_allowlist
+
+Required Fix:
+
+Register approved reviewer.
+
+Re-run verification.
+
+-----------------------------------------------------------
+
+8. Commit SHA Synchronization
+
+This was fixed.
+
+However every future sealed run MUST:
+
+1. Commit code.
+2. Obtain new HEAD.
+3. Update engine_integrity_refs.json.
+4. Execute verifier.
+
+Failure to update commit_sha before every sealed run will correctly fail certification.
+
+-----------------------------------------------------------
+MANDATORY CLEAN CERTIFICATION PROCEDURE
+-----------------------------------------------------------
+
+Before every institutional verification:
+
+1. Commit repository.
+2. Ensure TREE=CLEAN.
+3. Update commit_sha.
+4. Execute sealed verifier.
+5. Archive logs.
+6. Archive hashes.
+7. Archive SQL evidence.
+8. Archive approval metadata.
+9. Archive certification summary.
+10. Verify zero contamination.
+
+-----------------------------------------------------------
+EXPECTED FINAL RESULT
+-----------------------------------------------------------
+
+Expected after remaining blockers are resolved:
+
+TREE=CLEAN
+
+No contaminated production data
+
+Independent approval recorded
+
+Scheduler-origin evidence captured
+
+Live paper trade captured
+
+Replay verification passed
+
+Approved engine hash matches runtime
+
+Approved reviewer in allowlist
+
+Institutional certification eligible.
+
+===========================================================
+ENGINEERING INSTRUCTION
+===========================================================
+
+Do NOT add new features.
+
+Do NOT change business logic.
+
+Only resolve the remaining certification blockers listed above.
+
+After each fix:
+
+• Run full end-to-end verification.
+• Produce SQL evidence.
+• Produce SHA-256 evidence.
+• Produce certification report.
+• Produce audit logs.
+• Produce runtime proof.
+
+Nothing should be marked PASS without verifiable evidence.
+
+No mocked evidence.
+No fabricated database entries.
+No manual overrides.
+No narrative proof.
+
+Certification must be completely reproducible from archived evidence.
+===========================================================

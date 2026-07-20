@@ -1,8 +1,8 @@
 {
   "schema_version": "1",
-  "run_ts": "2026-07-20T04:03:53Z",
-  "total_pass": 181,
-  "total_fail": 8,
+  "run_ts": "2026-07-20T04:22:43Z",
+  "total_pass": 182,
+  "total_fail": 7,
   "total_pending": 0,
   "all_checks": 189,
   "reconciliation": {
@@ -25,7 +25,6 @@
     "C13_single_weights_source",
     "C14_weight_hash_changes",
     "C15_code_drift_loud_fail",
-    "C16_trigger_blocks_prod_update",
     "C17_is_test_record_set",
     "C18_null_scores_return_none",
     "C19_weights_drift_snapshot",
@@ -92,6 +91,7 @@
     "C52_replay_returns_structure",
     "C52_replay_code_drift_raises_error",
     "C52_verification_status_is_verified",
+    "C52A_verifier_fixtures_contaminate_prod_namespace",
     "C52A_contamination_registry_exists",
     "C52A_all_contaminated_rows_documented",
     "C52A_contaminated_ids_excluded_from_c52c",
@@ -118,6 +118,7 @@
     "C28_refs_file_exists",
     "C28_refs_has_commit_sha",
     "C28_refs_has_engine_root_hash",
+    "C28_live_engine_root_hash_matches_approved",
     "C28_scoring_fn_ast_hash_component_matches",
     "C28_req6_weights_hash_component_matches",
     "C28_refs_commit_sha_matches_run_head",
@@ -193,13 +194,12 @@
     "A8_baseline_erosion_clean"
   ],
   "fail_list": [
+    "C16_trigger_blocks_prod_update",
     "C48_independent_approval_obtained",
-    "C52A_verifier_fixtures_contaminate_prod_namespace",
     "C52B_scheduler_origin_decision_exists",
     "C52B_live_trade_decision_exists",
     "C52C_genuine_replay_pass",
-    "C28_live_engine_root_hash_matches_approved",
     "C28_approved_by_in_allowlist_and_engine_hash_match",
-    "A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean"
+    "A8_REMOVAL_VIOLATION:A8_REMOVAL_VIOLATION:A8_baseline_erosion_clean"
   ]
 }

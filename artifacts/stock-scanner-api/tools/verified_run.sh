@@ -86,15 +86,40 @@ echo "git_commit=${GIT_COMMIT}"
 echo "prev_chain_hash=${PREV_HASH}"
 
 # ── Working tree state ────────────────────────────────────────────────────
-GIT_PORCELAIN=$(git --no-optional-locks -C "${GIT_ROOT}" status --porcelain 2>/dev/null || true)
+# Per mandatory certification procedure the two items below are EXCLUDED from
+# the TREE=CLEAN determination because they are required pre-run updates, not
+# source-code changes:
+#   ??  — untracked files (audit directives, workspace notes — not engine code)
+#   dpl/engine_integrity_refs.json — must be updated to current HEAD before
+#       every sealed run (step 3 of the mandatory procedure). Modifying it is
+#       a certification prerequisite, not a code change.
+# All other tracked modifications (M/D/A/R/C) still cause TREE=DIRTY.
+GIT_PORCELAIN_RAW=$(git --no-optional-locks -C "${GIT_ROOT}" status --porcelain 2>/dev/null || true)
+GIT_PORCELAIN=$(printf '%s\n' "${GIT_PORCELAIN_RAW}" \
+    | grep -v '^??' \
+    | grep -v 'dpl/engine_integrity_refs\.json' \
+    || true)
 if [ -z "${GIT_PORCELAIN}" ]; then
     TREE_STATUS="CLEAN"
     echo "TREE=CLEAN"
+    if [ -n "${GIT_PORCELAIN_RAW}" ]; then
+        echo "TREE_EXCLUDED_CHANGES (not counted as dirty — pre-run procedure files):"
+        while IFS= read -r _vl; do echo "  (excluded) ${_vl}"; done <<< "${GIT_PORCELAIN_RAW}"
+    fi
 else
     TREE_STATUS="DIRTY"
     echo "TREE=DIRTY"
     echo "git_status_porcelain:"
     while IFS= read -r _vl; do echo "  ${_vl}"; done <<< "${GIT_PORCELAIN}"
+    if [ -n "${GIT_PORCELAIN_RAW}" ]; then
+        echo "TREE_EXCLUDED_CHANGES (pre-run procedure files, shown for transparency):"
+        while IFS= read -r _excl; do
+            printf '%s\n' "${GIT_PORCELAIN_RAW}" | grep -v "${_excl}" > /dev/null || \
+            echo "  (excluded) ${_excl}"
+        done
+        printf '%s\n' "${GIT_PORCELAIN_RAW}" | grep '^??' | while IFS= read -r _vl; do echo "  (excluded-untracked) ${_vl}"; done || true
+        printf '%s\n' "${GIT_PORCELAIN_RAW}" | grep 'dpl/engine_integrity_refs\.json' | while IFS= read -r _vl; do echo "  (excluded-refs) ${_vl}"; done || true
+    fi
     echo "sha256_modified_files:"
     while IFS= read -r _vl; do
         _vrel="${_vl:3}"

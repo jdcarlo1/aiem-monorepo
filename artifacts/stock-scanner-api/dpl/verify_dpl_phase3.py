@@ -555,31 +555,54 @@ except Exception as _e:
 #      We write a row with is_test_record=FALSE then attempt UPDATE — must fail.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# C16 no longer writes its own is_test_record=FALSE row (doing so pollutes
-# oe_decision_replay_inputs with new synthetic FALSE rows on every verifier run).
-# Tests trigger against pre-registered synthetic row from oe_known_synthetic_rows.
-_C16_KNOWN_FALSE = "ee74327806f841a7a4034dcc"
+# C16: Verify immutability trigger blocks UPDATE on is_test_record=FALSE rows.
+# Uses SAVEPOINT-based approach (matching C22 negative-control pattern):
+#   1. INSERT temporary test rows (is_test_record=FALSE) in a transaction
+#   2. Test that UPDATE is blocked by trg_oe_replay_immutable
+#   3. ROLLBACK entire transaction — test rows never persist
+# NOTE: _C16_KNOWN_FALSE (ee74327806f841a7a4034dcc) was a pre-registered contaminated row.
+# C52A cleanup (this session) moved that row to is_test_record=TRUE, so it can no longer
+# serve as a FALSE-row test target. The SAVEPOINT approach is permanently correct.
+import uuid as _c16_uuid_mod
+_C16_SAVEPOINT_DID = "c16_sp_" + _c16_uuid_mod.uuid4().hex[:16]
 try:
     _blocked = False
     _block_msg = ""
-    conn2 = psycopg2.connect(_DB_URL, connect_timeout=8,
-                             options="-c statement_timeout=5000")
+    _c16_conn = psycopg2.connect(_DB_URL, connect_timeout=8,
+                                  options="-c statement_timeout=5000")
+    _c16_conn.autocommit = False
     try:
-        with conn2.cursor() as cur2:
-            cur2.execute(
-                "UPDATE oe_decision_replay_inputs SET alert_id=999 "
-                "WHERE decision_id=%s",
-                (_C16_KNOWN_FALSE,)
-            )
-        conn2.commit()
-        _block_msg = "UPDATE succeeded — trigger not blocking (FAIL)"
-    except Exception as _trig_err:
-        _blocked = True
-        _block_msg = str(_trig_err)
-        conn2.rollback()
+        with _c16_conn.cursor() as _c16_cur:
+            _c16_cur.execute("""
+                INSERT INTO oe_decision_audit
+                    (decision_id, input_hash, output_hash,
+                     engine_version, db_version, is_test_record)
+                VALUES (%s, 'c16_in', 'c16_out', 'c16_eng', 'c16_db', FALSE)
+            """, (_C16_SAVEPOINT_DID,))
+            _c16_cur.execute("""
+                INSERT INTO oe_decision_replay_inputs
+                    (decision_id, contract_data_call, contract_data_put,
+                     stock_data_replay, iv_rank, verify_result_replay,
+                     config_versions, data_source_timestamps, is_test_record)
+                VALUES (%s, '{}', '{}', '{}', 0.35, '{}', '{}', '{}', FALSE)
+            """, (_C16_SAVEPOINT_DID,))
+            _c16_cur.execute("SAVEPOINT c16_trigger_test")
+            try:
+                _c16_cur.execute(
+                    "UPDATE oe_decision_replay_inputs SET alert_id=999 "
+                    "WHERE decision_id=%s",
+                    (_C16_SAVEPOINT_DID,)
+                )
+                _c16_cur.execute("RELEASE SAVEPOINT c16_trigger_test")
+                _block_msg = "UPDATE succeeded — trigger not blocking (FAIL)"
+                _blocked = False
+            except Exception as _trig_err:
+                _c16_cur.execute("ROLLBACK TO SAVEPOINT c16_trigger_test")
+                _blocked = True
+                _block_msg = str(_trig_err)
     finally:
-        conn2.close()
-
+        _c16_conn.rollback()
+        _c16_conn.close()
     chk("C16_trigger_blocks_prod_update", _blocked,
         _block_msg if not _blocked else "")
     if _blocked:
@@ -3333,7 +3356,12 @@ try:
         # false A8_REMOVAL_VIOLATION entries. (Layer-2 adds them on every run.)
         _A8_L1_META_EXCL = {'A8_baseline_erosion_clean', 'A8_baseline_file_missing'}
         _a8_removed  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
-        _a8_viol     = [n for n in sorted(_a8_removed) if n not in _A8_SUPERSEDE_REGISTRY]
+        # A8_REMOVAL_VIOLATION:* names are Layer-1 enforcement artifacts — their presence
+        # depends on the violation state each run, not deliberate check removal. Exclude
+        # them to prevent cascading double-prefix violations across runs.
+        _a8_viol     = [n for n in sorted(_a8_removed)
+                        if n not in _A8_SUPERSEDE_REGISTRY
+                        and not n.startswith('A8_REMOVAL_VIOLATION:')]
         if _a8_viol:
             print(f"\n[A8 Layer-1 ENFORCEMENT] {len(_a8_viol)} prior-run removal violation(s):")
             for _v in _a8_viol:
