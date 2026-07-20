@@ -1,0 +1,6 @@
+                run_id                | status  | source_freshness_date | candidate_count | dur_s |    error_message     
+--------------------------------------+---------+-----------------------+-----------------+-------+----------------------
+ bc05d34d-3352-4f11-bacf-979af095aaba | skipped |                       |                 |       | scan_already_running
+ e51f40e0-342c-4716-9ad1-d64871e98f76 | success | 2026-07-17            |              10 |  5.09 | 
+ 43474152-7681-4114-bc19-650dbe6eb725 | success | 2026-07-17            |              10 |  4.78 | 
+(3 rows)

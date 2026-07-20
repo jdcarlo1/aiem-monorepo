@@ -1,0 +1,26 @@
+OK  seq=1  entry_hash=f889daee1b008268...  cmd: sha256sum tools/verified_run.sh tools/verify_chain.sh
+OK  seq=2  entry_hash=6440346d6563963e...  cmd: python3 /tmp/ev_reg_breakdown.py
+OK  seq=3  entry_hash=83b441d0a4668a41...  cmd: python3 /tmp/ev_reg_full.py
+OK  seq=4  entry_hash=cabfcdbbcef3be87...  cmd: git --no-optional-locks diff 9cb018c HEAD --stat
+OK  seq=5  entry_hash=0daabf218a02541c...  cmd: git --no-optional-locks diff 9cb018c HEAD -- artifacts/stock-scanner-api/aiem_strat_engine/scoring.py artifacts/stock-scanner-api/aiem_strat_scheduler.py
+OK  seq=6  entry_hash=a846b3defbf665c6...  cmd: python3 /tmp/ev_reg_final.py
+OK  seq=7  entry_hash=7cd72e029ff2c99e...  cmd: bash /tmp/ev_grep.sh
+OK  seq=8  entry_hash=a5de5ba9df5e0109...  cmd: python3 /tmp/ev_fail_list.py
+OK  seq=9  entry_hash=f3ea38516f54b47f...  cmd: python3 /tmp/ev_fail_enabled.py
+OK  seq=10  entry_hash=09326ada7c7ddfca...  cmd: python3 /tmp/ev_insuf_list.py
+OK  seq=11  entry_hash=e848bac4f53036ff...  cmd: PROOF-A: Options Engine module structure — scheduler jobs + new module SHAs
+OK  seq=12  entry_hash=bbcf93a525e7e0b3...  cmd: PROOF-B: Trigger chain — log_stage calls for PM/MTF/PAT/OC stages + health endpoint confirmation
+OK  seq=13  entry_hash=0c290a381b879caf...  cmd: python3 artifacts/stock-scanner-api/_evidence_a_structure.py
+OK  seq=14  entry_hash=b98530ffb2b77e56...  cmd: python3 artifacts/stock-scanner-api/_evidence_b_trigger_chain.py
+OK  seq=15  entry_hash=2b45e5521b85bb6c...  cmd: python3 artifacts/stock-scanner-api/_evidence_c_pipeline_run.py
+OK  seq=16  entry_hash=5bcd7187127424b0...  cmd: python3 artifacts/stock-scanner-api/_evidence_e_negative_controls.py
+OK  seq=17  entry_hash=5c143556ac9669d4...  cmd: python3 artifacts/stock-scanner-api/_evidence_d_db_proof.py
+OK  seq=18  entry_hash=6bfbd2f3f96b76e4...  cmd: python3 artifacts/stock-scanner-api/_evidence_e_negative_controls.py
+OK  seq=19  entry_hash=a5110f118c814580...  cmd: sha256sum artifacts/stock-scanner-api/aiem_multitimeframe.py artifacts/stock-scanner-api/aiem_premarket_intel.py artifacts/stock-scanner-api/aiem_polygon_options_chain.py artifacts/stock-scanner-api/aiem_strat_engine/scoring.py artifacts/stock-scanner-api/aiem_strat_engine/config.py artifacts/stock-scanner-api/ccs_flip_test.py
+OK  seq=20  entry_hash=125e629a160732ce...  cmd: cd artifacts/stock-scanner-api && python ccs_flip_test.py
+OK  seq=21  entry_hash=9e1eac27d4e10c38...  cmd: psql $DATABASE_URL -c "SELECT run_id, status, source_freshness_date, candidate_count, ROUND(EXTRACT(EPOCH FROM (completed_at-started_at))::numeric,2) AS dur_s, error_message FROM premarket_scan_runs ORDER BY triggered_at DESC LIMIT 5"
+
+=== CHAIN VALID: all 21 entries verified, no tampering detected in the log structure. ===
+NOTE: this confirms internal consistency of the log only. It does NOT prove the
+commands were actually executed as claimed, or that Joel is running this against
+his real production database. Spot-check by re-running a sampled command yourself.
