@@ -882,7 +882,9 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         if _reg_ready:
             _pmd_dt  = datetime(pmd[0].year, pmd[0].month, pmd[0].day, 17, 0)
             _pmd_age = int((_reg_ts_now - _pmd_dt).total_seconds())
-            _pmd_q   = "STALE" if _pmd_age > 172800 else "FRESH"
+            _dow_pmd  = datetime.now(_ET).weekday()
+            _pmd_stale_thresh = 345600 if _dow_pmd <= 1 else 172800
+            _pmd_q   = "STALE" if _pmd_age > _pmd_stale_thresh else "FRESH"
             # Polygon ingestion subsystem
             _rc("POLYGON", "POLY_CLOSE_PRICE",    close_price, min(1.0, close_price/500.0),
                 "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
@@ -900,7 +902,13 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 None, _pmd_dt, _pmd_age, _pmd_q)
             _rc("OSS", "OSS_GEX_M",       float(oss[2]) if oss[2] is not None else None,
                 None, "NEUTRAL", None, _pmd_dt, _pmd_age, _pmd_q)
-            _rc("OSS", "OSS_GEX_REGIME",  None, None, "NEUTRAL",
+            # Encode regime as a numeric proxy so raw_value is not None
+            # (snap_indicator forces quality_status=MISSING when raw=None).
+            # 1.0=LONG_GAMMA (supportive), -1.0=SHORT_GAMMA (risky), 0.0=NEUTRAL
+            _gex_raw = (1.0 if gex_regime == "LONG_GAMMA"
+                        else -1.0 if gex_regime == "SHORT_GAMMA"
+                        else 0.0) if gex_regime else None
+            _rc("OSS", "OSS_GEX_REGIME",  _gex_raw, None, "NEUTRAL",
                 None, _pmd_dt, _pmd_age, _pmd_q, txt=gex_regime)
             _rc("OSS", "OSS_PC_SKEW_PP",  pc_skew_pp, min(1.0, abs(pc_skew_pp)/30.0),
                 "BEARISH" if pc_skew_tag == "FEAR_PREMIUM"
@@ -1555,9 +1563,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except _reg_mod.RegistryValidationError as _rpve:
                 _reg_gate_failures.append(f"REGISTRY_PATTERN_INCOMPLETE: {_rpve}")
                 log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rpve}")
+            # Weekend-aware freshness threshold.
+            # Friday close → Monday 9:45 AM is ~65-68h (>48h flat threshold).
+            # 3-day holiday weekend can reach ~89h. Use 96h (345600s) on Mon/Tue
+            # to cover all post-weekend cases; 48h (172800s) mid-week is fine.
+            _dow_now = datetime.now(_ET).weekday()
+            _freshness_secs = 345600 if _dow_now <= 1 else 172800  # Mon/Tue=96h, else 48h
             try:
                 _reg_mod.assert_data_freshness(trace_id, _CRITICAL_FRESHNESS_IDS,
-                                               172800, _reg_db)
+                                               _freshness_secs, _reg_db)
             except _reg_mod.RegistryValidationError as _rfve:
                 _reg_gate_failures.append(f"REGISTRY_STALE_DATA: {_rfve}")
                 log.error(f"[exec] [{trace_id}] REGISTRY GATE: {_rfve}")
