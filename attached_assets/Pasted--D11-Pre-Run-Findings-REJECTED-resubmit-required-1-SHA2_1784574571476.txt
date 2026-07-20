@@ -1,0 +1,29 @@
+# D11 Pre-Run Findings — REJECTED, resubmit required
+
+## 1. SHA256 mismatch — validator output void
+Report cites verified_run.sh = `ebb6a2dd6f5f...`. Current canonical = `467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae`. Re-run sha256sum on both `tools/verified_run.sh` and `artifacts/stock-scanner-api/verify_chain.sh`, paste raw output, confirm match to canonical before anything else is accepted.
+
+## 2. Missing file-level sha256 before/after
+No hashes given for the two files actually changed: `artifacts/stock-scanner-api/aiem_options_scheduler.py` and `artifacts/stock-scanner-api/main.py`. Paste sha256 before-edit and after-edit for both.
+
+## 3. Missing verify_chain.sh output
+Paste raw execution output of `verify_chain.sh`. Required before declaring any item complete.
+
+## 4. Missing real git diff
+Paste raw `git diff HEAD --stat` output. The diffs shown in the prior report must be confirmed against this, not hand-reconstructed.
+
+## 5. Item 4 negative control not executed
+The "branch coverage simulation" table is a written assertion, not run output. Actually execute the six cases (row=None / FAILED-0 / NO_CANDIDATES-0 / SUCCESS-0 / SUCCESS-4 / SKIPPED-0) through the real code path and paste the raw output for each, including confirmation the ZERO_PICKS Telegram send fired (or was correctly suppressed) per case.
+
+## Not required to redo
+- Item 1 causal chain (already labeled reconstruction, exception text already confirmed unavailable)
+- Item 3 GHA correlation (created_at match already shown)
+- Item 5 GH Actions unavailability (already honestly flagged)
+
+## Standing requirements (apply to resubmission)
+- Raw evidence only — no narrative "fixed/tested/confirmed" without pasted output
+- Raw grep -n / sed -n for any code-location or behavior claim
+- Full SQL + result set for any DB claim
+- No deletion/truncation without prior explicit approval
+- All evidence-producing commands run through verified_run.sh; validate with verify_chain.sh before declaring complete
+- If any item can't be backed by real output, state that in one line — no padding
