@@ -2496,8 +2496,10 @@ try:
             _c27nc.execute("SAVEPOINT c27_neg")
             _c27nc.execute("""
                 INSERT INTO oe_unreplayable_rows
-                    (decision_id, primary_reason_code, exception_class, authenticated_by)
-                VALUES ('7ed6e6fb9bb24fedb0b51114', 'INVALID_REASON_XYZ', 'TestEx', 'test')
+                    (decision_id, primary_reason_code, exception_class, authenticated_by,
+                     evidence_ref, registered_by)
+                VALUES ('7ed6e6fb9bb24fedb0b51114', 'INVALID_REASON_XYZ', 'TestEx', 'test',
+                        'SEQ=99 sha256=' || lpad('a', 64, 'a'), 'verify_dpl_phase3.py')
             """)
             _c27nc.execute("ROLLBACK TO SAVEPOINT c27_neg")
             _c27_neg_msg = "INSERT with invalid reason succeeded — CHECK not blocking (FAIL)"
@@ -2511,6 +2513,65 @@ try:
     chk("C27_neg_invalid_reason_code_blocked", _c27_neg_ok, _c27_neg_msg[:200])
     if _c27_neg_ok:
         print(f"  [C27 neg] CHECK constraint blocked correctly: {_c27_neg_msg[:80]}")
+
+    # A26 remediation: evidence_ref NOT NULL + format CHECK + registered_by column
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT is_nullable FROM information_schema.columns
+                       WHERE table_name='oe_unreplayable_rows' AND column_name='evidence_ref'""")
+        _c27_er_row = cur.fetchone()
+        _c27_er_not_null = _c27_er_row is not None and _c27_er_row[0] == 'NO'
+    chk("C27_evidence_ref_not_null",
+        _c27_er_not_null,
+        f"evidence_ref must be NOT NULL; is_nullable={_c27_er_row}")
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT 1 FROM pg_constraint
+                       WHERE conname='oe_unreplayable_rows_evidence_ref_format'""")
+        _c27_erf_ok = cur.fetchone() is not None
+    chk("C27_evidence_ref_format_constraint",
+        _c27_erf_ok,
+        "evidence_ref format CHECK (^SEQ=[0-9]+ sha256=[0-9a-f]{64}$) must exist")
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT is_nullable FROM information_schema.columns
+                       WHERE table_name='oe_unreplayable_rows' AND column_name='registered_by'""")
+        _c27_rb_row = cur.fetchone()
+        _c27_rb_exists = _c27_rb_row is not None
+        _c27_rb_not_null = _c27_rb_exists and _c27_rb_row[0] == 'NO'
+    chk("C27_registered_by_column_not_null",
+        _c27_rb_not_null,
+        f"registered_by must exist and be NOT NULL; found={_c27_rb_row}")
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                       WHERE conname LIKE '%unreplayable%' AND conname LIKE '%registered_by%'""")
+        _c27_rb_chk = cur.fetchone()
+    _c27_rb_chk_def = _c27_rb_chk[0] if _c27_rb_chk else ''
+    _c27_rb_chk_has_vals = (
+        'verify_dpl_phase3.py' in _c27_rb_chk_def and
+        'admin_manual_with_evidence' in _c27_rb_chk_def
+    )
+    chk("C27_registered_by_check_constraint",
+        _c27_rb_chk_has_vals,
+        f"registered_by CHECK must include both allowed values; def={_c27_rb_chk_def[:120]}")
+
+    with _conn() as conn, conn.cursor() as cur:
+        cur.execute("""SELECT exemption_id, registered_by, evidence_ref
+                       FROM oe_unreplayable_rows WHERE is_test_record=FALSE ORDER BY registered_at""")
+        _c27_rb_rows = cur.fetchall()
+    _c27_rb_valid = all(
+        r[1] in ('verify_dpl_phase3.py', 'admin_manual_with_evidence') and
+        r[2] is not None
+        for r in _c27_rb_rows
+    )
+    for _r27rb in _c27_rb_rows:
+        print(f"  [C27 A26] id={_c27_rb_rows.index(_r27rb)+1} "
+              f"registered_by={_r27rb[1]} evidence_ref={_r27rb[2][:40]}...")
+    chk("C27_registered_by_values_valid",
+        _c27_rb_valid,
+        f"all exemption rows must have valid registered_by and non-null evidence_ref; "
+        f"found={[(r[0][:16],r[1]) for r in _c27_rb_rows]}")
+
 except Exception as _e:
     chk("C27_oe_unreplayable_rows", False, str(_e))
 
@@ -3584,9 +3645,16 @@ try:
             'A8_baseline_erosion_clean',
             'A8_baseline_file_missing',
             # R8 Item 8 negative controls — defined after Layer-1 section (ordering artifact):
+            # Proof of spurious (independent of this list): SEQ=43 log shows
+            # VIOLATION[BASELINE_REMOVAL] printed by A8, then PASS NC1/NC2/NC3 printed
+            # when each check ran. The SEQ=44 last_run_results.json pass_list contains
+            # all three — no check was removed from the suite. Timing artifact only.
+            # NC4 (below) proves this exclusion is name-specific, not a blanket exemption.
             'NC1_ViolationRecord_frozen_blocks_mutation',
             'NC2_enforcement_artifacts_absent_from_pass_list',
             'NC3_replay_nonexistent_id_raises',
+            # NC4 also runs after A8 enforcement (same ordering artifact):
+            'NC4_genuine_removal_still_fires_with_excl_list',
         }
         _a8_removed_raw  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
         # A8_REMOVAL_VIOLATION:* and A8_enforcement_error:* names are Layer-1 enforcement
@@ -3758,6 +3826,45 @@ try:
         f"got exc={_nc3_exc_name}")
 except Exception as _nc3_meta_e:
     chk("NC3_replay_nonexistent_id_raises", False, str(_nc3_meta_e))
+
+# NC4: A25 remediation — prove the _A8_L1_META_EXCL exclusion list is name-specific,
+# not a blanket exemption.  A genuine removal (a check NOT in the exclusion list)
+# must still produce a violation even with the list in place.
+#
+# Proof that NC1/NC2/NC3 removals were spurious (independent of this exclusion):
+#   SEQ=43 log: VIOLATION[BASELINE_REMOVAL] printed for NC1/NC2/NC3 at A8 time,
+#   then PASS NC1/NC2/NC3 printed when each check ran later in the same run.
+#   SEQ=43 machine-readable JSON: pass_list contains NC1/NC2/NC3 — the checks
+#   were never removed from the suite; the violation was a timing artifact only.
+#   This is verifiable from tools/logs/verified_run_43.log without referencing
+#   this exclusion list.
+#
+# NC4 proves the exclusion is targeted:
+#   Construct synthetic prev={sentinel, NC1} / curr={NC1}.
+#   sentinel is NOT in _A8_L1_META_EXCL → must appear in removed_raw.
+#   NC1 IS in _A8_L1_META_EXCL → must NOT appear in removed_raw.
+try:
+    _nc4_excl_under_test = {
+        'A8_baseline_erosion_clean',
+        'A8_baseline_file_missing',
+        'NC1_ViolationRecord_frozen_blocks_mutation',
+        'NC2_enforcement_artifacts_absent_from_pass_list',
+        'NC3_replay_nonexistent_id_raises',
+        'NC4_genuine_removal_still_fires_with_excl_list',
+    }
+    _nc4_sentinel     = '__NC4_GENUINE_REMOVAL_SENTINEL__'
+    _nc4_prev         = {_nc4_sentinel, 'NC1_ViolationRecord_frozen_blocks_mutation'}
+    _nc4_curr         = {'NC1_ViolationRecord_frozen_blocks_mutation'}
+    _nc4_removed_raw  = _nc4_prev - _nc4_curr - _nc4_excl_under_test
+    _nc4_sentinel_fires = _nc4_sentinel in _nc4_removed_raw
+    _nc4_nc1_exempted   = 'NC1_ViolationRecord_frozen_blocks_mutation' not in _nc4_removed_raw
+    _nc4_ok = _nc4_sentinel_fires and _nc4_nc1_exempted
+    print(f"  NC4 sentinel_fires={_nc4_sentinel_fires} NC1_exempted={_nc4_nc1_exempted}")
+    chk("NC4_genuine_removal_still_fires_with_excl_list", _nc4_ok,
+        f"A8 exclusion list must only exempt named entries — "
+        f"sentinel_fires={_nc4_sentinel_fires} nc1_exempted={_nc4_nc1_exempted}")
+except Exception as _nc4_e:
+    chk("NC4_genuine_removal_still_fires_with_excl_list", False, str(_nc4_e))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

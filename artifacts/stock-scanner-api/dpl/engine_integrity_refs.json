@@ -25,8 +25,8 @@
     "version": "2"
   },
   "canonicalization_version": "2",
-  "commit_sha": "92659130fbd84f4824011f7af94bac1d9b876069",
-  "commit_sha_note": "Updated to R8 Item 8 sealed-run HEAD (92659130). Reflects DPL Phase 3 R8 all-8-automatable-items build. Per mandatory certification procedure.",
+  "commit_sha": "0c26566d7b4239f498d08ed24c89f88e236c70ab",
+  "commit_sha_note": "Updated to R9 pre-run baseline HEAD (0c26566d) before 09:45 ET Mon 2026-07-20 scheduler fire. Reflects DPL Phase 3 R8 all-8-automatable-items build. Per mandatory certification procedure.",
   "config_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "decision_path_combined_hash": "a7f7409c5d5fd6853cb95430e3112d5befe4629de7aa1bcdebab7fdda8d2ce53",
   "decision_path_module_hashes": {
@@ -68,7 +68,7 @@
   "integrity_schema_version": "2",
   "python_version": "3.11.14",
   "refs_file_hash_note": "sha256(this file excluding this field) = verified by C28 in verify_dpl_phase3.py",
-  "refs_updated_at": "2026-07-20T09:40:00Z",
+  "refs_updated_at": "2026-07-20T12:15:00Z",
   "req6_weights_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "schema_version": "2",
   "scoring_fn_ast_hash": "68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42",

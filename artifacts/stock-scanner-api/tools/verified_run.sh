@@ -89,9 +89,11 @@ echo "prev_chain_hash=${PREV_HASH}"
 # Replaces the former broad grep-v exclusions with an explicit allowlist.
 # Allowlist (exact paths only, no wildcards or prefix matches):
 #   tools/verified_run_seq  — runtime monotonic counter mutated by flock above
-#   dpl/engine_integrity_refs.json — TEMPORARY pending Item 3 two-artifact model
-#     (engine_manifest.generated.json + engine_approval.signed.json). Will be
-#     permanently removed from allowlist once the two-artifact model is implemented.
+# NOTE: dpl/engine_integrity_refs.json is NOT allowlisted (A24 remediation).
+#   refs.json carries approval fields, commit_sha, and engine hashes — the
+#   highest-risk file in the system. It must be committed before each sealed run,
+#   not excused during it. An uncommitted refs.json update produces TREE=DIRTY,
+#   which is the correct and honest outcome.
 # Untracked .py/.sh/.json/.env files FAIL; untracked .log evidence files PASS.
 # Renames, symlinks, path traversal, and directories always FAIL.
 _STATUS_BIN="/tmp/git_status_${SEQ}_$$.bin"
@@ -101,7 +103,6 @@ _TREE_EXIT=0
 python3 "${SCRIPT_DIR}/check_clean_tree.py" \
     --status-file "${_STATUS_BIN}" \
     --allow-exact "tools/verified_run_seq" \
-    --allow-exact "dpl/engine_integrity_refs.json" \
     --repo-root "${GIT_ROOT}" \
     || _TREE_EXIT=$?
 rm -f "${_STATUS_BIN}"

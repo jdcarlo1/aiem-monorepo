@@ -1,0 +1,51 @@
+# DPL Phase 3 — Audit Directive R9
+Re: DPL_Phase3_R8_Completion_Summary.md
+Issued 2026-07-20 07:52 ET
+
+## A21 — TIME-CRITICAL. Window is TODAY.
+Today is Monday 2026-07-20. The summary says the scheduler unblocks "Monday 2026-07-21" — that is a Tuesday. 5th date regression in this project.
+The 09:45 ET fire is in under 2 hours. Seal a pre-run baseline NOW, with full header and a committed HEAD, or the first SCHEDULER-origin row is commit-unattributable and C52B/C52C evidence is unusable.
+
+## A22 — No sealed-run header. Narrative-only report.
+SEQ=42/43/44 report PASS/FAIL counts and nothing else. Missing for all three: entry_hash, sha256(log), git_commit, TREE state, CMD, TS/TS_END, sha256(verified_run.sh) vs canonical. "Post-seal 9/9 PASS" is asserted with no hash. Same rejection class as R2/R3.
+
+## A23 — C52A vanished from the FAIL list.
+`C52A_verifier_fixtures_contaminate_prod_namespace` FAILED at SEQ=35 and SEQ=36. It is not in SEQ=44's six, and the summary never states it was fixed. Produce: the check's current name, its result, and the supersession record — or re-derive SEQ=44 as 7 FAILs.
+
+## A24 — TREE check now passes by definition.
+`check_clean_tree.py` allowlists `dpl/engine_integrity_refs.json` — the file carrying the approval fields, commit_sha and engine hashes. That is the highest-risk file in the system and it is now permanently exempt from the cleanliness gate. This converts A14 (ran dirty) into cannot-run-dirty.
+Remove the entry. Refs must be committed before the seal, not excused during it.
+
+## A25 — A8 enforcement is self-exempting.
+SEQ=43 fired 3 `A8_REMOVAL_VIOLATION`. They were cleared by adding names to `_A8_L1_META_EXCL`, an agent-editable list. Same defect as A17.
+Required: the exclusion-list diff; proof each of the 3 was spurious that does not depend on the exclusion; a negative control where a genuine check removal still fires with the list in place.
+
+## A26 — Quarantine DDL regressed from the agreed spec.
+R4.8.4 agreed `oe_unreplayable_rows` carries `evidence_ref` NOT NULL (format `SEQ=<N> sha256=<64>`) and `registered_by` CHECK IN (verify_dpl_phase3.py, admin_manual_with_evidence). The R8 field list has neither.
+C52C_historical excludes quarantined rows. Without evidence binding, any row that fails replay can be made to disappear from the check designed to catch it. Restore both constraints. State who registered the 2 existing rows and against what evidence_ref.
+
+## A27 — Correction-ledger genesis minted in-session.
+218 entries "bootstrapped from existing exception data" by the audited party, in the same session, rooted at a hash the same party chose. A12 class.
+Required: genesis row_hash, the `corrected_by` values across all 218, and the deterministic rule mapping 153 exceptions → 218 entries.
+
+## B18 — Check arithmetic.
+Totals: SEQ=42 = 195, SEQ=43 = 198, SEQ=44 = 195. Three checks left the suite between 43 and 44. List the delta by check name for both transitions, and give reported vs re-derived FAIL counts for all three runs (standing R5 requirement, omitted).
+
+## B19 — A8 Layer-1 provenance is self-referential.
+Layer-1 now classifies cascades from `enforcement_artifacts` in `last_run_results.json`, written by the verifier itself. State what prevents the verifier from emitting an artifact set that clears its own enforcement.
+
+## B20 — Status line required for each carried item, unmentioned in R8.
+A4, A5, A10, A11, A12, A15, A16, A18, A19, A20, B5, B15, B16, B17. One line each: DONE with evidence ref, OPEN, or WITHDRAWN with reason.
+
+## Accepted as sound
+- C48 and C28 left failing rather than renamed or weakened.
+- Production execution disabled.
+- C52C left PENDING rather than made satisfiable.
+- NC1/NC2/NC3 are real negative controls, not assertions.
+- `git status --porcelain -z` is a genuine correctness fix.
+
+## Order of work
+1. A21 pre-run seal, before 09:45 ET today.
+2. A22, A23, B18 — disclosure only, no code changes.
+3. A24, A25, A26 — code, each with diff + failing negative control.
+4. A27, B19, B20.

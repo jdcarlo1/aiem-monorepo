@@ -1,10 +1,10 @@
 {
   "schema_version": "2",
-  "run_ts": "2026-07-20T05:42:46Z",
-  "total_pass": 189,
+  "run_ts": "2026-07-20T12:03:26Z",
+  "total_pass": 195,
   "total_fail": 6,
   "total_pending": 0,
-  "all_checks": 195,
+  "all_checks": 201,
   "reconciliation": {
     "sum_eq_total": true,
     "pass_plus_fail_eq_all": true
@@ -119,6 +119,11 @@
     "C27_both_code_drift_rows_registered",
     "C27_all_exemptions_not_recoverable",
     "C27_neg_invalid_reason_code_blocked",
+    "C27_evidence_ref_not_null",
+    "C27_evidence_ref_format_constraint",
+    "C27_registered_by_column_not_null",
+    "C27_registered_by_check_constraint",
+    "C27_registered_by_values_valid",
     "C28_refs_file_exists",
     "C28_refs_has_commit_sha",
     "C28_refs_has_engine_root_hash",
@@ -198,7 +203,8 @@
     "A8_baseline_erosion_clean",
     "NC1_ViolationRecord_frozen_blocks_mutation",
     "NC2_enforcement_artifacts_absent_from_pass_list",
-    "NC3_replay_nonexistent_id_raises"
+    "NC3_replay_nonexistent_id_raises",
+    "NC4_genuine_removal_still_fires_with_excl_list"
   ],
   "fail_list": [
     "C48_independent_approval_obtained",
