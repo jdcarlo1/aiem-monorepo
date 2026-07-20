@@ -702,3 +702,9 @@ id = "D1jJKoyxIXMWMpUvHxiZd"
 uri = "file://artifacts/stock-scanner-api/dpl/dpl_phase3_final_authoritative_report.txt"
 type = "text"
 title = "DPL Phase 3 — Final Authoritative Report (Schema v2, SEQ=25)"
+
+[[outputs]]
+id = "nHaOL_gNB3VFDkl3ZVJh2"
+uri = "file://artifacts/stock-scanner-api/dpl/dpl_phase3_part1_remediation_report.txt"
+type = "text"
+title = "DPL Phase 3 — Part 1 Remediation Verification Report"
