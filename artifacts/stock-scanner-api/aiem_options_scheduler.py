@@ -821,6 +821,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _dpl       = None
 
     t_start = time.time()
+    _gate_fired = [False]  # defined before outer try — always reachable in except (Item 7)
 
     try:
         import aiem_options_intel   as _oi
@@ -2011,8 +2012,6 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         _ieg_dpl_dir = _ieg_os.path.dirname(_ieg_refs_path)
         if _ieg_dpl_dir not in _ieg_sys.path:
             _ieg_sys.path.insert(0, _ieg_dpl_dir)
-
-        _gate_fired = [False]  # mutable flag — set True when integrity gate fires (Item 7)
 
         def _ieg_log_block(reason: str, exc_cls: str = '', exc_detail: str = '',
                            live_hash: str = '', expected_hash: str = '') -> None:
