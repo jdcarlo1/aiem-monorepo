@@ -1,0 +1,390 @@
+============================================================
+AEIM DASHBOARD — PHASE A RESULTS HANDOFF
+COMPLETE FILES + RAW VERIFICATION EVIDENCE REQUIRED
+============================================================
+
+Phase A appears complete. Before beginning the dashboard, provide the complete Phase A package for independent review and dashboard redesign.
+
+Do not begin Phase B or build the frontend yet.
+
+Do not modify the existing reports after exporting them.
+
+============================================================
+1. PROVIDE ALL PHASE A FILES
+============================================================
+
+Provide the complete contents of these files:
+
+1. AEIM_DASHBOARD_CODE_INVENTORY.md
+2. AEIM_DASHBOARD_DATABASE_INVENTORY.md
+3. AEIM_DASHBOARD_API_INVENTORY.md
+4. AEIM_DASHBOARD_REALTIME_INVENTORY.md
+5. AEIM_DASHBOARD_SOURCE_TO_SCREEN_MAP.csv
+6. AEIM_DASHBOARD_TRACEABILITY_REPORT.md
+7. AEIM_DASHBOARD_GAP_ANALYSIS.md
+8. AEIM_DASHBOARD_PHASE_A_FINAL_REPORT.md
+9. AEIM_DASHBOARD_PHONE_SUMMARY.md
+
+Preferred delivery:
+
+• One ZIP file containing all nine original files
+• Do not convert the CSV to screenshots
+• Preserve exact filenames and formatting
+• Include SHA-256 for every file
+• Include current Git commit SHA
+• Include generation timestamp in ET
+• Confirm whether any file was manually edited after generation
+
+============================================================
+2. REQUIRED RAW SUPPORTING EVIDENCE
+============================================================
+
+Also include the raw evidence used to support the reports:
+
+• Repository inventory command and raw output
+• Database schema inventory command and raw output
+• SQL row-count queries and results
+• Earliest/latest timestamp queries and results
+• API route enumeration command and raw output
+• Runtime API test commands and responses
+• Scheduler and worker status evidence
+• SSE/polling/WebSocket inspection evidence
+• Trace-ID queries and results
+• Hash-chain verification output
+• File SHA-256 manifest
+• Git status
+• Git commit SHA
+• List of uncommitted changes
+
+Do not provide narrative-only proof.
+
+============================================================
+3. SOURCE-TO-SCREEN MAP REQUIREMENTS
+============================================================
+
+Confirm that every row in:
+
+AEIM_DASHBOARD_SOURCE_TO_SCREEN_MAP.csv
+
+contains:
+
+• Product = AEIM only
+• Dashboard screen
+• Widget or field
+• Exact source file
+• Exact class/function
+• Database schema
+• Database table
+• Exact columns
+• Existing API route
+• HTTP method
+• Authentication requirement
+• Update trigger
+• Refresh frequency
+• Data classification
+• Verification status
+• Runtime evidence reference
+• Missing work
+• Gap ID
+• Priority
+
+Remove or clearly flag anything belonging only to:
+
+• Standalone Stock Scanner
+• Standalone Options Engine
+
+The AEIM dashboard must remain an independently deployable product.
+
+============================================================
+4. PRODUCT-SEPARATION CONFIRMATION
+============================================================
+
+Confirm the following architecture:
+
+PRODUCT 1 — STOCK SCANNER
+• Separate application
+• Separate dashboard
+• Separate domain
+• Independently deployable and sellable
+
+PRODUCT 2 — AEIM
+• Separate application
+• Separate institutional dashboard
+• Separate domain
+• Independently deployable and sellable
+
+PRODUCT 3 — OPTIONS ENGINE
+• Separate application
+• Separate dashboard
+• Separate domain
+• Independently deployable and sellable
+
+Shared infrastructure is allowed only through documented, replaceable interfaces.
+
+Do not tightly couple the AEIM dashboard to the Stock Scanner or standalone Options Engine.
+
+Any shared component must identify:
+
+• Owner
+• Interface
+• Authentication
+• Data contract
+• Failure behavior
+• Replacement method
+• Effect if another product is sold separately
+
+============================================================
+5. CLARIFY THE 16 PLANNED SCREENS
+============================================================
+
+Provide the exact status of all 16 screens.
+
+For each screen show:
+
+• READY_NOW
+• READY_AFTER_API_CONNECTION
+• REQUIRES_SMALL_BACKEND_ROUTE
+• REQUIRES_BACKEND_REMEDIATION
+• FUTURE_FEATURE
+• NOT_SUPPORTED
+
+For every screen include:
+
+• Supported widgets
+• Existing routes
+• Missing routes
+• Database sources
+• Refresh method
+• Authentication level
+• Known limitations
+
+Clearly identify the 10 screens that can be built immediately and the remaining 6.
+
+============================================================
+6. P0 GAPS — EXACT DETAILS
+============================================================
+
+The summary reports 3 P0 gaps.
+
+For each P0 gap provide:
+
+• Gap ID
+• Exact description
+• Why it is P0
+• Files affected
+• Database affected
+• Routes affected
+• Security impact
+• Dashboard impact
+• Exact remediation required
+• Estimated effort
+• Test required
+• Acceptance criteria
+• Whether it must be completed before frontend construction
+• Whether it must be completed before production deployment
+
+Do not treat “no frontend exists” as the only technical P0 without explaining the other P0 items.
+
+============================================================
+7. FIVE MISSING ADMIN ROUTES
+============================================================
+
+Provide full specifications for these routes:
+
+1. GET /stock-api/admin/decision-audit
+2. GET /stock-api/admin/gate-events
+3. GET /stock-api/admin/council-runs
+4. GET /stock-api/admin/position-sizing-log
+5. GET /stock-api/admin/evidence-chain/status
+
+For each route define:
+
+• Exact source table/file
+• Selected columns
+• Filters
+• Sorting
+• Pagination
+• Maximum page size
+• Date-range support
+• Trace-ID lookup
+• Response schema
+• Empty-state behavior
+• Error schema
+• Authentication
+• Authorization
+• Rate limiting
+• Sensitive fields excluded
+• Runtime test
+• Dashboard screen consuming it
+
+Do not implement these routes until the Phase A review is complete unless they are required solely to export safe evidence.
+
+============================================================
+8. TRACEABILITY CLARIFICATION
+============================================================
+
+The summary states that separate trace chains exist.
+
+Provide exact proof for:
+
+• _d2_trace_id
+• trace_id
+• Every table containing either identifier
+• Creation point
+• Propagation path
+• Missing handoffs
+• Collision risk
+• Duplicate risk
+• Cross-product contamination risk
+
+Clarify why the Options Engine trace appears in the AEIM inventory.
+
+State whether it belongs to:
+
+• AEIM
+• Standalone Options Engine
+• Shared legacy infrastructure
+• Incorrectly mixed product data
+
+Provide the proposed design for an AEIM-only trace explorer without combining the products improperly.
+
+============================================================
+9. REAL-TIME DESIGN CLARIFICATION
+============================================================
+
+Current summary states:
+
+• 1 SSE endpoint, chat only
+• 0 WebSocket
+• 10–30 second polling is considered adequate
+
+For every planned dashboard screen, specify:
+
+• Required refresh interval
+• Polling endpoint
+• Expected payload size
+• Query cost
+• Database load
+• Cache strategy
+• Stale-data indicator
+• Retry behavior
+• Timeout behavior
+• Backoff behavior
+• Offline state
+• Duplicate prevention
+
+Identify which functions truly require:
+
+• Real-time streaming
+• 5-second polling
+• 10-second polling
+• 30-second polling
+• 1-minute refresh
+• Manual refresh only
+
+Do not label the entire dashboard “real-time” if most screens use polling.
+
+============================================================
+10. SECURITY AND COMMERCIAL DEPLOYMENT
+============================================================
+
+Because AEIM will eventually be sold independently, document:
+
+• Authentication method
+• Role-based access control
+• Admin versus subscriber access
+• Tenant isolation
+• API-key handling
+• Secret management
+• Session security
+• CSRF protection
+• CORS policy
+• Rate limiting
+• Audit logging
+• Data export restrictions
+• Database access boundaries
+• Backup and restore
+• Domain and HTTPS deployment
+• Environment separation
+• Production monitoring
+• Dependency vulnerability status
+
+Classify each as:
+
+• READY
+• PARTIAL
+• MISSING
+• NOT_VERIFIED
+
+============================================================
+11. DATABASE QUALITY CLARIFICATION
+============================================================
+
+The report states that 580 tables were classified.
+
+Provide totals for:
+
+• ACTIVE_AND_POPULATED
+• ACTIVE_BUT_EMPTY
+• LEGACY
+• UNUSED
+• PARTIALLY_WIRED
+• UNKNOWN
+• MISSING
+
+Also provide:
+
+• Tables without primary keys
+• Tables without timestamps
+• Tables without indexes on major lookup fields
+• Tables with duplicate-purpose names
+• Tables written by multiple owners
+• Tables with no identified writer
+• Tables with no identified reader
+• Tables mixing AEIM and Options Engine data
+• Tables mixing production and test data
+
+============================================================
+12. FINAL QUESTIONS TO ANSWER
+============================================================
+
+Answer each clearly with YES, NO, or PARTIAL and evidence:
+
+1. Can the AEIM dashboard be built without changing AEIM decision logic?
+2. Are all displayed values backed by authoritative data?
+3. Can 10 screens truly be built immediately?
+4. Are the remaining 6 screens fully defined?
+5. Are all 3 P0 gaps identified precisely?
+6. Are the products cleanly separable for independent sale?
+7. Is authentication production-ready?
+8. Is role-based access production-ready?
+9. Is the API safe for exposure through a public domain?
+10. Is tenant isolation implemented?
+11. Is the system ready for multiple subscribers?
+12. Can every decision be traced end to end?
+13. Can every dashboard number link to its evidence source?
+14. Are hash-chain results accessible without exposing sensitive files?
+15. Is the proposed polling design safe under concurrent users?
+16. Are any dashboard capabilities based only on assumptions?
+17. Does any AEIM screen depend on the standalone Options Engine?
+18. Does any AEIM screen depend on the Stock Scanner?
+19. Can AEIM continue operating if the other two products are sold?
+20. May the final institutional dashboard design begin?
+
+============================================================
+13. FINAL HANDOFF
+============================================================
+
+Deliver:
+
+• One ZIP containing all nine Phase A files
+• One raw-evidence folder
+• One SHA-256 manifest
+• One Git metadata file
+• One concise answers file for Section 12
+
+Do not begin dashboard construction until this package has been reviewed and the final AEIM Institutional Terminal specification has been revised from the verified findings.
+
+============================================================
+END
+============================================================
