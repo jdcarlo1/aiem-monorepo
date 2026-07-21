@@ -99,23 +99,11 @@ export default function Scheduler() {
                     );
                   })
                 ) : (
-                  // Fallback stub if array is empty but we need to show the 274 total conceptually
-                  Array.from({ length: 20 }).map((_, i) => (
-                    <tr key={i} className="border-b border-border/50 hover:bg-white/5 opacity-50">
-                      <td className="p-3 text-muted-foreground">job_{100+i}</td>
-                      <td className="p-3 font-bold text-white">system_scan_{i}</td>
-                      <td className="p-3 text-secondary">cron</td>
-                      <td className="p-3 font-bold text-success flex items-center gap-2">
-                        <Clock size={12} />
-                        {new Date(Date.now() + 100000 * i).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-right">
-                        <button className="px-2 py-1 bg-primary text-black text-xs hover:bg-primary/90 transition-colors inline-flex items-center gap-1">
-                          <Play size={10} /> FORCE
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center font-mono text-sm text-muted-foreground">
+                      NO JOB DATA — API returned empty job list. Scheduler may be warming up.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>

@@ -69324,6 +69324,47 @@ def admin_evidence_chain_status():
         return jsonify({"error": str(_e_ec)}), 503
 
 
+@app.route("/stock-api/admin/signal-discoveries", methods=["GET"])
+def admin_signal_discoveries():
+    """Return aiem_signal_discoveries for AIEM Institutional Terminal Signals page."""
+    import hmac as _hmac_sd
+    import psycopg2 as _pg_sd, os as _os_sd
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_sd.compare_digest(tok, _os_sd.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 403
+
+    try:
+        with _pg_sd.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, hypothesis_text, signal_name, signal_win_rate, signal_n,
+                           status, oos_edge, p_value,
+                           discovered_at::text, confirmed_at::text
+                    FROM aiem_signal_discoveries
+                    ORDER BY id ASC
+                """)
+                rows = []
+                for r in cur.fetchall():
+                    rows.append({
+                        "id": r[0],
+                        "hypothesis_text": r[1],
+                        "signal_name": r[2],
+                        "signal_win_rate": float(r[3]) if r[3] is not None else None,
+                        "signal_n": r[4],
+                        "status": r[5],
+                        "oos_edge": float(r[6]) if r[6] is not None else None,
+                        "p_value": float(r[7]) if r[7] is not None else None,
+                        "discovered_at": r[8],
+                        "confirmed_at": r[9],
+                    })
+                return jsonify({"rows": rows, "count": len(rows)})
+    except Exception as _e_sd:
+        if "does not exist" in str(_e_sd):
+            return jsonify({"rows": [], "count": 0}), 200
+        return jsonify({"error": "database unavailable", "detail": str(_e_sd)}), 503
+
+
 @app.route("/stock-api/admin/macro/history", methods=["GET"])
 def admin_macro_history():
     """Return aiem_macro_daily history for AIEM Institutional Terminal regime chart."""

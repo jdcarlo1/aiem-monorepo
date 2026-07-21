@@ -821,4 +821,10 @@ title = "AIEM Institutional Terminal — Phase B Handoff"
 id = "vwBidRKNVoWOVbjyK-2OE"
 uri = "file://AIEM_DASHBOARD_PHASE_B_CHANGES_AND_VERIFICATION.md"
 type = "text"
-title = "AIEM Dashboard — Changes & Verification Report"
+title = "Phase B — Changes & Verification (reference)"
+
+[[outputs]]
+id = "kab0xYr6v-Q9E3RItE6Iy"
+uri = "file://AIEM_DASHBOARD_GAP_AUDIT.md"
+type = "text"
+title = "AIEM Terminal — Master Directive Gap Audit"

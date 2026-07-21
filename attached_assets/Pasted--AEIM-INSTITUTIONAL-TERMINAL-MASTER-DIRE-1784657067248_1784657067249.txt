@@ -1,0 +1,580 @@
+============================================================
+AEIM INSTITUTIONAL TERMINAL
+MASTER DIRECTIVE GAP AUDIT, COMPLETION & STRICT VERIFICATION
+
+CONTEXT
+
+The original AEIM Institutional Terminal Master Directive remains the authoritative specification.
+
+The Phase B report documents successful completion of the following limited work:
+
+• TypeScript strict-mode correction in use-api.ts
+• Paper Trades API/database field corrections
+• Removal of randomized Regime chart data
+• Connection of the Regime chart to real aiem_macro_daily data
+• Scheduler next_run field correction
+• Addition of the authenticated macro/history endpoint
+• Successful TypeScript compilation
+• Limited endpoint, database, authentication and browser checks
+
+Do not redo verified work unless regression testing identifies a genuine defect.
+
+The Phase B report must not be treated as proof that the full Master Directive is complete.
+
+============================================================
+
+1. REQUIRED GAP AUDIT
+    ============================================================
+
+Audit the actual implementation against every section of the original 30-section Master Directive.
+
+For every requirement, classify it as:
+
+• COMPLETE AND VERIFIED
+• COMPLETE BUT NOT VERIFIED
+• PARTIALLY COMPLETE
+• NOT IMPLEMENTED
+• DEFERRED WITH AUTHORIZATION
+• BLOCKED BY MISSING BACKEND DATA
+• FAIL
+
+Provide exact evidence for every COMPLETE AND VERIFIED classification:
+
+• File path
+• Component, route or endpoint
+• Database source
+• Test name
+• Test result
+• Runtime evidence
+• Screenshot reference
+• Git commit
+• SHA-256 where required
+
+Do not classify a feature complete because a page, navigation item, placeholder, static panel or empty component exists.
+
+============================================================
+2. CORRECT ARCHITECTURE REQUIREMENT
+
+Verify whether the terminal is truly deployed as a separate frontend application and separately deployable website.
+
+The existing path:
+
+artifacts/aiem-dashboard/
+
+may be retained if it is a genuinely independent frontend build and deployment.
+
+It does not have to be renamed solely to match the recommended apps/aeim-terminal structure.
+
+Prove:
+
+• Separate frontend build
+• Separate routing
+• Separate deployment configuration
+• Separate authentication boundary
+• No dependency on the scanner frontend for rendering
+• Scanner is not the decision authority
+• Browser has no direct database credentials
+• AEIM calculations remain server-side
+• Dashboard queries cannot delay critical AEIM execution
+
+============================================================
+3. REMOVE ALL REMAINING FABRICATED DATA
+
+Search the entire terminal source for:
+
+• Math.random
+• Hardcoded financial values
+• Fake timestamps
+• Demo decisions
+• Mock trades
+• Mock indicators
+• Mock charts
+• Placeholder health statuses
+• Fabricated audit records
+• Default zero values used for missing financial data
+
+Replace each with:
+
+• Real authoritative API data
+• An honest empty state
+• An unavailable state
+• A stale-data state
+• A clearly labeled development-only fixture excluded from production
+
+Provide GREP results proving no prohibited production mocks remain.
+
+Do not convert null, unavailable or missing financial data into zero unless zero is the verified authoritative value.
+
+============================================================
+4. API STANDARDIZATION
+
+The current dashboard uses routes under /stock-api/.
+
+Do not break working endpoints solely for naming consistency.
+
+However, implement or document a versioned authenticated terminal API boundary such as:
+
+/api/v1/terminal/…
+
+Either:
+
+A. Create versioned terminal endpoints, or
+B. Create a documented compatibility layer mapping existing /stock-api/ endpoints to the terminal data contracts.
+
+Every endpoint must document:
+
+• Authentication requirement
+• Role requirement
+• Request parameters
+• Response schema
+• Pagination
+• Filtering
+• Sorting
+• Freshness
+• Data source
+• Verification status
+• Error responses
+
+Do not expose unrestricted SQL access.
+
+============================================================
+5. AUTHENTICATION AND ROLE CONTROLS
+
+The current admin-token login is not sufficient by itself to prove institutional role-based access control.
+
+Implement and verify:
+
+• Viewer
+• Trader
+• Analyst
+• Risk Manager
+• Auditor
+• Administrator
+• Institutional Due-Diligence Viewer
+
+Prove:
+
+• Authentication
+• Authorization
+• Session expiration
+• Secure cookie handling where applicable
+• Export restrictions
+• Administrative-action logging
+• Protected operational logs
+• Protected version metadata
+• User-management restrictions
+• Paper-trading control restrictions
+
+Do not enable live-money trading.
+
+============================================================
+6. REAL-TIME EVENT DELIVERY
+
+Implement and verify WebSocket or Server-Sent Events for:
+
+• Decisions
+• Candidates
+• Paper trades
+• Orders
+• Portfolio risk
+• System health
+• Audit events
+• Alerts
+
+Polling alone does not satisfy the original real-time-stream requirement unless formally approved as a temporary limitation.
+
+Prove:
+
+• Automatic event appearance
+• Reconnection
+• Missed-event recovery
+• Ordering where required
+• Duplicate-event rejection
+• Event IDs
+• Last-event cursor or equivalent recovery mechanism
+• Stale-stream detection
+• Honest degraded state
+
+============================================================
+7. REQUIRED PAGE COMPLETION
+
+Audit and complete all Release 1 areas:
+
+• Global Terminal Shell
+• Command Center
+• Live Decisions
+• Opportunity Queue
+• Decision Proof
+• Paper Trading
+• Portfolio Risk
+• Specialist Council
+• Indicator Laboratory
+• Probability and Calibration
+• Performance Analytics
+• Learning Center
+• Audit and Verification
+• System Operations
+• Responsive Monitoring View
+• Saved Workspace
+• Institutional Reports
+
+For each screen prove:
+
+• Route loads
+• Real data source
+• Honest empty state
+• Loading state
+• Error state
+• Stale-data state
+• Filters
+• Sorting
+• Pagination where needed
+• Responsive behavior
+• Keyboard accessibility
+• No console errors
+
+Do not present navigation-only or placeholder pages as completed functionality.
+
+============================================================
+8. DECISION-PROOF REQUIREMENT
+
+Build and verify a complete Decision Proof page tied to a genuine AEIM decision.
+
+The proof must show the real chain:
+
+Scheduler Trigger
+→ Data Ingestion
+→ Data Guard
+→ Regime
+→ Premarket Intelligence
+→ Technical and Pattern Analysis
+→ Advanced Indicators
+→ Options Intelligence
+→ Probability
+→ Scoring and Synthesis
+→ Specialist Council
+→ Portfolio Optimization
+→ Risk Gate
+→ Final Decision
+→ Paper Order
+→ Fill or Rejection
+→ Position
+→ Outcome when closed
+→ Attribution
+→ Learning
+→ Memory
+
+For each available stage display:
+
+• Stage status
+• Start and completion timestamps
+• Duration
+• Input and output identifiers
+• Trace ID
+• Audit event ID
+• Data source
+• Model or rule version
+• Summary
+• Detailed values
+• Warning or error
+• Hash status
+
+If a stage does not exist for a particular decision, mark it MISSING or NOT APPLICABLE with a verified reason.
+
+Never label an incomplete trace End-to-End Verified.
+
+============================================================
+9. OPPORTUNITY-QUEUE AND SELECTION-BIAS PROOF
+
+Show all evaluated candidates, including:
+
+• Approved
+• Rejected
+• Awaiting data
+• Data-guard rejected
+• Liquidity rejected
+• Execution-cost rejected
+• Portfolio-risk rejected
+• Calibration rejected
+• No Trade
+
+Prove that rejected candidates remain permanently queryable and are not overwritten by later versions.
+
+Include decision version history.
+
+============================================================
+10. FINANCIAL CORRECTNESS
+
+The correction of pnl, pnl_pct and trade_type field names proves display-field alignment only.
+
+It does not prove financial correctness.
+
+Strictly verify:
+
+• Single-leg option P&L
+• Debit-spread P&L
+• Credit-spread P&L
+• Multi-leg quantities
+• Contract multiplier
+• Debit and credit treatment
+• Commissions
+• Slippage
+• Partial fills
+• Adjustments
+• Realized and unrealized separation
+• Breakevens
+• Maximum loss
+• Maximum reward
+• Portfolio Greeks
+• Risk budget
+• Drawdown
+• Equity curve
+• Performance ratios
+
+Options must never be classified successful merely because the underlying crossed the strike.
+
+Use actual option-leg prices and actual stored order/fill data.
+
+============================================================
+11. INDICATOR EXPLANATION
+
+Do not display unexplained values.
+
+Every indicator shown must include:
+
+• Name
+• Current value
+• Previous value
+• Classification
+• Interpretation
+• Confidence
+• Freshness
+• Data source
+• Calculation version
+• Decision contribution
+• Confidence effect
+• Position-size effect
+• Rejection effect
+• Verification status
+
+Verify the dashboard does not imply an indicator was calculated when no authoritative stored result exists.
+
+============================================================
+12. PROBABILITY AND CALIBRATION
+
+Clearly separate:
+
+• Raw model probability
+• Calibrated probability
+• Trade probability
+• Confidence score
+• Expected value
+
+Display real stored metrics where available:
+
+• Brier score
+• Log loss
+• Expected calibration error
+• Maximum calibration error
+• Reliability curve
+• Sample size
+• Prediction drift
+• Distribution shift
+• Walk-forward performance
+• Out-of-sample performance
+• Purged cross-validation
+• Regime-specific calibration
+• Strategy-specific calibration
+
+Show an honest unavailable state for metrics not yet produced by the backend.
+
+============================================================
+13. PERFORMANCE SEGREGATION
+
+Never blend:
+
+• Backtest
+• Out-of-sample
+• Walk-forward
+• Shadow trading
+• Paper trading
+• Future live trading
+
+Every chart, metric and report must identify its operating mode and data period.
+
+============================================================
+14. SYSTEM OPERATIONS
+
+Complete and verify operational monitoring for:
+
+• API
+• Database
+• Scheduler
+• Workers
+• Primary provider
+• Secondary provider
+• Queue
+• Dead-letter queue
+• Notifications
+• Backup
+• Audit service
+• Verification service
+• Broker simulator
+
+Prove:
+
+• Last heartbeat
+• Last success
+• Last failure
+• Latency
+• Error state
+• Retry state
+• Stale-job detection
+• Missing morning-scan alert
+• Duplicate-run alert
+• Provider failover status
+• Recovery history
+• Audit-chain failure alert
+
+Do not label a service healthy based only on an HTTP 200 response.
+
+============================================================
+15. REPORTING
+
+Complete authorized exportable reports or clearly label them deferred.
+
+Every report must state:
+
+• Data period
+• Operating mode
+• Sample size
+• Assumptions
+• Limitations
+• Data sources
+• Model version
+• Code version
+• Verification status
+• Generation timestamp
+
+Do not use misleading institutional-readiness or performance claims.
+
+============================================================
+16. SECURITY VERIFICATION
+
+The previously completed missing-token and forged-token 403 tests must be retained as regression tests.
+
+Add verification for:
+
+• Role restrictions
+• Session expiration
+• Rate limiting
+• Input validation
+• Output encoding
+• CSRF where applicable
+• Content Security Policy
+• Security headers
+• Secure cookies
+• Secret scanning
+• Frontend bundle secret inspection
+• Dependency scanning
+• Export authorization
+• Administrative-action audit logging
+• Common web vulnerability testing
+
+============================================================
+17. NEGATIVE CONTROLS
+
+Prove safe behavior for:
+
+• Stale data
+• Provider outage
+• Secondary-provider failover
+• Database query failure
+• Stream disconnection
+• Missed events
+• Duplicate events
+• Incomplete trace
+• Invalid hash chain
+• Risk-gate block
+• Insufficient calibration sample
+• Rejected paper order
+• Missing authorization
+• Missing indicator data
+• Null financial values
+
+Every negative control must show:
+
+• Trigger
+• Expected result
+• Actual result
+• HTTP or event response
+• UI state
+• Database or log evidence
+• PASS or FAIL
+
+============================================================
+18. REQUIRED EVIDENCE PACKAGE
+
+Provide one final evidence package containing:
+
+• Master requirement matrix
+• File inventory
+• Architecture diagram
+• Route inventory
+• API inventory
+• Component inventory
+• Database query inventory
+• Index inventory
+• Data contracts
+• Test inventory
+• Raw test results
+• Screenshots of every completed screen
+• API-response evidence
+• SQL evidence
+• Real stream evidence
+• Trace evidence
+• Hash-chain evidence
+• Security evidence
+• Accessibility evidence
+• Performance evidence
+• Git commit
+• SHA-256 hashes for critical files
+• Known limitations
+• Deferred items
+• Regression results for all Phase B fixes
+• Final PASS/FAIL matrix
+
+No narrative-only proof.
+
+No fabricated records.
+
+No manually inserted verification evidence.
+
+No mocks accepted as end-to-end production proof.
+
+============================================================
+19. FINAL ACCEPTANCE
+
+Do not issue an overall PASS unless:
+
+• The terminal is separately deployable
+• Required pages contain real functionality
+• Real-time updates are verified
+• All candidates are visible
+• Decision Proof is reproducible
+• Paper-trading values are financially correct
+• Portfolio risk is verified
+• Calibration metrics are honestly represented
+• Learning events are evidence-based
+• Operational reliability is visible
+• Authentication and roles are verified
+• Stale and failed data are handled honestly
+• At least one genuine end-to-end decision is proven
+• Hash-chain evidence is valid
+• No prohibited production mocks remain
+• Existing AEIM and scanner functionality remain intact
+
+Anything not proven must remain PARTIAL, UNVERIFIED, DEFERRED or FAIL.
+
+============================================================
+END OF FOLLOW-UP DIRECTIVE

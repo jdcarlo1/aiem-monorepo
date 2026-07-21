@@ -1,16 +1,23 @@
 import { useApi } from "@/hooks/use-api";
-import { Bell, Send, AlertTriangle } from "lucide-react";
+import { Bell, Send, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 
 export default function Alerts() {
-  // Using heartbeats as a proxy for the Telegram notifier digest
   const { data: heartbeats, loading } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
+
+  const jobs: any[] = heartbeats?.jobs ?? [];
+  const failedJobs = jobs.filter((j: any) => j.consecutive_failures > 0 || j.last_error);
+  const okJobs = jobs.filter((j: any) => !j.consecutive_failures && !j.last_error);
+  const telegramJob = jobs.find((j: any) => j.job_name?.toLowerCase().includes("telegram") || j.job_name?.toLowerCase().includes("notif"));
+  const telegramOk = telegramJob ? !telegramJob.consecutive_failures && !telegramJob.last_error : null;
 
   return (
     <div className="space-y-6 h-full flex flex-col">
       <div className="flex justify-between items-end border-b border-border pb-4 shrink-0">
         <div>
           <h1 className="text-2xl font-mono font-bold text-white tracking-tight uppercase">Alert Feed</h1>
-          <p className="text-sm font-mono text-muted-foreground mt-1">Telegram Notifier Digest & Timestamps</p>
+          <p className="text-sm font-mono text-muted-foreground mt-1">
+            Job Heartbeat Failures & Notification Status — source: job_heartbeats
+          </p>
         </div>
       </div>
 
@@ -18,41 +25,52 @@ export default function Alerts() {
         <div className="lg:col-span-2 border border-border bg-card flex flex-col h-full">
           <div className="p-3 border-b border-border bg-sidebar/50 flex justify-between items-center shrink-0">
             <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2">
-              <Send size={14} /> DISPATCH LOG
+              <Send size={14} /> JOB FAILURE LOG
             </h2>
+            <span className="text-xs font-mono text-muted-foreground">
+              {failedJobs.length} FAILED / {okJobs.length} OK
+            </span>
           </div>
           <div className="flex-1 overflow-auto p-0">
             <table className="w-full text-left font-mono text-sm border-collapse">
               <thead className="sticky top-0 bg-card border-b border-border text-muted-foreground text-xs z-10">
                 <tr>
-                  <th className="p-3 font-normal">TIMESTAMP</th>
-                  <th className="p-3 font-normal">CHANNEL</th>
-                  <th className="p-3 font-normal">PAYLOAD / DIGEST</th>
+                  <th className="p-3 font-normal">JOB NAME</th>
+                  <th className="p-3 font-normal">LAST SUCCESS</th>
+                  <th className="p-3 font-normal">LAST ATTEMPT</th>
+                  <th className="p-3 font-normal">FAILURES</th>
                   <th className="p-3 font-normal">STATUS</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
-                ) : heartbeats?.heartbeats?.length ? (
-                  heartbeats.heartbeats.map((hb: any, i: number) => {
-                    const isError = hb.status === 'ERROR' || hb.status === 'FAILED';
+                  <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
+                ) : jobs.length ? (
+                  jobs.map((job: any, i: number) => {
+                    const isFailed = job.consecutive_failures > 0 || !!job.last_error;
                     return (
-                      <tr key={i} className="border-b border-border/50 hover:bg-white/5">
-                        <td className="p-3 text-muted-foreground">{new Date(hb.timestamp || Date.now()).toLocaleString()}</td>
-                        <td className="p-3 font-bold text-white">{hb.job_name || 'TELEGRAM_DISPATCH'}</td>
-                        <td className="p-3 text-xs text-secondary truncate max-w-[200px]">
-                          {hb.message || 'System health and execution summary dispatched successfully.'}
+                      <tr key={i} className={`border-b border-border/50 hover:bg-white/5 ${isFailed ? 'bg-destructive/5' : ''}`}>
+                        <td className="p-3 font-bold text-white text-xs">{job.job_name}</td>
+                        <td className="p-3 text-xs text-muted-foreground">
+                          {job.last_success ? new Date(job.last_success).toLocaleString() : <span className="text-destructive">NEVER</span>}
                         </td>
-                        <td className={`p-3 font-bold flex items-center gap-1 ${isError ? 'text-destructive' : 'text-success'}`}>
-                          {isError && <AlertTriangle size={12} />}
-                          {isError ? 'FAILED' : 'SENT'}
+                        <td className="p-3 text-xs text-muted-foreground">
+                          {job.last_attempt ? new Date(job.last_attempt).toLocaleString() : '---'}
+                        </td>
+                        <td className={`p-3 font-bold ${job.consecutive_failures > 0 ? 'text-destructive' : 'text-success'}`}>
+                          {job.consecutive_failures ?? 0}
+                        </td>
+                        <td className="p-3">
+                          {isFailed
+                            ? <span className="flex items-center gap-1 text-destructive font-bold"><XCircle size={12} /> FAILED</span>
+                            : <span className="flex items-center gap-1 text-success"><CheckCircle size={12} /> OK</span>
+                          }
                         </td>
                       </tr>
                     );
                   })
                 ) : (
-                  <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">NO DISPATCH LOGS</td></tr>
+                  <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">NO HEARTBEAT DATA</td></tr>
                 )}
               </tbody>
             </table>
@@ -62,42 +80,52 @@ export default function Alerts() {
         <div className="border border-border bg-card flex flex-col h-full">
           <div className="p-3 border-b border-border bg-sidebar/50 flex justify-between items-center shrink-0">
             <h2 className="text-sm font-mono font-bold text-white flex items-center gap-2">
-              <Bell size={14} /> ALERT CONFIG
+              <Bell size={14} /> ALERT STATUS
             </h2>
           </div>
           <div className="p-6 space-y-6 font-mono text-sm">
-            <div className="space-y-4">
+            <div className="space-y-3">
+              <div className="text-xs text-muted-foreground border-b border-border pb-2">SUMMARY</div>
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">PORTFOLIO EXECUTIONS</span>
-                <div className="w-10 h-5 bg-primary/20 flex items-center px-1 border border-primary">
-                  <div className="w-3 h-3 bg-primary float-right ml-auto"></div>
-                </div>
+                <span className="text-muted-foreground">TOTAL JOBS TRACKED</span>
+                <span className="text-white font-bold">{jobs.length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">RISK GATE FAILURES</span>
-                <div className="w-10 h-5 bg-primary/20 flex items-center px-1 border border-primary">
-                  <div className="w-3 h-3 bg-primary float-right ml-auto"></div>
-                </div>
+                <span className="text-muted-foreground">JOBS OK</span>
+                <span className="text-success font-bold">{okJobs.length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">EVIDENCE CHAIN WARNINGS</span>
-                <div className="w-10 h-5 bg-primary/20 flex items-center px-1 border border-primary">
-                  <div className="w-3 h-3 bg-primary float-right ml-auto"></div>
-                </div>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">DAILY DIGEST</span>
-                <div className="w-10 h-5 bg-primary/20 flex items-center px-1 border border-primary">
-                  <div className="w-3 h-3 bg-primary float-right ml-auto"></div>
-                </div>
+                <span className="text-muted-foreground">JOBS FAILED</span>
+                <span className={`font-bold ${failedJobs.length > 0 ? 'text-destructive' : 'text-success'}`}>{failedJobs.length}</span>
               </div>
             </div>
 
-            <div className="pt-6 border-t border-border space-y-2">
-              <div className="text-xs text-muted-foreground">TELEGRAM BOT STATUS</div>
-              <div className="p-3 border border-success bg-success/10 text-success font-bold flex items-center justify-between">
-                <span>ONLINE & LISTENING</span>
-                <span className="text-xs">PING: 24ms</span>
+            <div className="pt-4 border-t border-border space-y-2">
+              <div className="text-xs text-muted-foreground">TELEGRAM NOTIFIER</div>
+              {telegramJob == null ? (
+                <div className="p-3 border border-accent bg-accent/10 text-accent flex items-center gap-2 text-xs">
+                  <AlertTriangle size={14} />
+                  <span>NOT TRACKED IN HEARTBEATS — no job_heartbeats entry matching "telegram" found</span>
+                </div>
+              ) : telegramOk ? (
+                <div className="p-3 border border-success bg-success/10 text-success flex items-center justify-between">
+                  <span className="font-bold">HEARTBEAT OK</span>
+                  <span className="text-xs">{telegramJob.last_success ? new Date(telegramJob.last_success).toLocaleTimeString() : '---'}</span>
+                </div>
+              ) : (
+                <div className="p-3 border border-destructive bg-destructive/10 text-destructive flex items-center gap-2 text-xs">
+                  <XCircle size={14} />
+                  <span>FAILURE DETECTED: {telegramJob.consecutive_failures} consecutive fail(s)</span>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-border">
+              <div className="text-xs text-muted-foreground mb-2">NOTE</div>
+              <div className="text-xs text-muted-foreground italic">
+                Telegram dispatch logs (per-message history, delivery receipts, bot ping latency)
+                are not stored in a queryable backend table. This panel shows job heartbeat
+                status only — not individual message delivery confirmation.
               </div>
             </div>
           </div>
