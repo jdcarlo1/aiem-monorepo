@@ -1,8 +1,8 @@
 {
   "schema_version": "2",
-  "run_ts": "2026-07-21T03:13:57Z",
-  "total_pass": 192,
-  "total_fail": 12,
+  "run_ts": "2026-07-21T03:35:30Z",
+  "total_pass": 195,
+  "total_fail": 9,
   "total_pending": 0,
   "all_checks": 204,
   "pass_list": [
@@ -45,7 +45,9 @@
     "C43_chain_pos_test_parses_all_entries",
     "C43_neg_no_second_chain_file",
     "C43_missing_chain_would_fail_closed",
-    "C44_legacy_entry_documented",
+    "C44_chain_archive_sha_equals_file_sha",
+    "C44_chain_archive_sha_equals_index_sha",
+    "C44_index_sha_equals_file_sha",
     "C45_gap_explanation_file_exists",
     "C45_gap_explains_missing_seqs",
     "C45_gap_explains_root_cause",
@@ -193,6 +195,7 @@
     "C42_psv_checks_summary_line",
     "C42_verified_run_calls_post_seal_verifier",
     "C42_neg_missing_archive_causes_psv1_fail",
+    "A8_baseline_erosion_clean",
     "NC1_ViolationRecord_frozen_blocks_mutation",
     "NC2_enforcement_artifacts_absent_from_pass_list",
     "NC3_replay_nonexistent_id_raises",
@@ -208,15 +211,10 @@
     "C52C_genuine_replay_pass",
     "C52C_historical_replay_eligible_row_exists",
     "C28_approved_by_in_allowlist_and_engine_hash_match",
-    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_file_sha",
-    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_index_sha",
-    "A8_BASELINE_VIOLATION:C44_index_sha_equals_file_sha",
-    "A8_baseline_erosion_clean"
+    "A8_REMOVAL_VIOLATION:C44_legacy_entry_documented"
   ],
   "enforcement_artifacts": [
-    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_file_sha",
-    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_index_sha",
-    "A8_BASELINE_VIOLATION:C44_index_sha_equals_file_sha"
+    "A8_REMOVAL_VIOLATION:C44_legacy_entry_documented"
   ],
   "a8_excl_list": [
     "A33_excl_list_new_names_have_registry_entry",

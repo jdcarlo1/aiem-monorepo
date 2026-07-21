@@ -1,20 +1,29 @@
 ---
 name: DPL Phase 3 — Reproducibility Replay & Institutional Audit Remediation
-description: FREEZE DECLARED. SEQ=53: 195P/8F. All 8 FAILs are documented external blockers. C52B/C52C pending Tue Jul 21 09:45 ET scheduler run. C42 fixed (post_seal_verify.sh added to tools/verified_run.sh).
+description: Directive 16 Option A COMPLETE. SEQ=55: 195P/9F. C44 3/3 PASS. A8_baseline_erosion_clean PASS. New 9th FAIL: A8_REMOVAL_VIOLATION:C44_legacy_entry_documented (legacy SEQ=52/53 have no archive_sha256, awaiting documented-legacy disposition).
 ---
 
-## FREEZE STATE (post-session, SEQ=53)
+## CURRENT STATE (post-Directive-16, SEQ=55)
 
-**Chain head:** SEQ=53
-**SEQ=53 results:** 195 PASS, 8 FAIL
-**Total checks:** 203
-**entry_hash:** (see verified_run_chain.jsonl latest)
-**refs.commit_sha:** 0d1ad78d865805e8... (== HEAD, A19 RESOLVED)
-**CERTIFICATION_GAP_A19:** RESOLVED
-**CERTIFICATION_GAP_A28:** TREE=DIRTY (8 modified/untracked), commit_match=True
-**CERTIFICATION_GAP_A30:** ledger genesis self-signed; no external witness; accepted gap
+**Chain head:** SEQ=55  
+**SEQ=55 results:** 195 PASS, 9 FAIL, all=204  
+**entry_hash:** see verified_run_chain.jsonl latest  
+**refs.commit_sha:** == HEAD (A19 RESOLVED)  
+**PSV SEQ=55:** 9 PASS / 0 FAIL (complete green)  
+**archive_sha256 in chain entry:** YES (SEQ=54+)  
 
-## 8 Expected Failures (all external blockers — freeze declared with these)
+## Chain state by entry
+
+| SEQ | has_archive_sha256 | status |
+|---|---|---|
+| 52 | False | LEGACY — chain-write probe (echo), no archive |
+| 53 | False | LEGACY — first verifier run post-consolidation, no archive |
+| 54 | True  | echo test for $4 fix verification |
+| 55 | True  | production verifier run, canonical |
+
+SEQ=52/53 are permanently exempt — no retroactive archive creation.
+
+## 9 Fails (SEQ=55)
 
 | Check | Classification | Unblocks When |
 |---|---|---|
@@ -26,58 +35,66 @@ description: FREEZE DECLARED. SEQ=53: 195P/8F. All 8 FAILs are documented extern
 | C52B_live_trade_decision_exists | PENDING_LIVE_EVIDENCE | Scheduler fires AND produces TRADE decision |
 | C52C_genuine_replay_pass | DEPENDENCY_BLOCKED | Blocked by C52B |
 | C52C_historical_replay_eligible_row_exists | PENDING | First 09:45 ET scheduler run with replay capture |
+| A8_REMOVAL_VIOLATION:C44_legacy_entry_documented | NEW — awaiting disposition | SEQ=52/53 in chain lack archive_sha256; verifier flags removal undocumented; add to documented-legacy exclusion set OR accept as permanent expected FAIL |
 
-## C42 root-cause and fix (this session)
+## Progress history (this directive session)
 
-**Root cause:** The DPL-specific `artifacts/stock-scanner-api/tools/verified_run.sh` was deleted
-in a prior "archive old verification scripts" commit (d90f466). The on-disk `verify_dpl_phase3.py`
-had an uncommitted path change updating C42 from `'..', 'tools'` (one level up = DPL tools/) to
-`'..', '..', '..', 'tools'` (three levels up = project root tools/). The project-root
-`tools/verified_run.sh` lacked the `post_seal_verify.sh` call → C42 FAIL in SEQ=52.
+**BEFORE (SEQ=53):** 192 PASS / 12 FAIL — 3 C44 BASELINE_VIOLATIONs + A8_baseline_erosion_clean FAIL  
+**AFTER (SEQ=55):** 195 PASS / 9 FAIL — C44 all PASS, A8_baseline_erosion_clean PASS  
+**Net:** +3 PASS / −3 FAIL  
+**Cleared:** C44_chain_archive_sha_equals_file_sha, C44_chain_archive_sha_equals_index_sha, C44_index_sha_equals_file_sha, A8_baseline_erosion_clean  
+**New FAIL introduced:** A8_REMOVAL_VIOLATION:C44_legacy_entry_documented  
 
-**Fix:** Added conditional DPL post_seal_verify.sh invocation to `tools/verified_run.sh` (lines 93-108).
-The block only fires when DPL chain files are present; `|| true` prevents shell abort.
-String `post_seal_verify.sh` now present in `tools/verified_run.sh` → C42 PASS in SEQ=53.
+## Directive 16 Option A implementation notes
 
-## R12 A38 — Contamination exclusions verified (this session)
+**Root bug encountered:** `set -u` fires on `$4` inside `python3 -c "..."` bash double-quoted block — Python
+comment contained `awk '{print $4}'` which bash expanded as positional parameter. Fix: rewrote comment
+to not use `$N` references. See [bash-setU-dollar-in-python-block](bash-setu-dollar-in-python-block.md).
 
-All 9 contamination-exclusion decision_ids in oe_contamination_exclusions:
-- Found in oe_decision_replay_inputs (is_test=True, origin_type=None, alert_id=None)
-- Created 2026-07-19 during verifier sessions, NOT in 09:45 ET market window
-- All classified contamination_class='VERIFIER_FIXTURE_FALSE_PROD'
-- Per-row evidence documented in R12 response
+**Archive creation order:** archive file written → sha256 computed → chain entry written → index TSV appended.
+This ensures archive_sha256 exists before chain entry, satisfying PSV4 3-way binding.
 
-## refs.json (engine_integrity_refs.json) — current state
+**Entry_hash payload schema v5 (SEQ=54+):** v4 fields + `archive_sha256`.
+Old entries (SEQ≤53) use v4 schema (no archive_sha256 in payload). PSV5 must skip archive_sha256 for
+legacy entries (it uses `exclude = {'entry_hash', 'type', 'pre_chain_anchor_note', 'archive_sha256'}`
+so archive_sha256 is excluded from hash payload — backward compatible).
 
-- `engine_root_hash`: `f1ea0f6caed49f53026237a80755d5223b9f98e781d5f98ce21ce96b1e32ac60`
-- `commit_sha`: `0d1ad78d865805e87aff99c24d07ab0d7f1a3ed4` (= HEAD, A19 RESOLVED)
-- Root cause of last hash update: aiem_options_scheduler.py changed by pipeline failure alerts + recovery fix commits (4f912a0/5b3b9e9/d90f466), not DPL edits
+## Directive 15 Item 2 (closed prior session)
+
+3 duplicate verified_run.sh copies deleted in commit a603aa5; archived at `_archive/duplicate_verified_run/`.
+Consolidation confirmed wc -l counts 308/232/27.
+
+## verify_chain.sh inventory (awaiting sign-off for archive)
+
+| Path | Lines | Purpose | Callers |
+|---|---|---|---|
+| `tools/verify_chain.sh` | 94 | Standing Protocol canonical | self-reference only |
+| `artifacts/stock-scanner-api/verify_chain.sh` | 291 | Options alert audit chain | 5 CWD-relative callers in stock-scanner-api/ |
+| `verify_chain.sh` (root) | 230 | AIEM Failover Evidence Verifier | `verify_pattern_engine.sh` sha256sum only (passive) |
+| `.local/verify_chain.sh` | 68 | Dead D12 script | ZERO callers |
+
+Root and .local are archive candidates — awaiting explicit sign-off per Data Immutability Rule.
+`verify_pattern_engine.sh` references root via `sha256sum verify_chain.sh` — passive integrity hash.
+If root is archived, that line needs a tombstone comment.
 
 ## Next unblock conditions
 
 1. **Tue 2026-07-21 09:45 ET:** options-pipeline-scheduler fires → C52B_scheduler_origin_decision_exists unblocks
 2. **First TRADE decision day:** C52B_live_trade_decision_exists + C52C + C52C_historical unblock
-3. **External reviewer:** C48 + C28_approved_by unblock (non-self identity required)
-4. **After scheduler run:** check origin_type='SCHEDULER' rows in oe_decision_replay_inputs; if present, run sealed verifier → expect 195P→197P (C52B×2 pass), then C52C block may also resolve
+3. **External reviewer:** C48 + C28_approved_by unblock
+4. **A8_REMOVAL_VIOLATION:** disposition decision needed (exclusion record vs permanent expected FAIL)
 
-## Chain entry_hash payload schema v4 (R10, SEQ=46+)
+## Chain entry_hash payload schema
 
-13 fields (sorted keys):
-`a8_l1_excl_sha256`, `cmd`, `commit`, `exit_code`, `last_run_results_sha256`, `log_sha256`,
-`prev_hash`, `req6_weights_hash`, `scoring_fn_ast_hash`, `seq`, `tree`, `ts`, `ts_end`
+**v4 (SEQ≤53):** 13 fields: `a8_l1_excl_sha256`, `cmd`, `commit`, `exit_code`, `last_run_results_sha256`,
+`log_sha256`, `prev_hash`, `req6_weights_hash`, `scoring_fn_ast_hash`, `seq`, `tree`, `ts`, `ts_end`
 
-Do NOT add fields without documenting the version boundary — it breaks PSV5 for older entries.
+**v5 (SEQ≥54):** v4 + `archive_sha256` in entry dict — but `archive_sha256` is in the `exclude` set for
+hash computation, so PSV5 is backward compatible across both schema versions.
 
 ## Key structural decisions
 
 **TREE=DIRTY is expected:** Replit auto-commits at task end. A28 is a CERTIFICATION_GAP (not FAIL).
-commit_match=True (refs.commit_sha == HEAD) is what matters for A19.
-
 **A8 Layer-1 meta-excl SHA:** `bfa5db476cf3de1dfd3f557462d1b16b72b90c2472393d7248aca28ada2bef11`
-Any new negative control defined AFTER the A8 enforcement block must be added to `_A8_L1_META_EXCL`.
-
+**APPROVED_IDENTITIES = empty set:** C28 fail-closed until external reviewer adds credentials.
 **C47B allowlist:** dpl/ *.py allowlist includes correction_ledger.py and scheduler_trace.py.
-Any new .py added to dpl/ must be added to this allowlist with a reason comment.
-
-**APPROVED_IDENTITIES = empty set:** C28 blocks all production execution. This is intentional —
-the gate is fail-closed until an external reviewer provides credentials for the allowlist.

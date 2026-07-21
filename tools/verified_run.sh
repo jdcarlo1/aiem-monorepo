@@ -93,16 +93,22 @@ RAW_DIR="${LOG_FILE%.log}_raw"
 mkdir -p "$RAW_DIR"
 printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
 
-# DPL verified_run_chain.jsonl write.
+# DPL verified_run_chain.jsonl write + archive log creation (Option A fix).
 # The original artifacts/stock-scanner-api/tools/verified_run.sh that maintained
 # this chain no longer exists.  This block restores the write path.
 # C33 canonical format: sha256 of all entry fields except
 # {entry_hash, type, pre_chain_anchor_note, archive_sha256}.
+# archive_sha256 binds the chain entry to a per-SEQ archive log and to the
+# index TSV (3-way binding checked by PSV1/2/4/7/8/9 and C44).
 _DPL_SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _DPL_CHAIN_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/verified_run_chain.jsonl"
 _DPL_LRR_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/last_run_results.json"
 _DPL_VER_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/verify_dpl_phase3.py"
 _DPL_REFS_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/engine_integrity_refs.json"
+_DPL_LOGS_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/logs"
+_DPL_IDX_W="${_DPL_LOGS_W}/verified_run_index.tsv"
+_DPL_OUTPUT_TMP_W="/tmp/verified_run_output_$$.txt"
+printf '%s' "$OUTPUT" > "${_DPL_OUTPUT_TMP_W}"
 if [ -f "${_DPL_CHAIN_W}" ]; then
 python3 -c "
 import json, os, hashlib, datetime, subprocess
@@ -111,6 +117,9 @@ chain_path    = '${_DPL_CHAIN_W}'
 lrr_path      = '${_DPL_LRR_W}'
 ver_path      = '${_DPL_VER_W}'
 refs_path     = '${_DPL_REFS_W}'
+logs_dir      = '${_DPL_LOGS_W}'
+index_path    = '${_DPL_IDX_W}'
+output_tmp    = '${_DPL_OUTPUT_TMP_W}'
 cmd           = '''${CMD}'''
 exit_code     = ${EXIT_CODE}
 ts            = '${TIMESTAMP}'
@@ -135,7 +144,31 @@ def sha256f(p):
     except: return 'MISSING'
 
 ts_end = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+
+# Read raw command output for archive file
+try:
+    with open(output_tmp, 'rb') as f:
+        raw_output_bytes = f.read()
+except Exception:
+    raw_output_bytes = b''
+
+# Build archive file content.
+# Header lines satisfy PSV7 (SEQ=N  EXIT=N) and PSV9 (CMD=...).
+# Raw output satisfies PSV8 (SUMMARY: line present for verifier runs).
+# Archive is written BEFORE the chain entry so archive_sha256 can be
+# included in the chain entry (3-way binding: chain <-> file <-> index).
+os.makedirs(logs_dir, exist_ok=True)
+archive_path = os.path.join(logs_dir, f'verified_run_{next_seq}.log')
+header = f'SEQ={next_seq}  EXIT={exit_code}  TS_END={ts_end}\nCMD={cmd}\n'.encode('utf-8')
+archive_bytes = header + raw_output_bytes
+with open(archive_path, 'wb') as f:
+    f.write(archive_bytes)
+os.chmod(archive_path, 0o444)
+archive_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+print(f'[dpl_chain] archive=verified_run_{next_seq}.log  archive_sha256={archive_sha256[:16]}...')
+
 entry = {
+    'archive_sha256':          archive_sha256,
     'cmd':                     cmd,
     'commit':                  commit,
     'exit_code':               exit_code,
@@ -154,11 +187,18 @@ payload = {k: v for k, v in entry.items() if k not in exclude}
 entry['entry_hash'] = hashlib.sha256(
     json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
 ).hexdigest()
+
+# Append to index TSV: SEQ TAB TS_END TAB EXIT_CODE TAB ARCHIVE_SHA256 TAB CMD
+# Column 4 (1-indexed) = archive_sha256.  PSV2 reads col-4 with awk field split.
+with open(index_path, 'a') as f:
+    f.write(f'{next_seq}\t{ts_end}\t{exit_code}\t{archive_sha256}\t{cmd}\n')
+
 with open(chain_path, 'a') as f:
     f.write(json.dumps(entry) + '\n')
 print('[dpl_chain] SEQ=' + str(next_seq) + ' entry_hash=' + entry['entry_hash'][:16] + '...')
 " 2>&1 || echo "[dpl_chain] ERROR: chain write failed"
 fi
+rm -f "${_DPL_OUTPUT_TMP_W}"
 
 echo "--- verified_run: entry #$SEQ logged ---"
 echo "command:      $CMD"
