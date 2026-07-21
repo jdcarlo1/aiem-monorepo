@@ -1,0 +1,1043 @@
+AIEM INSTITUTIONAL TERMINAL
+FINAL COMPLETION MASTER CHECKLIST
+MANDATORY REMEDIATION, IMPLEMENTATION, AND STRICT END-TO-END VERIFICATION DIRECTIVE
+
+OBJECTIVE
+
+Implement, remediate, and strictly verify the complete AIEM Institutional Terminal against the existing AIEM_FINAL_COMPLETION_MASTER_CHECKLIST.md.
+
+The original 760 numbered requirements remain controlling.
+
+Do not delete, merge, rename, skip, replace, or renumber any existing requirement.
+
+This directive adds mandatory acceptance rules and closes gaps identified during independent checklist review.
+
+No item may receive PASS based only on source-code presence, screenshots, narrative explanation, mocked data, fabricated records, manual database inserts, reused evidence, or an engineer’s statement.
+
+============================================================
+
+1. REQUIRED STATUS DEFINITIONS
+    ============================================================
+
+Use only:
+
+PASS:
+Fully implemented and proven with current, reproducible evidence from the designated environment.
+
+PARTIAL:
+Some required behavior is implemented or verified, but at least one material acceptance condition remains incomplete.
+
+FAIL:
+Implementation exists but produces an incorrect result, violates the requirement, or fails verification.
+
+NOT IMPLEMENTED:
+No qualifying implementation exists.
+
+BLOCKED:
+Verification cannot be completed because of a specifically identified external or environmental dependency.
+
+BLOCKED must not be used to hide missing implementation.
+
+Every status must include a technical explanation.
+
+============================================================
+2. REQUIRED ACCEPTANCE CLASSIFICATION
+
+Assign every original requirement one acceptance class:
+
+CRITICAL
+MANDATORY
+CONDITIONAL
+OPTIONAL
+
+At minimum, classify the following as CRITICAL:
+
+* Removal of fabricated dashboard data
+* Authentication and server-side authorization
+* Financial calculations
+* Risk-Gate enforcement
+* Portfolio-limit enforcement
+* Strategy-disable enforcement
+* Audit-chain integrity
+* Decision-trace integrity
+* Genuine scheduler-to-outcome proof
+* Outcome-to-learning proof
+* Database and API reconciliation
+* Secret protection
+* SQL-injection protection
+* XSS protection
+* CSRF protection where applicable
+* Production-mode labeling
+* Paper-trading-mode labeling
+* Provider-failure handling
+* Scheduler recovery
+* No duplicate orders
+* No unauthorized operational controls
+
+FINAL PASS is prohibited if any CRITICAL item is FAIL, PARTIAL, NOT IMPLEMENTED, or BLOCKED.
+
+============================================================
+3. EVIDENCE FIELD RULE
+
+For every original requirement return:
+
+* Requirement ID
+* Requirement text
+* Acceptance class
+* Status
+* Technical conclusion
+* Files changed
+* Functions/classes changed
+* API endpoint
+* Database table
+* SQL query
+* Raw SQL result
+* Test command
+* Raw test result
+* Browser evidence
+* Runtime evidence
+* Security evidence
+* Negative-control evidence
+* trace_id where applicable
+* candidate_id where applicable
+* decision_id where applicable
+* execution_plan_id where applicable
+* order_id where applicable
+* position_id where applicable
+* outcome_id where applicable
+* learning_event_id where applicable
+* audit_log_id where applicable
+* verification_run_id
+* Evidence hash
+* SHA-256 file hash
+* Git commit
+* Deployment ID
+* Environment ID
+* Regression result
+* Limitations
+* Reviewer conclusion
+
+When a field genuinely does not apply, return:
+
+NOT APPLICABLE — followed by the exact technical reason.
+
+Do not invent irrelevant SQL, API, browser, trace, or security evidence merely to fill a field.
+
+============================================================
+4. VERIFICATION RUN IDENTITY
+
+Every evidence item must be bound to the same controlled verification context or explicitly identify why it came from a separate approved run.
+
+Record:
+
+* verification_run_id
+* environment name
+* environment ID
+* hostname or container ID
+* Git commit SHA
+* Git branch
+* git status –porcelain result
+* deployment ID
+* container-image digest
+* frontend production-bundle hash
+* backend package-lock or dependency-lock hash
+* database migration revision
+* database snapshot/reference
+* configuration fingerprint
+* Python version
+* Node version
+* operating-system version
+* test start timestamp
+* test end timestamp
+* evidence generation timestamp
+* timezone
+* model version where applicable
+* calculation version where applicable
+
+No PASS may rely on uncommitted or unidentified code.
+
+Prove that the tested Git commit is the deployed Git commit.
+
+Any relevant code, schema, dependency, configuration, model, or deployment change invalidates affected evidence and requires rerunning affected tests.
+
+============================================================
+5. ARCHITECTURE AND DEPLOYMENT ADDITIONS
+
+In addition to ARCH-001 through ARCH-030, verify:
+
+* Dashboard CPU and memory usage cannot starve AIEM workers.
+* Dashboard and AIEM use isolated processes or services.
+* Dashboard database pools cannot exhaust AIEM database connections.
+* Dashboard queue traffic cannot block trading or scheduler queues.
+* Dashboard faults cannot terminate scheduler, scan, audit, or paper-trading processes.
+* Circuit breakers exist for failing dashboard dependencies.
+* Failed deployments can be rolled back.
+* Frontend and backend compatibility is verified during deployments.
+* Database migration rollback procedures exist.
+* Backup restoration is tested.
+* Recovery Time Objective is documented.
+* Recovery Point Objective is documented.
+* Provider/server failure recovery is tested.
+* Audit evidence survives restoration.
+* Health checks distinguish liveness from readiness.
+* Production startup fails safely when critical configuration is missing.
+
+Provide genuine process-failure, resource-pressure, and service-isolation tests.
+
+============================================================
+6. FABRICATED-DATA REMOVAL ADDITIONS
+
+Do not rely only on grep.
+
+Perform:
+
+* Source-code static scan
+* AST-based scan where practical
+* Frontend production-bundle scan
+* Backend default/fallback scan
+* API middleware scan
+* Fixture/demo-data scan
+* Runtime network-response inspection
+* API-to-SQL reconciliation
+* Empty-database test
+* Null-value test
+* Provider-outage test
+* Missing-table or missing-source test
+* Demo/test-mode-disabled proof
+
+Authorized synthetic data may exist only in clearly isolated tests, backtests, simulations, or stress scenarios.
+
+Synthetic data must never be presented as real paper, shadow, or live data.
+
+Every synthetic value must identify:
+
+* SYNTHETIC / TEST / BACKTEST / SIMULATION mode
+* Generation method
+* Test or simulation ID
+* Timestamp
+* Assumptions
+
+============================================================
+7. API HARDENING ADDITIONS
+
+Verify:
+
+* Mutating endpoints support idempotency.
+* Duplicate Force Run requests do not create duplicate executions.
+* Duplicate paper-order requests do not create duplicate orders.
+* Retry requests are idempotent.
+* Request correlation IDs exist.
+* Maximum request sizes exist.
+* Maximum response sizes exist.
+* Export limits exist.
+* Per-user and per-role API rate limits exist.
+* Long queries can time out or be cancelled safely.
+* Database pool exhaustion is handled safely.
+* Concurrent requests do not violate financial or risk limits.
+* Race-condition tests exist.
+* Optimistic locking or equivalent consistency control exists where required.
+* Replay protection exists for sensitive actions.
+* Financial decimals are not represented with unsafe binary floating-point where exact decimal behavior is required.
+* Currency, units, precision, rounding, nullability, and timezone are documented in API contracts.
+* Daylight-saving transitions are tested.
+* Frontend and backend version compatibility is tested.
+* API errors never expose secrets, stack traces, database statements, or credentials.
+
+============================================================
+8. AUTHENTICATION AND RBAC ADDITIONS
+
+Verify:
+
+* Multi-factor authentication for privileged roles or document an approved interim restriction.
+* Default-deny authorization.
+* Formal role-permission matrix.
+* Separation of duties.
+* Break-glass administrator procedure.
+* User deactivation immediately revokes access.
+* Privilege downgrade immediately removes access.
+* Token issuer and audience are validated.
+* Token signing keys are rotated.
+* Refresh tokens are rotated where applicable.
+* Token replay is detected where applicable.
+* Session concurrency policy exists.
+* Active sessions can be listed and revoked.
+* Service accounts are separately controlled.
+* API keys have ownership, expiration, rotation, and revocation.
+* Password reset or identity-provider recovery is secured.
+* Account lockout and recovery are tested.
+* User-specific and role-specific data cannot leak.
+* Row-level authorization is enforced for saved workspaces, reports, exports, logs, and user resources.
+* Periodic access-review procedure is documented.
+
+Frontend hiding alone is never authorization.
+
+============================================================
+9. REAL-TIME EVENT DELIVERY ADDITIONS
+
+Verify:
+
+* Event backpressure handling
+* Slow-client handling
+* Maximum event size
+* Event payload schema validation
+* Event ordering scope
+* Event sequence scope
+* Event-store durability
+* Event replay authorization
+* Reconnect authorization
+* Cross-user leakage negative control
+* Cross-role leakage negative control
+* Unauthorized replay negative control
+* High-volume event testing
+* Connection-limit testing
+* Fan-out capacity
+* Memory-leak testing
+* Server-restart recovery
+* Clock synchronization
+* Retention duration
+* Event-expiration behavior
+
+Declare whether event_sequence is global, per stream, per trace, per user, or per event type.
+
+============================================================
+10. OPPORTUNITY QUEUE COMPLETENESS
+
+Prove that candidates cannot disappear before persistence.
+
+Record and reconcile for every scheduler run:
+
+* candidates_created
+* candidates_persisted
+* candidates_approved
+* candidates_rejected
+* candidates_blocked
+* candidates_no_trade
+* candidates_expired
+* candidates_duplicate
+* candidates_unresolved
+
+The following must reconcile:
+
+candidates_created
+
+all mutually exclusive terminal candidate outcomes
++
+documented active candidates
+
+Instrument the earliest candidate-creation boundary.
+
+Do not prove queue completeness only from records that already reached the database.
+
+============================================================
+11. DECISION-PROOF TRACE MATRIX
+
+One successful trace is insufficient.
+
+Produce genuine, non-manually-inserted traces for at least:
+
+1. Approved stock paper trade
+2. Approved single-leg option trade
+3. Approved multi-leg option trade
+4. NO_TRADE decision
+5. Data-Guard rejection
+6. Stale-data rejection
+7. Liquidity rejection
+8. Calibration rejection
+9. Risk-Gate rejection
+10. Portfolio-risk rejection
+11. Execution-cost rejection
+12. Insufficient-confidence rejection
+13. Paper-order rejection
+14. Partial fill
+15. Closed outcome linked to attribution
+16. Closed outcome linked to learning
+17. Primary-provider failure
+18. Provider failover
+19. Failed scheduler run
+20. Scheduler recovery
+21. Duplicate candidate suppression
+22. Duplicate order suppression
+
+For every trace prove:
+
+* Persistent lifecycle identifiers
+* Chronological timestamps
+* Ordered event sequence
+* Source table and record ID
+* Input and output summaries
+* Decision contribution
+* Rejection reason where applicable
+* Data freshness
+* Code version
+* Model version
+* Hash-chain integrity
+* API-to-SQL reconciliation
+* No manual inserts
+* No fabricated records
+
+============================================================
+12. AUDIT-CHAIN TRUST HARDENING
+
+Hash chaining alone is insufficient if an administrator can rewrite the database and regenerate the chain.
+
+Implement and verify at least one trusted anchoring method:
+
+* Append-only/WORM evidence storage
+* Signed root hash
+* Off-host hash replication
+* External timestamped hash anchor
+* Independently controlled evidence repository
+
+Document:
+
+* Hash algorithm
+* Canonical serialization
+* Chain starting point
+* Key ownership
+* Signing-key storage
+* Signing-key rotation
+* Root-hash anchoring frequency
+* Verification procedure
+* Tamper-detection behavior
+* Restoration behavior
+
+Negative controls must alter:
+
+* Event content
+* prev_hash
+* chain_hash
+* sequence
+* timestamp
+* source record ID
+
+Each alteration must be detected.
+
+============================================================
+13. FINANCIAL CORRECTNESS ADDITIONS
+
+Verify with independent formulas and raw leg-level data:
+
+* Long call
+* Short call
+* Long put
+* Short put
+* Long stock
+* Short stock
+* Debit spreads
+* Credit spreads
+* Calendars
+* Diagonals
+* Butterflies
+* Iron butterflies
+* Condors
+* Iron condors
+* Ratio spreads
+* Backspreads
+* Straddles
+* Strangles
+* Collars
+* Protective positions
+* Synthetic positions
+* Box spreads
+* Every enabled strategy
+
+Also verify:
+
+* Long/short sign conventions
+* Net debit and net credit sign conventions
+* Contract multipliers
+* Adjusted contracts
+* Corporate actions
+* Option deliverable changes
+* Commissions
+* Exchange and regulatory fees
+* Slippage
+* Bid/ask cost
+* Mark-price hierarchy
+* Stale quotes
+* Crossed markets
+* Missing bid or ask
+* Zero-bid options
+* Partial fills
+* Average fills
+* Partial closes
+* Position matching
+* Exercise
+* Early assignment
+* Expiration settlement
+* Cash settlement
+* Physical settlement
+* American versus European exercise
+* Dividend effects
+* Assignment of one leg
+* Pin-risk outcome
+* Legging risk
+* Holiday calendars
+* Expiration calendars
+* Interest
+* Margin cost
+* Short-borrow cost
+* Currency conversion
+* Rounding
+* Decimal precision
+* Tax-lot method where supported
+
+For every test record:
+
+Independent expected result
+Application result
+Absolute difference
+Relative difference
+Tolerance
+PASS/FAIL
+
+============================================================
+14. PORTFOLIO-RISK ADDITIONS
+
+Verify:
+
+* Leg-level and position-level Greek aggregation
+* Delta-dollar exposure
+* Beta-weighted exposure
+* Pending-order exposure
+* Partial-fill exposure
+* Gross and net exposure
+* Concentration after proposed trade
+* Concurrent-order atomicity
+* Volatility-surface shocks
+* IV shocks
+* Skew shocks
+* Term-structure shocks
+* Correlation breakdown
+* Gap scenarios
+* Overnight scenarios
+* Earnings/event scenarios
+* Market-circuit-breaker scenarios
+* Liquidity liquidation scenarios
+* Assignment scenarios
+* Pin-risk scenarios
+* Margin reconciliation
+* Broker/simulator buying-power reconciliation
+* VaR horizon
+* VaR confidence level
+* VaR methodology
+* CVaR methodology
+* Minimum sample requirements
+* Stale-Greek handling
+* Missing-price handling
+* Model-risk limitations
+* Kill switch
+* Quarantine
+* Daily-loss reset timezone
+* Daily-loss concurrency protection
+
+Run a negative control where two simultaneous orders independently appear valid but jointly exceed a portfolio limit.
+
+The system must atomically block the violating combination.
+
+============================================================
+15. PROBABILITY AND CALIBRATION ADDITIONS
+
+Document and verify:
+
+* Prediction target
+* Outcome definition
+* Prediction horizon
+* Calibration window
+* Binning methodology
+* Fixed versus adaptive bins
+* Minimum sample size
+* Sample size by regime
+* Class-imbalance handling
+* Probability clipping
+* Zero/one probability handling in Log Loss
+* Confidence intervals
+* Bootstrap uncertainty
+* Baseline model
+* Benchmark model
+* Leakage tests
+* Training/validation/test separation
+* Purge duration
+* Embargo duration
+* Hyperparameter-selection isolation
+* Multiple-testing correction
+* Statistical significance
+* Drift metric
+* Drift threshold
+* Regime-change threshold
+* Data-quality threshold
+* Confidence-reduction formula
+* Model promotion rule
+* Model rejection rule
+* Model rollback rule
+* Champion/challenger process
+* Calibration model version
+* Training-data lineage
+* Feature version
+* Code version
+
+Confidence reduction must be deterministic, versioned, testable, and reproducible.
+
+Do not accept a manually changed confidence number as proof.
+
+============================================================
+16. PERFORMANCE-ANALYTICS ADDITIONS
+
+Verify protection against:
+
+* Look-ahead bias
+* Survivorship bias
+* Selection bias
+* Strategy-retirement bias
+* Delisted-security omission
+* Corporate-action errors
+* Improper data revisions
+* Improper annualization
+* Invalid sample sizes
+* Mixed operating modes
+
+Document:
+
+* Benchmark
+* Alpha
+* Beta
+* Risk-free rate
+* Trading-day convention
+* Time-weighted return
+* Money-weighted return where applicable
+* Cash-flow treatment
+* Open-position valuation
+* Intraday mark methodology
+* Transaction costs
+* Turnover
+* Capacity assumptions
+* Slippage sensitivity
+* Confidence intervals
+* Statistical limitations
+
+Backtest, walk-forward, paper, shadow, and live results must remain fully segregated.
+
+============================================================
+17. INDICATOR LABORATORY ADDITIONS
+
+For every indicator display and verify:
+
+* Formula
+* Input fields
+* Data lineage
+* Timeframe
+* Lookback
+* Warm-up period
+* Session rules
+* Timezone
+* Missing-data behavior
+* Corporate-action treatment
+* Numerical tolerance
+* Independent recomputation
+* Source file
+* Source function/class
+* Code hash
+* Version
+* Verification status
+* Decision contribution
+* Probability effect
+* Confidence effect
+* Position-size effect
+* Rejection effect
+* Limitations
+
+Run edge tests for:
+
+* Constant input
+* Increasing input
+* Decreasing input
+* Null input
+* Sparse input
+* Extreme values
+* Zero volume
+* Duplicate timestamps
+* Out-of-order timestamps
+* Insufficient lookback
+* Session boundary
+* Daylight-saving transition
+
+Prove no indicator uses future data.
+
+============================================================
+18. OPTIONS PIPELINE ADDITIONS
+
+For every enabled strategy verify:
+
+* Canonical leg fingerprint
+* Leg order normalization
+* Duplicate-leg detection
+* Malformed-leg rejection
+* Strategy identification
+* Mathematical verification
+* Runtime verification
+* Pricing
+* Greeks
+* Probability of profit
+* Breakevens
+* Maximum loss
+* Maximum reward
+* Expected move
+* IV Rank
+* IV Percentile
+* Skew
+* Term structure
+* Fill probability
+* Slippage
+* Liquidity
+* Assignment risk
+* Pin risk
+* Expiration risk
+* Execution cost
+* Portfolio impact
+* Risk-Gate result
+
+Failed mathematical or runtime verification must disable the strategy server-side.
+
+A disabled strategy must be unable to:
+
+* Generate an approved candidate
+* Create an execution plan
+* Create a paper order
+* Create a position
+* Enter autonomous paper trading
+
+Test direct API and database bypass attempts.
+
+============================================================
+19. SYSTEM-OPERATIONS ADDITIONS
+
+Verify:
+
+* Scheduler lock prevents duplicate runs
+* Force Run is idempotent
+* Retry is idempotent
+* Pause and Resume are atomic
+* Quarantine prevents execution
+* Missing morning scan is detected
+* Late morning scan is detected
+* Duplicate morning scan is detected
+* Stale heartbeat is detected
+* Dead worker is detected
+* Provider failover is proven
+* Backup restoration is proven
+* Dead-letter queue replay is controlled
+* Notification failure is recorded
+* Audit-service failure blocks or degrades safely
+* Verification-service failure is visible
+* Operational controls cannot bypass Risk Gate
+* Every action records actor, role, reason, before state, after state, result, timestamp, request ID, and audit hash
+
+Load-test the operations pages without harming AIEM execution.
+
+============================================================
+20. PAGE, UX, AND ACCESSIBILITY ADDITIONS
+
+Verify every page for:
+
+* Desktop
+* Tablet
+* Mobile
+* Loading
+* Empty
+* Error
+* Stale
+* Unauthorized
+* Wrong role
+* Expired session
+* Slow API
+* Partial API failure
+* Large dataset
+* Long text
+* Large financial values
+* Null values
+* Keyboard-only navigation
+* Screen-reader labeling
+* Focus order
+* Visible focus
+* Contrast
+* Responsive overflow
+* Browser console errors
+* Network request errors
+
+Perform automated and manual accessibility testing.
+
+Record the tool, rule, page, violation, severity, and remediation.
+
+============================================================
+21. SECURITY ADDITIONS
+
+In addition to the existing security requirements, verify:
+
+* Default-deny access
+* MFA or approved interim restriction
+* Dependency lockfile integrity
+* Software bill of materials
+* Secret rotation
+* Token replay resistance
+* Session fixation resistance
+* Clickjacking resistance
+* CSP effectiveness
+* CORS allowlist
+* Host-header validation
+* Cache-control for sensitive pages
+* Sensitive export protection
+* File-download content type
+* CSV formula-injection protection
+* Log injection protection
+* SSRF protection where applicable
+* Deserialization safety
+* Prototype-pollution checks where applicable
+* Dependency-confusion protection
+* Supply-chain scanning
+* Denial-of-service limits
+* Database-pool exhaustion protection
+* WebSocket/SSE connection abuse protection
+* Privilege-escalation tests
+* Cross-user data-leak tests
+* Cross-role data-leak tests
+
+No unresolved critical or high-severity production vulnerability may receive FINAL PASS unless formally accepted by an authorized risk owner with documented compensating controls.
+
+============================================================
+22. REPORTING AND EXPORT ADDITIONS
+
+Verify:
+
+* PDF and CSV values reconcile with API, dashboard, and SQL.
+* Export timestamps and timezone are displayed.
+* Export filters are recorded.
+* Export query parameters are recorded.
+* Export code version is recorded.
+* Export database reference is recorded.
+* Export hash is reproducible.
+* Unauthorized exports are blocked.
+* Cross-user exports are blocked.
+* Cross-role exports are blocked.
+* CSV formula injection is neutralized.
+* Large exports are bounded.
+* Export generation does not exhaust system resources.
+* Export actions are fully audit logged.
+
+============================================================
+23. SAVED WORKSPACE ADDITIONS
+
+Verify:
+
+* Default workspace behavior
+* Duplicate workspace names
+* Maximum workspace count
+* Maximum workspace payload size
+* Invalid widget IDs
+* Removed/deprecated widgets
+* Invalid filters
+* Invalid sorting
+* Cross-user read attempt
+* Cross-user update attempt
+* Cross-user deletion attempt
+* Cross-role leakage
+* Concurrent updates
+* Optimistic locking
+* Workspace export/import where supported
+* Sanitization
+* Stored-XSS negative control
+* Deleted-user cleanup or retention policy
+
+============================================================
+24. NEGATIVE-CONTROL EXPANSION
+
+Add negative controls for:
+
+* Concurrent portfolio-limit violation
+* Duplicate Force Run
+* Duplicate retry
+* Duplicate paper order
+* Replayed authenticated request
+* Token replay
+* Cross-user data access
+* Cross-role event-stream access
+* Cross-user workspace access
+* Unauthorized export
+* CSV formula injection
+* Stale Greeks
+* Missing bid/ask
+* Zero-bid option
+* Crossed market
+* Incorrect multiplier
+* Adjusted option contract
+* Early assignment
+* One-leg assignment
+* Expiration settlement
+* Invalid decimal precision
+* Database pool exhaustion
+* Slow event-stream client
+* Oversized event
+* Corrupt event sequence
+* Corrupt deployment metadata
+* Uncommitted-code verification
+* Wrong deployed Git commit
+* Invalid model version
+* Model rollback
+* Insufficient regime sample
+* Look-ahead data injection
+* Audit-root tampering
+* Evidence-bundle tampering
+* Backup restoration failure
+* Failed deployment rollback
+
+Every negative test must record:
+
+* Test ID
+* verification_run_id
+* Environment
+* Git commit
+* Timestamp
+* Preconditions
+* Input
+* Expected result
+* Actual result
+* HTTP status
+* Database effect
+* Event-stream effect
+* Alert effect
+* Audit-log effect
+* Evidence hash
+* PASS/FAIL
+
+============================================================
+25. REGRESSION REQUIREMENTS
+
+After implementation and remediation, rerun regression tests for:
+
+* Existing stock scanner
+* Existing AIEM scheduler
+* Morning scan
+* Data ingestion
+* Data Guards
+* Probability engine
+* Risk Gate
+* Decision engine
+* Paper trading
+* Options strategy registry
+* Portfolio risk
+* Alerts
+* Audit chain
+* Learning loop
+* Telegram or other notifications
+* Dashboard frontend
+* API
+* Database migrations
+* Authentication
+* Role authorization
+* Reports
+* Exports
+* Saved workspaces
+* Real-time event delivery
+
+No remediation may be accepted if it breaks existing verified functionality.
+
+============================================================
+26. FINAL EVIDENCE PACKAGE
+
+Return one complete evidence package containing:
+
+* Original 760-item checklist with every item preserved
+* Acceptance class for every item
+* Status for every item
+* All required evidence fields
+* Additional remediation results from this directive
+* Master requirement matrix
+* File inventory
+* Route inventory
+* API inventory
+* Database inventory
+* Index inventory
+* Component inventory
+* Scheduler inventory
+* Event inventory
+* Strategy inventory
+* Model inventory
+* Indicator inventory
+* Test inventory
+* Negative-control inventory
+* Trace matrix
+* Security report
+* Accessibility report
+* Performance report
+* Dependency scan
+* Secret scan
+* SBOM
+* Git commit
+* Deployment identity
+* Environment identity
+* Database revision
+* SHA-256 hashes
+* Evidence-chain verification
+* Trusted root anchor
+* Known limitations
+* Deferred items
+* Regression results
+* Final PASS/FAIL matrix
+
+============================================================
+27. FINAL ACCOUNTING
+
+Return status accounting for all original requirements:
+
+PASS: ______
+PARTIAL: ______
+FAIL: ______
+NOT IMPLEMENTED: ______
+BLOCKED: ______
+TOTAL RETURNED ORIGINAL ITEMS: ______
+
+TOTAL RETURNED ORIGINAL ITEMS MUST EQUAL 760.
+
+Also return:
+
+CRITICAL ITEMS: ______
+CRITICAL PASS: ______
+CRITICAL NON-PASS: ______
+
+ADDITIONAL REMEDIATION CONTROLS TESTED: ______
+ADDITIONAL REMEDIATION CONTROLS PASSED: ______
+ADDITIONAL REMEDIATION CONTROLS FAILED: ______
+
+============================================================
+28. FINAL ACCEPTANCE RULE
+
+FINAL PASS is allowed only when:
+
+* All 760 original items are returned.
+* No item ID is missing.
+* No item ID is duplicated.
+* No item is renamed, merged, or skipped.
+* Every CRITICAL item is PASS.
+* Every PASS has current reproducible evidence.
+* All financial calculations pass independent recomputation.
+* All authorization controls pass server-side negative testing.
+* All portfolio and Risk-Gate limits are enforced atomically.
+* Genuine scheduler-to-outcome traces pass.
+* Genuine outcome-to-learning traces pass.
+* Strategy-disable enforcement passes.
+* Audit-chain verification passes.
+* Trusted audit-root anchoring passes.
+* API values reconcile with SQL.
+* Dashboard values reconcile with APIs.
+* Reports and exports reconcile with dashboard, API, and SQL.
+* No fabricated production data exists.
+* No manual database inserts were used as proof.
+* No mocks were used as end-to-end proof.
+* No old evidence is presented as a new run.
+* No critical or high-severity unresolved security issue remains without formal documented risk acceptance.
+* Regression testing passes.
+
+If these conditions are not satisfied, return:
+
+FINAL STATUS: INCOMPLETE / PARTIAL / FAIL
+
+Do not return FINAL PASS.
