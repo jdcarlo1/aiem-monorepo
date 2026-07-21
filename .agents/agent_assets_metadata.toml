@@ -840,3 +840,9 @@ id = "Aq_rnKwGfdpRcRzlB3vDp"
 uri = "file://AIEM_TERMINAL_API_DOCUMENTATION.md"
 type = "text"
 title = "AIEM Terminal API Documentation v1.0"
+
+[[outputs]]
+id = "qHaNHO0prhZy9GrBj2NXg"
+uri = "file://AIEM_MASTER_CHECKLIST_PART1_AND_API_DOCS.md"
+type = "text"
+title = "Master Checklist Part 1 + API Documentation (combined)"
