@@ -69031,6 +69031,299 @@ def _build_bear_tech_signals(close_str, rvol, vpin, hurst, iv):
     return sigs
 
 
+
+
+# ─── AIEM Dashboard Admin Routes ────────────────────────────────────────────────
+
+@app.route("/stock-api/admin/decision-audit", methods=["GET"])
+def admin_decision_audit():
+    """Return oe_decision_audit rows for AIEM Institutional Terminal."""
+    import hmac as _hmac_da
+    import psycopg2 as _pg_da2, json as _json_da, os as _os_da
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_da.compare_digest(tok, _os_da.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 403
+
+    ticker     = request.args.get("ticker")
+    date_arg   = request.args.get("date")
+    date_from  = request.args.get("date_from")
+    date_to    = request.args.get("date_to")
+    status_arg = request.args.get("status")
+    trace_id   = request.args.get("trace_id")
+    try:
+        limit  = min(int(request.args.get("limit",  50)), 200)
+        offset = max(int(request.args.get("offset",  0)),   0)
+    except ValueError:
+        return jsonify({"error": "invalid limit/offset"}), 400
+
+    if date_arg:
+        from datetime import datetime as _dta2
+        try: _dta2.strptime(date_arg, "%Y-%m-%d")
+        except ValueError: return jsonify({"error": "invalid date format"}), 400
+
+    try:
+        with _pg_da2.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor() as cur:
+                conds = ["is_test_record = FALSE"]
+                params = []
+                if trace_id:
+                    conds.append("decision_id = %s"); params.append(trace_id)
+                if ticker:
+                    conds.append("identity_json->>'ticker' = %s"); params.append(ticker)
+                if date_arg:
+                    conds.append("DATE(created_at AT TIME ZONE 'America/New_York') = %s"); params.append(date_arg)
+                if date_from:
+                    conds.append("created_at >= %s"); params.append(date_from)
+                if date_to:
+                    conds.append("created_at <= %s"); params.append(date_to + " 23:59:59")
+                if status_arg:
+                    conds.append("verification_status = %s"); params.append(status_arg)
+                where = " AND ".join(conds)
+                cur.execute(f"SELECT COUNT(*) FROM oe_decision_audit WHERE {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT decision_id, parent_id, created_at, input_hash, output_hash,
+                           verification_status, engine_version, db_version,
+                           identity_json, technical_json, options_intel_json
+                    FROM oe_decision_audit WHERE {where}
+                    ORDER BY created_at DESC LIMIT %s OFFSET %s
+                """, params + [limit, offset])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("identity_json", "technical_json", "options_intel_json"):
+                        if isinstance(row.get(k), str):
+                            try: row[k] = _json_da.loads(row[k])
+                            except Exception: pass
+                    if row.get("created_at"):
+                        row["created_at"] = row["created_at"].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "offset": offset, "rows": rows})
+    except Exception as _e_da:
+        if "does not exist" in str(_e_da):
+            return jsonify({"count": 0, "limit": limit, "offset": offset, "rows": []}), 200
+        return jsonify({"error": "database unavailable", "detail": str(_e_da)}), 503
+
+
+@app.route("/stock-api/admin/gate-events", methods=["GET"])
+def admin_gate_events():
+    """Return oe_gate_events rows for AIEM Institutional Terminal."""
+    import hmac as _hmac_ge
+    import psycopg2 as _pg_ge2, os as _os_ge
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_ge.compare_digest(tok, _os_ge.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 403
+
+    ticker    = request.args.get("ticker")
+    date_arg  = request.args.get("date")
+    gate_name = request.args.get("gate_name")
+    trace_id  = request.args.get("trace_id")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit"}), 400
+
+    try:
+        with _pg_ge2.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor() as cur:
+                conds = ["is_test_record = FALSE"]
+                params = []
+                if trace_id:
+                    conds.append("trace_id = %s"); params.append(trace_id)
+                if ticker:
+                    conds.append("ticker = %s"); params.append(ticker)
+                if date_arg:
+                    conds.append("DATE(fired_at AT TIME ZONE 'America/New_York') = %s"); params.append(date_arg)
+                if gate_name:
+                    conds.append("gate_name = %s"); params.append(gate_name)
+                where = " AND ".join(conds)
+                cur.execute(f"SELECT COUNT(*) FROM oe_gate_events WHERE {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT gate_event_id, gate_name, fired_at, ticker, trace_id,
+                           action_taken, authenticated_by, prev_hash, chain_hash,
+                           candidate_id, pipeline_job_id, git_commit, reason
+                    FROM oe_gate_events WHERE {where}
+                    ORDER BY fired_at DESC LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    if row.get("fired_at"):
+                        row["fired_at"] = row["fired_at"].isoformat()
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows})
+    except Exception as _e_ge:
+        if "does not exist" in str(_e_ge):
+            return jsonify({"count": 0, "limit": limit, "rows": []}), 200
+        return jsonify({"error": "database unavailable", "detail": str(_e_ge)}), 503
+
+
+@app.route("/stock-api/admin/council-runs", methods=["GET"])
+def admin_council_runs():
+    """Return aiem_specialist_council_runs for AIEM Institutional Terminal."""
+    import hmac as _hmac_cr
+    import psycopg2 as _pg_cr2, json as _json_cr, os as _os_cr
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_cr.compare_digest(tok, _os_cr.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 403
+
+    ticker   = request.args.get("ticker")
+    context  = request.args.get("context")
+    date_arg = request.args.get("date")
+    trace_id = request.args.get("trace_id")
+    try:
+        limit  = min(int(request.args.get("limit",  50)), 200)
+        offset = max(int(request.args.get("offset",  0)),   0)
+    except ValueError:
+        return jsonify({"error": "invalid limit/offset"}), 400
+
+    try:
+        with _pg_cr2.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor() as cur:
+                conds = []
+                params = []
+                if trace_id:
+                    conds.append("trace_id = %s"); params.append(trace_id)
+                if ticker:
+                    conds.append("ticker = %s"); params.append(ticker)
+                if date_arg:
+                    conds.append("DATE(run_time AT TIME ZONE 'America/New_York') = %s"); params.append(date_arg)
+                if context:
+                    conds.append("context = %s"); params.append(context)
+                where = ("WHERE " + " AND ".join(conds)) if conds else ""
+                cur.execute(f"SELECT COUNT(*) FROM aiem_specialist_council_runs {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, run_time, context, ticker, trace_id,
+                           registered_members, invoked_members, abstained_members, abstentions,
+                           opinions, weighted_vote, variance, weights
+                    FROM aiem_specialist_council_runs {where}
+                    ORDER BY run_time DESC LIMIT %s OFFSET %s
+                """, params + [limit, offset])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for k in ("registered_members", "invoked_members", "abstained_members",
+                              "abstentions", "opinions", "weights"):
+                        if isinstance(row.get(k), str):
+                            try: row[k] = _json_cr.loads(row[k])
+                            except Exception: pass
+                    if row.get("run_time"):
+                        row["run_time"] = row["run_time"].isoformat()
+                    for fk in ("weighted_vote", "variance"):
+                        if row.get(fk) is not None:
+                            row[fk] = float(row[fk])
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "offset": offset, "rows": rows})
+    except Exception as _e_cr:
+        if "does not exist" in str(_e_cr):
+            return jsonify({"count": 0, "limit": limit, "offset": offset, "rows": []}), 200
+        return jsonify({"error": "database unavailable", "detail": str(_e_cr)}), 503
+
+
+@app.route("/stock-api/admin/position-sizing-log", methods=["GET"])
+def admin_position_sizing_log():
+    """Return aiem_position_sizing_log for AIEM Institutional Terminal."""
+    import hmac as _hmac_ps
+    import psycopg2 as _pg_ps2, os as _os_ps
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_ps.compare_digest(tok, _os_ps.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 403
+
+    ticker         = request.args.get("ticker")
+    date_arg       = request.args.get("date")
+    gate_result    = request.args.get("gate_result")
+    signal_source  = request.args.get("signal_source")
+    paper_trade_id = request.args.get("paper_trade_id")
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+    except ValueError:
+        return jsonify({"error": "invalid limit"}), 400
+
+    try:
+        with _pg_ps2.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor() as cur:
+                conds = []
+                params = []
+                if paper_trade_id:
+                    try: conds.append("paper_trade_id = %s"); params.append(int(paper_trade_id))
+                    except ValueError: return jsonify({"error": "invalid paper_trade_id"}), 400
+                if ticker:
+                    conds.append("ticker = %s"); params.append(ticker)
+                if date_arg:
+                    conds.append("DATE(logged_at AT TIME ZONE 'America/New_York') = %s"); params.append(date_arg)
+                if gate_result:
+                    conds.append("gate_result = %s"); params.append(gate_result)
+                if signal_source:
+                    conds.append("signal_source = %s"); params.append(signal_source)
+                where = ("WHERE " + " AND ".join(conds)) if conds else ""
+                cur.execute(f"SELECT COUNT(*) FROM aiem_position_sizing_log {where}", params)
+                total = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT id, logged_at, ticker, signal_source, conviction_score,
+                           entry_price, calculated_stop_price, stop_basis, stop_distance_pct,
+                           risk_pct_used, calculated_notional, gate_result, gate_detail,
+                           mode, overnight_option, paper_trade_id, created_at
+                    FROM aiem_position_sizing_log {where}
+                    ORDER BY logged_at DESC LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = []
+                for r in cur.fetchall():
+                    row = dict(zip(cols, r))
+                    for ts_col in ("logged_at", "created_at"):
+                        if row.get(ts_col):
+                            row[ts_col] = row[ts_col].isoformat()
+                    for num_col in ("conviction_score", "entry_price", "calculated_stop_price",
+                                    "stop_distance_pct", "risk_pct_used", "calculated_notional"):
+                        if row.get(num_col) is not None:
+                            row[num_col] = float(row[num_col])
+                    rows.append(row)
+                return jsonify({"count": total, "limit": limit, "rows": rows})
+    except Exception as _e_ps:
+        if "does not exist" in str(_e_ps):
+            return jsonify({"count": 0, "limit": limit, "rows": []}), 200
+        return jsonify({"error": "database unavailable", "detail": str(_e_ps)}), 503
+
+
+@app.route("/stock-api/admin/evidence-chain/status", methods=["GET"])
+def admin_evidence_chain_status():
+    """Return current state of evidence_chain.log for AIEM Institutional Terminal."""
+    import hmac as _hmac_ec
+    import json as _json_ec, os as _os_ec
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_ec.compare_digest(tok, _os_ec.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 403
+
+    chain_path = _os_ec.path.join(_os_ec.path.dirname(__file__), "evidence_chain.log")
+    try:
+        with open(chain_path) as _f_ec:
+            entries = [l.strip() for l in _f_ec if l.strip()]
+        last = _json_ec.loads(entries[-1]) if entries else {}
+        return jsonify({
+            "seq": last.get("seq", 0),
+            "last_command": last.get("command", ""),
+            "last_exit_code": last.get("exit_code", -1),
+            "last_timestamp_utc": last.get("timestamp_utc", ""),
+            "last_entry_hash": last.get("entry_hash", ""),
+            "total_entries": len(entries),
+            "chain_path": "evidence_chain.log"
+        })
+    except FileNotFoundError:
+        return jsonify({"error": "chain file not found", "seq": 0}), 404
+    except Exception as _e_ec:
+        return jsonify({"error": str(_e_ec)}), 503
+
+
 @app.route("/stock-api/unusual-puts", methods=["GET"])
 def unusual_puts():
     """

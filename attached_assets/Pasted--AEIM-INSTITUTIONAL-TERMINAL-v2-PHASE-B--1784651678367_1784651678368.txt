@@ -1,0 +1,539 @@
+============================================================
+AEIM INSTITUTIONAL TERMINAL v2
+PHASE B — PRODUCTION BUILD SPECIFICATION
+(BASED ON VERIFIED PHASE A INVENTORY)
+STRICT VERIFICATION REQUIRED
+============================================================
+
+OBJECTIVE
+
+Build the AEIM Institutional Terminal using ONLY verified AEIM capabilities discovered during Phase A.
+
+This dashboard is NOT a redesign of AEIM.
+
+It is a visualization layer exposing the existing verified intelligence already contained within AEIM.
+
+No duplicate business logic.
+
+No duplicate calculations.
+
+No duplicate probability engines.
+
+No duplicate Risk Gate.
+
+No duplicate Specialist Council.
+
+The dashboard consumes verified APIs only.
+
+============================================================
+ARCHITECTURE
+============================================================
+
+AEIM is a standalone commercial software product.
+
+The AEIM Institutional Terminal shall be:
+
+• Separate application
+• Separate frontend
+• Separate backend API
+• Separate domain
+• Separate branding
+• Separate authentication
+• Independently deployable
+• Independently sellable
+
+Do NOT tightly couple AEIM to:
+
+• Stock Scanner
+• Standalone Options Engine
+
+Shared infrastructure must exist only through documented APIs.
+
+============================================================
+DESIGN OBJECTIVE
+============================================================
+
+This is NOT a retail trading website.
+
+This is NOT a broker interface.
+
+This is NOT a charting application.
+
+Design the interface as an institutional decision-support terminal.
+
+Every screen must explain:
+
+WHY
+
+HOW
+
+RISK
+
+PROBABILITY
+
+EVIDENCE
+
+AUDIT
+
+============================================================
+DESIGN STYLE
+============================================================
+
+Professional institutional appearance.
+
+Dark theme.
+
+Fast.
+
+Minimal animations.
+
+Dense information.
+
+Bloomberg / institutional workstation feel.
+
+Keyboard friendly.
+
+Instant navigation.
+
+Multi-monitor capable.
+
+Resizable panels.
+
+Saved layouts.
+
+Collapsible workspaces.
+
+No oversized buttons.
+
+No retail styling.
+
+============================================================
+BUILD VERIFIED SCREENS
+============================================================
+
+Build every screen supported by verified Phase A APIs.
+
+Use the Source-to-Screen Map as the authoritative specification.
+
+Every widget must reference:
+
+Verified Route
+
+Verified Table
+
+Verified Module
+
+Verified Refresh Method
+
+Verification Status
+
+============================================================
+PRIMARY DASHBOARD
+============================================================
+
+The Command Center becomes the executive overview.
+
+Display:
+
+Market Regime
+
+Volatility Regime
+
+Risk Status
+
+System Health
+
+Current Opportunity Count
+
+Today's Decisions
+
+Open Positions
+
+Current Exposure
+
+Scheduler Status
+
+Data Provider Status
+
+Pipeline Health
+
+Probability Distribution
+
+Capital Preservation Score
+
+Latest Decision
+
+Latest Evidence Chain
+
+Latest Specialist Council Vote
+
+Today's Paper Trading Summary
+
+============================================================
+LIVE DECISION TERMINAL
+============================================================
+
+Every recommendation displays:
+
+Ticker
+
+Probability
+
+Confidence
+
+Expected Value
+
+Risk
+
+Capital Preservation
+
+Market Regime
+
+Reason Qualified
+
+Reason Alternatives Lost
+
+Specialist Council Summary
+
+Risk Gate Summary
+
+Execution Readiness
+
+Audit Link
+
+Evidence Link
+
+Never show only BUY or SELL.
+
+Always explain WHY.
+
+============================================================
+DECISION PROOF
+============================================================
+
+One-click expansion.
+
+Complete forensic view.
+
+Timeline.
+
+Signals.
+
+Indicators.
+
+Probability.
+
+Council.
+
+Risk Gate.
+
+Evidence.
+
+Trace IDs.
+
+Decision hash.
+
+Audit references.
+
+Supporting data.
+
+============================================================
+SPECIALIST COUNCIL
+============================================================
+
+Visualize:
+
+Agreement
+
+Disagreement
+
+Confidence
+
+Participation
+
+Voting timeline
+
+Individual specialist reasoning
+
+Final synthesis
+
+============================================================
+PROBABILITY CENTER
+============================================================
+
+Display:
+
+Raw probability
+
+Calibrated probability
+
+Confidence
+
+Calibration quality
+
+Historical accuracy
+
+Reliability
+
+Expected value
+
+Distribution
+
+============================================================
+PORTFOLIO CENTER
+============================================================
+
+Display verified information only.
+
+Current positions
+
+Exposure
+
+Sector allocation
+
+Risk
+
+Open P/L
+
+Realized P/L
+
+Position sizing
+
+Portfolio Greeks (where verified)
+
+Risk limits
+
+============================================================
+PERFORMANCE ANALYTICS
+============================================================
+
+Historical performance.
+
+Paper trades.
+
+Win rate.
+
+Expected value.
+
+Capital preservation.
+
+Attribution.
+
+Learning improvements.
+
+Drawdowns.
+
+============================================================
+LEARNING CENTER
+============================================================
+
+Outcome tracking.
+
+Model improvement.
+
+Historical learning.
+
+Performance trends.
+
+Pattern evolution.
+
+Prediction quality.
+
+============================================================
+AUDIT CENTER
+============================================================
+
+Institutional audit viewer.
+
+Decision history.
+
+Evidence chain.
+
+Verification status.
+
+Hash chain.
+
+SQL references.
+
+Runtime verification.
+
+============================================================
+SYSTEM OPERATIONS
+============================================================
+
+Display:
+
+Scheduler health
+
+Workers
+
+Provider health
+
+Database health
+
+Queue status
+
+API health
+
+Latency
+
+Failures
+
+Recovery
+
+============================================================
+REAL-TIME STRATEGY
+============================================================
+
+Use verified polling architecture discovered during Phase A.
+
+Do NOT implement WebSockets unless future requirements justify them.
+
+Each widget shall define:
+
+Refresh interval
+
+Cache policy
+
+Retry policy
+
+Timeout policy
+
+Offline behavior
+
+============================================================
+API RULE
+============================================================
+
+Every displayed value must originate from:
+
+Verified API
+
+Verified Database
+
+Verified Runtime
+
+Never calculate business logic inside React.
+
+============================================================
+AUTHENTICATION
+============================================================
+
+Institutional login.
+
+Role-based permissions.
+
+Administrator
+
+Analyst
+
+Subscriber
+
+Read-only roles.
+
+============================================================
+SCREEN LINKING
+============================================================
+
+Every metric clickable.
+
+Every chart drillable.
+
+Every probability expandable.
+
+Every recommendation reproducible.
+
+============================================================
+EVIDENCE EVERYWHERE
+============================================================
+
+Every recommendation links to:
+
+Decision proof
+
+Audit record
+
+Evidence
+
+Trace
+
+Supporting indicators
+
+============================================================
+PRODUCT SEPARATION
+============================================================
+
+AEIM remains a completely independent product.
+
+Do NOT reference:
+
+Stock Scanner dashboard
+
+Standalone Options Engine dashboard
+
+No shared UI.
+
+No shared branding.
+
+No shared navigation.
+
+Only optional API integrations.
+
+============================================================
+PHASE A GAPS
+============================================================
+
+Implement every approved P0 read-only API route before final production release.
+
+Use the verified Gap Analysis.
+
+Do not invent new endpoints.
+
+============================================================
+FINAL OBJECTIVE
+============================================================
+
+The finished AEIM Institutional Terminal should immediately communicate that the value lies in AEIM's intelligence—not merely in charts or prices.
+
+The interface should surface the verified strengths of the platform:
+
+• Decision intelligence
+• Explainability
+• Probability
+• Risk management
+• Auditability
+• Learning
+• Operational transparency
+
+Every screen should answer the question:
+
+"What does AEIM know, why does it know it, how confident is it, what evidence supports it, and what are the risks?"
+
+============================================================
+STRICT VERIFICATION
+============================================================
+
+Before production approval verify:
+
+✓ Every widget maps to a verified API.
+✓ Every API maps to verified backend logic.
+✓ Every backend value maps to verified database/runtime evidence.
+✓ No duplicate business logic exists.
+✓ No placeholder values exist.
+✓ No dashboard value is fabricated.
+✓ Authentication enforced.
+✓ Authorization enforced.
+✓ Polling verified.
+✓ Evidence links verified.
+✓ Traceability verified.
+✓ Dashboard functions independently under its own domain.
+
+============================================================
+FINAL DELIVERABLE
+============================================================
+
+Produce an institutional-quality AEIM Terminal suitable for deployment as an independent commercial software product with its own domain, branding, authentication, and dashboard, while preserving the ability for the Stock Scanner and the Standalone Options Engine to exist as separate commercial products.
+
+============================================================
+END PHASE B
+============================================================
