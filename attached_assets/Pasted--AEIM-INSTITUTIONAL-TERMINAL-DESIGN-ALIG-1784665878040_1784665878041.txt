@@ -1,0 +1,352 @@
+============================================================
+AEIM INSTITUTIONAL TERMINAL
+DESIGN ALIGNMENT REMEDIATION DIRECTIVE
+SUPPLEMENTAL REQUIREMENTS
+============================================================
+
+PURPOSE
+
+This document supplements:
+
+1. AEIM Institutional Terminal Master Design Directive
+2. AIEM Final Completion Master Checklist
+
+It does not replace either document.
+
+These requirements close design, naming, verification, and completeness gaps discovered during independent review.
+
+============================================================
+1. PRODUCT NAMING
+============================================================
+
+Choose ONE official product name.
+
+Do not mix:
+
+AEIM
+
+and
+
+AIEM
+
+Use the selected name consistently in:
+
+• Application title
+• Repository
+• API
+• Database metadata
+• Reports
+• Documentation
+• Routes
+• Components
+• User interface
+• Evidence package
+
+============================================================
+2. PAGE NAME ALIGNMENT
+============================================================
+
+Standardize the visible navigation.
+
+Required mappings:
+
+Live Decisions = Decisions
+
+Learning Center = Learning Loop
+(if intentionally renamed, document equivalence)
+
+Research & Hypotheses =
+Signal Discoveries
+(if intentionally renamed, document equivalence)
+
+Audit & Verification must exist as an explicit page.
+
+Administration must exist as an explicit page.
+
+============================================================
+3. MEMORY STAGE
+============================================================
+
+The Decision Proof pipeline ends with:
+
+Learning
+↓
+
+Memory
+
+The dashboard must include:
+
+• memory_id
+• memory timestamp
+• memory status
+• memory version
+• memory update result
+• rejected memory events
+• memory audit trail
+
+Decision Proof shall display whether memory:
+
+Created
+
+Updated
+
+Skipped
+
+Rejected
+
+============================================================
+4. GLOBAL TERMINAL SHELL
+============================================================
+
+Verify implementation of:
+
+• Top system bar
+• Command palette
+• Keyboard commands
+• Recent searches
+• Saved searches
+• Bottom event ticker
+• Event filtering
+• Event pause
+• Event replay
+
+These features shall have automated tests.
+
+============================================================
+5. DESIGN SYSTEM VERIFICATION
+============================================================
+
+Verify the AEIM Obsidian Terminal design system.
+
+Confirm:
+
+• Dark institutional appearance
+• Amber active states
+• Cyan live data
+• Purple learning analytics
+• Green success
+• Red failures
+• White primary text
+• Monospaced financial numerals
+• Consistent spacing
+• Original branding
+• No Bloomberg branding
+• No retail card appearance
+• No excessive gradients
+• No AI robot imagery
+
+Accessibility testing shall verify that status is never conveyed only by color.
+
+============================================================
+6. DRAGGABLE WORKSPACE
+============================================================
+
+Verify:
+
+• Panel dragging
+• Panel resizing
+• Layout persistence
+• Workspace restore
+• Multi-monitor layouts
+• Ultrawide layouts
+
+============================================================
+7. SPECIALIST COUNCIL
+============================================================
+
+Display for every specialist:
+
+• Initial vote
+• Final vote
+• Confidence
+• Evidence
+• Weight
+• Historical reliability
+• Regime reliability
+• Objections
+• Debate changes
+
+Display:
+
+Agreement score
+
+Disagreement score
+
+Dominant supporting evidence
+
+Dominant opposing evidence
+
+============================================================
+8. RESEARCH & HYPOTHESIS CENTER
+============================================================
+
+Display:
+
+• Full hypothesis lifecycle
+• Locked hypotheses
+• Statistical family
+• Multiple-testing adjustment
+• Adversarial review
+• Promotion eligibility
+• Rejection reason
+• Archive status
+
+============================================================
+9. INDICATOR INVENTORY
+============================================================
+
+Produce a complete indicator inventory.
+
+Every indicator listed in the Master Design Directive shall be classified as exactly one of:
+
+Implemented
+
+Verified
+
+Unavailable
+
+Deferred
+
+Disabled
+
+Retired
+
+Unknown
+
+No indicator may silently disappear.
+
+============================================================
+10. PERFORMANCE BREAKDOWNS
+============================================================
+
+Expand analytics to include:
+
+• Specialist
+• Confidence decile
+• Probability decile
+• Entry type
+• Exit reason
+• Time of day
+• Day of week
+• DTE bucket
+• Liquidity category
+
+============================================================
+11. SCENARIO TESTS
+============================================================
+
+Explicitly verify:
+
+Market:
+
++1%
+
++2%
+
++5%
+
+-1%
+
+-2%
+
+-5%
+
+IV expansion
+
+IV contraction
+
+Sector shock
+
+Correlation spike
+
+Liquidity deterioration
+
+Gap risk
+
+Combined stress
+
+Label all scenario outputs:
+
+MODELED ESTIMATE
+
+============================================================
+12. DECISION EXPLANATION
+============================================================
+
+Every recommendation shall explicitly explain:
+
+Why confidence increased
+
+Why confidence decreased
+
+Why position size changed
+
+Why capital preservation changed
+
+Why expected value changed
+
+Why rejected strategies lost
+
+Why selected strategy won
+
+============================================================
+13. TRADE JOURNAL
+============================================================
+
+Every paper trade shall maintain an immutable journal containing:
+
+Recommendation
+
+Evidence
+
+Order history
+
+Adjustments
+
+Alerts
+
+Risk events
+
+Exit decision
+
+Outcome
+
+Learning
+
+Memory
+
+Audit chain
+
+============================================================
+14. VISUAL CONSISTENCY
+============================================================
+
+Every page shall conform to one shared design system.
+
+No page shall introduce:
+
+Retail widgets
+
+Inconsistent spacing
+
+Different typography
+
+Different status colors
+
+Independent themes
+
+============================================================
+15. FINAL ACCEPTANCE
+============================================================
+
+The dashboard is not complete until:
+
+• Master Design Directive passes
+
+• 760-item Final Completion Checklist passes
+
+• This Design Alignment Remediation passes
+
+============================================================
+END
+============================================================
