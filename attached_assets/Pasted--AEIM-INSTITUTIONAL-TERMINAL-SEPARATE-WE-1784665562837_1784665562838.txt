@@ -1,0 +1,1635 @@
+============================================================
+AEIM INSTITUTIONAL TERMINAL
+SEPARATE WEBSITE + REAL-TIME DASHBOARD
+MASTER DESIGN, ARCHITECTURE, IMPLEMENTATION & VERIFICATION
+============================================================
+OBJECTIVE
+Build a completely separate, production-quality website dedicated exclusively to the AEIM intelligence and autonomous paper-trading system.
+This website must remain separate from the existing stock-scanning website.
+The scanner website discovers and filters stocks.
+The AEIM Institutional Terminal must show:
+• How AEIM evaluates markets
+• How AEIM reaches decisions
+• Which indicators and modules influenced each decision
+• Why a recommendation was approved, rejected, reduced, delayed, or classified as No Trade
+• Live and historical paper trades
+• Portfolio-level risk
+• Probability calibration
+• Learning and performance
+• Full end-to-end decision proof
+• System health and operational reliability
+The terminal must be designed to meet the expectations of:
+• Institutional investors
+• Proprietary trading desks
+• Quantitative trading firms
+• Hedge funds
+• Family offices
+• Due-diligence teams
+• Potential acquirers
+• Technical auditors
+This must not look like a basic retail stock dashboard.
+It must feel like a professional institutional trading and intelligence terminal.
+Do not copy Bloomberg trademarks, branding, proprietary layouts, fonts, or exact visual identity.
+Create an original AEIM visual identity inspired by professional financial terminals.
+============================================================
+1. SEPARATE APPLICATION REQUIREMENT
+============================================================
+Create the AEIM Institutional Terminal as a separate frontend application and separate deployable website.
+Do not combine it with the existing stock-scanning frontend.
+Recommended structure:
+apps/
+  aeim-terminal/
+    src/
+    components/
+    pages/
+    layouts/
+    hooks/
+    services/
+    stores/
+    types/
+    charts/
+    themes/
+    tests/
+The AEIM Terminal may consume the same verified backend data and PostgreSQL database, but browser clients must never receive unrestricted direct database access.
+Required flow:
+AEIM engines, schedulers and workers
+        ↓
+PostgreSQL and append-only audit records
+        ↓
+Dedicated authenticated AEIM API
+        ↓
+WebSocket or Server-Sent Events
+        ↓
+Separate AEIM Institutional Terminal
+Critical financial calculations and trading decisions must remain server-side.
+The frontend must visualize stored results and must not independently recreate or override authoritative AEIM calculations.
+============================================================
+2. TECHNOLOGY STACK
+============================================================
+Preferred frontend:
+• React
+• TypeScript
+• Vite or Next.js
+• Strongly typed API client
+• TanStack Query for server state
+• Zustand or equivalent lightweight UI state
+• WebSocket or Server-Sent Events for live updates
+• Institutional-quality charting library
+• Virtualized tables for large datasets
+• Responsive grid layout
+• Component-level error boundaries
+• Dark-mode-first design
+• Automated accessibility testing
+• Unit, integration and end-to-end tests
+Preferred backend interface:
+• Existing Flask backend or dedicated FastAPI service
+• REST endpoints for historical and paginated data
+• WebSocket/SSE endpoints for live events
+• PostgreSQL
+• Redis optional for event fan-out, caching and rate control
+• Role-based authentication
+• Structured logging
+• API versioning
+• Health and readiness endpoints
+Do not break existing AEIM execution, scanner, scheduling, database, paper-trading, Telegram, email, verification, or audit functionality.
+============================================================
+3. DESIGN SYSTEM
+============================================================
+Create an original design system named:
+AEIM OBSIDIAN TERMINAL
+Visual direction:
+• Deep charcoal and near-black backgrounds
+• Layered terminal panels
+• High information density without visual clutter
+• Bright amber for section identity and active focus
+• Green for approved, profitable, healthy and verified
+• Red for rejected, losing, failed, blocked or critical
+• Cyan for informational data and live market values
+• Purple for model, learning and probability analytics
+• Muted gray for inactive and historical data
+• White reserved for primary text
+• Monospaced numerals for financial and technical data
+• Clean modern sans-serif for titles and explanations
+• Subtle borders, grid lines and panel shadows
+• Minimal animation
+• No oversized retail-style cards
+• No excessive gradients
+• No cartoon icons
+• No generic AI robot imagery
+• No unnecessary marketing graphics inside the terminal
+Create reusable design tokens for:
+• Background levels
+• Panel levels
+• Borders
+• Text hierarchy
+• Status colors
+• Spacing
+• Radius
+• Typography
+• Charts
+• Tables
+• Focus states
+• Animation duration
+• Z-index layers
+Status colors must never be the only way information is communicated. Always include text, icons, labels or patterns for accessibility.
+============================================================
+4. GLOBAL TERMINAL LAYOUT
+============================================================
+Create a full-screen workstation layout.
+TOP SYSTEM BAR
+Display:
+• AEIM logo and terminal name
+• Current date and Eastern Time
+• Market session status
+• Last market-data update
+• Current market regime
+• Current volatility regime
+• AEIM operating mode
+• PAPER TRADING badge
+• Database health
+• Market-data provider health
+• Scheduler health
+• Worker heartbeat
+• Audit-chain status
+• Notification status
+• Logged-in user
+• Global alert indicator
+LEFT NAVIGATION
+• Command Center
+• Live Decisions
+• Opportunity Queue
+• Decision Proof
+• Paper Trading
+• Portfolio Risk
+• Specialist Council
+• Indicator Laboratory
+• Probability & Calibration
+• Performance Analytics
+• Learning Center
+• Research & Hypotheses
+• Audit & Verification
+• System Operations
+• Reports
+• Administration
+GLOBAL SEARCH / COMMAND PALETTE
+Support:
+• Search ticker
+• Search trade ID
+• Search decision ID
+• Search trace ID
+• Search candidate ID
+• Search audit event
+• Search strategy
+• Search model version
+• Search date range
+• Search system alert
+• Keyboard navigation
+• Recent searches
+• Saved views
+Add an optional command syntax:
+TICKER AAPL
+TRACE <trace_id>
+TRADE <trade_id>
+DECISION <decision_id>
+HEALTH
+RISK
+OPEN POSITIONS
+FAILED EVENTS
+BOTTOM EVENT TICKER
+Display a continuously updating event stream:
+• New candidate created
+• Data-quality gate passed or failed
+• Indicator completed
+• Specialist vote recorded
+• Risk gate decision
+• Recommendation approved
+• Trade opened
+• Trade adjusted
+• Trade exited
+• Outcome recorded
+• Learning update applied
+• Alert raised
+• Recovery completed
+Allow the event ticker to be paused and filtered.
+============================================================
+5. COMMAND CENTER
+============================================================
+The Command Center must be the default homepage.
+TOP METRICS
+Display:
+• AEIM system status
+• Current market regime
+• Current volatility regime
+• Data freshness
+• Active recommendations
+• Open paper trades
+• Daily realized P&L
+• Daily unrealized P&L
+• Total paper account value
+• Buying power
+• Risk budget used
+• Current drawdown
+• Daily loss limit used
+• Decisions today
+• No Trade decisions today
+• Risk-blocked trades today
+• Verified decision percentage
+• Last complete execution cycle
+• Next scheduled execution
+PRIMARY PANELS
+A. LIVE DECISION FEED
+Columns:
+• Timestamp
+• Ticker
+• Asset type
+• Direction
+• Recommended strategy
+• Probability of success
+• Calibrated confidence
+• Expected value
+• Capital preservation score
+• Liquidity score
+• Risk level
+• Decision status
+• Paper-trade status
+• Trace verification status
+Statuses:
+• Evaluating
+• Awaiting data
+• Data rejected
+• Council review
+• Risk review
+• Approved
+• Paper trade opened
+• Watchlist only
+• No Trade
+• Risk blocked
+• Expired
+• Closed
+• Verification failed
+Selecting a row must open the full Decision Proof view.
+B. MARKET REGIME MATRIX
+Display:
+• Broad-market regime
+• Trend regime
+• Volatility regime
+• Correlation regime
+• Liquidity regime
+• Credit/risk regime where available
+• Systemic-risk regime
+• Breadth regime
+• Sector leadership
+• Market stress level
+Show:
+• Current value
+• Prior value
+• Direction of change
+• Confidence
+• Last updated
+• Data source
+• Interpretation
+• Effect on current risk limits
+C. PAPER PORTFOLIO SUMMARY
+Display:
+• Equity curve
+• Intraday P&L
+• Open positions
+• Largest winner
+• Largest loser
+• Portfolio Greeks
+• Sector exposure
+• Strategy exposure
+• Expiration exposure
+• Risk budget
+• Buying power
+• Concentration alerts
+D. RISK MONITOR
+Display:
+• Daily loss-limit utilization
+• Portfolio heat
+• Maximum modeled loss
+• Current drawdown
+• Correlation concentration
+• Liquidity stress
+• Gamma exposure
+• Vega exposure
+• Pending risk violations
+• Recently blocked trades
+E. SYSTEM RELIABILITY
+Display:
+• Polygon or primary-provider status
+• Secondary-provider status
+• Database status
+• API status
+• Scheduler status
+• Worker heartbeats
+• Queue depth
+• Dead-letter queue
+• Stale job count
+• Last successful scan
+• Last verified complete cycle
+• Audit-chain validity
+• Backup status
+============================================================
+6. LIVE DECISIONS
+============================================================
+Build an institutional live decision blotter.
+Filters:
+• Date and time
+• Ticker
+• Direction
+• Strategy
+• Decision status
+• Probability range
+• Confidence range
+• Risk level
+• Market regime
+• Signal source
+• Specialist disagreement
+• Risk-gate result
+• Verification status
+Support:
+• Column sorting
+• Multi-column filters
+• Column resizing
+• Saved views
+• Export
+• Full-screen mode
+• Automatic updates
+• Freeze updates
+• Compare decisions
+• Open related paper trade
+• Open audit trail
+Do not remove or overwrite a prior decision when a new version is generated.
+Display decision version history.
+============================================================
+7. OPPORTUNITY QUEUE
+============================================================
+Show every candidate evaluated, not only approved trades.
+Required fields:
+• Candidate rank
+• Ticker
+• Source
+• Raw score
+• Adjusted score
+• Probability
+• Confidence
+• Regime fit
+• Technical score
+• Options score
+• Liquidity score
+• Execution score
+• Risk score
+• Capital preservation score
+• Expected value
+• Acceptance or rejection
+• Rejection reason
+• Decision authority
+• Trace ID
+• Timestamp
+Show:
+• Accepted candidates
+• Rejected candidates
+• Candidates awaiting more data
+• Candidates rejected by data guards
+• Candidates rejected by liquidity
+• Candidates rejected by execution costs
+• Candidates rejected by portfolio risk
+• Candidates rejected by calibration
+• Candidates converted to No Trade
+This screen must make selection bias visible.
+============================================================
+8. DECISION PROOF
+============================================================
+This is a critical differentiator.
+Create a complete, reproducible decision page for every recommendation.
+HEADER
+• Ticker
+• Decision
+• Direction
+• Strategy
+• Timestamp
+• Market session
+• Decision version
+• Probability
+• Confidence
+• Expected value
+• Capital preservation score
+• Risk classification
+• Trade status
+• Verification status
+DECISION PIPELINE
+Visualize the exact process:
+Market Data
+  ↓
+Data Quality Guards
+  ↓
+Macro and Market Regime
+  ↓
+Premarket Intelligence
+  ↓
+Technical and Pattern Analysis
+  ↓
+Advanced Quant Indicators
+  ↓
+Options Intelligence
+  ↓
+Probability Engine
+  ↓
+Scoring and Synthesis
+  ↓
+Specialist Council
+  ↓
+Portfolio Optimization
+  ↓
+Risk Gate
+  ↓
+Final Decision
+  ↓
+Paper Execution
+  ↓
+Outcome
+  ↓
+Attribution
+  ↓
+Learning
+  ↓
+Memory
+Each stage must display:
+• Status
+• Start timestamp
+• Completion timestamp
+• Duration
+• Input identifiers
+• Output identifiers
+• Summary
+• Detailed values
+• Data source
+• Model or rule version
+• Errors or warnings
+• Trace ID
+• Audit event ID
+• Hash-chain status
+DECISION EXPLANATION
+Show:
+• Why the stock qualified
+• Why the stock did not qualify, when rejected
+• Market regime
+• Volatility regime
+• Premarket conditions
+• Technical evidence
+• Candlestick and chart patterns
+• Multi-timeframe confirmation
+• Institutional indicators
+• Options intelligence
+• Probability-engine output
+• Specialist Council output
+• Risk-engine output
+• Execution-quality output
+• Portfolio impact
+• Capital preservation score
+• Expected value
+• Confidence
+• Position sizing rationale
+• Entry
+• Expected exit
+• Profit target
+• Stop criteria
+• Invalidation conditions
+• Expected holding period
+• Maximum risk
+• Maximum reward
+• Breakevens
+• Data limitations
+• Confidence reductions
+• Degraded-data conditions
+ALTERNATIVE STRATEGIES
+For every decision, display:
+• Strategies evaluated
+• Expected value
+• Probability
+• Maximum loss
+• Maximum reward
+• Breakeven
+• Capital requirement
+• Liquidity
+• Slippage
+• Commissions
+• Regime fit
+• Portfolio impact
+• Rejection reason
+• Why selected strategy won
+NO TRADE PROOF
+For every No Trade result, show:
+• Exact blocking conditions
+• Failed thresholds
+• Conflicting evidence
+• Data insufficiency
+• Calibration concerns
+• Liquidity concerns
+• Execution concerns
+• Portfolio constraints
+• Risk constraints
+• Conditions required for reconsideration
+============================================================
+9. PAPER-TRADING CENTER
+============================================================
+Create separate tabs:
+• Overview
+• Open Positions
+• Orders
+• Closed Positions
+• Trade Journal
+• Equity Curve
+• Attribution
+• Strategy Performance
+OPEN POSITIONS TABLE
+Display:
+• Trade ID
+• Ticker
+• Asset type
+• Strategy
+• Legs
+• Quantity
+• Entry timestamp
+• Entry stock price
+• Entry option prices
+• Current stock price
+• Current option prices
+• Entry debit or credit
+• Current mark
+• Unrealized P&L
+• Unrealized return
+• Realized P&L from adjustments
+• Maximum loss
+• Maximum reward
+• Breakevens
+• Days to expiration
+• Delta
+• Gamma
+• Theta
+• Vega
+• IV at entry
+• Current IV
+• Expected move
+• Profit target
+• Stop criteria
+• Invalidation
+• Exit-liquidity score
+• AEIM confidence at entry
+• Current confidence
+• Original trace ID
+• Current management status
+OPTIONS P&L REQUIREMENT
+Calculate options and spread P&L using:
+• Actual option-leg prices
+• Contract quantities
+• Contract multiplier
+• Debit or credit
+• Commissions
+• Slippage
+• Partial fills
+• Adjustments
+• Realized and unrealized leg values
+Never determine success merely because the stock crossed the strike.
+Breakevens must include premium paid or received and all relevant legs.
+ORDERS
+Display:
+• Submitted
+• Working
+• Partially filled
+• Filled
+• Cancelled
+• Rejected
+• Expired
+• Replacement order
+• Entry or exit
+• Limit price
+• Mid price
+• Bid and ask
+• Fill price
+• Slippage
+• Commission
+• Time to fill
+• Fill probability estimate
+• Broker or simulator response
+• Rejection reason
+CLOSED POSITIONS
+Display:
+• Entry and exit
+• Realized P&L
+• Return
+• Holding period
+• Exit reason
+• Maximum favorable excursion
+• Maximum adverse excursion
+• Thesis validity
+• Stop adherence
+• Profit-target adherence
+• Execution variance
+• Original probability
+• Original confidence
+• Outcome
+• Attribution
+• Learning response
+TRADE JOURNAL
+Generate an immutable journal for every trade:
+• Complete recommendation
+• Evidence
+• Order history
+• Position changes
+• Alerts
+• Exit decision
+• Outcome
+• Attribution
+• Learning changes
+• Audit chain
+============================================================
+10. PORTFOLIO RISK CENTER
+============================================================
+Display portfolio-level risk.
+Required metrics:
+• Paper account value
+• Cash
+• Buying power
+• Reserved buying power
+• Gross exposure
+• Net exposure
+• Long exposure
+• Short exposure
+• Defined maximum loss
+• Daily realized P&L
+• Daily unrealized P&L
+• Daily loss-limit use
+• Weekly drawdown
+• Maximum drawdown
+• Portfolio delta
+• Portfolio gamma
+• Portfolio theta
+• Portfolio vega
+• Volatility exposure
+• Sector exposure
+• Industry exposure
+• Ticker concentration
+• Strategy concentration
+• Expiration concentration
+• Strike concentration
+• Correlation concentration
+• Regime concentration
+• Liquidity risk
+• Assignment risk
+• Pin risk
+• Gap risk
+• Event risk
+• Stress-test loss
+Add:
+• Portfolio heat map
+• Greeks by ticker
+• Greeks by strategy
+• Greeks by expiration
+• Sector risk map
+• Correlation matrix
+• Risk-budget utilization
+• Daily loss-limit gauge
+• Scenario analysis
+• Risk alerts
+• Blocked recommendation log
+SCENARIO TESTS
+Support:
+• Market -1%, -2%, -5%
+• Market +1%, +2%, +5%
+• Volatility expansion
+• Volatility contraction
+• Correlation spike
+• Liquidity deterioration
+• Overnight gap
+• Sector shock
+• Single-ticker gap
+• Time-decay scenarios
+• Combined stress scenario
+Clearly label all scenario results as modeled estimates.
+============================================================
+11. SPECIALIST COUNCIL
+============================================================
+Create a professional Council view.
+Display each specialist:
+• Specialist name
+• Domain
+• Vote
+• Confidence
+• Evidence
+• Key values
+• Objections
+• Risk warnings
+• Weight
+• Historical reliability
+• Regime-specific reliability
+• Pre-debate position
+• Post-debate position
+Include applicable specialists such as:
+• Macro
+• Market Regime
+• Technical
+• Momentum
+• Mean Reversion
+• Premarket
+• Options Flow
+• Volatility
+• Market Microstructure
+• Statistical Edge
+• Liquidity
+• Execution
+• Portfolio
+• Risk
+• Capital Preservation
+• Adversarial Critic
+Display:
+• Agreement score
+• Disagreement score
+• Pre-debate recommendation
+• Debate changes
+• Post-debate recommendation
+• Final weighted result
+• Dominant supporting evidence
+• Dominant opposing evidence
+• Risk override
+• Human-review requirement, when applicable
+============================================================
+12. INDICATOR LABORATORY
+============================================================
+Organize indicators by category.
+A. MARKET REGIME
+• Broad index trend
+• 20/50/100/200-period relationships
+• Breadth
+• Advance/decline
+• Sector leadership
+• Correlation regime
+• Volatility regime
+• Hurst exponent
+• GARCH
+• Absorption ratio
+• PCA factor concentration
+• Trend integrity
+• Regime transition probability
+B. PREMARKET INTELLIGENCE
+• Gap percentage
+• Premarket volume
+• Relative volume
+• Premarket range
+• Premarket high and low
+• Overnight trend
+• Gap quality
+• Gap fill probability
+• News and event flags where available
+• Index futures context
+• Sector ETF context
+• Support and resistance
+• Opening range expectations
+• Liquidity
+• Spread
+• Imbalance
+• Multi-timeframe structure
+C. TECHNICAL AND PATTERN ANALYSIS
+• Trend
+• Momentum
+• Mean reversion
+• VWAP
+• Moving averages
+• RSI
+• MACD
+• ATR
+• Bollinger Bands
+• Volume profile
+• Support and resistance
+• Breakouts
+• Pullbacks
+• Continuation
+• Reversal
+• Candlestick patterns
+• Chart patterns
+• Multi-timeframe agreement
+• Pattern confidence
+• Pattern invalidation
+D. MARKET MICROSTRUCTURE
+• VPIN
+• Roll spread
+• Corwin-Schultz spread
+• Amihud illiquidity
+• Price impact
+• Volume imbalance
+• Flow toxicity
+• Spread quality
+• Estimated slippage
+• Fill probability
+• Exit liquidity
+• Market-depth quality where available
+E. OPTIONS AND VOLATILITY
+• IV rank
+• IV percentile
+• ATM IV
+• Realized volatility
+• Variance risk premium
+• Term structure
+• Put skew
+• Call skew
+• Skew velocity
+• GEX
+• Gamma flip
+• Open-interest concentration
+• Volume concentration
+• Put/call ratio
+• Expected move
+• Risk-neutral density
+• Charm
+• Vanna
+• Delta
+• Gamma
+• Theta
+• Vega
+• Assignment risk
+• Pin risk
+• IV crush risk
+• Volatility-expansion risk
+• Liquidity score
+F. STATISTICAL INTELLIGENCE
+• Cross-sectional momentum
+• PCA factors
+• Idiosyncratic return
+• Absorption ratio
+• Realized skew
+• Realized kurtosis
+• Jump detection
+• Shannon entropy
+• Outlier flags
+• Sample size
+• Statistical significance
+• Multiple-testing adjustment
+• Point-in-time integrity
+• Walk-forward performance
+• Out-of-sample performance
+INDICATOR PRESENTATION
+Each indicator must display:
+• Name
+• Current value
+• Previous value
+• Direction
+• Normal range
+• Risk threshold
+• Interpretation
+• Bullish, bearish, neutral or caution
+• Confidence
+• Freshness
+• Data source
+• Calculation version
+• Decision contribution
+• Whether it raised or lowered confidence
+• Whether it changed position size
+• Whether it caused a rejection
+Example:
+VPIN: 0.74
+Classification: Elevated flow toxicity
+Decision effect: Confidence reduced by 8%
+Risk effect: Position size reduced from 4 to 2 contracts
+Freshness: 14 seconds
+Status: Verified
+Do not display unexplained indicator numbers.
+============================================================
+13. PROBABILITY AND CALIBRATION
+============================================================
+Display:
+• Raw probability
+• Calibrated probability
+• Confidence
+• Calibration adjustment
+• Sample size
+• Comparable historical observations
+• Brier score
+• Log loss
+• Expected calibration error
+• Maximum calibration error
+• Reliability curve
+• Confidence error
+• Prediction drift
+• Distribution shift
+• Out-of-sample accuracy
+• Walk-forward performance
+• Purged cross-validation
+• Regime-specific calibration
+• Strategy-specific calibration
+• Ticker-specific calibration where sample size permits
+Automatically show warnings when:
+• Sample size is insufficient
+• Calibration has deteriorated
+• Distribution has shifted
+• Market regime changed
+• Data quality decreased
+• Prediction confidence exceeds empirical accuracy
+The dashboard must distinguish:
+• Model probability
+• Calibrated probability
+• Trade probability
+• Confidence score
+• Expected value
+Do not present these as interchangeable values.
+============================================================
+14. PERFORMANCE ANALYTICS
+============================================================
+Display:
+• Equity curve
+• Drawdown curve
+• Daily returns
+• Weekly returns
+• Monthly returns
+• Cumulative return
+• Win rate
+• Loss rate
+• Profit factor
+• Expectancy
+• Average winner
+• Average loser
+• Payoff ratio
+• Sharpe ratio
+• Sortino ratio
+• Calmar ratio
+• Maximum drawdown
+• Recovery time
+• Exposure-adjusted return
+• Capital efficiency
+• Average holding time
+• Execution costs
+• Slippage
+• Commissions
+Break down performance by:
+• Strategy
+• Ticker
+• Sector
+• Industry
+• Market regime
+• Volatility regime
+• Direction
+• Signal source
+• Specialist
+• Confidence decile
+• Probability decile
+• Risk category
+• Holding period
+• Time of day
+• Day of week
+• Expiration
+• DTE
+• Liquidity category
+• Entry type
+• Exit reason
+• Model version
+Clearly separate:
+• Backtest
+• Out-of-sample test
+• Walk-forward test
+• Shadow trading
+• Paper trading
+• Live trading, only if enabled in the future
+Never blend these results into one performance number.
+============================================================
+15. LEARNING CENTER
+============================================================
+Display:
+• Signal trust scores
+• Previous trust
+• Current trust
+• Trust delta
+• Reason for change
+• Trades used
+• Wins and losses used
+• P&L contribution
+• Regime
+• Thompson alpha
+• Thompson beta
+• Thompson sample
+• Candidate-rank changes
+• Model-version changes
+• Feature-weight changes
+• Policy-version changes
+• Learning-run status
+• Gradient-step status
+• Drift response
+• Rollback availability
+Provide timelines for:
+• Trade closes
+• Outcome recorded
+• Attribution calculated
+• Signal trust updated
+• Thompson distribution updated
+• Candidate ranking changed
+• Model retrained
+• Calibration updated
+• Model promoted
+• Model rolled back
+Learning must remain:
+• Evidence-based
+• Auditable
+• Versioned
+• Reproducible
+• Reversible
+• Restricted by minimum sample size
+• Restricted by out-of-sample verification
+• Restricted by governance controls
+Do not imply that AEIM is learning when no verified update occurred.
+============================================================
+16. RESEARCH AND HYPOTHESIS CENTER
+============================================================
+Display:
+• Registered hypotheses
+• Locked hypotheses
+• Category
+• Novelty score
+• Category track record
+• Thompson category value
+• Combined ranking
+• Estimated sample size
+• Universe impact
+• Test status
+• Multiple-testing family
+• Adjusted significance
+• Adversarial-review status
+• Overall verdict
+• Promotion eligibility
+• Rejection reason
+Stages:
+• Proposed
+• Ranked
+• Registered
+• Locked
+• Testing
+• Adversarial review
+• Likely real
+• Likely overfit
+• Inconclusive
+• Shadow eligible
+• Rejected
+• Archived
+============================================================
+17. AUDIT AND VERIFICATION CENTER
+============================================================
+Create an administrator-grade forensic interface.
+Display:
+• Trace ID
+• Candidate ID
+• Execution plan ID
+• Decision ID
+• Risk-gate ID
+• Trade ID
+• Order ID
+• Outcome ID
+• Attribution ID
+• Learning ID
+• Memory ID
+• Audit-log ID
+• Event timestamp
+• Stage
+• Component
+• Input hash
+• Previous hash
+• Current hash
+• Chain validity
+• Data source
+• Model version
+• Code version
+• Git commit
+• Verification status
+Build a complete event timeline:
+Scheduler Trigger
+  ↓
+Data Ingestion
+  ↓
+Data Guard
+  ↓
+Analysis
+  ↓
+Indicators
+  ↓
+Probability
+  ↓
+Council
+  ↓
+Risk Gate
+  ↓
+Decision
+  ↓
+Paper Order
+  ↓
+Fill
+  ↓
+Position Management
+  ↓
+Exit
+  ↓
+Outcome
+  ↓
+Attribution
+  ↓
+Learning
+  ↓
+Memory
+Required verification badges:
+• End-to-End Verified
+• Hash Chain Valid
+• Complete Evidence
+• Missing Evidence
+• Duplicate Event
+• Stale Data
+• Failed Stage
+• Recovery Used
+• Manual Action Detected
+• Unverified
+Allow evidence export for authorized administrators.
+Never label a decision verified unless the required evidence genuinely exists.
+============================================================
+18. SYSTEM OPERATIONS
+============================================================
+Display:
+• API services
+• Schedulers
+• Workers
+• Database
+• Primary market-data provider
+• Secondary provider
+• Broker simulator
+• Notification services
+• Cache
+• Queue
+• Dead-letter queue
+• Storage
+• Backup
+• Audit service
+• Verification service
+For each service show:
+• Status
+• Last heartbeat
+• Last success
+• Last failure
+• Uptime
+• Latency
+• Error rate
+• Queue depth
+• Retry count
+• Current version
+• Deployment timestamp
+• Degraded-mode status
+• Last recovery action
+Show operational states:
+• Healthy
+• Degraded
+• Recovering
+• Failed
+• Stale
+• Paused
+• Maintenance
+• Unknown
+Add:
+• Incident timeline
+• Failed-job viewer
+• Retry viewer
+• Stale-job viewer
+• Recovery history
+• Provider failover status
+• Missing morning-scan alert
+• Missing decision-stage alert
+• Duplicate-run alert
+• Notification-failure alert
+• Audit-chain failure alert
+============================================================
+19. REPORTS AND DUE DILIGENCE
+============================================================
+Create downloadable reports for authorized users:
+• Daily AEIM report
+• Weekly performance report
+• Monthly performance report
+• Open-risk report
+• Closed-trade report
+• Strategy report
+• Calibration report
+• Model drift report
+• System reliability report
+• Verification report
+• Decision-proof report
+• Institutional due-diligence report
+Reports must state:
+• Data period
+• Operating mode
+• Sample sizes
+• Assumptions
+• Limitations
+• Whether results are backtested, paper, shadow or live
+• Model versions
+• Code version
+• Data sources
+• Verification status
+• Generation timestamp
+Do not generate misleading marketing claims.
+============================================================
+20. SECURITY AND INSTITUTIONAL CONTROLS
+============================================================
+Implement:
+• Secure authentication
+• Role-based access control
+• Session expiration
+• Password hashing through trusted authentication provider
+• Multi-factor authentication capability
+• Rate limiting
+• CSRF protection where applicable
+• Input validation
+• Output encoding
+• Secure cookies
+• Content Security Policy
+• Secret management
+• No credentials in frontend code
+• No database credentials in browser code
+• Audit logging for administrative actions
+• Login-attempt monitoring
+• Data-export permissions
+• Environment separation
+• Dependency scanning
+• Security headers
+• Protected API endpoints
+Roles:
+• Viewer
+• Trader
+• Analyst
+• Risk Manager
+• Auditor
+• Administrator
+• Institutional Due-Diligence Viewer
+Only authorized roles may:
+• Export sensitive evidence
+• Change dashboard settings
+• Modify risk configuration
+• Start or pause paper trading
+• Access operational logs
+• View protected code/version metadata
+• Manage users
+The initial terminal must remain paper-trading only.
+Do not enable live brokerage execution through this dashboard unless separately approved and strictly verified.
+============================================================
+21. USER EXPERIENCE
+============================================================
+Required:
+• Fast initial load
+• Skeleton loading states
+• Empty states
+• Error states
+• Reconnect states
+• Stale-data warnings
+• Automatic reconnection
+• Last-updated timestamps
+• Time-zone clarity
+• Full keyboard accessibility
+• Screen-reader labels
+• Responsive desktop and tablet layouts
+• Mobile monitoring view
+• User-configurable workspaces
+• Saved panel layouts
+• Saved filters
+• Full-screen panels
+• Draggable and resizable workstation panels
+• Persistent user preferences
+• Dense and comfortable display modes
+• Light animation only for state changes
+• Reduced-motion support
+The primary institutional experience should target:
+• 1440p monitors
+• Ultrawide monitors
+• Multi-monitor workstations
+• Four-panel terminal layouts
+Mobile should support monitoring, alerts and trade review, not complex workstation configuration.
+============================================================
+22. REAL-TIME DATA RULES
+============================================================
+All live widgets must display:
+• Timestamp
+• Data age
+• Provider
+• Status
+• Delayed or real-time classification
+• Stale-data warning
+• Last successful update
+• Reconnection state
+Do not silently display stale information as current.
+When live data becomes unavailable:
+• Mark affected panels as degraded
+• Preserve the last known value
+• Display its timestamp
+• Disable misleading live animations
+• Show failover-provider state
+• Do not fabricate replacement values
+• Do not convert missing data to zero
+============================================================
+23. API REQUIREMENTS
+============================================================
+Create versioned authenticated endpoints as needed.
+Example endpoint groups:
+/api/v1/terminal/summary
+/api/v1/decisions
+/api/v1/decisions/{decision_id}
+/api/v1/decisions/{decision_id}/proof
+/api/v1/candidates
+/api/v1/paper-trades
+/api/v1/paper-trades/open
+/api/v1/paper-trades/closed
+/api/v1/orders
+/api/v1/portfolio
+/api/v1/portfolio/risk
+/api/v1/portfolio/greeks
+/api/v1/portfolio/scenarios
+/api/v1/indicators
+/api/v1/indicators/{ticker}
+/api/v1/council
+/api/v1/calibration
+/api/v1/performance
+/api/v1/learning
+/api/v1/hypotheses
+/api/v1/audit
+/api/v1/traces/{trace_id}
+/api/v1/system/health
+/api/v1/system/incidents
+/api/v1/reports
+Live streams:
+/stream/decisions
+/stream/trades
+/stream/orders
+/stream/risk
+/stream/system
+/stream/audit
+/stream/alerts
+Use pagination, filtering and server-side sorting for large tables.
+Do not expose raw unrestricted SQL endpoints.
+============================================================
+24. DATA CONTRACTS
+============================================================
+Create explicit typed schemas for:
+• Market regime
+• Decision summary
+• Decision proof
+• Candidate
+• Indicator result
+• Specialist vote
+• Risk-gate result
+• Execution plan
+• Paper order
+• Paper trade
+• Portfolio snapshot
+• Portfolio Greeks
+• Performance metric
+• Calibration metric
+• Learning event
+• Hypothesis
+• Audit event
+• System health
+• Alert
+• Report
+Each payload should include where applicable:
+• id
+• timestamp
+• trace_id
+• version
+• source
+• freshness
+• verification_status
+• warnings
+• data_quality
+• authoritative flag
+============================================================
+25. PERFORMANCE AND RELIABILITY
+============================================================
+Required:
+• Paginated database queries
+• Proper database indexes
+• Query timeout handling
+• Connection pooling
+• API response caching where safe
+• Live-event throttling
+• Batched updates
+• Table virtualization
+• Lazy-loaded charts
+• Code splitting
+• Error boundaries
+• Retry with bounded exponential backoff
+• Idempotent event processing
+• Duplicate-event protection
+• Observability
+• Structured logs
+• Metrics
+• Tracing
+• Health checks
+• Readiness checks
+• Graceful degradation
+The dashboard must never interfere with or delay AEIM’s trading, analysis, verification, or scheduling processes.
+Dashboard queries must be read-optimized and isolated from critical execution paths.
+============================================================
+26. REQUIRED INITIAL RELEASE
+============================================================
+Release 1 must include:
+1. Authentication and roles
+2. Global terminal shell
+3. Command Center
+4. Live Decisions
+5. Opportunity Queue
+6. Decision Proof
+7. Paper Trading
+8. Portfolio Risk
+9. Specialist Council
+10. Indicator Laboratory
+11. Probability and Calibration
+12. Performance Analytics
+13. Learning Center
+14. Audit and Verification
+15. System Operations
+16. Real-time streams
+17. Responsive monitoring view
+18. Saved user workspace
+19. Exportable institutional reports
+20. Complete automated test coverage
+Do not ship placeholder pages presented as complete functionality.
+Clearly label any deferred functionality.
+============================================================
+27. STRICT IMPLEMENTATION RULES
+============================================================
+• Reuse existing verified AEIM calculations where available.
+• Do not create duplicate calculation engines in the frontend.
+• Do not alter existing decision logic without explicit authorization.
+• Do not alter Diagrams 1–3 or established pipeline ownership.
+• Do not connect the scanner website as the decision authority.
+• AEIM remains the decision authority.
+• Do not use fabricated dashboard values.
+• Do not use mock proof as production evidence.
+• Do not manually insert database evidence.
+• Do not hide failed stages.
+• Do not label missing data as zero.
+• Do not label unverified events as verified.
+• Do not combine backtest and paper-trading performance.
+• Do not enable live-money trading.
+• Do not expose secrets.
+• Do not give browser clients database credentials.
+• Do not use the frontend to bypass portfolio or risk gates.
+• Do not claim institutional readiness without passing verification.
+============================================================
+28. STRICT VERIFICATION
+============================================================
+Verification must include:
+A. FRONTEND
+• Every route loads
+• Every panel has real data or an honest empty state
+• Filters work
+• Sorting works
+• Pagination works
+• Saved layouts work
+• Keyboard navigation works
+• Responsive layouts work
+• Accessibility checks pass
+• Errors are visible
+• Stale data is visibly marked
+• Reconnection works
+• No console errors
+• No exposed secrets
+B. API
+• Authentication enforced
+• Authorization enforced
+• Schema validation
+• Pagination
+• Filtering
+• Sorting
+• Invalid-input rejection
+• Rate limiting
+• Timeout handling
+• Database-failure handling
+• Provider-failure handling
+• Correct status codes
+• No unrestricted queries
+C. LIVE EVENTS
+• New decision appears automatically
+• Paper-trade updates appear automatically
+• Risk changes appear automatically
+• System alerts appear automatically
+• Duplicate events are rejected
+• Lost connections reconnect
+• Missed events are recovered
+• Event ordering is preserved where required
+• Stale event detection works
+D. FINANCIAL CORRECTNESS
+• Options P&L verified
+• Spread P&L verified
+• Breakevens verified
+• Contract multiplier verified
+• Debit/credit verified
+• Multi-leg quantity verified
+• Commission verified
+• Slippage verified
+• Realized/unrealized separation verified
+• Portfolio Greeks verified
+• Risk-budget calculations verified
+• Drawdown calculations verified
+• Performance metrics verified
+E. DECISION PROOF
+For at least one genuine end-to-end paper decision, prove:
+• Scheduler trigger
+• Data ingestion
+• Data guard
+• Regime
+• Analysis
+• Indicators
+• Probability
+• Council
+• Risk gate
+• Decision
+• Paper order
+• Fill
+• Position
+• Exit or current open state
+• Outcome when closed
+• Attribution
+• Learning
+• Memory
+• Complete trace IDs
+• Complete timestamps
+• Complete database records
+• Valid hash chain
+F. SECURITY
+• Unauthorized routes blocked
+• Role restrictions verified
+• Session expiration verified
+• Export restrictions verified
+• Secrets absent from frontend bundle
+• Security headers present
+• Input validation tested
+• Common web vulnerabilities checked
+• Administrative actions audited
+G. NEGATIVE CONTROLS
+Prove the terminal fails safely when:
+• Data is stale
+• Provider is down
+• Database query fails
+• WebSocket disconnects
+• Trace is incomplete
+• Hash chain is invalid
+• Risk gate blocks a trade
+• Probability sample is insufficient
+• Paper order is rejected
+• Duplicate event arrives
+• Required authorization is missing
+============================================================
+29. EVIDENCE REQUIREMENTS
+============================================================
+Provide:
+• File inventory
+• Architecture diagram
+• API inventory
+• Route inventory
+• Component inventory
+• Database queries and indexes added
+• Data contracts
+• Test inventory
+• Test results
+• Screenshots of every completed screen
+• Real event-stream proof
+• Real API-response proof
+• SQL evidence
+• Trace evidence
+• Hash-chain evidence
+• Security-test evidence
+• Performance-test evidence
+• Accessibility-test evidence
+• Git commit
+• SHA-256 hashes for critical changed files
+• Known limitations
+• Deferred items
+• Final PASS/FAIL matrix
+No narrative-only proof.
+No fabricated records.
+No mocks accepted as end-to-end production proof.
+============================================================
+30. FINAL ACCEPTANCE STANDARD
+============================================================
+The AEIM Institutional Terminal is complete only when:
+• It is deployed as a separate website.
+• It uses real AEIM data.
+• It shows live decisions.
+• It shows all evaluated candidates.
+• It provides reproducible decision proof.
+• It displays accurate paper trades.
+• It calculates options and portfolio values correctly.
+• It exposes institutional portfolio risk.
+• It explains advanced indicators.
+• It displays probability calibration.
+• It shows specialist disagreement.
+• It demonstrates outcome attribution and learning.
+• It displays operational reliability.
+• It provides a valid forensic audit trail.
+• It passes security and role verification.
+• It handles stale and failed data honestly.
+• It passes end-to-end strict verification.
+• No mocks or fabricated evidence are used.
+• Existing AEIM functionality remains intact.
+The finished product must feel like a legitimate institutional intelligence, risk, execution, paper-trading and due-diligence terminal—not a retail stock website and not a visual demo.
+============================================================
+END OF MASTER DIRECTIVE
+============================================================
