@@ -47,6 +47,18 @@ else
   SEQ=1
 fi
 
+# DPL pre-seal: update engine_integrity_refs.json commit_sha to live HEAD NOW,
+# before eval "$CMD" and before any other file write in this invocation.
+# This is the FIRST write in the sealed run — no write may precede it.
+# Any commit that landed before this line executes is captured; any commit
+# that lands after does not affect this run's refs.json attribution.
+_SCRIPT_DIR_PRE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_DPL_REFS_PRE="${_SCRIPT_DIR_PRE}/../artifacts/stock-scanner-api/dpl/engine_integrity_refs.json"
+_DPL_PRESEAL="${_SCRIPT_DIR_PRE}/../artifacts/stock-scanner-api/tools/pre_seal_update_refs.sh"
+if [ -f "${_DPL_REFS_PRE}" ] && [ -f "${_DPL_PRESEAL}" ]; then
+  bash "${_DPL_PRESEAL}" "${_DPL_REFS_PRE}"
+fi
+
 # Execute the actual command, capture stdout+stderr combined, and exit code
 set +e
 OUTPUT=$(eval "$CMD" 2>&1)

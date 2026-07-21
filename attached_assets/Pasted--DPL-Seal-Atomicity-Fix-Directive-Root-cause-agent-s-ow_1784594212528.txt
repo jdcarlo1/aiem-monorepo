@@ -1,0 +1,23 @@
+# DPL Seal-Atomicity Fix Directive
+
+Root cause (agent's own diagnosis, confirmed): commit_sha in refs.json is set before seal, but auto-commits (session-end, or mid-session file writes) can land between approval and seal, advancing HEAD past the approved value. This has caused the C28/A19/A28/W4/VR#65 drift class repeatedly. Fix the mechanism, don't hand-approve around it again.
+
+## Required change
+1. Create `pre_seal_update_refs.sh`: reads `git rev-parse HEAD` and atomically writes it to refs.json's commit_sha field.
+2. Wire it as the FIRST step of the sealed-run wrapper — before verify_dpl_phase3.py runs, before any other file write in that invocation.
+3. No writes of any kind may occur between this script running and the seal completing. If the wrapper needs to write other output files (last_run_results.json etc.), those come after refs.json is locked for that run.
+
+## Required evidence (raw only)
+1. Before/after diff of the wrapper script showing the new first step.
+2. sha256 before/after of pre_seal_update_refs.sh and the wrapper.
+3. Negative control: force a commit to land between "approval" and seal (e.g. touch+commit a scratch file mid-session), then run a seal — paste raw output showing commit_sha in the sealed refs.json matches HEAD *at seal time*, not the pre-commit value. This proves the check re-reads live HEAD rather than trusting a stale approved string.
+4. Raw `git log -1 --stat` immediately before and after the seal, so any auto-commit during the run is visible.
+5. Confirm C28_approved_by_in_allowlist_and_engine_hash_match logic compares against commit_sha as freshly captured by this script — raw grep -n of the comparison line.
+
+## Explicitly not in scope here
+C52B/C52C (live trade evidence) — separate, blocked on Tuesday's market window, not this fix.
+
+## Reject if
+- Fix is described without the negative control in item 3.
+- Wrapper still allows any write between refs.json capture and seal.
+- Old static-approval-value flow is left in place as a fallback.
