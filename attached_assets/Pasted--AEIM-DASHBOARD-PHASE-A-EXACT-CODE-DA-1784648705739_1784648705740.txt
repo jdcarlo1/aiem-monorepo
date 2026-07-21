@@ -1,0 +1,494 @@
+============================================================
+AEIM DASHBOARD — PHASE A
+EXACT CODE, DATABASE & DATA-SOURCE INVENTORY
+STRICT VERIFICATION REQUIRED
+
+OBJECTIVE
+
+Before building the AEIM Institutional Terminal, create a complete verified inventory showing exactly where every dashboard value will come from.
+
+Do not build the dashboard yet.
+
+Do not change AEIM decision logic.
+
+Do not modify Diagrams 1–3.
+
+Do not create duplicate calculations.
+
+Do not fabricate missing values.
+
+The purpose of this phase is to prove which dashboard functions are already supported by the current AEIM code, database and runtime evidence.
+
+============================================================
+
+1. COMPLETE CODE INVENTORY
+    ============================================================
+
+Recursively scan the entire AEIM repository.
+
+For every relevant dashboard capability, identify:
+
+• Exact file path
+• File SHA-256
+• Class name
+• Function or method name
+• Module owner
+• Pipeline phase
+• Input fields
+• Output fields
+• Database writes
+• Database reads
+• API routes
+• Scheduler or trigger
+• Runtime status
+• Verification status
+
+Include all relevant areas:
+
+• Market regime
+• Premarket analysis
+• Technical analysis
+• Chart and candlestick patterns
+• Quantitative indicators
+• Options intelligence
+• Probability engine
+• Calibration
+• Candidate scoring
+• Specialist Council
+• Portfolio optimization
+• Portfolio risk
+• Risk Gate
+• Decision engine
+• Paper trading
+• Orders and fills
+• Position management
+• Trade outcomes
+• Performance attribution
+• Learning
+• Memory
+• Research and hypotheses
+• Audit trail
+• Hash-chain verification
+• Scheduler health
+• Worker health
+• Provider health
+• Notifications
+• Backup and recovery
+
+============================================================
+2. COMPLETE DATABASE INVENTORY
+
+Inspect the real PostgreSQL schema.
+
+For every relevant table, provide:
+
+• Schema name
+• Table name
+• Purpose
+• Primary key
+• Foreign keys
+• Important columns
+• Column data types
+• Timestamp column
+• Trace ID column
+• Candidate ID column
+• Decision ID column
+• Trade ID column
+• Verification fields
+• Hash fields
+• Row count
+• Earliest record
+• Latest record
+• Whether currently populated
+• Whether actively written by runtime code
+• Exact code that writes to the table
+• Exact code that reads from the table
+
+Do not assume a table is active merely because it exists.
+
+Mark each table as:
+
+• ACTIVE_AND_POPULATED
+• ACTIVE_BUT_EMPTY
+• LEGACY
+• UNUSED
+• PARTIALLY_WIRED
+• UNKNOWN
+• MISSING
+
+============================================================
+3. DASHBOARD SOURCE-TO-SCREEN MAP
+
+Create one master mapping table.
+
+Required columns:
+
+| Dashboard Screen | Widget / Field | Exact Source File | Class / Function | Database Table | Database Column(s) | Existing API | Update Trigger | Refresh Frequency | Runtime Evidence | Verification Status | Missing Work |
+
+Include every planned screen:
+
+• Command Center
+• Live Decisions
+• Opportunity Queue
+• Decision Proof
+• Paper Trading
+• Portfolio Risk
+• Specialist Council
+• Indicator Laboratory
+• Probability & Calibration
+• Performance Analytics
+• Learning Center
+• Research & Hypotheses
+• Audit & Verification
+• System Operations
+• Reports
+• Administration
+
+Example:
+
+Dashboard Screen	Widget	Source File	Function	DB Table	Columns	Status
+Command Center	Market Regime	exact/path.py	exact_function()	exact_table	regime, confidence, created_at	VERIFIED
+Live Decisions	Probability	exact/path.py	exact_function()	exact_table	raw_probability, calibrated_probability	PARTIAL
+Portfolio Risk	Portfolio Greeks	exact/path.py	exact_function()	exact_table	delta, gamma, theta, vega	MISSING_RUNTIME_PROOF
+
+Do not use generic descriptions.
+
+Every entry must contain exact names.
+
+============================================================
+4. DATA CLASSIFICATION
+
+Classify every dashboard value as one of:
+
+• STORED
+Value is already stored in PostgreSQL.
+
+• CALCULATED_ON_REQUEST
+Value exists in code but is not stored.
+
+• LIVE_STREAM
+Value is generated continuously or from events.
+
+• HISTORICAL
+Value is available only from prior records.
+
+• DERIVED
+Value must be calculated from verified stored fields.
+
+• NOT_IMPLEMENTED
+No authoritative source exists.
+
+• IMPLEMENTED_NOT_VERIFIED
+Code exists but runtime proof is missing.
+
+• VERIFIED
+Code, database and runtime evidence all exist.
+
+Do not classify requested functionality as VERIFIED based only on file names or comments.
+
+============================================================
+5. API INVENTORY
+
+Inventory all current API routes relevant to the future dashboard.
+
+For every route provide:
+
+• HTTP method
+• Exact route
+• Source file
+• Function
+• Authentication
+• Authorization
+• Inputs
+• Outputs
+• Database source
+• Pagination support
+• Filtering support
+• Sorting support
+• Error handling
+• Runtime test result
+• Dashboard screen supported
+
+Mark routes as:
+
+• READY_FOR_DASHBOARD
+• NEEDS_EXTENSION
+• INTERNAL_ONLY
+• INSECURE
+• BROKEN
+• MISSING
+
+Do not create new routes during this inventory phase unless required only for safe inspection.
+
+============================================================
+6. REAL-TIME CAPABILITY INVENTORY
+
+Determine what real-time infrastructure currently exists.
+
+Inspect:
+
+• WebSocket
+• Server-Sent Events
+• Polling endpoints
+• Redis
+• Message queues
+• Database notifications
+• Internal event bus
+• Audit bus
+• Scheduler events
+• Worker heartbeats
+• Telegram events
+• Email events
+
+For each capability provide:
+
+• Exact file
+• Exact function
+• Event type
+• Producer
+• Consumer
+• Payload
+• Delivery frequency
+• Duplicate protection
+• Reconnection handling
+• Missed-event recovery
+• Runtime proof
+• Dashboard suitability
+
+Mark:
+
+• READY
+• PARTIAL
+• NOT_IMPLEMENTED
+• NOT_VERIFIED
+
+============================================================
+7. TRACEABILITY INVENTORY
+
+Verify which identifiers exist and where they are stored:
+
+• trace_id
+• candidate_id
+• execution_plan_id
+• decision_id
+• risk_gate_id
+• order_id
+• trade_id
+• position_id
+• outcome_id
+• attribution_id
+• learning_id
+• memory_id
+• audit_log_id
+
+For every identifier show:
+
+• Creation point
+• Exact file and function
+• Database table and column
+• Propagation path
+• Final destination
+• Missing handoffs
+• Duplicate risk
+• Runtime example
+
+Produce one real trace showing as much of this chain as currently exists:
+
+Scheduler
+→ Intake
+→ Data Guards
+→ Regime
+→ Analysis
+→ Indicators
+→ Probability
+→ Council
+→ Risk Gate
+→ Decision
+→ Paper Order
+→ Position
+→ Outcome
+→ Attribution
+→ Learning
+→ Memory
+→ Audit
+
+Do not manually create evidence.
+
+============================================================
+8. DASHBOARD FUNCTIONALITY VERDICT
+
+For every major dashboard capability, provide one verdict:
+
+• READY_NOW
+• READY_AFTER_API_CONNECTION
+• PARTIALLY_IMPLEMENTED
+• REQUIRES_BACKEND_WORK
+• NOT_IMPLEMENTED
+• NOT_VERIFIED
+• BLOCKED_BY_MISSING_DATA
+
+Required capabilities:
+
+1. Live AEIM decisions
+2. Candidate rankings
+3. Rejected candidate reasons
+4. Market regime
+5. Volatility regime
+6. Premarket intelligence
+7. Technical indicators
+8. Pattern analysis
+9. Quant indicators
+10. Options intelligence
+11. Probability
+12. Calibration
+13. Specialist Council
+14. Risk Gate
+15. Position sizing
+16. Paper orders
+17. Partial fills
+18. Open positions
+19. Closed trades
+20. Options P&L
+21. Breakevens
+22. Portfolio Greeks
+23. Portfolio risk
+24. Scenario testing
+25. Performance analytics
+26. Attribution
+27. Learning
+28. Research hypotheses
+29. Full decision proof
+30. Hash-chain verification
+31. Scheduler health
+32. Worker health
+33. Provider health
+34. Backup and recovery
+35. Institutional reports
+36. Authentication
+37. Role-based access
+38. Live streaming
+39. Saved layouts
+40. Evidence exports
+
+============================================================
+9. GAP ANALYSIS
+
+Create a separate gap table:
+
+| Missing Function | Dashboard Impact | Existing Related Code | Exact Missing Work | Priority | Estimated Complexity | Must Complete Before Dashboard? |
+
+Priority:
+
+• P0 — Required before dashboard
+• P1 — Required for institutional release
+• P2 — Useful enhancement
+• P3 — Future feature
+
+Do not automatically classify every requested dashboard enhancement as P0.
+
+============================================================
+10. REQUIRED OUTPUT FILES
+
+Create:
+
+1. AEIM_DASHBOARD_CODE_INVENTORY.md
+2. AEIM_DASHBOARD_DATABASE_INVENTORY.md
+3. AEIM_DASHBOARD_SOURCE_TO_SCREEN_MAP.csv
+4. AEIM_DASHBOARD_API_INVENTORY.md
+5. AEIM_DASHBOARD_REALTIME_INVENTORY.md
+6. AEIM_DASHBOARD_TRACEABILITY_REPORT.md
+7. AEIM_DASHBOARD_GAP_ANALYSIS.md
+8. AEIM_DASHBOARD_PHASE_A_FINAL_REPORT.md
+
+Also produce one condensed master report that can be reviewed from a phone.
+
+============================================================
+11. STRICT VERIFICATION
+
+Verification must include:
+
+• Recursive repository scan
+• Exact file paths
+• Exact functions
+• Exact database tables
+• Exact columns
+• Real SQL queries
+• Real row counts
+• Real timestamps
+• Real API calls
+• Real runtime logs
+• Real trace IDs
+• Real code hashes
+• Git commit
+• PASS / FAIL for every dashboard capability
+
+Do not accept:
+
+• Narrative-only proof
+• Screenshots without underlying evidence
+• Mock API responses
+• Fabricated database rows
+• Manual database inserts
+• Assumed table relationships
+• Function names without runtime proof
+• Comments presented as implemented code
+• Empty tables presented as working functionality
+
+============================================================
+12. FINAL REPORT FORMAT
+
+The final report must begin with:
+
+AEIM DASHBOARD PHASE A — FINAL VERDICT
+
+Overall Status:
+• PASS
+• PARTIAL PASS
+• FAIL
+
+Then provide:
+
+• Total dashboard capabilities reviewed
+• Ready now
+• Ready after API connection
+• Partially implemented
+• Missing
+• Not verified
+• P0 gaps
+• P1 gaps
+• Tables reviewed
+• Active tables
+• Empty tables
+• API routes reviewed
+• Routes ready
+• Real-time capabilities found
+• Complete traces found
+• Broken trace handoffs
+• Security gaps
+• Final recommendation
+
+End with a clear statement:
+
+DASHBOARD BUILD MAY BEGIN: YES / NO
+
+If YES:
+
+List exactly which screens may be built immediately.
+
+If NO:
+
+List the exact P0 items that must be completed first.
+
+============================================================
+13. CRITICAL RULE
+
+Do not improve, rewrite or expand AEIM functionality during Phase A.
+
+Phase A is inventory, mapping and proof only.
+
+Any missing functionality must be documented as a gap for a later remediation phase.
+
+Do not begin the dashboard until this inventory is complete and reviewed.
+
+============================================================
+END OF PHASE A

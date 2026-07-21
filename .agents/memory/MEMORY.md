@@ -1,4 +1,5 @@
 - [Paper pick candidate gates](paper-pick-candidate-gates.md) — NO_CANDIDATES root causes: test positions filling cap, d3_strategy_registry missing sources, unusual_calls DISTINCT ON, polygon rvol threshold, PENDING dead-state in try_claim
+- [AIEM Dashboard Phase A Inventory](aiem-dashboard-phase-a.md) — 9 files at project root; 333 routes/580 tables/239 modules; 5 critical missing routes; oe_decision_audit (341 rows) has NO API route; polling sufficient for Phase B
 - [Options scheduler fire freeze](options-scheduler-fire-freeze.md) — freeze on scheduler+paper_recovery until after 09:45 ET 2026-07-22; raw evidence required before any commentary; current state at freeze documented
 - [DPL Phase 3 — Reproducibility Replay](options-dpl-phase3.md) — D17-R1 DONE; SEQ=56: 195P/8F; freeze baseline restored; C44_legacy_entry_documented in _A8_L1_META_EXCL (SEQ=52+53 only); 8 FAILs=known blockers
 - [DPL Phase 2 — Decision-Context Capture](options-dpl-phase2.md) — 5 JSONB cols in oe_decision_audit; trigger extended; assemble_dpl_context() sources all fields; 5 explicit _flag fields; TRADE+NO_TRADE wired; psycopg2 JSONB→dict auto; 56 PASS verifier

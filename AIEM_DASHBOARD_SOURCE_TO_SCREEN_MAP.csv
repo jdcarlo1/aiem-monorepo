@@ -1,0 +1,69 @@
+dashboard_screen,screen_description,primary_api_route,primary_db_table,secondary_db_tables,primary_module,refresh_mode,auth_required,data_freshness,dashboard_ready
+Command Center,Market regime + macro overview + system health,/stock-api/market/overview,regime_history,"polygon_market_daily,macro tables,td_intraday_cache",regime_detector.py + market_regime_overlay.py,POLL_30S,No,Real-time on poll,YES_POLLING
+Command Center,Job scheduler status,/stock-api/admin/scheduler-jobs,(APScheduler in-memory),(none),APScheduler,POLL_30S,ADMIN,Real-time on poll,YES_POLLING
+Command Center,Macro score,/stock-api/admin/macro/latest,macro tables,(none),aiem_macro_engine.py,POLL_60S,ADMIN,Updated 9AM ET,YES_POLLING
+Live Decisions,Paper portfolio open positions,/stock-api/aiem-paper-portfolio,aiem_paper_trades,(aiem_position_sizing_log),main.py:47580,POLL_30S,No,Updated each execution (9:45 ET),YES_POLLING
+Live Decisions,Execution log,/stock-api/aiem-paper-portfolio/execution-log,aiem_paper_execution_log,(none),main.py:47789,POLL_60S,No,Written at execution time,YES_POLLING
+Live Decisions,Options pipeline jobs,/stock-api/admin/pipeline-checkpoint,options_pipeline_jobs,(none),main.py:22609,POLL_30S,ADMIN,Updated by scheduler,YES_POLLING
+Live Decisions,Pipeline audit by trace,/stock-api/admin/aiem-pipeline-audit/<trace_id>,aiem_pipeline_audit_log,(none),aiem_pipeline_audit.py,ON_DEMAND,ADMIN,Historical,YES_ON_DEMAND
+Opportunity Queue,Nano-cap morning picks,/stock-api/nano-morning/picks,aiem_process_predictions,(polygon_rvol_scan),main.py:11340,POLL_60S,No,Updated 9:35 ET,YES_POLLING
+Opportunity Queue,AIEM independent picks,/stock-api/aiem-predictions,aiem_process_predictions,(none),main.py:54711,POLL_60S,No,Updated 9:30 ET,YES_POLLING
+Opportunity Queue,Gap+volume signal,/stock-api/gap-volume-signal,polygon_rvol_scan,(none),main.py:63383,POLL_60S,No,Updated 8:35 ET,YES_POLLING
+Opportunity Queue,Full market movers,/stock-api/full-market-movers,polygon_market_daily,(polygon_rvol_scan),main.py:63371,POLL_60S,No,Updated EOD,YES_POLLING
+Opportunity Queue,Washout ignition signal,/stock-api/washout-ignition-signal,washout_ignition_signal,(polygon_rvol_scan),main.py:64772,POLL_60S,No,Updated intraday,YES_POLLING
+Opportunity Queue,CTA trigger scan,/stock-api/admin/run-cta-triggers,cta_trigger_scan,(none),main.py:65291,ON_DEMAND,ADMIN,Updated daily,YES_ON_DEMAND
+Opportunity Queue,Pullback re-entry,/stock-api/pullback-reentry,aiem_pullback_signals,(none),main.py:64830,POLL_60S,No,Updated intraday,YES_POLLING
+Opportunity Queue,Momentum exhaustion,/stock-api/momentum-exhaustion,aiem_exhaustion_signals,(none),main.py:64936,POLL_60S,No,Updated intraday,YES_POLLING
+Decision Proof,AIEM signed proof,/stock-api/admin/aiem-signed-proof,aiem_verification_log,(none),aiem_security.py,ON_DEMAND,ADMIN,Cryptographic - immutable,YES_ON_DEMAND
+Decision Proof,AIEM verify proof,/stock-api/admin/aiem-verify-proof,aiem_verification_log,(none),aiem_security.py,ON_DEMAND,ADMIN,Cryptographic - immutable,YES_ON_DEMAND
+Decision Proof,Verify link,/stock-api/aiem/verify-link/<job_id>,aiem_verify_link_tokens,(none),main.py:67098,ON_DEMAND,None,Immutable - 7 day TTL,YES_ON_DEMAND
+Decision Proof,Closed-loop trade audit,/stock-api/admin/closed-loop-audit/<trade_id>,aiem_supervisor_loop_audit,(none),main.py:48093,ON_DEMAND,ADMIN,Historical,YES_ON_DEMAND
+Decision Proof,Closed-loop summary,/stock-api/admin/closed-loop-summary,aiem_supervisor_loop_audit,(none),main.py:48115,POLL_60S,ADMIN,Updated per closed trade,YES_POLLING
+Decision Proof,oe_decision_audit (NO ROUTE),MISSING,oe_decision_audit,(oe_gate_events),aiem_options_dpl.py,MISSING,MISSING,Written per pipeline run,NO_MISSING_ROUTE
+Paper Trading,Paper trade portfolio,/stock-api/paper-trades,aiem_paper_trades,(none),main.py:47579,POLL_30S,No,Updated 9:45 ET,YES_POLLING
+Paper Trading,Execution log,/stock-api/aiem-paper-portfolio/execution-log,aiem_paper_execution_log,(none),main.py:47789,POLL_60S,No,Updated at execution,YES_POLLING
+Paper Trading,Paper fill audit,/stock-api/admin/paper-fill-audit,aiem_paper_execution_log,(none),main.py:47829,ON_DEMAND,ADMIN,Historical,YES_ON_DEMAND
+Paper Trading,Job ledger (no route),MISSING,paper_trade_job_ledger,(none),aiem_paper_recovery.py,MISSING,MISSING,Updated per run,NO_MISSING_ROUTE
+Portfolio Risk,Gamma wall,/stock-api/gamma-wall,gamma_wall_cache,(none),main.py:51281,POLL_60S,No,Updated intraday,YES_POLLING
+Portfolio Risk,Gamma pressure,/stock-api/gamma-pressure,gamma_pressure_cache,(none),main.py:54152,POLL_60S,No,Updated intraday,YES_POLLING
+Portfolio Risk,Charm cascade,/stock-api/charm-cascade,charm_cascade_cache,(none),main.py:54450,POLL_60S,No,Updated intraday,YES_POLLING
+Portfolio Risk,Position sizing log (no route),MISSING,aiem_position_sizing_log,(none),aiem_position_sizing.py,MISSING,MISSING,Written per execution,NO_MISSING_ROUTE
+Portfolio Risk,Portfolio overview,/stock-api/portfolio,(in-memory),(none),main.py:45431,POLL_60S,No,In-memory only - resets on restart,NEEDS_EXTENSION
+Specialist Council,Council run history (no route),MISSING,aiem_specialist_council_runs,(none),specialist_council.py,MISSING,MISSING,Written per council run,NO_MISSING_ROUTE
+Specialist Council,Supervisor summary,/stock-api/admin/supervisor-summary,aiem_supervisor_event_log,(none),main.py:47964,POLL_60S,ADMIN,Updated per event,YES_POLLING
+Specialist Council,Supervisor daily report,/stock-api/admin/supervisor-daily-report,aiem_supervisor_event_log,(none),main.py:47977,ON_DEMAND,ADMIN,Daily rollup,YES_ON_DEMAND
+Specialist Council,Bull-bear debates,/stock-api/admin/run-council-now,bull_bear_debates,(aiem_specialist_council_runs),main.py:65213,ON_DEMAND,ADMIN,Written per council trigger,YES_ON_DEMAND
+Indicator Laboratory,Candlestick confluence,/stock-api/candlestick-confluence,candlestick_confluence_signals,(none),main.py:32149,POLL_60S,No,Updated daily,YES_POLLING
+Indicator Laboratory,IV rank,/stock-api/iv-rank,iv_rank_cache,(none),main.py:59427,POLL_60S,No,Updated intraday,YES_POLLING
+Indicator Laboratory,Behavioral pattern matches,/stock-api/behavioral-matches,behavioral_pattern_matches,(none),main.py:58634,POLL_60S,No,Updated daily,YES_POLLING
+Indicator Laboratory,Stat-arb signals,/stock-api/stat-arb/signals,stat_arb_signals,(none),main.py:65830,POLL_60S,No,Updated daily,YES_POLLING
+Indicator Laboratory,Conviction stack,/stock-api/conviction-stack,conviction_stack_watchlist,(none),main.py:54245,POLL_60S,No,Updated daily,YES_POLLING
+Indicator Laboratory,oe_indicator_snapshots (no route),MISSING,oe_indicator_snapshots,(none),aiem_options_phase2.py,MISSING,MISSING,Written per pipeline run,NO_MISSING_ROUTE
+Probability & Calibration,Probability engine daily picks,/stock-api/aiem-probability-engine/daily-picks,aiem_probability_engine_daily_picks,(none),main.py:48317,POLL_60S,No,Updated 9:45 ET and 15:45 ET,YES_POLLING
+Probability & Calibration,Track record,/stock-api/aiem-probability-engine/track-record,aiem_probability_engine_predictions,(none),main.py:48377,POLL_60S,No,Updated per outcome,YES_POLLING
+Probability & Calibration,Live query,/stock-api/aiem-probability-engine/live-query,aiem_probability_engine_live_queries,(none),main.py:48563,ON_DEMAND,No,Real-time per call,YES_ON_DEMAND
+Performance Analytics,Signal outcomes,/stock-api/outcomes,signal_outcomes,(none),main.py:50729,POLL_60S,No,Updated EOD,YES_POLLING
+Performance Analytics,AI trade log,/stock-api/ai-trade-log,aiem_paper_trades,(none),main.py:53092,POLL_60S,No,Updated per close,YES_POLLING
+Performance Analytics,Runner outcomes,/stock-api/runner-outcomes,runner_outcomes,(none),main.py:64085,POLL_60S,No,Updated EOD,YES_POLLING
+Performance Analytics,Discovery outcomes,/stock-api/admin/discovery-outcomes,aiem_signal_discoveries,(signal_outcomes),main.py:48272,ON_DEMAND,ADMIN,Updated per outcome,YES_ON_DEMAND
+Learning Center,Signal discoveries,/stock-api/aiem/discoveries,aiem_signal_discoveries,(none),main.py:63923,POLL_60S,No,Updated by discovery engine,YES_POLLING
+Learning Center,Module 2 status,/stock-api/aiem/module2-status,aiem_module2_evaluations,(none),main.py:65520,POLL_60S,No,Updated per decay run,YES_POLLING
+Learning Center,Module 3 status,/stock-api/aiem/module3-status,aiem_module3_evaluations,(none),main.py:65586,POLL_60S,No,Updated per promotion run,YES_POLLING
+Learning Center,Module 5 status,/stock-api/aiem/module5-status,aiem_module5_runs,(none),main.py:65634,POLL_60S,No,Updated per discovery run,YES_POLLING
+Learning Center,ML model history,/stock-api/admin/model/history,retrain_runs,(none),main.py:58526,ON_DEMAND,ADMIN,Updated each Sunday 8PM,YES_ON_DEMAND
+Learning Center,Learning proposals,/stock-api/admin/learning-proposals,d3_learning_approvals,(none),main.py:65940,POLL_60S,ADMIN,Updated by supervisor,YES_POLLING
+Research & Hypotheses,Research status,/stock-api/aiem-research-status,aiem_research_audit_sessions,(none),main.py:63958,POLL_60S,No,Updated per session,YES_POLLING
+Research & Hypotheses,Discovery cycle report,/stock-api/admin/discovery-cycle/report,aiem_signal_discoveries,(none),main.py:55500,ON_DEMAND,ADMIN,Updated per cycle,YES_ON_DEMAND
+Audit & Verification,Pipeline audit log,/stock-api/admin/aiem-pipeline-audit,aiem_pipeline_audit_log,(none),aiem_pipeline_audit.py,ON_DEMAND,ADMIN,Historical,YES_ON_DEMAND
+Audit & Verification,Signed proof verification,/stock-api/admin/aiem-verify-proof,aiem_verification_log,(none),aiem_security.py,ON_DEMAND,ADMIN,Cryptographic,YES_ON_DEMAND
+Audit & Verification,D3 governance events (no dedicated route),MISSING,d3_governance_decisions,"d3_governance_event_links,d3_governance_requests,d3_governance_acks",aiem_diagram3_governance.py,MISSING,MISSING,Written per governance event,NO_MISSING_ROUTE
+Audit & Verification,oe_gate_events (no route),MISSING,oe_gate_events,(none),aiem_options_phase5.py,MISSING,MISSING,Written per gate fire,NO_MISSING_ROUTE
+AIEM Chat,Chat stream (SSE),/stock-api/aiem/chat/stream,quant_agent_sessions,(none),main.py:66690,SSE,HMAC,Real-time streaming,YES_SSE
+AIEM Chat,Chat history,/stock-api/aiem/chat/history,quant_agent_sessions,(none),main.py:67352,ON_DEMAND,No,Historical,YES_ON_DEMAND
+System Operations,Health check,/stock-api/health,(none),(none),main.py:150,POLL_30S,No,Real-time,YES_POLLING
+System Operations,Job heartbeats,/stock-api/admin/job-heartbeats,paper_trade_watchdog_heartbeat,(none),main.py:58495,POLL_30S,ADMIN,Real-time on poll,YES_POLLING
+System Operations,Scheduler jobs,/stock-api/admin/scheduler-jobs,(APScheduler),(none),main.py:68917,POLL_30S,ADMIN,Real-time on poll,YES_POLLING
+System Operations,Daily pipeline runs (no route),MISSING,daily_pipeline_runs,(none),aiem_options_scheduler.py,MISSING,MISSING,Updated per run,NO_MISSING_ROUTE
+Administration,User preferences,/stock-api/user/prefs,subscriber_preferences,(none),main.py:67649,ON_DEMAND,No,Updated per user,YES_ON_DEMAND
+Administration,User watchlist,/stock-api/user/watchlist,subscriber_watchlist,(none),main.py:67750,ON_DEMAND,No,Updated per user,YES_ON_DEMAND
+Administration,Module 4 approval queue,/stock-api/admin/module4-pending,d3_governance_requests,(none),main.py:65715,POLL_60S,ADMIN,Updated by supervisor,YES_POLLING
