@@ -1,0 +1,763 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL
+760-ITEM CHECKLIST — CONDENSED AUDIT REMEDIATION DIRECTIVE
+STRICT IMPLEMENTATION AND VERIFICATION REQUIRED
+============================================================
+
+PURPOSE
+
+This directive supplements:
+
+AIEM_FINAL_COMPLETION_MASTER_CHECKLIST.md
+
+The original 760 numbered requirements remain controlling and must be
+returned unchanged.
+
+Do not delete, merge, rename, summarize, replace, skip, or renumber any
+original requirement.
+
+Implement and strictly verify every item below in addition to the original
+760 requirements.
+
+No PASS may rely on screenshots alone, narrative proof, mocks, fabricated
+records, hardcoded results, manual database inserts, stale evidence, or
+reused evidence presented as a new run.
+
+============================================================
+1. ACCEPTANCE STATUS AND SEVERITY
+============================================================
+
+Use:
+
+PASS
+PARTIAL
+FAIL
+NOT IMPLEMENTED
+BLOCKED
+
+PASS requires full implementation, genuine runtime proof, successful
+positive and negative tests, and reconciliation between code, API, SQL,
+browser, audit, and security evidence where applicable.
+
+Classify every requirement as:
+
+CRITICAL
+HIGH
+MEDIUM
+LOW
+
+Authentication, authorization, Risk Gate, financial calculations,
+orders, portfolio controls, scheduler, morning scan, database integrity,
+audit chain, provider failover, backups, secrets, and evidence integrity
+must be CRITICAL.
+
+No CRITICAL item may remain unresolved for FINAL PASS.
+
+============================================================
+2. EVIDENCE AND DEPLOYMENT IDENTITY
+============================================================
+
+Every verification run must record:
+
+- verification_run_id
+- test_run_id
+- environment
+- timestamps
+- Git branch and commit
+- deployment ID and timestamp
+- frontend and backend build hashes
+- database schema version
+- configuration version
+- model version
+- evidence-generator version
+
+Prove that the tested deployment matches the recorded commit and build.
+
+Verify:
+
+- Clean checkout and production build
+- Dependency-lock reproducibility
+- Clean database migration
+- Migration rollback
+- Frontend/backend version matching
+- Failed and partial deployment detection
+- Previous-release rollback
+- Health checks after deployment
+
+============================================================
+3. DATABASE, CONCURRENCY, AND IDEMPOTENCY
+============================================================
+
+Verify atomic database behavior under concurrent requests and workers.
+
+Prevent:
+
+- Duplicate candidates
+- Duplicate decisions
+- Duplicate orders
+- Duplicate fills
+- Duplicate scheduler execution
+- Double buying-power reservation
+- Two workers claiming one item
+- Negative quantities
+- Stale portfolio-limit approval
+- Partial records after rollback
+
+Verify:
+
+- Transactions and isolation levels
+- Locking behavior
+- Deadlock handling
+- Rollback behavior
+- Idempotency keys
+- Safe request retries
+- Concurrent identical requests
+- Timeout followed by retry
+- Network interruption during mutation
+- Stale-update rejection
+- Mutation correlation IDs
+- Mutation audit records
+
+============================================================
+4. AUTHENTICATION AND AUTHORIZATION
+============================================================
+
+Verify:
+
+- MFA for privileged roles
+- Secure password hashing where passwords apply
+- Brute-force and credential-stuffing protection
+- Login and privilege-change session rotation
+- Session expiration and revocation
+- Concurrent-session controls
+- Account disablement
+- Dormant-account handling
+- Forced logout after role removal
+- Signing-key and secret rotation
+- Least-privilege service credentials
+- Read-only dashboard database access
+- Service-to-service authentication
+- Emergency-access controls and logging
+
+Produce and test a full authorization matrix for every:
+
+- Page
+- Route
+- Endpoint
+- Export
+- Operational action
+- Paper-trading action
+- Risk action
+- Administrative action
+
+Test every allowed and denied role combination.
+
+Frontend button hiding is never authorization.
+
+============================================================
+5. BACKUP AND DISASTER RECOVERY
+============================================================
+
+Define and verify:
+
+- Recovery Point Objective
+- Recovery Time Objective
+- Backup frequency
+- Backup encryption
+- Backup access restrictions
+- Retention
+- Independent or off-site storage
+- Integrity checking
+- Full restoration
+- Point-in-time restoration
+- Audit-chain restoration
+- Report restoration
+- Workspace restoration
+- Post-restore reconciliation
+- Recovery ownership and runbooks
+
+At least one genuine restoration must pass.
+
+A backup-status display alone is insufficient.
+
+============================================================
+6. TIME, CLOCK, AND MARKET-SESSION INTEGRITY
+============================================================
+
+Verify:
+
+- Canonical backend timezone
+- Eastern Time market-session logic
+- Daylight-saving transitions
+- Market holidays
+- Early closes
+- Overnight trade-date assignment
+- Database/API/scheduler/worker/event clock synchronization
+- Clock-drift measurement
+- Future-timestamp handling
+- Duplicate and out-of-order timestamp handling
+- Consistent reporting-period boundaries
+
+============================================================
+7. DATA LINEAGE AND PROVIDER CONTROL
+============================================================
+
+Every critical value must be traceable through:
+
+Provider
+→ Raw ingestion
+→ Normalization
+→ Calculation
+→ Stored result
+→ API field
+→ Dashboard field
+→ Report/export
+
+Required lineage includes:
+
+- Prices and volume
+- Options chains and Greeks
+- Probabilities and confidence
+- Expected value
+- Execution costs
+- Portfolio risk
+- P&L
+- VaR and CVaR
+- Calibration
+- Performance
+
+Record source IDs, timestamps, transformation versions, calculation
+versions, destination IDs, API fields, and UI fields.
+
+Verify provider priority, freshness, conflict tolerance, failover,
+recovery, deduplication, audit logging, and trade blocking when provider
+disagreement exceeds tolerance.
+
+============================================================
+8. COMPLETE DECISION LIFECYCLE AND MEMORY
+============================================================
+
+The verified lifecycle must include:
+
+Scheduler
+→ Ingestion
+→ Data Guards
+→ Regime
+→ Premarket
+→ Technicals
+→ Patterns
+→ Indicators
+→ Options
+→ Probability
+→ Synthesis
+→ Specialist Council
+→ Portfolio Optimization
+→ Risk Gate
+→ Decision
+→ Order
+→ Fill/Rejection
+→ Position
+→ Outcome
+→ Attribution
+→ Learning
+→ Memory
+
+Add and verify:
+
+- memory_event_id
+- source learning_event_id
+- memory version
+- status
+- timestamp
+- content hash
+- write result
+- rejection reason
+- rollback result
+- audit-log ID
+
+Memory statuses:
+
+CREATED
+UPDATED
+SKIPPED
+REJECTED
+ROLLED_BACK
+
+Only verified outcomes may update memory.
+
+Memory must be versioned, reversible, immutable historically, and
+reconciled with learning events.
+
+============================================================
+9. MODEL AND CALIBRATION GOVERNANCE
+============================================================
+
+For every model record:
+
+- Owner and purpose
+- Training, validation, and out-of-sample periods
+- Feature inventory and versions
+- Training-code hash
+- Model-artifact hash
+- Approval and deployment status
+- Champion/challenger status
+- Rollback version
+- Calibration method and window
+- Minimum sample requirements
+- Regime-specific requirements
+- Confidence intervals
+- Class balance
+- Leakage testing
+- Look-ahead-bias testing
+- Survivorship-bias testing
+- Feature and concept drift
+- Retirement process
+
+Verify calibration by operating mode, horizon, regime, and strategy where
+sample size permits.
+
+Also verify:
+
+- Brier decomposition
+- Reliability, resolution, and uncertainty
+- Calibration confidence intervals
+- Documented binning method
+- Sparse and empty-bin handling
+- Multiple-comparison control
+- Probability clipping
+- No future-data recalibration
+- Server-side confidence reduction
+- Documented deterioration thresholds
+
+============================================================
+10. FINANCIAL CORRECTNESS AND EDGE CASES
+============================================================
+
+Mathematically and operationally verify:
+
+- Stock splits and reverse splits
+- Ordinary and special dividends
+- Adjusted option contracts
+- Adjusted deliverables and multipliers
+- Early exercise and assignment
+- Expiration exercise and abandonment
+- Pin risk
+- Cash and physical settlement
+- Multiple partial fills
+- Mixed fill prices
+- Cancellation after partial fill
+- Position adjustments and rolls
+- Legging risk
+- Commission allocation
+- Debit/credit signs
+- Rounding and precision
+- Zero and invalid prices
+- Missing, stale, crossed, or locked quotes
+- Invalid strikes and expirations
+- Duplicate or conflicting legs
+- Maximum loss and reward
+- Unbounded-risk detection
+
+Record independent formula, application result, difference, tolerance,
+and PASS/FAIL.
+
+============================================================
+11. PORTFOLIO SNAPSHOT AND RISK CONSISTENCY
+============================================================
+
+Every decision must reference a versioned portfolio snapshot containing:
+
+- Cash
+- Buying power
+- Reserved buying power
+- Positions
+- Pending orders
+- Realized and unrealized P&L
+- Greeks
+- Concentration
+- Correlation
+- Risk budget
+- Applicable limits
+
+Verify:
+
+- Decision and Risk Gate snapshot consistency
+- Snapshot freshness
+- Reevaluation after portfolio changes
+- Atomic buying-power use
+- Server-side limit enforcement
+- Snapshot reconciliation with source tables
+
+============================================================
+12. STRESS TESTING
+============================================================
+
+Test:
+
+- Underlying ±1%, ±2%, and ±5%
+- IV expansion and contraction
+- Skew steepening and flattening
+- Term-structure inversion
+- Sector shock
+- Correlation spike
+- Liquidity deterioration
+- Bid/ask widening
+- Overnight gap
+- Provider outage
+- Combined price and volatility shocks
+
+Label all scenario results:
+
+MODELED ESTIMATE
+
+Display method, assumptions, timestamp, source data, version, and
+limitations.
+
+============================================================
+13. EXECUTION QUALITY
+============================================================
+
+Verify:
+
+- Fill probability
+- Mid-price probability
+- Slippage
+- Spread cost
+- Market impact
+- Partial-fill probability
+- Exit liquidity
+- Rolling liquidity
+- Commission schedule
+- Order latency
+- Quote age at decision and submission
+- Expected versus actual fill
+- Expected versus realized execution cost
+- Rejection reasons
+- Execution-degradation alerts
+- Negative-net-edge blocking
+
+Reconcile:
+
+Expected Net Edge
+=
+Expected Trade Edge
+− Slippage
+− Commission
+− Spread Cost
+− Market Impact
+
+============================================================
+14. AUDIT-CHAIN INTEGRITY
+============================================================
+
+Verify:
+
+- Canonical serialization
+- Hash algorithm version
+- Genesis record
+- Previous-hash validation
+- Record ordering
+- Missing and duplicate records
+- Unauthorized modification detection
+- Independent hash recomputation
+- Chain continuity across deployments
+- Chain continuity after restoration
+- Signature-key rotation where applicable
+- Trusted timestamps where supported
+- Dashboard inability to edit audit records
+- Normal-administrator inability to delete audit records
+
+Any audit-chain failure blocks FINAL PASS.
+
+============================================================
+15. REPORT AND EXPORT INTEGRITY
+============================================================
+
+Every report and export must include:
+
+- report_id
+- schema version
+- generation-code hash
+- data-query hash
+- database snapshot reference
+- content/export hash
+- requesting user and role
+- timestamp
+- operating mode
+- validity period where applicable
+
+Verify:
+
+- PDF/CSV data consistency
+- API/SQL/dashboard/export reconciliation
+- Reproducibility from the same snapshot
+- Tamper detection
+- Role-based access
+- Sensitive-column filtering
+- Clear PAPER, SHADOW, BACKTEST, or LIVE labeling
+
+============================================================
+16. CAPACITY, RELIABILITY, AND SERVICE LEVELS
+============================================================
+
+Define limits for:
+
+- Concurrent users
+- Real-time connections
+- Events per second
+- API requests per second
+- Queue depth
+- Database connections
+- Report and export size
+- Workspace size
+- Trace length
+
+Run load tests for:
+
+- APIs
+- Database
+- Event streams
+- Concurrent users
+- Large opportunity queues
+- Large traces
+- Report generation
+- Scheduler concurrency
+
+Record:
+
+- p50, p95, and p99 latency
+- Throughput
+- Error rate
+- CPU and memory
+- Database connections
+- Queue depth
+
+Define and monitor objectives for:
+
+- API and dashboard availability
+- Event delay
+- Morning-scan completion
+- Scheduler success
+- Provider freshness
+- Decision latency
+- Audit-chain completion
+- Paper-order processing
+- Alert delivery
+- Backup and restore completion
+
+============================================================
+17. INCIDENT RESPONSE
+============================================================
+
+Produce and test runbooks for:
+
+- Database outage
+- Provider outage
+- Scheduler failure
+- Missing morning scan
+- Duplicate run
+- Event-stream outage
+- Risk-service outage
+- Audit-service outage
+- Evidence-chain failure
+- Authentication compromise
+- Secret exposure
+- Deployment failure
+- Backup failure
+- Corrupt data
+- Incorrect financial calculation
+
+Record incident ID, severity, detection, acknowledgement, containment,
+recovery, affected services, decisions, trades, root cause, remediation,
+and evidence.
+
+============================================================
+18. DESIGN, NAVIGATION, AND UX ALIGNMENT
+============================================================
+
+Verify against the Master Design Directive:
+
+- Select one official AIEM/AEIM spelling
+- Use it consistently across UI, repository, APIs, database metadata,
+  reports, and evidence
+- Global system bar
+- Command palette
+- Bottom event ticker
+- Event filtering
+- Pause and replay
+- Explicit Audit & Verification page
+- Explicit Administration page
+- Research/Hypothesis functionality
+- Learning and Memory functionality
+- Documented equivalent page names
+
+Verify the design system:
+
+- Institutional dark-terminal interface
+- Consistent typography and spacing
+- Monospaced financial values
+- Consistent status colors
+- Status never communicated by color alone
+- Original branding
+- No copied Bloomberg branding
+- No retail-style widgets
+- No excessive gradients
+- No AI robot imagery
+- Desktop, ultrawide, tablet, and mobile layouts
+- Visible critical values
+- Usable dense tables
+- Separate loading, empty, stale, error, blocked, and unauthorized states
+
+============================================================
+19. SPECIALIST COUNCIL
+============================================================
+
+For every specialist display and verify:
+
+- ID, name, and version
+- Initial and final vote
+- Confidence
+- Evidence
+- Weight
+- Historical reliability
+- Regime reliability
+- Objections
+- Debate changes
+- Final-decision contribution
+
+Also display:
+
+- Agreement and disagreement scores
+- Dominant supporting and opposing evidence
+- Abstentions
+- Missing specialists
+- Failed calls
+- Timeout behavior
+
+============================================================
+20. RESEARCH AND HYPOTHESIS GOVERNANCE
+============================================================
+
+Verify:
+
+PROPOSED
+→ LOCKED
+→ TESTING
+→ ADVERSARIAL REVIEW
+→ VALIDATED or REJECTED
+→ PROMOTED, ARCHIVED, or RETIRED
+
+Record:
+
+- hypothesis_id
+- statement and owner
+- creation time
+- statistical family
+- preregistered test
+- test and holdout periods
+- multiple-testing adjustment
+- adversarial-review result
+- promotion criteria
+- rejection/archive reason
+- code hash
+- model version
+- audit trail
+
+A hypothesis cannot be rewritten after results without a new version.
+
+============================================================
+21. BROWSER COMPATIBILITY
+============================================================
+
+Test current:
+
+- Chrome
+- Safari
+- Edge
+- iOS Safari
+- Mobile monitoring layout
+
+Verify authentication, real-time streams, tables, charts, exports,
+keyboard navigation, focus states, session expiration, reconnection, and
+responsive layout.
+
+============================================================
+22. REQUIRED SUPPLEMENTAL EVIDENCE
+============================================================
+
+Produce:
+
+- Supplemental requirement matrix
+- Remediation report
+- File and migration inventories
+- API-change inventory
+- Authorization matrix
+- Security-control inventory
+- Financial edge-case report
+- Concurrency/idempotency report
+- Backup and restoration evidence
+- Disaster-recovery report
+- Load-test report
+- Model-governance report
+- Data-lineage report
+- Incident-runbook inventory
+- Design-alignment report
+- Browser-compatibility report
+- Raw commands and outputs
+- SQL queries and raw results
+- API requests and raw responses
+- Trace IDs
+- Hash manifest
+- Git commit
+- Deployment ID
+- Regression results
+- Known limitations
+
+For every supplemental requirement return:
+
+- Status
+- Severity
+- Files and functions changed
+- Endpoint and database table
+- Migration
+- SQL and raw result
+- Test command and raw result
+- Browser/runtime/security evidence
+- Negative-control and concurrency evidence
+- Trace ID
+- Evidence hash and SHA-256
+- Git commit and deployment ID
+- Regression result
+- Limitation
+- Remediation owner
+
+============================================================
+23. FINAL ACCEPTANCE
+============================================================
+
+FINAL PASS is allowed only when:
+
+1. The original 760 requirements are returned unchanged.
+2. The original returned count equals exactly 760.
+3. Every mandatory original requirement passes with genuine evidence.
+4. Every supplemental requirement above is returned.
+5. Every CRITICAL supplemental requirement passes.
+6. Financial calculations independently reconcile.
+7. Risk controls are proven server-side.
+8. Concurrency and idempotency tests pass.
+9. Authentication and authorization tests pass.
+10. Audit-chain integrity passes.
+11. A genuine backup restoration passes.
+12. A genuine scheduler-to-outcome-to-learning-to-memory trace passes.
+13. API, SQL, dashboard, reports, and exports reconcile.
+14. No mocked, fabricated, manually inserted, stale, or reused evidence
+    is accepted.
+15. All regression tests pass.
+
+Until every condition passes, return:
+
+NOT COMPLETE — FINAL PASS PROHIBITED
+
+============================================================
+END OF CONDENSED AUDIT REMEDIATION DIRECTIVE
+============================================================
