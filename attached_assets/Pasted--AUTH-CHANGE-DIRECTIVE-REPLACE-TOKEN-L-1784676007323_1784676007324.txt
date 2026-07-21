@@ -1,0 +1,45 @@
+============================================================
+AUTH CHANGE DIRECTIVE — REPLACE TOKEN LOGIN WITH USERNAME/PASSWORD
+(supplements Verification Phase 3 / Build Phase 1)
+============================================================
+
+CURRENT STATE (confirmed via raw code + grep)
+login.tsx accepts any non-empty string, stores it in
+sessionStorage["aiem_admin_token"], and navigates to /command with
+no request made. Real validation only happens later, per-request,
+when use-api.ts sends the stored string as X-Admin-Token and the
+backend HMAC-compares it against the ADMIN_TOKEN secret. This means
+the login screen itself checks nothing.
+
+REQUIRED CHANGE
+Replace the token-paste login screen with a real username + password
+login:
+- Login form: username field + password field, standard submit.
+- Backend: real user table (or equivalent) with hashed passwords
+  (bcrypt/argon2 — never plaintext, never a reversible hash).
+- On submit: POST credentials to a new /admin/login endpoint (or
+  equivalent), backend verifies hash match, issues a session
+  token/JWT tied to that user's role.
+- Frontend stores the issued session token, not a manually-typed
+  string — user never sees or pastes a raw secret.
+- Wrong username/password: real rejection with a real error message,
+  not silent pass-through.
+- Every role from AUTH-002–008 (Viewer, Trader, Analyst, Risk
+  Manager, Auditor, Administrator, Institutional Due-Diligence
+  Viewer) needs at least one real account to log in as, so each role
+  can be evidence-checked in Phase 3.
+- Session expiration, logout invalidation, and the existing 401/403
+  redirect-to-/ behavior all still apply — just riding on a real
+  session now instead of a pasted string.
+
+VERIFICATION REQUIRED BEFORE THIS COUNTS DONE
+- Raw grep confirming login.tsx no longer stores a manually-entered
+  string as the auth credential.
+- Raw grep/code showing password hashing method used.
+- Live test: correct credentials succeed, incorrect credentials
+  rejected with real error — paste both raw outcomes.
+- Confirm no plaintext password appears in logs, git history, or
+  any committed file.
+
+This does not change or reopen DATA-017 / ARCH-029 — those close
+independently per the prior directive.
