@@ -810,3 +810,9 @@ id = "CJHRthl4lTXvW9cRctcog"
 uri = "file://aiem_phase_a_package.zip"
 type = "unspecified"
 title = "AIEM Dashboard Phase A — Complete Handoff Package"
+
+[[outputs]]
+id = "YRfFaz6jwuHpo25t1K_9C"
+uri = "file://AIEM_DASHBOARD_PHASE_B_HANDOFF.md"
+type = "text"
+title = "AIEM Institutional Terminal — Phase B Handoff"
