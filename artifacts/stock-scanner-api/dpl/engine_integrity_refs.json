@@ -25,8 +25,8 @@
     "version": "2"
   },
   "canonicalization_version": "2",
-  "commit_sha": "ad0a6eeb1f83988978b6c8dc4abdc3c7122b2209",
-  "commit_sha_note": "Set atomically by pre_seal_update_refs.sh at seal time (live git rev-parse HEAD). Previous value: 1f6edef2a6b128044d4372730bb0688549ed7a5d.",
+  "commit_sha": "6173479ef8d55d7a74bbfe21f9f435323c06e4c9",
+  "commit_sha_note": "Set atomically by pre_seal_update_refs.sh at seal time (live git rev-parse HEAD). Previous value: 6173479ef8d55d7a74bbfe21f9f435323c06e4c9.",
   "config_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "decision_path_combined_hash": "0b71f84fe952f0b6f7cb0b021172bc811a2039bd261c2f3a2120c178d27a8edf",
   "decision_path_module_hashes": {
@@ -68,7 +68,7 @@
   "integrity_schema_version": "2",
   "python_version": "3.11.14",
   "refs_file_hash_note": "sha256(this file excluding this field) = verified by C28 in verify_dpl_phase3.py",
-  "refs_updated_at": "2026-07-21T03:52:58Z",
+  "refs_updated_at": "2026-07-21T04:06:45Z",
   "req6_weights_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "schema_version": "2",
   "scoring_fn_ast_hash": "68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42",
@@ -76,6 +76,8 @@
   "scoring_fn_combined_hash_note": "sha256(getsource(compute_req6_score) + '\\x00' + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)) — same computation as replay_decision combined_hash check. Used by C52_replay_returns_structure fixture patch.",
   "scoring_fn_module": "aiem_options_pipeline",
   "scoring_fn_name": "compute_req6_score",
+  "tools_verify_chain_sh_note": "tools/verify_chain.sh is the Standing Protocol canonical chain verifier (94L). Stays active. Archived: root verify_chain.sh (469edcd4) and .local/verify_chain.sh (64f2cffd) to _archive/verify_chain/ per Directive 18 sign-off 2026-07-21.",
+  "tools_verify_chain_sh_sha256": "972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75",
   "weights_snapshot": {
     "D10_technical_confirmation": 0.08,
     "D11_options_flow_confirmation": 0.07,

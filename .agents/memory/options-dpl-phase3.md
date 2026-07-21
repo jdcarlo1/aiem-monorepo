@@ -81,12 +81,31 @@ Consolidation confirmed wc -l counts 308/232/27.
 Cleared via `C44_legacy_entry_documented` added to `_A8_L1_META_EXCL` + registry entry
 in `verify_dpl_phase3.py`. Bounded: SEQ=52 and SEQ=53 named explicitly.
 
+## Directive 18 — verify_chain.sh archival + refs.json registration (DONE 2026-07-21)
+
+Archival committed at 6173479e (previous session). Confirmed byte-for-byte:
+- `_archive/verify_chain/root_verify_chain.sh` sha256=469edcd4... (230L)
+- `_archive/verify_chain/local_verify_chain.sh` sha256=64f2cffd... (68L)
+- Both originals deleted; `tools/verify_chain.sh` (94L) stays ACTIVE
+
+`engine_integrity_refs.json` — added two fields:
+- `tools_verify_chain_sh_sha256`: 972ff44a02... (verified against live file)
+- `tools_verify_chain_sh_note`: provenance note on archive disposition
+- sha256 BEFORE: 04d26b3f → AFTER (post pre_seal): 383026fd
+
+## verified_run.sh correct invocation pattern
+
+`CMD="$1"` (single arg). Always pass as ONE quoted string with CWD baked in:
+```
+bash tools/verified_run.sh "cd artifacts/stock-scanner-api && python3 dpl/verify_dpl_phase3.py"
+```
+SEQ=57 was a mis-invocation (`bash tools/verified_run.sh python3 artifacts/...` → CMD="python3", empty stdout, exit_code=0). SEQ=58 is the Directive 18 confirmation run: 195P/8F freeze baseline maintained, PSV 9/0.
+
 ## Next unblock conditions
 
 1. **Tue 2026-07-21 09:45 ET:** options-pipeline-scheduler fires → C52B_scheduler_origin_decision_exists unblocks
 2. **First TRADE decision day:** C52B_live_trade_decision_exists + C52C + C52C_historical unblock
 3. **External reviewer:** C48 + C28_approved_by unblock
-4. **A8_REMOVAL_VIOLATION:** disposition decision needed (exclusion record vs permanent expected FAIL)
 
 ## Chain entry_hash payload schema
 
