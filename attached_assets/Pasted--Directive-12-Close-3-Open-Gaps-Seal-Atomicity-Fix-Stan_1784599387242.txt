@@ -1,0 +1,41 @@
+# Directive 12 — Close 3 Open Gaps (Seal Atomicity Fix)
+
+Standing checklist applies to every item below: raw command output only (no narrative), sha256 before/after for anything changed, raw grep -n/sed -n for any code-location claim, data immutability rule (no delete/archive without pasting approval reference first), git diff --stat or "no changes."
+
+## 1. Live race-case negative control (real gap, not yet closed)
+`git commit` is gated here — that's why NC_STEP1-3 only tested stale-refs, not a genuine mid-run HEAD advance. Fix: don't use `git commit`. Use plumbing that bypasses the gate:
+
+```
+NEW_TREE=$(git commit-tree $(git write-tree) -p HEAD -m "race-test")
+```
+Then, in a second shell, pause execution between pre_seal finishing and CMD starting (insert a temporary `sleep 5` in verified_run.sh right before line 64's `eval`, or use a debug flag), and during that window run:
+```
+git update-ref refs/heads/$(git symbolic-ref --short HEAD) $NEW_TREE
+```
+This moves HEAD without `git commit`. Then let CMD run. Paste:
+- refs.json commit_sha immediately after pre_seal (should be OLD head)
+- live `git rev-parse HEAD` at CMD time (should be $NEW_TREE)
+- C28 verifier result (expect FAIL — mismatch)
+Remove the temporary sleep after, paste diff confirming it's removed.
+
+## 2. Canonical path consolidation — status unconfirmed
+Directive sent 2026-07-20 approved archiving 3 of 4 verified_run.sh copies (root=31c74ee8, tools/=ebb6a2dd, artifacts/stock-scanner-api/tools/=22e19289, .local/=aab1e779), keeping one. Paste:
+```
+ls -la tools/verified_run.sh artifacts/stock-scanner-api/tools/verified_run.sh .local/verified_run.sh 2>&1
+find / -name verified_run.sh 2>/dev/null
+sha256sum <surviving path>/verified_run.sh
+```
+If archival wasn't done yet: do it now under the 2026-07-20 approval (do not delete — move to an `archived/` dir), then paste before/after `ls` and the new single sha256 as canonical. State explicitly which path is now the only one referenced by any script.
+
+## 3. DPL chain write gap — root cause, not workaround
+Chain stuck at SEQ=51 after wrapped session run despite direct runs working. Diagnose, don't just bypass:
+```
+grep -n "verified_run_chain.jsonl" dpl/verify_dpl_phase3.py
+```
+Then run the wrapper with tracing on to see what the Python subprocess actually does when invoked via `eval "$CMD" 2>&1`:
+```
+bash -x tools/verified_run.sh "python3 dpl/verify_dpl_phase3.py" 2>&1 | tail -100
+```
+Check specifically: (a) working directory when Python runs under `eval` vs direct invocation — `os.getcwd()` printed inside the append function; (b) whether the append is wrapped in try/except that swallows an exception silently — paste that code block raw; (c) exit code of the eval'd command vs the direct run. Paste whichever of these three explains it, plus the fix, plus a follow-up direct-vs-wrapped run showing SEQ actually incrementing under the wrapper.
+
+Report back per lean format: raw output per item, no summary prose, state plainly if any item can't be closed today.

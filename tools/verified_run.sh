@@ -93,6 +93,73 @@ RAW_DIR="${LOG_FILE%.log}_raw"
 mkdir -p "$RAW_DIR"
 printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
 
+# DPL verified_run_chain.jsonl write.
+# The original artifacts/stock-scanner-api/tools/verified_run.sh that maintained
+# this chain no longer exists.  This block restores the write path.
+# C33 canonical format: sha256 of all entry fields except
+# {entry_hash, type, pre_chain_anchor_note, archive_sha256}.
+_DPL_SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_DPL_CHAIN_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/verified_run_chain.jsonl"
+_DPL_LRR_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/last_run_results.json"
+_DPL_VER_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/verify_dpl_phase3.py"
+_DPL_REFS_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/engine_integrity_refs.json"
+if [ -f "${_DPL_CHAIN_W}" ]; then
+python3 -c "
+import json, os, hashlib, datetime, subprocess
+
+chain_path    = '${_DPL_CHAIN_W}'
+lrr_path      = '${_DPL_LRR_W}'
+ver_path      = '${_DPL_VER_W}'
+refs_path     = '${_DPL_REFS_W}'
+cmd           = '''${CMD}'''
+exit_code     = ${EXIT_CODE}
+ts            = '${TIMESTAMP}'
+output_sha256 = '${OUTPUT_SHA256}'
+
+with open(chain_path) as f:
+    entries = [json.loads(l) for l in f if l.strip()]
+next_seq  = max(e['seq'] for e in entries) + 1
+prev_hash = entries[-1]['entry_hash']
+
+git_root = os.path.dirname(os.path.dirname(chain_path))
+commit = subprocess.run(
+    ['git', '--no-optional-locks', 'rev-parse', 'HEAD'],
+    capture_output=True, text=True, cwd=git_root).stdout.strip()
+tree_out = subprocess.run(
+    ['git', '--no-optional-locks', 'status', '--porcelain'],
+    capture_output=True, text=True, cwd=git_root).stdout.strip()
+tree = 'DIRTY' if tree_out else 'CLEAN'
+
+def sha256f(p):
+    try:    return hashlib.sha256(open(p, 'rb').read()).hexdigest()
+    except: return 'MISSING'
+
+ts_end = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+entry = {
+    'cmd':                     cmd,
+    'commit':                  commit,
+    'exit_code':               exit_code,
+    'last_run_results_sha256': sha256f(lrr_path),
+    'log_sha256':              output_sha256,
+    'prev_hash':               prev_hash,
+    'req6_weights_hash':       sha256f(refs_path),
+    'scoring_fn_ast_hash':     sha256f(ver_path),
+    'seq':                     next_seq,
+    'tree':                    tree,
+    'ts':                      ts,
+    'ts_end':                  ts_end,
+}
+exclude = {'entry_hash', 'type', 'pre_chain_anchor_note', 'archive_sha256'}
+payload = {k: v for k, v in entry.items() if k not in exclude}
+entry['entry_hash'] = hashlib.sha256(
+    json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
+).hexdigest()
+with open(chain_path, 'a') as f:
+    f.write(json.dumps(entry) + '\n')
+print('[dpl_chain] SEQ=' + str(next_seq) + ' entry_hash=' + entry['entry_hash'][:16] + '...')
+" 2>&1 || echo "[dpl_chain] ERROR: chain write failed"
+fi
+
 echo "--- verified_run: entry #$SEQ logged ---"
 echo "command:      $CMD"
 echo "exit_code:    $EXIT_CODE"
