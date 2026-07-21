@@ -69324,6 +69324,45 @@ def admin_evidence_chain_status():
         return jsonify({"error": str(_e_ec)}), 503
 
 
+@app.route("/stock-api/admin/macro/history", methods=["GET"])
+def admin_macro_history():
+    """Return aiem_macro_daily history for AIEM Institutional Terminal regime chart."""
+    import hmac as _hmac_mh
+    import psycopg2 as _pg_mh, os as _os_mh
+
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or not _hmac_mh.compare_digest(tok, _os_mh.environ.get("ADMIN_TOKEN", "")):
+        return jsonify({"error": "unauthorized"}), 403
+
+    try:
+        days = min(int(request.args.get("days", 60)), 365)
+    except ValueError:
+        return jsonify({"error": "invalid days"}), 400
+
+    try:
+        with _pg_mh.connect(os.environ["DATABASE_URL"]) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT snapshot_date::text, macro_score, regime, position_size_modifier
+                    FROM aiem_macro_daily
+                    WHERE snapshot_date >= CURRENT_DATE - (%s * INTERVAL '1 day')
+                    ORDER BY snapshot_date ASC
+                """, (days,))
+                rows = []
+                for r in cur.fetchall():
+                    rows.append({
+                        "date": r[0],
+                        "score": float(r[1]) if r[1] is not None else None,
+                        "regime": r[2],
+                        "position_size_modifier": float(r[3]) if r[3] is not None else None,
+                    })
+                return jsonify({"rows": rows, "count": len(rows)})
+    except Exception as _e_mh:
+        if "does not exist" in str(_e_mh):
+            return jsonify({"rows": [], "count": 0}), 200
+        return jsonify({"error": "database unavailable", "detail": str(_e_mh)}), 503
+
+
 @app.route("/stock-api/unusual-puts", methods=["GET"])
 def unusual_puts():
     """

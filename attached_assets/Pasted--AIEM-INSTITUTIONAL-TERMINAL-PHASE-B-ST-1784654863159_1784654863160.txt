@@ -1,0 +1,178 @@
+===========================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE B
+STRICT END-TO-END VERIFICATION (FINAL)
+===========================================================
+
+Do NOT modify functionality unless a defect is discovered.
+Do NOT use mocks, fabricated evidence, screenshots alone, or manual database edits.
+Verification must be performed against the live Replit deployment.
+
+PASS ONLY IF ALL ITEMS BELOW ARE VERIFIED.
+
+-----------------------------------------------------------
+1. FRONTEND
+-----------------------------------------------------------
+
+✓ All 14 dashboard pages load successfully.
+✓ No React, Vite, TypeScript, JSX or console errors.
+✓ No broken routes, blank pages, missing components or rendering failures.
+✓ Navigation works correctly.
+✓ Loading, empty and error states verified.
+✓ Refreshes preserve application state correctly.
+
+-----------------------------------------------------------
+2. AUTHENTICATION
+-----------------------------------------------------------
+
+✓ ADMIN_TOKEN required.
+✓ Unauthorized users blocked.
+✓ Session storage works correctly.
+✓ Automatic logout on invalid/expired token.
+✓ Admin endpoints cannot be bypassed.
+
+-----------------------------------------------------------
+3. API VERIFICATION
+-----------------------------------------------------------
+
+Verify every dashboard endpoint:
+
+• Returns live data
+• Correct HTTP status codes
+• Correct schema
+• Handles empty database
+• Handles API failures
+• Handles malformed requests
+• No duplicate business logic
+• Polling functions correctly
+• No stale data unless properly flagged
+
+-----------------------------------------------------------
+4. DATABASE VERIFICATION
+-----------------------------------------------------------
+
+Verify every page displays actual PostgreSQL data.
+
+Cross-check UI against database for:
+
+• Decision Audit
+• Gate Events
+• Council Runs
+• Position Sizing
+• Evidence Chain
+• Paper Portfolio
+• Scheduler
+• Learning
+• Risk
+• Signals
+• Market Regime
+
+No fabricated, cached or placeholder values.
+
+-----------------------------------------------------------
+5. DASHBOARD VALIDATION
+-----------------------------------------------------------
+
+Verify every widget displays correct values.
+
+Decision Timeline
+Evidence Chain
+Specialist Council
+Scheduler
+Pipeline Status
+Risk
+Learning
+Paper Trading
+Options Pipeline
+Alerts
+Macro Regime
+Signal Discoveries
+
+No incorrect calculations.
+No missing fields.
+No UI inconsistencies.
+
+-----------------------------------------------------------
+6. SECURITY
+-----------------------------------------------------------
+
+Verify:
+
+• Admin routes protected
+• Token never exposed
+• No secret leakage
+• No XSS
+• No unauthorized endpoint access
+• No sensitive data exposed
+
+-----------------------------------------------------------
+7. PERFORMANCE
+-----------------------------------------------------------
+
+Verify:
+
+• Polling intervals operate correctly
+• No memory leaks
+• No duplicate API requests
+• No unnecessary rerenders
+• No browser performance degradation
+• Dashboard remains stable after hours of continuous runtime
+
+-----------------------------------------------------------
+8. END-TO-END
+-----------------------------------------------------------
+
+Run a complete live AIEM cycle.
+
+Verify data flows:
+
+Polygon →
+AIEM →
+Analysis →
+Decision →
+Risk →
+Specialist Council →
+Evidence Chain →
+Database →
+Dashboard
+
+Every dashboard value must match backend output exactly.
+
+-----------------------------------------------------------
+9. FAILURE TESTING
+-----------------------------------------------------------
+
+Intentionally test:
+
+• Missing database records
+• Invalid API responses
+• Network interruption
+• Backend restart
+• Authentication failure
+• Empty datasets
+• Scheduler interruption
+
+Dashboard must fail gracefully without crashing.
+
+-----------------------------------------------------------
+10. REQUIRED EVIDENCE
+-----------------------------------------------------------
+
+Provide objective proof only:
+
+✓ Live endpoint tests
+✓ SQL verification
+✓ Browser console = zero errors
+✓ Network inspection
+✓ Runtime logs
+✓ Database cross-checks
+✓ Authentication tests
+✓ Performance results
+✓ Failure-test results
+✓ Screenshots
+✓ Final PASS/FAIL for every section
+
+No assumptions.
+No estimated results.
+No narrative approval.
+
+The dashboard passes ONLY if every component, endpoint, database value, authentication flow, security control, polling cycle, and end-to-end AIEM data flow is verified against the live production system with objective evidence.

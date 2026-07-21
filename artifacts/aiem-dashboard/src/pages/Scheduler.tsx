@@ -80,7 +80,7 @@ export default function Scheduler() {
                   <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
                 ) : jobs.length ? (
                   jobs.map((job: any, i: number) => {
-                    const isSoon = job.next_run_time && new Date(job.next_run_time).getTime() - Date.now() < 3600000;
+                    const isSoon = job.next_run && new Date(job.next_run).getTime() - Date.now() < 3600000;
                     return (
                       <tr key={i} className="border-b border-border/50 hover:bg-white/5">
                         <td className="p-3 text-muted-foreground">{job.id}</td>
@@ -88,7 +88,7 @@ export default function Scheduler() {
                         <td className="p-3 text-secondary">{job.trigger}</td>
                         <td className={`p-3 font-bold flex items-center gap-2 ${isSoon ? 'text-primary animate-pulse' : 'text-success'}`}>
                           <Clock size={12} />
-                          {job.next_run_time ? new Date(job.next_run_time).toLocaleString() : 'N/A'}
+                          {job.next_run ? new Date(job.next_run).toLocaleString() : 'N/A'}
                         </td>
                         <td className="p-3 text-right">
                           <button className="px-2 py-1 bg-primary text-black text-xs hover:bg-primary/90 transition-colors inline-flex items-center gap-1">

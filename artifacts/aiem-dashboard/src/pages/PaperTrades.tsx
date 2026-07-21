@@ -9,7 +9,7 @@ export default function PaperTrades() {
 
   const calculateTotalPnl = () => {
     if (!openTrades?.trades) return 0;
-    return openTrades.trades.reduce((acc: number, t: any) => acc + (t.paper_pnl_usd || 0), 0);
+    return openTrades.trades.reduce((acc: number, t: any) => acc + (t.pnl || 0), 0);
   };
 
   const totalPnl = calculateTotalPnl();
@@ -58,14 +58,14 @@ export default function PaperTrades() {
                   openTrades.trades.map((t: any, i: number) => (
                     <tr key={i} className="border-b border-border/50 hover:bg-white/5">
                       <td className="p-3 font-bold text-white">{t.ticker}</td>
-                      <td className={`p-3 font-bold ${t.direction === 'CALL' || t.direction === 'LONG' ? 'text-success' : 'text-destructive'}`}>{t.direction}</td>
+                      <td className={`p-3 font-bold ${t.trade_type?.includes('CALL') || t.trade_type === 'STOCK' ? 'text-success' : 'text-destructive'}`}>{t.trade_type}</td>
                       <td className="p-3">{t.entry_price?.toFixed(2)}</td>
                       <td className="p-3">{t.quantity}</td>
-                      <td className={`p-3 ${t.paper_pnl_pct >= 0 ? 'text-success' : 'text-destructive'}`}>
-                        {t.paper_pnl_pct >= 0 ? '+' : ''}{(t.paper_pnl_pct * 100).toFixed(2)}%
+                      <td className={`p-3 ${(t.pnl_pct ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
+                        {(t.pnl_pct ?? 0) >= 0 ? '+' : ''}{((t.pnl_pct ?? 0)).toFixed(2)}%
                       </td>
-                      <td className={`p-3 ${t.paper_pnl_usd >= 0 ? 'text-success' : 'text-destructive'}`}>
-                        {t.paper_pnl_usd >= 0 ? '+' : ''}{t.paper_pnl_usd?.toFixed(2)}
+                      <td className={`p-3 ${(t.pnl ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}>
+                        {(t.pnl ?? 0) >= 0 ? '+' : ''}{(t.pnl ?? 0).toFixed(2)}
                       </td>
                       <td className="p-3 text-xs text-muted-foreground max-w-[120px] truncate">{t.signal_source}</td>
                     </tr>

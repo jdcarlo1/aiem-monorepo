@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getToken, clearToken } from "@/lib/auth";
 
 export interface UseApiResponse<T> {
@@ -22,7 +22,9 @@ export function useApi<T>(
   const fetchApi = useCallback(async () => {
     try {
       const token = getToken();
-      const headers: HeadersInit = { ...options?.headers };
+      const headers: Record<string, string> = {
+        ...(options?.headers as Record<string, string>),
+      };
       
       if (url.includes('/admin/')) {
         if (!token) {
@@ -59,6 +61,7 @@ export function useApi<T>(
       const interval = setInterval(fetchApi, pollIntervalMs);
       return () => clearInterval(interval);
     }
+    return undefined;
   }, [fetchApi, pollIntervalMs]);
 
   const isStale = pollIntervalMs && lastFetched 
