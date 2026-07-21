@@ -846,3 +846,9 @@ id = "qHaNHO0prhZy9GrBj2NXg"
 uri = "file://AIEM_MASTER_CHECKLIST_PART1_AND_API_DOCS.md"
 type = "text"
 title = "Master Checklist Part 1 + API Documentation (combined)"
+
+[[outputs]]
+id = "W9-8bwRvZhhfbqzJ-cA3e"
+uri = "file://AIEM_INSTITUTIONAL_TERMINAL_MASTER_STATUS.md"
+type = "text"
+title = "AIEM Institutional Terminal — Master Status & Document Registry"
