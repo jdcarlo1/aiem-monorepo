@@ -1084,6 +1084,20 @@ def bootstrap_governance_tables(db_url=None) -> bool:
                 END $$
             """)
 
+            # Gate-event enrichment columns + dedup index (Item 7)
+            for _col_ddl in [
+                "ALTER TABLE oe_gate_events ADD COLUMN IF NOT EXISTS candidate_id    TEXT",
+                "ALTER TABLE oe_gate_events ADD COLUMN IF NOT EXISTS pipeline_job_id TEXT",
+                "ALTER TABLE oe_gate_events ADD COLUMN IF NOT EXISTS git_commit      TEXT",
+                "ALTER TABLE oe_gate_events ADD COLUMN IF NOT EXISTS reason          TEXT",
+            ]:
+                cur.execute(_col_ddl)
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS oe_gate_events_dedup_idx
+                    ON oe_gate_events(gate_name, pipeline_job_id)
+                    WHERE pipeline_job_id IS NOT NULL AND is_test_record = FALSE
+            """)
+
             # Origin attribution columns for oe_decision_replay_inputs (Item 15)
             for _col_ddl in [
                 "ALTER TABLE oe_decision_replay_inputs ADD COLUMN IF NOT EXISTS origin_type           TEXT",

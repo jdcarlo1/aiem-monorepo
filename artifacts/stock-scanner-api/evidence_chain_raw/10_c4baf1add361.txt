@@ -1,0 +1,1 @@
+../../tools/verified_run.sh: line 64: cd: artifacts/stock-scanner-api: No such file or directory

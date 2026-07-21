@@ -1,0 +1,48 @@
+# Phase 1 Directive — Items 1 & 7 (New Scope)
+
+These two have not come up in any of the Phase 3 remediation work to date — this is new, unstarted scope.
+
+## Item 1 — Prove the Production Scheduler Timezone
+The production scheduler must use America/New_York.
+
+Required:
+- Prove the live scheduler default timezone is America/New_York, or explicitly add `timezone="America/New_York"` to the 09:40 and 09:45 CronTrigger jobs.
+- Display the actual registered production job configuration.
+- Display `next_run_time` for both jobs.
+- Prove the scheduler worker is running.
+- Prove the jobs trigger automatically without manual execution, restart, API call, shell command, or database insertion.
+
+FAIL if timezone proof comes only from a separately created test trigger.
+
+## Item 7 — Record Suppressed or Blocked Decisions
+A blocked decision must not disappear into logs or leave a job stuck in PROCESSING.
+
+Implement an immutable gate-event record containing:
+- Gate event ID
+- Gate name
+- Timestamp
+- Ticker
+- Trace ID
+- Candidate ID
+- Pipeline job ID
+- Live hash
+- Expected hash
+- Git commit
+- Decision context
+- Reason
+- is_test_record
+
+When a gate fires:
+- Save the gate event.
+- Mark the pipeline job SUPPRESSED or FAILED_GATE.
+- Do not create a trade alert.
+- Do not leave the job in PROCESSING.
+- Prevent duplicate gate events.
+
+## Standing evidence requirements (apply to both items)
+- Raw command output and raw grep for any code-location or behavior claim — no paraphrasing.
+- Exact before/after file diff (`git diff`, not a pasted snippet) and sha256 before/after for every changed file.
+- Raw SQL + full result set for any DB claim.
+- A genuine negative control for each new mechanism (e.g., trigger a gate event for real and show the record; show a non-America/New_York-timezone case would have been caught).
+- sha256 cross-check of tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh vs current canonical.
+- State plainly if any piece can't be evidenced yet rather than describing it narratively.

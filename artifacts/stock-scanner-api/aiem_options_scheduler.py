@@ -2012,20 +2012,34 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         if _ieg_dpl_dir not in _ieg_sys.path:
             _ieg_sys.path.insert(0, _ieg_dpl_dir)
 
+        _gate_fired = [False]  # mutable flag — set True when integrity gate fires (Item 7)
+
         def _ieg_log_block(reason: str, exc_cls: str = '', exc_detail: str = '',
                            live_hash: str = '', expected_hash: str = '') -> None:
             """Best-effort DB event log on block; never swallows the block."""
+            _gate_fired[0] = True
             try:
-                import psycopg2 as _pg_ieg
+                import psycopg2 as _pg_ieg, subprocess as _sub_ieg
+                _git_sha = ''
+                try:
+                    _git_sha = _sub_ieg.check_output(
+                        ['git', 'rev-parse', 'HEAD'], stderr=_sub_ieg.DEVNULL
+                    ).decode().strip()[:40]
+                except Exception:
+                    pass
                 _c = _pg_ieg.connect(_DB_URL, connect_timeout=3)
                 with _c, _c.cursor() as _cur:
                     _cur.execute(
                         "INSERT INTO oe_gate_events "
                         "  (gate_name,ticker,trace_id,live_hash,expected_hash,"
-                        "   mismatch_detail,action_taken) "
-                        "VALUES ('ENGINE_INTEGRITY',%s,%s,%s,%s,%s,'BLOCKED')",
+                        "   mismatch_detail,action_taken,"
+                        "   candidate_id,pipeline_job_id,git_commit,reason) "
+                        "VALUES ('ENGINE_INTEGRITY',%s,%s,%s,%s,%s,'BLOCKED',%s,%s,%s,%s) "
+                        "ON CONFLICT DO NOTHING",
                         (ticker, trace_id, live_hash[:64], expected_hash[:64],
-                         f"reason={reason} exc={exc_cls}: {exc_detail}"[:500]),
+                         f"reason={reason} exc={exc_cls}: {exc_detail}"[:500],
+                         str(job_id), str(job_id), _git_sha,
+                         (f"{exc_cls}: {exc_detail}" if exc_cls else reason)[:500]),
                     )
             except Exception as _le:
                 log.warning(f"[integrity_gate] gate_event log failed (block still raised): {_le}")
@@ -2412,18 +2426,19 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
     except Exception as e:
         elapsed = round(time.time() - t_start, 2)
         err_msg = str(e)[:500]
-        log.error(f"[exec] FAILED job_id={job_id} ticker={ticker}: {e}")
+        _final_status = 'FAILED_GATE' if _gate_fired[0] else 'FAILED'
+        log.error(f"[exec] {_final_status} job_id={job_id} ticker={ticker}: {e}")
         try:
             with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
                 cur.execute("""
                     UPDATE options_pipeline_jobs
-                    SET status='FAILED', completed_at=NOW(),
+                    SET status=%s, completed_at=NOW(),
                         error_text=%s
                     WHERE id=%s
-                """, (err_msg, job_id))
+                """, (_final_status, err_msg, job_id))
                 conn.commit()
         except Exception as de:
-            log.error(f"[exec] failed to write FAILED status: {de}")
+            log.error(f"[exec] failed to write {_final_status} status: {de}")
 
         _write_heartbeat(False, err_msg)
         # ── Phase 4: record operational incident ─────────────────────────────
@@ -2629,6 +2644,22 @@ _scheduler_ref = None
 class _HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
+        # /jobs — registered jobs with trigger + next_run_time (Item 1 timezone proof)
+        if self.path.rstrip('/') == '/jobs' and _scheduler_ref:
+            _jobs_out = []
+            for _j in _scheduler_ref.get_jobs():
+                _jobs_out.append({
+                    "id":            _j.id,
+                    "trigger":       str(_j.trigger),
+                    "next_run_time": str(_j.next_run_time) if _j.next_run_time else None,
+                })
+            _jbody = json.dumps({"jobs": _jobs_out, "ts": datetime.utcnow().isoformat() + "Z"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(_jbody)))
+            self.end_headers()
+            self.wfile.write(_jbody)
+            return
         health = {
             "status":    "ok",
             "scheduler": "running" if (_scheduler_ref and _scheduler_ref.running) else "stopped",
