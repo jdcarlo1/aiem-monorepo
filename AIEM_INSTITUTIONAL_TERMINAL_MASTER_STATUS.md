@@ -1,4 +1,5 @@
-# AIEM Institutional Terminal — Master Status & Document Registry
+# 
+ AIEM Institutional Terminal — Master Status & Document Registry
 **Generated:** 2026-07-21  
 **Status:** Document ingestion complete. Awaiting 760-item checklist source to begin full verification.
 

@@ -852,3 +852,9 @@ id = "W9-8bwRvZhhfbqzJ-cA3e"
 uri = "file://AIEM_INSTITUTIONAL_TERMINAL_MASTER_STATUS.md"
 type = "text"
 title = "AIEM Institutional Terminal — Master Status & Document Registry"
+
+[[outputs]]
+id = "caHyLAkn4eJwKj0E9XYlE"
+uri = "file://AIEM_COMPLETE_PROJECT_STATUS.md"
+type = "text"
+title = "AIEM Institutional Terminal — Complete Project Status (All-in-One)"
