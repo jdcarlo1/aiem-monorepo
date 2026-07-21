@@ -1,0 +1,125 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 1 OF 12
+SECTION 1: ARCHITECTURE & DEPLOYMENT (ARCH-001–030)
+SECTION 2: REMOVAL OF FABRICATED DATA (DATA-001–030)
+============================================================
+
+STOP — ANSWER THIS FIRST, BEFORE ANY CHECKLIST ITEM BELOW:
+
+WHAT HAVE YOU BUILT SO FAR ON THIS TERMINAL?
+
+Answer with:
+1. Every file/component built so far — exact file paths, one line each.
+2. What each file actually does (plain description, not aspirational).
+3. Is the login/auth screen already built connected to anything real,
+   or is it a static UI shell right now? State which.
+4. The site is reported down — paste the actual error/log output. Do
+   not guess or narrate a likely cause; show the real one.
+5. Was any of this built against real AIEM data/APIs, mock data, or
+   hardcoded placeholder values? Say which, per file.
+6. Paste raw `git log --stat` output for every commit made toward this
+   Terminal so far.
+
+This answer must itself follow the standing verification protocol below
+(raw output only, no narrative claims) — it is not exempt just because
+it comes before the checklist. Do not proceed to Section 1 or Section 2
+below until this is answered.
+
+============================================================
+SECTION 1 — ARCHITECTURE & DEPLOYMENT
+
+ARCH-001 AIEM dashboard remains a completely separate frontend project.
+ARCH-002 AIEM dashboard has its own package configuration.
+ARCH-003 AIEM dashboard has its own Vite/build configuration.
+ARCH-004 AIEM dashboard builds independently of the stock scanner frontend.
+ARCH-005 AIEM dashboard deploys under /aiem/.
+ARCH-006 AIEM dashboard uses its own deployment/service.
+ARCH-007 Routes never conflict with scanner routes.
+ARCH-008 Frontend imports do not reference scanner UI.
+ARCH-009 Dashboard is display and control only.
+ARCH-010 All calculations remain server-side.
+ARCH-011 No database credentials exposed.
+ARCH-012 No broker credentials exposed.
+ARCH-013 No signing keys exposed.
+ARCH-014 No administrator secrets exposed.
+ARCH-015 Dashboard queries cannot interfere with AIEM execution.
+ARCH-016 Dashboard requests use bounded timeouts.
+ARCH-017 Dashboard failures never stop scheduler.
+ARCH-018 Dashboard failures never stop morning scan.
+ARCH-019 Dashboard failures never stop paper trading.
+ARCH-020 Dashboard failures never stop audit chain.
+ARCH-021 Read-only database access where applicable.
+ARCH-022 Dashboard cannot modify decisions.
+ARCH-023 Dashboard cannot bypass Risk Gate.
+ARCH-024 Scanner regression tests pass.
+ARCH-025 AIEM regression tests pass.
+ARCH-026 Scheduler regression tests pass.
+ARCH-027 Paper trading regression tests pass.
+ARCH-028 Alert regression tests pass.
+ARCH-029 Evidence chain regression tests pass.
+ARCH-030 Production build passes.
+
+SECTION 2 — REMOVAL OF FABRICATED DATA
+
+DATA-001 No Math.random() in financial pages.
+DATA-002 No Math.random() in operational pages.
+DATA-003 No fabricated trading statistics.
+DATA-004 No fabricated probability metrics.
+DATA-005 No fabricated calibration metrics.
+DATA-006 No fabricated performance metrics.
+DATA-007 No fabricated scheduler rows.
+DATA-008 No fabricated heartbeat rows.
+DATA-009 No fabricated alerts.
+DATA-010 No fabricated latency values.
+DATA-011 No fabricated decisions.
+DATA-012 No fabricated candidates.
+DATA-013 No fabricated paper trades.
+DATA-014 No fabricated portfolio values.
+DATA-015 No fabricated indicator values.
+DATA-016 No fabricated learning metrics.
+DATA-017 No hardcoded financial values.
+DATA-018 Unavailable metrics display NOT AVAILABLE.
+DATA-019 Unavailable metrics explain why.
+DATA-020 Empty APIs produce empty states.
+DATA-021 Null values are never replaced with fake data.
+DATA-022 Freshness timestamps displayed.
+DATA-023 Source labels displayed.
+DATA-024 Operating mode displayed.
+DATA-025 Sample period displayed.
+DATA-026 Grep proves no prohibited patterns remain.
+DATA-027 Production bundle inspected.
+DATA-028 Placeholder values removed.
+DATA-029 Demo-only values removed.
+DATA-030 Real runtime data verified.
+
+PHASE 1 GATES PHASE 2. Do not proceed until every item above has a verdict
+with raw evidence attached.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.
