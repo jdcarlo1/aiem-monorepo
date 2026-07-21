@@ -1,0 +1,20 @@
+# DPL Seal Atomicity Fix — Verification Review
+
+## BLOCKING
+
+**A1 — Chain regression, unexplained.** This submission's chain head is SEQ=51 (hash edc9af91...). The prior recorded sealed run was SEQ=53 (VR#65/C42 session, frozen). SEQ must be monotonic. Required: full chain listing SEQ=44 through the current head with prev_hash links, or explicit disclosure that this is a different chain/branch and why.
+
+**A2 — Negative control was not executed, it was mined.** The "two auto-commits landed between approval and seal" evidence is a retrospective read of pre-existing stale values (old_sha, "approved" 6cb13dda, live eb0157b6) — not a deliberately triggered test of the race the fix targets. Required: a live negative control where a commit/HEAD change is injected *between* pre_seal's capture and the sealed CMD executing within one run, showing pre_seal either fails closed or correctly captures the new HEAD.
+
+**A3 — This run never exercised the race it claims to fix.** git log before/after seal is identical (HEAD=eb0157b6, unchanged). The atomicity fix's entire purpose is the case where HEAD advances between capture and seal — that case was not live-tested this run. "Fix works" currently rests only on code inspection (no lines between capture and eval) plus unrelated historical data.
+
+**A4 — pre_seal.sh source itself not shown.** The raw grep pasted (lines 2659–2672) is the C28 *verifier-side* check comparing live `git rev-parse HEAD` to refs.commit_sha — not the pre_seal script that does the capture-and-write. Required: raw grep -n of pre_seal_update_refs.sh showing the HEAD capture immediately followed by the refs.json write, to substantiate "no code between them."
+
+## NON-BLOCKING
+
+**B1 —** sha256 cross-check of verified_run.sh / verify_chain.sh vs current canonical not included this round (standing requirement, every submission).
+
+**B2 —** Tree is dirty (4 modified, 2 untracked) with the claim that "session-end auto-commit" will make the next pre_seal capture correct — unverified forward-looking claim, same shape as prior false auto-commit-timing claims. Confirm live before relying on it for Tuesday's window.
+
+## Not disputed
+C28 commit-match logic (live rev-parse vs refs.commit_sha, both = eb0157b6) is real and correctly PASSes. The 8 remaining FAILs are the same documented external blockers as SEQ=53 and are left failing, not weakened.
