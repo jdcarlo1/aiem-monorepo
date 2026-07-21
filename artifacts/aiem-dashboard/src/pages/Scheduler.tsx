@@ -5,9 +5,6 @@ import { DataFooter } from "@/components/data-footer";
 export default function Scheduler() {
   const { data, loading, lastUpdated: schedUpdated } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
 
-  // The brief states "Show 274 jobs total for scheduler — filter/group them by category for display"
-  // If the API returns less, we still show the real data but can categorize it.
-  
   const jobs = data?.jobs || [];
   
   // Categorize jobs
@@ -112,7 +109,7 @@ export default function Scheduler() {
         </div>
       </div>
       <DataFooter
-        source="APScheduler (in-process) — 274 registered jobs"
+        source={`APScheduler (in-process) — ${data?.job_count ?? jobs.length} registered jobs`}
         lastUpdated={schedUpdated}
         pollIntervalSec={60}
         operatingMode="LIVE SCHEDULER STATE"
