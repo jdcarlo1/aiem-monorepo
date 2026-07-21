@@ -64,18 +64,22 @@ so archive_sha256 is excluded from hash payload — backward compatible).
 3 duplicate verified_run.sh copies deleted in commit a603aa5; archived at `_archive/duplicate_verified_run/`.
 Consolidation confirmed wc -l counts 308/232/27.
 
-## verify_chain.sh inventory (awaiting sign-off for archive)
+## verify_chain.sh inventory (FINAL — archived 2026-07-21)
 
-| Path | Lines | Purpose | Callers |
+| Path | Lines | Purpose | Status |
 |---|---|---|---|
-| `tools/verify_chain.sh` | 94 | Standing Protocol canonical | self-reference only |
-| `artifacts/stock-scanner-api/verify_chain.sh` | 291 | Options alert audit chain | 5 CWD-relative callers in stock-scanner-api/ |
-| `verify_chain.sh` (root) | 230 | AIEM Failover Evidence Verifier | `verify_pattern_engine.sh` sha256sum only (passive) |
-| `.local/verify_chain.sh` | 68 | Dead D12 script | ZERO callers |
+| `tools/verify_chain.sh` | 94 | Standing Protocol canonical | ACTIVE — not touched |
+| `artifacts/stock-scanner-api/verify_chain.sh` | 291 | Options alert audit chain | ACTIVE — not touched |
+| `verify_chain.sh` (root) | 230 | AIEM Failover Evidence Verifier | ARCHIVED → `_archive/verify_chain/root_verify_chain.sh` |
+| `.local/verify_chain.sh` | 68 | Dead D12 script | ARCHIVED → `_archive/verify_chain/local_verify_chain.sh` |
 
-Root and .local are archive candidates — awaiting explicit sign-off per Data Immutability Rule.
-`verify_pattern_engine.sh` references root via `sha256sum verify_chain.sh` — passive integrity hash.
-If root is archived, that line needs a tombstone comment.
+`verify_pattern_engine.sh` updated (3 hunks): all `sha256sum verify_chain.sh` refs →
+`sha256sum _archive/verify_chain/root_verify_chain.sh` so script remains functional.
+
+## A8_REMOVAL_VIOLATION:C44_legacy_entry_documented (CLOSED — D17-R1)
+
+Cleared via `C44_legacy_entry_documented` added to `_A8_L1_META_EXCL` + registry entry
+in `verify_dpl_phase3.py`. Bounded: SEQ=52 and SEQ=53 named explicitly.
 
 ## Next unblock conditions
 

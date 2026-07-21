@@ -7,7 +7,9 @@
 set -euo pipefail
 
 SCRIPT_SHA=$(sha256sum "$0" | awk '{print $1}')
-VERIFY_SHA=$(sha256sum verify_chain.sh 2>/dev/null | awk '{print $1}' || echo "N/A")
+# verify_chain.sh archived to _archive/verify_chain/root_verify_chain.sh (sign-off 2026-07-21).
+# Zero active scheduler/pipeline callers. verify_pattern_engine.sh references the archive copy.
+VERIFY_SHA=$(sha256sum _archive/verify_chain/root_verify_chain.sh 2>/dev/null | awk '{print $1}' || echo "N/A")
 CAPTURE_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 TODAY=$(date -u +"%Y-%m-%d")
 OUT="verified_pattern_engine_${TODAY}_$(date -u +%H%M%S).json"
@@ -146,7 +148,7 @@ fi
 echo ""
 echo "[8] Chain script SHAs..."
 echo "  sha256sum verified_run.sh    : $(sha256sum verified_run.sh | awk '{print $1}')"
-echo "  sha256sum verify_chain.sh    : $(sha256sum verify_chain.sh | awk '{print $1}')"
+echo "  sha256sum verify_chain.sh    : $(sha256sum _archive/verify_chain/root_verify_chain.sh | awk '{print $1}') [archived]"
 echo "  sha256sum verify_pattern_engine.sh : $SCRIPT_SHA"
 
 # ── 9. git diff HEAD --stat ───────────────────────────────────────────────────
@@ -208,7 +210,7 @@ bundle = {
 
     "item8_chain_shas": {
         "verified_run_sh":           "$(sha256sum verified_run.sh | awk '{print $1}')",
-        "verify_chain_sh":           "$(sha256sum verify_chain.sh | awk '{print $1}')",
+        "verify_chain_sh":           "$(sha256sum _archive/verify_chain/root_verify_chain.sh | awk '{print $1}')",
         "verify_pattern_engine_sh":  "$SCRIPT_SHA",
     },
 
