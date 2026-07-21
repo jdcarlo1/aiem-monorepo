@@ -1,10 +1,10 @@
 {
   "schema_version": "2",
-  "run_ts": "2026-07-21T03:35:30Z",
+  "run_ts": "2026-07-21T03:53:12Z",
   "total_pass": 195,
-  "total_fail": 9,
+  "total_fail": 8,
   "total_pending": 0,
-  "all_checks": 204,
+  "all_checks": 203,
   "pass_list": [
     "C01_imports_ok",
     "C02_table_exists",
@@ -210,21 +210,19 @@
     "C52B_live_trade_decision_exists",
     "C52C_genuine_replay_pass",
     "C52C_historical_replay_eligible_row_exists",
-    "C28_approved_by_in_allowlist_and_engine_hash_match",
-    "A8_REMOVAL_VIOLATION:C44_legacy_entry_documented"
+    "C28_approved_by_in_allowlist_and_engine_hash_match"
   ],
-  "enforcement_artifacts": [
-    "A8_REMOVAL_VIOLATION:C44_legacy_entry_documented"
-  ],
+  "enforcement_artifacts": [],
   "a8_excl_list": [
     "A33_excl_list_new_names_have_registry_entry",
     "A33_excl_list_registry_complete",
     "A8_baseline_erosion_clean",
     "A8_baseline_file_missing",
+    "C44_legacy_entry_documented",
     "NC1_ViolationRecord_frozen_blocks_mutation",
     "NC2_enforcement_artifacts_absent_from_pass_list",
     "NC3_replay_nonexistent_id_raises",
     "NC4_genuine_removal_still_fires_with_excl_list"
   ],
-  "a8_excl_sha256": "bfa5db476cf3de1dfd3f557462d1b16b72b90c2472393d7248aca28ada2bef11"
+  "a8_excl_sha256": "c8a86400dccdfca7be6a1f4146655aeb9f4d5b3d6dc8a21b227c35bb34f0f025"
 }

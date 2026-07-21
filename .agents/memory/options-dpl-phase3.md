@@ -1,12 +1,12 @@
 ---
 name: DPL Phase 3 — Reproducibility Replay & Institutional Audit Remediation
-description: Directive 16 Option A COMPLETE. SEQ=55: 195P/9F. C44 3/3 PASS. A8_baseline_erosion_clean PASS. New 9th FAIL: A8_REMOVAL_VIOLATION:C44_legacy_entry_documented (legacy SEQ=52/53 have no archive_sha256, awaiting documented-legacy disposition).
+description: Directive 17 R1 COMPLETE. SEQ=56: 195P/8F. Freeze baseline restored. C44 3/3 PASS. A8 PASS. C44_legacy_entry_documented in _A8_L1_META_EXCL (SEQ=52+53 bounded). 8 FAILs = known external blockers only.
 ---
 
-## CURRENT STATE (post-Directive-16, SEQ=55)
+## CURRENT STATE (post-Directive-17-R1, SEQ=56)
 
-**Chain head:** SEQ=55  
-**SEQ=55 results:** 195 PASS, 9 FAIL, all=204  
+**Chain head:** SEQ=56  
+**SEQ=56 results:** 195 PASS, 8 FAIL, all=203  
 **entry_hash:** see verified_run_chain.jsonl latest  
 **refs.commit_sha:** == HEAD (A19 RESOLVED)  
 **PSV SEQ=55:** 9 PASS / 0 FAIL (complete green)  

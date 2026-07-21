@@ -3768,6 +3768,16 @@ try:
             'A33_excl_list_registry_complete',  # F11 (R11): converted to documentation
             # NC5: same ordering artifact as NC1-NC4; runs after A8 section:
             'A33_excl_list_new_names_have_registry_entry',
+            # Directive 16 (SEQ=52/53 legacy exemption): C44_legacy_entry_documented was a
+            # transitional PASS emitted by the C44 branch when the latest chain entry lacked
+            # archive_sha256 (SEQ=52 and SEQ=53 — the only two entries that predate the
+            # archive-log implementation in Directive 16).  Once SEQ=54 was written with a
+            # real archive_sha256, the C44 code path permanently switched to the 3-way
+            # binding branch, making C44_legacy_entry_documented absent from all future runs.
+            # This is a deliberate, bounded design transition, not a check removal.
+            # Applies exclusively to SEQ=52 and SEQ=53; any future legacy entry requires a
+            # separate registry entry.
+            'C44_legacy_entry_documented',
         }
         # A33 (R10): Each name in _A8_L1_META_EXCL must have a registry entry
         # citing the SEQ/round that justified its addition. Provides an auditable
@@ -3792,6 +3802,13 @@ try:
                 'DOCUMENTATION_ONLY (R11 F11): _A8_L1_META_EXCL and _A8_EXCL_REGISTRY '
                 'are co-located literals — atomic edit makes registry-completeness closed-loop; '
                 'no independent verification path; demoted from check to labeled print',
+            'C44_legacy_entry_documented':
+                'SEQ=52+SEQ=53 (Directive 16): transitional check emitted by the C44 legacy-entry '
+                'branch for exactly the two chain entries (SEQ=52, SEQ=53) that predate the '
+                'archive-log implementation in Directive 16.  Once SEQ=54 was written with '
+                'archive_sha256, the C44 code path permanently switched to the 3-way binding '
+                'branch; C44_legacy_entry_documented will never appear again.  Bounded exemption: '
+                'SEQ=52 and SEQ=53 only — any future legacy entry requires a separate registry entry.',
         }
         _a8_removed_raw  = _a8_prev - _a8_curr - _A8_L1_META_EXCL
         # A8_REMOVAL_VIOLATION:* and A8_enforcement_error:* names are Layer-1 enforcement
