@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { Activity, ShieldCheck, ShieldAlert, FileWarning, Search } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Decisions() {
-  const { data: decisions, loading: decLoading } = useApi<any>("/stock-api/admin/decision-audit?limit=50", {}, 30000);
+  const { data: decisions, loading: decLoading, lastUpdated: decUpdated } = useApi<any>("/stock-api/admin/decision-audit?limit=50", {}, 30000);
   const { data: gateEvents, loading: gateLoading } = useApi<any>("/stock-api/admin/gate-events?limit=50", {}, 30000);
 
   return (
@@ -122,6 +123,12 @@ export default function Decisions() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="oe_decision_audit, oe_gate_events"
+        lastUpdated={decUpdated}
+        pollIntervalSec={30}
+        operatingMode="AUDIT READ-ONLY"
+      />
     </div>
   );
 }

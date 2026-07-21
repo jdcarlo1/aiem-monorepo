@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { ActivitySquare, Target, AlertTriangle } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Signals() {
-  const { data: discoveries, loading: discLoading } = useApi<any>("/stock-api/admin/signal-discoveries", {}, 120000);
+  const { data: discoveries, loading: discLoading, lastUpdated: sigUpdated } = useApi<any>("/stock-api/admin/signal-discoveries", {}, 120000);
   const { data: gap } = useApi<any>("/stock-api/gap-volume-signal", {}, 60000);
 
   const rows: any[] = discoveries?.rows ?? [];
@@ -134,6 +135,13 @@ export default function Signals() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="aiem_signal_discoveries, polygon_rvol_scan"
+        lastUpdated={sigUpdated}
+        pollIntervalSec={120}
+        operatingMode="STATISTICAL RESEARCH"
+        samplePeriod="5 discoveries — id=5 OOS-validated"
+      />
     </div>
   );
 }

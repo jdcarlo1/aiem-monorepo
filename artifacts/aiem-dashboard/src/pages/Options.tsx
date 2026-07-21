@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { Workflow, FastForward, CheckCircle2, AlertTriangle, AlertCircle } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Options() {
-  const { data: checkpoint, loading: checkLoading } = useApi<any>("/stock-api/admin/pipeline-checkpoint", {}, 30000);
+  const { data: checkpoint, loading: checkLoading, lastUpdated: checkUpdated } = useApi<any>("/stock-api/admin/pipeline-checkpoint", {}, 30000);
   const { data: audit, loading: auditLoading } = useApi<any>("/stock-api/admin/aiem-pipeline-audit", {}, 60000);
 
   return (
@@ -86,6 +87,12 @@ export default function Options() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="daily_pipeline_runs, oe_decision_audit"
+        lastUpdated={checkUpdated}
+        pollIntervalSec={30}
+        operatingMode="OPTIONS PIPELINE — PAPER SIMULATION"
+      />
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import { useApi } from "@/hooks/use-api";
 import { Layers, Activity, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Regime() {
-  const { data: macro, loading } = useApi<any>("/stock-api/admin/macro/latest", {}, 30000);
+  const { data: macro, loading, lastUpdated: macroUpdated } = useApi<any>("/stock-api/admin/macro/latest", {}, 30000);
   const { data: history } = useApi<any>("/stock-api/admin/macro/history?days=60", {}, 300000);
 
   const macroScore = macro?.macro_score ?? macro?.score ?? 50;
@@ -134,6 +135,13 @@ export default function Regime() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="aiem_macro_daily"
+        lastUpdated={macroUpdated}
+        pollIntervalSec={30}
+        operatingMode="LIVE DATA"
+        samplePeriod="Daily snapshot — updated 09:00 ET"
+      />
     </div>
   );
 }

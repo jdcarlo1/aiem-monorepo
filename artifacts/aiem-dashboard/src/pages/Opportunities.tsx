@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { Search, TrendingUp, AlertCircle, RefreshCw } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Opportunities() {
-  const { data: predictions, loading: predLoading } = useApi<any>("/stock-api/aiem-predictions", {}, 60000);
+  const { data: predictions, loading: predLoading, lastUpdated: predUpdated } = useApi<any>("/stock-api/aiem-predictions", {}, 60000);
   const { data: gaps, loading: gapLoading } = useApi<any>("/stock-api/gap-volume-signal", {}, 60000);
   
   // On-demand signals
@@ -129,6 +130,12 @@ export default function Opportunities() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="aiem_process_predictions, polygon_rvol_scan"
+        lastUpdated={predUpdated}
+        pollIntervalSec={60}
+        operatingMode="LIVE DATA"
+      />
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { Users, Vote, Target, MessageSquare } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Council() {
-  const { data: council, loading } = useApi<any>("/stock-api/admin/council-runs?limit=50", {}, 60000);
+  const { data: council, loading, lastUpdated } = useApi<any>("/stock-api/admin/council-runs?limit=50", {}, 60000);
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -75,6 +76,13 @@ export default function Council() {
           </table>
         </div>
       </div>
+      <DataFooter
+        source="aiem_specialist_council_runs"
+        lastUpdated={lastUpdated}
+        pollIntervalSec={60}
+        operatingMode="PAPER TRADING COUNCIL"
+        samplePeriod="Since June 2026"
+      />
     </div>
   );
 }

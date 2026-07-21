@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { Bell, Send, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Alerts() {
-  const { data: heartbeats, loading } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
+  const { data: heartbeats, loading, lastUpdated: alertUpdated } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
 
   const jobs: any[] = heartbeats?.jobs ?? [];
   const failedJobs = jobs.filter((j: any) => j.consecutive_failures > 0 || j.last_error);
@@ -131,6 +132,12 @@ export default function Alerts() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="job_heartbeats"
+        lastUpdated={alertUpdated}
+        pollIntervalSec={30}
+        operatingMode="LIVE MONITORING"
+      />
     </div>
   );
 }

@@ -1,0 +1,259 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL
+MASTER COMPLETION CHECKLIST
+PART 1 OF 4
+ITEMS 1–190
+STRICT VERIFICATION REQUIRED
+============================================================
+
+SECTION 1 — ARCHITECTURE & DEPLOYMENT
+
+ARCH-001
+AIEM dashboard remains a completely separate frontend project.
+
+ARCH-002
+AIEM dashboard has its own package configuration.
+
+ARCH-003
+AIEM dashboard has its own Vite/build configuration.
+
+ARCH-004
+AIEM dashboard builds independently of the stock scanner frontend.
+
+ARCH-005
+AIEM dashboard deploys under /aiem/.
+
+ARCH-006
+AIEM dashboard uses its own deployment/service.
+
+ARCH-007
+Routes never conflict with scanner routes.
+
+ARCH-008
+Frontend imports do not reference scanner UI.
+
+ARCH-009
+Dashboard is display and control only.
+
+ARCH-010
+All calculations remain server-side.
+
+ARCH-011
+No database credentials exposed.
+
+ARCH-012
+No broker credentials exposed.
+
+ARCH-013
+No signing keys exposed.
+
+ARCH-014
+No administrator secrets exposed.
+
+ARCH-015
+Dashboard queries cannot interfere with AIEM execution.
+
+ARCH-016
+Dashboard requests use bounded timeouts.
+
+ARCH-017
+Dashboard failures never stop scheduler.
+
+ARCH-018
+Dashboard failures never stop morning scan.
+
+ARCH-019
+Dashboard failures never stop paper trading.
+
+ARCH-020
+Dashboard failures never stop audit chain.
+
+ARCH-021
+Read-only database access where applicable.
+
+ARCH-022
+Dashboard cannot modify decisions.
+
+ARCH-023
+Dashboard cannot bypass Risk Gate.
+
+ARCH-024
+Scanner regression tests pass.
+
+ARCH-025
+AIEM regression tests pass.
+
+ARCH-026
+Scheduler regression tests pass.
+
+ARCH-027
+Paper trading regression tests pass.
+
+ARCH-028
+Alert regression tests pass.
+
+ARCH-029
+Evidence chain regression tests pass.
+
+ARCH-030
+Production build passes.
+
+============================================================
+
+SECTION 2 — REMOVAL OF FABRICATED DATA
+
+DATA-001
+No Math.random() in financial pages.
+
+DATA-002
+No Math.random() in operational pages.
+
+DATA-003
+No fabricated trading statistics.
+
+DATA-004
+No fabricated probability metrics.
+
+DATA-005
+No fabricated calibration metrics.
+
+DATA-006
+No fabricated performance metrics.
+
+DATA-007
+No fabricated scheduler rows.
+
+DATA-008
+No fabricated heartbeat rows.
+
+DATA-009
+No fabricated alerts.
+
+DATA-010
+No fabricated latency values.
+
+DATA-011
+No fabricated decisions.
+
+DATA-012
+No fabricated candidates.
+
+DATA-013
+No fabricated paper trades.
+
+DATA-014
+No fabricated portfolio values.
+
+DATA-015
+No fabricated indicator values.
+
+DATA-016
+No fabricated learning metrics.
+
+DATA-017
+No hardcoded financial values.
+
+DATA-018
+Unavailable metrics display NOT AVAILABLE.
+
+DATA-019
+Unavailable metrics explain why.
+
+DATA-020
+Empty APIs produce empty states.
+
+DATA-021
+Null values are never replaced with fake data.
+
+DATA-022
+Freshness timestamps displayed.
+
+DATA-023
+Source labels displayed.
+
+DATA-024
+Operating mode displayed.
+
+DATA-025
+Sample period displayed.
+
+DATA-026
+Grep proves no prohibited patterns remain.
+
+DATA-027
+Production bundle inspected.
+
+DATA-028
+Placeholder values removed.
+
+DATA-029
+Demo-only values removed.
+
+DATA-030
+Real runtime data verified.
+
+============================================================
+
+SECTION 3 — API STANDARDIZATION
+
+API-001
+Terminal API documented.
+
+API-002
+/api/v1/terminal or compatibility layer exists.
+
+API-003
+OpenAPI specification exists.
+
+API-004
+Endpoint paths documented.
+
+API-005
+HTTP methods documented.
+
+API-006
+Authentication documented.
+
+API-007
+Roles documented.
+
+API-008
+Parameters documented.
+
+API-009
+Validation documented.
+
+API-010
+Response schema documented.
+
+API-011
+Pagination documented.
+
+API-012
+Filtering documented.
+
+API-013
+Sorting documented.
+
+API-014
+Freshness documented.
+
+API-015
+Source tables documented.
+
+API-016
+Operating mode documented.
+
+API-017
+Verification status documented.
+
+API-018
+Structured errors implemented.
+
+API-019
+Version documented.
+
+API-020
+Deprecation policy documented.
+
+...

@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { Calendar, Play, Clock, Server } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Scheduler() {
-  const { data, loading } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
+  const { data, loading, lastUpdated: schedUpdated } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
 
   // The brief states "Show 274 jobs total for scheduler — filter/group them by category for display"
   // If the API returns less, we still show the real data but can categorize it.
@@ -33,7 +34,7 @@ export default function Scheduler() {
         <div className="text-right">
           <div className="text-xs font-mono text-muted-foreground mb-1">TOTAL JOBS</div>
           <div className="text-2xl font-mono font-bold text-primary">
-            {jobs.length > 0 ? jobs.length : 274}
+            {data?.job_count ?? jobs.length}
           </div>
         </div>
       </div>
@@ -110,6 +111,12 @@ export default function Scheduler() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="APScheduler (in-process) — 274 registered jobs"
+        lastUpdated={schedUpdated}
+        pollIntervalSec={60}
+        operatingMode="LIVE SCHEDULER STATE"
+      />
     </div>
   );
 }

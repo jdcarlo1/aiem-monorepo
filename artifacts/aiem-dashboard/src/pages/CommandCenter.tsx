@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { Activity, Server, AlertCircle, AlertTriangle } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function CommandCenter() {
-  const { data: health, isStale: healthStale } = useApi<any>("/stock-api/health", {}, 30000);
+  const { data: health, isStale: healthStale, lastUpdated: healthUpdated } = useApi<any>("/stock-api/health", {}, 30000);
   const { data: macro, isStale: macroStale } = useApi<any>("/stock-api/admin/macro/latest", {}, 30000);
   const { data: jobs } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
   const { data: heartbeats } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
@@ -134,6 +135,12 @@ export default function CommandCenter() {
           )}
         </div>
       </div>
+      <DataFooter
+        source="job_heartbeats, aiem_macro_daily, APScheduler"
+        lastUpdated={healthUpdated}
+        pollIntervalSec={30}
+        operatingMode="LIVE DATA"
+      />
     </div>
   );
 }

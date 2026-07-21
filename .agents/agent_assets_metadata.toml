@@ -828,3 +828,15 @@ id = "kab0xYr6v-Q9E3RItE6Iy"
 uri = "file://AIEM_DASHBOARD_GAP_AUDIT.md"
 type = "text"
 title = "AIEM Terminal — Master Directive Gap Audit"
+
+[[outputs]]
+id = "_TxGZlwMFzDjHLS9LHIa4"
+uri = "file://AIEM_CHECKLIST_PART1_STATUS.md"
+type = "text"
+title = "Master Checklist Part 1 — Status (ARCH + DATA + API)"
+
+[[outputs]]
+id = "Aq_rnKwGfdpRcRzlB3vDp"
+uri = "file://AIEM_TERMINAL_API_DOCUMENTATION.md"
+type = "text"
+title = "AIEM Terminal API Documentation v1.0"

@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { RefreshCw, BookOpen, BrainCircuit, AlertTriangle } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Learning() {
-  const { data: summary, loading } = useApi<any>("/stock-api/admin/closed-loop-summary", {});
+  const { data: summary, loading, lastUpdated: loopUpdated } = useApi<any>("/stock-api/admin/closed-loop-summary", {});
 
   const hasLoopData = summary && Object.keys(summary).length > 0;
 
@@ -101,6 +102,12 @@ export default function Learning() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="aiem_closed_loop_learning tables"
+        lastUpdated={loopUpdated}
+        operatingMode="ML LEARNING PIPELINE"
+        samplePeriod="Cumulative since June 2026"
+      />
     </div>
   );
 }

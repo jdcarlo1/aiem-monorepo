@@ -1,8 +1,9 @@
 import { useApi } from "@/hooks/use-api";
 import { AlertTriangle, TrendingDown, Layers, Crosshair } from "lucide-react";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Risk() {
-  const { data: positions, loading: posLoading } = useApi<any>("/stock-api/admin/position-sizing-log?limit=50", {}, 60000);
+  const { data: positions, loading: posLoading, lastUpdated: posUpdated } = useApi<any>("/stock-api/admin/position-sizing-log?limit=50", {}, 60000);
   const { data: gamma, loading: gammaLoading } = useApi<any>("/stock-api/gamma-wall", {}, 60000);
   const { data: charm, loading: charmLoading } = useApi<any>("/stock-api/charm-cascade", {}, 60000);
 
@@ -137,6 +138,12 @@ export default function Risk() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="aiem_position_sizing_log, oi_daily_snapshot"
+        lastUpdated={posUpdated}
+        pollIntervalSec={60}
+        operatingMode="PAPER TRADING RISK"
+      />
     </div>
   );
 }

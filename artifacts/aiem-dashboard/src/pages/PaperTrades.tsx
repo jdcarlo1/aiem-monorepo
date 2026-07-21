@@ -1,9 +1,10 @@
 import { useApi } from "@/hooks/use-api";
 import { BarChart2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { DataFooter } from "@/components/data-footer";
 
 export default function PaperTrades() {
-  const { data: openTrades, loading: openLoading } = useApi<any>("/stock-api/aiem-paper-portfolio", {}, 30000);
+  const { data: openTrades, loading: openLoading, lastUpdated: openUpdated } = useApi<any>("/stock-api/aiem-paper-portfolio", {}, 30000);
   const { data: allTrades, loading: allLoading } = useApi<any>("/stock-api/paper-trades", {}, 60000);
   const { data: fills, loading: fillsLoading } = useApi<any>("/stock-api/admin/paper-fill-audit", {}, 60000);
 
@@ -111,6 +112,13 @@ export default function PaperTrades() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="aiem_paper_trades, aiem_paper_fill_audit"
+        lastUpdated={openUpdated}
+        pollIntervalSec={30}
+        operatingMode="PAPER TRADING — SIMULATION ONLY"
+        samplePeriod="Since June 2026"
+      />
     </div>
   );
 }

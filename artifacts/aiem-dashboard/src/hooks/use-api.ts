@@ -6,6 +6,7 @@ export interface UseApiResponse<T> {
   loading: boolean;
   error: Error | null;
   isStale: boolean;
+  lastUpdated: Date | null;
   refetch: () => Promise<void>;
 }
 
@@ -25,7 +26,7 @@ export function useApi<T>(
       const headers: Record<string, string> = {
         ...(options?.headers as Record<string, string>),
       };
-      
+
       if (url.includes('/admin/')) {
         if (!token) {
           window.location.href = "/";
@@ -33,17 +34,17 @@ export function useApi<T>(
         }
         headers["X-Admin-Token"] = token;
       }
-      
+
       const res = await fetch(url, { ...options, headers });
-      
+
       if (res.status === 403 || res.status === 401) {
         clearToken();
         window.location.href = "/";
         return;
       }
-      
+
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      
+
       const json = await res.json();
       setData(json);
       setLastFetched(Date.now());
@@ -64,9 +65,11 @@ export function useApi<T>(
     return undefined;
   }, [fetchApi, pollIntervalMs]);
 
-  const isStale = pollIntervalMs && lastFetched 
-    ? Date.now() - lastFetched > pollIntervalMs * 2 
+  const isStale = pollIntervalMs && lastFetched
+    ? Date.now() - lastFetched > pollIntervalMs * 2
     : false;
 
-  return { data, loading, error, isStale, refetch: fetchApi };
+  const lastUpdated = lastFetched ? new Date(lastFetched) : null;
+
+  return { data, loading, error, isStale, lastUpdated, refetch: fetchApi };
 }

@@ -3,9 +3,10 @@ import { useApi } from "@/hooks/use-api";
 import { ShieldCheck, Fingerprint, Network, Terminal as TerminalIcon } from "lucide-react";
 import { getToken } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { DataFooter } from "@/components/data-footer";
 
 export default function Proof() {
-  const { data: status, loading } = useApi<any>("/stock-api/admin/evidence-chain/status", {}, 60000);
+  const { data: status, loading, lastUpdated: chainUpdated } = useApi<any>("/stock-api/admin/evidence-chain/status", {}, 60000);
   const [tokenInput, setTokenInput] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{valid: boolean, message: string} | null>(null);
@@ -160,6 +161,12 @@ export default function Proof() {
           </div>
         </div>
       </div>
+      <DataFooter
+        source="evidence_chain (SHA-256 log + DB)"
+        lastUpdated={chainUpdated}
+        pollIntervalSec={60}
+        operatingMode="CRYPTOGRAPHIC AUDIT"
+      />
     </div>
   );
 }
