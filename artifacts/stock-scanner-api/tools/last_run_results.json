@@ -1,10 +1,10 @@
 {
   "schema_version": "2",
-  "run_ts": "2026-07-21T00:41:25Z",
-  "total_pass": 195,
-  "total_fail": 8,
+  "run_ts": "2026-07-21T03:00:27Z",
+  "total_pass": 191,
+  "total_fail": 13,
   "total_pending": 0,
-  "all_checks": 203,
+  "all_checks": 204,
   "pass_list": [
     "C01_imports_ok",
     "C02_table_exists",
@@ -45,9 +45,7 @@
     "C43_chain_pos_test_parses_all_entries",
     "C43_neg_no_second_chain_file",
     "C43_missing_chain_would_fail_closed",
-    "C44_chain_archive_sha_equals_file_sha",
-    "C44_chain_archive_sha_equals_index_sha",
-    "C44_index_sha_equals_file_sha",
+    "C44_legacy_entry_documented",
     "C45_gap_explanation_file_exists",
     "C45_gap_explains_missing_seqs",
     "C45_gap_explains_root_cause",
@@ -125,7 +123,6 @@
     "C28_live_engine_root_hash_matches_approved",
     "C28_scoring_fn_ast_hash_component_matches",
     "C28_req6_weights_hash_component_matches",
-    "C28_refs_commit_sha_matches_run_head",
     "C29_role_aiem_app_exists",
     "C29_role_aiem_verify_exists",
     "C29_role_aiem_approve_exists",
@@ -195,7 +192,6 @@
     "C42_psv_checks_summary_line",
     "C42_verified_run_calls_post_seal_verifier",
     "C42_neg_missing_archive_causes_psv1_fail",
-    "A8_baseline_erosion_clean",
     "NC1_ViolationRecord_frozen_blocks_mutation",
     "NC2_enforcement_artifacts_absent_from_pass_list",
     "NC3_replay_nonexistent_id_raises",
@@ -210,9 +206,18 @@
     "C52B_live_trade_decision_exists",
     "C52C_genuine_replay_pass",
     "C52C_historical_replay_eligible_row_exists",
-    "C28_approved_by_in_allowlist_and_engine_hash_match"
+    "C28_approved_by_in_allowlist_and_engine_hash_match",
+    "C28_refs_commit_sha_matches_run_head",
+    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_file_sha",
+    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_index_sha",
+    "A8_BASELINE_VIOLATION:C44_index_sha_equals_file_sha",
+    "A8_baseline_erosion_clean"
   ],
-  "enforcement_artifacts": [],
+  "enforcement_artifacts": [
+    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_file_sha",
+    "A8_BASELINE_VIOLATION:C44_chain_archive_sha_equals_index_sha",
+    "A8_BASELINE_VIOLATION:C44_index_sha_equals_file_sha"
+  ],
   "a8_excl_list": [
     "A33_excl_list_new_names_have_registry_entry",
     "A33_excl_list_registry_complete",

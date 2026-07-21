@@ -1,0 +1,22 @@
+# Directive 13 — Review of Directive 12 Submission
+
+## Item 1 (NC race case) — deferred, no action
+Acknowledged: git commit-tree/update-ref sandbox-gated. Leave open until a background Project Task with destructive-git access exists.
+
+## Item 2 (canonical path consolidation) — NOT CLOSED
+
+Discrepancy: prior audit (2026-07-20) confirmed FOUR physical copies of verified_run.sh on disk (project root, tools/, artifacts/stock-scanner-api/tools/, .local/). This submission's ls/find output shows only tools/verified_run.sh now exists — the other three return "No such file or directory," and you state they "were never present in this working tree." That contradicts the prior confirmed finding.
+
+Required before Item 2 closes:
+1. Explain how/when the other 3 copies disappeared — environment/workflow reset, fresh checkout, or an actual delete action.
+2. If any deletion occurred, confirm it was approved per the Data Immutability Rule and provide the log entry (what was deleted, why, when approved).
+3. If no delete action was taken (e.g. ephemeral filesystem reset wiped untracked files), state that explicitly and back it with evidence — `git status` showing the missing paths were untracked, or workflow restart timestamp.
+
+## Item 3 (DPL chain write gap) — partial evidence, gaps remain
+
+1. **Diff**: provide raw `git diff` output (with +/- markers) for tools/verified_run.sh showing the added block — not the pasted/described snippet given this round.
+2. **Missing cross-check**: sha256 for artifacts/stock-scanner-api/verify_chain.sh vs canonical was not included. Standing protocol requires this alongside verified_run.sh on every completion claim.
+3. **C33 self-check was ad hoc**: the MATCH:True shown was a manually replicated check, not the shipped verifier's C33 function. Run the actual `python3 dpl/verify_dpl_phase3.py` now and paste its raw output — not "the next run will produce SEQ=53." Confirm SEQ=53 entry and a real C33 PASS from production code.
+4. Run `verify_chain.sh` and paste its output validating the new chain state (SEQ 51→52 append), per the Standing Evidence Chain Protocol.
+
+New canonical hash for tools/verified_run.sh (post-fix, pending #1 above): `04011887e3344681f1a0521a47f38c5c200ddfdbac76aa6f4f5257c2c1e56ad3`
