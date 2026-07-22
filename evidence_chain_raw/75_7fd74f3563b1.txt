@@ -1,0 +1,74 @@
+
+======================================================================
+CONTEXT
+======================================================================
+Password rotation executed at verified_run.sh entry #74 (DPL-chain SEQ=69).
+That run confirmed: PATCH 200, old_pw->401 PASS, new_pw->200 PASS.
+The FAIL at SEQ=69 was a false negative: hash_changed compared 14-char
+prefix 'pbkdf2:sha256:' which is identical for ALL pbkdf2 hashes.
+This script provides corrected evidence with full hash fingerprint.
+
+======================================================================
+STEP 1 — Current DB hash state
+======================================================================
+SQL: SELECT id, username, role, is_active, LEFT(password_hash,14), LENGTH(password_hash) FROM aiem_users WHERE username='admin'
+row_count: 1
+(1, 'admin', 'administrator', True, 'pbkdf2:sha256:', 103)
+
+Stored hash sha256 fingerprint (of full pbkdf2 string):
+  2c788c925ebe46dff3c58636fd7ca76ae5da72f7374d66062be41a5e8c1c4e79
+Hash algorithm prefix: pbkdf2:sha256:
+Hash length:           103 chars
+DB hash valid:         True
+
+======================================================================
+STEP 2 — POST /auth/login with OLD password 'ChangeMe123!' (expect 401)
+======================================================================
+REQUEST: POST http://localhost:5050/stock-api/auth/login
+BODY:    {"username": "admin", "password": "ChangeMe123!"}
+RESPONSE STATUS: 401
+RESPONSE BODY:   {"error":"invalid credentials"}
+
+OLD PASSWORD CHECK: PASS  (expected 401, got 401)
+
+======================================================================
+STEP 3 — POST /auth/login with NEW password (expect 200)
+======================================================================
+REQUEST: POST http://localhost:5050/stock-api/auth/login
+BODY:    {"username": "admin", "password": "OCvY****************************"}  [full value in /tmp/aiem_new_admin_pw.txt]
+RESPONSE STATUS: 200
+RESPONSE BODY:   {"role":"administrator","status":"ok","username":"admin"}
+
+  Set-Cookie: aiem_session=lPRzeb4VCLAcGQR1an0TIGNyn5Vuw9URWvxnJkQ5Pp8; Expires=Wed, 22 Jul 2026 13:52:49 GMT; Max-Age=28800; HttpOnly; Path=/; SameSite=Strict
+  Set-Cookie: aiem_csrf=oA0LdBQ0QJY2FJZt3nOJcm2EOmQZenLK; Expires=Wed, 22 Jul 2026 13:52:49 GMT; Max-Age=28800; Path=/; SameSite=Strict
+NEW PASSWORD CHECK: PASS  (expected 200, got 200)
+
+======================================================================
+STEP 4 — Hash-change proof (functional)
+======================================================================
+Direct bit comparison of pre/post stored hash is unavailable (pre-rotation
+state is gone from DB — correct, rotation is a one-way write).
+
+Functional proof is: old_pw->401 AND new_pw->200.
+If the hash had NOT changed, both passwords would behave as before:
+  - old_pw would still return 200 (it returned 401 -> hash changed)
+  - new_pw would return 401 (it returned 200 -> new hash works)
+
+Additionally, at SEQ=69 entry #74, the PATCH response was:
+  HTTP 200  {'status': 'updated', 'user_id': 1}
+  This is the server confirming the UPDATE was applied.
+Hash-change functional proof: PASS
+
+======================================================================
+SUMMARY
+======================================================================
+  db_hash_is_valid_pbkdf2            : PASS
+  old_pw_returns_401                 : PASS
+  new_pw_returns_200                 : PASS
+  hash_change_functional             : PASS
+
+  New password file: /tmp/aiem_new_admin_pw.txt
+  Action required:   Store this password in AIEM_DEFAULT_ADMIN_PW secret
+
+SUMMARY: 4 PASS 0 FAIL
+T003-PW-VERIFY OVERALL: PASS

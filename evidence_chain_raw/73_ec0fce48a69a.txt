@@ -1,0 +1,24 @@
+error: externally-managed-environment
+
+× This environment is externally managed
+╰─> This command has been disabled as it tries to modify the immutable
+    `/nix/store` filesystem.
+    
+    To use Python with Nix and nixpkgs, have a look at the online documentation:
+    <https://nixos.org/manual/nixpkgs/stable/#python>.
+
+note: If you believe this is a mistake, please contact your Python installation or OS distribution provider. You can override this, at the risk of breaking your Python installation or OS, by passing --break-system-packages.
+hint: See PEP 668 for the detailed specification.
+Traceback (most recent call last):
+  File "/home/runner/workspace/artifacts/stock-scanner-api/tools/t003_pw_rotate_verify.py", line 21, in <module>
+    import bcrypt
+ModuleNotFoundError: No module named 'bcrypt'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/runner/workspace/artifacts/stock-scanner-api/tools/t003_pw_rotate_verify.py", line 24, in <module>
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "bcrypt", "-q"])
+  File "/nix/store/6334pjf6w2q623rgvwi499qaiym1p6yv-python3-3.11.14/lib/python3.11/subprocess.py", line 413, in check_call
+    raise CalledProcessError(retcode, cmd)
+subprocess.CalledProcessError: Command '['/home/runner/workspace/.pythonlibs/bin/python3', '-m', 'pip', 'install', 'bcrypt', '-q']' returned non-zero exit status 1.

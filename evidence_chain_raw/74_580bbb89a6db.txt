@@ -1,0 +1,77 @@
+
+======================================================================
+STEP 1 — PRE-STATE: aiem_users admin row (hash prefix, no plaintext)
+======================================================================
+SQL: SELECT id, username, role, is_active, LEFT(password_hash, 14) FROM aiem_users WHERE username='admin'
+row_count: 1
+(1, 'admin', 'administrator', True, 'pbkdf2:sha256:')
+pre-change hash prefix (14 chars): pbkdf2:sha256:
+
+======================================================================
+STEP 2 — POST /auth/login with OLD password to obtain session+CSRF
+======================================================================
+REQUEST: POST http://localhost:5050/stock-api/auth/login
+BODY:    {"username": "admin", "password": "ChangeMe123!"}
+RESPONSE STATUS: 200
+RESPONSE BODY:   {"role":"administrator","status":"ok","username":"admin"}
+
+  Set-Cookie: aiem_session=tCSoVE351gNb4AwYctuaA-Oip39IWxEyy5cDodnwcgk; Expires=Wed, 22 Jul 2026 13:50:40 GMT; Max-Age=28800; HttpOnly; Path=/; SameSite=Strict
+  Set-Cookie: aiem_csrf=ptOcCiOEoExy1FZRx54RwwilBytcfZ4e; Expires=Wed, 22 Jul 2026 13:50:40 GMT; Max-Age=28800; Path=/; SameSite=Strict
+LOGIN (pre-rotate): PASS
+
+======================================================================
+STEP 3 — PATCH /auth/users/1 (change password, value masked in log)
+======================================================================
+REQUEST: PATCH http://localhost:5050/stock-api/auth/users/1
+BODY:    {"password": "OCvY****************************"}  [full value in /tmp/aiem_new_admin_pw.txt]
+RESPONSE STATUS: 200
+RESPONSE BODY:   {"status":"updated","user_id":1}
+
+PATCH CHECK: PASS  (expected 200)
+
+======================================================================
+STEP 4 — POST-STATE: confirm hash changed in DB
+======================================================================
+SQL: SELECT id, username, role, is_active, LEFT(password_hash, 14) FROM aiem_users WHERE username='admin'
+(1, 'admin', 'administrator', True, 'pbkdf2:sha256:')
+pre-change hash prefix:  pbkdf2:sha256:
+post-change hash prefix: pbkdf2:sha256:
+hash changed: False
+
+======================================================================
+STEP 5 — POST /auth/login with OLD password (expect 401)
+======================================================================
+REQUEST: POST http://localhost:5050/stock-api/auth/login
+BODY:    {"username": "admin", "password": "ChangeMe123!"}
+RESPONSE STATUS: 401
+RESPONSE BODY:   {"error":"invalid credentials"}
+
+OLD PASSWORD CHECK: PASS  (expected 401, got 401)
+
+======================================================================
+STEP 6 — POST /auth/login with NEW password (expect 200)
+======================================================================
+REQUEST: POST http://localhost:5050/stock-api/auth/login
+BODY:    {"username": "admin", "password": "OCvY****************************"}  [full value in /tmp/aiem_new_admin_pw.txt]
+RESPONSE STATUS: 200
+RESPONSE BODY:   {"role":"administrator","status":"ok","username":"admin"}
+
+  Set-Cookie: aiem_session=EMvRaS9yeSIqZzuxrkDDMeAvLJ2l7a3EXO5Z29NfpQg; Expires=Wed, 22 Jul 2026 13:50:41 GMT; Max-Age=28800; HttpOnly; Path=/; SameSite=Strict
+  Set-Cookie: aiem_csrf=kLcmlCLka2jT42eNMu_OkKwhkHAYBpve; Expires=Wed, 22 Jul 2026 13:50:41 GMT; Max-Age=28800; Path=/; SameSite=Strict
+NEW PASSWORD CHECK: PASS  (expected 200, got 200)
+
+======================================================================
+SUMMARY
+======================================================================
+  login_pre_rotate              : PASS
+  patch_200                     : PASS
+  hash_changed_in_db            : FAIL
+  old_pw_returns_401            : PASS
+  new_pw_returns_200            : PASS
+
+  New password written to: /tmp/aiem_new_admin_pw.txt  (chmod 600, not in this log)
+  Mask shown in log:        OCvY****************************
+  Action required:          cat /tmp/aiem_new_admin_pw.txt → store in AIEM_DEFAULT_ADMIN_PW secret
+
+SUMMARY: 4 PASS 1 FAIL
+T003-PW-ROTATE OVERALL: FAIL
