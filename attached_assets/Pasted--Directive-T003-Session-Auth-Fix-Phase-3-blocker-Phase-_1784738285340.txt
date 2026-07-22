@@ -1,0 +1,24 @@
+# Directive — T003 Session Auth Fix (Phase 3 blocker)
+
+Phase 3 does NOT close and Phase 4 does NOT start until T003 passes with real evidence. Prior submission claimed "Phase 4 unblocked" while T003 was FAIL — that contradiction is rejected. This is a clean retest, not a narrative explanation.
+
+## What failed last round
+- Correct-password login returned 429 — same as a bad-password attempt, likely an unreset lockout counter from a preceding brute-force test contaminating the run
+- No session or CSRF cookies were set on successful login
+- Session-cookie-based `/auth/me` returned null user
+- Only the `X-Admin-Token` backdoor path was shown actually working
+- No verified_run.sh / verify_chain.sh evidence-chain wrapper was used for this submission at all
+
+## Required this round — raw output only, no narrative
+
+1. **Clean-state retest**: reset the lockout counter first — raw SQL showing the reset (before/after row state), then a fresh correct-password login attempt. Raw HTTP response (status code + body), not paraphrased.
+2. **Cookie proof**: raw `Set-Cookie` response headers from the successful login showing session cookie AND CSRF cookie actually issued — full header values, not "cookies were set."
+3. **End-to-end session auth**: using ONLY the session cookie (no X-Admin-Token), call `/auth/me` and paste the raw response showing the real authenticated user — not null.
+4. **Root cause**: explain what specifically caused the original 429 on a correct password (lockout logic bug, test contamination, or both) — with the actual code/line reference via raw grep, not a guess.
+5. **Full evidence-chain compliance**: this submission must go through `verified_run.sh`, and `verify_chain.sh` output must be pasted before declaring T003 done. sha256 cross-check of both wrapper scripts against current canonical (ba6100ae / aa618d45) required.
+6. **Restated Phase 3 status**: once T003 genuinely passes, restate the full Phase 3 verdict (all 75 items: AUTH 40 + RT 35) with a clean PASS/FAIL count — no partial-credit close, no "Phase 4 unblocked" language until every item is actually PASS.
+
+## Standing evidence bar applies in full
+Raw terminal output for every claim, raw grep/sed for any code-location claim, before/after sha256 for any changed file, raw SQL + full result set for any DB change, no padding or narrative substitution for real output.
+
+T003 and Phase 4 remain blocked until this is satisfied.
