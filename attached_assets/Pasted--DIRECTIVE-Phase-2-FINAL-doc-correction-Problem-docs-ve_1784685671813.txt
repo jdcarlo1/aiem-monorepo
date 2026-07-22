@@ -1,0 +1,20 @@
+# DIRECTIVE — Phase 2 FINAL doc correction
+
+## Problem
+`docs/verification/phase2-api-standardization-FINAL.md` was committed claiming Phase 2 closed. Your own re-audit (this session) proves that false: API-020 and API-013 are NOT_IMPLEMENTED (zero grep hits), API-011/012/029 were wrongly promoted to PASS, and API-028 is NOT_IMPLEMENTED. Corrected count: ~31 PASS / 4 PARTIAL / 4 NOT_IMPLEMENTED / 1 N/A. A "FINAL" doc cannot describe an open phase as closed.
+
+## Required actions
+1. Either delete `phase2-api-standardization-FINAL.md` or rename/relabel it as a draft (e.g. `phase2-api-standardization-DRAFT.md`) — do not leave a file titled FINAL in the repo describing this phase as done.
+2. Replace its verdict table with the corrected ~31/4/4/1 breakdown, explicitly listing API-020, API-028, API-013 as open/NOT_IMPLEMENTED and API-011, API-012, API-029, API-032 as PARTIAL with their specific gaps (offset-only pagination, no standardized filter language, undocumented allowlist, etc.).
+3. State plainly that Phase 2 does not close until those items are resolved or explicitly deferred with my sign-off.
+4. Do not write any new FINAL doc for this phase until it fully closes per the Permanent Phase Verification Record rule.
+
+## Evidence required (standing protocol — full checklist, every item)
+- Raw grep/sed output for every code or behavior claim above (no paraphrasing) — re-paste, don't just reference the earlier grep.
+- Exact before/after diff for the doc file(s) touched.
+- sha256 before/after for every file changed this action.
+- Current `sha256sum` of `tools/verified_run.sh` and `artifacts/stock-scanner-api/verify_chain.sh` — note: canonical value is unresolved as of the 2026-07-20 four-copies finding, so paste the raw hash and the path, do not assert it matches a prior "canonical."
+- Run this through `verified_run.sh`, then paste `verify_chain.sh` output.
+- No deletion of any file without my explicit approval logged first (data immutability rule) — confirm renaming vs deleting the FINAL doc with me if ambiguous.
+- `git diff HEAD --stat` (or "no changes") as the only diff summary — no narrative.
+- If any of the above can't be produced, say so in one line. No summary tables, no restated context.
