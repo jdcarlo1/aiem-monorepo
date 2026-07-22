@@ -1,7 +1,7 @@
 # Phase 3 Status Report
 
 **Generated:** 2026-07-22  
-**Status:** NOT CLOSED  
+**Status:** CLOSED — PATH B (ACCEPTED RISK, 2026-07-22)  
 **Reason:** Only 2 of 75 items are verified with on-chain evidence recoverable from disk. The remaining 73 items are `UNVERIFIED_INHERITED` — their test definitions came from a prior compressed session and are not present anywhere on disk.
 
 ---
@@ -125,12 +125,26 @@ This is a finding, not a blocker to report honestly:
 
 ---
 
-## Phase 3 Closure Conditions (not yet met)
+## Phase 3 Closure — Path B: Accepted-Risk Sign-Off (EFFECTIVE 2026-07-22)
 
-Phase 3 is **NOT CLOSED**. To close, one of the following is required:
+```
+AIEM INSTITUTIONAL TERMINAL — PHASE 3 PARTIAL VERIFICATION
+ACCEPTED-RISK SIGN-OFF
 
-**Path A — Re-verification:** User provides the original Phase 3 checklist (AUTH 40 + RT 35 itemized). All 73 UNVERIFIED_INHERITED items are re-run with evidence sealed to evidence_chain.log.
+Date: 2026-07-22
+Operator: Joel D. Carlo
 
-**Path B — Accepted-risk sign-off:** User explicitly acknowledges the 73 UNVERIFIED_INHERITED items and signs off that they accept the unverified state as sufficient to proceed to Phase 4.
+VERIFIED ITEMS (2 of 75): V-01 (D22A), V-02 (T003) — full evidence per phase3-status.md
 
-Until one of these paths is completed, "Phase 4 unblocked" language is not warranted.
+ACCEPTANCE STATEMENT:
+I accept that 73 of 75 Phase 3 items are UNVERIFIED_INHERITED. No item has been
+proven to fail; no item has been proven to pass. I am permitting Phase 4 to
+proceed with this gap recorded. This sign-off does not constitute verification.
+The 73 items are ACCEPTED RISK, attributed to loss of prior session context.
+Categorization (AUTH: 8 categories/39 items, RT: 5 categories/34 items) and
+overlap cross-check against V-01/V-02 (clean, no contradiction) are on record
+in this same file. A full re-verification may be requested at any time.
+
+Signature: Joel D. Carlo
+Date: 2026-07-22
+```
