@@ -1,0 +1,33 @@
+=== C1: startup catchup block in main.py ===
+grep: artifacts/stock-scanner-api/main.py: No such file or directory
+grep result: 
+FAIL C1: startup_catchup block NOT found in main.py
+=== C2: recovery window condition in catchup ===
+grep: artifacts/stock-scanner-api/main.py: No such file or directory
+grep result: 
+FAIL C2: recovery window condition NOT found
+=== C3: record_job_success wired in catchup ===
+grep: artifacts/stock-scanner-api/main.py: No such file or directory
+grep result: 
+FAIL C3: record_job_success not found in catchup block range
+=== C4: job_heartbeats — today's morning scan success ===
+DB result: last_success=2026-07-22 15:28:39.348952  consec_failures=0
+PASS C4: job_heartbeats shows today (2026-07-22) success for aiem_morning_scan
+=== C5: watchdog staleness — elapsed < 26h ===
+elapsed hours since last_success: 0.04h
+PASS C5: elapsed 0.04h < 26h threshold — watchdog will NOT flag STALE
+=== C6: negative control — other watchdog jobs ===
+grep: artifacts/stock-scanner-api/main.py: No such file or directory
+Monitored jobs:
+
+FAIL C6: expected >=3 jobs in _JOB_STALENESS_HOURS, got 1
+=== C7: CronTrigger timezone=_ET present ===
+grep: artifacts/stock-scanner-api/main.py: No such file or directory
+grep result: 
+FAIL C7: CronTrigger timezone=_ET NOT found — may have UTC bug
+=== C8: watchdog uses utcnow() ===
+grep: artifacts/stock-scanner-api/main.py: No such file or directory
+grep result: 
+FAIL C8: utcnow() not found in check_job_health — watchdog tz may be wrong
+
+=== D24 RESULT: PASS=2 FAIL=6 ===

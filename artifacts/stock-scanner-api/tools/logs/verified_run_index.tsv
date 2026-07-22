@@ -58,3 +58,6 @@
 74	2026-07-22T15:03:05Z	1	181998a7fefc09525be41bb99e1e1ac6b14b30382eb39303dab2ee04ac8f1159	bash tools/verify_d23_varchar_fix.sh
 75	2026-07-22T15:05:08Z	1	f0df60b25f850ba2b3e05acd7aecbbdb751ff85a8ee3ab0c9f8d404418cf1cb3	bash tools/verify_d23_varchar_fix.sh
 76	2026-07-22T15:06:00Z	0	ee55de19a4da0df641be7bf79a34261c96fbc7cdb397b866911c6bac78c52517	bash tools/verify_d23_varchar_fix.sh
+77	2026-07-22T15:30:17Z	127	cda1733ce92ee5c5c607091c5adcb2a73a94ced9a1bc587fca25574a9dcad77f	D24_aiem_morning_scan_startup_catchup
+78	2026-07-22T15:30:58Z	1	97b28e15f817cfd5a134288e48bd5e5e84d6378daad106cb8816737217e47b8f	bash tools/verify_d24_morning_scan.sh
+79	2026-07-22T15:33:04Z	0	74f092cc03dc743570d5113bdb84e91132427ad50a1f41a3cf3421470f77242f	bash tools/verify_d24_morning_scan.sh

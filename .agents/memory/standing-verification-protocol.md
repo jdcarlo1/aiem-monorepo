@@ -69,3 +69,14 @@ When a file is known to contain an unapproved destructive statement (DELETE/TRUN
 
 ## Verify-chain.sh native output format (recorded here for reference)
 `entry_hash=<first 16 hex chars>...` is the script's native OK-line format (`stored_hash[:16]` at line 76). Not a display artifact. FAIL/BREAK paths print the full 64-char hash.
+
+## Rule 9 — verified_run.sh calling convention + verifier format (added 2026-07-22)
+Three permanent constraints on evidence-chain sealing:
+
+1. **Single argument**: `bash ../../tools/verified_run.sh "bash tools/verify_XYZ.sh"` — ONE arg only; the command IS the label. Passing a label as arg 1 causes exit 127 (label executed as shell command) and a stray chain entry.
+
+2. **Paths relative to `artifacts/stock-scanner-api/`**: `verified_run.sh` is always invoked via `cd artifacts/stock-scanner-api && bash ../../tools/verified_run.sh ...`. Verifier scripts run in that directory. Any `grep`/`awk` inside a verifier must use `main.py` (not `artifacts/stock-scanner-api/main.py`).
+
+3. **PSV8 SUMMARY format**: PSV8 checks for a line matching `SUMMARY: N PASS  M FAIL` (two spaces before FAIL). Source: `verify_chain.sh:282` → `print(f"SUMMARY: {len(passes)} PASS  {len(fails)} FAIL")`. Verifier must emit exactly this format as its last line before `exit`.
+
+**Why:** D24 sealing produced two stray chain entries (SEQ=77 exit 127, SEQ=78 exit 1) before SEQ=79 (clean 8/8 PASS, 9/9 PSV) due to arg-order and path bugs discovered only at seal time.

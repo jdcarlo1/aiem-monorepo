@@ -1,0 +1,27 @@
+=== C1: startup catchup block in main.py ===
+grep result: 7813:                    print(f"[startup_catchup] aiem_morning_scan missed for {_today_et} "
+PASS C1: startup_catchup contains aiem_morning_scan catch-up block
+=== C2: recovery window condition in catchup ===
+grep result: 7795:            if _dow < 5 and 9 * 60 + 7 <= _hour_min_et < 12 * 60:
+PASS C2: recovery window 9:07-12:00 ET condition present
+=== C3: record_job_success wired in catchup ===
+grep result: 5917:            record_job_success("aiem_morning_scan")
+7820:                            record_job_success("aiem_morning_scan")
+PASS C3: record_job_success(aiem_morning_scan) wired in catchup block
+=== C4: job_heartbeats — today's morning scan success ===
+DB result: last_success=2026-07-22 15:28:39.348952  consec_failures=0
+PASS C4: job_heartbeats shows today (2026-07-22) success for aiem_morning_scan
+=== C5: watchdog staleness — elapsed < 26h ===
+elapsed hours since last_success: 0.07h
+PASS C5: elapsed 0.07h < 26h — watchdog will NOT flag STALE
+=== C6: negative control — _JOB_STALENESS_HOURS ===
+Monitored job count: 9
+PASS C6: found 9 monitored jobs in _JOB_STALENESS_HOURS
+=== C7: CronTrigger timezone=_ET present ===
+grep result: 5923:        CronTrigger(day_of_week="mon-fri", hour=9, minute=7, timezone=_ET),
+PASS C7: aiem_morning_scan CronTrigger has timezone=_ET (no UTC bug)
+=== C8: watchdog uses utcnow() ===
+grep result: 4223:    now = _dt_hc.utcnow()
+PASS C8: check_job_health uses utcnow() — no tz mismatch in STALE calc
+
+SUMMARY: 8 PASS  0 FAIL

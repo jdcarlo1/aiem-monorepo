@@ -7785,6 +7785,45 @@ try:
                     except Exception as _e_uc:
                         print(f"[startup_catchup] unusual-calls error: {_e_uc}")
 
+            # ── AIEM Morning Scan catch-up ──────────────────────────────────────
+            # CronTrigger fires Mon-Fri at 9:07 AM ET.  APScheduler CronTriggers
+            # never replay missed windows — if the process restarted after 9:07 AM
+            # ET (e.g. from nightly os._exit(0) + slow Replit restart, or a VM
+            # memory-pressure kill), that day's run is silently skipped forever.
+            # Recovery window: 9:07 AM – 12:00 PM ET (D24 fix).
+            _hour_min_et = _hour_et * 60 + _now_et.minute
+            if _dow < 5 and 9 * 60 + 7 <= _hour_min_et < 12 * 60:
+                _need_ms = True
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms, \
+                            _c_ms.cursor() as _cur_ms:
+                        _cur_ms.execute("""
+                            SELECT 1 FROM job_heartbeats
+                            WHERE job_name = 'aiem_morning_scan'
+                              AND last_success >= (
+                                date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                AT TIME ZONE 'America/New_York'
+                              ) AT TIME ZONE 'UTC'
+                        """)
+                        if _cur_ms.fetchone():
+                            _need_ms = False
+                except Exception as _exc:
+                    print(f"[silent_except:morning_scan_ck] {type(_exc).__name__}: {_exc}")
+                if _need_ms:
+                    print(f"[startup_catchup] aiem_morning_scan missed for {_today_et} "
+                          f"(now {_now_et.strftime('%H:%M')} ET) — running catch-up")
+                    try:
+                        _ms_fn = globals().get("_run_aiem_morning_scan")
+                        if _ms_fn is not None:
+                            import threading as _ms_thr
+                            _ms_thr.Thread(target=_ms_fn, daemon=True).start()
+                            record_job_success("aiem_morning_scan")
+                            print("[startup_catchup] aiem_morning_scan catch-up thread launched")
+                        else:
+                            print("[startup_catchup] aiem_morning_scan not yet in globals — skipping")
+                    except Exception as _e_ms:
+                        print(f"[startup_catchup] aiem_morning_scan catch-up error: {_e_ms}")
+
             # ── Microcap (Yahoo) - only during market hours ──────────────────
             # Yahoo throttles aggressively; restrict to 9 AM–5 PM ET on weekdays.
             if _dow < 5 and 9 <= _hour_et < 17:
