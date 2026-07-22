@@ -1700,6 +1700,9 @@ def aiem_nightly_learn():
             INSERT INTO aiem_research_insights
                 (research_date, findings, confidence, session_name, created_at)
             VALUES (%s, %s, %s, 'aiem_process_nightly_learn', NOW())
+            ON CONFLICT (research_date) DO UPDATE
+                SET findings   = aiem_research_insights.findings || E'\\n' || EXCLUDED.findings,
+                    confidence = EXCLUDED.confidence
         """, (today, findings, str(round(updated / max(len(tallies), 1) * 100, 1))))
         conn.commit()
         log.info(f"nightly_learn insight: {findings}")

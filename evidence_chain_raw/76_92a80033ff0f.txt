@@ -1,0 +1,65 @@
+
+======================================================================
+STEP 1 — DELETE any pre-existing row for test_date 2099-12-31
+======================================================================
+DELETE rowcount: 0  (0 or 1 expected)
+
+======================================================================
+STEP 2 — INSERT row A (simulates main.py write for today)
+======================================================================
+SQL: INSERT INTO aiem_research_insights (research_date, findings, ...) VALUES (...)
+     ON CONFLICT (research_date) DO UPDATE SET findings = ... || EXCLUDED.findings
+After step 2: (datetime.date(2099, 12, 31), 'MAIN_PY_FINDING', '75', 'test_main_py')
+STEP 2: PASS
+
+======================================================================
+STEP 3 — INSERT row B with ON CONFLICT (simulates post-fix aiem_process write)
+======================================================================
+SQL: INSERT INTO aiem_research_insights (...) VALUES (...)
+     ON CONFLICT (research_date) DO UPDATE SET findings = old || E'\\n' || new
+No exception raised — INSERT accepted via ON CONFLICT path
+
+======================================================================
+STEP 4 — SELECT and verify merged findings
+======================================================================
+Merged row: (datetime.date(2099, 12, 31), 'MAIN_PY_FINDING\nAIEM_PROCESS_FINDING', '80', 'test_main_py')
+Contains MAIN_PY_FINDING:    True
+Contains AIEM_PROCESS_FINDING: True
+STEP 4: PASS — both contributions visible, no data dropped
+
+======================================================================
+STEP 5 — Re-seed row A, then bare INSERT row B (pre-fix simulation)
+======================================================================
+Row already exists with research_date=2099-12-31. Attempting bare INSERT:
+SQL: INSERT INTO aiem_research_insights (...) VALUES (...)  -- no ON CONFLICT
+Exception type: UniqueViolation
+Exception msg:  ERROR:  duplicate key value violates unique constraint "aiem_research_insights_research_date_key"
+DETAIL:  Key (research_date)=(2099-12-31) already exists.
+
+Rolled back (correct — pre-fix code would have silently swallowed this)
+
+======================================================================
+STEP 6 — Confirm exception type
+======================================================================
+bare_exc is UniqueViolation: True
+STEP 6: PASS — proves pre-fix bare INSERT would have failed and silently dropped
+
+======================================================================
+STEP 7 — Cleanup test row
+======================================================================
+DELETE rowcount: 1  (1 expected)
+STEP 7: PASS — test row removed
+
+======================================================================
+SUMMARY
+======================================================================
+  Step 1 (clean slate):            PASS
+  Step 2 (main.py path insert):    PASS
+  Step 3 (post-fix upsert):        PASS  — no exception
+  Step 4 (merge verify):           PASS  — both findings present
+  Step 5 (pre-fix bare insert):    PASS  — UniqueViolation raised
+  Step 6 (exception type check):   PASS  — UniqueViolation confirmed
+  Step 7 (cleanup):                PASS
+
+SUMMARY: 7 PASS 0 FAIL
+T_RESEARCH_INSIGHTS_CONFLICT OVERALL: PASS
