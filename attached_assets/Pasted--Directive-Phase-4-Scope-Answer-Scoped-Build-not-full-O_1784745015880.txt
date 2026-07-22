@@ -1,0 +1,27 @@
+# Directive — Phase 4 Scope Answer + Scoped Build (not full Option B)
+
+## Q1 — Scope confirmed
+OPP-001-060 and TRACE-001-060 are scoped to the **D1/D2/D3 paper-trade path only**. Do not use Options Engine (oe_*) evidence to satisfy any item — Terminal is isolated from the Options Engine per standing architecture decision. Any item only satisfiable via oe_* data stays NOT_IMPLEMENTED.
+
+## Q2 — Scoped build, not full Option B
+Do NOT seal Phase 4 as-is (Option A) and do NOT build the full missing-infrastructure list (full Option B). Build only this minimum, then re-verify:
+
+1. **Candidate queue table** — persist candidates including rejected/blocked ones (currently only intake survivors are stored). Must capture: rejection reason, rejecting stage, timestamp.
+2. **Gating-stage pipeline logging** — log the stages that actually gate a trade decision (data guard, risk gate, drift gate, duplicate filter, final decision) into pipeline_audit_log or equivalent. Do NOT build out all 13+ stages — only the ones that determine trade/no-trade.
+3. **Probability/risk data persistence** — store raw probability, calibrated probability (if it exists), risk-gate result, and execution-cost estimate at decision time, not just compute-and-discard.
+
+## Explicitly OUT of scope for this directive
+- Full replay/reproducibility mechanism (TRACE-054-055 class items)
+- Negative controls for missing-stage/broken-hash-chain (TRACE-056-058 class items)
+- Portfolio optimization, attribution
+- Any Options Engine (oe_*) work
+
+## Evidence bar (standard, full protocol)
+- Raw schema before/after for any new/altered table
+- sha256 before/after for every changed file
+- Raw grep confirming each gating stage's logging call site
+- Item-by-item re-verification against OPP/TRACE numbers after build — no self-granted PASS
+- Explicit updated PASS/PARTIAL/NOT_IMPLEMENTED count when done
+
+## Requires approval before touching code
+Confirm you understand this scope, then wait for explicit go-ahead before writing any code.
