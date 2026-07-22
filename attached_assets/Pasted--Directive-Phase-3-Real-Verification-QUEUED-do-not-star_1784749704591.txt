@@ -1,0 +1,36 @@
+# Directive — Phase 3 Real Verification (QUEUED — do not start until Phase 4 closes)
+
+## Sequencing
+Do NOT begin this directive yet. Finish the Phase 4 scoped build (Directive_Phase4_Scope_and_ScopedBuild.md) first. Once Phase 4 reaches a real PASS, return to this directive to convert Phase 3 from accepted-risk (Path B) to an actual PASS.
+
+## Goal
+Replace the 73 UNVERIFIED_INHERITED items with real behavioral proof — not code-existence grep, actual execution evidence. No item counts as done until it has been actively exercised and the result observed.
+
+## AUTH — 39 items, 8 categories
+1. Credential Handling — real login attempts, valid and invalid credentials, observe actual response
+2. Session Token Lifecycle — create, resolve, revoke exercised end-to-end; confirm expired/revoked sessions actually fail
+3. Cookie Security Properties — inspect real Set-Cookie headers for HttpOnly / Secure / SameSite on both cookies
+4. CSRF Protection — attempt a write on all 4 protected routes without a valid token; confirm blocked; confirm the X-Admin-Token bypass path is intentional and documented, not a hole
+5. Brute-Force/Lockout — trigger 5 real failures, confirm 429, confirm lockout clears on next successful login, test at least one concurrent-request edge case
+6. Authorization/RBAC — call each admin-only route as a non-admin user, confirm 403; call as admin, confirm success
+7. Input Validation — submit each bad-input case (empty password, short password, invalid role, missing fields) and confirm the documented error
+8. Auth Audit Logging — confirm real audit rows are written for login, lockout, and failure events, not just that the logging function exists
+
+## RT — 34 items, 5 categories
+1. SSE Connection Management — actually reach the 100-connection cap, confirm rejection and correct acquire/release symmetry
+2. Per-Connection Auth — connect without auth, confirm 401; test Last-Event-ID reconnect recovery for real
+3. Source-Table Pollers — confirm each of the 7 pollers actually delivers a real event end-to-end
+4. Datetime Handling — confirm no crash/error across all 6 TIMESTAMPTZ-based pollers under real conditions
+5. Event Publication — confirm monotonic ID sequencing and category-filtered retrieval work against real inserted events
+
+## Priority order
+Do CSRF (AUTH-4) and Lockout (AUTH-5) first — flagged as highest real-world exposure in the prior categorization review.
+
+## Evidence bar (standard, full protocol — no exceptions)
+- Raw command/request output for every test, not described behavior
+- sha256 before/after for any code touched to enable testing
+- Negative controls where applicable (prove the block actually blocks, not just that the code path exists)
+- No self-granted PASS — item-by-item verdict only after actual execution evidence is shown
+
+## Close-out requirement
+Full PASS only when all 73 items have real execution evidence — no partial-credit close, no remaining UNVERIFIED_INHERITED label. Only then does Phase 3 convert from accepted-risk to verified PASS.
