@@ -1,3 +1,4 @@
+- [OSS write-once guard](options-oss-write-once.md) — options_structure_scan DO NOTHING; first write per (ticker,scan_date) permanent; corrections require explicit DELETE+re-insert
 - [Paper pick candidate gates](paper-pick-candidate-gates.md) — NO_CANDIDATES root causes: test positions filling cap, d3_strategy_registry missing sources, unusual_calls DISTINCT ON, polygon rvol threshold, PENDING dead-state in try_claim
 - [AIEM Dashboard Phase A Inventory](aiem-dashboard-phase-a.md) — 9 files at project root; 333 routes/580 tables/239 modules; 5 critical missing routes; oe_decision_audit (341 rows) has NO API route; polling sufficient for Phase B
 - [Options scheduler fire freeze](options-scheduler-fire-freeze.md) — freeze on scheduler+paper_recovery until after 09:45 ET 2026-07-22; raw evidence required before any commentary; current state at freeze documented

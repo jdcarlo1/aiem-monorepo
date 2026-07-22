@@ -399,16 +399,7 @@ def save_to_db(results: list, conn) -> int:
                          pc_skew_pp, pc_skew_tag, term_ratio, term_tag,
                          front_iv, back_iv, calls_analyzed, puts_analyzed, updated_at)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
-                    ON CONFLICT (ticker, scan_date) DO UPDATE SET
-                        spot=EXCLUDED.spot, gex_m=EXCLUDED.gex_m,
-                        gex_regime=EXCLUDED.gex_regime,
-                        gamma_flip_price=EXCLUDED.gamma_flip_price,
-                        pc_skew_pp=EXCLUDED.pc_skew_pp, pc_skew_tag=EXCLUDED.pc_skew_tag,
-                        term_ratio=EXCLUDED.term_ratio, term_tag=EXCLUDED.term_tag,
-                        front_iv=EXCLUDED.front_iv, back_iv=EXCLUDED.back_iv,
-                        calls_analyzed=EXCLUDED.calls_analyzed,
-                        puts_analyzed=EXCLUDED.puts_analyzed,
-                        updated_at=NOW()
+                    ON CONFLICT (ticker, scan_date) DO NOTHING
                 """, (
                     r["ticker"], today,
                     r.get("spot"), r.get("gex_m"), r.get("gex_regime"),
