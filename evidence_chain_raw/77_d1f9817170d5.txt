@@ -1,0 +1,81 @@
+
+=== C1/C2: Source grep — all directive-scoped CronTrigger calls ===
+  CronTrigger calls WITH timezone=ET: 16
+    1742:    sched.add_job(aiem_warmup, CronTrigger(day_of_week="mon-fri", hour=6, minute=55, timezone=ET),
+    1747:                  CronTrigger(day_of_week="mon-fri", hour="7-9", minute="*/15", timezone=ET),
+    1758:                  CronTrigger(day_of_week="mon-fri", hour="9,10", minute="*/5", timezone=ET),
+    1761:                  CronTrigger(day_of_week="mon-fri", hour="11-15", minute="*/15", timezone=ET),
+    1847:                  CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=ET),
+    1852:                  CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=ET),
+    1857:                  CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=ET),
+    1862:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=0, timezone=ET),
+    1876:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=10, timezone=ET),
+    1881:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=15, timezone=ET),
+    1895:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=30, timezone=ET),
+    1900:                  CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=ET),
+    1944:            CronTrigger(day_of_week="mon-fri", hour=_h, minute=35, timezone=ET),
+    1952:        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=ET),
+    1970:        CronTrigger(day_of_week="mon-fri", hour=9, minute=36, timezone=ET),
+    1976:        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=ET),
+  [PASS] C1_at_least_12_triggers_have_timezone_ET  found 16
+
+  CronTrigger calls WITHOUT timezone= (all):
+    [MISSING-TZ] 1742:    sched.add_job(aiem_warmup, CronTrigger(day_of_week="mon-fri", hour=6, minute=55, timezone=ET),
+    [MISSING-TZ] 1747:                  CronTrigger(day_of_week="mon-fri", hour="7-9", minute="*/15", timezone=ET),
+    [MISSING-TZ] 1758:                  CronTrigger(day_of_week="mon-fri", hour="9,10", minute="*/5", timezone=ET),
+    [MISSING-TZ] 1761:                  CronTrigger(day_of_week="mon-fri", hour="11-15", minute="*/15", timezone=ET),
+    [MISSING-TZ] 1847:                  CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=ET),
+    [MISSING-TZ] 1852:                  CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=ET),
+    [MISSING-TZ] 1857:                  CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=ET),
+    [MISSING-TZ] 1862:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=0, timezone=ET),
+    [MISSING-TZ] 1876:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=10, timezone=ET),
+    [MISSING-TZ] 1881:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=15, timezone=ET),
+    [MISSING-TZ] 1895:                  CronTrigger(day_of_week="mon-fri", hour=17, minute=30, timezone=ET),
+    [MISSING-TZ] 1900:                  CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=ET),
+    [OUT-OF-SCOPE/import] 1916:                  CronTrigger(hour=3, minute=2),
+    [MISSING-TZ] 1944:            CronTrigger(day_of_week="mon-fri", hour=_h, minute=35, timezone=ET),
+    [MISSING-TZ] 1952:        CronTrigger(day_of_week="mon-fri", hour=16, minute=10, timezone=ET),
+    [MISSING-TZ] 1970:        CronTrigger(day_of_week="mon-fri", hour=9, minute=36, timezone=ET),
+    [MISSING-TZ] 1976:        CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=ET),
+  [FAIL] C2_no_directive_scoped_trigger_missing_timezone  16 triggers missing timezone in scope
+
+=== C3: Nightly reset trigger (hour=3,min=2) — explicitly out-of-scope ===
+  Found 1 nightly-reset trigger(s):
+    1916:                  CronTrigger(hour=3, minute=2),
+  [PASS] C3_nightly_reset_is_only_non_ET_trigger  exactly 1 non-ET trigger (nightly reset, out-of-scope)
+
+=== C4/C5: APScheduler probe — next fire times with timezone=ET ===
+  probe_utc: 2026-07-22T14:41:50.990572+00:00
+  probe_et:  2026-07-22T10:41:50.990572-04:00
+
+  job_id                           next_fire_et                     tz_in_trigger        offset_ok
+  -----------------------------------------------------------------------------------------------
+  aiem_open_watcher_primary        2026-07-22 10:45:00-04:00        US/Eastern           OK
+  aiem_open_watcher_catchup        2026-07-22 11:00:00-04:00        US/Eastern           OK
+  aiem_grade_outcomes              2026-07-22 16:30:00-04:00        US/Eastern           OK
+  aiem_grade_t3_t5                 2026-07-22 16:35:00-04:00        US/Eastern           OK
+  aiem_find_missed_runners         2026-07-22 16:45:00-04:00        US/Eastern           OK
+  aiem_pattern_gap_analysis        2026-07-22 17:00:00-04:00        US/Eastern           OK
+  aiem_write_signal_disc           2026-07-22 17:15:00-04:00        US/Eastern           OK
+  aiem_nightly_learn               2026-07-22 18:00:00-04:00        US/Eastern           OK
+  aiem_warmup                      2026-07-23 06:55:00-04:00        US/Eastern           OK
+  aiem_premarket_scan              2026-07-23 07:00:00-04:00        US/Eastern           OK
+  [PASS] C4_all_triggers_fire_with_ET_offset  -04:00 or -05:00 on all next_fire times
+  [PASS] C5_next_fire_hours_match_intended_ET_schedule  warmup@6, grade_outcomes@16, nightly_learn@18
+
+=== C6: verify_chain.sh canonical re-baseline ===
+  file sha256:      aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40
+  canonical (new):  aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40
+  [PASS] C6_verify_chain_sh_matches_new_canonical
+
+=== C7: verified_run.sh canonical ===
+  file sha256:      ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836
+  canonical:        ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836
+  [PASS] C7_verified_run_sh_matches_canonical
+
+========================================================================
+  RESULT: 6/7 checks passed
+SUMMARY: 6 PASS  1 FAIL
+  FAILURES:
+    - C2_no_directive_scoped_trigger_missing_timezone
+========================================================================

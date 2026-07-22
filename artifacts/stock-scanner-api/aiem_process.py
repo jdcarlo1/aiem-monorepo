@@ -1739,12 +1739,12 @@ def main():
     )
 
     # 6:55 AM — warm-up (one Polygon call, builds candidate cache)
-    sched.add_job(aiem_warmup, CronTrigger(day_of_week="mon-fri", hour=6, minute=55),
+    sched.add_job(aiem_warmup, CronTrigger(day_of_week="mon-fri", hour=6, minute=55, timezone=ET),
                   id="aiem_warmup", replace_existing=True)
 
     # 7:00–9:15 AM — premarket scan every 15 min
     sched.add_job(aiem_premarket_scan,
-                  CronTrigger(day_of_week="mon-fri", hour="7-9", minute="*/15"),
+                  CronTrigger(day_of_week="mon-fri", hour="7-9", minute="*/15", timezone=ET),
                   id="aiem_premarket_scan", replace_existing=True)
 
     # 9:30 AM – 3:30 PM — open watcher: every 5 min through 10:30 (primary
@@ -1755,10 +1755,10 @@ def main():
     # outside 9:30-10:30 AM used to cause a PERMANENT miss for that day with
     # no recovery — see _startup_open_watcher_catchup below.
     sched.add_job(aiem_open_watcher,
-                  CronTrigger(day_of_week="mon-fri", hour="9,10", minute="*/5"),
+                  CronTrigger(day_of_week="mon-fri", hour="9,10", minute="*/5", timezone=ET),
                   id="aiem_open_watcher", replace_existing=True)
     sched.add_job(aiem_open_watcher,
-                  CronTrigger(day_of_week="mon-fri", hour="11-15", minute="*/15"),
+                  CronTrigger(day_of_week="mon-fri", hour="11-15", minute="*/15", timezone=ET),
                   id="aiem_open_watcher_catchup_net", replace_existing=True)
 
     # ── Startup full catch-up: handles any restart between 9:00 AM and 3:30 PM.
@@ -1844,22 +1844,22 @@ def main():
 
     # 4:30 PM — grade T1 outcomes
     sched.add_job(aiem_grade_outcomes,
-                  CronTrigger(day_of_week="mon-fri", hour=16, minute=30),
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone=ET),
                   id="aiem_grade_outcomes", replace_existing=True)
 
     # 4:35 PM — grade T3 / T5 outcomes
     sched.add_job(aiem_grade_t3_t5,
-                  CronTrigger(day_of_week="mon-fri", hour=16, minute=35),
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=ET),
                   id="aiem_grade_t3_t5", replace_existing=True)
 
     # 4:45 PM — find missed runners (stocks that ran but AIEM didn't pick)
     sched.add_job(aiem_find_missed_runners,
-                  CronTrigger(day_of_week="mon-fri", hour=16, minute=45),
+                  CronTrigger(day_of_week="mon-fri", hour=16, minute=45, timezone=ET),
                   id="aiem_find_missed_runners", replace_existing=True)
 
     # 5:00 PM — pattern gap analysis (why did we miss?)
     sched.add_job(aiem_pattern_gap_analysis,
-                  CronTrigger(day_of_week="mon-fri", hour=17, minute=0),
+                  CronTrigger(day_of_week="mon-fri", hour=17, minute=0, timezone=ET),
                   id="aiem_pattern_gap_analysis", replace_existing=True)
 
     # 5:10 PM — capture top 100 winners/losers per market cap tier (feeds discovery engine)
@@ -1873,12 +1873,12 @@ def main():
             log.error("[tiered-movers] error: %s", _e)
 
     sched.add_job(_daily_tiered_movers_job,
-                  CronTrigger(day_of_week="mon-fri", hour=17, minute=10),
+                  CronTrigger(day_of_week="mon-fri", hour=17, minute=10, timezone=ET),
                   id="aiem_daily_tiered_movers", replace_existing=True)
 
     # 5:15 PM — write signal discoveries to DB
     sched.add_job(aiem_write_signal_discoveries,
-                  CronTrigger(day_of_week="mon-fri", hour=17, minute=15),
+                  CronTrigger(day_of_week="mon-fri", hour=17, minute=15, timezone=ET),
                   id="aiem_write_signal_discoveries", replace_existing=True)
 
     # 5:30 PM — per-tier discovery cycle (nano/small/mid/large pattern search)
@@ -1892,12 +1892,12 @@ def main():
             log.error("[discovery-cycle] error: %s", _e)
 
     sched.add_job(_discovery_cycle_job,
-                  CronTrigger(day_of_week="mon-fri", hour=17, minute=30),
+                  CronTrigger(day_of_week="mon-fri", hour=17, minute=30, timezone=ET),
                   id="aiem_discovery_cycle", replace_existing=True)
 
     # 6:00 PM — nightly learn (update trust weights, promote hypotheses)
     sched.add_job(aiem_nightly_learn,
-                  CronTrigger(day_of_week="mon-fri", hour=18, minute=0),
+                  CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=ET),
                   id="aiem_nightly_learn", replace_existing=True)
 
     def _nightly_process_reset():
