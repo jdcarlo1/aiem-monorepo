@@ -69116,11 +69116,12 @@ def admin_decision_audit():
 def admin_gate_events():
     """Return oe_gate_events rows for AIEM Institutional Terminal."""
     import hmac as _hmac_ge
-    import psycopg2 as _pg_ge2, os as _os_ge
+    import psycopg2 as _pg_ge2, os as _os_ge, time as _time_ge
 
+    _t0_ge = _time_ge.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_ge.compare_digest(tok, _os_ge.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
 
     ticker    = request.args.get("ticker")
     date_arg  = request.args.get("date")
@@ -69129,10 +69130,17 @@ def admin_gate_events():
     try:
         limit = min(int(request.args.get("limit", 50)), 200)
     except ValueError:
-        return jsonify({"error": "invalid limit"}), 400
+        return jsonify({"error": "invalid limit/offset", "code": "INVALID_PARAM"}), 400
+
+    if date_arg:
+        from datetime import datetime as _dtge
+        try: _dtge.strptime(date_arg, "%Y-%m-%d")
+        except ValueError: return jsonify({"error": "invalid date format", "code": "INVALID_PARAM"}), 400
 
     try:
-        with _pg_ge2.connect(os.environ["DATABASE_URL"]) as conn:
+        with _pg_ge2.connect(os.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
             with conn.cursor() as cur:
                 conds = ["is_test_record = FALSE"]
                 params = []
@@ -69161,22 +69169,25 @@ def admin_gate_events():
                     if row.get("fired_at"):
                         row["fired_at"] = row["fired_at"].isoformat()
                     rows.append(row)
-                return jsonify({"count": total, "limit": limit, "rows": rows})
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_ge.monotonic() - _t0_ge) * 1000)})
     except Exception as _e_ge:
         if "does not exist" in str(_e_ge):
-            return jsonify({"count": 0, "limit": limit, "rows": []}), 200
-        return jsonify({"error": "database unavailable", "detail": str(_e_ge)}), 503
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_ge.monotonic() - _t0_ge) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_ge)}), 503
 
 
 @app.route("/stock-api/admin/council-runs", methods=["GET"])
 def admin_council_runs():
     """Return aiem_specialist_council_runs for AIEM Institutional Terminal."""
     import hmac as _hmac_cr
-    import psycopg2 as _pg_cr2, json as _json_cr, os as _os_cr
+    import psycopg2 as _pg_cr2, json as _json_cr, os as _os_cr, time as _time_cr
 
+    _t0_cr = _time_cr.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_cr.compare_digest(tok, _os_cr.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
 
     ticker   = request.args.get("ticker")
     context  = request.args.get("context")
@@ -69186,10 +69197,17 @@ def admin_council_runs():
         limit  = min(int(request.args.get("limit",  50)), 200)
         offset = max(int(request.args.get("offset",  0)),   0)
     except ValueError:
-        return jsonify({"error": "invalid limit/offset"}), 400
+        return jsonify({"error": "invalid limit/offset", "code": "INVALID_PARAM"}), 400
+
+    if date_arg:
+        from datetime import datetime as _dtcr
+        try: _dtcr.strptime(date_arg, "%Y-%m-%d")
+        except ValueError: return jsonify({"error": "invalid date format", "code": "INVALID_PARAM"}), 400
 
     try:
-        with _pg_cr2.connect(os.environ["DATABASE_URL"]) as conn:
+        with _pg_cr2.connect(os.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
             with conn.cursor() as cur:
                 conds = []
                 params = []
@@ -69226,22 +69244,25 @@ def admin_council_runs():
                         if row.get(fk) is not None:
                             row[fk] = float(row[fk])
                     rows.append(row)
-                return jsonify({"count": total, "limit": limit, "offset": offset, "rows": rows})
+                return jsonify({"count": total, "limit": limit, "offset": offset, "rows": rows,
+                                "elapsed_ms": round((_time_cr.monotonic() - _t0_cr) * 1000)})
     except Exception as _e_cr:
         if "does not exist" in str(_e_cr):
-            return jsonify({"count": 0, "limit": limit, "offset": offset, "rows": []}), 200
-        return jsonify({"error": "database unavailable", "detail": str(_e_cr)}), 503
+            return jsonify({"count": 0, "limit": limit, "offset": offset, "rows": [],
+                            "elapsed_ms": round((_time_cr.monotonic() - _t0_cr) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_cr)}), 503
 
 
 @app.route("/stock-api/admin/position-sizing-log", methods=["GET"])
 def admin_position_sizing_log():
     """Return aiem_position_sizing_log for AIEM Institutional Terminal."""
     import hmac as _hmac_ps
-    import psycopg2 as _pg_ps2, os as _os_ps
+    import psycopg2 as _pg_ps2, os as _os_ps, time as _time_ps
 
+    _t0_ps = _time_ps.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_ps.compare_digest(tok, _os_ps.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
 
     ticker         = request.args.get("ticker")
     date_arg       = request.args.get("date")
@@ -69251,16 +69272,23 @@ def admin_position_sizing_log():
     try:
         limit = min(int(request.args.get("limit", 50)), 200)
     except ValueError:
-        return jsonify({"error": "invalid limit"}), 400
+        return jsonify({"error": "invalid limit/offset", "code": "INVALID_PARAM"}), 400
+
+    if date_arg:
+        from datetime import datetime as _dtps
+        try: _dtps.strptime(date_arg, "%Y-%m-%d")
+        except ValueError: return jsonify({"error": "invalid date format", "code": "INVALID_PARAM"}), 400
 
     try:
-        with _pg_ps2.connect(os.environ["DATABASE_URL"]) as conn:
+        with _pg_ps2.connect(os.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
             with conn.cursor() as cur:
                 conds = []
                 params = []
                 if paper_trade_id:
                     try: conds.append("paper_trade_id = %s"); params.append(int(paper_trade_id))
-                    except ValueError: return jsonify({"error": "invalid paper_trade_id"}), 400
+                    except ValueError: return jsonify({"error": "invalid paper_trade_id", "code": "INVALID_PARAM"}), 400
                 if ticker:
                     conds.append("ticker = %s"); params.append(ticker)
                 if date_arg:
@@ -69292,11 +69320,13 @@ def admin_position_sizing_log():
                         if row.get(num_col) is not None:
                             row[num_col] = float(row[num_col])
                     rows.append(row)
-                return jsonify({"count": total, "limit": limit, "rows": rows})
+                return jsonify({"count": total, "limit": limit, "rows": rows,
+                                "elapsed_ms": round((_time_ps.monotonic() - _t0_ps) * 1000)})
     except Exception as _e_ps:
         if "does not exist" in str(_e_ps):
-            return jsonify({"count": 0, "limit": limit, "rows": []}), 200
-        return jsonify({"error": "database unavailable", "detail": str(_e_ps)}), 503
+            return jsonify({"count": 0, "limit": limit, "rows": [],
+                            "elapsed_ms": round((_time_ps.monotonic() - _t0_ps) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_ps)}), 503
 
 
 @app.route("/stock-api/admin/evidence-chain/status", methods=["GET"])
@@ -69307,7 +69337,7 @@ def admin_evidence_chain_status():
 
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_ec.compare_digest(tok, _os_ec.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
 
     chain_path = _os_ec.path.join(_os_ec.path.dirname(__file__), "evidence_chain.log")
     try:
@@ -69324,9 +69354,9 @@ def admin_evidence_chain_status():
             "chain_path": "evidence_chain.log"
         })
     except FileNotFoundError:
-        return jsonify({"error": "chain file not found", "seq": 0}), 404
+        return jsonify({"error": "chain file not found", "code": "NOT_FOUND", "seq": 0}), 404
     except Exception as _e_ec:
-        return jsonify({"error": str(_e_ec)}), 503
+        return jsonify({"error": str(_e_ec), "code": "DB_ERROR"}), 503
 
 
 @app.route("/stock-api/admin/signal-discoveries", methods=["GET"])
