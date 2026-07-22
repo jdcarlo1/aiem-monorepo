@@ -43,19 +43,4 @@ jobs:
 
           echo "Response: ${RESPONSE}"
 
-          echo "${RESPONSE}" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    print('ERROR: non-JSON response')
-    sys.exit(1)
-status = d.get('status', 'UNKNOWN')
-print(f'Pipeline status: {status}')
-print(f'Summary: {d.get(\"summary\",\"\")}')
-for line in d.get('log_tail', [])[-10:]:
-    print(f'  {line}')
-if 'error' in d:
-    print(f'ERROR: {d[\"error\"]}')
-    sys.exit(1)
-"
+          echo "${RESPONSE}" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); s=d.get('status','UNKNOWN'); print('Pipeline status: '+s); print('Summary: '+str(d.get('summary',''))); [print('  '+str(l)) for l in d.get('log_tail',[])[-10:]]; sys.exit(1 if 'error' in d else 0)"
