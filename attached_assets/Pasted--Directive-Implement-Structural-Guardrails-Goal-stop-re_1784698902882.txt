@@ -1,0 +1,40 @@
+# Directive — Implement Structural Guardrails
+
+Goal: stop relying on manual review to catch duplicate files, hash drift, and untested end-to-end flows. These checks must block bad states automatically, not just get reported after the fact.
+
+## Files provided (integrate as-is, adjust paths to match actual repo layout)
+- `guardrails/check_duplicate_files.sh` — fails if any protected filename exists at >1 path
+- `guardrails/canonical_hashes.json` — single source of truth for expected file hashes
+- `guardrails/verify_canonical_hashes.sh` — fails on any drift from the registry
+- `guardrails/pre-commit` — local git hook wiring both checks before every commit
+- `.github/workflows/verification-ci.yml` — CI pipeline, blocks merge on failure, runs nightly too
+
+## Required actions
+
+1. **Install the pre-commit hook**
+   `cp guardrails/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit`
+   Prove it works: intentionally create a second copy of a protected file, attempt a commit, show it gets blocked, then remove the copy and show a clean commit succeeds.
+
+2. **Populate `PROTECTED_FILES` in `check_duplicate_files.sh`**
+   Add every file that has ever had a duplicate-copy incident (verified_run.sh, verify_chain.sh already included) plus any other file where a single canonical copy matters.
+
+3. **Populate `canonical_hashes.json` from ground truth**
+   Raw `sha256sum` of the actual current on-disk files, cross-checked against git log, not against chat history or memory. Paste the raw output used to populate each entry.
+
+4. **Wire the CI workflow to the real project**
+   Replace the two `TODO` steps (dependency install, test runner invocation) with the actual commands. The test-suite job must fail the workflow on any test failure — no soft-pass, no "warnings only."
+
+5. **Add an end-to-end auth test** (the specific gap that caused today's T003 failure)
+   A real test: log in with valid credentials in a clean state → capture the session cookie from the response → use it on a protected route → assert 200 with the correct user/role. This test must exist in the suite the CI job runs, not just as a manual curl check in a report.
+
+6. **Prove the CI pipeline actually blocks**
+   Open a throwaway PR that deliberately breaks one guardrail (e.g. commits a duplicate file, or a stale hash). Show the workflow run failing and the merge being blocked. Then fix it and show the workflow passing. Raw links/output for both runs.
+
+## Evidence required to close this directive
+- Raw hook-blocking demo (step 1)
+- Raw sha256sum output used to populate the registry (step 3)
+- Full CI workflow YAML as actually committed (not paraphrased)
+- Two CI run results: one failing (deliberate break), one passing (fixed) — links or full raw log output
+- Confirmation the new e2e auth test is in the suite and was run (raw test output)
+
+No narrative summaries in place of the above. If any item can't be done yet (e.g. no CI runner configured), state that plainly rather than describing what it would look like.
