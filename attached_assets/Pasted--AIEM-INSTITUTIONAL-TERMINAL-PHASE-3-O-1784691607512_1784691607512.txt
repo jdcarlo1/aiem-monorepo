@@ -1,0 +1,117 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 3 OF 12
+SECTION 4: AUTHENTICATION & ROLE-BASED ACCESS (AUTH-001–040)
+SECTION 5: REAL-TIME EVENT DELIVERY (RT-001–035)
+============================================================
+
+SECTION 4 — AUTHENTICATION & ROLE-BASED ACCESS
+
+AUTH-001 Shared authentication is replaced or formally restricted.
+AUTH-002 Viewer role implemented.
+AUTH-003 Trader role implemented.
+AUTH-004 Analyst role implemented.
+AUTH-005 Risk Manager role implemented.
+AUTH-006 Auditor role implemented.
+AUTH-007 Administrator role implemented.
+AUTH-008 Institutional Due-Diligence Viewer role implemented.
+AUTH-009 Authentication validated server-side.
+AUTH-010 Role claims validated server-side.
+AUTH-011 Frontend routes protected.
+AUTH-012 Backend endpoints protected.
+AUTH-013 Frontend button hiding is not authorization.
+AUTH-014 Session expiration implemented.
+AUTH-015 Expired sessions rejected.
+AUTH-016 Logout invalidates session.
+AUTH-017 Secure token storage.
+AUTH-018 Secure cookies where applicable.
+AUTH-019 Cookie Secure flag configured.
+AUTH-020 Cookie HttpOnly configured.
+AUTH-021 Cookie SameSite configured.
+AUTH-022 CSRF protection implemented.
+AUTH-023 Export permissions enforced.
+AUTH-024 Scheduler controls protected.
+AUTH-025 Paper-trading controls protected.
+AUTH-026 Risk controls protected.
+AUTH-027 User management restricted.
+AUTH-028 Operational logs protected.
+AUTH-029 Version metadata protected.
+AUTH-030 Administrative actions audit logged.
+AUTH-031 Unauthorized access returns correct HTTP status.
+AUTH-032 Wrong-role access returns correct HTTP status.
+AUTH-033 Missing authentication returns correct HTTP status.
+AUTH-034 Invalid token returns correct HTTP status.
+AUTH-035 Expired token returns correct HTTP status.
+AUTH-036 Brute-force protection enabled.
+AUTH-037 Login rate limiting enabled.
+AUTH-038 Authentication failures logged.
+AUTH-039 Privilege changes logged.
+AUTH-040 Session revocation verified.
+
+SECTION 5 — REAL-TIME EVENT DELIVERY
+
+RT-001 Critical events use SSE or WebSockets.
+RT-002 Decision events stream live.
+RT-003 Candidate events stream live.
+RT-004 Paper-trade events stream live.
+RT-005 Paper-order events stream live.
+RT-006 Fill events stream live.
+RT-007 Rejected-order events stream live.
+RT-008 Portfolio-risk events stream live.
+RT-009 System-health events stream live.
+RT-010 Audit events stream live.
+RT-011 Alert events stream live.
+RT-012 Scheduler failures stream live.
+RT-013 Provider failures stream live.
+RT-014 Evidence-chain failures stream live.
+RT-015 Authenticated real-time connections.
+RT-016 Role-based event authorization.
+RT-017 Automatic reconnect.
+RT-018 Exponential reconnect backoff.
+RT-019 Last-event ID supported.
+RT-020 Missed-event recovery.
+RT-021 Duplicate-event suppression.
+RT-022 Ordered sequence numbers.
+RT-023 Heartbeat messages.
+RT-024 Stale connection detection.
+RT-025 Server cleanup of disconnected clients.
+RT-026 Connection limits enforced.
+RT-027 Event retention documented.
+RT-028 Event schema versioned.
+RT-029 Polling only as fallback.
+RT-030 Forced-disconnect recovery verified.
+RT-031 Backend restart recovery verified.
+RT-032 Duplicate-event negative control passes.
+RT-033 Out-of-order-event negative control passes.
+RT-034 Missed-event negative control passes.
+RT-035 Unauthorized stream rejected.
+
+PHASE 3 GATES PHASE 4.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.
