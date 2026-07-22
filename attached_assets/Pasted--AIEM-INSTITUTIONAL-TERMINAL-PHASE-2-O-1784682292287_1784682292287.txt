@@ -1,0 +1,76 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 2 OF 12
+SECTION 3: API STANDARDIZATION (API-001–040)
+============================================================
+
+API-001 Terminal API documented.
+API-002 /api/v1/terminal or compatibility layer exists.
+API-003 OpenAPI specification exists.
+API-004 Endpoint paths documented.
+API-005 HTTP methods documented.
+API-006 Authentication documented.
+API-007 Roles documented.
+API-008 Parameters documented.
+API-009 Validation documented.
+API-010 Response schema documented.
+API-011 Pagination documented.
+API-012 Filtering documented.
+API-013 Sorting documented.
+API-014 Freshness documented.
+API-015 Source tables documented.
+API-016 Operating mode documented.
+API-017 Verification status documented.
+API-018 Structured errors implemented.
+API-019 Version documented.
+API-020 Deprecation policy documented.
+API-021 Frontend/API schema-contract tests exist.
+API-022 Frontend/backend field mismatches fail automated testing.
+API-023 Response fields are schema validated.
+API-024 Numeric parameters reject invalid values.
+API-025 Date parameters reject invalid values.
+API-026 Boolean parameters reject invalid values.
+API-027 Pagination limits are enforced.
+API-028 Sorting fields use an allowlist.
+API-029 Filtering fields use an allowlist.
+API-030 SQL queries are parameterized.
+API-031 Statement timeouts are configured.
+API-032 Request timeouts are configured.
+API-033 Endpoint latency is recorded.
+API-034 API counts reconcile with SQL.
+API-035 Every endpoint passes live HTTP testing.
+API-036 Missing authentication tests exist.
+API-037 Wrong-role authorization tests exist.
+API-038 Malformed input tests exist.
+API-039 Empty-result tests exist.
+API-040 Stale-data tests exist.
+
+PHASE 2 GATES PHASE 3.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.
