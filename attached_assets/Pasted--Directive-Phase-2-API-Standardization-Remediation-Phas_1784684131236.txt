@@ -1,0 +1,25 @@
+# Directive — Phase 2 API Standardization Remediation
+
+Phase 2 verdict: 3 PASS / 6 PARTIAL / 31 NOT_IMPLEMENTED. Does not close. Fix below, in order. Standing verification protocol applies to every item — raw evidence, no fabrication, no marking PASS without live proof.
+
+## 1. Terminal API spec (unblocks API-001–017)
+- Create a new file for the Terminal API — do NOT edit lib/api-spec/openapi.yaml (that file is the NCLEX Prep API spec, unrelated product; confirmed via title field).
+- Document all 5 Terminal routes (decision-audit, gate-events, council-runs, position-sizing-log, evidence-chain/status) plus health: paths, methods, auth requirement, params, response schema, pagination, filtering, error shapes.
+- Re-run API-001–017 against the new file.
+
+## 2. Automated test suite (unblocks API-021, 022, 033, 036–040)
+- Zero test files exist anywhere in the codebase — confirmed by repeated find with no output.
+- Build a real test suite covering: auth enforcement (missing/wrong token), malformed input (bad limit/date), empty-result handling, stale-data detection, latency recording.
+- Live-confirmed behaviors from this audit (403 on no auth, 400 on bad limit/date) should become the first test cases — don't re-derive from scratch.
+
+## 3. Terminal-route-specific gaps
+- API-031: add statement_timeout to all 5 Terminal routes' psycopg2.connect() calls (currently 0 of 5 have it).
+- API-032: add an incoming request timeout (signal.alarm or WSGI middleware) — currently only outgoing HTTP calls have timeouts.
+- API-025: gate-events, council-runs, position-sizing-log pass dates straight to SQL with no validation (decision-audit is the only one that validates) — bring all 4 routes to the same strptime-validation standard.
+- API-018: standardize error response shape across routes — add a code field; currently unauthorized / invalid limit/offset / database unavailable are three different shapes with no shared schema.
+- API-026: boolean params silently fall back to False on invalid input instead of returning 400 (Terminal routes have no boolean params currently, so this is lower priority — only needed if Terminal ever adds one, otherwise applies elsewhere in the API).
+
+## 4. Full endpoint sweep (unblocks API-034, 035)
+- Only 5 Terminal routes + health were tested; 327 other routes untested. Item requires every endpoint — either test all 332, or scope the item explicitly to Terminal-only and document that scoping decision.
+
+Report back per-item with raw evidence (grep/curl/diff output, not narration) and a restated Phase 2 verdict before Phase 3 begins.

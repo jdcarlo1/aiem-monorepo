@@ -69039,11 +69039,12 @@ def _build_bear_tech_signals(close_str, rvol, vpin, hurst, iv):
 def admin_decision_audit():
     """Return oe_decision_audit rows for AIEM Institutional Terminal."""
     import hmac as _hmac_da
-    import psycopg2 as _pg_da2, json as _json_da, os as _os_da
+    import psycopg2 as _pg_da2, json as _json_da, os as _os_da, time as _time_da
 
+    _t0_da = _time_da.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_da.compare_digest(tok, _os_da.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
 
     ticker     = request.args.get("ticker")
     date_arg   = request.args.get("date")
@@ -69055,15 +69056,17 @@ def admin_decision_audit():
         limit  = min(int(request.args.get("limit",  50)), 200)
         offset = max(int(request.args.get("offset",  0)),   0)
     except ValueError:
-        return jsonify({"error": "invalid limit/offset"}), 400
+        return jsonify({"error": "invalid limit/offset", "code": "INVALID_PARAM"}), 400
 
     if date_arg:
         from datetime import datetime as _dta2
         try: _dta2.strptime(date_arg, "%Y-%m-%d")
-        except ValueError: return jsonify({"error": "invalid date format"}), 400
+        except ValueError: return jsonify({"error": "invalid date format", "code": "INVALID_PARAM"}), 400
 
     try:
-        with _pg_da2.connect(os.environ["DATABASE_URL"]) as conn:
+        with _pg_da2.connect(os.environ["DATABASE_URL"],
+                             connect_timeout=5,
+                             options="-c statement_timeout=5000") as conn:
             with conn.cursor() as cur:
                 conds = ["is_test_record = FALSE"]
                 params = []
@@ -69100,11 +69103,13 @@ def admin_decision_audit():
                     if row.get("created_at"):
                         row["created_at"] = row["created_at"].isoformat()
                     rows.append(row)
-                return jsonify({"count": total, "limit": limit, "offset": offset, "rows": rows})
+                return jsonify({"count": total, "limit": limit, "offset": offset, "rows": rows,
+                                "elapsed_ms": round((_time_da.monotonic() - _t0_da) * 1000)})
     except Exception as _e_da:
         if "does not exist" in str(_e_da):
-            return jsonify({"count": 0, "limit": limit, "offset": offset, "rows": []}), 200
-        return jsonify({"error": "database unavailable", "detail": str(_e_da)}), 503
+            return jsonify({"count": 0, "limit": limit, "offset": offset, "rows": [],
+                            "elapsed_ms": round((_time_da.monotonic() - _t0_da) * 1000)}), 200
+        return jsonify({"error": "database unavailable", "code": "DB_ERROR", "detail": str(_e_da)}), 503
 
 
 @app.route("/stock-api/admin/gate-events", methods=["GET"])

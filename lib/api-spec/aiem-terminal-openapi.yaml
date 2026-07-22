@@ -1,0 +1,566 @@
+openapi: 3.1.0
+info:
+  title: AIEM Institutional Terminal API
+  version: 1.0.0
+  description: |
+    Read-only admin API for the AIEM Institutional Terminal dashboard.
+    All /admin/* endpoints require the X-Admin-Token header (HMAC constant-time
+    comparison against ADMIN_TOKEN environment variable).
+    Operating mode: LIVE DATA — all values originate from verified DB tables or
+    signed log files; no calculated or mocked values.
+    Source API server: artifacts/stock-scanner-api/main.py (Flask, werkzeug threaded)
+    Verification status: ACTIVE — routes present and live-tested 2026-07-22.
+
+servers:
+  - url: /stock-api
+    description: Stock API base path (Flask, port 5050 in dev)
+
+tags:
+  - name: health
+    description: Liveness check — no authentication required
+  - name: decisions
+    description: oe_decision_audit — cryptographic decision records
+  - name: gates
+    description: oe_gate_events — governance gate firing events
+  - name: council
+    description: aiem_specialist_council_runs — specialist council votes
+  - name: sizing
+    description: aiem_position_sizing_log — position sizing decisions
+  - name: evidence
+    description: evidence_chain.log — SHA-256 hash chain status
+
+components:
+  securitySchemes:
+    AdminToken:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+      description: |
+        Constant-time HMAC comparison against ADMIN_TOKEN env var.
+        Source: main.py — hmac.compare_digest(tok, os.environ["ADMIN_TOKEN"])
+        Roles: admin only. Public routes (health) require no token.
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "unauthorized"
+        code:
+          type: string
+          enum: [AUTH_REQUIRED, INVALID_PARAM, DB_ERROR]
+          description: |
+            Machine-readable error code.
+            AUTH_REQUIRED — missing or wrong X-Admin-Token (HTTP 403)
+            INVALID_PARAM — bad limit/offset/date value (HTTP 400)
+            DB_ERROR — database unavailable (HTTP 503)
+        detail:
+          type: string
+          description: Optional extended detail (DB_ERROR only)
+
+    PaginationMeta:
+      type: object
+      required: [count, limit, elapsed_ms]
+      properties:
+        count:
+          type: integer
+          description: Total matching rows in the database (from COUNT(*))
+        limit:
+          type: integer
+          description: Rows returned in this response (clamped to 200 max)
+        offset:
+          type: integer
+          description: Row offset used for this page
+        elapsed_ms:
+          type: number
+          description: Server-side query execution time in milliseconds
+
+    DecisionAuditRow:
+      type: object
+      description: One row from oe_decision_audit (source table verified 341 rows)
+      properties:
+        decision_id:
+          type: string
+          description: Unique cryptographic decision identifier
+        parent_id:
+          type: [string, "null"]
+        created_at:
+          type: string
+          format: date-time
+        input_hash:
+          type: string
+        output_hash:
+          type: string
+        verification_status:
+          type: string
+          enum: [VERIFIED, FAILED, PENDING]
+        engine_version:
+          type: string
+        db_version:
+          type: string
+        identity_json:
+          type: object
+          description: Ticker, direction, signal source
+          properties:
+            ticker: {type: string}
+            direction: {type: string}
+        technical_json:
+          type: [object, "null"]
+        options_intel_json:
+          type: [object, "null"]
+
+    GateEventRow:
+      type: object
+      description: One row from oe_gate_events
+      properties:
+        gate_event_id:
+          type: string
+        gate_name:
+          type: string
+        fired_at:
+          type: string
+          format: date-time
+        ticker:
+          type: string
+        trace_id:
+          type: string
+        action_taken:
+          type: string
+          enum: [ALLOW, HALT, BLOCK, WARN]
+        authenticated_by:
+          type: string
+        prev_hash:
+          type: string
+        chain_hash:
+          type: string
+        candidate_id:
+          type: [string, "null"]
+        pipeline_job_id:
+          type: [string, "null"]
+        git_commit:
+          type: [string, "null"]
+        reason:
+          type: string
+
+    CouncilRunRow:
+      type: object
+      description: One row from aiem_specialist_council_runs
+      properties:
+        id:
+          type: integer
+        run_time:
+          type: string
+          format: date-time
+        context:
+          type: string
+        ticker:
+          type: string
+        trace_id:
+          type: [string, "null"]
+        registered_members:
+          type: array
+          items: {type: string}
+        invoked_members:
+          type: array
+          items: {type: string}
+        abstained_members:
+          type: array
+          items: {type: string}
+        abstentions:
+          type: array
+        opinions:
+          type: object
+        weighted_vote:
+          type: [number, "null"]
+        variance:
+          type: [number, "null"]
+        weights:
+          type: [object, "null"]
+
+    PositionSizingRow:
+      type: object
+      description: One row from aiem_position_sizing_log
+      properties:
+        id:
+          type: integer
+        logged_at:
+          type: string
+          format: date-time
+        ticker:
+          type: string
+        signal_source:
+          type: string
+        conviction_score:
+          type: [number, "null"]
+        entry_price:
+          type: [number, "null"]
+        calculated_stop_price:
+          type: [number, "null"]
+        stop_basis:
+          type: [string, "null"]
+        stop_distance_pct:
+          type: [number, "null"]
+        risk_pct_used:
+          type: [number, "null"]
+        calculated_notional:
+          type: [number, "null"]
+        gate_result:
+          type: string
+          enum: [PASS, FAIL, SKIP]
+        gate_detail:
+          type: [string, "null"]
+        mode:
+          type: [string, "null"]
+        overnight_option:
+          type: [boolean, "null"]
+        paper_trade_id:
+          type: [integer, "null"]
+        created_at:
+          type: [string, "null"]
+
+    EvidenceChainStatus:
+      type: object
+      description: Current state of evidence_chain.log (SHA-256 hash chain file)
+      required: [seq, last_exit_code, total_entries]
+      properties:
+        seq:
+          type: integer
+          description: Last SEQ number in chain
+        last_command:
+          type: string
+          description: Shell command from last chain entry
+        last_exit_code:
+          type: integer
+          description: Exit code from last verified_run.sh execution (0=clean, 1=warning)
+        last_timestamp_utc:
+          type: string
+          format: date-time
+        last_entry_hash:
+          type: string
+          description: SHA-256 hash of last chain entry
+        total_entries:
+          type: integer
+        chain_path:
+          type: string
+          example: "evidence_chain.log"
+
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Liveness probe — no authentication required
+      description: |
+        Returns {"status":"ok"} when the Flask process is running.
+        Source: main.py line 150. No DB query. Public endpoint.
+        Freshness: real-time (no cache). Poll interval: 30s recommended.
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, example: "ok"}
+
+  /admin/decision-audit:
+    get:
+      operationId: getDecisionAudit
+      tags: [decisions]
+      summary: List oe_decision_audit rows (cryptographic decision records)
+      description: |
+        Source table: oe_decision_audit (341 rows as of 2026-07-21).
+        Auth: X-Admin-Token (HMAC). Excludes is_test_record=TRUE rows.
+        Pagination: limit default=50 max=200; offset default=0.
+        Freshness: real-time DB query on each request. Poll 30s recommended.
+        Verification: ACTIVE — live HTTP tested 2026-07-22.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: ticker
+          in: query
+          schema: {type: string}
+          description: Filter by identity_json->>'ticker'
+        - name: date
+          in: query
+          schema: {type: string, format: date}
+          description: Filter by ET date of created_at (YYYY-MM-DD). Validated via strptime.
+        - name: date_from
+          in: query
+          schema: {type: string, format: date-time}
+          description: Filter created_at >= date_from
+        - name: date_to
+          in: query
+          schema: {type: string, format: date}
+          description: Filter created_at <= date_to 23:59:59
+        - name: status
+          in: query
+          schema: {type: string, enum: [VERIFIED, FAILED, PENDING]}
+          description: Filter by verification_status
+        - name: trace_id
+          in: query
+          schema: {type: string}
+          description: Filter by exact decision_id
+        - name: limit
+          in: query
+          schema: {type: integer, default: 50, maximum: 200}
+          description: Max rows. Values >200 clamped to 200.
+        - name: offset
+          in: query
+          schema: {type: integer, default: 0}
+          description: Row offset for pagination
+      responses:
+        "200":
+          description: Decision audit rows
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationMeta"
+                  - type: object
+                    properties:
+                      rows:
+                        type: array
+                        items: {$ref: "#/components/schemas/DecisionAuditRow"}
+        "400":
+          description: Invalid parameter value
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "403":
+          description: Missing or invalid authentication
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+
+  /admin/gate-events:
+    get:
+      operationId: getGateEvents
+      tags: [gates]
+      summary: List oe_gate_events rows (governance gate firing records)
+      description: |
+        Source table: oe_gate_events (4 rows as of 2026-07-21).
+        Auth: X-Admin-Token (HMAC). Excludes is_test_record=TRUE rows.
+        Pagination: limit default=50 max=200 (no offset — always most recent N).
+        Freshness: real-time DB query. Poll 30s recommended.
+        Verification: ACTIVE — live HTTP tested 2026-07-22.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: ticker
+          in: query
+          schema: {type: string}
+        - name: date
+          in: query
+          schema: {type: string, format: date}
+          description: Filter by ET date of fired_at (YYYY-MM-DD). Validated via strptime.
+        - name: gate_name
+          in: query
+          schema: {type: string}
+          description: Filter by exact gate_name
+        - name: trace_id
+          in: query
+          schema: {type: string}
+          description: Filter by exact trace_id
+        - name: limit
+          in: query
+          schema: {type: integer, default: 50, maximum: 200}
+      responses:
+        "200":
+          description: Gate event rows
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationMeta"
+                  - type: object
+                    properties:
+                      rows:
+                        type: array
+                        items: {$ref: "#/components/schemas/GateEventRow"}
+        "400":
+          description: Invalid parameter
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "403":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+
+  /admin/council-runs:
+    get:
+      operationId: getCouncilRuns
+      tags: [council]
+      summary: List aiem_specialist_council_runs (specialist council votes)
+      description: |
+        Source table: aiem_specialist_council_runs (219 rows as of 2026-07-22).
+        Auth: X-Admin-Token (HMAC).
+        Pagination: limit default=50 max=200; offset default=0.
+        Freshness: real-time DB query. Poll 30s recommended.
+        Verification: ACTIVE — live HTTP tested 2026-07-22.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: ticker
+          in: query
+          schema: {type: string}
+        - name: date
+          in: query
+          schema: {type: string, format: date}
+          description: Filter by ET date of run_time (YYYY-MM-DD). Validated via strptime.
+        - name: context
+          in: query
+          schema: {type: string}
+          description: Filter by context field
+        - name: trace_id
+          in: query
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, default: 50, maximum: 200}
+        - name: offset
+          in: query
+          schema: {type: integer, default: 0}
+      responses:
+        "200":
+          description: Council run rows
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationMeta"
+                  - type: object
+                    properties:
+                      rows:
+                        type: array
+                        items: {$ref: "#/components/schemas/CouncilRunRow"}
+        "400":
+          description: Invalid parameter
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "403":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+
+  /admin/position-sizing-log:
+    get:
+      operationId: getPositionSizingLog
+      tags: [sizing]
+      summary: List aiem_position_sizing_log (position sizing decisions)
+      description: |
+        Source table: aiem_position_sizing_log (207 rows as of 2026-07-22).
+        Auth: X-Admin-Token (HMAC).
+        Pagination: limit default=50 max=200 (no offset — most recent N).
+        Freshness: real-time DB query. Poll 30s recommended.
+        Verification: ACTIVE — live HTTP tested 2026-07-22.
+      security:
+        - AdminToken: []
+      parameters:
+        - name: ticker
+          in: query
+          schema: {type: string}
+        - name: date
+          in: query
+          schema: {type: string, format: date}
+          description: Filter by ET date of logged_at (YYYY-MM-DD). Validated via strptime.
+        - name: gate_result
+          in: query
+          schema: {type: string, enum: [PASS, FAIL, SKIP]}
+        - name: signal_source
+          in: query
+          schema: {type: string}
+        - name: paper_trade_id
+          in: query
+          schema: {type: integer}
+          description: Filter by paper_trade_id (integer). Returns 400 if non-integer.
+        - name: limit
+          in: query
+          schema: {type: integer, default: 50, maximum: 200}
+      responses:
+        "200":
+          description: Position sizing log rows
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PaginationMeta"
+                  - type: object
+                    properties:
+                      rows:
+                        type: array
+                        items: {$ref: "#/components/schemas/PositionSizingRow"}
+        "400":
+          description: Invalid parameter
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "403":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+
+  /admin/evidence-chain/status:
+    get:
+      operationId: getEvidenceChainStatus
+      tags: [evidence]
+      summary: Current state of evidence_chain.log (SHA-256 hash chain)
+      description: |
+        Source: evidence_chain.log file (artifacts/stock-scanner-api/evidence_chain.log).
+        Not a DB query — reads the last JSON entry from the chain log file.
+        Auth: X-Admin-Token (HMAC).
+        Freshness: real-time file read on each request. Poll 60s recommended.
+        Chain integrity: last_exit_code=0 means clean; 1 means warning.
+        Verification: ACTIVE — live HTTP tested 2026-07-22 (seq=10, total=10, exit=1).
+      security:
+        - AdminToken: []
+      responses:
+        "200":
+          description: Evidence chain status
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/EvidenceChainStatus"}
+        "403":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "404":
+          description: evidence_chain.log file not found
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
+        "503":
+          description: File read error
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ErrorResponse"}
