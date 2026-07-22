@@ -1,0 +1,1 @@
+PASS  public.signal_fire_log.ticker type = text (was varchar(10))

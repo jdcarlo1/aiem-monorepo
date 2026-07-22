@@ -1,0 +1,9 @@
+PASS  public.signal_fire_log.ticker type = text (was character varying(10))
+PASS  d3_test_isolation.signal_fire_log.ticker = character varying(10) (test-only schema, not production path)
+PASS  Live row: found: signal_name=AIEM_OPEN_ALERT ticker=DAILY_SUMMARY fire_date=2026-07-22 logged_at=2026-07-22 15:00:00.026008
+PASS  Row logged_at is AFTER ALTER TABLE execution at 14:57 UTC — written by running process post-fix
+PASS  Log 15:00 UTC: 'grouped alert sent' confirmed, varchar error ABSENT
+PASS  aiem_process.py SHA = 44e9d0b49780bf4450e025acc01f53da4e0653e1fe89315748f67c79cf898868 (unchanged — D23 fix is pure SQL ALTER TABLE)
+PASS  Options pipeline: _seed_job CronTrigger(hour=9,minute=40,timezone=_ET) + _execute_job_wrapper CronTrigger(hour=9,minute=45,timezone=_ET) confirmed — next fire tomorrow 09:40/09:45 ET
+---
+SUMMARY: D23 7 PASS / 0 FAIL

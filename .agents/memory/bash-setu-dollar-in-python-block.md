@@ -1,6 +1,6 @@
 ---
-name: bash set -u dollar-sign in python3 -c double-quoted block
-description: $N in Python comments or strings inside bash python3 -c "..." double-quoted blocks cause set -u unbound-variable errors. Fix: rewrite comments, or use heredoc with single-quoted delimiter.
+name: bash set-e / set-u gotchas in verifier scripts
+description: Two distinct bash pitfalls in verifier scripts under set -e / set -u: (1) $N in python3 -c "..." double-quoted blocks trips set -u silently; (2) ((N++)) when N=0 is falsy and kills script under set -e.
 ---
 
 ## Rule
@@ -53,3 +53,31 @@ double-quotes becomes literal `$4` passed to python. This preserves the python c
 If a `python3 -c "..."` block in a `set -u` script silently fails at the line the block STARTS
 (not inside the Python code), check every `$` reference in the embedded Python for positional params.
 The bash error references the line number of the opening `python3 -c "` quote, not the Python line.
+
+---
+
+## Gotcha 2 — `((N++))` under `set -e` kills script when N=0
+
+**Rule:** `((expr))` in bash exits with code 1 when the arithmetic expression evaluates to zero.
+`((N++))` post-increments N but returns the *pre-increment* value. So the very first call —
+when N=0 — evaluates `((0))`, which is falsy (exit code 1). Under `set -e`, this aborts the
+script immediately after the first `pass()` or `fail()` call.
+
+**Symptom:** Verifier archive shows only the header + first PASS line, then nothing.
+SEQ entry is written with EXIT=1 and an output_sha256 that only hashes 1-2 lines of output.
+
+**Fix:** Replace `((N++))` with `N=$((N+1))` everywhere in verifier scripts that use `set -e`:
+```bash
+# WRONG under set -e:
+pass() { echo "PASS $1"; ((PASS++)); }   # kills script on first call when PASS=0
+
+# CORRECT:
+pass() { echo "PASS $1"; PASS=$((PASS+1)); }
+```
+
+**Alternative:** Drop `set -e` from the script and add an explicit `exit 1` at the bottom
+when FAIL > 0. This is often cleaner for verifier scripts that track failures manually.
+
+**Why:** In bash, arithmetic commands `(( ))` follow C convention: 0 is false, non-zero is true.
+`set -e` treats any non-zero exit code as a fatal error and aborts immediately.
+This is a silent failure — no error message, no indication from bash, just a truncated archive.

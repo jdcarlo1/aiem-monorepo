@@ -1,0 +1,10 @@
+PASS  public.signal_fire_log.ticker type = text (was character varying(10))
+PASS  d3_test_isolation.signal_fire_log.ticker = character varying(10) (test-only schema, not production path)
+PASS  Live row: found: signal_name=AIEM_OPEN_ALERT ticker=DAILY_SUMMARY fire_date=2026-07-22 logged_at=2026-07-22 15:00:00.026008
+PASS  Row logged_at is AFTER ALTER TABLE execution at 14:57 UTC — written by running process post-fix
+PASS  Log 15:00 UTC: 'grouped alert sent' confirmed, varchar error ABSENT
+sha256sum: artifacts/stock-scanner-api/aiem_process.py: No such file or directory
+FAIL  aiem_process.py SHA changed: got  expected 44e9d0b49780bf4450e025acc01f53da4e0653e1fe89315748f67c79cf898868
+FAIL  Options pipeline CronTrigger config not confirmed (seed=0 exec=0)
+---
+SUMMARY: D23 5 PASS / 2 FAIL

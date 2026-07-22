@@ -1,0 +1,32 @@
+# Directive 23 — Fix varchar(10) bug blocking paper trades (CRITICAL)
+
+## Context
+Zero paper trades have written to the DB for 4 consecutive days. A "fix" was reported as complete yesterday; it did not hold — the same failure is occurring today. This directive requires proof standards above the norm given that history.
+
+## Required: root cause, fix, and REAL live proof
+
+**1. Exact location**
+- Raw grep/sed showing the exact write at open_watcher lines 1106 and 1837 (or wherever the real write path is — confirm both are the same code path or explain if not)
+- Raw `\d` (describe) output for the actual table/column being written, showing it as `varchar(10)`
+- The actual value being written that overflows it — paste the real value, not a description
+
+**2. Fix**
+- Decide and state: widen the column (ALTER TABLE) vs. truncate/validate the value before insert — state which and why
+- Raw git diff
+- sha256 before/after for changed file(s)
+- If a schema change: raw `ALTER TABLE` statement executed + raw `\d` output showing the new column definition
+
+**3. Live proof — this is the part that failed last time**
+- Do NOT declare this fixed based on a local/mocked test alone
+- After the fix is deployed, wait for or trigger a real paper-trade write attempt against the live DB
+- Paste the raw SQL query + full result set showing an actual new row landed in the trades table today, with a real timestamp from today's session — not a synthetic/mocked row
+- If no real trade opportunity occurs during this session to trigger a natural write, state that explicitly and propose how Joel can independently verify tomorrow morning (e.g. the exact query he can run himself)
+
+**4. Separate — Options engine "BOTH DIRECTIONS REJECTED"**
+- Confirmed not a bug (working as intended), scheduler simply hasn't fired yet today — no fix needed, just confirm the scheduler is still expected to fire later today and give the raw next-run-at time
+
+## Evidence checklist (standing, full)
+- Raw terminal output only — no paraphrasing of grep, SQL, or test results
+- sha256 cross-check: verified_run.sh / verify_chain.sh vs current canonical (ba6100ae / aa618d45)
+- verified_run.sh wrapper + verify_chain.sh output pasted before declaring done
+- If any part can't be backed by real output, say so plainly — do not claim "fixed" without the live DB row proof in Item 3

@@ -55,3 +55,6 @@
 71	2026-07-22T14:18:41Z	0	21518684579a3025988e0c4c800752b588fbfb77c0ffcfac2c35cc8f0d9c41d5	python3 artifacts/stock-scanner-api/tools/t_research_insights_conflict.py
 72	2026-07-22T14:41:51Z	1	fd14a5d755742f89dcfbc3f7ec3d65534bd47a698d83a972f5b7598399ad8e18	python3 artifacts/stock-scanner-api/tools/t_d21_crontrigger_et.py
 73	2026-07-22T14:42:30Z	0	9ee2bc2a6f9645494244074e037e61a1c5bb7ccc515562cf51a9fd817f6b3151	python3 artifacts/stock-scanner-api/tools/t_d21_crontrigger_et.py
+74	2026-07-22T15:03:05Z	1	181998a7fefc09525be41bb99e1e1ac6b14b30382eb39303dab2ee04ac8f1159	bash tools/verify_d23_varchar_fix.sh
+75	2026-07-22T15:05:08Z	1	f0df60b25f850ba2b3e05acd7aecbbdb751ff85a8ee3ab0c9f8d404418cf1cb3	bash tools/verify_d23_varchar_fix.sh
+76	2026-07-22T15:06:00Z	0	ee55de19a4da0df641be7bf79a34261c96fbc7cdb397b866911c6bac78c52517	bash tools/verify_d23_varchar_fix.sh
