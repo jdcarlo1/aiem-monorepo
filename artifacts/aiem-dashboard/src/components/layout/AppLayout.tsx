@@ -1,22 +1,63 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { Sidebar } from "./Sidebar";
-import { getToken } from "@/lib/auth";
+import { getToken, clearToken } from "@/lib/auth";
 import { useLocation } from "wouter";
 
-export function AppLayout({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
-  const token = getToken();
+function isAuthed(): boolean {
+  return !!(getToken() || sessionStorage.getItem("aiem_authed"));
+}
 
-  // If unauthenticated and trying to access protected routes, should redirect to login
-  // This is a simple protection mechanism
-  if (!token && location !== "/") {
-    window.location.href = "/";
-    return null;
+export function AppLayout({ children }: { children: ReactNode }) {
+  const [location, setLocation] = useLocation();
+  const [checked, setChecked] = useState(false);
+  const redirected = useRef(false);
+
+  const isLoginPage = location === "/";
+
+  useEffect(() => {
+    if (isLoginPage) {
+      setChecked(true);
+      return;
+    }
+    if (!isAuthed()) {
+      if (!redirected.current) {
+        redirected.current = true;
+        setLocation("/");
+      }
+      setChecked(true);
+      return;
+    }
+    // Validate session server-side via /auth/me
+    fetch("/stock-api/auth/me", { credentials: "include", headers: getToken() ? { "X-Admin-Token": getToken()! } : {} })
+      .then((res) => {
+        if (res.status === 401 || res.status === 403) {
+          clearToken();
+          sessionStorage.removeItem("aiem_authed");
+          sessionStorage.removeItem("aiem_username");
+          if (!redirected.current) {
+            redirected.current = true;
+            setLocation("/");
+          }
+        }
+      })
+      .catch(() => { /* network error — allow local auth to stand */ })
+      .finally(() => setChecked(true));
+  }, [location, isLoginPage, setLocation]);
+
+  if (isLoginPage) {
+    return <div className="min-h-screen bg-background text-foreground dark">{children}</div>;
   }
 
-  // Hide sidebar on login page
-  if (location === "/") {
-    return <div className="min-h-screen bg-background text-foreground dark">{children}</div>;
+  if (!checked) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <span className="font-mono text-xs text-muted-foreground animate-pulse">Verifying session…</span>
+      </div>
+    );
+  }
+
+  if (!isAuthed()) {
+    return null;
   }
 
   return (

@@ -4,7 +4,7 @@ import {
   AlertTriangle, Users, Search, ActivitySquare, Calendar, 
   Workflow, RefreshCw, Bell, LogOut
 } from "lucide-react";
-import { clearToken } from "@/lib/auth";
+import { serverLogout } from "@/lib/auth";
 
 const NAV_ITEMS = [
   { href: "/command", label: "CMD CENTER", icon: Terminal },
@@ -25,9 +25,11 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const [location] = useLocation();
 
-  const handleLogout = () => {
-    clearToken();
-    window.location.href = "/";
+  const handleLogout = async () => {
+    await serverLogout();
+    sessionStorage.removeItem("aiem_authed");
+    sessionStorage.removeItem("aiem_username");
+    window.location.href = "/aiem/";
   };
 
   return (

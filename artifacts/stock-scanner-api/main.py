@@ -178,6 +178,36 @@ from aiem_security import (
     rotate_token_if_due as _rotate_token_if_due,
     run_backup_if_due as _run_backup_if_due,
 )
+
+# ── Auth + SSE modules (registered before dead zone) ─────────────────────────
+try:
+    from aiem_auth import (
+        auth_bp as _auth_bp,
+        init_auth_module as _init_auth_module,
+        require_role,
+        get_current_user as _get_current_user,
+    )
+    app.register_blueprint(_auth_bp)
+    print("[startup] aiem_auth blueprint registered", flush=True)
+except Exception as _auth_import_err:
+    print(f"[aiem_auth] import warning: {_auth_import_err}", flush=True)
+    _init_auth_module = None
+    require_role = None
+    _get_current_user = None
+
+try:
+    from aiem_sse import (
+        sse_bp as _sse_bp,
+        init_sse_module as _init_sse_module,
+        publish_event as _sse_publish,
+    )
+    app.register_blueprint(_sse_bp)
+    print("[startup] aiem_sse blueprint registered", flush=True)
+except Exception as _sse_import_err:
+    print(f"[aiem_sse] import warning: {_sse_import_err}", flush=True)
+    _init_sse_module = None
+    _sse_publish = None
+
 try:
     import aiem_module2_decay as _m2
 except Exception as _m2_e:
@@ -1786,6 +1816,20 @@ def _run_schema_bootstrap():
 # ── init DB & scheduler ──────────────────────────────────────────────────────
 _DEFERRED_INITS = []  # filled by module-level stubs below; run in bg thread before app.run()
 _DEFERRED_INITS.append(_run_schema_bootstrap)
+def _do_auth_init():
+    try:
+        from aiem_auth import init_auth_module
+        init_auth_module(os.getenv("DATABASE_URL", ""))
+    except Exception as _e:
+        print(f"[aiem_auth] deferred init error: {_e}", flush=True)
+def _do_sse_init():
+    try:
+        from aiem_sse import init_sse_module
+        init_sse_module(os.getenv("DATABASE_URL", ""))
+    except Exception as _e:
+        print(f"[aiem_sse] deferred init error: {_e}", flush=True)
+_DEFERRED_INITS.append(_do_auth_init)
+_DEFERRED_INITS.append(_do_sse_init)
 _DEFERRED_INITS.append(lambda: init_db())
 _DEFERRED_INITS.append(lambda: init_score_history_table())
 _DEFERRED_INITS.append(lambda: composite_scan.init_composite_table())
@@ -11498,7 +11542,7 @@ def _admin_ok():
 @app.route("/stock-api/nano-morning/run-ranking", methods=["POST"])
 def nano_morning_run_ranking():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_run_nano_morning_ranking, daemon=True).start()
     return jsonify({"status": "started", "stage": "ranking"}), 202
 
@@ -11507,7 +11551,7 @@ def nano_morning_run_ranking():
 def admin_aiem_process_run_scan():
     """Manually trigger the AIEM Process premarket scan (warmup + score + DB write)."""
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import urllib.request as _ur2, json as _json_rs
         _req = _ur2.Request("http://localhost:5055/run-scan", data=b"", method="POST")
@@ -11527,7 +11571,7 @@ def admin_aiem_process_run_scan():
 def admin_aiem_process_last_scan_status():
     """Return the last scan run result (proxied from aiem-process :5055/status)."""
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import urllib.request as _ur2, json as _json_ls
         _run_id = request.args.get("run_id", "")
@@ -11543,7 +11587,7 @@ def admin_aiem_process_last_scan_status():
 @app.route("/stock-api/nano-morning/send-watch", methods=["POST"])
 def nano_morning_send_watch():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_send_nano_watch_email, daemon=True).start()
     return jsonify({"status": "started", "stage": "watch_email"}), 202
 
@@ -11551,7 +11595,7 @@ def nano_morning_send_watch():
 @app.route("/stock-api/nano-morning/send-buy", methods=["POST"])
 def nano_morning_send_buy():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_send_nano_buy_email, daemon=True).start()
     return jsonify({"status": "started", "stage": "buy_email"}), 202
 
@@ -11559,7 +11603,7 @@ def nano_morning_send_buy():
 @app.route("/stock-api/nano-morning/grade", methods=["POST"])
 def nano_morning_grade():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_run_nano_morning_outcomes, daemon=True).start()
     return jsonify({"status": "started", "stage": "grade"}), 202
 
@@ -12733,7 +12777,7 @@ def sc_morning_picks_route():
 @app.route("/stock-api/sc-morning/run-ranking", methods=["POST"])
 def sc_morning_run_ranking():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_run_sc_morning_ranking, daemon=True).start()
     return jsonify({"status": "started", "stage": "ranking"}), 202
 
@@ -12741,7 +12785,7 @@ def sc_morning_run_ranking():
 @app.route("/stock-api/sc-morning/send-watch", methods=["POST"])
 def sc_morning_send_watch():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_send_sc_watch_email, daemon=True).start()
     return jsonify({"status": "started", "stage": "watch_email"}), 202
 
@@ -12749,7 +12793,7 @@ def sc_morning_send_watch():
 @app.route("/stock-api/sc-morning/send-buy", methods=["POST"])
 def sc_morning_send_buy():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_send_sc_buy_email, daemon=True).start()
     return jsonify({"status": "started", "stage": "buy_email"}), 202
 
@@ -12757,7 +12801,7 @@ def sc_morning_send_buy():
 @app.route("/stock-api/sc-morning/grade", methods=["POST"])
 def sc_morning_grade():
     if not _admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _threading.Thread(target=_run_sc_morning_outcomes, daemon=True).start()
     return jsonify({"status": "started", "stage": "grade"}), 202
 
@@ -18959,7 +19003,7 @@ def _aiem_d14_run_verification_async():
 def admin_run_paper_today():
     """Manually trigger _aiem_paper_execute_today() — safe to call any time market is open."""
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if not globals().get("_MODULE_FULLY_LOADED"):
         return jsonify({"error": "module still initializing — try again in 30s"}), 503
     import threading as _thr_rpt
@@ -18976,7 +19020,7 @@ def admin_run_paper_today():
 def admin_check_stock_pe():
     """Manually trigger the Stock Panic Exhaustion live scanner + Telegram alert."""
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _thr
     _thr.Thread(target=_scan_stock_panic_exhaustion, daemon=True).start()
     return jsonify({"status": "triggered", "note": "scan running in background — check Telegram"})
@@ -18985,7 +19029,7 @@ def admin_check_stock_pe():
 @app.route("/stock-api/admin/check-panic-exhaustion", methods=["POST"])
 def admin_check_panic_exhaustion():
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _thr
     _thr.Thread(target=_check_panic_exhaustion, daemon=True).start()
     return jsonify({"status": "triggered"})
@@ -19008,7 +19052,7 @@ def admin_run_panic_exhaustion_backtest():
     Each call persists one row to panic_exhaustion_backtest_runs.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     body = request.get_json(silent=True) or {}
     start_date    = body.get("start_date")
     end_date      = body.get("end_date")
@@ -19054,7 +19098,7 @@ def admin_run_stock_panic_exhaustion_backtest():
         period_label        — string label (optional)
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     body = request.get_json(silent=True) or {}
     try:
         from aiem_pullback_reentry import test_stock_panic_exhaustion as _fn
@@ -19083,7 +19127,7 @@ def admin_run_stock_panic_exhaustion_backtest():
 def admin_backfill_vix_daily():
     """Backfill vix_daily from yfinance ^VIX (2000-2026). No body required."""
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         from aiem_pullback_reentry import _backfill_vix_daily as _fn
         result = _fn()
@@ -19096,7 +19140,7 @@ def admin_backfill_vix_daily():
 def admin_backfill_gspc_history():
     """Backfill gspc_daily from yfinance ^GSPC (1927-2026). No body required."""
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         from aiem_pullback_reentry import backfill_gspc_history as _fn
         result = _fn()
@@ -19114,7 +19158,7 @@ def admin_run_regime_filtered_backtest():
     No body required.  ~10-30s.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         from aiem_pullback_reentry import run_regime_filtered_backtest as _fn
         result = _fn()
@@ -19128,7 +19172,7 @@ def admin_run_vix_spike_reversal_grid():
     No body required.  Takes ~60-120s (27 x 5 backtests + yfinance calls).
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         from aiem_pullback_reentry import run_vix_spike_reversal_grid_all_periods as _fn
         result = _fn()
@@ -19144,7 +19188,7 @@ def admin_run_gspc_full_history_backtest():
     Optional body: {"spy_threshold": -5.0, "hold_days": 11, "stop_loss_pct": -8.0}
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     body          = request.get_json(silent=True) or {}
     spy_threshold = float(body.get("spy_threshold", -5.0))
     hold_days     = int(body.get("hold_days", 11))
@@ -19166,7 +19210,7 @@ def admin_macro_latest():
     Returns today's macro snapshot from DB cache (no network calls).
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_macro_engine as _ame_r
         result = _ame_r.admin_get_latest_macro()
@@ -19183,7 +19227,7 @@ def admin_macro_refresh():
     No body required.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_macro_engine as _ame_w
         result = _ame_w.admin_refresh_macro()
@@ -19200,7 +19244,7 @@ def admin_aiem_v3_verify():
     modules and returns a PASS / WARN / FAIL report. Protected by ADMIN_TOKEN.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_v3_verification as _v3v
         run_type = request.args.get("run_type", "on_demand")
@@ -19218,7 +19262,7 @@ def admin_aiem_v3_discovery():
     Returns top candidates with scores.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_v3_discovery as _v3d
         import aiem_v3_technical as _v3t
@@ -19243,7 +19287,7 @@ def admin_layer9_run_now():
     job does (idempotent UPSERT on ticker/scan_date). Protected by ADMIN_TOKEN.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _run_layer9_bg_scan()
     except Exception as _e:
@@ -19259,7 +19303,7 @@ def admin_check_signal_data_availability():
     bear-market periods. No body parameters required.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         from aiem_pullback_reentry import check_signal_data_availability as _csda
         result = _csda()
@@ -20969,7 +21013,7 @@ def admin_s7c_smoke_check():
     _tok_have = request.headers.get("X-Admin-Token", "")
     _tok_want = _os_s7c.environ.get("ADMIN_TOKEN", "")
     if not _tok_have or not _tok_want or not _hmac_s7c.compare_digest(_tok_have, _tok_want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     _ET_s7c = _pytz_s7c.timezone("America/New_York")
     _now_et  = _dt_s7c.now(_ET_s7c)
@@ -21334,7 +21378,7 @@ def admin_s7c_force_run():
     _tok_have = request.headers.get("X-Admin-Token", "")
     _tok_want = _os_fr.environ.get("ADMIN_TOKEN", "")
     if not _tok_have or not _tok_want or not _hmac_fr.compare_digest(_tok_have, _tok_want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     # Capture stdout so we can surface _send_bigcat_gap_email()'s print lines
     import sys as _sys_fr
@@ -22301,7 +22345,7 @@ def admin_aiem_signed_proof():
     """
     tok = request.args.get("token", "")
     if not tok or tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     target = request.args.get("target", "sector_heat")
     if target != "sector_heat":
@@ -22327,7 +22371,7 @@ def admin_aiem_verify_proof():
     """
     tok = request.args.get("token", "")
     if not tok or tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     envelope = request.get_json(silent=True)
     if not isinstance(envelope, dict):
@@ -22660,7 +22704,7 @@ def admin_emergency_run():
     # 1. constant-time auth
     if not got or not want or not hmac.compare_digest(got, want):
         _log("UNAUTHORIZED")
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     # 2. replay protection
     try:
@@ -45065,7 +45109,7 @@ def admin_regime_overlay_check():
     live agent call would. Protected by ADMIN_TOKEN.
     """
     if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         lookback_days = int(request.get_json(silent=True).get("lookback_days", 60)) if request.get_json(silent=True) else 60
         result = _aiem_tool_regime_overlay_check(lookback_days=lookback_days)
@@ -47580,6 +47624,8 @@ def _aiem_paper_mark_to_market():
 @app.route("/stock-api/aiem-paper-portfolio", methods=["GET"])
 def aiem_paper_portfolio():
     """AIEM autonomous paper trading — full portfolio state."""
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
     import datetime as _apvdt
     _days = int(request.args.get("days", 30))
     try:
@@ -47772,7 +47818,7 @@ def aiem_paper_force_execute():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import datetime as _fe_dt, threading as _ape_thr
     _today = _fe_dt.datetime.now(_ET).date()
     if not _is_trading_day(_today):
@@ -47792,7 +47838,7 @@ def aiem_paper_execution_log_endpoint():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("""
@@ -47820,7 +47866,7 @@ def aiem_paper_force_mtm():
     """Admin: force mark-to-market immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _mtm_thr
     _mtm_thr.Thread(target=_aiem_paper_mark_to_market, daemon=True).start()
     return jsonify({"status": "marking", "message": "Marking all open positions to market — refresh in 10s"})
@@ -47838,7 +47884,7 @@ def admin_paper_fill_audit():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     try:
         if request.method == "POST":
@@ -47895,7 +47941,7 @@ def admin_aiem_pipeline_audit_list():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_pipeline_audit as _apa
         _limit = int(request.args.get("limit", 30))
@@ -47920,7 +47966,7 @@ def admin_aiem_pipeline_audit_report(trace_id):
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_pipeline_audit as _apa
         _report = _apa.generate_audit_report(trace_id)
@@ -47935,7 +47981,7 @@ def admin_aiem_pipeline_audit_learning_loop():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_pipeline_audit as _apa
         return jsonify(_apa.verify_closed_learning_loop())
@@ -47953,7 +47999,7 @@ def admin_aiem_pipeline_audit_run_verification():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_pipeline_audit as _apa
         return jsonify(_apa.run_live_verification())
@@ -47966,7 +48012,7 @@ def admin_supervisor_summary():
     """AIEM Supervisor — current health summary across all 7 modules."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_supervisor as _asup
         return jsonify(_asup.get_supervisor_summary())
@@ -47979,7 +48025,7 @@ def admin_supervisor_daily_report():
     """Generate and return today's full AIEM Supervisor daily report."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_supervisor as _asup
         return jsonify(_asup.supervisor_generate_daily_report())
@@ -47992,7 +48038,7 @@ def admin_supervisor_weekly_report():
     """Generate and return this week's full AIEM Supervisor weekly report."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_supervisor as _asup
         return jsonify(_asup.supervisor_generate_daily_report())
@@ -48005,7 +48051,7 @@ def admin_supervisor_signal_lifecycle():
     """Run signal lifecycle evaluation for all active signal sources."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_supervisor as _asup
         sources = ["gap_volume", "multi_signal", "unusual_calls",
@@ -48022,7 +48068,7 @@ def admin_supervisor_overfit_check():
     """Run overfit check for all signal sources."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_supervisor as _asup
         sources = ["gap_volume", "multi_signal", "unusual_calls",
@@ -48061,7 +48107,7 @@ def admin_close_paper_trade(trade_id):
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _body = request.get_json(silent=True) or {}
         _mode = str(_body.get("mode") or "close")
@@ -48104,7 +48150,7 @@ def admin_closed_loop_audit_trade(trade_id):
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import aiem_closed_loop_learning as _acll
         return jsonify(_acll.generate_trade_audit_report(trade_id))
@@ -48125,7 +48171,7 @@ def admin_closed_loop_summary():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
             _cu.execute("SELECT COUNT(*) FROM signal_trust_history WHERE trade_id IS NOT NULL")
@@ -48202,7 +48248,7 @@ def admin_run_discovery_outcome_check():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _result = _mkt_run_discovery_outcome_check()
         return jsonify(_result)
@@ -48222,7 +48268,7 @@ def admin_test_retest_adapter():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         discovery_id = int(request.args.get("discovery_id"))
         start_date = request.args.get("start_date")
@@ -48275,7 +48321,7 @@ def admin_discovery_outcomes():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             _cu.execute("""
@@ -48542,7 +48588,7 @@ def aiem_probability_engine_force_run():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import subprocess as _ape_subproc
         _pkg_dir = _os_env.path.join(_os_env.path.dirname(_os_env.path.abspath(__file__)), "aiem_probability_engine")
@@ -48579,7 +48625,7 @@ def aiem_probability_engine_live_query():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import json as _lq_json
     body = request.get_json(silent=True) or {}
     ticker = (body.get("ticker") or "").strip().upper()
@@ -48630,7 +48676,7 @@ def aiem_probability_engine_live_query_verify(row_id):
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import json as _lqv_json
     try:
         import subprocess as _lqv_subproc
@@ -51281,6 +51327,8 @@ def darkpool():
 @app.route("/stock-api/gamma-wall", methods=["GET"])
 def gamma_wall():
     """OI by strike for major tickers - shows dealer gamma concentration and flip points."""
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
     import yfinance as yf
     from datetime import datetime as _dt
 
@@ -54450,6 +54498,8 @@ def conviction_stack_track_record_route():
 @app.route("/stock-api/charm-cascade", methods=["GET"])
 def charm_cascade_endpoint():
     """Layer 3 - Charm Cascade signals from the most recent OI snapshot."""
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
     try:
         rows = _get_charm_cascade_signals()
         signals = []
@@ -54867,7 +54917,7 @@ def admin_test_emails():
     """Admin: fire all six daily emails right now using today's cached/DB data."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _thr
     results = {}
 
@@ -54919,7 +54969,7 @@ def admin_raw_technicals(ticker):
     date (for 'what did this look like a week/month ago' comparisons)."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     ticker = ticker.strip().upper()
     end_date = request.args.get("end_date") or None
     out = {"ticker": ticker, "as_of": end_date or "latest"}
@@ -54975,7 +55025,7 @@ def admin_run_eod_scan():
     """
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _thr
     import traceback as _tb
 
@@ -55167,7 +55217,7 @@ def admin_reset_breaker():
     token = request.headers.get("X-Admin-Token", "") or (request.get_json(silent=True) or {}).get("token", "")
     _want_rb = os.getenv("ADMIN_TOKEN", "")
     if not token or not _want_rb or not hmac.compare_digest(token, _want_rb):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     with _YF_BREAKER_LOCK:
         _YF_BREAKER["state"] = "closed"
         _YF_BREAKER["until"] = 0.0
@@ -55226,7 +55276,7 @@ def admin_owner_catchup():
     Returns what was sent/claimed."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     return jsonify(_owner_run_due_emails())
 
 
@@ -55238,7 +55288,7 @@ def admin_news_catchup():
     are emailed. Returns the scan status."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     return jsonify(_news_run_due_scan())
 
 
@@ -55258,7 +55308,7 @@ def _dc_admin_ok() -> bool:
 def admin_discovery_cycle_status():
     """Module 6 kill-switch status, last runs, and next scheduled fire times."""
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import psycopg2 as _dc_pg
         _c = _dc_pg.connect(os.environ["DATABASE_URL"])
@@ -55292,7 +55342,7 @@ def admin_discovery_cycle_status():
 def admin_discovery_cycle_enable():
     """Re-enable the discovery cycle (sets kill switch to 'true')."""
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _dc_cfg_set("enabled", "true")
     return jsonify({"status": "ok", "enabled": True})
 
@@ -55301,7 +55351,7 @@ def admin_discovery_cycle_enable():
 def admin_discovery_cycle_disable():
     """Pause the discovery cycle (sets kill switch to 'false')."""
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     _dc_cfg_set("enabled", "false")
     return jsonify({"status": "ok", "enabled": False})
 
@@ -55312,7 +55362,7 @@ def admin_discovery_cycle_trigger():
     The DB-level concurrency guard still applies — if a run is in progress
     it will be skipped as usual. Returns immediately; check /status for result."""
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _dc_thr
     _dc_thr.Thread(
         target=_discovery_cycle_job,
@@ -55338,7 +55388,7 @@ def admin_discovery_cycle_test_notify():
     Test rows are never written to any DB table.
     """
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import json as _tn_json
     try:
         _body   = request.get_json(silent=True) or {}
@@ -55415,7 +55465,7 @@ def admin_discovery_cycle_test_pipeline():
     the exact message string Module 8 built, and tg_api_ok.
     """
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         print("[discovery_cycle/test-pipeline] running real _dc_module5_promotion_check()…")
         _m5_notable_tp = _dc_module5_promotion_check()
@@ -55489,7 +55539,7 @@ def admin_discovery_cycle_remove_test():
     """Remove the 2-min test trigger after Step 1 verification is done.
     The daily CronTrigger (Mon-Fri 17:30 ET) stays in place."""
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _scheduler.remove_job("discovery_cycle_test")
         return jsonify({"status": "ok", "removed": "discovery_cycle_test"})
@@ -55511,7 +55561,7 @@ def admin_discovery_cycle_report():
       - next_run: next scheduled fire time from APScheduler
     """
     if not _dc_admin_ok():
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import psycopg2 as _rpt_pg
         import psycopg2.extras as _rpt_ext
@@ -56601,7 +56651,7 @@ def ai_stock_picks():
 def admin_run_ai_stock_picks():
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _adthr
     if not getattr(app, "_asp_generating", False):
         _adthr.Thread(target=_build_ai_stock_picks, daemon=True).start()
@@ -58689,7 +58739,7 @@ def admin_grade_short_calls():
     """Admin: manually trigger short-call outcome grading (backfill ungraded picks)."""
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _thr_gsc
     def _bg():
         try:
@@ -58713,7 +58763,7 @@ def admin_backfill_pick_scores():
     """
     _tok = request.headers.get("X-Admin-Token", "")
     if not _tok or _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _thr_bps
     _result_holder = {}
 
@@ -58756,7 +58806,7 @@ def admin_null_sector_heat_scores():
     """
     _tok_nsh = request.headers.get("X-Admin-Token", "")
     if not _tok_nsh or _tok_nsh != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         with _psycopg2.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("""
@@ -63905,7 +63955,7 @@ def admin_run_aiem_research():
     """
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import threading as _aiem_adm_thr
         import datetime as _aiem_adm_dt
@@ -63991,7 +64041,7 @@ def admin_run_polygon_rvol():
     """Admin: trigger the full-market Polygon RVOL scan immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         movers = _polygon_full_market_scan()
         return jsonify({"status": "ok", "movers_found": len(movers),
@@ -64007,7 +64057,7 @@ def admin_run_aiem_independent_scan():
     9:20 AM ET cron."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _run_aiem_independent_scan()
         return jsonify({"status": "started",
@@ -64023,7 +64073,7 @@ def admin_run_aiem_independent_options_scan():
     10:20 AM ET cron."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _run_aiem_independent_options_scan()
         return jsonify({"status": "started",
@@ -64038,7 +64088,7 @@ def admin_grade_aiem_independent_picks():
     immediately instead of waiting for the 8:50 AM ET cron."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _run_aiem_independent_grade()
         return jsonify({"status": "ok"})
@@ -64053,7 +64103,7 @@ def admin_run_historical_backfill():
     Runs in background — check logs for [backfill] progress."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         import psycopg2 as _bf_pg
         with _bf_pg.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cu:
@@ -64815,7 +64865,7 @@ def admin_run_washout_ignition():
     """Admin: trigger the Washout Ignition Signal scan immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         fires = _scan_washout_ignition_signal()
         return jsonify({"status": "ok", "fires_found": len(fires),
@@ -64907,7 +64957,7 @@ def admin_run_pullback_reentry():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _want or not _hmac_pr.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _pullback_mod is None:
         return jsonify({"error": "module not loaded"}), 503
     import threading as _plt2
@@ -64922,7 +64972,7 @@ def admin_run_pullback_backtest():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _want or not _hmac_pb.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _pullback_mod is None:
         return jsonify({"error": "module not loaded"}), 503
     force = request.json.get("force", False) if request.is_json else False
@@ -64983,7 +65033,7 @@ def admin_run_momentum_exhaustion():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _want or not _hmac_me.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _exhaust_mod is None:
         return jsonify({"error": "module not loaded"}), 503
     import threading as _ext2
@@ -64998,7 +65048,7 @@ def admin_run_exhaustion_backtest():
     _tok = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _want or not _hmac_eb.compare_digest(_tok, _want):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _exhaust_mod is None:
         return jsonify({"error": "module not loaded"}), 503
     force = request.json.get("force", False) if request.is_json else False
@@ -65226,7 +65276,7 @@ def admin_run_council_now():
     """
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     try:
         _body = request.get_json(silent=True) or {}
         _ticker = str(_body.get("ticker", "NVDA")).upper().strip()
@@ -65282,7 +65332,7 @@ def admin_run_gex_options():
     """Admin: trigger GEX + Skew + Term Structure scan immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _gex_thr
     _gex_thr.Thread(target=_send_gex_options_alert, daemon=True).start()
     return jsonify({"status": "ok", "message": "GEX options scan triggered"})
@@ -65293,7 +65343,7 @@ def admin_run_cta_triggers():
     """Admin: trigger CTA trigger level scan immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _cta_thr
     _cta_thr.Thread(target=_send_cta_triggers_alert, daemon=True).start()
     return jsonify({"status": "ok", "message": "CTA trigger scan triggered"})
@@ -65304,7 +65354,7 @@ def admin_run_bullish_reversal_combo():
     """Admin: trigger the bullish candlestick + Parabolic SAR flip combo scan immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _brc_thr
     _brc_thr.Thread(target=_send_bullish_reversal_combo_alert, daemon=True).start()
     return jsonify({"status": "ok", "message": "Bullish reversal combo scan triggered"})
@@ -65327,7 +65377,7 @@ def admin_test_block_halt():
     import time as _tbh_time
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     import aiem_diagram3_governance as _d3_tbh
     _orig_g0_read = _d3_tbh._g0_read_config
@@ -65483,7 +65533,7 @@ def admin_run_candlestick_confluence():
     """Admin: trigger the isolated candlestick pattern + confluence scan immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import threading as _cca_thr
     _cca_thr.Thread(target=_send_candlestick_confluence_alert, daemon=True).start()
     return jsonify({"status": "ok", "message": "Candlestick confluence scan triggered"})
@@ -65494,7 +65544,7 @@ def admin_run_module2_decay():
     """Admin: run Module 2 Decay & Failure Analyzer over all signals."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m2 is None:
         return jsonify({"error": "aiem_module2_decay not loaded"}), 500
     try:
@@ -65560,7 +65610,7 @@ def admin_run_module3_promotion():
     """Admin: trigger Module 3 hypothesis promotion evaluation immediately."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m3 is None:
         return jsonify({"error": "module3 not loaded"}), 500
     try:
@@ -65604,7 +65654,7 @@ def admin_run_module5_discovery():
     """
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m5 is None:
         return jsonify({"error": "module5 not loaded"}), 500
     try:
@@ -65653,7 +65703,7 @@ def admin_run_module6_rediscovery():
     """
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m6 is None:
         return jsonify({"error": "module6 not loaded"}), 500
     try:
@@ -65685,7 +65735,7 @@ def admin_run_module7_scan():
     """Admin: trigger Module 7 sector rotation scan immediately (uses DB data, fast)."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m7 is None:
         return jsonify({"error": "module7 not loaded"}), 500
     try:
@@ -65717,7 +65767,7 @@ def admin_module4_pending():
     """Admin: list signals with actionable Module 2 verdicts awaiting human approval."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m4 is None:
         return jsonify({"error": "aiem_module4_gate not loaded"}), 500
     try:
@@ -65751,7 +65801,7 @@ def admin_module4_approve():
     """
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m4 is None:
         return jsonify({"error": "aiem_module4_gate not loaded"}), 500
     try:
@@ -65810,7 +65860,7 @@ def admin_module4_history():
     """Admin: return recent Module 4 approval history. ?discovery_id=N &limit=50"""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     if _m4 is None:
         return jsonify({"error": "aiem_module4_gate not loaded"}), 500
     try:
@@ -65945,7 +65995,7 @@ def admin_learning_proposals():
     _tok  = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok.encode("utf-8"), _want.encode("utf-8")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import psycopg2 as _pg2
     try:
         with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
@@ -65978,7 +66028,7 @@ def admin_approve_learning_proposal(proposal_id):
     _tok  = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not hmac.compare_digest(_tok.encode("utf-8"), _want.encode("utf-8")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
     import psycopg2 as _pg2
     try:
         with _pg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
@@ -66110,7 +66160,7 @@ def admin_register_ask_key():
     _tok  = request.headers.get("X-Admin-Token", "")
     _want = os.environ.get("ADMIN_TOKEN", "")
     if not _tok or not _want or not _rhmac.compare_digest(_tok.encode("utf-8"), _want.encode("utf-8")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     body = request.get_json(silent=True) or {}
     sub_token   = (body.get("token") or "").strip()
@@ -66153,7 +66203,7 @@ def admin_backfill_iv():
     POST with X-Admin-Token header. Returns immediately; work runs in background."""
     _tok = request.headers.get("X-Admin-Token", "")
     if _tok != os.environ.get("ADMIN_TOKEN", ""):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     days_back = int(request.args.get("days", 7))
 
@@ -68361,6 +68411,8 @@ def signal_intelligence_endpoint():
 
 @app.route("/stock-api/get-source-export", methods=["GET"])
 def get_source_export():
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
     _zip = os.path.join(os.path.dirname(__file__), "stockscanner_full_export.zip")
     if not os.path.exists(_zip):
         return jsonify({"error": "export not found — ask agent to rebuild"}), 404
@@ -69044,7 +69096,7 @@ def admin_decision_audit():
     _t0_da = _time_da.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_da.compare_digest(tok, _os_da.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
 
     ticker     = request.args.get("ticker")
     date_arg   = request.args.get("date")
@@ -69121,7 +69173,7 @@ def admin_gate_events():
     _t0_ge = _time_ge.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_ge.compare_digest(tok, _os_ge.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
 
     ticker    = request.args.get("ticker")
     date_arg  = request.args.get("date")
@@ -69187,7 +69239,7 @@ def admin_council_runs():
     _t0_cr = _time_cr.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_cr.compare_digest(tok, _os_cr.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
 
     ticker   = request.args.get("ticker")
     context  = request.args.get("context")
@@ -69262,7 +69314,7 @@ def admin_position_sizing_log():
     _t0_ps = _time_ps.monotonic()
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_ps.compare_digest(tok, _os_ps.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
 
     ticker         = request.args.get("ticker")
     date_arg       = request.args.get("date")
@@ -69337,7 +69389,7 @@ def admin_evidence_chain_status():
 
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_ec.compare_digest(tok, _os_ec.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 403
+        return jsonify({"error": "unauthorized", "code": "AUTH_REQUIRED"}), 401
 
     chain_path = _os_ec.path.join(_os_ec.path.dirname(__file__), "evidence_chain.log")
     try:
@@ -69367,7 +69419,7 @@ def admin_signal_discoveries():
 
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_sd.compare_digest(tok, _os_sd.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     try:
         with _pg_sd.connect(os.environ["DATABASE_URL"]) as conn:
@@ -69408,7 +69460,7 @@ def admin_macro_history():
 
     tok = request.headers.get("X-Admin-Token", "")
     if not tok or not _hmac_mh.compare_digest(tok, _os_mh.environ.get("ADMIN_TOKEN", "")):
-        return jsonify({"error": "unauthorized"}), 403
+        return jsonify({"error": "unauthorized"}), 401
 
     try:
         days = min(int(request.args.get("days", 60)), 365)

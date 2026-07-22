@@ -1,0 +1,73 @@
+# DIRECTIVE — Phase 3 Remediation (Auth + Real-Time Delivery)
+
+Phase 3 audit result: 3 PASS / 2 FAIL / 19 PARTIAL / 51 NOT_IMPLEMENTED (75 items).
+Verdict stands: **phase does not close.** Phase 4 remains blocked.
+
+Standing verification protocol applies in full to all remediation work below
+(raw evidence, sha256 cross-check of verify_chain.sh/verified_run.sh before
+acceptance, no fabricated PASS, negative controls run and pasted, one verdict
+per item, Data Immutability Rule).
+
+## Root gaps (fix these, not the individual symptoms)
+
+1. **No real auth system.** One shared `ADMIN_TOKEN` env var + `X-Admin-Token`
+   header, binary admin/not-admin. Every role in AUTH-002–008 (Viewer, Trader,
+   Analyst, Risk Manager, Auditor, Administrator, Institutional DDV) needs an
+   actual multi-user identity + role model — not a patch on the shared token.
+2. **No real-time layer.** One chat SSE stream exists; zero EventSource
+   consumers in the dashboard frontend. Polling is the actual primary delivery
+   mechanism for all tabs (contradicts RT-001's requirement that critical
+   events — decisions, candidates, paper trades, fills, risk, audit, alerts —
+   stream live). Reconnect, backoff, dedup, sequencing, missed-event recovery
+   all NOT_IMPLEMENTED because there's nothing to attach them to.
+3. **Inconsistent enforcement across otherwise-equivalent endpoints.** Some
+   risk/paper-trading read endpoints are gated, siblings are not
+   (gamma-wall, charm-cascade, paper-trades, aiem-paper-portfolio).
+4. **Wrong HTTP status semantics.** Majority of auth failures return 403
+   instead of 401 (RFC 7235: 401 = missing/invalid credentials, 403 =
+   authenticated but insufficient permission).
+
+## Required work
+
+**A. Identity & roles (AUTH-001–010)**
+- Replace single shared admin token with real user identities + the 7 defined
+  roles, validated server-side per request (not frontend button-hiding).
+- Login must call the server and receive a signed/verifiable token; no
+  client-side accept-any-non-empty-string.
+
+**B. Session lifecycle (AUTH-014–017, 040)**
+- Server-side session store with TTL/expiry.
+- Real logout: server-side revocation, not just `sessionStorage.removeItem`.
+- Token storage: move off raw `sessionStorage` if feasible; if not, document
+  why and mitigate (short TTL, rotation).
+
+**C. Consistent endpoint gating (AUTH-011, 012, 023, 025, 026)**
+- Every endpoint touching decision/risk/paper-trading data gated identically
+  by role — audit and fix the specific inconsistent siblings found this phase
+  (gamma-wall, charm-cascade, paper-trades, aiem-paper-portfolio,
+  get-source-export).
+
+**D. HTTP status correctness (AUTH-031, 033, 034)**
+- Fix all admin-gated routes returning 403 for missing/invalid credentials →
+  401. Reserve 403 for authenticated-but-forbidden.
+
+**E. Cookie/CSRF hardening (AUTH-018–022)**
+- If moving to cookies: Secure, HttpOnly, SameSite, explicit CSRF token
+  scheme on all state-changing routes (not just admin paths).
+
+**F. Real-time architecture (RT-001–035)**
+- Design and build actual SSE/WS delivery for the critical event categories
+  (decisions, candidates, paper trades/orders, fills, rejects, risk,
+  system-health, audit, alerts, scheduler/provider/evidence-chain failures) —
+  not routed through the chat endpoint.
+- Auth on every stream connection; role-based event authorization.
+- Reconnect with exponential backoff, Last-Event-ID + missed-event recovery,
+  duplicate suppression, ordered sequence numbers, heartbeats, connection
+  limits, stale-connection cleanup, schema versioning, documented retention.
+- Negative controls (RT-032/033/034) must be run against the real mechanism
+  once built — not marked NOT_IMPLEMENTED by default.
+
+## Close-out requirement
+Restated full Phase 3 verdict only once every one of the 75 items has a PASS
+verdict with raw evidence attached — same standard as Phase 1/2 close-out.
+No partial-credit close.

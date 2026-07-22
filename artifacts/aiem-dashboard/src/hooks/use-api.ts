@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getToken, clearToken } from "@/lib/auth";
+import { getToken, clearToken, getCsrfToken } from "@/lib/auth";
 
 export interface UseApiResponse<T> {
   data: T | null;
@@ -9,6 +9,8 @@ export interface UseApiResponse<T> {
   lastUpdated: Date | null;
   refetch: () => Promise<void>;
 }
+
+const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export function useApi<T>(
   url: string,
@@ -23,23 +25,30 @@ export function useApi<T>(
   const fetchApi = useCallback(async () => {
     try {
       const token = getToken();
+      const method = (options?.method || "GET").toUpperCase();
       const headers: Record<string, string> = {
         ...(options?.headers as Record<string, string>),
       };
 
-      if (url.includes('/admin/')) {
-        if (!token) {
-          window.location.href = "/";
-          return;
-        }
+      if (token) {
         headers["X-Admin-Token"] = token;
       }
+      if (STATE_CHANGING.has(method) && !token) {
+        const csrf = getCsrfToken();
+        if (csrf) headers["X-CSRF-Token"] = csrf;
+      }
 
-      const res = await fetch(url, { ...options, headers });
+      const res = await fetch(url, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
 
-      if (res.status === 403 || res.status === 401) {
+      if (res.status === 401 || res.status === 403) {
         clearToken();
-        window.location.href = "/";
+        sessionStorage.removeItem("aiem_authed");
+        sessionStorage.removeItem("aiem_username");
+        window.location.href = "/aiem/";
         return;
       }
 
