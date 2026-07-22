@@ -1,0 +1,168 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 4 OF 12
+SECTION 6: COMPLETE OPPORTUNITY QUEUE (OPP-001–060)
+SECTION 7: DECISION PROOF / TRACE (TRACE-001–060)
+============================================================
+
+SECTION 6 — COMPLETE OPPORTUNITY QUEUE
+
+OPP-001 Every evaluated candidate is permanently stored.
+OPP-002 Approved candidates are displayed.
+OPP-003 Rejected candidates are displayed.
+OPP-004 Blocked candidates are displayed.
+OPP-005 NO_TRADE decisions are displayed.
+OPP-006 Data Guard rejections are displayed.
+OPP-007 Stale-data rejections are displayed.
+OPP-008 Liquidity rejections are displayed.
+OPP-009 Calibration rejections are displayed.
+OPP-010 Portfolio-risk rejections are displayed.
+OPP-011 Risk Gate rejections are displayed.
+OPP-012 Execution-cost rejections are displayed.
+OPP-013 Insufficient-confidence rejections are displayed.
+OPP-014 Duplicate candidates are displayed.
+OPP-015 Expired candidates are displayed.
+OPP-016 Candidate ID displayed.
+OPP-017 Trace ID displayed.
+OPP-018 Ticker displayed.
+OPP-019 Strategy displayed.
+OPP-020 Creation timestamp displayed.
+OPP-021 Evaluation timestamp displayed.
+OPP-022 Decision timestamp displayed.
+OPP-023 Candidate status displayed.
+OPP-024 Final outcome displayed.
+OPP-025 Raw probability displayed.
+OPP-026 Calibrated probability displayed.
+OPP-027 Trade probability displayed.
+OPP-028 Confidence displayed.
+OPP-029 Expected value displayed.
+OPP-030 Expected execution cost displayed.
+OPP-031 Portfolio impact displayed.
+OPP-032 Risk result displayed.
+OPP-033 Rejection reason displayed.
+OPP-034 Rejecting stage displayed.
+OPP-035 Market regime displayed.
+OPP-036 Data freshness displayed.
+OPP-037 Model version displayed.
+OPP-038 Code version displayed.
+OPP-039 Evidence link displayed.
+OPP-040 Ticker filter works.
+OPP-041 Date filter works.
+OPP-042 Status filter works.
+OPP-043 Strategy filter works.
+OPP-044 Rejection-stage filter works.
+OPP-045 Probability filter works.
+OPP-046 Confidence filter works.
+OPP-047 Expected-value filter works.
+OPP-048 Sorting works.
+OPP-049 Pagination works.
+OPP-050 Authorized export works.
+OPP-051 Candidate counts reconcile with SQL.
+OPP-052 Rejections reconcile with SQL.
+OPP-053 Approved counts reconcile with SQL.
+OPP-054 NO_TRADE counts reconcile with SQL.
+OPP-055 Order counts reconcile with SQL.
+OPP-056 Fill counts reconcile with SQL.
+OPP-057 Rejected-order counts reconcile with SQL.
+OPP-058 Closed-trade counts reconcile with SQL.
+OPP-059 Missing outcomes are reported.
+OPP-060 Selection-bias report is produced.
+
+SECTION 7 — DECISION PROOF / TRACE
+
+TRACE-001 Scheduler Trigger stage recorded.
+TRACE-002 Data Ingestion stage recorded.
+TRACE-003 Data Guard stage recorded.
+TRACE-004 Macro Regime stage recorded.
+TRACE-005 Premarket Intelligence stage recorded.
+TRACE-006 Technical Analysis stage recorded.
+TRACE-007 Pattern Analysis stage recorded.
+TRACE-008 Advanced Indicators stage recorded.
+TRACE-009 Options Intelligence stage recorded.
+TRACE-010 Probability Engine stage recorded.
+TRACE-011 Scoring and Synthesis recorded.
+TRACE-012 Specialist Council recorded.
+TRACE-013 Portfolio Optimization recorded.
+TRACE-014 Risk Gate recorded.
+TRACE-015 Final Decision recorded.
+TRACE-016 Paper Order recorded.
+TRACE-017 Fill or Rejection recorded.
+TRACE-018 Position recorded.
+TRACE-019 Closed Outcome recorded.
+TRACE-020 Attribution recorded.
+TRACE-021 Learning Event recorded.
+TRACE-022 trace_id persists through lifecycle.
+TRACE-023 candidate_id persists.
+TRACE-024 decision_id persists.
+TRACE-025 execution_plan_id persists.
+TRACE-026 order_id persists.
+TRACE-027 position_id persists.
+TRACE-028 outcome_id persists.
+TRACE-029 learning_event_id persists.
+TRACE-030 audit_log_id persists.
+TRACE-031 Every stage records start timestamp.
+TRACE-032 Every stage records completion timestamp.
+TRACE-033 Stage execution duration recorded.
+TRACE-034 Executing module recorded.
+TRACE-035 Executing model version recorded.
+TRACE-036 Configuration version recorded.
+TRACE-037 Probability inputs archived.
+TRACE-038 Probability outputs archived.
+TRACE-039 Risk inputs archived.
+TRACE-040 Risk outputs archived.
+TRACE-041 Alternative strategies evaluated.
+TRACE-042 Alternative strategy rejection reasons recorded.
+TRACE-043 Winning strategy justification recorded.
+TRACE-044 Market regime recorded.
+TRACE-045 Volatility regime recorded.
+TRACE-046 Execution assumptions recorded.
+TRACE-047 Expected slippage recorded.
+TRACE-048 Expected commissions recorded.
+TRACE-049 Expected spread cost recorded.
+TRACE-050 Expected net edge recorded.
+TRACE-051 Audit chain hash generated.
+TRACE-052 Previous hash linked correctly.
+TRACE-053 Evidence chain immutable.
+TRACE-054 Decision reproducible from stored evidence.
+TRACE-055 Decision replay produces identical output.
+TRACE-056 Missing-stage negative control fails verification.
+TRACE-057 Modified evidence negative control fails verification.
+TRACE-058 Broken hash-chain negative control fails verification.
+TRACE-059 Replay verification passes.
+TRACE-060 End-to-end decision trace passes institutional audit.
+
+NOTE: TRACE section overlaps heavily with the existing Decision Proof
+Layer (DPL) work already in progress on the Options Engine — check DPL
+evidence for reusable proof before re-deriving from scratch, but this
+section is scoped to the AIEM D1/D2/D3 decision path, not the Options
+Engine, so do not assume DPL evidence transfers without confirming scope.
+
+PHASE 4 GATES PHASE 5.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.
