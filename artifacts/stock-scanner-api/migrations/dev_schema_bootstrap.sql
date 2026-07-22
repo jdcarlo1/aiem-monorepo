@@ -550,3 +550,39 @@ CREATE TABLE IF NOT EXISTS ticker_lifecycle (
     ticker VARCHAR(10) NOT NULL, active BOOLEAN,
     listed_date DATE, delisted_date DATE, updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- aiem_candidate_queue: full candidate evaluation log (build items 1+3, phase 4)
+CREATE TABLE IF NOT EXISTS aiem_candidate_queue (
+    id BIGSERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    trade_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    ticker TEXT NOT NULL,
+    source TEXT,
+    detail TEXT,
+    trade_type TEXT,
+    direction TEXT,
+    raw_score NUMERIC,
+    drift_mult NUMERIC,
+    trust_mult NUMERIC,
+    thompson_mult NUMERIC,
+    thompson_sampled_score NUMERIC,
+    final_score NUMERIC,
+    raw_probability NUMERIC,
+    calibrated_probability NUMERIC,
+    ev NUMERIC,
+    composite_score NUMERIC,
+    risk_gate_result TEXT,
+    risk_gate_reason TEXT,
+    execution_cost_est NUMERIC,
+    no_trade_reason TEXT,
+    rejection_reason TEXT,
+    rejecting_stage TEXT,
+    final_status TEXT NOT NULL DEFAULT 'UNKNOWN',
+    audit_trace_id TEXT,
+    is_test_record BOOLEAN NOT NULL DEFAULT FALSE,
+    inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS aiem_candidate_queue_trade_date_idx ON aiem_candidate_queue(trade_date);
+CREATE INDEX IF NOT EXISTS aiem_candidate_queue_ticker_idx ON aiem_candidate_queue(ticker);
+CREATE INDEX IF NOT EXISTS aiem_candidate_queue_status_idx ON aiem_candidate_queue(final_status);
+CREATE INDEX IF NOT EXISTS aiem_candidate_queue_run_id_idx ON aiem_candidate_queue(run_id);

@@ -64,3 +64,5 @@
 80	2026-07-22T16:21:33Z	0	c5d76699796f81ddbe6647ed8f9d418adc294f8685b4c4b0b0ea4b8f6bb6f2c0	bash tools/verify_d22a_sse_datetime.sh
 81	2026-07-22T16:42:49Z	0	f67cd201076a84605b9d0fe8731daef31a138f9db40c5631c66b315ea89dc4f4	python3 tools/t003_auth_verify.py
 82	2026-07-22T16:47:44Z	0	393e9e8f02c1513a24a8738e851c643af19e46390c0ab10ba737ba9dd346607c	python3 tools/t003_auth_verify.py
+83	2026-07-22T18:57:49Z	126	6502b6ecc62014f5e83682d4cdd1ab3b0919872e10a1ec3c487e26b345253cdc	artifacts/stock-scanner-api/evidence_chain.log
+84	2026-07-22T18:59:02Z	0	2a547000e6bd9d541743e44e2f93365faf90b3b28d4531f3368e38992015eecc	sha256sum artifacts/stock-scanner-api/main.py && grep -c '_gate_rejections\|_ncm_cand_save\|risk_gate_evaluated\|data_guard_checked\|aiem_candidate_queue' artifacts/stock-scanner-api/main.py && grep -c 'NEGATIVE_EDGE\|NEWS_CATALYST' artifacts/stock-scanner-api/main.py

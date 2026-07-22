@@ -1,0 +1,1 @@
+tools/verified_run.sh: line 64: artifacts/stock-scanner-api/evidence_chain.log: Permission denied

@@ -17367,6 +17367,21 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 reason=f"ks={_ks_outcome} dll={_dll_outcome} pcr={_pcr_outcome}")
         except Exception:
             pass
+        try:  # [build-2] data_guard_checked pipeline audit log
+            import aiem_pipeline_audit as _apa_dg
+            _apa_dg_t = _apa_dg.PipelineTrace("__batch__", trace_id=_dg_trace_id)
+            _apa_dg_t.log_step(
+                "data_guard_checked",
+                function_name="_aiem_paper_execute_today",
+                file_name="main.py",
+                input_summary="kill_switch|daily_loss_limit|portfolio_correlation_risk",
+                output_summary=f"ks={_ks_outcome} dll={_dll_outcome} pcr={_pcr_outcome}",
+                next_module="_aiem_paper_pick_candidates",
+                status="PASS",
+            )
+            _apa_dg_t.flush()
+        except Exception as _apa_dg_e:
+            print(f"[pipeline_audit] data_guard_checked log error (non-fatal): {_apa_dg_e}")
 
         # ── G1 data-guard-completion checkpoint (Path B P3.6) ─────────────────
         # Real DB-backed governance check, once per batch, right after the
@@ -46111,6 +46126,9 @@ def _aiem_paper_pick_candidates() -> list:
                 # council is additive; never block a pick — but log so a dead
                 # council doesn't go unnoticed indefinitely (Diagram-2 lesson)
 
+    _gate_rejections = {}  # ticker → (stage, reason, no_trade_reason)
+    _ncm_cand_save = {}    # data snapshot for news-blocked candidates
+
     # ── News catalyst gate — remove tickers with recent high-risk headlines ─
     _ncm_blocked = set()
     for _nc_ticker in list(_candidates.keys()):
@@ -46119,6 +46137,8 @@ def _aiem_paper_pick_candidates() -> list:
             if _ncm_result.get("high_risk_flag"):
                 _kw = _ncm_result["flagged_headlines"][0]["matched_keyword"] if _ncm_result.get("flagged_headlines") else "unknown"
                 print(f"[news_catalyst_gate] BLOCKED {_nc_ticker} — high-risk headline: '{_kw}'")
+                _ncm_cand_save[_nc_ticker] = dict(_candidates.get(_nc_ticker, {}))
+                _gate_rejections[_nc_ticker] = ("NEWS_CATALYST", f"high-risk headline: '{_kw}'", None)
                 _ncm_blocked.add(_nc_ticker)
                 del _candidates[_nc_ticker]
         except Exception:
@@ -46223,6 +46243,14 @@ def _aiem_paper_pick_candidates() -> list:
                 _ef_res = _ef_orc_gate.evaluate(_sig, _regime_label, _clipped_score)
                 if not _ef_res.get("approved", True) and _ef_res.get("edge") == "negative":
                     print(f"[gate] {_fp['ticker']} BLOCKED — negative edge (signal={_sig})")
+                    _gate_rejections[_fp["ticker"]] = ("NEGATIVE_EDGE", f"negative edge signal={_sig}", None)
+                    try:
+                        import aiem_pipeline_audit as _apa_ef
+                        _apa_ef_t = _apa_ef.PipelineTrace(_fp["ticker"])
+                        _apa_ef_t.log_step("risk_gate_evaluated", function_name="_aiem_paper_pick_candidates", file_name="main.py", input_summary=f"gate=NEGATIVE_EDGE score={_fp.get('score',0):.3f} source={_sig}", output_summary="BLOCKED: negative edge", status="FAIL", failure_reason=f"negative edge (signal={_sig})")
+                        _apa_ef_t.flush()
+                    except Exception:
+                        pass
                     continue
                 # Apply size_multiplier from AllocationEngine to scale score
                 _ef_mult = float(_ef_res.get("size_multiplier", 1.0) or 1.0)
@@ -46251,6 +46279,15 @@ def _aiem_paper_pick_candidates() -> list:
                             reason=f"edge={_ntrade_why} regime_ok={_ntrade_regime}")
                     except Exception:
                         pass
+                    _no_trade_full = f"NO_TRADE: edge={_ntrade_why} regime_ok={_ntrade_regime} risk_ok={_ntrade_risk}"
+                    _gate_rejections[_fp["ticker"]] = ("NO_TRADE", _no_trade_full, _no_trade_full)
+                    try:
+                        import aiem_pipeline_audit as _apa_ob
+                        _apa_ob_t = _apa_ob.PipelineTrace(_fp["ticker"])
+                        _apa_ob_t.log_step("risk_gate_evaluated", function_name="_aiem_paper_pick_candidates", file_name="main.py", input_summary=f"gate=NO_TRADE score={_fp.get('score',0):.3f} source={_sig}", output_summary=f"BLOCKED: {_no_trade_full}", status="FAIL", failure_reason=_no_trade_full)
+                        _apa_ob_t.flush()
+                    except Exception:
+                        pass
                     continue
                 elif _decision == "REDUCE_SIZE":
                     _fp["score"] = round(_fp["score"] * 0.70, 4)
@@ -46274,6 +46311,14 @@ def _aiem_paper_pick_candidates() -> list:
                             reason=f"gate=correlation reason={_cg_res.get('reason','?')}")
                     except Exception:
                         pass
+                    _gate_rejections[_fp["ticker"]] = ("CORRELATION", f"correlation: {_cg_res.get('reason','?')}", None)
+                    try:
+                        import aiem_pipeline_audit as _apa_cg
+                        _apa_cg_t = _apa_cg.PipelineTrace(_fp["ticker"])
+                        _apa_cg_t.log_step("risk_gate_evaluated", function_name="_aiem_paper_pick_candidates", file_name="main.py", input_summary=f"gate=CORRELATION score={_fp.get('score',0):.3f} source={_sig}", output_summary=f"BLOCKED: {_cg_res.get('reason','?')}", status="FAIL", failure_reason=f"correlation: {_cg_res.get('reason','?')}")
+                        _apa_cg_t.flush()
+                    except Exception:
+                        pass
                     continue
             except Exception as _cg_e:
                 print(f"[gate] CorrelationGuard error for {_fp['ticker']}: {_cg_e}")
@@ -46286,6 +46331,14 @@ def _aiem_paper_pick_candidates() -> list:
                 )
                 if not _lf_res.get("approved", True):
                     print(f"[gate] {_fp['ticker']} BLOCKED — liquidity: {_lf_res['reason']}")
+                    _gate_rejections[_fp["ticker"]] = ("LIQUIDITY", f"liquidity: {_lf_res.get('reason','?')}", None)
+                    try:
+                        import aiem_pipeline_audit as _apa_lf
+                        _apa_lf_t = _apa_lf.PipelineTrace(_fp["ticker"])
+                        _apa_lf_t.log_step("risk_gate_evaluated", function_name="_aiem_paper_pick_candidates", file_name="main.py", input_summary=f"gate=LIQUIDITY score={_fp.get('score',0):.3f} source={_sig}", output_summary=f"BLOCKED: {_lf_res.get('reason','?')}", status="FAIL", failure_reason=f"liquidity: {_lf_res.get('reason','?')}")
+                        _apa_lf_t.flush()
+                    except Exception:
+                        pass
                     continue
             except Exception as _lf_e:
                 print(f"[gate] LiquidityFilter error for {_fp['ticker']}: {_lf_e}")
@@ -46299,6 +46352,14 @@ def _aiem_paper_pick_candidates() -> list:
                 )
                 if not _erf_res.get("approved", True):
                     print(f"[gate] {_fp['ticker']} BLOCKED — event_risk: {_erf_res['reason']}")
+                    _gate_rejections[_fp["ticker"]] = ("EVENT_RISK", f"event_risk: {_erf_res.get('reason','?')}", None)
+                    try:
+                        import aiem_pipeline_audit as _apa_erf
+                        _apa_erf_t = _apa_erf.PipelineTrace(_fp["ticker"])
+                        _apa_erf_t.log_step("risk_gate_evaluated", function_name="_aiem_paper_pick_candidates", file_name="main.py", input_summary=f"gate=EVENT_RISK score={_fp.get('score',0):.3f} source={_sig} hold_days={_hold}", output_summary=f"BLOCKED: {_erf_res.get('reason','?')}", status="FAIL", failure_reason=f"event_risk: {_erf_res.get('reason','?')}")
+                        _apa_erf_t.flush()
+                    except Exception:
+                        pass
                     continue
                 elif _erf_res.get("score_mult", 1.0) < 1.0:
                     _fp["score"] = round(_fp["score"] * _erf_res["score_mult"], 4)
@@ -46337,7 +46398,7 @@ def _aiem_paper_pick_candidates() -> list:
         _cr_all_tickers = set(_candidates.keys())
         _cr_rejected_set = _cr_all_tickers - _cr_final_set
         _cr_reject_reasons = {
-            _t: "blocked by EdgeFilter/OptionBBrain/CorrelationGuard/LiquidityFilter/EventRisk or ranked out"
+            _t: (_gate_rejections[_t][1] if _gate_rejections.get(_t) else "below ranking threshold or gate blocked")
             for _t in _cr_rejected_set
         }
         _acll.store_candidate_rankings(
@@ -46361,6 +46422,65 @@ def _aiem_paper_pick_candidates() -> list:
         )
     except Exception as _sup_cr_e:
         print(f"[supervisor] hook2_candidate_ranking skipped (non-fatal): {_sup_cr_e}")
+
+    # ── Build items 1+3: persist ALL candidates to aiem_candidate_queue ────
+    # Every candidate evaluated this run (including news-blocked, ranked-out,
+    # gate-rejected, and approved) is persisted here with gate-specific
+    # rejection reason and probability/risk data. Non-fatal.
+    try:
+        import datetime as _cq_dt
+        import psycopg2 as _cq_pg2
+        _cq_today = _cq_dt.datetime.now(_ET).date()
+        _cq_run_id = f"aiem_{_cq_today.strftime('%Y_%m_%d')}"
+        _cq_final_set = {c["ticker"] for c in _final}
+        _intel_gate_stages = {"NEGATIVE_EDGE", "NO_TRADE", "CORRELATION", "LIQUIDITY", "EVENT_RISK"}
+        _cq_all = list(_candidates.items()) + [
+            (_t, _d) for _t, _d in _ncm_cand_save.items() if _t not in _candidates
+        ]
+        with _cq_pg2.connect(_DB_URL, connect_timeout=4) as _cqc, _cqc.cursor() as _cqcu:
+            for _cq_ticker, _cq_cand in _cq_all:
+                _cq_score = float(_cq_cand.get("score", 0))
+                _cq_raw_prob = round(min(max(_cq_score / 10.0, 0.0), 1.0), 4)
+                _cq_reject_info = _gate_rejections.get(_cq_ticker)
+                _cq_stage = _cq_reject_info[0] if _cq_reject_info else None
+                _cq_reason = _cq_reject_info[1] if _cq_reject_info else None
+                _cq_no_trade = _cq_reject_info[2] if _cq_reject_info else None
+                _cq_is_approved = _cq_ticker in _cq_final_set
+                _cq_risk_result = (
+                    "FAIL" if _cq_stage in _intel_gate_stages
+                    else ("PASS" if _cq_is_approved else None)
+                )
+                _cq_status = "APPROVED" if _cq_is_approved else (_cq_stage or "RANKED_OUT")
+                _cqcu.execute("""
+                    INSERT INTO aiem_candidate_queue
+                        (run_id, trade_date, ticker, source, detail, trade_type, direction,
+                         raw_score, drift_mult, trust_mult, thompson_mult, thompson_sampled_score,
+                         final_score, raw_probability, composite_score,
+                         risk_gate_result, risk_gate_reason, execution_cost_est, no_trade_reason,
+                         rejection_reason, rejecting_stage, final_status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT DO NOTHING
+                """, (
+                    _cq_run_id, _cq_today, _cq_ticker,
+                    _cq_cand.get("source"), str(_cq_cand.get("detail", ""))[:500],
+                    _cq_cand.get("trade_type"), _cq_cand.get("direction"),
+                    round(float(_cq_cand.get("raw_score") or _cq_score), 4),
+                    round(float(_cq_cand.get("drift_mult", 1.0)), 4),
+                    round(float(_cq_cand.get("trust_mult", 1.0)), 4),
+                    round(float(_cq_cand.get("thompson_multiplier", 1.0)), 4),
+                    _cq_cand.get("thompson_sampled_score"),
+                    round(_cq_score, 4),
+                    _cq_raw_prob,
+                    round(_cq_score, 4),
+                    _cq_risk_result, _cq_reason,
+                    0.01,
+                    _cq_no_trade, _cq_reason, _cq_stage,
+                    _cq_status,
+                ))
+            _cqc.commit()
+        print(f"[candidate_queue] {len(_cq_all)} rows written to aiem_candidate_queue (run={_cq_run_id})")
+    except Exception as _cqe:
+        print(f"[candidate_queue] aiem_candidate_queue write error (non-fatal): {_cqe}")
 
     # ── Phase 1 candidate intake: persist to aiem_candidate_pipeline ──────
     # Every candidate that passes all gates is written with
