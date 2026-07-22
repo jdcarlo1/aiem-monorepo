@@ -324,17 +324,23 @@ def _poll_system_health():
         rows = cu.fetchall()
         max_ts = last_ts
         for row in rows:
+            # job_heartbeats.last_success / last_attempt are TIMESTAMP WITHOUT TIME ZONE
+            # (naive). aiem_sse_poller_state.last_seen_ts is TIMESTAMPTZ (aware).
+            # Normalize naive timestamps to UTC-aware before comparison to avoid
+            # "can't compare offset-naive and offset-aware datetimes".
+            r_success = row[1].replace(tzinfo=timezone.utc) if row[1] and row[1].tzinfo is None else row[1]
+            r_attempt = row[2].replace(tzinfo=timezone.utc) if row[2] and row[2].tzinfo is None else row[2]
             payload = {
                 "job_name": row[0],
-                "last_success": row[1].isoformat() if row[1] else None,
-                "ts": row[2].isoformat() if row[2] else None,
+                "last_success": r_success.isoformat() if r_success else None,
+                "ts": r_attempt.isoformat() if r_attempt else None,
                 "consecutive_failures": int(row[4] or 0),
             }
             publish_event("system_health", payload)
             if int(row[4] or 0) > 0:
                 publish_event("scheduler_failure", {**payload, "last_error": row[3]})
-            if row[2] and (max_ts is None or row[2] > max_ts):
-                max_ts = row[2]
+            if r_attempt and (max_ts is None or r_attempt > max_ts):
+                max_ts = r_attempt
         if rows and max_ts:
             cu.execute(
                 "INSERT INTO aiem_sse_poller_state (source_table, last_seen_id, last_seen_ts, updated_at) "

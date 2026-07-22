@@ -61,3 +61,4 @@
 77	2026-07-22T15:30:17Z	127	cda1733ce92ee5c5c607091c5adcb2a73a94ced9a1bc587fca25574a9dcad77f	D24_aiem_morning_scan_startup_catchup
 78	2026-07-22T15:30:58Z	1	97b28e15f817cfd5a134288e48bd5e5e84d6378daad106cb8816737217e47b8f	bash tools/verify_d24_morning_scan.sh
 79	2026-07-22T15:33:04Z	0	74f092cc03dc743570d5113bdb84e91132427ad50a1f41a3cf3421470f77242f	bash tools/verify_d24_morning_scan.sh
+80	2026-07-22T16:21:33Z	0	c5d76699796f81ddbe6647ed8f9d418adc294f8685b4c4b0b0ea4b8f6bb6f2c0	bash tools/verify_d22a_sse_datetime.sh

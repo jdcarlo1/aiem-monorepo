@@ -1,0 +1,41 @@
+# Directive 22 — Two Items
+
+## Item A: Fix aiem_sse.py datetime comparison bug
+
+### Background
+stock-api log shows repeating poller error: `[aiem_sse] poller error: can't compare offset-naive and offset-aware datetimes`. Continuous, not yet root-caused.
+
+### Required: diagnose, then fix
+1. **Root cause (raw grep required)** — locate the exact comparison via `grep -n`, paste the real line(s). Identify which side is naive vs aware and trace both to source.
+2. **Fix** — make both sides consistently timezone-aware. Raw git diff. sha256 before/after for aiem_sse.py.
+3. **Live proof** — raw stock-api log excerpt showing error-free poll cycles post-fix, with timestamps.
+4. **Negative control** — grep confirming no other file/module does the same naive/aware comparison against the same data path.
+
+---
+
+## Item B: Dual Scheduler Check (diagnostic only — no fixes)
+
+### Background
+Two independent APScheduler `BackgroundScheduler` instances exist:
+- `main.py` — live Flask app scheduler (`premarket_scan`, `morning_scan`, `outcomes_update`, etc.)
+- `aiem_process.py` — separate scheduler inside `def main()`, gated by `if __name__ == "__main__"` (`aiem_warmup`, `aiem_premarket_scan`, `aiem_open_watcher`, `aiem_nightly_learn`, etc.)
+
+`main.py` does not import `aiem_process.py`. Only matters if the latter is deployed/run as its own live process.
+
+### Required findings
+1. Is `aiem_process.py` currently deployed and running as a separate process? Check Replit workflow/run config, Procfile-equivalent, or process list. Yes/no, with raw config/process listing shown.
+2. If yes: list every table each scheduler's jobs read/write (grep both files for `.execute(`/table names). Flag any table touched by both.
+3. If overlap exists: for each shared table, confirm whether both schedulers' jobs can run in the same time window (compare CronTrigger hours/minutes across both files), and whether either has a claim/lock mechanism preventing double-write (like the `try_claim` pattern already fixed in `aiem_paper_recovery.py`).
+4. If `aiem_process.py` is NOT currently deployed: confirm via git log / deployment config when it was last active, state plainly it's dead code.
+
+---
+
+## Evidence required for BOTH items (standing checklist — full, not abbreviated)
+- Raw terminal output for every claim; raw grep/sed for any code-location or behavior claim — no paraphrasing.
+- Raw process-listing / deployment-config output proving live vs. not-live status for Item B — not a narrative claim.
+- Before/after sha256 for any file changed (Item A only — Item B makes no code changes).
+- Raw SQL + full result set for any DB query run.
+- sha256 cross-check: `tools/verified_run.sh` and `artifacts/stock-scanner-api/verify_chain.sh` against current canonical (ba6100ae / aa618d45).
+- All evidence-producing commands run through `verified_run.sh`; paste `verify_chain.sh` output before declaring done.
+- State plainly if any item can't be backed by real output — no padding.
+- Item B is diagnostic-only — report findings, do not modify scheduler code.

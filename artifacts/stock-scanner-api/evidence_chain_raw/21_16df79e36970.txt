@@ -1,0 +1,25 @@
+=== C1: r_attempt normalization present ===
+grep result: 332:            r_attempt = row[2].replace(tzinfo=timezone.utc) if row[2] and row[2].tzinfo is None else row[2]
+PASS C1: r_attempt UTC normalization present in aiem_sse.py
+=== C2: r_success normalization present ===
+grep result: 331:            r_success = row[1].replace(tzinfo=timezone.utc) if row[1] and row[1].tzinfo is None else row[1]
+PASS C2: r_success UTC normalization present
+=== C3: old bare row[2] > max_ts comparison removed ===
+grep result: ''
+PASS C3: old bare row[2] > max_ts comparison removed
+=== C4: job_heartbeats.last_attempt is TIMESTAMP WITHOUT TIME ZONE (naive) ===
+DB type: timestamp without time zone
+PASS C4: job_heartbeats.last_attempt confirmed naive (timestamp without time zone)
+=== C5: aiem_sse_poller_state.last_seen_ts is TIMESTAMPTZ (aware) ===
+DB type: timestamp with time zone
+PASS C5: aiem_sse_poller_state.last_seen_ts confirmed aware (timestamp with time zone)
+=== C6: negative control — no other .py does unguarded job_heartbeats ts comparison ===
+aiem_watchdog.py guard: 125:    stale_ts = datetime.utcnow().replace(tzinfo=timezone.utc) - timedelta(minutes=_HB_STALE_MINUTES)
+142:    last_success_utc = last_success.replace(tzinfo=timezone.utc) if last_success.tzinfo is None else last_success
+PASS C6: aiem_watchdog.py already has correct UTC guard — consistent fix pattern
+=== C7: sha256 before/after ===
+before: c9d610f9ce3e1a3cfa1cd0deea4795185ebe1f5b489ec147f89277c921ebcde9
+after:  24822922ed20047fab87f65c357313503bd04870992ea3cd5ee858da04d8bb84
+PASS C7: sha256 after matches expected (24822922...)
+
+SUMMARY: 7 PASS  0 FAIL
