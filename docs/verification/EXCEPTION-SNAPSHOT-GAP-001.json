@@ -1,0 +1,59 @@
+{
+  "exception_id": "SNAPSHOT-GAP-001",
+  "exception_type": "STAGE1_SNAPSHOT_MISSING",
+  "status": "UNRESOLVED",
+  "recorded_at": "2026-07-22T02:40:00Z",
+  "recorded_by": "agent_phase1_closeout",
+  "pending_decision_owner": "Joel",
+
+  "scope": {
+    "affected_alert_ids": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24],
+    "affected_count": 24,
+    "total_alerts_in_db": 25,
+    "alert_dates": ["2026-07-16", "2026-07-17"],
+    "tickers_affected": ["PSX","NTLA","EW","MAA","MEC","UMC","PINS","WOLF"],
+    "unaffected_alert_id": 25,
+    "unaffected_note": "Alert 25 (TER, 2026-07-17) had its snapshot backfilled on 2026-07-22 via hash-match recovery. Stage-1 now PASS for alert 25 only."
+  },
+
+  "root_cause": "aiem_options_alert_snapshots table (and the INSERT INTO ... at aiem_options_pipeline.py line 551) was added to the pipeline after alert IDs 1-24 were written. No snapshot data was captured for those alerts at decision time. The pipeline's broad except-Exception handler at the function level would have silently absorbed any table-not-found error without surfacing it.",
+
+  "verify_chain_result_for_each_affected_alert": {
+    "stage_1_polygon": "SNAPSHOT_UNAVAILABLE",
+    "stages_2_through_6": "UNVERIFIABLE — upstream break at 1_polygon",
+    "stage_7_alert": "PASS (alert row is present)",
+    "stage_8_db_write": "PASS (audit_chain_sha256 present and matches stored hash)",
+    "overall": "FAIL (4/10 checks passed for each of the 24 affected alerts)",
+    "source_file": "artifacts/stock-scanner-api/tools/verify_chain_all25_results.txt"
+  },
+
+  "decision_proof_screen_build2": {
+    "current_state": "NOT_BUILT",
+    "current_proof_tsx": "artifacts/aiem-dashboard/src/pages/Proof.tsx displays evidence chain status (last hash, last command, total entries) and HMAC token input only. It does NOT display individual alerts.",
+    "implication": "The 24 unverifiable alerts are not currently shown anywhere on the Decision Proof screen. When Build 2 adds per-alert drill-down, a design decision is required: the 24 alerts MUST be flagged as STAGE1_UNVERIFIABLE and must NOT be displayed with a valid proof badge or any claim of full cryptographic verification.",
+    "unacceptable": "Silently displaying alerts 1-24 as if backed by full proof. Any Build 2 UI that does not distinguish these alerts from alert 25 would be misrepresenting the verification status."
+  },
+
+  "resolution_options": [
+    {
+      "id": "OPTION_A_RECOVER",
+      "description": "Backfill snapshots for alerts 1-24 from existing polygon_market_daily and options_structure_scan DB rows using hash-match proof (same technique as alert 25). Each alert's recovered pmd_data + oss_data must produce the stored stage_hashes['1_polygon'] exactly before INSERT is permitted. Feasibility: source data is still in DB for 2026-07-16 and 2026-07-17. Requires operator approval per Data Immutability Rule before any INSERT."
+    },
+    {
+      "id": "OPTION_B_EXEMPT",
+      "description": "Register alerts 1-24 as a documented pre-snapshot-mechanism exemption class. Modify verify_chain.sh to SKIP (not FAIL) stage 1 for alerts with created_at before a defined cutoff, matching the C47 pattern in verify_dpl_phase3.py. No data fabrication. verify_chain.sh would then exit 0 for these alerts with an explicit SKIP label."
+    },
+    {
+      "id": "OPTION_C_DISPLAY_ONLY",
+      "description": "Take no action on the backend. Build 2 explicitly labels alerts 1-24 as PRE_SNAPSHOT / STAGE1_UNVERIFIABLE with a visible flag in the UI. Stages 7-8 (alert presence + db_write hash) can still be shown as PASS. No false proof claim."
+    }
+  ],
+
+  "phase1_impact": "BLOCKS — DASHBOARD BUILD MAY BEGIN verdict cannot stand while this is UNRESOLVED. Joel must choose a resolution path.",
+
+  "this_record_does_not": [
+    "Grant a PASS verdict on its own authority",
+    "Recommend a resolution path",
+    "Authorize any INSERT, UPDATE, or schema change"
+  ]
+}
