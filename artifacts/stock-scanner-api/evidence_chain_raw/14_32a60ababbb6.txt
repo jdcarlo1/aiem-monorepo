@@ -1,0 +1,45 @@
+========================================================================
+  verify_chain.sh  —  alert_id=25  ticker=TER  direction=LONG_PUT
+  alert_date=2026-07-17  expiry=2026-07-26  outcome=OPEN
+  stored audit_chain_sha256: b7c339b0858abc6abaf9464bc64317422b722786ba5e3c12ddf6ba8b39ec09a2
+========================================================================
+
+  [✓] 1_polygon                       stored=770db4b7e8ae99feebcd...  recomputed=770db4b7e8ae99feebcd...  PASS  [snapshot]
+  [✓] 2_stock_analysis               stored=4fe6946058085238b53d...  recomputed=4fe6946058085238b53d...  PASS  [chained]
+  [✓] 3_options_analysis             stored=c5cedc28ed04ece764fa...  recomputed=c5cedc28ed04ece764fa...  PASS  [chained]
+  [✓] 4_risk_gates                   stored=abb30e00f74626ed211d...  recomputed=abb30e00f74626ed211d...  PASS  [chained]
+  [✓] 5_req6_scoring                 stored=dfdc5cac827685870831...  recomputed=dfdc5cac827685870831...  PASS  [chained]
+  [✓] 6_decision                     stored=22509951cb71ccd81ba4...  recomputed=22509951cb71ccd81ba4...  PASS  [chained]
+  [✓] 7_alert                        stored=41d5a81e420e010646d2...  PASS (present)
+  [✓] 8_db_write                     stored=b7c339b0858abc6abaf9...  PASS (present)
+  [✓] audit_chain_sha256 matches db_write/final hash: PASS
+  [~] 9_learning                     not yet graded  SKIP
+  [~] 10_audit_chain_final           not yet graded  SKIP
+
+  REQ6 COMPONENT SCORES:
+  Dimension                             CALL    PUT
+  --------------------------------------------------
+  D10_technical_confirmation              35     84
+  D11_options_flow_confirmation           45     50
+  D12_historical_performance              50     50
+  D1_directional_probability              40     90
+  D2_prob_reach_target                    54     80
+  D3_expected_return                      36     51
+  D4_max_premium_loss                     30     30
+  D5_risk_reward                           0      0
+  D6_liquidity                            94    100
+  D7_slippage                             40     66
+  D8_theta_decay_risk                     96     99
+  D9_market_regime_fit                    50     50
+  FINAL                                 46.8   65.4
+  margin=18.6  winner=LONG_PUT
+
+  GATE FAILURES (2):
+    call: bid/ask spread > 20% of mid (value=0.2399)
+    call: PoP < 35% — below minimum threshold (value=0.28)
+
+========================================================================
+  RESULT: 10/10 checks passed
+SUMMARY: 10 PASS  0 FAIL
+  OVERALL: PASS
+========================================================================

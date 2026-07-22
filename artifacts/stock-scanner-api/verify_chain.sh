@@ -279,6 +279,7 @@ print()
 print(f"{'='*72}")
 total = len(passes) + len(fails)
 print(f"  RESULT: {len(passes)}/{total} checks passed")
+print(f"SUMMARY: {len(passes)} PASS  {len(fails)} FAIL")
 if fails:
     print("  FAILURES:")
     for f in fails:
