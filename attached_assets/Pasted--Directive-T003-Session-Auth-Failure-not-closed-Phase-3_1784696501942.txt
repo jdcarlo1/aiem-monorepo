@@ -1,0 +1,31 @@
+# Directive — T003 Session Auth Failure (not closed)
+
+Phase 3 Final Summary claims "Phase 4 is unblocked" while T003 = FAIL. Rejected. T003 must PASS with clean evidence before Phase 4.
+
+## Required fixes + evidence
+
+1. **Clean-state correct-password test**
+   - Reset/clear login_attempts row for the test account first (raw SQL: `SELECT` before, `DELETE`/reset, `SELECT` after — full result sets, not row counts)
+   - Then run correct-password login alone, no prior failed attempts in the window
+   - Raw request + response (status, headers, body)
+
+2. **Cookie issuance on success**
+   - Raw `Set-Cookie` headers from the successful login response (full, unredacted flags)
+   - Confirm both `aiem_session` and `aiem_csrf` are actually set — if not, grep the login handler's response-building code (raw `grep -n`/`sed -n`, not paraphrase) and show why
+
+3. **Session-cookie auth path**
+   - Using the cookie from step 2, raw request to `/auth/me` and raw response — must show real username/role, not null
+
+4. **Root-cause explanation**
+   - Why did "correct password" 429 in the original test — was it purely the pre-existing lockout, or something else? State which, with evidence (attempt counter query before/after)
+
+## Standing requirements (apply to this directive same as always)
+
+- Raw command output only — no narrative, no "should work now"
+- Route all evidence-producing commands through `tools/verified_run.sh`; validate with `artifacts/stock-scanner-api/verify_chain.sh` before declaring done — paste that output
+- Paste current `sha256sum` of both wrapper scripts and confirm against canonical (last known: verified_run.sh = ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836; verify_chain.sh = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f) — mismatch = validator drift, output rejected regardless of content
+- sha256 before/after for any file changed this round
+- If any item can't be backed by real output, say so in one line — no padding
+- No deletions/overwrites of any row/file without explicit approval first
+
+T003 stays FAIL, and Phase 4 stays blocked, until this comes back clean.

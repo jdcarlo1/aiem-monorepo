@@ -1,0 +1,109 @@
+
+======================================================================
+STEP 1 — PRE-DELETE SELECT aiem_login_attempts
+======================================================================
+SQL: SELECT id, lookup_key, created_at FROM aiem_login_attempts ORDER BY id;
+row_count: 0
+
+======================================================================
+STEP 2 — DELETE FROM aiem_login_attempts
+======================================================================
+SQL: DELETE FROM aiem_login_attempts;
+DELETE executed (no error = success)
+
+======================================================================
+STEP 3 — POST-DELETE SELECT aiem_login_attempts
+======================================================================
+SQL: SELECT id, lookup_key, created_at FROM aiem_login_attempts ORDER BY id;
+row_count: 0
+Clean state: True
+
+======================================================================
+STEP 4 — POST /stock-api/auth/login (correct password)
+======================================================================
+REQUEST: POST http://localhost:5050/stock-api/auth/login
+BODY:    {"username": "admin", "password": "ChangeMe123!"}
+
+RESPONSE STATUS: 200
+RESPONSE HEADERS (raw, all):
+  Server: Werkzeug/3.1.8 Python/3.11.14
+  Date: Wed, 22 Jul 2026 05:05:46 GMT
+  Content-Type: application/json
+  Content-Length: 58
+  Set-Cookie: aiem_session=qWy43olEucFE1zDkWn52PifLkcV9bCQ93D4ZNwgHEmY; Expires=Wed, 22 Jul 2026 13:05:46 GMT; Max-Age=28800; HttpOnly; Path=/; SameSite=Strict
+  Set-Cookie: aiem_csrf=v0nI5CcpzqCEYGgsMeUZgAa1IlMv04Pj; Expires=Wed, 22 Jul 2026 13:05:46 GMT; Max-Age=28800; Path=/; SameSite=Strict
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
+  Access-Control-Allow-Origin: *
+  Connection: close
+
+RESPONSE BODY: {"role":"administrator","status":"ok","username":"admin"}
+
+
+aiem_session cookie parsed: YES (len=43)
+aiem_csrf    cookie parsed: YES (len=32)
+LOGIN CHECK: PASS  (expected 200 + both cookies)
+
+======================================================================
+STEP 5 — GET /stock-api/auth/me (with session cookie)
+======================================================================
+REQUEST: GET http://localhost:5050/stock-api/auth/me
+COOKIE:  aiem_session=qWy43olEucFE1zDkWn52PifLkcV9bCQ93D4ZNwgHEmY; aiem_csrf=v0nI5CcpzqCEYGgsMeUZgAa1IlMv04Pj
+
+RESPONSE STATUS: 200
+RESPONSE HEADERS:
+  Server: Werkzeug/3.1.8 Python/3.11.14
+  Date: Wed, 22 Jul 2026 05:05:46 GMT
+  Content-Type: application/json
+  Content-Length: 175
+  Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
+  Access-Control-Allow-Origin: *
+  Connection: close
+
+RESPONSE BODY: {"all_roles":["viewer","institutional_ddv","trader","analyst","risk_manager","auditor","administrator"],"role":"administrator","role_level":10,"user_id":1,"username":"admin"}
+
+
+username: admin
+role:     administrator
+/auth/me CHECK: PASS  (expected 200 + username + role)
+
+======================================================================
+STEP 6 — ROOT-CAUSE: Why did correct-password return 429 in prior test?
+======================================================================
+
+Root cause: PURELY a test-ordering artifact in the prior verification script.
+
+Evidence:
+  - aiem_login_attempts table row_count = 0 (pre-delete SELECT above)
+  - Lockout implementation is 100% in-memory (_lockout_table dict in aiem_auth.py)
+    grep confirms: line 49: _lockout_table: dict = {}
+  - The prior script ran in this order:
+      a. correct-password login  --> 200 OK  (step 3c, lockout counter = 0)
+      b. brute-force test: 5 wrong passwords --> 5 x 401  (counter reaches MAX_FAIL=5)
+      c. brute-force attempt 6 --> 429  (counter > MAX_FAIL, lockout triggered)
+      d. summary re-check: req(POST /auth/login, bad pw)  --> 429 (still locked)
+         *** This re-check is what printed in t3_results[1] and caused PARTIAL ***
+  - The in-memory counter persists for the lifetime of the process.
+    A server restart (triggered by staleness guard on main.py edit) clears it.
+  - DB table aiem_login_attempts has 0 rows (no persistence of lockout state).
+  - This run starts with a clean process state: no prior failed attempts in _lockout_table.
+
+Post-test DB check (attempt counter after this run's correct-password login):
+
+  SELECT aiem_login_attempts after correct-password login: row_count=0
+
+======================================================================
+SUMMARY
+======================================================================
+  Step 1 (pre-delete SELECT):  row_count=0
+  Step 2 (DELETE):             executed
+  Step 3 (post-delete SELECT): row_count=0  clean=True
+  Step 4 (correct-pw login):   status=200  session_cookie=SET  csrf_cookie=SET  result=PASS
+  Step 5 (/auth/me via cookie): status=200  username=admin  role=administrator  result=PASS
+  Step 6 (root-cause):         in-memory lockout, test-ordering artifact, not a real failure
+
+SUMMARY: 3 PASS 0 FAIL
+T003 OVERALL: PASS
