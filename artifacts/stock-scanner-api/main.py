@@ -46473,7 +46473,7 @@ def _aiem_paper_pick_candidates() -> list:
                     _cq_raw_prob,
                     round(_cq_score, 4),
                     _cq_risk_result, _cq_reason,
-                    0.01,
+                    _NANO_CAP_SPREAD_PCT,  # placeholder: _NANO_CAP_SPREAD_PCT constant; not a live bid/ask computation
                     _cq_no_trade, _cq_reason, _cq_stage,
                     _cq_status,
                 ))

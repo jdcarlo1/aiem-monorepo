@@ -586,3 +586,10 @@ CREATE INDEX IF NOT EXISTS aiem_candidate_queue_trade_date_idx ON aiem_candidate
 CREATE INDEX IF NOT EXISTS aiem_candidate_queue_ticker_idx ON aiem_candidate_queue(ticker);
 CREATE INDEX IF NOT EXISTS aiem_candidate_queue_status_idx ON aiem_candidate_queue(final_status);
 CREATE INDEX IF NOT EXISTS aiem_candidate_queue_run_id_idx ON aiem_candidate_queue(run_id);
+
+-- execution_cost_est label: this is _NANO_CAP_SPREAD_PCT (0.01 fixed constant).
+-- It is NOT a live bid/ask computation. No quote feed is available at
+-- pick-candidate time (~9:35 AM ET) for the nano/small-cap universe.
+-- This column is a documented placeholder pending a live-spread model.
+COMMENT ON COLUMN aiem_candidate_queue.execution_cost_est IS
+  'Placeholder: _NANO_CAP_SPREAD_PCT constant (0.01). Not a live bid/ask computation — no quote feed at pick-candidate time.';

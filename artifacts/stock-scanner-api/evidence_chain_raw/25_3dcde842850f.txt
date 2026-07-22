@@ -1,0 +1,7 @@
+c938dac68443b2884aa58f1aa51eccca645cb63a53d6dd106aab241122b18af7  artifacts/stock-scanner-api/main.py
+777:_NANO_CAP_SPREAD_PCT  = 0.01
+17806:                # Polygon prev-close only). _NANO_CAP_SPREAD_PCT is the auditor-approved
+17812:                        _mid_price, "long", _NANO_CAP_SPREAD_PCT
+17815:                    _spread_pct_used = _NANO_CAP_SPREAD_PCT
+46476:                    _NANO_CAP_SPREAD_PCT,  # placeholder: _NANO_CAP_SPREAD_PCT constant; not a live bid/ask computation
+589e7238b0d16e12135cb48bee1f81db1a3cce2b66bfe2b9a2b10a214212de28  artifacts/stock-scanner-api/migrations/dev_schema_bootstrap.sql
