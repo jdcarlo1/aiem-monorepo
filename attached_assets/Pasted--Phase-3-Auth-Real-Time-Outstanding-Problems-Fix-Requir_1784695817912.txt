@@ -1,0 +1,26 @@
+# Phase 3 (Auth + Real-Time) — Outstanding Problems, Fix Required
+
+Result: 3 PASS / 2 FAIL / 19 PARTIAL / 51 NOT_IMPLEMENTED of 75 items (40 AUTH + 35 RT). Phase does not close.
+
+## Problems
+1. **No real multi-user auth/role system.** Single shared ADMIN_TOKEN, binary admin/not-admin. All 7 defined roles (viewer, institutional_ddv, trader, analyst, risk_manager, auditor, administrator) are NOT_IMPLEMENTED.
+2. **No real real-time layer.** One chat-only SSE endpoint exists; zero EventSource consumers in the dashboard frontend. Polling is the actual primary delivery mechanism for every tab despite RT being claimed.
+3. **Inconsistent endpoint gating** among equivalent risk/paper-trading routes — some gated, some not, no consistent rule.
+4. **Wrong HTTP status.** Majority of auth failures return 403 instead of the RFC-correct 401 for missing/invalid credentials.
+
+## Fix required (A–F), close-out = all 75 items PASS, no partial credit
+- **A.** Real identity/role system replacing the shared token — all 7 roles enforced.
+- **B.** Real session lifecycle — server-side store, TTL, real logout/revocation.
+- **C.** Fix the specific inconsistent-gating siblings found — consistent rule across equivalent routes.
+- **D.** Correct 403→401 for missing/invalid credentials; keep 403 only for legitimate role/CSRF/token gates.
+- **E.** Cookie/CSRF hardening — HttpOnly/Secure/SameSite session cookie, double-submit CSRF token.
+- **F.** Real SSE/WS architecture for all critical event categories — auth-gated, reconnect/backoff, dedup, sequencing, missed-event recovery, connection limits, schema versioning.
+
+## Evidence required on close-out (standing protocol — no abbreviated subset)
+- Raw terminal output for every claim; raw grep/sed for any code-location or behavior claim — no paraphrasing.
+- Before/after sha256 for every changed file.
+- Raw SQL + full result set for any DB schema/data claim (e.g. new auth tables).
+- sha256 cross-check of `tools/verified_run.sh` and canonical `verify_chain.sh` vs current canonical values, pasted raw.
+- verify_chain.sh output validating chain state; no self-granted PASS.
+- No unapproved deletions (Data Immutability Rule) — state what/why and wait for approval if anything needs removing.
+- All 75 items must show PASS with raw evidence — do not report "CLOSED" on partial credit.
