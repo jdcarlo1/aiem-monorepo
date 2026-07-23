@@ -9,8 +9,8 @@ export default function PaperTrades() {
   const { data: fills, loading: fillsLoading } = useApi<any>("/stock-api/admin/paper-fill-audit", {}, 60000);
 
   const calculateTotalPnl = () => {
-    if (!openTrades?.trades) return 0;
-    return openTrades.trades.reduce((acc: number, t: any) => acc + (t.pnl || 0), 0);
+    if (!openTrades?.open_positions) return 0;
+    return openTrades.open_positions.reduce((acc: number, t: any) => acc + (t.pnl || 0), 0);
   };
 
   const totalPnl = calculateTotalPnl();
@@ -37,7 +37,7 @@ export default function PaperTrades() {
             <h2 className="text-sm font-mono font-bold text-primary flex items-center gap-2">
               <BarChart2 size={14} /> OPEN POSITIONS
             </h2>
-            <span className="text-xs font-mono text-muted-foreground">{openTrades?.trades?.length || 0} ACTIVE</span>
+            <span className="text-xs font-mono text-muted-foreground">{openTrades?.open_positions?.length || 0} ACTIVE</span>
           </div>
           <div className="flex-1 overflow-auto p-0">
             <table className="w-full text-left font-mono text-sm border-collapse">
@@ -55,8 +55,8 @@ export default function PaperTrades() {
               <tbody>
                 {openLoading ? (
                   <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
-                ) : openTrades?.trades?.length ? (
-                  openTrades.trades.map((t: any, i: number) => (
+                ) : openTrades?.open_positions?.length ? (
+                  openTrades.open_positions.map((t: any, i: number) => (
                     <tr key={i} className="border-b border-border/50 hover:bg-white/5">
                       <td className="p-3 font-bold text-white">{t.ticker}</td>
                       <td className={`p-3 font-bold ${t.trade_type?.includes('CALL') || t.trade_type === 'STOCK' ? 'text-success' : 'text-destructive'}`}>{t.trade_type}</td>
@@ -91,8 +91,8 @@ export default function PaperTrades() {
               <div className="divide-y divide-border/50">
                 {fillsLoading ? (
                   <div className="p-4 text-center text-muted-foreground font-mono text-sm">LOADING...</div>
-                ) : fills?.fills?.length ? (
-                  fills.fills.slice(0, 50).map((f: any, i: number) => (
+                ) : fills?.recent_rows?.length ? (
+                  fills.recent_rows.slice(0, 50).map((f: any, i: number) => (
                     <div key={i} className="p-3 font-mono text-xs hover:bg-white/5">
                       <div className="flex justify-between items-center mb-1">
                         <span className="font-bold text-white">{f.ticker} <span className="text-muted-foreground ml-1">{f.action}</span></span>
