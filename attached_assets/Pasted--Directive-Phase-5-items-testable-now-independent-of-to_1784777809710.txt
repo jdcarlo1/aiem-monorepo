@@ -1,0 +1,43 @@
+# Directive — Phase 5 items testable now, independent of tomorrow's live run
+
+## Why now
+These items don't need a live pick-run outcome. Test against existing data
+or deliberately-created is_test_record=TRUE rows (never real data).
+
+## Section A — FIN-001 to FIN-042 (math/formula correctness)
+- Independent known-answer test vectors (external reference, not agent-invented)
+- State the formula/reference BEFORE running each test
+- Cross-check via a second independent method where feasible
+- Mutation check per item: prove the test actually fails on a broken value
+- One verdict per item: PASS / FAIL / NOT_IMPLEMENTED / IMPLEMENTED_NOT_VERIFIED / PARTIAL
+
+## Section B — TRACE-051 to TRACE-053 (hash chain / immutability)
+- Test against any existing row (real or synthetic test row)
+- Raw evidence: hash generation shown, prev-hash link shown, immutability
+  trigger shown blocking an attempted UPDATE/DELETE on a non-test row
+
+## Section C — TRACE-056 to TRACE-058 (negative controls)
+- Deliberately break each condition and prove it's caught:
+  - Missing-stage: omit a required stage, show verification fails
+  - Modified-evidence: alter stored evidence, show verification fails
+  - Broken-hash-chain: corrupt a hash link, show verification fails
+- Each gate must be shown blocking under the failing condition — not just
+  described. Use is_test_record=TRUE rows only.
+
+## Section D — OPP-040 to OPP-050 (UI mechanics)
+- Test against existing/synthetic rows: ticker filter, date filter, status
+  filter, strategy filter, rejection-stage filter, probability filter,
+  confidence filter, expected-value filter, sorting, pagination, authorized
+  export
+- Raw evidence per item (query params + result set), not a description
+
+## Standing rules (full protocol, same as always)
+- No item complete on description alone
+- Raw grep/sed/SQL output only, no paraphrasing
+- sha256 cross-check of verified_run.sh / verify_chain.sh vs canonical
+  before any evidence accepted
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row/table/file without Joel's explicit prior approval in-session
+- Every negative control must be run and its output pasted
+- One verdict per item, every PASS needs attached evidence
+- Do not touch anything related to tomorrow's live pick run — separate track
