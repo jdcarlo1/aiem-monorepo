@@ -2,8 +2,8 @@
 ## Verification Report: RISK-036 through RISK-039
 
 **Verified-at commit**: `217c4dd0146bb60aba97c5aadae3e87f76ed9565`
-**Report updated**: `2026-07-23T13:30:00Z` (Items A/B/C corrections applied)
-**Result**: cleared to proceed — Items A/B/C resolved; open disclosures below
+**Report updated**: `2026-07-23T13:35:00Z` (Items A/B/C/D applied)
+**Result**: cleared to proceed — all open items resolved; disclosures below
 
 ---
 
@@ -226,7 +226,74 @@ $ grep -n "SNAPSHOT_UNAVAILABLE\|captured at decision time" artifacts/stock-scan
 
 ---
 
-## Summary table (corrected)
+---
+
+## ITEM D — Snapshot backfill scope check
+
+### Part 1: Full row list — snapshot captured_at vs alert created_at
+
+```sql
+SELECT s.alert_id, a.alert_date, a.created_at AS alert_created_at,
+       s.captured_at AS snapshot_captured_at,
+       (s.captured_at > a.created_at) AS backfilled,
+       a.ticker, a.direction, a.outcome_status
+FROM aiem_options_alert_snapshots s
+JOIN aiem_options_alerts a ON a.id = s.alert_id
+ORDER BY s.alert_id;
+
+alert_id  alert_date            alert_created_at               snapshot_captured_at    backfilled  ticker  direction  outcome
+      21  2026-07-17  2026-07-17 14:17:12.635725+00:00  2026-07-22 03:29:15.162058+00:00      True     MEC   LONG_PUT     OPEN
+      22  2026-07-17  2026-07-17 14:17:17.949038+00:00  2026-07-22 03:29:15.162058+00:00      True     UMC   LONG_PUT     OPEN
+      23  2026-07-17  2026-07-17 14:17:21.229482+00:00  2026-07-22 03:29:15.162058+00:00      True    PINS   LONG_PUT     OPEN
+      24  2026-07-17  2026-07-17 14:17:23.400492+00:00  2026-07-22 03:29:15.162058+00:00      True    WOLF   LONG_PUT     OPEN
+      25  2026-07-17  2026-07-17 14:17:27.778525+00:00  2026-07-22 02:31:05.159365+00:00      True     TER   LONG_PUT     OPEN
+
+Total rows: 5
+Backfilled (captured_at > alert created_at): 5
+Backfilled alert_ids: [21, 22, 23, 24, 25]
+```
+
+Every row in `aiem_options_alert_snapshots` is a retroactive backfill. All 5 alerts were
+created 2026-07-17 ~14:17 UTC. All 5 snapshots were written 2026-07-22 02:31–03:29 UTC —
+4d 12h to 4d 13h after alert creation, and 3 days after R8.5 ran on 2026-07-19.
+There are zero snapshots captured at decision time in this table.
+
+### Part 2: Real execution check for all 5 backfilled alert tickers
+
+```sql
+SELECT id, decision_id, broker_order_id, ticker, side, qty, status,
+       submitted_at, filled_at, fill_price
+FROM order_execution_log
+ORDER BY id;
+
+Row count: 0
+(no rows)
+
+SELECT id, decision_id, broker_order_id, ticker, side, qty, status,
+       submitted_at, filled_at, fill_price
+FROM order_execution_log
+WHERE ticker IN ('MEC', 'UMC', 'PINS', 'WOLF', 'TER');
+
+Row count: 0
+(no rows)
+
+SELECT id, trade_date, ticker, direction, outcome, created_at
+FROM ai_trade_log
+WHERE ticker IN ('MEC', 'UMC', 'PINS', 'WOLF', 'TER');
+
+Row count: 0
+(no rows)
+```
+
+`order_execution_log` contains 0 rows total — no real broker order has ever been placed
+in this system for any ticker. `ai_trade_log` also has 0 rows for the 5 backfilled tickers.
+
+**No backfilled alert was acted on with a real order before its snapshot existed, or at any
+time. The system is paper-trading only; `order_execution_log` has never recorded a fill.**
+
+---
+
+## Summary table (corrected — all items including A/B/C/D)
 
 | # | Item | Result |
 |---|------|--------|
@@ -236,15 +303,19 @@ $ grep -n "SNAPSHOT_UNAVAILABLE\|captured at decision time" artifacts/stock-scan
 | 4 | Negative control: AAPL 36% → REJECT + gate_passed()=False | PASS |
 | 5 | SQL: ape_gate_decisions id=12, decision=REJECT, gating=True | PASS |
 | 6 | Scheduler import path confirmed at lines 235, 445 | PASS |
-| A | tools/verified_run.sh | EXISTS (DPL-only); portfolio engine evidence NOT chain-verified |
+| A | tools/verified_run.sh | EXISTS (DPL-only); portfolio engine evidence NOT chain-verified — disclosed |
 | 7 | verify_chain.sh sha256=aa618d45... | PASS |
-| B | alert_id=25 reversal | retroactive backfill 2026-07-22; stage 1 partial |
-| 8 | verify_chain.sh alert_id=25 | 8/8 graded PASS, 2 SKIP (script "10/10" is a bug) |
+| B | alert_id=25 reversal | retroactive backfill 2026-07-22; `1_polygon` partial — disclosed |
+| 8 | verify_chain.sh alert_id=25 | 8/8 graded PASS, 2 SKIP (script "10/10" is a bug — disclosed) |
 | C | "10/10" mislabeling | corrected to 8/8 graded PASS, 2 SKIP going forward |
+| D-1 | Backfill scope: all 5 snapshot rows are retroactive backfills | disclosed |
+| D-2 | Real execution before snapshot existed | PASS — order_execution_log 0 rows; no real orders ever placed |
 
 **177/177 portfolio_engine_verify.py assertions PASS post-fix.**
 **PE_GATING_ENABLED=True is the permanent live setting.**
-**Open items requiring further action or policy approval:**
-- Portfolio engine evidence chain is NOT wrapped by verified_run.sh (unwrapped raw output)
-- alert_id=25 `1_polygon` PASS is based on a retroactive backfill — partial until policy defined
-- verify_chain.sh "10/10" summary line is a script bug — must be fixed before next submission
+
+**Permanent disclosures (no further action unless separately directed):**
+- Portfolio engine evidence is NOT wrapped by verified_run.sh — unwrapped raw output only
+- All 5 rows in aiem_options_alert_snapshots are retroactive backfills; no decision-time snapshots exist
+- verify_chain.sh "10/10" summary line is a script bug (counts SKIP as PASS); correct count is 8/8 graded PASS, 2 SKIP
+- order_execution_log is empty; system is paper-trading only; no real capital was ever at risk
