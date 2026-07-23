@@ -905,13 +905,13 @@ title = "Entry Score Normalization Fix Record (PERF-038 banding + Brier guard)"
 id = "NV_u7fmlevr4rg9XrNNgV"
 uri = "file://docs/verification/phase9-ind-FINAL.md"
 type = "text"
-title = "Phase 9 IND-001–030 FINAL Verification Record"
+title = "phase9-ind-FINAL.md"
 
 [[outputs]]
 id = "e7FJ7MBffttRcvvWTKIkB"
 uri = "file://artifacts/stock-scanner-api/tools/logs/verified_run_100.log"
 type = "unspecified"
-title = "Phase 9 Sealed Chain Log — SEQ=100 (raw evidence)"
+title = "verified_run_100.log (sealed chain log)"
 
 [[outputs]]
 id = "RAKOYHqKZzAITNsUWASZV"
