@@ -876,3 +876,9 @@ id = "Xwo42FDbceV312dMXkSme"
 uri = "file://options_engine_all.txt"
 type = "text"
 title = "Options Engine — all 10 files (plain text)"
+
+[[outputs]]
+id = "TmF4oeXq4R7HfImeouCx7"
+uri = "file://docs/verification/phase7-probability-calibration-FINAL.md"
+type = "text"
+title = "Phase 7 Verification — CAL-001–030 (Probability Calibration)"
