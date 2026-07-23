@@ -1,0 +1,57 @@
+# OPTIONS ENGINE — PREREQUISITE CHECK: OUTCOME RESOLUTION PIPELINE
+
+## Scope
+Standalone AIEM Options Engine ONLY. Not Diagram 1, 2, or 3. Do not mix evidence,
+tables, or file paths with D1/D2/D3 work.
+
+## Purpose
+Read-only investigation. Build nothing. Change nothing. This determines whether a
+probability calibration module is buildable at all — calibration requires verified
+outcomes from CLOSED paper trades, and it is not yet established that the engine
+produces them.
+
+## Questions — raw evidence for each
+
+1. Does the Options Engine open paper trades from its alerts/recommendations?
+   Raw grep: file, line numbers, function that writes the paper-trade row.
+   Name the table.
+
+2. Does anything CLOSE those trades? Raw grep of the close/exit path — file, lines,
+   what triggers it (expiry, stop, target, scheduler job). If nothing closes them,
+   say so in one line.
+
+3. Raw SQL, full result set, on the paper-trade table:
+```sql
+SELECT status, COUNT(*) FROM <paper_trade_table> GROUP BY status;
+```
+   Then the 10 most recent rows: id, ticker, status, entry timestamp, exit
+   timestamp, realized P/L columns.
+
+4. Is realized net P/L stored, and is it net of commissions/slippage/spread/fees or
+   gross? Raw DDL of the relevant columns plus a raw grep of the code that computes
+   the value written there.
+
+5. Count of trades that have ever reached a terminal closed state with a non-NULL
+   realized P/L. Single number, raw SQL.
+
+6. Is there any existing outcome/grading table already in the schema? Raw
+   `\dt` or equivalent filtered to the Options Engine tables, full output.
+
+7. verify_chain.sh stages 9 and 10 currently report SKIP / not-yet-graded. Raw grep
+   showing what those stages are supposed to grade and why they are not running.
+
+## Integrity
+8. sha256sum of `tools/verified_run.sh` and
+   `artifacts/stock-scanner-api/verify_chain.sh` vs canonical.
+   verified_run.sh canonical = `467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae` (R8.6)
+   verify_chain.sh canonical = `ca7896c7…`
+   Report both values. Do not re-baseline.
+
+9. `verified_run.sh` SEQ for every command run under this directive.
+
+10. `git diff HEAD --stat` — expect no output; state "no changes" if empty.
+
+## Standing requirements
+Read-only. No schema changes, no new files, no INSERT/UPDATE/DELETE/DROP.
+Raw evidence only, no narrative substitution. If an item cannot be produced, say so
+in one line — do not substitute a description.
