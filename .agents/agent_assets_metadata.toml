@@ -912,3 +912,9 @@ id = "e7FJ7MBffttRcvvWTKIkB"
 uri = "file://artifacts/stock-scanner-api/tools/logs/verified_run_100.log"
 type = "unspecified"
 title = "Phase 9 Sealed Chain Log — SEQ=100 (raw evidence)"
+
+[[outputs]]
+id = "RAKOYHqKZzAITNsUWASZV"
+uri = "file://phase9-ind-verification.zip"
+type = "unspecified"
+title = "Phase 9 IND-001–030 — FINAL doc + sealed chain log"
