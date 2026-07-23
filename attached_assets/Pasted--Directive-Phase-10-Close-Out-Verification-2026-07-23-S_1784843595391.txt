@@ -1,0 +1,18 @@
+# Directive: Phase 10 Close-Out Verification — 2026-07-23
+
+## Standing checklist (required)
+- Raw terminal output only, no paraphrasing. Raw grep -n/sed -n for any code-location claim.
+- Raw SQL + full result set for any DB check.
+- sha256 cross-check: tools/verified_run.sh = 58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5; artifacts/stock-scanner-api/verify_chain.sh = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f. Mismatch = rejected.
+- Data Immutability Rule applies — no deletes/overwrites without approval.
+- "PASS" only if fully verified, nothing deferred, nothing on fallback/test-ticker-only data.
+
+## Required before Phase 10 can close
+
+1. **Group 4 (OPT-021, 023, 024, 025, 026) — resolve contradiction.** The 2026-07-23 gap-closure report's summary claimed the EI-post4 synthetic BS-leg fallback means these "now receive assessments," but the same report's own detail tables still showed all five as PARTIAL with production rows hitting EI_EXCEPTION. Provide, for each of the five: raw SQL querying aiem_execution_assessments for the most recent REAL production-ticker row (not a test/S3_CHAIN_TEST ticker) showing a genuinely computed (not fallback-default) value for fill_prob / liquidity_score / slippage_pct / early_assignment_risk / pin_risk_flag. State plainly whether "synthetic BS-leg fallback" is a real fix to the underlying EI_EXCEPTION bug or a better-quality fallback value standing in for one. If the latter, these five items are NOT PASS-eligible regardless of what verified_run_108 states.
+
+2. **OPT-030 (EV) — trace every constant.** The gap-closure report mentioned "heuristic constants," a value clamped to [-1,3], and a "fallback 0.60" alongside the lognormal calc claim. List every hardcoded-looking numeric literal in the current expected-value code path, with raw grep/sed showing the line, and a one-line trace of each to its live source (API/DB/computed) or an explicit statement that it's an intentional constant with reasoning. Confirm whether the fallback 0.60 still fires for any current production alert.
+
+3. **verified_run_108 full Group 4 section** — paste the complete raw table for OPT-021/023/024/025/026 exactly as sealed in tools/logs/verified_run_108.log, so results can be checked without relying on a paraphrased summary.
+
+Once these three are answered with raw evidence, state item-by-item whether Phase 10 is genuinely ready to close, and write the permanent record file to /docs/verification/ per standing rule, citing the commit hash it verified against.
