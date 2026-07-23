@@ -87,3 +87,6 @@ c.close()
 91	2026-07-23T17:34:17Z	1	ed0c445b37ad0036167c1d2ed57aec5d644e013c5b50a997f5bacb2fec337811	python3 verify_phase4_opp_trace.py
 92	2026-07-23T17:34:41Z	0	65f29422f9a9994bdc63fad242ac9083d219ed61990f1b462a92ce6bfb64b885	python3 verify_phase4_opp_trace.py
 93	2026-07-23T18:14:04Z	0	50fe47760929cb5b76d758e6e9651dc213456e050463d677b7683769b15ad3d7	python3 verify_phase8_perf.py
+94	2026-07-23T19:16:04Z	127	3fa57e3df284beb9fb845f03c1ee62192638f9e34a292ac55b23329284d52718	PERF-034/035/036/039 — 4 columns added + backfill + forward-write + verifier updated python3 verify_phase8_perf.py
+95	2026-07-23T19:16:58Z	1	76decbbfd450d72254716cea9584286aca61ee1588494e5c93e5603cffe435a9	python3 verify_phase8_perf.py
+96	2026-07-23T19:18:07Z	0	e3772fccc77e31384aece969ab70fbbd6e1cb3a80ecc2647ac6ea8426d902128	python3 verify_phase8_perf.py

@@ -1,0 +1,19 @@
+# Approved — Proceed with PERF-034/035/036/039
+
+All 4 proposals approved as recommended, no changes:
+
+- **PERF-035** (`volatility_regime` TEXT): JOIN `garch_regime_log` on ticker+date. Proceed.
+- **PERF-034** (`market_regime` TEXT): Forward-only + 1-row honest backfill (NVDA via prob engine `regime_tag`), remaining 19 rows NULL. Document the coverage gap explicitly in the verifier. Do NOT derive a market-wide label from `regime_history`.
+- **PERF-036** (`sector` TEXT): yfinance one-shot lookup for the 20 live tickers, populate forward at write time going forward.
+- **PERF-039** (`probability_score` NUMERIC): Store `confidence × 100`, backfill the 1 matched row, remaining 19 NULL, write forward in `_aiem_paper_pick_candidates()`.
+
+## Standing checklist (required on every item)
+- Raw terminal output only — no narrative. Raw grep/sed for any code-location claim.
+- Raw SQL + full result set for all schema/data changes, row counts before/after.
+- sha256 before/after for every file changed this session.
+- sha256 cross-check: `tools/verified_run.sh` vs canonical 58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5, `artifacts/stock-scanner-api/verify_chain.sh` vs canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f.
+- All evidence-producing commands through `verified_run.sh`; validate with `verify_chain.sh`, paste output.
+- Data Immutability Rule still applies: this approval covers ADD COLUMN + the specific backfill UPDATEs described above only — no other row/table/file changes without separate explicit approval.
+- NULL rows for uncovered trades (WDC/SPY/TCBK/MU for PERF-035; 19 rows for PERF-034/039) must show as an honest "unclassified"/gap state in the verifier — not fabricated or silently dropped.
+- "PASS" only once all 4 items have real execution evidence with nothing outstanding — otherwise "partial."
+- Write the final permanent record (`/docs/verification/phase8-perf-FINAL.md` — update existing, don't duplicate) once all 4 close, with commit hash and full evidence summary.

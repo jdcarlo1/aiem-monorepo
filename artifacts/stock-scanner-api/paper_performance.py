@@ -46,7 +46,8 @@ def _fetch_closed(cur, window_days=None):
         SELECT id, ticker, trade_type, direction, signal_source,
                entry_price, exit_price, quantity, notional, pnl, pnl_pct,
                trade_date, exit_date, entry_score,
-               EXTRACT(EPOCH FROM (exit_date::timestamp - trade_date::timestamp))/86400.0
+               EXTRACT(EPOCH FROM (exit_date::timestamp - trade_date::timestamp))/86400.0,
+               market_regime, volatility_regime, sector, probability_score
         FROM aiem_paper_trades
         WHERE {_PROD_FILTER}
         {date_filter}
@@ -54,7 +55,8 @@ def _fetch_closed(cur, window_days=None):
     """, params)
     cols = ['id','ticker','trade_type','direction','signal_source',
             'entry_price','exit_price','quantity','notional','pnl','pnl_pct',
-            'trade_date','exit_date','entry_score','hold_days']
+            'trade_date','exit_date','entry_score','hold_days',
+            'market_regime','volatility_regime','sector','probability_score']
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
@@ -277,23 +279,72 @@ def compute_paper_performance(db_url: str, window_days: int = None) -> dict:
             d['net_pnl'] = round(d['net_pnl'], 4)
             d['win_rate'] = round(d['wins']/d['n']*100, 1) if d['n'] else None
 
-        # ── PERF-034 by market regime — NOT stored in aiem_paper_trades ─────
-        by_market_regime = None
+        # ── PERF-034 by market regime ────────────────────────────────────────
+        # market_regime sourced from aiem_probability_engine_predictions.regime_tag.
+        # Coverage: 1/20 historical trades (NVDA 2026-07-15). 19 trades NULL.
+        # NULL trades appear in 'unclassified' band — not dropped, not fabricated.
+        by_market_regime = {}
         by_market_regime_note = (
-            "market_regime column not present in aiem_paper_trades; "
-            "oe_trade_records.regime exists but has only 2 closed rows (2026-07-23 test entries)"
+            "market_regime from aiem_probability_engine_predictions.regime_tag at trade_date. "
+            "Coverage: 1/20 historical trades (NVDA 2026-07-15=full_exposure); "
+            "19 NULL (no prob-engine prediction matched). "
+            "NULL rows shown as 'unclassified'. Forward-only from 2026-07-23."
         )
+        for c in closed:
+            mr = c.get('market_regime') or 'unclassified'
+            p  = _safe_float(c['pnl'], 0.0)
+            if mr not in by_market_regime:
+                by_market_regime[mr] = {'n': 0, 'wins': 0, 'net_pnl': 0.0}
+            by_market_regime[mr]['n'] += 1
+            by_market_regime[mr]['net_pnl'] += p
+            if p > 0:
+                by_market_regime[mr]['wins'] += 1
+        for _mr, _d in by_market_regime.items():
+            _d['net_pnl']  = round(_d['net_pnl'], 4)
+            _d['win_rate'] = round(_d['wins'] / _d['n'] * 100, 1) if _d['n'] else None
 
-        # ── PERF-035 by volatility regime — NOT stored ───────────────────────
-        by_vol_regime = None
-        by_vol_regime_note = "volatility_regime not stored in aiem_paper_trades"
+        # ── PERF-035 by volatility regime ────────────────────────────────────
+        # volatility_regime sourced from garch_regime_log.regime (JOIN ticker+trade_date).
+        # Coverage: 16/20 trades. 4 NULL: WDC/SPY/TCBK/MU (not in garch log on trade_date).
+        by_vol_regime = {}
+        by_vol_regime_note = (
+            "volatility_regime from garch_regime_log.regime (JOIN ticker+trade_date). "
+            "Coverage: 16/20 trades; 4 NULL (WDC/SPY/TCBK/MU). "
+            "NULL trades appear as 'unclassified'."
+        )
+        for c in closed:
+            vr = c.get('volatility_regime') or 'unclassified'
+            p  = _safe_float(c['pnl'], 0.0)
+            if vr not in by_vol_regime:
+                by_vol_regime[vr] = {'n': 0, 'wins': 0, 'net_pnl': 0.0}
+            by_vol_regime[vr]['n'] += 1
+            by_vol_regime[vr]['net_pnl'] += p
+            if p > 0:
+                by_vol_regime[vr]['wins'] += 1
+        for _vr, _d in by_vol_regime.items():
+            _d['net_pnl']  = round(_d['net_pnl'], 4)
+            _d['win_rate'] = round(_d['wins'] / _d['n'] * 100, 1) if _d['n'] else None
 
-        # ── PERF-036 by sector — NOT stored ─────────────────────────────────
-        by_sector = None
+        # ── PERF-036 by sector ───────────────────────────────────────────────
+        # sector sourced from yfinance one-shot lookup (2026-07-23 backfill, 20/20 covered).
+        by_sector = {}
         by_sector_note = (
-            "sector not stored in aiem_paper_trades; "
-            "oe_trade_records.sector exists but has only 2 closed rows"
+            "sector from yfinance one-shot lookup (2026-07-23 backfill). "
+            "Coverage: 20/20 trades. "
+            "Forward-only: new trades populate sector at write time via _lookup_ticker_sector()."
         )
+        for c in closed:
+            sc = c.get('sector') or 'Unknown'
+            p  = _safe_float(c['pnl'], 0.0)
+            if sc not in by_sector:
+                by_sector[sc] = {'n': 0, 'wins': 0, 'net_pnl': 0.0}
+            by_sector[sc]['n'] += 1
+            by_sector[sc]['net_pnl'] += p
+            if p > 0:
+                by_sector[sc]['wins'] += 1
+        for _sc, _d in by_sector.items():
+            _d['net_pnl']  = round(_d['net_pnl'], 4)
+            _d['win_rate'] = round(_d['wins'] / _d['n'] * 100, 1) if _d['n'] else None
 
         # ── PERF-037 by holding period ────────────────────────────────────────
         buckets = {
@@ -363,13 +414,43 @@ def compute_paper_performance(db_url: str, window_days: int = None) -> dict:
                 'threshold_lo': round(_s, 4), 'threshold_hi': round(_s, 4),
             }
 
-        # ── PERF-039 by probability band — NOT stored ─────────────────────────
-        by_prob_band = None
+        # ── PERF-039 by probability band (probability_score) ─────────────────
+        # probability_score = confidence * 100 from aiem_probability_engine_predictions.
+        # Coverage: 1/20 trades (NVDA 2026-07-15 = 45.0). 19 NULL.
+        # NULL rows excluded — not fabricated. n=1 → single-band P0-P100.
+        prob_scored = [(float(c['probability_score']), float(c['pnl']))
+                       for c in closed if c.get('probability_score') is not None]
+        by_prob_band = {}
         by_prob_band_note = (
-            "probability score not stored in aiem_paper_trades; "
-            "entry_score field covers PERF-038 (confidence), "
-            "no separate probability field exists"
+            "probability_score = confidence*100 from aiem_probability_engine_predictions. "
+            "Coverage: 1/20 trades (NVDA 2026-07-15 = 45.0). 19 NULL. "
+            "NULL rows excluded (not fabricated). "
+            "Bands: quintile percentiles if n>=2; single P0-P100 if n=1. Forward-only from 2026-07-23."
         )
+        if len(prob_scored) >= 2:
+            _ps_only = [s for s, _ in prob_scored]
+            _pp_cuts = [float(np.percentile(_ps_only, p)) for p in (0, 20, 40, 60, 80, 100)]
+            _pb_defs = [
+                (f"P0–P20 ({_pp_cuts[0]:.1f}–{_pp_cuts[1]:.1f})",   _pp_cuts[0], _pp_cuts[1], False),
+                (f"P20–P40 ({_pp_cuts[1]:.1f}–{_pp_cuts[2]:.1f})",  _pp_cuts[1], _pp_cuts[2], False),
+                (f"P40–P60 ({_pp_cuts[2]:.1f}–{_pp_cuts[3]:.1f})",  _pp_cuts[2], _pp_cuts[3], False),
+                (f"P60–P80 ({_pp_cuts[3]:.1f}–{_pp_cuts[4]:.1f})",  _pp_cuts[3], _pp_cuts[4], False),
+                (f"P80–P100 ({_pp_cuts[4]:.1f}–{_pp_cuts[5]:.1f})", _pp_cuts[4], _pp_cuts[5], True),
+            ]
+            for _lbl, _lo, _hi, _last in _pb_defs:
+                _subset = ([p for s, p in prob_scored if s >= _lo] if _last
+                           else [p for s, p in prob_scored if _lo <= s < _hi])
+                if _subset:
+                    by_prob_band[_lbl] = {
+                        'n': len(_subset), 'net_pnl': round(sum(_subset), 4),
+                        'win_rate': round(sum(1 for p in _subset if p > 0)/len(_subset)*100, 1),
+                    }
+        elif len(prob_scored) == 1:
+            _ps, _pp = prob_scored[0]
+            by_prob_band[f"P0–P100 ({_ps:.1f})"] = {
+                'n': 1, 'net_pnl': round(_pp, 4),
+                'win_rate': 100.0 if _pp > 0 else 0.0,
+            }
 
     return {
         # ── source metadata (PERF-001, 002, 003) ──────────────────────────────

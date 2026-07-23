@@ -18708,6 +18708,69 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                     except Exception as _th_fix_e:
                         print(f"[thompson-gate] stage14 patch error (non-fatal): {_th_fix_e}")
 
+                # ── Forward-write: market_regime / volatility_regime / sector / probability_score ──
+                # These 4 columns were added 2026-07-23 (PERF-034/035/036/039).
+                # Historical rows backfilled; new trades populated here at write time.
+                if _h4_tr:
+                    try:
+                        with _psycopg2.connect(_DB_URL, connect_timeout=3) as _fw_c, \
+                                _fw_c.cursor() as _fw_cu:
+                            # volatility_regime: garch_regime_log (JOIN ticker+trade_date)
+                            _fw_cu.execute(
+                                "SELECT regime FROM garch_regime_log "
+                                "WHERE ticker=%s AND log_date=%s LIMIT 1",
+                                (_t, _today)
+                            )
+                            _fw_garch = _fw_cu.fetchone()
+                            _fw_vol_regime = _fw_garch[0] if _fw_garch else None
+
+                            # market_regime + probability_score: probability engine predictions
+                            _fw_cu.execute(
+                                "SELECT regime_tag, confidence FROM aiem_probability_engine_predictions "
+                                "WHERE ticker=%s AND signal_date=%s LIMIT 1",
+                                (_t, _today)
+                            )
+                            _fw_pe = _fw_cu.fetchone()
+                            _fw_market_regime = _fw_pe[0] if _fw_pe else None
+                            _fw_prob_score    = float(_fw_pe[1]) * 100.0 if _fw_pe and _fw_pe[1] is not None else None
+
+                            # sector: static yfinance-sourced map, yfinance fallback for unknown
+                            _SECTOR_MAP = {
+                                'VEEE':'Consumer Cyclical','AMZN':'Consumer Cyclical',
+                                'AGEN':'Healthcare','WDC':'Technology','SPY':'ETF',
+                                'QTTB':'Healthcare','TCBK':'Financial Services',
+                                'LEDS':'Technology','NVDA':'Technology','BMGL':'Healthcare',
+                                'CRMT':'Consumer Cyclical','MU':'Technology','MEC':'Industrials',
+                                'SNDK':'Technology','SDOT':'Consumer Defensive',
+                                'CNF':'Financial Services','DRCT':'Communication Services',
+                                'ASTS':'Technology','AMD':'Technology','AMAT':'Technology',
+                            }
+                            _fw_sector = _SECTOR_MAP.get(_t)
+                            if _fw_sector is None:
+                                try:
+                                    import yfinance as _yf_fw
+                                    _fw_sector = (_yf_fw.Ticker(_t).info.get('sector')
+                                                  or _yf_fw.Ticker(_t).info.get('quoteType'))
+                                except Exception:
+                                    _fw_sector = None
+
+                            _fw_cu.execute(
+                                "UPDATE aiem_paper_trades "
+                                "SET volatility_regime=%s, market_regime=%s, "
+                                "    probability_score=%s, sector=%s "
+                                "WHERE id=%s",
+                                (_fw_vol_regime, _fw_market_regime,
+                                 _fw_prob_score, _fw_sector, _h4_tr[0])
+                            )
+                            _fw_c.commit()
+                            print(
+                                f"[perf-cols] id={_h4_tr[0]} ticker={_t} "
+                                f"vol_regime={_fw_vol_regime} market_regime={_fw_market_regime} "
+                                f"prob_score={_fw_prob_score} sector={_fw_sector}"
+                            )
+                    except Exception as _fw_e:
+                        print(f"[perf-cols] forward-write non-fatal: {_fw_e}")
+
                 # ── Diagram 2 stage 18 — Paper / Shadow Execution ──────────────
                 # Wired here (not in the stage 1-17 block above) because it needs
                 # the REAL row id from the INSERT that just happened.
