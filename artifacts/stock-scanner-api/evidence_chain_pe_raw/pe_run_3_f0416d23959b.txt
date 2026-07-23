@@ -1,0 +1,6 @@
+SEQ=3  EXIT=0  TS_START=2026-07-23T13:45:15.712282Z  TS_END=2026-07-23T13:45:16.570967Z
+CMD=git --no-optional-locks show 217c4dd:artifacts/stock-scanner-api/aiem_portfolio_engine/config.py | grep PE_GATING_ENABLED
+GIT_COMMIT=3adccd7101bbfc77e606abe67e281e85fb60a77b  TREE=DIRTY
+
+PE_GATING_ENABLED = True
+    "PE_GATING_ENABLED", "PORTFOLIO_CAPITAL", "CONTRACT_MULTIPLIER",
