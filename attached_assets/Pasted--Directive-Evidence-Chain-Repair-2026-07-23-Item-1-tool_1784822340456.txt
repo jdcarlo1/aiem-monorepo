@@ -1,0 +1,22 @@
+# Directive — Evidence Chain Repair (2026-07-23)
+
+## Item 1 — tools/verified_run.sh missing (investigate before restoring)
+1. `git log --all --full-history -- tools/verified_run.sh` — full output, find the commit that removed it
+2. `git show <that_commit> --stat` and `git log -1 <that_commit>` — author, timestamp, session/commit message
+3. State plainly: was this removal directed by Joel, or unattributed/unauthorized?
+4. Do NOT restore or recreate the file until step 3 is answered. If unauthorized, report and wait for approval before any restore (Standing Data Immutability Rule).
+5. If restoring is approved: restore from the last known-good commit, then raw sha256sum of restored file — must equal canonical ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836. Any mismatch = report raw hash, do not self-correct.
+
+## Item 2 — verify_chain.sh drift
+- Known cause on file: undirected SUMMARY print-line addition during the 2026-07-22 02:35 UTC unattributed session. Canonical = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f. Current on-disk = aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40.
+1. `git diff ca7896c7... HEAD -- tools/verify_chain.sh` (or equivalent commit ref) — raw diff, confirm it is ONLY the one SUMMARY line, nothing else changed
+2. State whether to revert that line back to canonical, or whether Joel wants the SUMMARY line kept and canonical updated instead — do not decide this yourself, ask
+3. After Joel's choice is applied: raw sha256sum of resulting file, must match whichever value is designated canonical going forward
+
+## Standing checklist — required on every item above
+- Raw terminal output only, no paraphrasing — every code/history claim needs raw grep/git output pasted
+- Before/after sha256 for any file touched
+- No deletion, restore, or overwrite of any file without explicit approval logged first (Data Immutability Rule)
+- Run all evidence-producing commands through verified_run.sh once restored/validated; until then, state plainly that verified_run.sh is unavailable and evidence is unwrapped
+- "PASS" is reserved for fully closed items only — use "cleared to proceed" or "partial" otherwise
+- Once this closes cleanly, commit a permanent record file (e.g. /docs/verification/evidence-chain-fix-2026-07-23-FINAL.md) with the full evidence trail and commit hash — chat-only reports don't count
