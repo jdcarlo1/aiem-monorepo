@@ -4,6 +4,7 @@
 - [OSS write-once guard](options-oss-write-once.md) — options_structure_scan DO NOTHING; first write per (ticker,scan_date) permanent; corrections require explicit DELETE+re-insert
 - [Paper pick candidate gates](paper-pick-candidate-gates.md) — NO_CANDIDATES root causes: test positions filling cap, d3_strategy_registry missing sources, unusual_calls DISTINCT ON, polygon rvol threshold, PENDING dead-state in try_claim
 - [AIEM Dashboard Phase A Inventory](aiem-dashboard-phase-a.md) — 9 files at project root; 333 routes/580 tables/239 modules; 5 critical missing routes; oe_decision_audit (341 rows) has NO API route; polling sufficient for Phase B
+- [Phase 4 OPP/TRACE verification](phase4-opp-trace-verification.md) — SEQ=92 sealed PASS=53/FAIL=0/PENDING=6/INV=54; 2 real gaps found+closed; PENDING=6 conditional on qualifying trade execution; INV=54 all share oe_strategy_candidates=0 root cause
 - [Options scheduler fire freeze](options-scheduler-fire-freeze.md) — FREEZE LIFTED (post 09:45 ET 2026-07-22); raw evidence required before any commentary; next fire tomorrow 09:40/09:45 ET
 - [DPL Phase 3 — Reproducibility Replay](options-dpl-phase3.md) — D17-R1 DONE; SEQ=56: 195P/8F; freeze baseline restored; C44_legacy_entry_documented in _A8_L1_META_EXCL (SEQ=52+53 only); 8 FAILs=known blockers
 - [DPL Phase 2 — Decision-Context Capture](options-dpl-phase2.md) — 5 JSONB cols in oe_decision_audit; trigger extended; assemble_dpl_context() sources all fields; 5 explicit _flag fields; TRADE+NO_TRADE wired; psycopg2 JSONB→dict auto; 56 PASS verifier

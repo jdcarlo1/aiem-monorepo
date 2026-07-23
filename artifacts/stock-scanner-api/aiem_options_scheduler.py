@@ -2431,17 +2431,46 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         err_msg = str(e)[:500]
         _final_status = 'FAILED_GATE' if _gate_fired[0] else 'FAILED'
         log.error(f"[exec] {_final_status} job_id={job_id} ticker={ticker}: {e}")
+        # Hard-gate rejection ("not ready_for_decision") is a complete NO_TRADE decision.
+        # Write chain_hash and PAPER_EXECUTION_OR_NO_TRADE trace so the audit is continuous.
+        _failed_chain_hash = None
+        _is_gate_reject = err_msg.startswith("not ready_for_decision")
         try:
             with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
+                if _is_gate_reject:
+                    try:
+                        _fg_prev = _get_prev_chain_hash(conn)
+                        _failed_chain_hash = _compute_chain_hash(
+                            job_id, ticker, scan_date, trace_id,
+                            "NO_TRADE_HARD_GATE", _fg_prev)
+                    except Exception as _fg_ch_e:
+                        log.debug(f"[exec] chain_hash for gate-reject failed (non-fatal): {_fg_ch_e}")
                 cur.execute("""
                     UPDATE options_pipeline_jobs
                     SET status=%s, completed_at=NOW(),
-                        error_text=%s
+                        error_text=%s,
+                        chain_hash=%s
                     WHERE id=%s
-                """, (_final_status, err_msg, job_id))
+                """, (_final_status, err_msg, _failed_chain_hash, job_id))
                 conn.commit()
         except Exception as de:
             log.error(f"[exec] failed to write {_final_status} status: {de}")
+
+        # ── Trace: PAPER_EXECUTION_OR_NO_TRADE (hard-gate rejection path) ──────
+        if _strace_ctx is not None and _is_gate_reject:
+            try:
+                _strace_ctx.write_stage(
+                    "PAPER_EXECUTION_OR_NO_TRADE",
+                    ticker=ticker, scan_date=scan_date, job_id=job_id,
+                    completion_status="NO_TRADE_HARD_GATE",
+                    metadata={
+                        "direction": "NO_TRADE",
+                        "error": err_msg[:200],
+                        "chain_hash": _failed_chain_hash[:24] if _failed_chain_hash else None,
+                    },
+                )
+            except Exception as _st_fg_e:
+                log.debug(f"[scheduler_trace] PAPER_EXEC hard-gate: {_st_fg_e}")
 
         _write_heartbeat(False, err_msg)
         # ── Phase 4: record operational incident ─────────────────────────────

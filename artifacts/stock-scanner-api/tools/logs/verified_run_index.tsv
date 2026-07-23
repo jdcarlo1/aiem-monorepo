@@ -83,3 +83,6 @@ c.close()
 "
 88	2026-07-23T16:48:16Z	0	c49f44020f9d4d90bfe9433311b857127def4c327b4b0d537f9da1e49c23b50a	python3 aiem_probability_engine/verify_phase7_cal.py
 89	2026-07-23T17:03:09Z	0	0a536e9e460e6189e78026f7df10c042b03e9aa4950b4aed82ddaf3b09ce5dc8	python3 aiem_probability_engine/verify_phase7_cal.py
+90	2026-07-23T17:28:41Z	1	417fb4ad39ac2b25cbd1188bce80a96c59f1b7b6aa087537a0b55fe11bcf2858	python3 verify_phase4_opp_trace.py
+91	2026-07-23T17:34:17Z	1	ed0c445b37ad0036167c1d2ed57aec5d644e013c5b50a997f5bacb2fec337811	python3 verify_phase4_opp_trace.py
+92	2026-07-23T17:34:41Z	0	65f29422f9a9994bdc63fad242ac9083d219ed61990f1b462a92ce6bfb64b885	python3 verify_phase4_opp_trace.py
