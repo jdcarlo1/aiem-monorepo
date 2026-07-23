@@ -1,0 +1,25 @@
+# DIRECTIVE — Phase 6 Risk Engine Gating: 3 open items before this closes as PASS
+
+Do not relabel this PASS until resolved. Report format: raw command output only, no prose summary.
+
+## Item A — tools/verified_run.sh
+- State whether this repo (aiem_portfolio_engine / portfolio_engine_verify.py) has ever had the hash-chained verified_run.sh wrapper installed.
+- If not installed: confirm via `find / -name verified_run.sh 2>/dev/null` (or repo-scoped equivalent) — raw output.
+- If it should exist: locate/restore and re-run this session's evidence commands through it.
+- If it genuinely never existed for this repo: say so plainly and state that today's evidence is NOT chain-verified (raw output only, unwrapped).
+
+## Item B — alert_id=25 (TER, LONG_PUT) contradiction
+- 2026-07-19 (R8.5): this alert graded 3/10, 1_polygon=SNAPSHOT_UNAVAILABLE, stages 2-6 UNVERIFIABLE.
+- Today: 1_polygon=PASS, full chain 1-8 PASS.
+- Explain the reversal with raw evidence: is this a re-fetch from a live source, a cached/replayed prior result, or a different underlying record? Paste the raw polygon fetch/snapshot command output for today's run, timestamped.
+
+## Item C — "10/10" mislabeling
+- Items 9 (learning) and 10 (audit_chain_final) are marked SKIP / not yet graded.
+- Correct the summary line to reflect graded vs skipped counts (e.g. "8/8 graded PASS, 2 SKIP") — do not report SKIP items as PASS in any summary line going forward.
+
+## Standing requirements (apply to this and all future submissions)
+- Raw evidence only: terminal output, grep -n for any code/location claim, before/after sha256, full SQL result set — no paraphrase.
+- sha256 cross-check of verified_run.sh and verify_chain.sh against current canonical values, or explicit statement why not applicable (see Item A).
+- No delete/truncate/overwrite of any row or file, including test data, without Joel's prior explicit approval logged in-session.
+- "PASS" reserved only for items with nothing deferred/unverified — otherwise use "partial" or "cleared to proceed," never "pass."
+- Once this phase fully closes clean, commit the final report as a permanent file in the repo (e.g. docs/verification/phase6-risk-engine-gating-FINAL.md, already drafted — update after A/B/C resolved) referencing the exact commit hash it verifies.
