@@ -1,0 +1,243 @@
+STRICT VERIFICATION REMEDIATION
+
+Current Verdict: PARTIAL — NOT PASS
+
+The report (PASS=33, PARTIAL=12, NI=35) does NOT satisfy the project's Verification Standards.
+
+Do NOT modify, delete, overwrite, clean up, or fabricate evidence. This request is for evidence collection only.
+
+====================================================
+1. VERIFY THE VERIFIER
+====================================================
+
+Before anything else:
+
+• sha256sum verified_run.sh verify_chain.sh
+• Compare against canonical hashes.
+• If either differs, stop and report VALIDATOR DRIFT.
+• Execute all evidence through verified_run.sh.
+• Run verify_chain.sh.
+• Paste complete raw output.
+• Independently rerun one sampled command outside the wrapper.
+
+====================================================
+2. GIT EVIDENCE
+====================================================
+
+Paste raw output:
+
+git rev-parse HEAD
+git status --short
+git diff HEAD --stat
+git diff HEAD
+
+If files changed this session:
+
+• before/after sha256
+• exact git diff
+
+====================================================
+3. ROUTE & PAGE VERIFICATION
+====================================================
+
+Using raw grep/sed output only, prove:
+
+Existing routes:
+
+/command
+/regime
+/opportunities
+/decisions
+/paper-trades
+/options
+/scheduler
+/alerts
+/proof
+/learning
+/signals
+/risk
+/council
+
+For each show:
+
+• route registration
+• component
+• API call
+• loading state
+• error state
+• empty state
+
+Also prove whether these exist:
+
+/performance
+/probability
+/calibration
+/indicator-lab
+/settings
+/roles
+audit-log browser
+
+No narrative.
+
+====================================================
+4. UI FEATURE VERIFICATION
+====================================================
+
+Using raw grep/sed prove:
+
+• Search
+• Filters
+• Sorting
+• Pagination
+• CSV export
+• PDF export
+• Drill-down pages
+• Dark mode toggle
+• Accessibility (aria, role, keyboard)
+• Cross-page links
+
+====================================================
+5. OPERATIONS
+====================================================
+
+Provide raw code + runtime evidence for:
+
+• Worker restart
+• Crash recovery
+• Duplicate execution protection
+• UNIQUE DB constraint
+• Heartbeats
+• Watchdog
+• Scheduler
+• Telegram alerts
+• Audit logging
+• Recovery logging
+• Health endpoint
+• Readiness endpoint
+• Deployment smoke test
+
+Use grep/sed plus raw curl output.
+
+====================================================
+6. DATABASE EVIDENCE
+====================================================
+
+Paste exact SQL plus complete results for every table referenced in the report.
+
+Include:
+
+• COUNT(*)
+• actual rows
+• CSV export if >10 rows
+
+No representative samples.
+
+====================================================
+7. AUTHENTICATION
+====================================================
+
+Prove with grep/sed and runtime tests:
+
+• X-Admin-Token sent
+• Backend validates token
+• Missing token blocked
+• Invalid token blocked
+• 401/403 redirect
+
+Positive and negative tests required.
+
+====================================================
+8. REAL-TIME UPDATES
+====================================================
+
+Prove polling intervals with:
+
+• grep/sed
+• timestamped runtime logs
+
+setInterval alone is insufficient.
+
+====================================================
+9. CHARTS & TABLES
+====================================================
+
+Provide raw evidence they render correctly with:
+
+• real data
+• loading state
+• empty state
+• error state
+
+====================================================
+10. REGRESSION TESTING
+====================================================
+
+The report cannot claim regression PASS without evidence.
+
+Provide raw output proving whether:
+
+• Jest
+• Vitest
+• Playwright
+• Cypress
+
+exist and execute.
+
+If none exist:
+
+Regression remains NOT IMPLEMENTED.
+
+====================================================
+11. VERSION / DEPLOYMENT
+====================================================
+
+Prove whether these exist:
+
+• APP_VERSION
+• Git commit
+• Build timestamp
+• Environment
+• Deployment ID
+• Automated deployment smoke test
+
+====================================================
+12. NO HARDCODED VALUES
+====================================================
+
+For new dashboard code:
+
+• List every hardcoded constant.
+• Show raw grep/sed.
+• Trace each to config, DB, API, env, or formula.
+• Run negative-control tests proving gates actually block.
+
+====================================================
+13. DATA IMMUTABILITY
+====================================================
+
+Prove no DELETE, DROP, TRUNCATE, destructive UPDATE, manual inserts, or file removals occurred.
+
+If any occurred without approval, report as a protocol violation.
+
+====================================================
+FINAL VERDICT
+====================================================
+
+Only use:
+
+PASS
+PARTIAL
+CLEARED TO PROCEED
+CLOSED VIA ACCEPTED RISK
+
+PASS is allowed ONLY if:
+
+• zero PARTIAL
+• zero NI
+• zero accepted risk
+• all raw evidence provided
+• all verification completed
+
+Current verdict remains:
+
+PARTIAL — NOT PASS — AUTONOMOUS EXECUTION NOT APPROVED.
