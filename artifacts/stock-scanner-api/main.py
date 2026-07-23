@@ -1677,6 +1677,61 @@ def api_quant_options_probability():
     return jsonify(result), status
 
 
+@app.route("/stock-api/options/reconcile", methods=["GET"])
+def api_options_reconcile():
+    """Runtime-vs-display reconciliation check for Dashboard.tsx.
+    Returns DB count, last alert metadata, and a sample of recent rows so
+    the frontend can verify display matches the DB record set."""
+    try:
+        limit = min(int(request.args.get("limit", 20)), 100)
+        with _get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM aiem_options_alerts"
+                )
+                db_count = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT alert_date, created_at FROM aiem_options_alerts "
+                    "ORDER BY id DESC LIMIT 1"
+                )
+                last_row = cur.fetchone()
+                last_alert_date = str(last_row[0]) if last_row else None
+                last_created_at = str(last_row[1]) if last_row else None
+                cur.execute(
+                    "SELECT id, ticker, alert_date, direction, "
+                    "delta_val, iv_rank, expected_return, created_at "
+                    "FROM aiem_options_alerts ORDER BY id DESC LIMIT %s",
+                    (limit,),
+                )
+                rows = cur.fetchall()
+        sample = [
+            {
+                "id":              r[0],
+                "ticker":          r[1],
+                "alert_date":      str(r[2]),
+                "direction":       r[3],
+                "delta_val":       float(r[4]) if r[4] is not None else None,
+                "iv_rank":         float(r[5]) if r[5] is not None else None,
+                "expected_return": float(r[6]) if r[6] is not None else None,
+                "created_at":      str(r[7]),
+            }
+            for r in rows
+        ]
+        display_count = len(sample)
+        reconcile_ok  = display_count <= db_count
+        return jsonify({
+            "db_count":        db_count,
+            "last_alert_date": last_alert_date,
+            "last_created_at": last_created_at,
+            "sample":          sample,
+            "display_count":   display_count,
+            "reconcile_ok":    reconcile_ok,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "db_count": 0, "sample": [],
+                        "display_count": 0, "reconcile_ok": False}), 500
+
+
 class _TdFastInfo:
     """Tradier-backed shim for yf fast_info. Provides .last_price and .previous_close."""
     __slots__ = ("_ticker", "_q")

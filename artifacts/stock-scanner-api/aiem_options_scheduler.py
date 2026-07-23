@@ -1112,7 +1112,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 f"best={best_chain_strategy.get('strategy','none') if best_chain_strategy else 'none'}"
             )
         except Exception as _oc_e:
-            log.debug(f"[exec] [{trace_id}] options chain skipped: {_oc_e}")
+            log.warning(f"[exec] [{trace_id}] options chain skipped: {_oc_e}")
 
         # ── REGISTRY: Stage OC — Options-chain ingestion + Strategy generator ─
         if _reg_ready:
@@ -1154,7 +1154,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 f"({'GATING' if _ei_mod.EI_GATING_ENABLED else 'OBSERVE'})"
             )
         except Exception as _ei_e:
-            log.debug(f"[exec] [{trace_id}] execution_intelligence skipped: {_ei_e}")
+            log.warning(f"[exec] [{trace_id}] execution_intelligence skipped: {_ei_e}")
 
         # ── REGISTRY: Stage EI — Execution Intelligence + Strategy comparison ─
         if _reg_ready:
@@ -1430,6 +1430,28 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "dte":                  _dte,
             "spot_at_alert":        spot,
         }
+
+        # ── Lognormal expected-value via payoff.py (replaces hardcoded 0.60/0.85) ──
+        _call_expected_return = 0.60
+        _put_expected_return  = 0.85
+        try:
+            from aiem_strat_engine.payoff import expected_value as _pyoff_ev
+            _pf_prices    = [spot * (0.5 + 0.01 * i) for i in range(151)]
+            _call_payoffs = [max(0.0, p - call_strike) * 100 - call_mid * 100
+                             for p in _pf_prices]
+            _put_payoffs  = [max(0.0, put_strike - p)  * 100 - put_mid  * 100
+                             for p in _pf_prices]
+            _call_ev_raw = _pyoff_ev(_call_payoffs, _pf_prices, spot, front_iv,       _dte)
+            _put_ev_raw  = _pyoff_ev(_put_payoffs,  _pf_prices, spot, front_iv * 1.05, _dte)
+            if call_mid > 0:
+                _call_expected_return = round(
+                    max(-1.0, min(3.0, _call_ev_raw / (call_mid * 100))), 4)
+            if put_mid > 0:
+                _put_expected_return = round(
+                    max(-1.0, min(3.0, _put_ev_raw  / (put_mid  * 100))), 4)
+        except Exception as _ev_e:
+            log.debug(f"[EV] lognormal EV skipped, using heuristic fallback: {_ev_e}")
+
         call_data = {
             **base_fields,
             "delta":               call_delta_bs,
@@ -1444,7 +1466,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "breakeven":           call_strike + (call_bid + call_ask) / 2,
             "premium_at_risk":     round((call_bid + call_ask) / 2 * 100, 2),
             "probability_estimate":call_probability_itm,
-            "expected_return":     0.60,
+            "expected_return":     _call_expected_return,
             "slippage_pct":        round(call_spread * 0.5, 4),
             "entry_premium_lo":    call_bid, "entry_premium_hi": call_ask,
             "profit_target":       round((call_bid + call_ask) * 0.5, 2),
@@ -1464,12 +1486,59 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "breakeven":           put_strike - (put_bid + put_ask) / 2,
             "premium_at_risk":     round((put_bid + put_ask) / 2 * 100, 2),
             "probability_estimate":put_probability_itm,
-            "expected_return":     0.85,
+            "expected_return":     _put_expected_return,
             "slippage_pct":        round(put_spread * 0.5, 4),
             "entry_premium_lo":    put_bid, "entry_premium_hi": put_ask,
             "profit_target":       round((put_bid + put_ask) * 0.8, 2),
             "stop_level":          f"Close above ${spot + 5:.0f}",
         }
+
+        # ── Stage EI-Post4: EI assessment using BS/Tradier legs ───────────────
+        # When chain_strategies is empty (Polygon returns zero-quote contracts
+        # outside market hours), construct synthetic single-leg strategies from
+        # call_data/put_data and run EI on them so aiem_execution_assessments
+        # always has at least BS-based fill_prob/liquidity_score entries.
+        if not _ei_assessments:
+            try:
+                import aiem_execution_intelligence as _ei_mod2
+                def _make_synth_leg(d: dict, ctype: str) -> dict:
+                    m = (float(d.get("bid", 0) or 0) + float(d.get("ask", 0) or 0)) / 2
+                    return {
+                        "action":            "BUY",
+                        "contract_type":     ctype,
+                        "strike":            float(d.get("strike", 0.0) or 0.0),
+                        "expiration_date":   "",
+                        "dte":               int(d.get("dte", _dte) or _dte),
+                        "bid":               float(d.get("bid", 0.0) or 0.0),
+                        "ask":               float(d.get("ask", 0.0) or 0.0),
+                        "mid":               round(m or float(d.get("bid", 0.0) or 0.0), 4),
+                        "implied_volatility":float(d.get("iv", front_iv) or front_iv),
+                        "delta":             float(abs(d.get("delta", 0.0) or 0.0)),
+                        "volume":            int(d.get("volume", 0) or 0),
+                        "open_interest":     int(d.get("open_interest", 0) or 0),
+                        "bid_ask_spread_pct":float(d.get("bid_ask_spread_pct", 0.25) or 0.25),
+                        "bid_size": 0, "ask_size": 0,
+                    }
+                _synth = [
+                    {"strategy": "LONG_CALL", "direction": "BULLISH",
+                     "ev_after_costs": float(_call_expected_return),
+                     "liquid": call_vol > 50 and call_oi > 100,
+                     "legs": [_make_synth_leg(call_data, "call")]},
+                    {"strategy": "LONG_PUT",  "direction": "BEARISH",
+                     "ev_after_costs": float(_put_expected_return),
+                     "liquid": put_vol > 50 and put_oi > 100,
+                     "legs": [_make_synth_leg(put_data, "put")]},
+                ]
+                _, _ei_assessments = _ei_mod2.filter_strategies_by_execution(
+                    _synth, trace_id=trace_id, scan_date=scan_date,
+                    ticker=ticker, spot=spot, db_url=_DB_URL,
+                )
+                log.info(
+                    f"[exec] [{trace_id}] EI-post4 (synthetic BS legs): "
+                    f"{len(_ei_assessments)} assessments written"
+                )
+            except Exception as _ei_p4_e:
+                log.warning(f"[exec] [{trace_id}] EI-post4 skipped: {_ei_p4_e}")
 
         # ── REGISTRY: Stage 4 — BS greeks + Probability/EV + Risk Gate ────────
         if _reg_ready:

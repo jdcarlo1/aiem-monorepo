@@ -1,0 +1,32 @@
+# Directive: Options Engine Gap Closure — 2026-07-23
+
+## Standing checklist (required on every item below)
+- Raw terminal output only — no paraphrasing. Raw grep -n/sed -n for any code-location/call-chain claim.
+- Exact before/after diff + sha256 for every changed file.
+- Raw SQL + full result set for any DB check (\copy attached if >10 rows).
+- sha256 cross-check: tools/verified_run.sh must match 58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5; artifacts/stock-scanner-api/verify_chain.sh must match ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f. Mismatch = validator drifted, output rejected regardless of content.
+- Data Immutability Rule: no delete/truncate/overwrite of any row/table/file without explicit prior approval this session.
+- Math/quant rule (Greeks, EV, any formula work): independent known-answer test vectors, cross-check via 2nd method, mutation check proving test isn't vacuous.
+- "PASS" only if fully verified — nothing outstanding, nothing deferred. Otherwise use "partial" / "closed via accepted-risk" / "cleared to proceed."
+- On close, permanent record file to /docs/verification/ per phase, citing commit hash.
+- All evidence-producing commands go through verified_run.sh; paste verify_chain.sh output before declaring done.
+
+## Items to close
+
+1. **EI_EXCEPTION bug (LegExecutionMetrics.get)** — root cause, fix, prove a real production-ticker alert now gets computed (not fallback) values for fill_prob, liquidity_score, slippage, assignment_risk, pin_risk. This blocks OPT-021/023/024/025/026.
+
+2. **Mid-price source (OPT-007)** — state whether native pipeline should switch to true (bid+ask)/2 per-alert, or keep model-based synthetic mid — with reasoning — then wire the decision and confirm aiem_execution_assessments.mid populates on live rows (currently 0).
+
+3. **Rho/Charm/Vanna (OPT-018/019/020)** — state whether these should be wired into the native scheduler path or intentionally left standalone-only. If wiring: implement, confirm entry_greeks_json populates on a live alert (currently null for all three).
+
+4. **IV Percentile (OPT-012)** — implement compute_iv_rank_live() to actually set the iv_percentile key; currently always None.
+
+5. **Capital efficiency (OPT-031)** — decide: implement capital_efficiency ratio in native pipeline, or formally close as NOT_IMPLEMENTED with reasoning. No silent gap.
+
+6. **Expected value (OPT-030)** — wire the existing payoff.py expected_value() (lognormal) into the live alert path in place of the hardcoded 0.85 constant, or state why the constant is intentional.
+
+7. **Dashboard file (OPT-034)** — locate or rebuild the missing Dashboard.tsx at the expected path; build a runtime-vs-display reconciliation check (currently none exists).
+
+8. **OPT-035 mutation gap** — run mutation checks for gamma/theta/vega (currently "—", only delta/charm/vanna tested) before this item can be called PASS.
+
+Report back per-item using the compact evidence format — no restated context, no prose summary beyond stating what's still unverified.

@@ -151,6 +151,10 @@ def compute_iv_rank_live(ticker: str) -> dict:
         else:
             iv_rank = 50.0
 
+        iv_percentile = round(
+            sum(1 for hv in hvs if hv <= current_iv) / len(hvs) * 100, 1
+        )
+
         if iv_rank < 20:
             verdict = "CHEAP — favor BUYING options (calls or puts); low cost to be long vega"
         elif iv_rank > 80:
@@ -159,14 +163,15 @@ def compute_iv_rank_live(ticker: str) -> dict:
             verdict = "FAIR — directional options plays acceptable; standard sizing"
 
         return {
-            "ticker":      ticker.upper(),
-            "spot":        round(spot, 2),
-            "current_iv":  round(current_iv, 4),
-            "iv_rank":     round(iv_rank, 1),
-            "iv_low_52w":  round(iv_low, 4),
-            "iv_high_52w": round(iv_high, 4),
-            "skew_tag":    skew_tag,
-            "verdict":     verdict,
+            "ticker":        ticker.upper(),
+            "spot":          round(spot, 2),
+            "current_iv":    round(current_iv, 4),
+            "iv_rank":       round(iv_rank, 1),
+            "iv_percentile": iv_percentile,
+            "iv_low_52w":    round(iv_low, 4),
+            "iv_high_52w":   round(iv_high, 4),
+            "skew_tag":      skew_tag,
+            "verdict":       verdict,
         }
     except Exception as e:
         return {"error": str(e)}
