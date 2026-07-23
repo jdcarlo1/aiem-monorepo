@@ -900,3 +900,15 @@ id = "WK3u0sI_I0La4F1bZWIu9"
 uri = "file://docs/verification/entry-score-normalization-fix-2026-07-23.md"
 type = "text"
 title = "Entry Score Normalization Fix Record (PERF-038 banding + Brier guard)"
+
+[[outputs]]
+id = "NV_u7fmlevr4rg9XrNNgV"
+uri = "file://docs/verification/phase9-ind-FINAL.md"
+type = "text"
+title = "Phase 9 IND-001–030 FINAL Verification Record"
+
+[[outputs]]
+id = "e7FJ7MBffttRcvvWTKIkB"
+uri = "file://artifacts/stock-scanner-api/tools/logs/verified_run_100.log"
+type = "unspecified"
+title = "Phase 9 Sealed Chain Log — SEQ=100 (raw evidence)"
