@@ -1,0 +1,27 @@
+# Directive — Synthetic Test Follow-Up
+
+## Item 1 — Data Immutability check
+You deleted the synthetic row(s) you created this session (oe_trade_records tr_id=27, options_engine_runs row, counts reverted 26→25 and 1→0).
+- Paste the exact point in this session where Joel gave explicit prior approval to delete these rows.
+- If no such approval exists, state that plainly — do not self-justify. This is a protocol violation to report, not resolve on your own.
+
+## Item 2 — Scope correction, do not claim pipeline integration verified
+/run-synthetic calls bootstrap_phase2 → capture_trade_record directly from the HTTP handler, bypassing _execute_job() entirely. You already disclosed:
+- _execute_job() raises ValueError at line 1595/1597 for any ticker without live Tradier data — before reaching the phase-2 gate.
+- NO_TRADE path has an explicit early return at line 1942, before capture_trade_record() at line 2105.
+
+This means today's test only proves capture_trade_record() and bootstrap_phase2 work in isolation. It does NOT prove a real scheduled job can reach capture_trade_record() through the actual decision path.
+
+Required:
+- Relabel today's result as "capture_trade_record() function-level verified — pipeline integration UNVERIFIED" — do not call this a pass on the underlying directive.
+- At the next live LONG_PUT/LONG_CALL job (market hours, ready_for_decision=True), paste the raw scheduler log showing all three checkpoints — [P2_INIT], [P2_GATE], [P2_CAPTURE] — firing from a genuine _execute_job() run, not the synthetic endpoint.
+- Until that live log is produced, the underlying task stays OPEN.
+
+## Standing checklist (applies as always)
+- Raw terminal output only, no paraphrasing; raw grep for any code-location/behavior claim
+- Exact before/after diff + sha256 for any changed files
+- Raw SQL + full result set for any DB claim
+- No deletion/truncation/overwrite of any row/file — including labeled test/synthetic data — without Joel's explicit prior approval logged in-session
+- verified_run.sh / verify_chain.sh output + sha256 cross-check against current canonical values
+- "PASS" reserved for fully verified items only — no blending with "cleared to proceed" language
+- Any completed phase gets committed as a permanent repo file (not just chat-reported)
