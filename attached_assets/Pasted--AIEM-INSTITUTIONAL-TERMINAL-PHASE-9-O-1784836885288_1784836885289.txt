@@ -1,0 +1,72 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 9 OF 12
+SECTION 12: INDICATOR LABORATORY (IND-001–030)
+============================================================
+
+IND-001 Every production indicator appears in a documented registry.
+IND-002 Every indicator has a unique identifier.
+IND-003 Every indicator has a human-readable name.
+IND-004 Every indicator has an owning module.
+IND-005 Every indicator has a source-file location.
+IND-006 Every indicator has a calculation-method description.
+IND-007 Every indicator has documented required inputs.
+IND-008 Every indicator has documented output fields.
+IND-009 Every indicator has a timestamp.
+IND-010 Every indicator records its source-data freshness.
+IND-011 Every indicator records its calculation status.
+IND-012 Every indicator records calculation errors.
+IND-013 Every indicator records its version.
+IND-014 Every indicator records configuration parameters.
+IND-015 Every indicator records applicable timeframe.
+IND-016 Every indicator records applicable market regime.
+IND-017 Every indicator records applicable asset type.
+IND-018 Indicator raw values are stored where required for reproducibility.
+IND-019 Indicator normalized values are stored where applicable.
+IND-020 Indicator contribution to scoring is recorded.
+IND-021 Indicator contribution to probability is recorded where applicable.
+IND-022 Indicator contribution to specialist debate is recorded where applicable.
+IND-023 Indicator contribution to the final decision is traceable.
+IND-024 Unavailable indicators cannot silently receive neutral fabricated values.
+IND-025 Failed indicators trigger the documented degradation policy.
+IND-026 Stale indicators are rejected or explicitly downgraded.
+IND-027 Indicator values displayed on the dashboard match API values.
+IND-028 Indicator API values reconcile with stored runtime evidence.
+IND-029 Independent recomputation verifies selected critical indicators.
+IND-030 Negative controls prove missing, stale, or corrupted indicators are detected.
+
+NOTE: cross-reference against the existing 39-indicator audit (only #38
+Relative Strength confirmed direct into ensemble_combiner; ~18 not in
+Phase 8 at all; Thompson Sampling #06 and Bayesian Statistics #24
+confirmed inert) — many of these items may already resolve to FAIL/
+NOT_IMPLEMENTED from that prior audit rather than needing fresh discovery.
+
+PHASE 9 GATES PHASE 10.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.
