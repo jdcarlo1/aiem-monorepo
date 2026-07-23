@@ -888,3 +888,15 @@ id = "zZJx2xt2yoidz4iec4LD3"
 uri = "file://docs/verification/phase7-probability-calibration-FINAL.txt"
 type = "text"
 title = "Phase 7 Verification — CAL-001–030 (download)"
+
+[[outputs]]
+id = "98McSzRWMXxZZ3YereWCX"
+uri = "file://docs/verification/phase8-perf-FINAL.md"
+type = "text"
+title = "Phase 8 PERF-001–041 Verification Record (SEQ=93 seal + SEQ=96 closure)"
+
+[[outputs]]
+id = "WK3u0sI_I0La4F1bZWIu9"
+uri = "file://docs/verification/entry-score-normalization-fix-2026-07-23.md"
+type = "text"
+title = "Entry Score Normalization Fix Record (PERF-038 banding + Brier guard)"
