@@ -1,0 +1,122 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 11 OF 12
+SECTION 14: SYSTEM OPERATIONS (OPS-001–040)
+SECTION 15: DASHBOARD PAGES (PAGE-001–040)
+============================================================
+
+SECTION 14 — SYSTEM OPERATIONS
+
+OPS-001 Scheduler status displayed.
+OPS-002 Worker status displayed.
+OPS-003 Heartbeat status displayed.
+OPS-004 Queue depth displayed.
+OPS-005 Running jobs displayed.
+OPS-006 Failed jobs displayed.
+OPS-007 Retry queue displayed.
+OPS-008 Dead-letter queue displayed.
+OPS-009 Memory usage displayed.
+OPS-010 CPU usage displayed.
+OPS-011 Disk usage displayed.
+OPS-012 Network status displayed.
+OPS-013 Database status displayed.
+OPS-014 Redis status displayed.
+OPS-015 Polygon connectivity displayed.
+OPS-016 Tradier connectivity displayed.
+OPS-017 Yahoo connectivity displayed.
+OPS-018 Telegram connectivity displayed.
+OPS-019 Email connectivity displayed.
+OPS-020 Cron execution verified.
+OPS-021 APScheduler execution verified.
+OPS-022 Automatic recovery verified.
+OPS-023 Worker restart verified.
+OPS-024 Crash recovery verified.
+OPS-025 No duplicate execution.
+OPS-026 No orphan jobs.
+OPS-027 No stale jobs.
+OPS-028 No silent failures.
+OPS-029 Error logging verified.
+OPS-030 Alert logging verified.
+OPS-031 Audit logging verified.
+OPS-032 Recovery logging verified.
+OPS-033 Version displayed.
+OPS-034 Environment displayed.
+OPS-035 Build information displayed.
+OPS-036 Deployment verified.
+OPS-037 Health endpoint verified.
+OPS-038 Readiness endpoint verified.
+OPS-039 Liveness endpoint verified.
+OPS-040 Independent operational audit passes.
+
+SECTION 15 — DASHBOARD PAGES
+
+PAGE-001 Overview page complete.
+PAGE-002 Market overview complete.
+PAGE-003 Opportunity Queue complete.
+PAGE-004 Decision Proof complete.
+PAGE-005 Portfolio page complete.
+PAGE-006 Options page complete.
+PAGE-007 Performance page complete.
+PAGE-008 Probability page complete.
+PAGE-009 Calibration page complete.
+PAGE-010 Indicator Laboratory complete.
+PAGE-011 System Operations complete.
+PAGE-012 Alerts page complete.
+PAGE-013 Audit page complete.
+PAGE-014 Learning page complete.
+PAGE-015 Settings page complete.
+PAGE-016 Role management page complete.
+PAGE-017 Search functions verified.
+PAGE-018 Filtering verified.
+PAGE-019 Sorting verified.
+PAGE-020 Pagination verified.
+PAGE-021 CSV export verified.
+PAGE-022 PDF export verified.
+PAGE-023 Dark mode verified.
+PAGE-024 Responsive layout verified.
+PAGE-025 Accessibility verified.
+PAGE-026 Keyboard navigation verified.
+PAGE-027 Loading states verified.
+PAGE-028 Error states verified.
+PAGE-029 Empty states verified.
+PAGE-030 Offline behavior documented.
+PAGE-031 Real-time updates verified.
+PAGE-032 Charts validated.
+PAGE-033 Tables validated.
+PAGE-034 Drill-down verified.
+PAGE-035 Evidence links verified.
+PAGE-036 API integration verified.
+PAGE-037 Permission enforcement verified.
+PAGE-038 Cross-page consistency verified.
+PAGE-039 Regression testing passes.
+PAGE-040 Institutional UI review passes.
+
+PHASE 11 GATES PHASE 12.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.

@@ -1,3 +1,5 @@
+- [Phase 11 — OPS + Dashboard verification](phase11-ops-dashboard.md) — SEQ=111 PASS=33/PARTIAL=12/NI=35/FAIL=0; 13 content pages; NI=display/UX gaps only; health endpoint PASS; no readiness/liveness HTTP probe
+- [verifier psycopg2 LIKE bug](verifier-psycopg2-like-bug.md) — psycopg2 with LIKE '%%' in SQL crashes with IndexError when passed params=(); fix: only call cur.execute(sql, params) when params is truthy
 - [Options Engine trade-record cycle bugs](oe-trade-record-cycle-bugs.md) — datetime naive/aware bug in update_trade_record_exit + _p2_ready silent suppression; both fixed; realized_pnl now net-of-costs
 - [PE chain wrapper](pe-chain-wrapper.md) — tools/verified_run_pe.sh wraps portfolio engine; tools/verified_run.sh canonical sha256=58534be5 (fixed pipefail grep bug 2026-07-23); CANONICAL includes GIT_COMMIT+GIT_TREE; log=evidence_chain_pe.log
 - [OSS write-once guard](options-oss-write-once.md) — options_structure_scan DO NOTHING; first write per (ticker,scan_date) permanent; corrections require explicit DELETE+re-insert
