@@ -1,0 +1,16 @@
+# Directive: Phase 10 Root-Cause Diagnosis — 2026-07-23
+
+## Standing checklist (required)
+- Raw terminal output only, no paraphrasing. Raw grep -n/sed -n for any code-location claim.
+- Raw SQL + full result set for any DB check.
+- sha256 cross-check: tools/verified_run.sh = 58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5; artifacts/stock-scanner-api/verify_chain.sh = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f. Mismatch = rejected.
+- Data Immutability Rule applies — no deletes/overwrites without approval.
+- "PASS" only if fully verified, nothing on fallback/test-ticker-only data.
+
+## Items
+
+1. **OPT-030 — surface the real exception, don't just remove the fallback.** Lines 1437/1452 currently catch any Exception from the payoff.py lognormal import/call and log it only at log.debug with the fallback silently substituted. For one live scheduler run: temporarily elevate this specific except block to log.error with full traceback (or add a one-off diagnostic print), trigger a real run, and paste the raw captured exception text. Do not guess at the cause (ModuleNotFoundError, working-directory/import-path issue, etc.) — show the actual error. Once the real cause is known, state the fix and confirm the lognormal path actually executes (expected_return should vary across tickers, not sit at a single constant) with a fresh DB query.
+
+2. **Group 4 — get one real production row.** Trigger (or wait for) one live intraday pipeline run with the EI-post4 code active. Afterward, raw SQL against aiem_execution_assessments filtered to real production tickers (excluding TEST/TEST_APPROVED/E2E%/S3_CHAIN_TEST — use the corrected filter this time) and confirm whether OPT-021/023/024/025/026 now get genuinely computed values or still hit EI_EXCEPTION. Paste the full result either way.
+
+3. Once both are answered with raw evidence, restate Phase 10's true status (not yet closeable / closeable / closed via accepted-risk) and only then write the permanent record file to /docs/verification/, citing the commit hash.
