@@ -1,0 +1,34 @@
+# Directive: Phase 10 Kickoff — OPT-001 through OPT-035
+
+## Scope confirmation (required first, before any item work)
+This section is AIEM's native options pipeline (Directive 14 pattern engine) — NOT the Standalone Options Engine (oe_indicator_snapshots / oe_indicator_attribution / oe_indicator_registry). Confirm which table(s) each item actually reads/writes before using any existing Options Engine evidence (DPL, calibration module) as a substitute. If overlap is found, flag it — do not assume shared evidence is valid across the two systems.
+
+## Standing checklist (applies to every item, no exceptions)
+- No item complete on description alone
+- Raw grep/sed for any code-location/behavior claim — never paraphrased
+- Raw SQL + full result set for any DB check
+- Before/after sha256 for any changed file
+- verified_run.sh + verify_chain.sh output pasted
+- sha256 cross-check of tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical, before any evidence this phase is accepted
+- Data Immutability Rule: no delete/truncate/drop/overwrite without my explicit approval that session
+- Every negative control/conditional gate must actually run with output pasted — a gate not shown blocking under the failing condition is not verified
+- Output format: raw command output only, no narrative, no restated headers, no "representative" rows, no re-verification of anything unchanged this session
+- One verdict per item: PASS / FAIL / NOT_IMPLEMENTED / IMPLEMENTED_NOT_VERIFIED / PARTIAL
+- Phase does not close until every item has a verdict and every PASS has raw evidence attached
+
+## Two specific requirements for this phase
+
+**1. Greeks/quant items (OPT-011–020, IV Rank/Percentile, Expected Move) — full correctness-verification rule applies, not just execution evidence:**
+- State the formula/reference being checked against BEFORE running any test
+- Independent known-answer test vectors — not agent-invented
+- Cross-check via a second method where feasible (e.g. finite-difference vs analytic for Greeks)
+- Mutation check: break a known-correct value, confirm the test suite catches it as failing
+- Charm and vanna (OPT-019/020) get extra scrutiny — second-order Greeks are exactly where a wrong formula passes its own vacuous test suite
+
+**2. OPT-027–029 (strategy selection/chosen/rejected documentation) — treat as high-risk for the same failure pattern as Phase 9 IND-020/021/023:**
+- Do not accept "schema exists" as evidence of population
+- Required: raw SQL showing the rejected-strategies table/field has real rows with real, non-null reasons — not just a column that exists
+- If rejected-strategy documentation is NULL/empty across rows in production, that is NOT_IMPLEMENTED or FAIL, not PARTIAL
+
+## Gate
+Phase 10 gates Phase 11 per spec — this only holds once every OPT item has a verdict with raw evidence attached, same standard as Phase 9.
