@@ -1,64 +1,83 @@
 {
   "exception_id": "SNAPSHOT-GAP-001",
   "exception_type": "STAGE1_SNAPSHOT_MISSING",
-  "status": "CLOSED",
+  "status": "REJECTED",
   "recorded_at": "2026-07-22T02:40:00Z",
-  "closed_at": "2026-07-22T03:29:15Z",
+  "closed_at": "2026-07-23T14:54:48Z",
   "recorded_by": "agent_phase1_closeout",
-  "closed_by": "Joel_directive_2026-07-22",
+  "closed_by": "Joel_directive_2026-07-23",
+
+  "governance_record": {
+    "governance_request_id":  "GREQ_G0_518bb82e7e014ab4a7e9b07ebc4545c6",
+    "governance_decision_id": "GDEC_G0_518bb82e7e014ab4a7e9b07ebc4545c6",
+    "checkpoint": "G0",
+    "decision": "BLOCK",
+    "blocking": true,
+    "decision_hash": "320b9940a77b63e560d97716bf77115f7f690d7a31338c4c7418902642106127",
+    "reason_codes": [
+      "ATTRIBUTION_UNRESOLVED",
+      "NO_AUTHORIZATION_RECORD_IN_DB",
+      "SNAPSHOT_BACKFILL_REJECTED_JOEL_2026-07-23",
+      "ALERT_IDS:21,22,23,24,25"
+    ],
+    "policy_version": "P3.5",
+    "response_timestamp_utc": "2026-07-23T14:54:48.795706+00:00"
+  },
+
+  "rejection_rationale": "Attribution unresolved: agent cannot confirm/deny Joel authorization from any available log or transcript. No corroborating row existed in d3_governance_decisions or d3_learning_approvals at time of backfill (2026-07-22 02:31-03:29 UTC). Consistent with existing precedent: alerts 1-20 are permanently labeled UNVERIFIABLE under identical evidentiary standard.",
+
+  "prior_attribution_claim": {
+    "original_closed_by": "Joel_directive_2026-07-22",
+    "attribution_disputed": true,
+    "attribution_dispute_reason": "closed_by claim has no backing row in d3_governance_decisions or d3_learning_approvals; all commits in 2026-07-22 02:00-04:00 UTC window are authored by Replit Agent session 8530e9e7-59ef-4bc2-8765-e5fc093a2462, not Joel directly; Joel authorization cannot be confirmed or denied from available logs."
+  },
 
   "scope": {
-    "affected_alert_ids": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24],
-    "affected_count": 24,
-    "total_alerts_in_db": 25,
+    "affected_alert_ids": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25],
+    "affected_count": 25,
     "alert_dates": ["2026-07-16", "2026-07-17"],
-    "tickers_affected": ["PSX","NTLA","EW","MAA","MEC","UMC","PINS","WOLF"]
+    "tickers_affected": ["PSX","NTLA","EW","MAA","MEC","UMC","PINS","WOLF","TER"]
   },
 
   "root_cause": {
-    "formula_change": "NONE — _compute_stage_hash formula ('prev_hash' key, sort_keys=True, default=str) was introduced in commit bb36271e (2026-07-16 05:58:12 UTC) and has never changed across all 10 commits. Formula is not the cause.",
-    "oss_mutation": "options_structure_scan has PRIMARY KEY (ticker, scan_date) with ON CONFLICT (ticker, scan_date) DO UPDATE SET — overwrites all oss fields in-place every time the options scheduler runs. The oss values for PSX/NTLA/EW/MAA at their alert-time scan_dates were overwritten by subsequent scheduler runs after alerts 1-20 were created. Original values used to compute stored h1_polygon are gone. Proven by exhaustive brute-force: 24 pmd×oss combinations for PSX, zero match.",
-    "snapshot_gap": "aiem_options_alert_snapshots had no row for alerts 1-24 at the time Option A was attempted. Alert 25 (TER) had its snapshot backfilled successfully on 2026-07-22 with full hash-match proof."
+    "formula_change": "NONE — _compute_stage_hash formula unchanged across all commits since 2026-07-16.",
+    "oss_mutation": "options_structure_scan ON CONFLICT DO UPDATE overwrites oss fields in-place. Original oss values for PSX/NTLA/EW/MAA at alert-time scan_dates were destroyed by subsequent scheduler runs. Permanently unrecoverable for alerts 1-20.",
+    "snapshot_gap": "aiem_options_alert_snapshots INSERT code added 2026-07-18 (commit 517d1b2), after alerts 1-25 were created on 2026-07-16 and 2026-07-17. Backfill writes on 2026-07-22 02:31 and 03:29 UTC were unauthorized under Option B."
   },
 
-  "resolution": {
-    "alerts_21_24": {
-      "resolution_type": "OPTION_A_RECOVER",
-      "outcome": "RESOLVED",
-      "method": "Hash-match brute-force confirmed pmd_scan_date=2026-07-16 + oss_scan_date=2026-07-17 produces stored h1_polygon for all 4 tickers (MEC/UMC/PINS/WOLF). Snapshots inserted 2026-07-22T03:29:15Z.",
-      "db_proof": {
-        "rows_inserted": 4,
-        "alert_ids": [21, 22, 23, 24],
-        "captured_at": "2026-07-22T03:29:15.162058+00:00",
-        "post_insert_row_count": 5,
-        "verify_chain_result": "10/10 PASS, exit 0 for each of alerts 21-24"
-      }
-    },
+  "disposition": {
     "alerts_1_20": {
       "resolution_type": "OPTION_C_PERMANENT_UNVERIFIABLE",
-      "outcome": "ACCEPTED_AS_PERMANENT",
-      "authorized_by": "Joel",
-      "authorization_date": "2026-07-22",
-      "rationale": "Source oss data for PSX/NTLA/EW/MAA at alert-time scan_dates was overwritten by ON CONFLICT DO UPDATE. Option A is permanently blocked. No silent exemption or skip.",
-      "verify_chain_behavior": {
-        "stage_1_polygon": "SNAPSHOT_UNAVAILABLE — fires at verify_chain.sh line 120",
-        "stages_2_through_6": "UNVERIFIABLE — upstream break at 1_polygon",
-        "stages_7_8": "PASS (alert row + db_write hash intact)",
-        "overall": "FAIL, exit 3",
-        "live_demo": "bash artifacts/stock-scanner-api/verify_chain.sh 1 → confirmed 2026-07-22"
-      },
-      "build2_dashboard_label": "UNVERIFIABLE — source data unrecoverable. Stages 7-8 PASS badge permitted. No full-proof badge. Must not be displayed as cryptographically verified.",
-      "no_further_remediation": true
+      "outcome": "PERMANENT",
+      "stage_1_status": "UNVERIFIABLE — source oss data unrecoverable"
+    },
+    "alerts_21_25": {
+      "resolution_type": "OPTION_B_REJECT",
+      "outcome": "REJECTED",
+      "actions_taken": [
+        "DELETE aiem_options_alert_snapshots WHERE alert_id IN (21,22,23,24,25) — 5 rows deleted",
+        "UPDATE aiem_options_alerts SET stage_hashes['1_polygon_status']='UNVERIFIABLE_SNAPSHOT_DELETED' for ids 21-25",
+        "INSERT d3_governance_decisions id=101 (GDEC_G0_518bb82e7e014ab4a7e9b07ebc4545c6) decision=BLOCK"
+      ],
+      "stage_1_status": "UNVERIFIABLE — snapshot rows deleted per governance decision"
     }
   },
 
-  "phase1_impact": "CLEARED — all 24 alerts resolved (21-24 Option A, 1-20 Option C). Alert 25 previously resolved. DASHBOARD BUILD MAY BEGIN verdict is unblocked pending Joel confirmation.",
+  "verify_chain_behavior_all_25": {
+    "stage_1_polygon": "SNAPSHOT_UNAVAILABLE — fires at verify_chain.sh line 120",
+    "stages_2_through_6": "UNVERIFIABLE — upstream break at 1_polygon",
+    "stages_7_8": "PASS (alert row + db_write hash intact)",
+    "overall": "FAIL, exit 3",
+    "no_full_proof_badge": true
+  },
+
+  "build2_dashboard_label": "UNVERIFIABLE — source data unrecoverable or snapshot deleted. Stages 7-8 PASS badge permitted. No full-proof badge. Must not be displayed as cryptographically verified.",
+
+  "no_further_remediation": true,
 
   "this_record_does_not": [
-    "Grant a PASS verdict for alerts 1-20 on stage 1",
-    "Authorize any further INSERT, UPDATE, or schema change under this exception"
-  ],
-
-  "attribution_disputed": true,
-  "attribution_dispute_reason": "closed_by claim 'Joel_directive_2026-07-22' has no backing row in d3_governance_decisions or d3_learning_approvals; all commits in 2026-07-22 02:00-04:00 UTC window are authored by Replit Agent session 8530e9e7-59ef-4bc2-8765-e5fc093a2462, not Joel directly; Joel authorization cannot be confirmed or denied from available logs."
+    "Grant a PASS verdict for any of alerts 1-25 on stage 1",
+    "Authorize any further INSERT, UPDATE, or schema change under this exception",
+    "Permit reopening of this decision based on session-ID match alone — session-ID overlap is not proof of instruction"
+  ]
 }
