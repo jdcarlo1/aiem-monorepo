@@ -1,0 +1,61 @@
+# Directive — Phase 4, remaining OPP/TRACE items (run after tomorrow's live AIEM cycle)
+
+## Applies regardless of tomorrow's outcome (trade or NO_TRADE)
+A NO_TRADE decision is still a real, complete decision record. Use
+whatever tomorrow's actual result is — do not wait for a trade specifically.
+
+## OPP-001 to OPP-039 (candidate storage + field display)
+- Confirm the real candidate(s) from tomorrow's cycle are stored
+  permanently (OPP-001).
+- For whichever outcome occurred (approved/rejected/blocked/NO_TRADE/any
+  rejection-stage type), confirm that path displays correctly
+  (OPP-002 to OPP-015) — items for outcome types that did NOT occur today
+  should be marked IMPLEMENTED_NOT_VERIFIED (code exists, not exercised
+  today), not forced to PASS or FAIL.
+- Confirm each field (candidate ID, trace ID, ticker, strategy, all
+  timestamps, status, outcome, probabilities, confidence, expected value,
+  execution cost, portfolio impact, risk result, rejection reason,
+  rejecting stage, regime, freshness, model/code version, evidence link)
+  actually displays with the real value from today's row — raw evidence
+  per field, not a description.
+
+## OPP-051 to OPP-058 (SQL reconciliation of counts)
+- For each count (candidates, rejections, approved, NO_TRADE, orders,
+  fills, rejected-orders, closed-trades): raw SQL count vs displayed count,
+  side by side. A count of zero is a valid, verifiable match — do not skip
+  an item just because the real count today is zero.
+
+## OPP-059 / OPP-060 — DO NOT force a verdict today
+These need a meaningful multi-day sample. Record as
+IMPLEMENTED_NOT_VERIFIED / PENDING with the reason stated (insufficient
+history), not a forced PASS or FAIL from one day.
+
+## TRACE-001 to TRACE-015 (stage recording)
+Raw evidence each stage (Scheduler Trigger through Final Decision) fired
+and recorded for today's real cycle.
+
+## TRACE-016 / TRACE-017 (Paper Order, Fill/Rejection) — conditional
+Only verifiable if today's cycle actually placed an order. If NO_TRADE,
+record as PENDING (nothing to record) — not FAIL, not skipped silently.
+
+## TRACE-018 to TRACE-021 — DO NOT force a verdict today
+Position, Closed Outcome, Attribution, Learning Event require a position
+that is later held and closed. Record as PENDING pending real trade
+lifecycle data, regardless of today's outcome.
+
+## TRACE-022 to TRACE-050 (IDs, timestamps, archived inputs/outputs,
+alternatives evaluated, regime, execution assumptions/costs)
+Raw evidence each persists/records correctly for today's real cycle.
+For alternative-strategies-evaluated (TRACE-041/042) and
+winning-strategy-justification (TRACE-043): only verifiable in full if an
+actual decision (trade or NO_TRADE) was reached — should be available
+regardless of trade/no-trade outcome.
+
+## Evidence bar (standard, same as the whole phase)
+- Raw grep/sed/SQL output only, no paraphrasing
+- One verdict per item, including PENDING where real data genuinely
+  doesn't exist yet — never force PASS/FAIL without real evidence
+- sha256 cross-check of verified_run.sh / verify_chain.sh vs canonical
+- Append to evidence_chain.log, continuing the existing SEQ
+- Report final tally: X PASS / X FAIL / X NOT_IMPLEMENTED / X PENDING —
+  do not claim "Phase 4 closed" if any PENDING items remain
