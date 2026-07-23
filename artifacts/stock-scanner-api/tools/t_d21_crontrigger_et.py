@@ -8,8 +8,8 @@ Checks:
   C3: Remaining non-ET trigger (hour=3,min=2 nightly reset) is NOT in directive scope
   C4: APScheduler probe — all 10 triggers fire with US/Eastern timezone and -04:00 offset
   C5: All 10 next-fire-times fall in expected ET clock range
-  C6: verify_chain.sh sha256 == new canonical aa618d45... (re-baselined per Directive 21)
-  C7: verified_run.sh sha256 == canonical ba6100ae...
+  C6: verify_chain.sh sha256 == canonical ca7896c7... (SUMMARY line reverted 2026-07-23; prior aa618d45 retired)
+  C7: verified_run.sh sha256 == canonical 6305cde... (rewritten 2026-07-23; prior ba6100ae retired)
 
 SUMMARY line required for PSV8.
 """
@@ -177,7 +177,7 @@ chk("C6_verify_chain_sh_matches_new_canonical", vc_sha == CANONICAL_VC)
 
 # ── C7: verified_run.sh sha256 ────────────────────────────────────────────────
 print("\n=== C7: verified_run.sh canonical ===")
-CANONICAL_VR = "ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836"
+CANONICAL_VR = "6305cde74d47a5a506f1a8c9fd3dcea780189cf6b344e4a8de6bdf825853f2a3"
 vr_sha = sha256file("tools/verified_run.sh")
 print(f"  file sha256:      {vr_sha}")
 print(f"  canonical:        {CANONICAL_VR}")

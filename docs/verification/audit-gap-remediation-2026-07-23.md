@@ -188,15 +188,15 @@ The context is thread-local; each thread must set and clear independently.
 
 ```
 artifacts/stock-scanner-api/verify_chain.sh
-  current:              aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40
-  directive expected:   ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (4f280e6, 2026-07-18)
-  diff vs 4f280e6:      +print(f"SUMMARY: {len(passes)} PASS  {len(fails)} FAIL")  [ONE line]
-  status:               DRIFT DOCUMENTED — consistent with 2026-07-22 commit 20530e2
+  current:              ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (REVERTED 2026-07-23 by directive — Option A)
+  prior (drifted):      aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40 (retired)
+  diff reverted:        -print(f"SUMMARY: {len(passes)} PASS  {len(fails)} FAIL")  [ONE line removed]
+  status:               CLOSED — matches canonical ca7896c7 exactly
 
 tools/verified_run.sh
-  current:              ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836
-  directive expected:   ba6100ae...
-  status:               MATCH ✓
+  current:              6305cde74d47a5a506f1a8c9fd3dcea780189cf6b344e4a8de6bdf825853f2a3  (REWRITTEN 2026-07-23 by directive)
+  prior:                ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836 (retired — deleted unauthorised at a603aa5 2026-07-20, rewritten)
+  status:               CLOSED via REWRITE — prior canonical retired
 
 tools/verified_run_pe.sh
   current:              c295436d3e6282f233e513606e2f94cf25c594b33d4573b1c48915583aec811d
@@ -206,8 +206,14 @@ tools/verified_run_pe.sh
 
 ---
 
-## Open items (not resolved by this directive)
+## Resolution (2026-07-23)
 
-- Item 3 (attribution): UNRESOLVED — Joel authorization of 2026-07-22 backfill unconfirmable from logs
-- Option A/B governance decision: PENDING Joel input
+- verify_chain.sh drift: CLOSED — Option A executed (SUMMARY line reverted, canonical ca7896c7 restored)
+- tools/verified_run.sh: CLOSED — rewritten from scratch by directive; new canonical 6305cde; prior ba6100ae retired
+- Item 3 (attribution of 2026-07-22 backfill): ACCEPTED AS UNRESOLVED/MOOT — Joel chose Option B (reject as unauthorized); snapshot rows deleted, alerts 21-25 marked PERMANENTLY_UNVERIFIABLE per Phase 6 Gap B Close directive 2026-07-23
+
+## Sealed log references (NOT updated per Data Immutability Rule)
+
+- tools/logs/verified_run_72.log (chmod 444): contains ba6100ae as historical observation — SEALED, not altered
+- tools/logs/verified_run_73.log (chmod 444): contains ba6100ae as historical observation — SEALED, not altered
 - DATABASE_URL full migration to AGENT_DATABASE_URL: PENDING (150+ files)

@@ -1,0 +1,22 @@
+# Directive — Evidence Chain Repair, FINAL (2026-07-23)
+
+Joel's decisions below. Execute both items, no further options to present.
+
+## Item 1 — tools/verified_run.sh: REWRITE FRESH, not restore
+The canonical hash on file doesn't match any recoverable git object — chasing the original further is not worth more time. Stop searching for the old version.
+1. Write a brand-new tools/verified_run.sh from scratch, same purpose as the deleted file (per its own header comment recovered in the diff: "DPL verified evidence runner with cryptographic chain + per-SEQ archival"). This is a REWRITE, explicitly not a restore of old content.
+2. Raw sha256sum of the new file — this becomes canonical going forward. Paste it.
+3. Update every doc/reference that cites the old canonical (ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836) to point to the new hash instead — raw grep showing each updated reference.
+4. Confirm with a real test run (not synthetic) that the new script actually wraps a command and produces a chained log entry — paste that raw output.
+
+## Item 2 — verify_chain.sh: REVERT to canonical (Option A)
+1. Remove the added SUMMARY print line, restoring exact match to canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+2. Raw sha256sum after the revert — must equal that value exactly. Paste it.
+3. Raw git diff showing only that one line removed, nothing else touched.
+
+## Standing checklist — applies to both items
+- Raw terminal output only, no paraphrasing
+- Before/after sha256 for every file touched
+- No other file/row deleted or overwritten without separate explicit approval (Data Immutability Rule)
+- "PASS" only if both items fully close with nothing outstanding — otherwise "partial"/"cleared to proceed"
+- Once both items close: write the permanent record file /docs/verification/evidence-chain-fix-2026-07-23-FINAL.md with full evidence trail, both final hashes, and the commit hash each change lands on — chat-only report does not count as done

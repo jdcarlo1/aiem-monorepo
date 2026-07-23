@@ -9,11 +9,11 @@
 ## Tool SHAs (canonical cross-check)
 
 ```
-verified_run.sh  : ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836
-verify_chain.sh  : aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40
+verified_run.sh  : 6305cde74d47a5a506f1a8c9fd3dcea780189cf6b344e4a8de6bdf825853f2a3  (rewrite 2026-07-23; prior ba6100ae retired)
+verify_chain.sh  : ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (SUMMARY line reverted 2026-07-23; prior aa618d45 retired)
 ```
 
-Both match the canonical SHAs documented in the scratchpad. No tampering detected.
+Updated 2026-07-23: verified_run.sh was deleted without authorisation at commit a603aa5 (2026-07-20) and rewritten fresh by directive. verify_chain.sh had an undirected SUMMARY print-line reverted. Both actions are documented in /docs/verification/evidence-chain-fix-2026-07-23-FINAL.md.
 
 ---
 
