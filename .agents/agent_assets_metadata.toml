@@ -918,3 +918,9 @@ id = "RAKOYHqKZzAITNsUWASZV"
 uri = "file://phase9-ind-verification.zip"
 type = "unspecified"
 title = "Phase 9 IND-001–030 — FINAL doc + sealed chain log"
+
+[[outputs]]
+id = "ZVhn2EG06DzalV6uWf8x4"
+uri = "file://docs/verification/phase10-opt-FINAL.md"
+type = "text"
+title = "Phase 10 — Options Pipeline Verification FINAL (OPT-001–035)"
