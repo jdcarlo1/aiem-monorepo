@@ -1,0 +1,60 @@
+# Phase 10 Item Specifications — OPT-001 through OPT-035
+(Missing from the kickoff directive — this supplies the actual item text. Standing checklist and the two call-outs in Directive_Phase10_Kickoff_2026-07-23.md still apply in full to every item below.)
+
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 10 OF 12
+SECTION 13: OPTIONS PIPELINE (OPT-001–035)
+============================================================
+
+OPT-001 Full options chain ingested automatically.
+OPT-002 Calls and puts validated.
+OPT-003 Expiration dates validated.
+OPT-004 Strike prices validated.
+OPT-005 Bid prices validated.
+OPT-006 Ask prices validated.
+OPT-007 Mid-price calculated.
+OPT-008 Volume validated.
+OPT-009 Open interest validated.
+OPT-010 Implied volatility validated.
+OPT-011 IV Rank calculated.
+OPT-012 IV Percentile calculated.
+OPT-013 Expected Move calculated.
+OPT-014 Delta calculated.
+OPT-015 Gamma calculated.
+OPT-016 Theta calculated.
+OPT-017 Vega calculated.
+OPT-018 Rho calculated.
+OPT-019 Charm calculated where supported.
+OPT-020 Vanna calculated where supported.
+OPT-021 Liquidity score calculated.
+OPT-022 Spread quality calculated.
+OPT-023 Fill probability estimated.
+OPT-024 Expected slippage estimated.
+OPT-025 Assignment risk estimated.
+OPT-026 Pin risk estimated.
+OPT-027 Strategy selection documented.
+OPT-028 Best strategy chosen from all eligible strategies.
+OPT-029 Rejected strategies documented.
+OPT-030 Expected value calculated.
+OPT-031 Capital efficiency calculated.
+OPT-032 Risk/reward calculated.
+OPT-033 Recommendation reproducible.
+OPT-034 Dashboard matches runtime.
+OPT-035 Independent verification passes.
+
+NOTE: this section is scoped to AIEM's own options intelligence path
+(Directive 14 native pattern engine / AIEM-only options pipeline), not
+the Standalone Options Engine — confirm scope before reusing any existing
+Options Engine (DPL, calibration-module) evidence here. This was already
+confirmed in your scope-confirmation pass — proceed on that basis; no
+need to redo it.
+
+PHASE 10 GATES PHASE 11.
+
+## Cross-system overlap — decision on your flagged items
+Your finding on oe_decision_audit (written by both systems) and
+oe_trade_records (FK to native alerts) is correct and stands. For any
+OPT item that would touch either table: treat existing DPL/calibration
+evidence as non-applicable by default; get item-specific confirmation
+before reusing it. Proceed with item work now — this is not a blocker,
+it's a standing constraint for the items that touch those two tables.
