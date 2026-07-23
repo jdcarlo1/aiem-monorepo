@@ -1,0 +1,28 @@
+# Directive — Phase 6 Gap B: Backfill Trigger Root Cause + Governance Record
+
+## Context
+verify_chain.sh confirmed deterministic (no bug). Snapshot backfill for alert_ids 21-25 confirmed real, unauthorized, no governance record. Two open items remain before Phase 6 can close.
+
+## Required
+
+**1. Identify the actual trigger for the 2026-07-22 write.**
+Two hypotheses were raised but neither confirmed:
+(a) pipeline re-run against 2026-07-17 alert data on 2026-07-22
+(b) snapshot INSERT code added post-07-17, then manually invoked against alerts 21-25
+Provide: deploy/commit history around 2026-07-22 touching aiem_options_pipeline.py, shell/session history if available, or any cron/job log showing what executed. State plainly if this cannot be determined from available logs — do not guess.
+
+**2. Formal governance record.**
+Log Joel's decision (Option A: approve backfill with scan_date=2026-07-16 caveat, or Option B: reject, mark alerts 21-25 UNVERIFIABLE, clear the 5 rows) to d3_governance_decisions. Do not proceed with either path until Joel confirms which option in this session.
+
+**3. Data Immutability Rule amendment — for the record, not agent action:**
+Rule now also covers backdated/retroactive INSERTs into any table documented as immutable/captured-at-decision-time, not just delete/truncate/drop/overwrite. Any future write to such a table with captured_at/created_at lag must be flagged before it happens, not discovered after.
+
+## Standing checklist (applies to every item above)
+- Raw terminal output only — no narrative claims of "confirmed"/"found" without pasted evidence
+- Raw grep/sed -n for any code or call-chain claim — no paraphrasing
+- sha256 cross-check: tools/verified_run.sh vs ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836; artifacts/stock-scanner-api/verify_chain.sh vs ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f — mismatch invalidates the run
+- No delete/truncate/drop/overwrite without Joel's explicit prior approval this session
+- verified_run.sh wrapper + verify_chain.sh output required before any item is claimed complete
+- "PASS" only if fully verified with nothing deferred — otherwise use "partial" / "closed via accepted-risk" / "cleared to proceed"
+- Once genuinely closed, commit permanent record to /docs/verification/phase6-gapB-backfill-FINAL.md citing commit hash
+- Lean output format: raw results only, no restated context/headers/tables
