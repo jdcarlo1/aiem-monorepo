@@ -1,0 +1,27 @@
+# Directive — Options Engine: Paper-Trade Execution + Net P&L Fix
+2026-07-22
+
+## Findings (this session)
+- oe_trade_records: 0 rows ever. No paper trade has ever been opened or closed by the Options Engine.
+- realized_pnl is GROSS: fees_est/slippage_est stored at insert but never deducted before realized_pnl is written (pnl_pct × entry_premium only).
+- Calibration module cannot be built until both are fixed — no exceptions.
+
+## Task 1 — Root-cause why no paper trade has ever opened/closed end-to-end
+- Trace the alert → oe_trade_records insert path. Identify every point that could silently prevent a trade from being written (gate check, exception swallow, condition never true, scheduler not firing, etc).
+- Do NOT assume the 16:46 ET grading job is the blocker — it only closes trades that were already opened. Find why none are ever opened.
+- Fix the root cause. Prove one full cycle: alert generated → oe_trade_records row inserted → exit_ts populated by the 16:46 job.
+
+## Task 2 — Fix realized_pnl to net-of-costs
+- Update the realized_pnl computation to deduct fees_est and slippage_est from pnl_abs before it is written to realized_pnl.
+- Do not touch historical rows unless Joel approves (data immutability rule — currently 0 rows, so likely moot, confirm row count first).
+
+## Required evidence (standard for this response)
+- Raw grep -n / sed -n output for every code-location or call-chain claim — no paraphrasing.
+- Exact before/after diff for every changed file.
+- sha256 before/after for every changed file.
+- Raw SQL + full result set for any DB claim (row counts, sample rows via \copy if >10 rows).
+- tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh sha256 cross-checked against current canonical values on file before verify_chain.sh output is accepted.
+- Data immutability rule applies: no delete/truncate/overwrite of any row/table/file without explicit prior approval this session.
+- "PASS" is reserved for fully verified, nothing-outstanding, nothing-deferred completion — anything short of that must be labeled "closed via accepted-risk," "cleared to proceed," or "partial," never "pass."
+- If a phase reaches real PASS/close, agent must commit a permanent phase report file to the repo (not just chat) documenting the verdict, evidence summary, and commit hash it verified against.
+- State explicitly if any item cannot be backed by real command output — no padding.

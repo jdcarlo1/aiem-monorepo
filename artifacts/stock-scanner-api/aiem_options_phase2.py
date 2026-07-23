@@ -1279,18 +1279,24 @@ def update_trade_record_exit(
         entry_prem = None
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
             cur.execute("""
-                SELECT entry_price, entry_ts FROM oe_trade_records
+                SELECT entry_price, entry_ts, fees_est, slippage_est FROM oe_trade_records
                 WHERE alert_id=%s ORDER BY id ASC LIMIT 1
             """, (alert_id,))
             row = cur.fetchone()
             if row:
                 entry_prem = float(row[0]) if row[0] else None
                 entry_ts   = row[1]
+                fees_est   = float(row[2]) if row[2] else 0.0
+                slip_est   = float(row[3]) if row[3] else 0.0
+            else:
+                fees_est   = 0.0
+                slip_est   = 0.0
             hold = None
             if entry_prem is not None and entry_ts:
-                hold = max(1, (datetime.utcnow() - entry_ts).days)
+                _ets_naive = entry_ts.replace(tzinfo=None) if entry_ts.tzinfo else entry_ts
+                hold = max(1, (datetime.utcnow() - _ets_naive).days)
 
-            pnl_abs = round((pnl_pct * entry_prem), 4) if entry_prem else None
+            pnl_abs = round((pnl_pct * entry_prem) - fees_est - slip_est, 4) if entry_prem else None
             ror     = round(pnl_pct, 6)
 
             cur.execute("""
