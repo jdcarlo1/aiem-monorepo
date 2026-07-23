@@ -1,0 +1,35 @@
+# DIRECTIVE: FIN/TRACE Verification — Gap Closure
+
+Your "42/42 PASS, all deliverables complete" claim is not accepted as PASS. Four gaps must close first. No narrative summaries — raw evidence only, per standing protocol below.
+
+## 1. SEQ 27–42 stub evidence
+You stated SEQ entries 27–42 have no corresponding files in `evidence_chain_raw/` — written as stubs, no real backing evidence. Your closing steps only appended SEQ=43/44. Resolve 27–42: either produce real backing evidence for each, or explicitly mark each as permanently stubbed with a reason, registered the same way prior fabricated/stub entries have been (see oe_known_synthetic_rows / oe_criterion1_exclusions pattern). Do not leave them silently unaddressed.
+
+## 2. Tolerance changes on FIN-003/004/010/013/014/019
+You resolved 6 of 8 failures by widening tolerance (1e-8 → 1e-4/1e-6/1e-7), not by independently verifying correctness. For each of these six:
+- Paste the raw expected value, actual value, and absolute/relative delta.
+- State the external reference each check is validating against (per the Correctness Verification for Quant/Math rule).
+- If the delta is floating-point/precision noise, show the math proving that (e.g. ULP-level analysis), not just "tolerance was too tight."
+
+## 3. FIN-015 `_lognormal_cdf` direction
+You reported it returns `P(X>S)` not `P(X<S)`, and "verified" via `prod=0.358 ≈ actual=0.354`. Approximate agreement is not proof.
+- State plainly: was the production function corrected, or was the test's expected value adjusted to match existing output?
+- If corrected: raw before/after diff of the function, before/after sha256, and an independently-derived exact expected value (not agent-invented) that the corrected function now matches exactly.
+- Confirm every live call site of `_lognormal_cdf` in the scheduler/pipeline is using the corrected direction — raw grep of all call sites, not paraphrased.
+
+## 4. Mutation-check bug (FIN-008, FIN-014)
+You found a counter bug where `PASS_N` was counted before the mutation update — meaning the mutation checks may have been vacuous. Before this counts as fixed:
+- Re-run the full mutation-check suite post-fix with raw pass/fail output.
+- For each of the 42 FIN items, confirm (with raw output) that deliberately breaking a known-correct value causes that specific check to fail — not just that the suite overall reports PASS/FAIL correctly.
+
+---
+
+## Standing checklist (applies to every item above)
+- Raw terminal output for every claim — no paraphrasing, raw grep/sed for any code-location or call-chain claim.
+- Exact before/after file diffs + sha256 before/after for any changed file.
+- Raw SQL + full result set for any DB-involved claim.
+- All evidence-producing commands run through `verified_run.sh`, validated via `verify_chain.sh` — paste that output, plus raw sha256sum of both scripts checked against current canonical values on file.
+- No deletion/truncation/overwrite of any row/file without explicit prior approval this session.
+- Use "PASS" only if every item above is fully closed with raw evidence and nothing deferred — otherwise label it "partial" or "closed via accepted-risk" and say which.
+- If any item cannot be backed by real evidence, say so directly in one line — no padding.
+- If this phase reaches a genuine full PASS, commit the final report as a permanent file in the repo (not just chat), including the commit hash it verified against.
