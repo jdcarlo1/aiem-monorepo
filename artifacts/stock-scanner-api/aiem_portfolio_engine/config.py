@@ -5,7 +5,7 @@ Edit ONLY here; import everywhere else.
 """
 import hashlib, json
 
-PE_GATING_ENABLED = False
+PE_GATING_ENABLED = True
 
 PORTFOLIO_CAPITAL        = 100_000.0
 CONTRACT_MULTIPLIER      = 100

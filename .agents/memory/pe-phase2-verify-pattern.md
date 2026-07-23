@@ -32,6 +32,14 @@ FD charm sign: `(delta_hi - delta_lo) / (2*dt) / 365` — positive, matching gre
 Vanna mutation: use TV3 (ITM, |d2|=0.69) not TV1 (ATM, d2≈0 → near-zero vanna → unmeasurable relative shift).
 
 ## PE Phase 2 final state
-177/177 PASS in portfolio_engine_verify.py; config_sha=1799776c18b69ae5a6a7a5471b76f7a72bbb01db790e67544d32cf434dd75758  
-4 ape_ tables confirmed live in DB (ape_gate_decisions has 6 rows from test runs).  
-PE_GATING_ENABLED=False (observe mode).
+177/177 PASS in portfolio_engine_verify.py; config_sha=a3cd9d610d824e0b635f4bcf9137187812e4d0770ec45de9d206dbeab92637b1  
+4 ape_ tables confirmed live in DB (ape_gate_decisions has 8 rows, all from observe-mode runs).  
+PE_GATING_ENABLED=True (enforcement mode — enabled 2026-07-23 per RISK-038).  
+**Why enforcement was off:** deliberate observe-mode during shadow period. Enabled after negative-control test proved REJECT→gate_passed()=False and APPROVE→True.
+
+## Phase 6 RISK-036–039 final verdicts
+RISK-036 (violations block recommendations): PASS — PE_GATING_ENABLED=True; REJECT→gate_passed()=False; strat_scheduler.py:445 branch blocks insert_paper_trade().  
+RISK-037 (gate before final decision): PASS — run_portfolio_gate() at strat_scheduler.py:432, insert_paper_trade() at :452.  
+RISK-038 (gate unbypassable): PASS — no config bypass active; REJECT→gate_passed()=False.  
+RISK-039 (blocked trades record exact rule): PASS — ConcentrationBreach.limit_name+details carry exact rule name and values.  
+NOT_IMPLEMENTED_V1: 9 items (intraday correlation, L2 depth, pending orders, realized intraday, etc.) — by design.

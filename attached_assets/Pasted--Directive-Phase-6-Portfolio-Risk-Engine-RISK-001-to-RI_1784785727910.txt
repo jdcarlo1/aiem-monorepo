@@ -1,0 +1,53 @@
+# Directive — Phase 6, Portfolio Risk Engine (RISK-001 to RISK-040)
+
+## Step 1 — Inventory before building anything
+Significant overlap likely exists with the D3 governance rollout
+(SHADOW / PAPER ENFORCEMENT / FULL ENFORCEMENT work) already done on this
+system. Before writing new code for any item:
+- Grep/search for existing risk-gate, portfolio-risk, or D3 enforcement
+  code that may already satisfy RISK-036 through RISK-039 specifically
+  (risk-limit violations blocking recommendations, Risk Gate executing
+  before final decision, unbypassable, blocked trades recording the exact
+  violated rule).
+- Report per item: ALREADY EXISTS (cite file/line) / PARTIALLY EXISTS /
+  DOES NOT EXIST — do not rebuild anything that already exists.
+
+## Step 2 — Verify what exists, with raw evidence
+For every item marked ALREADY EXISTS or PARTIALLY EXISTS:
+- Raw grep/sed showing the actual code
+- Raw SQL / runtime proof it behaves as claimed
+- For RISK-036 to RISK-039 specifically: negative control required —
+  attempt an actual trade that should be blocked by a real risk-limit
+  violation, and show it is genuinely blocked (not just described as
+  blocked). This is the highest-priority item in this phase — do not
+  under-evidence it.
+
+## Step 3 — Quant items (RISK-009 to RISK-030)
+Full quant-correctness rule applies:
+- State the formula/reference (e.g., standard options Greeks definitions,
+  stress-test methodology) before running any test
+- Independent known-answer test vectors, not agent-invented
+- Cross-check via a second method where feasible
+- Mutation check proving each test isn't vacuous
+- This includes portfolio-level Greeks (delta/gamma/theta/vega/rho, and
+  charm/vanna where supported), concentration calculations (ticker, sector,
+  industry, strategy-family, expiration, strike), and all 4 stress-test
+  categories (market-gap, vol-expansion, vol-collapse,
+  liquidity-deterioration)
+
+## Step 4 — Build only what's missing
+For items confirmed DOES NOT EXIST, build them — then verify with the same
+evidence bar as Step 2/3, not a lighter one just because it's new code.
+
+## Evidence bar (standard, full protocol)
+- Raw grep/sed/SQL output only, no paraphrasing
+- sha256 cross-check of verified_run.sh / verify_chain.sh vs canonical
+  before any evidence accepted
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row/table/file without Joel's explicit prior in-session approval
+- Every negative control must be run and its output pasted — a gate not
+  shown blocking under the failing condition is not verified
+- One verdict per item: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL
+- Phase does not close until every item has a verdict and every PASS has
+  raw evidence attached

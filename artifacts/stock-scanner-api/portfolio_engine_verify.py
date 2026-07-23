@@ -648,8 +648,8 @@ def test_s9_s11_s12():
     from aiem_portfolio_engine.gate import _evidence_hash, _GENESIS_HASH, PortfolioDecision
     from aiem_portfolio_engine.config import PE_GATING_ENABLED, pe_config_sha, NOT_IMPLEMENTED_V1
 
-    # P32: PE_GATING_ENABLED is False (observe mode)
-    _chk(PE_GATING_ENABLED is False, "P32: PE_GATING_ENABLED == False (observe mode)")
+    # P32: PE_GATING_ENABLED is True (enforcement mode — enabled 2026-07-23, RISK-038)
+    _chk(PE_GATING_ENABLED is True, "P32: PE_GATING_ENABLED == True (enforcement mode)")
 
     # P33: pe_config_sha() returns 64-char hex
     sha = pe_config_sha()
