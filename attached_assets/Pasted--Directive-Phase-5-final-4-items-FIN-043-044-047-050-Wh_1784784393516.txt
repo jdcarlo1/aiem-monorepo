@@ -1,0 +1,53 @@
+# Directive — Phase 5, final 4 items (FIN-043/044/047/050)
+
+## Why now
+Real data already exists for all four — no need to wait on new trade
+activity. Use what's already been found this session:
+- 11 real open positions (confirmed during FIN-048 investigation,
+  currently showing -$174.14 total unrealized P&L)
+- 5 real closed trades from 2026-07-20 (confirmed during FIN-045
+  investigation, clean exit_date data)
+
+## FIN-043 — Realized P&L reconciles with closed transactions
+- Take the 5 closed trades from 2026-07-20.
+- Raw SQL: pull each trade's entry price, exit price, quantity/contracts,
+  commissions if tracked.
+- Independently recompute realized P&L per trade by hand/formula.
+- Compare against whatever the system reports as realized P&L for those
+  same trades (dashboard, API, and underlying table — all three if they
+  differ).
+- Side-by-side raw numbers, not a description of whether they "should" match.
+
+## FIN-044 — Unrealized P&L reconciles with current market prices
+- Take the 11 open positions.
+- Raw SQL: pull each position's entry price, quantity/contracts, and the
+  current market price actually being used for MTM.
+- Independently recompute unrealized P&L per position.
+- Compare against the reported -$174.14 total and each position's
+  individual reported unrealized P&L.
+- Flag any position where the recomputation doesn't match, and why
+  (stale price, wrong multiplier, etc.).
+
+## FIN-047 — Open-position values reconcile with broker/paper-broker records
+- Same 11 open positions — compare the values held in the paper-trading
+  system's own records against whatever is treated as the "broker of
+  record" source (paper-broker table/ledger, if separate from the
+  positions table used above).
+- If there is no separate paper-broker source of truth, state that
+  explicitly — don't force a match against the same table used for FIN-044.
+
+## FIN-050 — Independent recomputation proves every material financial value
+- This is a rollup: cite the actual FIN-001 through FIN-049 items where an
+  independent recomputation was actually performed (not just a code-read)
+  and where the reconciliation held. List any material financial value that
+  was NOT independently recomputed anywhere in the phase, and record those
+  as the residual gap for this item — don't claim full coverage if gaps exist.
+
+## Evidence bar (standard, same as the whole phase)
+- Raw SQL output only, side by side with independent recomputation — no
+  paraphrasing, no "should match"
+- One verdict per item: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL
+- Append to evidence_chain.log, continuing the existing SEQ
+- If a genuine gap is found (not just a display bug like FIN-048), report
+  it plainly rather than closing it as PASS
