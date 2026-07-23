@@ -882,3 +882,9 @@ id = "TmF4oeXq4R7HfImeouCx7"
 uri = "file://docs/verification/phase7-probability-calibration-FINAL.md"
 type = "text"
 title = "Phase 7 Verification — CAL-001–030 (Probability Calibration)"
+
+[[outputs]]
+id = "zZJx2xt2yoidz4iec4LD3"
+uri = "file://docs/verification/phase7-probability-calibration-FINAL.txt"
+type = "text"
+title = "Phase 7 Verification — CAL-001–030 (download)"
