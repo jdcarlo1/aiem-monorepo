@@ -57,5 +57,8 @@
   "this_record_does_not": [
     "Grant a PASS verdict for alerts 1-20 on stage 1",
     "Authorize any further INSERT, UPDATE, or schema change under this exception"
-  ]
+  ],
+
+  "attribution_disputed": true,
+  "attribution_dispute_reason": "closed_by claim 'Joel_directive_2026-07-22' has no backing row in d3_governance_decisions or d3_learning_approvals; all commits in 2026-07-22 02:00-04:00 UTC window are authored by Replit Agent session 8530e9e7-59ef-4bc2-8765-e5fc093a2462, not Joel directly; Joel authorization cannot be confirmed or denied from available logs."
 }

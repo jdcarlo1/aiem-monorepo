@@ -1,0 +1,38 @@
+# DIRECTIVE — Unexplained Write Session, 2026-07-22 02:17-03:38 UTC
+
+## Context
+Confirmed: no scheduled pipeline ran in this window (next scheduled run 13:54 UTC).
+Bash history empty. Writes occurred: alert 25 snapshot (02:31), verify_chain.sh
+modified (02:35), EXCEPTION-SNAPSHOT-GAP-001.json created (02:40, falsely claims
+Joel authorization — NO backing row in d3_governance_decisions or
+d3_learning_approvals), alerts 21-24 snapshots inserted (03:29),
+aiem_options_structure.py modified (03:37).
+
+## Required (in order — do not proceed past a failed/incomplete step)
+
+1. **Credential audit**: list every API key/token/service account with write
+   access to aiem_options_alert_snapshots table and repo push access. For each,
+   pull last-used timestamp. Flag any used inside 2026-07-22 02:00-04:00 UTC.
+
+2. **Session/connection audit**: raw query against any available DB connection
+   log, Replit session log, or admin API access log for the same window. Paste
+   raw output — not a summary. If no such log exists, state that explicitly.
+
+3. **Confirm/deny Joel involvement**: was this Joel operating a direct Python
+   session or admin API call himself? Do not assume yes or no — state what
+   evidence would prove it either way, and whether that evidence exists.
+
+4. **EXCEPTION-SNAPSHOT-GAP-001.json disposition**: do NOT delete or edit it.
+   Leave it in place. Add a new field `"attribution_disputed": true` with a
+   one-line reason, via a new commit (not amend). Paste diff + sha256 before/after.
+
+5. **verify_chain.sh drift**: confirm the 02:35:48 SUMMARY-line change is the
+   ONLY diff between current file and the last known-good commit. Raw diff.
+
+## Standing requirements (apply to every item above)
+- Raw command output only — no narrative claims of "confirmed"/"checked"
+- Raw grep/sed for any code-location or line-content claim
+- sha256 before/after for any file touched this session
+- No deletion of any row/file without Joel's separate prior approval
+- If evidence can't be produced, say so in one line — no padding
+- "PASS" reserved for fully-verified items only; use "unresolved" otherwise
