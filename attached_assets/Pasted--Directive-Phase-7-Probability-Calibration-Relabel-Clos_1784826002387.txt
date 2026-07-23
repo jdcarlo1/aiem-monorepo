@@ -1,0 +1,24 @@
+# Directive — Phase 7 Probability Calibration: Relabel + Close Gaps
+
+## 1. Verdict correction (required before any permanent record file)
+"PASS WITH DISCLOSURES" is rejected. Per standing rule, PASS requires nothing outstanding. 5/30 PASS, 7/30 PARTIAL, 17/30 NOT_IMPLEMENTED, 1 NOT_APPLICABLE is not that.
+New label: **"PARTIAL — core metrics verified (Brier, reliability curves); calibration activation, storage design, and all downstream consumption unwired or unverified."**
+
+## 2. Post-seal FAIL (PSV8) must be resolved, not waved through
+"8 PASS / 1 FAIL, warning-only, chain sealed" is rejected as a category. Either fix the SUMMARY line format mismatch and reseal, or state explicitly why it's being accepted as risk (per standing PASS-reservation rule) — do not label it warning-only unilaterally.
+
+## 3. Root-cause items to fix or explicitly scope out (not silently defer)
+- CAL-006: `calibration_bucket_n` computed in dataclass but dropped in `schemas.py` `to_dict()` — never reaches DB. This is a bug (data computed then discarded), not a scope gap. Fix or state why not.
+- CAL-002/CAL-004: no dedicated `calibrated_prob_Nd` column — calibration would overwrite `prob_up_Nd` in place, losing raw-vs-calibrated comparison. `model_version` is a combined multi-artifact hash, not calibration-specific. State whether schema change is planned before calibration ever activates.
+- model_registry DB table: 0 entries — versioning is actually tracked in `tools/models/registry.json`, not the table that exists for this purpose. Explain or fix.
+- Recurring pattern across CAL-014/015/027/029/030: real calculation logic (`pit_metrics.py`, reconciliation, recomputation) exists but has zero scheduled/automated callers — manual-invocation-only. Treat as one root cause, not five separate gaps: state plan for wiring to a schedule/gate, or explicitly accept as future work.
+- date_utils.py docstring self-discloses `model_training.py`'s internal TimeSeriesSplit CV is still row-count-based, not date-count-based — real leakage vector, currently open. Confirm still open or fixed.
+- Embargo mechanism (`date_safe_walk_forward_splits`) has zero callers since `walk_forward.py` was deleted — dead code, not a mitigated risk. Confirm status.
+
+## 4. Standing checklist (required for this response)
+- Raw evidence only: terminal output, raw grep/sed for any code/location claim, before/after sha256 + diff for changed files, raw SQL + full result set for DB claims. No paraphrasing.
+- sha256 cross-check of tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical values on file.
+- Data Immutability Rule: no deletion/truncation/overwrite of any row/table/file without Joel's explicit prior approval this session.
+- Quant/math rule applies to any new or modified metric code: known-answer test vectors, formula stated before running, second-method cross-check, mutation test.
+- Lean format: command + raw output only, no narrative, no restated context.
+- Permanent record file only after all items above are closed or explicitly scoped out with Joel's sign-off — not before.

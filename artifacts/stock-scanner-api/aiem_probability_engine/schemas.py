@@ -54,6 +54,7 @@ class ProbabilityReport:
                     "n_training_samples": hp.n_training_samples,
                     "is_trustworthy": hp.is_trustworthy,
                     "model_type": hp.model_type,
+                    "calibration_bucket_n": hp.calibration_bucket_n,
                 }
                 for h, hp in self.horizons.items()
             },

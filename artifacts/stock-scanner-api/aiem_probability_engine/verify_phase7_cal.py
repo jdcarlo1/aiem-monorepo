@@ -285,6 +285,7 @@ import hashlib as _hl
 _excl_items = sorted(["CAL_PHASE7_NO_A8_EXCLUSIONS"])
 _excl_sha = _hl.sha256("|".join(_excl_items).encode()).hexdigest()
 print(f"A8_L1_META_EXCL_SHA256={_excl_sha}")
+print(f"SUMMARY: PASS={len(PASS_LIST)} FAIL={len(FAIL_LIST)} SKIP={len(SKIP_LIST)}")
 
 print()
 print("=" * 70)
