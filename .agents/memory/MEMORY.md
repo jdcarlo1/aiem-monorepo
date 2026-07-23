@@ -1,5 +1,6 @@
 - [Options Engine trade-record cycle bugs](oe-trade-record-cycle-bugs.md) — datetime naive/aware bug in update_trade_record_exit + _p2_ready silent suppression; both fixed; realized_pnl now net-of-costs
 - [PE chain wrapper](pe-chain-wrapper.md) — tools/verified_run_pe.sh (sha256=c295436d, 151L) wraps portfolio engine; tools/verified_run.sh stays DPL-only (ba6100ae); CANONICAL includes GIT_COMMIT+GIT_TREE; log=evidence_chain_pe.log
+- [lognormal_cdf survival fn](lognormal-cdf-survival-fn.md) — _lognormal_cdf returns P(X>S) not P(X<S) despite docstring; all callers are correct; never double-complement
 - [OSS write-once guard](options-oss-write-once.md) — options_structure_scan DO NOTHING; first write per (ticker,scan_date) permanent; corrections require explicit DELETE+re-insert
 - [Paper pick candidate gates](paper-pick-candidate-gates.md) — NO_CANDIDATES root causes: test positions filling cap, d3_strategy_registry missing sources, unusual_calls DISTINCT ON, polygon rvol threshold, PENDING dead-state in try_claim
 - [AIEM Dashboard Phase A Inventory](aiem-dashboard-phase-a.md) — 9 files at project root; 333 routes/580 tables/239 modules; 5 critical missing routes; oe_decision_audit (341 rows) has NO API route; polling sufficient for Phase B

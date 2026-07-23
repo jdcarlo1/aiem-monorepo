@@ -1,0 +1,64 @@
+PHASE 5 TRACE VERIFICATION — HASH CHAIN + IMMUTABILITY
+========================================================================
+verify_chain.sh sha256: aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40
+
+TRACE-051: input_hash/output_hash generated on all oe_decision_audit rows
+  Total rows: 345
+  Rows with NULL input_hash or output_hash: 0
+  Hash generation code: aiem_options_pipeline.py:35 _compute_stage_hash()
+    hashlib.sha256(raw).hexdigest() at line 46
+    10 stage hashes per alert (h1..h10) chained into aiem_options_alerts.stage_hashes
+  Sample: decision_id=7ed6e6fb9bb24fedb0b51114
+    input_hash=96b89095b750380a62eb3538128d36a4b7f33f05433e176ebe3301be08fbc27e
+    output_hash=c660a02d8ce5506a5043115346077ffa1dedc5cbc7ccd9620f6e32684fdadcb1
+  VERDICT: PASS — 345 rows, 0 with NULL hash fields
+
+TRACE-052: Chain continuity — parent_id → decision_id self-join
+  Rows with non-NULL parent_id: 2
+  Orphaned rows (parent_id not in decision_id set): 0
+  Confirmed linked chains:
+    child=c82932115f03431b8e41063b → parent=fd242a3895cb47b38bb25c3c
+    child=5b717f09c6d04f98badd960b → parent=a1906776b13c4898989ed843
+  VERDICT: PASS — 0 orphaned parent_id references across 345 rows
+
+TRACE-053: Immutability triggers block UPDATE/DELETE on production rows
+  Triggers on oe_decision_audit:
+    trg_oe_decision_audit_immutable → trg_fn_oe_decision_audit_immutable
+    trg_oe_dpl_immutable            → _oe_dpl_guard_immutability
+  UPDATE attempt on is_test_record=FALSE row (decision_id=84f58605c217435a90037f55):
+    ERROR: [DPL] oe_decision_audit production rows are immutable.
+           decision_id=84f58605c217435a90037f55 is_test_record=FALSE cannot be modified.
+  DELETE attempt on same row:
+    ERROR: oe_decision_audit is append-only: DELETE not permitted on production rows
+  VERDICT: PASS — both UPDATE and DELETE blocked by trigger on production rows
+
+TRACE-056 (NEG CTRL): INSERT missing required field — NOT NULL constraint
+  Attempt: INSERT with input_hash=NULL
+  ERROR: null value in column "input_hash" of relation "oe_decision_audit"
+         violates not-null constraint
+  VERDICT: PASS — NOT NULL constraint correctly blocks missing required field
+
+TRACE-057 (NEG CTRL): UPDATE core JSONB field on production row — trigger blocks
+  Attempt: UPDATE identity_json on is_test_record=FALSE row
+  ERROR: [DPL] oe_decision_audit production rows are immutable.
+         decision_id=84f58605c217435a90037f55 is_test_record=FALSE cannot be modified.
+  Confirms: identity_json (JSONB evidence field) is an immutable core field
+  Only verification_status is mutable on production rows
+  VERDICT: PASS — trigger blocks UPDATE of JSONB evidence field on production row
+
+TRACE-058 (NEG CTRL): Broken chain detection — corrupt parent_id attempt
+  Test setup:
+    INSERT parent test row: trace058_parent_d0e458780438 (is_test_record=TRUE)
+    INSERT child test row: trace058_child_1b7d5726533a (parent_id=trace058_parent_d0e458780438)
+  Corruption attempt: UPDATE child parent_id='CORRUPTED_FAKE_PARENT_000000000000'
+  ERROR: insert or update on table "oe_decision_audit" violates foreign key constraint
+         "oe_decision_audit_parent_id_fkey"
+  DETAIL: Key (parent_id)=(CORRUPTED_FAKE_PARENT_000000000000) is not present in table.
+  FK constraint prevents chain corruption at DB level (stronger protection)
+  Test rows deleted after test.
+  VERDICT: PASS — FK constraint prevents chain break (non-existent parent rejected)
+
+========================================================================
+TRACE SUMMARY: 6/6 PASS
+TRACE-051: PASS | TRACE-052: PASS | TRACE-053: PASS
+TRACE-056: PASS | TRACE-057: PASS | TRACE-058: PASS
