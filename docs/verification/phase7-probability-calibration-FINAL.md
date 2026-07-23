@@ -4,7 +4,7 @@
 **Date:** 2026-07-23  
 **Auditor:** AIEM Main Agent (build mode)  
 **SHA-256 cross-check:** verified_run.sh=6305cde74d47a5a506f1a8c9fd3dcea780189cf6b344e4a8de6bdf825853f2a3  
-**Evidence chain SEQ:** SEQ=88 (verified_run_chain.jsonl; entry_hash=8624a5ea4470f83ad1efb2b8dcae79f11595d2232b71bd20c6d944a964551074; archive_sha256=c49f44020f9d4d90bfe9433311b857127def4c327b4b0d537f9da1e49c23b50a; EXIT=0; TREE=DIRTY [verify_phase7_cal.py + verified_run_seq untracked/modified at seal time])  
+**Evidence chain SEQ:** SEQ=89 (verified_run_chain.jsonl; entry_hash=3599ab9ba87b9b437aca8bf5ede6b98539a2b1e52ba1e8b05d78a63fa915e213; archive_sha256=0a536e9e460e6189e78026f7df10c042b03e9aa4950b4aed82ddaf3b09ce5dc8; EXIT=0; post-seal 9/9 PASS including PSV8; both changed files committed in 6af30946f36de467f04a04b774c7ccad4ca3ca99)  
 **Prerequisites satisfied:** Phase 6 Gap B closed (2026-07-23), phase6-risk-engine-gating-FINAL.md updated  
 
 ---
@@ -180,20 +180,23 @@ calibration.py: metadata stored only in pkl artifact, not logged to DB
 ---
 
 ### CAL-006 — Calibration sample size is stored
-**Verdict: NOT_IMPLEMENTED**
+**Verdict: FIXED (2026-07-23)**
 
-`HorizonProbability.calibration_bucket_n` exists in the dataclass (predict.py:202-203)
-and is set to `art.get("n_test")` when source="calibrated" (else None). However, it is
-not serialized in `schemas.py`'s `to_dict()` → `_horizon_detail`, and `feature_snapshot_json`
-(which stores `_horizon_detail`) therefore does not carry it. Since source is always "raw",
-this field is always None and never written anywhere.
+`HorizonProbability.calibration_bucket_n` was computed in `predict.py` and stored in the
+dataclass but was silently dropped in `schemas.py`'s `to_dict()` → `_horizon_detail`.
+Fix: added `"calibration_bucket_n": hp.calibration_bucket_n` to `_horizon_detail` in
+`schemas.py`. Field now serializes into `feature_snapshot_json` and reaches the DB.
+
+Since source is always "raw" (calibration gate never passes), current DB rows have
+`calibration_bucket_n=None` — which is the correct truthful value.
 
 Raw evidence:
 ```
+schemas.py before sha256: 5f6feb9754d02250fa71a7039db001578bc3726136da17b4ac85804060791648
+schemas.py after sha256:  e77d653c764551ffda7a196510ad09eb5f70306ceda1cf5bb0a9bdcb3f423fc7
+diff: +                    "calibration_bucket_n": hp.calibration_bucket_n,
+committed in: 6af30946f36de467f04a04b774c7ccad4ca3ca99
 predict.py:202-203: calibration_bucket_n=art.get("n_test") if source=="calibrated" else None
-schemas.py to_dict() does not include calibration_bucket_n in _horizon_detail
-reports.py log_predictions(): feature_snapshot_json = json.dumps(d.get("_horizon_detail",{}))
-→ calibration_bucket_n never reaches DB
 ```
 
 ---
@@ -621,7 +624,7 @@ evaluation_metrics.py: single implementation of each metric
 | CAL-003 | Final trade probability stored | **PASS** |
 | CAL-004 | Calibration model version stored | PARTIAL |
 | CAL-005 | Calibration sample period stored | NOT_IMPLEMENTED |
-| CAL-006 | Calibration sample size stored | NOT_IMPLEMENTED |
+| CAL-006 | Calibration sample size stored | **FIXED** (2026-07-23) |
 | CAL-007 | Brier Score calculated | **PASS** (Quant-Correctness satisfied) |
 | CAL-008 | Log Loss calculated | NOT_IMPLEMENTED |
 | CAL-009 | Reliability curves calculated | **PASS** (Quant-Correctness satisfied) |
@@ -648,31 +651,42 @@ evaluation_metrics.py: single implementation of each metric
 | CAL-030 | Independent recomputation verifies metrics | NOT_IMPLEMENTED |
 
 **PASS:** 5 (CAL-003, CAL-007, CAL-009, CAL-022, CAL-026)  
+**FIXED:** 1 (CAL-006 — calibration_bucket_n now serialized in to_dict)  
 **PARTIAL:** 7 (CAL-001, CAL-004, CAL-014, CAL-016, CAL-017, CAL-024, CAL-025)  
-**NOT_IMPLEMENTED:** 17 (CAL-002, CAL-005–006, CAL-008, CAL-010–013, CAL-015, CAL-018–021, CAL-023, CAL-027, CAL-029–030)  
+**NOT_IMPLEMENTED:** 16 (CAL-002, CAL-005, CAL-008, CAL-010–013, CAL-015, CAL-018–021, CAL-023, CAL-027, CAL-029–030)  
 **NOT_APPLICABLE:** 1 (CAL-028)
 
 ---
 
 ## Overall Phase 7 Verdict
 
-**PASS WITH DISCLOSURES — DATASET IMMATURITY**
+**PARTIAL — core metrics verified (Brier, reliability curves); calibration activation, storage design, and all downstream consumption unwired or unverified.**
 
-The probability calibration system is architecturally correct for what it implements.
-The 5 PASS items and 7 PARTIAL items are real and honest. The 17 NOT_IMPLEMENTED items
-are overwhelmingly explained by a single root cause: the dataset has only **9 unique
-trade dates** (needs 20+ for calibration to activate, 200+ samples for model trust).
+The Brier score and reliability curve implementations are correct (Quant-Correctness Rule
+satisfied: 6/6 + 8/8 known-answer tests PASS). The confidence cap and threshold documentation
+are wired and functioning. These are the verified items.
 
-This is not a code bug — it is disclosed at every layer:
-- `config.py:33`: `MIN_UNIQUE_DATES_FOR_CV_TRUST = 20` with explicit DATA REALITY note
-- `predict.py:73-77`: inline disclosure that dataset is "date-count immature"
-- `date_utils.py:20-26`: explicit unfixed-gap documentation for internal CV
-- `walk_forward.py`: honest deletion notice (was never a required gate)
-- All 12 DB rows carry `warnings_json` with the confidence cap message
+Calibration activation itself has never fired (n_unique_dates=9 < gate=20), and the following
+structural items are unwired or unimplemented — explicitly tracked below as a punch-list.
 
-**Phase 8 gates:** Walk-forward, ECE/MCE, regime/ticker calibration, reconciliation,
-and independent recomputation are Phase 8 items contingent on dataset growth
-(target: ≥200 rows across ≥20 unique trade dates).
+---
+
+## Phase 7 Open Items Punch-List
+
+These 7 items are explicitly deferred, not overlooked. Each requires a dataset-growth gate
+(≥200 rows across ≥20 unique trade dates) unless noted otherwise.
+
+| # | Item | Status | Gate |
+|---|------|--------|------|
+| P7-01 | **CAL-002/004 schema gap** — no dedicated `calibrated_prob_Nd` or `raw_prob_Nd` column; calibration activation would overwrite `prob_up_Nd` in place, losing raw vs. calibrated comparison permanently. `model_version` is a combined artifact hash, not a calibration-specific version field. No DB table for model registry (file-based JSON only; `tools/models/` directory does not exist). | OPEN — pre-activation prerequisite | Schema change required BEFORE calibration gate can be allowed to pass. No dataset-size gate — this must be fixed before activation regardless of n. |
+| P7-02 | **TimeSeriesSplit gap** — `train.py` uses row-count-based `TimeSeriesSplit` CV (lines 7, 54). With 9-11 unique trade dates, CV folds can straddle a single date. Disclosed at runtime via train.py:54 CAVEAT print and documented in `date_utils.py:21-22`. Gap confirmed open; `model_training.py` referenced in docstrings is a stale filename — the actual file is `train.py`. | OPEN | Fix independently of dataset size — requires date-aware split in train.py's internal CV. |
+| P7-03 | **Embargo dead code** — `date_safe_walk_forward_splits(embargo_days=2)` in `date_utils.py` has zero production callers. Its sole prior consumer (`walk_forward.py`'s `run_walk_forward()`) was deleted 2026-07-11. `calibration.py` uses `date_safe_three_way_split()` (no embargo). Embargo logic is unreachable. | DEAD CODE — no active embargo in any training path | Reinstate or remove when walk-forward path is rebuilt (dataset gate: ≥20 unique dates). |
+| P7-04 | **CAL-014 — Out-of-sample accuracy not scheduled** — `pit_metrics.py` provides honest OOS metrics but is a manual developer tool with no scheduled caller in `daily_scheduler.py` or any other job. | OPEN | Dataset gate: ≥20 unique dates for meaningful OOS reporting. |
+| P7-05 | **CAL-015 — Walk-forward deleted** — `walk_forward.py` is a stub (16 lines, docstring only). `run_walk_forward()` deleted per Group A audit 2026-07-11. No expanding-window validation exists. | OPEN — requires rebuild | Dataset gate: ≥200 rows across ≥20 unique dates. |
+| P7-06 | **CAL-027 — Calibration failures do not block recommendations** — `_select_probability_source()` returns `source="raw"` on any calibration failure; the pick proceeds. No execution path blocks a recommendation based on calibration failure. | ACCEPTED BEHAVIOR at current dataset size | Revisit when calibration can meaningfully activate. |
+| P7-07 | **CAL-029/030 — No reconciliation or independent recomputation** — no endpoint or scheduled job reconciles API-served probabilities against stored outcomes. No independently-implemented metric function cross-checks primary calibration results. | OPEN | Dataset gate: ≥200 rows across ≥20 unique dates. |
+
+---
 
 **Quant-Correctness Rule:** Satisfied for all implemented statistical metrics.  
 CAL-007 (Brier): 6/6 PASS. CAL-009 (Reliability curves): 8/8 PASS.  
@@ -680,9 +694,10 @@ CAL-008 (Log Loss), CAL-010 (ECE), CAL-011 (MCE): NOT_IMPLEMENTED — no false t
 
 ---
 
-*Document written: 2026-07-23*  
-*Evidence chain entry: SEQ=88 | ts=2026-07-23T16:47:59Z | ts_end=2026-07-23T16:48:16Z | EXIT=0 | TREE=DIRTY*  
-*entry_hash=8624a5ea4470f83ad1efb2b8dcae79f11595d2232b71bd20c6d944a964551074*  
-*archive=tools/logs/verified_run_88.log | archive_sha256=c49f44020f9d4d90bfe9433311b857127def4c327b4b0d537f9da1e49c23b50a*  
-*post-seal: 8 PASS / 1 FAIL (PSV8 — SUMMARY line format mismatch; warning-only, chain sealed)*  
-*Verifier script: aiem_probability_engine/verify_phase7_cal.py | 26 PASS / 0 FAIL*
+*Document written: 2026-07-23 | Updated: 2026-07-23 (sign-off: Joel)*  
+*Evidence chain: SEQ=89 | ts=2026-07-23T17:02:53Z | ts_end=2026-07-23T17:03:09Z | EXIT=0 | TREE=DIRTY (schemas.py + verify_phase7_cal.py; both committed post-seal)*  
+*entry_hash=3599ab9ba87b9b437aca8bf5ede6b98539a2b1e52ba1e8b05d78a63fa915e213*  
+*archive=tools/logs/verified_run_89.log | archive_sha256=0a536e9e460e6189e78026f7df10c042b03e9aa4950b4aed82ddaf3b09ce5dc8*  
+*post-seal: 9/9 PASS (PSV8 fixed in this seal; SEQ=88 PSV8 failure superseded)*  
+*Verifier script: aiem_probability_engine/verify_phase7_cal.py | 26 PASS / 0 FAIL*  
+*Clean commit: 6af30946f36de467f04a04b774c7ccad4ca3ca99 (schemas.py +1, verify_phase7_cal.py +1)*
