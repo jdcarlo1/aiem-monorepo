@@ -870,3 +870,9 @@ id = "g8XbTpcoQ3n-ydfHGNVBt"
 uri = "file://options_engine.zip"
 type = "unspecified"
 title = "Options Engine — 10 source files"
+
+[[outputs]]
+id = "Xwo42FDbceV312dMXkSme"
+uri = "file://options_engine_all.txt"
+type = "text"
+title = "Options Engine — all 10 files (plain text)"
