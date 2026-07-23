@@ -1,0 +1,19 @@
+# Directive — Close PERF-034, 035, 036, 039 (NOT_IMPLEMENTED)
+
+Phase 8 result: PASS=37 / FAIL=0 / NOT_IMPLEMENTED=4. This directive closes the remaining 4.
+
+## Task
+1. State exactly which 4 columns are missing from `aiem_paper_trades` and which of PERF-034/035/036/039 needs each one.
+2. For each column: propose the addition (name, type, source of truth for backfill if any). Do NOT alter/add anything until this is stated and approved — Data Immutability Rule applies to schema changes too.
+3. After approval, implement, then verify each of the 4 items for real (no re-grep of existing PASS items).
+
+## Standing checklist (required on every item)
+- Raw terminal output only — no narrative. Raw grep/sed for any code-location or existence claim.
+- Raw SQL + full result set for any DB check (\copy attached if >10 rows — no inline "representative rows").
+- sha256 before/after for any file actually changed this session.
+- sha256 cross-check: `tools/verified_run.sh` vs canonical 58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5, `artifacts/stock-scanner-api/verify_chain.sh` vs canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f — mismatch = validator drifted, output rejected regardless of chain content.
+- All evidence-producing commands run through `verified_run.sh`; validate with `verify_chain.sh` before declaring done, paste that output.
+- Data Immutability Rule: no delete/truncate/overwrite of any row/table/file without Joel's explicit prior approval in this session, including "test" or "cleanup" labeled data.
+- "PASS" is reserved for full verification — anything with an unresolved item gets "partial" or "closed via accepted-risk," not "pass."
+- Once all 4 items reach real PASS/PARTIAL-accepted with nothing outstanding, write the final permanent record as a committed repo file (`/docs/verification/phase8-perf-FINAL.md` — update, don't duplicate) with the full evidence summary and commit hash it verified against.
+- If any claim can't be backed by real command output, state that in one line — no padding.
