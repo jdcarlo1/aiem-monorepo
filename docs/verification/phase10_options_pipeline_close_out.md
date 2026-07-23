@@ -23,6 +23,12 @@
 
 ---
 
+## Addendum — 2026-07-23 Follow-Up Directive (Items 1 and 2)
+
+*Commit cited for this addendum: 84c6aa17f3b347ab30197df0764e92f945a6acf2 (HEAD at time of writing).*
+
+---
+
 ## Root-Cause Diagnosis — 2026-07-23 Directive
 
 ### Item 1: OPT-030 — Expected Value (EV)
@@ -79,6 +85,50 @@ Return NO TRADE — neither the call nor the put meets minimum quality standards
 ```
 
 This is a **deliberate NO_TRADE gate rejection** (scoring gate 6), not a crash. The pipeline is operating correctly — market conditions since 2026-07-18 have produced no candidates that clear minimum quality thresholds. Because the pipeline exits at the NO_TRADE gate before reaching the EV block, the EV fix code has had no opportunity to write rows to `aiem_options_alerts`.
+
+**Exact defect before commit 5a7f1553 (raw diff):**
+
+```diff
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -1430,6 +1430,28 @@ def _execute_job(...):
+         }
++        # ── Lognormal expected-value via payoff.py (replaces hardcoded 0.60/0.85) ──
++        _call_expected_return = 0.60
++        _put_expected_return  = 0.85
++        try:
++            from aiem_strat_engine.payoff import expected_value as _pyoff_ev
++            _pf_prices    = [spot * (0.5 + 0.01 * i) for i in range(151)]
++            _call_payoffs = [max(0.0, p - call_strike) * 100 - call_mid * 100
++                             for p in _pf_prices]
++            _put_payoffs  = [max(0.0, put_strike - p)  * 100 - put_mid  * 100
++                             for p in _pf_prices]
++            _call_ev_raw = _pyoff_ev(_call_payoffs, _pf_prices, spot, front_iv,       _dte)
++            _put_ev_raw  = _pyoff_ev(_put_payoffs,  _pf_prices, spot, front_iv * 1.05, _dte)
++            if call_mid > 0:
++                _call_expected_return = round(
++                    max(-1.0, min(3.0, _call_ev_raw / (call_mid * 100))), 4)
++            if put_mid > 0:
++                _put_expected_return = round(
++                    max(-1.0, min(3.0, _put_ev_raw  / (put_mid  * 100))), 4)
++        except Exception as _ev_e:
++            log.debug(f"[EV] lognormal EV skipped, using heuristic fallback: {_ev_e}")
++
+         call_data = {
+             ...
+-            "expected_return":     0.60,
++            "expected_return":     _call_expected_return,
+             ...
+         }
+         put_data = {
+             ...
+-            "expected_return":     0.85,
++            "expected_return":     _put_expected_return,
+```
+
+**What the defect was:** Before this commit, `call_data["expected_return"]` was the literal `0.60` and `put_data["expected_return"]` was the literal `0.85` — hardcoded target-return heuristics, not computed values. `payoff.py`'s `expected_value()` function existed but was not called anywhere in the alert write path.
+
+**Is this the only change between the stale 0.85 rows (7/17) and now?** Yes. All 25 `aiem_options_alerts` rows have `created_at = 2026-07-17 14:17 UTC`. The EV fix is in commit `5a7f1553` at `2026-07-23 21:42 UTC`. No commit between those two dates touches the `expected_return` field in `aiem_options_scheduler.py`. The other files changed in `5a7f1553` are: `aiem_options_intel.py` (iv_percentile addition), `Dashboard.tsx` (new file), `main.py` (reconcile endpoint), and verifier updates — none touch the alert write path.
 
 **Conclusion for OPT-030:** The lognormal EV code is confirmed working (no exception, produces non-constant distinct values per ticker). The 0.8500 in production is from the pre-fix 2026-07-17 run. The fallback is NOT active in current code. OPT-030 cannot be confirmed PASS from DB data until the next DONE pipeline run.
 
@@ -149,6 +199,80 @@ The five Group 4 checks remain PARTIAL because **no real production rows exist i
 
 ---
 
+### Item 2 (Follow-Up Directive): R8 Gate — Cost_frac Sanity Check
+
+**Question:** Are cost_frac values of 706–1852× normal for current market conditions, or is the gate miscalibrated?
+
+**R8 source code (aiem_execution_intelligence.py lines 524–535, 772–774):**
+
+```python
+# Line 524 — cost computation
+gross_edge = abs(strategy.get("ev_after_costs") or 0.0)
+cost_pct   = (total / gross_edge) if gross_edge > 0.01 else 1.0
+return { ..., "cost_as_pct_of_gross": round(cost_pct, 4), ... }
+
+# Line 772 — R8 gate
+cost_frac = exec_costs.get("cost_as_pct_of_gross", 1.0)
+if cost_frac > EI_MAX_TRANSACTION_COST_FRAC:   # threshold = 0.3
+    return False, (f"R8_costs_eliminate_edge: cost_frac={cost_frac:.3f} > 0.3 ...")
+```
+
+**Formula: `cost_frac = total_transaction_cost / |ev_after_costs|`**
+
+**Formula derivation — confirmed against all three rows in DB with cost_frac values:**
+
+```
+Row: TER_DIAG/LONG_CALL
+  reported cost_frac        = 1852.191
+  total_transaction_cost    = 312.8350
+  gross_expected_edge       = -0.1689  (what R8 uses as denominator)
+  H1: 312.835 / 0.1689      = 1852.19  ← EXACT MATCH
+
+Row: TER_DIAG/LONG_PUT
+  reported cost_frac        = 706.348
+  total_transaction_cost    = 398.8750
+  gross_expected_edge       = -0.5647
+  H1: 398.875 / 0.5647      = 706.35   ← EXACT MATCH
+
+Row: E2E/TEST (old EI path)
+  reported cost_frac        = 0.556
+  total_transaction_cost    = 19.4450
+  gross_expected_edge       = 35.0000  (edge in dollars from old EI path)
+  H1: 19.445 / 35.0         = 0.5556   ← EXACT MATCH
+```
+
+**Verdict: units mismatch — not market conditions.**
+
+The R8 gate's formula `cost_frac = total_cost / |ev_after_costs|` expects `ev_after_costs` in **dollars**. In the old EI path (E2E test rows), `ev_after_costs = 35.0` means "$35 of gross expected edge." In the EI-post4 synthetic path, `ev_after_costs = float(_call_expected_return) = -0.1689` — a **dimensionless ratio** (EV per dollar of premium). The gate divides $312.84 by 0.1689, yielding 1852 — the unit is "dollars per ratio unit," which has no financial meaning and is structurally guaranteed to far exceed the 0.3 threshold.
+
+The 700–1852× values are not a sign of adverse market conditions. They are a category error: the denominator has the wrong units for every EI-post4 row.
+
+**Corrected cost_frac with consistent units (ev_after_costs converted to dollars = ratio × premium × 100):**
+
+```
+TER_DIAG LONG_CALL:
+  ev_dollars = |(-0.1689)| × 24.95 × 100 = 421.41
+  cost_frac  = 312.835 / 421.41 = 0.742   → still R8-rejected (> 0.3)
+
+TER_DIAG LONG_PUT:
+  ev_dollars = |(-0.5647)| × 53.03 × 100 = 2994.60
+  cost_frac  = 398.875 / 2994.60 = 0.133  → would PASS R8 (< 0.3)
+```
+
+**Relationship to the NO_TRADE streak:**
+
+The `options_pipeline_jobs` FAILED rows ("BOTH DIRECTIONS REJECTED by hard gates") are produced by the REQ6 **scoring gate**, which fires upstream of EI assessment and is independent of R8. For the real production runs (DG, UPS, HUM, etc. since 7/18), the pipeline exits at REQ6 before writing any rows to `aiem_execution_assessments`. The R8 units mismatch affects the EI-post4 path only; since real production runs never reach the EI-post4 block (they exit at REQ6 first), the units mismatch is not the cause of the NO_TRADE streak.
+
+**Effect on Group 4 when pipeline resumes DONE jobs:**
+
+When market conditions eventually produce a DONE job, the pipeline will reach EI. With the current EI-post4 code:
+- Call side: corrected cost_frac ≈ 0.742 → still R8-rejected → `approved=False`, but all five Group 4 fields computed and stored
+- Put side: corrected cost_frac ≈ 0.133 → would pass R8 with correct units, but with current units (÷ ratio instead of ÷ dollars) → cost_frac=706 → R8-rejected
+
+The units mismatch is a defect in the EI-post4 path's `ev_after_costs` argument, not in the R8 gate threshold or formula. The gate threshold (0.3) and formula are correct when the input has the right units.
+
+---
+
 ### Pipeline Status Summary
 
 Raw SQL:
@@ -193,7 +317,7 @@ Closeable via accepted-risk with the following documented basis:**
 
 1. **OPT-030 (EV):** The lognormal EV code is confirmed working by direct diagnostic. The `log.error` elevation produced no exception. The production 0.8500 values are fully explained by timing (pre-fix DONE run on 2026-07-17; fix committed 2026-07-23). The code at commit `84c6aa17` produces `_call_er=-0.1689` / `_put_er=-0.5647` for TER — confirming the fallback is not active. Production PASS requires one DONE pipeline job post-commit `5a7f1553`.
 
-2. **Group 4 (OPT-021/023/024/025/026):** The EI-post4 code path is confirmed working by direct diagnostic (trace=DIAG_8d788868). All five fields — liquidity_score, fill_probability, expected_slippage_pct, early_assignment_risk, pin_risk_flag — are genuinely computed (not EI_EXCEPTION fallbacks) when the EI-post4 synthetic path is exercised. The absence of real production rows in aiem_execution_assessments is a consequence of the pipeline's sustained NO_TRADE scoring-gate mode since 2026-07-18, which is a market-conditions issue separate from the verification items. Production PASS requires a DONE job that clears scoring gate 6.
+2. **Group 4 (OPT-021/023/024/025/026):** The EI-post4 code path is confirmed working by direct diagnostic (trace=DIAG_8d788868). All five fields — liquidity_score, fill_probability, expected_slippage_pct, early_assignment_risk, pin_risk_flag — are genuinely computed (not EI_EXCEPTION fallbacks) when the EI-post4 synthetic path is exercised. The absence of real production rows in aiem_execution_assessments is a consequence of the pipeline's sustained NO_TRADE scoring-gate mode since 2026-07-18 (REQ6 gate, upstream of EI). Production PASS requires a DONE job that clears scoring gate 6. **Additional finding (follow-up directive):** the EI-post4 path has a units mismatch in `ev_after_costs` (passes a dimensionless ratio where R8 expects dollars), making R8 structurally always-reject for real tickers with lognormal EV ratios. This is a known defect in the EI-post4 implementation, not in the gate threshold. With corrected units, the put side would pass R8 (corrected cost_frac=0.133 < 0.3) while the call side would remain rejected (0.742 > 0.3). This does not change the PARTIAL verdict for Group 4 but narrows the production-PASS trigger: even after REQ6 resumes DONE jobs, OPT-021/023/024/025/026 will only be promotable to PASS once the EI-post4 `ev_after_costs` units are corrected.
 
 3. **NOT_IMPLEMENTED (OPT-031 capital efficiency):** Accepted per 2026-07-23 directive. oe_trade_records has capital_reserved/bp_effect/return_on_risk; no per-alert capital_efficiency ratio is computed in the native pipeline.
 
@@ -223,4 +347,6 @@ Post-seal chain integrity confirmed (9/9 PASS): archive exists, SHA 3-way bindin
 ---
 
 *Written: 2026-07-23. Commit: 84c6aa17f3b347ab30197df0764e92f945a6acf2.*
-*Next action: re-evaluate OPT-030 and Group 4 on first DONE pipeline run after 2026-07-23.*
+*Addendum: 2026-07-23 follow-up directive — EV diff and R8 units mismatch documented above.*
+*Next action: re-evaluate OPT-030 after first DONE pipeline run post-commit 5a7f1553.*
+*Next action for Group 4: fix EI-post4 ev_after_costs units (ratio → dollars) AND wait for DONE job clearing REQ6.*
