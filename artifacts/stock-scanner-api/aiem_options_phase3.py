@@ -903,14 +903,30 @@ def _compute_ic_attribution(rows: List[dict], indicator_id: str) -> dict:
     rho, p_val = _spearman_rank_correlation(xs, ys)
 
     # Calibration: average predicted probability (selected_score/100) vs actual WR
+    # Guard (2026-07-23): if selected_score is raw (not 0-100 normalized), dividing
+    # by 100 produces probabilities >>1.0 that min() silently clamps to 1.0, making
+    # the Brier score meaningless. Fail loudly instead.
     prob_rows = [r for r in irows if r.get("selected_score") is not None]
     calibration_error = None
     if len(prob_rows) >= 10:
-        probs    = [min(1.0, max(0.0, float(r["selected_score"]) / 100.0)) for r in prob_rows]
-        outcomes = [int(r["outcome_bin"]) for r in prob_rows]
-        bs       = _brier_score(probs, outcomes)
-        # Calibration error: |mean(predicted prob) - actual WR|
-        calibration_error = round(abs(sum(probs)/len(probs) - sum(outcomes)/len(outcomes)), 4)
+        _bad_sc = [float(r["selected_score"]) for r in prob_rows
+                   if float(r["selected_score"]) > 100.0 or float(r["selected_score"]) < 0.0]
+        if _bad_sc:
+            print(
+                f"[BRIER_GUARD] WARN: selected_score out of [0,100] — "
+                f"{len(_bad_sc)}/{len(prob_rows)} values out of range "
+                f"(max={max(_bad_sc):.2f}, min={min(_bad_sc):.2f}). "
+                f"oe_trade_records.entry_score may not be 0-100 normalized. "
+                f"Brier/calibration suppressed — would produce clamped-to-1.0 probabilities.",
+                flush=True
+            )
+            bs = None
+        else:
+            probs    = [float(r["selected_score"]) / 100.0 for r in prob_rows]
+            outcomes = [int(r["outcome_bin"]) for r in prob_rows]
+            bs       = _brier_score(probs, outcomes)
+            # Calibration error: |mean(predicted prob) - actual WR|
+            calibration_error = round(abs(sum(probs)/len(probs) - sum(outcomes)/len(outcomes)), 4)
     else:
         bs = None
 
@@ -1353,13 +1369,28 @@ def _compute_scorecard_metrics(trade_rows: List[dict]) -> dict:
     avg_hold = sum(hld_vals) / len(hld_vals) if hld_vals else None
 
     # Calibration: Brier score using selected_score/100 as predicted probability
+    # Guard (2026-07-23): if selected_score is raw (not 0-100 normalized), dividing
+    # by 100 produces probabilities >>1.0 that min() silently clamps to 1.0, making
+    # the Brier score meaningless. Fail loudly instead.
     score_rows = [r for r in trade_rows
                   if r.get("selected_score") is not None and r.get("pnl_pct") is not None]
     brier = None
     if len(score_rows) >= 5:
-        probs    = [min(1.0, max(0.0, float(r["selected_score"]) / 100.0)) for r in score_rows]
-        outcomes = [1 if float(r["pnl_pct"]) > 0 else 0 for r in score_rows]
-        brier    = round(_brier_score(probs, outcomes), 4)
+        _bad_sc2 = [float(r["selected_score"]) for r in score_rows
+                    if float(r["selected_score"]) > 100.0 or float(r["selected_score"]) < 0.0]
+        if _bad_sc2:
+            print(
+                f"[BRIER_GUARD] WARN: selected_score out of [0,100] in scorecard — "
+                f"{len(_bad_sc2)}/{len(score_rows)} out of range "
+                f"(max={max(_bad_sc2):.2f}). "
+                f"oe_trade_records.entry_score may not be 0-100 normalized. "
+                f"Brier score suppressed — would produce clamped-to-1.0 probabilities.",
+                flush=True
+            )
+        else:
+            probs    = [float(r["selected_score"]) / 100.0 for r in score_rows]
+            outcomes = [1 if float(r["pnl_pct"]) > 0 else 0 for r in score_rows]
+            brier    = round(_brier_score(probs, outcomes), 4)
 
     return {
         "observation_count":  n,

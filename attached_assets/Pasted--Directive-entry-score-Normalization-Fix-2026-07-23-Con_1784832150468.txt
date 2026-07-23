@@ -1,0 +1,26 @@
+# Directive — entry_score Normalization Fix (2026-07-23)
+
+## Confirmed findings (prior directive, closed)
+- Consumer A (`paper_performance.py:322-333`, PERF-038 banding): fixed 0/20/40/60/80/100 thresholds applied to raw entry_score (52.58-8836.3 observed) — 8/9 trades collapse into ">=80", other bands empty. ACTIVE BUG.
+- Consumer C (`aiem_options_phase3.py:1355-1362, 905-909, 1426`): Brier score divides selected_score/100 assuming 0-100 scale, reading oe_trade_records.entry_score. Only 2 test rows exist there — LATENT BUG, will corrupt Brier score once real options rows land (scores >100 all clamp to probability 1.0).
+- Consumer B (`main.py:7349-7366`) and D (`verify_phase8_perf.py`) confirmed correctly written (raw, no scale assumption) — no fix needed.
+
+## Required fixes
+
+### Fix 1 — PERF-038 banding (paper_performance.py)
+Replace fixed 0/20/40/60/80/100 thresholds with one of:
+(a) percentile-based bands computed from the actual entry_score distribution at query time, or
+(b) empirically-derived fixed thresholds based on real historical entry_score range (state which raw range was used and why)
+Agent's choice — state reasoning. Must not silently keep assuming 0-100.
+
+### Fix 2 — Brier score guard (aiem_options_phase3.py:905-909, 1355-1362)
+Before dividing selected_score/100: add a loud assertion/log that fires if any selected_score in the batch exceeds 100 (or is negative), rather than silently clamping via min(1.0, max(0.0, ...)). If oe_trade_records.entry_score turns out to be raw (not 0-100), this must fail loudly, not produce a meaningless clamped-to-1.0 Brier score.
+Do NOT change the write path for oe_trade_records unless directed — this is a read-side guard.
+
+## Standing checklist (all items apply)
+- Raw before/after diff + sha256 for both changed files
+- Raw execution output showing: (1) PERF-038 banding rerun against the same 9 live trades, new band distribution pasted; (2) Brier guard negative-control test — feed a synthetic score >100 and confirm it fails loudly, not silently clamped
+- sha256 cross-check of tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh vs canonical
+- Data Immutability Rule: no deletes/mutations to oe_trade_records or aiem_paper_trades
+- No hardcoded "expected" band values — agent must show the actual computed distribution
+- Permanent record file only if both fixes fully close this session — otherwise note what's still open

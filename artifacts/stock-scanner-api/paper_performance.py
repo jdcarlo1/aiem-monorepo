@@ -318,25 +318,50 @@ def compute_paper_performance(db_url: str, window_days: int = None) -> dict:
                     'win_rate': round(sum(1 for p in ps if p > 0)/len(ps)*100, 1),
                 }
 
-        # ── PERF-038 by confidence band (entry_score) ─────────────────────────
+        # ── PERF-038 by confidence band (entry_score, percentile-based) ──────
+        # entry_score is RAW (not 0-100 normalized). Fixed 0/20/40/60/80/100
+        # thresholds removed 2026-07-23 — they collapsed 8/9 trades into ">=80".
+        # Bands are now quintile percentiles (P0-P20 … P80-P100) computed from
+        # the actual score distribution at query time. Labels include the real
+        # threshold values so callers can interpret them without knowing the scale.
         scored = [(float(c['entry_score']), float(c['pnl']))
                   for c in closed if c['entry_score'] is not None]
         by_confidence = {}
-        if scored:
-            bands = [
-                ('0–20', 0, 20), ('20–40', 20, 40), ('40–60', 40, 60),
-                ('60–80', 60, 80), ('80–100', 80, 100),
+        by_confidence_note = (
+            "Bands are percentile-based (P0-P20/P20-P40/P40-P60/P60-P80/P80-P100) "
+            "computed from the actual entry_score distribution at query time. "
+            "entry_score is raw (not 0-100 normalized); fixed thresholds removed 2026-07-23."
+        )
+        if len(scored) >= 2:
+            _scores_only = [s for s, _ in scored]
+            _pct_cuts = [float(np.percentile(_scores_only, p)) for p in (0, 20, 40, 60, 80, 100)]
+            _band_defs = [
+                (f"P0–P20 ({_pct_cuts[0]:.1f}–{_pct_cuts[1]:.1f})",   _pct_cuts[0], _pct_cuts[1], False),
+                (f"P20–P40 ({_pct_cuts[1]:.1f}–{_pct_cuts[2]:.1f})",  _pct_cuts[1], _pct_cuts[2], False),
+                (f"P40–P60 ({_pct_cuts[2]:.1f}–{_pct_cuts[3]:.1f})",  _pct_cuts[2], _pct_cuts[3], False),
+                (f"P60–P80 ({_pct_cuts[3]:.1f}–{_pct_cuts[4]:.1f})",  _pct_cuts[3], _pct_cuts[4], False),
+                (f"P80–P100 ({_pct_cuts[4]:.1f}–{_pct_cuts[5]:.1f})", _pct_cuts[4], _pct_cuts[5], True),
             ]
-            for label, lo, hi in bands:
-                subset = [p for s, p in scored if lo <= s < hi]
-                if lo == 80:
-                    subset = [p for s, p in scored if s >= 80]
-                if subset:
-                    by_confidence[label] = {
-                        'n': len(subset),
-                        'net_pnl': round(sum(subset), 4),
-                        'win_rate': round(sum(1 for p in subset if p > 0)/len(subset)*100, 1),
+            for _lbl, _lo, _hi, _last in _band_defs:
+                if _last:
+                    _subset = [p for s, p in scored if s >= _lo]
+                else:
+                    _subset = [p for s, p in scored if _lo <= s < _hi]
+                if _subset:
+                    by_confidence[_lbl] = {
+                        'n': len(_subset),
+                        'net_pnl': round(sum(_subset), 4),
+                        'win_rate': round(sum(1 for p in _subset if p > 0) / len(_subset) * 100, 1),
+                        'threshold_lo': round(_lo, 4),
+                        'threshold_hi': round(_hi, 4),
                     }
+        elif len(scored) == 1:
+            _s, _p = scored[0]
+            by_confidence[f"P0–P100 ({_s:.1f})"] = {
+                'n': 1, 'net_pnl': round(_p, 4),
+                'win_rate': 100.0 if _p > 0 else 0.0,
+                'threshold_lo': round(_s, 4), 'threshold_hi': round(_s, 4),
+            }
 
         # ── PERF-039 by probability band — NOT stored ─────────────────────────
         by_prob_band = None
@@ -422,6 +447,7 @@ def compute_paper_performance(db_url: str, window_days: int = None) -> dict:
         "by_sector_note":           by_sector_note,
         "by_holding_period":        by_holding_period,
         "by_confidence_band":       by_confidence,
+        "by_confidence_band_note":  by_confidence_note,
         "by_prob_band":             by_prob_band,
         "by_prob_band_note":        by_prob_band_note,
     }
