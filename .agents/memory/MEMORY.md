@@ -1,9 +1,9 @@
 - [Options Engine trade-record cycle bugs](oe-trade-record-cycle-bugs.md) — datetime naive/aware bug in update_trade_record_exit + _p2_ready silent suppression; both fixed; realized_pnl now net-of-costs
-- [PE chain wrapper](pe-chain-wrapper.md) — tools/verified_run_pe.sh (sha256=c295436d, 151L) wraps portfolio engine; tools/verified_run.sh is DPL-only (rewritten 2026-07-23, new canonical=6305cde); CANONICAL includes GIT_COMMIT+GIT_TREE; log=evidence_chain_pe.log
-- [lognormal_cdf survival fn](lognormal-cdf-survival-fn.md) — _lognormal_cdf returns P(X>S) not P(X<S) despite docstring; all callers are correct; never double-complement
+- [PE chain wrapper](pe-chain-wrapper.md) — tools/verified_run_pe.sh wraps portfolio engine; tools/verified_run.sh canonical sha256=58534be5 (fixed pipefail grep bug 2026-07-23); CANONICAL includes GIT_COMMIT+GIT_TREE; log=evidence_chain_pe.log
 - [OSS write-once guard](options-oss-write-once.md) — options_structure_scan DO NOTHING; first write per (ticker,scan_date) permanent; corrections require explicit DELETE+re-insert
 - [Paper pick candidate gates](paper-pick-candidate-gates.md) — NO_CANDIDATES root causes: test positions filling cap, d3_strategy_registry missing sources, unusual_calls DISTINCT ON, polygon rvol threshold, PENDING dead-state in try_claim
 - [AIEM Dashboard Phase A Inventory](aiem-dashboard-phase-a.md) — 9 files at project root; 333 routes/580 tables/239 modules; 5 critical missing routes; oe_decision_audit (341 rows) has NO API route; polling sufficient for Phase B
+- [Phase 8 Performance Analytics](phase8-perf-analytics.md) — SEQ=93 sealed PASS=37/FAIL=0/NI=4; paper_performance.py engine; 5 analytic test vectors; NI=PERF-034/035/036/039 (missing cols); verified_run.sh sha256=58534be5
 - [Phase 4 OPP/TRACE verification](phase4-opp-trace-verification.md) — SEQ=92 sealed PASS=53/FAIL=0/PENDING=6/INV=54; 2 real gaps found+closed; PENDING=6 conditional on qualifying trade execution; INV=54 all share oe_strategy_candidates=0 root cause
 - [Options scheduler fire freeze](options-scheduler-fire-freeze.md) — FREEZE LIFTED (post 09:45 ET 2026-07-22); raw evidence required before any commentary; next fire tomorrow 09:40/09:45 ET
 - [DPL Phase 3 — Reproducibility Replay](options-dpl-phase3.md) — D17-R1 DONE; SEQ=56: 195P/8F; freeze baseline restored; C44_legacy_entry_documented in _A8_L1_META_EXCL (SEQ=52+53 only); 8 FAILs=known blockers
@@ -15,21 +15,13 @@
 - [Standing verification protocol](standing-verification-protocol.md) — 5 permanent rules; Rule 5 (raw grep/sed for code-location claims) added 2026-07-17; narrative/described snippets rejected outright
 - [bash set-e/set-u verifier gotchas](bash-setu-dollar-in-python-block.md) — two pitfalls: $N in python3 -c "..." trips set -u silently; ((N++)) when N=0 is falsy and kills set -e scripts; use N=$((N+1))
 - [ASE verifier self-write bug](ase-verifier-self-write-bug.md) — verifiers that write their own stdout to evidence_chain.log inflate line count inside verified_run.sh's flock, corrupting SEQ; fix: verifiers must print to stdout only
-- [Options pipeline CronTrigger UTC bug](options-crontrigger-utc-bug.md) — BackgroundScheduler(timezone=_ET) does NOT propagate to CronTrigger(); each trigger needs its own timezone=_ET or it defaults UTC (jobs fired 4h early); fixed 2026-07-20
 - [Options pipeline post-weekend failure](options-pipeline-monday-failure.md) — two bugs: 48h stale threshold (fix→96h Mon/Tue) + OSS_GEX_REGIME raw=None forces MISSING (fix→numeric proxy); snap_indicator overrides quality to MISSING when raw=None unless ERROR/STALE
 - [Options pipeline external failover](options-pipeline-external-failover.md) — backup runner + every-minute GH Actions watchdog; advisory lock 9400945; daily_pipeline_runs table; 4 checkpoints; watchdog never executes trades; 5 GH secrets required
-- [Directive 14 Tier-1 wiring](d14-tier1-wiring.md) — GARCH/VPIN/Hurst were ALL inert before D14; root cause + exact fix in topic; live-confirmation log tag: [D14_BULL_BEAR]
 - [Paper trade recovery system](paper-trade-recovery-system.md) — exactly-once ledger, 3-step try_claim (stale CLAIMED+EXECUTING), >=1 dup gate, external watchdog in aiem-telegram, globals() forward-ref fix; live-proven July 15 2026
-- [Unusual Puts + Bear Flow wiring](unusual-puts-bearflow-wiring.md) — _os not global in main.py (import locally); polygon_rvol_scan uses price/close_strength not close_price/pct_change; routes must precede _MODULE_FULLY_LOADED
-- [Stat runner full indicator suite](stat-runner-indicator-suite.md) — 232 cells/464 tests; 4 named windows (w/w14/w20/w50); 3 CTEs (spy/vix/breadth); BB, SMA20/50, Williams%R, VIX proxy, A/D breadth added July 2026
-- [Probability Engine polygon fallback](probability-engine-polygon-fallback.md) — ai_short_calls_log has 0 rows total; live_query.py polygon fallback wired for stage 13; all options features imputed; scan_date is polygon_market_daily's date col
-- [mkt backfill blocking module load](mkt-backfill-blocking-load.md) — _mkt_backfill_indicators_all() was inline at module level → 4-min load block; moved to daemon thread; _MODULE_FULLY_LOADED gate pattern for startup_catchup + admin endpoints
 - [Telegram tab alert architecture](telegram-tab-alerts.md) — 18 tab briefs in aiem_telegram_notifier.py; AIEM scans Polygon directly (grouped daily + top-400 options chains); DB-first fallback pattern; all 26 jobs confirmed live
 - [D12b workflow-only lesson](d12b-workflow-lesson.md) — setsid/nohup die on bash exit; configureWorkflow() is the only durable Replit background process mechanism
-- [Schema drift remediation July 2026](schema-drift-remediation.md) — dev/prod reconciliation complete; 0 destructive items; migration tracking in migrations/applied/; remaining 7 items are all safe additive adds
 - [Deploy health-check boot order](deploy-health-boot-order.md) — make_server() before heavy imports; aiem-process health server before slow imports + 100s prod stagger; PRIMARY FIX = upsize Reserved VM before adding new heavy services
 - [Watchdog cold-start grace period](watchdog-cold-start-grace.md) — liveness watchdog must skip health-check failure counting for first 150s; 404 on unregistered routes killed prod deploys in ~90s
-- [D3 negative-control test Option 2](d3-negctl-option2.md) — schema-isolation via search_path; libpq needs %20 not + in options=; main import >180s infeasible; dry-run is complete Directive 5 proof
 - [Order dedup enforcement](order-dedup-enforcement.md) — UNIQUE(ticker,trade_date) + app pre-check in _aiem_paper_execute_today() emits D3 data_guard.failed; order_dedup.py is separate (order_execution_log only, never paper trades)
 - [aiem-process watchdog in notifier](aiem-process-watchdog.md) — background thread in aiem_telegram_notifier.py; pgrep every 2 min; grace 3:00-3:10 AM ET; 2 misses → Telegram alert + subprocess spawn; NO separate workflow needed
 - [AIEM vs website scan architecture](aiem-vs-website-scan-architecture.md) — AIEM process owns ALL scheduled full-universe scans + Telegram digests; main.py (website) keeps only live per-request calculators; shared DB table is the handoff point
@@ -61,8 +53,6 @@
 - [AIEM autonomous engine](aiem-autonomous-engine.md) — aiem_autonomous.py at project root; BlockingScheduler; premarket_scan uses polygon_market_daily DB; _score_multiday() caps exhaustion picks (gap>50% spike → conf capped at 55); grade_outcomes self-analysis Telegram 4:30PM; nightly_learn 6PM
 - [Telegram integration](telegram-integration.md) — bot @AEIM_StockScanner_bot (id 8783108897); TELEGRAM_BOT_TOKEN in Replit Secrets; TELEGRAM_CHAT_ID=8609255707; _tg_send() strips whitespace from token; wired into all 17 owner sender kinds + _aiem_send_sms
 - [DB-backed chart images on alerts](stock-chart-alerts.md) — telegram_charts.py shared module, max-6-panel grid, DB-only data; emoji-in-matplotlib-title gotcha; main.py read-tool stale-cache gotcha
-- [AIEM chat latency profile](aiem-chat-latency.md) — DB tools 0-10ms (not bottleneck); OpenAI gpt-5.4 = 1.5-52s jitter; image questions need min 3 iters; review_own_accuracy now conditional
-- [Grinder-scan DB indexes](grinder-scan-indexes.md) — two CONCURRENT indexes cut query 18s→0.49s; statement_timeout must match thread deadline
 - [Price Signal Backtest Results](price-signal-backtest.md) — 495-day backtest; S7c★ BigCatDay+InsideDay+Gap = 72.9% WR 3d EV+2.19%; S4◆ GapDown+Reversal 58.6% WR 1d; 4 signals saved to aiem_signal_discoveries; S7c fires 9:45 AM (CronTrigger hour=9 minute=45)
 - [AIEM email Q&A pipeline](aiem-email-qa.md) — owner emails ASK → IMAP polls every 30s → AIEM 3-iter session → reply; Gmail self-send needs ALL (not UNSEEN); UIDs persisted to /tmp/ask_processed_uids.txt
 - [AIEM ML Pipeline](aiem-ml-pipeline.md) — XGBoost retrain on Sunday 8pm; 6 files in stock-scanner-api/; predict on pick save, resolve on settle; rollback safety via AUC+Brier comparison gate
@@ -80,12 +70,10 @@
 - [Prod startup race — deferred DB init](prod-startup-race.md) — 48 serial psycopg2.connect() at module level = 14-48s prod cold start; fix: _DEFERRED_INITS list + bg thread; all new _init_*() must use append pattern; stdout was buffered → add line_buffering=True at line 2
 - [Decision logging wiring](decision-logging-wiring.md) — decision_logging_helper.py wires 4 signals; charm had silent ROUND(float8,int) bug fixed with ::numeric; decision_type must be trade/no_trade/hold/exit NOT signal_fire
 - [Premarket-to-open paper trading module](premarket-open-module.md) — opening_snapshot_tracker + premarket_open_trader; regime_detector has 15-min cache; scheduler starts at 9:45 not 9:30; decision_type must use _DECISION_TYPE_MAP
-- [AIEM speed fixes](aiem-speed-fixes.md) — fast-path(1-iter casual), 45s snapshot cache, parallel tool dispatch; tool_choice=none when max_iters==1
 - [Flask early port bind](flask-early-port-bind.md) — make_server() in thread at top of file; Flask 2.x needs _check_setup_finished patched; eliminates prod restart loop
 - [Yahoo rate limiter max_wait](yf-ratelimiter-maxwait.md) — acquire(max_wait=3.0) in cffi patch; HTTP threads bail in ≤3s during morning burst; scheduler threads use unlimited acquire()
 - [Statistical Arbitrage Engine](stat-arb-engine.md) — stat_arb_engine.py; psycopg2 INTERVAL fix; lazy import; 7 wiring points; Sunday 3PM retest seeds pairs before Mon 9:10AM z-score scan
 - [Risk gate enforcement gaps](risk-gate-enforcement-gaps.md) — risk_gate_passed is cosmetic in email send; reconcile_positions() never called so mismatch check always passes; MTM LLM-outage → HOLD everything, no stop-loss besides 14-day cap
-- [XGBoost native TreeSHAP attribution](xgboost-native-treeshap-attribution.md) — pred_contribs=True gives signed per-feature Shapley attribution with no `shap` package; assert vs predict_proba at 1e-4 (not 1e-6, float32 drift)
 - [Admin-token route consistency](admin-token-route-consistency.md) — sibling GET/POST routes on the same admin-gated resource must copy the SAME auth check; a skeptical auditor will find the unguarded one
 - [AIEM auto-minted verify links + history page](aiem-verify-link-automation.md) — every completed session auto-mints its own 7-day tappable verify link (stored on the row); history page reuses it, never re-mints
 - [AIEM 24/7 indicator grid battery](aiem-indicator-grid-battery.md) — free-tier continuous technical-indicator sweep, pauses only Mon-Fri 8:00-16:30 ET; low per-cell n is a screen only, real gate is the shared Bonferroni ledger + n>=200 downstream
@@ -117,7 +105,6 @@
 - [Payment flow fixes](payment-flow-fixes.md) — three critical bugs fixed: webhook URL, success/cancel URL, webhook handler crash
 - [StockScanner AI state](stockscanner-state.md) — full product state: landing page design, Stripe setup, SMS live via email gateway, key files, scheduler times
 - [Alert delivery channel](sms-delivery-solution.md) — alerts are EMAIL-ONLY now (Twilio+tmomail removed); never gate scan logic on a delivery channel's availability
-- [Scanner baseline June 2026](scanner-baseline-june2026.md) — Win rate, R:R, EV/trade for all scanners as of June 14, 2026; compare live vs backtest in mid-July 2026
 - [Invention Disclosure](invention-disclosure.md) — StockScanner AI patent doc at STOCKSCANNER_AI_INVENTION_DISCLOSURE.md in project root; 17 sections, 5 patent claims; NEVER delete this file
 - [Conviction stack (scoring + funnel + cold-start)](conviction-stack-topscore.md) — TOP SCORE tab uses _run_five_layer_conviction not composite; see also discovery-funnel + coldstart topic files for seeding/cold-start details
 - [Live-fetch false negatives in emails](live-fetch-false-negatives.md) — Top Pick "No liquid calls found" was throttled LIVE yfinance fetch swallowing error; distinguish "couldn't check" from "checked, empty"; stored sweep last_seen serializes UTC despite `_et` name → convert with _ET_TZ before .date()
@@ -128,14 +115,11 @@
 - [Owner premarket brief email](market-brief-email.md) — daily 8:30 ET brief is always-send; pre-open aggregators must call option-chain scanners cache/DB-only (unusual-calls ?cache_only=1) so cold scan can't burn the claimed slot
 - [Finviz data source](finviz-data-source.md) — Barchart IP-blocked; Finviz is permanent replacement; correct regex is stock\?t=([A-Z]{1,5})&; Yahoo rate-limits when OI snapshot runs concurrently
 - [StockScanner prod deployment](stockscanner-deployment.md) — prod MUST be Reserved VM not Autoscale (scheduler+daemon scans need always-on); dev/prod DBs separate, prod read-only
-- [Net Flow tab display rule](netflow-tab-display.md) — tier sections must never render empty when positive rows exist; thresholds are display filters, default to lowest + fall back to top rows
 - [Timezone blank-tabs rule](timezone-blank-tabs.md) — prod session=GMT; raw CURRENT_DATE rolls at 8pm ET → use ET exprs; NEVER change session tz (breaks convention-(b) `AT TIME ZONE 'UTC'` queries)
 - [Small-cap morning system](sc-morning-system.md) — sibling of nano for $300M-$2B optionable; adds options-score (stored logs, not live chain) + double-signal; $1000/name; call_sweep_log legacy schema lacks `conviction`
 - [Nano-cap morning system](nano-morning-system.md) — two-stage 9:35 watch / 9:45 BUY; sizing is $500-WORTH per name (not 500 shares); breadth over size; low-float universe
 - [AI Early Movers isolated system](ai-early-movers.md) — completely separate experimental tab; own endpoint, DB table, miss-detection, feedback loop; NEVER mix with other tabs
 - [NCLEX affiliate system](nclex-affiliate-system.md) — Stripe Connect Express; transfer logic split: lifetime in checkout.session.completed, monthly in invoice.payment_succeeded (never both)
-- [Weekend tab spinners pattern](weekend-tab-spinners.md) — endpoints that start bg scan workers must check _intraday_scan_allowed() first; returning warming:True on weekends causes frontend to poll every 7s forever; serve DB fallback with stale:True instead
-- [Routes after app.run() silently 404](routes-after-apprun.md) — Flask routes defined after `if __name__ == "__main__": app.run()` never register; app.run() blocks so nothing below it executes
 - [Node.js pg pool crash rule](nodejs-pg-pool-crash.md) — Replit recycles DB connections → pg pool emits unhandled 'error' event → Node crashes; fix: process.on('uncaughtException') + process.on('unhandledRejection') in index.ts entry point
 - [In-memory-only endpoints break on redeploy](in-memory-fallback-rule.md) — any endpoint serving only from app._cache shows 0 after every restart; must add DB fallback
 - [yfinance global rate limiter](yfinance-rate-limiter.md) — token bucket (3/sec) wired into curl_cffi patch; hourly scans at :05; cache warmer every 90 min; admin reset-breaker endpoint

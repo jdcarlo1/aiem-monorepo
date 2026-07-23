@@ -48295,6 +48295,24 @@ def admin_close_paper_trade(trade_id):
         return jsonify({"error": str(_e)}), 500
 
 
+@app.route("/stock-api/paper-performance", methods=["GET"])
+def paper_performance_endpoint():
+    """
+    PERF-001 through PERF-041: Full paper trading performance analytics.
+    Computes all metrics from aiem_paper_trades verified closed outcomes.
+    Optional query param: ?window_days=N (default: all-time)
+    """
+    try:
+        from paper_performance import compute_paper_performance as _pp
+        _window = request.args.get("window_days")
+        _window = int(_window) if _window else None
+        _result = _pp(_DB_URL, window_days=_window)
+        _result["trading_mode"] = "PAPER TRADING — SIMULATION ONLY"
+        return jsonify(_result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
 @app.route("/stock-api/admin/closed-loop-audit/<int:trade_id>", methods=["GET"])
 def admin_closed_loop_audit_trade(trade_id):
     """

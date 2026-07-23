@@ -173,7 +173,7 @@ echo "last_run_results_sha256=${LAST_RESULTS_SHA}"
 
 # A33 (R10): sha256 of _A8_L1_META_EXCL sorted list — verifier emits
 # A8_L1_META_EXCL_SHA256=<hash> in LOG_FILE; capture it here.
-_EXCL_SHA=$(grep '^A8_L1_META_EXCL_SHA256=' "${LOG_FILE}" 2>/dev/null | tail -1 | cut -d= -f2-)
+_EXCL_SHA=$(grep '^A8_L1_META_EXCL_SHA256=' "${LOG_FILE}" 2>/dev/null | tail -1 | cut -d= -f2- || true)
 if [ -z "${_EXCL_SHA}" ]; then _EXCL_SHA="MISSING_excl_sha"; fi
 echo "A8_L1_META_EXCL_SHA256_FOOTER=${_EXCL_SHA}"
 

@@ -1,0 +1,81 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 8 OF 12
+SECTION 11: PERFORMANCE ANALYTICS (PERF-001–041)
+============================================================
+
+PERF-001 Performance is calculated only from verified trade outcomes.
+PERF-002 Paper-trading performance is clearly labeled as paper trading.
+PERF-003 Live-trading performance is separated from paper trading.
+PERF-004 Open trades are separated from closed trades.
+PERF-005 Gross profit is calculated.
+PERF-006 Gross loss is calculated.
+PERF-007 Net profit is calculated.
+PERF-008 Total return is calculated.
+PERF-009 Annualized return is calculated where statistically appropriate.
+PERF-010 Win rate is calculated.
+PERF-011 Loss rate is calculated.
+PERF-012 Breakeven-trade rate is calculated.
+PERF-013 Average winning trade is calculated.
+PERF-014 Average losing trade is calculated.
+PERF-015 Largest winning trade is calculated.
+PERF-016 Largest losing trade is calculated.
+PERF-017 Profit factor is calculated.
+PERF-018 Payoff ratio is calculated.
+PERF-019 Expected value per trade is calculated.
+PERF-020 Maximum drawdown is calculated.
+PERF-021 Current drawdown is calculated.
+PERF-022 Drawdown duration is calculated.
+PERF-023 Recovery duration is calculated.
+PERF-024 Sharpe ratio is calculated.
+PERF-025 Sortino ratio is calculated.
+PERF-026 Calmar ratio is calculated.
+PERF-027 Volatility of returns is calculated.
+PERF-028 Downside deviation is calculated.
+PERF-029 Value at Risk is calculated where appropriate.
+PERF-030 Conditional Value at Risk is calculated where appropriate.
+PERF-031 Performance by ticker is available.
+PERF-032 Performance by strategy is available.
+PERF-033 Performance by strategy family is available.
+PERF-034 Performance by market regime is available.
+PERF-035 Performance by volatility regime is available.
+PERF-036 Performance by sector is available.
+PERF-037 Performance by holding period is available.
+PERF-038 Performance by confidence band is available.
+PERF-039 Performance by probability band is available.
+PERF-040 Dashboard performance values reconcile with SQL outcomes.
+PERF-041 Independent recomputation verifies all material performance metrics.
+
+THIS SECTION REQUIRES THE QUANT-CORRECTNESS RULE IN FULL (see Phase 5
+note) for Sharpe/Sortino/Calmar/VaR/CVaR — verify against known-answer
+test data, not just execution proof.
+
+PHASE 8 GATES PHASE 9.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.
