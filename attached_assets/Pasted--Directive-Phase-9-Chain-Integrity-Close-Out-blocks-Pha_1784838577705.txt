@@ -1,0 +1,34 @@
+# Directive: Phase 9 Chain-Integrity Close-Out (blocks Phase 10 gate claim)
+
+## Standing checklist (applies to every item below)
+- Raw terminal output only — no paraphrase, no narrative summary in place of output
+- Raw grep -n for any code-location/behavior claim
+- Exact before/after diff + sha256 for any file touched
+- Raw SQL + full result set for any DB check
+- Data Immutability Rule: no delete/truncate/overwrite without my explicit approval first
+- verified_run.sh / verify_chain.sh wrapper required for all evidence-producing commands
+- sha256 cross-check of tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical, pasted raw
+- "PASS" reserved for full verification only — no blended "cleared to proceed" / "passed" language
+
+## Findings from SEQ=100 pre-run log requiring resolution
+
+1. **check_clean_tree = DIRTY, 4 violations, not the usual deferred-commit case.**
+   - FAIL:TRACKED_MODIFICATION on tools/logs/verified_run_index.tsv, tools/verified_run_chain.jsonl, tools/verified_run_seq (none in allowlist)
+   - FAIL:UNTRACKED_CODE on artifacts/stock-scanner-api/verify_phase9_ind.py — **the verifier script that produced all 30 Phase 9 verdicts is currently uncommitted.**
+
+2. **verify_chain.sh: sha256 matches canonical (ca7896c7...) but marked [NOT_EXECUTED].** Standing Evidence Chain Protocol requires this script actually run and its output pasted before any directive/phase is declared complete. It did not run for SEQ=100.
+
+## Required actions
+
+1. Commit verify_phase9_ind.py and the three modified chain-log files as a single scoped commit. Paste `git status` before and after, `git diff HEAD --stat`, and the commit hash.
+2. Paste raw sha256sum of verify_phase9_ind.py post-commit — this becomes the canonical hash for the Phase 9 verifier going forward, tied to the commit hash.
+3. Run verify_chain.sh for real. Paste its raw output in full (not summarized).
+4. If verify_chain.sh reports any BREAK or drift, stop and report — do not self-resolve.
+5. Do not re-run verify_phase9_ind.py itself or touch any Phase 9 data/tables — this is a chain-integrity/commit task only, nothing about the 30 verdicts is in question.
+
+## Gate
+
+The "Phase 9 gates Phase 10 — Phase 10 may begin" statement in phase9-ind-FINAL.md is **not confirmed** until items 1–4 above are done and evidence reviewed. Report back with raw output only; no phase-10 work starts until I clear this explicitly.
+
+## Separately open (not part of this directive, no agent action needed)
+IND-029 (POLY_CLOSE_PRICE mismatch): confirmed structural — intraday capture vs EOD close, per FINAL.md. Awaiting Joel's decision on whether to re-spec IND-029 against an intraday reference or leave as permanent FAIL under current spec. No code change until that decision is made.
