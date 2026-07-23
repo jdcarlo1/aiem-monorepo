@@ -1,0 +1,26 @@
+# Directive — PE_GATING_ENABLED Fix Verification
+
+## Task
+Confirm the fix: flip `PE_GATING_ENABLED` to `True` in config.py and prove the Portfolio Risk Engine now actually blocks hard concentration breaches.
+
+## Required evidence (raw output only — no prose/narrative)
+
+1. Raw grep/sed of config.py showing the line, before and after: `grep -n PE_GATING_ENABLED config.py`
+2. sha256 before/after for config.py
+3. `git diff HEAD --stat` (or "no changes" if none)
+4. Re-run the SAME negative control (AAPL $36,000/$100,000, 36% ticker / 40.5% sector / 40.5% strategy-family / 40.5% short-vol) with the flag now True — paste raw `gate_passed()` output showing decision=REJECT, result=False, trade BLOCKED
+5. Raw SQL: confirm this run inserted a new `ape_gate_decisions` row with a BLOCKED/REJECT-type decision (not OBSERVE prefix) — full row output
+6. Confirm the flag is read on the LIVE/SCHEDULED path, not only in the verify script: raw grep showing where the scheduler or live orchestrator imports/reads `PE_GATING_ENABLED`, with file + line number
+7. sha256sum of tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh, checked against current canonical values
+8. verify_chain.sh raw output for this run
+
+## Standing checklist (applies in full — not abbreviated)
+- No claim of "fixed"/"tested"/"confirmed" accepted without raw evidence above
+- Any code-location/line-number claim must be backed by raw grep -n, not paraphrased
+- No deletion/truncation/overwrite of any row without Joel's prior explicit approval this session
+- All commands run through verified_run.sh; verify_chain.sh output pasted before declaring complete
+- Math/quant items (Greeks, concentration % calcs) must show which formula/reference was checked, not just internal self-consistency
+- "PASS" reserved only if every item above is fully verified with nothing deferred — otherwise label as "partial" or "cleared to proceed," not "pass"
+
+## Permanent record
+Once this closes cleanly, commit the final report as a permanent repo file (e.g. `/docs/verification/phase6-risk-engine-gating-FINAL.md`) with the commit hash it verified against — not just reported in chat.
