@@ -864,3 +864,9 @@ id = "bTDCES7t1OQce5m5Z82aL"
 uri = "file://phase3_verification_evidence.md"
 type = "text"
 title = "Phase 3 Verification Evidence (A–F + Raw SQL)"
+
+[[outputs]]
+id = "g8XbTpcoQ3n-ydfHGNVBt"
+uri = "file://options_engine.zip"
+type = "unspecified"
+title = "Options Engine — 10 source files"
