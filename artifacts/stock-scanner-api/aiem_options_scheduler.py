@@ -754,6 +754,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         log.debug(f"[exec] phase2 init skipped: {_p2_init_e}")
         _p2_ready = False
         _p2       = None
+    log.info(f"[exec] [{trace_id}] [P2_INIT] _p2_ready={_p2_ready}")
 
     # ── Phase III Phase 3: Analysis & Attribution (non-fatal) ────────────────
     try:
@@ -2102,6 +2103,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             _rc("VERIFY", "VERIFY_ELAPSED_S",  elapsed, None, "NEUTRAL")
 
         # ── Phase 2: Counterfactual snapshot + Trade record ───────────────────
+        log.info(f"[exec] [{trace_id}] [P2_GATE] _p2_ready={_p2_ready} direction={direction} alert_id={alert_id}")
         if _p2_ready:
             try:
                 _p2.capture_counterfactual_snapshot(
@@ -2120,7 +2122,8 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except Exception as _cf_e:
                 log.debug(f"[phase2] counterfactual_snapshot skipped: {_cf_e}")
             try:
-                _p2.capture_trade_record(
+                log.info(f"[exec] [{trace_id}] [P2_CAPTURE] calling capture_trade_record alert_id={alert_id} ticker={ticker}")
+                _tr_result = _p2.capture_trade_record(
                     alert_id=alert_id,
                     trace_id=trace_id,
                     ticker=ticker,
@@ -2138,6 +2141,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     put_scoring=put_scoring,
                     db_url=_DB_URL,
                 )
+                log.info(f"[exec] [{trace_id}] [P2_CAPTURE] capture_trade_record returned tr_id={_tr_result}")
             except Exception as _tr_e:
                 log.debug(f"[phase2] trade_record capture skipped: {_tr_e}")
             try:
@@ -2690,6 +2694,89 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        path = self.path.rstrip('/')
+        # /run-synthetic — exercises bootstrap_phase2 + capture_trade_record +
+        # options_engine_runs within THIS scheduler process.  All steps logged
+        # with log.info so they appear in the scheduler workflow log stream.
+        if path == '/run-synthetic':
+            import uuid as _uuid, json as _json
+            from datetime import date as _sdate
+            _sid = _uuid.uuid4().hex[:12].upper()
+            _res = {"sid": _sid, "pid": os.getpid()}
+            log.info(f"[synth] [{_sid}] START pid={os.getpid()} path=/run-synthetic")
+            # Step 1: bootstrap_phase2 (_p2_ready check)
+            try:
+                import aiem_options_phase2 as _sp2
+                _sp2.bootstrap_phase2(_DB_URL)
+                _p2r = True
+                log.info(f"[synth] [{_sid}] [P2_INIT] bootstrap_phase2 OK → _p2_ready=True")
+            except Exception as _be:
+                _p2r = False
+                log.warning(f"[synth] [{_sid}] [P2_INIT] bootstrap_phase2 FAILED: {_be} → _p2_ready=False")
+            _res['p2_ready'] = _p2r
+            if not _p2r:
+                body = _json.dumps(_res).encode()
+                self.send_response(200); self.send_header("Content-Type","application/json")
+                self.send_header("Content-Length", str(len(body))); self.end_headers()
+                self.wfile.write(body); return
+            # Step 2: capture_trade_record
+            _sd = _sdate.today()
+            _sel = {"bid": 2.50, "ask": 2.60, "delta": -0.35, "gamma": 0.02,
+                    "theta": -0.05, "vega": 0.15, "iv": 0.35, "slippage_pct": 0.05,
+                    "premium_at_risk": 255.0, "profit_target": 510.0}
+            log.info(f"[synth] [{_sid}] [P2_CAPTURE] calling capture_trade_record alert_id=8888 ticker=SYNTH_SCHED scan_date={_sd}")
+            _tr = _sp2.capture_trade_record(
+                alert_id=8888, trace_id=f"SYNTH_{_sid}", ticker="SYNTH_SCHED",
+                scan_date=_sd, direction="LONG_PUT", sel_data=_sel, sel_strike=200.0,
+                alert_fields={"breakeven": 197.5}, call_score=0.0, put_score=75.0,
+                stock_data={"market_regime": "BEAR", "sector": "SYNTH"},
+                verify_result={"gate_passed": True}, db_url=_DB_URL,
+            )
+            log.info(f"[synth] [{_sid}] [P2_CAPTURE] capture_trade_record returned tr_id={_tr}")
+            _res['tr_id'] = _tr
+            # Step 3: options_engine_runs
+            _run_id = f"oe_SYNTH_SCHED_{_sd}_{_sid[:8]}"
+            try:
+                with psycopg2.connect(_DB_URL, connect_timeout=4) as _oc, _oc.cursor() as _ou:
+                    _ou.execute("""
+                        INSERT INTO options_engine_runs
+                            (run_id,trace_id,ticker,run_date,stocks_scanned,
+                             contracts_evaluated,selected_ticker,selected_strategy,
+                             decision,trigger_chain_json)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (run_id) DO NOTHING
+                    """, (_run_id, f"SYNTH_{_sid}", "SYNTH_SCHED", _sd,
+                          1, 5, "SYNTH_SCHED", "LONG_PUT", "LONG_PUT",
+                          json.dumps({"trigger":"run-synthetic","sid":_sid,"pid":os.getpid()})))
+                    _oc.commit()
+                log.info(f"[synth] [{_sid}] [OE_RUNS] options_engine_runs written run_id={_run_id}")
+                _res['oe_run_id'] = _run_id
+            except Exception as _oee:
+                log.warning(f"[synth] [{_sid}] [OE_RUNS] options_engine_runs write FAILED: {_oee}")
+                _res['oe_run_error'] = str(_oee)
+            log.info(f"[synth] [{_sid}] DONE tr_id={_tr} run_id={_run_id}")
+            body = _json.dumps(_res).encode()
+            self.send_response(200); self.send_header("Content-Type","application/json")
+            self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+            return
+        # /run-now — calls run_pipeline_worker() directly in this process;
+        # useful to see _p2_ready in live _execute_job() logs when a PENDING job exists.
+        if path == '/run-now':
+            import json as _json
+            try:
+                _rr = run_pipeline_worker()
+                body = _json.dumps({"triggered": True, "result": _rr}).encode()
+            except Exception as _rne:
+                log.warning(f"[health] /run-now error: {_rne}")
+                body = _json.dumps({"triggered": True, "error": str(_rne)}).encode()
+            self.send_response(200); self.send_header("Content-Type","application/json")
+            self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(405); self.end_headers()
 
 def _start_health_server():
     srv = HTTPServer(("0.0.0.0", _HEALTH_PORT), _HealthHandler)
