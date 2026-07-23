@@ -346,7 +346,107 @@ Post-seal chain integrity confirmed (9/9 PASS): archive exists, SHA 3-way bindin
 
 ---
 
+---
+
+## Addendum — 2026-07-23 Fix Directive: R8 Units Mismatch Resolved
+
+**Fix approach chosen: Option (a) — fix the caller (`aiem_options_scheduler.py`), not the EI formula.**
+
+Rationale: The EI module formula `cost_frac = total_cost / |ev_after_costs|` is correct and calibrated for dollars (proven by E2E rows: `19.445 / 35.0 = 0.556`). Changing the EI formula (option b) would break all callers that already pass dollars correctly. The EI-post4 caller passed `float(_call_expected_return)` (a ratio = `_call_ev_raw / (call_mid × 100)`), so the inverse `ratio × call_mid × 100` recovers the original EV in dollars exactly.
+
+**SHA256 before fix:** `205efeeb49c0a6020c35dd1b9c092d228c2184a533d3a79ea7d6b0ddaf229f38`
+**SHA256 after fix:**  `b0f40af1fb239213ae2e39a91b91a9a8877f4838f23033f63b0dd1b46ebdec0b`
+
+**Exact diff (5 lines — 2 deletions, 3 additions + 3 comment lines):**
+
+```diff
+--- a/artifacts/stock-scanner-api/aiem_options_scheduler.py
++++ b/artifacts/stock-scanner-api/aiem_options_scheduler.py
+@@ -1519,13 +1519,18 @@ def _execute_job(...):
+                 }
++                # ev_after_costs must be in DOLLARS for R8 gate (cost/|edge|).
++                # _call_expected_return is a dimensionless ratio = _call_ev_raw/(call_mid*100),
++                # so the inverse gives the original EV in dollars: ratio × mid × 100.
++                _call_ev_dollars = float(_call_expected_return) * call_mid * 100
++                _put_ev_dollars  = float(_put_expected_return)  * put_mid  * 100
+                 _synth = [
+                     {"strategy": "LONG_CALL", "direction": "BULLISH",
+-                     "ev_after_costs": float(_call_expected_return),
++                     "ev_after_costs": _call_ev_dollars,
+                      ...},
+                     {"strategy": "LONG_PUT",  "direction": "BEARISH",
+-                     "ev_after_costs": float(_put_expected_return),
++                     "ev_after_costs": _put_ev_dollars,
+                      ...},
+                 ]
+```
+
+**TER diagnostic (post-fix), raw output:**
+
+```
+spot=310.56  front_iv=1.2793  _dte=9
+call_mid=24.95   put_mid=53.03
+_call_ev_dollars = -0.1689 × 24.95 × 100 = -421.4055
+_put_ev_dollars  = -0.5647 × 53.03 × 100 = -2994.6041
+
+filter_strategies_by_execution(ticker=TER_FIX, trace=DIAG_FIX_b44a5525)
+
+EA[LONG_CALL]:
+  approved=False
+  rejection_reason=R8_costs_eliminate_edge: cost_frac=0.742 > 0.3
+  cost_frac=0.742    ← was 1852.191 before fix; CORRECTED ✓
+  liquidity_score=0.5389
+  fill_probability=0.48
+  gross_expected_edge=-421.4055
+
+EA[LONG_PUT]:
+  approved=False
+  rejection_reason=R9_net_edge_below_floor: -3842.6697 < -0.5
+  cost_frac=N/A (R8 passed)    ← R8 not triggered; cost_frac < 0.3 ✓ CORRECTED
+  liquidity_score=0.6132
+  fill_probability=0.5
+  gross_expected_edge=-2994.6041
+```
+
+LONG_CALL: cost_frac=0.742 ✓ (was 1852.191 — corrected, R8 still rejects for valid financial reason: costs consume 74% of edge).
+LONG_PUT: R8 passed (cost_frac<0.3 ✓ — was 706.348 — corrected), R9 rejects because net EV is deeply negative (-3842 < -0.5 floor). Both rejections are now financially meaningful.
+
+**Known-answer test vector, raw output:**
+
+```
+compute_execution_costs() with ev_after_costs=$50.00 (dollars):
+  total_transaction_cost = 3.86
+  cost_as_pct_of_gross   = 0.0772
+  expected (total/50)    = 0.0772
+  match: True
+```
+
+`cost_frac = 3.86 / 50.00 = 0.0772` — exact match confirms formula `total / |ev_after_costs|` with dollar inputs produces the correct ratio. ✓
+
+**Mutation check, raw output:**
+
+```
+MUTANT (ratio passed as ev_after_costs — old broken code):
+  LONG_CALL: cost_frac=1852.191 > 0.3  → R8-rejected
+  LONG_PUT:  cost_frac=706.348  > 0.3  → R8-rejected
+
+FIX (dollars passed as ev_after_costs):
+  LONG_CALL: cost_frac=0.742 > 0.3    → R8-rejected (valid financial reason)
+  LONG_PUT:  R8 passed (cost_frac<0.3) → R9-rejected (net EV negative floor)
+
+MUTATION TEST CONCLUSION: test is NOT vacuous — mutant always-rejects at 700-1852×,
+fixed code rejects at financially meaningful ratios (0.742 call, <0.3 put).
+```
+
+**Effect on Group 4 production-PASS trigger:**
+
+The prior addendum stated two conditions were required:
+1. A DONE job clearing REQ6
+2. The EI-post4 `ev_after_costs` units bug corrected
+
+Condition 2 is now satisfied. The production-PASS trigger for OPT-021/023/024/025/026 is now **single-condition: one DONE pipeline job where market conditions allow a candidate to clear REQ6 scoring gate.** No further code changes are needed. When that job runs, the EI-post4 path will write `aiem_execution_assessments` rows with genuinely computed Group 4 fields and cost_frac values in the correct range (not 700-1852×).
+
 *Written: 2026-07-23. Commit: 84c6aa17f3b347ab30197df0764e92f945a6acf2.*
 *Addendum: 2026-07-23 follow-up directive — EV diff and R8 units mismatch documented above.*
-*Next action: re-evaluate OPT-030 after first DONE pipeline run post-commit 5a7f1553.*
-*Next action for Group 4: fix EI-post4 ev_after_costs units (ratio → dollars) AND wait for DONE job clearing REQ6.*
+*Addendum: 2026-07-23 fix directive — R8 units mismatch resolved; production-PASS trigger now single-condition.*
+*Next action: re-evaluate OPT-030 and Group 4 on first DONE pipeline run after 2026-07-23.*

@@ -1,0 +1,19 @@
+# Directive: Fix R8 Units Mismatch — 2026-07-23
+
+## Standing checklist (required)
+- Raw terminal output only, no paraphrasing. Raw grep -n/sed -n for code-location claims.
+- Exact before/after diff + sha256 for changed files.
+- sha256 cross-check: tools/verified_run.sh = 58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5; artifacts/stock-scanner-api/verify_chain.sh = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f.
+- Data Immutability Rule applies.
+- Math/quant rule applies (known-answer test vectors, cross-check, mutation check).
+
+## The bug
+`aiem_execution_intelligence.py` line 524: `gross_edge = abs(strategy.get("ev_after_costs") or 0.0)`, then `cost_pct = total / gross_edge`. This formula assumes `ev_after_costs` is a dollar amount. The EI-post4 caller instead passes a dimensionless ratio (e.g. -0.1689, the lognormal EV/premium ratio from the scheduler's EV block), producing a category error: cost_frac lands 700-1850x too high and structurally fails the R8 gate (>0.3) for any realistic EV ratio, regardless of actual trade quality.
+
+## Fix required
+1. State the fix approach: either (a) convert the ratio to a dollar amount before passing it in (ratio × mid × 100, per the diagnostic already run), or (b) change the R8 formula to accept a ratio directly with a corrected threshold. Pick one, state why, get it in writing before changing code.
+2. Implement the fix. Raw before/after diff + sha256.
+3. Re-run the same TER diagnostic (LONG_CALL and LONG_PUT) used in the last response. Confirm cost_frac now comes out to the corrected values (≈0.742 call, ≈0.133 put) rather than 700-1852x.
+4. Known-answer test vector: construct one synthetic case where the true cost-to-edge ratio is known in advance (e.g. cost=$10, edge=$50 → expected cost_frac=0.20) and confirm the fixed code returns that value exactly.
+5. Mutation check: revert the fix on a scratch copy, confirm the gate returns to always-reject, confirming the test isn't vacuous.
+6. Once fixed and verified, confirm whether this changes the Group 4 production-PASS trigger stated in the last response, and update the permanent record file at docs/verification/phase10_options_pipeline_close_out.md accordingly.

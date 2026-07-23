@@ -1519,13 +1519,18 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         "bid_ask_spread_pct":float(d.get("bid_ask_spread_pct", 0.25) or 0.25),
                         "bid_size": 0, "ask_size": 0,
                     }
+                # ev_after_costs must be in DOLLARS for R8 gate (cost/|edge|).
+                # _call_expected_return is a dimensionless ratio = _call_ev_raw/(call_mid*100),
+                # so the inverse gives the original EV in dollars: ratio × mid × 100.
+                _call_ev_dollars = float(_call_expected_return) * call_mid * 100
+                _put_ev_dollars  = float(_put_expected_return)  * put_mid  * 100
                 _synth = [
                     {"strategy": "LONG_CALL", "direction": "BULLISH",
-                     "ev_after_costs": float(_call_expected_return),
+                     "ev_after_costs": _call_ev_dollars,
                      "liquid": call_vol > 50 and call_oi > 100,
                      "legs": [_make_synth_leg(call_data, "call")]},
                     {"strategy": "LONG_PUT",  "direction": "BEARISH",
-                     "ev_after_costs": float(_put_expected_return),
+                     "ev_after_costs": _put_ev_dollars,
                      "liquid": put_vol > 50 and put_oi > 100,
                      "legs": [_make_synth_leg(put_data, "put")]},
                 ]
