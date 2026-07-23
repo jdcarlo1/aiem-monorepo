@@ -100,3 +100,5 @@ packages = ["arrow-cpp", "cairo", "ffmpeg-full", "freetype", "ghostscript", "gob
 TELEGRAM_CHAT_ID = "8609255707"
 ACCOUNT_VALUE_BASELINE = "20000"
 AIEM_DATABASE_URL = "postgresql://postgres:password@helium/heliumdb?sslmode=disable"
+
+[userenv.development]
