@@ -1,0 +1,71 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 7 OF 12
+SECTION 10: PROBABILITY CALIBRATION (CAL-001–030)
+============================================================
+
+CAL-001 Raw prediction probability is stored.
+CAL-002 Calibrated prediction probability is stored.
+CAL-003 Final trade probability is stored.
+CAL-004 Calibration model version is stored.
+CAL-005 Calibration sample period is stored.
+CAL-006 Calibration sample size is stored.
+CAL-007 Brier Score is calculated.
+CAL-008 Log Loss is calculated.
+CAL-009 Reliability curves are calculated.
+CAL-010 Expected Calibration Error is calculated.
+CAL-011 Maximum Calibration Error is calculated.
+CAL-012 Confidence error is calculated.
+CAL-013 Prediction drift is calculated.
+CAL-014 Out-of-sample accuracy is calculated.
+CAL-015 Walk-forward performance is calculated.
+CAL-016 Purged cross-validation is performed.
+CAL-017 Embargo periods are applied where required.
+CAL-018 Regime-specific calibration is calculated.
+CAL-019 Ticker-specific calibration is calculated where sample size permits.
+CAL-020 Strategy-specific calibration is calculated where sample size permits.
+CAL-021 Confidence is automatically reduced when calibration deteriorates.
+CAL-022 Confidence is automatically reduced when sample size is insufficient.
+CAL-023 Confidence is automatically reduced during distribution shift.
+CAL-024 Confidence is automatically reduced when market regime changes.
+CAL-025 Confidence is automatically reduced when data quality decreases.
+CAL-026 Calibration thresholds are documented.
+CAL-027 Calibration failures can block recommendations.
+CAL-028 Calibration metrics displayed on the dashboard match the API.
+CAL-029 Calibration API values reconcile with stored outcomes.
+CAL-030 Independent recomputation verifies every calibration metric.
+
+THIS SECTION REQUIRES THE QUANT-CORRECTNESS RULE IN FULL (see Phase 5
+note) — statistical metrics (Brier, ECE, MCE, reliability curves) need
+independently derived expected values on known test data, not just proof
+the code executed.
+
+PHASE 7 GATES PHASE 8.
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.
