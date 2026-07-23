@@ -589,10 +589,16 @@ SEQ=96 ran with TREE=DIRTY (changes not yet committed — git commit requires ba
 
 ```
 a38b04ee292e618b3df010287eff57f5a430a60984d2e8e1bd0ef53ef9eb4716  paper_performance.py
-5f058e82930de921ca38842d26fbf930c8f545ed6cc2df3a787c6aa5b7ca359c  verify_phase8_perf.py (after PERF-039 criterion fix — but recomputed again post-fix)
+71f8e24ee5c80a66f4ab183a0ebd7c69a130f6fa813769b5a008f2257fadc0c1  verify_phase8_perf.py
 32dc24d7ab23eae698dffe70e1a298cf4e6d09acf2ae6e00d55c845a1059265f  main.py
 58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5  tools/verified_run.sh  [UNCHANGED]
 ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  verify_chain.sh  [UNCHANGED]
+
+Note: the sha256 for verify_phase8_perf.py was initially recorded as 5f058e82... in the
+session scratchpad. That value was captured BEFORE the PERF-039 criterion fix (the fix
+changed `dict_nonempty=True` → `all_closed_null OR dict_nonempty`, which is what produced
+EXIT=0 PASS=41 at SEQ=96). The authoritative value is 71f8e24e... — confirmed post-commit
+on 2026-07-23 with working tree clean and git diff HEAD --stat empty.
 ```
 
 **Phase 8 PERF-001–041 final status: PASS=41 / FAIL=0 / NOT_IMPLEMENTED=0. All items closed.**
