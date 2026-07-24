@@ -1755,7 +1755,12 @@ def api_options_reconcile():
     the frontend can verify display matches the DB record set."""
     try:
         limit = min(int(request.args.get("limit", 20)), 100)
-        with _get_db_connection() as conn:
+        import psycopg2 as _rec_pg
+        with _rec_pg.connect(
+            os.environ["DATABASE_URL"],
+            connect_timeout=5,
+            options="-c statement_timeout=5000",
+        ) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT COUNT(*) FROM aiem_options_alerts"
@@ -1770,7 +1775,7 @@ def api_options_reconcile():
                 last_created_at = str(last_row[1]) if last_row else None
                 cur.execute(
                     "SELECT id, ticker, alert_date, direction, "
-                    "delta_val, iv_rank, expected_return, created_at "
+                    "delta_val, iv_val, expected_return, created_at "
                     "FROM aiem_options_alerts ORDER BY id DESC LIMIT %s",
                     (limit,),
                 )
@@ -1782,7 +1787,7 @@ def api_options_reconcile():
                 "alert_date":      str(r[2]),
                 "direction":       r[3],
                 "delta_val":       float(r[4]) if r[4] is not None else None,
-                "iv_rank":         float(r[5]) if r[5] is not None else None,
+                "iv_val":          float(r[5]) if r[5] is not None else None,
                 "expected_return": float(r[6]) if r[6] is not None else None,
                 "created_at":      str(r[7]),
             }

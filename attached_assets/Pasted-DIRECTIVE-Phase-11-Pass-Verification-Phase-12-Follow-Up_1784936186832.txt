@@ -1,0 +1,77 @@
+DIRECTIVE — Phase 11 Pass Verification + Phase 12 Follow-Up
+Date: 2026-07-24
+
+============================================================
+PART A — PHASE 11: PROVE THE PASS
+============================================================
+A different session/agent reported Phase 11 as PASSED. Before this is
+accepted, provide raw evidence — no narrative — for:
+
+1. OPS-028 (Telegram alert on repeated failures) — grep + code showing
+   it fires, plus a live/simulated trigger proving it actually alerts.
+2. OPS-040 (meta-verdict item) — explicit confirmation OPS-002, OPS-013,
+   OPS-039 all closed, with the audit-log question resolved.
+3. PAGE-040 (terminal branding/AppLayout consistency across 13 pages) —
+   list of all 13 pages checked, with proof for each.
+4. tools/verify_chain.sh mismatch (972ff44a vs canonical ca7896c7,
+   flagged 2026-07-24 and never explained) — full diff history,
+   sha256 before/after, and confirmation this was an intentional fix
+   vs undisclosed drift.
+
+If any of the four above is not actually resolved, Phase 11 is NOT
+passed — restate the true verdict.
+
+============================================================
+PART B — PHASE 12: NEVER PROVIDED
+============================================================
+EVID-017 through EVID-020 were never submitted. Provide verdicts +
+raw evidence for all four:
+- EVID-017 No manual database inserts used
+- EVID-018 All critical defects resolved
+- EVID-019 All high-severity defects resolved
+- EVID-020 Final institutional acceptance signed
+
+============================================================
+PART C — PHASE 12: PROVIDED BUT WRONG, FIX THESE
+============================================================
+1. NEG-031 (Redis outage handled) — marked NOT_IMPLEMENTED, but your
+   own explanation says "no Redis in this system, not applicable."
+   That is N/A, not NOT_IMPLEMENTED. Correct the verdict label.
+
+2. NEG-001 (Missing market data correctly fails) — the only test run
+   returned a plain Flask 404 (route not registered), which is NOT
+   the same as exercising missing-data handling. Rerun against an
+   actual registered endpoint with a real missing-data condition, or
+   downgrade the verdict to reflect that the attempted test didn't
+   test the right thing.
+
+3. NEG-037 (Dashboard/API mismatch detected) — marked FAIL because
+   the reconcile endpoint throws `_get_db_connection is not defined`
+   on every call. This means the mismatch-detection mechanism itself
+   is broken, not just one item failing. Fix the endpoint and rerun.
+
+4. NEG-001 through NEG-009 (nine items) are all IMPLEMENTED_NOT_VERIFIED
+   — general exception handling exists but none of it has been tested
+   against real malformed/missing/corrupted data. Actually run these
+   negative controls with real bad input and report PASS/FAIL per item,
+   not "code looks like it would handle this."
+
+5. EVID-013 (Independent recomputation) and EVID-014 (Independent
+   reviewer approval) are NOT_IMPLEMENTED — meaning nothing in this
+   system has ever been checked by anything other than itself. Same
+   gap shows up in NEG-038/039/040 (no API/SQL cross-check, no
+   SQL/recomputation cross-check, no independent negative-control
+   audit). State plainly whether this is being built or accepted as
+   a permanent gap — do not let Phase 12 close silently around it.
+
+============================================================
+STANDING REQUIREMENT
+============================================================
+Per the standing verification protocol: raw grep/curl/SQL output only,
+sha256 cross-check of verified_run.sh/verify_chain.sh before any
+evidence is accepted, no narrative substitutes for real output.
+
+Phase 12 does not close until Parts A, B, and C above are resolved
+with evidence, per its own stated closing condition (every prior
+phase fully verdicted, negative controls run against the completed
+system).
