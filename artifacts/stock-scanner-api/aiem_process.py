@@ -55,7 +55,7 @@ MAX_SCAN_TRIGGERS_PER_DAY = 10   # hard daily cap on accepted scan triggers (wat
 #   Combined  : 213 accepted triggers/day without this cap
 
 
-def _rs_gate_check(run_id, _test_date=None):
+def _rs_gate_check(run_id, _test_date=None, _trace_id=None):
     """Pre-action gate check for /run-scan — runs BEFORE threading.Thread(...).start().
 
     Gates (fail closed on any DB error):
@@ -70,12 +70,43 @@ def _rs_gate_check(run_id, _test_date=None):
     _test_date: if set (date object), use instead of date.today() for G2/G3 queries only —
                 allows tests to target a clean date without touching production data.
     """
-    import psycopg2 as _pg, os as _os
+    import psycopg2 as _pg, os as _os, json as _jsc
     from datetime import date as _dg
     _db_url  = _os.environ.get("DATABASE_URL", "")
     _today   = _test_date if _test_date is not None else _dg.today()
     _result  = {"allowed": False, "reason": "gate_error", "trigger_count": -1}
     _conn    = None
+
+    _PSC_DDL = (
+        "CREATE TABLE IF NOT EXISTS pipeline_stage_checkpoints "
+        "(id BIGSERIAL PRIMARY KEY, trace_id TEXT NOT NULL, stage TEXT NOT NULL, "
+        "stage_order INT NOT NULL, payload JSONB, "
+        "written_at TIMESTAMPTZ DEFAULT NOW(), "
+        "CONSTRAINT psc_trace_stage_uq UNIQUE (trace_id, stage))"
+    )
+    _PSC_INS = (
+        "INSERT INTO pipeline_stage_checkpoints "
+        "(trace_id, stage, stage_order, payload, written_at) "
+        "VALUES (%s, %s, %s, %s::jsonb, NOW()) "
+        "ON CONFLICT (trace_id, stage) DO UPDATE "
+        "SET payload=EXCLUDED.payload, written_at=NOW()"
+    )
+    _PSC_ORD = {"TRIGGER_EVALUATED": 4, "TRIGGER_LOGGED": 5}
+
+    def _chk_write(stage, payload=None):
+        if not _trace_id:
+            return
+        try:
+            with _pg.connect(_db_url, connect_timeout=3) as _cc, _cc.cursor() as _kc:
+                _kc.execute(_PSC_DDL)
+                _kc.execute(_PSC_INS, (
+                    _trace_id, stage, _PSC_ORD.get(stage, 99),
+                    _jsc.dumps(payload) if payload is not None else None))
+                _cc.commit()
+        except Exception as _ce:
+            import logging as _clog
+            _clog.getLogger(__name__).error(
+                f"[checkpoint] {stage} failed trace={str(_trace_id)[:8]}: {_ce}")
     try:
         _conn = _pg.connect(_db_url, connect_timeout=5)
         _conn.autocommit = False
@@ -115,10 +146,12 @@ def _rs_gate_check(run_id, _test_date=None):
         _krow = _cur.fetchone()
         if _krow and _krow[0].strip().lower() == 'false':
             _result = {"allowed": False, "reason": "kill_switch", "trigger_count": -1}
+            _chk_write("TRIGGER_EVALUATED", {"action": "blocked", "reason": _result["reason"]})
             _cur.execute(
                 "INSERT INTO aiem_scan_trigger_log (run_id, action, reason) "
                 "VALUES (%s, 'blocked', %s)", (run_id, _result["reason"]))
             _conn.commit()
+            _chk_write("TRIGGER_LOGGED", {"action": "blocked", "reason": _result["reason"]})
             return _result
 
         # G2 — Daily cap (atomic: INSERT default row → lock row → check → conditional increment)
@@ -135,12 +168,14 @@ def _rs_gate_check(run_id, _test_date=None):
             _result = {"allowed": False,
                        "reason": f"daily_cap:{_current}/{MAX_SCAN_TRIGGERS_PER_DAY}",
                        "trigger_count": _current}
+            _chk_write("TRIGGER_EVALUATED", {"action": "blocked", "reason": _result["reason"], "count": _current})
             _cur.execute(
                 "INSERT INTO aiem_scan_trigger_log "
                 "(run_id, action, reason, trigger_count_at_time) "
                 "VALUES (%s, 'blocked', %s, %s)",
                 (run_id, _result["reason"], _current))
             _conn.commit()
+            _chk_write("TRIGGER_LOGGED", {"action": "blocked", "reason": _result["reason"]})
             return _result
 
         # G3a — No active unexpired RUNNING lease (prevents concurrent scan launch)
@@ -154,12 +189,14 @@ def _rs_gate_check(run_id, _test_date=None):
                 _result = {"allowed": False,
                            "reason": "verification_gate:active_running_lease",
                            "trigger_count": _current}
+                _chk_write("TRIGGER_EVALUATED", {"action": "blocked", "reason": _result["reason"]})
                 _cur.execute(
                     "INSERT INTO aiem_scan_trigger_log "
                     "(run_id, action, reason, trigger_count_at_time) "
                     "VALUES (%s, 'blocked', %s, %s)",
                     (run_id, _result["reason"], _current))
                 _conn.commit()
+                _chk_write("TRIGGER_LOGGED", {"action": "blocked", "reason": _result["reason"]})
                 return _result
             # G3b — No existing SUCCEEDED slot (scan already completed today)
             _cur.execute("""
@@ -170,23 +207,27 @@ def _rs_gate_check(run_id, _test_date=None):
                 _result = {"allowed": False,
                            "reason": "verification_gate:scan_already_succeeded",
                            "trigger_count": _current}
+                _chk_write("TRIGGER_EVALUATED", {"action": "blocked", "reason": _result["reason"]})
                 _cur.execute(
                     "INSERT INTO aiem_scan_trigger_log "
                     "(run_id, action, reason, trigger_count_at_time) "
                     "VALUES (%s, 'blocked', %s, %s)",
                     (run_id, _result["reason"], _current))
                 _conn.commit()
+                _chk_write("TRIGGER_LOGGED", {"action": "blocked", "reason": _result["reason"]})
                 return _result
         except Exception as _v3e:
             _result = {"allowed": False,
                        "reason": "verification_gate:morning_scan_runs_unqueryable",
                        "trigger_count": _current}
+            _chk_write("TRIGGER_EVALUATED", {"action": "blocked", "reason": _result["reason"]})
             _cur.execute(
                 "INSERT INTO aiem_scan_trigger_log "
                 "(run_id, action, reason, trigger_count_at_time) "
                 "VALUES (%s, 'blocked', %s, %s)",
                 (run_id, _result["reason"], _current))
             _conn.commit()
+            _chk_write("TRIGGER_LOGGED", {"action": "blocked", "reason": _result["reason"]})
             return _result
 
         # G4 — Evidence chain file accessible
@@ -196,12 +237,14 @@ def _rs_gate_check(run_id, _test_date=None):
         if not _os.path.isfile(_chain_path):
             _result = {"allowed": False, "reason": "evidence_chain:file_not_found",
                        "trigger_count": _current}
+            _chk_write("TRIGGER_EVALUATED", {"action": "blocked", "reason": _result["reason"]})
             _cur.execute(
                 "INSERT INTO aiem_scan_trigger_log "
                 "(run_id, action, reason, trigger_count_at_time) "
                 "VALUES (%s, 'blocked', %s, %s)",
                 (run_id, _result["reason"], _current))
             _conn.commit()
+            _chk_write("TRIGGER_LOGGED", {"action": "blocked", "reason": _result["reason"]})
             return _result
 
         # All gates passed — atomically increment accepted trigger count
@@ -211,12 +254,14 @@ def _rs_gate_check(run_id, _test_date=None):
             WHERE audit_date=%s
         """, (_today,))
         _new_count = _current + 1
+        _chk_write("TRIGGER_EVALUATED", {"action": "accepted", "reason": "all_gates_pass", "count": _new_count})
         _cur.execute(
             "INSERT INTO aiem_scan_trigger_log "
             "(run_id, action, reason, trigger_count_at_time) "
             "VALUES (%s, 'accepted', 'all_gates_pass', %s)",
             (run_id, _new_count))
         _conn.commit()
+        _chk_write("TRIGGER_LOGGED", {"action": "accepted", "count": _new_count})
         _result = {"allowed": True, "reason": "all_gates_pass", "trigger_count": _new_count}
         return _result
 
@@ -311,7 +356,16 @@ def _start_process_health_server():
                     body = b'{"error":"not_ready","hint":"scheduler still loading"}'
                 else:
                     _rid  = str(_u.uuid4())
-                    _gate = _rs_gate_check(_rid)
+                    # Extract optional trace_id from POST body (watchdog sends it)
+                    _body_trace_id = None
+                    try:
+                        _clen = int(self.headers.get("Content-Length", "0") or "0")
+                        _body_raw = self.rfile.read(_clen) if _clen > 0 else b""
+                        if _body_raw:
+                            _body_trace_id = _jp.loads(_body_raw).get("trace_id")
+                    except Exception:
+                        pass
+                    _gate = _rs_gate_check(_rid, _trace_id=_body_trace_id)
                     if not _gate["allowed"]:
                         # 409 for idempotency-class blocks; 429 for cap/switch blocks
                         _rcode = (409 if _gate["reason"].startswith("verification_gate")
@@ -2146,6 +2200,15 @@ def main():
         # Claim this slot in morning_scan_runs (ON CONFLICT: reclaim if stale/failed)
         _slot_str = now_et.strftime("%H:%M")
         _run_key  = f"premarket_scan:{today_str}:{_slot_str}"
+        # Stage 6: SCAN_RUN_CREATED — write-before-work, before morning_scan_runs INSERT
+        try:
+            import aiem_pipeline_checkpoints as _s6chkp
+            _s6_db = __import__('os').environ.get("DATABASE_URL", "")
+            _s6_tid = _s6chkp.get_or_set_trace_id(today, _s6_db)
+            _s6chkp.chk(_s6_tid, "SCAN_RUN_CREATED",
+                         {"run_key": _run_key, "market_date": str(today)}, _s6_db)
+        except Exception as _s6e:
+            log.error(f"[checkpoint] SCAN_RUN_CREATED failed: {_s6e}")
         try:
             _lcur.execute("""
                 INSERT INTO morning_scan_runs

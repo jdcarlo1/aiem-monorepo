@@ -58,6 +58,18 @@ _STALE_CLAIM_SECS    = 300    # 5 min  → CLAIMED  too old
 _STALE_EXEC_SECS     = 600    # 10 min → EXECUTING too old
 _MAX_RECOVERY_TRIES  = 3
 _HEARTBEAT_JOB_NAME  = "options_pipeline_scheduler"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PIPELINE STAGE CHECKPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    import aiem_pipeline_checkpoints as _chkp
+    _chkp.ensure_tables(_DB_URL)
+except Exception as _chkp_init_e:
+    import logging as _chkp_log
+    _chkp_log.getLogger(__name__).warning(
+        f"[scheduler] checkpoint module init failed: {_chkp_init_e}")
+    _chkp = None
 _SCHEDULER_NAME      = "aiem_options_scheduler"
 
 logging.basicConfig(
@@ -432,6 +444,16 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
     dupes  = 0
     candidates = []
 
+    # Stage 7: SEED_STAGE — write-before-work, before candidate query runs
+    try:
+        if _chkp:
+            _s7_tid = _chkp.get_or_set_trace_id(scan_date, _DB_URL,
+                                                  new_trace_id=str(uuid.uuid4()))
+            _chkp.chk(_s7_tid, "SEED_STAGE",
+                       {"scan_date": str(scan_date), "limit": limit}, _DB_URL)
+    except Exception as _s7e:
+        log.warning(f"[seed] checkpoint SEED_STAGE failed: {_s7e}")
+
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=6) as conn, conn.cursor() as cur:
             # Top FEAR_PREMIUM bearish candidates with both OSS + PMD data.
@@ -655,6 +677,14 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
     log.info(f"[exec] START job_id={job_id} ticker={ticker} "
              f"scan_date={scan_date} trace_id={trace_id} claim_id={claim_id}")
 
+    # Lookup pipeline-level trace_id (set by watchdog at WATCHDOG_POLL stage 1)
+    _pipeline_tid = None
+    try:
+        if _chkp:
+            _pipeline_tid = _chkp.get_or_set_trace_id(scan_date, _DB_URL)
+    except Exception as _ptid_e:
+        log.debug(f"[exec] pipeline_trace_id lookup failed: {_ptid_e}")
+
     # ── Scheduler causal trace (R8 Item 8 — non-fatal) ────────────────────────
     _strace_ctx = None
     try:
@@ -746,6 +776,14 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
         def _rc_pat(*a, **k): pass  # noqa
 
     # ── Phase III Phase 2: Strategy/Decision/Outcome capture (non-fatal) ─────
+    # Stage 8: P2_INIT — write-before-work, before bootstrap_phase2
+    try:
+        if _chkp and _pipeline_tid:
+            _chkp.chk(_pipeline_tid, "P2_INIT",
+                       {"ticker": ticker, "scan_date": str(scan_date),
+                        "job_id": job_id}, _DB_URL)
+    except Exception as _s8e:
+        log.warning(f"[exec] checkpoint P2_INIT failed: {_s8e}")
     try:
         import aiem_options_phase2 as _p2
         _p2.bootstrap_phase2(_DB_URL)
@@ -1893,6 +1931,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                         db_url=_DB_URL,
                     )
                     log.info(f"[dpl] NO_TRADE decision written trace_id={trace_id}")
+                    # Stage 11: DECISION_WRITTEN — confirmed write to oe_decision_audit
+                    try:
+                        if _chkp and _pipeline_tid:
+                            _chkp.chk(_pipeline_tid, "DECISION_WRITTEN",
+                                       {"ticker": ticker, "direction": "NO_TRADE",
+                                        "decision_id": _dpl_nt_result.get("decision_id", "")[:16]},
+                                       _DB_URL)
+                    except Exception as _s11nt_e:
+                        log.warning(f"[exec] checkpoint DECISION_WRITTEN NO_TRADE failed: {_s11nt_e}")
                     # ── DPL Phase 3: Replay inputs capture ─────────────────
                     try:
                         _dpl.capture_replay_inputs(
@@ -2177,6 +2224,14 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             _rc("VERIFY", "VERIFY_ELAPSED_S",  elapsed, None, "NEUTRAL")
 
         # ── Phase 2: Counterfactual snapshot + Trade record ───────────────────
+        # Stage 9: P2_GATE — write-before-work, before counterfactual capture
+        try:
+            if _chkp and _pipeline_tid:
+                _chkp.chk(_pipeline_tid, "P2_GATE",
+                           {"ticker": ticker, "direction": direction,
+                            "alert_id": alert_id, "p2_ready": _p2_ready}, _DB_URL)
+        except Exception as _s9e:
+            log.warning(f"[exec] checkpoint P2_GATE failed: {_s9e}")
         log.info(f"[exec] [{trace_id}] [P2_GATE] _p2_ready={_p2_ready} direction={direction} alert_id={alert_id}")
         if _p2_ready:
             try:
@@ -2196,6 +2251,14 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             except Exception as _cf_e:
                 log.debug(f"[phase2] counterfactual_snapshot skipped: {_cf_e}")
             try:
+                # Stage 10: P2_CAPTURE — write-before-work, before capture_trade_record
+                try:
+                    if _chkp and _pipeline_tid:
+                        _chkp.chk(_pipeline_tid, "P2_CAPTURE",
+                                   {"ticker": ticker, "alert_id": alert_id,
+                                    "direction": direction}, _DB_URL)
+                except Exception as _s10e:
+                    log.warning(f"[exec] checkpoint P2_CAPTURE failed: {_s10e}")
                 log.info(f"[exec] [{trace_id}] [P2_CAPTURE] calling capture_trade_record alert_id={alert_id} ticker={ticker}")
                 _tr_result = _p2.capture_trade_record(
                     alert_id=alert_id,
@@ -2258,6 +2321,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                     f"[dpl] TRADE decision written trace_id={trace_id} "
                     f"alert_id={alert_id}"
                 )
+                # Stage 11: DECISION_WRITTEN — confirmed write to oe_decision_audit
+                try:
+                    if _chkp and _pipeline_tid:
+                        _chkp.chk(_pipeline_tid, "DECISION_WRITTEN",
+                                   {"ticker": ticker, "direction": "TRADE",
+                                    "alert_id": alert_id,
+                                    "decision_id": _dpl_trade_result.get("decision_id", "")[:16]},
+                                   _DB_URL)
+                except Exception as _s11t_e:
+                    log.warning(f"[exec] checkpoint DECISION_WRITTEN TRADE failed: {_s11t_e}")
                 # ── DPL Phase 3: Replay inputs capture ─────────────────────
                 try:
                     _dpl.capture_replay_inputs(

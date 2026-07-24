@@ -2416,6 +2416,21 @@ def main():
     # it monitors."  Provides automatic recovery without manual intervention.
     def _morning_scan_watchdog():
         import time as _mwt, urllib.request as _mw_req, urllib.error as _mw_err
+        import sys as _mwsys, os as _mwos, uuid as _mwuuid, json as _mwjson
+        _SCHED_DIR = _mwos.path.join(_mwos.path.dirname(_mwos.path.abspath(__file__)),
+                                      "artifacts", "stock-scanner-api")
+        if _SCHED_DIR not in _mwsys.path:
+            _mwsys.path.insert(0, _SCHED_DIR)
+        _mwchkp_local = None
+        try:
+            import aiem_pipeline_checkpoints as _mwchkp_local
+        except Exception as _mwce:
+            log.warning(f"[morning-watchdog] checkpoint module unavailable: {_mwce}")
+
+        def _mw_chk(tid, stage, payload):
+            """Safe checkpoint write — no-op if module unavailable or trace_id missing."""
+            if _mwchkp_local and tid:
+                _mwchkp_local.chk(tid, stage, payload, DATABASE_URL)
         _MW_INTERVAL  = 300    # 5-min polling interval
         _MW_SCAN_URL  = "http://localhost:5055/run-scan"
         _MW_MAX_TRIES = 3
@@ -2462,6 +2477,21 @@ def main():
                             except: pass
                         _mwt.sleep(_MW_INTERVAL)
                         continue
+
+                    # ── Stage 1: WATCHDOG_POLL — write-before-work, before gate checks ──
+                    _mw_trace_id = None
+                    try:
+                        if _mwchkp_local:
+                            _mw_trace_id = _mwchkp_local.get_or_set_trace_id(
+                                today_dt, DATABASE_URL,
+                                new_trace_id=str(_mwuuid.uuid4()))
+                            _mw_chk(_mw_trace_id, "WATCHDOG_POLL", {
+                                "time_et": now_et.isoformat(),
+                                "succeeded_recent": int(_mw_succeeded),
+                                "preds": int(_mw_preds),
+                            })
+                    except Exception as _mwt1e:
+                        log.warning(f"[morning-watchdog] checkpoint WATCHDOG_POLL: {_mwt1e}")
 
                     # ── Gates 1-3: kill switch / daily cap / verification ─────────
                     # All gates must pass before any trigger attempt.
@@ -2555,17 +2585,32 @@ def main():
                         # The watchdog's Gate 2 reads that count as advisory pre-check only.
                         _confirmed = False
                         for _try in range(1, _MW_MAX_TRIES + 1):
+                            _mw_http_status = None
+                            # Stage 2: RUN_SCAN_CALLED — write before HTTP call
+                            _mw_chk(_mw_trace_id, "RUN_SCAN_CALLED",
+                                    {"attempt": _try, "url": _MW_SCAN_URL})
                             try:
-                                _rreq  = _mw_req.Request(_MW_SCAN_URL, data=b"", method="POST")
+                                _mw_post_body = (
+                                    _mwjson.dumps({"trace_id": _mw_trace_id}).encode()
+                                    if _mw_trace_id else b""
+                                )
+                                _rreq  = _mw_req.Request(
+                                    _MW_SCAN_URL, data=_mw_post_body, method="POST")
+                                _rreq.add_header("Content-Type", "application/json")
                                 _rresp = _mw_req.urlopen(_rreq, timeout=15)
+                                _mw_http_status = _rresp.status
                                 log.info(
                                     f"[morning-watchdog] scan triggered "
                                     f"(attempt {_try}/{_MW_MAX_TRIES}), HTTP {_rresp.status}"
                                 )
                             except Exception as _te:
+                                _mw_http_status = getattr(_te, 'code', -1)
                                 log.warning(
                                     f"[morning-watchdog] trigger attempt {_try}: {_te}"
                                 )
+                            # Stage 3: RUN_SCAN_RESPONSE — write after HTTP response
+                            _mw_chk(_mw_trace_id, "RUN_SCAN_RESPONSE",
+                                    {"attempt": _try, "http_status": _mw_http_status})
                             _mwt.sleep(_MW_WAIT_S)
                             try:
                                 _vconn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
