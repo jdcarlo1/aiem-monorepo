@@ -1,0 +1,22 @@
+# Directive — Phase 11 CI/e2e Verification: Close Gaps Before "Closed" Stands
+
+Your §8 "chain closure" claim is REJECTED as stated. Partial evidence only — not PASS per standing rule (PASS requires nothing outstanding).
+
+## Required before re-claiming closure
+
+1. **Commit ancestry proof.** Paste raw `git log --oneline --graph --all | head -50` and `git merge-base --is-ancestor 3bc07095 f10c235 && echo yes || echo no` showing how 3bc07095 (CI trigger) relates to f10c235 (local HEAD). No narrative substitute.
+
+2. **Full file-set cross-check.** §4 lists 5 modified files; §5 only verified 2 against the CI commit. Paste git blob SHA + sha256 for the remaining 3 (`docs/DEFERRED_TESTS.md`, `playwright.config.ts`, `src/test/api-smoke.test.ts`) at BOTH commits, same side-by-side table format as §5.
+
+3. **Evidence-chain script cross-check.** Paste raw sha256sum of the verified_run.sh and verify_chain.sh actually present in this repo, plus their paths. State whether they match last recorded canonical (verified_run.sh=ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836, verify_chain.sh=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f) — if this repo uses different/no copies, say so explicitly, don't omit.
+
+4. **Explain committed test-result artifacts.** `artifacts/aiem-dashboard/e2e/smoke.spec.ts | 48 +++++++++-----` in the same commit as the workflow fix — raw `git show f10c235 -- artifacts/aiem-dashboard/e2e/smoke.spec.ts` to confirm this is source, not generated CI output committed as source.
+
+5. **Explain the 7 skipped tests.** Raw test names + skip reason for each, from actual CI log output — not summarized.
+
+## Standing checklist (applies in full, no abbreviated subset)
+- Raw command output only, no narrative substitutes for any claim above
+- Raw grep/sed for any code-location or behavior claim
+- No deletion/overwrite of any row/file without prior approval
+- If any item can't be backed by real output, say so in one line — no padding
+- Once genuinely closed (all above resolved, nothing outstanding), commit permanent record to /docs/verification/ per standing rule, then restate full Phase 11 verdict
