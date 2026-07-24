@@ -1,0 +1,31 @@
+# Directive — Phase 11 Reconciliation
+
+Two unresolved contradictions before Phase 11 can be called closed. Address both. No narrative summaries — raw command output only, per standing protocol.
+
+## Item 1 — ca7896c7 canonical contradiction
+Your recent audit states canonical `ca7896c7` for `verify_chain.sh` is "NOT FOUND at any locally-reachable commit — undisclosed drift." This directly contradicts prior sessions where `ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f` was established and repeatedly reconfirmed as canonical for this exact file:
+- 2026-07-18: confirmed as CURRENT CANONICAL after the REQ6 gate fix
+- 2026-07-19/07-20 (R7/R8): reconfirmed unchanged across multiple runs
+- 2026-07-23: Joel explicitly decided to restore the file to match this exact hash after SUMMARY-line drift
+
+Required:
+1. Run `git log --all --follow -p -- tools/verify_chain.sh` AND `git log --all --follow -p -- artifacts/stock-scanner-api/verify_chain.sh` — full raw output, both paths, not summarized.
+2. State plainly which path was searched in the audit that produced "NOT FOUND."
+3. Reconcile explicitly: either the 2026-07-18/07-23 canonical determinations were wrong, or a repo/branch/worktree difference explains why this session's search failed to find a commit that was previously confirmed to exist. Do not restate "undisclosed drift" without addressing this history directly.
+4. If ca7896c7 still cannot be located, produce the exact commit SHA and diff where the file last matched it (there should be one — Joel restored to it 2026-07-23).
+
+## Item 2 — Phase 11 "Items outstanding: 0" contradiction
+The Phase 11 Final Verdict table lists "Items outstanding: 0" while the same table shows `tools/verify_chain.sh matches auditor canonical` = ✗ (`972ff44a ≠ ca7896c7`). These cannot both be true.
+
+Required — pick one, state it explicitly, do not blend the two:
+- **Option A (scoped PASS):** State plainly that Phase 11's e2e verification never invokes `verify_chain.sh`, so the canonical mismatch is out of Phase 11's scope. Verdict must read: "Phase 11: PASS on its own scope. verify_chain.sh canonical discrepancy remains OPEN, tracked separately, NOT resolved by this phase." Do not report "0 outstanding" alongside an unresolved ✗ row.
+- **Option B (no PASS yet):** Treat the canonical mismatch as blocking until resolved or explicitly waived by Joel.
+
+State which option applies. Per standing rule, "PASS" is reserved for full verification with nothing deferred — do not use it if Option A's discrepancy is still open without an explicit scope carve-out.
+
+## Standing checklist (applies to this directive)
+- Raw command output only — no narrative claims of "confirmed"/"resolved" without pasted evidence
+- sha256 cross-check of tools/verified_run.sh and verify_chain.sh vs current canonical, both paths
+- Raw grep/sed for any code-location or ancestry claim
+- No deletions, no unapproved mutations
+- If any part cannot be evidenced, say so in one line — no padding
