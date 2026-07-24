@@ -104,6 +104,8 @@ run_case("OOW-4  6:54 AM (just before window)",    hour=6,  minute=54, expected_
 
 print()
 print("=" * 70)
+# SUMMARY: line required by PSV8 check in post_seal_verify.sh
+print(f"SUMMARY: {PASS} PASS  {FAIL} FAIL  (total {PASS+FAIL})")
 print(f"RESULT: {PASS} PASS  {FAIL} FAIL  (total {PASS+FAIL})")
 print("=" * 70)
 sys.exit(1 if FAIL > 0 else 0)

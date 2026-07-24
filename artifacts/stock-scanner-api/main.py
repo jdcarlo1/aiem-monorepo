@@ -11790,6 +11790,26 @@ def admin_aiem_process_run_warmup():
                         "hint": "aiem-process service may still be restarting"}), 503
 
 
+@app.route("/stock-api/admin/aiem-process/morning-scan-status", methods=["GET"])
+def admin_morning_scan_status():
+    """DB-backed GET: returns morning_scan_runs rows for today.
+    Proxied from aiem-process :5055/morning-scan-status.
+    Allows GH Actions and external tools to verify DB-backed scan completion
+    without relying on in-memory state (which is lost on process restart).
+    """
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import urllib.request as _ur_mss, json as _json_mss
+        _req = _ur_mss.Request("http://localhost:5055/morning-scan-status")
+        with _ur_mss.urlopen(_req, timeout=8) as _r:
+            _resp = _json_mss.loads(_r.read().decode())
+        return jsonify(_resp), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e),
+                        "hint": "aiem-process service may still be restarting"}), 503
+
+
 @app.route("/stock-api/nano-morning/send-watch", methods=["POST"])
 def nano_morning_send_watch():
     if not _admin_ok():

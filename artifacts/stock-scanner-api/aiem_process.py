@@ -67,6 +67,40 @@ def _start_process_health_server():
                 with _STATE_LOCK:
                     snap = dict(_LAST_SCAN)
                 body = _json_hs.dumps(snap if snap else {"status": "no_scan_yet"}).encode()
+            elif self.path.startswith("/morning-scan-status"):
+                # DB-backed: returns morning_scan_runs rows for today
+                try:
+                    import psycopg2 as _pg2m
+                    from datetime import date as _dm
+                    _mc = _pg2m.connect(
+                        os.environ.get("DATABASE_URL", ""), connect_timeout=5
+                    )
+                    _mk = _mc.cursor()
+                    _td = _dm.today()
+                    _mk.execute("""
+                        SELECT run_key, scheduled_slot, status, attempt_count,
+                               started_at, completed_at, result_count, error
+                        FROM morning_scan_runs WHERE market_date=%s
+                        ORDER BY scheduled_slot
+                    """, (_td,))
+                    _rows = _mk.fetchall()
+                    _mc.close()
+                    body = _json_hs.dumps({
+                        "date": str(_td),
+                        "slots": [
+                            {
+                                "run_key": r[0], "slot": r[1], "status": r[2],
+                                "attempts": r[3],
+                                "started_at":  str(r[4]) if r[4] else None,
+                                "completed_at": str(r[5]) if r[5] else None,
+                                "result_count": r[6], "error": r[7],
+                            }
+                            for r in _rows
+                        ],
+                        "succeeded_count": sum(1 for r in _rows if r[2] == "SUCCEEDED"),
+                    }).encode()
+                except Exception as _mse:
+                    body = _json_hs.dumps({"error": str(_mse)}).encode()
             else:
                 body = b'{"status":"ok"}'
             self.send_response(200)
@@ -1791,88 +1825,189 @@ def main():
             return
         now_mins = now_et.hour * 60 + now_et.minute
 
-        # ── PREMARKET PROTECTION WINDOW — hard block, NOT a comment ────────────
-        # If a restart happens between 6:55 AM and 9:45 AM ET, the scheduled
-        # 7:00–9:15 AM scan jobs will write predictions at the next 15-min slot
-        # (max 15-min gap). The GH Actions premarket-backup.yml fires every 10 min
-        # as an additional failsafe. The catchup's DELETE+INSERT on
-        # aiem_process_predictions MUST NOT run during this window — doing so
-        # would overwrite predictions written by the production process's own
-        # scheduled jobs, or race with them.
-        # This gate holds even if someone manually restarts the workflow.
-        # Proven by: negative control (8:30 AM → STARTUP-BLOCKED in log),
-        #            positive control (10:30 AM → no block, catchup proceeds).
-        _PREMARKET_BLOCK_START = 6 * 60 + 55   # 6:55 AM ET
-        _PREMARKET_BLOCK_END   = 9 * 60 + 45   # 9:45 AM ET
-        if _PREMARKET_BLOCK_START <= now_mins <= _PREMARKET_BLOCK_END:
-            log.warning(
-                f"[catchup] STARTUP-BLOCKED — restart at "
-                f"{now_et.strftime('%I:%M %p ET')} is inside premarket "
-                f"protection window (6:55–9:45 AM ET). "
-                f"aiem_process_predictions will NOT be deleted or overwritten. "
-                f"Scheduler resumes at next 15-min scan slot; "
-                f"GH Actions premarket-backup.yml fires every 10 min as failsafe."
-            )
+        # ── Slot-aware idempotent catchup ──────────────────────────────────────
+        # NO STARTUP BLOCK: startup during the premarket window is safe because
+        # this function checks whether predictions already exist before running.
+        # Rules:
+        # - Does NOT delete predictions if a SUCCEEDED morning_scan_runs slot exists.
+        # - Uses PostgreSQL advisory lock to prevent race with GH Actions/watchdog.
+        # - Writes to morning_scan_runs before and after execution for full audit.
+        # - If morning_scan_runs is unavailable, fails open (scan still runs if needed).
+
+        # Run from 6:50 AM to 3:30 PM ET on trading days
+        if not (6*60 + 50 <= now_mins <= 15*60 + 30):
             return
 
-        # Only run between 9:00 AM and 3:30 PM ET
-        if not (540 <= now_mins <= 930):
-            return
-
-        # Check whether today's predictions already exist
         today = now_et.date()
+        today_str = today.isoformat()
+        _LOCK_KEY = 987654321   # advisory lock key, reserved for morning catchup
+
+        # Ensure morning_scan_runs table exists (idempotent CREATE IF NOT EXISTS)
         try:
-            conn = _db()
-            cur  = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date = %s", (today,))
-            pred_count = cur.fetchone()[0]
-            cur.execute(
-                "SELECT 1 FROM signal_fire_log WHERE fire_date=%s AND signal_name='AIEM_OPEN_ALERT' AND ticker='DAILY_SUMMARY'",
+            _c0 = _db(); _k0 = _c0.cursor()
+            _k0.execute("""
+                CREATE TABLE IF NOT EXISTS morning_scan_runs (
+                    id              SERIAL PRIMARY KEY,
+                    run_key         TEXT UNIQUE NOT NULL,
+                    job_name        TEXT NOT NULL,
+                    market_date     DATE NOT NULL,
+                    scheduled_slot  TEXT NOT NULL,
+                    owner           TEXT NOT NULL DEFAULT 'unknown',
+                    lease_expires_at TIMESTAMPTZ,
+                    attempt_count   INTEGER NOT NULL DEFAULT 0,
+                    started_at      TIMESTAMPTZ,
+                    completed_at    TIMESTAMPTZ,
+                    status          TEXT NOT NULL DEFAULT 'PENDING',
+                    error           TEXT,
+                    result_count    INTEGER,
+                    created_at      TIMESTAMPTZ DEFAULT NOW(),
+                    CONSTRAINT morning_scan_runs_slot_uq
+                        UNIQUE (job_name, market_date, scheduled_slot)
+                )
+            """)
+            _c0.commit(); _c0.close()
+        except Exception as _e0:
+            log.warning(f"[catchup] morning_scan_runs init: {_e0}")
+
+        # Check current DB state: SUCCEEDED slots, predictions count, alert fired
+        try:
+            _c1 = _db(); _k1 = _c1.cursor()
+            _k1.execute("""
+                SELECT COUNT(*) FROM morning_scan_runs
+                WHERE job_name='premarket_scan' AND market_date=%s AND status='SUCCEEDED'
+            """, (today,))
+            _succeeded = _k1.fetchone()[0]
+            _k1.execute(
+                "SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date=%s",
                 (today,)
             )
-            already_fired = bool(cur.fetchone())
-            conn.close()
-        except Exception as e:
-            log.warning(f"[catchup] DB check failed: {e} — skipping catchup")
+            _pred_count = _k1.fetchone()[0]
+            _k1.execute(
+                "SELECT 1 FROM signal_fire_log "
+                "WHERE fire_date=%s AND signal_name='AIEM_OPEN_ALERT' AND ticker='DAILY_SUMMARY'",
+                (today,)
+            )
+            _already_fired = bool(_k1.fetchone())
+            _c1.close()
+        except Exception as _e1:
+            log.warning(f"[catchup] DB state check: {_e1} — skipping")
             return
 
-        if already_fired:
+        if _already_fired:
             log.info("[catchup] today's open alert already sent — nothing to do")
             return
 
-        # ── Scenario C / A: predictions table is empty — run warmup+premarket ──
-        if pred_count == 0:
-            log.info(f"[catchup] No predictions for today at {now_et.strftime('%H:%M ET')} — "
-                     f"running emergency warmup + premarket scan now")
-            try:
-                aiem_warmup()
-            except Exception as e:
-                log.error(f"[catchup] warmup error: {e}")
-            try:
-                aiem_premarket_scan()
-            except Exception as e:
-                log.error(f"[catchup] premarket_scan error: {e}")
-            # Re-check — if scan produced predictions, fall through to open_watcher
-            try:
-                conn2 = _db()
-                cur2  = conn2.cursor()
-                cur2.execute("SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date=%s", (today,))
-                pred_count = cur2.fetchone()[0]
-                conn2.close()
-            except Exception:
-                pass
-            log.info(f"[catchup] After emergency scan: {pred_count} predictions ready")
+        # Preserve existing data: SUCCEEDED slot + predictions → do not overwrite
+        if _succeeded > 0 and _pred_count > 0:
+            log.info(
+                f"[catchup] {_succeeded} SUCCEEDED slot(s), {_pred_count} predictions intact — "
+                f"skipping emergency scan to preserve existing data"
+            )
+            if 9*60 + 30 <= now_mins <= 15*60 + 30:
+                log.info(f"[catchup] Firing open_watcher at {now_et.strftime('%H:%M ET')}")
+                try:
+                    aiem_open_watcher()
+                except Exception as _ow0:
+                    log.error(f"[catchup] open_watcher error: {_ow0}")
+            return
 
-        # ── Scenario B / C follow-through: fire open_watcher if in open window ──
-        if 570 <= now_mins <= 930:   # 9:30 AM – 3:30 PM
+        # Before warmup window (6:55 AM): nothing to do yet
+        if now_mins < 6*60 + 55:
+            log.info(f"[catchup] Before 6:55 AM warmup window — returning")
+            return
+
+        # Acquire PostgreSQL advisory lock (prevents race with GH Actions / watchdog)
+        _lconn = None; _lheld = False
+        try:
+            _lconn = _db(); _lcur = _lconn.cursor()
+            _lcur.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_KEY,))
+            _lheld = _lcur.fetchone()[0]
+        except Exception as _le:
+            log.warning(f"[catchup] advisory lock: {_le}")
+
+        if not _lheld:
+            if _lconn:
+                try: _lconn.close()
+                except: pass
+            log.info("[catchup] advisory lock held by another executor — skipping")
+            return
+
+        # Claim this slot in morning_scan_runs (ON CONFLICT: reclaim if stale/failed)
+        _slot_str = now_et.strftime("%H:%M")
+        _run_key  = f"premarket_scan:{today_str}:{_slot_str}"
+        try:
+            _lcur.execute("""
+                INSERT INTO morning_scan_runs
+                    (run_key, job_name, market_date, scheduled_slot, owner,
+                     status, started_at, lease_expires_at, attempt_count)
+                VALUES (%s,'premarket_scan',%s,%s,'aiem-process-startup',
+                        'RUNNING',NOW(),NOW()+INTERVAL '10 minutes',1)
+                ON CONFLICT (run_key) DO UPDATE
+                    SET status='RUNNING', started_at=NOW(),
+                        lease_expires_at=NOW()+INTERVAL '10 minutes',
+                        attempt_count=morning_scan_runs.attempt_count+1,
+                        owner='aiem-process-startup'
+                    WHERE morning_scan_runs.status IN ('PENDING','FAILED')
+                       OR morning_scan_runs.lease_expires_at < NOW()
+            """, (_run_key, today, _slot_str))
+            _lconn.commit()
+        except Exception as _ce:
+            log.warning(f"[catchup] lease claim: {_ce}")
+
+        log.info(
+            f"[catchup] {_pred_count} predictions / {_succeeded} SUCCEEDED slots for {today_str} "
+            f"at {now_et.strftime('%H:%M ET')} — running warmup + premarket scan "
+            f"(run_key={_run_key})"
+        )
+
+        _scan_err = None; _result_n = 0
+        try:
+            aiem_warmup()
+        except Exception as _we:
+            log.error(f"[catchup] warmup: {_we}"); _scan_err = str(_we)
+        try:
+            _result_n = aiem_premarket_scan() or 0
+        except Exception as _se:
+            log.error(f"[catchup] premarket_scan: {_se}"); _scan_err = str(_se)
+
+        # Release advisory lock
+        try:
+            _lcur.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_KEY,))
+            _lconn.commit(); _lconn.close()
+        except Exception as _ule:
+            log.warning(f"[catchup] lock release: {_ule}")
+            try: _lconn.close()
+            except: pass
+
+        # Update morning_scan_runs with final status
+        try:
+            _c2 = _db(); _k2 = _c2.cursor()
+            _k2.execute(
+                "SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date=%s",
+                (today,)
+            )
+            _final_n = _k2.fetchone()[0]
+            _fin_st  = "SUCCEEDED" if _final_n > 0 else "FAILED"
+            _k2.execute("""
+                UPDATE morning_scan_runs
+                SET status=%s, completed_at=NOW(), result_count=%s, error=%s
+                WHERE run_key=%s
+            """, (_fin_st, _final_n, _scan_err, _run_key))
+            _c2.commit(); _c2.close()
+            log.info(f"[catchup] {_run_key} → {_fin_st} ({_final_n} predictions)")
+        except Exception as _upe:
+            log.warning(f"[catchup] status update: {_upe}")
+
+        # Fire open_watcher if in open window
+        if 9*60 + 30 <= now_mins <= 15*60 + 30:
             log.info(f"[catchup] Firing open_watcher at {now_et.strftime('%H:%M ET')}")
             try:
                 aiem_open_watcher()
-            except Exception as e:
-                log.error(f"[catchup] open_watcher error: {e}")
+            except Exception as _ow2:
+                log.error(f"[catchup] open_watcher: {_ow2}")
         else:
-            log.info(f"[catchup] Pre-open catchup done at {now_et.strftime('%H:%M ET')} — "
-                     f"open_watcher will fire at 9:30 AM via scheduler")
+            log.info(f"[catchup] Pre-open done at {now_et.strftime('%H:%M ET')} — "
+                     f"open_watcher scheduled at 9:30 AM")
 
     import threading as _ct
     _ct.Thread(target=_startup_full_catchup, daemon=True, name="startup-full-catchup").start()
@@ -1935,22 +2070,12 @@ def main():
                   CronTrigger(day_of_week="mon-fri", hour=18, minute=0, timezone=ET),
                   id="aiem_nightly_learn", replace_existing=True)
 
-    def _nightly_process_reset():
-        import os as _o, gc as _gc
-        _is_prod = _o.environ.get("REPLIT_DEPLOYMENT") == "1"
-        if _is_prod:
-            log.info("[NIGHTLY-RESET] 3:02 AM ET — production mode: running gc.collect() "
-                     "instead of exit (exit triggers crash loop on deployment platform)")
-            _gc.collect()
-        else:
-            log.info("[NIGHTLY-RESET] 3:02 AM ET scheduled memory reset — exiting cleanly for platform restart")
-            import sys as _s; _s.stdout.flush()
-            _o._exit(0)
-
-    sched.add_job(_nightly_process_reset,
-                  CronTrigger(hour=3, minute=2),
-                  id="aiem_process_nightly_reset", replace_existing=True)
-    log.info("[nightly-reset] 3:02 AM ET daily memory reset scheduled for aiem-process")
+    # NIGHTLY SELF-EXIT REMOVED (root cause of five consecutive morning failures).
+    # os._exit(0) at 3:02 AM caused Replit to fail restarting the process for
+    # 3–6 hours on multiple days. The process now stays alive continuously.
+    # Recovery is handled by: GH Actions (every 5 min), the aiem-telegram morning
+    # watchdog (every 5 min 6:50–10:00 AM ET), and the existing aiem-process watchdog.
+    log.info("[nightly-reset] self-exit REMOVED — process stays alive continuously")
 
     # ── Deep-ITM Options Probability scan (AIEM-owned, fully independent) ───
     # Full ~6,635-ticker options-active universe, pre-filtered to

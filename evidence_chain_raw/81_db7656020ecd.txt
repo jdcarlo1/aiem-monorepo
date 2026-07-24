@@ -1,0 +1,90 @@
+======================================================================
+CONTROL TEST: _startup_full_catchup() premarket protection guard
+======================================================================
+WARNING [catchup] STARTUP-BLOCKED — restart at 06:55 AM ET is inside premarket protection window (6:55–9:45 AM ET). aiem_process_predictions will NOT be deleted or overwritten. Scheduler resumes at next 15-min scan slot; GH Actions premarket-backup.yml fires every 10 min as failsafe.
+
+PASS  [NEG-1  6:55 AM (window boundary)]
+       time      : 06:55 AM ET (415 mins)
+       expected  : BLOCKED
+       got       : BLOCKED  ✓
+WARNING [catchup] STARTUP-BLOCKED — restart at 07:00 AM ET is inside premarket protection window (6:55–9:45 AM ET). aiem_process_predictions will NOT be deleted or overwritten. Scheduler resumes at next 15-min scan slot; GH Actions premarket-backup.yml fires every 10 min as failsafe.
+
+PASS  [NEG-2  7:00 AM (early premarket)]
+       time      : 07:00 AM ET (420 mins)
+       expected  : BLOCKED
+       got       : BLOCKED  ✓
+WARNING [catchup] STARTUP-BLOCKED — restart at 08:30 AM ET is inside premarket protection window (6:55–9:45 AM ET). aiem_process_predictions will NOT be deleted or overwritten. Scheduler resumes at next 15-min scan slot; GH Actions premarket-backup.yml fires every 10 min as failsafe.
+
+PASS  [NEG-3  8:30 AM (mid-premarket)]
+       time      : 08:30 AM ET (510 mins)
+       expected  : BLOCKED
+       got       : BLOCKED  ✓
+WARNING [catchup] STARTUP-BLOCKED — restart at 09:00 AM ET is inside premarket protection window (6:55–9:45 AM ET). aiem_process_predictions will NOT be deleted or overwritten. Scheduler resumes at next 15-min scan slot; GH Actions premarket-backup.yml fires every 10 min as failsafe.
+
+PASS  [NEG-4  9:00 AM (transition)]
+       time      : 09:00 AM ET (540 mins)
+       expected  : BLOCKED
+       got       : BLOCKED  ✓
+WARNING [catchup] STARTUP-BLOCKED — restart at 09:30 AM ET is inside premarket protection window (6:55–9:45 AM ET). aiem_process_predictions will NOT be deleted or overwritten. Scheduler resumes at next 15-min scan slot; GH Actions premarket-backup.yml fires every 10 min as failsafe.
+
+PASS  [NEG-5  9:30 AM (market open)]
+       time      : 09:30 AM ET (570 mins)
+       expected  : BLOCKED
+       got       : BLOCKED  ✓
+WARNING [catchup] STARTUP-BLOCKED — restart at 09:44 AM ET is inside premarket protection window (6:55–9:45 AM ET). aiem_process_predictions will NOT be deleted or overwritten. Scheduler resumes at next 15-min scan slot; GH Actions premarket-backup.yml fires every 10 min as failsafe.
+
+PASS  [NEG-6  9:44 AM (window boundary -1min)]
+       time      : 09:44 AM ET (584 mins)
+       expected  : BLOCKED
+       got       : BLOCKED  ✓
+WARNING [catchup] STARTUP-BLOCKED — restart at 09:45 AM ET is inside premarket protection window (6:55–9:45 AM ET). aiem_process_predictions will NOT be deleted or overwritten. Scheduler resumes at next 15-min scan slot; GH Actions premarket-backup.yml fires every 10 min as failsafe.
+
+PASS  [NEG-7  9:45 AM (window boundary end)]
+       time      : 09:45 AM ET (585 mins)
+       expected  : BLOCKED
+       got       : BLOCKED  ✓
+
+PASS  [POS-1  9:46 AM (just after window)]
+       time      : 09:46 AM ET (586 mins)
+       expected  : PROCEED
+       got       : PROCEED  ✓
+
+PASS  [POS-2 10:30 AM (normal market hours)]
+       time      : 10:30 AM ET (630 mins)
+       expected  : PROCEED
+       got       : PROCEED  ✓
+
+PASS  [POS-3 13:00 PM (afternoon)]
+       time      : 01:00 PM ET (780 mins)
+       expected  : PROCEED
+       got       : PROCEED  ✓
+
+PASS  [POS-4  3:30 PM (last slot)]
+       time      : 03:30 PM ET (930 mins)
+       expected  : PROCEED
+       got       : PROCEED  ✓
+
+PASS  [OOW-1  6:00 AM (before warmup)]
+       time      : 06:00 AM ET (360 mins)
+       expected  : SKIP_OUTSIDE_WINDOW
+       got       : SKIP_OUTSIDE_WINDOW  ✓
+
+PASS  [OOW-2  4:00 AM (deep night)]
+       time      : 04:00 AM ET (240 mins)
+       expected  : SKIP_OUTSIDE_WINDOW
+       got       : SKIP_OUTSIDE_WINDOW  ✓
+
+PASS  [OOW-3  3:31 PM (after close)]
+       time      : 03:31 PM ET (931 mins)
+       expected  : SKIP_OUTSIDE_WINDOW
+       got       : SKIP_OUTSIDE_WINDOW  ✓
+
+PASS  [OOW-4  6:54 AM (just before window)]
+       time      : 06:54 AM ET (414 mins)
+       expected  : SKIP_OUTSIDE_WINDOW
+       got       : SKIP_OUTSIDE_WINDOW  ✓
+
+======================================================================
+SUMMARY: 15 PASS  0 FAIL  (total 15)
+RESULT: 15 PASS  0 FAIL  (total 15)
+======================================================================

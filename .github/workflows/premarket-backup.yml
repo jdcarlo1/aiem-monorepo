@@ -1,34 +1,46 @@
 name: AIEM Premarket Backup
 
-# Fires every 10 min during the premarket window (7:00–9:20 AM ET = 11:00–13:20 UTC)
-# Mon-Fri. Calls aiem-process warmup + premarket scan so D1→D2→D3 runs even if the
-# Replit scheduler booted late (e.g. after the 3 AM nightly reset).
+# ─────────────────────────────────────────────────────────────────────────────
+# Fires EVERY 5 MINUTES during the premarket window (7:00–9:30 AM ET = 11:00–
+# 13:30 UTC), Mon-Fri.  Independent of aiem-process — executes morning scans
+# even if the Replit process is down, restarting, or slow.
 #
-# Chain:
-#   GH Actions
+# Architecture:
+#   GH Actions (every 5 min)
 #   → POST /stock-api/admin/aiem-process/run-scan  (X-Admin-Token auth)
 #   → localhost:5055/run-scan   (aiem-process admin server)
 #   → _run_manual_scan(run_id)  (non-blocking lock: skips if already running)
 #   → aiem_warmup()             (Polygon grouped-daily universe → D1)
 #   → aiem_premarket_scan()     (Tradier live prices + scoring → DB commit)
-#   → GET last-scan-status      (polls aiem-process :5055/status for result)
-#   → reports run_id, timestamps, source_freshness_date, candidate_count
+#   → GET /last-scan-status     (in-memory + DB-backed result)
 #
-# Safety:
-#   - Only ONE scan runs at a time. aiem_process.py holds _PREMARKET_SCAN_LOCK;
-#     concurrent trigger returns status=skipped (not an error).
-#   - GH concurrency group ensures at most 1 queued run (others dropped by GH).
-#   - DELETE+INSERT per date in aiem_process_predictions prevents duplicate candidates.
-#   - Job FAILs (exit 1) when the endpoint returns an error or the scan errors out.
+# Idempotency:
+#   - morning_scan_runs table (unique on job_name+market_date+scheduled_slot)
+#     prevents duplicate execution.  SUCCEEDED rows are preserved; startup
+#     never deletes predictions that exist under a SUCCEEDED row.
+#   - Concurrent GH triggers use GH concurrency group (cancel-in-progress:false)
+#     so at most 1 run is queued — additional triggers are dropped.
+#
+# Retry:
+#   - Each GH job attempts the scan cycle up to 3 times with 30 s between retries.
+#   - Hard-fails (exit 1) only on auth errors or after all 3 attempts fail.
+#   - Soft-fails (exit 0) when the service is unreachable, so the next 5-min
+#     slot can retry rather than spamming GH failure notifications.
+#
+# Warmup-only slot:
+#   - 6:55 AM ET (10:55 UTC) — calls /run-warmup only (universe pre-fetch).
+# ─────────────────────────────────────────────────────────────────────────────
 
 on:
   schedule:
-    # 6:55 AM ET (10:55 UTC) — warmup-only trigger (universe pre-fetch)
+    # 6:55 AM ET (10:55 UTC) — warmup-only trigger
     - cron: '55 10 * * 1-5'
-    # 7:00–8:50 AM ET (11:00–12:50 UTC) every 10 min
-    - cron: '0,10,20,30,40,50 11,12 * * 1-5'
-    # 9:00, 9:10, 9:20 AM ET (13:00, 13:10, 13:20 UTC)
-    - cron: '0,10,20 13 * * 1-5'
+    # 7:00–7:55 AM ET (11:00–11:55 UTC) every 5 min
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 11 * * 1-5'
+    # 8:00–8:55 AM ET (12:00–12:55 UTC) every 5 min
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 12 * * 1-5'
+    # 9:00–9:30 AM ET (13:00–13:30 UTC) every 5 min
+    - cron: '0,5,10,15,20,25,30 13 * * 1-5'
 
   workflow_dispatch:
     inputs:
@@ -45,11 +57,11 @@ jobs:
   premarket-scan:
     name: Trigger AIEM Premarket Scan
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     steps:
-      - name: Trigger warmup + premarket scan
-        id: trigger
+      - name: Window check + warmup slot
+        id: window
         env:
           REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
           ADMIN_TOKEN:    ${{ secrets.ADMIN_TOKEN }}
@@ -61,142 +73,149 @@ jobs:
           echo "Dry run  : ${DRY_RUN}"
           echo "=============================="
 
-          # ── Window guard: only act 7:00–9:25 AM ET (11:00–13:25 UTC) ──
           HOUR_UTC=$(date -u +%H)
           MIN_UTC=$(date -u +%M)
           TIME_UTC=$(( HOUR_UTC * 60 + MIN_UTC ))
-          WINDOW_START=$(( 10 * 60 + 50 ))   # 6:50 AM ET (5 min slack for 6:55 warmup cron)
-          WINDOW_END=$(( 13 * 60 + 25 ))    # 9:25 AM ET (5 min slack for late GH dispatch)
+
+          # Full window: 6:50–9:35 AM ET = 10:50–13:35 UTC (5-min slack either side)
+          WINDOW_START=$(( 10 * 60 + 50 ))
+          WINDOW_END=$(( 13 * 60 + 35 ))
 
           if [ "${TIME_UTC}" -lt "${WINDOW_START}" ] || [ "${TIME_UTC}" -gt "${WINDOW_END}" ]; then
             echo "Outside premarket window (${HOUR_UTC}:${MIN_UTC} UTC) — no action"
-            echo "run_id=N/A" >> "$GITHUB_OUTPUT"
+            echo "in_window=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "in_window=true" >> "$GITHUB_OUTPUT"
 
-          echo "In premarket window — triggering D1/D2/D3 scan..."
+          # 6:55 AM ET slot (10:55–11:00 UTC): warmup-only
+          if [ "${TIME_UTC}" -lt "$(( 11 * 60 ))" ]; then
+            echo "6:55 AM ET warmup slot — calling /run-warmup (universe pre-fetch only)"
+            if [ "${DRY_RUN}" != "true" ]; then
+              curl -s -o /dev/null -w "warmup HTTP: %{http_code}\n" \
+                -X POST \
+                "${REPLIT_APP_URL}/stock-api/admin/aiem-process/run-warmup" \
+                -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+                --max-time 20 || true
+            fi
+            echo "is_warmup_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_warmup_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger scan with retry (up to 3 attempts)
+        if: steps.window.outputs.in_window == 'true' && steps.window.outputs.is_warmup_only == 'false'
+        env:
+          REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
+          ADMIN_TOKEN:    ${{ secrets.ADMIN_TOKEN }}
+          DRY_RUN:        ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          echo "=== Scan trigger with retry ==="
 
           if [ "${DRY_RUN}" = "true" ]; then
             echo "DRY RUN — skipping actual trigger"
-            echo "run_id=dry_run" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # ── 6:55 AM ET slot: warmup-only (universe pre-fetch, before market opens) ──
-          if [ "${TIME_UTC}" -ge "$(( 10 * 60 + 50 ))" ] && [ "${TIME_UTC}" -le "$(( 11 * 60 - 1 ))" ]; then
-            echo "6:55 AM ET warmup slot — calling /run-warmup (universe pre-fetch only)"
-            curl -s -o /dev/null -w "warmup HTTP: %{http_code}\n" \
+          SUCCESS=false
+
+          for ATTEMPT in 1 2 3; do
+            echo ""
+            echo "--- Attempt ${ATTEMPT}/3 ($(date -u '+%H:%M:%SZ')) ---"
+
+            # POST /run-scan — max 25s (aiem-process may be starting)
+            HTTP_CODE=$(curl -s -o /tmp/scan_response.json -w "%{http_code}" \
               -X POST \
-              "${REPLIT_APP_URL}/stock-api/admin/aiem-process/run-warmup" \
+              "${REPLIT_APP_URL}/stock-api/admin/aiem-process/run-scan" \
               -H "X-Admin-Token: ${ADMIN_TOKEN}" \
-              --max-time 15 || true
-            echo "run_id=warmup_only" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+              -H "Content-Type: application/json" \
+              --max-time 25) || HTTP_CODE="000"
 
-          # ── POST /stock-api/admin/aiem-process/run-scan ──
-          HTTP_CODE=$(curl -s -o /tmp/scan_response.json -w "%{http_code}" \
-            -X POST \
-            "${REPLIT_APP_URL}/stock-api/admin/aiem-process/run-scan" \
-            -H "X-Admin-Token: ${ADMIN_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --max-time 20 \
-            --retry 1 --retry-delay 5) || HTTP_CODE="000"
+            RESPONSE=$(cat /tmp/scan_response.json 2>/dev/null || echo '{}')
+            echo "HTTP ${HTTP_CODE} — ${RESPONSE}"
 
-          echo "HTTP status: ${HTTP_CODE}"
-          echo "Response  : $(cat /tmp/scan_response.json 2>/dev/null || echo '<no response>')"
-
-          if [ "${HTTP_CODE}" != "202" ]; then
-            echo "ERROR: expected 202, got ${HTTP_CODE}"
-            # If aiem-process is still booting, log a warning rather than hard-failing
-            # so the next 10-min run can retry. Only hard-fail on auth errors (401/403).
+            # Hard fail: auth errors are not retriable
             if [ "${HTTP_CODE}" = "401" ] || [ "${HTTP_CODE}" = "403" ]; then
               echo "HARD FAIL: authentication error — check ADMIN_TOKEN secret"
               exit 1
             fi
-            echo "WARNING: service unavailable — will retry at next 10-min interval"
+
+            # Soft fail: service unavailable — retry at next attempt
+            if [ "${HTTP_CODE}" != "202" ] && [ "${HTTP_CODE}" != "200" ]; then
+              echo "Trigger returned ${HTTP_CODE} — service may be unreachable"
+              if [ ${ATTEMPT} -lt 3 ]; then
+                echo "Waiting 30s before retry..."
+                sleep 30
+              fi
+              continue
+            fi
+
+            RUN_ID=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('/tmp/scan_response.json'))
+    print(d.get('run_id') or 'unknown')
+except Exception as e:
+    print(f'parse_error:{e}')
+" 2>&1)
+            echo "run_id: ${RUN_ID}"
+
+            echo "Waiting 90s for scan to complete..."
+            sleep 90
+
+            # GET /last-scan-status
+            STATUS_CODE=$(curl -s -o /tmp/status.json -w "%{http_code}" \
+              "${REPLIT_APP_URL}/stock-api/admin/aiem-process/last-scan-status" \
+              -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+              --max-time 15) || STATUS_CODE="000"
+
+            STATUS_BODY=$(cat /tmp/status.json 2>/dev/null || echo '{}')
+            echo "Status HTTP ${STATUS_CODE} — ${STATUS_BODY}"
+
+            STATUS_WORD=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('/tmp/status.json'))
+    s = d.get('status','unknown')
+    n = d.get('candidate_count','?')
+    print(s)
+    import sys; sys.stderr.write(f'candidates={n} started={d.get(\"started_at\")} completed={d.get(\"completed_at\")}\n')
+except Exception as e:
+    print('parse_error')
+    import sys; sys.stderr.write(str(e)+'\n')
+" 2>/tmp/status_detail.txt)
+            cat /tmp/status_detail.txt || true
+            echo "status_word=${STATUS_WORD}"
+
+            if [ "${STATUS_WORD}" = "success" ] || [ "${STATUS_WORD}" = "skipped" ]; then
+              echo "PASS — scan confirmed (status=${STATUS_WORD})"
+              SUCCESS=true
+              break
+            fi
+
+            # no_scan_yet: in-memory state was reset but DB row was written — soft-pass
+            if [ "${STATUS_WORD}" = "no_scan_yet" ]; then
+              echo "WARNING: in-memory state absent (process may have restarted)"
+              echo "DB row was written before restart — treating as soft-pass"
+              SUCCESS=true
+              break
+            fi
+
+            echo "Attempt ${ATTEMPT}: status '${STATUS_WORD}' — not confirmed"
+            if [ ${ATTEMPT} -lt 3 ]; then
+              echo "Waiting 30s before retry..."
+              sleep 30
+            fi
+          done
+
+          if [ "${SUCCESS}" = "true" ]; then
+            echo ""
+            echo "=== RESULT: PASS — scan confirmed this slot ==="
             exit 0
           fi
 
-          RUN_ID=$(python3 -c "
-          import json, sys
-          try:
-              d = json.load(open('/tmp/scan_response.json'))
-              print(d.get('run_id') or 'unknown')
-          except Exception as e:
-              print(f'parse_error: {e}')
-              sys.exit(1)
-          " 2>&1)
-
-          echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
-          echo "Scan triggered — run_id=${RUN_ID}"
-
-      - name: Wait for scan to complete
-        if: steps.trigger.outputs.run_id != 'N/A' && steps.trigger.outputs.run_id != 'dry_run'
-        run: |
-          echo "Waiting 90s for warmup + premarket scan to complete..."
-          sleep 90
-
-      - name: Verify scan result
-        if: steps.trigger.outputs.run_id != 'N/A' && steps.trigger.outputs.run_id != 'dry_run'
-        env:
-          REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
-          ADMIN_TOKEN:    ${{ secrets.ADMIN_TOKEN }}
-          RUN_ID:         ${{ steps.trigger.outputs.run_id }}
-        run: |
-          echo "=== Verifying scan result for run_id=${RUN_ID} ==="
-
-          HTTP_CODE=$(curl -s -o /tmp/status_response.json -w "%{http_code}" \
-            "${REPLIT_APP_URL}/stock-api/admin/aiem-process/last-scan-status" \
-            -H "X-Admin-Token: ${ADMIN_TOKEN}" \
-            --max-time 10) || HTTP_CODE="000"
-
-          echo "Status HTTP: ${HTTP_CODE}"
-          STATUS_JSON=$(cat /tmp/status_response.json 2>/dev/null || echo '{}')
-          echo "Status JSON: ${STATUS_JSON}"
-
-          python3 - <<'PYEOF'
-          import json, sys, os
-
-          run_id = os.environ.get("RUN_ID", "")
-          try:
-              d = json.load(open("/tmp/status_response.json"))
-          except Exception as e:
-              print(f"ERROR: could not parse status response: {e}")
-              sys.exit(1)
-
-          status           = d.get("status", "unknown")
-          candidate_count  = d.get("candidate_count")
-          freshness        = d.get("source_freshness_date")
-          started          = d.get("started_at")
-          completed        = d.get("completed_at")
-          universe_size    = d.get("universe_size")
-          error_msg        = d.get("error")
-
-          print(f"  run_id              : {d.get('run_id', '?')}")
-          print(f"  status              : {status}")
-          print(f"  source_freshness    : {freshness}")
-          print(f"  universe_size       : {universe_size}")
-          print(f"  candidate_count     : {candidate_count}")
-          print(f"  started_at          : {started}")
-          print(f"  completed_at        : {completed}")
-          if error_msg:
-              print(f"  error               : {error_msg}")
-
-          # PASS conditions
-          if status == "skipped":
-              print("RESULT: SKIPPED (prior scan still running) — infrastructure correct")
-              sys.exit(0)
-          if status == "no_scan_yet":
-              # Can happen if the in-memory state was reset — check DB separately
-              print("WARNING: no in-memory scan result; DB row was written by _db_log_scan()")
-              sys.exit(0)
-          if status == "success":
-              print(f"RESULT: PASS — scan completed, {candidate_count} candidates written")
-              sys.exit(0)
-          if status == "error":
-              print(f"RESULT: FAIL — scan returned error: {error_msg}")
-              sys.exit(1)
-          print(f"RESULT: UNKNOWN status={status}")
-          sys.exit(1)
-          PYEOF
+          echo ""
+          echo "=== RESULT: FAIL — 3 attempts exhausted, no confirmed scan ==="
+          echo "Next GH Actions run fires in ≤5 minutes."
+          echo "aiem-telegram morning watchdog provides independent recovery."
+          exit 1

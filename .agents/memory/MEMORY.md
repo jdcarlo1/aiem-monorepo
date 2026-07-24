@@ -1,3 +1,5 @@
+- [Morning scan architecture overhaul](morning-scan-overhaul.md) — RC-1=3:02AM self-exit removed; RC-2=6:55-9:45 block removed; morning_scan_runs+advisory-lock+watchdog; live proof deferred to 2026-07-25
+- [verified_run.sh quoting rule](verified-run-quoting-rule.md) — single quoted command string required; bare multi-arg invocation silently uses only $1 → empty archive → PSV8 fails
 - [Morning VM-restart outage fix](morning-restart-outage-fix.md) — aiem_process_heartbeat table + 3-min writer; /run-warmup on :5055; /run-seed on :5053; proxies in main.py; GH Actions at 6:55 AM + 9:40/9:50 AM ET
 - [Phase 11 — OPS + Dashboard verification](phase11-ops-dashboard.md) — FINAL: /readyz+/metrics added; Vitest 38/38 PASS 0 TODO; 36 PW tests (29 active+7 skip); GH Actions CI workflow created; prod build+typecheck PASS
 - [verifier psycopg2 LIKE bug](verifier-psycopg2-like-bug.md) — psycopg2 with LIKE '%%' in SQL crashes with IndexError when passed params=(); fix: only call cur.execute(sql, params) when params is truthy

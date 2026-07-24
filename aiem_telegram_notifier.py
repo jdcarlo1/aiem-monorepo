@@ -2405,7 +2405,132 @@ def main():
                      name="aiem-process-watchdog").start()
     # ────────────────────────────────────────────────────────────────────────
 
-    # ── Protection #5: external paper trade watchdog ─────────────────────────
+    # ── Protection #6: independent morning scan watchdog ─────────────────────
+    # Runs in THIS process (aiem-telegram, separate from aiem-process).
+    # Every 5 min from 6:50–10:00 AM ET on trading days:
+    #   1. Checks morning_scan_runs for a SUCCEEDED slot in the last 25 min.
+    #   2. If missing and time >= 7:00 AM: triggers localhost:5055/run-scan.
+    #   3. Retries up to 3 times (90s wait between).
+    #   4. Sends Telegram only after 3 consecutive failures (15-min cooldown).
+    # This satisfies PI item 6: "watchdog cannot run inside the same process
+    # it monitors."  Provides automatic recovery without manual intervention.
+    def _morning_scan_watchdog():
+        import time as _mwt, urllib.request as _mw_req, urllib.error as _mw_err
+        _MW_INTERVAL  = 300    # 5-min polling interval
+        _MW_SCAN_URL  = "http://localhost:5055/run-scan"
+        _MW_MAX_TRIES = 3
+        _MW_WAIT_S    = 90     # seconds to wait after trigger before re-checking DB
+        _MW_COOLDOWN  = 900    # 15-min between repeated failure alerts
+
+        _last_alert_ts = 0.0
+        _mwt.sleep(90)   # let notifier fully boot before first check
+        log.info("[morning-watchdog] thread started — polling every 5 min from 6:50–10:00 AM ET")
+
+        while True:
+            try:
+                now_et   = datetime.now(ET)
+                now_mins = now_et.hour * 60 + now_et.minute
+                if now_et.weekday() < 5 and (6*60 + 50 <= now_mins <= 10*60):
+                    today_dt  = now_et.date()
+                    _mw_succeeded = 0
+                    _mw_preds     = 0
+                    _mconn = None
+                    try:
+                        _mconn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+                        _mcur  = _mconn.cursor()
+                        try:
+                            _mcur.execute("""
+                                SELECT COUNT(*) FROM morning_scan_runs
+                                WHERE job_name='premarket_scan' AND market_date=%s
+                                  AND status='SUCCEEDED'
+                                  AND completed_at > NOW() - INTERVAL '25 minutes'
+                            """, (today_dt,))
+                            _mw_succeeded = _mcur.fetchone()[0]
+                        except Exception:
+                            pass  # table may not exist yet on first boot
+                        _mcur.execute(
+                            "SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date=%s",
+                            (today_dt,)
+                        )
+                        _mw_preds = _mcur.fetchone()[0]
+                        _mconn.close()
+                    except Exception as _mdb:
+                        log.warning(f"[morning-watchdog] DB check: {_mdb}")
+                        if _mconn:
+                            try: _mconn.close()
+                            except: pass
+                        _mwt.sleep(_MW_INTERVAL)
+                        continue
+
+                    if _mw_succeeded > 0:
+                        log.debug("[morning-watchdog] recent SUCCEEDED slot — all good")
+                    elif now_mins < 7*60:
+                        log.debug("[morning-watchdog] pre-7 AM, no scan expected yet")
+                    else:
+                        log.warning(
+                            f"[morning-watchdog] {now_et.strftime('%H:%M ET')}: "
+                            f"0 recent SUCCEEDED slots, {_mw_preds} predictions — "
+                            f"triggering scan recovery"
+                        )
+                        _confirmed = False
+                        for _try in range(1, _MW_MAX_TRIES + 1):
+                            try:
+                                _rreq  = _mw_req.Request(_MW_SCAN_URL, data=b"", method="POST")
+                                _rresp = _mw_req.urlopen(_rreq, timeout=15)
+                                log.info(
+                                    f"[morning-watchdog] scan triggered "
+                                    f"(attempt {_try}/{_MW_MAX_TRIES}), HTTP {_rresp.status}"
+                                )
+                            except Exception as _te:
+                                log.warning(
+                                    f"[morning-watchdog] trigger attempt {_try}: {_te}"
+                                )
+                            _mwt.sleep(_MW_WAIT_S)
+                            try:
+                                _vconn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+                                _vcur  = _vconn.cursor()
+                                _vcur.execute(
+                                    "SELECT COUNT(*) FROM aiem_process_predictions "
+                                    "WHERE prediction_date=%s", (today_dt,)
+                                )
+                                _new_n = _vcur.fetchone()[0]
+                                _vconn.close()
+                                if _new_n > 0:
+                                    log.info(
+                                        f"[morning-watchdog] confirmed: {_new_n} predictions "
+                                        f"after attempt {_try}"
+                                    )
+                                    _confirmed = True
+                                    break
+                            except Exception as _ve:
+                                log.warning(f"[morning-watchdog] verify DB: {_ve}")
+                            if _try < _MW_MAX_TRIES:
+                                _mwt.sleep(30)
+                        if not _confirmed:
+                            import time as _mwts
+                            _now_ts = _mwts.time()
+                            if _now_ts - _last_alert_ts >= _MW_COOLDOWN:
+                                _tg_send(
+                                    f"🚨 <b>MORNING SCAN WATCHDOG — FINAL FAILURE</b>\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                                    f"Time: {now_et.strftime('%I:%M %p ET on %a %b %d')}\n"
+                                    f"{_MW_MAX_TRIES} trigger attempts exhausted — "
+                                    f"0 predictions written.\n\n"
+                                    f"GH Actions premarket-backup.yml (every 5 min) is "
+                                    f"providing independent recovery. Check aiem-process logs."
+                                )
+                                _last_alert_ts = _now_ts
+                            else:
+                                log.warning("[morning-watchdog] final failure — alert in cooldown")
+            except Exception as _mwe:
+                log.error(f"[morning-watchdog] loop error: {_mwe}")
+            _mwt.sleep(_MW_INTERVAL)
+
+    threading.Thread(target=_morning_scan_watchdog, daemon=True,
+                     name="morning-scan-watchdog").start()
+    # ────────────────────────────────────────────────────────────────────────
+
+    # ── Protection #5 (renumbered from #5 → same code): external paper trade watchdog ──
     # Runs in THIS process (aiem-telegram, a completely different process from
     # stock-api), satisfying the "external watchdog" protection requirement.
     # Polls the DB ledger every 2 min. After 9:46 AM ET, if no terminal status,

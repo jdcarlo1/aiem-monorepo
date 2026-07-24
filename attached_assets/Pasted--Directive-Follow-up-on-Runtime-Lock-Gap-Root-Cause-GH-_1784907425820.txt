@@ -1,0 +1,27 @@
+# Directive — Follow-up on Runtime Lock / Gap Root-Cause / GH Actions Report (2026-07-24)
+
+## Standing checklist (applies to every item below)
+- Raw terminal output only — no paraphrasing, no narrative claims without pasted evidence
+- Full 64-char sha256 before/after for any file touched (no truncation)
+- sha256 cross-check: tools/verified_run.sh vs canonical ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836; tools/verify_chain.sh vs canonical 972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75
+- Any code-location/behavior claim backed by raw grep -n / sed -n output
+- Data Immutability Rule: no delete/truncate/overwrite without prior approval
+- "PASS" reserved for full verification only — use "cleared to proceed" / "closed via accepted-risk" / "partial" otherwise
+- Any phase reaching real PASS/close gets a permanent committed file in /docs/verification/
+
+## Item 1 — Full hashes required
+Re-post Item 1 (runtime lock) and Item 3 (GH Actions) sha256 before/after values in full — the submitted values were truncated (`b56c3d5f...`, `3a9faff1...`, etc). No item closes on truncated hashes.
+
+## Item 2 — PSV8 FAIL independent confirmation
+State explicitly: is PSV8 (the "PASS/FAIL" summary-line format check) itself hardcoded to expect the options-pipeline verifier's exact string, or does it pattern-match multiple formats? Paste the actual check code (raw grep/sed) so the "format mismatch, not a real failure" explanation can be confirmed independent of the agent's own narrative.
+
+## Item 3 — Restart-mitigation gap
+Confirmed: the fix for the 3:05–8:57 AM gap is detection-only (heartbeat + Telegram alert 4hrs sooner). State plainly whether any self-restart mechanism for aiem-process was considered/attempted, and why detection-only was chosen as sufficient for now. No code change required — just a direct answer.
+
+## Item 4 — DB query correction disclosure
+The Item 2 root-cause table was preceded by a fix to the DB query used to pull July 24 evidence. State what was wrong with the original query and confirm the corrected query is what actually produced the submitted findings table (not a mix of pre- and post-fix results).
+
+## Item 5 — Permanent record file
+None of Items 1–3 have a committed file under /docs/verification/ yet. Once the above are resolved, write the final report to /docs/verification/runtime-lock-gap-rc-2026-07-24-FINAL.md per the standing rule, including the commit hash it verifies against.
+
+No further action authorized beyond answering these five items.

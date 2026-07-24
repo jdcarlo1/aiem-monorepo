@@ -1,0 +1,107 @@
+PRIORITY INCIDENT: FIVE CONSECUTIVE MORNING FAILURES
+
+Stop treating this as a verification-only issue. Fix the production execution path.
+
+REQUIRED ARCHITECTURE
+
+1. REMOVE THE 3:02 AM SELF-EXIT
+- Delete/disable every os._exit(), sys.exit(), shutdown, nightly restart, and self-termination path in aiem-process.
+- The production process must remain alive continuously.
+- Do not depend on Replit automatically restarting it.
+
+2. INDEPENDENT MORNING EXECUTION
+Create GitHub Actions jobs that execute independently of aiem-process:
+
+- 6:55 AM ET: warmup + health check
+- 7:00 AM ET through 9:30 AM ET: premarket scan every 5 minutes
+- 9:40 AM ET: options seed
+- 9:50 AM ET: options seed retry
+
+Each job must call an authenticated idempotent endpoint and fail nonzero unless the database confirms completion.
+
+3. AUTOMATIC RECOVERY — NOT MANUAL ALERTING
+At every scheduled slot:
+
+A. Check whether the expected run exists in PostgreSQL.
+B. If absent, execute it automatically.
+C. Recheck PostgreSQL after execution.
+D. Retry up to 3 times with bounded backoff.
+E. Send Telegram only after success or final failure.
+
+A heartbeat alert that requires manual GitHub Actions triggering is insufficient.
+
+4. DATABASE-BACKED IDEMPOTENCY
+Use a unique run key:
+
+job_name + market_date + scheduled_slot
+
+Required states:
+PENDING
+RUNNING
+SUCCEEDED
+FAILED
+
+Use a unique database constraint so Replit and GitHub Actions cannot create duplicate runs.
+
+Do not delete or overwrite prior predictions during startup or recovery.
+
+5. LEASE/LOCK
+Before execution, acquire a PostgreSQL advisory lock or atomic database lease.
+
+Required fields:
+run_key
+owner
+lease_expires_at
+attempt_count
+started_at
+completed_at
+status
+error
+result_count
+
+A stale RUNNING lease must become recoverable automatically.
+
+6. EXTERNAL WATCHDOG
+Create a watchdog independent of aiem-process.
+
+Every 5 minutes from 6:50–10:00 AM ET:
+- inspect heartbeat age;
+- inspect each expected scheduled run;
+- automatically execute missing work;
+- verify database completion;
+- alert on final failure.
+
+The watchdog cannot run inside the same process it monitors.
+
+7. DO NOT BLOCK STARTUP
+Remove the new 6:55–9:45 AM startup block.
+
+Blocking startup during the most important operating window creates another failure mode. Startup must be safe and idempotent. It should detect completed slots, preserve existing data, and execute only missing slots.
+
+8. REQUIRED PRODUCTION PROOF
+Do not report PASS from simulated clock tests alone.
+
+Provide raw evidence for one full live morning:
+
+- Git commit SHA and clean git status
+- GitHub Actions run URLs/IDs and raw logs
+- 6:55 warmup success
+- every expected 5-minute scan slot
+- 9:40 options seed
+- 9:50 retry/no-op proof
+- PostgreSQL rows for every run_key
+- no duplicate run_key values
+- no deleted/overwritten predictions
+- forced primary-process outage during one slot
+- automatic GitHub recovery without manual action
+- restored process showing no duplicate execution
+- Telegram success/failure evidence
+- all commands exit 0
+- canonical evidence chain verifies with 0 failures
+
+VERDICT RULE
+
+PASS only after an entire live morning succeeds and a deliberately stopped
+aiem-process is automatically recovered by the independent execution path.
+
+Until then: NO PASS.
