@@ -1,0 +1,23 @@
+# Directive — Recheck Required (2026-07-24)
+
+Standing checklist applies in full: raw command output only (no narrative), sha256 before/after full 64-char (no truncation), raw grep -n/sed -n for any code-location claim, raw SQL + full result set, verified_run.sh/verify_chain.sh sha256 cross-check vs canonical, data immutability rule, permanent /docs/verification/ file once actually closed.
+
+## Not accepted as-is
+
+1. **Truncated hashes, again.** Items 6 and 8 still show truncated sha256/entry_hash/archive_sha/commit values (e.g. `177fd67e25ac148d...`, `0c397f6de718b2bf...`). This was explicitly flagged last round. Paste full untruncated values for: all 5 files in the sha256-AFTER table, plus entry_hash/archive_sha/commit for SEQ=116.
+
+2. **Items 1–5 (nightly self-exit, startup block, /morning-scan-status, GH Actions cron, external watchdog) are formatted code excerpts with inline comments/arrows, not raw grep -n/sed -n terminal output.** Per standing rule, a described or reformatted snippet is rejected regardless of accuracy. Paste the actual `grep -n` / `sed -n` command and its raw output for each claimed line range.
+
+3. **PSV8 failure explanation is self-graded and unverified.** The note says SEQ=115 failed on a quoting bug (`python3` vs `python3 tools/test_catchup_guard.py`) and was fixed/re-sealed at SEQ=116. Confirm: is this the same "format mismatch" failure flagged in the prior directive, or a separate one? Either way, provide the raw diff of the actual fix and raw grep of the corrected command line — not a narrative description.
+
+4. **Restart-mechanism question not addressed.** Prior directive asked whether the fix was detection-only (alert) or included an actual restart. Item 5's watchdog now shows a `POST localhost:5055/run-scan` retry step, which looks like active recovery, not just alerting. Confirm explicitly whether this changes the answer, and whether execution here is live or still gated/disabled.
+
+5. **Gap #4 from prior directive (DB query fixed mid-session — confirm the submitted findings table used the corrected query throughout) — not addressed.** Confirm directly.
+
+6. **No permanent /docs/verification/ record file yet.** Correct to withhold it — none of the above are closed. Once items 1–5 above are resolved, write it then.
+
+## Correctly handled — no action needed
+
+- PI-8 (Live Morning Proof) correctly left open rather than claimed complete; tomorrow's DB queries and Telegram check are the right follow-up.
+
+Nothing above closes until raw evidence is provided per the standing block. "PASS" labels in the current submission are not accepted until this is resolved.
