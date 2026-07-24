@@ -62981,6 +62981,10 @@ def insider_outcomes_route():
 def health():
     return jsonify({"status": "ok"})
 
+@app.route("/stock-api/live", methods=["GET"])
+def liveness():
+    return jsonify({"live": True})
+
 def _startup_scan_if_needed():
     """On startup, trigger a scan if:
     - It's a weekday AND

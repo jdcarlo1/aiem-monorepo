@@ -2,8 +2,9 @@ import { Link, useLocation } from "wouter";
 import { 
   Terminal, Activity, BarChart2, Layers, ShieldCheck, 
   AlertTriangle, Users, Search, ActivitySquare, Calendar, 
-  Workflow, RefreshCw, Bell, LogOut
+  Workflow, RefreshCw, Bell, LogOut, Moon, Sun
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { serverLogout } from "@/lib/auth";
 
 const NAV_ITEMS = [
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const [location] = useLocation();
+  const { theme, setTheme } = useTheme();
 
   const handleLogout = async () => {
     await serverLogout();
@@ -63,7 +65,15 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="p-4 border-t border-border">
+      <div className="p-4 border-t border-border space-y-2">
+        <button
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors font-mono text-sm w-full"
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+        >
+          {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          {theme === "dark" ? "LIGHT MODE" : "DARK MODE"}
+        </button>
         <button 
           onClick={handleLogout}
           className="flex items-center gap-2 text-muted-foreground hover:text-destructive transition-colors font-mono text-sm w-full"

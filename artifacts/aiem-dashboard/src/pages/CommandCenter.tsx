@@ -1,9 +1,10 @@
 import { useApi } from "@/hooks/use-api";
-import { Activity, Server, AlertCircle, AlertTriangle } from "lucide-react";
+import { Activity, Server, AlertCircle, AlertTriangle, Database } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
 
 export default function CommandCenter() {
   const { data: health, isStale: healthStale, lastUpdated: healthUpdated } = useApi<any>("/stock-api/health", {}, 30000);
+  const { data: readyz } = useApi<any>("/stock-api/readyz", {}, 30000);
   const { data: macro, isStale: macroStale } = useApi<any>("/stock-api/admin/macro/latest", {}, 30000);
   const { data: jobs } = useApi<any>("/stock-api/admin/scheduler-jobs", {}, 60000);
   const { data: heartbeats } = useApi<any>("/stock-api/admin/job-heartbeats", {}, 30000);
@@ -61,10 +62,16 @@ export default function CommandCenter() {
               {health?.status?.toUpperCase() ?? 'UNAVAILABLE'}
             </span>
           </div>
-          <div className="mt-4 pt-4 border-t border-border">
+          <div className="mt-4 pt-4 border-t border-border space-y-1">
             <div className="flex justify-between font-mono text-sm">
               <span className="text-muted-foreground">HEARTBEATS:</span>
               <span className="text-white">{hbJobs.length > 0 ? `${hbJobs.length} ACTIVE` : '---'}</span>
+            </div>
+            <div className="flex justify-between font-mono text-sm items-center">
+              <span className="text-muted-foreground flex items-center gap-1"><Database size={10} />DB:</span>
+              <span className={readyz?.database === 'up' ? 'text-success' : readyz?.database === 'down' ? 'text-destructive' : 'text-muted-foreground'}>
+                {readyz?.database?.toUpperCase() ?? '---'}
+              </span>
             </div>
           </div>
         </div>

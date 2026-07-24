@@ -1,0 +1,33 @@
+# Directive — Finish Round 1 + Close Items 5/6/10/11/12 (2026-07-24)
+
+## Decision
+Scope reads on items 5, 6, 10, 11, 12 are CONFIRMED. Execute now. No further scope debate.
+
+- Item 5 (OPS-002): accepted, job_heartbeats = documented proxy. No panel. Close-out note only.
+- Item 6 (OPS-026): accepted, options pipeline only in scope. Close-out note only. Label: CLOSED VIA ACCEPTED-RISK (not PASS — third-party audit explicitly out of scope).
+- Item 10 (OPS-028): accepted, targeted watcher = sufficient. Label: CLOSED VIA ACCEPTED-RISK (not PASS — formal dead-code-path audit explicitly out of scope).
+- Item 11 (OPS-040): auto-closes when OPS-002/013/039 close. No separate audit-log build.
+- Item 12 (PAGE-040): accepted, ties to PAGE-017/021 disposition. Label: CLOSED VIA ACCEPTED-RISK (not PASS — depends on already-deferred items).
+
+Do not relabel any of the above as PASS. PASS is reserved for zero deferrals only.
+
+## Execute now, in order
+1. Round 1: OPS-013, OPS-039, PAGE-023, PAGE-035 — build as scoped, no further clarification needed.
+2. Round 2: close items 5, 6, 10, 11, 12 per labels above.
+3. Write permanent record file: /docs/verification/round1-round2-close-2026-07-24-FINAL.md
+
+## Before declaring anything done
+- Re-paste full untruncated sha256 for tools/verified_run.sh — last pasted value was 2 chars short of canonical (`ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836`). Confirm exact match, full 64 chars, no truncation.
+- artifacts/stock-scanner-api/verify_chain.sh already confirmed match to `ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f` — no re-check needed.
+
+## Standing requirements (every item)
+- Raw terminal output for every claim — no paraphrase. Raw grep -n/sed -n for any code-location or behavior claim.
+- Exact before/after diff + sha256 for any file actually changed this session only.
+- Raw SQL + full result set for any DB claim (real CSV via \copy if >10 rows).
+- git diff HEAD --stat output, or "no changes."
+- No deletion/truncation/overwrite of any row/file without explicit prior approval.
+- verified_run.sh / verify_chain.sh output required before any completion claim; sha256 cross-check of both vs canonical, pasted raw.
+- "PASS" only if nothing is deferred, accepted as risk, or unverified. Otherwise use "closed via accepted-risk" or "partial."
+- Lean output only — no restated context, no narrative padding, no expected-vs-actual tables.
+
+Finish this. No new scope, no re-litigating already-decided items.
