@@ -1,0 +1,33 @@
+5. “18/18 PASS” conflicts with PI-8 being deferred.
+The report states “18 PASS 0 FAIL” and “all evidence complete,” but separately states the live watchdog poll proof is deferred until 2026-07-25. Reconcile the verdict. The phase cannot be called fully complete while a required proof remains outstanding.
+
+6. Future-date test is not live production proof.
+Item 8 uses `_rs_gate_check(test_date=2026-07-25)` on 2026-07-24. Confirm explicitly that this is an injected test date, not evidence of an actual 2026-07-25 watchdog execution. Preserve PI-8 as pending until the real polling window produces raw logs and SQL.
+
+7. “RAW SQL” evidence is summarized, not raw SQL.
+The screenshots show narrative totals such as “12 rows” and “2 accepted,” but not the executed SQL statements or complete untruncated result sets. Provide the raw commands and full rows for:
+- `aiem_scan_trigger_log`
+- `morning_watchdog_audit`
+- `aiem_watchdog_flags`
+- `morning_scan_runs`
+Include identifiers, timestamps, action, reason, run_id, and trigger_count.
+
+8. Caller-scope proof is incomplete.
+The section is labeled “raw grep,” but the screenshot does not show the actual grep command or enough surrounding code to prove every caller and exclude bypass paths. Provide raw repository-wide grep output, including `/run-scan`, `_rs_gate_check`, direct scan-function calls, thread starts, HTTP callers, scheduler jobs, and workflow curl commands.
+
+9. Seal/chain proof is incomplete.
+The screenshot shows SEQ=115 and `entry_hash`, but not the complete PREV_HASH → ENTRY_HASH linkage to SEQ=114, nor an independently executed chain-verification result. Provide:
+- full untruncated SEQ=114 entry hash
+- SEQ=115 previous hash
+- SEQ=115 entry hash
+- raw verification command and output
+- applicable `verify_chain.sh` hash
+- proof that the chain verification exited 0
+
+10. Before/after evidence is not yet admissible as shown.
+The screenshots list before/after hashes, but do not show the raw `sha256sum` commands, exact diff, repository status, commit SHA, or proof that the hashes correspond to the files actually tested. Provide raw:
+- `pwd`
+- `git status --short`
+- `git diff -- <touched files>`
+- `sha256sum <touched files>`
+- `git rev-parse HEAD`
