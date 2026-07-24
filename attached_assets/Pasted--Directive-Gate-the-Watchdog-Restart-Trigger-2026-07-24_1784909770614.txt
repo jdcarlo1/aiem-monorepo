@@ -1,0 +1,24 @@
+# Directive — Gate the Watchdog Restart Trigger (2026-07-24)
+
+## Context, confirmed via raw evidence this session
+- Recheck items accepted: full 64-char hashes (all 5 files + SEQ=115/116 chain), raw grep/sed for all code-location claims (2a-2e), SEQ=114 vs SEQ=115 correctly disambiguated as two separate failures with raw before/after proof, item 6 (permanent record) correctly withheld
+- Item 4 raw grep confirms `_SCAN_FN_REGISTRY["run_scan"]` is registered unconditionally at startup (main.py / aiem_process.py line 2225) with no dry-run flag, no disable switch, no gate of any kind
+- This is a live autonomous-action path per the standing rule: a verifier PASS on the watchdog code proves it does what it was written to do — it does not make it safe to run unsupervised
+
+## Required before this stays live
+Per standing rule (pre-action gates required before any autonomous action path is enabled):
+1. **Size/action cap** — cap on how many scans the watchdog can trigger per day (it currently polls every 5 min, 6:50-10:00 AM, with 3 retries per miss — quantify the real max trigger count under worst case and confirm it's bounded)
+2. **Kill switch** — a flag the watchdog checks before firing that Joel can set to disable triggering, which the watchdog can read but not clear itself
+3. **Allowlist/scope check** — confirm `_run_manual_scan` cannot be reached via any other trigger path besides this watchdog and the existing GH Actions cron (raw grep for all callers of `_run_manual_scan` and `_SCAN_FN_REGISTRY["run_scan"]`)
+4. **Upstream verification gate** — confirm the watchdog does not fire if `morning_scan_runs` or the evidence chain is in an UNVERIFIABLE/drift state
+
+## Evidence required (standing block applies in full)
+- Raw grep -n / sed -n for every claim above — no narrated summaries
+- Raw diff for whatever code changes implement the cap/kill-switch/gate
+- A negative-control test: manually flip the kill switch and show the watchdog's next scheduled poll does NOT fire — paste raw output proving the block, not just that the flag exists in code
+- sha256 before/after for every file touched
+
+## Not required
+- No permanent /docs/verification/ file yet — this is a new build item, not closing an existing phase. Write it only once gated and proven.
+
+This is a build directive, not a rejection of item 4 — the answer given was correct and evidence-backed. The gap is a missing control, not a false claim.

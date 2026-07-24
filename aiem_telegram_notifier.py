@@ -2421,6 +2421,7 @@ def main():
         _MW_MAX_TRIES = 3
         _MW_WAIT_S    = 90     # seconds to wait after trigger before re-checking DB
         _MW_COOLDOWN  = 900    # 15-min between repeated failure alerts
+        _MW_MAX_TRIGGERS_PER_DAY = 5   # hard daily cap on recovery cycles fired
 
         _last_alert_ts = 0.0
         _mwt.sleep(90)   # let notifier fully boot before first check
@@ -2462,6 +2463,73 @@ def main():
                         _mwt.sleep(_MW_INTERVAL)
                         continue
 
+                    # ── Gates 1-3: kill switch / daily cap / verification ─────────
+                    # All gates must pass before any trigger attempt.
+                    # Fail closed: if gate DB is unreachable, no trigger fires.
+                    _should_trigger, _gate_reason = True, "all_gates_pass"
+                    try:
+                        _gconn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+                        _gc    = _gconn.cursor()
+                        _gc.execute("""
+                            CREATE TABLE IF NOT EXISTS aiem_watchdog_flags (
+                                flag_name  TEXT PRIMARY KEY,
+                                flag_value TEXT NOT NULL,
+                                updated_at TIMESTAMPTZ DEFAULT NOW()
+                            )""")
+                        _gc.execute("""
+                            INSERT INTO aiem_watchdog_flags (flag_name, flag_value)
+                            VALUES ('morning_watchdog_trigger_enabled', 'true')
+                            ON CONFLICT DO NOTHING""")
+                        _gc.execute("""
+                            CREATE TABLE IF NOT EXISTS morning_watchdog_audit (
+                                audit_date     DATE PRIMARY KEY,
+                                triggers_fired INT  NOT NULL DEFAULT 0,
+                                updated_at     TIMESTAMPTZ DEFAULT NOW()
+                            )""")
+                        _gconn.commit()
+                        # Gate 1 — kill switch (Joel sets flag_value='false' to disable;
+                        #   watchdog reads only, never clears)
+                        _gc.execute(
+                            "SELECT flag_value FROM aiem_watchdog_flags "
+                            "WHERE flag_name='morning_watchdog_trigger_enabled'")
+                        _krow = _gc.fetchone()
+                        if _krow and _krow[0].strip().lower() == 'false':
+                            _should_trigger, _gate_reason = False, "kill_switch"
+                        # Gate 2 — daily trigger cap (_MW_MAX_TRIGGERS_PER_DAY per day)
+                        if _should_trigger:
+                            _gc.execute(
+                                "SELECT COALESCE(triggers_fired,0) FROM morning_watchdog_audit "
+                                "WHERE audit_date=%s", (today_dt,))
+                            _crow = _gc.fetchone()
+                            _fired_today = _crow[0] if _crow else 0
+                            if _fired_today >= _MW_MAX_TRIGGERS_PER_DAY:
+                                _should_trigger, _gate_reason = (
+                                    False,
+                                    f"daily_cap:{_fired_today}/{_MW_MAX_TRIGGERS_PER_DAY}")
+                        # Gate 3 — verification: morning_scan_runs not in crash loop
+                        if _should_trigger:
+                            try:
+                                _gc.execute(
+                                    "SELECT COUNT(*) FROM morning_scan_runs "
+                                    "WHERE market_date=%s AND status='FAILED'", (today_dt,))
+                                _fail_ct = _gc.fetchone()[0]
+                                if _fail_ct >= 5:
+                                    _should_trigger, _gate_reason = (
+                                        False,
+                                        f"verification_gate:failed_slots={_fail_ct}")
+                            except Exception:
+                                _should_trigger, _gate_reason = (
+                                    False,
+                                    "verification_gate:morning_scan_runs_unqueryable")
+                        _gconn.close()
+                    except Exception as _gate_err:
+                        _should_trigger, _gate_reason = False, "gate_db_unreachable"
+                    if not _should_trigger:
+                        log.info(f"[morning-watchdog] trigger blocked — gate={_gate_reason}")
+                        _mwt.sleep(_MW_INTERVAL)
+                        continue
+                    # ─────────────────────────────────────────────────────────────
+
                     if _mw_succeeded > 0:
                         log.debug("[morning-watchdog] recent SUCCEEDED slot — all good")
                     elif now_mins < 7*60:
@@ -2472,6 +2540,24 @@ def main():
                             f"0 recent SUCCEEDED slots, {_mw_preds} predictions — "
                             f"triggering scan recovery"
                         )
+                        # Increment daily trigger count once per recovery cycle
+                        # (before retries so the cap is enforced even on partial failures)
+                        try:
+                            _aconn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
+                            _ac    = _aconn.cursor()
+                            _ac.execute("""
+                                INSERT INTO morning_watchdog_audit
+                                    (audit_date, triggers_fired, updated_at)
+                                VALUES (%s, 1, NOW())
+                                ON CONFLICT (audit_date) DO UPDATE
+                                SET triggers_fired =
+                                        morning_watchdog_audit.triggers_fired + 1,
+                                    updated_at = NOW()
+                            """, (today_dt,))
+                            _aconn.commit()
+                            _aconn.close()
+                        except Exception as _ae:
+                            log.warning(f"[morning-watchdog] audit increment failed: {_ae}")
                         _confirmed = False
                         for _try in range(1, _MW_MAX_TRIES + 1):
                             try:

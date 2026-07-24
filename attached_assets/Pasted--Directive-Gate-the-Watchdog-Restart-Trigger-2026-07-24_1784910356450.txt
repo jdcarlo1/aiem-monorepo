@@ -1,0 +1,125 @@
+# Directive — Gate the Watchdog Restart Trigger (2026-07-24)
+
+## Context
+The watchdog is confirmed live and can autonomously POST to:
+
+localhost:5055/run-scan
+
+This is active recovery, not alert-only. Before it remains enabled unsupervised, add mandatory pre-action controls.
+
+## Required Controls
+
+1. DAILY EXECUTION CAP
+
+Current theoretical maximum:
+
+- Polling window: 6:50–10:00 AM ET
+- Poll interval: every 5 minutes
+- Total polling cycles: 39
+- Retries per missing scan: 3
+- Maximum possible POST attempts: 117 per trading day
+
+**Before implementing to this number:** trace the actual retry logic via raw grep/code walk and confirm whether it truly retries 3x per poll regardless of prior outcome, or only on genuine misses (e.g. does a poll that finds an already-SUCCEEDED slot still consume a retry attempt?). Paste the raw code and state plainly whether 117 is the real ceiling or the assumed one — the cap must be built to the traced number, not the assumed one.
+
+Implement an atomic, DB-backed daily cap enforced inside `/run-scan` before:
+
+threading.Thread(...).start()
+
+The cap must:
+
+- survive process restarts
+- cover watchdog and GitHub Actions together
+- count accepted scan triggers, not only completed scans
+- reject excess requests before execution
+- use a configurable maximum
+- fail closed if cap state cannot be verified
+- record the block reason in raw logs and DB audit evidence
+
+2. KILL SWITCH
+
+Add a persistent kill switch checked before every watchdog POST and before `/run-scan` accepts execution.
+
+Requirements:
+
+- Joel can enable or disable it
+- watchdog can read it but cannot clear or override it
+- disabled or unreadable state must block execution
+- block must be logged with timestamp, source, and reason
+
+3. ALLOWLIST / SCOPE PROOF
+
+Provide raw grep for every caller of:
+
+- `_run_manual_scan`
+- `_SCAN_FN_REGISTRY["run_scan"]`
+- `/run-scan`
+
+Confirm only approved sources can trigger execution:
+
+- external morning watchdog
+- existing GitHub Actions workflow
+- explicitly authorized administrative trigger, if one exists
+
+Any other caller must be removed, disabled, or documented and separately authorized.
+
+4. UPSTREAM VERIFICATION GATE
+
+Before triggering, require a verifiable healthy state for:
+
+- `morning_scan_runs`
+- evidence-chain availability
+- verification-chain hash integrity
+- no UNVERIFIABLE or drift condition
+- valid market date and scheduled slot
+- no existing SUCCEEDED scan
+- no active unexpired RUNNING lease
+
+If any required state is unreadable, invalid, drifting, or UNVERIFIABLE:
+
+BLOCK THE TRIGGER.
+
+Fail closed — not open.
+
+## Required Evidence
+
+Provide raw evidence only:
+
+1. Raw `grep -n` and `sed -n` for every implementation claim
+2. Raw git diff for all code changes
+3. Full sha256 BEFORE and AFTER for every touched file
+4. Raw SQL showing:
+   - daily cap state
+   - trigger count
+   - kill-switch state
+   - blocked and accepted trigger audit rows
+5. Raw caller search for all scan-trigger paths
+6. Raw runtime proof that the cap blocks excess execution
+7. Negative-control test:
+
+   - manually disable the kill switch
+   - run or wait for the next watchdog poll
+   - prove no POST-triggered scan executes
+   - show raw watchdog log
+   - show raw `/run-scan` response
+   - show raw SQL proving no new accepted trigger or scan row
+
+8. Re-enable the kill switch and prove one authorized trigger can execute normally
+
+9. Raw `sha256sum` of both verification wrapper scripts (`tools/verified_run.sh` and `verify_chain.sh`), checked against the current canonical values on file, pasted alongside the rest of this directive's evidence — a mismatch means the validator itself has drifted and none of the above evidence is accepted regardless of content
+
+## Verification Rules
+
+- No narrative-only proof
+- No reformatted code excerpts
+- No truncated hashes
+- No mocked or manually inserted success evidence
+- Data Immutability Rule applies
+- PASS only after all controls and negative controls are proven
+
+## Documentation
+
+Do not create a permanent `/docs/verification/` close-out file yet.
+
+This is a new build item. Write the permanent record only after implementation and strict verification pass.
+
+CURRENT STATUS: BUILD REQUIRED — NO PASS
