@@ -1,0 +1,42 @@
+# Directive — Permanent Fix for Recurring Morning VM-Restart Outage
+
+## Background
+Two consecutive mornings (2026-07-23, 2026-07-24) the process restarted ~10:15–10:20 AM ET,
+after the 6:55 AM warmup and entire 7:00–9:15 AM premarket scan window had already been missed,
+and after the 9:45 AM options seed window was missed. Emergency catchup logic ran correctly both
+times but cannot recover real premarket data that was never captured. This is an infrastructure
+reliability problem, not a code-catchup problem — GitHub does not address it.
+
+## Item 1 — Identify the deployment type and restart cause
+- Confirm current deployment type: Autoscale vs. Reserved VM / Always On.
+- Pull Replit deployment/infra logs (not application logs) for the exact restart timestamps
+  both mornings (~10:15–10:20 ET on 07-23 and 07-24).
+- Determine actual cause: sleep/wake cycle, OOM kill, scheduled redeploy, or platform
+  maintenance. State which one, with the log line or dashboard evidence proving it — not
+  a guess.
+
+## Item 2 — Move critical morning triggers outside the in-process scheduler
+- Do not rely solely on APScheduler surviving 6:55 AM–9:45 AM unattended.
+- Add externally-triggered HTTP endpoints (Replit Scheduled Deployments or equivalent
+  external cron) for: 6:55 AM warmup, each 15-min premarket scan 7:00–9:15 AM, and the
+  9:45 AM options seed.
+- Each endpoint must be idempotent/resumable — a restart mid-morning should not cause the
+  next scheduled hit to skip or double-run.
+- Live proof required: trigger each endpoint manually once, show correct behavior on a
+  cold-started process.
+
+## Item 3 — Heartbeat / early alerting
+- Write a heartbeat timestamp row every few minutes while the process is up.
+- Alert (Telegram, same channel as existing notifier) if the gap between heartbeats
+  exceeds ~10 minutes.
+- Goal: detect a dead process by ~7:05 AM, not discover it at 10:23 AM after the window
+  is gone.
+
+## Evidence bar (all items)
+- sha256 before/after for every changed file.
+- Live proof, not simulated: actual endpoint calls, actual heartbeat rows, actual restart
+  log excerpt.
+- Negative control where applicable (e.g., simulate a restart mid-window, confirm recovery
+  behavior).
+- No "fixed and closed" claim without the deployment-type finding from Item 1 stated
+  explicitly — if root cause can't be pinned down, say so and state what's still unknown.

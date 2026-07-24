@@ -1,0 +1,108 @@
+name: Options Seed Failsafe
+
+# Fires at 9:40 AM ET (13:40 UTC) and 9:50 AM ET (13:50 UTC) Mon-Fri.
+# Calls seed_daily_candidates() via the options-pipeline-scheduler's /run-seed
+# endpoint. Idempotent: ON CONFLICT DO NOTHING prevents duplicate rows.
+#
+# Chain:
+#   GH Actions
+#   → POST /stock-api/admin/options/run-seed  (X-Admin-Token auth, proxy in main.py)
+#   → localhost:5053/run-seed                 (options-pipeline-scheduler health server)
+#   → seed_daily_candidates(scan_date=today)  (background thread, DO NOTHING on dup)
+#
+# Why two slots:
+#   9:40 AM = 5 min before the 9:45 AM scheduled seed window opens.
+#   9:50 AM = backup in case the first trigger landed during a restart.
+#
+# Safety:
+#   - GH concurrency group cancels only NEW runs, never in-progress.
+#   - Window guard rejects calls outside 9:35–9:55 AM ET.
+#   - Auth errors (401/403) hard-fail; service-unavailable exits 0 (retry at next slot).
+
+on:
+  schedule:
+    # 9:40 AM ET (13:40 UTC)
+    - cron: '40 13 * * 1-5'
+    # 9:50 AM ET (13:50 UTC)
+    - cron: '50 13 * * 1-5'
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Set to "true" to skip the actual seed trigger (logs only)'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: options-seed-failsafe
+  cancel-in-progress: false
+
+jobs:
+  seed-options:
+    name: Trigger Options Seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger seed_daily_candidates
+        env:
+          REPLIT_APP_URL: ${{ secrets.REPLIT_APP_URL }}
+          ADMIN_TOKEN:    ${{ secrets.ADMIN_TOKEN }}
+          DRY_RUN:        ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          echo "=== Options Seed Failsafe ==="
+          echo "UTC time : $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "Run ID   : ${{ github.run_id }}"
+          echo "Dry run  : ${DRY_RUN}"
+          echo "=============================="
+
+          # ── Window guard: only act 9:35–9:55 AM ET (13:35–13:55 UTC) ──
+          HOUR_UTC=$(date -u +%H)
+          MIN_UTC=$(date -u +%M)
+          TIME_UTC=$(( HOUR_UTC * 60 + MIN_UTC ))
+          WINDOW_START=$(( 13 * 60 + 35 ))   # 9:35 AM ET
+          WINDOW_END=$(( 13 * 60 + 55 ))     # 9:55 AM ET
+
+          if [ "${TIME_UTC}" -lt "${WINDOW_START}" ] || [ "${TIME_UTC}" -gt "${WINDOW_END}" ]; then
+            echo "Outside options-seed window (${HOUR_UTC}:${MIN_UTC} UTC) — no action"
+            exit 0
+          fi
+
+          echo "In options-seed window — triggering seed_daily_candidates..."
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY RUN — skipping actual trigger"
+            exit 0
+          fi
+
+          HTTP_CODE=$(curl -s -o /tmp/seed_response.json -w "%{http_code}" \
+            -X POST \
+            "${REPLIT_APP_URL}/stock-api/admin/options/run-seed" \
+            -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --max-time 20 \
+            --retry 1 --retry-delay 5) || HTTP_CODE="000"
+
+          echo "HTTP status: ${HTTP_CODE}"
+          echo "Response  : $(cat /tmp/seed_response.json 2>/dev/null || echo '<no response>')"
+
+          if [ "${HTTP_CODE}" = "202" ]; then
+            SCAN_DATE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('/tmp/seed_response.json'))
+              print(d.get('scan_date') or 'unknown')
+          except Exception as e:
+              print(f'parse_error: {e}')
+          " 2>&1)
+            echo "PASS: seed triggered for scan_date=${SCAN_DATE}"
+            exit 0
+          fi
+
+          if [ "${HTTP_CODE}" = "401" ] || [ "${HTTP_CODE}" = "403" ]; then
+            echo "HARD FAIL: authentication error — check ADMIN_TOKEN secret"
+            exit 1
+          fi
+
+          echo "WARNING: service unavailable (HTTP ${HTTP_CODE}) — scheduler may be restarting; backup slot at 9:50 AM will retry"
+          exit 0

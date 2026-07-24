@@ -2879,6 +2879,24 @@ class _HealthHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body))); self.end_headers()
             self.wfile.write(body)
             return
+        # /run-seed — triggers seed_daily_candidates() for today's scan_date;
+        # idempotent: ON CONFLICT DO NOTHING prevents duplicate candidate rows.
+        if path == '/run-seed':
+            import json as _json, threading as _sth, datetime as _sdt
+            _scan_date = _sdt.date.today()
+            def _do_seed(_sd=_scan_date):
+                try:
+                    result = seed_daily_candidates(scan_date=_sd)
+                    log.info(f"[run-seed] complete result={result}")
+                except Exception as _se:
+                    log.warning(f"[run-seed] seed failed: {_se}")
+            _sth.Thread(target=_do_seed, daemon=True, name="run-seed-manual").start()
+            body = _json.dumps({"status": "seed_triggered",
+                                "scan_date": str(_scan_date)}).encode()
+            self.send_response(202); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+            return
         self.send_response(405); self.end_headers()
 
 def _start_health_server():

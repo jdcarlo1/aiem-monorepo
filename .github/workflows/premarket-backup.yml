@@ -23,6 +23,8 @@ name: AIEM Premarket Backup
 
 on:
   schedule:
+    # 6:55 AM ET (10:55 UTC) — warmup-only trigger (universe pre-fetch)
+    - cron: '55 10 * * 1-5'
     # 7:00–8:50 AM ET (11:00–12:50 UTC) every 10 min
     - cron: '0,10,20,30,40,50 11,12 * * 1-5'
     # 9:00, 9:10, 9:20 AM ET (13:00, 13:10, 13:20 UTC)
@@ -63,7 +65,7 @@ jobs:
           HOUR_UTC=$(date -u +%H)
           MIN_UTC=$(date -u +%M)
           TIME_UTC=$(( HOUR_UTC * 60 + MIN_UTC ))
-          WINDOW_START=$(( 11 * 60 ))       # 7:00 AM ET
+          WINDOW_START=$(( 10 * 60 + 50 ))   # 6:50 AM ET (5 min slack for 6:55 warmup cron)
           WINDOW_END=$(( 13 * 60 + 25 ))    # 9:25 AM ET (5 min slack for late GH dispatch)
 
           if [ "${TIME_UTC}" -lt "${WINDOW_START}" ] || [ "${TIME_UTC}" -gt "${WINDOW_END}" ]; then
@@ -77,6 +79,18 @@ jobs:
           if [ "${DRY_RUN}" = "true" ]; then
             echo "DRY RUN — skipping actual trigger"
             echo "run_id=dry_run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ── 6:55 AM ET slot: warmup-only (universe pre-fetch, before market opens) ──
+          if [ "${TIME_UTC}" -ge "$(( 10 * 60 + 50 ))" ] && [ "${TIME_UTC}" -le "$(( 11 * 60 - 1 ))" ]; then
+            echo "6:55 AM ET warmup slot — calling /run-warmup (universe pre-fetch only)"
+            curl -s -o /dev/null -w "warmup HTTP: %{http_code}\n" \
+              -X POST \
+              "${REPLIT_APP_URL}/stock-api/admin/aiem-process/run-warmup" \
+              -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+              --max-time 15 || true
+            echo "run_id=warmup_only" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 

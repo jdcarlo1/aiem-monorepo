@@ -2795,6 +2795,48 @@ def main():
         replace_existing=True,
     )
 
+    # ── aiem-process morning heartbeat check — 7:05 AM ET Mon-Fri ────────────
+    # If aiem_process_heartbeat has no row in the last 10 min at 7:05 AM ET,
+    # the process missed the 6:55 AM warmup window. Fire a Telegram alert so
+    # manual intervention can happen before the 7:00–9:15 AM premarket window.
+    def _aiem_morning_heartbeat_check():
+        if datetime.now(ET).weekday() >= 5:
+            return
+        try:
+            import psycopg2 as _mhb_pg
+            conn = _mhb_pg.connect(os.environ["DATABASE_URL"], connect_timeout=4)
+            cur  = conn.cursor()
+            cur.execute("""
+                SELECT MAX(ts) FROM aiem_process_heartbeat
+                WHERE ts > NOW() - INTERVAL '10 minutes'
+            """)
+            row = cur.fetchone()
+            conn.close()
+            last_hb = row[0] if row else None
+            if last_hb is None:
+                _tg_send(
+                    "🚨 <b>AIEM-PROCESS HEARTBEAT MISSING @ 7:05 AM</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "No heartbeat in the last 10 min — process may have missed the\n"
+                    "6:55 AM warmup. Premarket scans (7:00–9:15 AM) are at risk.\n\n"
+                    "• GitHub Actions premarket-backup.yml is firing every 10 min\n"
+                    "  and will retry automatically — check its run log.\n"
+                    "• If the workflow also fails, restart the aiem-process workflow\n"
+                    "  in Replit manually."
+                )
+                log.warning("[morning-hb-check] 7:05 AM: aiem_process_heartbeat MISSING — alert sent")
+            else:
+                log.info(f"[morning-hb-check] 7:05 AM: heartbeat OK (last={last_hb.isoformat()})")
+        except Exception as _mhbe:
+            log.warning(f"[morning-hb-check] DB query failed: {_mhbe}")
+
+    scheduler.add_job(
+        _aiem_morning_heartbeat_check,
+        CronTrigger(day_of_week="mon-fri", hour=7, minute=5, timezone=ET),
+        id="aiem_morning_heartbeat_check",
+        replace_existing=True,
+    )
+
     # ── Options pipeline scheduler external watchdog ─────────────────────────
     # Runs in THIS process (aiem-telegram) — completely separate from
     # aiem_options_scheduler.py — satisfying the "external watchdog" requirement.

@@ -1,3 +1,4 @@
+- [Morning VM-restart outage fix](morning-restart-outage-fix.md) — aiem_process_heartbeat table + 3-min writer; /run-warmup on :5055; /run-seed on :5053; proxies in main.py; GH Actions at 6:55 AM + 9:40/9:50 AM ET
 - [Phase 11 — OPS + Dashboard verification](phase11-ops-dashboard.md) — FINAL: /readyz+/metrics added; Vitest 38/38 PASS 0 TODO; 36 PW tests (29 active+7 skip); GH Actions CI workflow created; prod build+typecheck PASS
 - [verifier psycopg2 LIKE bug](verifier-psycopg2-like-bug.md) — psycopg2 with LIKE '%%' in SQL crashes with IndexError when passed params=(); fix: only call cur.execute(sql, params) when params is truthy
 - [Options Engine trade-record cycle bugs](oe-trade-record-cycle-bugs.md) — datetime naive/aware bug in update_trade_record_exit + _p2_ready silent suppression; both fixed; realized_pnl now net-of-costs

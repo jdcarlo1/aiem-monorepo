@@ -96,6 +96,16 @@ def _start_process_health_server():
                     threading.Thread(target=fn, daemon=True).start()
                     self.send_response(200)
                     body = b'{"status":"grade_triggered"}'
+            elif self.path == "/run-warmup":
+                fn = _SCAN_FN_REGISTRY.get("run_warmup")
+                if fn is None:
+                    self.send_response(503)
+                    body = b'{"error":"not_ready","hint":"scheduler still loading"}'
+                else:
+                    threading.Thread(target=fn, daemon=True,
+                                     name="run-warmup-manual").start()
+                    self.send_response(202)
+                    body = b'{"status":"warmup_triggered"}'
             else:
                 self.send_response(404)
                 body = b'{"error":"not_found"}'
@@ -2062,12 +2072,70 @@ def main():
 
         # Register callables in the shared registry so the early health server
         # (already bound to port 5055) can dispatch them. No second bind needed.
-        _SCAN_FN_REGISTRY["run_scan"]  = _run_manual_scan
-        _SCAN_FN_REGISTRY["run_grade"] = _run_manual_grade
+        _SCAN_FN_REGISTRY["run_scan"]   = _run_manual_scan
+        _SCAN_FN_REGISTRY["run_grade"]  = _run_manual_grade
+        _SCAN_FN_REGISTRY["run_warmup"] = aiem_warmup
         log.info("Admin trigger functions registered in _SCAN_FN_REGISTRY — :5055 ready")
 
     threading.Thread(target=_admin_server, daemon=True).start()
     log.info("Admin trigger server listening on :5055")
+
+    # ── aiem-process heartbeat — writes to DB every 3 min ─────────────────────
+    # External monitors (Telegram notifier) query aiem_process_heartbeat to detect
+    # a hung or dead process even when pgrep shows the PID as alive.
+    def _ensure_heartbeat_table():
+        try:
+            conn = _db()
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS aiem_process_heartbeat (
+                        id   SERIAL PRIMARY KEY,
+                        ts   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        pid  INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                cur.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_aiem_process_heartbeat_ts
+                    ON aiem_process_heartbeat (ts DESC)
+                """)
+                conn.commit()
+            finally:
+                conn.close()
+            log.info("[heartbeat] aiem_process_heartbeat table ready")
+        except Exception as _hte:
+            log.warning(f"[heartbeat-init] table create failed (non-fatal): {_hte}")
+
+    def _heartbeat_writer():
+        _INTERVAL = 180   # 3 min
+        time.sleep(15)    # let scheduler settle first
+        while True:
+            try:
+                conn = _db()
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO aiem_process_heartbeat (ts, pid) VALUES (NOW(), %s)",
+                        (os.getpid(),)
+                    )
+                    cur.execute("""
+                        DELETE FROM aiem_process_heartbeat
+                        WHERE id NOT IN (
+                            SELECT id FROM aiem_process_heartbeat
+                            ORDER BY ts DESC LIMIT 200
+                        )
+                    """)
+                    conn.commit()
+                finally:
+                    conn.close()
+            except Exception as _hwe:
+                log.warning(f"[heartbeat] write failed (non-fatal): {_hwe}")
+            time.sleep(_INTERVAL)
+
+    _ensure_heartbeat_table()
+    threading.Thread(target=_heartbeat_writer, daemon=True,
+                     name="aiem-process-heartbeat").start()
+    log.info("[heartbeat] writing every 3 min → aiem_process_heartbeat")
 
     sched.start()
 

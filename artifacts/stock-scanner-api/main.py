@@ -11749,6 +11749,47 @@ def admin_aiem_process_last_scan_status():
         return jsonify({"error": str(_e), "hint": "aiem-process may be restarting"}), 503
 
 
+@app.route("/stock-api/admin/options/run-seed", methods=["POST"])
+def admin_options_run_seed():
+    """Proxy POST to options-pipeline-scheduler :5053/run-seed.
+    Triggers seed_daily_candidates() — idempotent (ON CONFLICT DO NOTHING).
+    Called by GitHub Actions options-seed-trigger.yml at 9:40 AM ET as failsafe.
+    """
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import urllib.request as _ur_os, json as _json_os
+        _req = _ur_os.Request("http://localhost:5053/run-seed", data=b"", method="POST")
+        with _ur_os.urlopen(_req, timeout=8) as _r:
+            _resp = _json_os.loads(_r.read().decode())
+        return jsonify({
+            "status":    "triggered",
+            "scan_date": _resp.get("scan_date"),
+        }), 202
+    except Exception as _e:
+        return jsonify({"error": str(_e),
+                        "hint": "options-pipeline-scheduler may be restarting"}), 503
+
+
+@app.route("/stock-api/admin/aiem-process/run-warmup", methods=["POST"])
+def admin_aiem_process_run_warmup():
+    """Proxy POST to aiem-process :5055/run-warmup.
+    Triggers the 6:55 AM warmup (Polygon universe build) manually.
+    Called by GitHub Actions premarket-backup.yml at 10:55 UTC (6:55 AM ET).
+    """
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import urllib.request as _ur_wu, json as _json_wu
+        _req = _ur_wu.Request("http://localhost:5055/run-warmup", data=b"", method="POST")
+        with _ur_wu.urlopen(_req, timeout=8) as _r:
+            _resp = _json_wu.loads(_r.read().decode())
+        return jsonify({"status": "triggered", **_resp}), 202
+    except Exception as _e:
+        return jsonify({"error": str(_e),
+                        "hint": "aiem-process service may still be restarting"}), 503
+
+
 @app.route("/stock-api/nano-morning/send-watch", methods=["POST"])
 def nano_morning_send_watch():
     if not _admin_ok():
