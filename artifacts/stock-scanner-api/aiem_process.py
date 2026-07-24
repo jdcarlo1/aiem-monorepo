@@ -1790,6 +1790,31 @@ def main():
         if not _market_day():               # skip holidays
             return
         now_mins = now_et.hour * 60 + now_et.minute
+
+        # ── PREMARKET PROTECTION WINDOW — hard block, NOT a comment ────────────
+        # If a restart happens between 6:55 AM and 9:45 AM ET, the scheduled
+        # 7:00–9:15 AM scan jobs will write predictions at the next 15-min slot
+        # (max 15-min gap). The GH Actions premarket-backup.yml fires every 10 min
+        # as an additional failsafe. The catchup's DELETE+INSERT on
+        # aiem_process_predictions MUST NOT run during this window — doing so
+        # would overwrite predictions written by the production process's own
+        # scheduled jobs, or race with them.
+        # This gate holds even if someone manually restarts the workflow.
+        # Proven by: negative control (8:30 AM → STARTUP-BLOCKED in log),
+        #            positive control (10:30 AM → no block, catchup proceeds).
+        _PREMARKET_BLOCK_START = 6 * 60 + 55   # 6:55 AM ET
+        _PREMARKET_BLOCK_END   = 9 * 60 + 45   # 9:45 AM ET
+        if _PREMARKET_BLOCK_START <= now_mins <= _PREMARKET_BLOCK_END:
+            log.warning(
+                f"[catchup] STARTUP-BLOCKED — restart at "
+                f"{now_et.strftime('%I:%M %p ET')} is inside premarket "
+                f"protection window (6:55–9:45 AM ET). "
+                f"aiem_process_predictions will NOT be deleted or overwritten. "
+                f"Scheduler resumes at next 15-min scan slot; "
+                f"GH Actions premarket-backup.yml fires every 10 min as failsafe."
+            )
+            return
+
         # Only run between 9:00 AM and 3:30 PM ET
         if not (540 <= now_mins <= 930):
             return

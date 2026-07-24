@@ -1,0 +1,24 @@
+# Directive — Morning Miss: Real Fix, Not a Written Rule
+
+5 days in a row. "Don't restart during 6:55-9:45 AM ET" is not a fix — it's a note that gets forgotten. Need a fix that holds even if someone restarts anyway.
+
+## Item 1 — Runtime lock (must work by tomorrow AM)
+- Add a hard guard in `_startup_catchup()`: if current time is inside 6:55-9:45 AM ET, catchup DELETE+INSERT on `aiem_process_predictions` is BLOCKED (log + skip), not run.
+- This is a code gate, not a comment or doc — must actually block, proven by a negative control: manually trigger a restart inside the window, show the catchup logic refuses to run.
+- Prove the gate does NOT block legitimate catchup outside the window (positive control).
+
+## Item 2 — Root-cause the 6-hour LIVENESS-WATCHDOG gap (3:05→8:57 AM EDT, July 24)
+- "Cause unknown, Replit infra logs inaccessible" is not acceptable as final. Pull every log source that IS accessible (app logs, DB write timestamps, process start/stop events, aiem_process_heartbeat rows once live) for that exact window and state plainly what is/isn't determinable — no narrative filler.
+- If genuinely undeterminable from available logs, say so explicitly and state what monitoring would have to exist to catch it next time (this feeds Item 1's Telegram heartbeat, already built).
+
+## Item 3 — Close out this session's loose ends
+- Confirm the `/run-warmup` proxy retry that timed out (exit -1) — pass or still broken.
+- sha256 before/after + git diff for `premarket-backup.yml` and `options-seed-trigger.yml` (not shown yet).
+- Run all of the above through `verified_run.sh`, validate with `verify_chain.sh`, paste sha256 of both scripts against canonical.
+
+## Standing checklist (applies to every item above)
+- Raw terminal output / raw grep for any code claim — no paraphrasing.
+- Exact before/after diff + sha256 for every changed file.
+- Raw SQL + full result set for any DB claim.
+- No delete/truncate/overwrite of any row or file without explicit approval first.
+- "PASS" only if fully verified — otherwise label partial/accepted-risk and say what's outstanding.
