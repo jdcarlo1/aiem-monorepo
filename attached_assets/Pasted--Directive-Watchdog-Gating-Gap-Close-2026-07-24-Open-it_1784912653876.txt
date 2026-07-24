@@ -1,0 +1,20 @@
+# Directive — Watchdog Gating: Gap Close (2026-07-24)
+
+## Open items from FINAL submission review
+
+1. **Caller-scope count mismatch.** Header states "3 authorized callers" but 4 are listed: `aiem_process.py:115`, `main.py:11722`, `aiem_telegram_notifier.py:2420`, `premarket-backup.yml:129`. Reconcile the count — either correct the header or confirm one of the four is not actually authorized and explain why it's listed.
+
+2. **`verify_chain.sh` recorded as "not found."** Two tracked copies exist per prior evidence: `tools/verify_chain.sh` (canonical 972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75) and `artifacts/stock-scanner-api/verify_chain.sh` (canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f). State which repo/working directory this session ran in, and paste raw `find` / `ls` output checked against BOTH paths before re-confirming "not found." If genuinely absent in this repo, state that explicitly with the raw command proving it.
+
+3. **`trigger_count: -1` in kill-switch negative control.** Explain what -1 specifically encodes (vs 0 or a positive count) — paste the raw code (`grep -n`/`sed -n`) defining this field so it's not narrative.
+
+4. **Permanent record file.** This submission (18/18 sealed, negative controls proven, caller scope audited) looks like a full phase close, not just an in-progress build item. Confirm whether this now requires a permanent file at `/docs/verification/` per the standing rule, and if so, produce it.
+
+## Standing checklist (required on every item above)
+- Raw terminal output / raw `grep -n` or `sed -n` for any code-location or call-chain claim — no paraphrasing
+- Exact before/after diff and sha256 before/after for any files touched to fix these items
+- Raw SQL + full result set for any DB-involved claim
+- sha256 cross-check of `tools/verified_run.sh` and the applicable `verify_chain.sh` against canonical values on file
+- Data Immutability Rule applies — no deletion/truncation without explicit prior approval
+- State plainly if any item can't be backed by real evidence — no padding
+- "PASS" reserved only for items with nothing outstanding and full raw verification
