@@ -74,6 +74,47 @@ describe("GET /stock-api/healthz", () => {
   });
 });
 
+describe("GET /stock-api/readyz", () => {
+  it("returns structured readiness with database + scheduler + status fields", async ({
+    skip,
+  }) => {
+    if (!backendUp) skip();
+    requireApi();
+    const res = await fetch(`${API_BASE}/stock-api/readyz`);
+    if (res.status === 502 || res.status === 503) {
+      // 503 is valid when DB is degraded — still a well-formed response
+      if (res.status === 502) skip();
+    }
+    expect([200, 503]).toContain(res.status);
+    const body = await res.json();
+    expect(body).toHaveProperty("database");
+    expect(body).toHaveProperty("scheduler");
+    expect(body).toHaveProperty("status");
+    expect(["ok", "degraded"]).toContain(body.status);
+    expect(body).toHaveProperty("latency_ms");
+  });
+});
+
+describe("GET /stock-api/metrics", () => {
+  it("returns Prometheus text exposition format with HELP + TYPE lines", async ({
+    skip,
+  }) => {
+    if (!backendUp) skip();
+    requireApi();
+    const res = await fetch(`${API_BASE}/stock-api/metrics`);
+    if (res.status === 502 || res.status === 503) skip();
+    expect(res.status).toBe(200);
+    const ct = res.headers.get("content-type") ?? "";
+    expect(ct).toContain("text/plain");
+    const text = await res.text();
+    expect(text).toContain("# HELP");
+    expect(text).toContain("# TYPE");
+    expect(text).toContain("process_uptime_seconds");
+    expect(text).toContain("aiem_paper_trades_total");
+    expect(text).toContain("aiem_signal_discoveries_total");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Auth guard — protected endpoints must return 401 without a token
 // ---------------------------------------------------------------------------
@@ -90,7 +131,6 @@ describe("Auth guard — 401 without token", () => {
       if (!backendUp) skip();
       requireApi();
       const res = await fetch(`${API_BASE}${endpoint}`);
-      // Guard: if backend went down between probe and test, skip rather than fail
       if (res.status === 502 || res.status === 503) skip();
       expect(res.status).toBe(401);
       const body = await res.json();
@@ -147,15 +187,4 @@ describe("Content-Type", () => {
     const ct = res.headers.get("content-type") ?? "";
     expect(ct).toContain("application/json");
   });
-});
-
-// ---------------------------------------------------------------------------
-// Unimplemented / documented as TODO
-// ---------------------------------------------------------------------------
-
-describe("Unimplemented — documented as TODO", () => {
-  it.todo(
-    "GET /stock-api/readyz returns structured readiness (database + scheduler status)"
-  );
-  it.todo("GET /stock-api/metrics returns Prometheus-compatible metrics");
 });

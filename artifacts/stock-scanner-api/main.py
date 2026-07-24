@@ -152,6 +152,77 @@ app = Flask(__name__)
 def _startup_health():
     return {"status": "ok"}, 200
 
+
+@app.route("/stock-api/readyz", methods=["GET"])
+def _startup_readyz():
+    """Structured readiness probe — checks database connectivity and scheduler liveness."""
+    import time as _rdy_time, os as _rdy_os
+    _t0 = _rdy_time.monotonic()
+    db_status = "unknown"
+    sched_status = "unknown"
+    try:
+        import psycopg2 as _rdy_pg
+        _conn = _rdy_pg.connect(_rdy_os.environ.get("DATABASE_URL", ""), connect_timeout=2)
+        with _conn.cursor() as _c:
+            _c.execute("SELECT 1")
+        _conn.close()
+        db_status = "up"
+    except Exception:
+        db_status = "down"
+    try:
+        import subprocess as _rdy_sp
+        _r = _rdy_sp.run(["pgrep", "-f", "aiem_process.py"], capture_output=True, timeout=2)
+        sched_status = "up" if _r.returncode == 0 else "down"
+    except Exception:
+        sched_status = "unknown"
+    overall = "ok" if db_status == "up" else "degraded"
+    from flask import jsonify as _rdy_jsonify
+    return _rdy_jsonify({
+        "status": overall,
+        "database": db_status,
+        "scheduler": sched_status,
+        "latency_ms": round((_rdy_time.monotonic() - _t0) * 1000, 1),
+    }), (200 if db_status == "up" else 503)
+
+
+@app.route("/stock-api/metrics", methods=["GET"])
+def _startup_metrics():
+    """Prometheus text exposition format — process uptime and trade/discovery counts."""
+    import time as _mt_time, os as _mt_os
+    _uptime = 0.0
+    try:
+        _pid = _mt_os.getpid()
+        _uptime = _mt_time.time() - _mt_os.stat(f"/proc/{_pid}/stat").st_ctime
+    except Exception:
+        pass
+    _trades, _discoveries = 0, 0
+    try:
+        import psycopg2 as _mt_pg
+        _c = _mt_pg.connect(_mt_os.environ.get("DATABASE_URL", ""), connect_timeout=1)
+        with _c.cursor() as _cur:
+            _cur.execute("SELECT COUNT(*) FROM aiem_paper_trades")
+            _trades = _cur.fetchone()[0]
+            _cur.execute("SELECT COUNT(*) FROM aiem_signal_discoveries")
+            _discoveries = _cur.fetchone()[0]
+        _c.close()
+    except Exception:
+        pass
+    body = "\n".join([
+        "# HELP process_uptime_seconds Seconds the stock-api process has been running",
+        "# TYPE process_uptime_seconds gauge",
+        f"process_uptime_seconds {_uptime:.1f}",
+        "# HELP aiem_paper_trades_total Total paper trades on record",
+        "# TYPE aiem_paper_trades_total gauge",
+        f"aiem_paper_trades_total {_trades}",
+        "# HELP aiem_signal_discoveries_total Total validated signal discoveries",
+        "# TYPE aiem_signal_discoveries_total gauge",
+        f"aiem_signal_discoveries_total {_discoveries}",
+        "",
+    ])
+    from flask import Response as _FlaskResponse
+    return _FlaskResponse(body, status=200, mimetype="text/plain; version=0.0.4; charset=utf-8")
+
+
 # ── True early port bind ──────────────────────────────────────────────────────
 # MUST be HERE — immediately after health routes, before ALL heavy local imports
 # (scanner, portfolio, backtest, multiday_runner, etc.) which each pull in

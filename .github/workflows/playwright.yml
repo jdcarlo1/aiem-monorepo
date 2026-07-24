@@ -1,0 +1,53 @@
+name: Playwright E2E — AIEM Dashboard
+
+on:
+  push:
+    paths:
+      - 'artifacts/aiem-dashboard/**'
+      - '.github/workflows/playwright.yml'
+  workflow_dispatch:
+
+jobs:
+  playwright:
+    name: Playwright Chromium smoke suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium + system deps
+        working-directory: artifacts/aiem-dashboard
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Run Playwright tests
+        working-directory: artifacts/aiem-dashboard
+        run: pnpm exec playwright test --reporter=list
+        env:
+          CI: true
+          PORT: "5174"
+          BASE_PATH: /aiem/
+          NODE_ENV: test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: artifacts/aiem-dashboard/playwright-report/
+          retention-days: 7

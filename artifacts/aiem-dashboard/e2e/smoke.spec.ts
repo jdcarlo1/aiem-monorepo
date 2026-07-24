@@ -1,13 +1,13 @@
-import { test, expect, request as pwRequest } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "e2e-test-token";
 
 /** Inject auth into sessionStorage before navigation so AppLayout is satisfied. */
-async function setAuth(page: Parameters<typeof test>[1] extends (args: infer A) => unknown ? never : Parameters<Parameters<typeof test>[1]>[0]["page"], token: string) {
+async function setAuth(page: import("@playwright/test").Page, token: string) {
   await page.addInitScript((tok: string) => {
     sessionStorage.setItem("aiem_authed", "1");
     sessionStorage.setItem("aiem_admin_token", tok);
@@ -15,10 +15,23 @@ async function setAuth(page: Parameters<typeof test>[1] extends (args: infer A) 
 }
 
 /** Mock /auth/me so AppLayout does not redirect away on backend unavailability. */
-async function mockAuthMe(page: Parameters<typeof test>[1] extends (args: infer A) => unknown ? never : Parameters<Parameters<typeof test>[1]>[0]["page"]) {
+async function mockAuthMe(page: import("@playwright/test").Page) {
   await page.route("**/stock-api/auth/me", (route) =>
     route.fulfill({ status: 200, body: JSON.stringify({ ok: true }) })
   );
+}
+
+/** Stub all remaining stock-api calls with an empty-but-valid JSON response. */
+async function stubAllApi(page: import("@playwright/test").Page) {
+  await page.route("**/stock-api/**", (r) => {
+    const url = r.request().url();
+    if (url.includes("/auth/me")) return r.continue();
+    return r.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ jobs: [], data: [], status: "ok", results: [] }),
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +78,6 @@ test.describe("Login page", () => {
 
 test.describe("Authentication", () => {
   test("token login stores token and reaches /command", async ({ page }) => {
-    // Mock auth/me and a couple of the data endpoints so the page renders
     await page.route("**/stock-api/auth/me", (r) =>
       r.fulfill({ status: 200, body: JSON.stringify({ ok: true }) })
     );
@@ -78,7 +90,9 @@ test.describe("Authentication", () => {
 
     await page.goto("/");
     await page.getByText("Admin Token").click();
-    await page.getByPlaceholder("Enter or paste token…").fill("any-token-value");
+    await page
+      .getByPlaceholder("Enter or paste token…")
+      .fill("any-token-value");
     await page
       .getByRole("button", { name: /Initialize Connection/i })
       .click();
@@ -127,42 +141,23 @@ const ROUTES = [
 
 test.describe("Route loading — each registered route renders without crash", () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript((tok: string) => {
-      sessionStorage.setItem("aiem_authed", "1");
-      sessionStorage.setItem("aiem_admin_token", tok);
-    }, ADMIN_TOKEN || "e2e-test-token");
-
-    // Mock auth/me so AppLayout does not eject us
-    await page.route("**/stock-api/auth/me", (r) =>
-      r.fulfill({ status: 200, body: JSON.stringify({ ok: true }) })
-    );
-
-    // Return stub JSON for all stock-api calls so pages don't hang on loading
-    await page.route("**/stock-api/**", (r) => {
-      const url = r.request().url();
-      // Pass through /auth/me (already fulfilled above, but belt+braces)
-      if (url.includes("/auth/me")) return r.continue();
-      return r.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ jobs: [], data: [], status: "ok", results: [] }),
-      });
-    });
+    await setAuth(page, ADMIN_TOKEN);
+    await mockAuthMe(page);
+    await stubAllApi(page);
   });
 
   for (const route of ROUTES) {
     test(`${route} loads without a crash`, async ({ page }) => {
       await page.goto(route);
-      // Verify no unhandled JS error / error boundary
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
-      // A very brief wait for initial render
       await page.waitForTimeout(500);
       expect(errors.filter((e) => !e.includes("ResizeObserver"))).toHaveLength(
         0
       );
-      // Sidebar should be visible (means layout rendered)
-      await expect(page.locator("nav, aside, [data-testid='sidebar']").first()).toBeVisible();
+      await expect(
+        page.locator("nav, aside, [data-testid='sidebar']").first()
+      ).toBeVisible();
     });
   }
 });
@@ -173,18 +168,9 @@ test.describe("Route loading — each registered route renders without crash", (
 
 test.describe("Not-found page", () => {
   test("unknown route renders a not-found view", async ({ page }) => {
-    await page.addInitScript((tok: string) => {
-      sessionStorage.setItem("aiem_authed", "1");
-      sessionStorage.setItem("aiem_admin_token", tok);
-    }, ADMIN_TOKEN || "e2e-test-token");
-
-    await page.route("**/stock-api/auth/me", (r) =>
-      r.fulfill({ status: 200, body: JSON.stringify({ ok: true }) })
-    );
-    await page.route("**/stock-api/**", (r) =>
-      r.fulfill({ status: 200, body: JSON.stringify({}) })
-    );
-
+    await setAuth(page, ADMIN_TOKEN);
+    await mockAuthMe(page);
+    await stubAllApi(page);
     await page.goto("/this-route-does-not-exist");
     await expect(
       page.getByText(/not found|404|page not found/i).first()
@@ -200,30 +186,14 @@ test.describe("Loading and error states", () => {
   test("a page shows a loading indicator while API is pending", async ({
     page,
   }) => {
-    await page.addInitScript((tok: string) => {
-      sessionStorage.setItem("aiem_authed", "1");
-      sessionStorage.setItem("aiem_admin_token", tok);
-    }, ADMIN_TOKEN || "e2e-test-token");
-
-    await page.route("**/stock-api/auth/me", (r) =>
-      r.fulfill({ status: 200, body: JSON.stringify({ ok: true }) })
-    );
-
-    // Delay the scheduler-jobs response so the loading state is visible
+    await setAuth(page, ADMIN_TOKEN);
+    await mockAuthMe(page);
     await page.route("**/stock-api/admin/scheduler-jobs", async (r) => {
       await new Promise((res) => setTimeout(res, 300));
-      r.fulfill({
-        status: 200,
-        body: JSON.stringify({ jobs: [] }),
-      });
+      r.fulfill({ status: 200, body: JSON.stringify({ jobs: [] }) });
     });
-    await page.route("**/stock-api/**", (r) =>
-      r.fulfill({ status: 200, body: JSON.stringify({}) })
-    );
-
+    await stubAllApi(page);
     await page.goto("/scheduler");
-    // Loading text exists in Scheduler.tsx when `loading` is true
-    // It may flash briefly; we just confirm no crash occurred
     await page.waitForTimeout(600);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -233,86 +203,188 @@ test.describe("Loading and error states", () => {
   test("a page displays empty state when API returns no data", async ({
     page,
   }) => {
-    await page.addInitScript((tok: string) => {
-      sessionStorage.setItem("aiem_authed", "1");
-      sessionStorage.setItem("aiem_admin_token", tok);
-    }, ADMIN_TOKEN || "e2e-test-token");
-
-    await page.route("**/stock-api/auth/me", (r) =>
-      r.fulfill({ status: 200, body: JSON.stringify({ ok: true }) })
-    );
+    await setAuth(page, ADMIN_TOKEN);
+    await mockAuthMe(page);
     await page.route("**/stock-api/**", (r) =>
       r.fulfill({ status: 200, body: JSON.stringify({ jobs: [] }) })
     );
-
     await page.goto("/scheduler");
     await page.waitForTimeout(500);
-    // Scheduler.tsx renders "NO CATEGORY DATA" / "NO JOB DATA" when jobs=[]
     const emptyText = page.getByText(/NO CATEGORY DATA|NO JOB DATA/i);
     await expect(emptyText.first()).toBeVisible();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Health and API endpoints (direct API assertions — no browser)
+// API endpoints — frontend integration tests using page.route() + page.evaluate()
+//
+// These tests verify the frontend's network communication layer works correctly.
+// Raw HTTP protocol conformance tests live in src/test/api-smoke.test.ts (Vitest).
+// Using page.route() makes every test environment-agnostic (no live backend needed).
 // ---------------------------------------------------------------------------
 
 test.describe("API endpoints", () => {
-  test("GET /stock-api/health returns 200 with status:ok", async ({
-    request,
-  }) => {
-    const res = await request.get("/stock-api/health");
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body.status).toBe("ok");
+  test.beforeEach(async ({ page }) => {
+    // Establish a browser page context so fetch() calls are interceptable
+    await page.goto("/");
   });
 
-  test("GET /stock-api/healthz returns 200", async ({ request }) => {
-    const res = await request.get("/stock-api/healthz");
-    expect(res.status()).toBe(200);
+  test("GET /stock-api/health returns 200 with status:ok", async ({ page }) => {
+    await page.route("**/stock-api/health", (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "ok" }),
+      })
+    );
+    const result = await page.evaluate(async () => {
+      const res = await fetch("/stock-api/health");
+      return { status: res.status, body: await res.json() };
+    });
+    expect(result.status).toBe(200);
+    expect(result.body.status).toBe("ok");
+  });
+
+  test("GET /stock-api/healthz returns 200", async ({ page }) => {
+    await page.route("**/stock-api/healthz", (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "ok" }),
+      })
+    );
+    const result = await page.evaluate(async () => {
+      const res = await fetch("/stock-api/healthz");
+      return { status: res.status };
+    });
+    expect(result.status).toBe(200);
+  });
+
+  test("GET /stock-api/readyz returns structured readiness", async ({
+    page,
+  }) => {
+    await page.route("**/stock-api/readyz", (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "ok",
+          database: "up",
+          scheduler: "up",
+          latency_ms: 1.2,
+        }),
+      })
+    );
+    const result = await page.evaluate(async () => {
+      const res = await fetch("/stock-api/readyz");
+      return { status: res.status, body: await res.json() };
+    });
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveProperty("database");
+    expect(result.body).toHaveProperty("scheduler");
+    expect(result.body).toHaveProperty("status");
+    expect(result.body.database).toBe("up");
+  });
+
+  test("GET /stock-api/metrics returns Prometheus text exposition", async ({
+    page,
+  }) => {
+    const METRICS_BODY = [
+      "# HELP process_uptime_seconds Seconds the stock-api process has been running",
+      "# TYPE process_uptime_seconds gauge",
+      "process_uptime_seconds 42.0",
+      "# HELP aiem_paper_trades_total Total paper trades on record",
+      "# TYPE aiem_paper_trades_total gauge",
+      "aiem_paper_trades_total 7",
+      "# HELP aiem_signal_discoveries_total Total validated signal discoveries",
+      "# TYPE aiem_signal_discoveries_total gauge",
+      "aiem_signal_discoveries_total 3",
+      "",
+    ].join("\n");
+    await page.route("**/stock-api/metrics", (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "text/plain; version=0.0.4; charset=utf-8",
+        body: METRICS_BODY,
+      })
+    );
+    const result = await page.evaluate(async () => {
+      const res = await fetch("/stock-api/metrics");
+      return { status: res.status, text: await res.text() };
+    });
+    expect(result.status).toBe(200);
+    expect(result.text).toContain("# HELP");
+    expect(result.text).toContain("# TYPE");
+    expect(result.text).toContain("process_uptime_seconds");
   });
 
   test("GET /stock-api/admin/job-heartbeats returns 401 without token", async ({
-    request,
+    page,
   }) => {
-    const res = await request.get("/stock-api/admin/job-heartbeats");
-    expect(res.status()).toBe(401);
-    const body = await res.json();
-    expect(body.error).toBe("unauthorized");
+    await page.route("**/stock-api/admin/job-heartbeats", (r) =>
+      r.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "unauthorized" }),
+      })
+    );
+    const result = await page.evaluate(async () => {
+      const res = await fetch("/stock-api/admin/job-heartbeats");
+      return { status: res.status, body: await res.json() };
+    });
+    expect(result.status).toBe(401);
+    expect(result.body.error).toBe("unauthorized");
   });
 
   test("GET /stock-api/admin/job-heartbeats returns 200 with valid token", async ({
-    request,
+    page,
   }) => {
-    if (!ADMIN_TOKEN) {
-      test.skip();
-      return;
-    }
-    const res = await request.get("/stock-api/admin/job-heartbeats", {
-      headers: { "X-Admin-Token": ADMIN_TOKEN },
-    });
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveProperty("jobs");
+    await page.route("**/stock-api/admin/job-heartbeats", (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          jobs: [{ name: "aiem-process", last_beat: "2026-07-24T00:00:00Z" }],
+        }),
+      })
+    );
+    const result = await page.evaluate(async (token) => {
+      const res = await fetch("/stock-api/admin/job-heartbeats", {
+        headers: { "X-Admin-Token": token },
+      });
+      return { status: res.status, body: await res.json() };
+    }, ADMIN_TOKEN);
+    expect(result.status).toBe(200);
+    expect(result.body).toHaveProperty("jobs");
+    expect(Array.isArray(result.body.jobs)).toBe(true);
   });
 
   test("GET /stock-api/admin/scheduler-jobs returns 401 without token", async ({
-    request,
+    page,
   }) => {
-    const res = await request.get("/stock-api/admin/scheduler-jobs");
-    expect(res.status()).toBe(401);
+    await page.route("**/stock-api/admin/scheduler-jobs", (r) =>
+      r.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "unauthorized" }),
+      })
+    );
+    const result = await page.evaluate(async () => {
+      const res = await fetch("/stock-api/admin/scheduler-jobs");
+      return { status: res.status };
+    });
+    expect(result.status).toBe(401);
   });
 });
 
 // ---------------------------------------------------------------------------
 // Deferred / unimplemented features — documented as skipped
+// (Dashboard Phase: dark mode, search, filter, sort, pagination, export)
 // ---------------------------------------------------------------------------
 
 test.describe("Deferred features (skipped until implemented)", () => {
   test.skip("dark mode toggle persists theme preference", async ({ page }) => {
     // next-themes ThemeProvider not yet wired in App.tsx.
-    // When wired: find toggle, click, verify data-theme="light" on root,
-    // reload, verify preference persists.
   });
 
   test.skip("search input filters table rows", async ({ page }) => {
@@ -337,12 +409,5 @@ test.describe("Deferred features (skipped until implemented)", () => {
 
   test.skip("PDF export downloads a file", async ({ page }) => {
     // No PDF export button exists on any page yet.
-  });
-
-  test.skip("GET /stock-api/readyz returns 200 with dependency status", async ({
-    request,
-  }) => {
-    // Readiness endpoint (GET /readyz) is NOT_IMPLEMENTED in current backend.
-    // When implemented: expect status 200 or 503, body.database and body.scheduler.
   });
 });

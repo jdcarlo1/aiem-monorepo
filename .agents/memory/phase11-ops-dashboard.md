@@ -1,6 +1,6 @@
 ---
 name: Phase 11 — OPS + Dashboard verification
-description: Phase 11 close-out facts: SEQ, verdicts, page inventory, key gaps
+description: Phase 11 close-out + Final Strict Verification: /readyz, /metrics, Vitest 38/38, Playwright CI
 ---
 
 SEQ=111, EXIT=0, 9/9 post-seal PASS. Archive sha256=cf298dc7dbd88a3aadf8b99b02ef2cc00b8a171e325d2412b2154c3fb60f928d
