@@ -1,0 +1,32 @@
+# Directive — Morning Auto-Pick Verification (2026-07-24)
+
+Yesterday's (2026-07-23) run failed the check. Prove today's (2026-07-24) run with raw evidence — no narrative claims.
+
+## Standing checklist (required on every item below)
+- Raw terminal output only — no paraphrase, no summary tables
+- Raw grep/sed for any code-location or behavior claim
+- Raw SQL query + full result set for any DB claim
+- sha256 before/after for any file touched
+- sha256sum of tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh, checked against current canonical on file — mismatch = validator invalid, output rejected
+- verified_run.sh / verify_chain.sh output pasted for the run
+- No deletion/overwrite of any row/file without prior approval (Data Immutability Rule)
+- If evidence can't be produced, say so in one line — no padding
+
+## Part A — AIEM (D1/D2 candidate pipeline)
+1. Raw scheduler log for today's `run_full_cycle()` fire — job start time, exit status.
+2. Raw SQL: rows written to `aiem_candidate_pipeline` today, with lifecycle state per row.
+3. Raw SQL: rows in `discovered_candidates` today (row count + full result set).
+4. If zero candidates: exact rejection reasons per ticker, not a generic "none found."
+5. Trace ID linking scan → candidate → final pick (or NO TRADE) for today's date only.
+
+## Part B — Options Engine (9:45 AM ET job)
+Grep today's live log (~9:46-9:50 AM ET) for the 4-pattern signature, per ticker:
+1. Legit NO_TRADE: `[P2_INIT]` + `NO_TRADE` line, no `[P2_GATE]`.
+2. Data not ready: `[P2_INIT]` + `FAILED ... not ready_for_decision`, no `[P2_GATE]`.
+3. Job never ran: no `[exec] START job_id=...` line — if so, also check `[seed]`/`[worker]` lines to isolate seeding-stage vs scheduler-down.
+4. Trade taken: `[P2_INIT]` + `[P2_GATE]` + `[P2_CAPTURE] calling` + `[P2_CAPTURE] returned tr_id=N`, one trace_id.
+
+Report which pattern each ticker hit today. If pattern 3, state whether `seed_daily_candidates()` (9:40 AM) produced `seeded=N` > 0.
+
+## Close-out
+Once both parts are answered with raw evidence, state plainly whether today's run PASSED (full evidence, nothing outstanding), CLEARED TO PROCEED (works but not fully verified), or FAILED — do not call it "pass" unless it meets the full standard.
