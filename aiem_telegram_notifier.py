@@ -2506,7 +2506,8 @@ def main():
                                 _should_trigger, _gate_reason = (
                                     False,
                                     f"daily_cap:{_fired_today}/{_MW_MAX_TRIGGERS_PER_DAY}")
-                        # Gate 3 — verification: morning_scan_runs not in crash loop
+                        # Gate 3 — verification: morning_scan_runs accessible, not in crash
+                        #           loop, no unexpired RUNNING lease
                         if _should_trigger:
                             try:
                                 _gc.execute(
@@ -2517,6 +2518,15 @@ def main():
                                     _should_trigger, _gate_reason = (
                                         False,
                                         f"verification_gate:failed_slots={_fail_ct}")
+                                if _should_trigger:
+                                    _gc.execute(
+                                        "SELECT COUNT(*) FROM morning_scan_runs "
+                                        "WHERE market_date=%s AND status='RUNNING' "
+                                        "  AND lease_expires_at > NOW()", (today_dt,))
+                                    if _gc.fetchone()[0] > 0:
+                                        _should_trigger, _gate_reason = (
+                                            False,
+                                            "verification_gate:active_running_lease")
                             except Exception:
                                 _should_trigger, _gate_reason = (
                                     False,
@@ -2540,24 +2550,9 @@ def main():
                             f"0 recent SUCCEEDED slots, {_mw_preds} predictions — "
                             f"triggering scan recovery"
                         )
-                        # Increment daily trigger count once per recovery cycle
-                        # (before retries so the cap is enforced even on partial failures)
-                        try:
-                            _aconn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
-                            _ac    = _aconn.cursor()
-                            _ac.execute("""
-                                INSERT INTO morning_watchdog_audit
-                                    (audit_date, triggers_fired, updated_at)
-                                VALUES (%s, 1, NOW())
-                                ON CONFLICT (audit_date) DO UPDATE
-                                SET triggers_fired =
-                                        morning_watchdog_audit.triggers_fired + 1,
-                                    updated_at = NOW()
-                            """, (today_dt,))
-                            _aconn.commit()
-                            _aconn.close()
-                        except Exception as _ae:
-                            log.warning(f"[morning-watchdog] audit increment failed: {_ae}")
+                        # NOTE: daily trigger count is incremented atomically by
+                        # _rs_gate_check() inside /run-scan — not here.
+                        # The watchdog's Gate 2 reads that count as advisory pre-check only.
                         _confirmed = False
                         for _try in range(1, _MW_MAX_TRIES + 1):
                             try:

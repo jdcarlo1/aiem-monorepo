@@ -48,6 +48,199 @@ from datetime import datetime, timedelta, date
 # All the code here uses only stdlib (already imported above), so this thread
 # is live in < 1 s — well before any heavy import blocks the main thread.
 _AIEM_PROCESS_PORT = int(os.environ.get("AIEM_PROCESS_PORT", "5055"))
+MAX_SCAN_TRIGGERS_PER_DAY = 10   # hard daily cap on accepted scan triggers (watchdog + GH Actions)
+# Ceiling without cap (traced):
+#   Watchdog  : 39 poll cycles × 3 retries = 117 POST attempts max (only on persistent failure)
+#   GH Actions: 32 cron runs   × 3 retries =  96 POST attempts max
+#   Combined  : 213 accepted triggers/day without this cap
+
+
+def _rs_gate_check(run_id, _test_date=None):
+    """Pre-action gate check for /run-scan — runs BEFORE threading.Thread(...).start().
+
+    Gates (fail closed on any DB error):
+      G1  Kill switch  — aiem_watchdog_flags.morning_watchdog_trigger_enabled must be 'true'
+      G2  Daily cap    — morning_watchdog_audit.triggers_fired < MAX_SCAN_TRIGGERS_PER_DAY
+                         enforced atomically via SELECT FOR UPDATE + UPDATE in one transaction
+      G3a No active RUNNING lease in morning_scan_runs (prevents concurrent scan launch)
+      G3b No existing SUCCEEDED slot today (scan already completed)
+      G4  Evidence chain file accessible (tools/verified_run_chain.jsonl readable)
+
+    Records every call (accepted or blocked) to aiem_scan_trigger_log.
+    _test_date: if set (date object), use instead of date.today() for G2/G3 queries only —
+                allows tests to target a clean date without touching production data.
+    """
+    import psycopg2 as _pg, os as _os
+    from datetime import date as _dg
+    _db_url  = _os.environ.get("DATABASE_URL", "")
+    _today   = _test_date if _test_date is not None else _dg.today()
+    _result  = {"allowed": False, "reason": "gate_error", "trigger_count": -1}
+    _conn    = None
+    try:
+        _conn = _pg.connect(_db_url, connect_timeout=5)
+        _conn.autocommit = False
+        _cur  = _conn.cursor()
+        # Ensure tables exist (idempotent — each CREATE is a no-op after first run)
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS aiem_watchdog_flags (
+                flag_name  TEXT PRIMARY KEY,
+                flag_value TEXT NOT NULL,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            )""")
+        _cur.execute("""
+            INSERT INTO aiem_watchdog_flags (flag_name, flag_value)
+            VALUES ('morning_watchdog_trigger_enabled', 'true')
+            ON CONFLICT DO NOTHING""")
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS morning_watchdog_audit (
+                audit_date     DATE PRIMARY KEY,
+                triggers_fired INT  NOT NULL DEFAULT 0,
+                updated_at     TIMESTAMPTZ DEFAULT NOW()
+            )""")
+        _cur.execute("""
+            CREATE TABLE IF NOT EXISTS aiem_scan_trigger_log (
+                id                  BIGSERIAL   PRIMARY KEY,
+                run_id              TEXT        NOT NULL,
+                logged_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                action              TEXT        NOT NULL,
+                reason              TEXT        NOT NULL,
+                trigger_count_at_time INT
+            )""")
+        _conn.commit()
+
+        # G1 — Kill switch (watchdog/GH can read; only Joel can set to 'false')
+        _cur.execute(
+            "SELECT flag_value FROM aiem_watchdog_flags "
+            "WHERE flag_name='morning_watchdog_trigger_enabled'")
+        _krow = _cur.fetchone()
+        if _krow and _krow[0].strip().lower() == 'false':
+            _result = {"allowed": False, "reason": "kill_switch", "trigger_count": -1}
+            _cur.execute(
+                "INSERT INTO aiem_scan_trigger_log (run_id, action, reason) "
+                "VALUES (%s, 'blocked', %s)", (run_id, _result["reason"]))
+            _conn.commit()
+            return _result
+
+        # G2 — Daily cap (atomic: INSERT default row → lock row → check → conditional increment)
+        _cur.execute("""
+            INSERT INTO morning_watchdog_audit (audit_date, triggers_fired)
+            VALUES (%s, 0) ON CONFLICT DO NOTHING
+        """, (_today,))
+        _cur.execute(
+            "SELECT triggers_fired FROM morning_watchdog_audit "
+            "WHERE audit_date=%s FOR UPDATE", (_today,))
+        _cap_row = _cur.fetchone()
+        _current = _cap_row[0] if _cap_row else 0
+        if _current >= MAX_SCAN_TRIGGERS_PER_DAY:
+            _result = {"allowed": False,
+                       "reason": f"daily_cap:{_current}/{MAX_SCAN_TRIGGERS_PER_DAY}",
+                       "trigger_count": _current}
+            _cur.execute(
+                "INSERT INTO aiem_scan_trigger_log "
+                "(run_id, action, reason, trigger_count_at_time) "
+                "VALUES (%s, 'blocked', %s, %s)",
+                (run_id, _result["reason"], _current))
+            _conn.commit()
+            return _result
+
+        # G3a — No active unexpired RUNNING lease (prevents concurrent scan launch)
+        try:
+            _cur.execute("""
+                SELECT COUNT(*) FROM morning_scan_runs
+                WHERE market_date=%s AND status='RUNNING'
+                  AND lease_expires_at > NOW()
+            """, (_today,))
+            if _cur.fetchone()[0] > 0:
+                _result = {"allowed": False,
+                           "reason": "verification_gate:active_running_lease",
+                           "trigger_count": _current}
+                _cur.execute(
+                    "INSERT INTO aiem_scan_trigger_log "
+                    "(run_id, action, reason, trigger_count_at_time) "
+                    "VALUES (%s, 'blocked', %s, %s)",
+                    (run_id, _result["reason"], _current))
+                _conn.commit()
+                return _result
+            # G3b — No existing SUCCEEDED slot (scan already completed today)
+            _cur.execute("""
+                SELECT COUNT(*) FROM morning_scan_runs
+                WHERE market_date=%s AND status='SUCCEEDED'
+            """, (_today,))
+            if _cur.fetchone()[0] > 0:
+                _result = {"allowed": False,
+                           "reason": "verification_gate:scan_already_succeeded",
+                           "trigger_count": _current}
+                _cur.execute(
+                    "INSERT INTO aiem_scan_trigger_log "
+                    "(run_id, action, reason, trigger_count_at_time) "
+                    "VALUES (%s, 'blocked', %s, %s)",
+                    (run_id, _result["reason"], _current))
+                _conn.commit()
+                return _result
+        except Exception as _v3e:
+            _result = {"allowed": False,
+                       "reason": "verification_gate:morning_scan_runs_unqueryable",
+                       "trigger_count": _current}
+            _cur.execute(
+                "INSERT INTO aiem_scan_trigger_log "
+                "(run_id, action, reason, trigger_count_at_time) "
+                "VALUES (%s, 'blocked', %s, %s)",
+                (run_id, _result["reason"], _current))
+            _conn.commit()
+            return _result
+
+        # G4 — Evidence chain file accessible
+        _chain_path = _os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)),
+            "tools", "verified_run_chain.jsonl")
+        if not _os.path.isfile(_chain_path):
+            _result = {"allowed": False, "reason": "evidence_chain:file_not_found",
+                       "trigger_count": _current}
+            _cur.execute(
+                "INSERT INTO aiem_scan_trigger_log "
+                "(run_id, action, reason, trigger_count_at_time) "
+                "VALUES (%s, 'blocked', %s, %s)",
+                (run_id, _result["reason"], _current))
+            _conn.commit()
+            return _result
+
+        # All gates passed — atomically increment accepted trigger count
+        _cur.execute("""
+            UPDATE morning_watchdog_audit
+            SET triggers_fired = triggers_fired + 1, updated_at = NOW()
+            WHERE audit_date=%s
+        """, (_today,))
+        _new_count = _current + 1
+        _cur.execute(
+            "INSERT INTO aiem_scan_trigger_log "
+            "(run_id, action, reason, trigger_count_at_time) "
+            "VALUES (%s, 'accepted', 'all_gates_pass', %s)",
+            (run_id, _new_count))
+        _conn.commit()
+        _result = {"allowed": True, "reason": "all_gates_pass", "trigger_count": _new_count}
+        return _result
+
+    except Exception as _ge:
+        if _conn:
+            try: _conn.rollback()
+            except: pass
+        _result = {"allowed": False,
+                   "reason": f"gate_db_error:{type(_ge).__name__}",
+                   "trigger_count": -1}
+        # Best-effort audit log on gate exception
+        try:
+            _c2 = _pg.connect(_db_url, connect_timeout=3)
+            _c2.cursor().execute(
+                "INSERT INTO aiem_scan_trigger_log (run_id, action, reason) "
+                "VALUES (%s, 'blocked', %s)", (run_id, _result["reason"]))
+            _c2.commit(); _c2.close()
+        except: pass
+        return _result
+    finally:
+        if _conn:
+            try: _conn.close()
+            except: pass
+
 
 def _start_process_health_server():
     """Start the single HTTP server on port 5055.
@@ -117,10 +310,28 @@ def _start_process_health_server():
                     self.send_response(503)
                     body = b'{"error":"not_ready","hint":"scheduler still loading"}'
                 else:
-                    _rid = str(_u.uuid4())
-                    threading.Thread(target=fn, args=(_rid,), daemon=True).start()
-                    self.send_response(200)
-                    body = _jp.dumps({"status": "triggered", "run_id": _rid}).encode()
+                    _rid  = str(_u.uuid4())
+                    _gate = _rs_gate_check(_rid)
+                    if not _gate["allowed"]:
+                        # 409 for idempotency-class blocks; 429 for cap/switch blocks
+                        _rcode = (409 if _gate["reason"].startswith("verification_gate")
+                                  else 429)
+                        self.send_response(_rcode)
+                        body = _jp.dumps({
+                            "status":        "blocked",
+                            "run_id":        _rid,
+                            "reason":        _gate["reason"],
+                            "trigger_count": _gate["trigger_count"],
+                        }).encode()
+                    else:
+                        threading.Thread(
+                            target=fn, args=(_rid,), daemon=True).start()
+                        self.send_response(200)
+                        body = _jp.dumps({
+                            "status":        "triggered",
+                            "run_id":        _rid,
+                            "trigger_count": _gate["trigger_count"],
+                        }).encode()
             elif self.path == "/run-grade":
                 fn = _SCAN_FN_REGISTRY.get("run_grade")
                 if fn is None:
