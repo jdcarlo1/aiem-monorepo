@@ -1,0 +1,34 @@
+# Directive: Phase 11 PARTIAL Remediation (12 items)
+
+## Standing checklist (applies to every item below)
+- Raw command output only — no narrative/paraphrase. grep-verified code claims (raw grep -n, no described snippets).
+- sha256 before/after for every changed file.
+- git diff HEAD --stat (or "no changes").
+- Data Immutability Rule: no delete/truncate/overwrite without prior explicit approval this session.
+- sha256 cross-check tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh vs canonical before any evidence accepted.
+- No hardcoded values presented as live — trace every new constant to its live source.
+- "PASS" only when nothing outstanding — otherwise state PARTIAL/NOT_IMPLEMENTED plainly.
+- On close, write permanent record: /docs/verification/phase11-partial-remediation-FINAL.md (commit hash included).
+
+Order: fix and re-verify trivial items first, confirm PASS, then moderate, then decide build-required scope before starting.
+
+## Round 1 — Trivial (4)
+1. **OPS-013** — DB status exists in /readyz (main.py:182) but not surfaced on any dashboard page. Add DB status display to the relevant page.
+2. **OPS-039** — Watchdog exists (aiem_telegram_notifier.py) but not surfaced/tested via dashboard. Confirm liveness signal reaches a page or expose via API.
+3. **PAGE-023** — next-themes installed, only consumed in toast (sonner.tsx), no real light/dark toggle. Add a real ThemeProvider + user-facing toggle, or explicitly scope this out.
+4. **PAGE-035** — Evidence chain endpoint wired (Proof.tsx:9) and source attribution displayed (Proof.tsx:165) — confirm this is fully working end-to-end with a live evidence chain response; if already complete, just needs re-verification, not a build.
+
+## Round 2 — Moderate (5)
+5. **OPS-002** — job_heartbeats used as proxy for real worker status; no actual thread/worker-pool panel (grep for thread|worker.pool|ThreadPool|pool.size returned empty). Decide: build a real worker-pool panel, or explicitly document job_heartbeats as the accepted proxy.
+6. **OPS-026** — Options pipeline orphan recovery is wired (aiem_options_scheduler.py) but no system-wide orphan scanner exists (grep for orphan_scan|all.*job.*orphan in main.py empty). Decide: scope orphan scanning system-wide or leave scoped to options pipeline only.
+7. **OPS-036** — Playwright smoke suite is pre-deploy CI only (playwright.yml), no post-deploy step hitting the production URL. Add a deploy-then-probe step.
+8. **PAGE-011** — Scheduler status footer shows job count (Scheduler.tsx:28/112) — confirm this is complete/live or identify remaining gap.
+9. **PAGE-013** — Evidence chain displayed (Proof.tsx:9/165, source=evidence_chain SHA-256) — confirm end-to-end live, same as PAGE-035; these two may close together.
+
+## Round 3 — Build-required (3), scope decision needed before starting
+10. **OPS-028** — Telegram alert fires on repeated failures (aiem_telegram_notifier.py:2821-2843) — clarify what's actually missing/unverified here before treating as build-required; may just need a live-fire test.
+11. **OPS-040** — Meta-verdict item, not a single testable thing: display surface is incomplete because OPS-002/013/039 remain PARTIAL, and no independent third-party audit log exists. This closes automatically once OPS-002/013/039 close — no separate build needed except the audit-log question (decide: build one, or accept as out of scope).
+12. **PAGE-040** — Terminal branding/AppLayout consistency (Sidebar.tsx:38-39, AppLayout.tsx:54) across all 13 pages — confirm what specifically fails verification vs. what's already consistent; may be smaller than "build-required" once scoped.
+
+## Required before starting
+State understanding of scope for items 5, 6, 10, 11, 12 (the ones needing a scope decision) before writing any code — pre-action gate, per standing protocol.
