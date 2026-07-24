@@ -1,0 +1,200 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — PHASE 12 OF 12
+SECTION 16: SECURITY HARDENING (SEC-001–030)
+SECTION 17: REPORTING & AUDIT (REPORT-001–030)
+SECTION 18: WORKFLOW CONTROLS (WORK-001–020)
+SECTION 19: NEGATIVE CONTROLS (NEG-001–040)
+SECTION 20: FINAL EVIDENCE & PRODUCTION ACCEPTANCE (EVID-001–020)
+============================================================
+
+SECTION 16 — SECURITY HARDENING
+
+SEC-001 HTTPS enforced.
+SEC-002 TLS configuration verified.
+SEC-003 Security headers configured.
+SEC-004 Content Security Policy implemented.
+SEC-005 CORS policy restricted.
+SEC-006 Input validation enforced.
+SEC-007 Output encoding verified.
+SEC-008 Parameterized SQL enforced.
+SEC-009 Secrets never exposed to frontend.
+SEC-010 Secrets stored securely.
+SEC-011 Credential rotation documented.
+SEC-012 JWT validation verified.
+SEC-013 Session expiration verified.
+SEC-014 Role escalation blocked.
+SEC-015 Rate limiting enforced.
+SEC-016 API abuse protection verified.
+SEC-017 Audit logs protected.
+SEC-018 Evidence repository protected.
+SEC-019 Backup encryption verified.
+SEC-020 Database encryption verified.
+SEC-021 Secure password policy enforced.
+SEC-022 Account lockout verified.
+SEC-023 Failed-login logging verified.
+SEC-024 Dependency vulnerability scan passes.
+SEC-025 Static security scan passes.
+SEC-026 Dynamic security scan passes.
+SEC-027 Penetration-test findings resolved.
+SEC-028 Critical vulnerabilities eliminated.
+SEC-029 High-severity vulnerabilities eliminated.
+SEC-030 Independent security audit passes.
+
+SECTION 17 — REPORTING & AUDIT
+
+REPORT-001 Daily system report generated.
+REPORT-002 Daily trading report generated.
+REPORT-003 Daily portfolio report generated.
+REPORT-004 Daily calibration report generated.
+REPORT-005 Daily performance report generated.
+REPORT-006 Daily scheduler report generated.
+REPORT-007 Weekly executive report generated.
+REPORT-008 Monthly executive report generated.
+REPORT-009 Audit evidence report generated.
+REPORT-010 Decision report generated.
+REPORT-011 Opportunity Queue report generated.
+REPORT-012 Risk report generated.
+REPORT-013 Probability report generated.
+REPORT-014 Indicator report generated.
+REPORT-015 Paper-trading report generated.
+REPORT-016 Open-position report generated.
+REPORT-017 Closed-position report generated.
+REPORT-018 Error summary generated.
+REPORT-019 Warning summary generated.
+REPORT-020 System-health summary generated.
+REPORT-021 Evidence export verified.
+REPORT-022 CSV export verified.
+REPORT-023 PDF export verified.
+REPORT-024 JSON export verified.
+REPORT-025 Report timestamps verified.
+REPORT-026 Report reproducibility verified.
+REPORT-027 Report permissions enforced.
+REPORT-028 Report integrity verified.
+REPORT-029 Report hashes verified.
+REPORT-030 Independent reporting audit passes.
+
+SECTION 18 — WORKFLOW CONTROLS
+
+WORK-001 Morning scan automatically starts.
+WORK-002 Scheduler never requires manual intervention.
+WORK-003 Recovery workflow documented.
+WORK-004 Recovery workflow verified.
+WORK-005 Job ownership enforced.
+WORK-006 Duplicate execution prevented.
+WORK-007 Retry policy verified.
+WORK-008 Dead-letter handling verified.
+WORK-009 Alert escalation verified.
+WORK-010 Operator acknowledgement recorded.
+WORK-011 Deployment checklist completed.
+WORK-012 Rollback procedure verified.
+WORK-013 Configuration version tracked.
+WORK-014 Environment version tracked.
+WORK-015 Migration verification completed.
+WORK-016 Production verification completed.
+WORK-017 Post-deployment monitoring verified.
+WORK-018 Operational documentation complete.
+WORK-019 Runbook complete.
+WORK-020 Institutional operational review passes.
+
+SECTION 19 — NEGATIVE CONTROLS
+
+NEG-001 Missing market data correctly fails.
+NEG-002 Corrupted market data correctly fails.
+NEG-003 Stale market data correctly fails.
+NEG-004 Missing options chain correctly fails.
+NEG-005 Corrupted options chain correctly fails.
+NEG-006 Missing indicator correctly fails.
+NEG-007 Corrupted indicator correctly fails.
+NEG-008 Missing probability correctly fails.
+NEG-009 Corrupted probability correctly fails.
+NEG-010 Calibration failure reduces confidence.
+NEG-011 Risk-limit violation blocks trade.
+NEG-012 Daily-loss violation blocks trade.
+NEG-013 Portfolio-limit violation blocks trade.
+NEG-014 Liquidity violation blocks trade.
+NEG-015 Execution-cost violation blocks trade.
+NEG-016 Authentication failure rejected.
+NEG-017 Authorization failure rejected.
+NEG-018 Expired session rejected.
+NEG-019 Replay attack rejected.
+NEG-020 CSRF attack rejected.
+NEG-021 SQL injection rejected.
+NEG-022 XSS attack rejected.
+NEG-023 Rate-limit enforcement verified.
+NEG-024 API abuse protection verified.
+NEG-025 Broken scheduler detected.
+NEG-026 Worker crash detected.
+NEG-027 Queue failure detected.
+NEG-028 Database outage handled.
+NEG-029 Polygon outage handled.
+NEG-030 Tradier outage handled.
+NEG-031 Redis outage handled.
+NEG-032 Email outage handled.
+NEG-033 Telegram outage handled.
+NEG-034 Evidence corruption detected.
+NEG-035 Broken hash chain detected.
+NEG-036 Modified evidence detected.
+NEG-037 Dashboard/API mismatch detected.
+NEG-038 API/SQL mismatch detected.
+NEG-039 SQL/recomputation mismatch detected.
+NEG-040 Independent negative-control audit passes.
+
+SECTION 20 — FINAL EVIDENCE & PRODUCTION ACCEPTANCE
+
+EVID-001 Every requirement marked PASS or FAIL.
+EVID-002 Every PASS includes objective evidence.
+EVID-003 Every FAIL includes root cause.
+EVID-004 Every FAIL includes remediation.
+EVID-005 All evidence timestamped.
+EVID-006 Evidence linked to trace IDs.
+EVID-007 Evidence linked to runtime logs.
+EVID-008 Evidence linked to SQL results.
+EVID-009 Evidence linked to API responses.
+EVID-010 Evidence linked to screenshots.
+EVID-011 Evidence hashes verified.
+EVID-012 Hash chain verified.
+EVID-013 Independent recomputation completed.
+EVID-014 Independent reviewer approval recorded.
+EVID-015 No fabricated evidence found.
+EVID-016 No mocked runtime evidence found.
+EVID-017 No manual database inserts used.
+EVID-018 All critical defects resolved.
+EVID-019 All high-severity defects resolved.
+EVID-020 Final institutional acceptance signed.
+
+THIS IS THE FINAL PHASE. It closes only when every prior phase (1-11) has
+a documented verdict on every item, with raw evidence, and Section 19's
+negative controls have all been run against the completed system —
+not just individually per earlier phase.
+
+MASTER TOTAL: 741 of 760 intended items (items 602-620, 19 items, were
+never recovered from source material and are excluded from this count).
+
+============================================================
+STANDING VERIFICATION REQUIREMENTS (apply in full to every item)
+============================================================
+- No item is complete based on description alone.
+- Raw evidence required per item: raw grep/sed output for any code-location
+  or behavior claim (never paraphrased); raw SQL query + full result set;
+  before/after sha256 for any changed file; verified_run.sh +
+  verify_chain.sh output.
+- sha256 cross-check of tools/verified_run.sh and
+  artifacts/stock-scanner-api/verify_chain.sh against current canonical
+  values required before any evidence from this phase is accepted.
+- Standing Data Immutability Rule: no delete/truncate/drop/overwrite of any
+  row, table, or file — including test/synthetic data — without Joel's
+  explicit prior approval in that session.
+- Every negative control / conditional gate in this phase must be run and
+  its output pasted; a gate not shown blocking under the failing condition
+  is not verified.
+- Quant/statistical items: independent known-answer test vectors (not
+  agent-invented), stated formula/reference before running, cross-check via
+  a second method where feasible, mutation check proving the test isn't
+  vacuous.
+- Output format: raw command output only — no narrative, no restated
+  headers, no "representative" sample rows, no re-verification of anything
+  unchanged this session.
+- Each item receives exactly one verdict: PASS / FAIL / NOT_IMPLEMENTED /
+  IMPLEMENTED_NOT_VERIFIED / PARTIAL.
+- This phase does not close until every item has a verdict and every PASS
+  has raw evidence attached.

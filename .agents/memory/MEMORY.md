@@ -144,3 +144,4 @@
 - [Premarket backup GH Actions gap](premarket-backup-gap.md) — morning-backup.yml only covers 9:50 AM ET; premarket (7:00-9:15 AM) needs separate workflow hitting /stock-api/admin/aiem-process/run-scan
 - [read tool line-count vs wc -l](readtool-linecount-bug.md) — for very large files (≥70k lines), read tool reports wrong file length; always verify with wc -l before using offset=N
 - [main.py grep pipe miss pattern](mainpy-grep-pipe-miss.md) — piping grep -n results through a second grep can miss routes where @app.route is above the line matching the keyword; use single grep or confirm with sed -n 'N,Mp' around hit line
+- [Phase 12 Final Verdict](phase12-final-verdict.md) — PASS=28/PARTIAL=51/NI=46/INV=10/FAIL=2; SEC-005 wildcard CORS + NEG-037 broken reconcile are active FAILs
