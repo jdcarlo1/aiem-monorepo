@@ -124,19 +124,19 @@ test.describe("Authentication", () => {
 // ---------------------------------------------------------------------------
 
 const ROUTES = [
-  "/command",
-  "/opportunities",
-  "/paper-trades",
-  "/decisions",
-  "/proof",
-  "/risk",
-  "/council",
-  "/signals",
-  "/regime",
-  "/scheduler",
-  "/options",
-  "/learning",
-  "/alerts",
+  "command",
+  "opportunities",
+  "paper-trades",
+  "decisions",
+  "proof",
+  "risk",
+  "council",
+  "signals",
+  "regime",
+  "scheduler",
+  "options",
+  "learning",
+  "alerts",
 ] as const;
 
 test.describe("Route loading — each registered route renders without crash", () => {
@@ -169,7 +169,7 @@ test.describe("Not-found page", () => {
     await setAuth(page, ADMIN_TOKEN);
     await mockAuthMe(page);
     await stubAllApi(page);
-    await page.goto("/this-route-does-not-exist");
+    await page.goto("this-route-does-not-exist");
     await expect(
       page.getByText(/not found|404|page not found/i).first()
     ).toBeVisible();
@@ -206,7 +206,7 @@ test.describe("Loading and error states", () => {
     await page.route("**/stock-api/**", (r) =>
       r.fulfill({ status: 200, body: JSON.stringify({ jobs: [] }) })
     );
-    await page.goto("/scheduler");
+    await page.goto("scheduler");
     await page.waitForTimeout(800);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
