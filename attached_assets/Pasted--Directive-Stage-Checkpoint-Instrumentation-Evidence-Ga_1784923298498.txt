@@ -1,0 +1,23 @@
+# Directive — Stage-Checkpoint Instrumentation: Evidence Gap Closure (2026-07-25)
+## SCOPE: Follow-up to tonight's stage-checkpoint submission (SEQ=121). Strong submission overall — 4 items below required before this closes as PASS rather than "cleared to proceed."
+
+## Missing items
+
+1. **Raw sha256 before/after for every file actually changed this session** (aiem_pipeline_checkpoints.py, aiem_process.py, aiem_options_scheduler.py, aiem_telegram_notifier.py, and any others touched) — not shown in the submission. Paste real `sha256sum` output for each, before and after.
+
+2. **verified_run.sh / verify_chain.sh sha256 cross-check against canonical**, per standing rule — not shown. This codebase has had repeated truncated/drifted-hash incidents before; this check is non-negotiable, same as every other directive.
+
+3. **Confirm the sha256(log) value already shown (6c19b8111e8b5b041d4a2308a1babd759f5916f64913874c37ccc337c7a6cdf5) is the full untruncated 64-character value** — paste it again as raw output, not from a prior message, given this project's history of 63-vs-64-char paste truncation.
+
+4. **State plainly that the "live DB confirmation" rows shown (19:46:51-53) are from a TEST run, not real production traffic** — this is expected and fine since the real window hasn't opened yet, but must be labeled as such in the permanent record rather than implied as live-traffic proof.
+
+## What does NOT need to be redone
+- The 11-stage call-site grep proof, the 18/18 negative-control test results, and the SEQ=121 seal are accepted as-is — no need to re-run those.
+- Do not re-verify anything unchanged this session.
+
+## Standing checklist (required, same as always)
+- Raw terminal output only — no narrative
+- Data Immutability Rule applies
+- State plainly if any item can't be backed by real evidence — no padding
+- "PASS" reserved only once all 4 items above are closed with real evidence — until then this remains "cleared to proceed," not PASS
+- Permanent /docs/verification/ record file still withheld until this closes AND tomorrow's live 6:50-10:00 AM window confirms the checkpoints fire on real traffic (per the original directive's requirement)
