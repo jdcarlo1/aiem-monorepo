@@ -1,0 +1,170 @@
+PHASE 11 — COMPLETE REMEDIATION DIRECTIVE
+
+Current status: NO PASS.
+
+Do not reduce scope or relabel missing items. Complete and strictly verify every item below.
+
+1. REQUIRED DASHBOARD PAGES
+
+Implement and register:
+
+/performance
+/probability
+/calibration
+/indicator-lab
+/settings
+/roles
+/audit-log
+
+Each page must have:
+
+- Real backend API wiring
+- Authentication
+- Loading state
+- Error state
+- Empty state
+- Refresh/polling cleanup
+- Responsive table/chart rendering
+- Runtime verification
+- Regression test
+
+Do not use mock or hardcoded data.
+
+2. TABLE AND DATA CONTROLS
+
+Add where applicable:
+
+- Search
+- Filters
+- Column sorting
+- Pagination
+- Row drill-down
+- Cross-page links
+- CSV export
+- PDF export
+
+All controls must operate on real API data and preserve active filters during pagination/export.
+
+3. DARK MODE
+
+Wire the installed next-themes package correctly:
+
+- Add ThemeProvider at the application root
+- Add light/dark/system toggle
+- Persist preference
+- Verify all charts, tables, dialogs and text remain readable
+
+4. ACCESSIBILITY
+
+Add:
+
+- ARIA labels and roles
+- Keyboard navigation
+- Visible focus states
+- Accessible buttons, dialogs, tables and form fields
+- Proper page headings and labels
+
+5. READINESS AND HEALTH
+
+Keep the existing health endpoint.
+
+Add:
+
+GET /stock-api/readyz
+
+Return:
+
+- HTTP 200 only when app, database and required schedulers are ready
+- HTTP 503 when any required dependency is unavailable
+- JSON showing each dependency status
+
+6. VERSION AND DEPLOYMENT METADATA
+
+Add and expose:
+
+- APP_VERSION
+- BUILD_ID
+- BUILD_DATE
+- ENVIRONMENT
+- GIT_COMMIT
+
+Display this information in the dashboard and return it from a protected API endpoint.
+
+7. AUTOMATED TESTING
+
+Add:
+
+- Vitest
+- React Testing Library
+- Playwright smoke tests
+
+Minimum tests:
+
+- Login/authentication
+- Every required route loads
+- Invalid token returns 401
+- Health returns 200
+- Readiness returns 200 or valid 503
+- Loading/error/empty states
+- Search/filter/sort/pagination
+- Export functions
+- Dark-mode toggle
+- Critical API rendering
+
+8. POLLING CONFIGURATION
+
+Remove duplicated hardcoded polling intervals from page components.
+
+Create one shared polling configuration and verify:
+
+- Intervals are named
+- Intervals are cleared on unmount
+- Failed requests do not create overlapping timers
+- Polling pauses or backs off when appropriate
+
+9. SCHEDULER ISSUE
+
+Investigate:
+
+aiem_independent_scan failures=1
+
+Provide raw SQL showing:
+
+- Last attempt
+- Last success
+- Last error
+- Current status
+- Corrective action
+- Successful rerun
+
+Do not mark resolved without runtime proof.
+
+10. FINAL VERIFICATION
+
+Return raw evidence only:
+
+- git status
+- git diff --stat
+- git diff
+- sha256sum for every changed file
+- route registration grep
+- API wiring grep
+- package.json scripts
+- test discovery
+- full test output
+- typecheck
+- production build
+- live curl for auth, health and readiness
+- SQL scheduler evidence
+- browser/runtime evidence for every new page
+- data immutability check
+- archive SHA256
+- verification-chain result
+
+FINAL PASS REQUIREMENT
+
+FAIL=0
+PARTIAL=0
+NOT_IMPLEMENTED=0
+
+Do not declare PASS until every Phase 11 item above is implemented, wired to real data and verified.
