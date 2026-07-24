@@ -1,0 +1,57 @@
+Subject: FINAL RELEASE SIGN-OFF – Strict Verification Requirements (Items 1–5)
+
+To move to final production sign-off, we require the auditable, non-repudiable evidence listed below. We are not accepting partial outputs or casual logs. Every proof must be verifiable end-to-end. Please provide the following by [Insert Deadline/Time].
+
+---
+
+1. CI/CD EXECUTION PROOF (Playwright)
+
+Requirement: We need a direct, clickable URL to the specific GitHub Actions workflow run triggered by commit 3c9706d (or your latest release commit).
+
+Strict Verification: We must see the raw un-truncated logs for the Playwright job displaying "36 passed" (or active + skipped breakdown) with a green checkmark. A screenshot is insufficient—we need the live logs or a downloadable JSON artifact of the test results to verify the exit code was 0. We also need the exact timestamp to ensure this wasn't a retroactive CI run.
+
+---
+
+2. IMMUTABLE TRIGGER NEGATIVE TEST (Strictest Proof)
+
+Requirement: Claiming a trigger exists is not proof. We need the raw SQL transaction logs showing an explicit UPDATE or DELETE attempt on a non-test row (e.g., a production-like entry in oe_decision_audit) that fails.
+
+Strict Verification: Provide either:
+  a) The exact psql console output showing "ERROR: ..." raised by the trigger, OR
+  b) A dedicated Vitest/unit test file named immutability.test.sql or similar that programmatically attempts the mutation and asserts a rejected promise or SQLException.
+
+We require the exact error message text and the line of code where the trigger fired.
+
+---
+
+3. DEFERRED TESTS (7 SKIPPED) – Formal Tracking
+
+Requirement: The 7 skipped Playwright tests (dark mode, pagination, CSV/PDF export) cannot remain in a "deferred" black hole.
+
+Strict Verification: Provide direct links to the corresponding GitHub Issues, JIRA tickets, or Linear tasks for each of the 7 skipped tests. Each ticket must explicitly state the target release version (e.g., v1.1.0) and the assigned owner. We will not approve a production release with untested, half-implemented UI features lacking a concrete remediation roadmap.
+
+---
+
+4. VITEST CODE COVERAGE (Full Breakdown)
+
+Requirement: Passing 38 tests means nothing without coverage metrics.
+
+Strict Verification: Provide the complete json-summary coverage report or a hosted HTML coverage report. We need to see the exact percentages for: Statements, Branches, Functions, and Lines, broken down per file.
+
+We require the coverage/lcov-report/index.html file zipped and attached, or a direct preview link. Note: Any coverage below 80% across the core src/ logic will require additional tests before we sign off.
+
+---
+
+5. DATABASE SCHEMA & MIGRATION VERIFICATION
+
+Requirement: We need to prove the production database schema strictly matches the Prisma/TypeORM models in this commit.
+
+Strict Verification: Provide the raw terminal output of the following commands (run against the staging/production-like environment):
+  1. prisma migrate status (must show all migrations applied, with no drift).
+  2. pg_dump -U [user] [database] --schema-only --table=aiem_paper_trades --table=aiem_signal_discoveries (or the equivalent schema inspection).
+
+We need to visually match the column names, types, and constraints in this output against the schema definition file (e.g., schema.prisma) in the provided SHA256 chain. If there is any discrepancy, the release is blocked.
+
+---
+
+Final Note: Please supply all 5 of these items bundled in a single reply. We will validate the SHA256 hashes of the artifacts against your previously provided chain. Approval is contingent on 100% compliance with the above strict verification criteria.
