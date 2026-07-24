@@ -1,0 +1,27 @@
+# Directive — Phase 11 Provenance Check (2026-07-24)
+
+Phase 11 is NOT approved as PASS. Two items must be resolved with raw evidence before it is.
+
+## Item 1 — tools/verify_chain.sh provenance
+Raw cross-check shows this file exists on disk (hash 972ff44a...), but the 2026-07-19 protocol correction established via `git log --follow` that this path has NEVER existed in this repo's history — only `artifacts/stock-scanner-api/verify_chain.sh` was ever created.
+
+Required, raw output only, no summary:
+1. `git log --follow -p -- tools/verify_chain.sh` (full output, not truncated)
+2. `git log --diff-filter=A -- tools/verify_chain.sh` (first-add commit, if any)
+3. `git status --porcelain -- tools/verify_chain.sh`
+4. State explicitly: is this file tracked or untracked? If tracked, which commit added it, when, and under what directive (if any)? If none, state that plainly.
+
+## Item 2 — Phase 11 scope definition timing
+"Option A" claims Phase 11's e2e scope was always limited to the Playwright + Vitest suites, excluding both verify_chain.sh files.
+
+Required:
+1. Locate and paste the original Phase 11 scope definition (spec doc, directive, or commit) with its timestamp/commit hash, predating today's ca7896c7 investigation.
+2. If no such pre-existing scope document exists, state that plainly — do not infer or reconstruct scope after the fact.
+
+## Standing checklist (applies to this and every response)
+- Raw execution output only — no narrative, no paraphrased grep/find results
+- sha256 cross-check: tools/verified_run.sh vs canonical ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836; artifacts/stock-scanner-api/verify_chain.sh vs canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+- Any code/location claim backed by raw grep -n / sed -n output, not description
+- No delete/truncate/overwrite of any file or row without explicit prior approval (Data Immutability Rule)
+- If any item can't be backed by real output, state that in one line — no padding
+- If/when this closes clean, write the permanent record file per standing rule — do not label anything "PASS" unless fully closed
