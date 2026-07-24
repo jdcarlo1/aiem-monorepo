@@ -37,7 +37,7 @@ jobs:
 
       - name: Run Playwright tests
         working-directory: artifacts/aiem-dashboard
-        run: pnpm exec playwright test --reporter=list
+        run: pnpm exec playwright test --reporter=list,html
         env:
           CI: true
           PORT: "5174"
