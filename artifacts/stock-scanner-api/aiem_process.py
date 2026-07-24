@@ -34,6 +34,7 @@ import os
 import sys
 import time
 import json
+_BOOT_TIME = time.time()  # process start time for /health uptime
 import math
 import logging
 import threading
@@ -339,6 +340,30 @@ def _start_process_health_server():
                     }).encode()
                 except Exception as _mse:
                     body = _json_hs.dumps({"error": str(_mse)}).encode()
+            elif self.path.startswith("/health"):
+                import time as _ht
+                _uptime_s = int(_ht.time() - _BOOT_TIME)
+                _last_cp = None
+                try:
+                    import psycopg2 as _hpg, os as _hos
+                    _hc = _hpg.connect(_hos.environ.get("DATABASE_URL", ""),
+                                       connect_timeout=3)
+                    _hk = _hc.cursor()
+                    _hk.execute(
+                        "SELECT MAX(written_at) FROM pipeline_stage_checkpoints")
+                    _hr = _hk.fetchone()
+                    _last_cp = str(_hr[0]) if _hr and _hr[0] else None
+                    _hc.close()
+                except Exception:
+                    pass
+                body = _json_hs.dumps({
+                    "status": "ok",
+                    "uptime_s": _uptime_s,
+                    "pid": os.getpid(),
+                    "boot_ts": _ht.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", _ht.gmtime(_BOOT_TIME)),
+                    "last_checkpoint_ts": _last_cp,
+                }).encode()
             else:
                 body = b'{"status":"ok"}'
             self.send_response(200)

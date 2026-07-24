@@ -1,0 +1,101 @@
+name: AIEM Process External Heartbeat
+
+# External infra monitor — pings aiem-process liveness proxy every 5 min
+# Mon-Fri 06:45-10:05 AM ET (10:45-14:05 UTC), the critical risk window.
+# Fires Telegram alert if process is unreachable.
+# Architecturally independent of the Replit VM and all in-process watchdogs.
+
+on:
+  schedule:
+    # Every 5 min, Mon-Fri, 10:45-14:00 UTC (6:45-10:00 AM ET)
+    - cron: '45,50,55 10 * * 1-5'
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 11 * * 1-5'
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 12 * * 1-5'
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 13 * * 1-5'
+    - cron: '0,5 14 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true = check only, no Telegram alert'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: aiem-process-heartbeat
+  cancel-in-progress: true
+
+jobs:
+  heartbeat:
+    name: Ping aiem-process liveness
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Ping liveness proxy and alert if down
+        env:
+          REPLIT_APP_URL:      ${{ secrets.REPLIT_APP_URL }}
+          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN:             ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          echo "=== AIEM Process Heartbeat Monitor ==="
+          echo "UTC  : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Run  : ${{ github.run_id }}"
+          echo "Dry  : ${DRY_RUN}"
+
+          # ── Time-window guard (10:45-14:05 UTC = 6:45-10:05 AM ET) ─────────
+          HOUR_UTC=$(date -u +%H)
+          MIN_UTC=$(date -u +%M)
+          TIME_UTC=$(( HOUR_UTC * 60 + MIN_UTC ))
+          WIN_START=$(( 10 * 60 + 45 ))
+          WIN_END=$(( 14 * 60 + 5 ))
+          if [ "${TIME_UTC}" -lt "${WIN_START}" ] || [ "${TIME_UTC}" -gt "${WIN_END}" ]; then
+            echo "Outside risk window (${HOUR_UTC}:${MIN_UTC} UTC) — no action"
+            exit 0
+          fi
+
+          # ── Ping liveness proxy ───────────────────────────────────────────
+          LIVENESS_URL="${REPLIT_APP_URL}/stock-api/admin/aiem-process-liveness"
+          echo "Pinging: ${LIVENESS_URL}"
+          HTTP_CODE=$(curl -s -o /tmp/hb_body.json -w "%{http_code}" \
+            "${LIVENESS_URL}" --max-time 12 2>&1) || HTTP_CODE="000"
+          BODY=$(cat /tmp/hb_body.json 2>/dev/null || echo '{}')
+          echo "HTTP ${HTTP_CODE}: ${BODY}"
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            UPTIME=$(echo "${BODY}" | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('uptime_s','?'))" \
+              2>/dev/null || echo "?")
+            LAST_CP=$(echo "${BODY}" | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('last_checkpoint_ts','none'))" \
+              2>/dev/null || echo "?")
+            echo "OK aiem-process alive — uptime=${UPTIME}s last_checkpoint=${LAST_CP}"
+            exit 0
+          fi
+
+          # ── Process unreachable — fire Telegram alert ─────────────────────
+          echo "aiem-process UNREACHABLE (HTTP ${HTTP_CODE}) — alerting"
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY RUN — alert suppressed"
+            exit 1
+          fi
+
+          NOW_UTC=$(date -u '+%Y-%m-%dT%H:%M UTC')
+          MSG=$(python3 -c "
+import urllib.parse
+msg = (
+  'GH-EXTERNAL: aiem-process UNREACHABLE\n'
+  'HTTP ${HTTP_CODE} at ${NOW_UTC}\n'
+  'Risk window 6:50-10:00 AM ET is open.\n'
+  'Check Replit > aiem-process workflow and restart if needed.\n'
+  'Run: https://github.com/\${{ github.repository }}/actions/runs/\${{ github.run_id }}'
+)
+print(urllib.parse.quote(msg))
+" 2>/dev/null || echo "aiem-process+UNREACHABLE+HTTP+${HTTP_CODE}+at+${NOW_UTC}")
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${MSG}" \
+            --max-time 10 || echo "Telegram alert failed — check TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID secrets"
+
+          exit 1

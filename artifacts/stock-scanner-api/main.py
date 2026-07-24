@@ -23059,6 +23059,28 @@ def admin_emergency_run():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/stock-api/admin/aiem-process-liveness", methods=["GET"])
+def admin_aiem_process_liveness():
+    """Proxy to aiem-process :5055/health. No auth — pure liveness check.
+    Used by GH Actions external heartbeat monitor (aiem-process-heartbeat.yml).
+    Returns 200+JSON if process alive, 503 if unreachable.
+    """
+    import urllib.request as _ulr, json as _hj
+    from datetime import datetime, timezone as _tz
+    try:
+        with _ulr.urlopen("http://127.0.0.1:5055/health", timeout=5) as _r:
+            _body = _r.read()
+    except Exception as _e:
+        return jsonify({"status": "unreachable", "detail": str(_e),
+                        "proxy_ts": datetime.now(_tz.utc).isoformat()}), 503
+    try:
+        _data = _hj.loads(_body)
+    except Exception:
+        _data = {"raw": _body.decode(errors="replace")}
+    _data["proxy_ts"] = datetime.now(_tz.utc).isoformat()
+    return jsonify(_data), 200
+
+
 # ── AI Trade Log - DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():

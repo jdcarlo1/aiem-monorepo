@@ -2403,6 +2403,125 @@ def main():
 
     threading.Thread(target=_aiem_process_watchdog, daemon=True,
                      name="aiem-process-watchdog").start()
+
+    # ── HTTP heartbeat monitor (Component 1/2 of infra directive) ─────────────
+    # Pings :5055/health every 2 min via HTTP (separate from pgrep watchdog).
+    # N=3 consecutive failures (6 min) → Telegram alert.
+    # N=3 chosen: 1 miss can be transient network; 2 = unlikely coincidence;
+    # 3 × 2 min = 6 min confirms dead process with high confidence.
+    # Alert-only — no spawn (pgrep watchdog handles restart).
+    def _aiem_http_heartbeat_monitor():
+        import time as _hbt, urllib.request as _hbur
+        _HB_INTERVAL  = 120    # 2-min poll
+        _HB_THRESHOLD = 3      # consecutive HTTP failures before alert
+        _HB_COOLDOWN  = 1800   # 30-min between repeated alerts
+        _HB_URL       = "http://127.0.0.1:5055/health"
+        misses     = 0
+        last_alert = 0.0
+        _hbt.sleep(45)   # stagger from pgrep watchdog
+        log.info("[hb-monitor] HTTP heartbeat monitor started -- "
+                 "pinging :5055/health every 2 min, alert on 3 consecutive misses")
+        while True:
+            try:
+                try:
+                    with _hbur.urlopen(_HB_URL, timeout=8) as _r:
+                        _raw = _r.read()
+                        _data = json.loads(_raw) if _raw else {}
+                        if misses > 0:
+                            log.info("[hb-monitor] aiem-process OK after %d miss(es) uptime=%ss",
+                                     misses, _data.get("uptime_s"))
+                        misses = 0
+                except Exception as _he:
+                    misses += 1
+                    log.warning("[hb-monitor] :5055/health unreachable (miss %d/%d): %s",
+                                misses, _HB_THRESHOLD, _he)
+                    if misses >= _HB_THRESHOLD:
+                        _now_ts = _hbt.time()
+                        if _now_ts - last_alert >= _HB_COOLDOWN:
+                            _det = datetime.now(ET).strftime("%I:%M %p ET %a %b %d")
+                            _dur = misses * _HB_INTERVAL // 60
+                            _msg = (
+                                "\U0001f534 <b>AIEM-PROCESS HTTP HEALTH MONITOR: DOWN</b>\n"
+                                "--------------------\n"
+                                "Detected: " + _det + "\n"
+                                + str(misses) + " consecutive HTTP /health pings missed "
+                                "(" + str(_dur) + " min without response).\n\n"
+                                "Liveness check (HTTP, separate from pgrep watchdog).\n"
+                                "pgrep watchdog will attempt auto-restart if process is absent."
+                            )
+                            _tg_send(_msg)
+                            last_alert = _now_ts
+            except Exception as _le:
+                log.error("[hb-monitor] loop error: %s", _le)
+            _hbt.sleep(_HB_INTERVAL)
+
+        threading.Thread(target=_aiem_http_heartbeat_monitor, daemon=True,
+                     name="aiem-http-heartbeat-monitor").start()
+
+    # ── Synthetic heartbeat trail (Component 4 of infra directive) ────────────
+    # Every 5 min Mon-Fri 6:50-10:00 AM ET: ping :5055/health, log result to DB.
+    # Produces a continuous alive/dead trail across the risk window so any gap
+    # is datestamped precisely rather than inferred from absent trigger activity.
+    def _synthetic_heartbeat_trail():
+        import time as _sht, urllib.request as _shur
+        _SH_TABLE = """
+            CREATE TABLE IF NOT EXISTS aiem_process_heartbeat_trail (
+                id            BIGSERIAL PRIMARY KEY,
+                ts            TIMESTAMPTZ DEFAULT NOW(),
+                scan_date     DATE NOT NULL,
+                alive         BOOLEAN NOT NULL,
+                uptime_s      INT,
+                response_json JSONB
+            )
+        """
+        _SH_INS = (
+            "INSERT INTO aiem_process_heartbeat_trail "
+            "(ts, scan_date, alive, uptime_s, response_json) "
+            "VALUES (NOW(), %s, %s, %s, %s::jsonb)"
+        )
+        try:
+            import psycopg2 as _shpg
+            with _shpg.connect(DATABASE_URL, connect_timeout=5) as _sc, _sc.cursor() as _sk:
+                _sk.execute(_SH_TABLE)
+                _sc.commit()
+            log.info("[heartbeat-trail] aiem_process_heartbeat_trail table ready")
+        except Exception as _te:
+            log.error(f"[heartbeat-trail] table init: {_te}")
+        _sht.sleep(60)
+        log.info("[heartbeat-trail] synthetic trail started — "
+                 "6:50–10:00 AM ET Mon-Fri, 5-min intervals, writing to DB")
+        while True:
+            try:
+                _now_et = datetime.now(ET)
+                _mins   = _now_et.hour * 60 + _now_et.minute
+                if _now_et.weekday() < 5 and 6 * 60 + 50 <= _mins < 10 * 60:
+                    _alive, _uptime_s, _resp_json = False, None, None
+                    try:
+                        with _shur.urlopen("http://127.0.0.1:5055/health",
+                                           timeout=5) as _r:
+                            _rd = json.loads(_r.read())
+                            _alive    = True
+                            _uptime_s = _rd.get("uptime_s")
+                            _resp_json = json.dumps(_rd)
+                    except Exception as _he:
+                        _resp_json = json.dumps({"error": str(_he)})
+                    _label = (f"uptime={_uptime_s}s" if _alive else "UNREACHABLE")
+                    log.info(f"[heartbeat-trail] {_now_et.strftime('%H:%M ET')} "
+                             f"aiem-process alive={_alive} {_label}")
+                    try:
+                        import psycopg2 as _shpg2
+                        with _shpg2.connect(DATABASE_URL, connect_timeout=5) as _sc2,                                 _sc2.cursor() as _sk2:
+                            _sk2.execute(_SH_INS,
+                                (_now_et.date(), _alive, _uptime_s, _resp_json))
+                            _sc2.commit()
+                    except Exception as _dbe:
+                        log.error(f"[heartbeat-trail] DB write: {_dbe}")
+            except Exception as _le:
+                log.error(f"[heartbeat-trail] loop: {_le}")
+            _sht.sleep(300)   # 5-min interval
+
+    threading.Thread(target=_synthetic_heartbeat_trail, daemon=True,
+                     name="aiem-heartbeat-trail").start()
     # ────────────────────────────────────────────────────────────────────────
 
     # ── Protection #6: independent morning scan watchdog ─────────────────────
