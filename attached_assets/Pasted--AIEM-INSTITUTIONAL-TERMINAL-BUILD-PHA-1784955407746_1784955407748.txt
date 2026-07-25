@@ -1,0 +1,60 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — BUILD PHASE 2 OF 9
+CORE DECISION SCREENS
+GATED BY: Verification Phase 4 (Opportunity Queue + Decision Proof) closed
+============================================================
+
+SCREENS
+1. Command Center (executive overview): Market Regime, Volatility Regime,
+   Risk Status, System Health, Opportunity Count, Today's Decisions, Open
+   Positions, Current Exposure, Scheduler/Provider/Pipeline status,
+   Probability Distribution, Latest Decision, Latest Evidence Chain,
+   Latest Specialist Council Vote, Today's Paper Trading Summary.
+2. Live Decision Terminal: every recommendation shows Ticker, Probability,
+   Confidence, Expected Value, Risk, Capital Preservation, Regime, Reason
+   Qualified, Reason Alternatives Lost, Specialist Council Summary, Risk
+   Gate Summary, Execution Readiness, Audit Link, Evidence Link. Never
+   show a bare BUY/SELL — always the justification.
+3. Opportunity Queue: full candidate list (approved/rejected/blocked/
+   NO_TRADE) with every field and filter from OPP-001–060, SQL-reconciled
+   counts.
+4. Decision Proof: one-click forensic expansion — timeline, signals,
+   indicators, probability, council, risk gate, evidence, trace IDs,
+   decision hash, audit references (TRACE-001–060).
+
+DELIVERABLE
+- These 4 screens live, reading only from verified APIs/tables, with
+  working filters/sort/pagination and evidence links that resolve to
+  real audit records.
+
+
+============================================================
+STANDING BUILD RULES (apply to every build phase)
+============================================================
+- This Terminal is a separate app/frontend/backend/domain/branding/auth
+  from Stock Scanner and the Standalone Options Engine — no shared UI,
+  navigation, or branding; API-only integration if ever needed.
+- No duplicate business logic: no duplicate probability engine, no
+  duplicate Risk Gate, no duplicate Specialist Council. The dashboard
+  consumes verified AIEM APIs only.
+- Never calculate business logic inside the frontend/React layer — every
+  displayed value must originate from a Verified API → Verified Database
+  → Verified Runtime chain.
+- Design: institutional decision-support terminal, not a retail trading
+  site. Dark theme, dense information, minimal animation, Bloomberg-style
+  workstation feel, keyboard-friendly, resizable/collapsible panels,
+  saved layouts.
+- Every screen must answer: WHY / HOW / RISK / PROBABILITY / EVIDENCE /
+  AUDIT — never show a bare recommendation without justification.
+- Every widget must cite: Verified Route, Verified Table, Verified
+  Module, Verified Refresh Method, Verification Status.
+- Real-time strategy: use the verified polling architecture from Phase A/
+  Verification Phase 3 unless a future requirement explicitly justifies
+  WebSockets.
+- This build phase does NOT start until its gating verification phase(s)
+  have closed with PASS/verdict evidence on every item — an unverified
+  item is a backend gap to route back to AIEM, not something to build
+  around or fake in the UI.
+- Standing verification protocol still applies to the build itself: raw
+  evidence, sha256 before/after on changed files, no fabricated/mock
+  data, Data Immutability Rule, no unapproved deletions.
