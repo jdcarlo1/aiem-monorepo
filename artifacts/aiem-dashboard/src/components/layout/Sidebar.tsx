@@ -3,7 +3,7 @@ import {
   Terminal, Activity, BarChart2, Layers, ShieldCheck,
   AlertTriangle, Users, Search, ActivitySquare, Calendar,
   Workflow, RefreshCw, Bell, TrendingUp, BrainCircuit, Target,
-  X, LogOut, Wifi, ChevronRight
+  X, LogOut, Wifi, ChevronRight, ClipboardCheck
 } from "lucide-react";
 import { serverLogout } from "@/lib/auth";
 
@@ -42,6 +42,7 @@ const NAV_GROUPS = [
       { href: "/calibration", label: "Calibration", icon: Target },
       { href: "/learning", label: "Learning", icon: RefreshCw },
       { href: "/proof", label: "Evidence", icon: ShieldCheck },
+      { href: "/audit", label: "Audit / Compliance", icon: ClipboardCheck },
     ],
   },
 ];

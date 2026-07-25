@@ -11765,6 +11765,265 @@ def nano_morning_run_ranking():
     return jsonify({"status": "started", "stage": "ranking"}), 202
 
 
+# ── Audit/Compliance screen endpoints ─────────────────────────────────────────
+# Module-level cache for script run results (survives request boundaries,
+# cleared on process restart — AC-011: shows "Never run" on fresh start).
+_AUDIT_SCRIPT_CACHE: dict = {}
+
+_AUDIT_SCRIPT_WHITELIST = {
+    "independent_recomputation": "/home/runner/workspace/tools/independent_recomputation.py",
+    "load_security_e2e":         "/home/runner/workspace/tools/load_security_e2e.py",
+    "staging_neg_controls":      "/home/runner/workspace/tools/staging_neg_controls.py",
+}
+
+# Canonical hashes sourced from sealed documents — not from live state.
+# verified_run.sh: phase8-perf-FINAL.md seal (2026-07-23)
+# tools/verify_chain.sh: live sha256sum 2026-07-25 (matches memory 972ff44a)
+# artifacts/stock-scanner-api/verify_chain.sh: evidence-chain-fix-2026-07-23-FINAL.md
+_AUDIT_CANONICAL_HASHES = {
+    "artifacts/stock-scanner-api/tools/verified_run.sh":
+        "58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5",
+    "tools/verify_chain.sh":
+        "972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75",
+    "artifacts/stock-scanner-api/verify_chain.sh":
+        "ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f",
+}
+
+_AUDIT_REPO_ROOT = "/home/runner/workspace"
+
+
+@app.route("/stock-api/admin/audit/chain-status", methods=["GET"])
+def admin_audit_chain_status():
+    import subprocess as _asp, datetime as _adt, json as _aj, re as _ar, os as _ao
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    result: dict = {}
+
+    # verified_run_seq
+    try:
+        with open(f"{_AUDIT_REPO_ROOT}/artifacts/stock-scanner-api/tools/verified_run_seq") as _f:
+            result["last_seq"] = int(_f.read().strip())
+    except Exception as _e:
+        result["last_seq"] = None
+        result["seq_error"] = str(_e)
+
+    # verified_run_last.log — extract PASS/FAIL summary line
+    try:
+        with open(f"{_AUDIT_REPO_ROOT}/artifacts/stock-scanner-api/tools/verified_run_last.log") as _f:
+            _last_log = _f.read()
+        for _line in _last_log.splitlines():
+            if "PASS" in _line and "FAIL" in _line and "SUMMARY" in _line:
+                _m = _ar.search(r"(\d+)\s+PASS\s+(\d+)\s+FAIL", _line)
+                if _m:
+                    result["last_pass_count"] = int(_m.group(1))
+                    result["last_fail_count"] = int(_m.group(2))
+        if "last_pass_count" not in result:
+            result["last_log_tail"] = _last_log.strip()[-300:]
+    except Exception as _e:
+        result["last_log_error"] = str(_e)
+
+    # Root evidence_chain.log (main chain)
+    try:
+        _rc_path = f"{_AUDIT_REPO_ROOT}/evidence_chain.log"
+        _wc = _asp.run(["wc", "-l", _rc_path], capture_output=True, text=True)
+        _rc_lines = int(_wc.stdout.strip().split()[0]) if _wc.returncode == 0 else None
+        _rc_stat = _ao.stat(_rc_path)
+        _tail = _asp.run(["tail", "-1", _rc_path], capture_output=True, text=True)
+        _last_entry: dict = {}
+        if _tail.returncode == 0 and _tail.stdout.strip():
+            try:
+                _last_entry = _aj.loads(_tail.stdout.strip())
+            except Exception:
+                _last_entry = {"raw": _tail.stdout.strip()[:200]}
+        result["root_chain"] = {
+            "path": "evidence_chain.log",
+            "line_count": _rc_lines,
+            "last_modified": _adt.datetime.fromtimestamp(_rc_stat.st_mtime).isoformat(),
+            "last_seq": _last_entry.get("seq") or _last_entry.get("SEQ"),
+            "last_timestamp": _last_entry.get("ts") or _last_entry.get("TIMESTAMP"),
+            "last_cmd": (_last_entry.get("cmd") or _last_entry.get("CMD", ""))[:120],
+            "last_exit_code": _last_entry.get("exit_code") or _last_entry.get("EXIT_CODE"),
+        }
+    except Exception as _e:
+        result["root_chain"] = {"error": str(_e)}
+
+    # APE evidence_chain.log (options-pipeline chain)
+    try:
+        _ape_path = f"{_AUDIT_REPO_ROOT}/artifacts/stock-scanner-api/evidence_chain.log"
+        _wc2 = _asp.run(["wc", "-l", _ape_path], capture_output=True, text=True)
+        _ape_lines = int(_wc2.stdout.strip().split()[0]) if _wc2.returncode == 0 else None
+        _ape_stat = _ao.stat(_ape_path)
+        _tail2 = _asp.run(["tail", "-1", _ape_path], capture_output=True, text=True)
+        _ape_last: dict = {}
+        if _tail2.returncode == 0 and _tail2.stdout.strip():
+            try:
+                _ape_last = _aj.loads(_tail2.stdout.strip())
+            except Exception:
+                _ape_last = {"raw": _tail2.stdout.strip()[:200]}
+        result["ape_chain"] = {
+            "path": "artifacts/stock-scanner-api/evidence_chain.log",
+            "line_count": _ape_lines,
+            "last_modified": _adt.datetime.fromtimestamp(_ape_stat.st_mtime).isoformat(),
+            "last_seq": _ape_last.get("seq") or _ape_last.get("SEQ"),
+            "last_timestamp": _ape_last.get("ts") or _ape_last.get("TIMESTAMP"),
+        }
+    except Exception as _e:
+        result["ape_chain"] = {"error": str(_e)}
+
+    # SHA256 cross-checks: live hash vs sealed canonical
+    _sha_checks = []
+    for _rel, _canonical in _AUDIT_CANONICAL_HASHES.items():
+        _full = f"{_AUDIT_REPO_ROOT}/{_rel}"
+        try:
+            _sr = _asp.run(["sha256sum", _full], capture_output=True, text=True)
+            if _sr.returncode == 0:
+                _live = _sr.stdout.strip().split()[0]
+                _sha_checks.append({
+                    "file": _rel,
+                    "live": _live,
+                    "canonical": _canonical,
+                    "match": _live == _canonical,
+                })
+            else:
+                _sha_checks.append({"file": _rel, "error": _sr.stderr.strip(), "match": False})
+        except Exception as _e:
+            _sha_checks.append({"file": _rel, "error": str(_e), "match": False})
+    result["sha_checks"] = _sha_checks
+
+    return jsonify(result), 200
+
+
+@app.route("/stock-api/admin/audit/docs", methods=["GET"])
+def admin_audit_docs():
+    import os as _ao2, datetime as _adt2
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    _docs_dir = f"{_AUDIT_REPO_ROOT}/docs/verification"
+    try:
+        _entries = []
+        for _fname in sorted(_ao2.listdir(_docs_dir)):
+            _fpath = _ao2.path.join(_docs_dir, _fname)
+            if _ao2.path.isfile(_fpath):
+                _st = _ao2.stat(_fpath)
+                _entries.append({
+                    "name": _fname,
+                    "size_bytes": _st.st_size,
+                    "last_modified": _adt2.datetime.fromtimestamp(_st.st_mtime).isoformat(),
+                    "type": "SEALED",
+                })
+        return jsonify({"docs": _entries, "count": len(_entries)}), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/audit/run-script", methods=["POST"])
+def admin_audit_run_script():
+    import subprocess as _rsp, datetime as _rdt
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    _data = request.get_json(silent=True) or {}
+    _name = _data.get("name", "").strip()
+    if _name not in _AUDIT_SCRIPT_WHITELIST:
+        return jsonify({"error": f"unknown script: {_name!r}",
+                        "allowed": list(_AUDIT_SCRIPT_WHITELIST)}), 400
+    # Serve cache if < 5 minutes old (AC-007)
+    _cached = _AUDIT_SCRIPT_CACHE.get(_name)
+    if _cached and ((_rdt.datetime.utcnow() - _cached["run_at"]).total_seconds() < 300):
+        return jsonify({**_cached, "cached": True,
+                        "run_at": _cached["run_at"].isoformat()}), 200
+    try:
+        _r = _rsp.run(
+            ["python3", _AUDIT_SCRIPT_WHITELIST[_name]],
+            capture_output=True, text=True, timeout=120,
+            cwd=_AUDIT_REPO_ROOT,
+        )
+        _entry = {
+            "name": _name,
+            "exit_code": _r.returncode,
+            "stdout": _r.stdout[-8000:] if len(_r.stdout) > 8000 else _r.stdout,
+            "stderr": _r.stderr[-2000:] if len(_r.stderr) > 2000 else _r.stderr,
+            "run_at": _rdt.datetime.utcnow(),
+            "cached": False,
+        }
+        _AUDIT_SCRIPT_CACHE[_name] = _entry
+        return jsonify({**_entry, "run_at": _entry["run_at"].isoformat()}), 200
+    except _rsp.TimeoutExpired:
+        return jsonify({"error": "script timed out (120s)", "name": _name}), 504
+    except Exception as _e:
+        return jsonify({"error": str(_e), "name": _name}), 500
+
+
+@app.route("/stock-api/admin/audit/run-log", methods=["GET"])
+def admin_audit_run_log():
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    _tsv = f"{_AUDIT_REPO_ROOT}/artifacts/stock-scanner-api/tools/logs/verified_run_index.tsv"
+    try:
+        with open(_tsv) as _f:
+            _lines = _f.read().splitlines()
+        _runs = []
+        for _line in _lines:
+            if not _line.strip():
+                continue
+            _parts = _line.split("\t")
+            if len(_parts) >= 4:
+                _runs.append({
+                    "seq": _parts[0].strip(),
+                    "timestamp": _parts[1].strip(),
+                    "exit_code": _parts[2].strip(),
+                    "entry_hash": _parts[3].strip() if len(_parts) > 3 else "",
+                    "cmd": _parts[4].strip() if len(_parts) > 4 else "",
+                })
+            elif len(_parts) >= 1:
+                _runs.append({"raw": _line})
+        return jsonify({"runs": _runs, "count": len(_runs)}), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/audit/run-log-detail", methods=["GET"])
+def admin_audit_run_log_detail():
+    import os as _alo, re as _are
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    _seq = request.args.get("seq", "").strip()
+    if not _seq or not _are.fullmatch(r"\d{1,6}", _seq):
+        return jsonify({"error": "seq must be 1-6 digit integer"}), 400
+    _log = f"{_AUDIT_REPO_ROOT}/artifacts/stock-scanner-api/tools/logs/verified_run_{_seq}.log"
+    if not _alo.path.exists(_log):
+        return jsonify({"error": f"log not found: verified_run_{_seq}.log"}), 404
+    try:
+        with open(_log) as _f:
+            _content = _f.read()
+        return jsonify({"seq": _seq, "content": _content,
+                        "size_bytes": len(_content)}), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/admin/audit/doc-content", methods=["GET"])
+def admin_audit_doc_content():
+    import os as _ado, re as _adre
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    _name = request.args.get("name", "").strip()
+    # Strict whitelist: only alphanumeric, dash, underscore, dot — no path traversal
+    if not _name or not _adre.fullmatch(r"[\w\-\.]+", _name):
+        return jsonify({"error": "invalid filename"}), 400
+    _path = f"{_AUDIT_REPO_ROOT}/docs/verification/{_name}"
+    if not _ado.path.exists(_path):
+        return jsonify({"error": "document not found"}), 404
+    try:
+        with open(_path) as _f:
+            _content = _f.read()
+        return jsonify({"name": _name, "content": _content,
+                        "size_bytes": len(_content)}), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+# ── End Audit/Compliance endpoints ─────────────────────────────────────────────
+
+
 @app.route("/stock-api/admin/aiem-process/run-scan", methods=["POST"])
 def admin_aiem_process_run_scan():
     """Manually trigger the AIEM Process premarket scan (warmup + score + DB write)."""

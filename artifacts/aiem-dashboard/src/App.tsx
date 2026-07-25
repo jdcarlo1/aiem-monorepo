@@ -25,6 +25,7 @@ import Alerts from "@/pages/Alerts";
 import Performance from "@/pages/Performance";
 import Probability from "@/pages/Probability";
 import Calibration from "@/pages/Calibration";
+import Audit from "@/pages/Audit";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,7 @@ function Router() {
         <Route path="/performance" component={Performance} />
         <Route path="/probability" component={Probability} />
         <Route path="/calibration" component={Calibration} />
+        <Route path="/audit" component={Audit} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
