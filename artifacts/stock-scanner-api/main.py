@@ -250,7 +250,8 @@ def dashboard_login():
     if not user_ok or not pass_ok:
         return jsonify({"error": "Invalid credentials"}), 401
     csrf = _sec.token_hex(16)
-    resp = jsonify({"csrf_token": csrf, "user": {"username": username}})
+    admin_tok = os.environ.get("ADMIN_TOKEN", "")
+    resp = jsonify({"csrf_token": csrf, "session_token": admin_tok, "user": {"username": username}})
     resp.set_cookie("aiem_csrf", csrf, httponly=False, samesite="Lax", secure=False)
     return resp, 200
 

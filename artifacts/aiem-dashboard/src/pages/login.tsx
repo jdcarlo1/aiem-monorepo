@@ -39,13 +39,13 @@ export default function Login() {
         return;
       }
       const data = await res.json();
-      // Store CSRF token from response or cookie
+      // Store CSRF token
       const csrf = data.csrf_token || "";
       if (csrf) setCsrfToken(csrf);
-      // Read CSRF cookie if not in body
       const cookieMatch = document.cookie.match(/(?:^|;\s*)aiem_csrf=([^;]+)/);
       if (!csrf && cookieMatch) setCsrfToken(decodeURIComponent(cookieMatch[1]));
-      // Mark as authenticated (cookie-based session)
+      // Store session token so all admin API calls work automatically
+      if (data.session_token) setToken(data.session_token);
       sessionStorage.setItem("aiem_authed", "1");
       sessionStorage.setItem("aiem_username", data.user?.username || username.trim());
       setLocation("/command");
