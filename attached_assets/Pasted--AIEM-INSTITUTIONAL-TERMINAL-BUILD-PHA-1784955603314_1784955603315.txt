@@ -1,0 +1,56 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — BUILD PHASE 7 OF 9
+REAL-TIME/POLLING WIRING + SAVED LAYOUTS
+GATED BY: Verification Phase 3 (Real-Time Event Delivery, RT-001–035)
+          closed. Per Phase B spec, default to verified polling — only
+          add SSE/WebSockets if RT verification specifically justifies it.
+============================================================
+
+SCOPE
+- Wire every screen built in Build Phases 2-6 to its verified refresh
+  method: polling interval, cache policy, retry policy, timeout policy,
+  offline behavior per widget.
+- If SSE/WebSocket delivery was verified and justified: authenticated
+  connections, role-based event authorization, automatic reconnect with
+  backoff, last-event-ID / missed-event recovery, duplicate suppression,
+  ordered sequence numbers, heartbeat, stale-connection detection.
+- Saved layouts: resizable/collapsible panels, multi-monitor support,
+  per-user layout persistence.
+- Every metric/chart/recommendation clickable and drillable
+  (SCREEN LINKING, EVIDENCE EVERYWHERE from Phase B spec).
+
+DELIVERABLE
+- Full dashboard refreshes live within its verified cadence, no widget
+  silently stale, layout persistence working per user/role.
+
+
+============================================================
+STANDING BUILD RULES (apply to every build phase)
+============================================================
+- This Terminal is a separate app/frontend/backend/domain/branding/auth
+  from Stock Scanner and the Standalone Options Engine — no shared UI,
+  navigation, or branding; API-only integration if ever needed.
+- No duplicate business logic: no duplicate probability engine, no
+  duplicate Risk Gate, no duplicate Specialist Council. The dashboard
+  consumes verified AIEM APIs only.
+- Never calculate business logic inside the frontend/React layer — every
+  displayed value must originate from a Verified API → Verified Database
+  → Verified Runtime chain.
+- Design: institutional decision-support terminal, not a retail trading
+  site. Dark theme, dense information, minimal animation, Bloomberg-style
+  workstation feel, keyboard-friendly, resizable/collapsible panels,
+  saved layouts.
+- Every screen must answer: WHY / HOW / RISK / PROBABILITY / EVIDENCE /
+  AUDIT — never show a bare recommendation without justification.
+- Every widget must cite: Verified Route, Verified Table, Verified
+  Module, Verified Refresh Method, Verification Status.
+- Real-time strategy: use the verified polling architecture from Phase A/
+  Verification Phase 3 unless a future requirement explicitly justifies
+  WebSockets.
+- This build phase does NOT start until its gating verification phase(s)
+  have closed with PASS/verdict evidence on every item — an unverified
+  item is a backend gap to route back to AIEM, not something to build
+  around or fake in the UI.
+- Standing verification protocol still applies to the build itself: raw
+  evidence, sha256 before/after on changed files, no fabricated/mock
+  data, Data Immutability Rule, no unapproved deletions.

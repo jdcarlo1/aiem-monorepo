@@ -1,0 +1,57 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — BUILD PHASE 8 OF 9
+SECURITY HARDENING + NEGATIVE-CONTROL PASS
+GATED BY: Verification Phase 12 (Security SEC-001–030 + Negative
+          Controls NEG-001–040) closed
+============================================================
+
+SCOPE
+- Apply security hardening to the completed build: HTTPS/TLS, security
+  headers, CSP, restricted CORS, input validation, output encoding,
+  parameterized SQL, secrets never in frontend, JWT/session hardening,
+  role-escalation blocking, rate limiting, encrypted backups/DB
+  (SEC-001–030).
+- Run the full negative-control suite against the actually-built system
+  (not just individual backend pieces in isolation): missing/corrupted/
+  stale data, risk/loss/portfolio-limit violations blocking trades,
+  auth/session/CSRF/SQLi/XSS attempts rejected, outage handling for
+  every provider, evidence/hash-chain tamper detection, dashboard/API/
+  SQL/recomputation mismatch detection (NEG-001–040).
+- Dependency vulnerability scan, static + dynamic security scan,
+  penetration-test findings resolved.
+
+DELIVERABLE
+- Security scan reports clean of critical/high findings, every negative
+  control produces its expected failure/block on the live built system.
+
+
+============================================================
+STANDING BUILD RULES (apply to every build phase)
+============================================================
+- This Terminal is a separate app/frontend/backend/domain/branding/auth
+  from Stock Scanner and the Standalone Options Engine — no shared UI,
+  navigation, or branding; API-only integration if ever needed.
+- No duplicate business logic: no duplicate probability engine, no
+  duplicate Risk Gate, no duplicate Specialist Council. The dashboard
+  consumes verified AIEM APIs only.
+- Never calculate business logic inside the frontend/React layer — every
+  displayed value must originate from a Verified API → Verified Database
+  → Verified Runtime chain.
+- Design: institutional decision-support terminal, not a retail trading
+  site. Dark theme, dense information, minimal animation, Bloomberg-style
+  workstation feel, keyboard-friendly, resizable/collapsible panels,
+  saved layouts.
+- Every screen must answer: WHY / HOW / RISK / PROBABILITY / EVIDENCE /
+  AUDIT — never show a bare recommendation without justification.
+- Every widget must cite: Verified Route, Verified Table, Verified
+  Module, Verified Refresh Method, Verification Status.
+- Real-time strategy: use the verified polling architecture from Phase A/
+  Verification Phase 3 unless a future requirement explicitly justifies
+  WebSockets.
+- This build phase does NOT start until its gating verification phase(s)
+  have closed with PASS/verdict evidence on every item — an unverified
+  item is a backend gap to route back to AIEM, not something to build
+  around or fake in the UI.
+- Standing verification protocol still applies to the build itself: raw
+  evidence, sha256 before/after on changed files, no fabricated/mock
+  data, Data Immutability Rule, no unapproved deletions.
