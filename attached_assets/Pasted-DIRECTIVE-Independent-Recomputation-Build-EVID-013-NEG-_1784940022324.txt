@@ -1,0 +1,35 @@
+DIRECTIVE — Independent Recomputation Build (EVID-013, NEG-038/039/040)
+2026-07-24
+
+CONTEXT
+Multi-day build. Not same-day. Start now, checkpoint as sections complete — do not attempt to close all items in one submission.
+
+SCOPE — what counts as "independent"
+- Separate script/module, NOT importing or calling the original pipeline's calculation functions
+- Pulls from raw source data (raw trades/prices), not from tables the original pipeline already derived/cached
+- Produces its own result, then reconciles against the original with a stated tolerance threshold
+- A second script that re-imports the original function is NOT independent — reject and require true separate logic
+
+REQUIRED WORK
+1. EVID-013 — independent recomputation of Sharpe, Sortino, Calmar, VaR, max drawdown from raw trade data; reconcile against dashboard-displayed values; document match/mismatch per metric
+2. NEG-038 — independent API cross-check
+3. NEG-039 — independent SQL cross-check
+4. NEG-040 — independent recomputation cross-check (may overlap with EVID-013 — agent must state if this is the same artifact or a separate one)
+
+REQUIRED EVIDENCE PER ITEM (standing protocol, full — no abbreviated subset)
+1. Raw grep -n proof the new code path does not call the original calculation functions
+2. Raw SQL query + full result set for data pulled
+3. Raw output of both original and independent value, side by side, with reconciliation result
+4. sha256 before/after for new/changed files
+5. sha256sum cross-check of tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh against current canonical, pasted raw, before evidence accepted
+6. verify_chain.sh output
+7. git diff HEAD --stat
+
+MATH CORRECTNESS (per standing quant rule)
+- State which formula/reference each recomputation checks against before running
+- Independent known-answer test vector required, not agent-invented values
+- Mutation check: break a known-correct value, confirm the comparison catches it as a mismatch
+
+CLOSE-OUT
+Report progress per item, not one final "done" claim. Any item without full evidence stays open, labeled per standing rule (never "PASS" unless fully verified with nothing outstanding).
+Once genuinely closed, write permanent record: /docs/verification/independent-recomputation-FINAL.md

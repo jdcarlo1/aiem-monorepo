@@ -1,3 +1,4 @@
+- [EVID-013 independent recomputation](evid013-independent-recomputation.md) — PASS 10/10 MATCH; NEG-038/039/040 satisfied; independence scanner: use ^\s* grep not substring; tools/independent_recomputation.py sha256=3f4e4a98
 - [Morning scan architecture overhaul](morning-scan-overhaul.md) — RC-1=3:02AM self-exit removed; RC-2=6:55-9:45 block removed; morning_scan_runs+advisory-lock+watchdog; live proof deferred to 2026-07-25
 - [verified_run.sh quoting rule](verified-run-quoting-rule.md) — single quoted command string required; bare multi-arg invocation silently uses only $1 → empty archive → PSV8 fails
 - [Morning VM-restart outage fix](morning-restart-outage-fix.md) — aiem_process_heartbeat table + 3-min writer; /run-warmup on :5055; /run-seed on :5053; proxies in main.py; GH Actions at 6:55 AM + 9:40/9:50 AM ET
