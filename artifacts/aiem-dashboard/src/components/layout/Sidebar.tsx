@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { 
   Terminal, Activity, BarChart2, Layers, ShieldCheck, 
   AlertTriangle, Users, Search, ActivitySquare, Calendar, 
-  Workflow, RefreshCw, Bell, LogOut, Moon, Sun, TrendingUp, BrainCircuit, Target
+  Workflow, RefreshCw, Bell, Moon, Sun, TrendingUp, BrainCircuit, Target, X, LogOut
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { serverLogout } from "@/lib/auth";
@@ -26,7 +26,11 @@ const NAV_ITEMS = [
   { href: "/calibration", label: "CALIBRATION", icon: Target },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export function Sidebar({ onClose }: SidebarProps) {
   const [location] = useLocation();
   const { theme, setTheme } = useTheme();
 
@@ -39,9 +43,19 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 border-r border-border bg-sidebar flex flex-col h-full shrink-0">
-      <div className="p-4 border-b border-border">
-        <h1 className="text-xl font-mono font-bold text-primary tracking-tighter">AIEM TERMINAL</h1>
-        <div className="text-xs text-muted-foreground font-mono mt-1">SYS_OP_SEC: AUTHORIZED</div>
+      <div className="p-4 border-b border-border flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-mono font-bold text-primary tracking-tighter">AIEM TERMINAL</h1>
+          <div className="text-xs text-muted-foreground font-mono mt-1">SYS_OP_SEC: AUTHORIZED</div>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="md:hidden text-muted-foreground hover:text-primary transition-colors ml-2 shrink-0"
+          >
+            <X size={18} />
+          </button>
+        )}
       </div>
       
       <nav className="flex-1 overflow-y-auto p-2 font-mono text-sm">
@@ -53,11 +67,14 @@ export function Sidebar() {
             return (
               <li key={item.href}>
                 <Link href={item.href}>
-                  <div className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
-                    isActive 
-                      ? "bg-primary/10 text-primary border-l-2 border-primary" 
-                      : "text-muted-foreground hover:bg-white/5 hover:text-foreground border-l-2 border-transparent"
-                  }`}>
+                  <div
+                    onClick={onClose}
+                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
+                      isActive 
+                        ? "bg-primary/10 text-primary border-l-2 border-primary" 
+                        : "text-muted-foreground hover:bg-white/5 hover:text-foreground border-l-2 border-transparent"
+                    }`}
+                  >
                     <Icon size={16} className={isActive ? "text-primary" : "text-muted-foreground"} />
                     {item.label}
                   </div>
@@ -72,7 +89,6 @@ export function Sidebar() {
         <button
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors font-mono text-sm w-full"
-          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
         >
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           {theme === "dark" ? "LIGHT MODE" : "DARK MODE"}
