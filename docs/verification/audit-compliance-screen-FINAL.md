@@ -232,7 +232,7 @@ curl http://localhost:5050/stock-api/admin/audit/chain-status
 
 2. **staging_neg_controls exits 1:** C35_job_idempotency failure is pre-existing (table rename `oe_options_pipeline_jobs` → `options_pipeline_jobs`). The screen shows the real exit code, not a hardcoded PASS.
 
-3. **OOM crash during first restart:** The stock-api restart triggered an OOM kill (98.3% VM memory pressure from all processes combined). This is a pre-existing VM condition, not caused by the Audit screen code. Server came up clean on second restart. Syntax check: `python3 -c "import ast; ast.parse(open('main.py').read())"` → SYNTAX OK.
+3. **Watchdog-triggered exit during first restart:** The stock-api exit was triggered by `_liveness_watchdog_loop` — confirmed via crash-dump "Current thread" at `main.py` line 556. Four possible exit conditions exist in that function: `threads_n > 400`, `rss_pct > 70.0%`, `vm_pressure_pct > 96.0%`, or `consecutive_failures >= 3`. The specific threshold that fired is undeterminable — the `[LIVENESS-WATCHDOG] CRITICAL: ...` log line that names the check was rotated out before capture. "OOM" is not asserted here; no raw log line backs that claim. Server came up clean on second restart. Syntax check: `python3 -c "import ast; ast.parse(open('main.py').read())"` → SYNTAX OK.
 
 ---
 
@@ -242,9 +242,12 @@ curl http://localhost:5050/stock-api/admin/audit/chain-status
 |----------|---------|
 | `Audit.tsx` | `5db3e2411d300d9a426681f9dd7e6541b7202e162774dc982091a06f791ce4e2` |
 | `main.py` (with audit routes) | `ba0e8cdf6bd68b62f5d0e72378d3d1c80e60eaa0873541963f7d291453db5138` |
-| `verified_run.sh` (canonical, phase8 seal) | `58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5` |
+| `tools/verified_run.sh` (project-root canonical, directive 2026-07-25) | `ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836` |
+| `artifacts/stock-scanner-api/tools/verified_run.sh` (options-pipeline canonical, phase8 seal) | `58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5` |
 | `tools/verify_chain.sh` (canonical, AC-003a) | `972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75` |
 | `artifacts/stock-scanner-api/verify_chain.sh` (canonical, AC-003b) | `ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f` |
+
+**Correction note (2026-07-25):** The original record listed `58534be5...` against the label `verified_run.sh` without a qualified path. This was a documentation error — `58534be5...` is the hash of `artifacts/stock-scanner-api/tools/verified_run.sh`, not `tools/verified_run.sh` at the project root (which is `ba6100ae...`). These are two distinct files confirmed by `sha256sum`. The chain-status endpoint logic was confirmed correct — it checks `artifacts/stock-scanner-api/tools/verified_run.sh` against `58534be5...`, which is the right file and the right hash for that endpoint. The error was documentation-only.
 
 ---
 
