@@ -1,0 +1,24 @@
+# Directive: AEIM Vault — Phase 1: Database Schema
+
+**Reference:** AEIM_Verification_Vault_COMPLETE_Master_Build_Directive, Section 8-9
+**Scope note:** This Vault covers AEIM's own components only. Do not import or reference Options Engine or StockScanner AI data (they are being sold separately).
+
+## Goal
+Stand up the core Postgres schema and append-only/immutability enforcement, reusing equivalent canonical tables discovered in Phase 0 if they exist.
+
+## Required deliverables / evidence
+- Full DDL actually applied (not just proposed) for vault_components, vault_component_relationships, vault_verification_runs, vault_component_verifications, vault_evidence_artifacts, vault_source_snapshots, vault_deployment_snapshots, vault_audit_events, vault_access_grants, vault_export_jobs
+- Raw SQL proving all tables/indexes created
+- Immutability triggers applied + raw proof an UPDATE/DELETE attempt is rejected on each protected table
+- If existing architecture uses event sourcing / stronger immutability, document why that's used instead
+
+## Standing protocol (full checklist, applies to this phase, no abbreviated subset)
+- Raw evidence only: raw terminal/grep/sed/SQL output for every claim — no paraphrasing, no narrative-only claims
+- Exact before/after diff + sha256 for every file changed this session
+- sha256 cross-check of `verified_run.sh` / `verify_chain.sh` against current canonical, pasted before any evidence is accepted
+- Data Immutability Rule: no delete/truncate/overwrite without Joel's explicit prior approval — including this Vault's own tables
+- "PASS" is reserved for zero-outstanding, fully evidenced verification. Anything less: "closed via accepted-risk," "cleared to proceed," or "partial" — never "PASS"
+- Pre-action gate: state understanding of this phase's scope before writing any code
+- On close: permanent record file committed to the repo (`/docs/verification/vault-phase{N}-FINAL.md`) with commit hash
+- Do not start the next phase until this one is confirmed closed with Joel's explicit sign-off
+
