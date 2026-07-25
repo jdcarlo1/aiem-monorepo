@@ -123,3 +123,6 @@ c.close()
 127	2026-07-25T14:12:27Z	0	76c2932fcc5e9f91007cd926c2b7437d4e8ae0899878eaf659ebb2f5bdd04197	artifacts/stock-scanner-api/tools/verify_discovery_cycle_fix.sh
 128	2026-07-25T18:24:47Z	1	17c28585cafa79d5c792123276cabef5242c1f502a31273bb7e4cc1cbbfadd08	cd artifacts/stock-scanner-api && python3 dpl/verify_dpl_phase3.py
 129	2026-07-25T18:50:53Z	1	1603fbd61c26fd9b94dd250c474f3b7866e96fbd3c642d10aad70328821366b2	cd artifacts/stock-scanner-api && python3 dpl/verify_dpl_phase3.py
+130	2026-07-25T19:00:36Z	0	299fbe0cdea593fcf95030e9c827f291b26453cf4278d85d6548e1a6fcc33a58	echo SEAL_STALE_TEST_PAYLOAD
+131	2026-07-25T19:00:55Z	0	f2db7252b96f49ae041e290f321c2b0696f2f7d5e69ec6b277e584be068d04f3	echo SEAL_FRESH_CONFIRM
+132	2026-07-25T19:01:18Z	1	bb8a21f182c4a0713a2671082a272c92730f271940f96f8355bf63994a17f4b8	cd artifacts/stock-scanner-api && python3 dpl/verify_dpl_phase3.py

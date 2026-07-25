@@ -1,0 +1,479 @@
+PASS C01_imports_ok
+PASS C02_table_exists
+PASS C03_columns_present
+  [C03 detail] found_cols=['alert_id', 'config_versions', 'contract_data_call', 'contract_data_put', 'created_at', 'data_source_timestamps', 'decision_id', 'deployment_commit_sha', 'is_test_record', 'iv_rank', 'origin_type', 'replay_schema_version', 'scheduler_job_id', 'scoring_weights_snapshot', 'stock_data_replay', 'stored_call_score', 'stored_direction', 'stored_put_score', 'verify_result_replay', 'worker_pid']
+PASS C04_bootstrap_idempotent
+PASS C05_missing_evidence_loud_fail
+  [C05 detail] ReplayInputsMissingError raised: [Phase 3] No replay inputs found for decision_id='p3v_miss_92753996'. capture_re
+  [scores] call_A=73.3  put_A=50.5  dir_A=LONG_CALL
+  [scores] call_B=71.7  put_B=50.5  dir_B=LONG_CALL
+  [D8] A=40 B=20  weight=0.08  expected_delta=1.6
+PASS C06_capture_writes_row
+PASS C07_replay_returns_structure
+  [C07 detail] call_replayed=73.3  call_stored=73.3  put_replayed=50.5  put_stored=50.5  dir_replayed=LONG_CALL  dir_stored=LONG_CALL
+PASS C08_call_score_replay_match
+PASS C09_put_score_replay_match
+PASS C10_direction_replay_match
+PASS C11_mutation_row_replays
+  [C11 detail] call_replayed=71.7  call_stored=71.7  dir=LONG_CALL  theta_B=0.04
+PASS C12_mutation_changes_output
+  [C12 detail] score_A=73.3  score_B=71.7  diff=1.6  expected_delta=1.6  theta_A=0.03  theta_B=0.04
+PASS C13_single_weights_source
+  [C13 detail] pipeline weights == _REQ6_SCORING_WEIGHTS: True
+PASS C14_weight_hash_changes
+  [C14 detail] orig_hash=f6b5f48032319dd3  mut_hash=4c9235c2f4e6be9f  restored_hash=f6b5f48032319dd3  D12_val_restored=0.02
+PASS C15_code_drift_loud_fail
+  [C15 detail] ReplayCodeDriftError raised: [Phase 3] CODE_DRIFT detected for decision_id='5bd09fac03254d389cd1a69d'. stored combined_hash='eb28b76efd534856' live c
+  [C15 restore] full_match after restore: True
+PASS C16_trigger_blocks_prod_update
+  [C16 detail] blocked correctly: oe_decision_replay_inputs: all columns are immutable on production rows (is_test_record = FALSE)
+CON
+  [C16 DELETE detail] blocked correctly: oe_decision_replay_inputs is append-only: DELETE not permitted on production rows
+CONTEXT:  PL/pgSQL
+PASS C16_trigger_blocks_prod_delete
+  [C16 trigger def] CREATE TRIGGER trg_oe_replay_immutable BEFORE DELETE OR UPDATE ON public.oe_decision_replay_inputs FOR EACH ROW EXECUTE FUNCTION _oe_replay_
+PASS C16_trigger_def_covers_update
+PASS C16_trigger_def_covers_delete
+PASS C17_is_test_record_set
+  [C17 detail] [('03e15aa49ad1', True), ('5bd09fac0325', True)]
+PASS C18_null_scores_return_none
+  [C18 detail] call_match=None  put_match=None  dir_match=None  full_match=False
+PASS C19_weights_drift_snapshot
+  [C19 detail] [Phase 3] WEIGHTS_DRIFT detected for decision_id='0059a45a1139415d905ecfde'. Live _REQ6_SCORING_WEIGHTS differs from stored snapshot on keys: ['D12_historical_p
+  [C19 detail] D12_bad=0.341843  D12_live=0.02
+PASS C20_constraint_has_CODE_DRIFT
+PASS C20_constraint_has_WEIGHTS_DRIFT
+PASS C20_constraint_has_REPLAY_ERROR
+  [C20 detail] CHECK ((verification_status = ANY (ARRAY['VERIFIED'::text, 'PENDING'::text, 'TAMPERED'::text, 'CODE_DRIFT'::text, 'WEIGHTS_DRIFT'::text, 'REPLAY_ERROR'::text])))
+PASS C21_immutability_trigger_exists
+PASS C21_immutability_trigger_blocks_update
+  [C21 detail] oe_known_synthetic_rows: rows are immutable once inserted (decision_id = 972f0ffe6ef24613b5532893)
+CONTEXT:  PL/pgSQL function trg_fn_oe_kno
+  [C22] oe_criterion1_exclusions rows=1
+    allowlisted: 2d03987f38c44c0bbb2daa73  registered_at=2026-07-19 17:25:11.024683+00:00
+  [C22] unallowlisted_eligible_rows=0
+PASS C22_criterion1_no_unallowlisted_eligible_rows
+  [C22 neg_ctl] unallowlisted_count_within_savepoint=1  (expect >=1)
+PASS C22_neg_ctl_unallowlisted_row_causes_fail
+PASS C23_cutoff_trigger_exists
+  [C23 note] no post-cutoff eligible row; trigger existence confirmed above
+PASS C23_cutoff_trigger_blocks_post_wiring_registration
+  [C23 detail] no post-cutoff FALSE row available for negative control (skip)
+  [C24 detail] git='2026-07-19 15:16:45 +0000'  trigger='2026-07-19 15:16:45+00'  match=True
+PASS C24_cutoff_literal_matches_git_commit_d9d6987e
+  [C25/C26 detail] tgenabled: {'trg_oe_known_synthetic_cutoff': 'O', 'trg_oe_known_synthetic_immutable': 'O'}
+PASS C25_tgenabled_cutoff_trigger
+PASS C26_tgenabled_immutability_trigger
+PASS C43_chain_file_exists_and_canonical
+PASS C43_all_tools_reference_canonical_chain
+PASS C43_chain_pos_test_parses_all_entries
+PASS C43_neg_no_second_chain_file
+PASS C43_missing_chain_would_fail_closed
+  [C43] canonical=/home/runner/workspace/artifacts/stock-scanner-api/tools/verified_run_chain.jsonl  entries=117  no_second_file=True
+PASS C44_chain_archive_sha_equals_file_sha
+PASS C44_chain_archive_sha_equals_index_sha
+PASS C44_index_sha_equals_file_sha
+  [C44] SEQ=131  3-way-binding=VERIFIED  sha=f2db7252b96f49ae041e290f321c2b0696f2f7d5e69ec6b277e584be068d04f3
+PASS C45_gap_explanation_file_exists
+PASS C45_gap_explains_missing_seqs
+PASS C45_gap_explains_root_cause
+PASS C45_gap_has_genesis_anchor
+PASS C45_genesis_hash_matches_chain
+  [C45] gap_explained=1-14  genesis_hash_match=OK  root_cause=/tmp era: SEQ counter was stored in /tmp
+PASS C46_direction_uses_gte_for_call
+PASS C46_scores_rounded_before_comparison
+PASS C46_identical_inputs_produce_identical_scores
+PASS C46_tied_scores_with_small_margin_are_no_trade
+  [C46] score_stability=True  sample_score=81.9  tie_rule=VERIFIED
+PASS C47_legacy_cutoff_table_exists
+PASS C47_alert_id_25_registered_as_legacy
+PASS C47_alert_predates_enforcement
+  [C47] alert_created_at=2026-07-17 14:17:27.778525+00:00  enforcement_at=2026-07-19 09:04:42+00:00  delta=1 day, 18:47:14.221475
+PASS C47_immutability_trigger_exists
+PASS C47_post_enforcement_block_trigger_exists
+PASS C47_neg_post_enforcement_registration_blocked
+PASS C47_neg_update_production_row_blocked
+  [C47B] scope=dpl_dir_only  dpl/*.py found=['correction_ledger.py', 'daily_trace_report.py', 'engine_manifest.py', 'integrity_gate.py', 'scheduler_trace.py', 'verify_dpl_phase1.py', 'verify_dpl_phase2.py', 'verify_dpl_phase3.py']
+  [C47B] unlisted=[]
+PASS C47B_source_tree_clean_dpl_scope
+  [C48] approved_at=None  approved_by=None  status=PENDING_INDEPENDENT_APPROVAL  cert='NOT_APPROVED — independent approval is EXTERNAL_BLOCKER'
+FAIL C48_independent_approval_obtained -- approved_at=None approved_by=None: OPERATOR_APPROVAL_PENDING: both approved_at and approved_by must be non-null. Set in refs.json to record operator approval (C48/C28 are operator-gated, not infra-blocked).
+PASS C48_neg_self_approval_is_forbidden
+PASS C48_approval_metadata_only_flag_set
+  [C49] current_user=postgres  session_user=postgres
+  [C49] EXTERNAL_BLOCKER: current_user=postgres is superuser (Replit managed DB infrastructure — separate aiem_app low-privilege role required)
+  [C49] NO_LOGIN_CAPABLE_ENFORCING_ROLE: all aiem_app/aiem_verify/aiem_approve are NOLOGIN — every immutability PASS in this run is asserted by postgres superuser (can disable trigger first). EXTERNAL_BLOCKER: requires infra change.
+FAIL C49_db_role_gap_is_unmet_control -- FAIL: Replit PG runs as 'postgres' (superuser); all aiem_* roles are NOLOGIN — no login-capable enforcing role exists. Every immutability PASS is asserted by postgres (can disable trigger first). EXTERNAL_BLOCKER: low-privilege login-capable role requires infra change.
+PASS C49_immutability_trigger_still_enabled_post_probe
+  [C49] KNOWN_GAP: current_user=postgres can ALTER triggers (shared Replit DB — separate aiem_app role required for enforcement)
+FAIL C49_ddl_privilege_gap_is_unmet_control -- FAIL: current_user=postgres has DDL privilege — can disable immutability trigger. Unmet control; separate low-privilege login-capable role required. EXTERNAL_BLOCKER: not achievable via Replit managed DB infrastructure.
+PASS C49_truncate_blocked_by_trigger
+PASS C49_update_immutable_audit_blocked
+PASS C50_defective_runs_registry_exists
+PASS C50_seq22_is_registered_defective
+PASS C50_seq22_has_reason_code
+PASS C50_seq22_has_correcting_seq
+PASS C50_seq22_excluded_from_clean_runs
+PASS C50_seq22_log_sha256_is_empty_string_sha
+PASS C50_clean_sealed_runs_all_verified_clean
+  [C50] clean_sealed_runs=[]  dirty_in_list=[]
+PASS C50_neg_control_dirty_seq_detected_as_dirty
+PASS C50_seq22_preserved_in_chain
+PASS C50_chain_continuity_through_seq22
+  [C50] seq22_status=INCOMPLETE_COMMAND_CAPTURE  chain_intact=True  clean_runs=[]
+PASS C51_baseline_psv24_passes
+PASS C51_neg_wrong_seq_fails
+PASS C51_neg_missing_archive_fails
+PASS C51_neg_modified_archive_fails
+PASS C51_neg_corrupted_index_sha_fails
+PASS C51_neg_missing_summary_fails
+  [C51] PSV negative controls: wrong_seq=True  tampered_archive=True  bad_index=True  no_summary=True
+  [C52-R] trg_oe_decision_audit_immutable exists=True
+PASS C52_decision_audit_row_immutable
+  [C52-R] frozen_combined_hash=eb28b76efd53485602c64874 (from refs, not live getsource)
+  [C52-R] replay_returns_structure test_did=b880f68c8c2740339c2d0ab3: is_dict=True required_keys_present=True
+  [C52-R drift-negctl] committed wrong hash; calling replay_decision...
+  [C52-R drift-negctl] raised ReplayCodeDriftError: drift_detected=True
+  [C52-R drift-negctl] frozen hash restored
+PASS C52_replay_returns_structure
+PASS C52_replay_code_drift_raises_error
+  [C52-R] audit rows with status=15 bad_status=0
+PASS C52_verification_status_is_verified
+  [C52-A] contaminated_prod_rows=0
+          documented_in_registry=0
+          undocumented=0
+  [C52-A] IMPLEMENTATION_DEFECT: verifier fixtures incorrectly stored with is_test_record=FALSE. Root cause: prior C06/C16 code used FALSE; current code uses TRUE. UPDATE trigger blocks in-place correction. All 0 rows documented in contamination_registry.json.
+PASS C52A_verifier_fixtures_contaminate_prod_namespace
+PASS C52A_contamination_registry_exists
+PASS C52A_all_contaminated_rows_documented
+PASS C52A_contaminated_ids_excluded_from_c52c
+  [C52-B sched] PENDING: no scheduler-origin row yet
+    Required: origin_type='SCHEDULER' + scheduler_job_id NOT NULL +
+    worker_pid NOT NULL + oe_decision_audit entry + is_test_record=FALSE
+    Unblocks: options-pipeline-scheduler on any market day 9:45 AM ET.
+  [C52-B trade] PENDING_LIVE_EVIDENCE: no live-trade row (alert_id IS NOT NULL)
+    Unblocks: options-pipeline-scheduler on a TRADE market day 9:45 AM ET.
+  [C52-B NEG-CTL] fixture_did=03e15aa49ad143dfaefcc540
+    hand-set SCHEDULER attrs: predicate_count=0 (must=0)
+PASS C52B_neg_hand_set_scheduler_does_not_satisfy_s10
+FAIL C52B_scheduler_origin_decision_exists -- PENDING: no scheduler-origin oe_decision_replay_inputs row. Requires: origin_type='SCHEDULER' + scheduler_job_id NOT NULL + worker_pid NOT NULL + oe_decision_audit entry + is_test_record=FALSE. alert_id may be null. Unblocks on any market day 9:45 AM ET.
+FAIL C52B_live_trade_decision_exists -- PENDING_LIVE_EVIDENCE: no live-trade oe_decision_replay_inputs row. Requires same as C52B_scheduler_origin_decision_exists + alert_id IS NOT NULL. Unblocks on a TRADE market day (Mon-Fri 9:45 AM ET).
+  [C52-C] BLOCKED: C52-B PENDING (no genuine scheduler decision exists yet)
+FAIL C52C_genuine_replay_pass -- PENDING_LIVE_EVIDENCE: C52-C blocked until C52-B passes. No scheduler-sourced decision exists. This is a dependency, not a code defect.
+  [C52C-historical] PENDING: no eligible scheduler-origin replay row
+FAIL C52C_historical_replay_eligible_row_exists -- No scheduler-origin row found (not contaminated, not non-replayable). Unblocks after first 9:45 AM ET scheduler run with successful replay capture.
+PASS C53_gap_explanation_exists
+PASS C53_has_corrected_continuity_statement
+PASS C53_corrected_statement_mentions_genesis
+PASS C53_corrected_statement_says_seqs_not_reconstructed
+PASS C53_genesis_labeled_synthetic
+PASS C53_first_fully_durable_run_is_15
+PASS C53_has_no_retroactive_entry_claim
+  [C53] corrected statement present  genesis_synthetic=True  first_durable=15
+  [C54] approved_at=None  status=PENDING_INDEPENDENT_APPROVAL
+  [C54] now=2026-07-25T19:01:14Z
+PASS C54_approved_at_not_future_when_present
+PASS C54_approved_at_status_is_not_unknown
+PASS C54_neg_future_ts_detected
+PASS C54_neg_past_ts_ok
+PASS C54_neg_empty_ts_detectable
+  [C54] timestamp order: OK  neg_controls: future_detected=True  past_ok=True
+PASS C27_oe_unreplayable_rows_exists
+PASS C27_reason_code_check_has_all_5_values
+PASS C27_unreplayable_rows_immutability_trigger
+PASS C27_unreplayable_rows_has_2_registered_exemptions
+  [C27] exemption: ee74327806f841a7a4034dcc reason=SOURCE_CHANGED recoverable=False
+  [C27] exemption: 64d956c7ee1b4bbd83147861 reason=SOURCE_CHANGED recoverable=False
+PASS C27_both_code_drift_rows_registered
+PASS C27_all_exemptions_not_recoverable
+PASS C27_neg_invalid_reason_code_blocked
+  [C27 neg] CHECK constraint blocked correctly: new row for relation "oe_unreplayable_rows" violates check constraint "oe_unrepl
+PASS C27_evidence_ref_not_null
+PASS C27_evidence_ref_format_constraint
+PASS C27_registered_by_column_not_null
+PASS C27_registered_by_check_constraint
+  [C27 A26] id=1 registered_by=verify_dpl_phase3.py evidence_ref=SEQ=14 sha256=baac6e1fc39945362d18ee2dba...
+  [C27 A26] id=2 registered_by=verify_dpl_phase3.py evidence_ref=SEQ=14 sha256=baac6e1fc39945362d18ee2dba...
+PASS C27_registered_by_values_valid
+PASS C28_refs_file_exists
+PASS C28_refs_has_commit_sha
+PASS C28_refs_has_engine_root_hash
+PASS C28_live_engine_root_hash_matches_approved
+PASS C28_scoring_fn_ast_hash_component_matches
+PASS C28_req6_weights_hash_component_matches
+FAIL C28_approved_by_in_allowlist_and_engine_hash_match -- approved_by=None in_allowlist=False (allowlist=set()) engine_match=True. OPERATOR_APPROVAL_PENDING: APPROVED_IDENTITIES is empty (no operator approval recorded yet) or engine hash mismatch. Populate approved_by + approved_at + APPROVED_IDENTITIES in refs.json + integrity_gate.py to unblock (operator-gated).
+PASS C28_refs_commit_sha_matches_run_head
+  [C28] approved_by=None  commit=c6372640e372e267
+  [C28] engine_root_hash=9698463b911555b138b2616fa4898d31...
+PASS C29_role_aiem_app_exists
+PASS C29_role_aiem_verify_exists
+PASS C29_role_aiem_approve_exists
+PASS C29_roles_not_superuser
+PASS C29_roles_nologin
+  [C29] role=aiem_app  super=False  createrole=False  login=False
+  [C29] role=aiem_approve  super=False  createrole=False  login=False
+  [C29] role=aiem_verify  super=False  createrole=False  login=False
+PASS C29_aiem_app_no_trigger_ddl_on_audit
+PASS C29_aiem_app_has_insert_on_audit
+  [C29 neg] aiem_app trigger_priv=False (expect False)  insert=True
+PASS C30_oe_gate_events_table_exists
+PASS C30_action_taken_check_exists
+PASS C30_gate_events_immutability_trigger
+  [C30] exists=True  check=True  trigger=True
+PASS C31_oe_synth_corrections_table_exists
+PASS C31_synth_corrections_immutability_trigger
+  [C31] exists=True  trigger=True
+PASS C32_origin_attribution_columns_exist
+  [C32] origin cols found: ['deployment_commit_sha', 'origin_type', 'scheduler_job_id', 'worker_pid']
+PASS C33_chain_file_exists
+PASS C33_chain_has_genesis_entry
+PASS C33_no_malformed_json_records
+PASS C33_no_duplicate_seq_ids
+PASS C33_physical_eq_parsed
+PASS C33_parsed_eq_unique_seq
+PASS C33_unique_eq_declared
+  [C33] full chain table (117 entries):
+   SEQ  TYPE      STORED_HASH[:16]    COMPUTED[:16]       HASH_OK   PREV_OK
+     0  GENESIS   ece76bc53443f10d    ece76bc53443f10d    OK        OK
+    15  RUN       a578a997558a308e    a578a997558a308e    OK        OK
+    16  RUN       f276889abd1e91b9    f276889abd1e91b9    OK        OK
+    17  RUN       16f5542f9eab1358    16f5542f9eab1358    OK        OK
+    18  RUN       c285ecea2d4da465    c285ecea2d4da465    OK        OK
+    19  RUN       93b39fa3aa680d3d    93b39fa3aa680d3d    OK        OK
+    20  RUN       1a46a05938a84044    1a46a05938a84044    OK        OK
+    21  RUN       c3a96cd984d755cb    c3a96cd984d755cb    OK        OK
+    22  RUN       9604ed1240addfad    9604ed1240addfad    OK        OK
+    23  RUN       5427937e3ab9b666    5427937e3ab9b666    OK        OK
+    24  RUN       d5f51172d6da6bb0    d5f51172d6da6bb0    OK        OK
+    25  RUN       7324afdbdcab28f1    7324afdbdcab28f1    OK        OK
+    26  RUN       07c3abf06a5d11e5    07c3abf06a5d11e5    OK        OK
+    27  RUN       fb242f38edc19169    fb242f38edc19169    OK        OK
+    28  RUN       993bc31ec637bce9    993bc31ec637bce9    OK        OK
+    29  RUN       8f3c51518cdf13b0    8f3c51518cdf13b0    OK        OK
+    30  RUN       4b2e461d501003bf    4b2e461d501003bf    OK        OK
+    31  RUN       c8a7279c9fd457a1    c8a7279c9fd457a1    OK        OK
+    32  RUN       fa387ed3e35f6e21    fa387ed3e35f6e21    OK        OK
+    33  RUN       33e4233332074bdd    33e4233332074bdd    OK        OK
+    34  RUN       8de7c14fa7241f35    8de7c14fa7241f35    OK        OK
+    35  RUN       69c829416fdf0ddc    69c829416fdf0ddc    OK        OK
+    36  RUN       bbb36f4960f2e0e9    bbb36f4960f2e0e9    OK        OK
+    37  RUN       1815758fb565cd4d    1815758fb565cd4d    OK        OK
+    38  RUN       e7b6b21c376e97af    e7b6b21c376e97af    OK        OK
+    39  RUN       36ac5373ab3bb0ea    36ac5373ab3bb0ea    OK        OK
+    40  RUN       f4b278a0f391a17c    f4b278a0f391a17c    OK        OK
+    41  RUN       cabba7f469b2e7b1    cabba7f469b2e7b1    OK        OK
+    42  RUN       75db9139674300ed    75db9139674300ed    OK        OK
+    43  RUN       d8ac787cf6d9bc6e    d8ac787cf6d9bc6e    OK        OK
+    44  RUN       7b4edc70e5a4e51a    7b4edc70e5a4e51a    OK        OK
+    45  RUN       5d034f1ea752fe48    5d034f1ea752fe48    OK        OK
+    46  RUN       a93c4d1a0be6ad11    a93c4d1a0be6ad11    OK        OK
+    47  RUN       833746c6c1e8dcfe    833746c6c1e8dcfe    OK        OK
+    48  RUN       9c029ebd1b08d8fc    9c029ebd1b08d8fc    OK        OK
+    49  RUN       06249447f12e4878    06249447f12e4878    OK        OK
+    50  RUN       1631fca3be316627    1631fca3be316627    OK        OK
+    51  RUN       edc9af915d2f9b8f    edc9af915d2f9b8f    OK        OK
+    52  RUN       cf2cadf29b1897b7    cf2cadf29b1897b7    OK        OK
+    53  RUN       a837b26c0f4f6b68    a837b26c0f4f6b68    OK        OK
+    54  RUN       e785b0bc2c48c643    e785b0bc2c48c643    OK        OK
+    55  RUN       8a2df0cb43a339c5    8a2df0cb43a339c5    OK        OK
+    56  RUN       246e493e62e1b408    246e493e62e1b408    OK        OK
+    57  RUN       6db90e75acb06bbf    6db90e75acb06bbf    OK        OK
+    58  RUN       60141565e6b3c85d    60141565e6b3c85d    OK        OK
+    59  RUN       d663d68581356405    d663d68581356405    OK        OK
+    60  RUN       3718b9f7fd42104b    3718b9f7fd42104b    OK        OK
+    61  RUN       db9d4eaa1ef31109    db9d4eaa1ef31109    OK        OK
+    62  RUN       a776b5b7023ad6a4    a776b5b7023ad6a4    OK        OK
+    63  RUN       b9dbbb54308abc5c    b9dbbb54308abc5c    OK        OK
+    64  RUN       b068e5beacb3ab53    b068e5beacb3ab53    OK        OK
+    65  RUN       91e72b7a8c10de03    91e72b7a8c10de03    OK        OK
+    66  RUN       889969d7099369c3    889969d7099369c3    OK        OK
+    67  RUN       55d028e7880e7692    55d028e7880e7692    OK        OK
+    68  RUN       4f88a67c86442beb    4f88a67c86442beb    OK        OK
+    69  RUN       96305369a70cd7a1    96305369a70cd7a1    OK        OK
+    70  RUN       c8b3985612ededac    c8b3985612ededac    OK        OK
+    71  RUN       826ba2e5e36ef48e    826ba2e5e36ef48e    OK        OK
+    72  RUN       541d1bdb9fc3efb5    541d1bdb9fc3efb5    OK        OK
+    73  RUN       ff3121a996b5f204    ff3121a996b5f204    OK        OK
+    74  RUN       8714bdacc1b25848    8714bdacc1b25848    OK        OK
+    75  RUN       2ba0666ec0585e17    2ba0666ec0585e17    OK        OK
+    76  RUN       c77a2b52728d6c2a    c77a2b52728d6c2a    OK        OK
+    77  RUN       5abbdb850ef73751    5abbdb850ef73751    OK        OK
+    78  RUN       ad7958c692c429dc    ad7958c692c429dc    OK        OK
+    79  RUN       31f1b1adbbaaef73    31f1b1adbbaaef73    OK        OK
+    80  RUN       26bf1e632d1be464    26bf1e632d1be464    OK        OK
+    81  RUN       749aed664fe5fd7a    749aed664fe5fd7a    OK        OK
+    82  RUN       b69e0dc56bdd8f77    b69e0dc56bdd8f77    OK        OK
+    83  RUN       f043e9bc74c92969    f043e9bc74c92969    OK        OK
+    84  RUN       fe9ffea8c839c197    fe9ffea8c839c197    OK        OK
+    85  RUN       14790c382838cf42    14790c382838cf42    OK        OK
+    86  RUN       942b98a4ed682b29    942b98a4ed682b29    OK        OK
+    88  RUN       8624a5ea4470f83a    8624a5ea4470f83a    OK        OK
+    89  RUN       3599ab9ba87b9b43    3599ab9ba87b9b43    OK        OK
+    90  RUN       964c3c776353674b    964c3c776353674b    OK        OK
+    91  RUN       705d24b8f5ce37bd    705d24b8f5ce37bd    OK        OK
+    92  RUN       1924d4edd620da73    1924d4edd620da73    OK        OK
+    93  RUN       b8d7650ad3a12506    b8d7650ad3a12506    OK        OK
+    94  RUN       fc6e5c5218ad0c9f    fc6e5c5218ad0c9f    OK        OK
+    95  RUN       980a4a6175cc45bb    980a4a6175cc45bb    OK        OK
+    96  RUN       f67c1a4a107e9608    f67c1a4a107e9608    OK        OK
+    97  RUN       51b4d65744b1e918    51b4d65744b1e918    OK        OK
+    98  RUN       ea6500b01085f9e3    ea6500b01085f9e3    OK        OK
+    99  RUN       9e41b3da6bd89c30    9e41b3da6bd89c30    OK        OK
+   100  RUN       15b14b6489cbeae0    15b14b6489cbeae0    OK        OK
+   101  RUN       5e339990c9ff70d3    5e339990c9ff70d3    OK        OK
+   102  RUN       c024baa152dc0196    c024baa152dc0196    OK        OK
+   103  RUN       1a0722fab3a69552    1a0722fab3a69552    OK        OK
+   104  RUN       819a5e985cde15bc    819a5e985cde15bc    OK        OK
+   105  RUN       278f70864ec43434    278f70864ec43434    OK        OK
+   106  RUN       0a7a01b2db77813f    0a7a01b2db77813f    OK        OK
+   107  RUN       7892a6fa4bd736ef    7892a6fa4bd736ef    OK        OK
+   108  RUN       7822e5e49fb7a992    7822e5e49fb7a992    OK        OK
+   109  RUN       7b7642738a94f1af    7b7642738a94f1af    OK        OK
+   110  RUN       7d4f11956230d1e5    7d4f11956230d1e5    OK        OK
+   111  RUN       f7e987689e450dd3    f7e987689e450dd3    OK        OK
+   112  RUN       c23d382dc629b693    c23d382dc629b693    OK        OK
+   113  RUN       90874e69f0b61e91    90874e69f0b61e91    OK        OK
+   114  RUN       1e45d4dfa9c3d88a    1e45d4dfa9c3d88a    OK        OK
+   115  RUN       1ba4cc598e86a70b    1ba4cc598e86a70b    OK        OK
+   116  RUN       0c397f6de718b2bf    0c397f6de718b2bf    OK        OK
+   117  RUN       0d9dbe4150ee8acd    0d9dbe4150ee8acd    OK        OK
+   118  RUN       834ae3f87751b412    834ae3f87751b412    OK        OK
+   119  RUN       a8805572eab1a3de    a8805572eab1a3de    OK        OK
+   120  RUN       a89b4cfafa19e21e    a89b4cfafa19e21e    OK        OK
+   121  RUN       46f703bb99efeec5    46f703bb99efeec5    OK        OK
+   122  RUN       877bec5ffde43526    877bec5ffde43526    OK        OK
+   123  RUN       40709e3d7039121b    40709e3d7039121b    OK        OK
+   124  RUN       467984c5aa488fa9    467984c5aa488fa9    OK        OK
+   125  RUN       4bb7fa8bb01a950d    4bb7fa8bb01a950d    OK        OK
+   126  RUN       86076f07a6aceb3e    86076f07a6aceb3e    OK        OK
+   127  RUN       7097d65536ad8011    7097d65536ad8011    OK        OK
+   128  RUN       10f9fa13cbcc7a28    10f9fa13cbcc7a28    OK        OK
+   129  RUN       60cf5971441244f8    60cf5971441244f8    OK        OK
+   130  RUN       3acc1afa5b0a1fb4    3acc1afa5b0a1fb4    OK        OK
+   131  RUN       2eb74bdd596d8346    2eb74bdd596d8346    OK        OK
+PASS C33_all_entry_hashes_recompute_correctly
+PASS C33_chain_continuity
+  [C33] Genesis: 1  RUN entries: 116  Total entries: 117  (unique_seqs=117)
+  [C33] retained_seqs=[0, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131]
+  [C33] CONTINUITY BOUNDARY: verified from SEQ=0 (GENESIS) through SEQ=131.
+  [C33] MISSING HISTORY: SEQ 1-14 are absent, were not reconstructed, and contain no durable verification evidence.
+  [C33] chain_head=2eb74bdd596d834626529d7e818b6679c60c5b1649d8d2a76dd55833e341dd31
+  [C33] genesis_hash=ece76bc53443f10d199861ac...
+PASS C34_logs_directory_exists
+  [C34] logs/: ['daily_reports', 'verified_run_100.log', 'verified_run_100_postseal.log', 'verified_run_101.log', 'verified_run_101_postseal.log', 'verified_run_102.log', 'verified_run_102_postseal.log', 'verified_run_103.log', 'verified_run_103_postseal.log', 'verified_run_104.log', 'verified_run_104_postseal.log', 'verified_run_105.log', 'verified_run_105_postseal.log', 'verified_run_106.log', 'verified_run_106_postseal.log', 'verified_run_107.log', 'verified_run_107_postseal.log', 'verified_run_108.log', 'verified_run_108_postseal.log', 'verified_run_109.log', 'verified_run_109_postseal.log', 'verified_run_110.log', 'verified_run_110_postseal.log', 'verified_run_111.log', 'verified_run_111_postseal.log', 'verified_run_112.log', 'verified_run_112_postseal.log', 'verified_run_113.log', 'verified_run_113_postseal.log', 'verified_run_114.log', 'verified_run_115.log', 'verified_run_116.log', 'verified_run_117.log', 'verified_run_117_postseal.log', 'verified_run_118.log', 'verified_run_118_postseal.log', 'verified_run_119.log', 'verified_run_119_postseal.log', 'verified_run_120.log', 'verified_run_120_postseal.log', 'verified_run_121.log', 'verified_run_121_postseal.log', 'verified_run_122.log', 'verified_run_123.log', 'verified_run_124.log', 'verified_run_125.log', 'verified_run_126.log', 'verified_run_127.log', 'verified_run_128.log', 'verified_run_129.log', 'verified_run_130.log', 'verified_run_131.log', 'verified_run_15.log', 'verified_run_16.log', 'verified_run_17.log', 'verified_run_18.log', 'verified_run_19.log', 'verified_run_19_postseal.log', 'verified_run_20.log', 'verified_run_20_postseal.log', 'verified_run_21.log', 'verified_run_21_postseal.log', 'verified_run_22.log', 'verified_run_22_postseal.log', 'verified_run_23.log', 'verified_run_23_postseal.log', 'verified_run_24.log', 'verified_run_24_postseal.log', 'verified_run_25.log', 'verified_run_25_postseal.log', 'verified_run_26.log', 'verified_run_26_postseal.log', 'verified_run_27.log', 'verified_run_27_postseal.log', 'verified_run_28.log', 'verified_run_28_postseal.log', 'verified_run_29.log', 'verified_run_29_postseal.log', 'verified_run_30.log', 'verified_run_30_postseal.log', 'verified_run_31.log', 'verified_run_31_postseal.log', 'verified_run_32.log', 'verified_run_32_postseal.log', 'verified_run_33.log', 'verified_run_33_postseal.log', 'verified_run_34.log', 'verified_run_34_postseal.log', 'verified_run_35.log', 'verified_run_35_postseal.log', 'verified_run_36.log', 'verified_run_36_postseal.log', 'verified_run_37.log', 'verified_run_37_postseal.log', 'verified_run_38.log', 'verified_run_38_postseal.log', 'verified_run_39.log', 'verified_run_39_postseal.log', 'verified_run_40.log', 'verified_run_40_postseal.log', 'verified_run_41.log', 'verified_run_41_postseal.log', 'verified_run_42.log', 'verified_run_42_postseal.log', 'verified_run_43.log', 'verified_run_43_postseal.log', 'verified_run_44.log', 'verified_run_44_postseal.log', 'verified_run_45.log', 'verified_run_45_postseal.log', 'verified_run_46.log', 'verified_run_46_postseal.log', 'verified_run_47.log', 'verified_run_47_postseal.log', 'verified_run_48.log', 'verified_run_48_postseal.log', 'verified_run_49.log', 'verified_run_49_postseal.log', 'verified_run_50.log', 'verified_run_50_postseal.log', 'verified_run_51.log', 'verified_run_51_postseal.log', 'verified_run_54.log', 'verified_run_55.log', 'verified_run_56.log', 'verified_run_57.log', 'verified_run_58.log', 'verified_run_59.log', 'verified_run_60.log', 'verified_run_61.log', 'verified_run_62.log', 'verified_run_63.log', 'verified_run_64.log', 'verified_run_65.log', 'verified_run_66.log', 'verified_run_67.log', 'verified_run_68.log', 'verified_run_69.log', 'verified_run_70.log', 'verified_run_71.log', 'verified_run_72.log', 'verified_run_73.log', 'verified_run_74.log', 'verified_run_75.log', 'verified_run_76.log', 'verified_run_77.log', 'verified_run_78.log', 'verified_run_79.log', 'verified_run_80.log', 'verified_run_81.log', 'verified_run_82.log', 'verified_run_83.log', 'verified_run_84.log', 'verified_run_85.log', 'verified_run_86.log', 'verified_run_88.log', 'verified_run_88_postseal.log', 'verified_run_89.log', 'verified_run_89_postseal.log', 'verified_run_90.log', 'verified_run_90_postseal.log', 'verified_run_91.log', 'verified_run_91_postseal.log', 'verified_run_92.log', 'verified_run_92_postseal.log', 'verified_run_93.log', 'verified_run_93_postseal.log', 'verified_run_94.log', 'verified_run_94_postseal.log', 'verified_run_95.log', 'verified_run_95_postseal.log', 'verified_run_96.log', 'verified_run_96_postseal.log', 'verified_run_97.log', 'verified_run_97_postseal.log', 'verified_run_98.log', 'verified_run_98_postseal.log', 'verified_run_99.log', 'verified_run_99_postseal.log', 'verified_run_index.tsv']  seq_logs=178
+PASS C34_index_tsv_has_entries
+    130	2026-07-25T19:00:36Z	0	299fbe0cdea593fcf95030e9c827f291b26453cf4278d85d6548e1a6fcc33a58	echo SEAL_STALE_TEST_PAYLOAD
+    131	2026-07-25T19:00:55Z	0	f2db7252b96f49ae041e290f321c2b0696f2f7d5e69ec6b277e584be068d04f3	echo SEAL_FRESH_CONFIRM
+PASS C34_restore_sha256_matches_index
+  [C34 restore] SEQ=131 sha256 match=True
+PASS C36_scheduler_imports_integrity_gate
+PASS C36_dev_bypass_string_absent
+PASS C36_no_failopen_warning_continue
+PASS C36_neg_missing_refs_raises_integrity_gate_error
+PASS C36_neg_missing_refs_reason_is_refs_file_missing
+PASS C36_neg_corrupt_refs_raises_integrity_gate_error
+PASS C36_neg_non_allowlisted_identity_raises
+PASS C36_gate_allowlist_check_wired
+PASS C36_gate_commit_sha_check_wired
+PASS C36_gate_no_env_bypass
+  [C36] F4-bypass-absent=True  F2-allowlist=True  F3-commit=True  neg_missing=True  neg_corrupt=True
+PASS C37_oe_index_corrections_table_exists
+PASS C37_index_corrections_immutability_trigger
+PASS C37_index_corrections_truncate_trigger
+PASS C37_neg_update_production_row_blocked
+PASS C37_neg_truncate_blocked
+  [C37] exists=True  trigger=True  truncate_trg=True  update_blocked=True  trunc_blocked=True
+  [C38] oe_gate_events: truncate_trigger=True  blocked=True
+  [C38] oe_unreplayable_rows: truncate_trigger=True  blocked=True
+  [C38] oe_synthetic_row_corrections: truncate_trigger=True  blocked=True
+  [C38] oe_decision_replay_inputs: truncate_trigger=True  blocked=True
+PASS C38_all_tables_have_truncate_triggers
+PASS C38_all_truncates_blocked
+PASS C39_oe_decision_snapshots_exists
+PASS C39_required_columns_present
+PASS C39_immutability_trigger_exists
+PASS C39_snapshot_write_read_roundtrip
+  [C39] snapshot_sealed_at=2026-07-25 19:01:16.335510+00:00
+PASS C39_neg_update_production_snapshot_blocked
+PASS C39_neg_truncate_blocked
+  [C39] cols=12  trigger=True  update_blocked=True  trunc_blocked=True
+PASS C40_old_tolerance_removed
+PASS C40_replay_tolerance_is_1e_minus_9
+PASS C40_boundary_exact_match
+PASS C40_boundary_threshold_miss
+PASS C40_boundary_margin_threshold
+PASS C40_tolerance_documented
+  [C40] tolerance=1e-9  boundary_tests=PASS  documented=True
+PASS C41_exactly_one_claim_from_concurrent_workers
+PASS C41_losing_workers_got_no_claim
+  [C41] workers=5  successful_claims=1  exactly_one=True
+PASS C35_recover_stale_jobs_function_exists
+PASS C35_recover_stale_jobs_uses_crontrigger
+PASS C35_atomic_claim_pattern_exists
+PASS C35_pipeline_jobs_unique_constraint_exists
+  [C35] UNIQUE: options_pipeline_jobs_ticker_scan_date_key = UNIQUE (ticker, scan_date)
+PASS C35_no_stuck_processing_jobs
+  [C35] table=options_pipeline_jobs  stuck_jobs=0  unique_constraints=1
+PASS C42_post_seal_verify_script_exists
+PASS C42_psv_checks_archive_sha
+PASS C42_psv_checks_chain_entry
+PASS C42_psv_checks_entry_hash
+PASS C42_psv_checks_prev_continuity
+PASS C42_psv_checks_summary_line
+PASS C42_verified_run_calls_post_seal_verifier
+PASS C42_neg_missing_archive_causes_psv1_fail
+  [C42] psv_exists=True  verified_run_calls_psv=True  neg_missing_archive=True
+
+[A8 Layer-1 ENFORCEMENT] 0 removed check(s), all in supersede registry — OK
+
+[A8 Layer-2 ENFORCEMENT] SEQ=32 baseline: 187 checks
+  eroded (not in current run): 20
+  registered supersedes: 20
+  unregistered violations: 0
+  SUPERSEDED: C28_approved_by_null_or_not_forbidden → SUPERSEDED_BY:C28_approved_by_in_allowlist_and_engine_hash_match — positive allowlist + engine-hash gate strictly stronger than negative blocklist alone; any blocklist failure also fails allowlist check
+  SUPERSEDED: C36_env_check_exists → SUPERSEDED_BY:C36_dev_bypass_string_absent — same predicate (env-bypass absent); new check reads scheduler source with explicit absence assertion
+  SUPERSEDED: C36_gate_blocks_import_failure → SUPERSEDED_BY:C36_neg_missing_refs_raises_integrity_gate_error+C36_neg_corrupt_refs_raises_integrity_gate_error — executed gate calls cover import path; IntegrityGateError subsumes source-grep inference
+  SUPERSEDED: C36_gate_blocks_invalid_refs_file → SUPERSEDED_BY:C36_neg_corrupt_refs_raises_integrity_gate_error — executed call with malformed JSON directly tests invalid-refs block path
+  SUPERSEDED: C36_gate_blocks_io_failure → SUPERSEDED_BY:C36_neg_missing_refs_raises_integrity_gate_error — missing-file executed call exercises IO/existence failure path; INVALID_REFS_FILE block also covers parse-level IO errors
+  SUPERSEDED: C36_gate_blocks_missing_refs_file → SUPERSEDED_BY:C36_neg_missing_refs_raises_integrity_gate_error+C36_neg_missing_refs_reason_is_refs_file_missing — two executed checks confirm REFS_FILE_MISSING reason; source-grep is redundant
+  SUPERSEDED: C36_gate_blocks_permission_failure → SUPERSEDED_BY:C36_neg_missing_refs_raises_integrity_gate_error — gate module handles PermissionError internally (FILE_PERMISSION_FAILURE block); source-grep inference superseded by structural inspection of gate module
+  SUPERSEDED: C36_gate_blocks_unknown_exception → SUPERSEDED_BY:C36_neg_missing_refs_raises_integrity_gate_error — gate module UNKNOWN_VERIFICATION_EXCEPTION block visible in run_integrity_gate source; structural inspection (getsource) supersedes source-grep inference
+  SUPERSEDED: C36_neg_corrupt_json_would_block → SUPERSEDED_BY:C36_neg_corrupt_refs_raises_integrity_gate_error — would-block source-grep replaced by executed call with corrupt JSON; IntegrityGateError raised (not would-raise inference)
+  SUPERSEDED: C36_neg_missing_refs_raises_valueerror → SUPERSEDED_BY:C36_neg_missing_refs_raises_integrity_gate_error+C36_neg_missing_refs_reason_is_refs_file_missing — IntegrityGateError(ValueError) raised + reason verified; strictly stronger than ValueError inference
+  SUPERSEDED: C47B_source_tree_clean → SUPERSEDED_BY:C47B_source_tree_clean_dpl_scope — rename only; identical predicate; scope boundary (dpl/ only) made explicit in check name per N3 directive
+  SUPERSEDED: C48_approval_proof_status_is_external_blocker → SUPERSEDED_BY:C48_independent_approval_obtained — string-status check strictly weaker than null-field check; any null credential fails both; string can be forged
+  SUPERSEDED: C48_approved_at_field_present → SUPERSEDED_BY:C48_independent_approval_obtained — non-null requirement strictly stronger than key-presence; null value fails both checks
+  SUPERSEDED: C48_approved_by_null_or_not_forbidden → SUPERSEDED_BY:C48_independent_approval_obtained+C48_neg_self_approval_is_forbidden — null gate + positive forbidden gate together strictly stronger than single negative gate
+  SUPERSEDED: C48_chain_head_has_ts_end → SUPERSEDED_BY:C48_independent_approval_obtained — ts_end verified by C33/C44 three-way binding; C48 block reserved for approval credential checks only
+  SUPERSEDED: C48_dpl_certification_not_approved → SUPERSEDED_BY:C48_independent_approval_obtained — direct field check strictly stronger than freetext string match; null fields fail both; string alone is not proof
+  SUPERSEDED: C49_db_role_gap_documented_external_blocker → SUPERSEDED_BY:C49_db_role_gap_is_unmet_control — F7 (R11): documented external-blocker PASS is not a passing control; new check explicitly FAILs to reflect that the control is unmet
+  SUPERSEDED: C49_ddl_privilege_gap_documented → SUPERSEDED_BY:C49_ddl_privilege_gap_is_unmet_control — F7 (R11): same pattern; DDL privilege gap = unmet control = FAIL, not PASS
+  SUPERSEDED: C50_clean_runs_include_23_and_24 → SUPERSEDED_BY:C50_clean_sealed_runs_all_verified_clean — A15 falsified SEQ=23/24 clean claim; new check requires archived TREE=CLEAN evidence per listed entry; list membership alone insufficient
+  SUPERSEDED: C52B_genuine_scheduler_decision_exists → SUPERSEDED_BY:C52B_scheduler_origin_decision_exists+C52B_live_trade_decision_exists — split for clearer attribution; union strictly stronger; old-fail implies new-fail
+PASS A8_baseline_erosion_clean
+
+[Item 8 Negative Controls]
+  NC1 ViolationRecord.frozen mutation_blocked=True
+PASS NC1_ViolationRecord_frozen_blocks_mutation
+  NC2 enforcement_artifacts∩PASS=[] (expect empty)
+PASS NC2_enforcement_artifacts_absent_from_pass_list
+  NC3 nonexistent_id raised=True exc=ReplayInputsMissingError
+PASS NC3_replay_nonexistent_id_raises
+  NC4 sentinel_fires=True NC1_exempted=True
+PASS NC4_genuine_removal_still_fires_with_excl_list
+A8_L1_META_EXCL_SORTED=['A33_excl_list_new_names_have_registry_entry', 'A33_excl_list_registry_complete', 'A8_baseline_erosion_clean', 'A8_baseline_file_missing', 'C44_legacy_entry_documented', 'NC1_ViolationRecord_frozen_blocks_mutation', 'NC2_enforcement_artifacts_absent_from_pass_list', 'NC3_replay_nonexistent_id_raises', 'NC4_genuine_removal_still_fires_with_excl_list']
+A8_L1_META_EXCL_SHA256=c8a86400dccdfca7be6a1f4146655aeb9f4d5b3d6dc8a21b227c35bb34f0f025
+A33_DOCUMENTATION_ONLY: excl_list_registry_complete=True  unregistered=[]  excl_sha=c8a86400dccdfca7be6a1f41
+PASS A33_excl_list_new_names_have_registry_entry
+
+CERTIFICATION: scheduler-originated decision not yet proven; live trade not proven
+CERTIFICATION_GAP_A12: genesis anchor provenance unresolvable — ts identical to removed fabricated approval; accepted unresolved gap; trusted genesis origin cannot be established
+CERTIFICATION_GAP_A30: ledger genesis authored by audited party — approved_by='forensic_audit_2026-07-19' label is self-assigned; prev_ledger_hash=GENESIS with no external witness to the write; 218/218 entries share the same approved_by value; accepted unresolved gap; no path to external witness via current infrastructure
+CERTIFICATION_GAP_A28: TREE=DIRTY (6 modified/untracked)  refs.commit_sha=c6372640e372e267  HEAD=c6372640e372e267  commit_match=True  (A28 requirement: refs.json committed + commit_sha==HEAD at seal time)
+CERTIFICATION_GAP_C49: immutability assertions made by postgres superuser (can disable trigger before asserting) — affects checks: C16/C21/C23/C27/C30/C37/C38/C39/C47/C49. All PASS results for these checks are conditional on the runtime DB role gap. EXTERNAL_BLOCKER: low-privilege login-capable role required; no path available via Replit managed DB infrastructure.
+CERTIFICATION_GAP_A19: refs.commit_sha=c6372640e372e267 == HEAD — commit attribution gap RESOLVED for this sealed run
+
+SUMMARY: 195 PASS  8 FAIL
+FAILED: C48_independent_approval_obtained, C49_db_role_gap_is_unmet_control, C49_ddl_privilege_gap_is_unmet_control, C52B_scheduler_origin_decision_exists, C52B_live_trade_decision_exists, C52C_genuine_replay_pass, C52C_historical_replay_eligible_row_exists, C28_approved_by_in_allowlist_and_engine_hash_match
+[machine-readable] /home/runner/workspace/artifacts/stock-scanner-api/tools/last_run_results.json
+[machine-readable] PASS=195  FAIL=8  all=203

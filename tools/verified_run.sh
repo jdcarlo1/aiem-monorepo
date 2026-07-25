@@ -59,6 +59,29 @@ if [ -f "${_DPL_REFS_PRE}" ] && [ -f "${_DPL_PRESEAL}" ]; then
   bash "${_DPL_PRESEAL}" "${_DPL_REFS_PRE}"
 fi
 
+# Seal-freshness check: non-blocking warning if engine_root_hash is stale.
+# Runs BEFORE eval "$CMD" so the warning appears before any command output.
+# Result is stored in _SEAL_STATUS and written into the chain entry.
+_SEAL_STATUS="SEAL_UNKNOWN"
+if [ -f "${_DPL_REFS_PRE}" ]; then
+  _SEAL_DPL_DIR="$(dirname "${_DPL_REFS_PRE}")"
+  _SEAL_STATUS=$(python3 - "${_DPL_REFS_PRE}" "${_SEAL_DPL_DIR}" <<'_SEAL_PY'
+import sys
+refs_path, dpl_dir = sys.argv[1], sys.argv[2]
+sys.path.insert(0, dpl_dir)
+try:
+    from engine_manifest import verify_against_refs
+    r = verify_against_refs(refs_path)
+    print("SEAL_FRESH" if r.get("ok") else "SEAL_STALE")
+except Exception:
+    print("SEAL_UNKNOWN")
+_SEAL_PY
+  ) || _SEAL_STATUS="SEAL_UNKNOWN"
+  if [ "${_SEAL_STATUS}" = "SEAL_STALE" ]; then
+    echo "WARNING: SEAL_STALE — engine_root_hash mismatch. Re-seal engine_integrity_refs.json before next Phase 3 run." >&2
+  fi
+fi
+
 # Execute the actual command, capture stdout+stderr combined, and exit code
 set +e
 OUTPUT=$(eval "$CMD" 2>&1)
@@ -177,6 +200,7 @@ entry = {
     'prev_hash':               prev_hash,
     'req6_weights_hash':       sha256f(refs_path),
     'scoring_fn_ast_hash':     sha256f(ver_path),
+    'seal_status':             '${_SEAL_STATUS}',
     'seq':                     next_seq,
     'tree':                    tree,
     'ts':                      ts,

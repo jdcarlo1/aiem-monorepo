@@ -27,8 +27,8 @@
     "version": "2"
   },
   "canonicalization_version": "2",
-  "commit_sha": "46b349061b976a9ceca53039dcfb50f4456fe5a7",
-  "commit_sha_note": "Set atomically by pre_seal_update_refs.sh at seal time (live git rev-parse HEAD). Previous value: aec88e3ad645a5dee421d3ccc870c8f793b7a3fb.",
+  "commit_sha": "c6372640e372e267c4fe9d041f08dfecc15dab7e",
+  "commit_sha_note": "Set atomically by pre_seal_update_refs.sh at seal time (live git rev-parse HEAD). Previous value: c6372640e372e267c4fe9d041f08dfecc15dab7e.",
   "config_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "decision_path_combined_hash": "4655b9ed8799ce9d720cd1a3366bbb966b3239a757b05b1563dd58e9ebcf7519",
   "decision_path_module_hashes": {
@@ -43,6 +43,7 @@
   },
   "dpl_production_certification": "NOT_APPROVED — independent approval is EXTERNAL_BLOCKER",
   "engine_root_hash": "9698463b911555b138b2616fa4898d31ae25c7cb3fe55a0c10d0e70b6e0ee716",
+  "engine_root_hash_seal_basis": "PENDING_INDEPENDENT_APPROVAL: re-sealed 2026-07-25T18:50Z to match post-freeze source changes in commit a9c93ee (aiem_options_scheduler.py, 2026-07-24T19:50:18Z, session fc69526a). Seal is computationally correct (live hash == stored hash) but the a9c93ee diff has not been reviewed by the operator. This field will be updated to AUTHORIZED once operator confirms the scheduler checkpoint additions are acceptable as the new baseline.",
   "feature_schema": [
     "D1_directional_probability",
     "D2_prob_reach_target",
@@ -70,7 +71,7 @@
   "integrity_schema_version": "2",
   "python_version": "3.11.14",
   "refs_file_hash_note": "sha256(this file excluding this field) = verified by C28 in verify_dpl_phase3.py",
-  "refs_updated_at": "2026-07-25T18:50:39Z",
+  "refs_updated_at": "2026-07-25T19:01:05Z",
   "req6_weights_hash": "45899d4a00a241df5d1b1c5091055ad30ef5bf1bcb3d8d585f18f0fb75e023a1",
   "schema_version": "2",
   "scoring_fn_ast_hash": "68e0bf8941fc4c16376287f2429458400963ac3b64446e39fba214e2c52dee42",
