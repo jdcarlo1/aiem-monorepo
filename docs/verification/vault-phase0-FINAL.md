@@ -713,4 +713,171 @@ No validator drift. Both scripts match canonicals.
 | Full 64-char sha256 for S1–S4 | closed |
 | build/ dist/ exclusion justified | closed — neither directory exists in repo |
 | Commit hash recorded | `b6162b90f3c26dce3422d4899b06a3d58f9c7ad8` |
-| verified_run.sh / verify_chain.sh cross-check | closed — both MATCH canonical |
+| verified_run.sh / verify_chain.sh cross-check | RETRACTED in Section 18 — see below |
+
+---
+
+## 18. Phase 0 Follow-up Fix Record — Extended Exclusion Justification + Fix 4 Retraction (2026-07-25)
+
+### 18.1 — Remaining 5 excluded dirs: raw match counts per pattern
+
+#### `__pycache__/` (8 .pyc binary files)
+
+```
+S1 (registries):  0
+S2 (evidence):    0
+S3 (auth/routes): 0
+S4 (scheduler):   0
+```
+
+.pyc files are binary; `--binary-files=without-match` causes grep to skip them entirely. Count=0 confirmed. Exclusion is identical to inclusion. Justified.
+
+---
+
+#### `.upm/` (1 file: store.json)
+
+```
+S1 (registries):  0
+S2 (evidence):    0
+S3 (auth/routes): 0
+S4 (scheduler):   1
+```
+
+S4=1 match. Raw line:
+
+```
+.upm/store.json:1:{"version":2,"languages":{"python3-uv":{"guessedImports":["APScheduler","requests","psycopg2-binary"],"guessedImportsHash":"a3abce907372e6ed20d024868e2bb91c"}}}
+```
+
+This is the UPM package manager cache recording library names. Not AIEM source code. Exclusion drops 1 line from S4.
+
+---
+
+#### `.local/` (agent session artifacts: .md, .py, .sh, .log, .json)
+
+```
+S1 (registries):  0
+S2 (evidence):    14118   (full grep completed in 30s)
+S3 (auth/routes): 112283  (partial — grep timed out at 30s; actual count may be higher)
+S4 (scheduler):   162     (text file extensions only: .py .md .sh .txt .json .log)
+```
+
+Files in `.local/` that produce matches include:
+`AIEM_COMPLETE_VERIFICATION_AUDIT.md`, `AIEM_LIVE_VERIFICATION_RESULTS.md`,
+`d13_live_verification_evidence.py`, `d12_evidence_chain.log`, and dozens of
+other agent session artifacts written during prior agent sessions. These are
+not production AIEM source files. They are agent-generated evidence and
+session-state files.
+
+Exclusion drops: S2=14118, S3≥112283 (timeout, lower bound only), S4≥162 from totals.
+
+---
+
+#### `.cache/` (pip / pnpm / matplotlib / typescript / ms-playwright caches)
+
+```
+S1 (registries):  0
+S2 (evidence):    8411
+S3 (auth/routes): 8027
+S4 (scheduler):   5786
+```
+
+Cache directories contain JavaScript/TypeScript source for pnpm, Python package
+docs/stubs for pip, Playwright browser binaries, matplotlib font data, etc.
+None are AIEM production source files.
+
+Exclusion drops: S2=8411, S3=8027, S4=5786 from totals.
+
+---
+
+#### `.pythonlibs/` (25317 files — installed Python packages; full grep times out)
+
+Counts run on `.py` files only (complete, no timeout):
+
+```
+S1 (registries):  11
+S2 (evidence):    326
+S3 (auth/routes): 10767
+S4 (scheduler):   692
+```
+
+S1=11 raw matching lines (all from installed packages, not AIEM source):
+
+```
+.pythonlibs/lib/python3.11/site-packages/anthropic/lib/tools/_beta_runner.py:27:from ._tool_dispatch import tool_registry, tool_error_content
+.pythonlibs/lib/python3.11/site-packages/anthropic/lib/tools/_beta_runner.py:76:        self._tools_by_name = tool_registry(tools)
+.pythonlibs/lib/python3.11/site-packages/anthropic/lib/tools/_beta_session_runner.py:30:from ._tool_dispatch import tool_registry, run_runnable_tool, tool_error_content
+.pythonlibs/lib/python3.11/site-packages/anthropic/lib/tools/_beta_session_runner.py:391:        self._tools_by_name: dict[str, BetaAnyRunnableTool] = tool_registry(self.tools)
+.pythonlibs/lib/python3.11/site-packages/anthropic/lib/tools/_tool_dispatch.py:20:__all__ = ["tool_registry", "tool_error_content", "run_runnable_tool"]
+.pythonlibs/lib/python3.11/site-packages/anthropic/lib/tools/_tool_dispatch.py:24:    """Anything with a ``name`` — the shape :func:`tool_registry` indexes on."""
+.pythonlibs/lib/python3.11/site-packages/anthropic/lib/tools/_tool_dispatch.py:40:def tool_registry(tools: Iterable[NamedToolT]) -> dict[str, NamedToolT]:
+.pythonlibs/lib/python3.11/site-packages/matplotlib/backend_tools.py:41:# _tool_registry, _register_tool_class, and _find_tool_class implement a
+.pythonlibs/lib/python3.11/site-packages/matplotlib/backend_tools.py:49:_tool_registry = set()
+.pythonlibs/lib/python3.11/site-packages/matplotlib/backend_tools.py:56:    _tool_registry.add((canvas_cls, tool_cls))
+.pythonlibs/lib/python3.11/site-packages/matplotlib/backend_tools.py:64:            if (canvas_parent, tool_child) in _tool_registry:
+```
+
+Sources: Anthropic Python SDK (`_tool_dispatch.py`) and Matplotlib (`backend_tools.py`).
+Neither file is AIEM source. Non-.py files in `.pythonlibs/` not counted (full grep times out at 120s for 25317 files).
+
+---
+
+### 18.2 — Exclusion impact summary
+
+| Dir | S1 dropped | S2 dropped | S3 dropped | S4 dropped | Source type |
+|---|---|---|---|---|---|
+| `__pycache__/` | 0 | 0 | 0 | 0 | binary .pyc — fully justified |
+| `.upm/` | 0 | 0 | 0 | 1 | package manager cache |
+| `.local/` | 0 | 14118 | ≥112283 | ≥162 | agent session artifacts |
+| `.cache/` | 0 | 8411 | 8027 | 5786 | pip/pnpm/playwright/ts caches |
+| `.pythonlibs/` | ≥11 | ≥326 | ≥10767 | ≥692 | installed Python packages (anthropic, matplotlib) |
+
+None of the dropped matches are in AIEM production source files. All are in:
+agent session artifacts, package manager caches, or third-party installed libraries.
+Full canonical rerun including these dirs is not feasible without timeout for
+`.local/` S3 and all of `.pythonlibs/`. Operator determination required on
+whether session artifacts and installed packages should be included in scope.
+
+---
+
+### 18.3 — Fix 4 "MATCH" claim retraction
+
+**Section 17 Fix 4 MATCH claim is retracted.**
+
+The comparison of `tools/verified_run.sh` sha256=`2617d7bb...` against "canonical" was
+self-referential. The only source recording `2617d7bb` as canonical is:
+
+```
+.agents/memory/options-dpl-phase3.md:18:
+| `tools/verified_run.sh` | `2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29` |
+```
+
+This is agent memory written by this agent during Directive 23. It is not an
+independently-maintained registry and was not operator-confirmed.
+
+The prior operator-confirmed canonical (from `DPL_Phase3_Evidence_R4.1-R4.9.txt:255`):
+
+```
+OLD sha256(verified_run.sh) = 467451910cf5a59869fa88bd090556e5d7a7a209cc3d01d7706d27da28a0f0ae
+NEW sha256(verified_run.sh) = 597862e1c39e507251dc57a4f50499909a7797c51b16e0e2769057cb040ca9c1  ← NEW CANONICAL
+```
+
+No entry in `artifacts/stock-scanner-api/dpl/`, `tools/`, or `docs/verification/`
+records `2617d7bb` as canonical outside of files written by this agent this session.
+
+**Honest statement:** `tools/verified_run.sh` current sha256=`2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29`. This differs from the pre-Directive-23 operator-confirmed canonical `597862e1...`. The script was modified in Directive 23 to add seal_status check at lines 65-86. The post-modification hash has not been independently operator-confirmed. The "MATCH" verdict in Section 17 Fix 4 is replaced by: **UNCONFIRMED — self-referential comparison only.**
+
+`artifacts/stock-scanner-api/verify_chain.sh` sha256=`ca7896c7...` — this value is also sourced from agent memory (`.agents/memory/options-dpl-phase3.md:18`). Same provenance limitation applies.
+
+---
+
+### 18.4 — Section 18 closure status
+
+| Item | Status |
+|---|---|
+| `__pycache__/` exclusion justified | closed — 0 text matches, binary files |
+| `.upm/` exclusion justified | open — S4=1 match in store.json; not AIEM source; operator determination required |
+| `.local/` exclusion justified | open — large match counts in session artifacts; operator scope determination required |
+| `.cache/` exclusion justified | open — matches in pip/pnpm/playwright caches; operator scope determination required |
+| `.pythonlibs/` exclusion justified | open — matches in anthropic SDK + matplotlib; operator scope determination required |
+| Fix 4 MATCH retraction | closed — self-referential comparison acknowledged; UNCONFIRMED stated |
