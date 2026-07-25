@@ -1,0 +1,61 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — BUILD PHASE 9 OF 9
+FINAL INSTITUTIONAL ACCEPTANCE / REGRESSION PASS
+GATED BY: Verification Phase 12 Section 20 (EVID-001–020) + every prior
+          Build Phase (1-8) closed with evidence
+============================================================
+
+SCOPE
+- Full regression across Scanner, AIEM, scheduler, paper trading, alert,
+  and evidence-chain systems — confirm the finished Terminal never
+  degraded any of them (ARCH-024–030).
+- Every requirement across all 741 items has a final PASS/FAIL with
+  objective evidence; every FAIL has root cause + remediation on record.
+- Every dashboard value reconciles: display → API → SQL → independent
+  recomputation, end to end, on the finished production build.
+- Institutional UI review (PAGE-040), independent security audit
+  (SEC-030), independent operational audit (OPS-040), independent
+  reporting audit (REPORT-030), independent negative-control audit
+  (NEG-040) all signed off.
+- Final institutional acceptance signed (EVID-020).
+
+DELIVERABLE
+- MASTER PRODUCTION ACCEPTANCE: AIEM Institutional Terminal is COMPLETE
+  only when all of the above hold. This is the terminal gate — nothing
+  ships past this without it.
+
+Reminder: 19 items (602-620) from the original 760-item checklist were
+never recovered and are excluded from the 741-item total this build was
+verified/built against.
+
+
+============================================================
+STANDING BUILD RULES (apply to every build phase)
+============================================================
+- This Terminal is a separate app/frontend/backend/domain/branding/auth
+  from Stock Scanner and the Standalone Options Engine — no shared UI,
+  navigation, or branding; API-only integration if ever needed.
+- No duplicate business logic: no duplicate probability engine, no
+  duplicate Risk Gate, no duplicate Specialist Council. The dashboard
+  consumes verified AIEM APIs only.
+- Never calculate business logic inside the frontend/React layer — every
+  displayed value must originate from a Verified API → Verified Database
+  → Verified Runtime chain.
+- Design: institutional decision-support terminal, not a retail trading
+  site. Dark theme, dense information, minimal animation, Bloomberg-style
+  workstation feel, keyboard-friendly, resizable/collapsible panels,
+  saved layouts.
+- Every screen must answer: WHY / HOW / RISK / PROBABILITY / EVIDENCE /
+  AUDIT — never show a bare recommendation without justification.
+- Every widget must cite: Verified Route, Verified Table, Verified
+  Module, Verified Refresh Method, Verification Status.
+- Real-time strategy: use the verified polling architecture from Phase A/
+  Verification Phase 3 unless a future requirement explicitly justifies
+  WebSockets.
+- This build phase does NOT start until its gating verification phase(s)
+  have closed with PASS/verdict evidence on every item — an unverified
+  item is a backend gap to route back to AIEM, not something to build
+  around or fake in the UI.
+- Standing verification protocol still applies to the build itself: raw
+  evidence, sha256 before/after on changed files, no fabricated/mock
+  data, Data Immutability Rule, no unapproved deletions.
