@@ -1,0 +1,20 @@
+# Vault Phase 0 — Human-Confirmed Baseline & Closeout (2026-07-25)
+
+## 1. Permanent record (as-found, no softening)
+Append to docs/verification/vault-phase0-FINAL.md:
+- Section 19's claim that 86a2d79f modified root-level tools/verified_run.sh — WRONG. That commit touched artifacts/stock-scanner-api/tools/verified_run.sh, a different file, same basename. Corrected in Section 20.
+- No operator-confirmed canonical has ever existed for root-level tools/verified_run.sh. All 8 commits authored by Replit Agent. Raw evidence: git log -p output already saved (vault-phase0-gitlog-verified_run.txt, sha256=1afe8031...).
+- Root cause pattern: this is the third instance of two identically-named scripts at different paths being conflated (also occurred with verify_chain.sh). Flag any future canonical-hash claim to check full path, not just filename.
+
+## 2. Independent human-confirmed baseline (breaks the cycle going forward)
+- Agent: output `sha256sum tools/verified_run.sh` raw, once, no other action.
+- Joel confirms independently (outside chat/agent report) — e.g. via Replit shell/file viewer directly — that the value matches.
+- Once Joel confirms: agent records in docs/verification/vault-phase0-FINAL.md as new Section 21:
+  "CANONICAL (operator-confirmed 2026-07-25 by Joel, independently, not agent-self-recorded): tools/verified_run.sh = [hash]"
+- This is the first non-agent-authored provenance point in this file's history. Treat it as ground truth going forward — do not let future sessions redefine it without the same independent-confirmation step.
+
+## 3. Scope clarification for any external/diligence review
+Add a short note to the same file: tools/verified_run.sh and verify_chain.sh are internal audit-logging wrappers (evidence-chain tooling), not part of the trading logic or core IP. Their verification gap concerns internal audit tooling only.
+
+## 4. Standing rule going forward
+No hash may be labeled "canonical" unless independently confirmed by Joel outside the agent's own report — agent-recorded values are provisional/unconfirmed by default, permanently, until that step happens.

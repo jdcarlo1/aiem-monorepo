@@ -1107,3 +1107,40 @@ No output. Confirms root-level `tools/verified_run.sh` was not modified in this 
 | `artifacts/stock-scanner-api/tools/verified_run.sh` | `58534be5...` | `597862e1...` (2026-07-19) | `DPL_Phase3_Evidence_R4.1-R4.9.txt:255`, Replit Agent | UNCONFIRMED — canonical is agent-written; current hash differs from it |
 
 Section 19.4 Item 1 entry is superseded by this section. The conclusion that `597862e1` is agent-written stands, but the connection to root-level `tools/verified_run.sh` was incorrect — `597862e1` is a hash of the artifact-level file, not the root-level wrapper.
+
+---
+
+## 21. Permanent Record — As-Found Findings (operator-appended 2026-07-25)
+
+### 21.1 — Error pattern note (three instances of same-basename conflation)
+
+- Section 19.1: claimed commit `86a2d79f` modified root-level `tools/verified_run.sh` — WRONG. That commit touched `artifacts/stock-scanner-api/tools/verified_run.sh`, a different file, same basename. Corrected in Section 20.
+- No operator-confirmed canonical has ever existed for root-level `tools/verified_run.sh`. All 8 commits authored by Replit Agent. Raw evidence: `git log -p` output saved at `docs/verification/vault-phase0-gitlog-verified_run.txt` (sha256=`1afe8031a84a5839a588ea0c160d4e7ed48dea6336310763c8ab14081f6c2c6f`).
+- Root cause pattern: this is the **third** instance of two identically-named scripts at different paths being conflated (prior instances: `verify_chain.sh`). Flag: any future canonical-hash claim must verify full path, not just filename.
+
+---
+
+### 21.2 — Scope clarification for external/diligence review
+
+`tools/verified_run.sh` and `verify_chain.sh` are internal audit-logging wrappers (evidence-chain tooling), not part of the trading logic or core IP. Their verification gap concerns internal audit tooling only.
+
+---
+
+### 21.3 — Standing rule (permanent)
+
+No hash may be labeled "canonical" unless independently confirmed by the operator outside the agent's own report. Agent-recorded values are provisional/unconfirmed by default, permanently, until that independent confirmation step occurs.
+
+---
+
+### 21.4 — Operator-confirmed canonical (PENDING Joel's independent verification)
+
+Agent output (2026-07-25):
+
+```
+sha256sum tools/verified_run.sh
+2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29  tools/verified_run.sh
+```
+
+Status: **PENDING** — awaiting Joel's independent confirmation via Replit shell or file viewer outside this chat session. Once confirmed, this section will be updated to:
+
+> CANONICAL (operator-confirmed 2026-07-25 by Joel, independently, not agent-self-recorded): `tools/verified_run.sh` = `2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29`
