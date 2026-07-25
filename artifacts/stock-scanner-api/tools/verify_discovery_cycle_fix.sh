@@ -37,7 +37,7 @@ echo "  aiem_discovery_engine.py: $SHA_DE"
 echo "  main.py:                  $SHA_MP"
 echo "  backfill_gap_rvol.py:     $SHA_BF"
 
-[[ "$SHA_DE" == "527e5f170074600f42214d0324f02a1cf8c099f9c16b4a627b44689044abee78" ]] \
+[[ "$SHA_DE" == "034957685a3d2bf570d64a06d26fe067330615d1a32ddc0396fd0f6e9c939704" ]] \
   && ok "aiem_discovery_engine.py SHA256 matches" \
   || fail "aiem_discovery_engine.py SHA256 mismatch (got $SHA_DE)"
 
@@ -46,9 +46,9 @@ echo "  backfill_gap_rvol.py:     $SHA_BF"
   || fail "main.py SHA256 mismatch (got $SHA_MP)"
 
 hdr "2. Date constants in aiem_discovery_engine.py"
-grep -q '_TRAIN_START\s*=\s*"2024-07-22"' "$DE" \
-  && ok '_TRAIN_START = "2024-07-22"' \
-  || fail "_TRAIN_START is not 2024-07-22"
+grep -q '_TRAIN_START\s*=\s*"2025-01-01"' "$DE" \
+  && ok '_TRAIN_START = "2025-01-01"' \
+  || fail "_TRAIN_START is not 2025-01-01"
 
 grep -q '_TRAIN_END\s*=\s*"2025-06-30"' "$DE" \
   && ok '_TRAIN_END = "2025-06-30"' \
@@ -57,6 +57,10 @@ grep -q '_TRAIN_END\s*=\s*"2025-06-30"' "$DE" \
 grep -q '_TEST_START\s*=\s*"2025-07-01"' "$DE" \
   && ok '_TEST_START = "2025-07-01"' \
   || fail "_TEST_START is not 2025-07-01"
+
+grep -q '_TEST_END\s*=\s*"2025-12-31"' "$DE" \
+  && ok '_TEST_END = "2025-12-31"' \
+  || fail "_TEST_END is not 2025-12-31"
 
 hdr "3. On-the-fly COALESCE CTE present in _load_backtest_universe"
 grep -q "COALESCE" "$DE" \

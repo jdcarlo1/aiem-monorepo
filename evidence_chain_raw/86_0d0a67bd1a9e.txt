@@ -1,0 +1,1 @@
+tools/verified_run.sh: line 64: artifacts/stock-scanner-api/tools/verify_discovery_cycle_fix.sh: Permission denied
