@@ -121,3 +121,4 @@ c.close()
 125	2026-07-25T14:03:07Z	0	45e80e89d20de838787d48c431f283cc64b3a7c8afe7e53bed193ed8626a3da3	bash artifacts/stock-scanner-api/tools/verify_discovery_cycle_fix.sh
 126	2026-07-25T14:11:55Z	126	22098a4de694993790b2a8e64b2933543b0056ece549d6ddde7ef4b33779980f	artifacts/stock-scanner-api/tools/verify_discovery_cycle_fix.sh
 127	2026-07-25T14:12:27Z	0	76c2932fcc5e9f91007cd926c2b7437d4e8ae0899878eaf659ebb2f5bdd04197	artifacts/stock-scanner-api/tools/verify_discovery_cycle_fix.sh
+128	2026-07-25T18:24:47Z	1	17c28585cafa79d5c792123276cabef5242c1f502a31273bb7e4cc1cbbfadd08	cd artifacts/stock-scanner-api && python3 dpl/verify_dpl_phase3.py

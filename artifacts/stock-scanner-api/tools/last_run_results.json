@@ -1,8 +1,8 @@
 {
   "schema_version": "2",
-  "run_ts": "2026-07-25T17:18:57Z",
-  "total_pass": 191,
-  "total_fail": 12,
+  "run_ts": "2026-07-25T18:24:46Z",
+  "total_pass": 192,
+  "total_fail": 11,
   "total_pending": 0,
   "all_checks": 203,
   "pass_list": [
@@ -123,6 +123,7 @@
     "C28_refs_has_engine_root_hash",
     "C28_scoring_fn_ast_hash_component_matches",
     "C28_req6_weights_hash_component_matches",
+    "C28_refs_commit_sha_matches_run_head",
     "C29_role_aiem_app_exists",
     "C29_role_aiem_verify_exists",
     "C29_role_aiem_approve_exists",
@@ -209,7 +210,6 @@
     "C52C_historical_replay_eligible_row_exists",
     "C28_live_engine_root_hash_matches_approved",
     "C28_approved_by_in_allowlist_and_engine_hash_match",
-    "C28_refs_commit_sha_matches_run_head",
     "C36_neg_non_allowlisted_identity_raises"
   ],
   "enforcement_artifacts": [],
