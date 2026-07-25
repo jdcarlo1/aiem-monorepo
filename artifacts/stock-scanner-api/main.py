@@ -364,7 +364,15 @@ except Exception as _pos_sizer_err:
     print(f"[startup] aiem_position_sizing load warning: {_pos_sizer_err}")
 _init_security(app)
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB — large enough for full-res screenshots
-CORS(app)
+_CORS_ALLOWED_ORIGINS = [
+    r"https://.*\.replit\.app",
+    r"https://.*\.janeway\.replit\.dev",
+    r"https://.*\.repl\.co",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:5050",
+]
+CORS(app, origins=_CORS_ALLOWED_ORIGINS)
 
 @app.route("/stock-api/", methods=["GET"])
 @app.route("/stock-api", methods=["GET"])
