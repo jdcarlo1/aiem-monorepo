@@ -881,3 +881,113 @@ records `2617d7bb` as canonical outside of files written by this agent this sess
 | `.cache/` exclusion justified | open — matches in pip/pnpm/playwright caches; operator scope determination required |
 | `.pythonlibs/` exclusion justified | open — matches in anthropic SDK + matplotlib; operator scope determination required |
 | Fix 4 MATCH retraction | closed — self-referential comparison acknowledged; UNCONFIRMED stated |
+
+---
+
+## 19. Phase 0 Retraction Review — Items 1 and 2 (2026-07-25)
+
+### 19.1 — Item 1: `597862e1` canonical provenance
+
+**Question:** Is `597862e1` (from `DPL_Phase3_Evidence_R4.1-R4.9.txt:255`) independently sourced, or also agent-written?
+
+Raw git log for `DPL_Phase3_Evidence_R4.1-R4.9.txt`:
+
+```
+86a2d79ff93c3c5d6b8922267012ad20c65c2c1a 2026-07-19 21:28:51 +0000 Replit Agent Update evidence collection and integrity checks for reproducibility
+```
+
+Raw committer identity:
+
+```
+86a2d79ff93c3c5d6b8922267012ad20c65c2c1a 2026-07-19 21:28:51 +0000 Replit Agent <agent@replit.com> Replit Agent <agent@replit.com>
+```
+
+This is the ONLY commit for that file (introduced and never modified). The same commit `86a2d79f` also touched:
+
+```
+.agents/memory/options-dpl-phase3.md               | 163 ++++---
+artifacts/stock-scanner-api/dpl/DPL_Phase3_Evidence_R4.1-R4.9.txt | 475 +++++++++++++++++++++
+artifacts/stock-scanner-api/dpl/r4_9_closeout.py   |  91 ++++
+artifacts/stock-scanner-api/tools/verified_run.sh  |  22 +
+artifacts/stock-scanner-api/tools/verified_run_seq |   2 +-
+```
+
+`DPL_Phase3_Evidence_R4.1-R4.9.txt` was created in the same commit that modified `tools/verified_run.sh` (+22 lines). The hash `597862e1` recorded in it as "NEW CANONICAL" was written by the same agent session that modified the script.
+
+**Finding:** `597862e1` is also agent-written — not independently sourced. No human-operator-confirmed canonical for `tools/verified_run.sh` exists anywhere in the git history. The chain of canonical claims is:
+
+```
+467451910... (agent-recorded, pre-R4.9.5)
+  → 597862e1... (agent-recorded, 2026-07-19 commit 86a2d79f)
+    → 2617d7bb... (agent-recorded, agent memory options-dpl-phase3.md:18)
+```
+
+All three values are agent-self-recorded. None has an independent operator-confirmed provenance.
+
+---
+
+### 19.2 — Item 2: `.local/` S3 complete count (chunked)
+
+**Prior state:** Section 18.1 reported S3≥112283 (lower bound, 30s timeout).
+
+**Chunked count by extension:**
+
+```
+.py:       1 lines
+.md:    1095 lines
+.sh:      30 lines
+.txt:      0 lines
+.log:      4 lines
+.json:    24 lines
+.ts:      97 lines
+.tsx:    125 lines
+.yaml:     2 lines
+.js:       2 lines
+.css:      0 lines
+.mjs:      1 lines
+.jinja2:  49 lines
+.toml:     3 lines
+.html:     1 lines
+.svg:      0 lines
+extensionless (workflow logs + pnpm store): 33847 lines
+```
+
+**Total from chunked search: 35,281 lines**
+
+**Remaining gap to ≥112283:** The single-pass lower bound (112283) exceeds the chunked total (35,281). Gap ≥76,758 lines is from file types NOT covered by the chunked search: 19 files with `.0` extension (workflow log files: e.g., `artifacts_stock-scanner__aiem-process.shell.exec.0`), 96 `.fingerprint` files, 13 `.template` files. These were neither caught by the per-extension search (extension not listed) nor by the extensionless search (they have dots in the filename). Their S3 counts are not yet measured.
+
+**Nature of all `.local/` content:**
+
+| Category | Files | Content type |
+|---|---|---|
+| Agent session artifacts | `.md` (376), `.py` (16), `.sh` (11), `.log` (9) | Verification reports, session scripts, evidence logs |
+| Workflow logs | extensionless + `.0` (19) | Container stdout from running workflows |
+| pnpm content store | extensionless (`.local/share/pnpm/store/`) | Node.js package content-addressed store |
+| Skill documentation | `.ts` (105), `.tsx` (191), `.md` (subset), `.jinja2` (5), `.yaml` (8) | Replit skill reference files |
+| State/tasks | `.json` (776), `.md` (subset) | Agent state, task plans |
+
+None of the above categories are AIEM production source files.
+
+**Operator scope determination required:** Should `.local/` be excluded from AIEM-source-discovery searches? If yes: the S3 count for the canonical search stands as originally recorded (7,915 lines in `vault-phase0-s3-search3-auth.txt`, sha256=`ce0047257dbfc4dcfaf14683ddaac502466214a287598fdda577736eef6e7bfa`). If no: a full rerun including `.local/` is required; full single-pass grep times out; chunked rerun would produce a new evidence file with total ≥35,281 lines (incomplete until `.0`/`.fingerprint`/`.template` extensions are also counted).
+
+---
+
+### 19.3 — Item 3 status (unchanged)
+
+Current on-disk hashes:
+```
+2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  artifacts/stock-scanner-api/verify_chain.sh
+```
+
+Status: **UNCONFIRMED** — no independent (non-agent-written) canonical found for either file. See Sections 17 and 18.3.
+
+---
+
+### 19.4 — Section 19 closure status
+
+| Item | Status |
+|---|---|
+| Item 1: `597862e1` canonical provenance | closed — also agent-written (commit 86a2d79f, Replit Agent, 2026-07-19); no independent canonical found anywhere in git history |
+| Item 2: `.local/` S3 full count | partial — 35,281 lines confirmed across covered extensions + extensionless; ≥76,758 additional lines from .0/.fingerprint/.template not yet measured; operator scope determination pending |
+| Item 3: UNCONFIRMED labeling | closed — label applied in Sections 17/18/19 |
