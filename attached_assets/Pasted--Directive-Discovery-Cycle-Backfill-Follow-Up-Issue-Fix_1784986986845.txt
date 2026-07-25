@@ -1,0 +1,27 @@
+# Directive: Discovery Cycle Backfill — Follow-Up
+
+## Issue
+Fix delivered used on-the-fly computation (COALESCE + LAG/AVG in query), not the approved UPDATE backfill. Root cause: RowExclusiveLock from live Flask pool blocks UPDATE. This is an architecture change from what was approved, not disclosed as a deviation.
+
+## Required
+
+1. **Go/no-go decision needed from Joel** — present both options with tradeoffs, no recommendation baked in:
+   - A) Keep on-the-fly computation permanently (recurring compute cost each cycle, no stored historical value for future audits/reproducibility)
+   - B) Perform the real UPDATE backfill via a path that avoids the live lock (e.g., direct DB connection outside Flask's pool, or a maintenance-window run with the app stopped) — actually stores the values as originally decided
+
+2. **Missing from original directive — still required regardless of A/B decision:**
+   - Before/after per-column NULL counts: `gap_pct_nonnull`, `rvol_nonnull`, `close_str_nonnull`, `range_pct_nonnull`, `price_ok`, `total_rows` (if Option B is chosen; if staying on-the-fly, provide the equivalent live-computed coverage counts)
+   - **Real end-to-end discovery cycle run with raw `discovery_cycle_log` row showing non-zero `total_templates`** — not yet proven; prior submission only claimed the next scheduled run "will" produce this. Must be an actual completed run, pasted raw.
+   - Raw grep output of the changed lines (not just sha256 before/after)
+   - git diff for the changed file(s)
+
+3. **Standing evidence chain** — not yet provided, required before close:
+   - sha256 cross-check of `tools/verified_run.sh` + `artifacts/stock-scanner-api/verify_chain.sh` against current canonical
+   - verified_run.sh / verify_chain.sh output required before declaring done
+   - Permanent record file at `/docs/verification/discovery-cycle-backfill-FINAL.md` with full verdict, evidence summary, and commit hash
+
+4. **Explicit verdict language required** — PASS / partial / cleared to proceed / closed via accepted-risk, never blended. No close claimed until every item above is satisfied.
+
+5. **Explicit statement** from agent acknowledging the on-the-fly pivot was a deviation from the approved Option B fix, not a like-for-like implementation of it.
+
+No close-out verdict until items 1-5 are addressed.

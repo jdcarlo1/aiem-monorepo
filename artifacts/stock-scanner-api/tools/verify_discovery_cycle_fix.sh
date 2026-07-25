@@ -182,6 +182,6 @@ echo "  tools/verify_chain.sh:  $SHA_VC"
 
 echo
 echo "==============================="
-echo "TOTAL: PASS=$PASS  FAIL=$FAIL"
+echo "SUMMARY: PASS=$PASS FAIL=$FAIL"
 echo "==============================="
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1

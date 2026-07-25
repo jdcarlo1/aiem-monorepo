@@ -1,0 +1,46 @@
+
+=== 1. SHA256 of changed files ===
+  aiem_discovery_engine.py: 527e5f170074600f42214d0324f02a1cf8c099f9c16b4a627b44689044abee78
+  main.py:                  806f7432a12cbe1bc1032603f1f40aac42c4a67db54a837e521cf2fe19782757
+  backfill_gap_rvol.py:     67ffec589c7694cfb5c8617c648670954c36d4c361ec7a9881fb2dd21ae5fd6a
+  PASS: aiem_discovery_engine.py SHA256 matches
+  PASS: main.py SHA256 matches
+
+=== 2. Date constants in aiem_discovery_engine.py ===
+  PASS: _TRAIN_START = "2024-07-22"
+  PASS: _TRAIN_END = "2025-06-30"
+  PASS: _TEST_START = "2025-07-01"
+
+=== 3. On-the-fly COALESCE CTE present in _load_backtest_universe ===
+  PASS: COALESCE keyword found
+  PASS: LAG(close_price) window function found
+  PASS: AVG(volume) OVER 30 PRECEDING found
+  PASS: buf_start 45-day buffer variable found
+  PASS: timeout_ms raised to 120_000
+
+=== 4. run_status=aborted_no_data key in run_cycle ===
+  PASS: run_status="aborted_no_data" found in run_cycle early-return
+
+=== 5. error_msg propagation fix in _discovery_cycle_job (main.py) ===
+  PASS: aborted_no_data check in _discovery_cycle_job found
+  PASS: error_msg propagation from result dict found
+
+=== 6. Live DB qualifying row counts ===
+  PASS: 2-month train sample = 258,699 qualifying rows (>= 200,000 threshold)
+
+=== 7. Negative control — empty date range must return aborted_no_data ===
+[discovery] loading training window 2020-01-01→2020-01-31…
+[discovery] loaded 0 training rows
+[discovery] loading test window 2020-02-01→2020-02-28…
+[discovery] loaded 0 test rows
+  PASS: run_status=aborted_no_data, error='no backtest data loaded — check polygon_market_daily'
+
+=== 8. Canonical SHA256 of verification infrastructure (untampered) ===
+  tools/verified_run.sh:  ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836
+  tools/verify_chain.sh:  972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75
+  PASS: verified_run.sh canonical SHA256 matches (ba6100ae)
+  PASS: verify_chain.sh canonical SHA256 matches (972ff44a)
+
+===============================
+TOTAL: PASS=17  FAIL=0
+===============================

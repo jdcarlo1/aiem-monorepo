@@ -153,3 +153,4 @@
 - [main.py grep pipe miss pattern](mainpy-grep-pipe-miss.md) — piping grep -n results through a second grep can miss routes where @app.route is above the line matching the keyword; use single grep or confirm with sed -n 'N,Mp' around hit line
 - [Phase 12 Final Verdict](phase12-final-verdict.md) — PASS=28/PARTIAL=51/NI=46/INV=10/FAIL=2; SEC-005 wildcard CORS + NEG-037 broken reconcile are active FAILs
 - [Watchdog gate controls](watchdog-gate-controls.md) — 4 gates in /run-scan before thread.start(); cap atomic via SELECT FOR UPDATE; audit in aiem_scan_trigger_log; PI-8 live morning proof deferred
+- [Discovery cycle production OOM constraint](discovery-cycle-oom-constraint.md) — full 2024-07-22→today windows (~3M rows, ~1.2GB dicts) OOM the production VM (79.6% baseline); liveness watchdog kills cycle; standalone 6-month split (1.5M rows, 47s) works; Option B (stored backfill) eliminates this
