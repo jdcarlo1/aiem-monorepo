@@ -1,0 +1,24 @@
+# Directive: AEIM Vault — Phase 0: Repository Discovery
+
+**Reference:** AEIM_Verification_Vault_COMPLETE_Master_Build_Directive, Section 3
+**Scope note:** This Vault covers AEIM's own components only. Do not import or reference Options Engine or StockScanner AI data (they are being sold separately).
+
+## Goal
+Inspect the actual AEIM repository before any code is written. Identify existing registries, auth, evidence storage, and verification-script canonical hashes so the Vault reuses infrastructure instead of duplicating it.
+
+## Required deliverables / evidence
+- Raw unmodified output of: pwd, git rev-parse --show-toplevel, git status --short, git branch --show-current, git rev-parse HEAD, git log -1 --format=fuller, find . -maxdepth 5 -type f | sort
+- Raw grep output for the 4 required searches in Section 3 (registries, verify_chain/sha256/evidence, terminal/auth/RBAC, scheduler/CI)
+- Documented: backend/frontend framework+version, DB engine, migration framework, existing auth/role model, existing registries, existing evidence storage locations, existing verification-report formats + their current sha256, existing audit-chain logic, existing terminal route structure, existing deployment structure
+- Explicit statement: no duplicate registry or parallel auth system will be created
+
+## Standing protocol (full checklist, applies to this phase, no abbreviated subset)
+- Raw evidence only: raw terminal/grep/sed/SQL output for every claim — no paraphrasing, no narrative-only claims
+- Exact before/after diff + sha256 for every file changed this session
+- sha256 cross-check of `verified_run.sh` / `verify_chain.sh` against current canonical, pasted before any evidence is accepted
+- Data Immutability Rule: no delete/truncate/overwrite without Joel's explicit prior approval — including this Vault's own tables
+- "PASS" is reserved for zero-outstanding, fully evidenced verification. Anything less: "closed via accepted-risk," "cleared to proceed," or "partial" — never "PASS"
+- Pre-action gate: state understanding of this phase's scope before writing any code
+- On close: permanent record file committed to the repo (`/docs/verification/vault-phase{N}-FINAL.md`) with commit hash
+- Do not start the next phase until this one is confirmed closed with Joel's explicit sign-off
+
