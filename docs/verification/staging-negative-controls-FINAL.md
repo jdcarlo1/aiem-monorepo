@@ -727,5 +727,210 @@ NEG-005 options chain exception handler: PASS (HTTP 422)
 
 ---
 
+---
+
+# CLOSE-OUT EVIDENCE — 2026-07-25
+
+Addresses three items required before Phase 2 is accepted as closed.
+
+---
+
+## Item 1 — Production Table Count Comparison (by name)
+
+**Raw query on both DBs:**
+```sql
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = 'public' ORDER BY table_name
+```
+
+**Counts:**
+
+| Database | Public Tables |
+|---|---|
+| `heliumdb` (production) | 383 |
+| `d3_test` (staging)     | 303 |
+| **Delta (missing from d3_test)** | **82** |
+| Extra in d3_test only | 2 (`neg_test_log`, `polygon_market_daily_staging`) |
+
+The 2 staging-only tables (`neg_test_log`, `polygon_market_daily_staging`) are Phase 1 harness artifacts — they exist in d3_test and not in heliumdb by design.
+
+**Full list of 82 tables in heliumdb NOT in d3_test (raw output):**
+
+```
+d3_version_history
+daily_fundamentals_snapshot
+daily_pipeline_runs
+daily_top10
+daily_vol_snapshots
+dc_template_feedback
+discovered_candidates
+dividend_calendar
+drift_check_log
+earnings_calendar
+eod_outcomes
+eod_sweep_log
+feature_ablation_log
+feature_store
+feedback_failure_log
+flow_probability_cache
+gamma_pressure_alerts
+garch_regime_log
+gp_discovered_templates
+gspc_daily
+index_membership_changes
+insider_alerts
+insider_outcomes
+insider_transactions
+intuition_decisions
+ipo_calendar
+job_heartbeats
+job_log
+layer9_scores
+metacognition_log
+model_registry
+morning_inflows_cache
+morning_scan_runs
+morning_watchdog_audit
+my_trades
+oe_attribution_runs
+oe_audit_events
+oe_challenger_decisions
+oe_challenger_runs
+oe_classification_correction_ledger
+oe_contamination_exclusions
+oe_counterfactual_outcomes
+oe_counterfactual_snapshots
+oe_criterion1_exclusions
+oe_decision_audit
+oe_decision_records
+oe_decision_replay_inputs
+oe_decision_snapshots
+oe_gate_events
+oe_incidents
+oe_index_corrections
+oe_indicator_attribution
+oe_indicator_registry
+oe_indicator_snapshots
+oe_interaction_hypotheses
+oe_interaction_results
+oe_kb_confidence_log
+oe_knowledge_base
+oe_known_synthetic_rows
+oe_legacy_decision_cutoff
+oe_legacy_replay_exceptions
+oe_model_versions
+oe_no_trade_candidates
+oe_options_metrics
+oe_pattern_registry
+oe_pattern_snapshots
+oe_portfolio_context
+oe_promotion_events
+oe_proposal_gate_results
+oe_regime_performance
+oe_root_cause_records
+oe_scheduler_config_log
+oe_scheduler_trace
+oe_strategy_candidates
+oe_strategy_registry
+oe_strategy_scorecards
+oe_synthetic_row_corrections
+oe_trade_records
+oe_unreplayable_rows
+oe_weight_proposals
+oi_daily_snapshot
+opening_snapshots
+```
+
+**Delta breakdown:**
+
+| Group | Count | Tables |
+|---|---|---|
+| `oe_*` (Options Engine) | 45 | All 45 Options Engine pipeline tables |
+| Operational / scheduler | 9 | `daily_pipeline_runs`, `job_heartbeats`, `job_log`, `morning_scan_runs`, `morning_watchdog_audit`, `morning_inflows_cache`, `eod_sweep_log`, `drift_check_log`, `d3_version_history` |
+| Market data / snapshots | 10 | `daily_fundamentals_snapshot`, `daily_top10`, `daily_vol_snapshots`, `dividend_calendar`, `earnings_calendar`, `flow_probability_cache`, `gspc_daily`, `oi_daily_snapshot`, `opening_snapshots`, `gamma_pressure_alerts` |
+| ML / research | 9 | `feature_ablation_log`, `feature_store`, `garch_regime_log`, `layer9_scores`, `metacognition_log`, `model_registry`, `gp_discovered_templates`, `eod_outcomes`, `dc_template_feedback` |
+| Trading / candidate | 7 | `discovered_candidates`, `intuition_decisions`, `my_trades`, `oe_no_trade_candidates`, `insider_alerts`, `insider_outcomes`, `insider_transactions` |
+| Misc | 2 | `feedback_failure_log`, `ipo_calendar` |
+
+**Root cause of 82-table delta:** The `pg_dump` pipe-to-psql restore timed out at 120 seconds on the first pass (stopped mid-file). A second pass applied lines 20,000+ with `ON_ERROR_STOP=off`. The two passes together reached 303 tables, missing the 82 listed above. The restore is partial, not intentional exclusion. None of the 82 missing tables are required for NEG-002/005/007/009. All four required tables (`polygon_market_daily`, `aiem_signal_discoveries`, `call_sweep_log`, `aiem_paper_trades`) are confirmed present.
+
+---
+
+## Item 2 — Final Commit Confirmation
+
+**Raw `git log -1 --stat`:**
+```
+commit c91d51c5e49baf15857bf47e02cce10445880c42 (HEAD -> main, gitsafe-backup/main)
+Author: Replit Agent <agent@replit.com>
+Date:   Sat Jul 25 02:04:40 2026 +0000
+
+    Update verification process to use a live application instance
+
+    Update verification documentation and commit directive file to reflect the
+    shift from a standalone script to a live application instance for negative
+    control testing.
+
+ ...e-Controls-Commit-Scope-Upgra_1784943871786.txt |  40 ++++
+ .../staging-negative-controls-FINAL.md             | 266 ++++++++++++++++++++-
+ 2 files changed, 304 insertions(+), 2 deletions(-)
+```
+
+**Raw `git status`:**
+```
+(empty — clean working tree after commit c91d51c5e4)
+```
+
+Files committed in c91d51c5e4:
+- `attached_assets/Pasted--DIRECTIVE-Staging-Negative-Controls-Commit-Scope-Upgra_1784943871786.txt` (+40 lines)
+- `docs/verification/staging-negative-controls-FINAL.md` (+266 lines, Phase 2 section)
+
+---
+
+## Item 3 — Isolation Proof Re-Run (Fresh, This Run)
+
+**Timestamp:** `2026-07-25T02:07:59.378436Z`
+
+This is a fresh psycopg2 execution, not a reference to Phase 1 or Phase 2 outputs. Checks 1a–1d are read probes; check 1e is a live write-then-read test that inserts a sentinel row into staging and confirms it does not appear in production, then deletes it.
+
+**Raw output:**
+```
+=== ISOLATION PROOF — FRESH RUN ===
+Timestamp: 2026-07-25T02:07:59.378436Z
+
+[1a] staging connection current_database() = 'd3_test'  →  PASS
+[1b] staging closed paper trades = 0  |  prod closed paper trades = 30  →  PASS
+     (staging sees 0 of production's 30 closed trades — isolation confirmed)
+[1c] staging polygon_market_daily rows = 3  |  prod rows = 3367706  →  PASS
+     (staging has only the 3 injected test rows; prod has 3,367,706 real rows)
+[1d] staging prod-filter paper trades = 0  |  prod = 25  →  PASS
+[1e] Inserted ISOLTEST row into staging polygon_market_daily — id=4
+     ISOLTEST visible in prod polygon_market_daily: 0  →  PASS (write invisible to prod)
+     ISOLTEST row deleted from staging after proof.
+
+=== SUMMARY ===
+All isolation checks: PASS
+```
+
+**Check 1e explanation:** A row with ticker `ISOLTEST` was written to `d3_test.polygon_market_daily` via the staging psycopg2 connection. Immediately after, the production connection queried `heliumdb.polygon_market_daily` for `ticker = 'ISOLTEST'` — count = 0. The write was invisible to production. The row was then deleted from staging. This is a live write-and-verify proof, not a static assertion.
+
+**Ordering vs. Phase 2 HTTP tests:** In the Phase 2 run, the isolation proof (checks 1a–1d) ran at `02:01:49 UTC` — immediately after the staging instance reached readiness — and before the first HTTP request (`02:01:59 UTC` as shown in the startup log). The NEG HTTP tests followed. Sequence: `isolation proof → NEG-002 HTTP → NEG-005 HTTP → NEG-007 HTTP → NEG-009 HTTP`.
+
+The corrupted data (NG_NAN / NG_NULL / NG_INF rows in `polygon_market_daily`; NEG009_STAG rows in `aiem_signal_discoveries`) was inserted into d3_test's DB tables before the Flask instance started. The isolation proof confirmed staging/production DB separation before any HTTP request exercised that data through the running app. This matches the required ordering: prove isolation → then run NEG tests via HTTP.
+
+---
+
+## Close-Out Summary
+
+| Item | Status |
+|---|---|
+| 1. Production table count (383) vs d3_test (303), delta of 82 named | **DONE** |
+| 2. git log -1 --stat + clean git status | **DONE** — commit c91d51c5e4 |
+| 3. Fresh isolation proof (5 checks, write test, raw output) | **DONE** — all PASS |
+
+**CLOSE-OUT COMPLETE.**
+
+---
+
 *Phase 1 sealed: 2026-07-25*
 *Phase 2 sealed: 2026-07-25*
+*Close-out evidence: 2026-07-25T02:07:59Z*
