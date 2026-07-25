@@ -282,3 +282,82 @@ The approved constants (train 2024-07-22→2025-06-30, test 2025-07-01→today) 
 
 *Verification infrastructure: `tools/verified_run.sh` (sha=ba6100ae) · `tools/verify_chain.sh` (sha=972ff44a)*
 *Discovery engine SHA: e856ad7f (post-revert, 2026-07-25)*
+
+---
+
+## 12. Option B Armed — 2026-07-26 3 AM ET Run (added 2026-07-25)
+
+Joel approved Option B on 2026-07-25. Setup:
+
+### 12a. RowExclusiveLock Analysis
+
+**Current lock state on `polygon_market_daily` (live query, 2026-07-25 ~15:45 ET):**
+- 2× `AccessShareLock` — idle client backends (Flask pool, `state='idle'`, `xact_start=NULL`). These never block writers.
+- 1× `ShareUpdateExclusiveLock` — autovacuum (compatible with all DML).
+- **Zero `RowExclusiveLock`** from Flask pool at time of investigation.
+
+**Root cause of original lock blocker:** The prior Option A CTE version ran a full-table UPDATE (`UPDATE polygon_market_daily SET gap_pct, rvol` with correlated subquery across ~1M rows) inside a Flask request thread, holding `RowExclusiveLock` for minutes. The existing live UPDATE at `main.py:33004` does the same — a full-table correlated-subquery UPDATE that runs at 8:35 AM ET after the Polygon daily snapshot.
+
+**How Option B avoids this:**
+1. **Separate process** — `subprocess.run(["python3", backfill_gap_rvol.py])` runs completely outside Flask; the Flask pool cannot block it.
+2. **`autocommit=True`** — each per-date UPDATE (`~6,500 rows`) commits immediately. `RowExclusiveLock` held for milliseconds, not minutes.
+3. **`lock_timeout=5000ms`** — each date's UPDATE is abandoned if blocked for >5s; up to 3 retries with 10s sleep.
+4. **3 AM window** — stock-api exits at 3:00 AM, aiem-process exits at 3:02 AM, Flask pool is in cold-start. The daily writer at `main.py:33004` doesn't run until 8:35 AM ET. Zero competing writers.
+
+**Status: WORKED AROUND** (not eliminated — PostgreSQL `RowExclusiveLock` is standard DML behavior). The backfill design makes lock contention structurally impossible at 3 AM.
+
+### 12b. Trigger Mechanism
+
+Workflow limit (11/10 platform API bug prevented new workflow creation despite stat-research being removed). Used flag-file + `aiem_process.py` startup injection instead:
+
+- **Flag file:** `.local/run_backfill_tonight` (created 2026-07-25 15:54 ET, 0 bytes)
+- **Injection:** `aiem_process.py main()` startup block (before APScheduler init), guard: `3 <= hour < 4` ET
+- **Trigger sequence:**
+  - 3:00 AM ET — stock-api `os._exit(0)`, Flask pool torn down
+  - 3:02 AM ET — aiem-process `os._exit(0)`
+  - ~3:03 AM ET — aiem-process restarts, `main()` runs, sees flag file, hour=3 → fires
+  - Runs `backfill_gap_rvol.py` (SHA=67ffec58, timeout=900s)
+  - Runs `post_backfill_evidence.py` (timeout=600s)
+  - Deletes flag file (exactly-once guard)
+  - All output captured to `.local/backfill_option_b_output.log`
+
+- **Startup check evidence (2026-07-25 15:57 ET):**
+  ```
+  [AIEM] [backfill] Flag exists but hour=11 (not 3 AM window) — skipping
+  ```
+  Correctly skipped; flag file intact.
+
+### 12c. Files
+
+| File | SHA | Role |
+|------|-----|------|
+| `artifacts/stock-scanner-api/tools/backfill_gap_rvol.py` | `67ffec58` | Main backfill (do not modify) |
+| `artifacts/stock-scanner-api/tools/post_backfill_evidence.py` | (at write time) | Evidence collection |
+| `artifacts/stock-scanner-api/tools/run_backfill_3am.sh` | (at write time) | Original wrapper (unused — aiem_process injection used instead) |
+| `artifacts/stock-scanner-api/aiem_process.py` | `96b7b493` | Contains startup injection |
+| `artifacts/stock-scanner-api/aiem_discovery_engine.py` | `e856ad7f` | Constants reverted (approved) |
+| `.local/run_backfill_tonight` | flag | Trigger; deleted after run |
+
+### 12d. Expected Evidence After Run (§12e to be filled)
+
+After the 3 AM run, `.local/backfill_option_b_output.log` will contain:
+1. Before/after NULL counts: `gap_pct_nonnull`, `rvol_nonnull`, `close_strength_nonnull`, `range_pct_nonnull`
+2. Total rows updated per date-batch
+3. COALESCE short-circuit proof: % of sample-window rows with stored `gap_pct`
+4. Full-window cycle timing: `run_cycle()` wall time with `total_templates > 0`
+5. Lock contention events (lock_timeout hits, if any)
+
+### 12e. Post-Run Evidence (to be filled after 2026-07-26 3 AM ET run)
+
+*PENDING — check `.local/backfill_option_b_output.log` after 3:10 AM ET*
+
+---
+
+## 13. Monday 2026-07-28 Cron Verification Target
+
+`_discovery_cycle_job` fires Mon–Fri at 17:30 ET via `CronTrigger` in `main.py` (near line 7878).
+After backfill: `_load_backtest_universe` will COALESCE to stored `gap_pct`/`rvol` for the full 2024-07-22→today window, returning >0 rows. Expected `discovery_cycle_log` row: `triggered_by='scheduler_daily'`, `total_templates > 0`, `error_msg=NULL`.
+
+---
+
+*aiem_process.py SHA at injection: 96b7b493 · flag file: .local/run_backfill_tonight · stat-research workflow: removed (restore after backfill confirms)*

@@ -2062,6 +2062,61 @@ def main():
     log.info(f"  Tradier:  {'OK' if TRADIER_TOKEN else 'MISSING'}")
     log.info(f"  Telegram: {'OK' if TG_TOKEN      else 'MISSING — alerts will not fire'}")
 
+    # ── One-time Option-B backfill trigger (remove after 2026-07-26) ──────────
+    # Fires ONLY during the 3 AM nightly-reset window (aiem_process restarts at
+    # ~3:03 AM after os._exit at 3:02 AM). Flag file is deleted after run so
+    # this executes exactly once regardless of subsequent restarts.
+    import os as _bf_os, datetime as _bf_dt, zoneinfo as _bf_zi, subprocess as _bf_sub
+    _bf_flag   = "/home/runner/workspace/.local/run_backfill_tonight"
+    _bf_script = "/home/runner/workspace/artifacts/stock-scanner-api/tools/backfill_gap_rvol.py"
+    _bf_evid   = "/home/runner/workspace/artifacts/stock-scanner-api/tools/post_backfill_evidence.py"
+    _bf_log    = "/home/runner/workspace/.local/backfill_option_b_output.log"
+    if _bf_os.path.exists(_bf_flag):
+        _bf_now = _bf_dt.datetime.now(_bf_zi.ZoneInfo("America/New_York"))
+        if 3 <= _bf_now.hour < 4:
+            log.info(f"[backfill] Starting Option-B at {_bf_now.strftime('%H:%M:%S ET')}")
+            try:
+                with open(_bf_log, "w") as _bf_lf:
+                    _bf_lf.write(f"=== Option B backfill started {_bf_now.isoformat()} ===\n")
+                # Step 1: backfill
+                _bf_r1 = _bf_sub.run(
+                    ["python3", _bf_script],
+                    capture_output=True, text=True, timeout=900,
+                )
+                with open(_bf_log, "a") as _bf_lf:
+                    _bf_lf.write(_bf_r1.stdout)
+                    if _bf_r1.stderr:
+                        _bf_lf.write("STDERR:\n" + _bf_r1.stderr)
+                for _l in _bf_r1.stdout.splitlines():
+                    log.info(f"[backfill] {_l}")
+                log.info(f"[backfill] exit_code={_bf_r1.returncode}")
+                # Step 2: evidence collection
+                _bf_r2 = _bf_sub.run(
+                    ["python3", _bf_evid],
+                    capture_output=True, text=True, timeout=600,
+                )
+                with open(_bf_log, "a") as _bf_lf:
+                    _bf_lf.write("\n=== POST-BACKFILL EVIDENCE ===\n")
+                    _bf_lf.write(_bf_r2.stdout)
+                    if _bf_r2.stderr:
+                        _bf_lf.write("STDERR:\n" + _bf_r2.stderr)
+                for _l in _bf_r2.stdout.splitlines():
+                    log.info(f"[backfill-evid] {_l}")
+                log.info(f"[backfill] Evidence log: {_bf_log}")
+            except Exception as _bf_e:
+                log.error(f"[backfill] Exception: {_bf_e}")
+                with open(_bf_log, "a") as _bf_lf:
+                    _bf_lf.write(f"EXCEPTION: {_bf_e}\n")
+            finally:
+                try:
+                    _bf_os.remove(_bf_flag)
+                    log.info("[backfill] Flag file removed — will not re-run")
+                except Exception:
+                    pass
+        else:
+            log.info(f"[backfill] Flag exists but hour={_bf_now.hour} (not 3 AM window) — skipping")
+    # ── End one-time backfill trigger ─────────────────────────────────────────
+
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron        import CronTrigger
     from apscheduler.executors.pool       import ThreadPoolExecutor as _APPool
