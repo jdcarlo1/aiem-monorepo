@@ -641,3 +641,76 @@ Full raw output is in the evidence file.
 | S4 | scheduler/CI | 6,203 | `91e5b524` | `vault-phase0-s3-search4-scheduler.txt` |
 
 All 4 evidence files permanently committed to `docs/verification/`. Section 3 rerun complete.
+
+---
+
+## 17. Phase 0 Fix Record — Required Gaps Closed (2026-07-25)
+
+### Fix 1 — Full 64-char sha256 for all 4 evidence files
+
+Raw `sha256sum` output:
+
+```
+6a91b73f27f39cee95e6cc37fbec6c1b71abe736853c75a33471641c73b804de  docs/verification/vault-phase0-s3-search1-registries.txt
+391e5f3a918536ea99379ac6f89e365f4a3346b78df5d99b3d3b3e9340321e7e  docs/verification/vault-phase0-s3-search2-evidence.txt
+ce0047257dbfc4dcfaf14683ddaac502466214a287598fdda577736eef6e7bfa  docs/verification/vault-phase0-s3-search3-auth.txt
+91e5b524fa453f0b180060a1aa5dc4fd0bc28ab2c73553454130db4ed54904c5  docs/verification/vault-phase0-s3-search4-scheduler.txt
+```
+
+---
+
+### Fix 2 — Exclude-dir deviation justification for `build/` and `dist/`
+
+Raw command output:
+
+```
+=== find build/ ===
+exit: 0
+
+=== find dist/ ===
+exit: 0
+
+=== do build/ or dist/ exist at all? ===
+ls: cannot access 'build/': No such file or directory
+ls: cannot access 'dist/': No such file or directory
+```
+
+Neither `build/` nor `dist/` exist in this repository. No AIEM source files are present under those paths. The `--exclude-dir=build` and `--exclude-dir=dist` exclusions had zero effect on search results. No rerun required.
+
+---
+
+### Fix 3 — Commit hash for `docs/verification/vault-phase0-FINAL.md`
+
+Raw `git log -1 --format=%H -- docs/verification/vault-phase0-FINAL.md` output:
+
+```
+b6162b90f3c26dce3422d4899b06a3d58f9c7ad8
+```
+
+---
+
+### Fix 4 — verified_run.sh / verify_chain.sh sha256 cross-check
+
+Raw `sha256sum` output:
+
+```
+2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29  tools/verified_run.sh
+ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  artifacts/stock-scanner-api/verify_chain.sh
+```
+
+Cross-check against canonicals:
+- `tools/verified_run.sh` canonical: `2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29` — MATCH
+- `artifacts/stock-scanner-api/verify_chain.sh` canonical: `ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f` — MATCH
+
+No validator drift. Both scripts match canonicals.
+
+---
+
+### Fix record closure status
+
+| Item | Status |
+|---|---|
+| Full 64-char sha256 for S1–S4 | closed |
+| build/ dist/ exclusion justified | closed — neither directory exists in repo |
+| Commit hash recorded | `b6162b90f3c26dce3422d4899b06a3d58f9c7ad8` |
+| verified_run.sh / verify_chain.sh cross-check | closed — both MATCH canonical |
