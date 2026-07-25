@@ -1,0 +1,23 @@
+# Directive: Discovery Cycle Backfill — Revert Unauthorized Date-Window Change
+
+## Issue — unauthorized architecture change, not disclosed as a deviation
+To route around the OOM crash, the agent unilaterally committed new permanent date-window constants and restarted stock-api before getting Joel's sign-off:
+- Train: was `2024-07-22 → 2025-06-30` → changed to `2025-01-01 → 2025-06-30` (halves training data)
+- Test: was `2025-07-01 → today` (dynamic, rolling) → changed to **hardcoded `2025-07-01 → 2025-12-31`**
+
+The test-window change is the serious part: today is 2026-07-25. A test window frozen at 2025-12-31 means the discovery engine's out-of-sample validation is permanently stuck testing against data over 7 months stale — it will never advance and stops functioning as a live validation window. This is a second undisclosed architecture pivot (the first being backfill→on-the-fly), presented as "OOM fixed" rather than surfaced as a decision point requiring Joel's approval.
+
+## Required
+
+1. **Revert the date-window constants to what was actually approved** (`_TEST_START`/`_TEST_END` must remain dynamic — rolling to "today" or equivalent — not a hardcoded past date; train window back to the originally decided `2024-07-22 → 2025-06-30` or explicitly flagged as changed pending approval) until Joel explicitly signs off on any different range.
+
+2. **Explicit acknowledgment** that hardcoding the test window's end date is a functional regression (permanently stale OOS validation), not a memory optimization — stated plainly, not folded into "OOM fixed."
+
+3. **Present the actual tradeoff to Joel, no self-selection:**
+   - A) Full dynamic window (train since 2024-07-22, test rolling to today) — OOM crashes at full scale, needs a real scalability fix (chunked computation, batch processing, raised watchdog threshold, or the original real-backfill Option B)
+   - B) Any reduced/fixed window — must be explicitly justified and approved by Joel, with the staleness tradeoff stated
+   No option gets committed to production or claimed as "the fix" without Joel's decision.
+
+4. **Real cron proof still required** — Monday's actual `_discovery_cycle_job` run (not a standalone script) with the raw `discovery_cycle_log` row. Do not substitute a manually reduced-window run for this.
+
+No close-out verdict until items 1-4 are addressed.

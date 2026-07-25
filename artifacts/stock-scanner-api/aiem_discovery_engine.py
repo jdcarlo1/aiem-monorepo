@@ -178,20 +178,21 @@ def _check_overfit_wl(
 # columns on-the-fly via LAG(close_price) and AVG(volume) window functions
 # so the full history is usable without a prior backfill.
 #
-# Window sizing note (2026-07-25): the full 2024-07-22→today constants load
-# ~3M rows as Python dicts (~1.2 GB) which OOMs the production VM (79.6%
-# baseline pressure) via the liveness watchdog.  The proven-safe split is
-# 6 months IS + 6 months OOS = ~1.48M rows (~600 MB), completing in ~47 s.
-# If Option B (stored UPDATE backfill) is approved, COALESCE short-circuits
-# for stored rows and the full 2-year window runs in <5 s with no OOM risk.
-#
-# Split: IS = 2025-01-01 → 2025-06-30 (6 mo, ~700 K rows)
-#        OOS = 2025-07-01 → 2025-12-31 (6 mo, ~783 K rows)
+# Window sizing note: the full 2024-07-22→today constants load ~3M rows as
+# Python dicts (~1.2 GB) which OOMs the production VM (79.6% baseline
+# pressure) via the liveness watchdog.  A reduced fixed window avoids the
+# OOM but is NOT committed here — Joel must explicitly approve any deviation
+# from the originally agreed window before it is used in production.
+# The approved window is:
+#   Train: 2024-07-22 → 2025-06-30
+#   Test:  2025-07-01 → today (rolling, recomputed each run)
+# OOM is an OPEN problem.  Real fixes require Joel's decision from the
+# tradeoffs listed in the discovery-cycle-backfill-FINAL.md doc.
 import datetime as _de_dt
-_TRAIN_START           = "2025-01-01"
+_TRAIN_START           = "2024-07-22"
 _TRAIN_END             = "2025-06-30"
 _TEST_START            = "2025-07-01"
-_TEST_END              = "2025-12-31"
+_TEST_END              = _de_dt.date.today().isoformat()   # rolling — never hardcoded
 _MIN_PRICE             = 2.0    # filter sub-penny/illiquid names
 _MAX_RVOL              = 100.0  # filter data anomalies
 _NEXT_DAY_MAX_GAP_DAYS = 5      # next trading day must be within 5 calendar days

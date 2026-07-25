@@ -18,5 +18,9 @@ The AIEM discovery cycle with `_TRAIN_START="2024-07-22"` through today (~3M row
 - **Admin-trigger cycles**: Only safe with narrower windows (< ~1.5M rows total) or after Option B backfill
 - The scheduled 2AM nightly cycle is also likely to OOM with full-year windows on this VM
 
+## Critical governance rule
+Never commit reduced/hardcoded date-window constants without Joel's explicit approval. A hardcoded past `_TEST_END` is a functional regression (OOS validation permanently stale), not a memory fix. `_TEST_END` must always be a rolling expression (`_de_dt.date.today().isoformat()`), not a literal string.
+
 ## Verified
 2026-07-25: admin-trigger with full constants → crash after 6min. Standalone 6-month split → 47.11s, total_templates=10, clean completion.
+2026-07-25: Unauthorized constants reverted. Current production: `_TRAIN_START="2024-07-22"`, `_TEST_END` rolling. verify script PASS=19 FAIL=0 (SHA=e856ad7f). Full-window cron run Monday 17:30 ET is expected to OOM unless Option B backfill runs first or Joel approves a reduced window.

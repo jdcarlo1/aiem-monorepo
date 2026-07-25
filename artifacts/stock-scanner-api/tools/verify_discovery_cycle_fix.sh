@@ -37,8 +37,8 @@ echo "  aiem_discovery_engine.py: $SHA_DE"
 echo "  main.py:                  $SHA_MP"
 echo "  backfill_gap_rvol.py:     $SHA_BF"
 
-[[ "$SHA_DE" == "034957685a3d2bf570d64a06d26fe067330615d1a32ddc0396fd0f6e9c939704" ]] \
-  && ok "aiem_discovery_engine.py SHA256 matches" \
+[[ "$SHA_DE" == "e856ad7f361987224ed4621c9508a4890fdc83958dee5916917b2474dff720d7" ]] \
+  && ok "aiem_discovery_engine.py SHA256 matches (post-revert, rolling _TEST_END)" \
   || fail "aiem_discovery_engine.py SHA256 mismatch (got $SHA_DE)"
 
 [[ "$SHA_MP" == "806f7432a12cbe1bc1032603f1f40aac42c4a67db54a837e521cf2fe19782757" ]] \
@@ -46,9 +46,9 @@ echo "  backfill_gap_rvol.py:     $SHA_BF"
   || fail "main.py SHA256 mismatch (got $SHA_MP)"
 
 hdr "2. Date constants in aiem_discovery_engine.py"
-grep -q '_TRAIN_START\s*=\s*"2025-01-01"' "$DE" \
-  && ok '_TRAIN_START = "2025-01-01"' \
-  || fail "_TRAIN_START is not 2025-01-01"
+grep -q '_TRAIN_START\s*=\s*"2024-07-22"' "$DE" \
+  && ok '_TRAIN_START = "2024-07-22" (approved start)' \
+  || fail "_TRAIN_START is not 2024-07-22 — revert required"
 
 grep -q '_TRAIN_END\s*=\s*"2025-06-30"' "$DE" \
   && ok '_TRAIN_END = "2025-06-30"' \
@@ -58,9 +58,15 @@ grep -q '_TEST_START\s*=\s*"2025-07-01"' "$DE" \
   && ok '_TEST_START = "2025-07-01"' \
   || fail "_TEST_START is not 2025-07-01"
 
+# _TEST_END must be dynamic (rolling to today) — not a hardcoded past date
+grep -q '_TEST_END\s*=\s*_de_dt\.date\.today' "$DE" \
+  && ok '_TEST_END = _de_dt.date.today().isoformat() (rolling, not hardcoded)' \
+  || fail "_TEST_END is hardcoded — must be dynamic rolling expression"
+
+# Extra guard: hardcoded past date must NOT be present
 grep -q '_TEST_END\s*=\s*"2025-12-31"' "$DE" \
-  && ok '_TEST_END = "2025-12-31"' \
-  || fail "_TEST_END is not 2025-12-31"
+  && fail "_TEST_END is still hardcoded to 2025-12-31 — revert not applied" \
+  || ok "_TEST_END hardcode '2025-12-31' absent (correct)"
 
 hdr "3. On-the-fly COALESCE CTE present in _load_backtest_universe"
 grep -q "COALESCE" "$DE" \
