@@ -1,0 +1,30 @@
+# Directive — Audit Gap Follow-up (2026-07-25)
+
+## Standing checklist (applies to every item below)
+- Raw command output only, no narrative. Any code-location/behavior claim needs raw `grep -n`/`sed -n`, not paraphrase.
+- sha256 before/after for any file changed this session.
+- No delete/truncate/overwrite of any row or file without explicit approval in this session.
+- All evidence-producing commands via `verified_run.sh`, validated with `verify_chain.sh`, output pasted.
+- sha256sum of `tools/verified_run.sh` and `artifacts/stock-scanner-api/verify_chain.sh` required, checked against canonical:
+  - tools/verified_run.sh = ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836
+  - artifacts/stock-scanner-api/verify_chain.sh = ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+  - tools/verify_chain.sh = 972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75
+  - Mismatch = validator output rejected regardless of chain log content.
+- "PASS" only if fully verified, nothing deferred. Otherwise use "cleared to proceed" / "closed via accepted-risk" / "partial."
+- Once a phase fully closes: permanent record file required at /docs/verification/{name}-FINAL.md.
+
+## Item 1 — Watchdog-triggered crash (was framed as "OOM")
+- Crash dump shows `_liveness_watchdog_loop` / `staleness_guard._watchdog_loop` triggering `os._exit(0)` — not an OOM kill signal.
+- State exactly which watchdog check fired and its threshold/condition, backed by raw grep of that check's code.
+- State whether any evidence (even indirect — swap/RSS trend, GC pause length, thread count at time of exit) supports resource exhaustion as the reason the watchdog tripped, or state plainly if none exists.
+- Do not re-assert "OOM" as the cause unless backed by a raw reading from an actual log file.
+
+## Item 2 — Missing sha256 cross-check (all 4 items from prior session)
+- Provide the standing sha256sum cross-check (see checklist above) for the session that produced: crash-log analysis, 6-endpoint curl checks, AC-012 grep, and the TSV-fix evidence.
+
+## Item 3 — DPL Phase 3 fresh run: 191 PASS / 12 FAIL
+- Map each of the 12 FAILs (C43, C48, C49x2, C52Bx2, C52Cx2, C28x3, C36) against the 73 UNVERIFIED_INHERITED items already tracked in Directive_Phase3_RealVerification_QUEUED.md.
+- State explicitly: are all 12 accounted for within the known 73, or are any of these new/unexpected regressions? If new, flag separately — do not fold into the existing accepted-risk bucket without saying so.
+
+## Item 4 — TSV fix timestamp provenance
+- Confirm whether the 17:11Z (buggy) / 17:17:44Z (fixed) timestamps cited as before/after evidence are pulled from the actual chat/session log, or are self-reported by the agent with no independent timestamp source. State which, plainly.
