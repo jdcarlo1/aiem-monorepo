@@ -988,6 +988,122 @@ Status: **UNCONFIRMED** — no independent (non-agent-written) canonical found f
 
 | Item | Status |
 |---|---|
-| Item 1: `597862e1` canonical provenance | closed — also agent-written (commit 86a2d79f, Replit Agent, 2026-07-19); no independent canonical found anywhere in git history |
+| Item 1: `597862e1` canonical provenance | CORRECTION REQUIRED — see Section 20; 86a2d79f touches a DIFFERENT file than tools/verified_run.sh |
 | Item 2: `.local/` S3 full count | partial — 35,281 lines confirmed across covered extensions + extensionless; ≥76,758 additional lines from .0/.fingerprint/.template not yet measured; operator scope determination pending |
 | Item 3: UNCONFIRMED labeling | closed — label applied in Sections 17/18/19 |
+
+---
+
+## 20. Provenance Correction — tools/verified_run.sh (2026-07-25)
+
+### 20.1 — Section 19.1 error retraction
+
+Section 19.1 stated: "The same commit `86a2d79f` also touched ... `artifacts/stock-scanner-api/tools/verified_run.sh` (+22 lines)" and connected this to root-level `tools/verified_run.sh`.
+
+This was wrong. There are TWO distinct files:
+
+```
+tools/verified_run.sh                              sha256=2617d7bb...
+artifacts/stock-scanner-api/tools/verified_run.sh  sha256=58534be5...
+```
+
+`git show 86a2d79f -- tools/verified_run.sh` returned **no output** — that commit did NOT touch root-level `tools/verified_run.sh`. Confirmed:
+
+```
+=== is 86a2d79f in root tools/verified_run.sh history? ===
+NOT PRESENT
+
+=== is 86a2d79f in artifacts/stock-scanner-api/tools/verified_run.sh history? ===
+86a2d79ff93c3c5d6b8922267012ad20c65c2c1a
+```
+
+`597862e1` (from `DPL_Phase3_Evidence_R4.1-R4.9.txt:255`) is the hash of `artifacts/stock-scanner-api/tools/verified_run.sh` at commit `86a2d79f` — not root-level `tools/verified_run.sh`. That DPL evidence file never recorded a canonical for root-level `tools/verified_run.sh`.
+
+---
+
+### 20.2 — git log -p for root-level tools/verified_run.sh
+
+`git log --follow -p` timed out at 15s. Run without `--follow`:
+
+```
+git --no-optional-locks log -p -- tools/verified_run.sh
+```
+
+Full output saved to evidence file:
+
+```
+docs/verification/vault-phase0-gitlog-verified_run.txt
+sha256: 1afe8031a84a5839a588ea0c160d4e7ed48dea6336310763c8ab14081f6c2c6f
+lines:  705
+```
+
+---
+
+### 20.3 — Complete commit list for root-level tools/verified_run.sh
+
+Total commits: **8**
+
+```
+d670f6ddd5eb2d2228cd94d5881ffa8b2df44307 2026-07-25 19:03:57 +0000 Replit Agent <agent@replit.com>
+ad0a6eeb1f83988978b6c8dc4abdc3c7122b2209 2026-07-21 03:42:12 +0000 Replit Agent <agent@replit.com>
+4d760152221abe20a5ea24a5a112a68b2413abed 2026-07-21 02:16:12 +0000 Replit Agent <agent@replit.com>
+86c726ab06a6ec2e2d7dae363f8685cfe3fffb29 2026-07-21 00:43:50 +0000 Replit Agent <agent@replit.com>
+6cb13dda9e4f44f614f605032a8fc76fe88dd814 2026-07-20 23:00:21 +0000 Replit Agent <agent@replit.com>
+6156b3b1870b896ae390db4dd110d75e588dcb72 2026-07-13 04:39:05 +0000 Replit Agent <agent@replit.com>
+e0ae5b7a2b2e8776a4bdb6bebc4449813528c216 2026-07-12 22:54:58 +0000 Replit Agent <agent@replit.com>
+56095d26892b6a142986f5349c4210fbd158e77e 2026-07-12 22:52:14 +0000 Replit Agent <agent@replit.com>
+```
+
+Author of every commit: **Replit Agent <agent@replit.com>**. No human-operator commits in the history of root-level `tools/verified_run.sh`.
+
+`86a2d79f` is NOT among these 8 commits.
+
+---
+
+### 20.4 — git show 86a2d79f --stat (raw)
+
+```
+commit 86a2d79ff93c3c5d6b8922267012ad20c65c2c1a
+Author: Replit Agent <agent@replit.com>
+Date:   Sun Jul 19 21:28:51 2026 +0000
+
+    Update evidence collection and integrity checks for reproducibility
+
+ .agents/memory/options-dpl-phase3.md               | 163 ++++---
+ artifacts/stock-scanner-api/dpl/DPL_Phase3_Evidence_R4.1-R4.9.txt | 475 +++++++++++++++++++++
+ artifacts/stock-scanner-api/dpl/r4_9_closeout.py   |  91 ++++
+ artifacts/stock-scanner-api/tools/verified_run.sh  |  22 +
+ artifacts/stock-scanner-api/tools/verified_run_seq |   2 +-
+ ...9-Rules-evidence-over-prose-R_1784495956306.txt |  44 ++
+ 6 files changed, 706 insertions(+), 91 deletions(-)
+```
+
+File path in stat: `artifacts/stock-scanner-api/tools/verified_run.sh` — the artifact-level file, not root-level.
+
+---
+
+### 20.5 — git show 86a2d79f -- tools/verified_run.sh (raw)
+
+No output. Confirms root-level `tools/verified_run.sh` was not modified in this commit.
+
+---
+
+### 20.6 — Current sha256 of both files
+
+```
+2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29  tools/verified_run.sh
+58534be51d9445e13c1838532a7d94c2773d6e152d435e6f620ddba64a9f3bf5  artifacts/stock-scanner-api/tools/verified_run.sh
+```
+
+`artifacts/stock-scanner-api/tools/verified_run.sh` current sha256=`58534be5...` differs from `597862e1` (the value recorded in `DPL_Phase3_Evidence_R4.1-R4.9.txt:255` by commit `86a2d79f` in 2026-07-19). The artifact-level file was further modified after that commit.
+
+---
+
+### 20.7 — Corrected canonical status
+
+| File | Current sha256 | Prior recorded canonical | Source of prior canonical | Status |
+|---|---|---|---|---|
+| `tools/verified_run.sh` | `2617d7bb...` | none found | — | UNCONFIRMED — 8 commits all Replit Agent; no operator-confirmed hash in git history |
+| `artifacts/stock-scanner-api/tools/verified_run.sh` | `58534be5...` | `597862e1...` (2026-07-19) | `DPL_Phase3_Evidence_R4.1-R4.9.txt:255`, Replit Agent | UNCONFIRMED — canonical is agent-written; current hash differs from it |
+
+Section 19.4 Item 1 entry is superseded by this section. The conclusion that `597862e1` is agent-written stands, but the connection to root-level `tools/verified_run.sh` was incorrect — `597862e1` is a hash of the artifact-level file, not the root-level wrapper.

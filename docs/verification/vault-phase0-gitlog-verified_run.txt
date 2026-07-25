@@ -1,0 +1,705 @@
+commit d670f6ddd5eb2d2228cd94d5881ffa8b2df44307
+Author: Replit Agent <agent@replit.com>
+Date:   Sat Jul 25 19:03:57 2026 +0000
+
+    Add pipeline stage tracking and seal status checks
+    
+    Update artifacts/stock-scanner-api/dpl/engine_integrity_refs.json to include `engine_root_hash_seal_basis` with PENDING_INDEPENDENT_APPROVAL status, modify .agents/memory/options-dpl-phase3.md to reflect new directive status and seal state, and update tools/verified_run.sh to implement a seal-freshness check that logs a warning if the engine root hash is stale.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: fc69526a-f37a-4b1a-8158-dd70b70ad33f
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: d07c1e03-251e-48d4-aebf-30d5b5bcf59a
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/fc69526a-f37a-4b1a-8158-dd70b70ad33f/L5mPTya
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+index 8197749..ec0e5af 100755
+--- a/tools/verified_run.sh
++++ b/tools/verified_run.sh
+@@ -59,6 +59,29 @@ if [ -f "${_DPL_REFS_PRE}" ] && [ -f "${_DPL_PRESEAL}" ]; then
+   bash "${_DPL_PRESEAL}" "${_DPL_REFS_PRE}"
+ fi
+ 
++# Seal-freshness check: non-blocking warning if engine_root_hash is stale.
++# Runs BEFORE eval "$CMD" so the warning appears before any command output.
++# Result is stored in _SEAL_STATUS and written into the chain entry.
++_SEAL_STATUS="SEAL_UNKNOWN"
++if [ -f "${_DPL_REFS_PRE}" ]; then
++  _SEAL_DPL_DIR="$(dirname "${_DPL_REFS_PRE}")"
++  _SEAL_STATUS=$(python3 - "${_DPL_REFS_PRE}" "${_SEAL_DPL_DIR}" <<'_SEAL_PY'
++import sys
++refs_path, dpl_dir = sys.argv[1], sys.argv[2]
++sys.path.insert(0, dpl_dir)
++try:
++    from engine_manifest import verify_against_refs
++    r = verify_against_refs(refs_path)
++    print("SEAL_FRESH" if r.get("ok") else "SEAL_STALE")
++except Exception:
++    print("SEAL_UNKNOWN")
++_SEAL_PY
++  ) || _SEAL_STATUS="SEAL_UNKNOWN"
++  if [ "${_SEAL_STATUS}" = "SEAL_STALE" ]; then
++    echo "WARNING: SEAL_STALE — engine_root_hash mismatch. Re-seal engine_integrity_refs.json before next Phase 3 run." >&2
++  fi
++fi
++
+ # Execute the actual command, capture stdout+stderr combined, and exit code
+ set +e
+ OUTPUT=$(eval "$CMD" 2>&1)
+@@ -177,6 +200,7 @@ entry = {
+     'prev_hash':               prev_hash,
+     'req6_weights_hash':       sha256f(refs_path),
+     'scoring_fn_ast_hash':     sha256f(ver_path),
++    'seal_status':             '${_SEAL_STATUS}',
+     'seq':                     next_seq,
+     'tree':                    tree,
+     'ts':                      ts,
+
+commit ad0a6eeb1f83988978b6c8dc4abdc3c7122b2209
+Author: Replit Agent <agent@replit.com>
+Date:   Tue Jul 21 03:42:12 2026 +0000
+
+    Add archival logging for verification runs and fix a script execution error
+    
+    Implement archive log creation for verification runs and address a bug where a Python comment within a bash script caused unexpected script termination.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: 5048f5e2-7b12-4541-ae6f-26bbb9b928fa
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/DCBFfdc
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+index c110d93..8197749 100755
+--- a/tools/verified_run.sh
++++ b/tools/verified_run.sh
+@@ -93,16 +93,22 @@ RAW_DIR="${LOG_FILE%.log}_raw"
+ mkdir -p "$RAW_DIR"
+ printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
+ 
+-# DPL verified_run_chain.jsonl write.
++# DPL verified_run_chain.jsonl write + archive log creation (Option A fix).
+ # The original artifacts/stock-scanner-api/tools/verified_run.sh that maintained
+ # this chain no longer exists.  This block restores the write path.
+ # C33 canonical format: sha256 of all entry fields except
+ # {entry_hash, type, pre_chain_anchor_note, archive_sha256}.
++# archive_sha256 binds the chain entry to a per-SEQ archive log and to the
++# index TSV (3-way binding checked by PSV1/2/4/7/8/9 and C44).
+ _DPL_SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ _DPL_CHAIN_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/verified_run_chain.jsonl"
+ _DPL_LRR_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/last_run_results.json"
+ _DPL_VER_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/verify_dpl_phase3.py"
+ _DPL_REFS_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/engine_integrity_refs.json"
++_DPL_LOGS_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/logs"
++_DPL_IDX_W="${_DPL_LOGS_W}/verified_run_index.tsv"
++_DPL_OUTPUT_TMP_W="/tmp/verified_run_output_$$.txt"
++printf '%s' "$OUTPUT" > "${_DPL_OUTPUT_TMP_W}"
+ if [ -f "${_DPL_CHAIN_W}" ]; then
+ python3 -c "
+ import json, os, hashlib, datetime, subprocess
+@@ -111,6 +117,9 @@ chain_path    = '${_DPL_CHAIN_W}'
+ lrr_path      = '${_DPL_LRR_W}'
+ ver_path      = '${_DPL_VER_W}'
+ refs_path     = '${_DPL_REFS_W}'
++logs_dir      = '${_DPL_LOGS_W}'
++index_path    = '${_DPL_IDX_W}'
++output_tmp    = '${_DPL_OUTPUT_TMP_W}'
+ cmd           = '''${CMD}'''
+ exit_code     = ${EXIT_CODE}
+ ts            = '${TIMESTAMP}'
+@@ -135,7 +144,31 @@ def sha256f(p):
+     except: return 'MISSING'
+ 
+ ts_end = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
++
++# Read raw command output for archive file
++try:
++    with open(output_tmp, 'rb') as f:
++        raw_output_bytes = f.read()
++except Exception:
++    raw_output_bytes = b''
++
++# Build archive file content.
++# Header lines satisfy PSV7 (SEQ=N  EXIT=N) and PSV9 (CMD=...).
++# Raw output satisfies PSV8 (SUMMARY: line present for verifier runs).
++# Archive is written BEFORE the chain entry so archive_sha256 can be
++# included in the chain entry (3-way binding: chain <-> file <-> index).
++os.makedirs(logs_dir, exist_ok=True)
++archive_path = os.path.join(logs_dir, f'verified_run_{next_seq}.log')
++header = f'SEQ={next_seq}  EXIT={exit_code}  TS_END={ts_end}\nCMD={cmd}\n'.encode('utf-8')
++archive_bytes = header + raw_output_bytes
++with open(archive_path, 'wb') as f:
++    f.write(archive_bytes)
++os.chmod(archive_path, 0o444)
++archive_sha256 = hashlib.sha256(archive_bytes).hexdigest()
++print(f'[dpl_chain] archive=verified_run_{next_seq}.log  archive_sha256={archive_sha256[:16]}...')
++
+ entry = {
++    'archive_sha256':          archive_sha256,
+     'cmd':                     cmd,
+     'commit':                  commit,
+     'exit_code':               exit_code,
+@@ -154,11 +187,18 @@ payload = {k: v for k, v in entry.items() if k not in exclude}
+ entry['entry_hash'] = hashlib.sha256(
+     json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
+ ).hexdigest()
++
++# Append to index TSV: SEQ TAB TS_END TAB EXIT_CODE TAB ARCHIVE_SHA256 TAB CMD
++# Column 4 (1-indexed) = archive_sha256.  PSV2 reads col-4 with awk field split.
++with open(index_path, 'a') as f:
++    f.write(f'{next_seq}\t{ts_end}\t{exit_code}\t{archive_sha256}\t{cmd}\n')
++
+ with open(chain_path, 'a') as f:
+     f.write(json.dumps(entry) + '\n')
+ print('[dpl_chain] SEQ=' + str(next_seq) + ' entry_hash=' + entry['entry_hash'][:16] + '...')
+ " 2>&1 || echo "[dpl_chain] ERROR: chain write failed"
+ fi
++rm -f "${_DPL_OUTPUT_TMP_W}"
+ 
+ echo "--- verified_run: entry #$SEQ logged ---"
+ echo "command:      $CMD"
+
+commit 4d760152221abe20a5ea24a5a112a68b2413abed
+Author: Replit Agent <agent@replit.com>
+Date:   Tue Jul 21 02:16:12 2026 +0000
+
+    Add missing DPL chain write functionality to the wrapper script
+    
+    Fixes a gap in the data integrity chain by restoring the DPL chain write functionality within the `tools/verified_run.sh` script. Updates integrity references and timestamps, and adds a new entry to the DPL chain log.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: c3d3c04d-0a3c-4a64-9d7f-db8ab94f3bb7
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/DCBFfdc
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+index 51ccff4..c110d93 100755
+--- a/tools/verified_run.sh
++++ b/tools/verified_run.sh
+@@ -93,6 +93,73 @@ RAW_DIR="${LOG_FILE%.log}_raw"
+ mkdir -p "$RAW_DIR"
+ printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
+ 
++# DPL verified_run_chain.jsonl write.
++# The original artifacts/stock-scanner-api/tools/verified_run.sh that maintained
++# this chain no longer exists.  This block restores the write path.
++# C33 canonical format: sha256 of all entry fields except
++# {entry_hash, type, pre_chain_anchor_note, archive_sha256}.
++_DPL_SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++_DPL_CHAIN_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/verified_run_chain.jsonl"
++_DPL_LRR_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/last_run_results.json"
++_DPL_VER_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/verify_dpl_phase3.py"
++_DPL_REFS_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/dpl/engine_integrity_refs.json"
++if [ -f "${_DPL_CHAIN_W}" ]; then
++python3 -c "
++import json, os, hashlib, datetime, subprocess
++
++chain_path    = '${_DPL_CHAIN_W}'
++lrr_path      = '${_DPL_LRR_W}'
++ver_path      = '${_DPL_VER_W}'
++refs_path     = '${_DPL_REFS_W}'
++cmd           = '''${CMD}'''
++exit_code     = ${EXIT_CODE}
++ts            = '${TIMESTAMP}'
++output_sha256 = '${OUTPUT_SHA256}'
++
++with open(chain_path) as f:
++    entries = [json.loads(l) for l in f if l.strip()]
++next_seq  = max(e['seq'] for e in entries) + 1
++prev_hash = entries[-1]['entry_hash']
++
++git_root = os.path.dirname(os.path.dirname(chain_path))
++commit = subprocess.run(
++    ['git', '--no-optional-locks', 'rev-parse', 'HEAD'],
++    capture_output=True, text=True, cwd=git_root).stdout.strip()
++tree_out = subprocess.run(
++    ['git', '--no-optional-locks', 'status', '--porcelain'],
++    capture_output=True, text=True, cwd=git_root).stdout.strip()
++tree = 'DIRTY' if tree_out else 'CLEAN'
++
++def sha256f(p):
++    try:    return hashlib.sha256(open(p, 'rb').read()).hexdigest()
++    except: return 'MISSING'
++
++ts_end = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
++entry = {
++    'cmd':                     cmd,
++    'commit':                  commit,
++    'exit_code':               exit_code,
++    'last_run_results_sha256': sha256f(lrr_path),
++    'log_sha256':              output_sha256,
++    'prev_hash':               prev_hash,
++    'req6_weights_hash':       sha256f(refs_path),
++    'scoring_fn_ast_hash':     sha256f(ver_path),
++    'seq':                     next_seq,
++    'tree':                    tree,
++    'ts':                      ts,
++    'ts_end':                  ts_end,
++}
++exclude = {'entry_hash', 'type', 'pre_chain_anchor_note', 'archive_sha256'}
++payload = {k: v for k, v in entry.items() if k not in exclude}
++entry['entry_hash'] = hashlib.sha256(
++    json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
++).hexdigest()
++with open(chain_path, 'a') as f:
++    f.write(json.dumps(entry) + '\n')
++print('[dpl_chain] SEQ=' + str(next_seq) + ' entry_hash=' + entry['entry_hash'][:16] + '...')
++" 2>&1 || echo "[dpl_chain] ERROR: chain write failed"
++fi
++
+ echo "--- verified_run: entry #$SEQ logged ---"
+ echo "command:      $CMD"
+ echo "exit_code:    $EXIT_CODE"
+
+commit 86c726ab06a6ec2e2d7dae363f8685cfe3fffb29
+Author: Replit Agent <agent@replit.com>
+Date:   Tue Jul 21 00:43:50 2026 +0000
+
+    Add a script to ensure code integrity before sealing runs
+    
+    Integrate a pre-seal script that atomically updates the commit SHA in engine_integrity_refs.json to the live HEAD before executing sealed runs, preventing race conditions and ensuring accurate code attribution.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: afd64df6-542d-41d0-9a2c-5ff02406289f
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/DCBFfdc
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+index 5116132..51ccff4 100755
+--- a/tools/verified_run.sh
++++ b/tools/verified_run.sh
+@@ -47,6 +47,18 @@ else
+   SEQ=1
+ fi
+ 
++# DPL pre-seal: update engine_integrity_refs.json commit_sha to live HEAD NOW,
++# before eval "$CMD" and before any other file write in this invocation.
++# This is the FIRST write in the sealed run — no write may precede it.
++# Any commit that landed before this line executes is captured; any commit
++# that lands after does not affect this run's refs.json attribution.
++_SCRIPT_DIR_PRE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++_DPL_REFS_PRE="${_SCRIPT_DIR_PRE}/../artifacts/stock-scanner-api/dpl/engine_integrity_refs.json"
++_DPL_PRESEAL="${_SCRIPT_DIR_PRE}/../artifacts/stock-scanner-api/tools/pre_seal_update_refs.sh"
++if [ -f "${_DPL_REFS_PRE}" ] && [ -f "${_DPL_PRESEAL}" ]; then
++  bash "${_DPL_PRESEAL}" "${_DPL_REFS_PRE}"
++fi
++
+ # Execute the actual command, capture stdout+stderr combined, and exit code
+ set +e
+ OUTPUT=$(eval "$CMD" 2>&1)
+
+commit 6cb13dda9e4f44f614f605032a8fc76fe88dd814
+Author: Replit Agent <agent@replit.com>
+Date:   Mon Jul 20 23:00:21 2026 +0000
+
+    Update verification script and finalize freeze directive
+    
+    Add `post_seal_verify.sh` call to `tools/verified_run.sh`, update `engine_integrity_refs.json` with current HEAD commit SHA, and finalize DPL Phase 3 freeze directive in memory.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: f62ecf37-266e-451d-aa4c-8ee5de707fa9
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/DCBFfdc
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+index 6b29a8b..5116132 100755
+--- a/tools/verified_run.sh
++++ b/tools/verified_run.sh
+@@ -86,5 +86,23 @@ echo "command:      $CMD"
+ echo "exit_code:    $EXIT_CODE"
+ echo "output_sha256: $OUTPUT_SHA256"
+ echo "entry_hash:   $ENTRY_HASH"
++
++# DPL post-seal verification — runs after each seal when DPL chain files are present.
++# post_seal_verify.sh checks 3-way binding (archive sha / index sha / chain sha),
++# entry-hash recomputation, and prev-hash chain continuity for the latest sealed entry.
++_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++_DPL_CHAIN="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/verified_run_chain.jsonl"
++_DPL_PSV="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/post_seal_verify.sh"
++if [ -f "${_DPL_CHAIN}" ] && [ -f "${_DPL_PSV}" ]; then
++  _DPL_SEQ=$(python3 -c "
++import json, sys
++entries = [json.loads(l.strip()) for l in open('${_DPL_CHAIN}') if l.strip()]
++print(entries[-1]['seq'])
++" 2>/dev/null || echo "0")
++  _DPL_IDX="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/logs/verified_run_index.tsv"
++  _DPL_LOGS="${_SCRIPT_DIR}/../artifacts/stock-scanner-api/tools/logs"
++  bash "${_DPL_PSV}" "${_DPL_SEQ}" "${_DPL_CHAIN}" "${_DPL_IDX}" "${_DPL_LOGS}" || true
++fi
++
+ echo "--- raw output follows ---"
+ echo "$OUTPUT"
+
+commit 6156b3b1870b896ae390db4dd110d75e588dcb72
+Author: Replit Agent <agent@replit.com>
+Date:   Mon Jul 13 04:39:05 2026 +0000
+
+    Fix race condition and improve chain verification process
+    
+    Implement file locking in verified_run.sh to prevent race conditions, enhance chain verification script to document and recover from chain breaks, and introduce approved_run.sh for stricter pre-approval enforcement.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: c1760548-a10f-4d13-9855-36c6bb877b29
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/9nwVSKI
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+index ada96a2..6b29a8b 100755
+--- a/tools/verified_run.sh
++++ b/tools/verified_run.sh
+@@ -24,6 +24,15 @@ if [ -z "$CMD" ]; then
+   exit 1
+ fi
+ 
++# Acquire exclusive lock for the entire script so concurrent invocations
++# serialize on PREV_HASH/SEQ read and log append. Without this lock two
++# concurrent calls read the same PREV_HASH and SEQ, both compute seq=N,
++# and the second writer produces a duplicate entry that breaks the chain.
++# FD 9 is reserved for the lock; do not use it inside commands passed here.
++LOCK_FILE="${LOG_FILE}.lock"
++exec 9>"$LOCK_FILE"
++flock -x 9
++
+ # Get previous hash (or genesis value if log is empty/doesn't exist)
+ if [ -f "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
+   PREV_HASH=$(tail -n 1 "$LOG_FILE" | python3 -c "import sys,json; print(json.load(sys.stdin)['entry_hash'])")
+
+commit e0ae5b7a2b2e8776a4bdb6bebc4449813528c216
+Author: Replit Agent <agent@replit.com>
+Date:   Sun Jul 12 22:54:58 2026 +0000
+
+    Update script to use canonical verification logic
+    
+    Replace `verified_run.sh` and `verify_chain.sh` with canonical versions, updating hashing and logging schema.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: e53ac2db-449b-413d-afd5-5792f3dd81f0
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/Zaoffzy
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+index 0160141..ada96a2 100755
+--- a/tools/verified_run.sh
++++ b/tools/verified_run.sh
+@@ -1,111 +1,81 @@
+-#!/usr/bin/env bash
+-# verified_run.sh — hash-chained, tamper-evident evidence wrapper
+-# Usage: ./tools/verified_run.sh "your command here"
++#!/bin/bash
++# verified_run.sh
+ #
+-# For every evidence-producing command, run it through this wrapper.
+-# It will:
+-#   1. Execute the command exactly as given (via bash -c)
+-#   2. Capture full stdout+stderr and exit code
+-#   3. Compute a SHA-256 hash chaining the previous entry's hash
+-#   4. Append one JSON line to tools/evidence_chain.log (append-only)
+-#   5. Save raw output to tools/evidence_chain_outputs/<N>.txt
+-#   6. Print entry metadata + raw output back to the caller
++# Usage: ./verified_run.sh "<command to run>"
+ #
+-# Hash schema: sha256(prev_entry_hash|timestamp|command|output_hash|exit_code)
+-# where output_hash = sha256(raw output bytes)
+-# and prev_entry_hash = 64-zero genesis for the first entry.
+-
+-set -uo pipefail
++# Wraps a command execution in a tamper-evident, append-only hash chain.
++# Each log entry's hash depends on the previous entry's hash, so altering
++# or deleting any past entry breaks the chain from that point forward.
++#
++# This does NOT prove the command was run by an honest process — an agent
++# with filesystem access could still choose not to use this script and
++# fabricate a log by hand. What it DOES do: make it much harder to quietly
++# edit or backdate a SINGLE entry after the fact without the whole chain
++# visibly breaking, and it gives Joel a mechanical, non-narrative way to
++# check consistency himself or hand to Claude to check.
+ 
+-TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+-export VR_LOG_FILE="$TOOLS_DIR/evidence_chain.log"
+-export VR_OUTPUT_DIR="$TOOLS_DIR/evidence_chain_outputs"
++set -euo pipefail
+ 
+-mkdir -p "$VR_OUTPUT_DIR"
++LOG_FILE="${VERIFIED_LOG_FILE:-./evidence_chain.log}"
++CMD="$1"
+ 
+-if [ $# -eq 0 ]; then
+-    echo "Usage: $0 <command>" >&2
+-    exit 1
++if [ -z "$CMD" ]; then
++  echo "Usage: $0 \"<command>\"" >&2
++  exit 1
+ fi
+ 
+-export VR_COMMAND="$*"
+-export VR_TIMESTAMP
+-VR_TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+-
+-# Determine entry number and previous hash via Python (handles missing/empty log)
+-VR_META="$(python3 -c "
+-import json, os, sys
+-log = os.environ['VR_LOG_FILE']
+-if os.path.isfile(log):
+-    with open(log) as f:
+-        lines = [l.strip() for l in f if l.strip()]
+-    n = len(lines) + 1
+-    prev = json.loads(lines[-1])['entry_hash'] if lines else '0' * 64
+-else:
+-    n = 1
+-    prev = '0' * 64
+-print(n)
+-print(prev)
+-")"
++# Get previous hash (or genesis value if log is empty/doesn't exist)
++if [ -f "$LOG_FILE" ] && [ -s "$LOG_FILE" ]; then
++  PREV_HASH=$(tail -n 1 "$LOG_FILE" | python3 -c "import sys,json; print(json.load(sys.stdin)['entry_hash'])")
++else
++  PREV_HASH="GENESIS_0000000000000000000000000000000000000000000000000000000000"
++fi
+ 
+-export VR_ENTRY_NUM
+-VR_ENTRY_NUM="$(echo "$VR_META" | head -1)"
+-export VR_PREV_HASH
+-VR_PREV_HASH="$(echo "$VR_META" | tail -1)"
+-export VR_OUTPUT_FILE="${VR_OUTPUT_DIR}/${VR_ENTRY_NUM}.txt"
++TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6NZ")
++if [ -f "$LOG_FILE" ]; then
++  SEQ=$(( $(wc -l < "$LOG_FILE") + 1 ))
++else
++  SEQ=1
++fi
+ 
+-# Execute the command; capture stdout+stderr together; preserve exit code
++# Execute the actual command, capture stdout+stderr combined, and exit code
+ set +e
+-bash -c "$VR_COMMAND" >"$VR_OUTPUT_FILE" 2>&1
+-export VR_EXIT_CODE=$?
++OUTPUT=$(eval "$CMD" 2>&1)
++EXIT_CODE=$?
+ set -e
+ 
+-# Compute hashes, write log entry, and print result — all in Python so JSON
+-# serialisation is safe regardless of special characters in the command string.
+-python3 -c "
+-import json, hashlib, os
+-
+-command     = os.environ['VR_COMMAND']
+-timestamp   = os.environ['VR_TIMESTAMP']
+-entry_num   = int(os.environ['VR_ENTRY_NUM'])
+-prev_hash   = os.environ['VR_PREV_HASH']
+-exit_code   = int(os.environ['VR_EXIT_CODE'])
+-output_file = os.environ['VR_OUTPUT_FILE']
+-log_file    = os.environ['VR_LOG_FILE']
+-
+-with open(output_file, 'rb') as f:
+-    raw = f.read()
+-output_hash = hashlib.sha256(raw).hexdigest()
++OUTPUT_SHA256=$(printf '%s' "$OUTPUT" | sha256sum | awk '{print $1}')
+ 
+-hash_input  = f'{prev_hash}|{timestamp}|{command}|{output_hash}|{exit_code}'
+-entry_hash  = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
++# Canonical string that gets hashed to produce this entry's hash.
++# Order matters and must never change, or old entries become unverifiable.
++CANONICAL="${PREV_HASH}|${SEQ}|${TIMESTAMP}|${CMD}|${EXIT_CODE}|${OUTPUT_SHA256}"
++ENTRY_HASH=$(printf '%s' "$CANONICAL" | sha256sum | awk '{print $1}')
+ 
++# Write the log entry as a single JSON line (append-only)
++python3 -c "
++import json
+ entry = {
+-    'entry_num':         entry_num,
+-    'timestamp':         timestamp,
+-    'command':           command,
+-    'exit_code':         exit_code,
+-    'output_file':       output_file,
+-    'output_hash':       output_hash,
+-    'prev_entry_hash':   prev_hash,
+-    'hash_input_schema': 'sha256(prev_entry_hash|timestamp|command|output_hash|exit_code)',
+-    'entry_hash':        entry_hash,
++    'seq': $SEQ,
++    'timestamp_utc': '$TIMESTAMP',
++    'command': '''$CMD''',
++    'exit_code': $EXIT_CODE,
++    'output_sha256': '$OUTPUT_SHA256',
++    'prev_hash': '$PREV_HASH',
++    'entry_hash': '$ENTRY_HASH'
+ }
+-
+-with open(log_file, 'a') as f:
+-    f.write(json.dumps(entry) + '\n')
+-
+-with open(output_file) as f:
+-    output = f.read()
+-
+-print(f'=== verified_run entry #{entry_num} ===')
+-print(f'timestamp:        {timestamp}')
+-print(f'command:          {command}')
+-print(f'exit_code:        {exit_code}')
+-print(f'output_hash:      {output_hash}')
+-print(f'prev_entry_hash:  {prev_hash}')
+-print(f'entry_hash:       {entry_hash}')
+-print('=== raw output ===')
+-print(output, end='')
+-print(f'=== end entry #{entry_num} ===')
+-"
++print(json.dumps(entry))
++" >> "$LOG_FILE"
++
++# Also persist full raw output alongside, keyed by seq + output hash,
++# so the output can be inspected later without re-running the command.
++RAW_DIR="${LOG_FILE%.log}_raw"
++mkdir -p "$RAW_DIR"
++printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
++
++echo "--- verified_run: entry #$SEQ logged ---"
++echo "command:      $CMD"
++echo "exit_code:    $EXIT_CODE"
++echo "output_sha256: $OUTPUT_SHA256"
++echo "entry_hash:   $ENTRY_HASH"
++echo "--- raw output follows ---"
++echo "$OUTPUT"
+
+commit 56095d26892b6a142986f5349c4210fbd158e77e
+Author: Replit Agent <agent@replit.com>
+Date:   Sun Jul 12 22:52:14 2026 +0000
+
+    Add tamper-evident logging scripts to verify command execution
+    
+    Install `verified_run.sh` and `verify_chain.sh` into the `tools/` directory, establishing a hash-chained, append-only logging system for evidence generation and validation.
+    
+    Replit-Commit-Author: Agent
+    Replit-Commit-Session-Id: 8530e9e7-59ef-4bc2-8765-e5fc093a2462
+    Replit-Commit-Checkpoint-Type: full_checkpoint
+    Replit-Commit-Event-Id: 5235829c-2d5a-4cba-8a35-4952bf2ea3b7
+    Replit-Commit-Screenshot-Url: https://storage.googleapis.com/screenshot-production-us-central1/6536a28a-761f-478a-b95d-a95c18a9d21e/8530e9e7-59ef-4bc2-8765-e5fc093a2462/Zaoffzy
+    Replit-Helium-Checkpoint-Created: true
+
+diff --git a/tools/verified_run.sh b/tools/verified_run.sh
+new file mode 100755
+index 0000000..0160141
+--- /dev/null
++++ b/tools/verified_run.sh
+@@ -0,0 +1,111 @@
++#!/usr/bin/env bash
++# verified_run.sh — hash-chained, tamper-evident evidence wrapper
++# Usage: ./tools/verified_run.sh "your command here"
++#
++# For every evidence-producing command, run it through this wrapper.
++# It will:
++#   1. Execute the command exactly as given (via bash -c)
++#   2. Capture full stdout+stderr and exit code
++#   3. Compute a SHA-256 hash chaining the previous entry's hash
++#   4. Append one JSON line to tools/evidence_chain.log (append-only)
++#   5. Save raw output to tools/evidence_chain_outputs/<N>.txt
++#   6. Print entry metadata + raw output back to the caller
++#
++# Hash schema: sha256(prev_entry_hash|timestamp|command|output_hash|exit_code)
++# where output_hash = sha256(raw output bytes)
++# and prev_entry_hash = 64-zero genesis for the first entry.
++
++set -uo pipefail
++
++TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++export VR_LOG_FILE="$TOOLS_DIR/evidence_chain.log"
++export VR_OUTPUT_DIR="$TOOLS_DIR/evidence_chain_outputs"
++
++mkdir -p "$VR_OUTPUT_DIR"
++
++if [ $# -eq 0 ]; then
++    echo "Usage: $0 <command>" >&2
++    exit 1
++fi
++
++export VR_COMMAND="$*"
++export VR_TIMESTAMP
++VR_TIMESTAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
++
++# Determine entry number and previous hash via Python (handles missing/empty log)
++VR_META="$(python3 -c "
++import json, os, sys
++log = os.environ['VR_LOG_FILE']
++if os.path.isfile(log):
++    with open(log) as f:
++        lines = [l.strip() for l in f if l.strip()]
++    n = len(lines) + 1
++    prev = json.loads(lines[-1])['entry_hash'] if lines else '0' * 64
++else:
++    n = 1
++    prev = '0' * 64
++print(n)
++print(prev)
++")"
++
++export VR_ENTRY_NUM
++VR_ENTRY_NUM="$(echo "$VR_META" | head -1)"
++export VR_PREV_HASH
++VR_PREV_HASH="$(echo "$VR_META" | tail -1)"
++export VR_OUTPUT_FILE="${VR_OUTPUT_DIR}/${VR_ENTRY_NUM}.txt"
++
++# Execute the command; capture stdout+stderr together; preserve exit code
++set +e
++bash -c "$VR_COMMAND" >"$VR_OUTPUT_FILE" 2>&1
++export VR_EXIT_CODE=$?
++set -e
++
++# Compute hashes, write log entry, and print result — all in Python so JSON
++# serialisation is safe regardless of special characters in the command string.
++python3 -c "
++import json, hashlib, os
++
++command     = os.environ['VR_COMMAND']
++timestamp   = os.environ['VR_TIMESTAMP']
++entry_num   = int(os.environ['VR_ENTRY_NUM'])
++prev_hash   = os.environ['VR_PREV_HASH']
++exit_code   = int(os.environ['VR_EXIT_CODE'])
++output_file = os.environ['VR_OUTPUT_FILE']
++log_file    = os.environ['VR_LOG_FILE']
++
++with open(output_file, 'rb') as f:
++    raw = f.read()
++output_hash = hashlib.sha256(raw).hexdigest()
++
++hash_input  = f'{prev_hash}|{timestamp}|{command}|{output_hash}|{exit_code}'
++entry_hash  = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
++
++entry = {
++    'entry_num':         entry_num,
++    'timestamp':         timestamp,
++    'command':           command,
++    'exit_code':         exit_code,
++    'output_file':       output_file,
++    'output_hash':       output_hash,
++    'prev_entry_hash':   prev_hash,
++    'hash_input_schema': 'sha256(prev_entry_hash|timestamp|command|output_hash|exit_code)',
++    'entry_hash':        entry_hash,
++}
++
++with open(log_file, 'a') as f:
++    f.write(json.dumps(entry) + '\n')
++
++with open(output_file) as f:
++    output = f.read()
++
++print(f'=== verified_run entry #{entry_num} ===')
++print(f'timestamp:        {timestamp}')
++print(f'command:          {command}')
++print(f'exit_code:        {exit_code}')
++print(f'output_hash:      {output_hash}')
++print(f'prev_entry_hash:  {prev_hash}')
++print(f'entry_hash:       {entry_hash}')
++print('=== raw output ===')
++print(output, end='')
++print(f'=== end entry #{entry_num} ===')
++"
