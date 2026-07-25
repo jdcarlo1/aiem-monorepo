@@ -1,0 +1,64 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — BUILD PHASE 5 OF 9
+LEARNING CENTER + RESEARCH & HYPOTHESES + AUDIT CENTER
+GATED BY: no dedicated verification-checklist section exists for
+          Learning Center or Research & Hypotheses specifically (the
+          741-item checklist covers TRACE/learning_event_id plumbing but
+          not a full Learning/Research capability audit). Before
+          building these two screens, run a Phase A-style inventory pass
+          scoped to Learning + Research first — do not build against
+          assumed capability.
+          Audit Center is gated by TRACE-051–060 (hash chain, immutability,
+          replay) + REPORT-009/010 (audit evidence, decision reports)
+          already closed under Verification Phases 4 and 12.
+============================================================
+
+SCREENS
+1. Learning Center: outcome tracking, model improvement, historical
+   learning, performance trends, pattern evolution, prediction quality.
+2. Research & Hypotheses: whatever AIEM's research-loop/signal-discovery
+   system actually surfaces (per the AIEM research loop / autonomous
+   signal discovery infra already built) — scope this against real
+   capability, not the aspirational Phase B description.
+3. Audit Center: decision history, evidence chain, verification status,
+   hash chain, SQL references, runtime verification (TRACE-051–060,
+   REPORT-009/010).
+
+DELIVERABLE
+- Audit Center live and fully evidence-backed.
+- Learning Center + Research & Hypotheses built only to the extent their
+  own inventory pass finds real, verified backend support — any gap
+  becomes a documented P0-P3 backlog item, not a screen with placeholder
+  or fabricated content (DATA-018–021 apply here directly).
+
+
+============================================================
+STANDING BUILD RULES (apply to every build phase)
+============================================================
+- This Terminal is a separate app/frontend/backend/domain/branding/auth
+  from Stock Scanner and the Standalone Options Engine — no shared UI,
+  navigation, or branding; API-only integration if ever needed.
+- No duplicate business logic: no duplicate probability engine, no
+  duplicate Risk Gate, no duplicate Specialist Council. The dashboard
+  consumes verified AIEM APIs only.
+- Never calculate business logic inside the frontend/React layer — every
+  displayed value must originate from a Verified API → Verified Database
+  → Verified Runtime chain.
+- Design: institutional decision-support terminal, not a retail trading
+  site. Dark theme, dense information, minimal animation, Bloomberg-style
+  workstation feel, keyboard-friendly, resizable/collapsible panels,
+  saved layouts.
+- Every screen must answer: WHY / HOW / RISK / PROBABILITY / EVIDENCE /
+  AUDIT — never show a bare recommendation without justification.
+- Every widget must cite: Verified Route, Verified Table, Verified
+  Module, Verified Refresh Method, Verification Status.
+- Real-time strategy: use the verified polling architecture from Phase A/
+  Verification Phase 3 unless a future requirement explicitly justifies
+  WebSockets.
+- This build phase does NOT start until its gating verification phase(s)
+  have closed with PASS/verdict evidence on every item — an unverified
+  item is a backend gap to route back to AIEM, not something to build
+  around or fake in the UI.
+- Standing verification protocol still applies to the build itself: raw
+  evidence, sha256 before/after on changed files, no fabricated/mock
+  data, Data Immutability Rule, no unapproved deletions.
