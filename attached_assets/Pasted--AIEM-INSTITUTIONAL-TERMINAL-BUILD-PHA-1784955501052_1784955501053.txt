@@ -1,0 +1,59 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — BUILD PHASE 3 OF 9
+PORTFOLIO CENTER + OPTIONS + PROBABILITY & CALIBRATION CENTER
+GATED BY: Verification Phase 5 (Financial), 6 (Portfolio Risk),
+          7 (Calibration), 10 (Options Pipeline) closed
+============================================================
+
+SCREENS
+1. Portfolio Center: current positions, exposure, sector allocation,
+   risk, open/realized P&L, position sizing, Portfolio Greeks (delta/
+   gamma/theta/vega/rho, charm/vanna where supported), risk limits vs
+   actual (RISK-001–040).
+2. Options-related widgets: chain data, IV Rank/Percentile, Expected
+   Move, Greeks, liquidity/spread quality, fill probability, assignment/
+   pin risk, strategy selection + rejected-strategy reasons (OPT-001–035).
+3. Probability & Calibration Center: raw vs calibrated probability,
+   confidence, Brier Score, Log Loss, reliability curves, ECE/MCE,
+   drift, out-of-sample/walk-forward accuracy, regime/ticker/strategy-
+   specific calibration (CAL-001–030).
+4. Financial correctness underlies all of the above: decimal-safe math,
+   correct multipliers/cost-basis/breakevens per strategy type, net
+   edge after all transaction costs (FIN-001–050).
+
+DELIVERABLE
+- All three screens live, every value traceable to Verified API → DB →
+  runtime, Greeks/calibration/financial math independently spot-checked
+  against known-answer test vectors (not just "code ran").
+
+
+============================================================
+STANDING BUILD RULES (apply to every build phase)
+============================================================
+- This Terminal is a separate app/frontend/backend/domain/branding/auth
+  from Stock Scanner and the Standalone Options Engine — no shared UI,
+  navigation, or branding; API-only integration if ever needed.
+- No duplicate business logic: no duplicate probability engine, no
+  duplicate Risk Gate, no duplicate Specialist Council. The dashboard
+  consumes verified AIEM APIs only.
+- Never calculate business logic inside the frontend/React layer — every
+  displayed value must originate from a Verified API → Verified Database
+  → Verified Runtime chain.
+- Design: institutional decision-support terminal, not a retail trading
+  site. Dark theme, dense information, minimal animation, Bloomberg-style
+  workstation feel, keyboard-friendly, resizable/collapsible panels,
+  saved layouts.
+- Every screen must answer: WHY / HOW / RISK / PROBABILITY / EVIDENCE /
+  AUDIT — never show a bare recommendation without justification.
+- Every widget must cite: Verified Route, Verified Table, Verified
+  Module, Verified Refresh Method, Verification Status.
+- Real-time strategy: use the verified polling architecture from Phase A/
+  Verification Phase 3 unless a future requirement explicitly justifies
+  WebSockets.
+- This build phase does NOT start until its gating verification phase(s)
+  have closed with PASS/verdict evidence on every item — an unverified
+  item is a backend gap to route back to AIEM, not something to build
+  around or fake in the UI.
+- Standing verification protocol still applies to the build itself: raw
+  evidence, sha256 before/after on changed files, no fabricated/mock
+  data, Data Immutability Rule, no unapproved deletions.

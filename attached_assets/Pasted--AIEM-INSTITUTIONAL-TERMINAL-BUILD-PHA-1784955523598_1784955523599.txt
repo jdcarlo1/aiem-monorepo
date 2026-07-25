@@ -1,0 +1,61 @@
+============================================================
+AIEM INSTITUTIONAL TERMINAL — BUILD PHASE 4 OF 9
+SPECIALIST COUNCIL + INDICATOR LABORATORY + PERFORMANCE ANALYTICS
+GATED BY: Verification Phase 9 (Indicator Laboratory) + Phase 8
+          (Performance Analytics) closed. Specialist Council has no
+          dedicated checklist section — confirm its data is fully
+          covered by TRACE-012/OPP items before building; if not,
+          flag as a verification gap before this screen ships.
+============================================================
+
+SCREENS
+1. Specialist Council: agreement/disagreement, confidence, participation,
+   voting timeline, individual specialist reasoning, final synthesis.
+2. Indicator Laboratory: full indicator registry — ID, name, owning
+   module, source file, calculation method, inputs/outputs, timestamp,
+   freshness, calculation status/errors, version, config, contribution
+   to scoring/probability/council/final decision (IND-001–030). Cross-
+   check against the existing 39-indicator audit before building —
+   several indicators are already known-inert (Thompson Sampling #06,
+   Bayesian Statistics #24) and should render as NOT_IMPLEMENTED, not be
+   silently omitted or faked as working.
+3. Performance Analytics: gross/net profit, win/loss rate, profit factor,
+   payoff ratio, expected value, drawdown, Sharpe/Sortino/Calmar, VaR/
+   CVaR, breakdowns by ticker/strategy/regime/sector/confidence band
+   (PERF-001–041).
+
+DELIVERABLE
+- All three screens live; Indicator Laboratory correctly displays
+  inert/unwired indicators as such rather than hiding them.
+
+
+============================================================
+STANDING BUILD RULES (apply to every build phase)
+============================================================
+- This Terminal is a separate app/frontend/backend/domain/branding/auth
+  from Stock Scanner and the Standalone Options Engine — no shared UI,
+  navigation, or branding; API-only integration if ever needed.
+- No duplicate business logic: no duplicate probability engine, no
+  duplicate Risk Gate, no duplicate Specialist Council. The dashboard
+  consumes verified AIEM APIs only.
+- Never calculate business logic inside the frontend/React layer — every
+  displayed value must originate from a Verified API → Verified Database
+  → Verified Runtime chain.
+- Design: institutional decision-support terminal, not a retail trading
+  site. Dark theme, dense information, minimal animation, Bloomberg-style
+  workstation feel, keyboard-friendly, resizable/collapsible panels,
+  saved layouts.
+- Every screen must answer: WHY / HOW / RISK / PROBABILITY / EVIDENCE /
+  AUDIT — never show a bare recommendation without justification.
+- Every widget must cite: Verified Route, Verified Table, Verified
+  Module, Verified Refresh Method, Verification Status.
+- Real-time strategy: use the verified polling architecture from Phase A/
+  Verification Phase 3 unless a future requirement explicitly justifies
+  WebSockets.
+- This build phase does NOT start until its gating verification phase(s)
+  have closed with PASS/verdict evidence on every item — an unverified
+  item is a backend gap to route back to AIEM, not something to build
+  around or fake in the UI.
+- Standing verification protocol still applies to the build itself: raw
+  evidence, sha256 before/after on changed files, no fabricated/mock
+  data, Data Immutability Rule, no unapproved deletions.
