@@ -17,6 +17,10 @@
 
 set -euo pipefail
 
+# Canonical evidence chain: every run of this script is recorded in
+# verified_run_chain.jsonl by the verified_run.sh wrapper (DPL Item 1).
+CANONICAL_CHAIN_FILE="verified_run_chain.jsonl"
+
 PASS=0
 FAIL=0
 

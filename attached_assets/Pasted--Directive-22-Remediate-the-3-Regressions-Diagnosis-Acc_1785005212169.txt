@@ -1,0 +1,45 @@
+# Directive 22 — Remediate the 3 Regressions (Diagnosis Accepted, Fix Required)
+
+Directive 21 root-cause diagnosis is accepted as correct and evidenced:
+- C43: verify_discovery_cycle_fix.sh (created 2026-07-25, post-freeze) doesn't reference the canonical chain file
+- C28: aiem_options_dpl.py and aiem_options_scheduler.py modified post-freeze without re-sealing engine_root_hash
+- C36: pure cascade from C28, not independent
+
+Diagnosis is not remediation. Do not close this round yet.
+
+## Required — in order
+
+### 1. Authorization check (answer first, before any fix)
+For each post-freeze modification:
+- aiem_options_dpl.py (494f5b9, 2026-07-21 04:45:27, +52 min after freeze)
+- aiem_options_scheduler.py (a9c93ee, 2026-07-24 19:50:18, +4 days after freeze)
+
+State plainly: was this a directed/authorized change, or unexplained drift?
+If unexplained, treat with the same scrutiny as the prior unauthorized-write incident —
+do not wave it through as routine.
+
+### 2. Fix C43
+Add the canonical chain-file reference to verify_discovery_cycle_fix.sh, matching the
+pattern used by post_seal_verify.sh / verified_run.sh. Raw diff required.
+
+### 3. Fix C28 (re-seal)
+Recompute and update engine_root_hash in engine_integrity_refs.json to reflect the
+current legitimate state of all 4 hashed files. Raw sha256 before/after for the refs
+file. This requires explicit sign-off that the current source state IS the intended
+approved state — do not silently re-seal without that confirmation.
+
+### 4. Re-run and confirm
+Run the verifier again. Show full SUMMARY line. Expected: back to 195/8, OR a new
+explained baseline if item 1 revealed additional legitimate changes. No unexplained
+delta permitted.
+
+### 5. Standing process fix (required, not optional)
+Propose a mechanism so a source-file edit to any hashed file automatically flags
+"re-seal required" rather than silently drifting until an unrelated audit catches it.
+E.g., pre-commit hook, CI check, or verifier warning distinct from FAIL. Description
+of the mechanism + why it prevents recurrence — implementation can follow in a
+subsequent round if scoped clearly here.
+
+## Evidence bar
+Same as always: raw sha256, raw diffs, raw verifier output. No narrated summaries in
+place of pasted output.
