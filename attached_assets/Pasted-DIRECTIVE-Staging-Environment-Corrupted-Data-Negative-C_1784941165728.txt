@@ -1,0 +1,42 @@
+DIRECTIVE — Staging Environment + Corrupted-Data Negative Controls (NEG-002/005/007/009)
+2026-07-24
+
+CONTEXT
+Heaviest of the three sale-readiness workstreams (recomputation, load/security e2e,
+this one). Multi-day/multi-week build. Sequence behind the current queue, run in
+parallel with recomputation and load/security e2e once underway. Checkpoint
+progress — no same-day close expected.
+
+GOAL
+A staging environment isolated enough that deliberately corrupted/malformed data
+can be injected and tested without any risk of touching production data, trades,
+or user records — then run NEG-002/005/007/009 for real.
+
+REQUIRED BUILD STEPS
+1. Separate database instance (copy/subset schema, not live production data)
+2. Separate running instance of the app pointed at the staging DB only
+3. Explicit proof of isolation before any corrupted data is injected — connection
+   strings, config, and network path must show staging cannot write to production
+   under any code path. This proof comes BEFORE step 4, not after.
+4. Once isolation is proven: inject the specific corrupted/malformed conditions
+   NEG-002/005/007/009 call for (state exactly what each one tests before running)
+   and confirm the system correctly rejects/flags/handles each — not silently
+   corrupting data or crash-failing unsafely
+5. Negative control on the isolation itself: attempt a staging-to-production write
+   deliberately, confirm it is blocked, before trusting any other result
+
+REQUIRED EVIDENCE (standing protocol, full — no abbreviated subset)
+- Raw config/connection-string proof of isolation (item 3), not narrative claim
+- Raw terminal output for every injection test and result, no paraphrasing
+- Raw SQL query + full result set for anything touching the staging DB
+- sha256sum cross-check of tools/verified_run.sh + artifacts/stock-scanner-api/
+  verify_chain.sh against current canonical, pasted raw, before evidence accepted
+- verify_chain.sh output
+- git diff HEAD --stat
+- Data Immutability Rule applies in full — no deletion/truncation of any row
+  without explicit prior approval, including staging data
+
+CLOSE-OUT
+Report progress per step, not one final "done" claim. "PASS" only if nothing
+outstanding and isolation was proven before any corrupted-data test ran.
+Permanent record on close: /docs/verification/staging-negative-controls-FINAL.md
