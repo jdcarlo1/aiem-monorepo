@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { getToken, clearToken, getCsrfToken } from "@/lib/auth";
+import { getToken, getCsrfToken } from "@/lib/auth";
 
 export interface UseApiResponse<T> {
   data: T | null;
@@ -43,14 +43,6 @@ export function useApi<T>(
         headers,
         credentials: "include",
       });
-
-      if (res.status === 401 || res.status === 403) {
-        clearToken();
-        sessionStorage.removeItem("aiem_authed");
-        sessionStorage.removeItem("aiem_username");
-        window.location.href = "/aiem/";
-        return;
-      }
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
 
