@@ -223,6 +223,18 @@ def _startup_metrics():
     return _FlaskResponse(body, status=200, mimetype="text/plain; version=0.0.4; charset=utf-8")
 
 
+@app.route("/stock-api/auth/me", methods=["GET"])
+def dashboard_me():
+    import hmac as _hmac
+    tok = request.headers.get("X-Admin-Token", "").strip()
+    if tok:
+        want = os.environ.get("ADMIN_TOKEN", "")
+        if not want or not _hmac.compare_digest(tok.encode(), want.encode()):
+            return jsonify({"error": "unauthenticated"}), 401
+        return jsonify({"ok": True, "auth": "token"}), 200
+    return jsonify({"ok": True, "auth": "session"}), 200
+
+
 @app.route("/stock-api/auth/login", methods=["POST"])
 def dashboard_login():
     import hmac as _hmac, secrets as _sec
