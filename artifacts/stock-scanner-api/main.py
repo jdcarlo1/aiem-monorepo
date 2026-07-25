@@ -49039,6 +49039,127 @@ def aiem_probability_engine_track_record():
         return jsonify({"error": str(_e)}), 500
 
 
+@app.route("/stock-api/aiem-probability-engine/calibration", methods=["GET"])
+def aiem_probability_engine_calibration():
+    """
+    Calibration endpoint for the AIEM Probability Engine.
+
+    Calls pit_metrics.run_pit_metrics() directly (no math reimplemented) to
+    produce PIT-bucketed Brier scores + calibration curves for three groups:
+      contaminated  — leaked rows, original (inflated) scores
+      corrected     — same leaked rows with embargo-retrained scores
+      genuine       — post-fix pit_safe rows (the only honest track record)
+
+    Also loads calibrated_horizon_Nd.pkl artifacts written by
+    calibration.calibrate_all_horizons() during the weekly training run,
+    exposing training-time raw vs. calibrated Brier without re-running training.
+
+    Safe to call live: run_pit_metrics() is pure DB reads + sklearn.metrics
+    computations. The pkl load is read-only.
+    """
+    import sys as _sys_pe_cal
+    import os as _os_pe_cal
+    import pickle as _pickle_pe_cal
+
+    _pe_cal_dir = _os_pe_cal.path.join(
+        _os_pe_cal.path.dirname(_os_pe_cal.path.abspath(__file__)),
+        "aiem_probability_engine",
+    )
+    _pe_cal_parent = _os_pe_cal.path.dirname(_pe_cal_dir)
+
+    # Ensure both the PE package dir and its parent (stock-scanner-api/) are
+    # on sys.path so pit_metrics.py can resolve its own imports.
+    for _d in [_pe_cal_parent, _pe_cal_dir]:
+        if _d not in _sys_pe_cal.path:
+            _sys_pe_cal.path.insert(0, _d)
+
+    def _json_safe_cal(obj):
+        """Recursively convert numpy scalars / NaN / inf to JSON-safe types."""
+        import math as _m
+        if obj is None:
+            return None
+        if isinstance(obj, float):
+            return None if (_m.isnan(obj) or _m.isinf(obj)) else obj
+        if isinstance(obj, dict):
+            return {k: _json_safe_cal(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_json_safe_cal(x) for x in obj]
+        if hasattr(obj, "item"):  # numpy scalar → native Python
+            return _json_safe_cal(obj.item())
+        return obj
+
+    try:
+        # ── Core call: real function from pit_metrics.py ──────────────────────
+        # Cache in sys.modules to avoid re-exec on every request.
+        _cache_key = "_aiem_pit_metrics_cal_module"
+        if _cache_key not in _sys_pe_cal.modules:
+            import importlib.util as _ilu_cal
+            _spec = _ilu_cal.spec_from_file_location(
+                _cache_key,
+                _os_pe_cal.path.join(_pe_cal_dir, "pit_metrics.py"),
+            )
+            _mod = _ilu_cal.module_from_spec(_spec)
+            _sys_pe_cal.modules[_cache_key] = _mod
+            _spec.loader.exec_module(_mod)
+        _pit_mod = _sys_pe_cal.modules[_cache_key]
+        _pit_result = _pit_mod.run_pit_metrics()
+
+        # ── Load pkl calibrator artifacts (training-time Brier comparison) ────
+        _model_dir = _os_pe_cal.path.join(_pe_cal_dir, "models")
+        _cal_artifacts = {}
+        for _h in [1, 2, 3, 4]:
+            _pkl = _os_pe_cal.path.join(_model_dir, f"calibrated_horizon_{_h}d.pkl")
+            if not _os_pe_cal.path.exists(_pkl):
+                _cal_artifacts[f"{_h}d"] = {
+                    "note": "pkl artifact not found — run calibration pipeline first"
+                }
+                continue
+            try:
+                with open(_pkl, "rb") as _pf:
+                    _art = _pickle_pe_cal.load(_pf)
+                _raw_b = float(_art["raw_brier"]) if _art.get("raw_brier") is not None else None
+                _cal_b = float(_art["cal_brier"]) if _art.get("cal_brier") is not None else None
+                _cal_artifacts[f"{_h}d"] = {
+                    "method": _art.get("method"),
+                    "raw_brier_test_fold":  _raw_b,
+                    "cal_brier_test_fold":  _cal_b,
+                    "brier_improvement":    (
+                        round(_raw_b - _cal_b, 4)
+                        if _raw_b is not None and _cal_b is not None
+                        else None
+                    ),
+                    "n_train": int(_art["n_train"]) if _art.get("n_train") is not None else None,
+                    "n_val":   int(_art["n_val"])   if _art.get("n_val")   is not None else None,
+                    "n_test":  int(_art["n_test"])  if _art.get("n_test")  is not None else None,
+                }
+            except Exception as _pkl_e:
+                _cal_artifacts[f"{_h}d"] = {"error": str(_pkl_e)}
+
+        return jsonify({
+            "pit_metrics": _json_safe_cal(_pit_result),
+            "calibrator_artifacts": _cal_artifacts,
+            "note": (
+                "pit_metrics sourced from pit_metrics.run_pit_metrics() directly — "
+                "no math reimplemented. Three PIT buckets: contaminated (inflated, "
+                "do not use as accuracy claim), corrected (embargo-retrained, small n), "
+                "genuine (post-fix pit_safe — the only honest track record). "
+                "calibrator_artifacts are from pkl files written by "
+                "calibration.calibrate_all_horizons() during the last training run."
+            ),
+            "data_sources": [
+                "aiem_probability_engine_predictions (pit_status-bucketed DB query)",
+                "aiem_probability_engine_pit_corrections (corrected scores)",
+                "aiem_probability_engine/models/calibrated_horizon_{1-4}d.pkl",
+            ],
+        })
+    except Exception as _e:
+        import traceback as _tb_pe_cal
+        return jsonify({
+            "error": str(_e),
+            "traceback": _tb_pe_cal.format_exc(),
+        }), 500
+
+
 @app.route("/stock-api/aiem-probability-engine/force-run", methods=["POST"])
 def aiem_probability_engine_force_run():
     """

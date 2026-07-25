@@ -1,0 +1,42 @@
+# DIRECTIVE — Calibration Page: Real Backend Build
+
+## Context
+Pre-action gate confirmed: no HTTP route exposes calibration data. `calibration.py`
+and `pit_metrics.py` exist in `aiem_probability_engine/` and compute real Brier
+scores + calibration curve tables, but only for internal training-pipeline use —
+never wired to a Flask endpoint. This directive authorizes the backend build.
+
+## Task
+Build a REAL backend endpoint for the Calibration page. No gaps, no shortcuts,
+no fabricated data anywhere in the chain.
+
+1. Add a Flask route (e.g. `/stock-api/aiem-probability-engine/calibration`)
+   that calls the EXISTING `calibration.py`/`pit_metrics.py` logic directly —
+   do not reimplement or approximate the math. Reuse the real functions.
+2. Expose real data only: Brier score, calibration curve (predicted probability
+   vs. actual outcome frequency, bucketed), same PIT-status separation already
+   used on the Probability page (contaminated / corrected / genuine) — do not
+   blend PIT buckets together.
+3. If the existing calibration.py logic depends on data or state that only
+   exists mid-training-run (i.e. can't be safely called from a live HTTP
+   request), STOP and report the specific blocker before writing the route —
+   do not fake a synchronous response.
+4. Build the frontend page only after the backend route is confirmed working
+   with a real API response (same pattern as Performance/Probability).
+
+## Required evidence (standing protocol, full)
+- Raw grep -n proof the new route calls the existing calibration.py/pit_metrics.py
+  functions, not new/duplicated math (No-Hardcoded-Values Check applies)
+- Raw API response showing real computed data (Brier score + calibration curve,
+  PIT-bucket separation visible)
+- sha256sum cross-check of tools/verified_run.sh + artifacts/stock-scanner-api/
+  verify_chain.sh against current canonical, pasted raw, before evidence accepted
+- verify_chain.sh output
+- Screenshot of the rendered Calibration page with real data
+- git diff HEAD --stat, then git log -1 --stat + clean git status after commit
+
+## Close-out
+Report progress in stages (backend route → verified real data → frontend page),
+not one final "done" claim. PASS only if nothing outstanding and no fabricated
+data anywhere in the chain.
+Permanent record on close: /docs/verification/calibration-backend-FINAL.md
