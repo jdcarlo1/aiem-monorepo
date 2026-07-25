@@ -1,0 +1,40 @@
+# DIRECTIVE — Staging Negative Controls: Commit + Scope Upgrade
+
+## 1. Commit outstanding files
+`git diff HEAD --stat` is empty and the following are untracked:
+- `attached_assets/Pasted-DIRECTIVE-...txt`
+- `tools/staging_neg_controls.py`
+
+Action: commit all files related to this workstream (staging_neg_controls.py,
+staging schema DDL if separate, docs/verification/staging-negative-controls-FINAL.md).
+Confirm via raw `git log -1 --stat` and `git status` (clean tree) — same evidence
+standard as prior commits.
+
+## 2. Scope upgrade — reject the standalone-script substitution
+The original directive asked for a **separate running instance of the app**
+pointed at staging (`d3_test`), not a standalone script that copies handler
+code verbatim. The script tests whether the copied logic is correct in
+isolation — it does NOT prove the actual running system handles corrupted
+data safely end-to-end. That gap matters for diligence: a buyer's technical
+reviewer will ask "does the app itself survive corrupted input," not "does a
+verification script re-implementing the app's logic survive it."
+
+Required:
+- Stand up a second running instance of the actual Flask app (main.py),
+  configured via environment/config to connect to `d3_test` instead of
+  `heliumdb`. No route/logic duplication — same codebase, different DB target.
+- If the full 60-table schema is the blocker: replicate schema via
+  `pg_dump --schema-only` from production into `d3_test` (data excluded),
+  not hand-written DDL for a handful of tables. Show the dump/restore command
+  and table-count match (raw `\dt` counts, both DBs) as proof.
+- Re-run NEG-002/005/007/009 corrupted-data injection AGAINST THE RUNNING
+  INSTANCE (real HTTP requests or real scheduled job execution), not by
+  calling the handler function directly from a script.
+- Isolation proof (Step 3/5 from the prior round) must be re-run against
+  this new instance and stay in the required order: prove isolation BEFORE
+  injecting corrupted data.
+- If replicating the full schema is materially impractical, STOP and report
+  back with the specific blocker rather than falling back to the scoped
+  script again.
+
+No fabricated evidence. Raw output only — proof standard as all prior rounds.
