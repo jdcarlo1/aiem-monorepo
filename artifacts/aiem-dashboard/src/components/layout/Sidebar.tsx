@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { 
   Terminal, Activity, BarChart2, Layers, ShieldCheck, 
   AlertTriangle, Users, Search, ActivitySquare, Calendar, 
-  Workflow, RefreshCw, Bell, LogOut, Moon, Sun
+  Workflow, RefreshCw, Bell, LogOut, Moon, Sun, TrendingUp, BrainCircuit
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { serverLogout } from "@/lib/auth";
@@ -21,6 +21,8 @@ const NAV_ITEMS = [
   { href: "/options", label: "OPTIONS", icon: Workflow },
   { href: "/learning", label: "LEARNING", icon: RefreshCw },
   { href: "/alerts", label: "ALERTS", icon: Bell },
+  { href: "/performance", label: "PERFORMANCE", icon: TrendingUp },
+  { href: "/probability", label: "PROBABILITY", icon: BrainCircuit },
 ];
 
 export function Sidebar() {

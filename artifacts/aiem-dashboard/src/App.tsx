@@ -22,6 +22,8 @@ import Scheduler from "@/pages/Scheduler";
 import Options from "@/pages/Options";
 import Learning from "@/pages/Learning";
 import Alerts from "@/pages/Alerts";
+import Performance from "@/pages/Performance";
+import Probability from "@/pages/Probability";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +45,8 @@ function Router() {
         <Route path="/options" component={Options} />
         <Route path="/learning" component={Learning} />
         <Route path="/alerts" component={Alerts} />
+        <Route path="/performance" component={Performance} />
+        <Route path="/probability" component={Probability} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

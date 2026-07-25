@@ -1,0 +1,40 @@
+DIRECTIVE — Build Missing Terminal Screens (Performance, Probability, Calibration)
+2026-07-24
+
+CONTEXT
+Phase 11 found: backend engines for Performance and Probability already exist and
+compute real data. No frontend page was ever built for Performance, Probability,
+or Calibration. These are 3 of the 10 named screens in the original Phase B build
+spec — currently missing from navigation entirely.
+
+TASK
+Build all three as real pages, wired to existing live data only — no new backend
+math, no fabricated values, no placeholder charts.
+
+1. Performance page — pulls from the existing performance-metrics engine
+   (Sharpe/Sortino/Calmar/VaR/drawdown, same data validated in independent
+   recomputation). Real charts/tables, not static mockups.
+2. Probability page — pulls from the existing probability-calibration data.
+3. Calibration page — confirm whether a real backend exists for this one
+   specifically (Phase 11 only confirmed Performance + Probability engines
+   exist) before building; if no backend exists yet, STOP and report back
+   before writing any frontend code — do not fabricate data to fill the page.
+
+REQUIRED BEFORE WRITING CODE (pre-action gate)
+- Confirm scope understanding for all 3 pages
+- Confirm live backend data source exists for Calibration specifically, or flag
+  it as a build gap requiring its own directive first
+
+REQUIRED EVIDENCE (standing protocol, full — no abbreviated subset)
+- Raw grep -n proof each page pulls from a real API/data source, not hardcoded
+  values (No-Hardcoded-Values Check applies)
+- Screenshot or raw HTML/API response showing each page renders real data
+- sha256sum cross-check of tools/verified_run.sh + artifacts/stock-scanner-api/
+  verify_chain.sh against current canonical, pasted raw, before evidence accepted
+- verify_chain.sh output
+- git diff HEAD --stat
+
+CLOSE-OUT
+Report progress per page, not one final "done" claim. "PASS" only if nothing
+outstanding and no fabricated data anywhere.
+Permanent record on close: /docs/verification/missing-screens-FINAL.md
