@@ -102,6 +102,6 @@ ACCOUNT_VALUE_BASELINE = "20000"
 AIEM_DATABASE_URL = "postgresql://postgres:password@helium/heliumdb?sslmode=disable"
 AGENT_DATABASE_URL = "postgresql://aiem_agent:J-GvRGva84qfZovhSb-NSyI-w8qBfxNz7HkSQGWrRjs@helium:5432/heliumdb?sslmode=disable"
 DASHBOARD_USERNAME = "jdcarlo"
-DASHBOARD_PASSWORD = "123456"
+DASHBOARD_PASSWORD = "123456789$"
 
 [userenv.development]
