@@ -1,0 +1,608 @@
+./artifacts/stock-scanner/public/aiem_all_code.txt:4947:    CREATE TABLE IF NOT EXISTS d3_strategy_registry (
+./artifacts/stock-scanner/public/aiem_all_code.txt:6601:    Real, bounded check against d3_strategy_registry -- the only
+./artifacts/stock-scanner/public/aiem_all_code.txt:6612:    registered in d3_strategy_registry, so this check will honestly report
+./artifacts/stock-scanner/public/aiem_all_code.txt:6625:                    "SELECT approval_status, status FROM d3_strategy_registry "
+./artifacts/stock-scanner/public/aiem_all_code.txt:8377:                    "FROM aiem_module_registry ORDER BY module_id"
+./artifacts/stock-scanner/public/aiem_all_code.txt:8383:                    "FROM aiem_tool_registry ORDER BY tool_id"
+./artifacts/stock-scanner/public/aiem_all_code.txt:8453:                    "FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase"
+./artifacts/stock-scanner/public/aiem_all_code.txt:8460:                    "FROM aiem_tool_registry GROUP BY tool_type ORDER BY tool_type"
+./artifacts/stock-scanner/public/aiem_all_code.txt:8468:                    "FROM aiem_module_registry"
+./artifacts/stock-scanner/public/aiem_all_code.txt:8475:                    "FROM aiem_tool_registry"
+./artifacts/stock-scanner/public/aiem_all_code.txt:8494:                "module_registry": {
+./artifacts/stock-scanner/public/aiem_all_code.txt:8500:                "tool_registry": {
+./artifacts/stock-scanner/public/aiem_all_code.txt:8777:                        """INSERT INTO d3_strategy_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:9115:                    "SELECT module_name FROM aiem_module_registry ORDER BY module_id"
+./artifacts/stock-scanner/public/aiem_all_code.txt:9119:                    "SELECT tool_name FROM aiem_tool_registry ORDER BY tool_id"
+./artifacts/stock-scanner/public/aiem_all_code.txt:9413:                    cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner/public/aiem_all_code.txt:9484:                    cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner/public/aiem_all_code.txt:9528:                        "SELECT module_name, COUNT(*) AS cnt FROM aiem_module_registry "
+./artifacts/stock-scanner/public/aiem_all_code.txt:9539:                        "SELECT tool_name, COUNT(*) AS cnt FROM aiem_tool_registry "
+./artifacts/stock-scanner/public/aiem_all_code.txt:9615:        "strategy_registry": strategy.get("STRATEGY_REGISTRY", []),
+./artifacts/stock-scanner/public/aiem_all_code.txt:10049:    def d3_strategy_registry():
+./artifacts/stock-scanner/public/aiem_all_code.txt:19199:                    f"module_registry_phase={reg_check.get('module_phase')} "
+./artifacts/stock-scanner/public/aiem_all_code.txt:19219:                    f"module_registry_phase={reg_check.get('module_phase')} "
+./artifacts/stock-scanner/public/aiem_all_code.txt:26737:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:26751:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:26806:        print("aiem_module_registry: 10 rows (execution_status/verification_result/verified_by_command)")
+./artifacts/stock-scanner/public/aiem_all_code.txt:26807:        print("aiem_tool_registry: 8 rows (owning_module/tool_verification_level/verification_status)")
+./artifacts/stock-scanner/public/aiem_all_code.txt:27010:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:27024:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:27098:        print("aiem_module_registry: 2 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:27099:        print("aiem_tool_registry: 2 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:27429:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:27450:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:27529:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:27530:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:27595:         is NOT one of the 195 modules tracked in aiem_module_registry at
+./artifacts/stock-scanner/public/aiem_all_code.txt:27599:         NOT added as a new module_registry row, since expanding the
+./artifacts/stock-scanner/public/aiem_all_code.txt:27733:            "imported/called, but is ABSENT from the 195-module aiem_module_registry "
+./artifacts/stock-scanner/public/aiem_all_code.txt:27788:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:27809:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:27888:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:27889:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:27982:     aiem_module_registry.
+./artifacts/stock-scanner/public/aiem_all_code.txt:28182:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:28200:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:28276:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:28277:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:28572:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:28590:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:28671:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:28672:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:29043:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:29061:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:29140:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:29141:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:29430:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:29448:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:29524:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:29525:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:29916:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:29934:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:30035:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:30036:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:30329:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:30343:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:30412:        print("aiem_module_registry: 12 rows (execution_status/verification_result/verified_by_command)")
+./artifacts/stock-scanner/public/aiem_all_code.txt:30413:        print("aiem_tool_registry: 8 rows (owning_module/tool_verification_level/verification_status)")
+./artifacts/stock-scanner/public/aiem_all_code.txt:30751:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:30765:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:30835:        print("aiem_module_registry: 10 rows (execution_status/verification_result/verified_by_command)")
+./artifacts/stock-scanner/public/aiem_all_code.txt:30836:        print("aiem_tool_registry: 11 rows (owning_module/tool_verification_level/verification_status)")
+./artifacts/stock-scanner/public/aiem_all_code.txt:31115:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:31129:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:31194:        print("aiem_module_registry: 12 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:31195:        print("aiem_tool_registry: 13 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:31520:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:31534:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:31602:        print("aiem_module_registry: 15 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:31603:        print("aiem_tool_registry: 26 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:31940:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:31954:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:32015:        print("aiem_module_registry: 12 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:32016:        print("aiem_tool_registry: 26 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:32284:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:32298:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:32368:        print("aiem_module_registry: 8 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:32369:        print("aiem_tool_registry: 11 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:32760:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:32774:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:32844:        print("aiem_module_registry: 24 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:32845:        print("aiem_tool_registry: 21 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:33315:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:33329:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:33399:        print("aiem_module_registry: 28 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:33400:        print("aiem_tool_registry: 16 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:33748:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:33762:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:33834:        print("aiem_module_registry: 11 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:33835:        print("aiem_tool_registry: 20 rows")
+./artifacts/stock-scanner/public/aiem_all_code.txt:44896:  1. init_schema() -- creates aiem_module_registry / aiem_tool_registry if
+./artifacts/stock-scanner/public/aiem_all_code.txt:44898:  2. Populates aiem_module_registry from aiem_registry.MODULE_PHASE_MAP,
+./artifacts/stock-scanner/public/aiem_all_code.txt:44902:  3. Populates aiem_tool_registry by cross-referencing:
+./artifacts/stock-scanner/public/aiem_all_code.txt:45041:                INSERT INTO aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:45064:                INSERT INTO aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:45118:            cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45120:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45122:            cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry WHERE file_exists_confirmed = FALSE")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45124:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE excluded_from_autonomous_use = TRUE")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45126:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE tool_type = 'cli_verification_command'")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45128:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE tool_type = 'alias_mapped'")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45130:            cur.execute("SELECT module_phase, COUNT(*) AS n FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45137:        print(f"aiem_module_registry row count: {module_count}")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45138:        print(f"aiem_tool_registry row count:   {tool_count}")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45214:CREATE TABLE IF NOT EXISTS aiem_module_registry (
+./artifacts/stock-scanner/public/aiem_all_code.txt:45239:ALTER TABLE aiem_module_registry ADD COLUMN IF NOT EXISTS ownership_status TEXT NOT NULL DEFAULT 'CONFIRMED';
+./artifacts/stock-scanner/public/aiem_all_code.txt:45241:CREATE TABLE IF NOT EXISTS aiem_tool_registry (
+./artifacts/stock-scanner/public/aiem_all_code.txt:45270:ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS owning_module TEXT;
+./artifacts/stock-scanner/public/aiem_all_code.txt:45271:ALTER TABLE aiem_tool_registry ADD COLUMN IF NOT EXISTS tool_verification_level TEXT NOT NULL DEFAULT 'phase_only';
+./artifacts/stock-scanner/public/aiem_all_code.txt:45303:    print("[aiem_registry] schema ready (aiem_module_registry, aiem_tool_registry)")
+./artifacts/stock-scanner/public/aiem_all_code.txt:45608:# against aiem_module_registry, not a hardcoded call) before running each
+./artifacts/stock-scanner/public/aiem_all_code.txt:45617:    5:  ("module_registry",            "Module Registry",                 1,  "aiem_registry.get_module_for_stage"),
+./artifacts/stock-scanner/public/aiem_all_code.txt:45618:    6:  ("tool_registry",              "Tool Registry",                   1,  "aiem_registry.get_tool"),
+./artifacts/stock-scanner/public/aiem_all_code.txt:45642:    Does a REAL SELECT against aiem_module_registry (keyed by the stage's
+./artifacts/stock-scanner/public/aiem_all_code.txt:45663:                FROM aiem_module_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:45682:    aiem_tool_registry -- used by the orchestrator to confirm a tool is
+./artifacts/stock-scanner/public/aiem_all_code.txt:45692:                FROM aiem_tool_registry
+./artifacts/stock-scanner/public/aiem_all_code.txt:66072:_d2_run(5,  "module_registry",    "Module Registry",
+./artifacts/stock-scanner/public/aiem_all_code.txt:66079:_d2_run(6,  "tool_registry",      "Tool Registry",
+./artifacts/stock-scanner/public/aiem_all_code.txt:70944:     modules/tools (from aiem_module_registry / aiem_tool_registry) and
+./artifacts/stock-scanner/public/aiem_all_code.txt:71047:        "FROM aiem_module_registry ORDER BY module_phase, module_name"
+./artifacts/stock-scanner/public/aiem_all_code.txt:71053:        "FROM aiem_tool_registry ORDER BY tool_name"
+./artifacts/stock-scanner/public/aiem_all_code.txt:71059:        "FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase"
+./artifacts/stock-scanner/public/aiem_all_code.txt:71064:        "SELECT execution_status, COUNT(*) AS n FROM aiem_module_registry "
+./artifacts/stock-scanner/public/aiem_all_code.txt:71141:            "aiem_module_registry / aiem_tool_registry tables (queried live) "
+./artifacts/stock-scanner/public/aiem_all_code.txt:71351:                "Phase 0/1 discovery reads aiem_module_registry, "
+./artifacts/stock-scanner/public/aiem_all_code.txt:71352:                "aiem_tool_registry, aiem_diagram2_trace_audit, "
+./artifacts/stock-scanner/public/aiem_all_code.txt:108653:def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM",
+./artifacts/stock-scanner/public/aiem_all_code.txt:112686:def _startup_validate_tool_registry():
+./artifacts/stock-scanner/public/aiem_all_code.txt:112695:        _validate_tool_registry_consistency(
+./artifacts/stock-scanner/public/aiem_all_code.txt:112700:        print(f"[tool_registry] startup validation error: {_vtr_e}")
+./artifacts/stock-scanner/public/aiem_all_code.txt:112702:threading.Timer(10.0, _startup_validate_tool_registry).start()
+./artifacts/stock-scanner/public/aiem_all_code.txt:117790:                    _d2_run(5, "module_registry", "Module Registry",
+./artifacts/stock-scanner/public/aiem_all_code.txt:117799:                    _d2_run(6, "tool_registry", "Tool Registry",
+./artifacts/stock-scanner/public/aiem_all_code.txt:117958:                # d3_strategy_registry; model_version is honestly None (no
+./artifacts/stock-scanner/public/aiem_all_code.txt:149793:            # against d3_strategy_registry — as of this writing that name has
+./artifacts/stock-scanner-api/main.py.bak_silent_except:25709:def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM",
+./artifacts/stock-scanner-api/main.py.bak_silent_except:28672:def _startup_validate_tool_registry():
+./artifacts/stock-scanner-api/main.py.bak_silent_except:28680:        _validate_tool_registry_consistency(
+./artifacts/stock-scanner-api/main.py.bak_silent_except:28685:        print(f"[tool_registry] startup validation error: {_vtr_e}")
+./artifacts/stock-scanner-api/main.py.bak_silent_except:28687:threading.Timer(10.0, _startup_validate_tool_registry).start()
+./artifacts/stock-scanner-api/migrations/dev_schema_bootstrap.sql:238:CREATE TABLE IF NOT EXISTS aiem_module_registry (
+./artifacts/stock-scanner-api/migrations/dev_schema_bootstrap.sql:253:CREATE TABLE IF NOT EXISTS aiem_tool_registry (
+./artifacts/stock-scanner-api/aiem_phase0_verify.py:182:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase0_verify.py:196:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase0_verify.py:251:        print("aiem_module_registry: 10 rows (execution_status/verification_result/verified_by_command)")
+./artifacts/stock-scanner-api/aiem_phase0_verify.py:252:        print("aiem_tool_registry: 8 rows (owning_module/tool_verification_level/verification_status)")
+./artifacts/stock-scanner-api/aiem_phase1_verify.py:267:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase1_verify.py:281:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase1_verify.py:350:        print("aiem_module_registry: 12 rows (execution_status/verification_result/verified_by_command)")
+./artifacts/stock-scanner-api/aiem_phase1_verify.py:351:        print("aiem_tool_registry: 8 rows (owning_module/tool_verification_level/verification_status)")
+./artifacts/stock-scanner-api/aiem_phase2_verify.py:315:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase2_verify.py:329:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase2_verify.py:399:        print("aiem_module_registry: 10 rows (execution_status/verification_result/verified_by_command)")
+./artifacts/stock-scanner-api/aiem_phase2_verify.py:400:        print("aiem_tool_registry: 11 rows (owning_module/tool_verification_level/verification_status)")
+./artifacts/stock-scanner-api/aiem_phase3_verify.py:256:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase3_verify.py:270:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase3_verify.py:335:        print("aiem_module_registry: 12 rows")
+./artifacts/stock-scanner-api/aiem_phase3_verify.py:336:        print("aiem_tool_registry: 13 rows")
+./artifacts/stock-scanner-api/aiem_phase4_verify.py:302:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase4_verify.py:316:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase4_verify.py:384:        print("aiem_module_registry: 15 rows")
+./artifacts/stock-scanner-api/aiem_phase4_verify.py:385:        print("aiem_tool_registry: 26 rows")
+./artifacts/stock-scanner-api/aiem_phase5_verify.py:313:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase5_verify.py:327:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase5_verify.py:388:        print("aiem_module_registry: 12 rows")
+./artifacts/stock-scanner-api/aiem_phase5_verify.py:389:        print("aiem_tool_registry: 26 rows")
+./artifacts/stock-scanner-api/aiem_phase6_verify.py:245:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase6_verify.py:259:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase6_verify.py:329:        print("aiem_module_registry: 8 rows")
+./artifacts/stock-scanner-api/aiem_phase6_verify.py:330:        print("aiem_tool_registry: 11 rows")
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:366:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:380:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:450:        print("aiem_module_registry: 24 rows")
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:451:        print("aiem_tool_registry: 21 rows")
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:446:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:460:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:530:        print("aiem_module_registry: 28 rows")
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:531:        print("aiem_tool_registry: 16 rows")
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:326:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:340:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:412:        print("aiem_module_registry: 11 rows")
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:413:        print("aiem_tool_registry: 20 rows")
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:184:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:198:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:272:        print("aiem_module_registry: 2 rows")
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:273:        print("aiem_tool_registry: 2 rows")
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:307:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:328:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:407:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:408:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:39:         is NOT one of the 195 modules tracked in aiem_module_registry at
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:43:         NOT added as a new module_registry row, since expanding the
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:177:            "imported/called, but is ABSENT from the 195-module aiem_module_registry "
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:232:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:253:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:332:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:333:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:68:     aiem_module_registry.
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:268:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:286:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:362:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:363:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:271:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:289:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:370:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:371:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:346:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:364:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:443:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:444:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:264:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:282:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:358:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:359:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:367:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:385:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:486:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:487:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/DIAGRAM2_FINAL_CLOSURE_VERIFICATION.md:10:`aiem_master_orchestrator.py` (~1,550 lines, `AEIMMasterOrchestrator` class) is real, working code that wires every AIEM module through a shared `AEIMTradePacket` covering architecture stages 0-9+. Registry proof (`aiem_module_registry`, module_phase=1 "Orchestration Layer"):
+./artifacts/stock-scanner-api/DIAGRAM2_FINAL_CLOSURE_VERIFICATION.md:74:Because the *audit call site* (mostly `main.py`) and the *functional logic* each stage represents are often different files/phases, the table below gives both, using `aiem_module_registry`/`aiem_registry.py`'s `MODULE_PHASE_MAP` as the source of truth — no invented stages, no forced 1:1 mapping where the evidence shows a split or a real gap.
+./artifacts/stock-scanner-api/d2_mutation_test.py:123:_d2_run(5,  "module_registry",    "Module Registry",
+./artifacts/stock-scanner-api/d2_mutation_test.py:130:_d2_run(6,  "tool_registry",      "Tool Registry",
+./artifacts/stock-scanner-api/diagram1-signoff.md:78:Stage  5  module_registry          → Phase 1   aiem_registry.get_module_for_stage
+./artifacts/stock-scanner-api/diagram1-signoff.md:79:Stage  6  tool_registry            → Phase 1   aiem_registry.get_tool
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:4:  "source_of_truth": "aiem_module_registry / aiem_tool_registry tables (queried live) for D2; information_schema + aiem_diagram3_governance.py source for D3. Fields not mechanically derivable are 'UNKNOWN'.",
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:2573:        "stage_name": "module_registry"
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:2577:        "stage_name": "tool_registry"
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:2665:      "d3_strategy_registry",
+./artifacts/stock-scanner-api/AIEM_DIAGRAM3_STRICT_VERIFICATION_REPORT.md:29:d3_architecture_baseline    d3_model_governance          d3_strategy_registry
+./artifacts/stock-scanner-api/premarket_open_trader.py:521:            # against d3_strategy_registry — as of this writing that name has
+./artifacts/stock-scanner-api/diagram2_component_inventory.json:15:    "evidence_gathering_method": "Live executeSql queries against the development Postgres database (aiem_diagram2_trace_audit, aiem_module5_runs/test_results, aiem_rediscovery_runs, aiem_module2_evaluations, stat_arb_pairs/stat_arb_signals, options_structure_scan, layer9_scores, model_versions, signal_trust_weights, aiem_probability_engine_predictions, cta_trigger_scan, quant_agent_sessions, job_heartbeats, aiem_module_registry) cross-referenced with source grep/read of the canonical files, executed this session on 2026-07-10.",
+./artifacts/stock-scanner-api/diagram2_component_matrix.csv:31:C30,"""53 Tools"" Inventory Claim",ARCHITECTURAL_DISCREPANCY,"aiem_module_registry (40 real module rows, re-queried this session)",_build_aiem_tool_map() registers 225 tool entries in the current codebase,"Documentation claims 53 tools; stale-documentation gap, not a functional failure; full 225x verification deferred to diagram2_53_tool_inventory.json",aiem_registry.py,7793bee1e5b7cf680b15de666ecc07e5078d2c6f5f3b1aa7196ea11571dd842a
+./artifacts/stock-scanner-api/aiem_registry.py:48:CREATE TABLE IF NOT EXISTS aiem_module_registry (
+./artifacts/stock-scanner-api/aiem_registry.py:75:CREATE TABLE IF NOT EXISTS aiem_tool_registry (
+./artifacts/stock-scanner-api/aiem_registry.py:134:    print("[aiem_registry] schema ready (aiem_module_registry, aiem_tool_registry)")
+./artifacts/stock-scanner-api/aiem_registry.py:439:# against aiem_module_registry, not a hardcoded call) before running each
+./artifacts/stock-scanner-api/aiem_registry.py:448:    5:  ("module_registry",            "Module Registry",                 1,  "aiem_registry.get_module_for_stage"),
+./artifacts/stock-scanner-api/aiem_registry.py:449:    6:  ("tool_registry",              "Tool Registry",                   1,  "aiem_registry.get_tool"),
+./artifacts/stock-scanner-api/aiem_registry.py:473:    Does a REAL SELECT against aiem_module_registry (keyed by the stage's
+./artifacts/stock-scanner-api/aiem_registry.py:494:                FROM aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry.py:513:    aiem_tool_registry -- used by the orchestrator to confirm a tool is
+./artifacts/stock-scanner-api/aiem_registry.py:523:                FROM aiem_tool_registry
+./artifacts/stock-scanner-api/generate_d3_manifests.py:8:     modules/tools (from aiem_module_registry / aiem_tool_registry) and
+./artifacts/stock-scanner-api/generate_d3_manifests.py:111:        "FROM aiem_module_registry ORDER BY module_phase, module_name"
+./artifacts/stock-scanner-api/generate_d3_manifests.py:117:        "FROM aiem_tool_registry ORDER BY tool_name"
+./artifacts/stock-scanner-api/generate_d3_manifests.py:123:        "FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase"
+./artifacts/stock-scanner-api/generate_d3_manifests.py:128:        "SELECT execution_status, COUNT(*) AS n FROM aiem_module_registry "
+./artifacts/stock-scanner-api/generate_d3_manifests.py:205:            "aiem_module_registry / aiem_tool_registry tables (queried live) "
+./artifacts/stock-scanner-api/generate_d3_manifests.py:415:                "Phase 0/1 discovery reads aiem_module_registry, "
+./artifacts/stock-scanner-api/generate_d3_manifests.py:416:                "aiem_tool_registry, aiem_diagram2_trace_audit, "
+./artifacts/stock-scanner-api/aiem_registry_build.py:13:  1. init_schema() -- creates aiem_module_registry / aiem_tool_registry /
+./artifacts/stock-scanner-api/aiem_registry_build.py:15:  2. Populates aiem_module_registry by unioning MODULE_PHASE_MAP and
+./artifacts/stock-scanner-api/aiem_registry_build.py:23:  3. Populates aiem_tool_registry by cross-referencing:
+./artifacts/stock-scanner-api/aiem_registry_build.py:85:    "aiem_module_registry":   EXPECTED_MODULE_COLUMNS,
+./artifacts/stock-scanner-api/aiem_registry_build.py:86:    "aiem_tool_registry":     EXPECTED_TOOL_COLUMNS,
+./artifacts/stock-scanner-api/aiem_registry_build.py:115:                  'aiem_module_registry',
+./artifacts/stock-scanner-api/aiem_registry_build.py:116:                  'aiem_tool_registry',
+./artifacts/stock-scanner-api/aiem_registry_build.py:456:                INSERT INTO aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:484:                INSERT INTO aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:567:            cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner-api/aiem_registry_build.py:569:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry")
+./artifacts/stock-scanner-api/aiem_registry_build.py:573:            cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry WHERE file_exists_confirmed = FALSE")
+./artifacts/stock-scanner-api/aiem_registry_build.py:575:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE excluded_from_autonomous_use = TRUE")
+./artifacts/stock-scanner-api/aiem_registry_build.py:577:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE tool_type = 'cli_verification_command'")
+./artifacts/stock-scanner-api/aiem_registry_build.py:579:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE tool_type = 'alias_mapped'")
+./artifacts/stock-scanner-api/aiem_registry_build.py:583:                FROM aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:590:                FROM aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:616:        print(f"aiem_module_registry row count:   {module_count}")
+./artifacts/stock-scanner-api/aiem_registry_build.py:617:        print(f"aiem_tool_registry row count:     {tool_count}")
+./artifacts/stock-scanner-api/aiem_registry_build.py:674:        print("  Decision required: should main.py appear in aiem_module_registry at all,")
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:168:    CREATE TABLE IF NOT EXISTS d3_strategy_registry (
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:1907:    Real, bounded check against d3_strategy_registry -- the only
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:1918:    registered in d3_strategy_registry, so this check will honestly report
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:1931:                    "SELECT approval_status, status FROM d3_strategy_registry "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3796:                    "FROM aiem_module_registry ORDER BY module_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3802:                    "FROM aiem_tool_registry ORDER BY tool_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3872:                    "FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3879:                    "FROM aiem_tool_registry GROUP BY tool_type ORDER BY tool_type"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3887:                    "FROM aiem_module_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3894:                    "FROM aiem_tool_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3913:                "module_registry": {
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3919:                "tool_registry": {
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4196:                        """INSERT INTO d3_strategy_registry
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4575:                    "SELECT module_name FROM aiem_module_registry ORDER BY module_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4579:                    "SELECT tool_name FROM aiem_tool_registry ORDER BY tool_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4873:                    cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4944:                    cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4988:                        "SELECT module_name, COUNT(*) AS cnt FROM aiem_module_registry "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4999:                        "SELECT tool_name, COUNT(*) AS cnt FROM aiem_tool_registry "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5075:        "strategy_registry": strategy.get("STRATEGY_REGISTRY", []),
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5521:    def d3_strategy_registry():
+./artifacts/stock-scanner-api/aiem_master_orchestrator.py:444:                    f"module_registry_phase={reg_check.get('module_phase')} "
+./artifacts/stock-scanner-api/aiem_master_orchestrator.py:465:                    f"module_registry_phase={reg_check.get('module_phase')} "
+./artifacts/stock-scanner-api/aiem_strat_engine/db.py:20:CREATE TABLE IF NOT EXISTS ase_strategy_registry (
+./artifacts/stock-scanner-api/verify_strat_engine.py:219:    "ase_strategy_registry","ase_engine_jobs","ase_decision_runs",
+./artifacts/stock-scanner-api/verify_strat_engine_full.py:1248:                   "ase_position_valuations","ase_strategy_evaluations","ase_strategy_registry"]
+./artifacts/stock-scanner-api/verify_ase_directive_v2.py:1394:                    'ase_position_valuations','ase_strategy_evaluations','ase_strategy_registry'}
+./artifacts/stock-scanner-api/ase_master_forensic_report.py:496:    cur.execute("SELECT COUNT(*) FROM ase_strategy_registry")
+./artifacts/stock-scanner-api/ase_master_forensic_report.py:501:        print(f"  Note: ase_strategy_registry is populated by aiem_strat_engine_scheduler.py")
+./artifacts/stock-scanner-api/ase_master_forensic_report.py:504:        cur.execute("SELECT name FROM ase_strategy_registry ORDER BY name")
+./artifacts/stock-scanner-api/ase_complete_strategy_coverage.py:28:DATABASE  — upsert into ase_strategy_registry succeeds (ON CONFLICT DO UPDATE).
+./artifacts/stock-scanner-api/ase_complete_strategy_coverage.py:203:            INSERT INTO ase_strategy_registry
+./artifacts/stock-scanner-api/ase_complete_strategy_coverage.py:583:print(f"  DATABASE (ase_strategy_registry): {db_pass}/{len(CATALOG)} PASS")
+./artifacts/stock-scanner-api/ase_full_evidence.py:706:    required_tables = ["ase_strategy_registry","ase_engine_jobs","ase_decision_runs",
+./artifacts/stock-scanner-api/ase_full_evidence.py:1254:    cur8.execute("SELECT COUNT(*) FROM ase_strategy_registry")
+./artifacts/stock-scanner-api/ase_full_evidence.py:1256:    _info(f"  ase_strategy_registry rows: {db_count}")
+./artifacts/stock-scanner-api/evidence_chain_raw/26_4b29f6a0bc9e.txt:21:  oe_indicator_registry
+./artifacts/stock-scanner-api/evidence_chain_raw/26_4b29f6a0bc9e.txt:43:  oe_strategy_registry
+./artifacts/stock-scanner-api/tools/phase5_verify_seq26.txt:177:[2026-07-18T22:31:56Z] PASS  AC23.indicator_registry_queryable  |  count=0 (populated lazily by scan runs)
+./artifacts/stock-scanner-api/tools/phase5_verify_seq26.txt:179:[2026-07-18T22:31:56Z] PASS  AC23.strategy_registry_populated  |  count=42
+./artifacts/stock-scanner-api/tools/phase5_evidence_full.txt:204:[2026-07-18T22:31:56Z] PASS  AC23.indicator_registry_queryable  |  count=0 (populated lazily by scan runs)
+./artifacts/stock-scanner-api/tools/phase5_evidence_full.txt:206:[2026-07-18T22:31:56Z] PASS  AC23.strategy_registry_populated  |  count=42
+./artifacts/stock-scanner-api/tools/phase5_evidence_full.txt:297:--- AC-23: SELECT COUNT(*) FROM oe_indicator_registry ---
+./artifacts/stock-scanner-api/tools/phase5_evidence_full.txt:303:--- AC-23: SELECT COUNT(*) FROM oe_strategy_registry ---
+./artifacts/stock-scanner-api/tools/phase5_evidence_full.txt:306:--- AC-23: SELECT column_name FROM information_schema.columns WHERE table_name='oe_strategy_registry' ORDER BY ordinal_position ---
+./artifacts/stock-scanner-api/tools/phase5_evidence_full.txt:309:--- AC-23: SELECT * FROM oe_strategy_registry LIMIT 10 ---
+./artifacts/stock-scanner-api/tools/logs/verified_run_86.log:36:  oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_86.log:58:  oe_strategy_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:33:[DATA] oe_indicator_registry rows=79  unique_canonical_ids=79
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:40:  oe_indicator_registry: 79 rows, families=['BS', 'CCS', 'EI', 'INTRA', 'MTF', 'OC', 'OPT', 'OSS', 'PAT', 'PM', 'POLYGON', 'REGIME', 'SIZE', 'TECH', 'VOLREG']
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:43:    → NOT registered in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:45:    → NOT registered in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:51:  SQL: SELECT COUNT(*), COUNT(DISTINCT canonical_id) FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:59:  SQL: SELECT COUNT(*) FILTER (WHERE name IS NULL OR name='') FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:67:  SQL: SELECT DISTINCT source_file, source_function FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:87:  matching columns in oe_indicator_registry: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:88:  oe_indicator_registry full columns: id, canonical_id, name, family, source_file,
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:95:  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:104:  matching columns in oe_indicator_registry: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:105:  No output_fields column in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:110:  oe_indicator_registry:
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:175:  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry GROUP BY parameters::text
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:184:  SQL: SELECT DISTINCT timeframe FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:191:  oe_indicator_registry market_regime column: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:199:  SQL: check asset_type/asset_class/applicable_asset columns in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:201:  No asset_type column in oe_indicator_registry or any indicator storage table
+./artifacts/stock-scanner-api/tools/logs/verified_run_98.log:249:           specialist council (d3_strategy_registry) operates at strategy level, not indicator level
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:33:[DATA] oe_indicator_registry rows=79  unique_canonical_ids=79
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:40:  oe_indicator_registry: 79 rows, families=['BS', 'CCS', 'EI', 'INTRA', 'MTF', 'OC', 'OPT', 'OSS', 'PAT', 'PM', 'POLYGON', 'REGIME', 'SIZE', 'TECH', 'VOLREG']
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:43:    → NOT registered in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:45:    → NOT registered in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:51:  SQL: SELECT COUNT(*), COUNT(DISTINCT canonical_id) FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:59:  SQL: SELECT COUNT(*) FILTER (WHERE name IS NULL OR name='') FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:67:  SQL: SELECT DISTINCT source_file, source_function FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:87:  matching columns in oe_indicator_registry: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:88:  oe_indicator_registry full columns: id, canonical_id, name, family, source_file,
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:95:  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:104:  matching columns in oe_indicator_registry: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:105:  No output_fields column in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:110:  oe_indicator_registry:
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:156:  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry GROUP BY parameters::text
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:165:  SQL: SELECT DISTINCT timeframe FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:172:  oe_indicator_registry market_regime column: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:180:  SQL: check asset_type/asset_class/applicable_asset columns in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:182:  No asset_type column in oe_indicator_registry or any indicator storage table
+./artifacts/stock-scanner-api/tools/logs/verified_run_99.log:230:           specialist council (d3_strategy_registry) operates at strategy level, not indicator level
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:33:[DATA] oe_indicator_registry rows=79  unique_canonical_ids=79
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:40:  oe_indicator_registry: 79 rows, families=['BS', 'CCS', 'EI', 'INTRA', 'MTF', 'OC', 'OPT', 'OSS', 'PAT', 'PM', 'POLYGON', 'REGIME', 'SIZE', 'TECH', 'VOLREG']
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:43:    → NOT registered in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:45:    → NOT registered in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:51:  SQL: SELECT COUNT(*), COUNT(DISTINCT canonical_id) FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:59:  SQL: SELECT COUNT(*) FILTER (WHERE name IS NULL OR name='') FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:67:  SQL: SELECT DISTINCT source_file, source_function FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:87:  matching columns in oe_indicator_registry: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:88:  oe_indicator_registry full columns: id, canonical_id, name, family, source_file,
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:95:  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:104:  matching columns in oe_indicator_registry: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:105:  No output_fields column in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:110:  oe_indicator_registry:
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:156:  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry GROUP BY parameters::text
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:165:  SQL: SELECT DISTINCT timeframe FROM oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:172:  oe_indicator_registry market_regime column: []
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:180:  SQL: check asset_type/asset_class/applicable_asset columns in oe_indicator_registry
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:182:  No asset_type column in oe_indicator_registry or any indicator storage table
+./artifacts/stock-scanner-api/tools/logs/verified_run_100.log:230:           specialist council (d3_strategy_registry) operates at strategy level, not indicator level
+./artifacts/stock-scanner-api/aiem_options_registries.py:8:  oe_indicator_registry   — canonical metadata per indicator (auto-discovered at runtime)
+./artifacts/stock-scanner-api/aiem_options_registries.py:81:                # ── oe_indicator_registry ─────────────────────────────────────
+./artifacts/stock-scanner-api/aiem_options_registries.py:83:                    CREATE TABLE IF NOT EXISTS oe_indicator_registry (
+./artifacts/stock-scanner-api/aiem_options_registries.py:99:                        ON oe_indicator_registry(family)
+./artifacts/stock-scanner-api/aiem_options_registries.py:286:                INSERT INTO oe_indicator_registry
+./artifacts/stock-scanner-api/aiem_options_registries.py:758:    """Return counts and families from oe_indicator_registry."""
+./artifacts/stock-scanner-api/aiem_options_registries.py:762:            cur.execute("SELECT COUNT(*) FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/aiem_options_registries.py:764:            cur.execute("SELECT family, COUNT(*) FROM oe_indicator_registry GROUP BY family ORDER BY COUNT(*) DESC")
+./artifacts/stock-scanner-api/verify_phase3_phase1.sh:210:        'oe_indicator_registry', 'oe_indicator_snapshots',
+./artifacts/stock-scanner-api/verify_phase3_phase1.sh:233:for tbl in oe_indicator_registry oe_indicator_snapshots oe_pattern_registry \
+./artifacts/stock-scanner-api/verify_phase3_phase1_output.txt:118:  INFO  DB raw: FOUND:oe_indicator_registry,oe_indicator_snapshots,oe_options_metrics,oe_pattern_registry,oe_pattern_snapshots|MISSING:
+./artifacts/stock-scanner-api/verify_phase3_phase1_output.txt:119:  [PASS]  DB: table exists — oe_indicator_registry
+./artifacts/stock-scanner-api/raw_evidence_phase3p1.txt:395:oe_indicator_registry                         32 kB         11
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:92:+  oe_indicator_registry   — canonical metadata per indicator (auto-discovered at runtime)
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:165:+                # ── oe_indicator_registry ─────────────────────────────────────
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:167:+                    CREATE TABLE IF NOT EXISTS oe_indicator_registry (
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:183:+                        ON oe_indicator_registry(family)
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:370:+                INSERT INTO oe_indicator_registry
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:842:+    """Return counts and families from oe_indicator_registry."""
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:846:+            cur.execute("SELECT COUNT(*) FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/raw_evidence_gaps_phase3p1.txt:848:+            cur.execute("SELECT family, COUNT(*) FROM oe_indicator_registry GROUP BY family ORDER BY COUNT(*) DESC")
+./artifacts/stock-scanner-api/raw_evidence_item4_phase3p1.txt:19:SELECT count(*) FROM oe_indicator_registry;
+./artifacts/stock-scanner-api/evidence_chain_phase2.log:42:SEQ=30 ts=2026-07-18T19:46:10Z status=PASS name=TABLE_EXISTS_oe_strategy_registry detail=rows=42
+./artifacts/stock-scanner-api/evidence_chain_phase2.log:50:SEQ=36 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_42_SEEDED detail=oe_strategy_registry rows=42
+./artifacts/stock-scanner-api/evidence_chain_phase2.log:51:SEQ=37 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_CALL detail=1 row confirmed in oe_strategy_registry
+./artifacts/stock-scanner-api/evidence_chain_phase2.log:52:SEQ=38 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_PUT detail=1 row confirmed in oe_strategy_registry
+./artifacts/stock-scanner-api/evidence_chain_phase2.log:53:SEQ=39 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_IRON_CONDOR detail=1 row confirmed in oe_strategy_registry
+./artifacts/stock-scanner-api/evidence_chain_phase2.log:54:SEQ=40 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_JADE_LIZARD detail=1 row confirmed in oe_strategy_registry
+./artifacts/stock-scanner-api/evidence_chain_phase2.log:55:SEQ=41 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_BOX_SPREAD detail=1 row confirmed in oe_strategy_registry
+./artifacts/stock-scanner-api/verify_phase3_phase2.sh:137:    for tbl in oe_strategy_registry oe_strategy_candidates oe_counterfactual_snapshots \
+./artifacts/stock-scanner-api/verify_phase3_phase2.sh:160:        "SELECT COUNT(*) FROM oe_strategy_registry" 2>/dev/null | tr -d ' \n' || echo "0")
+./artifacts/stock-scanner-api/verify_phase3_phase2.sh:162:        emit PASS "REGISTRY_42_SEEDED" "oe_strategy_registry rows=$reg_cnt"
+./artifacts/stock-scanner-api/verify_phase3_phase2.sh:164:        emit FAIL "REGISTRY_42_SEEDED" "only $reg_cnt rows in oe_strategy_registry; expected >=42"
+./artifacts/stock-scanner-api/verify_phase3_phase2.sh:170:            "SELECT COUNT(*) FROM oe_strategy_registry WHERE strategy_id='$sid'" \
+./artifacts/stock-scanner-api/verify_phase3_phase2.sh:173:            emit PASS "REGISTRY_HAS_$sid" "1 row confirmed in oe_strategy_registry"
+./artifacts/stock-scanner-api/verify_phase3_phase3.sh:195:        # Insert a valid row (strategy LONG_CALL must exist in oe_strategy_registry)
+./artifacts/stock-scanner-api/verify_phase5.py:28:  AC-23  Registry proof — oe_indicator_registry + pattern + strategy counts
+./artifacts/stock-scanner-api/verify_phase5.py:744:        cur.execute("SELECT COUNT(*) AS n FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/verify_phase5.py:748:        cur.execute("SELECT COUNT(*) AS n FROM oe_strategy_registry")
+./artifacts/stock-scanner-api/verify_phase5.py:751:        # oe_indicator_registry is populated lazily by scan runs — 0 rows is valid
+./artifacts/stock-scanner-api/verify_phase5.py:753:        _require("AC23.indicator_registry_queryable", n_ind >= 0,
+./artifacts/stock-scanner-api/verify_phase5.py:757:        # oe_strategy_registry is seeded at bootstrap — must have rows
+./artifacts/stock-scanner-api/verify_phase5.py:758:        _require("AC23.strategy_registry_populated",  n_str >= 1,
+./artifacts/stock-scanner-api/verify_phase5.py:764:        cur.execute("SELECT id FROM oe_strategy_registry LIMIT 5")
+./artifacts/stock-scanner-api/raw_evidence_item4_phase3p1.sh:27:    # oe_indicator_registry
+./artifacts/stock-scanner-api/raw_evidence_item4_phase3p1.sh:28:    cur.execute("SELECT count(*) FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/raw_evidence_item4_phase3p1.sh:29:    print(f"SELECT count(*) FROM oe_indicator_registry;")
+./artifacts/stock-scanner-api/aiem_options_phase2.py:6:5. Advanced Strategy Learning   → oe_strategy_registry, oe_strategy_candidates
+./artifacts/stock-scanner-api/aiem_options_phase2.py:195:    Create all 5 Phase 2 tables (idempotent) and populate oe_strategy_registry.
+./artifacts/stock-scanner-api/aiem_options_phase2.py:205:            # ── oe_strategy_registry ──────────────────────────────────────────
+./artifacts/stock-scanner-api/aiem_options_phase2.py:207:                CREATE TABLE IF NOT EXISTS oe_strategy_registry (
+./artifacts/stock-scanner-api/aiem_options_phase2.py:439:        _seed_strategy_registry(db_url)
+./artifacts/stock-scanner-api/aiem_options_phase2.py:449:def _seed_strategy_registry(db_url: str) -> None:
+./artifacts/stock-scanner-api/aiem_options_phase2.py:453:                INSERT INTO oe_strategy_registry
+./artifacts/stock-scanner-api/aiem_options_phase2.py:465:    log.debug(f"[phase2] seeded {len(_STRATEGY_CATALOG)} strategies into oe_strategy_registry")
+./artifacts/stock-scanner-api/aiem_options_phase2.py:1337:            cur.execute("SELECT strategy_id FROM oe_strategy_registry")
+./artifacts/stock-scanner-api/aiem_options_phase2.py:1345:            f"Missing from oe_strategy_registry: {sorted(missing)}")
+./artifacts/stock-scanner-api/aiem_options_phase2.py:1413:            for tbl in ["oe_strategy_registry", "oe_strategy_candidates",
+./artifacts/stock-scanner-api/aiem_options_phase3.py:327:                        REFERENCES oe_strategy_registry(strategy_id),
+./artifacts/stock-scanner-api/aiem_options_phase3.py:422:                        REFERENCES oe_strategy_registry(strategy_id),
+./artifacts/stock-scanner-api/aiem_options_phase3.py:969:                SELECT canonical_id, name FROM oe_indicator_registry
+./artifacts/stock-scanner-api/verify_phase9_ind.py:75:_cur.execute("SELECT COUNT(*), COUNT(DISTINCT canonical_id) FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:91:print(f"[DATA] oe_indicator_registry rows={_reg_total}  unique_canonical_ids={_reg_unique}")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:100:_cur.execute("SELECT DISTINCT family FROM oe_indicator_registry ORDER BY family")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:103:# Check for indicator families NOT in oe_indicator_registry
+./artifacts/stock-scanner-api/verify_phase9_ind.py:116:    f"  oe_indicator_registry: {_reg_total} rows, families={_reg_families}\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:119:    f"    → NOT registered in oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:121:    f"    → NOT registered in oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:131:_cur.execute("""SELECT canonical_id, COUNT(*) as n FROM oe_indicator_registry
+./artifacts/stock-scanner-api/verify_phase9_ind.py:136:    f"  SQL: SELECT COUNT(*), COUNT(DISTINCT canonical_id) FROM oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:148:_cur.execute("SELECT COUNT(*) FILTER (WHERE name IS NULL OR name = '') FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:150:_cur.execute("SELECT canonical_id, name FROM oe_indicator_registry ORDER BY id LIMIT 5")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:153:    f"  SQL: SELECT COUNT(*) FILTER (WHERE name IS NULL OR name='') FROM oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:165:_cur.execute("""SELECT DISTINCT source_file FROM oe_indicator_registry""")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:167:_cur.execute("""SELECT DISTINCT source_function FROM oe_indicator_registry""")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:169:_cur.execute("SELECT COUNT(*) FILTER (WHERE source_file IS NULL) FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:172:    f"  SQL: SELECT DISTINCT source_file, source_function FROM oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:201:               WHERE table_name='oe_indicator_registry'
+./artifacts/stock-scanner-api/verify_phase9_ind.py:206:    f"  matching columns in oe_indicator_registry: {_desc_cols}\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:207:    f"  oe_indicator_registry full columns: id, canonical_id, name, family, source_file,\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:218:_cur.execute("SELECT parameters::text, COUNT(*) FROM oe_indicator_registry GROUP BY parameters::text")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:221:               WHERE table_name='oe_indicator_registry'
+./artifacts/stock-scanner-api/verify_phase9_ind.py:225:    f"  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:238:               WHERE table_name='oe_indicator_registry'
+./artifacts/stock-scanner-api/verify_phase9_ind.py:243:    f"  matching columns in oe_indicator_registry: {_out_cols}\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:244:    f"  No output_fields column in oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:256:               FROM oe_indicator_registry""")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:264:    f"  oe_indicator_registry:\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:344:               WHERE table_name='oe_indicator_registry'
+./artifacts/stock-scanner-api/verify_phase9_ind.py:347:_cur.execute("SELECT COUNT(*) FILTER (WHERE sha256 IS NOT NULL) FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:349:_cur.execute("SELECT sha256 FROM oe_indicator_registry LIMIT 2")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:365:    f"  SQL: SELECT parameters::text, COUNT(*) FROM oe_indicator_registry GROUP BY parameters::text\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:378:_cur.execute("SELECT DISTINCT timeframe FROM oe_indicator_registry")
+./artifacts/stock-scanner-api/verify_phase9_ind.py:381:    f"  SQL: SELECT DISTINCT timeframe FROM oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:393:               WHERE table_name='oe_indicator_registry'
+./artifacts/stock-scanner-api/verify_phase9_ind.py:403:    f"  oe_indicator_registry market_regime column: {_reg_regime_col}\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:416:               WHERE table_name='oe_indicator_registry'
+./artifacts/stock-scanner-api/verify_phase9_ind.py:420:    f"  SQL: check asset_type/asset_class/applicable_asset columns in oe_indicator_registry\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:422:    f"  No asset_type column in oe_indicator_registry or any indicator storage table\n"
+./artifacts/stock-scanner-api/verify_phase9_ind.py:523:    f"           specialist council (d3_strategy_registry) operates at strategy level, not indicator level"
+./artifacts/stock-scanner-api/verify_phase10_opt.py:7:NOT the Standalone Options Engine (oe_indicator_* / oe_strategy_registry tables)
+./artifacts/stock-scanner-api/main.py:18770:                    _d2_run(5, "module_registry", "Module Registry",
+./artifacts/stock-scanner-api/main.py:18779:                    _d2_run(6, "tool_registry", "Tool Registry",
+./artifacts/stock-scanner-api/main.py:18943:                # d3_strategy_registry; model_version is honestly None (no
+./artifacts/stock-scanner-api/main.py:38381:def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM",
+./artifacts/stock-scanner-api/main.py:42683:def _startup_validate_tool_registry():
+./artifacts/stock-scanner-api/main.py:42692:        _validate_tool_registry_consistency(
+./artifacts/stock-scanner-api/main.py:42697:        print(f"[tool_registry] startup validation error: {_vtr_e}")
+./artifacts/stock-scanner-api/main.py:42699:threading.Timer(10.0, _startup_validate_tool_registry).start()
+./.agents/memory/diagram2-phase0-tool-ownership-finding.md:33:Registry mechanics: `aiem_tool_registry.tool_verification_level` moves from
+./.agents/memory/diagram2-phase2-guardrails-findings.md:45:only, `_NON_WIRING_FILES` exclusion list, updates both `aiem_module_registry` and
+./.agents/memory/diagram2-phase2-guardrails-findings.md:46:`aiem_tool_registry`. `aiem_function_registry_build.py` gained a `PHASE2_FUNCTIONS` list
+./.agents/memory/diagram2-phase12-edge-filter-exit-engine-findings.md:37:  195-module aiem_module_registry catalog entirely** (verified: 0 rows
+./.agents/memory/diagram2-phase13-execution-shadow-trading-findings.md:32:  pass is the first to formally register it in `aiem_module_registry`.
+./.agents/memory/diagram2-phase15-learning-adaptation-findings.md:47:aiem_module_registry (all VERIFIED_WIRED), 27 tool rows in
+./.agents/memory/diagram2-phase15-learning-adaptation-findings.md:48:aiem_tool_registry (all VERIFIED_REAL_IMPLEMENTATION).
+./.agents/memory/diagram2-phase16-alerts-notifications-findings.md:52:Applied to DB: 9 module rows in aiem_module_registry (all
+./.agents/memory/diagram2-phase16-alerts-notifications-findings.md:53:VERIFIED_WIRED), 5 tool rows in aiem_tool_registry (all
+./.agents/memory/diagram2-phase17-verification-observability-findings.md:8:Script: `artifacts/stock-scanner-api/aiem_phase17_verify.py`. Static grep/sed only, never live-imports main.py. Applied to DB (`aiem_module_registry` + `aiem_tool_registry`), confirmed via SQL.
+./.agents/memory/diagram2-sweep-complete-final-summary.md:14:## Final registry totals (queried directly from `aiem_module_registry` / `aiem_tool_registry`)
+./.agents/memory/diagram2-phase10-specialist-council-debate-findings.md:45:are fully covered by the `aiem_tool_registry` update instead.
+./.agents/memory/function-registry-ast-source.md:16:- `main.py` excluded by `MPM_EXCLUDE` — same exclusion as `aiem_module_registry`.
+./.agents/memory/schema-drift-remediation.md:23:1. `aiem_module_registry` — stage_name, registry_source (dev-only → added to prod by Replit)
+./.agents/memory/aiem-diagram3-governance.md:19:d3_strategy_registry, d3_model_governance, d3_learning_approvals, d3_change_log,
+./.agents/memory/aiem-diagram3-governance.md:244:`d3_strategy_registry.signal_source`), `_g3_check_model_approval` (real query against
+./.agents/memory/aiem-diagram3-governance.md:251:`premarket_open_trader` itself are unregistered in `d3_strategy_registry` → G3 will report
+./.agents/memory/aiem-diagram3-governance.md:459:**Key structural rule confirmed:** The per-candidate G3 path (main.py:17868) is only reached when: (1) pre-G3 source validation passes, (2) intelligence gate passes, (3) kill_switch/daily_loss_limit/portfolio_corr batch gates all clear, (4) G0/G1 batch gates both ALLOW. A G3 BLOCK from an unapproved strategy requires a source that passes steps 1-3 but has no d3_strategy_registry row — currently no such source exists in live traffic.
+./.agents/memory/options-engine-phase3-phase2.md:7:- oe_strategy_registry: 42 canonical strategies seeded on bootstrap
+./.agents/memory/options-phase5-governance.md:51:## oe_indicator_registry population
+./.agents/memory/paper-pick-candidate-gates.md:7:All signal sources used in `_aiem_paper_pick_candidates()` must be registered in `d3_strategy_registry` with `approval_status='approved'`, or G3 will ENFORCE-block every candidate from that source.
+./.agents/memory/paper-pick-candidate-gates.md:11:**How to apply:** When adding a new signal source to `_aiem_paper_pick_candidates()`, immediately `INSERT INTO d3_strategy_registry (signal_source, status, total_trades, closed_trades, approval_status, notes) VALUES (...)`.
+./.agents/memory/MEMORY.md:13:- [Paper pick candidate gates](paper-pick-candidate-gates.md) — NO_CANDIDATES root causes: test positions filling cap, d3_strategy_registry missing sources, unusual_calls DISTINCT ON, polygon rvol threshold, PENDING dead-state in try_claim
+./.agents/memory/MEMORY.md:24:- [AIEM full verification audit](aiem-full-verification-audit.md) — 162 items audited: 121 PASS/27 PROXY/5 CONDITIONAL/8 UNSUPPORTED/1 FAIL; only validated signal=gap_volume; 152 scheduled jobs; aiem_tool_registry cols=tool_name/tool_type/owning_module_or_phase/required_inputs/produced_outputs; d3_governance_events does NOT exist (use d3_governance_decisions)
+./attached_assets/Pasted--StockScanner-AI-Bug-Report-Fix-Package-Generated-from-_1782584407239.txt:195:over weeks of incremental changes. Added `_validate_tool_registry_consistency`
+./attached_assets/Pasted--main-py-patches-apply-each-section-in-order-Find-repla_1782584427986.txt:988:def _validate_tool_registry_consistency(schema_list, tool_map, label="AIEM"):
+./attached_assets/Pasted--main-py-patches-apply-each-section-in-order-Find-repla_1782584427986.txt:1027:#     _validate_tool_registry_consistency(_AIEM_AGENT_TOOLS, _fs_tool_map, label="focused_session")
+./attached_assets/Pasted--main-py-patches-apply-each-section-in-order-Find-repla_1782584427986.txt:1028:#     _validate_tool_registry_consistency(_AIEM_AGENT_TOOLS, _tool_map, label="research_agent")
+./attached_assets/Pasted--Verification-Ask-Tool-Registry-Cleanup-Feedback-Loop-P_1783442956973.txt:4:`_validate_tool_registry_consistency` (main.py line 31500) is a legitimate check.
+./attached_assets/Pasted--Verification-Ask-Tool-Registry-Cleanup-Feedback-Loop-P_1783442956973.txt:42:4. Explicit confirmation of what would happen (raw output) if a step in the loop fails silently — i.e., is there a check that would catch a broken feedback step the way `_validate_tool_registry_consistency` catches a wiring mismatch? If not, that's the next gap to close.
+./attached_assets/Pasted--Verification-Ask-Tool-Registry-Cleanup-Feedback-Loop-P_1783443123976.txt:4:`_validate_tool_registry_consistency` (main.py line 31500) is a legitimate check.
+./attached_assets/Pasted--Verification-Ask-Tool-Registry-Cleanup-Feedback-Loop-P_1783443123976.txt:42:4. Explicit confirmation of what would happen (raw output) if a step in the loop fails silently — i.e., is there a check that would catch a broken feedback step the way `_validate_tool_registry_consistency` catches a wiring mismatch? If not, that's the next gap to close.
+./attached_assets/Pasted--AEIM-DIAGRAM-2-COMPLETE-INDICATOR-BY--1783678846499_1783678846500.txt:87:module_registry_record
+./attached_assets/Pasted--AEIM-DIAGRAM-2-COMPLETE-INDICATOR-BY--1783678846499_1783678846500.txt:88:tool_registry_record_or_reason_not_applicable
+./attached_assets/Pasted--AEIM-DIAGRAM-2-COMPLETE-INDICATOR-BY--1783678846499_1783678846500.txt:1115:tool_registry_id
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873790238.txt:39:**Finding:** `aiem_module_registry` and `aiem_tool_registry` do not exist in the database — the DDL is defined in `aiem_registry.py` but was never applied. `get_registry()` returns `None`. Two separate, unreconciled in-memory registries exist instead: D1's own `AEIM_MODULES` dict (52 entries) and `aiem_registry.py`'s `MODULE_PHASE_MAP` (195 entries). Module ownership shows 12 co-owners for "Phase 1," contradicting any single-owner design intent. This gap is also the root cause of the Section I "Line 411" silent fallback (see Priority 4).
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873790238.txt:42:1. Apply the existing DDL for `aiem_module_registry` and `aiem_tool_registry` to the database.
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873790238.txt:51:**Finding:** D1 has zero references to `aiem_diagram3_governance` anywhere in the file. D1 never imports D3 and never calls any D3 function. Zero handling exists for any of the 5 D3 verdict types (APPROVE, PAUSE, QUARANTINE, ROLLBACK, STOP) — confirmed "received: NO / processed: NO" for all five. `d3_strategy_registry` and `d3_rollback_registry` both have 0 rows; no end-to-end test evidence exists for any verdict type. This is a direct blocker for PAPER ENFORCEMENT, which requires D1 to actually act on a D3 BLOCK verdict.
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873803307.txt:39:**Finding:** `aiem_module_registry` and `aiem_tool_registry` do not exist in the database — the DDL is defined in `aiem_registry.py` but was never applied. `get_registry()` returns `None`. Two separate, unreconciled in-memory registries exist instead: D1's own `AEIM_MODULES` dict (52 entries) and `aiem_registry.py`'s `MODULE_PHASE_MAP` (195 entries). Module ownership shows 12 co-owners for "Phase 1," contradicting any single-owner design intent. This gap is also the root cause of the Section I "Line 411" silent fallback (see Priority 4).
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873803307.txt:42:1. Apply the existing DDL for `aiem_module_registry` and `aiem_tool_registry` to the database.
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873803307.txt:51:**Finding:** D1 has zero references to `aiem_diagram3_governance` anywhere in the file. D1 never imports D3 and never calls any D3 function. Zero handling exists for any of the 5 D3 verdict types (APPROVE, PAUSE, QUARANTINE, ROLLBACK, STOP) — confirmed "received: NO / processed: NO" for all five. `d3_strategy_registry` and `d3_rollback_registry` both have 0 rows; no end-to-end test evidence exists for any verdict type. This is a direct blocker for PAPER ENFORCEMENT, which requires D1 to actually act on a D3 BLOCK verdict.
+./attached_assets/Pasted--Directive-Priority-2-Module-Registry-Persistence-Dict-_1783874585016.txt:27:   for anything named registry, module_registry, stage_registry, etc.)
+./attached_assets/Pasted--Directive-Priority-2-Module-Registry-Persistence-Dict-_1783874585016.txt:33:Propose a DDL for a new table (working name: aiem_module_registry) that
+./attached_assets/Pasted--AIEM-Module-Registry-Decisions-D1-D2-and-Fixes-for-F4-_1783876198001.txt:19:Use `aiem_registry.py`'s DDL (lines 48 / 75 / 107) as the **sole authoritative source** for all three `CREATE TABLE` statements (`aiem_module_registry`, `aiem_tool_registry`, `aiem_function_registry`). This version has the `UNIQUE` constraint on `module_name` that `dev_schema_bootstrap.sql` is missing.
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:1:# Directive: AIEM Registry Consolidation (aiem_module_registry / aiem_tool_registry / aiem_function_registry)
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:11:   $ psql -c "SELECT registry_source, count(*) FROM aiem_module_registry GROUP BY registry_source;" | grep -E "MODULE_PHASE_MAP|AIEM_MODULES|BOTH|CONFLICT"
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:24:The DDL comment for `aiem_module_registry` documents `registry_source` as one of: `MODULE_PHASE_MAP / AIEM_MODULES / BOTH / CONFLICT`. Current `build_module_rows()` logic only assigns two of these (`BOTH` or `MODULE_PHASE_MAP`), because it only ever iterates `MODULE_PHASE_MAP.items()`.
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:32:**Evidence required:** raw SQLGREP output of `SELECT registry_source, count(*) FROM aiem_module_registry GROUP BY registry_source` after population, showing all four values are structurally reachable (even if some counts are 0 — but state explicitly if a value is 0 rather than omitting it).
+./attached_assets/Pasted--Decisions-on-D1-and-D3-D1-deep-rl-Confirmed-per-file-p_1783878745204.txt:5:**D3 (main.py):** Exclude `main.py` from `aiem_module_registry`. It is the Flask server / infrastructure entry point, not a discrete AIEM module in the D1/D2/D3 pipeline sense. Before implementing the exclusion, confirm via grep/SQLGREP that no other AIEM module currently references `main.py` as an upstream or downstream dependency anywhere in `MODULE_PHASE_MAP`, `AEIM_MODULES`, or the codebase generally. If a dependency does exist, flag it back to me before excluding — don't silently drop a referenced entry.
+./attached_assets/Pasted--Decisions-on-D1-and-D3-D1-deep-rl-Confirmed-per-file-p_1783878900844.txt:5:**D3 (main.py):** Exclude `main.py` from `aiem_module_registry`. It is the Flask server / infrastructure entry point, not a discrete AIEM module in the D1/D2/D3 pipeline sense. Before implementing the exclusion, confirm via grep/SQLGREP that no other AIEM module currently references `main.py` as an upstream or downstream dependency anywhere in `MODULE_PHASE_MAP`, `AEIM_MODULES`, or the codebase generally. If a dependency does exist, flag it back to me before excluding — don't silently drop a referenced entry.
+./attached_assets/Pasted--Directive-Registry-Build-Finalization-Patch-Verify-Bui_1783880216586.txt:48:Provide raw SQL query + full result set from `aiem_module_registry`:
+./attached_assets/Pasted--Directive-Implement-upsert-functions-to-populate-aiem-_1783882764668.txt:5:Step 4 verification confirmed `aiem_module_registry` (194 rows) and `aiem_tool_registry` (222 rows) are fully populated and match the pre-build dry-run exactly. `aiem_function_registry` exists with correct schema but has 0 rows — the build script has `upsert_modules()` and `upsert_tools()` but no `upsert_functions()` call. This directive closes that gap.
+./attached_assets/Pasted--Directive-Implement-upsert-functions-to-populate-aiem-_1783882764668.txt:14:6. After the live insert, re-run the full Check 1–9 verification pass across **all three** registry tables (`aiem_module_registry`, `aiem_tool_registry`, `aiem_function_registry`) together, so the entire registry is confirmed in one consolidated pass rather than function registry being verified in isolation.
+./attached_assets/Pasted--Directive-12-Addendum-Stage-13-Resolution-Strategy-Reg_1784042803292.txt:29:- Confirm via raw SQL that each source now has a row in `d3_strategy_registry` with `approval_status = 'approved'` and `status = 'active'`.
+./attached_assets/Pasted--Directive-13-D3-PAPER-ENFORCEMENT-Build-Scope-Date-Jul_1784057272593.txt:6:**Precondition confirmed closed:** Directive 12's `d3_strategy_registry` is implemented and functioning correctly — real table, populated via `run_phase4_strategy()`, 4 approved sources active, and `UNAPPROVED_STRATEGY:<source>` correctly still fires in SHADOW mode for the 6 unapproved sources (`sweep`, `oi_buildup`, `washout_ignition`, `layer9_stat`, `squeeze_reversion`, `premarket_open_trader`). This directive builds on top of that confirmed state.
+./attached_assets/Pasted--Directive-13-D3-PAPER-ENFORCEMENT-Build-Scope-Date-Jul_1784057272593.txt:74:- Do not touch the `test_source` fixture row in `d3_strategy_registry` (id=4) — that is a separate, pending item awaiting Joel's decision, unrelated to this directive.
+./attached_assets/Pasted--Directive-13-Phase-1-Decisions-Rollback-Mechanism-G3-F_1784058395329.txt:10:- 3 of 9 unregistered strategy sources (gap_volume, unusual_calls, aiem_v3_discovery) were approved in `d3_strategy_registry` at 15:30 UTC. 6 remain unregistered: sweep, oi_buildup, washout_ignition, layer9_stat, squeeze_reversion, premarket_open_trader.
+./attached_assets/Pasted--Directive-13-Phase-1-Decisions-Rollback-Mechanism-G3-F_1784058395329.txt:19:- Do NOT auto-approve any of these sources. Present Joel with what's known about each source's paper performance/history (query `d3_governance_decisions` and any relevant performance tables for each source name) so he can decide per-source: approve into `d3_strategy_registry`, or accept that it will be hard-blocked once G3 is in ENFORCE.
+./attached_assets/Pasted--Directive-13-Phase-2-G3-ENFORCE-Verification-Context-P_1784060143333.txt:10:- Raw SQL query of `d3_strategy_registry` to confirm the state of all 9 previously-unregistered/registered strategy sources reflects Joel's Phase 1 decisions.
+./attached_assets/Pasted--AIEM-COMPLETE-STOCK-ANALYSIS-VERIFICATION-AUDIT-Direct_1784227373732.txt:15:| Registered AIEM tools (aiem_tool_registry) | **222** |
+./attached_assets/Pasted-DIRECTIVE-Phase-III-Phase-1-Gap-Closure-1-ITEM-4-was-mi_1784401041675.txt:4:   SELECT count(*) FROM oe_indicator_registry;
+./attached_assets/Pasted--Directive-Phase-10-Kickoff-OPT-001-through-OPT-035-Sco_1784839312335.txt:4:This section is AIEM's native options pipeline (Directive 14 pattern engine) — NOT the Standalone Options Engine (oe_indicator_snapshots / oe_indicator_attribution / oe_indicator_registry). Confirm which table(s) each item actually reads/writes before using any existing Options Engine evidence (DPL, calibration module) as a substitute. If overlap is found, flag it — do not assume shared evidence is valid across the two systems.
+./phase2_verification_2026-07-18.txt:42:SEQ=30 ts=2026-07-18T19:41:56Z status=PASS name=TABLE_EXISTS_oe_strategy_registry detail=rows=42
+./phase2_verification_2026-07-18.txt:50:SEQ=36 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_42_SEEDED detail=oe_strategy_registry rows=42
+./phase2_verification_2026-07-18.txt:51:SEQ=37 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_LONG_CALL detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:52:SEQ=38 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_LONG_PUT detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:53:SEQ=39 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_IRON_CONDOR detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:54:SEQ=40 ts=2026-07-18T19:41:58Z status=PASS name=REGISTRY_HAS_JADE_LIZARD detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:55:SEQ=41 ts=2026-07-18T19:41:58Z status=PASS name=REGISTRY_HAS_BOX_SPREAD detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:69:SEQ=30 ts=2026-07-18T19:46:10Z status=PASS name=TABLE_EXISTS_oe_strategy_registry detail=rows=42
+./phase2_gap_evidence_2026-07-18.txt:77:SEQ=36 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_42_SEEDED detail=oe_strategy_registry rows=42
+./phase2_gap_evidence_2026-07-18.txt:78:SEQ=37 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_CALL detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:79:SEQ=38 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_PUT detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:80:SEQ=39 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_IRON_CONDOR detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:81:SEQ=40 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_JADE_LIZARD detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:82:SEQ=41 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_BOX_SPREAD detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:266:         _seed_strategy_registry(db_url)
+./D11_pre_run_findings_2026-07-20.md:255:| 9 signal sources registered in d3_strategy_registry | DB: 9 rows |
+./AIEM_DASHBOARD_DATABASE_INVENTORY.md:57:| oe_strategy_registry | 42 | — | — | id | strategy_id, name, family, direction, call_put_type, enabled | Live Decisions |
+./AIEM_DASHBOARD_SCREEN_DETAIL.md:149:| Known limitations | oe_indicator_snapshots has 19 columns including `canonical_id` — dashboard must join to `oe_indicator_registry` (79 rows) to get human-readable names |
+./AIEM_DASHBOARD_PHASE_B_CHANGES_AND_VERIFICATION.md:212:| `oe_indicator_registry` | 79 indicators registered | ✅ PASS |
+./AIEM_DASHBOARD_GAP_AUDIT.md:650:10. **Indicator Laboratory page** — from `layer9_scores`, `oe_indicator_registry`  
+./docs/verification/phase9-ind-FINAL.md:32:| `oe_indicator_registry` | 79 rows | **Formal** (options engine only) | `aiem_options_scheduler.py` |
+./docs/verification/phase9-ind-FINAL.md:39:The Phase 9 spec note (`cross-reference against the existing 39-indicator audit; Thompson Sampling #06 and Bayesian Statistics #24 confirmed inert`) applies: the ~39 conviction-stack indicators are entirely absent from any formal registry and fall outside the scope of `oe_indicator_registry`.
+./docs/verification/phase9-ind-FINAL.md:47:| IND-001 | **PARTIAL** | `oe_indicator_registry` covers 79 options-engine indicators; polygon tech (19 cols), layer9 statistical (14 fields), conviction stack (~39) absent from registry |
+./docs/verification/phase9-ind-FINAL.md:52:| IND-006 | **FAIL** | No `description`, `calculation_method`, `method`, or `formula` column in `oe_indicator_registry` or any indicator table |
+./docs/verification/phase9-ind-FINAL.md:54:| IND-008 | **FAIL** | No `output_fields`, `outputs`, or `produced_outputs` column in `oe_indicator_registry`; `oe_indicator_snapshots` stores runtime values but registry declares no output schema |
+./docs/verification/phase9-ind-FINAL.md:94:**1. Registry exists but covers only one indicator family (options engine).** The `oe_indicator_registry` with 79 rows is a real, populated, deduplicated registry — but it exclusively covers the options pipeline. The polygon technical indicators (19 production columns), layer9 statistical indicators (14 fields), and conviction stack (~39 indicators) have no registry entry of any kind.
+./docs/verification/staging-negative-controls-FINAL.md:812:oe_indicator_registry
+./docs/verification/staging-negative-controls-FINAL.md:834:oe_strategy_registry
+./docs/verification/vault-phase0-FINAL.md:134:| `aiem_tool_registry` | PostgreSQL table | Tool inventory by phase/module (AST-populated) |
+./docs/verification/vault-phase0-FINAL.md:136:| `d3_strategy_registry` | PostgreSQL table | D3 governance strategy registry |
+./options_engine_all.txt:2071:5. Advanced Strategy Learning   → oe_strategy_registry, oe_strategy_candidates
+./options_engine_all.txt:2260:    Create all 5 Phase 2 tables (idempotent) and populate oe_strategy_registry.
+./options_engine_all.txt:2270:            # ── oe_strategy_registry ──────────────────────────────────────────
+./options_engine_all.txt:2272:                CREATE TABLE IF NOT EXISTS oe_strategy_registry (
+./options_engine_all.txt:2504:        _seed_strategy_registry(db_url)
+./options_engine_all.txt:2514:def _seed_strategy_registry(db_url: str) -> None:
+./options_engine_all.txt:2518:                INSERT INTO oe_strategy_registry
+./options_engine_all.txt:2530:    log.debug(f"[phase2] seeded {len(_STRATEGY_CATALOG)} strategies into oe_strategy_registry")
+./options_engine_all.txt:3402:            cur.execute("SELECT strategy_id FROM oe_strategy_registry")
+./options_engine_all.txt:3410:            f"Missing from oe_strategy_registry: {sorted(missing)}")
+./options_engine_all.txt:3478:            for tbl in ["oe_strategy_registry", "oe_strategy_candidates",
+./options_engine_all.txt:3817:                        REFERENCES oe_strategy_registry(strategy_id),
+./options_engine_all.txt:3912:                        REFERENCES oe_strategy_registry(strategy_id),
+./options_engine_all.txt:4443:                SELECT canonical_id, name FROM oe_indicator_registry
+./options_engine_all.txt:8535:  oe_indicator_registry   — canonical metadata per indicator (auto-discovered at runtime)
+./options_engine_all.txt:8608:                # ── oe_indicator_registry ─────────────────────────────────────
+./options_engine_all.txt:8610:                    CREATE TABLE IF NOT EXISTS oe_indicator_registry (
+./options_engine_all.txt:8626:                        ON oe_indicator_registry(family)
+./options_engine_all.txt:8813:                INSERT INTO oe_indicator_registry
+./options_engine_all.txt:9285:    """Return counts and families from oe_indicator_registry."""
+./options_engine_all.txt:9289:            cur.execute("SELECT COUNT(*) FROM oe_indicator_registry")
+./options_engine_all.txt:9291:            cur.execute("SELECT family, COUNT(*) FROM oe_indicator_registry GROUP BY family ORDER BY COUNT(*) DESC")

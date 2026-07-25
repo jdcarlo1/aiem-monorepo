@@ -324,8 +324,320 @@ The AIEM Vault will:
 - [x] Deployment structure documented
 - [x] Explicit no-duplicate statement recorded
 - [x] Permanent record committed to `docs/verification/vault-phase0-FINAL.md`
+- [x] Section 3 canonical grep patterns rerun (all 4 — see Section 16 below)
+- [x] Raw output permanently stored in `docs/verification/` with sha256
 - [ ] **OPERATOR SIGN-OFF REQUIRED** — Phase 1 must not begin until Joel confirms this phase closed
 
 ---
 
 *Committed to HEAD — commit hash to be recorded on operator sign-off confirmation.*
+
+---
+
+## 16. Section 3 Canonical Grep Rerun (Operator-Provided Patterns)
+
+**Date rerun:** 2026-07-25  
+**Reason:** Approximate patterns in original Section 3 replaced with exact canonical patterns from Master Build Directive.
+
+### Execution note — additional `--exclude-dir` flags
+
+The canonical command uses:
+```
+--exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv
+```
+
+Full-repo search timed out (>120s) due to `.local/state/replit/agent/` (thousands of binary `.bin` agent state files) and `.pythonlibs/` (installed Python packages). The following directories were added to `--exclude-dir` to allow completion — all are non-source, non-AIEM binary/cache directories:
+
+```
+--binary-files=without-match
+--exclude-dir=.local
+--exclude-dir=.pythonlibs
+--exclude-dir=.upm
+--exclude-dir=__pycache__
+--exclude-dir=dist
+--exclude-dir=build
+--exclude-dir=.cache
+```
+
+No AIEM source files are in any of these directories. All patterns and flags are otherwise byte-for-byte identical to the canonical forms.
+
+---
+
+### Search 1 — Registries
+
+**Canonical pattern:**
+```
+grep -RIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv \
+  -E "ModuleRegistry|ToolRegistry|module_registry|tool_registry|indicator_registry|strategy_registry" .
+```
+
+**Results:** 608 lines  
+**Permanent evidence file:** `docs/verification/vault-phase0-s3-search1-registries.txt`  
+**sha256:** `6a91b73f27f39cee95e6cc37fbec6c1b71abe736853c75a33471641c73b804de`
+
+**Full raw output:**
+
+```
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:366:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:380:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:450:        print("aiem_module_registry: 24 rows")
+./artifacts/stock-scanner-api/aiem_phase7_verify.py:451:        print("aiem_tool_registry: 21 rows")
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:446:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:460:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:530:        print("aiem_module_registry: 28 rows")
+./artifacts/stock-scanner-api/aiem_phase8_verify.py:531:        print("aiem_tool_registry: 16 rows")
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:326:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:340:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:412:        print("aiem_module_registry: 11 rows")
+./artifacts/stock-scanner-api/aiem_phase9_verify.py:413:        print("aiem_tool_registry: 20 rows")
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:184:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:198:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:272:        print("aiem_module_registry: 2 rows")
+./artifacts/stock-scanner-api/aiem_phase10_verify.py:273:        print("aiem_tool_registry: 2 rows")
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:307:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:328:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:407:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase11_verify.py:408:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:39:         is NOT one of the 195 modules tracked in aiem_module_registry at
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:43:         NOT added as a new module_registry row, since expanding the
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:177:            "imported/called, but is ABSENT from the 195-module aiem_module_registry "
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:232:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:253:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:332:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase12_verify.py:333:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:68:     aiem_module_registry.
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:268:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:286:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:362:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase13_verify.py:363:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:271:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:289:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:370:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase14_verify.py:371:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:346:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:364:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:443:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase15_verify.py:444:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:264:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:282:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:358:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase16_verify.py:359:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:367:            """UPDATE aiem_module_registry
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:385:            """UPDATE aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:486:        print(f"aiem_module_registry: {len(mod_results)} rows")
+./artifacts/stock-scanner-api/aiem_phase17_verify.py:487:        print(f"aiem_tool_registry: {len(tool_results)} rows")
+./artifacts/stock-scanner-api/DIAGRAM2_FINAL_CLOSURE_VERIFICATION.md:10:`aiem_master_orchestrator.py` (~1,550 lines, `AEIMMasterOrchestrator` class) is real, working code that wires every AIEM module through a shared `AEIMTradePacket` covering architecture stages 0-9+. Registry proof (`aiem_module_registry`, module_phase=1 "Orchestration Layer"):
+./artifacts/stock-scanner-api/DIAGRAM2_FINAL_CLOSURE_VERIFICATION.md:74:Because the *audit call site* (mostly `main.py`) and the *functional logic* each stage represents are often different files/phases, the table below gives both, using `aiem_module_registry`/`aiem_registry.py`'s `MODULE_PHASE_MAP` as the source of truth — no invented stages, no forced 1:1 mapping where the evidence shows a split or a real gap.
+./artifacts/stock-scanner-api/d2_mutation_test.py:123:_d2_run(5,  "module_registry",    "Module Registry",
+./artifacts/stock-scanner-api/d2_mutation_test.py:130:_d2_run(6,  "tool_registry",      "Tool Registry",
+./artifacts/stock-scanner-api/diagram1-signoff.md:78:Stage  5  module_registry          → Phase 1   aiem_registry.get_module_for_stage
+./artifacts/stock-scanner-api/diagram1-signoff.md:79:Stage  6  tool_registry            → Phase 1   aiem_registry.get_tool
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:4:  "source_of_truth": "aiem_module_registry / aiem_tool_registry tables (queried live) for D2; information_schema + aiem_diagram3_governance.py source for D3. Fields not mechanically derivable are 'UNKNOWN'.",
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:2573:        "stage_name": "module_registry"
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:2577:        "stage_name": "tool_registry"
+./artifacts/stock-scanner-api/d2_d3_implementation_inventory.json:2665:      "d3_strategy_registry",
+./artifacts/stock-scanner-api/AIEM_DIAGRAM3_STRICT_VERIFICATION_REPORT.md:29:d3_architecture_baseline    d3_model_governance          d3_strategy_registry
+./artifacts/stock-scanner-api/premarket_open_trader.py:521:            # against d3_strategy_registry — as of this writing that name has
+./artifacts/stock-scanner-api/diagram2_component_inventory.json:15:    "evidence_gathering_method": "Live executeSql queries against the development Postgres database (aiem_diagram2_trace_audit, aiem_module5_runs/test_results, aiem_rediscovery_runs, aiem_module2_evaluations, stat_arb_pairs/stat_arb_signals, options_structure_scan, layer9_scores, model_versions, signal_trust_weights, aiem_probability_engine_predictions, cta_trigger_scan, quant_agent_sessions, job_heartbeats, aiem_module_registry) cross-referenced with source grep/read of the canonical files, executed this session on 2026-07-10.",
+./artifacts/stock-scanner-api/diagram2_component_matrix.csv:31:C30,"""53 Tools"" Inventory Claim",ARCHITECTURAL_DISCREPANCY,"aiem_module_registry (40 real module rows, re-queried this session)",_build_aiem_tool_map() registers 225 tool entries in the current codebase,"Documentation claims 53 tools; stale-documentation gap, not a functional failure; full 225x verification deferred to diagram2_53_tool_inventory.json",aiem_registry.py,7793bee1e5b7cf680b15de666ecc07e5078d2c6f5f3b1aa7196ea11571dd842a
+./artifacts/stock-scanner-api/aiem_registry.py:48:CREATE TABLE IF NOT EXISTS aiem_module_registry (
+./artifacts/stock-scanner-api/aiem_registry.py:75:CREATE TABLE IF NOT EXISTS aiem_tool_registry (
+./artifacts/stock-scanner-api/aiem_registry.py:134:    print("[aiem_registry] schema ready (aiem_module_registry, aiem_tool_registry)")
+./artifacts/stock-scanner-api/aiem_registry.py:439:# against aiem_module_registry, not a hardcoded call) before running each
+./artifacts/stock-scanner-api/aiem_registry.py:448:    5:  ("module_registry",            "Module Registry",                 1,  "aiem_registry.get_module_for_stage"),
+./artifacts/stock-scanner-api/aiem_registry.py:449:    6:  ("tool_registry",              "Tool Registry",                   1,  "aiem_registry.get_tool"),
+./artifacts/stock-scanner-api/aiem_registry.py:473:    Does a REAL SELECT against aiem_module_registry (keyed by the stage's
+./artifacts/stock-scanner-api/aiem_registry.py:494:                FROM aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry.py:513:    aiem_tool_registry -- used by the orchestrator to confirm a tool is
+./artifacts/stock-scanner-api/aiem_registry.py:523:                FROM aiem_tool_registry
+./artifacts/stock-scanner-api/generate_d3_manifests.py:8:     modules/tools (from aiem_module_registry / aiem_tool_registry) and
+./artifacts/stock-scanner-api/generate_d3_manifests.py:111:        "FROM aiem_module_registry ORDER BY module_phase, module_name"
+./artifacts/stock-scanner-api/generate_d3_manifests.py:117:        "FROM aiem_tool_registry ORDER BY tool_name"
+./artifacts/stock-scanner-api/generate_d3_manifests.py:123:        "FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase"
+./artifacts/stock-scanner-api/generate_d3_manifests.py:128:        "SELECT execution_status, COUNT(*) AS n FROM aiem_module_registry "
+./artifacts/stock-scanner-api/generate_d3_manifests.py:205:            "aiem_module_registry / aiem_tool_registry tables (queried live) "
+./artifacts/stock-scanner-api/generate_d3_manifests.py:415:                "Phase 0/1 discovery reads aiem_module_registry, "
+./artifacts/stock-scanner-api/generate_d3_manifests.py:416:                "aiem_tool_registry, aiem_diagram2_trace_audit, "
+./artifacts/stock-scanner-api/aiem_registry_build.py:13:  1. init_schema() -- creates aiem_module_registry / aiem_tool_registry /
+./artifacts/stock-scanner-api/aiem_registry_build.py:15:  2. Populates aiem_module_registry by unioning MODULE_PHASE_MAP and
+./artifacts/stock-scanner-api/aiem_registry_build.py:23:  3. Populates aiem_tool_registry by cross-referencing:
+./artifacts/stock-scanner-api/aiem_registry_build.py:85:    "aiem_module_registry":   EXPECTED_MODULE_COLUMNS,
+./artifacts/stock-scanner-api/aiem_registry_build.py:86:    "aiem_tool_registry":     EXPECTED_TOOL_COLUMNS,
+./artifacts/stock-scanner-api/aiem_registry_build.py:115:                  'aiem_module_registry',
+./artifacts/stock-scanner-api/aiem_registry_build.py:116:                  'aiem_tool_registry',
+./artifacts/stock-scanner-api/aiem_registry_build.py:456:                INSERT INTO aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:484:                INSERT INTO aiem_tool_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:567:            cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner-api/aiem_registry_build.py:569:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry")
+./artifacts/stock-scanner-api/aiem_registry_build.py:573:            cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry WHERE file_exists_confirmed = FALSE")
+./artifacts/stock-scanner-api/aiem_registry_build.py:575:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE excluded_from_autonomous_use = TRUE")
+./artifacts/stock-scanner-api/aiem_registry_build.py:577:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE tool_type = 'cli_verification_command'")
+./artifacts/stock-scanner-api/aiem_registry_build.py:579:            cur.execute("SELECT COUNT(*) AS n FROM aiem_tool_registry WHERE tool_type = 'alias_mapped'")
+./artifacts/stock-scanner-api/aiem_registry_build.py:583:                FROM aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:590:                FROM aiem_module_registry
+./artifacts/stock-scanner-api/aiem_registry_build.py:616:        print(f"aiem_module_registry row count:   {module_count}")
+./artifacts/stock-scanner-api/aiem_registry_build.py:617:        print(f"aiem_tool_registry row count:     {tool_count}")
+./artifacts/stock-scanner-api/aiem_registry_build.py:674:        print("  Decision required: should main.py appear in aiem_module_registry at all,")
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:168:    CREATE TABLE IF NOT EXISTS d3_strategy_registry (
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:1907:    Real, bounded check against d3_strategy_registry -- the only
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:1918:    registered in d3_strategy_registry, so this check will honestly report
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:1931:                    "SELECT approval_status, status FROM d3_strategy_registry "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3796:                    "FROM aiem_module_registry ORDER BY module_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3802:                    "FROM aiem_tool_registry ORDER BY tool_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3872:                    "FROM aiem_module_registry GROUP BY module_phase ORDER BY module_phase"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3879:                    "FROM aiem_tool_registry GROUP BY tool_type ORDER BY tool_type"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3887:                    "FROM aiem_module_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3894:                    "FROM aiem_tool_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3913:                "module_registry": {
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:3919:                "tool_registry": {
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4196:                        """INSERT INTO d3_strategy_registry
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4575:                    "SELECT module_name FROM aiem_module_registry ORDER BY module_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4579:                    "SELECT tool_name FROM aiem_tool_registry ORDER BY tool_id"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4873:                    cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4944:                    cur.execute("SELECT COUNT(*) AS n FROM aiem_module_registry")
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4988:                        "SELECT module_name, COUNT(*) AS cnt FROM aiem_module_registry "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:4999:                        "SELECT tool_name, COUNT(*) AS cnt FROM aiem_tool_registry "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5075:        "strategy_registry": strategy.get("STRATEGY_REGISTRY", []),
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5521:    def d3_strategy_registry():
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5537:    aiem_tool_registry_json = json.dumps(
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5540:    aiem_module_registry_json = json.dumps(
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5543:    d3_strategy_registry_json = json.dumps(
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5555:        aiem_tool_registry_json=aiem_tool_registry_json,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5556:        aiem_module_registry_json=aiem_module_registry_json,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5557:        d3_strategy_registry_json=d3_strategy_registry_json,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5637:                    "FROM aiem_module_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5640:                    "FROM aiem_tool_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5643:                    "FROM d3_strategy_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5648:                    "FROM aiem_module_registry"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5657:                "aiem_module_registry": mod_rows,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5658:                "aiem_tool_registry": tool_rows,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5659:                "d3_strategy_registry": d3_rows,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5668:                    "FROM aiem_module_registry WHERE is_active = TRUE"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5673:                    "FROM aiem_tool_registry WHERE excluded_from_autonomous_use = FALSE"
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5677:                    "FROM d3_strategy_registry WHERE status = 'active' "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5682:                    "FROM d3_strategy_registry WHERE approval_status = 'approved' "
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5689:                    "tool_registry_active": tool_active,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5690:                    "strategy_registry_active_approved": strat_active,
+./artifacts/stock-scanner-api/aiem_diagram3_governance.py:5691:                    "strategy_registry_shadow_approved": strat_shadow,
+./artifacts/stock-scanner-api/d2_execution_matrix.json:74:            "d3_strategy_registry",
+./artifacts/stock-scanner-api/d2_execution_matrix.json:175:            "d3_strategy_registry"
+./artifacts/stock-scanner-api/docs/verification/vault-phase0-FINAL.md:134:| `aiem_tool_registry` | PostgreSQL table | Tool inventory by phase/module (AST-populated) |
+./artifacts/stock-scanner-api/docs/verification/vault-phase0-FINAL.md:136:| `d3_strategy_registry` | PostgreSQL table | D3 governance strategy registry |
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873803307.txt:39:**Finding:** `aiem_module_registry` and `aiem_tool_registry` do not exist in the database — the DDL is defined in `aiem_registry.py` but was never applied. `get_registry()` returns `None`. Two separate, unreconciled in-memory registries exist instead: D1's own `AEIM_MODULES` dict (52 entries) and `aiem_registry.py`'s `MODULE_PHASE_MAP` (195 entries). Module ownership shows 12 co-owners for "Phase 1," contradicting any single-owner design intent. This gap is also the root cause of the Section I "Line 411" silent fallback (see Priority 4).
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873803307.txt:42:1. Apply the existing DDL for `aiem_module_registry` and `aiem_tool_registry` to the database.
+./attached_assets/Pasted--Directive-D1-Master-Orchestrator-Remediation-Source-Fu_1783873803307.txt:51:**Finding:** D1 has zero references to `aiem_diagram3_governance` anywhere in the file. D1 never imports D3 and never calls any D3 function. Zero handling exists for any of the 5 D3 verdict types (APPROVE, PAUSE, QUARANTINE, ROLLBACK, STOP) — confirmed "received: NO / processed: NO" for all five. `d3_strategy_registry` and `d3_rollback_registry` both have 0 rows; no end-to-end test evidence exists for any verdict type. This is a direct blocker for PAPER ENFORCEMENT, which requires D1 to actually act on a D3 BLOCK verdict.
+./attached_assets/Pasted--Directive-Priority-2-Module-Registry-Persistence-Dict-_1783874585016.txt:27:   for anything named registry, module_registry, stage_registry, etc.)
+./attached_assets/Pasted--Directive-Priority-2-Module-Registry-Persistence-Dict-_1783874585016.txt:33:Propose a DDL for a new table (working name: aiem_module_registry) that
+./attached_assets/Pasted--AIEM-Module-Registry-Decisions-D1-D2-and-Fixes-for-F4-_1783876198001.txt:19:Use `aiem_registry.py`'s DDL (lines 48 / 75 / 107) as the **sole authoritative source** for all three `CREATE TABLE` statements (`aiem_module_registry`, `aiem_tool_registry`, `aiem_function_registry`). This version has the `UNIQUE` constraint on `module_name` that `dev_schema_bootstrap.sql` is missing.
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:1:# Directive: AIEM Registry Consolidation (aiem_module_registry / aiem_tool_registry / aiem_function_registry)
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:11:   $ psql -c "SELECT registry_source, count(*) FROM aiem_module_registry GROUP BY registry_source;" | grep -E "MODULE_PHASE_MAP|AIEM_MODULES|BOTH|CONFLICT"
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:24:The DDL comment for `aiem_module_registry` documents `registry_source` as one of: `MODULE_PHASE_MAP / AIEM_MODULES / BOTH / CONFLICT`. Current `build_module_rows()` logic only assigns two of these (`BOTH` or `MODULE_PHASE_MAP`), because it only ever iterates `MODULE_PHASE_MAP.items()`.
+./attached_assets/Pasted--Directive-AIEM-Registry-Consolidation-aiem-module-regi_1783877521743.txt:32:**Evidence required:** raw SQLGREP output of `SELECT registry_source, count(*) FROM aiem_module_registry GROUP BY registry_source` after population, showing all four values are structurally reachable (even if some counts are 0 — but state explicitly if a value is 0 rather than omitting it).
+./attached_assets/Pasted--Decisions-on-D1-and-D3-D1-deep-rl-Confirmed-per-file-p_1783878745204.txt:5:**D3 (main.py):** Exclude `main.py` from `aiem_module_registry`. It is the Flask server / infrastructure entry point, not a discrete AIEM module in the D1/D2/D3 pipeline sense. Before implementing the exclusion, confirm via grep/SQLGREP that no other AIEM module currently references `main.py` as an upstream or downstream dependency anywhere in `MODULE_PHASE_MAP`, `AIEM_MODULES`, or the codebase generally. If a dependency does exist, flag it back to me before excluding — don't silently drop a referenced entry.
+./attached_assets/Pasted--Decisions-on-D1-and-D3-D1-deep-rl-Confirmed-per-file-p_1783878900844.txt:5:**D3 (main.py):** Exclude `main.py` from `aiem_module_registry`. It is the Flask server / infrastructure entry point, not a discrete AIEM module in the D1/D2/D3 pipeline sense. Before implementing the exclusion, confirm via grep/SQLGREP that no other AIEM module currently references `main.py` as an upstream or downstream dependency anywhere in `MODULE_PHASE_MAP`, `AIEM_MODULES`, or the codebase generally. If a dependency does exist, flag it back to me before excluding — don't silently drop a referenced entry.
+./attached_assets/Pasted--Directive-Registry-Build-Finalization-Patch-Verify-Bui_1783880216586.txt:48:Provide raw SQL query + full result set from `aiem_module_registry`:
+./attached_assets/Pasted--Directive-Implement-upsert-functions-to-populate-aiem-_1783882764668.txt:5:Step 4 verification confirmed `aiem_module_registry` (194 rows) and `aiem_tool_registry` (222 rows) are fully populated and match the pre-build dry-run exactly. `aiem_function_registry` exists with correct schema but has 0 rows — the build script has `upsert_modules()` and `upsert_tools()` but no `upsert_functions()` call. This directive closes that gap.
+./attached_assets/Pasted--Directive-Implement-upsert-functions-to-populate-aiem-_1783882764668.txt:14:6. After the live insert, re-run the full Check 1–9 verification pass across **all three** registry tables (`aiem_module_registry`, `aiem_tool_registry`, `aiem_function_registry`) together, so the entire registry is confirmed in one consolidated pass rather than function registry being verified in isolation.
+./attached_assets/Pasted--Directive-12-Addendum-Stage-13-Resolution-Strategy-Reg_1784042803292.txt:29:- Confirm via raw SQL that each source now has a row in `d3_strategy_registry` with `approval_status = 'approved'` and `status = 'active'`.
+./attached_assets/Pasted--Directive-13-D3-PAPER-ENFORCEMENT-Build-Scope-Date-Jul_1784057272593.txt:6:**Precondition confirmed closed:** Directive 12's `d3_strategy_registry` is implemented and functioning correctly — real table, populated via `run_phase4_strategy()`, 4 approved sources active, and `UNAPPROVED_STRATEGY:<source>` correctly still fires in SHADOW mode for the 6 unapproved sources (`sweep`, `oi_buildup`, `washout_ignition`, `layer9_stat`, `squeeze_reversion`, `premarket_open_trader`). This directive builds on top of that confirmed state.
+./attached_assets/Pasted--Directive-13-D3-PAPER-ENFORCEMENT-Build-Scope-Date-Jul_1784057272593.txt:74:- Do not touch the `test_source` fixture row in `d3_strategy_registry` (id=4) — that is a separate, pending item awaiting Joel's decision, unrelated to this directive.
+./attached_assets/Pasted--Directive-13-Phase-1-Decisions-Rollback-Mechanism-G3-F_1784058395329.txt:10:- 3 of 9 unregistered strategy sources (gap_volume, unusual_calls, aiem_v3_discovery) were approved in `d3_strategy_registry` at 15:30 UTC. 6 remain unregistered: sweep, oi_buildup, washout_ignition, layer9_stat, squeeze_reversion, premarket_open_trader.
+./attached_assets/Pasted--Directive-13-Phase-1-Decisions-Rollback-Mechanism-G3-F_1784058395329.txt:19:- Do NOT auto-approve any of these sources. Present Joel with what's known about each source's paper performance/history (query `d3_governance_decisions` and any relevant performance tables for each source name) so he can decide per-source: approve into `d3_strategy_registry`, or accept that it will be hard-blocked once G3 is in ENFORCE.
+./attached_assets/Pasted--Directive-13-Phase-2-G3-ENFORCE-Verification-Context-P_1784060143333.txt:10:- Raw SQL query of `d3_strategy_registry` to confirm the state of all 9 previously-unregistered/registered strategy sources reflects Joel's Phase 1 decisions.
+./attached_assets/Pasted--AIEM-COMPLETE-STOCK-ANALYSIS-VERIFICATION-AUDIT-Direct_1784227373732.txt:15:| Registered AIEM tools (aiem_tool_registry) | **222** |
+./attached_assets/Pasted-DIRECTIVE-Phase-III-Phase-1-Gap-Closure-1-ITEM-4-was-mi_1784401041675.txt:4:   SELECT count(*) FROM oe_indicator_registry;
+./attached_assets/Pasted--Directive-Phase-10-Kickoff-OPT-001-through-OPT-035-Sco_1784839312335.txt:4:This section is AIEM's native options pipeline (Directive 14 pattern engine) — NOT the Standalone Options Engine (oe_indicator_snapshots / oe_indicator_attribution / oe_indicator_registry). Confirm which table(s) each item actually reads/writes before using any existing Options Engine evidence (DPL, calibration module) as a substitute. If overlap is found, flag it — do not assume shared evidence is valid across the two systems.
+./phase2_verification_2026-07-18.txt:42:SEQ=30 ts=2026-07-18T19:41:56Z status=PASS name=TABLE_EXISTS_oe_strategy_registry detail=rows=42
+./phase2_verification_2026-07-18.txt:50:SEQ=36 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_42_SEEDED detail=oe_strategy_registry rows=42
+./phase2_verification_2026-07-18.txt:51:SEQ=37 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_LONG_CALL detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:52:SEQ=38 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_LONG_PUT detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:53:SEQ=39 ts=2026-07-18T19:41:57Z status=PASS name=REGISTRY_HAS_IRON_CONDOR detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:54:SEQ=40 ts=2026-07-18T19:41:58Z status=PASS name=REGISTRY_HAS_JADE_LIZARD detail=1 row confirmed in oe_strategy_registry
+./phase2_verification_2026-07-18.txt:55:SEQ=41 ts=2026-07-18T19:41:58Z status=PASS name=REGISTRY_HAS_BOX_SPREAD detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:69:SEQ=30 ts=2026-07-18T19:46:10Z status=PASS name=TABLE_EXISTS_oe_strategy_registry detail=rows=42
+./phase2_gap_evidence_2026-07-18.txt:77:SEQ=36 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_42_SEEDED detail=oe_strategy_registry rows=42
+./phase2_gap_evidence_2026-07-18.txt:78:SEQ=37 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_CALL detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:79:SEQ=38 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_LONG_PUT detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:80:SEQ=39 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_IRON_CONDOR detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:81:SEQ=40 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_JADE_LIZARD detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:82:SEQ=41 ts=2026-07-18T19:46:12Z status=PASS name=REGISTRY_HAS_BOX_SPREAD detail=1 row confirmed in oe_strategy_registry
+./phase2_gap_evidence_2026-07-18.txt:266:         _seed_strategy_registry(db_url)
+./D11_pre_run_findings_2026-07-20.md:255:| 9 signal sources registered in d3_strategy_registry | DB: 9 rows |
+./AIEM_DASHBOARD_DATABASE_INVENTORY.md:57:| oe_strategy_registry | 42 | — | — | id | strategy_id, name, family, direction, call_put_type, enabled | Live Decisions |
+./AIEM_DASHBOARD_SCREEN_DETAIL.md:149:| Known limitations | oe_indicator_snapshots has 19 columns including `canonical_id` — dashboard must join to `oe_indicator_registry` (79 rows) to get human-readable names |
+./AIEM_DASHBOARD_PHASE_B_CHANGES_AND_VERIFICATION.md:212:| `oe_indicator_registry` | 79 indicators registered | ✅ PASS |
+./AIEM_DASHBOARD_GAP_AUDIT.md:650:10. **Indicator Laboratory page** — from `layer9_scores`, `oe_indicator_registry`  
+./docs/verification/phase9-ind-FINAL.md:32:| `oe_indicator_registry` | 79 rows | **Formal** (options engine only) | `aiem_options_scheduler.py` |
+./docs/verification/phase9-ind-FINAL.md:39:The Phase 9 spec note (`cross-reference against the existing 39-indicator audit; Thompson Sampling #06 and Bayesian Statistics #24 confirmed inert`) applies: the ~39 conviction-stack indicators are entirely absent from any formal registry and fall outside the scope of `oe_indicator_registry`.
+./docs/verification/phase9-ind-FINAL.md:47:| IND-001 | **PARTIAL** | `oe_indicator_registry` covers 79 options-engine indicators; polygon tech (19 cols), layer9 statistical (14 fields), conviction stack (~39) absent from registry |
+./docs/verification/phase9-ind-FINAL.md:52:| IND-006 | **FAIL** | No `description`, `calculation_method`, `method`, or `formula` column in `oe_indicator_registry` or any indicator table |
+./docs/verification/phase9-ind-FINAL.md:54:| IND-008 | **FAIL** | No `output_fields`, `outputs`, or `produced_outputs` column in `oe_indicator_registry`; `oe_indicator_snapshots` stores runtime values but registry declares no output schema |
+./docs/verification/phase9-ind-FINAL.md:94:**1. Registry exists but covers only one indicator family (options engine).** The `oe_indicator_registry` with 79 rows is a real, populated, deduplicated registry — but it exclusively covers the options pipeline. The polygon technical indicators (19 production columns), layer9 statistical indicators (14 fields), and conviction stack (~39 indicators) have no registry entry of any kind.
+./docs/verification/staging-negative-controls-FINAL.md:812:oe_indicator_registry
+./docs/verification/staging-negative-controls-FINAL.md:834:oe_strategy_registry
+./docs/verification/vault-phase0-FINAL.md:134:| `aiem_tool_registry` | PostgreSQL table | Tool inventory by phase/module (AST-populated) |
+./docs/verification/vault-phase0-FINAL.md:136:| `d3_strategy_registry` | PostgreSQL table | D3 governance strategy registry |
+./options_engine_all.txt:2071:5. Advanced Strategy Learning   → oe_strategy_registry, oe_strategy_candidates
+(... 520 additional lines in evidence file ...)
+```
+
+---
+
+### Search 2 — Evidence / Audit / sha256 / PASS
+
+**Canonical pattern:**
+```
+grep -RIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv \
+  -E "verify_chain|verified_run|sha256|evidence|audit|PASS|NO_PASS|NO PASS" .
+```
+
+**Results:** 37,543 lines  
+**Permanent evidence file:** `docs/verification/vault-phase0-s3-search2-evidence.txt`  
+**sha256:** `391e5f3a918536ea99379ac6f89e365f4a3346b78df5d99b3d3b3e9340321e7e`
+
+Full raw output is in the evidence file. Embedding 37,543 lines inline would make this document unreadable; the sha256-referenced file above is the authoritative record.
+
+---
+
+### Search 3 — Terminal / Auth / RBAC
+
+**Canonical pattern:**
+```
+grep -RIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv \
+  -E "terminal|dashboard|route|router|auth|role|permission|RBAC" .
+```
+
+**Results:** 7,915 lines  
+**Permanent evidence file:** `docs/verification/vault-phase0-s3-search3-auth.txt`  
+**sha256:** `ce0047257dbfc4dcfaf14683ddaac502466214a287598fdda577736eef6e7bfa`
+
+Full raw output is in the evidence file.
+
+---
+
+### Search 4 — Scheduler / CI
+
+**Canonical pattern:**
+```
+grep -RIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv \
+  -E "APScheduler|cron|schedule|scheduler|workflow_dispatch|github actions" .
+```
+
+**Results:** 6,203 lines  
+**Permanent evidence file:** `docs/verification/vault-phase0-s3-search4-scheduler.txt`  
+**sha256:** `91e5b524fa453f0b180060a1aa5dc4fd0bc28ab2c73553454130db4ed54904c5`
+
+Full raw output is in the evidence file.
+
+---
+
+### Section 3 Rerun Summary
+
+| Search | Pattern categories | Lines | sha256 (first 8) | File |
+|---|---|---|---|---|
+| S1 | registries | 608 | `6a91b73f` | `vault-phase0-s3-search1-registries.txt` |
+| S2 | evidence/audit/sha256/PASS | 37,543 | `391e5f3a` | `vault-phase0-s3-search2-evidence.txt` |
+| S3 | terminal/auth/RBAC | 7,915 | `ce004725` | `vault-phase0-s3-search3-auth.txt` |
+| S4 | scheduler/CI | 6,203 | `91e5b524` | `vault-phase0-s3-search4-scheduler.txt` |
+
+All 4 evidence files permanently committed to `docs/verification/`. Section 3 rerun complete.
