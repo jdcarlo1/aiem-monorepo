@@ -223,6 +223,26 @@ def _startup_metrics():
     return _FlaskResponse(body, status=200, mimetype="text/plain; version=0.0.4; charset=utf-8")
 
 
+@app.route("/stock-api/auth/login", methods=["POST"])
+def dashboard_login():
+    import hmac as _hmac, secrets as _sec
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+    want_user = os.environ.get("DASHBOARD_USERNAME", "")
+    want_pass = os.environ.get("DASHBOARD_PASSWORD", "")
+    if not want_user or not want_pass:
+        return jsonify({"error": "Login not configured"}), 503
+    user_ok = _hmac.compare_digest(username.encode(), want_user.encode())
+    pass_ok = _hmac.compare_digest(password.encode(), want_pass.encode())
+    if not user_ok or not pass_ok:
+        return jsonify({"error": "Invalid credentials"}), 401
+    csrf = _sec.token_hex(16)
+    resp = jsonify({"csrf_token": csrf, "user": {"username": username}})
+    resp.set_cookie("aiem_csrf", csrf, httponly=False, samesite="Lax", secure=False)
+    return resp, 200
+
+
 # ── True early port bind ──────────────────────────────────────────────────────
 # MUST be HERE — immediately after health routes, before ALL heavy local imports
 # (scanner, portfolio, backtest, multiday_runner, etc.) which each pull in
