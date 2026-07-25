@@ -3061,10 +3061,17 @@ def _discovery_cycle_job(triggered_by: str = "scheduler") -> None:
         _dc_all_templates = list(_de._HYPOTHESIS_TEMPLATES)
         _dc_ranked        = _dc_module2_rank_templates(_dc_all_templates)
         result = _de.get_discovery_engine().run_cycle(templates=_dc_ranked)
+        # Part 2 silent-failure fix: surface early-return "aborted_no_data"
+        # status so discovery_cycle_log.error_msg is never silently NULL when
+        # the engine aborted before running any templates.  A clean zero-result
+        # run has run_status="completed" and error_msg=NULL — distinguishable.
+        if result.get("run_status") == "aborted_no_data":
+            error_msg = result.get("error", "no backtest data loaded")
         print(f"[discovery_cycle] run_id={run_id} done — "
               f"proposed={result.get('proposed',0)} "
               f"rejected={result.get('rejected',0)} "
-              f"total={result.get('total_templates',0)}")
+              f"total={result.get('total_templates',0)} "
+              f"status={result.get('run_status','completed')}")
     except Exception as _e:
         error_msg = str(_e)
         print(f"[discovery_cycle] run_id={run_id} engine error: {_e}")

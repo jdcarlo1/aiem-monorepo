@@ -173,13 +173,14 @@ def _check_overfit_wl(
 
 
 #
-# Date windows: polygon_market_daily has complete non-NULL features only from
-# 2026-04-07 onward (~6,500 tickers/day with gap_pct + rvol + close_strength).
-# Prior rows exist but gap_pct/rvol are NULL and would be filtered out anyway.
-# Split: first ~6 weeks IS, last ~6 weeks OOS — pure temporal separation.
-_TRAIN_START           = "2026-04-07"
-_TRAIN_END             = "2026-05-18"
-_TEST_START            = "2026-05-19"
+# Date windows: polygon_market_daily has stored gap_pct/rvol only from
+# 2026-07-10 onward. For earlier rows _load_backtest_universe computes these
+# columns on-the-fly via LAG(close_price) and AVG(volume) window functions
+# so the full 2024-07-22 history is usable without a prior backfill.
+# Split: IS = 2024-07-22 → 2025-06-30 (~1 year), OOS = 2025-07-01 → today.
+_TRAIN_START           = "2024-07-22"
+_TRAIN_END             = "2025-06-30"
+_TEST_START            = "2025-07-01"
 # _TEST_END is set dynamically to yesterday so the engine always tests against
 # the most recent available market data without requiring a manual date update.
 import datetime as _de_dt
@@ -385,7 +386,7 @@ def _candidate_id(template: Dict) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_backtest_universe(
-    start: str, end: str, timeout_ms: int = 30000
+    start: str, end: str, timeout_ms: int = 120_000
 ) -> List[Dict[str, Any]]:
     """
     Load all rows from polygon_market_daily in [start, end] with a valid
@@ -398,11 +399,72 @@ def _load_backtest_universe(
         (enforced by next_date <= scan_date + 5 calendar days).
       - No same-day future information is used as a predictor.
 
+    On-the-fly gap_pct / rvol computation:
+      The stored gap_pct and rvol columns are NULL for rows before 2026-07-10
+      (the legacy writer did not populate them, and prev_close is also NULL
+      pre-2026-04-07). This function derives them via COALESCE + window
+      functions so the full 2024-07-22 history is usable without a prior
+      backfill:
+        gap_pct = COALESCE(stored, (open_price / LAG(close_price)) - 1)
+        rvol    = COALESCE(stored, volume / AVG(volume) OVER 30-preceding rows)
+      A 45-day buffer before 'start' is included in the FROM clause so the
+      LAG/AVG window has enough history for boundary-date rows.
+
     Note: SET LOCAL is a separate execute call so psycopg2 doesn't try to
     handle a multi-statement string (which is not supported in all versions).
     """
+    import datetime as _dt_bu
+    buf_start = (
+        _dt_bu.date.fromisoformat(start) - _dt_bu.timedelta(days=45)
+    ).isoformat()
+
     sql_window = """
-    WITH windowed AS (
+    WITH source AS (
+        SELECT
+            ticker,
+            scan_date,
+            open_price,
+            close_price,
+            volume,
+            gap_pct,
+            rvol,
+            close_strength,
+            range_pct,
+            LAG(close_price) OVER (
+                PARTITION BY ticker ORDER BY scan_date
+            ) AS prev_close_computed,
+            AVG(volume) OVER (
+                PARTITION BY ticker ORDER BY scan_date
+                ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING
+            ) AS avg_vol_30
+        FROM polygon_market_daily
+        WHERE scan_date BETWEEN %s AND %s
+    ),
+    derived AS (
+        SELECT
+            ticker,
+            scan_date,
+            close_price,
+            close_strength,
+            range_pct,
+            COALESCE(
+                gap_pct,
+                CASE WHEN prev_close_computed > 0
+                     THEN (open_price / prev_close_computed) - 1.0
+                     ELSE NULL
+                END
+            ) AS gap_pct,
+            COALESCE(
+                rvol,
+                CASE WHEN avg_vol_30 > 0
+                     THEN volume::numeric / avg_vol_30
+                     ELSE NULL
+                END
+            ) AS rvol
+        FROM source
+        WHERE scan_date BETWEEN %s AND %s
+    ),
+    windowed AS (
         SELECT
             ticker,
             scan_date,
@@ -413,9 +475,8 @@ def _load_backtest_universe(
             close_price,
             LEAD(close_price) OVER (PARTITION BY ticker ORDER BY scan_date) AS next_close,
             LEAD(scan_date)   OVER (PARTITION BY ticker ORDER BY scan_date) AS next_date
-        FROM polygon_market_daily
-        WHERE scan_date BETWEEN %s AND %s
-          AND gap_pct        IS NOT NULL
+        FROM derived
+        WHERE gap_pct        IS NOT NULL
           AND rvol           IS NOT NULL
           AND close_strength IS NOT NULL
           AND range_pct      IS NOT NULL
@@ -436,7 +497,8 @@ def _load_backtest_universe(
         with _conn() as c, c.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(f"SET LOCAL statement_timeout = '{timeout_ms}'")
             cur.execute(sql_window, (
-                start, end,
+                buf_start, end,   # source range (with 45-day lookback buffer)
+                start, end,       # derived filter (actual requested range)
                 _MIN_PRICE, _MAX_RVOL,
                 _NEXT_DAY_MAX_GAP_DAYS,
             ))
@@ -730,10 +792,15 @@ class DiscoveryEngine:
             train_rows, test_rows = self._load_data()
 
             if not train_rows or not test_rows:
+                # run_status="aborted_no_data" distinguishes this from a
+                # legitimately-empty-but-successful run (run_status="completed")
+                # so discovery_cycle_log.error_msg is never silently NULL
+                # when the engine aborted early.
                 return {
-                    "error": "no backtest data loaded — check polygon_market_daily",
-                    "train_n": len(train_rows),
-                    "test_n":  len(test_rows),
+                    "run_status": "aborted_no_data",
+                    "error":      "no backtest data loaded — check polygon_market_daily",
+                    "train_n":    len(train_rows),
+                    "test_n":     len(test_rows),
                 }
 
             results   = []

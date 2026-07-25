@@ -1,3 +1,4 @@
+- [Discovery engine on-the-fly COALESCE pattern](discovery-engine-coalesce.md) — polygon_market_daily UPDATE is permanently blocked by Flask pool RowExclusiveLock; read-only COALESCE+LAG/AVG is the correct fix; run_status="aborted_no_data" prevents silent log nulls
 - [Staging NEG controls](staging-neg-controls.md) — NEG-002/005/007/009 PASS; d3_test=staging DB; isolation via UndefinedTable; harness sha256=f8cc85e9; NaN propagates through indicators (caught by _json_sanitize); full Flask instance deferred
 - [EVID-013 independent recomputation](evid013-independent-recomputation.md) — PASS 10/10 MATCH; NEG-038/039/040 satisfied; independence scanner: use ^\s* grep not substring; tools/independent_recomputation.py sha256=3f4e4a98
 - [Morning scan architecture overhaul](morning-scan-overhaul.md) — RC-1=3:02AM self-exit removed; RC-2=6:55-9:45 block removed; morning_scan_runs+advisory-lock+watchdog; live proof deferred to 2026-07-25

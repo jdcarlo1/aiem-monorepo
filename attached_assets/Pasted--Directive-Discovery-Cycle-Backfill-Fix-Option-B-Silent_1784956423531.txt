@@ -1,0 +1,51 @@
+# Directive — Discovery Cycle Backfill Fix (Option B) + Silent-Failure Gap Closure
+
+## Scope
+Fix `total_templates=0` root cause (gap_pct/rvol NULL pre-2026-07-10 in
+`polygon_market_daily`) via one-time backfill. Also close the silent
+early-return defect in `run_cycle()` so a future precondition failure
+can't log as an indistinguishable silent zero again.
+
+## Part 1 — Backfill (Option B)
+1. Write one-time backfill script computing for all `polygon_market_daily`
+   rows since 2024-07-22:
+   - `gap_pct = (open_price / prev_close) - 1`
+   - `rvol = volume / 30-day trailing avg volume`
+2. Run against real DB. Provide exact row count updated + before/after
+   per-column NULL counts (same audit query already used: gap_pct_nonnull,
+   rvol_nonnull, close_str_nonnull, range_pct_nonnull, price_ok, total_rows).
+3. Update `_TRAIN_START`/`_TRAIN_END`/`_TEST_START` constants:
+   train window 2024-07-22 → 2025-06-30, test window 2025-07-01 → today.
+4. Re-run `_load_backtest_universe` for new train window, paste raw
+   `qualifying_train_rows` / `qualifying_test_rows` counts. Must be
+   statistically meaningful (not near-zero) before claiming fixed.
+5. Run a real discovery cycle end-to-end, paste raw
+   `discovery_cycle_log` row showing non-zero `total_templates`.
+
+## Part 2 — Close the silent-failure gap
+Currently `run_cycle()`'s "no backtest data loaded" early-return path and
+a legitimately-empty-but-successful run are indistinguishable in the log
+(`total_templates=0, error_msg=NULL` either way).
+1. Add a distinct signal on the early-return path — either populate
+   `error_msg` with the "no backtest data loaded" string on this path too
+   (not only on raised exceptions), or add a new status column
+   distinguishing "ran clean, zero result" from "aborted before running."
+2. Negative control: force the early-return condition again (e.g. temporarily
+   query an empty date range) and confirm the new signal appears — prove
+   the gate actually fires, not just that the code exists.
+3. Raw grep of the changed lines + before/after sha256 + git diff.
+
+## Standing checklist (applies to every item above)
+- Raw terminal output for every claim — no paraphrased grep, no described SQL
+- Raw SQL + full result set for row counts / NULL audits
+- sha256 before/after for every changed file; cross-check
+  tools/verified_run.sh + artifacts/stock-scanner-api/verify_chain.sh
+  against current canonical
+- verified_run.sh / verify_chain.sh output required before declaring done
+- No deletion/truncation of any row without prior explicit approval
+  (Data Immutability Rule) — state what, why, wait, then log
+- "PASS" only if fully verified with nothing outstanding; otherwise use
+  "partial" / "cleared to proceed" / "closed via accepted-risk" — never blend
+- Once fully closed: commit a permanent record file
+  (`/docs/verification/discovery-cycle-backfill-FINAL.md`) with full
+  verdict, evidence summary, and commit hash verified against
