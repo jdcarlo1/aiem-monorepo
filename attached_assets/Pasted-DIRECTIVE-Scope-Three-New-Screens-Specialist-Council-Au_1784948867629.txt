@@ -1,0 +1,52 @@
+DIRECTIVE — Scope Three New Screens (Specialist Council, Audit/Compliance, Learning Center/Research)
+2026-07-24
+
+CONTEXT
+None of these three have existing checklist items — Specialist Council and
+Learning Center/Research were named in the original build spec but never
+inventoried; Audit/Compliance is a new addition (not in the original 741-item
+checklist) proposed for sale-readiness. All three need a scoping/mini-inventory
+pass before any code is written. Do not build anything yet — this directive is
+discovery only.
+
+SEQUENCING
+Queued behind the missing-screens build (Performance/Probability/Calibration)
+and the staging-environment work already in flight. Scoping can start now;
+building starts only after those two close.
+
+FOR EACH SCREEN, REQUIRED DISCOVERY OUTPUT
+
+1. Specialist Council
+- What data currently exists (if any) showing which signals/specialists
+  contributed to a trade decision and how they voted/weighted
+- Raw grep/SQL proof of what's actually stored per decision today
+- If nothing exists: state that plainly, propose minimum viable data model
+  (what would need to be captured going forward — no backfilling fabricated
+  history)
+- Draft a numbered checklist (like the other 12 phases) with PASS criteria
+
+2. Audit/Compliance screen
+- Inventory what verification artifacts already exist and where
+  (docs/verification/*.md files, recomputation script, evidence-chain logs)
+- Propose what a "Verification Status" screen would surface: last-run
+  recomputation results, audit trail, links/references to sealed reports
+- Draft a numbered checklist with PASS criteria — this screen must only
+  display real results from real files/scripts, never a static "all green"
+  placeholder
+
+3. Learning Center + Research & Hypotheses
+- What data currently exists (if any) on the system's own testing/learning
+  over time
+- Raw grep/SQL proof of what's stored today
+- If nothing exists: state that plainly, propose minimum viable data model
+- Draft a numbered checklist with PASS criteria
+
+STANDING RULES APPLY
+- No fabricated data, no placeholder "looks complete" values
+- Raw evidence for every discovery claim (grep/SQL, not narrative)
+- Pre-action gate: report back with all three checklists before any building
+  directive is issued
+
+CLOSE-OUT
+This directive closes when all three checklists are delivered with real
+discovery evidence — not when any screen is built.
