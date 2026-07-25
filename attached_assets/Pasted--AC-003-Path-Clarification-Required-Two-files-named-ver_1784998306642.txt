@@ -1,0 +1,23 @@
+## AC-003 Path Clarification Required
+
+Two files named verify_chain.sh exist in this repo with different canonical hashes:
+- tools/verify_chain.sh — canonical 972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75
+- artifacts/stock-scanner-api/verify_chain.sh — canonical ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+
+AC-003 states: "verify_chain_sh_sha matches canonical ca7896c7...". Confirm explicitly, with raw output, which file path this check runs against. If it is checking tools/verify_chain.sh against ca7896c7, that is a wrong-file comparison (per the 2026-07-24 correction on this exact issue) and must be fixed before this item can be marked PASS.
+
+Required: `sha256sum` output for BOTH files, plus the exact code line(s) in the Audit screen backend that perform this check (raw grep/sed, not paraphrased).
+
+## Standing Checklist (applies to this and every directive)
+
+**Raw-evidence requirement:** No claim of "fixed/tested/found/confirmed" without pasted raw output. Required where applicable: (1) raw terminal output, including raw grep -n output for any code/location/behavior claim — never paraphrased; (2) exact before/after file diff; (3) sha256 before/after for changed files; (4) raw SQL query + full result set for any DB involvement. State plainly if evidence can't be produced — no padding.
+
+**Evidence-chain protocol:** Run evidence-producing commands through tools/verified_run.sh; validate with the correct verify_chain.sh for the path in question before declaring completion, pasting that script's output. Cross-check both scripts' sha256 against current canonical (see above — path-specific).
+
+**Data immutability:** No deletion/truncation/overwrite of any row/table/file — including agent's own "test" data — without Joel's prior explicit approval in-session.
+
+**No-hardcoded-values:** Any numeric/decision input in new code must trace to a live source; show the grep/sed line + trace, not "will be wired later."
+
+**Output format:** Raw command output only — no prose narrative, no restated context, no interpretation padding.
+
+**Permanent record:** Once this item and the full Audit/Compliance phase close, write the final report to /docs/verification/audit-compliance-screen-FINAL.md per standing rule.
