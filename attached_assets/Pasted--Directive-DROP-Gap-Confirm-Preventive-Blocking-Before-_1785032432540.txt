@@ -1,0 +1,26 @@
+# Directive — DROP Gap: Confirm Preventive Blocking Before Building
+
+Before implementing Option A, clarify one thing: is DROP TABLE actually **preventable** (aborted before it executes), or only detectable after the fact?
+
+## Required first
+State explicitly which of these is true for this Postgres version/setup, with technical basis (not just restated limitation text):
+- Event trigger on `ddl_command_start` can raise an exception and abort the DROP before it runs → **true prevention**, same guarantee tier as the existing DELETE/TRUNCATE triggers
+- Only `ddl_command_end` / `pg_event_trigger_ddl_commands()` is usable → DROP already happened by the time you see it → **detection/logging only**, not prevention
+
+If prevention is not feasible, say so plainly and explain why (extension unavailable, permission restriction, etc.) — do not soften "logging" into language that implies blocking.
+
+## If prevention is feasible — build it
+- Event trigger on `ddl_command_start`, scoped to DROP TABLE on `aiem_*` tables, checking `approved_deletions` same as existing guard
+- Raise exception to abort when no valid approval exists
+- Negative controls: (1) 0-row/no-match case rejected, (2) real table DROP attempt rejected, both with raw error output
+- Positive control: insert valid approval → DROP succeeds → approval marked used, raw step-by-step output
+- No claim of PASS until both controls shown, same standard as DELETE/TRUNCATE
+
+## If prevention is not feasible
+Stop. Do not build detection-only and present it as closing the gap. Report back with the technical reason so Joel can decide between Option B (accept as documented risk) or a different approach.
+
+## Standing requirements
+- Raw command output only, no narrative substitutes
+- No deletion/truncation/DROP of any row/table/file without Joel's prior explicit approval this session
+- sha256 cross-check and git commit status still open from prior directive — do not treat as resolved
+- If evidence can't be produced, say so in one line — no padding
