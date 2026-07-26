@@ -1,0 +1,41 @@
+# Directive: Close Two Remaining Revalidation Gaps
+
+## Context
+The per-source revalidation fix is confirmed working (ZCMD still rejected, AAPL/NVDA
+now correctly pass, 16/16 checks + 27/27 unit tests PASS). Two gaps remain.
+
+## Gap 1 — Stage 11 (AIEM v3 discovery) has no revalidation at all
+This is the actual autonomous stock-picking engine and the one most directly tied to
+the "not picking stocks automatically" concern. It is currently PASS_THROUGH with the
+stated reason "module re-run not feasible at execution time."
+
+Required: even if a full module re-run isn't feasible, add a lighter-weight check —
+re-query the stored decision's confidence and decision value from the DB at execution
+time and confirm they still meet the original bar (confidence>=0.42, decision in
+BUY/SMALL_BUY) and haven't gone stale. If the stored decision has a timestamp, apply
+a staleness check on it too. Do not leave this source fully unchecked — state
+explicitly why a DB re-check specifically (not a full module re-run) is or isn't
+possible before accepting PASS_THROUGH as final.
+
+## Gap 2 — Unrecognized sources fail-open silently
+Two sources not in the original 11 (fear_premium_gex, gap_down_distribution) were
+found as PASS_THROUGH, plus a blanket rule that ANY unrecognized source name is
+waved through with no revalidation and no log/alert.
+
+Required:
+- Any source name the dispatch function doesn't explicitly recognize must be logged
+  loudly (not silently passed) — a WARNING-level log line at minimum, ideally an
+  alert, naming the unrecognized source and the ticker
+- Explicitly classify fear_premium_gex and gap_down_distribution: either give them
+  real revalidation logic appropriate to what they check, or document why
+  PASS_THROUGH is correct for each (same as conviction_stack's documented reasoning)
+- Confirm there is no way for a future new source to be silently added and slip
+  through unchecked and unlogged
+
+## Evidence required
+- Code showing the Stage 11 DB re-check (or explicit justification if truly not
+  possible) and its own test case
+- Code showing the new logging/alert for unrecognized sources
+- Explicit PASS_THROUGH-with-reason or new revalidation logic for fear_premium_gex
+  and gap_down_distribution
+- Updated test suite results (previous 16/16 + 27/27 baseline should not regress)

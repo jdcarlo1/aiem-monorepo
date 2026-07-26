@@ -17515,48 +17515,48 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     Per-source execution-time revalidation.  Each candidate is re-checked
     against the ORIGINAL admission criteria of its own source stage only.
 
-    Stage 4 (gap_volume) is the ONLY source whose candidates are re-checked
-    against price / gap_pct / rvol, because those three thresholds belong
-    exclusively to Stage 4.  Applying them to conviction_stack, unusual_calls,
-    layer9_stat, etc. would silently kill legitimate non-momentum picks that
-    were never required to gap or have elevated volume.
+    Source → revalidation applied:
+      conviction_stack      → PASS_THROUGH: total_pts is historical; no momentum bar.
+                              A flat consolidating stock is a legitimate Stage 1 pick.
+      sweep                 → DB: call_sweep_log premium >= 50000, last 2 days
+      unusual_calls         → DB: unusual_calls_log prem >= 75000, last 2 days
+      gap_volume            → LIVE (Tradier): price>=2.0, gap_pct>=1.0, rvol_adj>=2.0
+      aiem_ai               → DB: ai_trade_log conviction HIGH/EXTREME + BULLISH, last 1d
+      multi_signal          → PASS_THROUGH: snapshot-based, historical; no per-ticker bar
+      oi_buildup            → DB: oi_daily_snapshot OI growth >=20%, last 4 days
+      washout_ignition      → PASS_THROUGH: discovery gate means it can never reach exec
+      layer9_stat           → DB: layer9_scores score>=65, computed_at < 6 hours
+      squeeze_reversion     → PASS_THROUGH: discovery gate means it can never reach exec
+      aiem_v3_discovery     → DB: aiem_decision_history decision IN (BUY,SMALL_BUY)
+                              + final_confidence>=0.42 + decision_date=today.
+                              Full module re-run not feasible at exec time, but
+                              run_orchestrator() always calls store_decisions() so the
+                              BUY/SMALL_BUY decision is in DB within the same run.
+      fear_premium_gex      → DB: options_structure_scan pc_skew_tag=FEAR_PREMIUM
+                              + pc_skew_pp>=10 + gex_regime=LONG_GAMMA + spot>=10, last 1d
+      gap_down_distribution → LIVE (Tradier): price>=5.0, gap_pct<=-1.5, rvol_adj>=2.5
+                              Same polygon_rvol_scan MAX(scan_date) staleness risk as
+                              gap_volume; same live-check fix applied, bearish thresholds.
+      (unrecognized)        → WARNING logged (ticker + source name); fail-open.
+                              No future source can be silently waved through unlogged.
 
-    Per-source revalidation map:
-      conviction_stack    → PASS_THROUGH (total_pts is historical; no momentum bar)
-      sweep               → call_sweep_log: premium >= 50000, last 2 days
-      unusual_calls       → unusual_calls_log: prem >= 75000, last 2 days
-      gap_volume          → Tradier live: price>=2.0, gap_pct>=1.0, rvol_adj>=2.0
-      aiem_ai             → ai_trade_log: conviction HIGH/EXTREME + BULLISH, last 1d
-      multi_signal        → PASS_THROUGH (snapshot-based, historical)
-      oi_buildup          → oi_daily_snapshot: OI growth >=20% last 4 days
-      washout_ignition    → PASS_THROUGH (never validated; can't reach execution)
-      layer9_stat         → layer9_scores: score>=65, computed_at < 6 hours
-      squeeze_reversion   → PASS_THROUGH (never validated; can't reach execution)
-      aiem_v3_discovery   → PASS_THROUGH (module re-run not feasible at exec time)
-      fear_premium_gex    → PASS_THROUGH (bearish overlay, different admission logic)
-      gap_down_distribution → PASS_THROUGH
-      (unknown)           → PASS_THROUGH (fail-open for any unrecognised source)
-
-    avg_volume=0 for Stage 4 (gap_volume):
-      Intentional fail-open for the rvol sub-check only.  price>=2.0 and
-      gap_pct>=1.0 still apply.  A Tradier avg_volume data gap must not block
-      a candidate that passes the two concrete price-based thresholds.
-      Every such case is logged with action='PASS_RVOL_SKIPPED_NO_AVG' so
-      auditors can distinguish a genuine pass from a data-gap bypass.
+    avg_volume=0 for live-check sources (gap_volume / gap_down_distribution):
+      Intentional fail-open for the rvol sub-check only.  price and gap_pct
+      thresholds still apply.  Logged with action=PASS_RVOL_SKIPPED_NO_AVG.
 
     Returns the approved-picks list.
-    Rejections are printed to stdout and persisted to aiem_execution_revalidation_log.
+    Rejections written to aiem_execution_revalidation_log.
     """
     import datetime as _rv_dt
     import psycopg2   as _rv_pg
 
-    # ── 1. Minutes since 9:30 AM ET — used only for Stage 4 rvol adj ─────
+    # ── 1. Minutes since 9:30 AM ET — for live-source rvol adjustment ─────
     try:
         _rv_now  = _rv_dt.datetime.now(_ET_TZ)
         _rv_open = _rv_now.replace(hour=9, minute=30, second=0, microsecond=0)
         _rv_mins = max(1.0, (_rv_now - _rv_open).total_seconds() / 60.0)
     except Exception:
-        _rv_mins = 60.0   # fallback: 1-hour-in assumption
+        _rv_mins = 60.0
 
     _rv_today = _rv_dt.date.today()
 
@@ -17591,10 +17591,15 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     except Exception as _rv_tbl_e:
         print(f"[revalid] audit table setup warning (non-fatal): {_rv_tbl_e}")
 
-    # ── 3. Stage 4: batch-load scan-time values from polygon_rvol_scan ────
+    # ── 3. Live-check sources: scan-time values from polygon_rvol_scan ────
+    # Both gap_volume (bullish) and gap_down_distribution (bearish) read from
+    # this table; pre-load scan-time values for audit log comparison.
     _rv_scan_vals: dict = {}
-    _rv_s4_tickers = [p["ticker"] for p in picks if p.get("source") == "gap_volume"]
-    if _rv_s4_tickers:
+    _rv_live_tickers = [
+        p["ticker"] for p in picks
+        if p.get("source") in ("gap_volume", "gap_down_distribution")
+    ]
+    if _rv_live_tickers:
         try:
             with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c1, _rv_c1.cursor() as _rv_cur1:
                 _rv_cur1.execute("""
@@ -17602,7 +17607,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                     FROM polygon_rvol_scan
                     WHERE ticker = ANY(%s)
                     ORDER BY ticker, scan_date DESC
-                """, (_rv_s4_tickers,))
+                """, (_rv_live_tickers,))
                 for _rv_row in _rv_cur1.fetchall():
                     _rv_scan_vals[_rv_row[0]] = {
                         "scan_price":   float(_rv_row[1] or 0),
@@ -17610,28 +17615,33 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                         "scan_rvol":    float(_rv_row[3] or 0),
                         "scan_date":    _rv_row[4],
                     }
-        except Exception as _rv_s4e:
-            print(f"[revalid] Stage 4 scan-val lookup warning (fail-open): {_rv_s4e}")
+        except Exception as _rv_s_e:
+            print(f"[revalid] scan-val lookup warning (fail-open): {_rv_s_e}")
 
-    # ── 4. Non-Stage-4 DB-backed sources: one batch query per source type ──
-    _rv_valid_sweep   : set = set()
-    _rv_valid_ucalls  : set = set()
-    _rv_valid_aiem_ai : set = set()
-    _rv_valid_oi      : set = set()
-    _rv_valid_layer9  : set = set()
+    # ── 4. DB-backed sources: one batch query per source type ─────────────
+    _rv_valid_sweep    : set = set()
+    _rv_valid_ucalls   : set = set()
+    _rv_valid_aiem_ai  : set = set()
+    _rv_valid_oi       : set = set()
+    _rv_valid_layer9   : set = set()
+    _rv_valid_v3       : set = set()
+    _rv_valid_fear_gex : set = set()
 
     _rv_db_sources = {
-        "sweep":         [p["ticker"] for p in picks if p.get("source") == "sweep"],
-        "unusual_calls": [p["ticker"] for p in picks if p.get("source") == "unusual_calls"],
-        "aiem_ai":       [p["ticker"] for p in picks if p.get("source") == "aiem_ai"],
-        "oi_buildup":    [p["ticker"] for p in picks if p.get("source") == "oi_buildup"],
-        "layer9_stat":   [p["ticker"] for p in picks if p.get("source") == "layer9_stat"],
+        "sweep":           [p["ticker"] for p in picks if p.get("source") == "sweep"],
+        "unusual_calls":   [p["ticker"] for p in picks if p.get("source") == "unusual_calls"],
+        "aiem_ai":         [p["ticker"] for p in picks if p.get("source") == "aiem_ai"],
+        "oi_buildup":      [p["ticker"] for p in picks if p.get("source") == "oi_buildup"],
+        "layer9_stat":     [p["ticker"] for p in picks if p.get("source") == "layer9_stat"],
+        "aiem_v3_discovery": [p["ticker"] for p in picks if p.get("source") == "aiem_v3_discovery"],
+        "fear_premium_gex":  [p["ticker"] for p in picks if p.get("source") == "fear_premium_gex"],
     }
     _rv_any_db = any(_rv_db_sources.values())
 
     if _rv_any_db:
         try:
             with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c2, _rv_c2.cursor() as _rv_cur2:
+
                 # Stage 2: call_sweep_log premium >= 50000, last 2 days
                 if _rv_db_sources["sweep"]:
                     _rv_cur2.execute("""
@@ -17700,36 +17710,88 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                     """, (_rv_db_sources["layer9_stat"],))
                     _rv_valid_layer9 = {r[0] for r in _rv_cur2.fetchall()}
 
+                # Stage 11: aiem_decision_history — BUY/SMALL_BUY + confidence>=0.42 today
+                # run_orchestrator() always calls store_decisions() so this is in DB.
+                if _rv_db_sources["aiem_v3_discovery"]:
+                    _rv_cur2.execute("""
+                        SELECT DISTINCT ticker FROM aiem_decision_history
+                        WHERE ticker = ANY(%s)
+                          AND decision_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+                          AND decision IN ('BUY', 'SMALL_BUY')
+                          AND final_confidence >= 0.42
+                    """, (_rv_db_sources["aiem_v3_discovery"],))
+                    _rv_valid_v3 = {r[0] for r in _rv_cur2.fetchall()}
+
+                # Stage 12: options_structure_scan — FEAR_PREMIUM + skew>=10pp + LONG_GAMMA
+                if _rv_db_sources["fear_premium_gex"]:
+                    _rv_cur2.execute("""
+                        SELECT DISTINCT ticker FROM options_structure_scan
+                        WHERE ticker = ANY(%s)
+                          AND scan_date >= CURRENT_DATE - INTERVAL '1 day'
+                          AND pc_skew_tag = 'FEAR_PREMIUM'
+                          AND pc_skew_pp >= 10
+                          AND gex_regime = 'LONG_GAMMA'
+                          AND spot >= 10
+                    """, (_rv_db_sources["fear_premium_gex"],))
+                    _rv_valid_fear_gex = {r[0] for r in _rv_cur2.fetchall()}
+
         except Exception as _rv_db2_e:
-            # Fail-open: DB error → pass all non-Stage-4 candidates through
+            # Fail-open: DB error → pass all DB-backed candidates through
             print(f"[revalid] per-source DB checks error (fail-open): {_rv_db2_e}")
-            for _rv_t2 in _rv_db_sources["sweep"]:         _rv_valid_sweep.add(_rv_t2)
-            for _rv_t2 in _rv_db_sources["unusual_calls"]: _rv_valid_ucalls.add(_rv_t2)
-            for _rv_t2 in _rv_db_sources["aiem_ai"]:       _rv_valid_aiem_ai.add(_rv_t2)
-            for _rv_t2 in _rv_db_sources["oi_buildup"]:    _rv_valid_oi.add(_rv_t2)
-            for _rv_t2 in _rv_db_sources["layer9_stat"]:   _rv_valid_layer9.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["sweep"]:            _rv_valid_sweep.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["unusual_calls"]:    _rv_valid_ucalls.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["aiem_ai"]:          _rv_valid_aiem_ai.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["oi_buildup"]:       _rv_valid_oi.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["layer9_stat"]:      _rv_valid_layer9.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["aiem_v3_discovery"]: _rv_valid_v3.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["fear_premium_gex"]: _rv_valid_fear_gex.add(_rv_t2)
 
-    # ── 5. Sources with no meaningful execution-time re-check ─────────────
-    _RV_PASS_THROUGH_SRCS = frozenset({
-        "conviction_stack",     # ranked by total_pts; no momentum bar
-        "multi_signal",         # snapshot-based, historical values
-        "washout_ignition",     # not validated → never reaches exec
-        "squeeze_reversion",    # not validated → never reaches exec
-        "aiem_v3_discovery",    # module re-run not feasible at exec time
-        "fear_premium_gex",     # bearish overlay; admission logic is different
-        "gap_down_distribution",
-    })
-
-    # ── 6. DB-backed source metadata ─────────────────────────────────────
-    _rv_db_meta = {
-        "sweep":         (_rv_valid_sweep,   "premium>=50000 last 2d (call_sweep_log)"),
-        "unusual_calls": (_rv_valid_ucalls,  "prem>=75000 last 2d (unusual_calls_log)"),
-        "aiem_ai":       (_rv_valid_aiem_ai, "conviction HIGH/EXTREME + BULLISH last 1d (ai_trade_log)"),
-        "oi_buildup":    (_rv_valid_oi,      "OI growth>=20% last 4d (oi_daily_snapshot)"),
-        "layer9_stat":   (_rv_valid_layer9,  "score>=65 + computed_at<6h (layer9_scores)"),
+    # ── 5. Explicit PASS_THROUGH registry with documented reasons ─────────
+    # Every entry requires a reason.  No source may enter this set silently.
+    _RV_PASS_THROUGH_SRCS = {
+        # total_pts is a historical score; no momentum, gap, or rvol bar.
+        # A flat consolidating stock is fully legitimate here.
+        "conviction_stack",
+        # Snapshot-based; all hits share a single cache row per endpoint.
+        # No per-ticker bar exists to re-check.
+        "multi_signal",
+        # Gate: aiem_signal_discoveries id=9 status='validated' — never true
+        # in production, so these candidates can never appear here in practice.
+        "washout_ignition",
+        # Gate: hypothesis_text='Short_Squeeze_Reversion' status='validated'
+        # — never true in production; same unreachable-in-practice reasoning.
+        "squeeze_reversion",
     }
 
-    # ── 7. Evaluate every candidate ───────────────────────────────────────
+    # ── 6. DB-backed source metadata ──────────────────────────────────────
+    _rv_db_meta = {
+        "sweep":           (_rv_valid_sweep,    "premium>=50000 last 2d (call_sweep_log)"),
+        "unusual_calls":   (_rv_valid_ucalls,   "prem>=75000 last 2d (unusual_calls_log)"),
+        "aiem_ai":         (_rv_valid_aiem_ai,  "conviction HIGH/EXTREME + BULLISH last 1d (ai_trade_log)"),
+        "oi_buildup":      (_rv_valid_oi,       "OI growth>=20% last 4d (oi_daily_snapshot)"),
+        "layer9_stat":     (_rv_valid_layer9,   "score>=65 + computed_at<6h (layer9_scores)"),
+        "aiem_v3_discovery": (_rv_valid_v3,     "decision BUY/SMALL_BUY + confidence>=0.42 today (aiem_decision_history)"),
+        "fear_premium_gex":  (_rv_valid_fear_gex, "FEAR_PREMIUM + skew>=10pp + LONG_GAMMA + spot>=10 last 1d (options_structure_scan)"),
+    }
+
+    # ── 7. All explicitly known sources (live-check + pass-through + DB) ──
+    _RV_ALL_KNOWN_SRCS = (
+        {"gap_volume", "gap_down_distribution"}   # live-check
+        | _RV_PASS_THROUGH_SRCS                   # pass-through
+        | set(_rv_db_meta)                         # DB-backed
+    )
+
+    # ── 8. Shared rvol helper for live-check sources ───────────────────────
+    def _rv_compute_rvol(q):
+        vol     = float(q.get("volume") or 0)
+        avg_vol = float(q.get("avg_volume") or 0)
+        if avg_vol > 0:
+            raw = vol / avg_vol
+            adj = raw * (390.0 / _rv_mins)
+            return raw, adj, False          # raw, adj, skipped
+        return None, 99.9, True             # fail-open: avg_vol missing
+
+    # ── 9. Evaluate every candidate ───────────────────────────────────────
     _rv_approved   = []
     _rv_rejections = []
 
@@ -17738,107 +17800,151 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         _rv_src = _rv_pick.get("source", "unknown")
         _rv_q   = quotes.get(_rv_t) or {}
 
-        # ── A. Stage 4 (gap_volume): live price / gap_pct / rvol ─────────
+        # ── A. gap_volume: live check — bullish thresholds ────────────────
         if _rv_src == "gap_volume":
-            _rv_exec_price   = float(_rv_q.get("last") or _rv_q.get("bid") or 0)
-            _rv_exec_gap     = float(_rv_q.get("change_pct") or 0)
-            _rv_exec_vol     = float(_rv_q.get("volume") or 0)
-            _rv_exec_avg_vol = float(_rv_q.get("avg_volume") or 0)
+            _rv_price = float(_rv_q.get("last") or _rv_q.get("bid") or 0)
+            _rv_gap   = float(_rv_q.get("change_pct") or 0)
+            _rv_rraw, _rv_radj, _rv_rskip = _rv_compute_rvol(_rv_q)
+            _rv_crit  = "price>=2.0,gap_pct>=1.0,rvol_adj>=2.0"
 
-            if _rv_exec_avg_vol > 0:
-                _rv_rvol_raw  = _rv_exec_vol / _rv_exec_avg_vol
-                _rv_rvol_adj  = _rv_rvol_raw * (390.0 / _rv_mins)
-                _rv_rvol_note = f"rvol_adj={_rv_rvol_adj:.2f}(raw={_rv_rvol_raw:.4f},mins={_rv_mins:.1f})"
-            else:
-                # Intentional fail-open: avg_volume missing in Tradier.
-                # price>=2.0 and gap_pct>=1.0 still checked.
-                # rvol skipped to avoid false blocks from data gaps.
-                _rv_rvol_raw  = None
-                _rv_rvol_adj  = 99.9
-                _rv_rvol_note = "rvol=skipped(avg_vol=0)"
-
-            # Quote unavailable → pass through; downstream handles _price<=0
-            if _rv_exec_price == 0:
+            if _rv_price == 0:
                 _rv_approved.append(_rv_pick)
                 continue
 
-            _rv_failed   = []
-            _rv_criteria = "price>=2.0,gap_pct>=1.0,rvol_adj>=2.0"
-            if _rv_exec_price < 2.0:
-                _rv_failed.append(f"price={_rv_exec_price:.3f}<2.00")
-            if _rv_exec_gap < 1.0:
-                _rv_failed.append(f"gap_pct={_rv_exec_gap:.2f}<1.0")
-            if _rv_rvol_adj < 2.0:
-                _rv_failed.append(f"rvol_adj={_rv_rvol_adj:.2f}<2.0({_rv_rvol_note})")
+            _rv_failed = []
+            if _rv_price < 2.0:
+                _rv_failed.append(f"price={_rv_price:.3f}<2.00")
+            if _rv_gap < 1.0:
+                _rv_failed.append(f"gap_pct={_rv_gap:.2f}<1.0")
+            if _rv_radj < 2.0:
+                _note = "skipped(avg_vol=0)" if _rv_rskip else f"raw={_rv_rraw:.4f},mins={_rv_mins:.1f}"
+                _rv_failed.append(f"rvol_adj={_rv_radj:.2f}<2.0({_note})")
 
             _rv_sv = _rv_scan_vals.get(_rv_t) or {}
             _rv_scan_str = (
-                f"scan({_rv_sv.get('scan_date','no_scan_row')}): "
-                f"price={_rv_sv.get('scan_price','?')}"
-                f" gap={_rv_sv.get('scan_gap_pct','?')}"
-                f" rvol={_rv_sv.get('scan_rvol','?')}"
+                f"scan({_rv_sv.get('scan_date','?')}): "
+                f"price={_rv_sv.get('scan_price','?')} "
+                f"gap={_rv_sv.get('scan_gap_pct','?')} "
+                f"rvol={_rv_sv.get('scan_rvol','?')}"
             )
 
             if _rv_failed:
-                _rv_fail_str = ", ".join(_rv_failed)
-                print(
-                    f"[revalid] REJECTED {_rv_t} (gap_volume) — "
-                    f"{_rv_fail_str} | {_rv_scan_str}"
-                )
+                _rv_fs = ", ".join(_rv_failed)
+                print(f"[revalid] REJECTED {_rv_t} (gap_volume) — {_rv_fs} | {_rv_scan_str}")
                 _rv_rejections.append({
-                    "ticker":           _rv_t,   "source":      _rv_src,
-                    "criteria_checked": _rv_criteria,
-                    "scan_date":        _rv_sv.get("scan_date"),
-                    "scan_price":       _rv_sv.get("scan_price"),
-                    "scan_gap_pct":     _rv_sv.get("scan_gap_pct"),
-                    "scan_rvol":        _rv_sv.get("scan_rvol"),
-                    "exec_price":       _rv_exec_price,
-                    "exec_gap_pct":     _rv_exec_gap,
-                    "exec_rvol_raw":    _rv_rvol_raw,
-                    "exec_rvol_adj":    _rv_rvol_adj,
-                    "failed_checks":    _rv_fail_str,
-                    "action":           "REJECTED",
+                    "ticker": _rv_t, "source": _rv_src, "criteria_checked": _rv_crit,
+                    "scan_date": _rv_sv.get("scan_date"), "scan_price": _rv_sv.get("scan_price"),
+                    "scan_gap_pct": _rv_sv.get("scan_gap_pct"), "scan_rvol": _rv_sv.get("scan_rvol"),
+                    "exec_price": _rv_price, "exec_gap_pct": _rv_gap,
+                    "exec_rvol_raw": _rv_rraw, "exec_rvol_adj": _rv_radj,
+                    "failed_checks": _rv_fs, "action": "REJECTED",
                 })
             else:
-                _rv_action = "PASS_RVOL_SKIPPED_NO_AVG" if _rv_rvol_raw is None else "PASS"
-                print(
-                    f"[revalid] PASS {_rv_t} (gap_volume) — "
-                    f"price={_rv_exec_price:.2f} gap={_rv_exec_gap:.2f}% "
-                    f"{_rv_rvol_note} action={_rv_action}"
-                )
+                _rv_act = "PASS_RVOL_SKIPPED_NO_AVG" if _rv_rskip else "PASS"
+                _rv_note = "rvol=skipped(avg_vol=0)" if _rv_rskip else f"rvol_adj={_rv_radj:.1f}x"
+                print(f"[revalid] PASS {_rv_t} (gap_volume) — price={_rv_price:.2f} gap={_rv_gap:.2f}% {_rv_note}")
                 _rv_approved.append(_rv_pick)
             continue
 
-        # ── B. Pass-through sources: no execution-time re-check ───────────
-        if _rv_src in _RV_PASS_THROUGH_SRCS or _rv_src not in _rv_db_meta:
-            print(f"[revalid] PASS_THROUGH {_rv_t} ({_rv_src}) — no re-check for this source")
+        # ── B. gap_down_distribution: live check — bearish thresholds ────
+        if _rv_src == "gap_down_distribution":
+            _rv_price = float(_rv_q.get("last") or _rv_q.get("bid") or 0)
+            _rv_gap   = float(_rv_q.get("change_pct") or 0)
+            _rv_rraw, _rv_radj, _rv_rskip = _rv_compute_rvol(_rv_q)
+            _rv_crit  = "price>=5.0,gap_pct<=-1.5,rvol_adj>=2.5"
+
+            if _rv_price == 0:
+                _rv_approved.append(_rv_pick)
+                continue
+
+            _rv_failed = []
+            if _rv_price < 5.0:
+                _rv_failed.append(f"price={_rv_price:.3f}<5.00")
+            if _rv_gap > -1.5:
+                _rv_failed.append(f"gap_pct={_rv_gap:.2f}>-1.5")
+            if _rv_radj < 2.5:
+                _note = "skipped(avg_vol=0)" if _rv_rskip else f"raw={_rv_rraw:.4f},mins={_rv_mins:.1f}"
+                _rv_failed.append(f"rvol_adj={_rv_radj:.2f}<2.5({_note})")
+
+            _rv_sv = _rv_scan_vals.get(_rv_t) or {}
+            _rv_scan_str = (
+                f"scan({_rv_sv.get('scan_date','?')}): "
+                f"price={_rv_sv.get('scan_price','?')} "
+                f"gap={_rv_sv.get('scan_gap_pct','?')} "
+                f"rvol={_rv_sv.get('scan_rvol','?')}"
+            )
+
+            if _rv_failed:
+                _rv_fs = ", ".join(_rv_failed)
+                print(f"[revalid] REJECTED {_rv_t} (gap_down_distribution) — {_rv_fs} | {_rv_scan_str}")
+                _rv_rejections.append({
+                    "ticker": _rv_t, "source": _rv_src, "criteria_checked": _rv_crit,
+                    "scan_date": _rv_sv.get("scan_date"), "scan_price": _rv_sv.get("scan_price"),
+                    "scan_gap_pct": _rv_sv.get("scan_gap_pct"), "scan_rvol": _rv_sv.get("scan_rvol"),
+                    "exec_price": _rv_price, "exec_gap_pct": _rv_gap,
+                    "exec_rvol_raw": _rv_rraw, "exec_rvol_adj": _rv_radj,
+                    "failed_checks": _rv_fs, "action": "REJECTED",
+                })
+            else:
+                _rv_act = "PASS_RVOL_SKIPPED_NO_AVG" if _rv_rskip else "PASS"
+                _rv_note = "rvol=skipped(avg_vol=0)" if _rv_rskip else f"rvol_adj={_rv_radj:.1f}x"
+                print(f"[revalid] PASS {_rv_t} (gap_down_distribution) — price={_rv_price:.2f} gap={_rv_gap:.2f}% {_rv_note}")
+                _rv_approved.append(_rv_pick)
+            continue
+
+        # ── C. Documented pass-through sources ────────────────────────────
+        if _rv_src in _RV_PASS_THROUGH_SRCS:
+            print(f"[revalid] PASS_THROUGH {_rv_t} ({_rv_src}) — documented: no per-ticker re-check")
             _rv_approved.append(_rv_pick)
             continue
 
-        # ── C. DB-backed sources: confirm admission criteria still met ────
-        _rv_valid_set, _rv_criteria_desc = _rv_db_meta[_rv_src]
-        if _rv_t in _rv_valid_set:
-            print(f"[revalid] PASS {_rv_t} ({_rv_src}) — {_rv_criteria_desc}")
-            _rv_approved.append(_rv_pick)
-        else:
-            _rv_fail_str = f"no qualifying row for {_rv_src}: {_rv_criteria_desc}"
-            print(f"[revalid] REJECTED {_rv_t} ({_rv_src}) — {_rv_fail_str}")
-            _rv_rejections.append({
-                "ticker":           _rv_t, "source":       _rv_src,
-                "criteria_checked": _rv_criteria_desc,
-                "scan_date":        None,  "scan_price":   None,
-                "scan_gap_pct":     None,  "scan_rvol":    None,
-                "exec_price":       float(_rv_q.get("last") or 0),
-                "exec_gap_pct":     None,
-                "exec_rvol_raw":    None,  "exec_rvol_adj": None,
-                "failed_checks":    _rv_fail_str,
-                "action":           "REJECTED",
-            })
+        # ── D. DB-backed sources ──────────────────────────────────────────
+        if _rv_src in _rv_db_meta:
+            _rv_valid_set, _rv_crit_desc = _rv_db_meta[_rv_src]
+            if _rv_t in _rv_valid_set:
+                print(f"[revalid] PASS {_rv_t} ({_rv_src}) — {_rv_crit_desc}")
+                _rv_approved.append(_rv_pick)
+            else:
+                _rv_fs = f"no qualifying row: {_rv_crit_desc}"
+                print(f"[revalid] REJECTED {_rv_t} ({_rv_src}) — {_rv_fs}")
+                _rv_rejections.append({
+                    "ticker": _rv_t, "source": _rv_src,
+                    "criteria_checked": _rv_crit_desc,
+                    "scan_date": None, "scan_price": None, "scan_gap_pct": None, "scan_rvol": None,
+                    "exec_price": float(_rv_q.get("last") or 0), "exec_gap_pct": None,
+                    "exec_rvol_raw": None, "exec_rvol_adj": None,
+                    "failed_checks": _rv_fs, "action": "REJECTED",
+                })
+            continue
 
-    # ── 8. Persist rejections to audit table ─────────────────────────────
+        # ── E. Unrecognized source — WARNING + fail-open ──────────────────
+        # Any source not in the explicit registry above hits this branch.
+        # It cannot be silently passed through — loud log ensures visibility.
+        print(
+            f"[revalid] WARNING: unrecognized source '{_rv_src}' for ticker {_rv_t} "
+            f"— no revalidation logic defined; passing through. "
+            f"Add this source to _stage4_execution_revalidate dispatch."
+        )
+        try:
+            import aiem_communication_bus as _rv_bus_mod
+            _rv_bus_mod.get_bus().publish(_rv_bus_mod.StageEvent(
+                trace_id=f"REVALID_UNKNOWN_{_rv_t}_{_rv_src}",
+                ticker=_rv_t, stage_order=4,
+                stage_name="execution_revalidation",
+                event_type="UNKNOWN_SOURCE_WARNING",
+                component_name="_stage4_execution_revalidate",
+                payload={"ticker": _rv_t, "source": _rv_src,
+                         "message": f"unrecognized source '{_rv_src}' — add to dispatch"},
+            ))
+        except Exception:
+            pass  # bus unavailable; stdout WARNING above is the primary signal
+        _rv_approved.append(_rv_pick)  # fail-open: don't block on unknown source
+
+    # ── 10. Persist rejections to audit table ────────────────────────────
     if _rv_rejections:
         try:
-            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c3,                  _rv_c3.cursor() as _rv_cur3:
+            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c3, \
+                 _rv_c3.cursor() as _rv_cur3:
                 for _rv_rj in _rv_rejections:
                     _rv_cur3.execute("""
                         INSERT INTO aiem_execution_revalidation_log
@@ -17872,6 +17978,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         f"{len(_rv_approved)} approved, {len(_rv_rejections)} rejected"
     )
     return _rv_approved
+
 
 
 
