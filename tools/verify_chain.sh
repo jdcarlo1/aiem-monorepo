@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-LOG_FILE="${1:-./evidence_chain.log}"
+LOG_FILE="${1:-./evidence_chain.jsonl}"
 
 if [ ! -f "$LOG_FILE" ]; then
   echo "Log file not found: $LOG_FILE" >&2

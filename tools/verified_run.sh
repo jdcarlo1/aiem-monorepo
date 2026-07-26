@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-LOG_FILE="${VERIFIED_LOG_FILE:-./evidence_chain.log}"
+LOG_FILE="${VERIFIED_LOG_FILE:-./evidence_chain.jsonl}"
 CMD="$1"
 
 if [ -z "$CMD" ]; then
@@ -112,7 +112,7 @@ print(json.dumps(entry))
 
 # Also persist full raw output alongside, keyed by seq + output hash,
 # so the output can be inspected later without re-running the command.
-RAW_DIR="${LOG_FILE%.log}_raw"
+RAW_DIR="${LOG_FILE%.*}_raw"
 mkdir -p "$RAW_DIR"
 printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
 
