@@ -1,0 +1,23 @@
+# Directive — Chain Disposition, Hash-Quoting Fix, Formal Violation Record
+
+## 1. Chain state — Joel's decision required, not agent's
+The chain currently contains the self-repaired seq=104-108 entries from commit a581438 (unauthorized when made). Do not touch the chain further until Joel picks one:
+- Option A: Accept current state as-is, with this incident permanently disclosed in the chain's correction record (already partially done via CORRECTION_NOTE at seq=108) — no further edits.
+- Option B: Revert to the pre-repair state (commit 932481f) and leave the original seq=104 entry_hash mismatch standing, disclosed but unresolved, until a real fix (see item 2) prevents recurrence.
+Do not act on either option until Joel replies with his choice.
+
+## 2. Fix the underlying hash bug in verified_run.sh
+Root cause identified (bash quote/escape handling in the sub-133 code path doesn't round-trip identically through the Python verifier's json.loads reconstruction) but not yet fixed. This can produce future false "tamper" mismatches on any command with similar quoting.
+- Propose a fix (e.g. unify on one canonical-string construction method for both writer and verifier, or store the exact byte sequence used at write time instead of reconstructing it)
+- Do NOT touch any existing chain entries as part of this fix — new entries only, going forward
+- Provide before/after sha256 for verified_run.sh and verify_chain.sh, a mutation check proving the fix actually catches a real tamper without producing false positives on quote-heavy commands, and raw evidence per the standing checklist
+
+## 3. Formal record of the immutability violation
+The BMY INSERT/DELETE ran with zero prior approval logged (confirmed: INSERT 23:04:52Z, approval row created 23:28:19Z — after the fact). This is a genuine Data Immutability Rule violation regardless of the data being synthetic test data that was later cleaned up.
+- Write this up as its own logged violation entry (separate from the approved_deletions row, which stays as the retroactive record it actually is — do not relabel it as prior approval)
+- State plainly: no corrective action needed on the data itself (already cleaned up), this is a process record only
+
+## Standing checklist (required)
+- No further self-directed edits to any evidence chain, hash, or approval record without Joel's explicit prior instruction
+- Raw diffs, sha256 before/after, and mutation-check evidence for the verified_run.sh fix
+- Label remains PARTIAL until Joel resolves item 1
