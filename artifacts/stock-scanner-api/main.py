@@ -17525,7 +17525,6 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
       multi_signal          → PASS_THROUGH: snapshot-based, historical; no per-ticker bar
       oi_buildup            → DB: oi_daily_snapshot OI growth >=20%, last 4 days
       washout_ignition      → PASS_THROUGH: discovery gate means it can never reach exec
-      layer9_stat           → DB: layer9_scores score>=65, computed_at < 6 hours
       squeeze_reversion     → PASS_THROUGH: discovery gate means it can never reach exec
       aiem_v3_discovery     → DB: aiem_decision_history decision IN (BUY,SMALL_BUY)
                               + final_confidence>=0.42 + decision_date=today.
@@ -17623,7 +17622,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     _rv_valid_ucalls   : set = set()
     _rv_valid_aiem_ai  : set = set()
     _rv_valid_oi       : set = set()
-    _rv_valid_layer9   : set = set()
+
     _rv_valid_v3       : set = set()
     _rv_valid_fear_gex : set = set()
 
@@ -17632,7 +17631,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         "unusual_calls":   [p["ticker"] for p in picks if p.get("source") == "unusual_calls"],
         "aiem_ai":         [p["ticker"] for p in picks if p.get("source") == "aiem_ai"],
         "oi_buildup":      [p["ticker"] for p in picks if p.get("source") == "oi_buildup"],
-        "layer9_stat":     [p["ticker"] for p in picks if p.get("source") == "layer9_stat"],
+
         "aiem_v3_discovery": [p["ticker"] for p in picks if p.get("source") == "aiem_v3_discovery"],
         "fear_premium_gex":  [p["ticker"] for p in picks if p.get("source") == "fear_premium_gex"],
     }
@@ -17699,16 +17698,6 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                     """, (_rv_db_sources["oi_buildup"],))
                     _rv_valid_oi = {r[0] for r in _rv_cur2.fetchall()}
 
-                # Stage 9: layer9_scores score >= 65, computed within last 6 hours
-                if _rv_db_sources["layer9_stat"]:
-                    _rv_cur2.execute("""
-                        SELECT DISTINCT ticker FROM layer9_scores
-                        WHERE ticker = ANY(%s)
-                          AND statistical_score >= 65
-                          AND computed_at >= NOW() - INTERVAL '6 hours'
-                          AND (error IS NULL OR error = '')
-                    """, (_rv_db_sources["layer9_stat"],))
-                    _rv_valid_layer9 = {r[0] for r in _rv_cur2.fetchall()}
 
                 # Stage 11: aiem_decision_history — BUY/SMALL_BUY + confidence>=0.42 today
                 # run_orchestrator() always calls store_decisions() so this is in DB.
@@ -17742,7 +17731,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
             for _rv_t2 in _rv_db_sources["unusual_calls"]:    _rv_valid_ucalls.add(_rv_t2)
             for _rv_t2 in _rv_db_sources["aiem_ai"]:          _rv_valid_aiem_ai.add(_rv_t2)
             for _rv_t2 in _rv_db_sources["oi_buildup"]:       _rv_valid_oi.add(_rv_t2)
-            for _rv_t2 in _rv_db_sources["layer9_stat"]:      _rv_valid_layer9.add(_rv_t2)
+
             for _rv_t2 in _rv_db_sources["aiem_v3_discovery"]: _rv_valid_v3.add(_rv_t2)
             for _rv_t2 in _rv_db_sources["fear_premium_gex"]: _rv_valid_fear_gex.add(_rv_t2)
 
@@ -17769,7 +17758,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         "unusual_calls":   (_rv_valid_ucalls,   "prem>=75000 last 2d (unusual_calls_log)"),
         "aiem_ai":         (_rv_valid_aiem_ai,  "conviction HIGH/EXTREME + BULLISH last 1d (ai_trade_log)"),
         "oi_buildup":      (_rv_valid_oi,       "OI growth>=20% last 4d (oi_daily_snapshot)"),
-        "layer9_stat":     (_rv_valid_layer9,   "score>=65 + computed_at<6h (layer9_scores)"),
+
         "aiem_v3_discovery": (_rv_valid_v3,     "decision BUY/SMALL_BUY + confidence>=0.42 today (aiem_decision_history)"),
         "fear_premium_gex":  (_rv_valid_fear_gex, "FEAR_PREMIUM + skew>=10pp + LONG_GAMMA + spot>=10 last 1d (options_structure_scan)"),
     }
@@ -46997,29 +46986,7 @@ def _aiem_paper_pick_candidates() -> list:
                 _wi_cur_status = _wi_status_row[0] if _wi_status_row else "not found"
                 print(f"[aiem_paper] washout_ignition SKIPPED: discovery id=9 status='{_wi_cur_status}' (not validated)")
 
-            # ── 9. Layer9 Statistical Edge (24/7 background scores) ──────────
-            # Reads pre-computed scores written by _run_layer9_bg_scan() every 2h.
-            # Scope: AI Short Calls + paper trades ONLY. No other tabs touched.
-            try:
-                _cu.execute("""
-                    SELECT ticker, statistical_score, regime
-                    FROM layer9_scores
-                    WHERE computed_at >= NOW() - INTERVAL '6 hours'
-                      AND statistical_score >= 65
-                      AND (error IS NULL OR error = '')
-                    ORDER BY statistical_score DESC LIMIT 20
-                """)
-                _l9_rows = _cu.fetchall()
-                for _l9t, _l9s, _l9r in _l9_rows:
-                    _l9_score = float(_l9s or 50) / 5.0  # 65→13, 80→16, 100→20
-                    _add(_l9t, _l9_score, "STOCK", "layer9_stat",
-                         f"stat9={float(_l9s or 0):.0f} regime={_l9r or 'unknown'}")
-                if _l9_rows:
-                    print(f"[aiem_paper] layer9 source: {len(_l9_rows)} tickers scored >= 65")
-            except Exception as _l9e:
-                print(f"[aiem_paper] layer9 source skipped: {_l9e}")
-
-            # ── 10. Short Squeeze Reversion (Module B) ──────────────────────
+# ── 10. Short Squeeze Reversion (Module B) ──────────────────────
             # Gate: only use squeeze signals if discovery status is 'validated'
             # (same pattern as washout_ignition — hypothesis status means WR
             # not yet sufficient; p_value=0.9999 at n=138 WR=40.6% correctly
