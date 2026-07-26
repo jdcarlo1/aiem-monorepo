@@ -924,3 +924,9 @@ id = "ZVhn2EG06DzalV6uWf8x4"
 uri = "file://docs/verification/phase10-opt-FINAL.md"
 type = "text"
 title = "Phase 10 — Options Pipeline Verification FINAL (OPT-001–035)"
+
+[[outputs]]
+id = "4LvcZSymBrn90ZOsRfLnz"
+uri = "file://options_engine_review.zip"
+type = "unspecified"
+title = "Options Engine Code — Review Package"
