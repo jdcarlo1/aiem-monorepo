@@ -119,10 +119,12 @@ printf '%s' "$OUTPUT" > "$RAW_DIR/${SEQ}_${OUTPUT_SHA256:0:12}.txt"
 # DPL verified_run_chain.jsonl write + archive log creation (Option A fix).
 # The original artifacts/stock-scanner-api/tools/verified_run.sh that maintained
 # this chain no longer exists.  This block restores the write path.
-# C33 canonical format: sha256 of all entry fields except
-# {entry_hash, type, pre_chain_anchor_note, archive_sha256}.
-# archive_sha256 binds the chain entry to a per-SEQ archive log and to the
-# index TSV (3-way binding checked by PSV1/2/4/7/8/9 and C44).
+# C33+ canonical format (SEQ >= 133): sha256 of all entry fields except
+# {entry_hash, type, pre_chain_anchor_note}. archive_sha256 is included
+# from SEQ 133 onward — schema boundary documented in
+# docs/verification/archive_sha256_cutover-FINAL.md.
+# Entries SEQ 1-132 were sealed under the old C33 exclusion set which also
+# excluded archive_sha256; do not recompute or rewrite those entries.
 _DPL_SDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _DPL_CHAIN_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/verified_run_chain.jsonl"
 _DPL_LRR_W="${_DPL_SDIR}/../artifacts/stock-scanner-api/tools/last_run_results.json"
@@ -206,7 +208,7 @@ entry = {
     'ts':                      ts,
     'ts_end':                  ts_end,
 }
-exclude = {'entry_hash', 'type', 'pre_chain_anchor_note', 'archive_sha256'}
+exclude = {'entry_hash', 'type', 'pre_chain_anchor_note'}
 payload = {k: v for k, v in entry.items() if k not in exclude}
 entry['entry_hash'] = hashlib.sha256(
     json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()

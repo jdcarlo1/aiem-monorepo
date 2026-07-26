@@ -153,8 +153,15 @@ for line in open(cf):
     if e.get('seq') != seq_n:
         continue
     stored_hash = e.pop('entry_hash', '')
-    for k in ('type', 'pre_chain_anchor_note', 'archive_sha256'):
-        e.pop(k, None)
+    # Schema boundary: SEQ < 133 used old C33 (archive_sha256 excluded);
+    # SEQ >= 133 uses C33+ (archive_sha256 included in entry_hash).
+    _CUTOVER_SEQ = 133
+    if seq_n < _CUTOVER_SEQ:
+        for k in ('type', 'pre_chain_anchor_note', 'archive_sha256'):
+            e.pop(k, None)
+    else:
+        for k in ('type', 'pre_chain_anchor_note'):
+            e.pop(k, None)
     computed = hashlib.sha256(
         json.dumps(e, sort_keys=True, separators=(',',':')).encode()
     ).hexdigest()
