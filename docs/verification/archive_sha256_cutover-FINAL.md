@@ -206,6 +206,32 @@ integrity is not independently verified.
 
 ---
 
+## SEQ gap forensic check — seq 1-14 and seq 87
+
+**Commands run:**
+
+```
+$ git --no-optional-locks log --oneline -- artifacts/stock-scanner-api/tools/verified_run_chain.jsonl | tail -3
+607ed87 Improve evidence chain integrity and add daily reporting
+b96542d Update system to improve data integrity and verification processes
+800824d Implement enhanced governance and integrity checks for decision proof layer
+
+$ git --no-optional-locks show 800824d:artifacts/stock-scanner-api/tools/verified_run_chain.jsonl | python3 -c \
+  "import sys,json; lines=[l.strip() for l in sys.stdin if l.strip()]; \
+   seqs=[json.loads(l)['seq'] for l in lines]; \
+   print('entries:', len(lines)); print('seq values:', seqs)"
+entries: 5
+seq values: [0, 15, 16, 17, 18]
+```
+
+**git log --all --full-history:** Returned no additional chain file copies under any other path or branch.
+
+**Finding:** The chain file was first created in commit `800824d` (2026-07-19T22:15:35Z) with 5 entries at seq 0, 15, 16, 17, 18. Seq 1–14 and seq 87 were never present in any version of the file in git history. They were not deleted or truncated after the fact — they were never written. No additional copies of the chain file exist in the project root, `artifacts/stock-scanner-api/tools/`, or `.local/`.
+
+**Cause: unrecoverable.** No forensic trail exists for these sequence numbers. They were skipped at write time in the original chain implementation. This is stated explicitly rather than inferred.
+
+---
+
 ## Overall status: CLEARED TO PROCEED — not PASS
 
 | Item | Status |
