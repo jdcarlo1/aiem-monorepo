@@ -3,6 +3,7 @@
 **Commit verified against:** `5853e2a345374887620cfaa015bdb38293727203`
 **Date sealed:** 2026-07-26
 **Updated:** 2026-07-26 (Item 1 + Item 2 raw evidence added per directive re-open)
+**_IV_HISTORY_MIN approval:** 2026-07-26 — Joel explicitly approved value=5; "design decision, no statistical basis" disclosure stands as final rationale; no further backtest or justification required
 
 ---
 
@@ -193,7 +194,7 @@ The entry_hash recompute failure is **not data corruption** and **not tampering*
 | `32` | `_IV_RANK_MIN` | `0.50` | **hardcoded — directive-specified**: "IV Rank >= 0.50" | hardcoded, directive-specified |
 | `33` | `_DELTA_MIN` | `0.25` | **hardcoded — directive-specified**: "Delta between 0.25–0.70" | hardcoded, directive-specified |
 | `34` | `_DELTA_MAX` | `0.70` | **hardcoded — directive-specified**: "Delta between 0.25–0.70" | hardcoded, directive-specified |
-| `35` | `_IV_HISTORY_MIN` | `5` | **hardcoded — design decision**: directive specifies 20-day window but gives no minimum sample count before gate fires. 5 chosen as minimum meaningful sample for a percentile rank. No config file, no API, no directive source. | hardcoded, not in directive |
+| `35` | `_IV_HISTORY_MIN` | `5` | **hardcoded — design decision**: directive specifies 20-day window but gives no minimum sample count before gate fires. 5 chosen as minimum meaningful sample for a percentile rank. No config file, no API, no directive source. **Approved by Joel 2026-07-26 — no backtest required.** | hardcoded, not in directive — approved |
 | `36` | `_IV_HISTORY_MAX` | `20` | **hardcoded — directive-specified**: "IV Rank (current IV vs 20-day min/max)" | hardcoded, directive-specified |
 | `37` | `_WINDOWS_ET` | `[(10,0,11,30),(14,0,15,30)]` | **hardcoded — directive-specified**: "10:00–11:30 AM ET and 2:00–3:30 PM ET" | hardcoded, directive-specified |
 | `main.py:17502` | `minutes=5` | `5` | **hardcoded — directive-specified**: "5-minute scan cadence" | hardcoded, directive-specified |
