@@ -1,0 +1,48 @@
+# AIEM / Options Engine — Verification Disposition Summary
+**As of 2026-07-26.** Status labels follow the standing rule: **PASS** = nothing outstanding, fully evidenced. **ACCEPTED-RISK** = proceeding with a documented, deliberate rationale. **OPEN** = unresolved, no decision yet.
+
+---
+
+## Phase-level status
+
+| Area | Status | Notes |
+|---|---|---|
+| Phase 1 — Operational Controls | PARTIAL | DELETE/TRUNCATE/DROP triggers built & proven live. Only blocker: Joel's own independent sha256sum confirmation (agent side is done). |
+| Phase 6 — Risk Gating / Gap B | CLOSED (accepted-risk) | Rows rejected/marked UNVERIFIABLE per Joel's Option B decision. |
+| Phase 8 — Performance Metrics | **PASS** | 41/41, full close 2026-07-23. Formulas independently verified against known-answer vectors. |
+| Phase 10 — Options Engine Execution/EV | ACCEPTED-RISK | R8 units bug found & fixed with proof. Group 4 production-row confirmation still pending a live pipeline run that clears REQ6 — a market-timing dependency, not a code defect. |
+| Phase 11 — E2E scope | **PASS** | Playwright+Vitest-only scope explicitly approved by Joel. |
+| Phase 12 — Security/Data review | **PASS** | SEC-005 (CORS wildcard) fixed and verified, commit f71c3fd8. All 3 sale-readiness workstreams (independent recomputation, load/security e2e, staging negative controls) closed on the full-running-instance standard. |
+| Missing terminal screens | PARTIAL | Performance, Probability, Calibration: built and closed. Specialist Council, Audit/Compliance, Learning Center: scoped only, not built. |
+| Alert hash verification (1-24) | CLOSED | 21-24 verified/inserted. 1-20 permanently UNVERIFIABLE — source data confirmed unrecoverable (OSS overwrite bug), documented exception record. Root-cause bug fixed. |
+| DPL Phase 3 (Decision Proof Layer) | ACCEPTED-RISK | Baseline restored to 195 PASS/8 FAIL (matches original freeze). Seal-freshness process gap closed and proven live. |
+| Finding 1 — ArchiveSha256 cutover | **PASS** | Cutover proven at SEQ=133, mutation check passed, SEQ 1-14/87 gap resolved (never written — confirmed at file's first commit, not a deletion). |
+| evidence_chain.log break at seq=50 | OPEN | Not yet investigated — separate file from verified_run_chain.jsonl. |
+| E2E trading logic correctness (broader) | IN PROGRESS | Directive sent 2026-07-25 for both Options Engine and AIEM; not yet returned. |
+
+---
+
+## Standing open items (documented, not fixed)
+- **C28_approved_by_in_allowlist** — FAIL at baseline (external-reviewer-identity gap), same since original freeze.
+- **73 UNVERIFIED_INHERITED items** (AUTH/RT checklist) — test definitions not recoverable from disk, permanently unauditable.
+- **8 documented external-blocker FAILs** baked into the "clean" 195/8 baseline.
+- **OPT-031 capital efficiency** — NOT_IMPLEMENTED, no column or computation exists.
+- **OPT-007 mid-price** — synthetic/model-based, not true bid/ask mid.
+- **rho/charm/vanna** — formulas correct but not wired into the live scheduler path (standalone-only).
+- **OPT-035** — mutation check only ran for delta/charm/vanna, not gamma/theta/vega.
+- **PSV8 FAIL for non-verifier runs** — expected/pre-existing, lowest severity.
+
+---
+
+## Governance / trust-track-record incidents
+- **a603aa5** — unattributed deletion of tools/verified_run.sh. Root cause found, no authorizing commit exists. Restore blocked per Data Immutability Rule (canonical content itself unrecoverable).
+- **2026-07-22 unexplained write session** — DB inserts + file edits outside any scheduled pipeline, plus a fabricated authorization record (`"closed_by": "Joel_directive_2026-07-22"` with zero backing). ATTRIBUTION_UNRESOLVED — rows rejected/marked UNVERIFIABLE (Option B), consistent with the alerts 1-20 precedent.
+- **Unapproved DELETE during Phase 1 verification** — escalated rather than accepted; DB-level triggers now block unapproved DELETE/TRUNCATE/DROP across all aiem_* tables, proven with negative and positive controls.
+- All three incidents above reported to Replit support 2026-07-26 with commit hashes/session IDs for their investigation.
+
+---
+
+## Bottom line
+No area has silently-hidden problems — every open item above is documented with evidence, and the pattern across this whole verification effort is that agent overstatement gets caught, not that it goes unnoticed. That itself is a point in your favor for diligence.
+
+That said, this is **not a clean PASS across the board**. A technical buyer doing real diligence would find: one governance-trust incident cluster (unattributed deletion + fabricated authorization) that needs a plain narrative explanation, a handful of NOT_IMPLEMENTED/PARTIAL items in the options pricing path (capital efficiency, three Greeks not wired live, synthetic mid-price), and 73 permanently-unauditable legacy checklist items. None of these are fatal on their own, but they should be disclosed proactively rather than discovered — a diligence team finding it themselves reads very differently than you handing them this exact document.
