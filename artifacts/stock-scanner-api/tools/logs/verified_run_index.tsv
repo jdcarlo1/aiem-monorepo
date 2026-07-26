@@ -128,3 +128,22 @@ c.close()
 132	2026-07-25T19:01:18Z	1	bb8a21f182c4a0713a2671082a272c92730f271940f96f8355bf63994a17f4b8	cd artifacts/stock-scanner-api && python3 dpl/verify_dpl_phase3.py
 133	2026-07-26T03:42:27Z	0	ba1794ebb9442bd77113e5e362c16620e646e3c50bcf8ec85e39fe76eb727cd8	echo C33-plus-cutover-SEQ133
 134	2026-07-26T17:03:14Z	0	22429abd33cacca25ceb4defb5dad9b03453295ffd38568504c26f6f121a960b	echo test
+135	2026-07-26T17:16:11Z	0	fd97f76ad7b1f34c423af20b8e4975e61863c128eb27941cbf3fb0a597209025	sha256sum artifacts/stock-scanner-api/main.py artifacts/stock-scanner-api/patterns/zero_dte_sweep.py artifacts/stock-scanner-api/patterns/__init__.py
+136	2026-07-26T17:16:27Z	0	f2d0ba2bb76ba118f178f60e9af5bb3b1065b79b94114805e07dad591210abaf	grep -n "^import aiem\|^from aiem\|^import options_engine\|^from options_engine\|^import oe_\|^from oe_" artifacts/stock-scanner-api/patterns/zero_dte_sweep.py || echo "RESULT: NONE — zero aiem/OE import statements in zero_dte_sweep.py"
+137	2026-07-26T17:16:55Z	0	3f03e1507799101e3bbebc38fa1cc42ed84a9c1e642d0993b611ff80d6809f40	grep -rn "from patterns.zero_dte\|import patterns.zero_dte\|zero_dte_sweep" artifacts/stock-scanner-api/aiem_*.py 2>/dev/null | grep -v "^Binary" || echo "RESULT: NONE — no aiem_* file imports zero_dte_sweep"
+138	2026-07-26T17:16:58Z	0	8a5fa75b2514dc09e78ea18d2aab8ceb26fb78e740cf43c7d13e74bbd872f5fe	grep -rn "^import aiem\|^from aiem\|^import oe_\|^from oe_" artifacts/stock-scanner-api/patterns/ || echo "RESULT: NONE — patterns/ has zero aiem/OE imports"
+139	2026-07-26T17:17:02Z	0	180ad631368d36790bc181edddfa9e43d4d1c202c04a20ea4ba516849815cbfc	python3 -c "
+import os, psycopg2
+conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=4)
+cur  = conn.cursor()
+cur.execute("""
+    SELECT table_name, column_name, data_type
+    FROM information_schema.columns
+    WHERE table_name IN ('pattern_0dte_matches','pattern_0dte_iv_history')
+    ORDER BY table_name, ordinal_position
+""")
+rows = cur.fetchall()
+print(f"ROW_COUNT={len(rows)}")
+for r in rows: print(r)
+cur.close(); conn.close()
+"

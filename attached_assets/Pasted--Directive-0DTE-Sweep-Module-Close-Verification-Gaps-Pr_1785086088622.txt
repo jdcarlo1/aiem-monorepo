@@ -1,0 +1,25 @@
+# Directive — 0DTE Sweep Module: Close Verification Gaps
+
+Prior submission (isolation grep, before/after hashes, DB schema, negative control, scheduler log) is accepted as raw evidence for those items only. NOT PASS. Three gaps below must close before this module can be called PASS.
+
+## Gap 1 — Evidence-chain wrapper
+- Re-run all evidence-producing commands from this module through `verified_run.sh`, validate with `verify_chain.sh`, paste both raw outputs.
+- Paste current on-disk sha256sum for tools/verified_run.sh and tools/verify_chain.sh. Current canonical:
+  - tools/verified_run.sh = 97589232bed62f2dcd6041ed80e92a892217f7f5c29714406b2ffef7106f00b7
+  - tools/verify_chain.sh = 4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12
+  - Mismatch = validator drifted, output rejected regardless of chain content.
+
+## Gap 2 — No-hardcoded-values check (new build)
+- List every hardcoded-looking constant in zero_dte_sweep.py (IV rank floor, delta band, sweep $ floor, vol/OI ratio floor, spread cap, scan windows/cadence, gate count).
+- For each: raw grep/sed line + one-line trace to live source (API fetch, config file, computed formula). "Wired later" not acceptable.
+- Negative-control proof the 6-gate filter actually blocks a non-matching candidate (not just that the gate code exists).
+
+## Gap 3 — Permanent record file
+- Once Gaps 1-2 close, write full disposition to /docs/verification/zero_dte_sweep-FINAL.md (evidence summary, commit hash verified against, explicit PASS/accepted-risk/open per item — never blend "cleared to proceed" with "PASS").
+
+## Standing checklist (applies to every item above)
+- Raw terminal output only, no paraphrase; raw grep for any code-location/behavior claim.
+- Before/after sha256 for any file touched this round.
+- Full SQL + result set for any DB check (row-level, not just schema).
+- Data Immutability Rule: no delete/truncate/overwrite without Joel's prior explicit approval.
+- "PASS" reserved for zero outstanding items, fully independently verified — otherwise label as closed-via-accepted-risk / cleared-to-proceed / partial.

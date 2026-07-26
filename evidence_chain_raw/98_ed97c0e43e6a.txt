@@ -1,0 +1,1 @@
+RESULT: NONE — patterns/ has zero aiem/OE imports
