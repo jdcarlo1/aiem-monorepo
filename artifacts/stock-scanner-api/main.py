@@ -17512,62 +17512,65 @@ except Exception as _e_0dte:
 
 def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     """
-    Execution-time revalidation of Stage 4 thresholds applied to ALL
-    candidates, regardless of their originating source stage.
+    Per-source execution-time revalidation.  Each candidate is re-checked
+    against the ORIGINAL admission criteria of its own source stage only.
 
-    Re-checks immediately before execution:
-      • price    >= 2.00  (live last-price from Tradier)
-      • gap_pct  >= 1.0   (today's change_pct from Tradier vs prev-close)
-      • rvol     >= 2.0   (time-adjusted intraday vol / avg_daily_vol)
+    Stage 4 (gap_volume) is the ONLY source whose candidates are re-checked
+    against price / gap_pct / rvol, because those three thresholds belong
+    exclusively to Stage 4.  Applying them to conviction_stack, unusual_calls,
+    layer9_stat, etc. would silently kill legitimate non-momentum picks that
+    were never required to gap or have elevated volume.
 
-    Motivation: Stage 4's MAX(scan_date) query has no staleness guard.
-    ZCMD was executed Jul 24 at $1.43 using Jul 22 scan data (price=$4.29).
-    The price floor of $2.00 was satisfied at scan time but not at execution.
-    This gate catches any candidate — from any stage — whose live metrics
-    no longer meet Stage 4's minimum quality bars.
+    Per-source revalidation map:
+      conviction_stack    → PASS_THROUGH (total_pts is historical; no momentum bar)
+      sweep               → call_sweep_log: premium >= 50000, last 2 days
+      unusual_calls       → unusual_calls_log: prem >= 75000, last 2 days
+      gap_volume          → Tradier live: price>=2.0, gap_pct>=1.0, rvol_adj>=2.0
+      aiem_ai             → ai_trade_log: conviction HIGH/EXTREME + BULLISH, last 1d
+      multi_signal        → PASS_THROUGH (snapshot-based, historical)
+      oi_buildup          → oi_daily_snapshot: OI growth >=20% last 4 days
+      washout_ignition    → PASS_THROUGH (never validated; can't reach execution)
+      layer9_stat         → layer9_scores: score>=65, computed_at < 6 hours
+      squeeze_reversion   → PASS_THROUGH (never validated; can't reach execution)
+      aiem_v3_discovery   → PASS_THROUGH (module re-run not feasible at exec time)
+      fear_premium_gex    → PASS_THROUGH (bearish overlay, different admission logic)
+      gap_down_distribution → PASS_THROUGH
+      (unknown)           → PASS_THROUGH (fail-open for any unrecognised source)
 
-    Fail-open conventions (never block when data is unavailable):
-      • quote unavailable (price=0): pass through — downstream gate handles it
-      • avg_volume=0: skip rvol check for that ticker (can't compute)
-      • DB error on scan-time lookup: proceed with audit log noting "no_scan_row"
+    avg_volume=0 for Stage 4 (gap_volume):
+      Intentional fail-open for the rvol sub-check only.  price>=2.0 and
+      gap_pct>=1.0 still apply.  A Tradier avg_volume data gap must not block
+      a candidate that passes the two concrete price-based thresholds.
+      Every such case is logged with action='PASS_RVOL_SKIPPED_NO_AVG' so
+      auditors can distinguish a genuine pass from a data-gap bypass.
 
-    rvol time-adjustment rationale:
-      The polygon scan measures PRIOR-DAY full-session vol / 30d-avg.
-      At execution time (9:40–11:15 AM) we only have intraday volume so far.
-      We project at the current pace to a full 390-minute session:
-          adj_rvol = (current_vol / avg_vol) * (390 / minutes_elapsed_since_930)
-      This makes the execution-time metric comparable to the scan-time metric.
-
-    Returns the approved-picks list (mutated picks are logged + discarded).
-    Rejection audit rows written to aiem_execution_revalidation_log.
+    Returns the approved-picks list.
+    Rejections are printed to stdout and persisted to aiem_execution_revalidation_log.
     """
     import datetime as _rv_dt
     import psycopg2   as _rv_pg
 
-    # ── 1. Minutes elapsed since 9:30 AM ET (for rvol time-adjustment) ───
+    # ── 1. Minutes since 9:30 AM ET — used only for Stage 4 rvol adj ─────
     try:
-        _rv_et   = _ET_TZ                       # module-level pytz tz, always present
-        _rv_now  = _rv_dt.datetime.now(_rv_et)
+        _rv_now  = _rv_dt.datetime.now(_ET_TZ)
         _rv_open = _rv_now.replace(hour=9, minute=30, second=0, microsecond=0)
         _rv_mins = max(1.0, (_rv_now - _rv_open).total_seconds() / 60.0)
     except Exception:
-        _rv_mins = 60.0   # fallback: 1 hour in (conservative but safe)
+        _rv_mins = 60.0   # fallback: 1-hour-in assumption
 
     _rv_today = _rv_dt.date.today()
 
-    # ── 2. Batch pull most-recent scan-time values per ticker ─────────────
-    _rv_scan_vals: dict = {}
+    # ── 2. Ensure audit table + criteria_checked col ──────────────────────
     try:
-        _rv_tickers = list({p["ticker"] for p in picks})
-        with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c, _rv_c.cursor() as _rv_cur:
-            # Create audit table once (idempotent)
-            _rv_cur.execute("""
+        with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c0, _rv_c0.cursor() as _rv_cur0:
+            _rv_cur0.execute("""
                 CREATE TABLE IF NOT EXISTS aiem_execution_revalidation_log (
                     id               SERIAL PRIMARY KEY,
                     logged_at        TIMESTAMP DEFAULT NOW(),
                     run_date         DATE,
                     ticker           VARCHAR(10),
                     source           VARCHAR(64),
+                    criteria_checked TEXT,
                     scan_date        DATE,
                     scan_price       FLOAT,
                     scan_gap_pct     FLOAT,
@@ -17577,28 +17580,156 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                     exec_rvol_raw    FLOAT,
                     exec_rvol_adj    FLOAT,
                     failed_checks    TEXT,
-                    action           VARCHAR(16) DEFAULT 'REJECTED'
+                    action           VARCHAR(32) DEFAULT 'REJECTED'
                 )
             """)
-            _rv_c.commit()
-            # Most-recent polygon scan row per ticker
-            _rv_cur.execute("""
-                SELECT DISTINCT ON (ticker) ticker, price, gap_pct, rvol, scan_date
-                FROM polygon_rvol_scan
-                WHERE ticker = ANY(%s)
-                ORDER BY ticker, scan_date DESC
-            """, (_rv_tickers,))
-            for _rv_row in _rv_cur.fetchall():
-                _rv_scan_vals[_rv_row[0]] = {
-                    "scan_price":   float(_rv_row[1] or 0),
-                    "scan_gap_pct": float(_rv_row[2] or 0),
-                    "scan_rvol":    float(_rv_row[3] or 0),
-                    "scan_date":    _rv_row[4],
-                }
-    except Exception as _rv_db_e:
-        print(f"[revalid] scan-time DB lookup warning (fail-open): {_rv_db_e}")
+            _rv_cur0.execute("""
+                ALTER TABLE aiem_execution_revalidation_log
+                ADD COLUMN IF NOT EXISTS criteria_checked TEXT
+            """)
+            _rv_c0.commit()
+    except Exception as _rv_tbl_e:
+        print(f"[revalid] audit table setup warning (non-fatal): {_rv_tbl_e}")
 
-    # ── 3. Evaluate each candidate ────────────────────────────────────────
+    # ── 3. Stage 4: batch-load scan-time values from polygon_rvol_scan ────
+    _rv_scan_vals: dict = {}
+    _rv_s4_tickers = [p["ticker"] for p in picks if p.get("source") == "gap_volume"]
+    if _rv_s4_tickers:
+        try:
+            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c1, _rv_c1.cursor() as _rv_cur1:
+                _rv_cur1.execute("""
+                    SELECT DISTINCT ON (ticker) ticker, price, gap_pct, rvol, scan_date
+                    FROM polygon_rvol_scan
+                    WHERE ticker = ANY(%s)
+                    ORDER BY ticker, scan_date DESC
+                """, (_rv_s4_tickers,))
+                for _rv_row in _rv_cur1.fetchall():
+                    _rv_scan_vals[_rv_row[0]] = {
+                        "scan_price":   float(_rv_row[1] or 0),
+                        "scan_gap_pct": float(_rv_row[2] or 0),
+                        "scan_rvol":    float(_rv_row[3] or 0),
+                        "scan_date":    _rv_row[4],
+                    }
+        except Exception as _rv_s4e:
+            print(f"[revalid] Stage 4 scan-val lookup warning (fail-open): {_rv_s4e}")
+
+    # ── 4. Non-Stage-4 DB-backed sources: one batch query per source type ──
+    _rv_valid_sweep   : set = set()
+    _rv_valid_ucalls  : set = set()
+    _rv_valid_aiem_ai : set = set()
+    _rv_valid_oi      : set = set()
+    _rv_valid_layer9  : set = set()
+
+    _rv_db_sources = {
+        "sweep":         [p["ticker"] for p in picks if p.get("source") == "sweep"],
+        "unusual_calls": [p["ticker"] for p in picks if p.get("source") == "unusual_calls"],
+        "aiem_ai":       [p["ticker"] for p in picks if p.get("source") == "aiem_ai"],
+        "oi_buildup":    [p["ticker"] for p in picks if p.get("source") == "oi_buildup"],
+        "layer9_stat":   [p["ticker"] for p in picks if p.get("source") == "layer9_stat"],
+    }
+    _rv_any_db = any(_rv_db_sources.values())
+
+    if _rv_any_db:
+        try:
+            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c2, _rv_c2.cursor() as _rv_cur2:
+                # Stage 2: call_sweep_log premium >= 50000, last 2 days
+                if _rv_db_sources["sweep"]:
+                    _rv_cur2.execute("""
+                        SELECT DISTINCT ticker FROM call_sweep_log
+                        WHERE ticker = ANY(%s)
+                          AND sweep_date >= CURRENT_DATE - INTERVAL '2 days'
+                          AND premium >= 50000
+                    """, (_rv_db_sources["sweep"],))
+                    _rv_valid_sweep = {r[0] for r in _rv_cur2.fetchall()}
+
+                # Stage 3: unusual_calls_log prem >= 75000, last 2 days
+                if _rv_db_sources["unusual_calls"]:
+                    _rv_cur2.execute("""
+                        SELECT DISTINCT ticker FROM unusual_calls_log
+                        WHERE ticker = ANY(%s)
+                          AND last_seen >= NOW() - INTERVAL '2 days'
+                          AND prem >= 75000
+                    """, (_rv_db_sources["unusual_calls"],))
+                    _rv_valid_ucalls = {r[0] for r in _rv_cur2.fetchall()}
+
+                # Stage 5: ai_trade_log conviction HIGH/EXTREME + BULLISH, last 1 day
+                if _rv_db_sources["aiem_ai"]:
+                    _rv_cur2.execute("""
+                        SELECT DISTINCT ticker FROM ai_trade_log
+                        WHERE ticker = ANY(%s)
+                          AND trade_date >= CURRENT_DATE - INTERVAL '1 day'
+                          AND conviction IN ('HIGH', 'EXTREME')
+                          AND direction = 'BULLISH'
+                    """, (_rv_db_sources["aiem_ai"],))
+                    _rv_valid_aiem_ai = {r[0] for r in _rv_cur2.fetchall()}
+
+                # Stage 7: oi_daily_snapshot OI growth >= 20%, last 4 days
+                if _rv_db_sources["oi_buildup"]:
+                    _rv_cur2.execute("""
+                        WITH daily_oi AS (
+                            SELECT ticker, snapshot_date, SUM(oi) AS total_oi
+                            FROM oi_daily_snapshot
+                            WHERE ticker = ANY(%s)
+                              AND snapshot_date >= CURRENT_DATE - INTERVAL '4 days'
+                            GROUP BY ticker, snapshot_date
+                        ),
+                        ranked AS (
+                            SELECT ticker, total_oi,
+                                   LAG(total_oi) OVER (
+                                       PARTITION BY ticker ORDER BY snapshot_date
+                                   ) AS prev_oi,
+                                   ROW_NUMBER() OVER (
+                                       PARTITION BY ticker ORDER BY snapshot_date DESC
+                                   ) AS rn
+                            FROM daily_oi
+                        )
+                        SELECT DISTINCT ticker FROM ranked
+                        WHERE rn = 1 AND prev_oi > 0
+                          AND (total_oi - prev_oi) * 100.0 / NULLIF(prev_oi, 0) >= 20
+                    """, (_rv_db_sources["oi_buildup"],))
+                    _rv_valid_oi = {r[0] for r in _rv_cur2.fetchall()}
+
+                # Stage 9: layer9_scores score >= 65, computed within last 6 hours
+                if _rv_db_sources["layer9_stat"]:
+                    _rv_cur2.execute("""
+                        SELECT DISTINCT ticker FROM layer9_scores
+                        WHERE ticker = ANY(%s)
+                          AND statistical_score >= 65
+                          AND computed_at >= NOW() - INTERVAL '6 hours'
+                          AND (error IS NULL OR error = '')
+                    """, (_rv_db_sources["layer9_stat"],))
+                    _rv_valid_layer9 = {r[0] for r in _rv_cur2.fetchall()}
+
+        except Exception as _rv_db2_e:
+            # Fail-open: DB error → pass all non-Stage-4 candidates through
+            print(f"[revalid] per-source DB checks error (fail-open): {_rv_db2_e}")
+            for _rv_t2 in _rv_db_sources["sweep"]:         _rv_valid_sweep.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["unusual_calls"]: _rv_valid_ucalls.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["aiem_ai"]:       _rv_valid_aiem_ai.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["oi_buildup"]:    _rv_valid_oi.add(_rv_t2)
+            for _rv_t2 in _rv_db_sources["layer9_stat"]:   _rv_valid_layer9.add(_rv_t2)
+
+    # ── 5. Sources with no meaningful execution-time re-check ─────────────
+    _RV_PASS_THROUGH_SRCS = frozenset({
+        "conviction_stack",     # ranked by total_pts; no momentum bar
+        "multi_signal",         # snapshot-based, historical values
+        "washout_ignition",     # not validated → never reaches exec
+        "squeeze_reversion",    # not validated → never reaches exec
+        "aiem_v3_discovery",    # module re-run not feasible at exec time
+        "fear_premium_gex",     # bearish overlay; admission logic is different
+        "gap_down_distribution",
+    })
+
+    # ── 6. DB-backed source metadata ─────────────────────────────────────
+    _rv_db_meta = {
+        "sweep":         (_rv_valid_sweep,   "premium>=50000 last 2d (call_sweep_log)"),
+        "unusual_calls": (_rv_valid_ucalls,  "prem>=75000 last 2d (unusual_calls_log)"),
+        "aiem_ai":       (_rv_valid_aiem_ai, "conviction HIGH/EXTREME + BULLISH last 1d (ai_trade_log)"),
+        "oi_buildup":    (_rv_valid_oi,      "OI growth>=20% last 4d (oi_daily_snapshot)"),
+        "layer9_stat":   (_rv_valid_layer9,  "score>=65 + computed_at<6h (layer9_scores)"),
+    }
+
+    # ── 7. Evaluate every candidate ───────────────────────────────────────
     _rv_approved   = []
     _rv_rejections = []
 
@@ -17607,93 +17738,128 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         _rv_src = _rv_pick.get("source", "unknown")
         _rv_q   = quotes.get(_rv_t) or {}
 
-        _rv_exec_price   = float(_rv_q.get("last") or _rv_q.get("bid") or 0)
-        _rv_exec_gap     = float(_rv_q.get("change_pct") or 0)
-        _rv_exec_vol     = float(_rv_q.get("volume") or 0)
-        _rv_exec_avg_vol = float(_rv_q.get("avg_volume") or 0)
+        # ── A. Stage 4 (gap_volume): live price / gap_pct / rvol ─────────
+        if _rv_src == "gap_volume":
+            _rv_exec_price   = float(_rv_q.get("last") or _rv_q.get("bid") or 0)
+            _rv_exec_gap     = float(_rv_q.get("change_pct") or 0)
+            _rv_exec_vol     = float(_rv_q.get("volume") or 0)
+            _rv_exec_avg_vol = float(_rv_q.get("avg_volume") or 0)
 
-        # Time-adjusted rvol: project today's partial-session pace to full day
-        if _rv_exec_avg_vol > 0:
-            _rv_rvol_raw = _rv_exec_vol / _rv_exec_avg_vol
-            _rv_rvol_adj = _rv_rvol_raw * (390.0 / _rv_mins)
-        else:
-            _rv_rvol_raw = None
-            _rv_rvol_adj = 99.9   # fail-open: missing avg_volume, skip rvol check
+            if _rv_exec_avg_vol > 0:
+                _rv_rvol_raw  = _rv_exec_vol / _rv_exec_avg_vol
+                _rv_rvol_adj  = _rv_rvol_raw * (390.0 / _rv_mins)
+                _rv_rvol_note = f"rvol_adj={_rv_rvol_adj:.2f}(raw={_rv_rvol_raw:.4f},mins={_rv_mins:.1f})"
+            else:
+                # Intentional fail-open: avg_volume missing in Tradier.
+                # price>=2.0 and gap_pct>=1.0 still checked.
+                # rvol skipped to avoid false blocks from data gaps.
+                _rv_rvol_raw  = None
+                _rv_rvol_adj  = 99.9
+                _rv_rvol_note = "rvol=skipped(avg_vol=0)"
 
-        # Quote unavailable → pass through (downstream `if _price<=0: continue`)
-        if _rv_exec_price == 0:
+            # Quote unavailable → pass through; downstream handles _price<=0
+            if _rv_exec_price == 0:
+                _rv_approved.append(_rv_pick)
+                continue
+
+            _rv_failed   = []
+            _rv_criteria = "price>=2.0,gap_pct>=1.0,rvol_adj>=2.0"
+            if _rv_exec_price < 2.0:
+                _rv_failed.append(f"price={_rv_exec_price:.3f}<2.00")
+            if _rv_exec_gap < 1.0:
+                _rv_failed.append(f"gap_pct={_rv_exec_gap:.2f}<1.0")
+            if _rv_rvol_adj < 2.0:
+                _rv_failed.append(f"rvol_adj={_rv_rvol_adj:.2f}<2.0({_rv_rvol_note})")
+
+            _rv_sv = _rv_scan_vals.get(_rv_t) or {}
+            _rv_scan_str = (
+                f"scan({_rv_sv.get('scan_date','no_scan_row')}): "
+                f"price={_rv_sv.get('scan_price','?')}"
+                f" gap={_rv_sv.get('scan_gap_pct','?')}"
+                f" rvol={_rv_sv.get('scan_rvol','?')}"
+            )
+
+            if _rv_failed:
+                _rv_fail_str = ", ".join(_rv_failed)
+                print(
+                    f"[revalid] REJECTED {_rv_t} (gap_volume) — "
+                    f"{_rv_fail_str} | {_rv_scan_str}"
+                )
+                _rv_rejections.append({
+                    "ticker":           _rv_t,   "source":      _rv_src,
+                    "criteria_checked": _rv_criteria,
+                    "scan_date":        _rv_sv.get("scan_date"),
+                    "scan_price":       _rv_sv.get("scan_price"),
+                    "scan_gap_pct":     _rv_sv.get("scan_gap_pct"),
+                    "scan_rvol":        _rv_sv.get("scan_rvol"),
+                    "exec_price":       _rv_exec_price,
+                    "exec_gap_pct":     _rv_exec_gap,
+                    "exec_rvol_raw":    _rv_rvol_raw,
+                    "exec_rvol_adj":    _rv_rvol_adj,
+                    "failed_checks":    _rv_fail_str,
+                    "action":           "REJECTED",
+                })
+            else:
+                _rv_action = "PASS_RVOL_SKIPPED_NO_AVG" if _rv_rvol_raw is None else "PASS"
+                print(
+                    f"[revalid] PASS {_rv_t} (gap_volume) — "
+                    f"price={_rv_exec_price:.2f} gap={_rv_exec_gap:.2f}% "
+                    f"{_rv_rvol_note} action={_rv_action}"
+                )
+                _rv_approved.append(_rv_pick)
+            continue
+
+        # ── B. Pass-through sources: no execution-time re-check ───────────
+        if _rv_src in _RV_PASS_THROUGH_SRCS or _rv_src not in _rv_db_meta:
+            print(f"[revalid] PASS_THROUGH {_rv_t} ({_rv_src}) — no re-check for this source")
             _rv_approved.append(_rv_pick)
             continue
 
-        # Apply Stage 4's exact three thresholds
-        _rv_failed = []
-        if _rv_exec_price < 2.0:
-            _rv_failed.append(f"price={_rv_exec_price:.3f}<2.00")
-        if _rv_exec_gap < 1.0:
-            _rv_failed.append(f"gap_pct={_rv_exec_gap:.2f}<1.0")
-        if _rv_rvol_adj < 2.0:
-            _rv_failed.append(
-                f"rvol_adj={_rv_rvol_adj:.2f}<2.0"
-                f"(raw={_rv_rvol_raw:.4f},mins={_rv_mins:.1f})"
-            )
-
-        _rv_sv = _rv_scan_vals.get(_rv_t) or {}
-
-        if _rv_failed:
-            _rv_fail_str = ", ".join(_rv_failed)
-            print(
-                f"[revalid] REJECTED {_rv_t} ({_rv_src}) — {_rv_fail_str} | "
-                f"scan({_rv_sv.get('scan_date','no_scan_row')}): "
-                f"price={_rv_sv.get('scan_price','?')} "
-                f"gap={_rv_sv.get('scan_gap_pct','?')} "
-                f"rvol={_rv_sv.get('scan_rvol','?')}"
-            )
-            _rv_rejections.append({
-                "ticker":        _rv_t,
-                "source":        _rv_src,
-                "scan_date":     _rv_sv.get("scan_date"),
-                "scan_price":    _rv_sv.get("scan_price"),
-                "scan_gap_pct":  _rv_sv.get("scan_gap_pct"),
-                "scan_rvol":     _rv_sv.get("scan_rvol"),
-                "exec_price":    _rv_exec_price,
-                "exec_gap_pct":  _rv_exec_gap,
-                "exec_rvol_raw": _rv_rvol_raw,
-                "exec_rvol_adj": _rv_rvol_adj,
-                "failed_checks": _rv_fail_str,
-            })
-        else:
-            print(
-                f"[revalid] PASS {_rv_t} ({_rv_src}) — "
-                f"price={_rv_exec_price:.2f} "
-                f"gap={_rv_exec_gap:.2f}% "
-                f"rvol_adj={_rv_rvol_adj:.1f}x"
-            )
+        # ── C. DB-backed sources: confirm admission criteria still met ────
+        _rv_valid_set, _rv_criteria_desc = _rv_db_meta[_rv_src]
+        if _rv_t in _rv_valid_set:
+            print(f"[revalid] PASS {_rv_t} ({_rv_src}) — {_rv_criteria_desc}")
             _rv_approved.append(_rv_pick)
+        else:
+            _rv_fail_str = f"no qualifying row for {_rv_src}: {_rv_criteria_desc}"
+            print(f"[revalid] REJECTED {_rv_t} ({_rv_src}) — {_rv_fail_str}")
+            _rv_rejections.append({
+                "ticker":           _rv_t, "source":       _rv_src,
+                "criteria_checked": _rv_criteria_desc,
+                "scan_date":        None,  "scan_price":   None,
+                "scan_gap_pct":     None,  "scan_rvol":    None,
+                "exec_price":       float(_rv_q.get("last") or 0),
+                "exec_gap_pct":     None,
+                "exec_rvol_raw":    None,  "exec_rvol_adj": None,
+                "failed_checks":    _rv_fail_str,
+                "action":           "REJECTED",
+            })
 
-    # ── 4. Persist rejections to audit table ─────────────────────────────
+    # ── 8. Persist rejections to audit table ─────────────────────────────
     if _rv_rejections:
         try:
-            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c2, \
-                 _rv_c2.cursor() as _rv_cur2:
+            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c3,                  _rv_c3.cursor() as _rv_cur3:
                 for _rv_rj in _rv_rejections:
-                    _rv_cur2.execute("""
+                    _rv_cur3.execute("""
                         INSERT INTO aiem_execution_revalidation_log
-                            (run_date, ticker, source, scan_date,
+                            (run_date, ticker, source, criteria_checked, scan_date,
                              scan_price, scan_gap_pct, scan_rvol,
                              exec_price, exec_gap_pct,
-                             exec_rvol_raw, exec_rvol_adj, failed_checks)
-                        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s, %s,%s,%s)
+                             exec_rvol_raw, exec_rvol_adj,
+                             failed_checks, action)
+                        VALUES (%s,%s,%s,%s,%s, %s,%s,%s, %s,%s, %s,%s, %s,%s)
                     """, (
                         _rv_today,
-                        _rv_rj["ticker"],     _rv_rj["source"],
+                        _rv_rj["ticker"],         _rv_rj["source"],
+                        _rv_rj.get("criteria_checked"),
                         _rv_rj["scan_date"],
-                        _rv_rj["scan_price"], _rv_rj["scan_gap_pct"],
+                        _rv_rj["scan_price"],     _rv_rj["scan_gap_pct"],
                         _rv_rj["scan_rvol"],
-                        _rv_rj["exec_price"], _rv_rj["exec_gap_pct"],
-                        _rv_rj["exec_rvol_raw"], _rv_rj["exec_rvol_adj"],
-                        _rv_rj["failed_checks"],
+                        _rv_rj["exec_price"],     _rv_rj["exec_gap_pct"],
+                        _rv_rj["exec_rvol_raw"],  _rv_rj["exec_rvol_adj"],
+                        _rv_rj["failed_checks"],  _rv_rj.get("action", "REJECTED"),
                     ))
-                _rv_c2.commit()
+                _rv_c3.commit()
             print(
                 f"[revalid] {len(_rv_rejections)} rejection(s) written to "
                 f"aiem_execution_revalidation_log"
@@ -17706,6 +17872,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
         f"{len(_rv_approved)} approved, {len(_rv_rejections)} rejected"
     )
     return _rv_approved
+
 
 
 def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool = False):

@@ -1,0 +1,48 @@
+# Directive: Scope Execution Revalidation Per-Source
+
+## Problem with current implementation
+_stage4_execution_revalidate correctly fixed the ZCMD staleness bug (confirmed: both
+price and gap checks now independently reject it). But it applies Stage 4's
+gap_pct/rvol/price thresholds to EVERY candidate from ALL sources, not just candidates
+that came from Stage 4 (polygon_rvol_scan) itself.
+
+Proof this is wrong: AAPL was rejected (gap_pct=0.30<1.0) even though AAPL came from
+Stage 1 (conviction_stack_watchlist), which has no gap/momentum criteria at all — it's
+ranked purely by total_pts. A flat, non-gapping stock can be a completely legitimate
+Stage 1 pick, and this revalidation kills it for failing a check it was never subject
+to. The same problem likely applies to Stage 3 (unusual_calls_log), Stage 7
+(oi_daily_snapshot), Stage 9 (layer9_scores), and Stage 11 (AIEM v3 discovery) — none
+of these sources require gap/rvol/price to qualify, but all now get judged against
+Stage 4's momentum-specific bar.
+
+This is a plausible cause of the earlier "zero candidates" problem: legitimate
+non-momentum picks silently rejected by a gate that was never designed for them.
+
+## Fix required
+Revalidate each candidate against the ORIGINAL criteria its own source used to admit
+it, not blanket Stage 4 thresholds applied to everyone. Concretely:
+- Stage 1 (conviction_stack_watchlist) candidates: no gap/rvol/price re-check required
+  (or re-check total_pts hasn't collapsed, if a revalidation is wanted at all here)
+- Stage 2/3 (call_sweep_log / unusual_calls_log): re-check premium still clears
+  threshold, not gap/rvol/price
+- Stage 4 (polygon_rvol_scan): re-check gap_pct/rvol/price — this is the only source
+  these three thresholds actually belong to
+- Stage 5 (ai_trade_log): re-check conviction/direction still valid, not gap/rvol/price
+- Stage 7 (oi_daily_snapshot): re-check OI growth still holds
+- Stage 9 (layer9_scores): re-check statistical_score still >=65
+- Stage 11 (AIEM v3 discovery): re-check confidence still >=0.42 and decision still
+  BUY/SMALL_BUY
+
+## Also confirm/flag
+- avg_volume=0 currently sets rvol=99.9 and skips the check entirely — confirm this is
+  intentional (illiquid-ticker fail-open) and not an unintended loophole letting
+  untradeable names through.
+
+## Evidence required
+- Show the corrected per-source mapping in code
+- Re-run the AAPL case: confirm it is NOT rejected under the corrected logic (since
+  it never required gap_pct in the first place)
+- Re-run the ZCMD case: confirm it IS STILL rejected under the corrected logic (since
+  it came from Stage 4 and legitimately fails price/gap)
+- Re-confirm via the aiem_execution_revalidation_log audit table, per-candidate,
+  which specific criteria were checked and why (tied to source)
