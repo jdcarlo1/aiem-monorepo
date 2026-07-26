@@ -17510,6 +17510,204 @@ except Exception as _e_0dte:
     print(f"[0dte_sweep] scheduler registration error: {_e_0dte}")
 
 
+def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
+    """
+    Execution-time revalidation of Stage 4 thresholds applied to ALL
+    candidates, regardless of their originating source stage.
+
+    Re-checks immediately before execution:
+      • price    >= 2.00  (live last-price from Tradier)
+      • gap_pct  >= 1.0   (today's change_pct from Tradier vs prev-close)
+      • rvol     >= 2.0   (time-adjusted intraday vol / avg_daily_vol)
+
+    Motivation: Stage 4's MAX(scan_date) query has no staleness guard.
+    ZCMD was executed Jul 24 at $1.43 using Jul 22 scan data (price=$4.29).
+    The price floor of $2.00 was satisfied at scan time but not at execution.
+    This gate catches any candidate — from any stage — whose live metrics
+    no longer meet Stage 4's minimum quality bars.
+
+    Fail-open conventions (never block when data is unavailable):
+      • quote unavailable (price=0): pass through — downstream gate handles it
+      • avg_volume=0: skip rvol check for that ticker (can't compute)
+      • DB error on scan-time lookup: proceed with audit log noting "no_scan_row"
+
+    rvol time-adjustment rationale:
+      The polygon scan measures PRIOR-DAY full-session vol / 30d-avg.
+      At execution time (9:40–11:15 AM) we only have intraday volume so far.
+      We project at the current pace to a full 390-minute session:
+          adj_rvol = (current_vol / avg_vol) * (390 / minutes_elapsed_since_930)
+      This makes the execution-time metric comparable to the scan-time metric.
+
+    Returns the approved-picks list (mutated picks are logged + discarded).
+    Rejection audit rows written to aiem_execution_revalidation_log.
+    """
+    import datetime as _rv_dt
+    import psycopg2   as _rv_pg
+
+    # ── 1. Minutes elapsed since 9:30 AM ET (for rvol time-adjustment) ───
+    try:
+        _rv_et   = _ET_TZ                       # module-level pytz tz, always present
+        _rv_now  = _rv_dt.datetime.now(_rv_et)
+        _rv_open = _rv_now.replace(hour=9, minute=30, second=0, microsecond=0)
+        _rv_mins = max(1.0, (_rv_now - _rv_open).total_seconds() / 60.0)
+    except Exception:
+        _rv_mins = 60.0   # fallback: 1 hour in (conservative but safe)
+
+    _rv_today = _rv_dt.date.today()
+
+    # ── 2. Batch pull most-recent scan-time values per ticker ─────────────
+    _rv_scan_vals: dict = {}
+    try:
+        _rv_tickers = list({p["ticker"] for p in picks})
+        with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c, _rv_c.cursor() as _rv_cur:
+            # Create audit table once (idempotent)
+            _rv_cur.execute("""
+                CREATE TABLE IF NOT EXISTS aiem_execution_revalidation_log (
+                    id               SERIAL PRIMARY KEY,
+                    logged_at        TIMESTAMP DEFAULT NOW(),
+                    run_date         DATE,
+                    ticker           VARCHAR(10),
+                    source           VARCHAR(64),
+                    scan_date        DATE,
+                    scan_price       FLOAT,
+                    scan_gap_pct     FLOAT,
+                    scan_rvol        FLOAT,
+                    exec_price       FLOAT,
+                    exec_gap_pct     FLOAT,
+                    exec_rvol_raw    FLOAT,
+                    exec_rvol_adj    FLOAT,
+                    failed_checks    TEXT,
+                    action           VARCHAR(16) DEFAULT 'REJECTED'
+                )
+            """)
+            _rv_c.commit()
+            # Most-recent polygon scan row per ticker
+            _rv_cur.execute("""
+                SELECT DISTINCT ON (ticker) ticker, price, gap_pct, rvol, scan_date
+                FROM polygon_rvol_scan
+                WHERE ticker = ANY(%s)
+                ORDER BY ticker, scan_date DESC
+            """, (_rv_tickers,))
+            for _rv_row in _rv_cur.fetchall():
+                _rv_scan_vals[_rv_row[0]] = {
+                    "scan_price":   float(_rv_row[1] or 0),
+                    "scan_gap_pct": float(_rv_row[2] or 0),
+                    "scan_rvol":    float(_rv_row[3] or 0),
+                    "scan_date":    _rv_row[4],
+                }
+    except Exception as _rv_db_e:
+        print(f"[revalid] scan-time DB lookup warning (fail-open): {_rv_db_e}")
+
+    # ── 3. Evaluate each candidate ────────────────────────────────────────
+    _rv_approved   = []
+    _rv_rejections = []
+
+    for _rv_pick in picks:
+        _rv_t   = _rv_pick["ticker"]
+        _rv_src = _rv_pick.get("source", "unknown")
+        _rv_q   = quotes.get(_rv_t) or {}
+
+        _rv_exec_price   = float(_rv_q.get("last") or _rv_q.get("bid") or 0)
+        _rv_exec_gap     = float(_rv_q.get("change_pct") or 0)
+        _rv_exec_vol     = float(_rv_q.get("volume") or 0)
+        _rv_exec_avg_vol = float(_rv_q.get("avg_volume") or 0)
+
+        # Time-adjusted rvol: project today's partial-session pace to full day
+        if _rv_exec_avg_vol > 0:
+            _rv_rvol_raw = _rv_exec_vol / _rv_exec_avg_vol
+            _rv_rvol_adj = _rv_rvol_raw * (390.0 / _rv_mins)
+        else:
+            _rv_rvol_raw = None
+            _rv_rvol_adj = 99.9   # fail-open: missing avg_volume, skip rvol check
+
+        # Quote unavailable → pass through (downstream `if _price<=0: continue`)
+        if _rv_exec_price == 0:
+            _rv_approved.append(_rv_pick)
+            continue
+
+        # Apply Stage 4's exact three thresholds
+        _rv_failed = []
+        if _rv_exec_price < 2.0:
+            _rv_failed.append(f"price={_rv_exec_price:.3f}<2.00")
+        if _rv_exec_gap < 1.0:
+            _rv_failed.append(f"gap_pct={_rv_exec_gap:.2f}<1.0")
+        if _rv_rvol_adj < 2.0:
+            _rv_failed.append(
+                f"rvol_adj={_rv_rvol_adj:.2f}<2.0"
+                f"(raw={_rv_rvol_raw:.4f},mins={_rv_mins:.1f})"
+            )
+
+        _rv_sv = _rv_scan_vals.get(_rv_t) or {}
+
+        if _rv_failed:
+            _rv_fail_str = ", ".join(_rv_failed)
+            print(
+                f"[revalid] REJECTED {_rv_t} ({_rv_src}) — {_rv_fail_str} | "
+                f"scan({_rv_sv.get('scan_date','no_scan_row')}): "
+                f"price={_rv_sv.get('scan_price','?')} "
+                f"gap={_rv_sv.get('scan_gap_pct','?')} "
+                f"rvol={_rv_sv.get('scan_rvol','?')}"
+            )
+            _rv_rejections.append({
+                "ticker":        _rv_t,
+                "source":        _rv_src,
+                "scan_date":     _rv_sv.get("scan_date"),
+                "scan_price":    _rv_sv.get("scan_price"),
+                "scan_gap_pct":  _rv_sv.get("scan_gap_pct"),
+                "scan_rvol":     _rv_sv.get("scan_rvol"),
+                "exec_price":    _rv_exec_price,
+                "exec_gap_pct":  _rv_exec_gap,
+                "exec_rvol_raw": _rv_rvol_raw,
+                "exec_rvol_adj": _rv_rvol_adj,
+                "failed_checks": _rv_fail_str,
+            })
+        else:
+            print(
+                f"[revalid] PASS {_rv_t} ({_rv_src}) — "
+                f"price={_rv_exec_price:.2f} "
+                f"gap={_rv_exec_gap:.2f}% "
+                f"rvol_adj={_rv_rvol_adj:.1f}x"
+            )
+            _rv_approved.append(_rv_pick)
+
+    # ── 4. Persist rejections to audit table ─────────────────────────────
+    if _rv_rejections:
+        try:
+            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_c2, \
+                 _rv_c2.cursor() as _rv_cur2:
+                for _rv_rj in _rv_rejections:
+                    _rv_cur2.execute("""
+                        INSERT INTO aiem_execution_revalidation_log
+                            (run_date, ticker, source, scan_date,
+                             scan_price, scan_gap_pct, scan_rvol,
+                             exec_price, exec_gap_pct,
+                             exec_rvol_raw, exec_rvol_adj, failed_checks)
+                        VALUES (%s,%s,%s,%s, %s,%s,%s, %s,%s, %s,%s,%s)
+                    """, (
+                        _rv_today,
+                        _rv_rj["ticker"],     _rv_rj["source"],
+                        _rv_rj["scan_date"],
+                        _rv_rj["scan_price"], _rv_rj["scan_gap_pct"],
+                        _rv_rj["scan_rvol"],
+                        _rv_rj["exec_price"], _rv_rj["exec_gap_pct"],
+                        _rv_rj["exec_rvol_raw"], _rv_rj["exec_rvol_adj"],
+                        _rv_rj["failed_checks"],
+                    ))
+                _rv_c2.commit()
+            print(
+                f"[revalid] {len(_rv_rejections)} rejection(s) written to "
+                f"aiem_execution_revalidation_log"
+            )
+        except Exception as _rv_pe:
+            print(f"[revalid] audit DB write error (non-fatal): {_rv_pe}")
+
+    print(
+        f"[revalid] summary: {len(picks)} in → "
+        f"{len(_rv_approved)} approved, {len(_rv_rejections)} rejected"
+    )
+    return _rv_approved
+
+
 def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool = False):
     """
     9:35 AM ET: pick top 20, fetch live prices, record positions.
@@ -18015,6 +18213,17 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
 
         tickers = [p["ticker"] for p in picks]
         quotes  = _td_quotes(tickers)
+
+        # ── Stage 4 execution-time revalidation (applied to ALL sources) ──
+        # Re-checks price>=2.0, gap_pct>=1.0, rvol>=2.0 (time-adjusted) at
+        # the moment of execution for every candidate, regardless of origin.
+        # Catches cases like ZCMD (Jul 22 scan $4.29, Jul 24 exec $1.43).
+        # Fail-open: quote unavailable → passed through to downstream gate.
+        picks = _stage4_execution_revalidate(picks, quotes)
+        if not picks:
+            print("[aiem_paper] all candidates rejected by execution-time revalidation")
+            _log_finish("NO_CANDIDATES", _trades=0)
+            return
 
         # ── Bull/bear debate for top 3 picks (GPT vs Claude adversarial) ──
         _debate_verdicts: dict = {}
