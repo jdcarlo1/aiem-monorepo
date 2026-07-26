@@ -1,0 +1,35 @@
+# Directive — Add "0DTE Pattern" to StockScanner AI
+
+## Isolation requirement (hard constraint)
+- New pattern lives in its own module (e.g. `patterns/zero_dte_sweep.py`)
+- Zero shared imports, zero shared DB tables/rows, zero shared config flags with AIEM (aiem_*) or Options Engine code
+- Raw grep proof required showing no cross-imports either direction
+
+## Step 0 — report current state (answers Joel's question, do this first)
+- What cron/interval StockScanner AI currently runs on (raw grep of scheduler/cron config, not description)
+- Whether it already has Telegram alert infra wired, and where
+
+## Pattern logic to port (from provided script, logic only — discard its stop-loss/position-sizing/kill-switch code, those aren't scanner concerns)
+- Premium sweep: 5-min options premium > $500k
+- Volume/OI ratio >= 2.0
+- IV Rank >= 0.50 (current IV vs 20-day min/max)
+- Delta between 0.25–0.70
+- Bid/ask spread <= $0.10 (SPY) / $0.30 (SPX)
+- Price confirmation vs 5-min high/low
+- Trading windows: 10:00–11:30 AM ET and 2:00–3:30 PM ET
+
+## Data wiring
+- Replace all placeholder fetchers with StockScanner AI's existing live data source functions (no hardcoded values) — grep + trace each to its live call, per standing no-hardcoded-values rule
+
+## Output
+- On match: Telegram alert with ticker, side (call/put), strike, IV rank, sweep premium, timestamp
+- Log every scan cycle's matches to its own table (e.g. `pattern_0dte_matches`), not any AIEM/Options Engine table
+
+## Scan interval
+- Propose interval based on Step 0 findings; if scanner has no existing interval, default to matching the pattern's own 5-minute scan cadence during the two trading windows only (no need to run outside those windows)
+
+## Evidence required (standing protocol applies)
+- Raw grep confirming zero AIEM/Options Engine cross-references
+- Before/after sha256 + diff for changed files
+- Raw SQL + result set for new table creation
+- Negative control: a real 5-min bar/quote sample proving live data replaces placeholders (not a "representative" example)

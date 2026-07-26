@@ -17487,6 +17487,27 @@ except Exception as _e_ci:
     print(f"[candidate_intake] scheduler registration error: {_e_ci}")
 
 
+try:
+    from patterns.zero_dte_sweep import scan_once as _scan_0dte
+    from apscheduler.triggers.interval import IntervalTrigger as _0DTETrigger
+
+    def _run_0dte_sweep():
+        try:
+            _scan_0dte(tg_fn=_tg_send)
+        except Exception as _e0:
+            print(f"[0dte_sweep] scan error: {_e0}")
+
+    _scheduler.add_job(
+        _run_0dte_sweep,
+        _0DTETrigger(minutes=5, timezone=_ET),
+        id="zero_dte_sweep",
+        replace_existing=True,
+    )
+    print("[0dte_sweep] 5-min scan scheduled (windows 10:00-11:30 and 14:00-15:30 ET guard in scan_once)")
+    _log_startup_event("zero_dte_sweep_scheduled",
+                       "IntervalTrigger(5min) id=zero_dte_sweep, windows=10:00-11:30+14:00-15:30 ET")
+except Exception as _e_0dte:
+    print(f"[0dte_sweep] scheduler registration error: {_e_0dte}")
 
 
 def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool = False):
