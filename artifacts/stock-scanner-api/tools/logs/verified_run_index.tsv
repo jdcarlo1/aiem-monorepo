@@ -147,3 +147,4 @@ print(f"ROW_COUNT={len(rows)}")
 for r in rows: print(r)
 cur.close(); conn.close()
 "
+140	2026-07-26T17:29:12Z	0	8d1523c09741a5f6373d9cfcc457df8c2962b90eacffe294c35c6d9ccf77b9a1	python3 /tmp/negctl_0dte.py

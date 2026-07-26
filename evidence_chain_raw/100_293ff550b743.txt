@@ -1,0 +1,18 @@
+=== Candidate A — VOI=0.30 (Gate 3: need >=2.0) ===
+Input contract:
+  ticker=SPY  side=call  strike=590.0  delta=0.42
+  bid=1.2  ask=1.28  spread=0.08  (limit=0.10)
+  volume=300  openInterest=1000  VOI=0.30  (need>=2.0)
+  prev_vol=0  vol_delta=300  sweep_usd=37200  (need>=500000)
+Result: passed=False  gates=['spread_ok', 'delta_ok']  sweep_usd=0.0
+REJECTION CONFIRMED: candidate blocked at Gate 3 (voi_ok absent)
+
+=== Candidate B — sweep=$6,200 (Gate 4: need >=$500,000) ===
+  ticker=SPY  side=call  strike=590.0  delta=0.42
+  bid=1.2  ask=1.28  spread=0.08  (limit=0.10)
+  volume=6000  openInterest=2000  VOI=3.00  (need>=2.0)
+  prev_vol=5950  vol_delta=50  sweep_usd=6200  (need>=500000)
+Result: passed=False  gates=['spread_ok', 'delta_ok', 'voi_ok']  sweep_usd=6200.0
+REJECTION CONFIRMED: candidate blocked at Gate 4 (premium_ok absent)
+
+SUMMARY: 2 PASS — both gate-level rejections confirmed
