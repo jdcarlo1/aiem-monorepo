@@ -1,0 +1,33 @@
+# Directive — Watchdog Fire Date + Synthetic Candidate Test
+
+## Part 1 — Confirm Watchdog First-Fire Date
+
+You reported: "GH Actions will first schedule at Mon Jul 28 9:45 AM ET."
+
+Today is Sunday, Jul 26, 2026. Jul 27 is Monday. Jul 28 is Tuesday. "Mon Jul 28" is internally inconsistent — pick one.
+
+Required, raw evidence only:
+1. Correct calendar date of the cron's actual first scheduled fire (Jul 27 or Jul 28 — not both).
+2. Exact cron expression(s) from paper-trade-watchdog.yml.
+3. Calculation or GH Actions' own "next run" value proving which date it fires next from right now.
+4. Explicit yes/no: is the watchdog armed for tomorrow's (Jul 27) trading session.
+
+## Part 2 — Synthetic Morning Simulation (full pipeline, starting at the scan)
+
+Goal: prove a stock survives the ENTIRE real morning sequence, starting from where Polygon scan data lands, not from a pre-made candidate. This must be able to catch a drop at the scan→discovery step itself, since discovered_candidates/aiem_discovery_memory row-count questions are still open and unresolved.
+
+Required:
+1. Insert one synthetic row into polygon_rvol_scan (or whichever table is the actual first landing point for raw Polygon scan output) — NOT into any later candidate/discovery table. Engineer its values to clearly clear every real filter (volume, liquidity, rvol, etc.). Tag it unambiguously (e.g. ticker "TESTXYZ" or a dedicated synthetic flag column) so it can never be mistaken for a real trade or pollute real metrics.
+2. Do NOT create a test-mode code path or special flag that bypasses real logic anywhere in the chain. It must be picked up and processed by the exact same scheduled code that runs on a real morning.
+3. Either trigger the real scheduled pipeline run naturally, or if that's not practical same-day, invoke the exact same entry-point function the 9:42 AM cron calls (state which approach was used and why).
+4. Trace and report, stage by stage, with raw query/log output at EACH stage, in order:
+   - Did it get picked up out of polygon_rvol_scan by the discovery/selection logic
+   - Did it appear in discovered_candidates / aiem_discovery_memory (whichever is the real live path)
+   - Did indicator/pattern/scoring stages actually run on it and produce values
+   - Did it clear the paper-trade gate(s) (concentration, risk, etc.)
+   - Did an actual paper-trade order/log entry get created for it
+5. If it drops at any stage, state exactly which stage, the raw evidence showing the drop, and the root cause (not a narrative guess) — this is the primary point of the test, not a formality.
+6. After the test: delete/clean up the synthetic row(s) at every stage they reached, and confirm via raw query that no real paper-trade ledger, capital tracking, or discovery-memory statistics were contaminated.
+7. Full evidence bar applies throughout: raw SQL, sha256 of any changed files, verify_chain.sh output, no summarized/paraphrased results.
+
+Both parts are independent — do not let one block the other.

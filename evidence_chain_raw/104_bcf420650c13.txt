@@ -1,0 +1,8 @@
+SYNTH_TEST_CLEANUP_VERIFIED
+polygon_rvol_scan_TESTXYZ=0
+aiem_paper_trades_TESTXYZ=0
+aiem_discovery_memory_TESTXYZ=0
+polygon_rvol_scan_max_date=2026-07-22
+polygon_rvol_scan_row_count=190
+exec_log_rows_after_2200utc=0
+PASS_no_contamination=True

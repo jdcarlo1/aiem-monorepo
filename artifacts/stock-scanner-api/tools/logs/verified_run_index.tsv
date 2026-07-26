@@ -173,3 +173,35 @@ print(f'item8_status=CLOSED_4_date_today_locations_fixed_scheduler_sha_above')
 print(f'oe_p2gate_status=DEFERRED_to_mon_jul_28_9:45AM_ET_first_fire')
 print(f'side_finding=aiem_process_heartbeat_DELETE_blocked_by_deletion_guard_floods_log')
 "
+143	2026-07-26T22:40:45Z	0	966071b1353f56961e080f51d1588266e71c55140086710ebd99e82e761251c4	python3 -c "
+import psycopg2, os, hashlib
+
+c = psycopg2.connect(os.environ['DATABASE_URL'])
+cur = c.cursor()
+
+# Verify TESTXYZ absent from all relevant tables
+cur.execute("SELECT COUNT(*) FROM polygon_rvol_scan WHERE ticker='TESTXYZ'")
+rvol_n = cur.fetchone()[0]
+cur.execute("SELECT COUNT(*) FROM aiem_paper_trades WHERE ticker='TESTXYZ'")
+trades_n = cur.fetchone()[0]
+cur.execute("SELECT COUNT(*) FROM aiem_discovery_memory WHERE ticker='TESTXYZ'")
+adm_n = cur.fetchone()[0]
+
+# Verify MAX(scan_date) back to 2026-07-22
+cur.execute('SELECT MAX(scan_date), COUNT(*) FROM polygon_rvol_scan')
+max_d, cnt = cur.fetchone()
+
+# No exec_log contamination after 22:00 UTC Jul 26
+cur.execute("SELECT COUNT(*) FROM aiem_paper_execution_log WHERE started_at >= '2026-07-26 22:00:00+00'")
+exec_n = cur.fetchone()[0]
+
+print(f'SYNTH_TEST_CLEANUP_VERIFIED')
+print(f'polygon_rvol_scan_TESTXYZ={rvol_n}')
+print(f'aiem_paper_trades_TESTXYZ={trades_n}')
+print(f'aiem_discovery_memory_TESTXYZ={adm_n}')
+print(f'polygon_rvol_scan_max_date={max_d}')
+print(f'polygon_rvol_scan_row_count={cnt}')
+print(f'exec_log_rows_after_2200utc={exec_n}')
+print(f'PASS_no_contamination={rvol_n==0 and trades_n==0 and adm_n==0 and exec_n==0}')
+c.close()
+"
