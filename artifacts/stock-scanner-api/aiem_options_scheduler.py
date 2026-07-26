@@ -3142,7 +3142,7 @@ def main():
             with psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _u:
                 _u.execute(
                     "SELECT ticker FROM options_engine_premarket WHERE run_date=%s",
-                    (date.today(),)
+                    (datetime.now(_ET).date(),)
                 )
                 for (t,) in _u.fetchall():
                     try:
