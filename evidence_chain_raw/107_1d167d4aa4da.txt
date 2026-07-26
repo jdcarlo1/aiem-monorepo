@@ -1,0 +1,24 @@
+=== OE SYNTHETIC E2E TEST — PART A + PART B EVIDENCE ===
+
+PART_A_daily_pipeline_runs (Jul 20–26):
+  {'run_date': datetime.date(2026, 7, 26), 'status': 'SCHEDULED', 'trigger_source': 'primary', 'candidates_seeded': None, 'candidates_executed': None, 'candidates_no_trade': None, 'candidates_failed': None, 'started_at': None, 'trace_id': None}
+  {'run_date': datetime.date(2026, 7, 25), 'status': 'SCHEDULED', 'trigger_source': 'primary', 'candidates_seeded': None, 'candidates_executed': None, 'candidates_no_trade': None, 'candidates_failed': None, 'started_at': None, 'trace_id': None}
+  {'run_date': datetime.date(2026, 7, 24), 'status': 'FAILED', 'trigger_source': 'primary', 'candidates_seeded': 0, 'candidates_executed': None, 'candidates_no_trade': None, 'candidates_failed': None, 'started_at': datetime.datetime(2026, 7, 24, 14, 17, 12, 970258, tzinfo=datetime.timezone.utc), 'trace_id': None}
+  {'run_date': datetime.date(2026, 7, 23), 'status': 'FAILED', 'trigger_source': 'primary', 'candidates_seeded': 5, 'candidates_executed': 0, 'candidates_no_trade': 0, 'candidates_failed': 5, 'started_at': datetime.datetime(2026, 7, 23, 13, 40, 3, 210100, tzinfo=datetime.timezone.utc), 'trace_id': '600bf6d6893fb861'}
+  {'run_date': datetime.date(2026, 7, 22), 'status': 'NO_TRADE', 'trigger_source': 'primary', 'candidates_seeded': 0, 'candidates_executed': 0, 'candidates_no_trade': 0, 'candidates_failed': 0, 'started_at': datetime.datetime(2026, 7, 22, 13, 54, 7, 800371, tzinfo=datetime.timezone.utc), 'trace_id': '974afc9c0a35ec8d'}
+  {'run_date': datetime.date(2026, 7, 21), 'status': 'FAILED', 'trigger_source': 'primary', 'candidates_seeded': 5, 'candidates_executed': 0, 'candidates_no_trade': 0, 'candidates_failed': 1, 'started_at': datetime.datetime(2026, 7, 21, 13, 40, 1, 338207, tzinfo=datetime.timezone.utc), 'trace_id': 'c1bee641ff72b106'}
+  {'run_date': datetime.date(2026, 7, 20), 'status': 'FAILED', 'trigger_source': 'primary', 'candidates_seeded': 5, 'candidates_executed': 0, 'candidates_no_trade': 0, 'candidates_failed': 5, 'started_at': datetime.datetime(2026, 7, 20, 16, 38, 44, 501583, tzinfo=datetime.timezone.utc), 'trace_id': 'd730455ec9926588'}
+
+PART_B_synthetic_jobs_remaining=0
+PART_B_dpr_jul23: status=FAILED seeded=5 failed=5 trace=600bf6d6893fb861
+PART_B_oe_decision_audit_nontest_rows=15
+PART_B_oe_strategy_candidates_BMY_jul23=0
+PART_B_oe_scheduler_trace_synthetic_permanent=3  (immutable by DPL trigger)
+
+FIX_Sunday_window BMY scan_date=2026-07-23  PASS=True
+FIX_Monday_window  BMY scan_date=2026-07-23  PASS=True
+
+PASS_part_a_sunday_skip=True
+PASS_part_b_cleanup_ok=True
+PASS_fix_5day_window=True
+PASS_all=True

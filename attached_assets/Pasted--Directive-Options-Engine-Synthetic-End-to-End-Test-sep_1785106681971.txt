@@ -1,0 +1,22 @@
+# Directive — Options Engine Synthetic End-to-End Test (separate from AIEM)
+
+Scope note: this tests the standalone Options Engine ONLY — its own candidate intake, scoring, and decision pipeline (seed_daily_candidates → run_pipeline_worker → _execute_job → oe_decision_audit). Do NOT touch AIEM (D1/D2/D3), zero_dte_sweep.py, or anything from the recent AIEM synthetic test. If any shared code/table is discovered, stop and disclose before proceeding.
+
+## Part A — Check today's real Options Engine run first
+
+1. Did seed_daily_candidates() fire today? Raw log line (`[seed] scan_date=... seeded=N`).
+2. Did run_pipeline_worker()/_execute_job() fire? Raw log line (`[exec] START job_id=...`).
+3. Using the confirmed 4-pattern signature from prior diagnosis, classify what actually happened per real candidate today: legit NO_TRADE ([P2_INIT] + NO_TRADE line, no [P2_GATE]), data-not-ready failure, job-never-ran, or an actual trade ([P2_INIT] + [P2_GATE] + [P2_CAPTURE] calling + [P2_CAPTURE] returned tr_id=N, all one trace_id).
+4. If a real trade was captured today: report it (ticker, strategy, tr_id) — Part B not needed.
+5. If real candidates existed (seeded>0) but none reached a captured trade: this is the failure case — proceed to Part B.
+6. If seeded=0 (legitimately no qualifying setups today): state plainly, Part B not needed.
+
+## Part B — ONLY if Part A shows candidates existed but none executed
+
+1. Insert one synthetic candidate directly into whichever table seed_daily_candidates() actually writes to (state the table), using values engineered to clearly pass every real filter for the Options Engine's own gates (P2_GATE thresholds, whatever they are — cite the actual gate logic, don't guess). Use a real, liquid underlying with real listed options (not a fake ticker) so a live options quote/chain can actually be fetched.
+2. Do NOT manually replay stage logic by hand. Call the single real entry point (_execute_job() or whatever function run_pipeline_worker() actually invokes) once, live, and let it run uninterrupted end-to-end.
+3. After that one real call completes, reconstruct from logs/DB what happened: did it reach [P2_INIT], did it reach [P2_GATE], did it reach [P2_CAPTURE], did oe_decision_audit get a real row, was a shadow/paper trade actually captured.
+4. Report exactly which stage it stopped at, if any, with the real (not predicted) reason — grep/log evidence only.
+5. Immediately after: delete/clean up every row the synthetic candidate touched, confirm via raw query no real decision-audit history or shadow-run data was contaminated.
+
+Full evidence bar applies throughout: raw SQL, raw log lines, sha256 of any changed files, verify_chain.sh output. No summarized or predicted results — the point of this test is to observe, not reason about, the real execution path.

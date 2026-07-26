@@ -36,7 +36,7 @@ def compute_expected_move(ticker: str, dte_days: int = 5) -> dict:
                 SELECT spot, front_iv, back_iv, pc_skew_tag
                 FROM options_structure_scan
                 WHERE ticker = %s
-                  AND scan_date >= CURRENT_DATE - INTERVAL '2 days'
+                  AND scan_date >= CURRENT_DATE - INTERVAL '5 days'
                   AND front_iv IS NOT NULL AND spot IS NOT NULL AND spot > 0
                 ORDER BY scan_date DESC
                 LIMIT 1
@@ -293,7 +293,7 @@ def compute_bearish_signals(min_fear_pp: float = 8.0, min_gex_m: float = 0.0) ->
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as conn, conn.cursor() as cur:
             clauses = [
-                "scan_date >= CURRENT_DATE - INTERVAL '2 days'",
+                "scan_date >= CURRENT_DATE - INTERVAL '5 days'",
                 f"pc_skew_pp >= {min_fear_pp}",
                 "spot >= 5.0",
                 "spot IS NOT NULL",
