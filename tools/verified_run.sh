@@ -95,13 +95,21 @@ OUTPUT_SHA256=$(printf '%s' "$OUTPUT" | sha256sum | awk '{print $1}')
 CANONICAL="${PREV_HASH}|${SEQ}|${TIMESTAMP}|${CMD}|${EXIT_CODE}|${OUTPUT_SHA256}"
 ENTRY_HASH=$(printf '%s' "$CANONICAL" | sha256sum | awk '{print $1}')
 
-# Write the log entry as a single JSON line (append-only)
-python3 -c "
-import json
+# Write the log entry as a single JSON line (append-only).
+# FIX (2026-07-26): pass CMD through the environment instead of embedding it
+# in a Python triple-quoted string literal.  The old '''$CMD''' form caused
+# Python to interpret \n, \t, \\ etc. as escape sequences, so a command
+# containing literal backslash-n (two chars) was stored as a real newline
+# (one char).  The verifier reads the JSON-decoded string (real newline) and
+# recomputes the canonical from it, while the bash sha256 above used the raw
+# backslash-n — different bytes → hash mismatch on every quote-heavy command.
+# os.environ['_VR_CMD'] is a byte-for-byte copy of $CMD with no reinterpretation.
+_VR_CMD="$CMD" python3 -c "
+import json, os
 entry = {
     'seq': $SEQ,
     'timestamp_utc': '$TIMESTAMP',
-    'command': '''$CMD''',
+    'command': os.environ['_VR_CMD'],
     'exit_code': $EXIT_CODE,
     'output_sha256': '$OUTPUT_SHA256',
     'prev_hash': '$PREV_HASH',
