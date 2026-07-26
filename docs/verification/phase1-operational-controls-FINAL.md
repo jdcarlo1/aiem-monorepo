@@ -1,6 +1,6 @@
 # Phase 1 Operational Controls — Verification Record
 **Date:** 2026-07-26
-**Status: PARTIAL — 2 items open (DROP gap closed, commit hash confirmed). Not FINAL/PASS until all close.**
+**Status: PARTIAL — 1 item open (DROP gap closed, commit hash confirmed, sha256 confirmed). Not FINAL/PASS until all close.**
 **Prior checkpoint (violation log committed):** `744637c869ef92420525edd73ecd4185f5472f5b`
 **Remediation checkpoint:** `df5d38e4b57cc5c32cac7cb71ec05d5f43e032f9`
 **DROP guard + record update checkpoint:** `f37d15e352e9bca9445634dac10d18eb81e9b06a`
@@ -211,11 +211,14 @@ For DELETE/TRUNCATE: any new `aiem_*` table created after 2026-07-26 must have t
 row/statement triggers added manually or via migration. **This is an ongoing operational
 requirement, not a resolved item.**
 
-### Gap 2 — sha256 canonicals (OPEN)
+### Gap 2 — sha256 canonicals (CLOSED)
 
-No independently confirmed canonical for any of the four evidence-chain scripts. All
-values are agent-recorded. `tools/verified_run.sh` §21.4 pending Joel's independent
-confirmation.
+`tools/verified_run.sh` independently confirmed by Joel running `sha256sum` directly
+on 2026-07-26:
+```
+2617d7bb4654228fd60bc3b971106cccb044f982043a29f14772dff54144bb29  tools/verified_run.sh
+```
+Matches agent-recorded value exactly.
 
 ### Gap 3 — This record's commit hash (CLOSED)
 
@@ -227,13 +230,13 @@ git log -1 --format=%H -- docs/verification/phase1-operational-controls-FINAL.md
 
 ---
 
-## Section 7 — Open Items (2 of original 4 — DROP gap + commit hash closed)
+## Section 7 — Open Items (1 of original 4 — DROP gap, commit hash, sha256 closed)
 
 | # | Item | Status |
 |---|---|---|
 | 1 | DROP TABLE enforcement | **CLOSED** — event trigger `aiem_drop_guard_evt` on `sql_drop`; NEG-A, NEG-B, POS all PASS |
-| 2 | sha256 canonical confirmation | **OPEN** — Joel independent `sha256sum` pending |
-| 3 | Trigger inheritance (DELETE/TRUNCATE) for future `aiem_*` tables | **OPEN** — ongoing manual step; documented |
+| 2 | sha256 canonical confirmation | **CLOSED** — Joel ran `sha256sum` 2026-07-26; `2617d7bb...` confirmed |
+| 3 | Trigger inheritance (DELETE/TRUNCATE) for future `aiem_*` tables | **OPEN** — ongoing manual step; documented as permanent operational requirement |
 | 4 | This record's commit hash | **CLOSED** — `f37d15e352e9bca9445634dac10d18eb81e9b06a`; working tree clean |
 
 ---
@@ -245,7 +248,7 @@ Phase 1 may be marked FINAL/PASS only when ALL of the following are true:
 - [x] DELETE/TRUNCATE guard built and proven (126 tables)
 - [x] DROP TABLE guard built and proven (event trigger, sql_drop)
 - [x] Commit hash for this record confirmed (`f37d15e352e9bca9445634dac10d18eb81e9b06a`)
-- [ ] Joel independently confirms sha256 for at least `tools/verified_run.sh`
-- [ ] No other open items
+- [x] Joel independently confirms sha256 for `tools/verified_run.sh` — CONFIRMED 2026-07-26
+- [ ] Trigger inheritance disposition: Joel to confirm whether ongoing-manual-step documentation is sufficient to close, or whether a migration/automation is required
 
-**Current status: PARTIAL — 2 items open. Action is Joel's on sha256; trigger inheritance is documented as ongoing.**
+**Current status: PARTIAL — 1 item open. Joel's call on whether trigger inheritance blocks FINAL.**
