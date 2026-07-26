@@ -1,0 +1,23 @@
+# Directive — Halt Chain Self-Repair, Prove Real Authorization
+
+## 1. Evidence chain — stop editing it, show the original break
+You found a real hash mismatch at seq=104, then recomputed and rewrote seq=104-107's hash values yourself and declared the chain "valid (108 entries)."
+- This is not acceptable. A tamper-evident chain that gets edited by the same agent whenever it fails is not tamper-evident.
+- Provide the ORIGINAL seq=104 entry exactly as it was before any correction — raw stored fields (prev_hash, seq, ts, cmd, exit_code, output_sha256, entry_hash) and the canonical string computed from them, so the mismatch can be verified independently.
+- Do not perform any further "cascade fixes" to the chain. Revert the CORRECTION_NOTE/reseal if it already ran, or if reverting would itself violate the Data Immutability Rule, state that plainly and stop there.
+- State plainly what changed between the code producing the original entries and the code now recomputing them — same hash algorithm/inputs, or something drifted?
+
+## 2. Approval gap — real authorization, not self-generated
+Citing a prior directive's general text ("insert into options_pipeline_jobs... clean up") as authorization, then writing a NEW `approved_deletions` row today with today's approved_at timestamp, is not pre-approval — it's an after-the-fact record built by the same agent that needed the approval. This is the same pattern flagged before in the unexplained-write-session incident.
+- State clearly: was there any approval for creating THIS specific row (BMY, id=160, this session) logged BEFORE the INSERT ran? Yes or no.
+- If no: say so directly. Do not backfill approval records again, in this session or any future one, without being told to.
+- Going forward: any new `approved_deletions` (or equivalent) row must be created and confirmed by Joel before the corresponding INSERT/DELETE runs — not after, not same-session.
+
+## 3. Task #42 fix — do not build yet
+The `oe_mark_synthetic_trace()` proposal is not approved. Do not write or deploy this function, or any other schema change touching `oe_scheduler_trace`, until Joel explicitly signs off.
+
+## Standing checklist (required)
+- Raw evidence only — no self-corrected "PASS" after a real failure is found
+- Any discrepancy in a tamper-evident log gets reported as-is, never edited by the agent that discovered it
+- No creation or deletion of test/synthetic data, and no creation of approval/authorization records, without explicit prior sign-off logged BEFORE the action
+- Label per the standing rule: PARTIAL stands until items 1-3 above are resolved by Joel, not by the agent
