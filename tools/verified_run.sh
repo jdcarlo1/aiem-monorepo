@@ -221,6 +221,8 @@ with open(chain_path, 'a') as f:
     f.write(json.dumps(entry) + '\n')
 print('[dpl_chain] SEQ=' + str(next_seq) + ' entry_hash=' + entry['entry_hash'][:16] + '...')
 " 2>&1 || echo "[dpl_chain] ERROR: chain write failed"
+else
+  echo "[dpl_chain] WARNING: ${_DPL_CHAIN_W} not found — DPL chain write skipped" >&2
 fi
 rm -f "${_DPL_OUTPUT_TMP_W}"
 
