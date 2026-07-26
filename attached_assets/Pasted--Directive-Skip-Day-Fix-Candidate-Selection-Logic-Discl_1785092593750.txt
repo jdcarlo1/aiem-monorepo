@@ -1,0 +1,27 @@
+# Directive — Skip-Day Fix + Candidate Selection Logic Disclosure (2026-07-26)
+
+## Part 1 — Explain current logic FIRST, before any fix ships
+
+Before touching any of the three fixes below, answer with raw evidence (grep -n / sed -n showing actual code, not description):
+
+1. Full candidate selection pipeline for paper trades: what signals/filters run (e.g. polygon_rvol_scan, any scoring formula), in what order, with the exact file/line for each stage.
+2. Every hard threshold used to admit or reject a candidate (RVOL cutoff, concentration limits, sector caps, etc.) — value + file/line for each.
+3. What "qualifying" means for polygon_rvol_scan specifically — the exact condition that produced zero candidates on July 16-17.
+4. Confirm: does any part of this pipeline currently allow a trade to be entered without meeting the same criteria as any other day? (yes/no + grep proof either way)
+
+## Part 2 — Fix root causes, decoupled from "must trade every day"
+
+Each fix below must be justified on trading-logic correctness alone. Do NOT justify any change by reference to needing a trade every day.
+
+1. **Concentration gate (block-all → filter-saturated-sector)**: Prove the original all-or-nothing behavior was a bug, not intended risk logic. If it was intended, state that plainly — do not change it just to reduce skip days.
+2. **Fallback candidate pool for NO_CANDIDATES days**: REJECTED as specified. A day where nothing meets the real criteria must remain a no-trade day. Do not build a mechanism that admits a trade when the standing criteria weren't met. If you believe the *criteria themselves* are miscalibrated (too strict), say so explicitly with evidence, and that's a separate decision for Joel — not something to route around with a fallback pool.
+3. **GH Actions scheduler watchdog**: approved as pure infra reliability — proceed.
+
+## Standing verification requirements (apply to all of the above)
+- Raw terminal output for every claim — no paraphrasing code, no narrative "fixed"/"confirmed" without pasted evidence
+- Exact before/after diff + sha256 for any changed file
+- Raw SQL + full result set for any DB claim
+- Run all evidence-producing commands through verified_run.sh, validate with verify_chain.sh, paste that output
+- Paste current sha256 of tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh, cross-checked against last confirmed canonical values
+- No delete/truncate/overwrite of any row/file without explicit prior approval this session
+- "PASS" only if fully verified with nothing deferred — otherwise label as partial/cleared-to-proceed and say why
