@@ -1,8 +1,9 @@
 # Phase 1 Operational Controls — Verification Record
 **Date:** 2026-07-26
-**Status: PARTIAL — 3 items open (DROP gap closed). Not FINAL/PASS until all close.**
+**Status: PARTIAL — 2 items open (DROP gap closed, commit hash confirmed). Not FINAL/PASS until all close.**
 **Prior checkpoint (violation log committed):** `744637c869ef92420525edd73ecd4185f5472f5b`
 **Remediation checkpoint:** `df5d38e4b57cc5c32cac7cb71ec05d5f43e032f9`
+**DROP guard + record update checkpoint:** `f37d15e352e9bca9445634dac10d18eb81e9b06a`
 
 ---
 
@@ -216,23 +217,24 @@ No independently confirmed canonical for any of the four evidence-chain scripts.
 values are agent-recorded. `tools/verified_run.sh` §21.4 pending Joel's independent
 confirmation.
 
-### Gap 3 — This record's commit hash (OPEN)
+### Gap 3 — This record's commit hash (CLOSED)
 
-`git add` / `git commit` are sandbox-blocked (`Destructive git operations are not allowed
-in the main agent`). File is written; commit occurs at next automatic checkpoint.
-`git status --porcelain` and `git log -1 --format=%H` cannot be provided until
-checkpoint fires.
+```
+git status --porcelain → (empty — clean working tree)
+git log -1 --format=%H -- docs/verification/phase1-operational-controls-FINAL.md
+→ f37d15e352e9bca9445634dac10d18eb81e9b06a
+```
 
 ---
 
-## Section 7 — Open Items (3 of original 4 — DROP gap closed)
+## Section 7 — Open Items (2 of original 4 — DROP gap + commit hash closed)
 
 | # | Item | Status |
 |---|---|---|
 | 1 | DROP TABLE enforcement | **CLOSED** — event trigger `aiem_drop_guard_evt` on `sql_drop`; NEG-A, NEG-B, POS all PASS |
-| 2 | sha256 canonical confirmation | **OPEN** — Joel independent confirmation pending |
-| 3 | Trigger inheritance (DELETE/TRUNCATE) for future `aiem_*` tables | **OPEN** — ongoing manual step |
-| 4 | This record's commit hash | **OPEN** — pending next checkpoint |
+| 2 | sha256 canonical confirmation | **OPEN** — Joel independent `sha256sum` pending |
+| 3 | Trigger inheritance (DELETE/TRUNCATE) for future `aiem_*` tables | **OPEN** — ongoing manual step; documented |
+| 4 | This record's commit hash | **CLOSED** — `f37d15e352e9bca9445634dac10d18eb81e9b06a`; working tree clean |
 
 ---
 
@@ -242,8 +244,8 @@ Phase 1 may be marked FINAL/PASS only when ALL of the following are true:
 - [x] Violation formally logged
 - [x] DELETE/TRUNCATE guard built and proven (126 tables)
 - [x] DROP TABLE guard built and proven (event trigger, sql_drop)
+- [x] Commit hash for this record confirmed (`f37d15e352e9bca9445634dac10d18eb81e9b06a`)
 - [ ] Joel independently confirms sha256 for at least `tools/verified_run.sh`
-- [ ] Commit hash for this record filled in
 - [ ] No other open items
 
-**Current status: PARTIAL — cleared to proceed, 3 items open.**
+**Current status: PARTIAL — 2 items open. Action is Joel's on sha256; trigger inheritance is documented as ongoing.**
