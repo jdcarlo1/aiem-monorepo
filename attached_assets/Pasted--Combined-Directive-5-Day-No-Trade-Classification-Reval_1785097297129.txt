@@ -1,0 +1,113 @@
+# Combined Directive: 5-Day No-Trade Classification + Revalidation Scoping Fix
+
+---
+
+# PART 1 — Classify the 5-Day No-Trade Stretch (AIEM AND Options Engine)
+
+## Context
+Last week, stocks were not being automatically picked for 5 consecutive days, and the
+cause was never identified. This week's review found a real bug in AIEM's Stage 4
+(stale-data execution — see Part 2 below) plus prior open items from Directive 11 (D1
+wiring) and Directive 14 (discovered_candidates=0 rows, aiem_discovery_memory
+orphaned) that were never fully resolved. It is not yet known whether the 5-day
+problem was AIEM-side, Options-Engine-side, or both — do not assume either.
+
+## Task — AIEM/D1/D2
+Pull the raw execution logs for each of the 5 specific bad days (name the exact dates)
+and classify EACH day individually against this checklist. No day may be left
+unclassified or lumped in with the others.
+
+### Legitimate zero-candidate conditions (not a bug)
+- PortfolioCircuitBreaker tripped (avg_pnl_pct_5d < -5% AND n_trades_5d >= 5)
+- High-impact economic event (FOMC/CPI/NFP) triggered the hard block
+- All 11 sources genuinely returned nothing that day (show each source's row count)
+
+### Diagnosed/possible failure modes (bug — pin down which)
+- AIEM v3 orchestrator returned no BUY/SMALL_BUY at min_confidence=0.42
+- layer9_scores wrote nothing >=65 in the relevant 6-hour window
+- EdgeFilterOrchestrator or OptionBBrain rejected every collected candidate
+- D1/D2 wiring failure (per Directive 11: run_full_cycle() not connected to
+  _aiem_paper_pick_candidates()) — confirm this is NOT still happening
+- discovered_candidates / aiem_discovery_memory still orphaned or empty despite
+  upstream data flowing in (per Directive 14, never resolved)
+- Stage 4 stale-data issue causing candidates to silently vanish or get rejected
+
+### Evidence required per day (AIEM)
+- Exact date, scheduler job ID, run start/end time
+- Row counts from each of the 11 candidate sources for that day
+- Which stage(s) the candidate pool emptied at, if any
+- Final classification: legitimate-quiet, or specific bug — no "unclear"/"probably"
+- Raw log excerpts, not summarized descriptions
+
+## Task — Options Engine (separate pipeline, separate classification)
+AIEM/D1/D2 and the Options Engine are separate codebases with separate candidate
+pipelines. Do NOT assume the same root cause applies to both, and do NOT skip this
+section because the AIEM side is explained above.
+
+Run the same day-by-day classification independently for the Options Engine's own
+candidate/discovery pipeline, for the same 5 dates:
+- Pull the Options Engine's own execution logs for each date
+- Show row counts / pass-fail at each of its own gating stages (distinct from the
+  AIEM stages above)
+- Classify each day: legitimate zero-candidate condition, or a specific bug in the
+  Options Engine pipeline
+- State explicitly whether the Options Engine's no-trade days line up with the same
+  dates as AIEM's, or are independent
+- If evidence shows a shared root cause (e.g. same upstream data feed or shared
+  infrastructure), state that explicitly with proof — don't assume it
+
+## Explicitly not acceptable (both systems)
+- Classifying all 5 days the same way without day-by-day evidence
+- Declaring "legitimate quiet market" without showing the per-source row counts
+- Reusing the existing narrative report without pulling the actual logs for these
+  specific dates
+- Treating AIEM and Options Engine as one system or assuming one explains the other
+
+---
+
+# PART 2 — Fix Execution Revalidation Scoping (AIEM)
+
+## Problem with current implementation
+_stage4_execution_revalidate correctly fixed the ZCMD staleness bug (confirmed: both
+price and gap checks now independently reject it). But it applies Stage 4's
+gap_pct/rvol/price thresholds to EVERY candidate from ALL 11 sources, not just
+candidates that came from Stage 4 (polygon_rvol_scan) itself.
+
+Proof this is wrong: AAPL was rejected (gap_pct=0.30<1.0) even though AAPL came from
+Stage 1 (conviction_stack_watchlist), which has no gap/momentum criteria at all — it's
+ranked purely by total_pts. A flat, non-gapping stock can be a completely legitimate
+Stage 1 pick, and this revalidation kills it for failing a check it was never subject
+to. The same problem likely applies to Stage 3, 7, 9, and 11 — none of these sources
+require gap/rvol/price to qualify, but all now get judged against Stage 4's
+momentum-specific bar.
+
+This is a plausible contributor to the 5-day "zero candidates" problem in Part 1:
+legitimate non-momentum picks silently rejected by a gate that was never designed
+for them.
+
+## Fix required
+Revalidate each candidate against the ORIGINAL criteria its own source used to admit
+it, not blanket Stage 4 thresholds applied to everyone:
+- Stage 1 (conviction_stack_watchlist): no gap/rvol/price re-check required
+- Stage 2/3 (call_sweep_log / unusual_calls_log): re-check premium still clears
+  threshold, not gap/rvol/price
+- Stage 4 (polygon_rvol_scan): re-check gap_pct/rvol/price — the only source these
+  three thresholds actually belong to
+- Stage 5 (ai_trade_log): re-check conviction/direction still valid
+- Stage 7 (oi_daily_snapshot): re-check OI growth still holds
+- Stage 9 (layer9_scores): re-check statistical_score still >=65
+- Stage 11 (AIEM v3 discovery): re-check confidence still >=0.42 and decision still
+  BUY/SMALL_BUY
+
+## Also confirm/flag
+- avg_volume=0 currently sets rvol=99.9 and skips the check entirely — confirm this
+  is intentional (illiquid-ticker fail-open) and not an unintended loophole.
+
+## Evidence required
+- Show the corrected per-source mapping in code
+- Re-run AAPL: confirm it is NOT rejected under corrected logic (never required
+  gap_pct in the first place)
+- Re-run ZCMD: confirm it IS STILL rejected under corrected logic (came from Stage 4,
+  legitimately fails price/gap)
+- Re-confirm via aiem_execution_revalidation_log, per-candidate, which specific
+  criteria were checked and why (tied to source)
