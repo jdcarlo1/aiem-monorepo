@@ -53794,6 +53794,155 @@ def ai_trades():
     })
 
 
+# ── Stripe — StockScanner AI Pro ($100/mo) ───────────────────────────────────
+def _init_stripe_subscriber_columns():
+    try:
+        with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+            _cu.execute("ALTER TABLE sm_subscribers ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT")
+            _cu.execute("ALTER TABLE sm_subscribers ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT")
+            _cu.execute("ALTER TABLE sm_subscribers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
+            _c.commit()
+        print("[stripe] sm_subscribers stripe columns ready")
+    except Exception as _e:
+        print(f"[stripe] _init_stripe_subscriber_columns error: {_e}")
+_DEFERRED_INITS.append(_init_stripe_subscriber_columns)
+
+_STRIPE_PRICE_ID      = os.environ.get("STRIPE_SS_PRICE_ID", "price_1TfWahChn3bmMDTvsABVqAW4")
+_STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
+@app.route("/api/stock-scanner/checkout", methods=["POST"])
+def ss_stripe_checkout():
+    """Create a Stripe Checkout Session for StockScanner AI Pro ($100/mo)."""
+    import stripe as _stripe_mod
+    _stripe_mod.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    data  = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        return jsonify({"error": "Valid email required"}), 400
+    try:
+        base_url = request.host_url.rstrip("/")
+        session = _stripe_mod.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="subscription",
+            customer_email=email,
+            line_items=[{"price": _STRIPE_PRICE_ID, "quantity": 1}],
+            success_url=f"{base_url}/stock-scanner/?checkout=success&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{base_url}/stock-scanner/?checkout=cancel",
+            metadata={"product": "stockscanner_pro", "email": email},
+        )
+        return jsonify({"url": session.url})
+    except Exception as _e:
+        print(f"[stripe_checkout] error: {_e}")
+        return jsonify({"error": str(_e)}), 500
+
+@app.route("/api/stock-scanner/manage", methods=["POST"])
+def ss_stripe_manage():
+    """Open Stripe Customer Portal for subscription management."""
+    import stripe as _stripe_mod
+    _stripe_mod.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    data  = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"error": "Email required"}), 400
+    try:
+        customers = _stripe_mod.Customer.list(email=email, limit=1)
+        if not customers.data:
+            return jsonify({"error": "No subscription found for this email."}), 404
+        base_url = request.host_url.rstrip("/")
+        portal = _stripe_mod.billing_portal.Session.create(
+            customer=customers.data[0].id,
+            return_url=f"{base_url}/stock-scanner/",
+        )
+        return jsonify({"url": portal.url})
+    except Exception as _e:
+        print(f"[stripe_manage] error: {_e}")
+        return jsonify({"error": str(_e)}), 500
+
+@app.route("/api/stock-scanner/webhook", methods=["POST"])
+def ss_stripe_webhook():
+    """Stripe webhook — activates/deactivates subscribers on payment events."""
+    import stripe as _stripe_mod
+    _stripe_mod.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+    payload = request.get_data()
+    sig     = request.headers.get("Stripe-Signature", "")
+    try:
+        if _STRIPE_WEBHOOK_SECRET:
+            event = _stripe_mod.Webhook.construct_event(payload, sig, _STRIPE_WEBHOOK_SECRET)
+        else:
+            import json as _json
+            event = _json.loads(payload)
+    except Exception as _e:
+        print(f"[stripe_webhook] invalid signature: {_e}")
+        return jsonify({"error": str(_e)}), 400
+
+    etype = event.get("type", "")
+    obj   = event.get("data", {}).get("object", {})
+
+    if etype == "checkout.session.completed":
+        email   = (obj.get("customer_email") or obj.get("metadata", {}).get("email") or "").lower().strip()
+        cust_id = obj.get("customer", "")
+        sub_id  = obj.get("subscription", "")
+        if email:
+            import secrets as _sec_mod
+            token = "sub_" + _sec_mod.token_hex(16)
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+                    _cu.execute("""
+                        INSERT INTO sm_subscribers (email, token, active, paid, stripe_customer_id, stripe_subscription_id)
+                        VALUES (%s, %s, true, true, %s, %s)
+                        ON CONFLICT (email) DO UPDATE SET
+                            active=true, paid=true,
+                            stripe_customer_id=EXCLUDED.stripe_customer_id,
+                            stripe_subscription_id=EXCLUDED.stripe_subscription_id
+                    """, (email, token, cust_id, sub_id))
+                    _c.commit()
+                print(f"[stripe_webhook] subscriber activated: {email}")
+            except Exception as _db_e:
+                print(f"[stripe_webhook] checkout DB error: {_db_e}")
+
+    elif etype in ("customer.subscription.deleted", "customer.subscription.paused"):
+        cust_id = obj.get("customer", "")
+        if cust_id:
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+                    _cu.execute(
+                        "UPDATE sm_subscribers SET paid=false, active=false WHERE stripe_customer_id=%s",
+                        (cust_id,)
+                    )
+                    _c.commit()
+                print(f"[stripe_webhook] subscriber deactivated: customer={cust_id}")
+            except Exception as _db_e:
+                print(f"[stripe_webhook] deactivate DB error: {_db_e}")
+
+    elif etype == "invoice.payment_succeeded":
+        cust_id = obj.get("customer", "")
+        if cust_id:
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+                    _cu.execute(
+                        "UPDATE sm_subscribers SET paid=true, active=true WHERE stripe_customer_id=%s",
+                        (cust_id,)
+                    )
+                    _c.commit()
+            except Exception as _db_e:
+                print(f"[stripe_webhook] invoice.succeeded DB error: {_db_e}")
+
+    elif etype == "invoice.payment_failed":
+        cust_id = obj.get("customer", "")
+        if cust_id:
+            try:
+                with _psycopg2.connect(_DB_URL, connect_timeout=5) as _c, _c.cursor() as _cu:
+                    _cu.execute(
+                        "UPDATE sm_subscribers SET paid=false WHERE stripe_customer_id=%s",
+                        (cust_id,)
+                    )
+                    _c.commit()
+                print(f"[stripe_webhook] payment failed, marked unpaid: customer={cust_id}")
+            except Exception as _db_e:
+                print(f"[stripe_webhook] invoice.failed DB error: {_db_e}")
+
+    return jsonify({"ok": True})
+
 @app.route("/stock-api/check-subscription", methods=["POST"])
 def check_subscription():
     """Check if an email has an active Pro subscription (or is an admin)."""

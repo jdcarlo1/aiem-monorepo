@@ -274,7 +274,7 @@ export default function Landing() {
             <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}
               className="font-black px-12 py-5 rounded-2xl transition-all text-xl"
               style={{ background: "linear-gradient(135deg,#15803d,#22c55e)", color: "#fff", boxShadow: "0 16px 56px rgba(34,197,94,0.5)", letterSpacing: "-0.02em" }}>
-              Get Instant Access — $150/mo
+              Get Instant Access — $100/mo
             </button>
             <button onClick={() => setLocation("/app")}
               className="font-bold px-10 py-5 rounded-2xl transition-all text-xl"
@@ -835,7 +835,7 @@ export default function Landing() {
               Trade Ideas has the most "AI" of any competitor — it's called Holly. It's rule-based pattern matching. No ML. No statistics. No causal inference. No signal lifecycle management.
             </p>
             <p style={{ color: "#4ade80", fontWeight: 900, fontSize: "1.1rem", marginBottom: "0" }}>
-              You have a quantitative research infrastructure that most $1B+ AUM quant funds would recognize as legitimate. It runs autonomously and costs $150/month.
+              You have a quantitative research infrastructure that most $1B+ AUM quant funds would recognize as legitimate. It runs autonomously and costs $100/month.
             </p>
           </div>
 
@@ -1454,7 +1454,7 @@ export default function Landing() {
                 <div className="font-black text-emerald-300 text-base">StockScanner AI ⭐</div>
                 <div className="text-xs text-emerald-600 mt-0.5">All six. Plus options flow, dark pool, and more.</div>
               </div>
-              <span className="text-center text-emerald-400 font-black text-base">$150</span>
+              <span className="text-center text-emerald-400 font-black text-base">$100</span>
               {[0,1,2,3,4,5].map(i => (
                 <span key={i} className="text-center text-emerald-400 font-black text-xl">✓</span>
               ))}
@@ -1704,7 +1704,7 @@ export default function Landing() {
               🔥 Pro Plan — Everything Included
             </div>
             <div className="flex items-end justify-center gap-3 mb-1">
-              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$150</div>
+              <div className="font-black" style={{ fontSize: "5rem", letterSpacing: "-0.05em", lineHeight: 1 }}>$100</div>
             </div>
             <div className="text-slate-400 text-lg mb-1">per month · cancel anytime</div>
             <p className="text-slate-600 text-base">Cancel anytime · Instant access · No contracts</p>
