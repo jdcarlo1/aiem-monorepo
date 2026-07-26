@@ -169,6 +169,43 @@ old entries continue to verify under the old exclusion set unchanged.
 
 ---
 
+## Evidence: SEQ 1-132 unaffected (full re-verify)
+
+Python recomputation of entry_hash for every entry in verified_run_chain.jsonl with
+seq <= 132, using old exclusion set `{entry_hash, type, pre_chain_anchor_note, archive_sha256}`.
+
+```
+118 PASS  0 FAIL
+```
+
+All 118 present entries (seq 0, 15-86, 88-132) verified. Seq 1-14 and seq 87 are absent
+from the chain file — gaps that predate this session. No entry_hash changed.
+
+---
+
+## Validator integrity — tools/verify_chain.sh
+
+Tool that produced the evidence_chain.log seq=50 break finding:
+
+```
+972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75  tools/verify_chain.sh
+```
+
+**Canonical status: agent-recorded only.** Joel has not independently confirmed this
+hash. The seq=50 break finding is contingent on this tool being unmodified; its
+integrity is not independently verified.
+
+---
+
+## Full 64-char sha256 before/after
+
+| File | Before | After |
+|---|---|---|
+| `tools/verified_run.sh` | `5d3880463f47564958609fbf9642528cc7a3c308078ce16ab08f8bd99857b880` | `1dfb771f3516936cef4550eaec485e927fe649dfdbf4c87974e2cd54af669bbf` |
+| `artifacts/stock-scanner-api/tools/post_seal_verify.sh` | `c15aee227c470326a74e81fb634cc2ac77538713a013d414e0b9d01dcea97795` | `9f447648c9f4ef6717029656148c7db523a52c142f3541f0236b16abb976b4cc` |
+
+---
+
 ## Overall status: CLEARED TO PROCEED — not PASS
 
 | Item | Status |
@@ -177,6 +214,8 @@ old entries continue to verify under the old exclusion set unchanged.
 | PSV-5 schema-boundary branch (`post_seal_verify.sh`) | CLOSED |
 | First SEQ under new schema recorded (SEQ 133) | CLOSED |
 | Mutation check: PSV4+PSV5 FAIL on corrupted entry | CLOSED |
-| Historical entries unaffected | CLOSED |
+| SEQ 1-132 unaffected — 118 PASS 0 FAIL re-verify | CLOSED |
+| Full 64-char before/after sha256 for both files | CLOSED |
+| `tools/verify_chain.sh` integrity | OPEN — agent-recorded hash only; Joel confirmation pending |
 | `evidence_chain.log` break at seq=50 | OPEN — pre-existing, separate directive needed |
 | PSV8 FAIL for non-verifier runs | OPEN — pre-existing, unrelated to this directive |
