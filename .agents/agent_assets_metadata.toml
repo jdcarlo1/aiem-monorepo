@@ -930,3 +930,9 @@ id = "4LvcZSymBrn90ZOsRfLnz"
 uri = "file://options_engine_review.zip"
 type = "unspecified"
 title = "Options Engine Code — Review Package"
+
+[[outputs]]
+id = "BD15QEY42-RLmOcpsut7_"
+uri = "file://stockscanner-ai-source.zip"
+type = "unspecified"
+title = "StockScanner AI — Source Code Package (2026-07-26)"
