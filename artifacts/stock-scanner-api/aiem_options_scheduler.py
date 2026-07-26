@@ -439,7 +439,7 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
     UNIQUE(ticker, scan_date) prevents duplicates across calls.
     Returns {seeded: N, skipped_duplicates: M}
     """
-    scan_date = scan_date or date.today()
+    scan_date = scan_date or datetime.now(_ET).date()
     seeded = 0
     dupes  = 0
     candidates = []
@@ -475,6 +475,31 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             """, (scan_date, limit))
             candidates = cur.fetchall()
 
+            # Fallback: if today's scan_date has 0 eligible OSS rows (OSS scan not
+            # yet run, or init-before-query race where startup seeded jobs before the
+            # 09:40 cron), retry with MAX(scan_date) — same pattern used by
+            # _seed_from_polygon_universe to avoid empty-handed seeding.
+            if not candidates:
+                log.warning(f"[seed] 0 eligible OSS rows for scan_date={scan_date}; "
+                            f"retrying with MAX(scan_date) fallback")
+                cur.execute("""
+                    SELECT o.ticker, o.scan_date, o.pc_skew_pp, o.gex_regime, o.pc_skew_tag
+                    FROM options_structure_scan o
+                    JOIN polygon_market_daily p
+                        ON p.ticker = o.ticker
+                       AND p.scan_date = (SELECT MAX(scan_date) FROM polygon_market_daily)
+                    WHERE o.scan_date = (SELECT MAX(scan_date) FROM options_structure_scan)
+                      AND o.pc_skew_pp IS NOT NULL
+                      AND o.front_iv > 0
+                      AND o.spot > 10
+                    ORDER BY o.pc_skew_pp DESC
+                    LIMIT %s
+                """, (limit,))
+                candidates = cur.fetchall()
+                if candidates:
+                    log.info(f"[seed] fallback: found {len(candidates)} rows for "
+                             f"MAX scan_date={candidates[0][1]}")
+
             for row in candidates:
                 ticker, sd, _, _, _ = row
                 try:
@@ -492,6 +517,22 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
                         log.info(f"[seed] skip duplicate {ticker} {sd}")
                 except Exception as ie:
                     log.warning(f"[seed] insert error {ticker}: {ie}")
+
+            # If startup backfill pre-seeded jobs before the 09:40 cron ran, all
+            # candidates are duplicates → seeded=0 → daily_pipeline_runs gets
+            # candidates_seeded=0, making it look like nothing was queued.
+            # Count pre-existing PENDING jobs to report an accurate total.
+            if seeded == 0 and dupes > 0:
+                cur.execute(
+                    "SELECT COUNT(*) FROM options_pipeline_jobs "
+                    "WHERE scan_date=%s AND status='PENDING'", (scan_date,)
+                )
+                _pre_pending = cur.fetchone()[0] or 0
+                if _pre_pending > 0:
+                    log.info(f"[seed] all {dupes} were duplicates; "
+                             f"{_pre_pending} PENDING jobs already exist for {scan_date} "
+                             f"— reporting accurate count")
+                    seeded = _pre_pending
 
             conn.commit()
 
@@ -2650,7 +2691,7 @@ def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
     Claim and execute all PENDING jobs for scan_date (default: today).
     Called by the 09:45 scheduler job.
     """
-    scan_date = scan_date or date.today()
+    scan_date = scan_date or datetime.now(_ET).date()
     executed = 0
     skipped  = 0
     results  = []
@@ -3000,17 +3041,26 @@ def main():
     _start_health_server()
 
     # ── Step 0: Register today's run as SCHEDULED (dedup signal for backup) ─
+    # Weekday guard: SCHEDULED rows on weekends create misleading pipeline state
+    # (Jul-25 Saturday was erroneously marked SCHEDULED). Use ET-aware date so
+    # post-midnight-UTC restarts don't register tomorrow's date as today.
     try:
-        _today_et = date.today()
-        with psycopg2.connect(_DB_URL, connect_timeout=4) as _sc0, _sc0.cursor() as _cu0:
-            _cu0.execute("""
-                INSERT INTO daily_pipeline_runs
-                    (run_date, trigger_source, status)
-                VALUES (%s, 'primary', 'SCHEDULED')
-                ON CONFLICT (run_date, trigger_source) DO NOTHING
-            """, (_today_et,))
-            _sc0.commit()
-        log.info(f"[startup] daily_pipeline_runs: SCHEDULED registered for {_today_et}")
+        _now_et0  = datetime.now(_ET)
+        _today_et = _now_et0.date()
+        if _now_et0.weekday() >= 5:  # 5=Sat, 6=Sun
+            log.info(f"[startup] daily_pipeline_runs: skipping SCHEDULED insert — "
+                     f"today is {'Saturday' if _now_et0.weekday()==5 else 'Sunday'} "
+                     f"(not a trading day)")
+        else:
+            with psycopg2.connect(_DB_URL, connect_timeout=4) as _sc0, _sc0.cursor() as _cu0:
+                _cu0.execute("""
+                    INSERT INTO daily_pipeline_runs
+                        (run_date, trigger_source, status)
+                    VALUES (%s, 'primary', 'SCHEDULED')
+                    ON CONFLICT (run_date, trigger_source) DO NOTHING
+                """, (_today_et,))
+                _sc0.commit()
+            log.info(f"[startup] daily_pipeline_runs: SCHEDULED registered for {_today_et}")
     except Exception as _sc0e:
         log.warning(f"[startup] daily_pipeline_runs SCHEDULED insert failed: {_sc0e}")
 

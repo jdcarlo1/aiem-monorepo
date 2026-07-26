@@ -47101,7 +47101,26 @@ def _aiem_paper_pick_candidates() -> list:
             _v3_buys = sum(1 for d in _v3_decisions if d["decision"] in ("BUY","SMALL_BUY"))
             print(f"[aiem_paper] v3_discovery: {len(_v3_disc)} candidates → {_v3_buys} BUY/SMALL_BUY")
     except Exception as _v3e:
-        print(f"[aiem_paper] v3_discovery source skipped: {_v3e}")
+        import traceback as _v3_tb
+        _v3_msg = f"{type(_v3e).__name__}: {_v3e}"
+        print(f"[aiem_paper] v3_discovery FAILED: {_v3_msg}")
+        print(_v3_tb.format_exc())
+        # Surface in job_heartbeats so daily status check catches it
+        try:
+            import psycopg2 as _v3_pg2
+            with _v3_pg2.connect(_DB_URL, connect_timeout=3) as _v3c, _v3c.cursor() as _v3cu:
+                _v3cu.execute("""
+                    INSERT INTO job_heartbeats
+                        (job_name, last_attempt, last_error, consecutive_failures)
+                    VALUES ('aiem_paper_v3_discovery', NOW(), %s, 1)
+                    ON CONFLICT (job_name) DO UPDATE
+                        SET last_attempt=NOW(),
+                            last_error=EXCLUDED.last_error,
+                            consecutive_failures=job_heartbeats.consecutive_failures + 1
+                """, (_v3_msg[:2000],))
+                _v3c.commit()
+        except Exception:
+            pass
 
     # ── 12. Bearish — FEAR_PREMIUM + LONG_GAMMA (institutional put hedging) ─────
     # When put IV > call IV by >=10pp AND dealers are long gamma (price-suppressive),

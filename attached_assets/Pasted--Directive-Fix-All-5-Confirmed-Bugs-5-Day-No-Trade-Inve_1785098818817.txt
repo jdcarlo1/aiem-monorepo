@@ -1,0 +1,37 @@
+# Directive: Fix All 5 Confirmed Bugs — 5-Day No-Trade Investigation
+
+Fix all 5 items below before tomorrow's live run. Each item needs its own evidence — do not bundle claims.
+
+## 1. OE zombie RUNNING record (Jul 24) — BLOCKING
+- Clear the stuck daily_pipeline_runs row (status=RUNNING, run_date=2026-07-24) to FAILED
+- Evidence: raw SQL UPDATE statement + row before/after (raw SELECT output, not narrated)
+- This blocks any OE run until cleared — do this first
+
+## 2. OE query filter bug — polygon_rvol_scan reads 0 rows despite data existing
+- Root-cause the scan_date filter mismatch (UTC vs ET, or init-before-query pattern)
+- Evidence: raw grep of the fixed query code + before/after query result showing non-zero rows on known-good data
+
+## 3. OE weekend SCHEDULED bug
+- Add DOW BETWEEN 1 AND 5 guard before creating daily_pipeline_runs records
+- Evidence: raw diff + a test showing a Saturday no longer creates a SCHEDULED row
+
+## 4. Stage 11 (aiem_v3_discovery) silent exception swallow
+- The `except Exception as _v3e` block in `_aiem_paper_pick_candidates` must stop silently absorbing failures — log to a table/column that surfaces on the daily status check, not just stdout
+- Evidence: raw diff + a forced-failure test proving the new error path is visible somewhere Joel actually checks
+
+## 5. Layer9 statistical scorer staleness (structural, not required by tomorrow)
+- Flag as open — scores computed 18:25-19:52 ET are always >6h stale by next trading day
+- Do NOT attempt a quick fix; present options (move compute time vs. change staleness threshold vs. remove as a source) for Joel's decision separately
+- No evidence required this round — status update only
+
+## Standing requirements (all items)
+- Raw terminal/SQL output only — no paraphrased "confirmed" claims
+- sha256 before/after for any changed file
+- git diff --stat
+- Data Immutability Rule applies — no deletes without approval, state what you're clearing (item 1) and why before running it
+- Route through verified_run.sh / verify_chain.sh where applicable; paste that output
+- Permanent record file once all items close: /docs/verification/5day-notrade-fixes-FINAL.md
+
+## After fixes land
+- Tomorrow's 17:30 ET / market-open cron run is the real test — report the actual triggered run, not a standalone script substitute
+- If it still fails, report which of the 5 fixes held and which didn't — do not re-diagnose from scratch
