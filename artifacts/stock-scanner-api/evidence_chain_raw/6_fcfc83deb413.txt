@@ -1,0 +1,26 @@
+=== Item 2 negative control: unrecognized-source durable DB log ===
+--- grep: PASS_UNRECOGNIZED_SOURCE in section E ---
+18010:            # VARCHAR(32) so PASS_UNRECOGNIZED_SOURCE (24 chars) fits.
+18336:        # ── E. Unrecognized source — WARNING + durable DB log + fail-open ─
+18339:        # action=PASS_UNRECOGNIZED_SOURCE so every pass is queryable after
+18347:        # Primary durable log — written before the pick is approved.
+18360:                            %s, 'PASS_UNRECOGNIZED_SOURCE')
+PASS: PASS_UNRECOGNIZED_SOURCE action constant present in code
+--- grep: _rv_unk_c block ---
+18349:            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_unk_c, \
+18350:                 _rv_unk_c.cursor() as _rv_unk_cur:
+18351:                _rv_unk_cur.execute("""
+18367:                _rv_unk_c.commit()
+18384:        _rv_approved.append(_rv_pick)  # fail-open: don't block on unknown source
+PASS: DB connection block present in section E
+--- negative control: INSERT ticker='TSTUNK' source='totally_unknown_source_negctrl_xyz' ---
+PASS: DB row written — id=1 ticker=TSTUNK source=totally_unknown_source_negctrl_xyz
+  action=PASS_UNRECOGNIZED_SOURCE
+  failed_checks=source 'totally_unknown_source_negctrl_xyz' not in dispatch registry — add to _stage4_execution_revalidate; passing through
+--- grep: fail-open line after DB log ---
+18384:        _rv_approved.append(_rv_pick)  # fail-open: don't block on unknown source
+PASS: fail-open preserved — _rv_approved.append present after DB log
+--- aiem_execution_revalidation_log summary ---
+revalidation_log: total=1 PASS_UNRECOGNIZED_SOURCE=1
+
+SUMMARY: PASS=5 FAIL=0

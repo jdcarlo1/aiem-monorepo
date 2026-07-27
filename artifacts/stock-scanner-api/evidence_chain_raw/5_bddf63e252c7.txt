@@ -1,0 +1,18 @@
+=== Item 2 negative control: unrecognized-source durable DB log ===
+--- grep: PASS_UNRECOGNIZED_SOURCE in section E ---
+18329:        # ── E. Unrecognized source — WARNING + durable DB log + fail-open ─
+18332:        # action=PASS_UNRECOGNIZED_SOURCE so every pass is queryable after
+18340:        # Primary durable log — written before the pick is approved.
+18353:                            %s, 'PASS_UNRECOGNIZED_SOURCE')
+PASS: PASS_UNRECOGNIZED_SOURCE action constant present in code
+--- grep: _rv_unk_c block ---
+18342:            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_unk_c, \
+18343:                 _rv_unk_c.cursor() as _rv_unk_cur:
+18344:                _rv_unk_cur.execute("""
+18360:                _rv_unk_c.commit()
+18377:        _rv_approved.append(_rv_pick)  # fail-open: don't block on unknown source
+PASS: DB connection block present in section E
+--- negative control: INSERT ticker='TSTUNK' source='totally_unknown_source_negctrl_xyz' ---
+Traceback (most recent call last):
+  File "<stdin>", line 9, in <module>
+psycopg2.errors.StringDataRightTruncation: value too long for type character varying(16)

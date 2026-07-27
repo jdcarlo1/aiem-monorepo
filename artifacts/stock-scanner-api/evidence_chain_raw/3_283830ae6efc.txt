@@ -1,0 +1,49 @@
+=== Item 1 negative control: aiem_v3_discovery DB revalidation ===
+--- grep: _RV_PASS_THROUGH_SRCS contents ---
+    _RV_PASS_THROUGH_SRCS = {
+        # total_pts is a historical score; no momentum, gap, or rvol bar.
+        # A flat consolidating stock is fully legitimate here.
+        "conviction_stack",
+        # Snapshot-based; all hits share a single cache row per endpoint.
+        # No per-ticker bar exists to re-check.
+        "multi_signal",
+        # Gate: aiem_signal_discoveries id=9 status='validated' — never true
+        # in production, so these candidates can never appear here in practice.
+        "washout_ignition",
+        # Gate: hypothesis_text='Short_Squeeze_Reversion' status='validated'
+        # — never true in production; same unreachable-in-practice reasoning.
+        "squeeze_reversion",
+    }
+
+    # ── 6. DB-backed source metadata ──────────────────────────────────────
+    _rv_db_meta = {
+        "sweep":           (_rv_valid_sweep,    "premium>=50000 last 2d (call_sweep_log)"),
+        "unusual_calls":   (_rv_valid_ucalls,   "prem>=75000 last 2d (unusual_calls_log)"),
+        "aiem_ai":         (_rv_valid_aiem_ai,  "conviction HIGH/EXTREME + BULLISH last 1d (ai_trade_log)"),
+PASS: aiem_v3_discovery NOT in _RV_PASS_THROUGH_SRCS
+--- grep: _rv_db_meta aiem_v3_discovery ---
+18155:            for _rv_t2 in _rv_db_sources["aiem_v3_discovery"]: _rv_valid_v3.add(_rv_t2)
+18182:        "aiem_v3_discovery": (_rv_valid_v3,     "decision BUY/SMALL_BUY + confidence>=0.42 today (aiem_decision_history)"),
+PASS: aiem_v3_discovery wired into _rv_db_meta
+--- grep: aiem_v3_discovery docstring ---
+      aiem_v3_discovery     → DB revalidation: aiem_decision_history
+                              decision IN (BUY,SMALL_BUY) [direction check]
+                              + final_confidence>=0.42 [min_confidence check]
+                              + decision_date=today ET [staleness bound — no
+                              yesterday decision can pass].
+                              These are the original AIEM v3 admission criteria
+                              re-checked from the same-run stored decision.
+                              Full module re-run at exec time is not feasible
+                              (7-layer scoring); DB is the authoritative state
+                              store because run_orchestrator() always calls
+                              store_decisions() before this function runs.
+      fear_premium_gex      → DB: options_structure_scan pc_skew_tag=FEAR_PREMIUM
+PASS: docstring leads with 'DB revalidation'
+--- SQL negative control: FAKEXYZ_NEGCTRL in aiem_decision_history today ---
+rows returned: []
+PASS: 0 rows — FAKEXYZ_NEGCTRL would be REJECTED by DB check
+--- aiem_decision_history today row count ---
+aiem_decision_history today rows: 0
+PASS: confirmed — all aiem_v3_discovery candidates would be rejected today (no BUY/SMALL_BUY rows)
+
+SUMMARY: PASS=5 FAIL=0
