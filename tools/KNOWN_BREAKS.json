@@ -1,0 +1,19 @@
+{
+  "known_breaks": [
+    {
+      "seq": 104,
+      "reason": "Hash mismatch caused by bash quoting bug in verified_run.sh sub-133 code path. Literal \\n (backslash-n) in $CMD was stored as a real newline (0x0a) via Python triple-quoted-string escape processing ('''$CMD'''), while the bash sha256 canonical on line 95 used the raw backslash-n — different bytes, different hash. Bug fixed for new entries going forward (commit c058d12, env-var storage path). Chain reverted to pre-repair state per Joel's decision (Option B, 2026-07-26). Mismatch stands disclosed and explained.",
+      "record": "docs/verification/oe-synthetic-e2e-test.md"
+    },
+    {
+      "seq": 105,
+      "reason": "Same bash quoting bug as seq=104. Command is a Python -c script containing literal \\n sequences, written in the same session using the same '''$CMD''' path. verify_chain.sh recomputes from JSON-decoded actual-newlines; bash canonical used backslash-n — different bytes, different hash. Chain reverted per Joel's decision (Option B, 2026-07-26). Mismatch stands disclosed and explained.",
+      "record": "docs/verification/oe-synthetic-e2e-test.md"
+    },
+    {
+      "seq": 106,
+      "reason": "Same bash quoting bug as seq=104. Command is a Python -c script containing literal \\n sequences, written in the same session using the same '''$CMD''' path. verify_chain.sh recomputes from JSON-decoded actual-newlines; bash canonical used backslash-n — different bytes, different hash. Chain reverted per Joel's decision (Option B, 2026-07-26). Mismatch stands disclosed and explained.",
+      "record": "docs/verification/oe-synthetic-e2e-test.md"
+    }
+  ]
+}

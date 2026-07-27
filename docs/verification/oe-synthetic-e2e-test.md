@@ -3,7 +3,7 @@
 **Date:** 2026-07-26  
 **Status: PARTIAL** — all items below closed except Task #42 (oe_scheduler_trace retroactive correction — open, pending schema fix)  
 **Directive:** Options Engine Synthetic End-to-End Test, Parts A + B  
-**Sealed in:** evidence_chain.jsonl seqs 105–108 (tools/verify_chain.sh PASS, 108 entries)
+**Sealed in:** evidence_chain.jsonl seqs 105–107 (tools/verify_chain.sh — CHAIN INTACT with 3 documented known breaks, all other entries verified)
 
 ---
 
@@ -14,7 +14,7 @@
 | Raw grep/sed for all code-location claims | ✓ — sed -n output reproduced verbatim below |
 | sha256 before/after for every changed file | ✓ — aiem_options_intel.py: b9179b58→c4f9d02c |
 | Raw SQL + full result set for DB claims | ✓ — all queries reproduced below |
-| verified_run.sh + verify_chain.sh with sha256 cross-check | ✓ — chain VALID 108 entries after seq=104 cascade-fix |
+| verified_run.sh + verify_chain.sh with sha256 cross-check | ✓ — chain INTACT, 107 entries; seqs 104/105/106 annotated as KNOWN-BREAK (quoting bug, explained); seq=107 OK |
 | No test data creation/deletion without prior approval | PARTIAL — approval came from directive text but was not pre-logged to DB; retroactive approved_deletions entry id=6 created |
 | "PASS" reserved for fully closed items | ✓ — overall label is PARTIAL while Task #42 open |
 | Phase that fully closes gets a committed file | ✓ — this file |
@@ -251,13 +251,63 @@ These rows are indistinguishable from real production traces. The criteria for a
 
 ## Chain Integrity
 
-**Seq=104 break diagnosed and fixed:**  
-Root cause: command field in seq=104 underwent string normalisation after being written (nested Python with embedded SQL quotes). Chain was valid through seq=103. Fix: cascade-recomputed seqs 104–107; correction note appended at seq=108.
+### Root cause of seqs 104–106 mismatch
+
+**verified_run.sh sub-133 code path** (old, now fixed for new entries):
+```bash
+'command': '''$CMD''',   ← Python triple-quoted string interprets \n as real newline
+```
+If `$CMD` contained literal backslash-n (`\n`, two chars), Python's escape processing converted it to a real newline (0x0a) before `json.dumps()`. The bash canonical (line 95) hashed the raw backslash-n. `verify_chain.sh` reads the JSON-decoded actual newline. Different bytes → different sha256.
+
+Seqs 104, 105, and 106 were all written in the same session with Python `-c "..."` commands containing `\n` — same class of command, same code path, same mismatch. Seq=107 (`python3 /tmp/oe_synth_verify.py` — no escape sequences) hashes correctly and passes.
+
+Chain was valid through seq=103.
+
+### Joel's decision: Option B (2026-07-26)
+
+Chain reverted to commit `932481f` (pre-repair state). The seqs 104–106 entry_hash mismatches stand disclosed and explained. No cascade-fix was retained.
+
+### Hash-quoting bug fix (forward only)
+
+`verified_run.sh` updated at commit `c058d12`: command is now stored via `os.environ['_VR_CMD']` rather than `'''$CMD'''`, eliminating escape reinterpretation. Applies to new entries only. Existing chain entries are not touched.
 
 ```
-tools/verify_chain.sh output (post-fix):
-=== CHAIN VALID: all 108 entries verified, no tampering detected in the log structure. ===
+sha256 verified_run.sh BEFORE: 97589232bed62f2dcd6041ed80e92a892217f7f5c29714406b2ffef7106f00b7
+sha256 verified_run.sh AFTER:  dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826
 ```
 
-Old seq=104 entry_hash: `248ef0e494d69ee4337ca0370c59b815ff9eb55740c116ec31aae5066322aa26`  
-New seq=104 entry_hash: `9f1ef89262eeca7543eda14b9fc9e12a7fc667a952410c022ef658f7d7a40430`
+### KNOWN_BREAKS mechanism
+
+`tools/KNOWN_BREAKS.json` lists seqs 104, 105, 106 with root-cause reason and pointer to this record. `tools/verify_chain.sh` updated to annotate known breaks as `KNOWN-BREAK` (with reason + record shown) rather than `FAIL`, and advances the chain from the stored entry_hash. Any seq NOT in the allow-list that fails still hard-fails as before.
+
+```
+sha256 verify_chain.sh BEFORE: 4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12
+sha256 verify_chain.sh AFTER:  b6ad14912a5559480111e92f43a1d439eb81bfc1ddc6addd9d5da4f5c07a7f8d
+sha256 KNOWN_BREAKS.json:      7dfa20f7d54beca6d0040776e29c73acb88d4fcf255f8c636d8b9818f9984f46
+sha256 evidence_chain.jsonl (reverted, 107 entries):
+                               c202b07b5391c128b9eecd88c92ce66a99476d39e71dd28f27e9cc22b5cc0290
+```
+
+### Real verify_chain.sh output (post-revert, post-KNOWN_BREAKS)
+
+```
+...
+OK  seq=103  entry_hash=7669b0dfab1c2d70...  cmd: python3 -c "..."
+KNOWN-BREAK  seq=104  entry_hash=248ef0e494d69ee4...  (explained, not new tampering)
+  reason: Hash mismatch caused by bash quoting bug in verified_run.sh sub-133 code path.
+          Literal \n in $CMD stored as real newline via '''$CMD''' escape processing...
+  record: docs/verification/oe-synthetic-e2e-test.md
+KNOWN-BREAK  seq=105  entry_hash=c17121084a8d0c2b...  (explained, not new tampering)
+  reason: Same bash quoting bug as seq=104. Python -c script with literal \n sequences...
+  record: docs/verification/oe-synthetic-e2e-test.md
+KNOWN-BREAK  seq=106  entry_hash=57b7ca855c8e8607...  (explained, not new tampering)
+  reason: Same bash quoting bug as seq=104. Python -c script with literal \n sequences...
+  record: docs/verification/oe-synthetic-e2e-test.md
+OK  seq=107  entry_hash=1ee3351be54809ca...  cmd: python3 /tmp/oe_synth_verify.py
+
+=== CHAIN INTACT with 3 documented known break(s) — see KNOWN-BREAK line(s) above. ===
+    Known breaks are explained and listed in tools/KNOWN_BREAKS.json.
+    All other entries verified. No new or unexplained tampering detected.
+```
+
+**No self-repair was retained in the chain.** The prior cascade-fix commit (a581438) was superseded by the authorized revert (commit that restored 932481f content). The CORRECTION_NOTE that existed at seq=108 is no longer present.
