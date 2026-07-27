@@ -329,6 +329,23 @@ were in `seed_daily_candidates`. Both are fixed. No deferred instances.**
 
 ---
 
+## VerifyChainCanonicalReject_2026-07-27 — Revert Record
+
+Directive confirmed no authorization was given for commit `e50e30f`.
+`tools/verify_chain.sh` reverted to pinned canonical. `tools/KNOWN_BREAKS.json` removed.
+
+```
+sha256 BEFORE revert: b6ad14912a5559480111e92f43a1d439eb81bfc1ddc6addd9d5da4f5c07a7f8d
+sha256 AFTER revert:  4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12
+revert commit: 8c97974
+pushed to origin/main: yes
+KNOWN_BREAKS.json: deleted
+```
+
+Task #56 (re-baseline): cancelled per directive. Pinned canonical stands at `4804b547`.
+
+---
+
 ## Outstanding (Item 1.4)
 
 Real schedule run proof requires tomorrow (2026-07-28) 10:45 UTC+ window.
