@@ -443,6 +443,7 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
     seeded = 0
     dupes  = 0
     candidates = []
+    _double_zero = False   # True when both primary and fallback queries return 0 rows
 
     # Stage 7: SEED_STAGE — write-before-work, before candidate query runs
     try:
@@ -499,6 +500,10 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
                 if candidates:
                     log.info(f"[seed] fallback: found {len(candidates)} rows for "
                              f"MAX scan_date={candidates[0][1]}")
+                else:
+                    log.warning(f"[seed] fallback also returned 0 rows — "
+                                f"double-zero condition; OSS has no qualifying rows on any date")
+                    _double_zero = True
 
             for row in candidates:
                 ticker, sd, _, _, _ = row
@@ -548,25 +553,36 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
             f"scan_date={scan_date}  seeded={seeded}  skipped_dupes={dupes}\n"
             f"Tickers: {', '.join(r[0] for r in candidates[:seeded])}"
         )
+    elif _double_zero:
+        _tg(
+            f"⚠️ <b>OPTIONS PIPELINE: SEED DOUBLE-ZERO</b>\n"
+            f"scan_date={scan_date}  primary_rows=0  fallback_rows=0\n"
+            f"OSS has no qualifying rows on any date — pipeline will NOT run today.\n"
+            f"Check options_structure_scan table and OSS scan logs."
+        )
 
     # Write seed event to durable run log
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc, _dc.cursor() as _cu:
+            _run_status = "NO_CANDIDATES" if _double_zero else "RUNNING"
             _cu.execute("""
                 INSERT INTO daily_pipeline_runs
                     (run_date, trigger_source, status, candidates_seeded, started_at)
-                VALUES (%s, 'primary', 'RUNNING', %s, NOW())
+                VALUES (%s, 'primary', %s, %s, NOW())
                 ON CONFLICT (run_date, trigger_source) DO UPDATE
-                    SET status='RUNNING',
+                    SET status=EXCLUDED.status,
                         candidates_seeded=EXCLUDED.candidates_seeded,
                         started_at=COALESCE(daily_pipeline_runs.started_at, NOW())
-            """, (scan_date, seeded))
+            """, (scan_date, _run_status, seeded))
             _dc.commit()
     except Exception as _de:
         log.warning(f"[seed] daily_pipeline_runs write failed: {_de}")
 
-    return {"seeded": seeded, "skipped_duplicates": dupes,
-            "candidates": [r[0] for r in candidates]}
+    ret = {"seeded": seeded, "skipped_duplicates": dupes,
+           "candidates": [r[0] for r in candidates]}
+    if _double_zero:
+        ret["error"] = "zero_candidates"
+    return ret
 
 
 # ─────────────────────────────────────────────────────────────────────────────

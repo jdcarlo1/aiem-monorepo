@@ -81,17 +81,7 @@ jobs:
           fi
 
           NOW_UTC=$(date -u '+%Y-%m-%dT%H:%M UTC')
-          MSG=$(python3 -c "
-import urllib.parse
-msg = (
-  'GH-EXTERNAL: aiem-process UNREACHABLE\n'
-  'HTTP ${HTTP_CODE} at ${NOW_UTC}\n'
-  'Risk window 6:50-10:00 AM ET is open.\n'
-  'Check Replit > aiem-process workflow and restart if needed.\n'
-  'Run: https://github.com/\${{ github.repository }}/actions/runs/\${{ github.run_id }}'
-)
-print(urllib.parse.quote(msg))
-" 2>/dev/null || echo "aiem-process+UNREACHABLE+HTTP+${HTTP_CODE}+at+${NOW_UTC}")
+          MSG=$(python3 -c "import urllib.parse; print(urllib.parse.quote('GH-EXTERNAL: aiem-process UNREACHABLE\nHTTP ${HTTP_CODE} at ${NOW_UTC}\nRisk window 6:50-10:00 AM ET is open.\nCheck Replit > aiem-process workflow and restart if needed.\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'))" 2>/dev/null || echo "aiem-process+UNREACHABLE+HTTP+${HTTP_CODE}+at+${NOW_UTC}")
 
           curl -s -X POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
