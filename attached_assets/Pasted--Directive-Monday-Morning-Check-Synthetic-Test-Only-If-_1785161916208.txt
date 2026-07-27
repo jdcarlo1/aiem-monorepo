@@ -1,0 +1,24 @@
+# Directive — Monday Morning Check, Synthetic Test Only If Needed
+
+## Part A — Check today's REAL natural run first (send ~10:00 AM ET, after 9:42 cron)
+
+Report raw evidence only, no narrative:
+1. Did the 9:42 AM cron fire today? Raw log/timestamp proof.
+2. How many real candidates cleared the polygon_rvol_scan → gap_volume filters today (real query, real rows, real tickers)?
+3. Of those, how many reached aiem_paper_trades as an actual INSERT (real ticker, real fill_price, real quantity)?
+4. If zero candidates qualified naturally: state that plainly — this is a legitimate "empty day," not a failure, and Part B is not needed.
+5. If candidates qualified but zero trades were inserted: this is the failure case — proceed to Part B.
+6. If a real trade was inserted: report it (ticker, fill_price, timestamp) — test is DONE, Part B not needed.
+
+## Part B — ONLY if Part A shows real candidates existed but zero trades executed
+
+This isolates whether the gap is "empty market" (ruled out by Part A already showing real candidates existed) vs. a real execution-stage failure. Do not run this if Part A already produced a real trade or a genuine zero-candidate day.
+
+1. Insert a synthetic row into polygon_rvol_scan using a REAL, liquid, cheap ticker (not "TESTXYZ") that will return an actual live quote from Tradier — one clearly not already in today's real candidate set. State which ticker and why.
+2. Do NOT manually re-run each stage's SQL by hand. Call the single real entry point function the 9:42 AM cron itself invokes — one call, live, today — and let it run uninterrupted end-to-end on its own.
+3. AFTER that single real run completes, reconstruct from logs/DB what actually happened at each stage (candidates dict, quote fetch, fill_price, sizing, INSERT) — this is forensic reconstruction of one real execution, not a hand-simulation. State clearly this is what was done.
+4. Report exactly which stage it dropped at, if any, with the real (not predicted) reason — this is the point of the test.
+5. Immediately after: delete/clean up every row the synthetic ticker touched across every table reached, confirm via raw query that cleanup is complete and no real capital/ledger tracking was contaminated.
+6. Separately, still open from Sunday: confirm whether the news catalyst gate (fail-open, 0 rows across aiem_news_events/news_headlines/stock_news_cache) is intentionally disabled or an unwired gap. Flag only — no fix without approval.
+
+Full evidence bar applies throughout: raw SQL, raw responses, sha256 of any changed files, verify_chain.sh output. No summarized or predicted results for the execution stage — it must be observed, not reasoned about.
