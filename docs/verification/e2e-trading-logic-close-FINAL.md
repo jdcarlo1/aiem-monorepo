@@ -175,6 +175,20 @@ These are unverified by design (no FIN-style audit has been run for AIEM). This 
 
 **verify_chain.sh (tools/ hash 4804b547):** CHAIN VALID — all entries verified, no tampering.
 
+### Item A — Tool canonical sha256 (cross-check)
+
+```
+dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826  tools/verified_run.sh
+4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12  tools/verify_chain.sh
+```
+
+| File | Canonical | Note |
+|---|---|---|
+| `tools/verified_run.sh` | `dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826` | Re-baselined at commit `c058d12` (hash-quoting bug fix); confirmed by Joel 2026-07-27. Full record: `docs/verification/verified_run_rebaseline-c058d12-FINAL.md`. Prior value `97589232...` cited in this directive was a stale reference predating that re-baseline — not unresolved drift. |
+| `tools/verify_chain.sh` | `4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12` | Unchanged. |
+
+**Item A status: PASS** — live files match both canonicals exactly (untruncated); no investigation pending.
+
 ### SHA256 before/after main.py
 
 | State | SHA256 |
