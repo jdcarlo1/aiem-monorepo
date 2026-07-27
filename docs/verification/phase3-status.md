@@ -9,11 +9,13 @@
 ## Tool SHAs (canonical cross-check)
 
 ```
-verified_run.sh  : 6305cde74d47a5a506f1a8c9fd3dcea780189cf6b344e4a8de6bdf825853f2a3  (rewrite 2026-07-23; prior ba6100ae retired)
+verified_run.sh  : dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826  (quoting-fix c058d12 2026-07-26; re-baselined 2026-07-27 by Joel; prior 6305cde7 retired)
 verify_chain.sh  : ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (SUMMARY line reverted 2026-07-23; prior aa618d45 retired)
 ```
 
 Updated 2026-07-23: verified_run.sh was deleted without authorisation at commit a603aa5 (2026-07-20) and rewritten fresh by directive. verify_chain.sh had an undirected SUMMARY print-line reverted. Both actions are documented in /docs/verification/evidence-chain-fix-2026-07-23-FINAL.md.
+
+Updated 2026-07-27: verified_run.sh canonical re-baselined from 6305cde7 to dce94f6e. Reason: commit c058d12 (2026-07-26 23:50:25) fixed the bash hash-quoting bug (env-var passthrough for $CMD), authorized and verified by Joel via independent git log + sha256sum confirmation.
 
 ---
 

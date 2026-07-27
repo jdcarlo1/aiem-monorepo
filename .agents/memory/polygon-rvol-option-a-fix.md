@@ -29,3 +29,8 @@ If DB query fails → `_prior_vol_map={}` → all tickers hit `len(_pvols)<2` �
 - After sha256:  `d5a415628abda1ae01b25c38763490e7ce113287cd5271ea76e0c5d2864c8d5a`
 - verified_run SEQ=108, entry_hash=`1fb60c007431cad9...` PSV 8/9 PASS
 - Live proof: 1 API call, 37 movers for 2026-07-24, rvol_nulls=0
+
+**Validator re-baseline (2026-07-27):**
+- tools/verified_run.sh canonical updated: `6305cde7` → `dce94f6e` (Joel confirmed; authorized quoting-fix c058d12)
+- phase3-status.md and closeout doc updated; Item 2 fully CLOSED (not accepted-risk)
+- verify_chain.sh canonical unchanged: `ca7896c7`

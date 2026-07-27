@@ -119,7 +119,7 @@ Both counts are internally consistent. The discrepancy is fully explained by the
 
 ---
 
-## Item 2 — Validator sha256 cross-check — CLOSED / STALE CANONICAL DOCUMENTED
+## Item 2 — Validator sha256 cross-check — CLOSED / RE-BASELINED 2026-07-27
 
 ### Raw sha256sum output
 
@@ -138,15 +138,19 @@ ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  (SUMMARY line 
 
 Current on disk: `ca7896c7...` — **MATCH**.
 
-### verified_run.sh: MISMATCH — stale canonical, explained
+### verified_run.sh: RE-BASELINED — canonical updated 2026-07-27
 
-Canonical in docs/verification/phase3-status.md (last updated by commit c4ceb7f, 2026-07-23 16:22:03):
+Prior canonical in docs/verification/phase3-status.md (commit c4ceb7f, 2026-07-23 16:22:03):
 
 ```
-6305cde74d47a5a506f1a8c9fd3dcea780189cf6b344e4a8de6bdf825853f2a3
+6305cde74d47a5a506f1a8c9fd3dcea780189cf6b344e4a8de6bdf825853f2a3  (RETIRED)
 ```
 
-Current on disk: `dce94f6e...` — **DOES NOT MATCH**.
+Current on disk / new canonical:
+
+```
+dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826
+```
 
 Git history for tools/verified_run.sh:
 ```
@@ -154,19 +158,13 @@ c058d12  dce94f6e...  2026-07-26 23:50:25  Fix verified_run.sh hash-quoting bug;
 ```
 (most recent commit touching the file)
 
-`6305cde7` does NOT appear in any git commit for tools/verified_run.sh. Exhaustive git log search result:
-```
-SHA 6305cde7 appears in git history:
-(done searching)
-```
+Explanation: `6305cde7` was recorded in phase3-status.md (c4ceb7f, 2026-07-23) as the post-rewrite canonical. Commit c058d12 (2026-07-26 23:50:25) subsequently modified verified_run.sh to fix the bash hash-quoting bug (env-var passthrough for $CMD), producing `dce94f6e`. phase3-status.md was not re-updated after c058d12.
 
-Explanation: `6305cde7` was recorded in phase3-status.md (c4ceb7f, 2026-07-23) as the post-rewrite canonical. Commit c058d12 (2026-07-26 23:50:25) subsequently modified verified_run.sh to fix the bash hash-quoting bug, producing `dce94f6e`. phase3-status.md was not re-updated after c058d12. The `6305cde7` hash represents an intermediate dirty state that was never committed.
+Re-baseline authorization: Joel confirmed 2026-07-27 via independent verification (ran `git log --oneline -- tools/verified_run.sh` and `sha256sum tools/verified_run.sh` directly in the Replit shell, not agent-reported). Commit order confirmed: 5059f43 → c058d12 (c058d12 last). sha256sum output matched `dce94f6e...` exactly. Reason accepted: authorized hash-quoting bug fix, documented in KNOWN_BREAKS.json as fix for seqs 104-106. phase3-status.md updated in same session.
 
-**No independently-established canonical exists for the current `dce94f6e` version.** The docs record `6305cde7` which is stale (predates the 2026-07-26 quoting fix). The quoting fix was an authorized directed change (documented in KNOWN_BREAKS.json as the fix for seqs 104-106).
-
-**STATUS: CLOSED / ACCEPTED-RISK.**  
+**STATUS: CLOSED / RE-BASELINED.**  
 — verify_chain.sh: PASS (ca7896c7 = canonical, exact match)  
-— verified_run.sh: STALE CANONICAL. Current `dce94f6e` is the live version post quoting-fix (c058d12, 2026-07-26). No canonical exists for this version. Discrepancy is documented, not unexplained tampering.
+— verified_run.sh: MATCH. Canonical re-established to `dce94f6e` (Joel confirmed 2026-07-27). Prior `6305cde7` retired.
 
 ---
 
@@ -298,5 +296,5 @@ OK  seq=108  entry_hash=1fb60c007431cad9...  cmd: sha256sum artifacts/stock-scan
 | Item | Status |
 |---|---|
 | 1. Movers count 37 vs 40 | CLOSED — explained. Old code (5 API calls) vs new code (polygon_market_daily). Net reconciliation: 40 - 4 + 1 = 37. |
-| 2. Validator sha256 cross-check | CLOSED / ACCEPTED-RISK. verify_chain.sh: PASS (ca7896c7 = canonical). verified_run.sh: STALE CANONICAL — `6305cde7` in docs predates quoting fix (c058d12, 2026-07-26); current `dce94f6e` has no independently-established canonical. |
+| 2. Validator sha256 cross-check | CLOSED / RE-BASELINED. verify_chain.sh: PASS (ca7896c7 = canonical). verified_run.sh: canonical re-established to `dce94f6e` (Joel confirmed 2026-07-27; authorized hash-quoting bug fix c058d12; prior `6305cde7` retired). |
 | 3. Timing-dependency claim | CLOSED / ACCEPTED-RISK. polygon_market_daily has no write timestamp column. Claim established by scheduler schedule (8:35 AM ET daily) + monotone ID ordering. Exact timestamps unavailable. |
