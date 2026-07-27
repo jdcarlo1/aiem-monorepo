@@ -50,7 +50,7 @@ _WINDOWS_ET     = [(10, 0, 11, 30), (14, 0, 15, 30)]
 #    These are the most common retail 0DTE paper-trading defaults.
 #    Change these constants to adjust; they are NOT hardcoded in any logic.
 _PAPER_PROFIT_TARGET_PCT: float = 0.50   # +50% gain on entry premium → target exit
-_PAPER_STOP_LOSS_PCT:     float = 0.20   # −20% loss on entry premium  → stop exit
+_PAPER_STOP_LOSS_PCT:     float = 0.10   # −10% loss on entry premium  → stop exit
 _PAPER_CONTRACTS:         int   = 1      # hypothetical contracts per trade (×100 shares)
 
 _tables_ready   = False
