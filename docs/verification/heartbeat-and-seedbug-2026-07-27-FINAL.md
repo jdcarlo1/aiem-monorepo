@@ -26,11 +26,24 @@ git diff --stat HEAD~1 HEAD:
 
 ```
 dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826  tools/verified_run.sh
+b6ad14912a5559480111e92f43a1d439eb81bfc1ddc6addd9d5da4f5c07a7f8d  tools/verify_chain.sh
 ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f  artifacts/stock-scanner-api/verify_chain.sh
 ```
 
 - `tools/verified_run.sh` = `dce94f6e` ✓ matches canonical (re-baselined 2026-07-27 by Joel, same session)
+- `tools/verify_chain.sh` = `b6ad14912a55...` — MISMATCH vs Joel's pinned canonical `4804b547...`
+  (see VerifyChainHashMismatch directive — canonical resolution pending Joel's confirmation)
 - `artifacts/stock-scanner-api/verify_chain.sh` = `ca7896c7` ✓ matches canonical
+
+## Cross-Check Error — tools/verify_chain.sh
+
+The original version of this record incorrectly stated `tools/verify_chain.sh = ca7896c7 ✓`.
+That hash belongs to `artifacts/stock-scanner-api/verify_chain.sh` — a different file with the
+same filename. The error: the wrong file was sha256-checked. The correct hash for
+`tools/verify_chain.sh` is `b6ad14912a5559480111e92f43a1d439eb81bfc1ddc6addd9d5da4f5c07a7f8d`.
+
+This mismatch vs `4804b547` (Joel's pinned canonical) is documented in the
+VerifyChainHashMismatch directive response (2026-07-27). Resolution pending.
 
 ---
 
