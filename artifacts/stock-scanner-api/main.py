@@ -49539,6 +49539,42 @@ def zero_dte_backtest_results_endpoint():
         return jsonify({"combos": [], "reach_rates": [], "progress": {}, "error": str(_e)}), 500
 
 
+@app.route("/stock-api/admin/0dte/run-entry-backtest", methods=["POST"])
+def zero_dte_run_entry_backtest_endpoint():
+    """Trigger the entry criteria backtest (1-year, 3 strikes per side)."""
+    try:
+        import zero_dte_entry_bt as _zebt
+        _zebt.ensure_tables()
+        data = request.get_json(silent=True) or {}
+        days = int(data.get("days", 365))
+        result = _zebt.start_background(days)
+        return jsonify(result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/0dte/entry-backtest-status", methods=["GET"])
+def zero_dte_entry_backtest_status_endpoint():
+    """Status of the entry criteria backtest."""
+    try:
+        import zero_dte_entry_bt as _zebt
+        _zebt.ensure_tables()
+        return jsonify(_zebt.get_status())
+    except Exception as _e:
+        return jsonify({"status": "error", "error": str(_e)}), 500
+
+
+@app.route("/stock-api/0dte/entry-backtest-results", methods=["GET"])
+def zero_dte_entry_backtest_results_endpoint():
+    """Full ranked results from the entry criteria backtest."""
+    try:
+        import zero_dte_entry_bt as _zebt
+        _zebt.ensure_tables()
+        return jsonify(_zebt.analyze())
+    except Exception as _e:
+        return jsonify({"combos": [], "error": str(_e)}), 500
+
+
 @app.route("/stock-api/admin/closed-loop-audit/<int:trade_id>", methods=["GET"])
 def admin_closed_loop_audit_trade(trade_id):
     """
