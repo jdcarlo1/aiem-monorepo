@@ -1,35 +1,21 @@
 #!/usr/bin/env bash
-# Crash Forensics — wrapper for aiem-process (Gap 1).
+# Crash Forensics — wrapper for aiem-telegram (notifier process).
 #
-# Records process start and exit to process_lifecycle_log via a fresh
-# psycopg2.connect() in crash_forensics_lifecycle.py — completely
-# independent of the app's connection pool.
-#
-# Why a shell wrapper (not in-process atexit):
-#   SIGKILL (exit code 137, issued by the kernel OOM killer) cannot be
-#   caught by any in-process Python handler.  Only the parent shell
-#   observes $? after the child is killed.  That single exit code is
-#   the only reliable post-hoc OOM signal when dmesg is inaccessible.
-#
-# SIGTERM trap:
-#   Replit sends SIGTERM to the wrapper when restarting a workflow.
-#   Without a trap, bash dies immediately and the exit-recording code
-#   never runs.  The trap forwards SIGTERM to the Python child, waits
-#   for it to exit, then records the exit before the wrapper itself exits.
-#
-# Lifecycle helper failures are non-fatal (|| true).
+# See aiem_process_wrapper.sh for the full rationale.
+# Same pattern, different process_name token.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIFECYCLE="${SCRIPT_DIR}/crash_forensics_lifecycle.py"
 PYTHON="$(command -v python3 2>/dev/null || command -v python)"
+NOTIFIER="/home/runner/workspace/aiem_telegram_notifier.py"
 
 # ── Record start ──────────────────────────────────────────────────────────────
-"${PYTHON}" "${LIFECYCLE}" start aiem-process || true
+"${PYTHON}" "${LIFECYCLE}" start notifier || true
 
 # ── Launch child in background so we can trap signals ─────────────────────────
-"${PYTHON}" "${SCRIPT_DIR}/aiem_process.py" &
+"${PYTHON}" "${NOTIFIER}" &
 CHILD_PID=$!
 
 # ── SIGTERM / SIGINT handler: forward → wait → record exit ────────────────────
@@ -37,7 +23,7 @@ _on_signal() {
     kill -TERM "${CHILD_PID}" 2>/dev/null || true
     wait "${CHILD_PID}"
     _SIG_EXIT=$?
-    "${PYTHON}" "${LIFECYCLE}" exit aiem-process "${_SIG_EXIT}" || true
+    "${PYTHON}" "${LIFECYCLE}" exit notifier "${_SIG_EXIT}" || true
     exit "${_SIG_EXIT}"
 }
 trap '_on_signal' TERM INT
@@ -47,6 +33,6 @@ wait "${CHILD_PID}"
 EXIT_CODE=$?
 
 # ── Record exit (normal path — not via signal) ────────────────────────────────
-"${PYTHON}" "${LIFECYCLE}" exit aiem-process "${EXIT_CODE}" || true
+"${PYTHON}" "${LIFECYCLE}" exit notifier "${EXIT_CODE}" || true
 
 exit "${EXIT_CODE}"

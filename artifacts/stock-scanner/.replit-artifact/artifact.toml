@@ -53,10 +53,10 @@ kind = "data-app"
   localPort = 5052
 
   [services.development]
-  run = "python3 /home/runner/workspace/aiem_telegram_notifier.py"
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/notifier_wrapper.sh"
 
   [services.production]
-  run = "python3 /home/runner/workspace/aiem_telegram_notifier.py"
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/notifier_wrapper.sh"
 
   [services.production.health.startup]
   path = "/aiem-telegram/api/health"

@@ -96,6 +96,110 @@ MANUAL TEST
 
 import os
 import sys
+
+# ── Crash-log ring buffer (notifier Gap 3) ────────────────────────────────────
+# Mirrors stdout/stderr to a 200-line in-process ring buffer, flushed to
+# crash_log_buffer_notifier every 30 s by a background thread.  After a crash
+# the last 200 log lines survive the restart and are readable via:
+#   SELECT content FROM crash_log_buffer_notifier ORDER BY line_no;
+#
+# The tee is installed HERE — before any other module-level code — so every
+# log line from startup onward is captured (including import-time errors).
+# The flush THREAD is started from _start_notifier_crash_log_flush_thread()
+# called at the bottom of module init (after scheduler and DB are set up).
+import collections as _clbn_coll
+import threading   as _clbn_thr
+
+_NOTIFIER_CRASH_LOG_DEQUE: _clbn_coll.deque = _clbn_coll.deque(maxlen=200)
+
+
+class _NotifierCrashLogTee:
+    """Wraps stdout/stderr; mirrors every completed line to the ring buffer."""
+    def __init__(self, orig):
+        self._orig = orig
+        self._buf  = ""
+        self._lock = _clbn_thr.Lock()
+
+    def write(self, s):
+        self._orig.write(s)
+        with self._lock:
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line.strip():
+                    _NOTIFIER_CRASH_LOG_DEQUE.append(line)
+
+    def flush(self):
+        self._orig.flush()
+
+    def fileno(self):
+        return self._orig.fileno()
+
+    def isatty(self):
+        try:
+            return self._orig.isatty()
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._orig, name)
+
+
+if not isinstance(sys.stdout, _NotifierCrashLogTee):
+    sys.stdout = _NotifierCrashLogTee(sys.stdout)
+if not isinstance(sys.stderr, _NotifierCrashLogTee):
+    sys.stderr = _NotifierCrashLogTee(sys.stderr)
+
+
+def _flush_notifier_crash_log_to_db() -> None:
+    """Flush ring buffer to crash_log_buffer_notifier.  Must never raise."""
+    try:
+        import psycopg2 as _fclbn_pg
+        import os        as _fclbn_os
+        import datetime  as _fclbn_dt
+        _url = _fclbn_os.environ.get("DATABASE_URL")
+        if not _url:
+            return
+        _snapshot = list(_NOTIFIER_CRASH_LOG_DEQUE)
+        if not _snapshot:
+            return
+        _now = _fclbn_dt.datetime.utcnow()
+        with _fclbn_pg.connect(_url, connect_timeout=5) as _c:
+            with _c.cursor() as _cur:
+                _cur.execute("""
+                    CREATE TABLE IF NOT EXISTS crash_log_buffer_notifier (
+                        id        BIGSERIAL    PRIMARY KEY,
+                        logged_at TIMESTAMPTZ,
+                        line_no   INT,
+                        content   TEXT
+                    )
+                """)
+                _cur.execute("DELETE FROM crash_log_buffer_notifier")
+                _cur.executemany(
+                    "INSERT INTO crash_log_buffer_notifier (logged_at, line_no, content) "
+                    "VALUES (%s, %s, %s)",
+                    [(_now, i, line) for i, line in enumerate(_snapshot, 1)],
+                )
+            _c.commit()
+    except Exception as _fclbn_e:
+        try:
+            import sys as _fclbn_sys
+            _fclbn_sys.__stdout__.write(f"[crash_log_buffer_notifier] flush error: {_fclbn_e}\n")
+        except Exception:
+            pass
+
+
+def _start_notifier_crash_log_flush_thread() -> None:
+    """Start the 30-second flush daemon.  Call once from main startup block."""
+    def _loop():
+        import time as _lt
+        while True:
+            _lt.sleep(30)
+            _flush_notifier_crash_log_to_db()
+    _clbn_thr.Thread(target=_loop, daemon=True, name="notifier-crash-log-flush").start()
+
+# ── End crash-log ring buffer ─────────────────────────────────────────────────
+
 import json
 import logging
 import threading
@@ -3459,6 +3563,11 @@ def main():
     threading.Thread(target=_options_pipeline_watchdog, daemon=True,
                      name="options-pipeline-watchdog").start()
     # ────────────────────────────────────────────────────────────────────────
+
+    # ── Crash-log flush thread (Gap 3) ───────────────────────────────────────
+    _start_notifier_crash_log_flush_thread()
+    log.info("[crash_log_notifier] 30-s flush thread started → crash_log_buffer_notifier")
+    # ─────────────────────────────────────────────────────────────────────────
 
     log.info("AIEM Telegram Notifier started — 2:58 AM DB BACKUP + 8:50 AM PATTERN ENGINE + 9:00 AM preview + 9:30 AM stock + 9:37 AM TRIFECTA + 10:30 AM options, Mon-Fri | aiem-process watchdog active (2-min poll) | options-pipeline-watchdog active (5-min poll)")
     try:
