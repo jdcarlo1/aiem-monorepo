@@ -29,12 +29,28 @@ fallback, `elif _double_zero: _tg(...)` Telegram alert, `NO_CANDIDATES` status i
 - Any new DB query function with primary+fallback pattern → add double-zero guard before return
 - Force `limit=0` to test double-zero case in standalone scripts (no production data affected)
 
+**Rule 3 — aiem_deletion_guard + same-transaction INSERT+DELETE rollback:**
+Any heartbeat/ping writer that does INSERT + DELETE (to keep only last N rows) in ONE transaction
+will have BOTH operations rolled back if the DELETE triggers `aiem_deletion_guard`. The `except`
+block only logs "non-fatal" — the INSERT is silently lost. Fix: INSERT-only; let rows accumulate
+(ts DESC index keeps MAX(ts) queries fast). Never pair a guard-protected DELETE with an INSERT
+in the same connection/transaction.
+
+**Why:** aiem_process_heartbeat was dark for 40+ hours despite the process running fine because
+every 3-minute write attempt silently rolled back the INSERT along with the blocked DELETE.
+
+**How to apply:** Any new row-keepers (keep-last-N patterns) on a guarded table must use a
+separate admin-only delete path or just INSERT without pruning.
+
 ## State as of 2026-07-27
 
 - Secrets added to GH Actions: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (were missing)
 - YAML fix committed at fce1144 — single-line python3 invocation, passes yaml.safe_load
 - seed_daily_candidates fix: 5 changes, negative-control PASS (TG message_id=3162, DB NO_CANDIDATES)
 - verified_run.sh SEQ=150, PSV1-7 PASS, PSV8/9 pre-existing FAIL
-- **Item 1.4 PENDING**: real `event=schedule` run proof requires 2026-07-28 10:45+ UTC window
+- **Task #55 CANCELLED** — GH cron proof no longer required; heartbeat bug fixed instead
 - Test row: daily_pipeline_runs run_date=2099-01-01 trigger_source=neg_ctrl_test — NOT deleted
 - Permanent record: docs/verification/heartbeat-and-seedbug-2026-07-27-FINAL.md
+- **Heartbeat deletion-guard fix** committed 7066be3 (aiem_process.py DELETE removed from _heartbeat_writer)
+  - sha256 before: 96b7b493  after: ef951509
+  - Proof: id=1755 ts=18:58:37 UTC → id=1757 ts=19:01:38 UTC, interval 3:00.1 (on-schedule)
