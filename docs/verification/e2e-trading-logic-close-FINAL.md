@@ -133,14 +133,19 @@ There is no equivalent to the Options Engine's FIN-001..042 (42 formula math dua
 
 ### Options Engine (aiem_options_pipeline.py + aiem_options_scheduler.py)
 
-**Mature verification history.** Evidence chain includes:
+**Core formulas and integrity checks: PASS**
 
-- **FIN-001..042**: 42 formula math dual-method checks (Greek functions, BS pricing, probability functions, strategy payoffs, REQ6 dimensions) — all PASS, seq=44, 2026-07-23
-- **TRACE-051/052/053 + 056/057/058**: Hash-chain integrity + negative controls — all PASS, seq=43, 2026-07-23
-- **Stage-level revalidation** (`_stage4_execution_revalidate`): All 10 known sources have explicit routing (live-check, PASS_THROUGH with documented reason, or DB revalidation). Unrecognized sources now log durably (Item 2 above).
-- **Phase 6–10 verification docs** in `docs/verification/` covering risk gates, probability calibration, performance, indicator math, and pipeline integrity.
+- **FIN-001..042**: 42 formula math dual-method checks (Greek functions, BS pricing, probability functions, strategy payoffs, REQ6 dimensions) — PASS, seq=44, 2026-07-23
+- **TRACE-051/052/053 + 056/057/058**: Hash-chain integrity + negative controls — PASS, seq=43, 2026-07-23
+- **Stage-level revalidation** (`_stage4_execution_revalidate`): All 10 known sources have explicit routing (live-check, PASS_THROUGH with documented reason, or DB revalidation). Unrecognized sources now log durably (Item 2 above). — PASS
+- **Phase 6–10 verification docs** in `docs/verification/` covering risk gates, probability calibration, performance, indicator math, and pipeline integrity — PASS
 
-**Remaining gap (not addressed by this directive):** `rho` is not in the native pipeline alert path (Tradier pass-through only); `charm`/`vanna` computed in `greeks.py` but not stored in `aiem_options_alerts`. These are known and documented in the Phase 10 close-out.
+**Known gaps (not addressed by this directive):**
+
+- `rho` — sourced from Tradier pass-through only; no dual-method check against an independent implementation or reference. Status: **accepted-risk**
+- `charm`, `vanna` — computed in `greeks.py` but not stored in `aiem_options_alerts`; no storage-path verification. Status: **accepted-risk**
+
+Both gaps are documented in the Phase 10 close-out.
 
 ### AIEM paper trading system (main.py `_aiem_paper_execute_today`)
 
