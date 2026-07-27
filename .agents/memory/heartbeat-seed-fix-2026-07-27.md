@@ -54,3 +54,12 @@ separate admin-only delete path or just INSERT without pruning.
 - **Heartbeat deletion-guard fix** committed 7066be3 (aiem_process.py DELETE removed from _heartbeat_writer)
   - sha256 before: 96b7b493  after: ef951509
   - Proof: id=1755 ts=18:58:37 UTC → id=1757 ts=19:01:38 UTC, interval 3:00.1 (on-schedule)
+  - Continued proof 19:07/19:10/19:13 UTC — steady 3:00 cadence
+- **daily_pipeline_runs deadman (#57)** committed 170eedf (aiem_options_scheduler.py)
+  - sha256 before: 727c8585  after: 9d7ff3c6
+  - Live proof: zombie id=20 (Jul 19, 9-day zombie) closed at startup 19:14:53 UTC
+- **OSS startup catch-up (#58)** committed 170eedf (main.py)
+  - sha256 before: d5a41562  after: aa2b296a
+  - Live proof: options_structure_scan now has scan_date=2026-07-27, 80 rows written by catch-up
+- **Side finding (NOT fixed):** aiem_process_predictions also guarded by aiem_deletion_guard;
+  premarket_scan DELETE rejected → 0 predictions for 2026-07-27 14:58 ET; same root cause as heartbeat
