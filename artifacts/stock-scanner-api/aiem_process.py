@@ -1209,13 +1209,21 @@ def aiem_premarket_scan():
         top10 = scored[:10]
 
         today = datetime.now(ET).date()
-        cur.execute("DELETE FROM aiem_process_predictions WHERE prediction_date = %s", (today,))
+        # UPSERT — no DELETE needed (and deletion-guard trigger rejects it anyway).
+        # ON CONFLICT handles re-runs on the same day cleanly; new scores overwrite old.
         for rank, p in enumerate(top10, 1):
             cur.execute("""
                 INSERT INTO aiem_process_predictions
                     (prediction_date, ticker, rank, confidence_score,
                      signal_basis, reasoning, predicted_move, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (prediction_date, ticker) DO UPDATE SET
+                    rank             = EXCLUDED.rank,
+                    confidence_score = EXCLUDED.confidence_score,
+                    signal_basis     = EXCLUDED.signal_basis,
+                    reasoning        = EXCLUDED.reasoning,
+                    predicted_move   = EXCLUDED.predicted_move,
+                    created_at       = NOW()
             """, (today, p["ticker"], rank, p["confidence"],
                   p["signal_basis"], p["reasoning"], p["predicted_move"]))
 
