@@ -61,7 +61,8 @@ separate admin-only delete path or just INSERT without pruning.
 - **OSS startup catch-up (#58)** committed 170eedf (main.py)
   - sha256 before: d5a41562  after: aa2b296a
   - Live proof: options_structure_scan now has scan_date=2026-07-27, 80 rows written by catch-up
-- **Catchup window miss logging** committed 6a3a37e — L2191 split into two branches; after-cutoff branch logs WARNING with restart time, minutes past cutoff, pred_count, and manual-trigger guidance; live proof 15:56 ET restart produced correct WARNING; cutoff NOT extended (scope decision reserved)
+- **Catchup window miss logging** committed 6a3a37e — L2191 split into two branches; after-cutoff branch logs WARNING with restart time, minutes past cutoff, pred_count, and manual-trigger guidance; live proof 15:56 ET restart produced correct WARNING
+- **Cutoff 15:30 ET CONFIRMED FINAL** — window will NOT be extended to 16:00 ET; reason: predictions in a 15:30–16:00 window are untested and there is too little runway before close to trust an automated trade decision; WARNING + manual `/run-scan` is the correct and complete recovery path
 - **aiem_process_predictions UPSERT fix** committed 6db4ebd
   - Root cause: statement-level trigger fires on DELETE even with 0 matching rows
   - Fix: INSERT ... ON CONFLICT (prediction_date, ticker) DO UPDATE; no schema change
