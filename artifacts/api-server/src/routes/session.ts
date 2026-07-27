@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, sessionsTable, answersTable, questionsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
+import { checkAnswer } from "../lib/checkAnswer";
 import {
   GetSessionStatusQueryParams,
   SubmitAnswerBody,
@@ -27,28 +28,6 @@ async function getOrCreateSession(sessionId: string) {
     .returning();
 
   return created;
-}
-
-function checkAnswer(
-  questionType: string,
-  correctLetter: string,
-  selectedLetter: string
-): boolean {
-  if (questionType === "multiple") {
-    const correct = correctLetter
-      .split(",")
-      .map((s) => s.trim())
-      .sort()
-      .join(",");
-    const selected = selectedLetter
-      .split(",")
-      .map((s) => s.trim())
-      .sort()
-      .join(",");
-    return correct === selected;
-  }
-  // 'single' and 'ordered' — direct comparison
-  return correctLetter.trim() === selectedLetter.trim();
 }
 
 // ── GET /session/status ──────────────────────────────────────────────────────

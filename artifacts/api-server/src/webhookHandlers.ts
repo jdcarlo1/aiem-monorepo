@@ -3,11 +3,13 @@ import { eq, sql } from "drizzle-orm";
 import { getStripeSync, getUncachableStripeClient } from './stripeClient';
 import { logger } from './lib/logger';
 import crypto from 'crypto';
+import { commissionCents } from './lib/checkAnswer';
 
 async function sendAffiliateTransfer(
   affiliateCode: string,
   amountCents: number,
-  description: string
+  description: string,
+  idempotencyKey: string   // prevents double-payment on duplicate webhook delivery
 ): Promise<void> {
   if (!affiliateCode || amountCents <= 0) return;
 
@@ -22,8 +24,8 @@ async function sendAffiliateTransfer(
     return;
   }
 
-  const commissionCents = Math.floor(amountCents * (affiliate.commissionPct / 100));
-  if (commissionCents <= 0) return;
+  const cents = commissionCents(amountCents, affiliate.commissionPct);
+  if (cents <= 0) return;
 
   const stripe = await getUncachableStripeClient();
 
@@ -39,14 +41,17 @@ async function sendAffiliateTransfer(
     return;
   }
 
-  await stripe.transfers.create({
-    amount: commissionCents,
-    currency: 'usd',
-    destination: affiliate.stripeConnectId,
-    description,
-  });
+  await stripe.transfers.create(
+    {
+      amount: cents,
+      currency: 'usd',
+      destination: affiliate.stripeConnectId,
+      description,
+    },
+    { idempotencyKey }   // Stripe deduplicates on this key — safe to retry
+  );
 
-  logger.info({ affiliateCode, commissionCents, description }, 'Affiliate transfer sent');
+  logger.info({ affiliateCode, cents, description }, 'Affiliate transfer sent');
 }
 
 export class WebhookHandlers {
@@ -104,7 +109,8 @@ export class WebhookHandlers {
         await sendAffiliateTransfer(
           referralCode,
           amountCents,
-          `NCLEX AI lifetime referral — code ${referralCode}`
+          `NCLEX AI lifetime referral — code ${referralCode}`,
+          `${event.id}-${referralCode}`   // idempotency key
         );
       }
 
@@ -128,14 +134,12 @@ export class WebhookHandlers {
     }
 
     // ── invoice.payment_succeeded ──────────────────────────────────────────
-    // Handles BOTH first month and all renewal months for monthly subscriptions.
     if (event.type === 'invoice.payment_succeeded') {
       const invoice = event.data?.object ?? {};
       const customerId = invoice.customer;
       const amountPaid = invoice.amount_paid ?? 0;
 
       if (customerId && amountPaid > 0) {
-        // Look up the session to find the referral code
         const [session] = await db
           .select()
           .from(sessionsTable)
@@ -147,7 +151,8 @@ export class WebhookHandlers {
           await sendAffiliateTransfer(
             session.referralCode,
             amountPaid,
-            `NCLEX AI monthly referral — code ${session.referralCode} (${billingReason})`
+            `NCLEX AI monthly referral — code ${session.referralCode} (${billingReason})`,
+            `${event.id}-${session.referralCode}`   // idempotency key
           );
         }
       }

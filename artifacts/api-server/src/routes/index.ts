@@ -8,8 +8,12 @@ import analyzeRouter from "./analyze";
 import catalystRouter from "./catalyst";
 import morningBriefRouter from "./morning-brief";
 import affiliatesRouter from "./affiliates";
+import { adminRateLimiter } from "../lib/adminAuth";
 
 const router: IRouter = Router();
+
+// Rate-limit every /admin/* route before handing off to sub-routers
+router.use("/admin", adminRateLimiter);
 
 router.use(healthRouter);
 router.use(questionsRouter);

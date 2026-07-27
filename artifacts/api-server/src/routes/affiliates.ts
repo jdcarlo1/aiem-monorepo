@@ -2,32 +2,28 @@ import { Router } from "express";
 import { db, affiliatesTable, sessionsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { getUncachableStripeClient } from "../stripeClient";
+import { requireAdmin } from "../lib/adminAuth";
+import { z } from "zod";
 
 const router = Router();
 
-function requireAdmin(req: any, res: any): boolean {
-  const secret = req.headers["x-admin-secret"];
-  const expected = process.env.ADMIN_TOKEN;
-  if (!expected || secret !== expected) {
-    res.status(401).json({ error: "Unauthorized" });
-    return false;
-  }
-  return true;
-}
+// ── Inline Zod schemas for routes not covered by the generated api-zod schemas ──
+const CreateAffiliateBody = z.object({
+  code: z.string().min(1),
+  name: z.string().min(1),
+  commissionPct: z.number().int().min(1).max(100).optional(),
+});
 
+// ── POST /admin/affiliates ───────────────────────────────────────────────────
 router.post("/admin/affiliates", async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
-  const { code, name, commissionPct } = req.body as {
-    code: string;
-    name: string;
-    commissionPct?: number;
-  };
-
-  if (!code || !name) {
-    res.status(400).json({ error: "code and name are required" });
+  const parsed = CreateAffiliateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "code and name are required", details: parsed.error.flatten() });
     return;
   }
+  const { code, name, commissionPct } = parsed.data;
 
   const upperCode = code.trim().toUpperCase();
 
@@ -78,6 +74,7 @@ router.post("/admin/affiliates", async (req, res) => {
   });
 });
 
+// ── POST /admin/affiliates/:code/refresh-link ────────────────────────────────
 router.post("/admin/affiliates/:code/refresh-link", async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
@@ -112,6 +109,7 @@ router.post("/admin/affiliates/:code/refresh-link", async (req, res) => {
   res.json({ success: true, code, onboardingUrl: accountLink.url });
 });
 
+// ── GET /admin/affiliates ────────────────────────────────────────────────────
 router.get("/admin/affiliates", async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
@@ -151,6 +149,7 @@ router.get("/admin/affiliates", async (req, res) => {
   res.json({ affiliates: results });
 });
 
+// ── DELETE /admin/affiliates/:code ───────────────────────────────────────────
 router.delete("/admin/affiliates/:code", async (req, res) => {
   if (!requireAdmin(req, res)) return;
 
