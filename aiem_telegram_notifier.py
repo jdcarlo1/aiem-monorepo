@@ -2524,6 +2524,169 @@ def main():
                      name="aiem-heartbeat-trail").start()
     # ────────────────────────────────────────────────────────────────────────
 
+    # ── VM resource monitor — Crash Forensics Gap 2 ──────────────────────────
+    # Every 60 s: reads RSS, thread count, and CPU% for aiem-process,
+    # stock-api, and this notifier via /proc/{pid}/status + /proc/{pid}/stat;
+    # reads total VM pressure from /proc/meminfo.  Written by THIS process
+    # (the notifier) so rows survive a complete crash of either monitored
+    # process — covering the gap right up to and including the crash instant.
+    # Retention: 7 days rolling, pruned on every insert cycle.
+    #
+    # Residual gap (per directive — noted, not fixed here): the notifier
+    # itself has no crash-log buffer or lifecycle wrapper of its own.
+    def _vm_resource_monitor():
+        import time       as _vrmt
+        import subprocess as _vrmsp
+
+        _VRM_CREATE = """
+            CREATE TABLE IF NOT EXISTS vm_resource_log (
+                id              BIGSERIAL    PRIMARY KEY,
+                ts              TIMESTAMPTZ  DEFAULT NOW(),
+                process_name    TEXT         NOT NULL,
+                pid             INT,
+                rss_mb          NUMERIC(10,1),
+                vm_pressure_pct NUMERIC(5,1),
+                cpu_pct         NUMERIC(5,1),
+                thread_count    INT
+            )
+        """
+        _VRM_INS = (
+            "INSERT INTO vm_resource_log "
+            "(ts, process_name, pid, rss_mb, vm_pressure_pct, cpu_pct, thread_count) "
+            "VALUES (NOW(), %s, %s, %s, %s, %s, %s)"
+        )
+        _VRM_CLEANUP = (
+            "DELETE FROM vm_resource_log WHERE ts < NOW() - INTERVAL '7 days'"
+        )
+
+        # Create table at startup
+        try:
+            import psycopg2 as _vrmpg
+            with _vrmpg.connect(DATABASE_URL, connect_timeout=5) as _c, \
+                    _c.cursor() as _cur:
+                _cur.execute(_VRM_CREATE)
+                _c.commit()
+            log.info("[vm-resource-monitor] vm_resource_log table ready")
+        except Exception as _te:
+            log.error(f"[vm-resource-monitor] table init: {_te}")
+
+        # Process name → pgrep pattern
+        # stock-api pattern matches the full path so it doesn't collide with
+        # aiem_process_wrapper.sh (which also runs python + a .py file)
+        _PROCS = [
+            ("aiem-process", "aiem_process.py"),
+            ("stock-api",    "stock-scanner-api/main.py"),
+            ("notifier",     "aiem_telegram_notifier.py"),
+        ]
+
+        # CPU tick tracking: {process_name: (prev_ticks, prev_monotonic)}
+        _cpu_prev: dict = {}
+        _LINUX_HZ = 100   # standard CONFIG_HZ on Linux (used to convert jiffies → seconds)
+
+        def _get_pid(pattern: str):
+            """First PID matching `pgrep -f pattern`, or None."""
+            try:
+                r = _vrmsp.run(["pgrep", "-f", pattern],
+                               capture_output=True, text=True)
+                pids = [int(p) for p in r.stdout.strip().split() if p.strip()]
+                return pids[0] if pids else None
+            except Exception:
+                return None
+
+        def _read_proc_status(pid: int):
+            """(rss_kb, thread_count) from /proc/{pid}/status."""
+            rss_kb = threads = None
+            try:
+                with open(f"/proc/{pid}/status") as _f:
+                    for _line in _f:
+                        if _line.startswith("VmRSS:"):
+                            rss_kb = int(_line.split()[1])
+                        elif _line.startswith("Threads:"):
+                            threads = int(_line.split()[1])
+                        if rss_kb is not None and threads is not None:
+                            break
+            except Exception:
+                pass
+            return rss_kb, threads
+
+        def _read_proc_stat_ticks(pid: int):
+            """utime+stime (CPU jiffies) from /proc/{pid}/stat fields 14+15."""
+            try:
+                with open(f"/proc/{pid}/stat") as _f:
+                    fields = _f.read().split()
+                return int(fields[13]) + int(fields[14])
+            except Exception:
+                return None
+
+        def _read_vm_pressure():
+            """vm_pressure_pct = (MemTotal-MemAvailable)/MemTotal × 100."""
+            total_kb = avail_kb = None
+            try:
+                with open("/proc/meminfo") as _f:
+                    for _line in _f:
+                        if _line.startswith("MemTotal:"):
+                            total_kb = int(_line.split()[1])
+                        elif _line.startswith("MemAvailable:"):
+                            avail_kb = int(_line.split()[1])
+                        if total_kb is not None and avail_kb is not None:
+                            break
+                if total_kb and avail_kb is not None:
+                    return round((total_kb - avail_kb) / total_kb * 100, 1)
+            except Exception:
+                pass
+            return None
+
+        _vrmt.sleep(30)   # stagger from other startup threads
+        log.info("[vm-resource-monitor] started — sampling every 60 s → vm_resource_log")
+
+        while True:
+            try:
+                vm_pressure = _read_vm_pressure()
+                now_t       = _vrmt.monotonic()
+                rows        = []
+
+                for proc_name, script_pat in _PROCS:
+                    pid            = _get_pid(script_pat)
+                    rss_mb         = None
+                    cpu_pct        = None
+                    thread_count   = None
+
+                    if pid:
+                        rss_kb, thread_count = _read_proc_status(pid)
+                        rss_mb = round(rss_kb / 1024, 1) if rss_kb else None
+
+                        ticks = _read_proc_stat_ticks(pid)
+                        if ticks is not None and proc_name in _cpu_prev:
+                            prev_ticks, prev_t = _cpu_prev[proc_name]
+                            elapsed = now_t - prev_t
+                            if elapsed > 0:
+                                cpu_pct = round(
+                                    (ticks - prev_ticks) / (elapsed * _LINUX_HZ) * 100, 1
+                                )
+                        if ticks is not None:
+                            _cpu_prev[proc_name] = (ticks, now_t)
+
+                    rows.append((proc_name, pid, rss_mb, vm_pressure, cpu_pct, thread_count))
+
+                try:
+                    import psycopg2 as _vrmpg2
+                    with _vrmpg2.connect(DATABASE_URL, connect_timeout=5) as _c2, \
+                            _c2.cursor() as _cur2:
+                        _cur2.executemany(_VRM_INS, rows)
+                        _cur2.execute(_VRM_CLEANUP)
+                        _c2.commit()
+                except Exception as _dbe:
+                    log.error(f"[vm-resource-monitor] DB write: {_dbe}")
+
+            except Exception as _le:
+                log.error(f"[vm-resource-monitor] loop error: {_le}")
+
+            _vrmt.sleep(60)
+
+    threading.Thread(target=_vm_resource_monitor, daemon=True,
+                     name="vm-resource-monitor").start()
+    # ────────────────────────────────────────────────────────────────────────
+
     # ── Protection #6: independent morning scan watchdog ─────────────────────
     # Runs in THIS process (aiem-telegram, separate from aiem-process).
     # Every 5 min from 6:50–10:00 AM ET on trading days:

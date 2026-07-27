@@ -36,10 +36,10 @@ kind = "data-app"
   localPort = 5050
 
   [services.development]
-  run = "python /home/runner/workspace/artifacts/stock-scanner-api/main.py"
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/stock_api_wrapper.sh"
 
   [services.production]
-  run = "python /home/runner/workspace/artifacts/stock-scanner-api/main.py"
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/stock_api_wrapper.sh"
 
   [services.production.health.startup]
   path = "/stock-api/health"
@@ -70,10 +70,10 @@ kind = "data-app"
   localPort = 5055
 
   [services.development]
-  run = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.py"
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/aiem_process_wrapper.sh"
 
   [services.production]
-  run = "python /home/runner/workspace/artifacts/stock-scanner-api/aiem_process.py"
+  run = "bash /home/runner/workspace/artifacts/stock-scanner-api/aiem_process_wrapper.sh"
 
   [services.production.health.startup]
   path = "/aiem-process/"

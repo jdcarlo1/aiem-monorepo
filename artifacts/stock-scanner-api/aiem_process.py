@@ -42,6 +42,108 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, date
 
+# ── Crash-log ring buffer (Gap 3) ─────────────────────────────────────────────
+# Mirrors stdout/stderr to a 200-line in-process ring buffer, flushed to
+# crash_log_buffer_aiem every 30 s by a background thread.  After a crash
+# the last 200 log lines survive the restart and are readable via:
+#   SELECT content FROM crash_log_buffer_aiem ORDER BY line_no;
+#
+# The tee is installed HERE — before any other module-level code — so every
+# log line from startup onward is captured (including import-time errors).
+# The flush THREAD is started from main() just before sched.start() so the
+# DB connection is only attempted after slow imports are complete.
+import collections as _clba_coll
+import threading   as _clba_thr
+
+_AIEM_CRASH_LOG_DEQUE: _clba_coll.deque = _clba_coll.deque(maxlen=200)
+
+
+class _AiemCrashLogTee:
+    """Wraps stdout/stderr; mirrors every completed line to the ring buffer."""
+    def __init__(self, orig):
+        self._orig = orig
+        self._buf  = ""
+        self._lock = _clba_thr.Lock()
+
+    def write(self, s):
+        self._orig.write(s)
+        with self._lock:
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line.strip():
+                    _AIEM_CRASH_LOG_DEQUE.append(line)
+
+    def flush(self):
+        self._orig.flush()
+
+    def fileno(self):
+        return self._orig.fileno()
+
+    def isatty(self):
+        try:
+            return self._orig.isatty()
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._orig, name)
+
+
+if not isinstance(sys.stdout, _AiemCrashLogTee):
+    sys.stdout = _AiemCrashLogTee(sys.stdout)
+if not isinstance(sys.stderr, _AiemCrashLogTee):
+    sys.stderr = _AiemCrashLogTee(sys.stderr)
+
+
+def _flush_aiem_crash_log_to_db() -> None:
+    """Flush ring buffer to crash_log_buffer_aiem.  Must never raise."""
+    try:
+        import psycopg2 as _fclb_pg
+        import os        as _fclb_os
+        import datetime  as _fclb_dt
+        _url = _fclb_os.environ.get("DATABASE_URL")
+        if not _url:
+            return
+        _snapshot = list(_AIEM_CRASH_LOG_DEQUE)
+        if not _snapshot:
+            return
+        _now = _fclb_dt.datetime.utcnow()
+        with _fclb_pg.connect(_url, connect_timeout=5) as _c:
+            with _c.cursor() as _cur:
+                _cur.execute("""
+                    CREATE TABLE IF NOT EXISTS crash_log_buffer_aiem (
+                        id        BIGSERIAL    PRIMARY KEY,
+                        logged_at TIMESTAMPTZ,
+                        line_no   INT,
+                        content   TEXT
+                    )
+                """)
+                _cur.execute("DELETE FROM crash_log_buffer_aiem")
+                _cur.executemany(
+                    "INSERT INTO crash_log_buffer_aiem (logged_at, line_no, content) "
+                    "VALUES (%s, %s, %s)",
+                    [(_now, i, line) for i, line in enumerate(_snapshot, 1)],
+                )
+            _c.commit()
+    except Exception as _fclb_e:
+        try:
+            import sys as _fclb_sys
+            _fclb_sys.__stdout__.write(f"[crash_log_buffer_aiem] flush error: {_fclb_e}\n")
+        except Exception:
+            pass
+
+
+def _start_aiem_crash_log_flush_thread() -> None:
+    """Start the 30-second flush daemon.  Call once from main(), before sched.start()."""
+    def _loop():
+        import time as _lt
+        while True:
+            _lt.sleep(30)
+            _flush_aiem_crash_log_to_db()
+    _clba_thr.Thread(target=_loop, daemon=True, name="aiem-crash-log-flush").start()
+
+
 # ── Early health server — must start BEFORE slow imports (aiem_optprob etc.) ─
 # aiem_optprob imports scipy/numpy/sklearn which take 30-60 s on a cold
 # production container.  Replit's promote-phase prober fires immediately on
@@ -2675,6 +2777,9 @@ def main():
     threading.Thread(target=_heartbeat_writer, daemon=True,
                      name="aiem-process-heartbeat").start()
     log.info("[heartbeat] writing every 3 min → aiem_process_heartbeat")
+
+    _start_aiem_crash_log_flush_thread()
+    log.info("[crash_log_aiem] 30-s flush thread started → crash_log_buffer_aiem")
 
     sched.start()
 
