@@ -1,0 +1,20 @@
+# Directive: Build Crash Forensics Infrastructure (All 4 Gaps)
+
+Build all four gaps from the proposal. This is forensics only — it will not prevent crashes, only ensure the next one is diagnosable. No behavior changes to trading logic.
+
+## 1. Exit/crash capture (~1hr)
+Wrapper shell script per process (aiem-process, stock-api). Opens a fresh direct `psycopg2.connect()` (NOT the app's connection pool), inserts a `process_lifecycle_log` row on start (pid, process_name, git_sha, started_at), captures `EXIT_CODE=$?` on return, updates the row with exit_code, exited_at, and derived exit_reason (0=clean, 1=exception, 137=SIGKILL/OOM).
+
+## 2. OOM visibility (~1.5hr)
+`vm_resource_log` table (ts, process_name, pid, rss_mb, vm_pressure_pct, thread_count), written by aiem_telegram_notifier.py (not the monitored process itself) every 60s via `/proc/{pid}/status` and `/proc/meminfo`. Add per-process CPU from `/proc/{pid}/stat`.
+
+## 3. Persistent logging for aiem-process (~1hr)
+Port the existing main.py `_CrashLogTee` pattern verbatim (naming changes only) to aiem_process.py: wraps stdout/stderr at import time, mirrors to a 200-entry deque, flushes to `crash_log_buffer_aiem` table every 30s via a background thread started before the scheduler. Also flush before any liveness-watchdog `os._exit` call.
+
+## 4. Ongoing resource monitoring (~0.5hr incremental)
+Covered by Gap 2's vm_resource_log if built with 7-day retention. Confirm retention/cleanup job exists.
+
+## Standing requirements across all four
+- All new DB writes use fresh direct `psycopg2.connect()` calls, never the app's connection pool — if the crash is pool-related, a write through the pool loses the record.
+- Evidence bar: diff, sha256 before/after, live proof each mechanism actually captures data (simulate a controlled exit/kill, confirm the row appears), and confirm none of this alters trading logic or decision paths.
+- Flag explicitly: the notifier itself currently has no crash protection of its own — note this as a known residual gap, do not silently fix it as part of this directive unless separately authorized.

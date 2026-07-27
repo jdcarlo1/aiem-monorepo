@@ -1,3 +1,4 @@
+- [Crash forensics infrastructure](crash-forensics-infrastructure.md) — 4-gap system: lifecycle wrapper (exit code 137=OOM), vm_resource_log, crash_log_buffer_aiem, resource monitor; query patterns for post-crash diagnosis
 - [StockScanner export package](stockscanner-export-package.md) — pre-built zip at project root `stockscanner-ai-source.zip`; 228 files, 1.8MB, no AIEM/options engine; present instantly without rebuild
 - [Discovery engine on-the-fly COALESCE pattern](discovery-engine-coalesce.md) — polygon_market_daily UPDATE is permanently blocked by Flask pool RowExclusiveLock; read-only COALESCE+LAG/AVG is the correct fix; run_status="aborted_no_data" prevents silent log nulls
 - [Morning scan architecture overhaul](morning-scan-overhaul.md) — RC-1=3:02AM self-exit removed; RC-2=6:55-9:45 block removed; morning_scan_runs+advisory-lock+watchdog; live proof deferred to 2026-07-25
