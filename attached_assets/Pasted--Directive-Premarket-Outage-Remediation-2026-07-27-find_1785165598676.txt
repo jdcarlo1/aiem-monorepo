@@ -1,0 +1,28 @@
+# Directive — Premarket Outage Remediation (2026-07-27 findings)
+
+Implement both fixes below. Do not skip either. Report back with diffs + test evidence (real execution, not simulation) for each.
+
+## Fix 1 — polygon_rvol startup catchup gap
+`_startup_catchup()` (main.py ~L7986) covers unusual-calls, aiem_morning_scan, microcap — but excludes polygon_rvol_scan, which only runs via CronTrigger at 8:35 AM ET. If the server boots after 8:35 AM, the polygon scan is silently skipped until the next trading day.
+
+Add to `_startup_catchup()`:
+- Check `max(scan_date)` from `polygon_rvol_scan`
+- If that date is not today's expected prior trading day AND current time < 9:30 AM ET
+- Trigger `_polygon_full_market_scan()` in a background thread
+
+Test: force a stale `polygon_rvol_scan` date, boot after 8:35 AM, confirm the bg scan fires — real execution, not logic simulation.
+
+## Fix 2 — Crash-log retention (Option A: rolling DB buffer)
+Deployment log is a ~1003-line in-memory rolling buffer. A multi-hour outage pushes the crash event (and the liveness-watchdog's pre-exit faulthandler dump) entirely out of the capture window — future crashes will be just as undiagnosable as this one was.
+
+Implement Option A as specified:
+- `collections.deque(maxlen=200)` in-process ring buffer
+- Every 30s liveness-watchdog tick, upsert last 200 lines to new `crash_log_buffer` table (`id SERIAL, logged_at TIMESTAMPTZ, line_no INT, content TEXT`)
+- On pre-exit, drain full buffer synchronously before `os._exit()`
+- Readable via `SELECT * FROM crash_log_buffer ORDER BY id DESC LIMIT 200`
+
+No need for Option B or C — Option A already approved.
+
+## Not in scope (cannot be fixed from this side)
+- Why GH Actions skipped all scheduled runs on July 27 specifically — requires GH's own audit-log API or support ticket, not visible from the codebase.
+- The external watchdog is structurally alert-only — it cannot restart a crashed Replit VM regardless of whether cron fires. The only actual recovery path is Replit's own platform-level crash-restart, which is what brought the VM back this time. If you want faster recovery than "wait for Replit," that requires a different mechanism (e.g. Replit's reserved-VM/autoscale health checks) — flag to Joel separately if you think that's worth pursuing, do not attempt to build a workaround for it.

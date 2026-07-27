@@ -505,6 +505,88 @@ _LW_MAX_VM_PRESSURE_PCT = 96.0
 # = 90s of 404s from an unregistered route, killing the process mid promote.
 _LW_STARTUP_GRACE_SECS = 150
 
+# ── Crash-log ring buffer ─────────────────────────────────────────────────────
+# A rolling 200-line in-process ring buffer written to DB on every 30 s watchdog
+# tick.  After a crash the last 200 log lines survive the restart and are
+# readable via:  SELECT * FROM crash_log_buffer ORDER BY line_no;
+import collections as _clb_coll
+import threading   as _clb_thr2
+
+_CRASH_LOG_DEQUE: _clb_coll.deque = _clb_coll.deque(maxlen=200)
+
+
+class _CrashLogTee:
+    """Wraps stdout/stderr and mirrors every completed log line to the crash ring buffer."""
+    def __init__(self, orig):
+        self._orig = orig
+        self._buf  = ""
+        self._lock = _clb_thr2.Lock()
+
+    def write(self, s):
+        self._orig.write(s)
+        with self._lock:
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line.strip():
+                    _CRASH_LOG_DEQUE.append(line)
+
+    def flush(self):
+        self._orig.flush()
+
+    def fileno(self):
+        return self._orig.fileno()
+
+    def isatty(self):
+        try:
+            return self._orig.isatty()
+        except Exception:
+            return False
+
+    def __getattr__(self, name):
+        return getattr(self._orig, name)
+
+
+import sys as _clb_sys2
+if not isinstance(_clb_sys2.stdout, _CrashLogTee):
+    _clb_sys2.stdout = _CrashLogTee(_clb_sys2.stdout)
+if not isinstance(_clb_sys2.stderr, _CrashLogTee):
+    _clb_sys2.stderr = _CrashLogTee(_clb_sys2.stderr)
+
+
+def _flush_crash_log_to_db(sync: bool = False):
+    """Upsert the current ring buffer into crash_log_buffer (DELETE + INSERT).
+    Must never raise — called from the watchdog loop and all pre-exit paths.
+    """
+    try:
+        import psycopg2 as _clb_pg
+        import os        as _clb_os2
+        import datetime  as _clb_dt2
+        _clb_url = _clb_os2.environ.get("DATABASE_URL")
+        if not _clb_url:
+            return
+        _snapshot = list(_CRASH_LOG_DEQUE)   # atomic snapshot under GIL
+        if not _snapshot:
+            return
+        _clb_now = _clb_dt2.datetime.utcnow()
+        with _clb_pg.connect(_clb_url, connect_timeout=5) as _clb_c:
+            with _clb_c.cursor() as _clb_cur:
+                _clb_cur.execute("DELETE FROM crash_log_buffer")
+                _clb_cur.executemany(
+                    "INSERT INTO crash_log_buffer (logged_at, line_no, content) "
+                    "VALUES (%s, %s, %s)",
+                    [(_clb_now, i, line) for i, line in enumerate(_snapshot, 1)],
+                )
+            _clb_c.commit()
+    except Exception as _clb_e:
+        # Write to __stdout__ to avoid recursion through our own TeeWriter.
+        try:
+            import sys as _clb_sys3
+            _clb_sys3.__stdout__.write(f"[crash_log_buffer] flush error: {_clb_e}\n")
+        except Exception:
+            pass
+
+
 def _liveness_watchdog_loop():
     import time as _lw_time
     import sys as _lw_sys
@@ -522,6 +604,7 @@ def _liveness_watchdog_loop():
         vm_str = f"{vm_pressure_pct:.1f}%" if vm_pressure_pct is not None else "unknown"
         print(f"[LIVENESS-WATCHDOG] threads={threads_n} rss_mb={rss_mb_str} "
               f"rss_pct={rss_pct_str} vm_pressure={vm_str}", flush=True)
+        _flush_crash_log_to_db()   # heartbeat DB flush — survives crashes
         if threads_n is not None and threads_n > _LW_MAX_THREADS:
             print("=" * 78, flush=True)
             print(f"[LIVENESS-WATCHDOG] CRITICAL: thread count {threads_n} > {_LW_MAX_THREADS} — "
@@ -533,6 +616,7 @@ def _liveness_watchdog_loop():
                 pass
             _lw_sys.stdout.flush()
             _lw_sys.stderr.flush()
+            _flush_crash_log_to_db(sync=True)
             os._exit(1)
         if rss_pct is not None and rss_pct > _LW_MAX_RSS_PCT:
             print("=" * 78, flush=True)
@@ -545,6 +629,7 @@ def _liveness_watchdog_loop():
                 pass
             _lw_sys.stdout.flush()
             _lw_sys.stderr.flush()
+            _flush_crash_log_to_db(sync=True)
             os._exit(1)
         if vm_pressure_pct is not None and vm_pressure_pct > _LW_MAX_VM_PRESSURE_PCT:
             print("=" * 78, flush=True)
@@ -558,6 +643,7 @@ def _liveness_watchdog_loop():
                 pass
             _lw_sys.stdout.flush()
             _lw_sys.stderr.flush()
+            _flush_crash_log_to_db(sync=True)
             os._exit(1)
         # During cold-start grace, skip health-check failure counting.
         # Flask routes aren't all registered until Python finishes executing
@@ -589,6 +675,7 @@ def _liveness_watchdog_loop():
                 pass
             _lw_sys.stdout.flush()
             _lw_sys.stderr.flush()
+            _flush_crash_log_to_db(sync=True)
             os._exit(1)
 
 _liveness_watchdog_thr = _early_bind_thr.Thread(
@@ -8085,6 +8172,61 @@ try:
                         print(f"[startup_catchup] microcap done - {len(hits)} signals saved")
                     except Exception as _e_mc:
                         print(f"[startup_catchup] microcap error: {_e_mc}")
+
+            # ── polygon_rvol startup catchup ──────────────────────────────────
+            # CronTrigger fires Mon-Fri at 8:35 AM ET.  APScheduler never replays
+            # missed windows — if the server booted after 8:35 AM ET but before
+            # 9:30 AM ET (pre-market close), trigger _polygon_full_market_scan()
+            # now so the paper-trade pipeline has today's RVOL data.
+            # Recovery condition mirrors the 9:05 AM freshness monitor:
+            #   max(scan_date) < expected prior trading day
+            #   (Monday → Friday = 3 days back; other weekdays → yesterday).
+            _rv_max_str_su    = None
+            _rvol_expected_su = None
+            if _dow < 5:
+                _need_rvol = False
+                try:
+                    import datetime as _rvol_dt
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_rv, \
+                            _c_rv.cursor() as _cur_rv:
+                        _cur_rv.execute(
+                            "SELECT MAX(scan_date)::text FROM polygon_rvol_scan"
+                        )
+                        _rv_row = _cur_rv.fetchone()
+                    _rv_max_str_su    = _rv_row[0] if _rv_row else None
+                    _rvol_today_su    = _rvol_dt.datetime.now(_et_tz_su).date()
+                    _rvol_offset_su   = 3 if _rvol_today_su.weekday() == 0 else 1
+                    _rvol_expected_su = _rvol_today_su - _rvol_dt.timedelta(days=_rvol_offset_su)
+                    _rvol_hm          = _now_et.hour * 60 + _now_et.minute
+                    if _rvol_hm < 9 * 60 + 30:   # only fire before 9:30 AM ET
+                        if _rv_max_str_su is None or \
+                                _rvol_dt.date.fromisoformat(_rv_max_str_su) < _rvol_expected_su:
+                            _need_rvol = True
+                except Exception as _exc_rv:
+                    print(f"[silent_except:polygon_rvol_catchup_ck] "
+                          f"{type(_exc_rv).__name__}: {_exc_rv}")
+                if _need_rvol:
+                    print(
+                        f"[startup_catchup] polygon_rvol stale "
+                        f"(max={_rv_max_str_su!r}, expected≥{_rvol_expected_su}) "
+                        f"and boot time < 09:30 ET — launching catch-up scan"
+                    )
+                    try:
+                        _rvol_fn = globals().get("_polygon_full_market_scan")
+                        if _rvol_fn is not None:
+                            import threading as _rvol_thr
+                            _rvol_thr.Thread(
+                                target=_rvol_fn, daemon=True,
+                                name="polygon_rvol_startup_catchup",
+                            ).start()
+                            print("[startup_catchup] polygon_rvol catch-up thread launched")
+                        else:
+                            print(
+                                "[startup_catchup] _polygon_full_market_scan not yet in globals "
+                                "— polygon_rvol catchup skipped (function defined late in module)"
+                            )
+                    except Exception as _e_rv:
+                        print(f"[startup_catchup] polygon_rvol catch-up error: {_e_rv}")
 
             # ── AIEM Paper Trading catch-up ──────────────────────────────────
             # If the server restarted mid-morning and missed the 9:35 AM run,
@@ -16977,6 +17119,7 @@ try:
                   "for platform auto-restart", flush=True)
             _nmr_sys.stdout.flush()
             _nmr_sys.stderr.flush()
+            _flush_crash_log_to_db(sync=True)
             os._exit(0)
 
     _scheduler.add_job(
@@ -59368,6 +59511,28 @@ def _init_polygon_rvol_scan_table():
         print(f"[init_polygon_rvol_scan] schema init skipped: {_e}")
 
 _DEFERRED_INITS.append(lambda: _init_polygon_rvol_scan_table())
+
+
+def _init_crash_log_buffer_table():
+    """Create crash_log_buffer table for rolling 200-line pre-crash log retention."""
+    try:
+        import psycopg2 as _clb_init_pg
+        with _clb_init_pg.connect(
+            os.environ["DATABASE_URL"], connect_timeout=5
+        ) as _c_clb, _c_clb.cursor() as _cur_clb:
+            _cur_clb.execute("""
+                CREATE TABLE IF NOT EXISTS crash_log_buffer (
+                    id        SERIAL       PRIMARY KEY,
+                    logged_at TIMESTAMPTZ  NOT NULL,
+                    line_no   INT          NOT NULL,
+                    content   TEXT         NOT NULL
+                )
+            """)
+        print("[init_crash_log_buffer] crash_log_buffer table ready")
+    except Exception as _e_clb:
+        print(f"[init_crash_log_buffer] schema init skipped: {_e_clb}")
+
+_DEFERRED_INITS.append(lambda: _init_crash_log_buffer_table())
 
 
 def _init_paper_recovery_schema():
