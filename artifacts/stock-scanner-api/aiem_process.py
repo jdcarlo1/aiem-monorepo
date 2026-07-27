@@ -2188,7 +2188,38 @@ def main():
         # - If morning_scan_runs is unavailable, fails open (scan still runs if needed).
 
         # Run from 6:50 AM to 3:30 PM ET on trading days
-        if not (6*60 + 50 <= now_mins <= 15*60 + 30):
+        _WINDOW_OPEN  = 6*60 + 50   # 6:50 AM ET
+        _WINDOW_CLOSE = 15*60 + 30  # 3:30 PM ET
+        if now_mins < _WINDOW_OPEN:
+            return   # before warmup window; scheduled jobs handle normal flow
+        if now_mins > _WINDOW_CLOSE:
+            # Restart landed after the catchup window on a live trading day.
+            # The catchup will NOT run — log a visible WARNING so the operator
+            # knows to check whether predictions were missed and, if so, trigger
+            # manually.  Do NOT extend the window here; that is a scope decision.
+            _late_pred_count = -1
+            try:
+                _qc = _db(); _qk = _qc.cursor()
+                _qk.execute(
+                    "SELECT COUNT(*) FROM aiem_process_predictions WHERE prediction_date=%s",
+                    (now_et.date(),)
+                )
+                _late_pred_count = _qk.fetchone()[0]
+                _qc.close()
+            except Exception as _qe:
+                log.warning(f"[catchup] late-miss pred-count query failed: {_qe}")
+            _late_mins = now_mins - _WINDOW_CLOSE
+            _action = (
+                "predictions already present — no manual action needed."
+                if _late_pred_count > 0
+                else "0 predictions for today — trigger manually: POST :5055/run-scan"
+            )
+            log.warning(
+                f"[catchup] WINDOW MISSED — restarted at {now_et.strftime('%H:%M ET')}, "
+                f"{_late_mins} min past the "
+                f"{_WINDOW_CLOSE // 60}:{_WINDOW_CLOSE % 60:02d} ET cutoff; "
+                f"predictions written today: {_late_pred_count}; {_action}"
+            )
             return
 
         today = now_et.date()
