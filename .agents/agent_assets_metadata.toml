@@ -942,3 +942,9 @@ id = "Dw1EsZFpm_obacn7YtLQ1"
 uri = "file://nclex-ai-complete-export.zip"
 type = "unspecified"
 title = "NCLEX AI — Complete Export (nclex-ai-complete-export.zip)"
+
+[[outputs]]
+id = "F0iLuCczyppTOFRGK2D4w"
+uri = "file://nclex-ai-audit-package.zip"
+type = "unspecified"
+title = "NCLEX AI — Audit Accelerator Package"

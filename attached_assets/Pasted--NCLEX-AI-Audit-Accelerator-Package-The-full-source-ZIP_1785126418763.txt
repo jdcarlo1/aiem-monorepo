@@ -1,0 +1,154 @@
+# NCLEX AI — Audit Accelerator Package
+
+The full source ZIP has already been provided.
+
+Do NOT regenerate the project.
+
+Instead, create one audit package to accelerate an independent strict code review.
+
+==================================================
+1. AUDIT_INDEX.md
+==================================================
+
+For every major module provide:
+
+- Module name
+- File path(s)
+- Purpose
+- Called by
+- Calls
+- API routes
+- Database tables
+- Authentication method
+- Authorization method
+- Stripe interaction
+- Clerk interaction
+- Tests
+- Known limitations
+- TODO/FIXME items
+
+Include at minimum:
+
+- Frontend
+- Backend
+- Stripe
+- Clerk
+- Sessions
+- Subscription system
+- Restore access
+- Adaptive engine
+- Question bank
+- Affiliate system
+- Admin system
+- Database
+- API client
+- Logging
+- Monitoring
+- Deployment
+
+==================================================
+2. KNOWN_ISSUES.md
+==================================================
+
+List every known issue including:
+
+- TypeScript errors
+- Runtime issues
+- Security limitations
+- Technical debt
+- TODO items
+- FIXME items
+- Incomplete features
+- Planned improvements
+- Performance concerns
+- Database concerns
+- Adaptive-engine limitations
+
+Separate into:
+
+CRITICAL
+
+HIGH
+
+MEDIUM
+
+LOW
+
+==================================================
+3. CODE_INDEX.txt
+==================================================
+
+Run the following commands and include the COMPLETE raw output.
+
+grep -RIn "stripe" .
+
+grep -RIn "clerk" .
+
+grep -RIn "restore-access" .
+
+grep -RIn "webhook" .
+
+grep -RIn "sessionId" .
+
+grep -RIn "subscription" .
+
+grep -RIn "affiliate" .
+
+grep -RIn "admin" .
+
+grep -RIn "adaptive" .
+
+grep -RIn "question" .
+
+grep -RIn "TODO" .
+
+grep -RIn "FIXME" .
+
+grep -RIn "BUG" .
+
+grep -RIn "HACK" .
+
+grep -RIn "XXX" .
+
+==================================================
+4. TEST_STATUS.md
+==================================================
+
+Provide:
+
+- Build status
+- Typecheck status
+- Test status
+- Coverage
+- Security scans
+- Dependency audit
+- Known failing tests
+- Missing tests
+
+==================================================
+5. SECURITY_MATRIX.md
+==================================================
+
+For every API endpoint provide:
+
+- Route
+- Authentication
+- Authorization
+- Subscription required
+- Admin required
+- Validation
+- Rate limiting
+- Database writes
+- Sensitive outputs
+- Tests
+- PASS or FAIL
+
+==================================================
+6. FINAL REQUIREMENT
+==================================================
+
+Do not summarize.
+
+Provide raw evidence wherever possible.
+
+The goal is to allow an independent auditor to verify the implementation quickly instead of reverse-engineering the entire codebase.
