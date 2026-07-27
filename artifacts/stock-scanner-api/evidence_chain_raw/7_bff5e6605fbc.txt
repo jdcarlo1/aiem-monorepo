@@ -1,0 +1,37 @@
+=== Task #63 — Catchup Cutoff Gap Logging verification ===
+--- Gap A: elif branch for morning scan past 12:00 ET ---
+8157:                _ms_missed_late = False
+8170:                            _ms_missed_late = True
+8173:                if _ms_missed_late:
+8175:                        f"[startup_catchup] LATE RESTART: aiem_morning_scan missed for "
+8177:                        f"catchup window (09:07–12:00 ET) has closed; "
+8191:                            f"catchup window (09:07–12:00 ET) has closed; "
+PASS: Gap A elif branch present
+--- Gap A: write_audit call for morning_scan SKIPPED ---
+8188:                        _sched_audit_ms.write_audit(
+PASS: Gap A write_audit call present
+--- Gap B: _rvol_past_window_stale flag init ---
+8239:                _rvol_past_window_stale = False   # set in else-branch below when past 9:30 ET
+8260:                            _rvol_past_window_stale = True   # stale data but too late to fix
+8286:                elif _rvol_past_window_stale:
+PASS: _rvol_past_window_stale flag present
+--- Gap B: else branch on if _rvol_hm < 9*60+30 ---
+8257:                    else:   # restart after 9:30 AM ET — catchup window closed
+8260:                            _rvol_past_window_stale = True   # stale data but too late to fix
+PASS: Gap B else branch sets flag
+--- Gap B: elif _rvol_past_window_stale block and write_audit call ---
+8286:                elif _rvol_past_window_stale:
+8292:                        f"[startup_catchup] LATE RESTART: polygon_rvol stale "
+8305:                        _sched_audit_rv.write_audit(
+PASS: Gap B elif block + write_audit + log line present
+--- Gap A live test: write_audit for morning_scan SKIPPED (forced condition) ---
+[scheduler_audit] id=135 status=SKIPPED trigger=startup_catchup_negctrl_gapA sched=2026-07-27 09:07:00-04:00 exec_log=None trace=None
+PASS Gap A: id=135 status=SKIPPED trigger_source=startup_catchup_negctrl_gapA
+  reason excerpt: NEGCTRL_TASK63_GAPA: server restarted at 13:05 ET; catchup window (09:07-12:00 E
+--- Gap B live test: write_audit for polygon_rvol SKIPPED (forced condition) ---
+[scheduler_audit] id=136 status=SKIPPED trigger=startup_catchup_negctrl_gapB sched=2026-07-27 08:35:00-04:00 exec_log=None trace=None
+PASS Gap B: id=136 status=SKIPPED trigger_source=startup_catchup_negctrl_gapB
+  reason excerpt: NEGCTRL_TASK63_GAPB: server restarted at 10:00 ET; catchup window (before 09:30 
+--- scheduler_run_audit SKIPPED rows written by this test ---
+
+SUMMARY: PASS=8 FAIL=0
