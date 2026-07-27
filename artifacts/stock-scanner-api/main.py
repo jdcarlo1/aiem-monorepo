@@ -65049,9 +65049,16 @@ def _polygon_grouped_daily(date_str: str) -> dict:
 def _polygon_full_market_scan() -> list:
     """
     Scan all 11,000+ US stocks for unusual relative volume using Polygon grouped daily.
-    Uses 5 API calls total. Returns top movers sorted by RVOL descending.
-    Caches in app._cache['polygon_rvol'] and persists to DB.
-    Lock prevents concurrent runs from doubling the Polygon request rate.
+
+    Option A (2026-07-27): 1 API call only (was 5).
+    Prior-day volumes are read from polygon_market_daily DB instead of making 4
+    additional Polygon API calls.  Root cause of July 14/17/23 failures: those
+    extra calls hit Polygon's 5-req/min quota when made within the same 60-second
+    window, returning {} → prior_days=[] → len(_pvols)<2 eliminated every ticker.
+
+    Returns top 40 movers sorted by RVOL descending.
+    Caches in app._polygon_rvol_cache and persists to polygon_rvol_scan DB table.
+    Lock prevents concurrent runs.
     """
     if not _POLYGON_RVOL_LOCK.acquire(blocking=False):
         app.logger.info("[polygon_rvol] scan already running - skipping concurrent call")
@@ -65059,8 +65066,6 @@ def _polygon_full_market_scan() -> list:
         return cached.get("movers", [])
 
     try:
-        import time as _t2
-
         days = _polygon_recent_trading_days(5)
         if not days:
             _no_days_msg = (
@@ -65074,24 +65079,26 @@ def _polygon_full_market_scan() -> list:
                 pass
             return []
 
-        app.logger.info(f"[polygon_rvol] fetching up to {len(days)} candidate days: {days[:5]}...")
-        daily_data = []
+        # ── Step 1: ONE Polygon API call — yesterday's data only (Option A) ──────────
+        # Previously: looped over 5 dates, calling _polygon_grouped_daily() each time
+        # with a 13s sleep.  All 5 calls within 52 seconds exceeded Polygon Starter's
+        # 5 req/min quota → calls 2-5 returned {} → prior_days=[] → 0 movers.
+        # Now: call once for yesterday, read prior volumes from polygon_market_daily.
+        _api_calls_made = 0
+        yesterday_data: dict = {}
+        yesterday_day: str = ""
         for _day in days:
             _data = _polygon_grouped_daily(_day)
-            _t2.sleep(13)  # Polygon Starter = 5 req/min → need ≥12s between calls
+            _api_calls_made += 1
             if not _data:
-                app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/error) - skipping")
+                app.logger.info(f"[polygon_rvol] {_day}: 0 tickers (holiday/no data) — trying next date")
                 continue
-            app.logger.info(f"[polygon_rvol] {_day}: {len(_data)} tickers")
-            daily_data.append((_day, _data))
-            if len(daily_data) >= 5:
-                break
+            app.logger.info(f"[polygon_rvol] {_day}: {len(_data)} tickers  [API calls this run: {_api_calls_made}]")
+            yesterday_data = _data
+            yesterday_day = _day
+            break  # ← stop after first successful date; no more Polygon calls needed
 
-        if not daily_data:
-            # All _polygon_grouped_daily calls returned empty — Polygon API key missing,
-            # 403 rate-limit, or all candidate dates were market holidays.
-            # Previously: silent return [] with zero log output.  This caused today's
-            # paper trade pipeline to silently receive 0 candidates with no owner alert.
+        if not yesterday_data:
             _days_tried = days[:5] if days else []
             _empty_msg = (
                 f"[polygon_rvol] CRITICAL: all Polygon grouped-daily calls returned 0 tickers "
@@ -65107,10 +65114,73 @@ def _polygon_full_market_scan() -> list:
                 pass
             return []
 
-        yesterday_day, yesterday_data = daily_data[0]
-        prior_days = [d for _, d in daily_data[1:]]
-        app.logger.info(f"[polygon_rvol] scanning {yesterday_day}: {len(yesterday_data)} tickers, {len(prior_days)} prior days")
+        app.logger.info(
+            f"[polygon_rvol] API calls used this run: {_api_calls_made} "
+            f"(Option A — prior-day volumes from polygon_market_daily DB, not Polygon API)"
+        )
 
+        # ── Step 2: Prior-day volumes from polygon_market_daily DB ───────────────────
+        # Use the 4 trading days immediately before yesterday_day.
+        # These rows were written by the previous 4 daily scan runs (≥24 h ago each)
+        # — no race condition.  Volume is always written even on ALL-NULL rvol days,
+        # so the prior-vol-map is populated regardless of historical rvol failures.
+        _yd_idx = days.index(yesterday_day)
+        _prior_trading_days = days[_yd_idx + 1 : _yd_idx + 5]  # 4 prior weekdays (DESC)
+
+        _prior_vol_map: dict  = {}   # ticker → [vol_d1, vol_d2, ...] (most recent first)
+        _prior_close_map: dict = {}  # ticker → close_price of most recent prior day
+        _prior_days_found = 0
+        try:
+            import psycopg2 as _pg_prior
+            with _pg_prior.connect(os.environ["DATABASE_URL"]) as _c_prior, \
+                 _c_prior.cursor() as _cur_prior:
+                _cur_prior.execute("""
+                    SELECT ticker, scan_date, volume, close_price
+                    FROM polygon_market_daily
+                    WHERE scan_date = ANY(%s::date[])
+                      AND volume > 0
+                    ORDER BY scan_date DESC
+                """, ([_prior_trading_days],))
+                _most_recent_prior: str = ""
+                for _pt, _psd, _pv, _pcp in _cur_prior.fetchall():
+                    _sd_str = str(_psd)
+                    if not _most_recent_prior:
+                        _most_recent_prior = _sd_str
+                    if _pv:
+                        _prior_vol_map.setdefault(_pt, []).append(float(_pv))
+                    if _pcp and _sd_str == _most_recent_prior:
+                        _prior_close_map[_pt] = float(_pcp)
+            # Count distinct dates that had rows
+            _cur2_pg = None
+            import psycopg2 as _pg_cnt
+            with _pg_cnt.connect(os.environ["DATABASE_URL"]) as _c_cnt, \
+                 _c_cnt.cursor() as _cur_cnt:
+                _cur_cnt.execute("""
+                    SELECT COUNT(DISTINCT scan_date)
+                    FROM polygon_market_daily
+                    WHERE scan_date = ANY(%s::date[]) AND volume > 0
+                """, ([_prior_trading_days],))
+                _prior_days_found = (_cur_cnt.fetchone() or [0])[0]
+            app.logger.info(
+                f"[polygon_rvol] prior-day DB: {len(_prior_vol_map)} tickers across "
+                f"{_prior_days_found}/{len(_prior_trading_days)} days "
+                f"(requested: {_prior_trading_days})"
+            )
+        except Exception as _e_prior:
+            app.logger.error(
+                f"[polygon_rvol] prior-day DB query failed: {_e_prior} — "
+                f"proceeding with 0 prior-day volumes; all tickers will fail len(_pvols)<2 gate"
+            )
+            _prior_vol_map = {}
+            _prior_close_map = {}
+            _prior_days_found = 0
+
+        app.logger.info(
+            f"[polygon_rvol] scanning {yesterday_day}: "
+            f"{len(yesterday_data)} tickers, {_prior_days_found} prior days from DB"
+        )
+
+        # ── Step 3: Filter and score (identical gates — only data source changed) ────
         movers = []
         for _ticker, _r in yesterday_data.items():
             _price  = _r.get("c", 0) or 0
@@ -65126,8 +65196,8 @@ def _polygon_full_market_scan() -> list:
             if _gap < 3.0 or _price <= _open:
                 continue
 
-            _pvols = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
-            _pvols = [v for v in _pvols if v > 0]
+            # Prior-day volumes from DB (was: iterated over in-memory prior_days dicts)
+            _pvols = _prior_vol_map.get(_ticker, [])
             if len(_pvols) < 2:
                 continue
             _avg = sum(_pvols) / len(_pvols)
@@ -65165,6 +65235,7 @@ def _polygon_full_market_scan() -> list:
             "total_scanned": len(yesterday_data),
         }
 
+        # ── Step 4: Persist top 40 to polygon_rvol_scan ──────────────────────────────
         try:
             import psycopg2 as _pg3
             with _pg3.connect(os.environ["DATABASE_URL"]) as _c3, _c3.cursor() as _cur3:
@@ -65201,15 +65272,10 @@ def _polygon_full_market_scan() -> list:
         except Exception as _e3:
             app.logger.error(f"[polygon_rvol] DB save error: {_e3}")
 
-
-        # ── Save ALL stocks to polygon_market_daily (Loop A/B full-market research) ──
+        # ── Step 5: Save ALL stocks to polygon_market_daily ──────────────────────────
         try:
             import psycopg2 as _pg5
             _all_rows = []
-            _prior_close_map = {}
-            if len(daily_data) > 1:
-                _, _prior_day = daily_data[1]
-                _prior_close_map = {t: _d.get("c", 0) for t, _d in _prior_day.items() if _d.get("c")}
             for _ticker, _r in yesterday_data.items():
                 _c   = _r.get("c") or 0
                 _o   = _r.get("o") or 0
@@ -65221,10 +65287,9 @@ def _polygon_full_market_scan() -> list:
                     continue
                 _cs2   = ((_c - _l) / (_h - _l)) if _h > _l else None
                 _rng2  = ((_h - _l) / _l * 100) if _l > 0 else None
-                _pc   = _prior_close_map.get(_ticker)
+                _pc    = _prior_close_map.get(_ticker)          # from DB (was daily_data[1])
                 _gap2  = ((_c - _pc) / _pc * 100) if _pc else None
-                _pvols2 = [_d.get(_ticker, {}).get("v", 0) or 0 for _d in prior_days]
-                _pvols2 = [v for v in _pvols2 if v > 0]
+                _pvols2 = _prior_vol_map.get(_ticker, [])       # from DB (was prior_days loop)
                 _rvol2  = (_vol / (sum(_pvols2) / len(_pvols2))) if _pvols2 else None
                 _all_rows.append((yesterday_day, _ticker, _c,
                                   _o or None, _h or None, _l or None, _vw or None,
@@ -65255,8 +65320,7 @@ def _polygon_full_market_scan() -> list:
         except Exception as _e5b:
             app.logger.error(f"[polygon_market_daily] save error: {_e5b}")
 
-
-        # ── Post-scan trigger: fire Loop B immediately on fresh data ──────────────
+        # ── Post-scan: fire Loop B on fresh data ──────────────────────────────────────
         import threading as _pst_thr
         def _post_scan_loop_b():
             import time as _pst_t

@@ -3,6 +3,7 @@
 - [Morning scan architecture overhaul](morning-scan-overhaul.md) — RC-1=3:02AM self-exit removed; RC-2=6:55-9:45 block removed; morning_scan_runs+advisory-lock+watchdog; live proof deferred to 2026-07-25
 - [GH Actions cron reliability](gh-actions-cron-reliability.md) — crons silently skip days; push runs ≠ cron runs; watchdogs can't restart a downed Replit VM; polygon_rvol missing from startup_catchup
 - [Polygon RVOL silent-return fix](polygon-rvol-silent-return.md) — 3 sites fixed; _polygon_grouped_daily+_polygon_full_market_scan bare return [] caused invisible scan failures; 9:05AM freshness monitor added; Monday scan_date = Friday not Saturday
+- [polygon_rvol Option A fix](polygon-rvol-option-a-fix.md) — 5→1 API calls; prior-day vols from polygon_market_daily DB; ALL-NULL rvol in DB = diagnostic fingerprint for prior_days=[] failure
 - [try_claim Step 2d recovery guard](try-claim-step2d-guard.md) — recovery triggers denied from claiming scheduled_942 terminal rows with picks_count>0; 4/4 NEG tests PASS
 - [verified_run.sh quoting rule](verified-run-quoting-rule.md) — single quoted command string required; bare multi-arg invocation silently uses only $1 → empty archive → PSV8 fails
 - [Morning VM-restart outage fix](morning-restart-outage-fix.md) — aiem_process_heartbeat table + 3-min writer; /run-warmup on :5055; /run-seed on :5053; proxies in main.py; GH Actions at 6:55 AM + 9:40/9:50 AM ET
