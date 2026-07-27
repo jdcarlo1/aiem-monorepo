@@ -1,11 +1,12 @@
 import { useApi } from "@/hooks/use-api";
-import { Search, TrendingUp, AlertCircle, RefreshCw } from "lucide-react";
+import { Search, TrendingUp, AlertCircle, RefreshCw, BarChart2 } from "lucide-react";
 import { DataFooter } from "@/components/data-footer";
 
 export default function Opportunities() {
   const { data: predictions, loading: predLoading, lastUpdated: predUpdated } = useApi<any>("/stock-api/aiem-predictions", {}, 60000);
   const { data: gaps, loading: gapLoading } = useApi<any>("/stock-api/gap-volume-signal", {}, 60000);
-  
+  const { data: candidates, loading: candLoading, refetch: refetchCandidates } = useApi<any>("/stock-api/options-pipeline/candidates", {}, 60000);
+
   // On-demand signals
   const { data: washouts, loading: washoutLoading, refetch: refetchWashout } = useApi<any>("/stock-api/washout-ignition-signal", {});
   const { data: pullbacks, loading: pullLoading, refetch: refetchPullbacks } = useApi<any>("/stock-api/pullback-reentry", {});
@@ -130,8 +131,73 @@ export default function Opportunities() {
           </div>
         </div>
       </div>
+
+      {/* Options Pipeline Candidates — OPP-040 */}
+      <div className="border border-border bg-card flex flex-col shrink-0">
+        <div className="p-3 border-b border-border bg-sidebar/50 flex justify-between items-center">
+          <h2 className="text-sm font-mono font-bold text-accent flex items-center gap-2">
+            <BarChart2 size={14} /> OPTIONS PIPELINE CANDIDATES
+          </h2>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-muted-foreground">
+              {candidates?.total ?? 0} TOTAL · {candidates?.alert_date ?? "—"}
+            </span>
+            <button
+              onClick={() => refetchCandidates()}
+              className="px-3 py-1 border border-border bg-card text-xs font-mono text-muted-foreground hover:text-primary transition-colors flex items-center gap-2"
+            >
+              <RefreshCw size={12} className={candLoading ? "animate-spin" : ""} /> REFRESH
+            </button>
+          </div>
+        </div>
+        <div className="overflow-auto max-h-64">
+          <table className="w-full text-left font-mono text-sm border-collapse">
+            <thead className="sticky top-0 bg-card border-b border-border text-muted-foreground text-xs">
+              <tr>
+                <th className="p-3 font-normal">TICKER</th>
+                <th className="p-3 font-normal">DIRECTION</th>
+                <th className="p-3 font-normal">SCORE</th>
+                <th className="p-3 font-normal">STATUS</th>
+                <th className="p-3 font-normal">STRIKE</th>
+                <th className="p-3 font-normal">EXPIRY</th>
+                <th className="p-3 font-normal">AUDIT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {candLoading ? (
+                <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">LOADING...</td></tr>
+              ) : candidates?.results?.length ? (
+                candidates.results.map((c: any, i: number) => {
+                  const isCall = c.direction?.includes("CALL");
+                  const isPut  = c.direction?.includes("PUT");
+                  return (
+                    <tr key={i} className="border-b border-border/50 hover:bg-white/5">
+                      <td className="p-3 font-bold text-white">{c.ticker}</td>
+                      <td className={`p-3 text-xs font-mono ${isCall ? "text-success" : isPut ? "text-destructive" : "text-muted-foreground"}`}>
+                        {c.direction}
+                      </td>
+                      <td className="p-3 text-primary">{c.selected_score != null ? Number(c.selected_score).toFixed(1) : "—"}</td>
+                      <td className="p-3 text-xs text-muted-foreground">{c.outcome_status ?? "—"}</td>
+                      <td className="p-3 text-muted-foreground">{c.strike != null ? `$${Number(c.strike).toFixed(2)}` : "—"}</td>
+                      <td className="p-3 text-muted-foreground">{c.expiry ?? "—"}</td>
+                      <td className="p-3 text-xs">
+                        {c.decision_id
+                          ? <span className="text-success">{c.verification_status ?? "LINKED"}</span>
+                          : <span className="text-muted-foreground/50">NO AUDIT</span>}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">NO CANDIDATES FOR TODAY</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <DataFooter
-        source="aiem_process_predictions, polygon_rvol_scan"
+        source="aiem_process_predictions, polygon_rvol_scan, aiem_options_alerts"
         lastUpdated={predUpdated}
         pollIntervalSec={60}
         operatingMode="LIVE DATA"

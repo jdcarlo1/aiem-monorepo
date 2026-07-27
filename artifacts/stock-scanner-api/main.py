@@ -12329,6 +12329,116 @@ def admin_options_run_seed():
                         "hint": "options-pipeline-scheduler may be restarting"}), 503
 
 
+@app.route("/stock-api/options-pipeline/candidates", methods=["GET"])
+def opp_040_candidates():
+    """OPP-040: Read aiem_options_alerts LEFT JOIN oe_decision_audit.
+    Auth: X-Admin-Token header (same ADMIN_TOKEN guard used on all admin routes).
+    Real column names: alert_date (not scan_date), selected_score (not req6_score),
+    outcome_status (not status).  Join key: audit_chain_sha256 = decision_id.
+    Constants: limit default=100 max=500 (per OPP-040 spec); connect_timeout=5
+    (forensics pattern — fresh connection, never app pool).
+    """
+    if not _admin_ok():
+        return jsonify({"error": "unauthorized"}), 401
+    import datetime as _opp_dt, os as _opp_os
+    import psycopg2 as _opp_pg, psycopg2.extras as _opp_pgx
+    # --- parse & validate params ---
+    _today_et = _opp_dt.datetime.now(_ET_TZ).date().isoformat()
+    _raw_date = request.args.get("alert_date", _today_et).strip()
+    try:
+        _alert_date = _opp_dt.date.fromisoformat(_raw_date)
+    except ValueError:
+        return jsonify({"error": "invalid alert_date; expected YYYY-MM-DD"}), 400
+    _direction  = request.args.get("direction", "").strip().upper()
+    try:
+        _min_score = float(request.args.get("min_score", 0.0))
+        _limit     = min(int(request.args.get("limit",   100)), 500)
+        _offset    = max(int(request.args.get("offset",  0)),   0)
+    except (ValueError, TypeError):
+        return jsonify({"error": "min_score/limit/offset must be numeric"}), 400
+    _status_raw = request.args.get("status", "").strip().upper()
+    # --- build WHERE clause (parameterised) ---
+    _where  = ["a.alert_date = %(alert_date)s", "a.selected_score >= %(min_score)s"]
+    _params = {"alert_date": _alert_date, "min_score": _min_score,
+               "lim": _limit, "off": _offset}
+    if _direction in ("CALL", "PUT"):
+        _where.append("a.direction ILIKE %(dir_pat)s")
+        _params["dir_pat"] = f"%{_direction}%"
+    if _status_raw and _status_raw != "ALL":
+        _where.append("a.outcome_status ILIKE %(st_pat)s")
+        _params["st_pat"] = f"%{_status_raw}%"
+    _where_sql = " AND ".join(_where)
+    _from_sql  = f"""
+        FROM aiem_options_alerts a
+        LEFT JOIN oe_decision_audit d
+          ON d.decision_id = a.audit_chain_sha256
+         AND d.is_test_record = FALSE
+        WHERE {_where_sql}"""
+    try:
+        _opp_conn = _opp_pg.connect(_opp_os.environ["DATABASE_URL"], connect_timeout=5)
+        _opp_cur  = _opp_conn.cursor(cursor_factory=_opp_pgx.RealDictCursor)
+        # total count (no LIMIT/OFFSET)
+        _opp_cur.execute(f"SELECT COUNT(*) AS cnt {_from_sql}", _params)
+        _total = _opp_cur.fetchone()["cnt"]
+        # full row fetch
+        _opp_cur.execute(f"""
+            SELECT
+              a.id            AS alert_id,
+              a.alert_date,
+              a.ticker,
+              a.direction,
+              a.strike,
+              a.expiry,
+              a.dte,
+              a.selected_score,
+              a.outcome_status,
+              a.probability_estimate,
+              a.expected_return,
+              a.audit_chain_sha256,
+              a.created_at,
+              d.decision_id,
+              d.verification_status,
+              d.engine_version,
+              d.db_version,
+              d.input_hash,
+              d.output_hash,
+              d.parent_id,
+              d.identity_json,
+              d.technical_json,
+              d.options_intel_json,
+              d.probability_risk_json,
+              d.justification_json
+            {_from_sql}
+            ORDER BY a.created_at DESC
+            LIMIT %(lim)s OFFSET %(off)s
+        """, _params)
+        _rows = _opp_cur.fetchall()
+        _opp_conn.close()
+        # serialise Decimal / date / datetime → JSON-safe
+        import decimal as _opp_dec
+        def _opp_s(v):
+            if isinstance(v, (_opp_dt.datetime,)):
+                return v.isoformat()
+            if isinstance(v, _opp_dt.date):
+                return v.isoformat()
+            if isinstance(v, _opp_dec.Decimal):
+                return float(v)
+            return v
+        _results = []
+        for _r in _rows:
+            _results.append({k: (_opp_s(v) if not isinstance(v, (dict, list, type(None))) else v)
+                              for k, v in _r.items()})
+        return jsonify({
+            "alert_date": _alert_date.isoformat(),
+            "total":      int(_total),
+            "limit":      _limit,
+            "offset":     _offset,
+            "results":    _results,
+        }), 200
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
 @app.route("/stock-api/admin/aiem-process/run-warmup", methods=["POST"])
 def admin_aiem_process_run_warmup():
     """Proxy POST to aiem-process :5055/run-warmup.
