@@ -359,6 +359,8 @@ def _compute_chain_hash(job_id: int, ticker: str, scan_date, trace_id: str,
 def recover_stale_jobs() -> dict:
     """
     Reset jobs stuck in CLAIMED or EXECUTING back to PENDING.
+    Also closes daily_pipeline_runs RUNNING rows that have been open for > 2 hours
+    with no completed_at (deadman check) — marks them FAILED.
     Called at startup AND every 5 min by the scheduler.
     Returns {recovered: N, failed_permanently: M}
     """
@@ -416,6 +418,36 @@ def recover_stale_jobs() -> dict:
                 else:
                     log.warning(f"[stale] reset EXECUTING→PENDING  id={r[0]} {r[1]} {r[2]}  attempts={r[4]}")
                     recovered += 1
+
+            # ── daily_pipeline_runs deadman: RUNNING > 2h with no completed_at ──
+            # recover_stale_jobs previously only touched options_pipeline_jobs.
+            # A scheduler that writes status='RUNNING' and then crashes before
+            # writing completed_at leaves the row stuck forever — future startups
+            # see the RUNNING row, hit ON CONFLICT DO NOTHING, and never seed.
+            cur.execute("""
+                UPDATE daily_pipeline_runs
+                SET status       = 'FAILED',
+                    completed_at = NOW(),
+                    error_text   = COALESCE(error_text,'') ||
+                                   ' | deadman_timeout@' || NOW()::text
+                WHERE status     = 'RUNNING'
+                  AND started_at < NOW() - INTERVAL '2 hours'
+                  AND completed_at IS NULL
+                RETURNING id, run_date, started_at
+            """)
+            zombie_rows = cur.fetchall()
+            conn.commit()
+            for zr in zombie_rows:
+                log.warning(
+                    f"[stale] daily_pipeline_runs zombie  id={zr[0]}"
+                    f"  run_date={zr[1]}  started={zr[2]}  → FAILED (deadman 2h)"
+                )
+                _tg(
+                    f"⚠️ <b>OPTIONS PIPELINE: Zombie Run Closed</b>\n"
+                    f"daily_pipeline_runs id={zr[0]}  run_date={zr[1]}\n"
+                    f"RUNNING since {zr[2]} with no completed_at — deadman 2h.\n"
+                    f"Marked FAILED automatically."
+                )
 
     except Exception as e:
         log.error(f"[stale_recovery] error: {e}")

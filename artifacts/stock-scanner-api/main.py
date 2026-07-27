@@ -8305,6 +8305,52 @@ try:
                         )
                     except Exception as _sa_sk_e:
                         print(f"[startup_catchup] SKIPPED audit write error: {_sa_sk_e}")
+
+            # ── OSS (GEX / Skew / Term Structure) catch-up ──────────────────
+            # _send_gex_options_alert() writes options_structure_scan at 9:35,
+            # 9:50, and 10:05 AM ET.  If the VM was down for all three windows
+            # (e.g. a full-day outage) the OE seeder falls back to the last
+            # available scan_date and seeds stale duplicates → seeded=0.
+            # No time restriction on recovery — OSS data is useful at any hour
+            # (tomorrow's 9:40 AM seed will use it). Weekday-only (no OCC on
+            # weekends). globals() lookup defers so forward-ref is safe even
+            # though _send_gex_options_alert is defined late in this module.
+            if _dow < 5:
+                _need_oss = True
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_oss, \
+                            _c_oss.cursor() as _cur_oss:
+                        _cur_oss.execute(
+                            "SELECT 1 FROM options_structure_scan "
+                            "WHERE scan_date = %s LIMIT 1",
+                            (_today_et,)
+                        )
+                        if _cur_oss.fetchone():
+                            _need_oss = False
+                except Exception as _exc_oss:
+                    print(f"[startup_catchup] oss_check error: {_exc_oss}")
+                if _need_oss:
+                    print(
+                        f"[startup_catchup] no options_structure_scan for {_today_et}"
+                        f" — launching OSS catch-up"
+                    )
+                    try:
+                        _oss_fn = globals().get("_send_gex_options_alert")
+                        if _oss_fn is not None:
+                            import threading as _oss_thr
+                            _oss_thr.Thread(
+                                target=_oss_fn, daemon=True,
+                                name="oss_startup_catchup",
+                            ).start()
+                            print("[startup_catchup] OSS catch-up thread launched")
+                        else:
+                            print(
+                                "[startup_catchup] _send_gex_options_alert not yet in"
+                                " globals — OSS catchup skipped (defined late in module)"
+                            )
+                    except Exception as _e_oss:
+                        print(f"[startup_catchup] OSS catch-up error: {_e_oss}")
+
         except Exception as _e_su:
             print(f"[startup_catchup] error: {_e_su}")
 
