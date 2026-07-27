@@ -17940,11 +17940,17 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
       oi_buildup            → DB: oi_daily_snapshot OI growth >=20%, last 4 days
       washout_ignition      → PASS_THROUGH: discovery gate means it can never reach exec
       squeeze_reversion     → PASS_THROUGH: discovery gate means it can never reach exec
-      aiem_v3_discovery     → DB: aiem_decision_history decision IN (BUY,SMALL_BUY)
-                              + final_confidence>=0.42 + decision_date=today.
-                              Full module re-run not feasible at exec time, but
-                              run_orchestrator() always calls store_decisions() so the
-                              BUY/SMALL_BUY decision is in DB within the same run.
+      aiem_v3_discovery     → DB revalidation: aiem_decision_history
+                              decision IN (BUY,SMALL_BUY) [direction check]
+                              + final_confidence>=0.42 [min_confidence check]
+                              + decision_date=today ET [staleness bound — no
+                              yesterday decision can pass].
+                              These are the original AIEM v3 admission criteria
+                              re-checked from the same-run stored decision.
+                              Full module re-run at exec time is not feasible
+                              (7-layer scoring); DB is the authoritative state
+                              store because run_orchestrator() always calls
+                              store_decisions() before this function runs.
       fear_premium_gex      → DB: options_structure_scan pc_skew_tag=FEAR_PREMIUM
                               + pc_skew_pp>=10 + gex_regime=LONG_GAMMA + spot>=10, last 1d
       gap_down_distribution → LIVE (Tradier): price>=5.0, gap_pct<=-1.5, rvol_adj>=2.5
@@ -17999,6 +18005,13 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
             _rv_cur0.execute("""
                 ALTER TABLE aiem_execution_revalidation_log
                 ADD COLUMN IF NOT EXISTS criteria_checked TEXT
+            """)
+            # action column was originally created as VARCHAR(16); widen to
+            # VARCHAR(32) so PASS_UNRECOGNIZED_SOURCE (24 chars) fits.
+            # Idempotent: ALTER TYPE to a wider type never fails on existing data.
+            _rv_cur0.execute("""
+                ALTER TABLE aiem_execution_revalidation_log
+                ALTER COLUMN action TYPE VARCHAR(32)
             """)
             _rv_c0.commit()
     except Exception as _rv_tbl_e:
@@ -18320,14 +18333,41 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                 })
             continue
 
-        # ── E. Unrecognized source — WARNING + fail-open ──────────────────
-        # Any source not in the explicit registry above hits this branch.
-        # It cannot be silently passed through — loud log ensures visibility.
+        # ── E. Unrecognized source — WARNING + durable DB log + fail-open ─
+        # Policy: fail-open (don't silently block a valid new source not yet
+        # registered) BUT log durably to aiem_execution_revalidation_log with
+        # action=PASS_UNRECOGNIZED_SOURCE so every pass is queryable after
+        # restart.  stdout WARNING alone is ephemeral; bus event is best-effort.
+        # The DB row is the primary durable record.
         print(
             f"[revalid] WARNING: unrecognized source '{_rv_src}' for ticker {_rv_t} "
-            f"— no revalidation logic defined; passing through. "
+            f"— no revalidation logic defined; passing through with DB log. "
             f"Add this source to _stage4_execution_revalidate dispatch."
         )
+        # Primary durable log — written before the pick is approved.
+        try:
+            with _rv_pg.connect(_DB_URL, connect_timeout=4) as _rv_unk_c, \
+                 _rv_unk_c.cursor() as _rv_unk_cur:
+                _rv_unk_cur.execute("""
+                    INSERT INTO aiem_execution_revalidation_log
+                        (run_date, ticker, source, criteria_checked,
+                         scan_date, scan_price, scan_gap_pct, scan_rvol,
+                         exec_price, exec_gap_pct, exec_rvol_raw, exec_rvol_adj,
+                         failed_checks, action)
+                    VALUES (%s, %s, %s, %s,
+                            NULL, NULL, NULL, NULL,
+                            NULL, NULL, NULL, NULL,
+                            %s, 'PASS_UNRECOGNIZED_SOURCE')
+                """, (
+                    _rv_today, _rv_t, _rv_src,
+                    "unrecognized_source",
+                    (f"source '{_rv_src}' not in dispatch registry — "
+                     f"add to _stage4_execution_revalidate; passing through"),
+                ))
+                _rv_unk_c.commit()
+        except Exception as _rv_unk_e:
+            print(f"[revalid] unrecognized-source DB log error (non-fatal): {_rv_unk_e}")
+        # Secondary: in-process bus event (best-effort, survives bus unavailability).
         try:
             import aiem_communication_bus as _rv_bus_mod
             _rv_bus_mod.get_bus().publish(_rv_bus_mod.StageEvent(
@@ -18340,7 +18380,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                          "message": f"unrecognized source '{_rv_src}' — add to dispatch"},
             ))
         except Exception:
-            pass  # bus unavailable; stdout WARNING above is the primary signal
+            pass  # bus unavailable; DB log above is the primary durable record
         _rv_approved.append(_rv_pick)  # fail-open: don't block on unknown source
 
     # ── 10. Persist rejections to audit table ────────────────────────────
