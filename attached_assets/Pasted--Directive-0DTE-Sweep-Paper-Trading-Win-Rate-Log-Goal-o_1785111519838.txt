@@ -1,0 +1,22 @@
+# Directive — 0DTE Sweep: Paper Trading + Win-Rate Log
+
+Goal: on every alert match, log a hypothetical paper trade, track it to a fixed profit-target/stop-loss exit, and maintain a running win-rate. No real orders, no broker calls, ever.
+
+## Build spec
+- New table `paper_0dte_trades`: trade_id, match_id (FK to pattern_0dte_matches), entry_price (ask at alert time), contracts (config, default 1), profit_target_pct, stop_loss_pct, exit_price, exit_reason (target/stop/expired_worthless/eod), exit_time, pnl_usd, pnl_pct, win (bool), status (open/closed).
+- profit_target_pct and stop_loss_pct must be config values, not hardcoded literals in code — cite config source.
+- Monitoring: option price must be checked frequently enough to catch a target/stop hit intraday, not just at the next 5-min scan. State the actual check interval and cite the mechanism (separate poll loop vs reused scan cycle) — do not assume the 5-min alert cadence is sufficient without confirming.
+- End-of-day handling: any trade still open at 0DTE expiry closes at expiry value (worthless or intrinsic), never carries overnight.
+- Win-rate view/query: total trades, wins, losses, win rate %, avg win $/%, avg loss $/%, updated live — not a static snapshot.
+
+## Verification requirements (standing checklist applies)
+- Raw SQL + full result set for table creation and at least one real logged trade end-to-end (alert → open → closed).
+- Raw grep/sed proving profit_target_pct/stop_loss_pct trace to config, not hardcoded.
+- Negative control: confirm a trade that hits neither target nor stop stays open / closes correctly at expiry (not silently dropped).
+- Confirm no order-placement or broker-call code path exists anywhere in this feature — grep for any broker/order-submit function calls, paste "NONE" result.
+- Before/after sha256 for all changed/new files.
+- No hardcoded-values check (per [[verification-protocol]]) for every new numeric constant introduced.
+- Permanent record file once this reaches real PASS: /docs/verification/paper_0dte_trading-FINAL.md.
+
+## Note
+Exit rule confirmed: fixed profit-target/stop-loss %. Agent should propose reasonable default pct values if none exist yet, cite them as config, and flag for approval before treating them as final.
