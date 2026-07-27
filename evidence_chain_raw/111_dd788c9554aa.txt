@@ -1,0 +1,9 @@
+compile OK
+PASS _double_zero init
+PASS double-zero warning log
+PASS TG DOUBLE-ZERO alert
+PASS NO_CANDIDATES status
+PASS error key
+PASS _run_status var
+sha256=727c85852883d2bdb2ca7da82f6fa972c1a7baf2cb7a9129a7c29ae8d73b134d
+ALL CHECKS PASSED

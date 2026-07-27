@@ -1,0 +1,4 @@
+  File "<string>", line 19
+    print(f"  {name}: {"PASS" if ok else "FAIL"}")
+                        ^^^^
+SyntaxError: f-string: expecting '}'

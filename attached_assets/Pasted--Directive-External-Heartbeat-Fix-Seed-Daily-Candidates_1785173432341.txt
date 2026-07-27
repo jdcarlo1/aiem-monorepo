@@ -1,0 +1,29 @@
+# Directive: External Heartbeat Fix + Seed-Daily-Candidates 0-Seed Fix
+
+## Item 1 — External heartbeat: make it actually live
+
+Confirmed: cron has never fired (12/12 runs event=push, 0 event=schedule). Fix, don't re-describe.
+
+1. Fix aiem-process-heartbeat.yml so the schedule trigger actually fires. Prove it with a REAL fired schedule run (not workflow_dispatch, not push) — paste the run ID, event type, and conclusion from the GitHub API.
+2. Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID as GH Actions secrets. Confirm both present via the same secrets-list method used to find them missing.
+3. Do not re-assert "likely on:push and lacked the guard" for why past runs failed. Either pull the actual historical workflow file content at those commit timestamps (git show) to confirm, or state plainly that the historical cause is undeterminable — no more "likely."
+4. End-to-end live proof required: next real scheduled window must show heartbeat ping sent AND (if a ping is deliberately missed/simulated) alert delivered to Telegram. Screenshot or raw log of the actual Telegram message, not "would have fired."
+
+## Item 2 — seed_daily_candidates() 0-seed: fix the silent-failure gap
+
+Confirmed still present via raw grep. Same silent-failure shape as prior fixes this week (Stage 11 bare-except, _polygon_full_market_scan silent return) — fix this instance and grep the rest of this file for the same pattern.
+
+1. Add explicit handling for the double-zero case (primary query 0 rows AND fallback 0 rows): distinct status value, not 'RUNNING'. Do not reuse a status string that also represents a healthy run.
+2. Add an "error" key to the return dict for this case so callers can distinguish it from a legitimate zero-candidate day.
+3. Fix the Telegram guard — `if seeded:` must not be the only alert condition; the double-zero failure case must alert too.
+4. Negative-control test required: force both primary and fallback queries to return 0 rows, run it, paste raw output proving the new status/error signal actually appears and Telegram actually fires. Logic simulation is not acceptable — must be a real forced-failure run.
+5. Grep the rest of aiem_options_scheduler.py (and any file touched) for the same "success path logged, no else branch" pattern and report every instance found, fixed or explicitly deferred with reason.
+
+## Standing checklist (applies to both items)
+- Raw terminal output only — no narrated grep, no paraphrased test results.
+- sha256 before/after for every file changed.
+- git diff --stat.
+- Run everything through verified_run.sh; paste verify_chain.sh output; cross-check tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh sha256 against current canonical.
+- No deletion/overwrite of any row/file without explicit approval first.
+- "PASS" only if fully closed with no deferred items — otherwise use "cleared to proceed" or "partial" and say what's outstanding.
+- Once both items fully close, write the permanent record: /docs/verification/heartbeat-and-seedbug-2026-07-27-FINAL.md.

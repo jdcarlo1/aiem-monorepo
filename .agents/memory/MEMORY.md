@@ -2,6 +2,7 @@
 - [Discovery engine on-the-fly COALESCE pattern](discovery-engine-coalesce.md) — polygon_market_daily UPDATE is permanently blocked by Flask pool RowExclusiveLock; read-only COALESCE+LAG/AVG is the correct fix; run_status="aborted_no_data" prevents silent log nulls
 - [Morning scan architecture overhaul](morning-scan-overhaul.md) — RC-1=3:02AM self-exit removed; RC-2=6:55-9:45 block removed; morning_scan_runs+advisory-lock+watchdog; live proof deferred to 2026-07-25
 - [GH Actions cron reliability](gh-actions-cron-reliability.md) — crons silently skip days; push runs ≠ cron runs; watchdogs can't restart a downed Replit VM; polygon_rvol missing from startup_catchup
+- [Heartbeat YAML + seed double-zero fix](heartbeat-seed-fix-2026-07-27.md) — YAML col-0 Python lines kill schedule registration; seed_daily_candidates _double_zero flag + NO_CANDIDATES status; cron proof pending 2026-07-28
 - [Polygon RVOL silent-return fix](polygon-rvol-silent-return.md) — 3 sites fixed; _polygon_grouped_daily+_polygon_full_market_scan bare return [] caused invisible scan failures; 9:05AM freshness monitor added; Monday scan_date = Friday not Saturday
 - [polygon_rvol Option A fix](polygon-rvol-option-a-fix.md) — 5→1 API calls; prior-day vols from polygon_market_daily DB; ALL-NULL rvol in DB = diagnostic fingerprint for prior_days=[] failure
 - [try_claim Step 2d recovery guard](try-claim-step2d-guard.md) — recovery triggers denied from claiming scheduled_942 terminal rows with picks_count>0; 4/4 NEG tests PASS

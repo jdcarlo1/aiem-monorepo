@@ -263,3 +263,51 @@ c.close()
 146	2026-07-26T23:13:31Z	0	e3c984e32d98a6e0149f0cbe546a35d03364e5b09a4c8eb5f8ea6c6431a8d25a	python3 /tmp/oe_synth_verify.py
 147	2026-07-27T16:05:08Z	0	e6dd3aa62285658995224b8aba2e94913beade8723ad008c7bd60eeb65551dca	sha256sum artifacts/stock-scanner-api/main.py && python3 -m py_compile artifacts/stock-scanner-api/main.py && echo SYNTAX_OK
 148	2026-07-27T16:28:32Z	0	5c86b2241a61e164222169d9bd3fa179bd8158b64754d35aaafa7294564bd73f	sha256sum docs/verification/polygon-rvol-option-a-closeout-2026-07-27.md && echo RECORD_WRITTEN
+149	2026-07-27T17:43:20Z	1	b7d3ea2038b67f984f51c942ed3c65617ac43c5506fc15947235e79b65e5c5ce	python3 -c "
+import py_compile, sys
+py_compile.compile("artifacts/stock-scanner-api/aiem_options_scheduler.py", doraise=True)
+print("compile OK")
+import ast, hashlib
+src=open("artifacts/stock-scanner-api/aiem_options_scheduler.py","rb").read()
+tree=ast.parse(src)
+# Verify seed_daily_candidates has _double_zero, error key, NO_CANDIDATES status
+code=src.decode()
+checks=[
+  ("_double_zero = False" in code,   "_double_zero init"),
+  ("double-zero condition" in code,  "double-zero warning"),
+  ("SEED DOUBLE-ZERO" in code,       "TG DOUBLE-ZERO alert"),
+  ("NO_CANDIDATES" in code,          "NO_CANDIDATES status"),
+  ("zero_candidates" in code,        "error key zero_candidates"),
+  ("_run_status" in code,            "_run_status variable"),
+]
+for ok,name in checks:
+  print(f"  {name}: {"PASS" if ok else "FAIL"}")
+  if not ok: sys.exit(1)
+sha=hashlib.sha256(src).hexdigest()
+print(f"sha256={sha}")
+"
+150	2026-07-27T17:43:59Z	0	532d150386df54d70d268abaa4fd574de9700f253cb781d84e4129f67cbe2d78	python3 -c "
+import py_compile, ast, hashlib, sys
+py_compile.compile("artifacts/stock-scanner-api/aiem_options_scheduler.py", doraise=True)
+print("compile OK")
+src = open("artifacts/stock-scanner-api/aiem_options_scheduler.py","rb").read()
+ast.parse(src)
+code = src.decode()
+pairs = [
+  ("_double_zero = False",  "_double_zero init"),
+  ("double-zero condition",  "double-zero warning log"),
+  ("SEED DOUBLE-ZERO",       "TG DOUBLE-ZERO alert"),
+  ("NO_CANDIDATES",          "NO_CANDIDATES status"),
+  ("zero_candidates",        "error key"),
+  ("_run_status",            "_run_status var"),
+]
+for needle, label in pairs:
+    ok = needle in code
+    status = "PASS" if ok else "FAIL"
+    print(status + " " + label)
+    if not ok:
+        sys.exit(1)
+sha = hashlib.sha256(src).hexdigest()
+print("sha256=" + sha)
+print("ALL CHECKS PASSED")
+"
