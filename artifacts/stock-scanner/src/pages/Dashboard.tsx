@@ -77,6 +77,8 @@ import {
   forceAiemProbabilityEngineRun,
   fetch0dtePaperTrades, fetch0dtePaperStats,
   ZeroDtePaperTrade, ZeroDtePaperStats,
+  fetch0dteBtStatus, fetch0dteBtResults, start0dteBt,
+  ZeroDteBtCombo, ZeroDteBtReach, ZeroDteBtStatus, ZeroDteBtResults,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -9318,6 +9320,287 @@ function ConvictionTrackTab() {
 
 
 // ---- EOD Institutional Sweep Tab ------------------------------------------
+// ── 0DTE Backtest Panel ───────────────────────────────────────────────────────
+function ZeroDteBtPanel() {
+  const BB_F = "'Inter','Segoe UI',sans-serif";
+  const [status,  setStatus]  = useState<ZeroDteBtStatus | null>(null);
+  const [results, setResults] = useState<ZeroDteBtResults | null>(null);
+  const [side,    setSide]    = useState<"call" | "put">("call");
+  const [starting, setStarting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadStatus  = () => fetch0dteBtStatus().then(setStatus).catch(() => {});
+  const loadResults = () => fetch0dteBtResults().then(setResults).catch(() => {});
+
+  useEffect(() => {
+    loadStatus();
+    loadResults();
+  }, []);
+
+  // Poll every 8s while running
+  useEffect(() => {
+    if (status?.status === "running") {
+      pollRef.current = setInterval(() => {
+        loadStatus();
+        loadResults();
+      }, 8000);
+    } else {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [status?.status]);
+
+  const handleRun = async () => {
+    setStarting(true); setErr(null);
+    try {
+      const r = await start0dteBt(730);
+      if (!r.started && r.reason !== "already_running") setErr(r.reason ?? "unknown error");
+      await loadStatus();
+    } catch (e: any) { setErr(e.message); }
+    finally { setStarting(false); }
+  };
+
+  const PT_LABELS = ["25%","50%","75%","100%","125%","150%"];
+  const SL_LABELS = ["10%","20%","30%","40%","50%"];
+  const PT_VALS   = [0.25, 0.50, 0.75, 1.00, 1.25, 1.50];
+  const SL_VALS   = [0.10, 0.20, 0.30, 0.40, 0.50];
+
+  // Build lookup: "pt_sl_side" → combo row
+  const comboMap = new Map<string, ZeroDteBtCombo>();
+  (results?.combos ?? []).forEach(c =>
+    comboMap.set(`${c.pt_pct}_${c.sl_pct}_${c.side}`, c));
+
+  const getCombo = (pt: number, sl: number) =>
+    comboMap.get(`${pt}_${sl}_${side}`) ?? null;
+
+  // Find best EV combo for current side
+  const sideCombos = (results?.combos ?? []).filter(c => c.side === side);
+  const bestEV = sideCombos.length
+    ? sideCombos.reduce((a, b) =>
+        (a.avg_pnl_pct ?? -999) >= (b.avg_pnl_pct ?? -999) ? a : b)
+    : null;
+  const bestWR = sideCombos.length
+    ? sideCombos.reduce((a, b) =>
+        (a.win_rate_pct ?? 0) >= (b.win_rate_pct ?? 0) ? a : b)
+    : null;
+
+  const reach = (results?.reach_rates ?? []).find(r => r.side === side) ?? null;
+
+  function wrColor(wr: number | null) {
+    if (wr == null) return "#1e293b";
+    if (wr >= 60) return "rgba(34,197,94,0.20)";
+    if (wr >= 50) return "rgba(34,197,94,0.10)";
+    if (wr >= 40) return "rgba(251,191,36,0.12)";
+    return "rgba(248,113,113,0.12)";
+  }
+  function wrText(wr: number | null) {
+    if (wr == null) return "#475569";
+    if (wr >= 60) return "#34d399";
+    if (wr >= 50) return "#86efac";
+    if (wr >= 40) return "#fbbf24";
+    return "#f87171";
+  }
+  function isBest(pt: number, sl: number) {
+    return bestEV && bestEV.pt_pct === pt && bestEV.sl_pct === sl;
+  }
+
+  const statusDot = status?.status === "running"  ? { color: "#fbbf24", label: "Running…" }
+                  : status?.status === "complete" ? { color: "#34d399", label: "Complete" }
+                  : status?.status === "not_started" ? { color: "#64748b", label: "Not started" }
+                  : { color: "#f87171", label: "Error" };
+
+  const hasData = (results?.combos?.length ?? 0) > 0;
+  const isRunning = status?.status === "running";
+
+  return (
+    <div style={{ marginTop: 32, fontFamily: BB_F }}>
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
+          📈 2-YEAR POLYGON BACKTEST
+        </span>
+        <span style={{ fontSize: 11, color: statusDot.color, background: "#0f172a",
+          border: `1px solid ${statusDot.color}40`, borderRadius: 12, padding: "2px 10px" }}>
+          ● {statusDot.label}
+          {status?.completed_combinations ? ` · ${status.completed_combinations.toLocaleString()} combos` : ""}
+        </span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {["call","put"].map(s => (
+            <button key={s} onClick={() => setSide(s as any)}
+              style={{ background: side === s ? "#1e40af" : "#1e293b",
+                color: side === s ? "#fff" : "#94a3b8",
+                border: `1px solid ${side === s ? "#3b82f6" : "#334155"}`,
+                borderRadius: 6, padding: "4px 14px", fontSize: 12, cursor: "pointer",
+                fontWeight: side === s ? 700 : 400 }}>
+              {s.toUpperCase()}S
+            </button>
+          ))}
+          <button onClick={handleRun} disabled={starting || isRunning}
+            style={{ background: isRunning ? "#374151" : "#7c3aed",
+              color: isRunning ? "#6b7280" : "#fff", border: "none",
+              borderRadius: 6, padding: "4px 16px", fontSize: 12,
+              cursor: isRunning ? "not-allowed" : "pointer", fontWeight: 600 }}>
+            {starting ? "Starting…" : isRunning ? "⏳ Running…" : "▶ Run 2-Year Backtest"}
+          </button>
+        </div>
+      </div>
+
+      {err && <div style={{ color: "#f87171", fontSize: 11, marginBottom: 10 }}>{err}</div>}
+
+      {!hasData && !isRunning && (
+        <div style={{ background: "#0f172a", border: "1px dashed #334155", borderRadius: 10,
+          padding: "32px 20px", textAlign: "center", color: "#475569", fontSize: 13 }}>
+          <div style={{ fontSize: 32, marginBottom: 10 }}>📊</div>
+          <div>Click <strong style={{ color: "#a78bfa" }}>▶ Run 2-Year Backtest</strong> to pull 2 years of
+            SPY 0DTE option data from Polygon and find the optimal profit target / stop loss.</div>
+          <div style={{ fontSize: 11, marginTop: 8, color: "#334155" }}>
+            Tests PT ∈ {"{"}25%, 50%, 75%, 100%, 125%, 150%{"}"} × SL ∈ {"{"}10%, 20%, 30%, 40%, 50%{"}"} · ~10–15 min to complete
+          </div>
+        </div>
+      )}
+
+      {isRunning && !hasData && (
+        <div style={{ background: "#0f172a", borderRadius: 10, padding: "24px 20px",
+          textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+          <Spinner />
+          <div style={{ marginTop: 12 }}>Pulling Polygon 1-min option bars… results appear as dates complete.</div>
+          <div style={{ fontSize: 11, color: "#475569", marginTop: 6 }}>
+            {status?.completed_combinations?.toLocaleString() ?? 0} / ~1,040 date×window×side combinations done
+          </div>
+        </div>
+      )}
+
+      {hasData && (
+        <>
+          {/* Reach rates */}
+          {reach && (
+            <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10,
+              padding: "14px 18px", marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase",
+                letterSpacing: 0.6, marginBottom: 12 }}>
+                📏 Reach Rates — {side.toUpperCase()}S ({reach.total_obs?.toLocaleString()} observations, 2 yr)
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10 }}>
+                {[
+                  { label: "Avg Max Gain",     value: `${reach.avg_max_gain_pct}%`,     color: "#34d399" },
+                  { label: "Avg Max Drawdown",  value: `${reach.avg_max_drawdown_pct}%`, color: "#f87171" },
+                  { label: "Reached +25%",      value: `${reach.pct_reaching_25}%`,      color: reach.pct_reaching_25 != null && reach.pct_reaching_25 >= 40 ? "#34d399" : "#fbbf24" },
+                  { label: "Reached +50%",      value: `${reach.pct_reaching_50}%`,      color: reach.pct_reaching_50 != null && reach.pct_reaching_50 >= 30 ? "#34d399" : "#fbbf24" },
+                  { label: "Reached +75%",      value: `${reach.pct_reaching_75}%`,      color: "#94a3b8" },
+                  { label: "Reached +100%",     value: `${reach.pct_reaching_100}%`,     color: "#94a3b8" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ background: "#0a1628", borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 10, color: "#475569", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color }}>{value ?? "—"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recommendation cards */}
+          {(bestEV || bestWR) && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 18 }}>
+              {bestEV && (
+                <div style={{ background: "rgba(124,58,237,0.12)", border: "1px solid #7c3aed",
+                  borderRadius: 10, padding: "14px 18px" }}>
+                  <div style={{ fontSize: 10, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>
+                    ⭐ Best Expected Value ({side})
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#e2e8f0" }}>
+                    PT +{(bestEV.pt_pct * 100).toFixed(0)}% · SL −{(bestEV.sl_pct * 100).toFixed(0)}%
+                  </div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                    Win rate {bestEV.win_rate_pct}% · Avg P&L {bestEV.avg_pnl_pct != null ? `${bestEV.avg_pnl_pct > 0 ? "+" : ""}${bestEV.avg_pnl_pct}%` : "—"}
+                    <span style={{ color: "#475569", marginLeft: 8 }}>n={bestEV.total.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+              {bestWR && (
+                <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid #22c55e",
+                  borderRadius: 10, padding: "14px 18px" }}>
+                  <div style={{ fontSize: 10, color: "#86efac", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>
+                    🎯 Highest Win Rate ({side})
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "#e2e8f0" }}>
+                    PT +{(bestWR.pt_pct * 100).toFixed(0)}% · SL −{(bestWR.sl_pct * 100).toFixed(0)}%
+                  </div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>
+                    Win rate <strong style={{ color: "#34d399" }}>{bestWR.win_rate_pct}%</strong>
+                    {" "}· Avg P&L {bestWR.avg_pnl_pct != null ? `${bestWR.avg_pnl_pct > 0 ? "+" : ""}${bestWR.avg_pnl_pct}%` : "—"}
+                    <span style={{ color: "#475569", marginLeft: 8 }}>n={bestWR.total.toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Win-rate matrix */}
+          <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "16px 18px", overflowX: "auto" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 14 }}>
+              Win-Rate Matrix — {side.toUpperCase()}S &nbsp;·&nbsp; decisive exits only (target vs stop) &nbsp;·&nbsp;
+              <span style={{ color: "#34d399" }}>■ ≥60%</span>{" "}
+              <span style={{ color: "#86efac" }}>■ ≥50%</span>{" "}
+              <span style={{ color: "#fbbf24" }}>■ ≥40%</span>{" "}
+              <span style={{ color: "#f87171" }}>■ &lt;40%</span>
+              <span style={{ marginLeft: 10, color: "#a78bfa" }}>★ best EV</span>
+            </div>
+            <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: "6px 14px", color: "#475569", fontSize: 10, textAlign: "left", fontWeight: 600 }}>
+                    PT → &nbsp; SL ↓
+                  </th>
+                  {PT_LABELS.map(l => (
+                    <th key={l} style={{ padding: "6px 14px", color: "#94a3b8", fontSize: 11, textAlign: "center", fontWeight: 700 }}>{l}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {SL_VALS.map((sl, si) => (
+                  <tr key={sl}>
+                    <td style={{ padding: "5px 14px", color: "#94a3b8", fontWeight: 700, fontSize: 11, whiteSpace: "nowrap" }}>
+                      SL −{SL_LABELS[si]}
+                    </td>
+                    {PT_VALS.map((pt, pi) => {
+                      const c = getCombo(pt, sl);
+                      const wr = c?.win_rate_pct ?? null;
+                      const best = isBest(pt, sl);
+                      return (
+                        <td key={pt} style={{
+                          padding: "5px 14px", textAlign: "center",
+                          background: wrColor(wr),
+                          border: best ? "2px solid #a78bfa" : "1px solid #1e293b",
+                          borderRadius: 4, position: "relative",
+                        }}>
+                          <div style={{ color: wrText(wr), fontWeight: 700, fontSize: 13 }}>
+                            {wr != null ? `${wr}%` : "—"}
+                            {best && <span style={{ color: "#a78bfa", marginLeft: 3, fontSize: 10 }}>★</span>}
+                          </div>
+                          {c && (
+                            <div style={{ color: "#475569", fontSize: 9, marginTop: 1 }}>
+                              avg {c.avg_pnl_pct != null ? `${c.avg_pnl_pct > 0 ? "+" : ""}${c.avg_pnl_pct}%` : "—"}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ fontSize: 10, color: "#334155", marginTop: 10 }}>
+              Each cell: win rate of trades that hit target OR stop. EOD exits excluded from win/loss count.
+              Avg P&L row includes EOD exits. ★ = highest expected average P&L for {side}s.
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ZeroDtePaperTab() {
   const [stats,  setStats]  = useState<ZeroDtePaperStats | null>(null);
   const [trades, setTrades] = useState<ZeroDtePaperTrade[] | null>(null);
@@ -9368,8 +9651,8 @@ function ZeroDtePaperTab() {
 
       {/* Config disclaimer */}
       <div style={{ background: "#1e293b", border: "1px solid #ca8a04", borderRadius: 8, padding: "8px 14px", marginBottom: 14, fontSize: 11, color: "#fbbf24" }}>
-        ⚠️ <strong>Proposed defaults — flagged for approval:</strong>&nbsp;
-        Profit target <strong>+100%</strong> of entry premium · Stop loss <strong>−50%</strong> of entry premium · 1 contract per trade.
+        ⚙️ <strong>Active config:</strong>&nbsp;
+        Profit target <strong>+50%</strong> of entry premium · Stop loss <strong>−20%</strong> of entry premium · 1 contract per trade.
         Config source: <code style={{ fontSize: 10 }}>_PAPER_PROFIT_TARGET_PCT / _PAPER_STOP_LOSS_PCT</code> in <code style={{ fontSize: 10 }}>patterns/zero_dte_sweep.py</code>.
         Monitoring: <strong>separate 1-min poll</strong> (APScheduler id=<code style={{ fontSize: 10 }}>zero_dte_paper_monitor</code>) — not the 5-min scan cycle.
         EOD closer: <strong>15:35 ET daily</strong> (id=<code style={{ fontSize: 10 }}>zero_dte_paper_eod</code>).

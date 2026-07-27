@@ -49489,6 +49489,48 @@ def zero_dte_paper_stats_endpoint():
         return jsonify({"error": str(_e)}), 500
 
 
+@app.route("/stock-api/admin/0dte/run-backtest", methods=["POST"])
+def zero_dte_run_backtest_endpoint():
+    """
+    Trigger the 0DTE options backtest in a background thread.
+    Uses Polygon 1-min option aggregates going back up to 2 years.
+    Safe to call multiple times — subsequent calls return already_running.
+    POST body (optional JSON): {"days": 730}
+    """
+    try:
+        import zero_dte_bt as _zdbt
+        body = request.get_json(silent=True) or {}
+        days = int(body.get("days", _zdbt.DEFAULT_DAYS))
+        days = max(30, min(days, 730))
+        result = _zdbt.start_background(days)
+        return jsonify(result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/0dte/backtest-status", methods=["GET"])
+def zero_dte_backtest_status_endpoint():
+    """Quick status: running | complete | not_started + row counts."""
+    try:
+        import zero_dte_bt as _zdbt
+        return jsonify(_zdbt.get_status())
+    except Exception as _e:
+        return jsonify({"status": "error", "error": str(_e)}), 500
+
+
+@app.route("/stock-api/0dte/backtest-results", methods=["GET"])
+def zero_dte_backtest_results_endpoint():
+    """
+    Full aggregated results: PT/SL win-rate matrix + reach rates.
+    Returns empty lists when backtest hasn't run yet.
+    """
+    try:
+        import zero_dte_bt as _zdbt
+        return jsonify(_zdbt.get_results())
+    except Exception as _e:
+        return jsonify({"combos": [], "reach_rates": [], "progress": {}, "error": str(_e)}), 500
+
+
 @app.route("/stock-api/admin/closed-loop-audit/<int:trade_id>", methods=["GET"])
 def admin_closed_loop_audit_trade(trade_id):
     """

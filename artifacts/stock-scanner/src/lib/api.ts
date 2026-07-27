@@ -2730,3 +2730,62 @@ export function fetch0dtePaperTrades(days = 30) {
 export function fetch0dtePaperStats() {
   return fetchJson<ZeroDtePaperStats>("/0dte/paper-stats");
 }
+
+// ── 0DTE backtest ─────────────────────────────────────────────────────────────
+export interface ZeroDteBtCombo {
+  pt_pct:       number;   // profit target fraction (0.25 = 25%)
+  sl_pct:       number;   // stop loss fraction     (0.10 = 10%)
+  side:         string;   // "call" | "put"
+  total:        number;
+  wins:         number;
+  losses:       number;
+  eod_exits:    number;
+  win_rate_pct: number | null;
+  avg_pnl_pct:  number | null;
+  avg_win_pct:  number | null;
+  avg_loss_pct: number | null;
+  avg_eod_pct:  number | null;
+  avg_bars:     number | null;
+}
+
+export interface ZeroDteBtReach {
+  side:                 string;
+  total_obs:            number;
+  avg_max_gain_pct:     number | null;
+  avg_max_drawdown_pct: number | null;
+  pct_reaching_25:      number | null;
+  pct_reaching_50:      number | null;
+  pct_reaching_75:      number | null;
+  pct_reaching_100:     number | null;
+  avg_eod_pct:          number | null;
+}
+
+export interface ZeroDteBtStatus {
+  status:                  "not_started" | "running" | "complete" | "error";
+  completed_combinations:  number;
+  total_trade_rows:        number;
+  error?:                  string;
+}
+
+export interface ZeroDteBtResults {
+  combos:      ZeroDteBtCombo[];
+  reach_rates: ZeroDteBtReach[];
+  progress:    { completed_combinations: number; total_trade_rows: number };
+  error?:      string;
+}
+
+export function fetch0dteBtStatus() {
+  return fetchJson<ZeroDteBtStatus>("/0dte/backtest-status");
+}
+
+export function fetch0dteBtResults() {
+  return fetchJson<ZeroDteBtResults>("/0dte/backtest-results");
+}
+
+export function start0dteBt(days = 730) {
+  return fetchJson<{ started: boolean; reason?: string; lookback_days?: number }>(
+    "/admin/0dte/run-backtest",
+    { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }) }
+  );
+}
