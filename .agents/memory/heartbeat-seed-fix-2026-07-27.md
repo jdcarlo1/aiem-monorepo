@@ -61,5 +61,9 @@ separate admin-only delete path or just INSERT without pruning.
 - **OSS startup catch-up (#58)** committed 170eedf (main.py)
   - sha256 before: d5a41562  after: aa2b296a
   - Live proof: options_structure_scan now has scan_date=2026-07-27, 80 rows written by catch-up
-- **Side finding (NOT fixed):** aiem_process_predictions also guarded by aiem_deletion_guard;
-  premarket_scan DELETE rejected → 0 predictions for 2026-07-27 14:58 ET; same root cause as heartbeat
+- **aiem_process_predictions UPSERT fix** committed 6db4ebd
+  - Root cause: statement-level trigger fires on DELETE even with 0 matching rows
+  - Fix: INSERT ... ON CONFLICT (prediction_date, ticker) DO UPDATE; no schema change
+  - sha256 before: ef951509  after: 54762967
+  - Catchup window is 6:50 AM–3:30 PM ET; restarts after 15:30 ET need manual /run-scan trigger
+  - Live proof: 10 predictions written 2026-07-27 19:41:34 UTC (6 failed attempts prior, all old code)
