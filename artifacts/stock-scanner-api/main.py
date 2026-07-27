@@ -17558,6 +17558,14 @@ try:
 except Exception as _e_0dte_init:
     print(f"[0dte] startup table init error: {_e_0dte_init}")
 
+# Ensure backtest DB tables exist from boot so status/results endpoints respond immediately
+try:
+    import zero_dte_bt as _zdbt_boot
+    _zdbt_boot.ensure_bt_tables()
+    print("[0dte_bt] backtest tables ready")
+except Exception as _e_bt_init:
+    print(f"[0dte_bt] startup table init error: {_e_bt_init}")
+
 
 def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     """
