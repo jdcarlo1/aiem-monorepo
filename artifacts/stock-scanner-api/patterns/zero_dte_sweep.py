@@ -19,6 +19,13 @@ Pattern gates (ALL must pass for a match):
 
 Scan windows: 10:00–11:30 ET and 14:00–15:30 ET, Mon–Fri only.
 Interval: 5 minutes (controlled by APScheduler job in main.py).
+
+Paper trading:
+  - Every alert match opens a hypothetical paper trade in paper_0dte_trades.
+  - A separate 1-min monitor (registered in main.py) polls current prices and
+    closes trades at profit_target or stop_loss.
+  - An EOD closer (15:35 ET cron in main.py) sweeps remaining open trades.
+  - Win-rate stats are live via the v_paper_0dte_stats view.
 """
 
 import os
@@ -35,6 +42,16 @@ _DELTA_MAX      = 0.70
 _IV_HISTORY_MIN = 5            # minimum stored days before IV rank gate fires
 _IV_HISTORY_MAX = 20
 _WINDOWS_ET     = [(10, 0, 11, 30), (14, 0, 15, 30)]
+
+# ── Paper trading config ──────────────────────────────────────────────────────
+# ⚠️  PROPOSED DEFAULTS — flagged for approval (per directive note).
+#    profit_target_pct=1.00 → exit when option premium doubles (+100%).
+#    stop_loss_pct=0.50     → exit when option loses half its value (−50%).
+#    These are the most common retail 0DTE paper-trading defaults.
+#    Change these constants to adjust; they are NOT hardcoded in any logic.
+_PAPER_PROFIT_TARGET_PCT: float = 1.00   # +100% gain on entry premium → target exit
+_PAPER_STOP_LOSS_PCT:     float = 0.50   # −50% loss on entry premium  → stop exit
+_PAPER_CONTRACTS:         int   = 1      # hypothetical contracts per trade (×100 shares)
 
 _tables_ready   = False
 _last_vol: dict = {}           # {(ticker, side, strike, expiry): int}
@@ -179,6 +196,38 @@ def _fetch_underlying_price(ticker: str) -> float:
         return 0.0
 
 
+def _fetch_option_mid(contract_symbol: str) -> float | None:
+    """
+    Current bid/ask midpoint for a single option contract via Tradier quotes API.
+    Used by the 1-min paper trade monitor to check target/stop levels.
+    Falls back to last price if bid/ask unavailable. Returns None on error.
+    """
+    import requests
+    hdrs = _td_headers()
+    if not hdrs or not contract_symbol:
+        return None
+    try:
+        r = requests.get(
+            "https://api.tradier.com/v1/markets/quotes",
+            params={"symbols": contract_symbol, "greeks": "false"},
+            headers=hdrs, timeout=5,
+        )
+        if r.status_code != 200:
+            return None
+        raw = r.json().get("quotes", {}).get("quote", {})
+        if isinstance(raw, list):
+            raw = raw[0] if raw else {}
+        bid = float(raw.get("bid") or 0)
+        ask = float(raw.get("ask") or 0)
+        if bid > 0 and ask > 0:
+            return round((bid + ask) / 2, 4)
+        last = float(raw.get("last") or 0)
+        return round(last, 4) if last > 0 else None
+    except Exception as exc:
+        print(f"[0dte_paper] fetch_mid {contract_symbol}: {exc}")
+        return None
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _db():
@@ -218,9 +267,55 @@ def ensure_tables() -> None:
                     atm_iv    NUMERIC NOT NULL,
                     UNIQUE (ticker, snap_date)
                 );
+
+                -- Paper trading: one row per hypothetical trade opened on an alert match
+                CREATE TABLE IF NOT EXISTS paper_0dte_trades (
+                    trade_id          BIGSERIAL   PRIMARY KEY,
+                    match_id          BIGINT      NOT NULL
+                                                  REFERENCES pattern_0dte_matches(id),
+                    contract_symbol   TEXT        NOT NULL,
+                    ticker            TEXT        NOT NULL,
+                    side              TEXT        NOT NULL,   -- call / put
+                    strike            NUMERIC     NOT NULL,
+                    expiry            DATE        NOT NULL,
+                    entry_price       NUMERIC     NOT NULL,   -- ask at alert time (config source: row["ask"])
+                    contracts         INT         NOT NULL DEFAULT 1,
+                    -- Config values stored per-trade so historical rows reflect the
+                    -- config that was active when the trade was opened.
+                    -- Source constants: _PAPER_PROFIT_TARGET_PCT, _PAPER_STOP_LOSS_PCT
+                    profit_target_pct NUMERIC     NOT NULL,
+                    stop_loss_pct     NUMERIC     NOT NULL,
+                    exit_price        NUMERIC,
+                    exit_reason       TEXT,        -- target | stop | expired_worthless | eod
+                    exit_time         TIMESTAMPTZ,
+                    pnl_usd           NUMERIC,     -- (exit - entry) * contracts * 100
+                    pnl_pct           NUMERIC,     -- (exit - entry) / entry
+                    win               BOOLEAN,
+                    status            TEXT        NOT NULL DEFAULT 'open',  -- open | closed
+                    opened_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+            # Live win-rate view — updated on every query, not a static snapshot
+            cur.execute("""
+                CREATE OR REPLACE VIEW v_paper_0dte_stats AS
+                SELECT
+                    COUNT(*)                                                          AS total_trades,
+                    COUNT(*) FILTER (WHERE win IS TRUE)                               AS wins,
+                    COUNT(*) FILTER (WHERE win IS FALSE)                              AS losses,
+                    COUNT(*) FILTER (WHERE status = 'open')                           AS open_trades,
+                    ROUND(
+                        100.0 * COUNT(*) FILTER (WHERE win IS TRUE)
+                        / NULLIF(COUNT(*) FILTER (WHERE status = 'closed'), 0), 2
+                    )                                                                 AS win_rate_pct,
+                    ROUND(AVG(pnl_usd) FILTER (WHERE win IS TRUE),  2)               AS avg_win_usd,
+                    ROUND(AVG(pnl_pct) FILTER (WHERE win IS TRUE),  4)               AS avg_win_pct,
+                    ROUND(AVG(pnl_usd) FILTER (WHERE win IS FALSE AND status='closed'), 2) AS avg_loss_usd,
+                    ROUND(AVG(pnl_pct) FILTER (WHERE win IS FALSE AND status='closed'), 4) AS avg_loss_pct,
+                    MAX(opened_at)                                                    AS last_trade_at
+                FROM paper_0dte_trades;
             """)
             conn.commit()
-        print("[0dte] tables ready (pattern_0dte_matches, pattern_0dte_iv_history)")
+        print("[0dte] tables ready (pattern_0dte_matches, pattern_0dte_iv_history, paper_0dte_trades, v_paper_0dte_stats)")
     except Exception as exc:
         print(f"[0dte] table init error: {exc}")
 
@@ -370,7 +465,11 @@ def _eval_contract(
 def _write_match(
     ticker, side, row, expiry, underlying_price,
     sweep_usd, iv_rank, gates, bars,
-) -> None:
+) -> int | None:
+    """
+    Insert into pattern_0dte_matches and return the new row's id (or None on error).
+    The returned id is the FK for paper_0dte_trades.
+    """
     last_bar = bars[-2] if len(bars) >= 2 else (bars[-1] if bars else {})
     try:
         with _db() as conn, conn.cursor() as cur:
@@ -381,6 +480,7 @@ def _write_match(
                      bid, ask, spread, underlying_price,
                      five_min_high, five_min_low, gates_passed)
                 VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s,%s, %s,%s,%s)
+                RETURNING id
             """, (
                 ticker, side, row["strike"], expiry, row.get("contractSymbol"),
                 round(sweep_usd, 2),
@@ -394,9 +494,12 @@ def _write_match(
                 float(last_bar.get("low")  or 0) or None,
                 gates,
             ))
+            match_id = cur.fetchone()[0]
             conn.commit()
+        return match_id
     except Exception as exc:
         print(f"[0dte] write_match error: {exc}")
+        return None
 
 
 # ── Telegram alert ────────────────────────────────────────────────────────────
@@ -437,6 +540,195 @@ def _send_alert(tg_fn, ticker, side, row, expiry, sweep_usd, iv_rank) -> None:
                 _ulr.urlopen(req, timeout=8)
     except Exception as exc:
         print(f"[0dte] telegram error: {exc}")
+
+
+# ── Paper trading helpers ─────────────────────────────────────────────────────
+
+def open_paper_trade(
+    match_id: int,
+    entry_price: float,
+    contract_symbol: str,
+    ticker: str,
+    side: str,
+    strike: float,
+    expiry: str,
+) -> None:
+    """
+    Log a new hypothetical paper trade from an alert match.
+
+    entry_price: row["ask"] at alert time (the price a buyer would pay).
+    Config source: _PAPER_PROFIT_TARGET_PCT, _PAPER_STOP_LOSS_PCT,
+                   _PAPER_CONTRACTS (module-level constants, not hardcoded in logic).
+    """
+    if entry_price <= 0:
+        print(f"[0dte_paper] skipping zero entry price for match_id={match_id}")
+        return
+    if not contract_symbol:
+        print(f"[0dte_paper] skipping empty contract_symbol for match_id={match_id}")
+        return
+    try:
+        with _db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO paper_0dte_trades
+                    (match_id, contract_symbol, ticker, side, strike, expiry,
+                     entry_price, contracts, profit_target_pct, stop_loss_pct, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')
+            """, (
+                match_id, contract_symbol, ticker, side, strike, expiry,
+                round(entry_price, 4), _PAPER_CONTRACTS,
+                _PAPER_PROFIT_TARGET_PCT, _PAPER_STOP_LOSS_PCT,
+            ))
+            conn.commit()
+        print(
+            f"[0dte_paper] OPEN trade match_id={match_id} {ticker} {side.upper()} "
+            f"strike={strike} entry=${entry_price:.2f} "
+            f"target=+{_PAPER_PROFIT_TARGET_PCT*100:.0f}% "
+            f"stop=-{_PAPER_STOP_LOSS_PCT*100:.0f}%"
+        )
+    except Exception as exc:
+        print(f"[0dte_paper] open_paper_trade error match_id={match_id}: {exc}")
+
+
+def _close_trade(
+    trade_id: int,
+    exit_price: float,
+    exit_reason: str,
+    entry_price: float,
+    contracts: int,
+) -> None:
+    """Write exit record and compute P&L for a paper trade."""
+    pnl_pct = (exit_price - entry_price) / entry_price if entry_price > 0 else 0.0
+    pnl_usd = (exit_price - entry_price) * contracts * 100  # 100 shares per contract
+    win = pnl_usd > 0
+    try:
+        with _db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                UPDATE paper_0dte_trades
+                SET exit_price  = %s,
+                    exit_reason = %s,
+                    exit_time   = NOW(),
+                    pnl_usd     = %s,
+                    pnl_pct     = %s,
+                    win         = %s,
+                    status      = 'closed'
+                WHERE trade_id = %s
+                  AND status   = 'open'
+            """, (
+                round(exit_price, 4),
+                exit_reason,
+                round(pnl_usd, 2),
+                round(pnl_pct, 6),
+                win,
+                trade_id,
+            ))
+            conn.commit()
+        print(
+            f"[0dte_paper] CLOSED trade_id={trade_id} reason={exit_reason} "
+            f"exit=${exit_price:.2f} pnl_usd=${pnl_usd:+.2f} pnl_pct={pnl_pct:+.2%}"
+        )
+    except Exception as exc:
+        print(f"[0dte_paper] _close_trade error trade_id={trade_id}: {exc}")
+
+
+def monitor_open_trades() -> None:
+    """
+    Poll current option price for every open paper trade and close if
+    profit target or stop loss is hit.
+
+    Mechanism: separate 1-minute APScheduler job registered in main.py
+               (id="zero_dte_paper_monitor"). NOT the 5-min scan cycle —
+               the 5-min cadence is insufficient to catch intraday hits.
+    Window guard: 9:30–15:40 ET, Mon–Fri only.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        ZI = ZoneInfo
+    except ImportError:
+        import pytz
+        ZI = lambda tz: pytz.timezone(tz)
+    now = datetime.now(ZI("America/New_York"))
+    if now.weekday() >= 5:
+        return
+    hm = (now.hour, now.minute)
+    if not ((9, 30) <= hm <= (15, 40)):
+        return
+
+    try:
+        with _db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT trade_id, contract_symbol, entry_price,
+                       profit_target_pct, stop_loss_pct, contracts
+                FROM paper_0dte_trades
+                WHERE status = 'open'
+            """)
+            open_trades = cur.fetchall()
+    except Exception as exc:
+        print(f"[0dte_paper] monitor fetch_open error: {exc}")
+        return
+
+    if not open_trades:
+        return
+
+    for (trade_id, contract_symbol, entry_price,
+         pt_pct, sl_pct, contracts) in open_trades:
+        entry_price = float(entry_price)
+        pt_pct      = float(pt_pct)
+        sl_pct      = float(sl_pct)
+        contracts   = int(contracts)
+
+        current_price = _fetch_option_mid(contract_symbol)
+        if current_price is None:
+            continue  # price unavailable this cycle; try again next minute
+
+        target_price = entry_price * (1.0 + pt_pct)
+        stop_price   = entry_price * (1.0 - sl_pct)
+
+        exit_reason = None
+        if current_price >= target_price:
+            exit_reason = "target"
+        elif current_price <= stop_price:
+            exit_reason = "stop"
+
+        if exit_reason:
+            _close_trade(trade_id, current_price, exit_reason, entry_price, contracts)
+
+
+def close_eod_trades() -> None:
+    """
+    EOD closer: runs at 15:35 ET via CronTrigger in main.py
+    (id="zero_dte_paper_eod").
+
+    Any trade still open at 0DTE expiry is closed at current market value.
+    If price is unavailable (option worthless / market closed), closes at $0.00
+    with reason 'expired_worthless'. Never carries a 0DTE position overnight.
+    """
+    try:
+        with _db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT trade_id, contract_symbol, entry_price, contracts
+                FROM paper_0dte_trades
+                WHERE status = 'open'
+            """)
+            open_trades = cur.fetchall()
+    except Exception as exc:
+        print(f"[0dte_paper] close_eod fetch error: {exc}")
+        return
+
+    if not open_trades:
+        print("[0dte_paper] EOD closer: no open trades to close")
+        return
+
+    print(f"[0dte_paper] EOD closer: closing {len(open_trades)} open trade(s)")
+    for (trade_id, contract_symbol, entry_price, contracts) in open_trades:
+        entry_price = float(entry_price)
+        contracts   = int(contracts)
+        current_price = _fetch_option_mid(contract_symbol)
+        if current_price is None or current_price <= 0.0:
+            current_price = 0.0
+            reason = "expired_worthless"
+        else:
+            reason = "eod"
+        _close_trade(trade_id, current_price, reason, entry_price, contracts)
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -506,11 +798,25 @@ def scan_once(tg_fn=None) -> int:
                     _last_vol[key] = row["volume"]
 
                 if passed:
-                    _write_match(
+                    match_id = _write_match(
                         ticker, side, row, expiry, underlying_price,
                         sweep_usd, iv_rank, gates, bars,
                     )
                     _send_alert(tg_fn, ticker, side, row, expiry, sweep_usd, iv_rank)
+
+                    # Open a hypothetical paper trade for every alert match.
+                    # entry_price = ask at alert time (what a buyer would pay).
+                    if match_id is not None:
+                        open_paper_trade(
+                            match_id=match_id,
+                            entry_price=row["ask"],
+                            contract_symbol=row.get("contractSymbol", ""),
+                            ticker=ticker,
+                            side=side,
+                            strike=row["strike"],
+                            expiry=expiry,
+                        )
+
                     total_matches += 1
                     print(
                         f"[0dte] MATCH {ticker} {side.upper()} "

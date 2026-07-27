@@ -2681,3 +2681,52 @@ export interface BearFlowResult {
 export function fetchBearFlow() {
   return fetchJson<BearFlowResult>("/bear-flow");
 }
+
+// ── 0DTE paper trading ────────────────────────────────────────────────────────
+
+export interface ZeroDtePaperTrade {
+  trade_id:          number;
+  match_id:          number;
+  contract_symbol:   string;
+  ticker:            string;
+  side:              string;
+  strike:            number;
+  expiry:            string;
+  entry_price:       number;
+  contracts:         number;
+  profit_target_pct: number;
+  stop_loss_pct:     number;
+  exit_price:        number | null;
+  exit_reason:       string | null;
+  exit_time:         string | null;
+  pnl_usd:           number | null;
+  pnl_pct:           number | null;
+  win:               boolean | null;
+  status:            string;
+  opened_at:         string;
+  sweep_premium_usd: number | null;
+  vol_oi_ratio:      number | null;
+  iv_rank:           number | null;
+  delta:             number | null;
+}
+
+export interface ZeroDtePaperStats {
+  total_trades:  number;
+  wins:          number;
+  losses:        number;
+  open_trades:   number;
+  win_rate_pct:  number | null;
+  avg_win_usd:   number | null;
+  avg_win_pct:   number | null;
+  avg_loss_usd:  number | null;
+  avg_loss_pct:  number | null;
+  last_trade_at: string | null;
+}
+
+export function fetch0dtePaperTrades(days = 30) {
+  return fetchJson<{ trades: ZeroDtePaperTrade[]; total: number }>(`/0dte/paper-trades?days=${days}`);
+}
+
+export function fetch0dtePaperStats() {
+  return fetchJson<ZeroDtePaperStats>("/0dte/paper-stats");
+}

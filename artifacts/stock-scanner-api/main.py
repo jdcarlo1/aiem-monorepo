@@ -17510,6 +17510,55 @@ except Exception as _e_0dte:
     print(f"[0dte_sweep] scheduler registration error: {_e_0dte}")
 
 
+# 0DTE paper trade monitor (1-min) + EOD closer (15:35 ET cron)
+try:
+    from patterns.zero_dte_sweep import (
+        monitor_open_trades as _monitor_0dte_paper,
+        close_eod_trades    as _close_0dte_eod,
+    )
+    from apscheduler.triggers.cron import CronTrigger as _0DTEEodCron
+
+    def _run_0dte_paper_monitor():
+        try:
+            _monitor_0dte_paper()
+        except Exception as _ep:
+            print(f"[0dte_paper_monitor] error: {_ep}")
+
+    def _run_0dte_eod_close():
+        try:
+            _close_0dte_eod()
+        except Exception as _ep:
+            print(f"[0dte_paper_eod] error: {_ep}")
+
+    _scheduler.add_job(
+        _run_0dte_paper_monitor,
+        _0DTETrigger(minutes=1, timezone=_ET),   # reuse _0DTETrigger from above block
+        id="zero_dte_paper_monitor",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
+        _run_0dte_eod_close,
+        _0DTEEodCron(day_of_week="mon-fri", hour=15, minute=35, timezone=_ET),
+        id="zero_dte_paper_eod",
+        replace_existing=True,
+    )
+    print("[0dte_paper] 1-min price monitor + 15:35 ET EOD closer scheduled")
+    _log_startup_event(
+        "zero_dte_paper_scheduled",
+        "monitor=IntervalTrigger(1min), eod_close=CronTrigger(15:35 ET Mon-Fri)",
+    )
+except Exception as _e_0dte_paper:
+    print(f"[0dte_paper] scheduler registration error: {_e_0dte_paper}")
+
+# Ensure paper_0dte_trades + v_paper_0dte_stats exist from boot
+# (ensure_tables() is lazy inside scan_once, but API routes need the table on day 1)
+try:
+    from patterns.zero_dte_sweep import ensure_tables as _0dte_ensure_tables
+    _0dte_ensure_tables()
+except Exception as _e_0dte_init:
+    print(f"[0dte] startup table init error: {_e_0dte_init}")
+
+
 def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
     """
     Per-source execution-time revalidation.  Each candidate is re-checked
@@ -49383,6 +49432,59 @@ def paper_performance_endpoint():
         _result = _pp(_DB_URL, window_days=_window)
         _result["trading_mode"] = "PAPER TRADING — SIMULATION ONLY"
         return jsonify(_result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+# ── 0DTE paper trading endpoints ──────────────────────────────────────────────
+
+@app.route("/stock-api/0dte/paper-trades", methods=["GET"])
+def zero_dte_paper_trades_endpoint():
+    """
+    List paper_0dte_trades joined with pattern_0dte_matches.
+    Open trades first, then most-recently-closed.
+    Query param: ?days=N (default 30).
+    """
+    try:
+        import psycopg2.extras as _pext
+        _days = request.args.get("days", 30, type=int)
+        _conn = psycopg2.connect(_DB_URL, connect_timeout=4)
+        _cur  = _conn.cursor(cursor_factory=_pext.RealDictCursor)
+        _cur.execute("""
+            SELECT
+                t.trade_id, t.match_id, t.contract_symbol, t.ticker, t.side,
+                t.strike, t.expiry, t.entry_price, t.contracts,
+                t.profit_target_pct, t.stop_loss_pct,
+                t.exit_price, t.exit_reason, t.exit_time,
+                t.pnl_usd, t.pnl_pct, t.win, t.status, t.opened_at,
+                m.sweep_premium_usd, m.vol_oi_ratio, m.iv_rank, m.delta
+            FROM paper_0dte_trades t
+            JOIN pattern_0dte_matches m ON m.id = t.match_id
+            WHERE t.opened_at >= NOW() - (%s || ' days')::interval
+            ORDER BY (t.status = 'open') DESC, t.opened_at DESC
+            LIMIT 500
+        """, (str(_days),))
+        _rows = [dict(r) for r in _cur.fetchall()]
+        _cur.close(); _conn.close()
+        return jsonify({"trades": _rows, "total": len(_rows)})
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
+
+
+@app.route("/stock-api/0dte/paper-stats", methods=["GET"])
+def zero_dte_paper_stats_endpoint():
+    """
+    Live win-rate stats from v_paper_0dte_stats view.
+    Updated on every query — not a static snapshot.
+    """
+    try:
+        import psycopg2.extras as _pext
+        _conn = psycopg2.connect(_DB_URL, connect_timeout=4)
+        _cur  = _conn.cursor(cursor_factory=_pext.RealDictCursor)
+        _cur.execute("SELECT * FROM v_paper_0dte_stats")
+        _row = _cur.fetchone()
+        _cur.close(); _conn.close()
+        return jsonify(dict(_row) if _row else {})
     except Exception as _e:
         return jsonify({"error": str(_e)}), 500
 

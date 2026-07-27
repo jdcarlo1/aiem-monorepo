@@ -75,6 +75,8 @@ import {
   fetchAiemProbabilityDailyPicks, AiemProbabilityDailyPicks, AiemProbabilityPick,
   fetchAiemProbabilityTrackRecord, AiemProbabilityTrackRecord,
   forceAiemProbabilityEngineRun,
+  fetch0dtePaperTrades, fetch0dtePaperStats,
+  ZeroDtePaperTrade, ZeroDtePaperStats,
 } from "@/lib/api";
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar,
@@ -9316,6 +9318,148 @@ function ConvictionTrackTab() {
 
 
 // ---- EOD Institutional Sweep Tab ------------------------------------------
+function ZeroDtePaperTab() {
+  const [stats,  setStats]  = useState<ZeroDtePaperStats | null>(null);
+  const [trades, setTrades] = useState<ZeroDtePaperTrade[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err,    setErr]    = useState<string | null>(null);
+  const [days,   setDays]   = useState(30);
+
+  const load = React.useCallback((d: number) => {
+    setLoading(true); setErr(null);
+    Promise.all([fetch0dtePaperStats(), fetch0dtePaperTrades(d)])
+      .then(([s, t]) => { setStats(s); setTrades(t.trades); })
+      .catch(e => setErr(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(days); }, [days, load]);
+
+  const BB_F = "'Inter','Segoe UI',sans-serif";
+  const openCount   = trades?.filter(t => t.status === "open").length  ?? 0;
+  const closedCount = trades?.filter(t => t.status === "closed").length ?? 0;
+
+  function pnlColor(v: number | null) {
+    if (v == null) return "#94a3b8";
+    return v > 0 ? "#34d399" : v < 0 ? "#f87171" : "#94a3b8";
+  }
+  function fmtPct(v: number | null, scale = 1) {
+    if (v == null) return "—";
+    return `${v >= 0 ? "+" : ""}${(v * scale * 100).toFixed(1)}%`;
+  }
+  function fmtUsd(v: number | null) {
+    if (v == null) return "—";
+    return `${v >= 0 ? "+" : ""}$${Math.abs(v).toFixed(2)}`;
+  }
+
+  return (
+    <div style={{ padding: "20px 16px", fontFamily: BB_F, color: "#e2e8f0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <span style={{ fontSize: 20, fontWeight: 700 }}>📊 0DTE SWEEP — PAPER TRACK RECORD</span>
+        <select
+          value={days}
+          onChange={e => setDays(Number(e.target.value))}
+          style={{ marginLeft: "auto", background: "#0f172a", color: "#94a3b8", border: "1px solid #334155", borderRadius: 6, padding: "4px 8px", fontSize: 12 }}
+        >
+          {[7, 14, 30, 60, 90].map(d => <option key={d} value={d}>Last {d}d</option>)}
+        </select>
+        <button onClick={() => load(days)} style={{ background: "#1e40af", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>↻ Refresh</button>
+      </div>
+
+      {/* Config disclaimer */}
+      <div style={{ background: "#1e293b", border: "1px solid #ca8a04", borderRadius: 8, padding: "8px 14px", marginBottom: 14, fontSize: 11, color: "#fbbf24" }}>
+        ⚠️ <strong>Proposed defaults — flagged for approval:</strong>&nbsp;
+        Profit target <strong>+100%</strong> of entry premium · Stop loss <strong>−50%</strong> of entry premium · 1 contract per trade.
+        Config source: <code style={{ fontSize: 10 }}>_PAPER_PROFIT_TARGET_PCT / _PAPER_STOP_LOSS_PCT</code> in <code style={{ fontSize: 10 }}>patterns/zero_dte_sweep.py</code>.
+        Monitoring: <strong>separate 1-min poll</strong> (APScheduler id=<code style={{ fontSize: 10 }}>zero_dte_paper_monitor</code>) — not the 5-min scan cycle.
+        EOD closer: <strong>15:35 ET daily</strong> (id=<code style={{ fontSize: 10 }}>zero_dte_paper_eod</code>).
+      </div>
+
+      {loading && <div style={{ textAlign: "center", padding: 32 }}><Spinner /></div>}
+      {err && <div style={{ color: "#f87171", padding: 12 }}>{err}</div>}
+
+      {/* Stats bar */}
+      {stats && !loading && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 18 }}>
+          {[
+            { label: "Total Trades",  value: String(stats.total_trades ?? 0) },
+            { label: "Wins",          value: String(stats.wins ?? 0),         color: "#34d399" },
+            { label: "Losses",        value: String(stats.losses ?? 0),       color: "#f87171" },
+            { label: "Open Now",      value: String(stats.open_trades ?? 0),  color: "#60a5fa" },
+            { label: "Win Rate",      value: stats.win_rate_pct != null ? `${stats.win_rate_pct.toFixed(1)}%` : "—",
+              color: stats.win_rate_pct != null ? (stats.win_rate_pct >= 55 ? "#34d399" : stats.win_rate_pct >= 45 ? "#fbbf24" : "#f87171") : "#94a3b8" },
+            { label: "Avg Win",       value: stats.avg_win_usd != null ? `+$${stats.avg_win_usd.toFixed(2)}` : "—", color: "#34d399" },
+            { label: "Avg Loss",      value: stats.avg_loss_usd != null ? `-$${Math.abs(stats.avg_loss_usd).toFixed(2)}` : "—", color: "#f87171" },
+            { label: "Avg Win %",     value: fmtPct(stats.avg_win_pct),  color: "#34d399" },
+            { label: "Avg Loss %",    value: fmtPct(stats.avg_loss_pct), color: "#f87171" },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8, padding: "10px 14px" }}>
+              <div style={{ fontSize: 10, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: color ?? "#e2e8f0" }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Trades table */}
+      {trades && !loading && (
+        <>
+          <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>
+            {openCount} open · {closedCount} closed · showing last {days}d
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: "#0f172a", color: "#64748b" }}>
+                  {["Status","Ticker","Side","Strike","Expiry","Entry $","Target","Stop","Exit $","Reason","P&L $","P&L %","Sweep $","Vol/OI","IV Rank","Opened"].map(h => (
+                    <th key={h} style={{ padding: "6px 8px", textAlign: "left", fontWeight: 600, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trades.length === 0 && (
+                  <tr><td colSpan={16} style={{ textAlign: "center", padding: 24, color: "#475569" }}>No trades in this window — alert matches open trades automatically.</td></tr>
+                )}
+                {trades.map(t => {
+                  const isOpen   = t.status === "open";
+                  const targetPx = (t.entry_price * (1 + t.profit_target_pct)).toFixed(2);
+                  const stopPx   = (t.entry_price * (1 - t.stop_loss_pct)).toFixed(2);
+                  return (
+                    <tr key={t.trade_id} style={{ borderBottom: "1px solid #1e293b", background: isOpen ? "rgba(96,165,250,0.06)" : "transparent" }}>
+                      <td style={{ padding: "6px 8px" }}>
+                        <span style={{ padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                          background: isOpen ? "#1e3a5f" : (t.win ? "#14532d" : "#450a0a"),
+                          color:      isOpen ? "#60a5fa" : (t.win ? "#34d399" : "#f87171") }}>
+                          {isOpen ? "OPEN" : (t.win ? "WIN" : "LOSS")}
+                        </span>
+                      </td>
+                      <td style={{ padding: "6px 8px", fontWeight: 700 }}>{t.ticker}</td>
+                      <td style={{ padding: "6px 8px", color: t.side === "call" ? "#34d399" : "#f87171", fontWeight: 600 }}>{t.side.toUpperCase()}</td>
+                      <td style={{ padding: "6px 8px" }}>{t.strike}</td>
+                      <td style={{ padding: "6px 8px", color: "#94a3b8" }}>{t.expiry}</td>
+                      <td style={{ padding: "6px 8px" }}>${t.entry_price.toFixed(2)}</td>
+                      <td style={{ padding: "6px 8px", color: "#34d399", fontSize: 11 }}>${targetPx}</td>
+                      <td style={{ padding: "6px 8px", color: "#f87171", fontSize: 11 }}>${stopPx}</td>
+                      <td style={{ padding: "6px 8px" }}>{t.exit_price != null ? `$${t.exit_price.toFixed(2)}` : "—"}</td>
+                      <td style={{ padding: "6px 8px", color: "#94a3b8", fontSize: 11 }}>{t.exit_reason ?? "—"}</td>
+                      <td style={{ padding: "6px 8px", fontWeight: 700, color: pnlColor(t.pnl_usd) }}>{fmtUsd(t.pnl_usd)}</td>
+                      <td style={{ padding: "6px 8px", color: pnlColor(t.pnl_pct) }}>{fmtPct(t.pnl_pct)}</td>
+                      <td style={{ padding: "6px 8px", color: "#94a3b8" }}>{t.sweep_premium_usd != null ? `$${(t.sweep_premium_usd/1000).toFixed(0)}k` : "—"}</td>
+                      <td style={{ padding: "6px 8px", color: "#94a3b8" }}>{t.vol_oi_ratio != null ? t.vol_oi_ratio.toFixed(1) : "—"}</td>
+                      <td style={{ padding: "6px 8px", color: "#94a3b8" }}>{t.iv_rank != null ? `${(t.iv_rank * 100).toFixed(0)}%` : "—"}</td>
+                      <td style={{ padding: "6px 8px", color: "#475569", fontSize: 10 }}>{new Date(t.opened_at).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function EodSweepTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
   const [data, setData]         = useState<{ signals: EodSweepSignal[]; generated_at: string; total: number; note?: string } | null>(null);
   const [loading, setLoading]   = useState(false);
@@ -16575,7 +16719,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete"|"candlestick-confluence"|"unusualputs"|"bearflow">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"0dte-paper"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete"|"candlestick-confluence"|"unusualputs"|"bearflow">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -16730,6 +16874,7 @@ export default function Dashboard() {
     { id: "convictioncalls", label: "🔥 HIGH CONVICTION" },
     { id: "eodsweep",        label: "🌙 EOD SWEEP" },
     { id: "sweeptrack",      label: "📊 SWEEP TRACK RECORD" },
+    { id: "0dte-paper",      label: "🎯 0DTE PAPER TRACK" },
     { id: "convictiontrack", label: "🎯 CONVICTION TRACK RECORD" },
     { id: "mytrades",        label: "📈 MY TRADES" },
     { id: "aiearlymovers",   label: "🧠 AI EARLY MOVERS" },
@@ -17911,6 +18056,7 @@ export default function Dashboard() {
         {tab === "convictioncalls" && <ConvictionCallsTab onSelectTicker={selectTicker} />}
         {tab === "eodsweep"        && <EodSweepTab       onSelectTicker={selectTicker} />}
         {tab === "sweeptrack"      && <EodSweepTrackTab />}
+        {tab === "0dte-paper"      && <ZeroDtePaperTab />}
         {tab === "convictiontrack" && <ConvictionTrackTab />}
         {tab === "mytrades"        && <MyTradesTab />}
         {tab === "aiearlymovers"   && <AIEarlyMoversTab />}
