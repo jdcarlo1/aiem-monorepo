@@ -936,3 +936,9 @@ id = "BD15QEY42-RLmOcpsut7_"
 uri = "file://stockscanner-ai-source.zip"
 type = "unspecified"
 title = "StockScanner AI — Source Code Package (2026-07-26)"
+
+[[outputs]]
+id = "Dw1EsZFpm_obacn7YtLQ1"
+uri = "file://nclex-ai-complete-export.zip"
+type = "unspecified"
+title = "NCLEX AI — Complete Export (nclex-ai-complete-export.zip)"
