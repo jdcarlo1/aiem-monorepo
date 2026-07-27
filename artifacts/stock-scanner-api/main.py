@@ -7279,6 +7279,64 @@ try:
                 replace_existing=True,
             )
 
+    # ── 9:05 AM ET Mon-Fri: alert if polygon_rvol_scan has no fresh data ─────────
+    # Fires 30 min after the 8:35 AM scan window so any startup catch-up has had
+    # time to run.  Catches silent scan failures: empty Polygon response, SMTP gate
+    # skip (smtp_configured() → False), or server offline during the 8:35 window.
+    # Without this guard the gap_volume pipeline silently runs against stale data
+    # and _aiem_paper_execute_today returns NO_CANDIDATES with no owner alert.
+    def _check_polygon_rvol_freshness():
+        try:
+            import psycopg2 as _chk_pg
+            import datetime as _chk_dt
+            with _chk_pg.connect(os.environ["DATABASE_URL"]) as _chk_c, \
+                    _chk_c.cursor() as _chk_cur:
+                _chk_cur.execute("""
+                    SELECT MAX(scan_date)::text, COUNT(*)
+                    FROM polygon_rvol_scan
+                    WHERE scan_date >= CURRENT_DATE - INTERVAL '7 days'
+                """)
+                _chk_row = _chk_cur.fetchone()
+            _max_date_str = _chk_row[0]   # may be None
+            _row_count    = _chk_row[1] or 0
+
+            # Expected: the most recent prior trading day.
+            # Monday → expect Friday (3 days back); any other weekday → yesterday.
+            _today_et = _chk_dt.datetime.now(_ET).date()
+            _offset   = 3 if _today_et.weekday() == 0 else 1
+            _expected = _today_et - _chk_dt.timedelta(days=_offset)
+
+            _is_stale = (_max_date_str is None) or (
+                _chk_dt.date.fromisoformat(_max_date_str) < _expected
+            )
+            if _is_stale:
+                _alert = (
+                    f"⚠️ [polygon_rvol_monitor] STALE DATA\n"
+                    f"Expected rows for {_expected} (most recent prior trading day)\n"
+                    f"DB max scan_date = {_max_date_str} ({_row_count} rows last 7d)\n"
+                    f"8:35 AM scan may have been missed — check deployment logs and "
+                    f"verify _polygon_grouped_daily() for {_expected} returns data."
+                )
+                print(_alert)
+                try:
+                    _tg_send(_alert)
+                except Exception as _chk_tge:
+                    print(f"[polygon_rvol_monitor] Telegram alert error: {_chk_tge}")
+            else:
+                print(
+                    f"[polygon_rvol_monitor] OK — max_date={_max_date_str} "
+                    f"rows={_row_count}"
+                )
+        except Exception as _chk_e:
+            print(f"[polygon_rvol_monitor] check error (non-fatal): {_chk_e}")
+
+    _scheduler.add_job(
+        _check_polygon_rvol_freshness,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=5, timezone=_ET),
+        id="polygon_rvol_freshness_check",
+        replace_existing=True,
+    )
+
     # EOD 16:50: one engine run → snapshot the L1-L8 track record + email the owner.
     def _run_eod_conviction_snapshot():
         def _w():
@@ -64799,6 +64857,13 @@ def _polygon_grouped_daily(date_str: str) -> dict:
     import json as _json2
     _key = os.environ.get("POLYGON_API_KEY", "")
     if not _key:
+        # Silent return here means _polygon_full_market_scan gets 0 tickers for every
+        # day it tries, daily_data stays empty, and the scan silently returns [] with
+        # no alert.  Log explicitly so the root cause is visible in production logs.
+        app.logger.error(
+            "[polygon_grouped_daily] POLYGON_API_KEY not set — "
+            "cannot fetch grouped daily data; polygon_rvol_scan will not be populated"
+        )
         return {}
     _url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
             f"?adjusted=true&apiKey={_key}")
@@ -64833,6 +64898,15 @@ def _polygon_full_market_scan() -> list:
 
         days = _polygon_recent_trading_days(5)
         if not days:
+            _no_days_msg = (
+                "[polygon_rvol] CRITICAL: _polygon_recent_trading_days returned empty — "
+                "cannot determine trading dates; polygon_rvol_scan will not run"
+            )
+            app.logger.error(_no_days_msg)
+            try:
+                _tg_send(_no_days_msg)
+            except Exception:
+                pass
             return []
 
         app.logger.info(f"[polygon_rvol] fetching up to {len(days)} candidate days: {days[:5]}...")
@@ -64849,6 +64923,23 @@ def _polygon_full_market_scan() -> list:
                 break
 
         if not daily_data:
+            # All _polygon_grouped_daily calls returned empty — Polygon API key missing,
+            # 403 rate-limit, or all candidate dates were market holidays.
+            # Previously: silent return [] with zero log output.  This caused today's
+            # paper trade pipeline to silently receive 0 candidates with no owner alert.
+            _days_tried = days[:5] if days else []
+            _empty_msg = (
+                f"[polygon_rvol] CRITICAL: all Polygon grouped-daily calls returned 0 tickers "
+                f"for dates {_days_tried}. "
+                f"Likely causes: POLYGON_API_KEY invalid/unset, Polygon 403/rate-limit, "
+                f"or holiday range with no trading data. "
+                f"polygon_rvol_scan NOT updated — paper trade pipeline will run on stale data."
+            )
+            app.logger.error(_empty_msg)
+            try:
+                _tg_send(_empty_msg)
+            except Exception:
+                pass
             return []
 
         yesterday_day, yesterday_data = daily_data[0]

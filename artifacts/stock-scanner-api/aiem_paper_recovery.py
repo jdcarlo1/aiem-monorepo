@@ -243,6 +243,53 @@ def try_claim(business_date: datetime.date, execution_id: str,
                   f"for {date_str} attempt=#{row3[1]} trigger={trigger_source}")
             return True
 
+        # Step 2d — Recovery triggers must NOT overwrite a terminal scheduled_942
+        # row that already has real trades (picks_count > 0).
+        #
+        # Root cause (2026-07-27): after a VM restart, startup_recovery runs at
+        # T+45s and finds PENDING (the cron hasn't fired yet).  It claims the row,
+        # finds NO_CANDIDATES, and marks SKIPPED.  The 9:42 cron (Step 2c above)
+        # then steals back the SKIPPED zero-picks row — correct.  But the inverse
+        # also matters: if scheduled_942 already completed with real trades and the
+        # VM is then restarted later in the day, startup_recovery must not steal the
+        # completed row and re-execute.  That would produce duplicate trades and
+        # corrupt the ledger's trigger_source attribution.
+        #
+        # Guard logic:
+        #   • Only applies to recovery callers (startup_recovery, *_watchdog, admin).
+        #   • Only blocks if the existing row was placed by scheduled_942 AND has
+        #     a terminal status (COMPLETED or SKIPPED) AND picks_count > 0.
+        #   • Does NOT block crash-recovery (Steps 2a/2b): a stale CLAIMED/EXECUTING
+        #     row means the process crashed mid-run and recovery is legitimate.
+        _RECOVERY_TRIGGERS = {"startup_recovery", "internal_watchdog",
+                               "external_watchdog", "admin"}
+        if trigger_source in _RECOVERY_TRIGGERS:
+            cur.execute("""
+                SELECT status, picks_count
+                FROM paper_trade_job_ledger
+                WHERE business_date  = %s
+                  AND trigger_source = 'scheduled_942'
+                  AND status         IN ('COMPLETED', 'SKIPPED')
+                  AND picks_count    > 0
+            """, (date_str,))
+            guard_row = cur.fetchone()
+            if guard_row:
+                conn.commit()
+                _log_evidence({
+                    "event":          "LEDGER_CLAIM_DENIED_RECOVERY_GUARD",
+                    "reason":         "scheduled_942_terminal_with_real_trades",
+                    "business_date":  date_str,
+                    "trigger_source": trigger_source,
+                    "existing_status":   guard_row[0],
+                    "existing_picks":    guard_row[1],
+                })
+                print(
+                    f"[paper_recovery] claim DENIED — {trigger_source} blocked: "
+                    f"scheduled_942 already has terminal status={guard_row[0]} "
+                    f"picks={guard_row[1]} for {date_str}"
+                )
+                return False
+
         # Step 2c — scheduled_942 overrides a COMPLETED/SKIPPED zero-picks row.
         # Root cause (2026-07-20): startup_recovery at 9:00 AM finds NO_CANDIDATES,
         # calls mark_skipped() → ledger status=SKIPPED, picks_count=NULL.  At 9:42

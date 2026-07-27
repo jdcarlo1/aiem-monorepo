@@ -1,0 +1,21 @@
+# Directive — Silent-Return Bug + Server Uptime Root Cause
+
+Raw evidence only. Standard bar: sha256 before/after, git diff, live proof, negative control, verify_chain.sh/verified_run.sh cross-check.
+
+## Item 1 — Which root cause actually applies: server not running, or silent-return bug fired?
+- Deployment log has no entries before 9:37 AM ET; the 8:35 AM ET scan window is missing entirely. Determine, with evidence (not speculation): was the server process not yet running at 8:35 AM ET, or was it running and `_polygon_full_market_scan()` hit the silent `return []` path?
+- Check process start/restart timestamps (deploy events, crash logs, supervisor logs) against 8:35 AM ET specifically. State plainly if this remains unresolvable from available logs — do not guess.
+- If (a) server wasn't running: this is a premarket-uptime gap, same class as the prior runtime-lock/restart work — needs its own root-cause on why the process wasn't up by 8:35 AM.
+
+## Item 2 — Fix the silent-return pattern (confirmed bug)
+- `_polygon_full_market_scan()` (~line 64843-64852): `if not daily_data: return []` — no log, no alert, no DB write on empty/failed Polygon response. Fix: log the failure explicitly (with the actual Polygon response/status if available) and fire an alert, don't just return empty silently.
+- Same pattern already existed at Stage 11 (bare except swallowing failure) — grep the codebase for other instances of this exact shape (`if not <data>: return []` / bare except with no logging) and disclose them, don't just fix this one instance.
+- sha256 before/after, git diff, negative-control test forcing an empty/failed Polygon response and confirming the alert now fires.
+
+## Item 3 — Confirm the date reference isn't a live bug
+- Code/logs referenced `_polygon_grouped_daily('2026-07-25')` in this investigation while the actual trading day in question is 2026-07-27. Confirm whether this was just an example/log excerpt from a different day, or whether the function is actually querying a stale/wrong date. State which, with evidence.
+
+## Standing rules apply
+- No permanent record file until all 3 items close with full evidence.
+- Full 64-char sha256 required, no truncation.
+- If inconclusive, say so and stop — no narrative filler.

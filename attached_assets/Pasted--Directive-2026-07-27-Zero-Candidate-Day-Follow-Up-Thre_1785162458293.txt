@@ -1,0 +1,21 @@
+# Directive — 2026-07-27 Zero-Candidate Day Follow-Up
+
+Three items. Raw evidence only — no narrated summaries, no self-graded PASS. Standard bar applies: sha256 before/after for any changed file, git diff, live proof, negative control where applicable, verify_chain.sh/verified_run.sh cross-check vs current canonical.
+
+## Item 1 — Polygon RVOL scan silent failure (root cause)
+- Determine why the 8:35 AM ET `polygon_rvol_scan` wrote 0 rows for 2026-07-27 (last populated: 2026-07-24). Raw grep of the scan job's exception handling — is a failure being swallowed silently (same bare-except pattern as prior Stage 11 bug)?
+- Confirm whether this is a recurrence of the Jul 23-24 "shared polygon_rvol_scan outage" (already flagged in the 5-day root-cause file) or a new/different trigger. State plainly which, with evidence — do not speculate if inconclusive.
+- Add monitoring: an alert/check that fires if `polygon_rvol_scan` writes 0 rows for the current trading day by a fixed cutoff time. Negative-control test proving the alert fires on a forced 0-row condition.
+
+## Item 2 — Startup-recovery ledger overwrite (data integrity)
+- `startup_recovery` at 10:19 AM ET overwrote the original 9:42 AM (`scheduled_942`) ledger entry via the UNIQUE constraint on `business_date`, making the original run's result unrecoverable.
+- Fix: recovery/catchup logic must not overwrite an existing ledger row for a business_date that already has a non-recovery entry. Raw diff + sha256 before/after. Negative-control test: simulate a restart after a real ledger entry exists, confirm the original row survives untouched.
+
+## Item 3 — Heartbeat staleness across restart
+- 14:15 UTC heartbeat reported `status=SUCCESS trades=4` while `aiem_paper_trades` has 0 rows for today. Confirm root cause (stale read from pre-restart process, per agent's initial explanation) with raw evidence, not narrative.
+- State whether heartbeat can currently be trusted as a live signal immediately following a VM restart, and if not, what would need to change for it to be trustworthy (e.g., invalidate/refresh on restart rather than serving last-known value).
+
+## Standing rules apply
+- No permanent record file until all 3 items close with full evidence.
+- Truncated hashes not accepted — full 64-char sha256 required.
+- If any check is inconclusive, state that explicitly and stop — do not fill the gap with narrative.
