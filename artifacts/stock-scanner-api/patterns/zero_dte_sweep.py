@@ -542,6 +542,27 @@ def _send_alert(tg_fn, ticker, side, row, expiry, sweep_usd, iv_rank) -> None:
         print(f"[0dte] telegram error: {exc}")
 
 
+# ── Paper trade Telegram notifications ───────────────────────────────────────
+
+def _tg_paper(msg: str) -> None:
+    """Send a paper-trade lifecycle message directly via bot token env vars."""
+    try:
+        import urllib.request as _ulr, json as _jmod
+        token   = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").split())
+        chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+        if not (token and chat_id):
+            return
+        payload = _jmod.dumps({"chat_id": chat_id, "text": msg}).encode()
+        req = _ulr.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        _ulr.urlopen(req, timeout=8)
+    except Exception as exc:
+        print(f"[0dte_paper] telegram error: {exc}")
+
+
 # ── Paper trading helpers ─────────────────────────────────────────────────────
 
 def open_paper_trade(
@@ -585,6 +606,22 @@ def open_paper_trade(
             f"target=+{_PAPER_PROFIT_TARGET_PCT*100:.0f}% "
             f"stop=-{_PAPER_STOP_LOSS_PCT*100:.0f}%"
         )
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+        except ImportError:
+            import pytz as _pytz
+            _ZI = _pytz.timezone
+        _ts = datetime.now(_ZI("America/New_York")).strftime("%H:%M ET")
+        target_px = round(entry_price * (1 + _PAPER_PROFIT_TARGET_PCT), 2)
+        stop_px   = round(entry_price * (1 - _PAPER_STOP_LOSS_PCT),   2)
+        _tg_paper(
+            f"\U0001f4dd PAPER BUY \u2014 {ticker} {side.upper()}\n"
+            f"Strike: {strike}  Expiry: {expiry}\n"
+            f"Entry: ${entry_price:.2f}  ({_PAPER_CONTRACTS} contract)\n"
+            f"Target: ${target_px:.2f} (+{_PAPER_PROFIT_TARGET_PCT*100:.0f}%)  "
+            f"Stop: ${stop_px:.2f} (-{_PAPER_STOP_LOSS_PCT*100:.0f}%)\n"
+            f"{_ts}"
+        )
     except Exception as exc:
         print(f"[0dte_paper] open_paper_trade error match_id={match_id}: {exc}")
 
@@ -595,8 +632,12 @@ def _close_trade(
     exit_reason: str,
     entry_price: float,
     contracts: int,
+    ticker: str = "",
+    side: str = "",
+    strike: float = 0.0,
+    expiry: str = "",
 ) -> None:
-    """Write exit record and compute P&L for a paper trade."""
+    """Write exit record, compute P&L, and send Telegram sell alert."""
     pnl_pct = (exit_price - entry_price) / entry_price if entry_price > 0 else 0.0
     pnl_usd = (exit_price - entry_price) * contracts * 100  # 100 shares per contract
     win = pnl_usd > 0
@@ -625,6 +666,33 @@ def _close_trade(
         print(
             f"[0dte_paper] CLOSED trade_id={trade_id} reason={exit_reason} "
             f"exit=${exit_price:.2f} pnl_usd=${pnl_usd:+.2f} pnl_pct={pnl_pct:+.2%}"
+        )
+        # ── Telegram sell notification ────────────────────────────────────────
+        try:
+            from zoneinfo import ZoneInfo as _ZI
+        except ImportError:
+            import pytz as _pytz
+            _ZI = _pytz.timezone
+        _ts = datetime.now(_ZI("America/New_York")).strftime("%H:%M ET")
+        _label = ticker or "UNKNOWN"
+        _side  = side.upper() if side else ""
+        _strike_str = f"${strike:.0f}  " if strike else ""
+        _expiry_str = f"Expiry: {expiry}\n" if expiry else ""
+        if exit_reason == "target":
+            _emoji = "\u2705"
+            _header = f"WIN \u2014 TARGET HIT \u2014 {_label} {_side}"
+        elif exit_reason == "stop":
+            _emoji = "\U0001f6d1"
+            _header = f"LOSS \u2014 STOP HIT \u2014 {_label} {_side}"
+        else:
+            _emoji = "\U0001f554"
+            _header = f"EOD CLOSE \u2014 {_label} {_side}"
+        _tg_paper(
+            f"{_emoji} PAPER SELL \u2014 {_header}\n"
+            f"Strike: {_strike_str}{_expiry_str}"
+            f"Entry: ${entry_price:.2f} \u2192 Exit: ${exit_price:.2f}\n"
+            f"P&L: {pnl_pct:+.1%}  (${pnl_usd:+.2f})\n"
+            f"{_ts}"
         )
     except Exception as exc:
         print(f"[0dte_paper] _close_trade error trade_id={trade_id}: {exc}")
@@ -657,7 +725,8 @@ def monitor_open_trades() -> None:
         with _db() as conn, conn.cursor() as cur:
             cur.execute("""
                 SELECT trade_id, contract_symbol, entry_price,
-                       profit_target_pct, stop_loss_pct, contracts
+                       profit_target_pct, stop_loss_pct, contracts,
+                       ticker, side, strike::float, expiry::text
                 FROM paper_0dte_trades
                 WHERE status = 'open'
             """)
@@ -670,7 +739,8 @@ def monitor_open_trades() -> None:
         return
 
     for (trade_id, contract_symbol, entry_price,
-         pt_pct, sl_pct, contracts) in open_trades:
+         pt_pct, sl_pct, contracts,
+         ticker, side, strike, expiry) in open_trades:
         entry_price = float(entry_price)
         pt_pct      = float(pt_pct)
         sl_pct      = float(sl_pct)
@@ -690,7 +760,8 @@ def monitor_open_trades() -> None:
             exit_reason = "stop"
 
         if exit_reason:
-            _close_trade(trade_id, current_price, exit_reason, entry_price, contracts)
+            _close_trade(trade_id, current_price, exit_reason, entry_price, contracts,
+                         ticker=ticker, side=side, strike=strike, expiry=expiry)
 
 
 def close_eod_trades() -> None:
@@ -705,7 +776,8 @@ def close_eod_trades() -> None:
     try:
         with _db() as conn, conn.cursor() as cur:
             cur.execute("""
-                SELECT trade_id, contract_symbol, entry_price, contracts
+                SELECT trade_id, contract_symbol, entry_price, contracts,
+                       ticker, side, strike::float, expiry::text
                 FROM paper_0dte_trades
                 WHERE status = 'open'
             """)
@@ -719,7 +791,8 @@ def close_eod_trades() -> None:
         return
 
     print(f"[0dte_paper] EOD closer: closing {len(open_trades)} open trade(s)")
-    for (trade_id, contract_symbol, entry_price, contracts) in open_trades:
+    for (trade_id, contract_symbol, entry_price, contracts,
+         ticker, side, strike, expiry) in open_trades:
         entry_price = float(entry_price)
         contracts   = int(contracts)
         current_price = _fetch_option_mid(contract_symbol)
@@ -728,7 +801,8 @@ def close_eod_trades() -> None:
             reason = "expired_worthless"
         else:
             reason = "eod"
-        _close_trade(trade_id, current_price, reason, entry_price, contracts)
+        _close_trade(trade_id, current_price, reason, entry_price, contracts,
+                     ticker=ticker, side=side, strike=strike, expiry=expiry)
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
