@@ -18,7 +18,8 @@ router.get("/morning-brief", async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
 
   if (_cache.date === today && _cache.brief) {
-    return res.json({ ..._cache, cached: true });
+    res.json({ ..._cache, cached: true });
+    return;
   }
 
   try {
@@ -28,19 +29,20 @@ router.get("/morning-brief", async (req, res) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tickers: [] }),
     });
-    const flowData = await flowResp.json();
+    const flowData = await flowResp.json() as any;
     const topFlow: any[] = (flowData.results || [])
       .filter((r: any) => r.call_put_ratio >= 2)
       .slice(0, 5);
 
     if (!topFlow.length) {
-      return res.json({
+      res.json({
         brief: "Pre-market data is loading. Check back after market open for today's top setups.",
         date: today,
         tickers: [],
         generated_at: new Date().toISOString(),
         cached: false,
       });
+      return;
     }
 
     const flowLines = topFlow

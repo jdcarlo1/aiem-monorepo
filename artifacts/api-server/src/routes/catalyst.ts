@@ -10,7 +10,7 @@ const client = new Anthropic({
 router.post("/catalyst", async (req, res) => {
   const { ticker, call_put_ratio, premium_m, price, vol_ratio, score, expiry } = req.body || {};
 
-  if (!ticker) return res.status(400).json({ error: "ticker required" });
+  if (!ticker) { res.status(400).json({ error: "ticker required" }); return; }
 
   const hasOptions = call_put_ratio != null && call_put_ratio > 0;
   const hasVolume  = vol_ratio != null && vol_ratio > 0;

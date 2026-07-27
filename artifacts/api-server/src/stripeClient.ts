@@ -35,7 +35,7 @@ async function getStripeCredentials(): Promise<{ secretKey: string; publishableK
     });
 
     if (resp.ok) {
-      const data = await resp.json();
+      const data = await resp.json() as any;
       const settings = data.items?.[0]?.settings;
       if (settings?.secret && settings?.publishable) {
         const secret = (envSecret && envSecret.startsWith('sk_live_')) ? envSecret : settings.secret;

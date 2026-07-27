@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -32,3 +32,26 @@ export const answersTable = pgTable("answers", {
 export const insertAnswerSchema = createInsertSchema(answersTable).omit({ id: true, createdAt: true });
 export type InsertAnswer = z.infer<typeof insertAnswerSchema>;
 export type Answer = typeof answersTable.$inferSelect;
+
+/**
+ * session_claims — links one anonymous sessionId (localStorage UUID) to one
+ * Clerk user permanently.  Used by the Option-B migration gate:
+ *   - One claim per Clerk user  (unique on clerk_user_id)
+ *   - One owner per session     (unique on session_id)
+ * Only created when the user explicitly calls POST /session/claim.
+ */
+export const sessionClaimsTable = pgTable(
+  "session_claims",
+  {
+    id: serial("id").primaryKey(),
+    clerkUserId: text("clerk_user_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique("session_claims_clerk_user_id_uniq").on(t.clerkUserId),
+    unique("session_claims_session_id_uniq").on(t.sessionId),
+  ]
+);
+
+export type SessionClaim = typeof sessionClaimsTable.$inferSelect;

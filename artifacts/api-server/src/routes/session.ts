@@ -1,8 +1,10 @@
 import { Router } from "express";
-import { db, sessionsTable, answersTable, questionsTable } from "@workspace/db";
+import { db, sessionsTable, answersTable, questionsTable, sessionClaimsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { getAuth } from "@clerk/express";
 import { getUncachableStripeClient } from "../stripeClient";
 import { checkAnswer } from "../lib/checkAnswer";
+import { verifySessionAccess, ClaimSessionBody, getSessionAccessDecision } from "../lib/sessionAuth";
 import {
   GetSessionStatusQueryParams,
   SubmitAnswerBody,
@@ -31,7 +33,7 @@ async function getOrCreateSession(sessionId: string) {
 }
 
 // ── GET /session/status ──────────────────────────────────────────────────────
-router.get("/session/status", async (req, res) => {
+router.get("/session/status", verifySessionAccess, async (req, res) => {
   const parsed = GetSessionStatusQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: "sessionId is required" });
@@ -56,10 +58,9 @@ router.get("/session/status", async (req, res) => {
 });
 
 // ── POST /session/answer ─────────────────────────────────────────────────────
-// Race-condition fix: the session row is locked with SELECT … FOR UPDATE inside
-// a DB transaction so two concurrent requests cannot both pass the free-limit
-// check at questionsAnswered = 9.
-router.post("/session/answer", async (req, res) => {
+// verifySessionAccess gate + SELECT FOR UPDATE inside a transaction
+// (two concurrent requests for the same session queue at the lock).
+router.post("/session/answer", verifySessionAccess, async (req, res) => {
   const parsed = SubmitAnswerBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -122,6 +123,7 @@ router.post("/session/answer", async (req, res) => {
       return { limited: true } as const;
     }
 
+    // Record the answer
     await tx.insert(answersTable).values({
       sessionId,
       questionId,
@@ -129,6 +131,7 @@ router.post("/session/answer", async (req, res) => {
       correct,
     });
 
+    // Increment the counter
     const newCount = session.questions_answered + 1;
     await tx
       .update(sessionsTable)
@@ -140,52 +143,119 @@ router.post("/session/answer", async (req, res) => {
 
   if (result.limited) {
     res.status(403).json({
-      error: "Free question limit reached. Subscription required.",
+      error: "Free limit reached",
+      freeLimit: FREE_LIMIT,
+      checkoutUrl: null,
     });
     return;
   }
-
-  const canAnswerMore = result.isSubscribed || result.newCount < FREE_LIMIT;
 
   res.json({
     correct,
     correctLetter: question.correctLetter,
     explanation: question.explanation,
     questionsAnswered: result.newCount,
-    canAnswerMore,
-  });
-});
-
-// ── POST /subscription/checkout (legacy stub) ────────────────────────────────
-router.post("/subscription/checkout", async (req, res) => {
-  const { sessionId, email } = req.body as { sessionId: string; email?: string };
-
-  if (!sessionId) {
-    res.status(400).json({ error: "sessionId is required" });
-    return;
-  }
-
-  await getOrCreateSession(sessionId);
-
-  if (email) {
-    await db
-      .update(sessionsTable)
-      .set({ email })
-      .where(eq(sessionsTable.sessionId, sessionId));
-  }
-
-  // NOTE: This stub is superseded by POST /api/stripe/checkout.
-  // The real checkout URL is returned by the Stripe route.
-  res.json({
-    message:
-      "Use POST /api/stripe/checkout with { sessionId, plan: 'monthly' | 'lifetime' } to start the Stripe-hosted checkout.",
+    isSubscribed: result.isSubscribed,
     sessionId,
     checkoutUrl: null,
   });
 });
 
+// ── POST /session/claim ──────────────────────────────────────────────────────
+// Links one anonymous sessionId to one Clerk account (one-time, permanent).
+// Option B migration gate — the explicit handshake before the gate enforces
+// ownership on subsequent requests.
+router.post("/session/claim", async (req, res) => {
+  const auth = getAuth(req);
+  if (!auth?.userId) {
+    res.status(401).json({
+      error: "Authentication required to claim a session. Sign in first.",
+      code: "UNAUTHENTICATED",
+    });
+    return;
+  }
+  const clerkUserId = auth.userId;
+
+  const parsed = ClaimSessionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "sessionId is required", details: parsed.error.flatten() });
+    return;
+  }
+  const { sessionId } = parsed.data;
+
+  // Verify the session exists (don't let users claim phantom IDs)
+  const [session] = await db
+    .select()
+    .from(sessionsTable)
+    .where(eq(sessionsTable.sessionId, sessionId))
+    .limit(1);
+
+  if (!session) {
+    res.status(404).json({
+      error: "Session not found. Answer at least one question before claiming.",
+      code: "SESSION_NOT_FOUND",
+    });
+    return;
+  }
+
+  // Check if sessionId is already claimed
+  const [existingBySession] = await db
+    .select()
+    .from(sessionClaimsTable)
+    .where(eq(sessionClaimsTable.sessionId, sessionId))
+    .limit(1);
+
+  if (existingBySession) {
+    if (existingBySession.clerkUserId === clerkUserId) {
+      // Idempotent — same user re-claiming their own session
+      res.json({
+        success: true,
+        clerkUserId,
+        sessionId,
+        message: "Session already linked to your account.",
+        idempotent: true,
+      });
+      return;
+    }
+    // Different user already owns this session
+    res.status(409).json({
+      error: "This session has already been claimed by a different account.",
+      code: "SESSION_ALREADY_CLAIMED",
+    });
+    return;
+  }
+
+  // Check if this Clerk user already has a different session claimed
+  const [existingByUser] = await db
+    .select()
+    .from(sessionClaimsTable)
+    .where(eq(sessionClaimsTable.clerkUserId, clerkUserId))
+    .limit(1);
+
+  if (existingByUser) {
+    // One claim per Clerk user — reject to avoid silent progress loss
+    res.status(409).json({
+      error:
+        "Your account is already linked to a different session. " +
+        "Contact support if you need to transfer progress.",
+      code: "USER_ALREADY_HAS_CLAIM",
+      claimedSessionId: existingByUser.sessionId,
+    });
+    return;
+  }
+
+  // All checks pass — insert the claim
+  await db.insert(sessionClaimsTable).values({ clerkUserId, sessionId });
+
+  res.status(201).json({
+    success: true,
+    clerkUserId,
+    sessionId,
+    message: "Session linked to your account. Your progress is now tied to your sign-in.",
+  });
+});
+
 // ── POST /subscription/cancel ────────────────────────────────────────────────
-// Cancels the Stripe subscription *and* marks the DB row as inactive.
 router.post("/subscription/cancel", async (req, res) => {
   const parsed = CancelSubscriptionBody.safeParse(req.body);
   if (!parsed.success) {
@@ -214,12 +284,9 @@ router.post("/subscription/cancel", async (req, res) => {
     return;
   }
 
-  // Cancel in Stripe first so the webhook confirms revocation
   const stripe = await getUncachableStripeClient();
   await stripe.subscriptions.cancel(session.stripeSubscriptionId);
 
-  // Update DB row (webhook will also fire customer.subscription.deleted,
-  // which is idempotent against this update)
   await db
     .update(sessionsTable)
     .set({ isSubscribed: false, subscriptionEndDate: null, stripeSubscriptionId: null })

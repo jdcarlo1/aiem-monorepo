@@ -178,7 +178,8 @@ router.post("/stripe/restore-access", async (req, res) => {
   }
 
   try {
-    const searchResults = await stripe.checkout.sessions.search({
+    // stripe-node types don't always expose `.search()` on SessionResource
+    const searchResults = await (stripe.checkout.sessions as any).search({
       query: `customer_details.email:"${normalizedEmail}" AND status:"complete"`,
       limit: 5,
     });
