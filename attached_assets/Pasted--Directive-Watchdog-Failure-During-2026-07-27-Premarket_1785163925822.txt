@@ -1,0 +1,23 @@
+# Directive — Watchdog Failure During 2026-07-27 Premarket Outage
+
+Raw evidence only. Standard bar: sha256 before/after, git diff, live proof, negative control, verify_chain.sh/verified_run.sh cross-check where applicable.
+
+## Item 1 — Why did the GH Actions watchdog / premarket lock not catch or recover the outage?
+Confirmed: server was down ~6:50-9:37 AM ET (2h47m), covering the entire premarket window and the 8:35 AM scan. This is the exact failure mode the Jul 24 watchdog/premarket-runtime-lock work was built and live-verified to catch. It did not.
+
+- Pull the watchdog's own logs/run history for the 6:50-9:37 AM ET window today. Did it poll at all during that window? Did it detect the process down? Did it attempt a restart/recovery action? Answer each with raw log evidence, not narrative.
+- If the watchdog did detect the outage but failed to recover it: root-cause why the recovery action didn't work.
+- If the watchdog never polled/fired during that window at all: that's a separate, more serious finding — determine whether the watchdog process itself was also down, or misconfigured, or never actually deployed as described in the Jul 24-25 close-out.
+- Cross-check against the Jul 24-25 verified fix: nightly self-exit removal, startup catchup, external watchdog with retry POST. Confirm each of those 3 pieces is still present/active in the current deployed code — has anything regressed or been reverted since Jul 24-25?
+
+## Item 2 — Improve crash forensics
+The crash/exit event itself is not determinable from current logs — it occurred before the 1003-line deployment log buffer's capture window starts.
+- Propose (do not implement without approval) a way to extend log retention/capture so a future crash of this kind can actually be diagnosed — e.g. persisting logs to a file/external store before rotation, not just an in-memory buffer.
+
+## Item 3 — Real forced-failure test for the silent-return fix (Item 2 from prior directive)
+- The negative control for the `_polygon_full_market_scan` silent-return fix was "confirmed by logic simulation," not an actual forced failure. Run a real test: force an empty/failed response from the Polygon call (e.g. mock/stub returning empty) and confirm the actual alert (logger.error + Telegram) fires in a live run, not simulated. Paste the real output.
+
+## Standing rules apply
+- Full 64-char sha256, no truncation.
+- If any check is inconclusive, state that plainly with what further evidence would resolve it — do not fill with narrative.
+- No permanent record file until all 3 items close with full evidence.
