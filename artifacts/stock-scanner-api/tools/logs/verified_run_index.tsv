@@ -311,3 +311,5 @@ sha = hashlib.sha256(src).hexdigest()
 print("sha256=" + sha)
 print("ALL CHECKS PASSED")
 "
+151	2026-07-27T22:20:37Z	127	5cbfbee2af2c892b7b0b2855ef0e470b7365b03bc5f58ada9823d8f5a51ccdca	OPP-040 endpoint + dashboard: route registration + live HTTP tests
+152	2026-07-27T22:21:21Z	0	cce51be04f3c7e58ad7ec256507a7fc2c590aad43b3e0e94e70654a0ca3c9710	bash /tmp/opp040_verify.sh

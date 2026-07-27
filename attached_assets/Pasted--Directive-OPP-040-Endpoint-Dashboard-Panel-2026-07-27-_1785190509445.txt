@@ -1,0 +1,35 @@
+# Directive: OPP-040 Endpoint + Dashboard Panel — 2026-07-27
+
+## Scope
+Build ONLY OPP-040. Do NOT build OPP-041 through OPP-050 — explicitly out of scope, do not start.
+
+1. Backend: `GET /options-pipeline/candidates` — reads `aiem_options_alerts` joined to `oe_decision_audit`, filterable by scan_date, direction, score, status.
+2. Frontend: panel/table on the Opportunities page (`Opportunities.tsx`) that calls this endpoint and displays live options candidates (ticker, direction, score, status, audit link) alongside existing AIEM predictions/gap-volume signals.
+
+## Constraint
+Route must be registered before main.py's dead-zone (~line 29,315) or it will be silently dropped. Confirm route registration line number via raw grep before claiming done.
+
+## Standing Verification Block (required for every completion claim)
+- No task is complete based on description alone.
+- Provide: (1) raw terminal output of actual execution — raw grep/sed for any code-location or call-chain claim, never paraphrased; (2) exact before/after file diff; (3) sha256 before/after for changed files; (4) raw SQL query + full result set for any DB-involved claim.
+- Narrative claims ("fixed," "tested," "confirmed") without pasted raw evidence are rejected. State explicitly if evidence cannot be produced.
+
+## Data Immutability Rule
+No deletion, truncation, or overwrite of any row/table/file — including test/synthetic data — without my explicit prior approval in-session. State what you want to delete and why, wait for approval, then log it.
+
+## Evidence Chain Protocol
+- Run all evidence-producing commands through `verified_run.sh`; validate with `verify_chain.sh` before declaring complete — paste that output.
+- Paste raw sha256sum for tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh against current canonical values on file.
+- Any code-location/behavior claim needs raw grep -n / sed -n output, not description.
+
+## No-Hardcoded-Values Check
+List every numeric/decision constant introduced in the new code, with grep/sed showing the line + one-line trace to its live source (DB query, API call, computed formula). "Will wire later" is not acceptable at completion.
+
+## Output Format
+Raw command results only — no prose, no restated context, no summary tables. Compact form: (1) command + raw output; (2) sha256 before/after for changed files only; (3) SQL run + row count + CSV via \copy if >10 rows; (4) `git diff HEAD --stat`.
+
+## Permanent Record
+On completion, write `/docs/verification/opp040-dashboard-FINAL.md` — endpoint spec, dashboard integration, evidence summary, commit hash verified against.
+
+## Verifier PASS ≠ execution authorization
+This is a read-only display feature — no autonomous action path involved. Standard build verification applies; no separate runtime-gate requirement.

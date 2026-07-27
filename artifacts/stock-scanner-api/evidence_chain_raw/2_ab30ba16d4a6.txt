@@ -1,0 +1,28 @@
+--- route registration ---
+12332:@app.route("/stock-api/options-pipeline/candidates", methods=["GET"])
+ROUTE_LINE=12332 < 29315 PASS
+--- live GET 2026-07-17 all rows ---
+total=5
+TER LONG_PUT 65.4 OPEN
+WOLF LONG_PUT 66.4 OPEN
+PINS LONG_PUT 70.3 OPEN
+UMC LONG_PUT 70.1 OPEN
+MEC LONG_PUT 65.7 OPEN
+TOTAL>0 PASS
+--- direction filter PUT ---
+PUT total=5
+direction_filter PASS
+--- min_score filter ---
+min_score=70 total=2
+min_score_filter PASS
+--- 401 no token ---
+401 PASS
+--- 400 bad date ---
+400 PASS
+--- limit cap ---
+limit_cap=500 PASS
+--- audit LEFT JOIN (decision_id null for all current rows) ---
+decision_id null=5/5 (expected - no join key yet)
+left_join_null PASS
+
+SUMMARY: PASS=8 FAIL=0
