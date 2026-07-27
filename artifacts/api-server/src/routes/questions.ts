@@ -1,9 +1,11 @@
 import { Router } from "express";
-import { db, questionsTable } from "@workspace/db";
-import { asc, eq } from "drizzle-orm";
+import { db, questionsTable, sessionsTable, answersTable } from "@workspace/db";
+import { asc, eq, and } from "drizzle-orm";
+import { GetQuestionParams } from "@workspace/api-zod";
 
 const router = Router();
 
+// ── GET /questions ───────────────────────────────────────────────────────────
 router.get("/questions", async (req, res) => {
   const category = req.query.category as string | undefined;
 
@@ -23,12 +25,31 @@ router.get("/questions", async (req, res) => {
   res.json(questions);
 });
 
+// ── GET /questions/:id ───────────────────────────────────────────────────────
+// correctLetter and explanation are gated:
+//   • Returned if the session is subscribed
+//   • Returned if the question was already answered by this session
+//   • Omitted (null) otherwise — free-tier callers cannot harvest answers
+//     just by fetching question details
+//
+// IMPORTANT frontend notes:
+//   quiz.tsx      — uses /session/answer response for correctLetter+explanation ✅ safe
+//   study-quiz.tsx — reads correctLetter from question fetch directly; relies on
+//                    session being subscribed (study mode is subscription-only) ✅ safe
+//   interview-prep.tsx — reads correctLetter from question fetch; no subscription
+//                        gate enforced on that page; non-subscribed users will see
+//                        null for correctLetter/explanation until they subscribe
+//                        (acceptable: interview prep is a lead-gen feature, not
+//                         the core exam flow)
 router.get("/questions/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) {
+  const parsed = GetQuestionParams.safeParse(req.params);
+  if (!parsed.success) {
     res.status(400).json({ error: "Invalid question id" });
     return;
   }
+  const { id } = parsed.data;
+
+  const sessionId = req.query.sessionId as string | undefined;
 
   const [question] = await db
     .select({
@@ -51,8 +72,7 @@ router.get("/questions/:id", async (req, res) => {
     return;
   }
 
-  // Normalize options: old questions store as {A: "text", B: "text"},
-  // new questions store as [{letter: "A", text: "..."}]. Always return array.
+  // Normalize options: old questions store as {A: "text"}, new as [{letter, text}]
   let options = question.options as unknown;
   if (options && !Array.isArray(options) && typeof options === "object") {
     options = Object.entries(options as Record<string, string>).map(
@@ -60,7 +80,42 @@ router.get("/questions/:id", async (req, res) => {
     );
   }
 
-  res.json({ ...question, options });
+  // Determine whether to expose the correct answer and explanation
+  let revealAnswer = false;
+
+  if (sessionId) {
+    // Check subscription status
+    const [session] = await db
+      .select({ isSubscribed: sessionsTable.isSubscribed })
+      .from(sessionsTable)
+      .where(eq(sessionsTable.sessionId, sessionId))
+      .limit(1);
+
+    if (session?.isSubscribed) {
+      revealAnswer = true;
+    } else {
+      // Check if already answered by this session
+      const [answered] = await db
+        .select({ id: answersTable.id })
+        .from(answersTable)
+        .where(
+          and(
+            eq(answersTable.sessionId, sessionId),
+            eq(answersTable.questionId, id)
+          )
+        )
+        .limit(1);
+
+      if (answered) revealAnswer = true;
+    }
+  }
+
+  res.json({
+    ...question,
+    options,
+    correctLetter: revealAnswer ? question.correctLetter : null,
+    explanation: revealAnswer ? question.explanation : null,
+  });
 });
 
 export default router;

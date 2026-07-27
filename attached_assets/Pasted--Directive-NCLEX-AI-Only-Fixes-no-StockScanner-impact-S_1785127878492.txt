@@ -1,0 +1,23 @@
+# Directive: NCLEX-AI-Only Fixes (no StockScanner impact)
+
+Scope: `artifacts/api-server/src/routes/session.ts`, `stripe.ts`, `questions.ts`, `affiliates.ts`. Do not touch `app.ts` webhook route or `webhookHandlers.ts` signature logic in this pass.
+
+1. **session.ts — `subscription/cancel`**: call `stripe.subscriptions.cancel(stripeSubscriptionId)` before updating the DB row. If no `stripeSubscriptionId` on the session, return 400.
+
+2. **session.ts — `/session/answer` race condition**: wrap read → check → insert → increment in a single DB transaction (or `SELECT ... FOR UPDATE` on the session row) so concurrent requests can't both pass the free-limit check.
+
+3. **questions.ts — `/questions/:id`**: strip `correctLetter` and `explanation` from the response unless the session is subscribed OR the question was already answered by that session. Confirm which frontend pages call this route directly (not just via `/session/answer`) before shipping, so nothing breaks.
+
+4. **stripe.ts — `restore-access` + `verify-checkout` + session.ts `/session/status`/`/session/answer`**: require Clerk auth for any route that reads or writes subscription state; validate `sessionId === req.auth.userId` when a JWT is present. Anonymous sessions should still work for the free quiz flow — gate only subscription-state actions. This needs a decision from me on the anonymous-user flow before you implement — flag back rather than guessing.
+
+5. **affiliates.ts — `sendAffiliateTransfer` in webhookHandlers.ts is NCLEX-only (StockScanner has no affiliate program)**: add `idempotencyKey: event.id + '-' + affiliateCode` to the `stripe.transfers.create()` call.
+
+6. **All admin routes (`stripe.ts`, `affiliates.ts`)**: replace `secret !== expected` with `crypto.timingSafeEqual`; add basic rate limiting on `/api/admin/*`.
+
+7. **`lib/db/drizzle.config.ts`**: add `questions` and `answers` to `tablesFilter` so tsc actually covers those code paths. Expect new type errors to surface — report them back before "fixing" by loosening types.
+
+8. **No server-side runtime validation on NCLEX routes** (`session.ts`, `stripe.ts`, `questions.ts`, `affiliates.ts`): request bodies are only TypeScript-asserted, never parsed. Wire the existing `@workspace/api-zod` validators into each route as middleware (or a parse step at the top of the handler) instead of `as { field: type }` casts.
+
+9. **Add automated tests for NCLEX-specific logic**: free-limit enforcement (10 questions → 403 on 11th), adaptive engine category weighting, affiliate commission calculation, answer-checking logic (multiple/ordered/single comparison). None of this currently has any test coverage.
+
+Verification required after each item: show the diff, show it passes typecheck, and describe the manual test performed (not just "should work").
