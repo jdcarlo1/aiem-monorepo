@@ -8147,6 +8147,57 @@ try:
                             print("[startup_catchup] aiem_morning_scan not yet in globals — skipping")
                     except Exception as _e_ms:
                         print(f"[startup_catchup] aiem_morning_scan catch-up error: {_e_ms}")
+            elif _dow < 5 and _hour_min_et >= 12 * 60:
+                # ── Late restart: morning scan catchup window has closed ──────
+                # Recovery window is 9:07 AM – 12:00 PM ET only.  Past noon the
+                # 9:07 AM CronTrigger will never replay.  Previously this branch
+                # was completely silent — now we check if the scan was missed
+                # and write an explicit SKIPPED audit record so no run is ever
+                # lost without a trace.
+                _ms_missed_late = False
+                try:
+                    with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_ms2, \
+                            _c_ms2.cursor() as _cur_ms2:
+                        _cur_ms2.execute("""
+                            SELECT 1 FROM job_heartbeats
+                            WHERE job_name = 'aiem_morning_scan'
+                              AND last_success >= (
+                                date_trunc('day', now() AT TIME ZONE 'America/New_York')
+                                AT TIME ZONE 'America/New_York'
+                              ) AT TIME ZONE 'UTC'
+                        """)
+                        if not _cur_ms2.fetchone():
+                            _ms_missed_late = True
+                except Exception as _ms2_e:
+                    print(f"[startup_catchup] late-restart morning_scan check error: {_ms2_e}")
+                if _ms_missed_late:
+                    print(
+                        f"[startup_catchup] LATE RESTART: aiem_morning_scan missed for "
+                        f"{_today_et} and time={_now_et.strftime('%H:%M')} ET — "
+                        f"catchup window (09:07–12:00 ET) has closed; "
+                        f"writing SKIPPED audit record"
+                    )
+                    try:
+                        import aiem_scheduler_audit as _sched_audit_ms
+                        import datetime as _sa_ms_dt
+                        _sched_time_ms = _et_tz_su.localize(
+                            _sa_ms_dt.datetime(
+                                _now_et.year, _now_et.month, _now_et.day, 9, 7, 0
+                            )
+                        )
+                        _sched_audit_ms.write_audit(
+                            _DB_URL, _sched_time_ms, None, "SKIPPED",
+                            f"server restarted at {_now_et.strftime('%H:%M')} ET; "
+                            f"catchup window (09:07–12:00 ET) has closed; "
+                            f"9:07 AM scheduled run was missed; "
+                            f"replay not attempted (past noon — data staleness risk)",
+                            "startup_catchup", None, None,
+                        )
+                    except Exception as _sa_ms_e:
+                        print(
+                            f"[startup_catchup] SKIPPED audit write error "
+                            f"(morning_scan): {_sa_ms_e}"
+                        )
 
             # ── Microcap (Yahoo) - only during market hours ──────────────────
             # Yahoo throttles aggressively; restrict to 9 AM–5 PM ET on weekdays.
@@ -8185,6 +8236,7 @@ try:
             _rvol_expected_su = None
             if _dow < 5:
                 _need_rvol = False
+                _rvol_past_window_stale = False   # set in else-branch below when past 9:30 ET
                 try:
                     import datetime as _rvol_dt
                     with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c_rv, \
@@ -8202,6 +8254,10 @@ try:
                         if _rv_max_str_su is None or \
                                 _rvol_dt.date.fromisoformat(_rv_max_str_su) < _rvol_expected_su:
                             _need_rvol = True
+                    else:   # restart after 9:30 AM ET — catchup window closed
+                        if _rv_max_str_su is None or \
+                                _rvol_dt.date.fromisoformat(_rv_max_str_su) < _rvol_expected_su:
+                            _rvol_past_window_stale = True   # stale data but too late to fix
                 except Exception as _exc_rv:
                     print(f"[silent_except:polygon_rvol_catchup_ck] "
                           f"{type(_exc_rv).__name__}: {_exc_rv}")
@@ -8227,6 +8283,39 @@ try:
                             )
                     except Exception as _e_rv:
                         print(f"[startup_catchup] polygon_rvol catch-up error: {_e_rv}")
+                elif _rvol_past_window_stale:
+                    # ── Late restart: polygon_rvol catchup window has closed ──
+                    # Data is stale but boot time >= 09:30 ET — can't rerun the
+                    # 8:35 AM scheduled scan without delaying market-hours work.
+                    # Previously silent — now writes an explicit SKIPPED record.
+                    print(
+                        f"[startup_catchup] LATE RESTART: polygon_rvol stale "
+                        f"(max={_rv_max_str_su!r}, expected≥{_rvol_expected_su}) "
+                        f"and boot time {_now_et.strftime('%H:%M')} ET >= 09:30 — "
+                        f"catchup window closed; writing SKIPPED audit record"
+                    )
+                    try:
+                        import aiem_scheduler_audit as _sched_audit_rv
+                        import datetime as _sa_rv_dt
+                        _sched_time_rv = _et_tz_su.localize(
+                            _sa_rv_dt.datetime(
+                                _now_et.year, _now_et.month, _now_et.day, 8, 35, 0
+                            )
+                        )
+                        _sched_audit_rv.write_audit(
+                            _DB_URL, _sched_time_rv, None, "SKIPPED",
+                            f"server restarted at {_now_et.strftime('%H:%M')} ET; "
+                            f"catchup window (before 09:30 ET) has closed; "
+                            f"polygon_rvol stale (max={_rv_max_str_su!r}, "
+                            f"expected≥{_rvol_expected_su}); "
+                            f"replay not attempted (would delay market-hours data)",
+                            "startup_catchup", None, None,
+                        )
+                    except Exception as _sa_rv_e:
+                        print(
+                            f"[startup_catchup] SKIPPED audit write error "
+                            f"(polygon_rvol): {_sa_rv_e}"
+                        )
 
             # ── AIEM Paper Trading catch-up ──────────────────────────────────
             # If the server restarted mid-morning and missed the 9:35 AM run,
