@@ -2622,14 +2622,10 @@ def main():
                         "INSERT INTO aiem_process_heartbeat (ts, pid) VALUES (NOW(), %s)",
                         (os.getpid(),)
                     )
-                    cur.execute("""
-                        DELETE FROM aiem_process_heartbeat
-                        WHERE id NOT IN (
-                            SELECT id FROM aiem_process_heartbeat
-                            ORDER BY ts DESC LIMIT 200
-                        )
-                    """)
                     conn.commit()
+                    # NOTE: DELETE removed — aiem_deletion_guard blocks it and rolls back
+                    # the INSERT in the same transaction. INSERT-only keeps rows accumulating
+                    # (indexed on ts DESC; monitor queries use MAX(ts) and remain fast).
                 finally:
                     conn.close()
             except Exception as _hwe:
