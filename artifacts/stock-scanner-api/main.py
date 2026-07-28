@@ -24494,10 +24494,10 @@ def admin_heartbeat_age():
     Returns 200 with {last_ts, age_seconds, pid, status} always.
     status='OK' if age<600s, 'STALE' if 600-1800s, 'DEAD' if >1800s.
     """
-    import psycopg2 as _hb_pg
+    import psycopg2 as _hb_pg, os as _hb_os
     from datetime import datetime, timezone as _hb_tz
     try:
-        with _hb_pg.connect(DATABASE_URL, connect_timeout=4) as _hc, _hc.cursor() as _hcu:
+        with _hb_pg.connect(_hb_os.environ.get("DATABASE_URL", ""), connect_timeout=4) as _hc, _hc.cursor() as _hcu:
             _hcu.execute(
                 "SELECT ts, pid FROM aiem_process_heartbeat ORDER BY id DESC LIMIT 1"
             )
