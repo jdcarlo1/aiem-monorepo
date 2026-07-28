@@ -361,15 +361,14 @@ def _compute_signal(ticker: str, closes: list, highs: list, lows: list,
     # Module A booster
     mod_a = _module_a(closes, volumes, highs, lows, atr_val)
 
-    # Conviction score 0-10
+    # Conviction score (informational only — not used as a gate)
+    # Volume sub-score removed: DECLINING/CLIMAX inversely correlated with wr_5d
+    # (NONE 55.6% / DECLINING 51.9% / CLIMAX 44.5%, n=739). Score >= 5 gate removed
+    # for the same reason — score=4 was the best-performing bucket (59.1% wr_5d).
     score = 2  # trend filter baseline
     if rsi_2 is not None and rsi_2 < 10:
         score += 2
     elif rsi_14 is not None and rsi_14 < 30:
-        score += 1
-    if vol_pattern == "DECLINING":
-        score += 2
-    elif vol_pattern == "CLIMAX":
         score += 1
     if near_support:
         score += 1
@@ -377,10 +376,6 @@ def _compute_signal(ticker: str, closes: list, highs: list, lows: list,
         score += 1
     if sm == "BULLISH":
         score += 1
-
-    # Require min score=5 for CONFIRMED alert
-    if state == "CONFIRMED" and score < 5:
-        state = "WATCHING"
 
     return {
         "ticker":                        ticker,
