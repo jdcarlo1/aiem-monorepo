@@ -1,0 +1,22 @@
+# Directive — AIEM Formula-Level Trading Logic Verification (Task #62)
+
+**Context:** E2E Trading Logic Verification closed 2026-07-27 for pipeline mechanics (gating, revalidation, exactly-once ledger, learning loop). Agent explicitly stated no formula-level verification exists for AIEM's own decision math — this directive covers that gap. Do not assume parity with the Options Engine's more mature verification history.
+
+**Scope — verify the actual math, not just that it runs:**
+
+1. **Conviction-weight matrix** — confirm the weights/inputs used to compute conviction scores match documented intent; trace a real candidate's score by hand (raw inputs → intermediate terms → final score) and show it matches the system's own output exactly.
+
+2. **final_confidence derivation** — same treatment: show the formula, trace one real example end-to-end, confirm no silent fallback/default values are masking a broken calculation path.
+
+3. **MTM (mark-to-market) P&L** — verify the computation against at least one real position with independently recomputed P&L (entry price, current price, position size, fees if any) — same approach as the Options Engine's independent_recomputation.py pattern (zero shared code with the production calculation).
+
+4. **Position-sizing logic** — confirm the sizing formula and inputs, trace a real trade's sizing decision by hand, flag any hardcoded caps or unexplained defaults.
+
+**Evidence bar (same standard as everything else on this project):**
+- Raw code (grep -n / sed -n), not narrated descriptions
+- At least one full hand-traced real example per item, not just formula review
+- Explicit statement for each item: verified-correct, verified-incorrect (with fix), or cannot-verify-because-X
+- No self-declared PASS — flag for review before closing
+- If any formula is found wrong, do not silently patch — report the discrepancy, proposed fix, and impact on historical trades before changing anything live
+
+**Report back:** findings per item, any bugs found + fixes, and which (if any) sub-items remain genuinely unverifiable and why.
