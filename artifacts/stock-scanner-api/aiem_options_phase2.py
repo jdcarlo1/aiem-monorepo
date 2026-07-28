@@ -1189,6 +1189,36 @@ def capture_trade_record(
             "theta": sel_data.get("theta"), "vega":  sel_data.get("vega"),
             "iv":    sel_data.get("iv"),
         }
+        # ── Augment with BS-computed higher-order greeks ──────────────────────
+        # rho/charm/vanna are not supplied by Tradier for single-leg alerts.
+        # Compute them from first principles using the same BS infrastructure
+        # in aiem_strat_engine.greeks so entry_greeks_json carries real values.
+        # Fail-safe: any missing input → all three set to None (no partial compute).
+        try:
+            _spot_g = float(
+                sel_data.get("spot_at_alert") or alert_fields.get("spot_at_alert") or 0
+            )
+            _k_g    = float(sel_strike or alert_fields.get("strike") or 0)
+            _dte_g  = float(
+                sel_data.get("dte") or alert_fields.get("dte") or 0
+            )
+            _iv_g   = float(sel_data.get("iv") or alert_fields.get("iv") or 0)
+            _call_g = (direction == "LONG_CALL")
+            _T_g    = _dte_g / 365.0
+            if _spot_g > 0 and _k_g > 0 and _T_g > 0 and _iv_g > 0:
+                from aiem_strat_engine.greeks import bs_rho, bs_charm, bs_vanna
+                greeks["rho"]   = round(bs_rho(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
+                greeks["charm"] = round(bs_charm(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
+                greeks["vanna"] = round(bs_vanna(_spot_g, _k_g, _T_g, _iv_g), 6)
+            else:
+                greeks["rho"]   = None
+                greeks["charm"] = None
+                greeks["vanna"] = None
+        except Exception as _gk_e:
+            log.warning(f"[phase2] rho/charm/vanna compute failed: {_gk_e}")
+            greeks["rho"]   = None
+            greeks["charm"] = None
+            greeks["vanna"] = None
         strategy_fam = (best_chain_strategy.get("strategy") if best_chain_strategy
                         else ("LONG_CALL" if direction == "LONG_CALL" else "LONG_PUT"))
 

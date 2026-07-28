@@ -69,6 +69,23 @@ def bs_vomma(S: float, K: float, T: float, sigma: float, r: float = 0.0) -> floa
     if d1 is None: return 0.0
     return bs_vega(S, K, T, sigma, r) * d1 * d2 / sigma
 
+def bs_rho(S: float, K: float, T: float, sigma: float, call: bool = True, r: float = 0.0) -> float:
+    """
+    Rho = dV/dr, expressed per 1 percentage-point change in r
+    (standard convention: multiply by 0.01 to get sensitivity per 1 bp).
+    Call rho  =  K·T·e^{-rT}·N(d2)  / 100
+    Put  rho  = -K·T·e^{-rT}·N(-d2) / 100
+    Reference: Hull, *Options, Futures, and Other Derivatives* (10th ed.) §19.6
+               (Table 19.4: ATM call S=K=49, T=20/52, σ=0.20, r=0.05 → ρ≈8.91)
+    """
+    d1, d2 = _bs_params(S, K, T, sigma, r)
+    if d1 is None: return 0.0
+    disc = math.exp(-r * T)
+    if call:
+        return K * T * disc * _N(d2) / 100.0
+    else:
+        return -K * T * disc * _N(-d2) / 100.0
+
 
 # ── Aggregate greeks across legs ─────────────────────────────────────────────
 
