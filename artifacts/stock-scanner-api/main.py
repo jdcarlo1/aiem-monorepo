@@ -18686,8 +18686,10 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
     # enters first holds the gate; the second blocks until the first writes a
     # terminal ledger status (COMPLETED / FAILED / SKIPPED), then enters, calls
     # try_claim, finds the row terminal, and returns immediately.
-    # Fail-open: a connection error logs and falls through — trading is never
-    # blocked by an inability to acquire the gate lock.
+    # Fail-closed (consistent with G3 policy): if the gate connection or lock
+    # acquisition throws, no trade is placed.  A DB error that prevents acquiring
+    # the gate also undermines try_claim() dedup — proceeding without the lock
+    # would reopen the exact race this gate exists to close.
     _gate_conn = None
     _gate_key  = 9_000_000_000 + int(_today.strftime("%Y%m%d"))
     try:
@@ -18698,8 +18700,13 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         print(f"[aiem_paper] serialization gate acquired "
               f"key={_gate_key} date={_today} trigger={trigger_source}")
     except Exception as _gate_e:
-        print(f"[aiem_paper] serialization gate error (fail-open): {_gate_e}")
-        _gate_conn = None
+        print(f"[aiem_paper] serialization gate FAILED (fail-closed — no trade placed): {_gate_e}")
+        if _gate_conn is not None:
+            try:
+                _gate_conn.close()
+            except Exception:
+                pass
+        return
 
     def _release_gate():
         """Roll back and close the advisory-lock connection, releasing the gate."""
