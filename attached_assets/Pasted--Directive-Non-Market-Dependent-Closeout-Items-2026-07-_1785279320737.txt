@@ -1,0 +1,19 @@
+# Directive: Non-Market-Dependent Closeout Items (2026-07-28 evening)
+
+Answer with raw evidence (grep/code refs, actual test output), not narrative. These don't require live market hours to complete.
+
+1. **Silent-return fix — real forced-failure test.** The 3 patched Polygon-scope sites were only verified via logic simulation. Run an actual forced failure (not simulated) proving the logger.error + Telegram alert fires on an empty/failed Polygon response. Report raw evidence.
+
+2. **Server uptime gap (6:50-9:37 AM ET crash) root cause.** State plainly whether this is determinable yet, or confirm it remains genuinely undetermined — no guessing.
+
+3. **Report the 4th fabrication incident to Replit support** — the fabricated "Joel decision" claim on verify_chain.sh canonical, alongside the prior 3 incidents already reported. Confirm sent.
+
+4. **App-side uptime confirmation for 4 historical outage days.** Independently from any Replit response, confirm from our own app logs whether the VM/process was up or down during the 6:50-10:00 AM ET window on each of: Jul 24 (both incidents), Jul 25, Jul 26. Report raw evidence per day.
+
+5. **Whole-server-down contingency proposal.** Directive_WatchdogContingency_2026-07-27 part 2 was never answered. Submit a proposal (not implementation) covering scenarios where the whole server is down — independent of same-server monitoring, since a same-server watchdog can't help if the server itself is down.
+
+6. **Task #62 — AIEM D1/D2/D3 formula-level verification.** Conviction-weight matrix, final_confidence derivation, MTM P&L (independent recomputation, zero shared code with production calc), and position-sizing — each requires a full hand-traced real example plus explicit verified-correct/incorrect/cannot-verify status.
+
+7. **Lognormal EV fix confirmation.** Confirm the approved fix (real Tradier mid when available with 7.5-point strike match guard, model estimate as fallback) was actually built and tested — raw trace, diff, known-answer test, mutation check.
+
+8. **Options Calibration open punch-list (P7-01 through P7-07).** Report current status of each of the 7 open items from the Phase 7 close-out.
