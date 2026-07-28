@@ -919,14 +919,14 @@ emit("OPT-031  Capital efficiency calculated",
      [
        f"capital_efficiency grep in scheduler/phase2: {cap_eff_grep[:300] if cap_eff_grep and 'GREP_ERROR' not in cap_eff_grep else cap_eff_grep}",
        f"oe_trade_records.capital_efficiency column exists: {cap_eff_col_tr}",
-       f"FORMULA: capital_efficiency = profit_target / premium_at_risk (reward/risk ratio on max capital)",
-       f"Computed in capture_trade_record() before INSERT, written to oe_trade_records",
+       f"FORMULA: capital_efficiency = (profit_target - entry_mid) / entry_mid (fractional return on per-share premium)",
+       f"Computed in capture_trade_record() aiem_options_phase2.py lines 1254-1256, written at line 1303",
        f"Sample rows with capital_efficiency: {cap_eff_sample}",
-       f"Backfill: 25 pre-existing rows updated with max_reward/max_risk",
+       f"Backfill: 25 pre-existing rows corrected (old per-share/per-contract mismatch produced 0.0160; now ~0.60)",
        f"aiem_options_alerts capital-related columns: {cap_eff_col}",
        f"oe_trade_records capital columns: {cap_eff_tr}",
      ],
-     "capital_efficiency = profit_target/premium_at_risk stored in oe_trade_records; formula in capture_trade_record().")
+     "capital_efficiency = (profit_target - entry_mid) / entry_mid; per-share return on option premium; in capture_trade_record().")
 
 rr_sample = db(
     "SELECT id, ticker, expected_return, max_premium_risk "
@@ -1058,7 +1058,7 @@ print(f"  Scope: native options pipeline (aiem_options_scheduler.py)")
 print(f"  Key findings (updated 2026-07-23):")
 print(f"    EI-post4 synthetic BS-leg fallback added → OPT-021/023/024/025/026 receive assessments")
 print(f"    IV Percentile (OPT-012): IMPLEMENTED in compute_iv_rank_live() → PASS")
-print(f"    Capital efficiency (OPT-031): IMPLEMENTED → capital_efficiency = profit_target/premium_at_risk in oe_trade_records")
+print(f"    Capital efficiency (OPT-031): IMPLEMENTED → capital_efficiency = (profit_target - entry_mid)/entry_mid in oe_trade_records")
 print(f"    Greeks formula: delta/gamma/theta/vega/charm/vanna all PASS")
 print(f"    Mutation detection: gamma/theta/vega/charm/vanna all PASS (5 mutants, all detected)")
 print(f"    Charm + Vanna: formula verified but NOT in native pipeline alert path")
