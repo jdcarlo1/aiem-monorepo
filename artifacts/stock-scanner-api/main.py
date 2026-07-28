@@ -18678,6 +18678,38 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         print(f"[aiem_paper] skipping — not a NYSE trading day ({_today.strftime('%A %Y-%m-%d')})")
         return
 
+    # ── Serialization gate: date-keyed Postgres advisory lock ─────────────────
+    # pg_advisory_xact_lock blocks here until the previous holder commits or
+    # closes its connection.  Key = 9_000_000_000 + YYYYMMDD — unique per
+    # calendar date, far from the per-ticker lock at 7_625_310_052.
+    # Whichever of scheduled_942 / _startup_catchup / _paper_startup_reconciler
+    # enters first holds the gate; the second blocks until the first writes a
+    # terminal ledger status (COMPLETED / FAILED / SKIPPED), then enters, calls
+    # try_claim, finds the row terminal, and returns immediately.
+    # Fail-open: a connection error logs and falls through — trading is never
+    # blocked by an inability to acquire the gate lock.
+    _gate_conn = None
+    _gate_key  = 9_000_000_000 + int(_today.strftime("%Y%m%d"))
+    try:
+        _gate_conn = _psycopg2.connect(_DB_URL, connect_timeout=5)
+        _gate_conn.cursor().execute("SELECT pg_advisory_xact_lock(%s)", (_gate_key,))
+        # intentionally NOT committed — transaction stays open; lock held until
+        # _gate_conn is rolled back/closed in _release_gate() below
+        print(f"[aiem_paper] serialization gate acquired "
+              f"key={_gate_key} date={_today} trigger={trigger_source}")
+    except Exception as _gate_e:
+        print(f"[aiem_paper] serialization gate error (fail-open): {_gate_e}")
+        _gate_conn = None
+
+    def _release_gate():
+        """Roll back and close the advisory-lock connection, releasing the gate."""
+        if _gate_conn is not None:
+            try:
+                _gate_conn.rollback()
+                _gate_conn.close()
+            except Exception:
+                pass
+
     # ── Protection #9: DB ledger atomic claim (cross-process exactly-once) ──
     # Exactly one row per business date (UNIQUE constraint). The INSERT …
     # ON CONFLICT DO NOTHING ensures only ONE caller among scheduler /
@@ -18691,6 +18723,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         import aiem_paper_recovery as _pr_recovery
         _pr_recovery.mark_readiness(_today, trigger_source)   # Protection #7
         if not _pr_recovery.try_claim(_today, _ledger_exec_id, trigger_source):
+            _release_gate()   # release serialization gate before exit
             return  # another caller already owns today's execution (dedup)
         _pr_recovery.mark_started(_today, _ledger_exec_id)
     except Exception as _pr_claim_e:
@@ -18719,6 +18752,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                 _llc.commit()
         except Exception as _lle:
             print(f"[aiem_paper] lock-contention log error: {_lle}")
+        _release_gate()   # release serialization gate before exit
         return
 
     # ── G0 boot-authorization checkpoint (Path B P3) ─────────────────────────
@@ -18803,6 +18837,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
             except Exception:
                 pass
         _AIEM_PAPER_LOCK.release()
+        _release_gate()   # release serialization gate before exit
         return {
             "blocked": True,
             "decision": _g0_result.get("decision"),
@@ -20523,6 +20558,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         _log_finish("FAILED", _err=str(_e))
     finally:
         _AIEM_PAPER_LOCK.release()
+        _release_gate()   # release serialization gate
 
 
 # ── D14 Verification support functions ─────────────────────────────────────
