@@ -64679,15 +64679,12 @@ def insider_radar():
     if not bust and _cache and _cache_ts and (_dt_ir.datetime.now() - _cache_ts).total_seconds() < 2700:
         return jsonify(_cache)
 
-    # Yahoo throttled - fail-fast
-    if _yf_breaker_open():
-        _ir_db = _load_scan_cache("insider-radar")
-        if _ir_db:
-            return jsonify({**_ir_db, "stale": True, "note": "cached - Yahoo rate limited"})
-        if _cache:
-            return jsonify({**_cache, "stale": True, "note": "cached - Yahoo rate limited"})
-        return jsonify({"signals": [], "count": 0, "stale": True,
-                        "note": "Yahoo rate limited - try again shortly"})
+    # NOTE: we do NOT gate on _yf_breaker_open() here.  The main data source is
+    # unusual_calls_log (pure DB — no Yahoo).  Yahoo is only used for earnings
+    # date enrichment inside _bg_ir, where it is skipped gracefully when the
+    # breaker is open.  Gating the whole scan on Yahoo status caused insider
+    # radar to permanently serve a stale cache after any process restart that
+    # happened to trip the Yahoo breaker during startup.
 
     # Background thread: full scan — never blocks request thread
     def _bg_ir():
