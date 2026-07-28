@@ -596,7 +596,9 @@ def seed_daily_candidates(scan_date: date = None, limit: int = 5) -> dict:
     # Write seed event to durable run log
     try:
         with psycopg2.connect(_DB_URL, connect_timeout=4) as _dc, _dc.cursor() as _cu:
-            _run_status = "NO_CANDIDATES" if _double_zero else "RUNNING"
+            # seeded=0 regardless of _double_zero means nothing will execute —
+            # write NO_CANDIDATES so the deadman never sees a stuck RUNNING row.
+            _run_status = "NO_CANDIDATES" if (_double_zero or seeded == 0) else "RUNNING"
             _cu.execute("""
                 INSERT INTO daily_pipeline_runs
                     (run_date, trigger_source, status, candidates_seeded, started_at)
