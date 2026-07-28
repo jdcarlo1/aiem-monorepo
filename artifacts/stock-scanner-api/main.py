@@ -3902,6 +3902,38 @@ def _init_washout_ignition_table():
 _DEFERRED_INITS.append(lambda: _init_washout_ignition_table())
 
 
+def _init_orb_signals_table():
+    """Create orb_signals table — persists live ORB breakout signals."""
+    import psycopg2 as _orb_pg2
+    try:
+        with _orb_pg2.connect(os.environ["DATABASE_URL"], connect_timeout=5) as _c:
+            with _c.cursor() as _cur:
+                _cur.execute("""
+                    CREATE TABLE IF NOT EXISTS orb_signals (
+                        id                SERIAL PRIMARY KEY,
+                        scan_date         DATE    NOT NULL,
+                        ticker            TEXT    NOT NULL,
+                        orb_high          FLOAT,
+                        orb_low           FLOAT,
+                        intraday_rvol     FLOAT,
+                        today_gap_pct     FLOAT,
+                        patterns          TEXT[],
+                        breakout_detected BOOLEAN DEFAULT FALSE,
+                        breakout_price    FLOAT,
+                        breakout_time     TEXT,
+                        current_price     FLOAT,
+                        created_at        TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at        TIMESTAMPTZ DEFAULT NOW(),
+                        UNIQUE(ticker, scan_date)
+                    )
+                """)
+            _c.commit()
+        print("[orb_signals] table ready")
+    except Exception as _orb_e:
+        print(f"[orb_signals] init error: {_orb_e}")
+_DEFERRED_INITS.append(lambda: _init_orb_signals_table())
+
+
 def _init_momentum_coil_tables():
     """
     Three isolated tables for the two-stage washout-complete system.
@@ -5758,6 +5790,32 @@ try:
         id="sms_alert_scan",
         replace_existing=True,
     )
+    # ORB (Opening Range Breakout) scanner: 10:05 AM catches the first post-ORB bar;
+    # 10:20 AM catches any later breakouts within the first 50 min.
+    # Runs on tickers with yesterday RVOL ≥ 2× from polygon_rvol_scan.
+    # Patterns: A (RVOL≥3×), B (RVOL≥3×+gap≥1%), C (RVOL≥3×+gap≥2%).
+    def _run_orb_scanner_job():
+        if not _intraday_scan_allowed():
+            return
+        try:
+            import threading as _thr_orb
+            import orb_scanner as _orb_mod
+            _db = os.environ.get("DATABASE_URL", "")
+            _thr_orb.Thread(
+                target=lambda: _orb_mod.run_orb_scanner(_db),
+                daemon=True,
+                name="orb_scanner",
+            ).start()
+        except Exception as _e_orb:
+            print(f"[scheduler] ORB scanner error: {_e_orb}")
+    for _orb_slot_h, _orb_slot_m in [(10, 5), (10, 20)]:
+        _scheduler.add_job(
+            _run_orb_scanner_job,
+            CronTrigger(day_of_week="mon-fri",
+                        hour=_orb_slot_h, minute=_orb_slot_m, timezone=_ET),
+            id=f"orb_scanner_{_orb_slot_h}_{_orb_slot_m:02d}",
+            replace_existing=True,
+        )
     # Exit alert scan: every 15 min - watches stocks alerted today for VWAP breaks
     def _run_exit_alert_scan():
         if not _intraday_scan_allowed():
@@ -65801,6 +65859,62 @@ def gap_volume_signal_endpoint():
         app.logger.error(f"[gap-volume-signal] {_e}")
         return jsonify({"signals": [], "count": 0, "scan_date": None,
                         "total_scanned": 0, "edge_note": "", "stale": True}), 200
+
+
+@app.route("/stock-api/orb-signals", methods=["GET"])
+def orb_signals_endpoint():
+    """
+    GET /stock-api/orb-signals
+    Returns today's Opening Range Breakout signals.
+    Scanner runs at 10:05 AM and 10:20 AM ET Mon-Fri.
+    Three backtest-validated patterns:
+      A: RVOL ≥ 3×                   WR=65%  EV=+1.47%  (n=60 trades)
+      B: RVOL ≥ 3× + gap ≥ 1%        WR=68%  EV=+1.95%  (n=31 trades)
+      C: RVOL ≥ 3× + gap ≥ 2%        WR=66%  EV=+2.01%  (n=29 trades)
+    Universe: tickers from polygon_rvol_scan with yesterday RVOL ≥ 2×.
+    """
+    try:
+        import orb_scanner as _orb_mod
+        import datetime as _dt_orb
+        _signals = _orb_mod.get_orb_signals(os.environ["DATABASE_URL"])
+        _today   = _dt_orb.date.today().isoformat()
+        return jsonify({
+            "signals":   _signals,
+            "count":     len(_signals),
+            "scan_date": _today,
+            "patterns": {
+                "A": "RVOL ≥ 3×                — WR=65%  EV=+1.47%  n=60",
+                "B": "RVOL ≥ 3× + Gap ≥ 1%     — WR=68%  EV=+1.95%  n=31",
+                "C": "RVOL ≥ 3× + Gap ≥ 2%     — WR=66%  EV=+2.01%  n=29",
+            },
+            "backtest_note": (
+                "2-year backtest · 4,078 trades · 40 liquid tickers · "
+                "RVOL is the dominant filter; gap alone adds no edge."
+            ),
+            "stale": not _signals,
+        })
+    except Exception as _e:
+        app.logger.error(f"[orb-signals] {_e}")
+        return jsonify({"signals": [], "count": 0, "scan_date": None,
+                        "patterns": {}, "backtest_note": "", "stale": True}), 200
+
+
+@app.route("/stock-api/admin/run-orb-scanner", methods=["POST"])
+def admin_run_orb_scanner():
+    """
+    POST /stock-api/admin/run-orb-scanner
+    Manually trigger the ORB scanner outside its 10:05/10:20 AM scheduled slots.
+    Protected by X-Admin-Token. Runs synchronously; may take up to 15 min
+    for a full 60-ticker scan at Polygon Starter rate limits.
+    """
+    if request.headers.get("X-Admin-Token") != os.environ.get("ADMIN_TOKEN", ""):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        import orb_scanner as _orb_mod
+        _result = _orb_mod.run_orb_scanner(os.environ["DATABASE_URL"])
+        return jsonify(_result)
+    except Exception as _e:
+        return jsonify({"error": str(_e)}), 500
 
 
 # ── Momentum Two-Stage Washout-Complete System ────────────────────────────────

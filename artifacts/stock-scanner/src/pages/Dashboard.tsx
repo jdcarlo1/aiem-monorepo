@@ -66,6 +66,7 @@ import {
   fetchRunnerOutcomes, RunnerOutcomesData, RunnerSignalRow, RunnerTierStat,
   fetchGrinderScan, GrinderScanData, GrinderResult,
   fetchGapVolumeSignal, GapVolumeResult, GapVolumeRow,
+  fetchOrbSignals, OrbSignal,
   fetchWashoutComplete, WashoutCompleteSignal, WashoutCompleteResult,
   fetchCandlestickConfluence, CandlestickConfluenceSignal, CandlestickConfluenceResult,
   fetchFlowScores, fetchCallWinRates, fetchHistoricalSimilarity,
@@ -17002,7 +17003,7 @@ export default function Dashboard() {
   const [ticker, setTicker]         = useState("AAPL");
   const [inputTicker, setInputTicker] = useState("AAPL");
   const [scanTickers, setScanTickers] = useState(DEFAULT_SCAN.join(", "));
-  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"0dte-paper"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete"|"candlestick-confluence"|"unusualputs"|"bearflow">("lookup");
+  const [tab, setTab]               = useState<"overview"|"lookup"|"scanner"|"analytics"|"backtest"|"alerts"|"portfolio"|"propdesk"|"bullflow"|"persistence"|"smartmoney"|"congress"|"market"|"squeeze"|"insiders"|"breakout"|"morningbrief"|"convergence"|"premarket"|"darkpool"|"gammawall"|"aitrades"|"composite"|"topscore"|"outcomes"|"trackrecord"|"whale"|"whalelog"|"watchlist"|"unusualcalls"|"unusualcallslog"|"etfcalls"|"convictioncalls"|"eodsweep"|"sweeptrack"|"0dte-paper"|"convictiontrack"|"mytrades"|"aiearlymovers"|"aishortcalls"|"shortcallrecord"|"netflow"|"micronetflow"|"microcalls"|"midnetflow"|"streakflow"|"morningrunners"|"squeezesetup"|"breakout52week"|"sectorrotation"|"multisignal"|"ivrank"|"marketpress"|"earningscal"|"insiderradar"|"standoutflow"|"standouttrack"|"eodaccum"|"eodaccumtrack"|"crossscanner"|"squeezeradar"|"nanomorning"|"nanocarry"|"ics"|"gammapressure"|"oiaccum"|"convictionstack"|"sweepradar"|"sectorheat"|"smpressure"|"multidayrunner"|"runneroutcomes"|"steadygrinder"|"gapvolume"|"orb"|"quantagent"|"papermoney"|"gasboard"|"signalintel"|"washout-complete"|"candlestick-confluence"|"unusualputs"|"bearflow">("lookup");
   const now = useNow();
   const [blink, setBlink] = useState(true);
   const [tickPos, setTickPos] = useState(0);
@@ -17189,6 +17190,7 @@ export default function Dashboard() {
     { id: "runneroutcomes", label: "📊 RUNNER OUTCOMES" },
     { id: "steadygrinder",  label: "🔄 STEADY GRINDERS" },
     { id: "gapvolume",      label: "⚡ GAP+VOL SIGNAL" },
+    { id: "orb",            label: "📐 ORB BREAKOUT" },
     { id: "washout-complete", label: "🎯 WASHOUT COMPLETE" },
     { id: "candlestick-confluence", label: "🕯️ CANDLESTICK CONFLUENCE" },
     { id: "quantagent",     label: "🤖 QUANT AGENT" },
@@ -19409,6 +19411,198 @@ export default function Dashboard() {
             );
           }
           return <GapVolumeTab onSelectTicker={selectTicker} />;
+        })()}
+
+        {/* ── ORB Breakout Tab ── */}
+        {tab === "orb" && (() => {
+          function OrbTab({ onSelectTicker }: { onSelectTicker: (t: string) => void }) {
+            const { data, isLoading } = useQuery({
+              queryKey: ["orb-signals"],
+              queryFn: fetchOrbSignals,
+              refetchInterval: 300_000,
+            });
+            const signals   = data?.signals ?? [];
+            const scanDate  = data?.scan_date ?? null;
+            const patterns  = data?.patterns ?? {};
+            const backnote  = data?.backtest_note ?? "";
+
+            const patternColor = (p: string) =>
+              p === "C" ? "#10b981" : p === "B" ? "#38bdf8" : "#a78bfa";
+
+            const rvolColor = (v: number) =>
+              v >= 6 ? "#f59e0b" : v >= 4 ? "#fbbf24" : "#fde68a";
+
+            const gapColor = (g: number | null) =>
+              !g ? "#64748b" : g >= 3 ? "#10b981" : g >= 1 ? "#34d399" : "#6ee7b7";
+
+            return (
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+                    <div>
+                      <div className="text-slate-100 text-base font-bold tracking-wide">📐 Opening Range Breakout</div>
+                      <div className="text-slate-500 text-xs mt-0.5">
+                        First bar closing above the 9:30–9:59 AM high after 10:00 AM · RVOL ≥ 3× screened
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {scanDate && (
+                        <span className="text-slate-500 text-xs">Scanner: {scanDate} · 10:05 &amp; 10:20 AM ET</span>
+                      )}
+                      <span className="bg-indigo-900/40 text-indigo-400 border border-indigo-800/60 text-xs px-3 py-1 rounded-full font-semibold">
+                        {signals.length} signal{signals.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Backtest note */}
+                  {backnote && (
+                    <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-lg px-4 py-2.5 text-xs text-indigo-300 mb-3">
+                      <span className="text-indigo-400 font-semibold">✅ Backtest: </span>{backnote}
+                    </div>
+                  )}
+
+                  {/* Pattern legend */}
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {(["A", "B", "C"] as const).map(p => (
+                      <div key={p} className="flex items-center gap-2 bg-slate-800/50 rounded-lg px-3 py-2">
+                        <span
+                          className="text-xs font-black px-1.5 py-0.5 rounded"
+                          style={{ background: patternColor(p) + "26", color: patternColor(p) }}
+                        >
+                          {p}
+                        </span>
+                        <span className="text-slate-400 text-xs">{patterns[p] ?? "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stats row */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: "Pattern A  WR (RVOL ≥ 3×)",       value: "65%", sub: "n=60  EV=+1.47%/trade",  color: "#a78bfa" },
+                    { label: "Pattern B  WR (+ Gap ≥ 1%)",       value: "68%", sub: "n=31  EV=+1.95%/trade",  color: "#38bdf8" },
+                    { label: "Pattern C  WR (+ Gap ≥ 2%)",       value: "66%", sub: "n=29  EV=+2.01%/trade",  color: "#10b981" },
+                  ].map(s => (
+                    <div key={s.label} className="bg-slate-900/60 border border-slate-800/60 rounded-xl p-4">
+                      <div className="text-slate-500 text-xs mb-1">{s.label}</div>
+                      <div className="font-black text-xl" style={{ color: s.color }}>{s.value}</div>
+                      <div className="text-slate-600 text-xs mt-0.5">{s.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Table */}
+                {isLoading ? (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center text-slate-500 text-sm">
+                    Loading ORB signals…
+                  </div>
+                ) : signals.length === 0 ? (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-10 text-center">
+                    <div className="text-slate-400 text-sm font-semibold mb-1">No ORB setups today</div>
+                    <div className="text-slate-600 text-xs">
+                      Scanner runs at 10:05 &amp; 10:20 AM ET · requires RVOL ≥ 3× in opening 30 min
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="grid gap-0 px-4 py-2 border-b border-slate-800/60 text-xs text-slate-600 font-semibold uppercase tracking-wider"
+                         style={{ gridTemplateColumns: "1fr 1.5fr 1fr 1fr 1fr 1fr 1.5fr" }}>
+                      <div>Ticker</div>
+                      <div>Patterns</div>
+                      <div className="text-right">RVOL</div>
+                      <div className="text-right">Gap</div>
+                      <div className="text-right">ORB Hi</div>
+                      <div className="text-right">Price</div>
+                      <div className="text-right">Breakout</div>
+                    </div>
+
+                    <div className="divide-y divide-slate-800/40">
+                      {signals.map((s: OrbSignal, i: number) => (
+                        <div
+                          key={s.ticker}
+                          className="grid gap-0 px-4 py-3 hover:bg-slate-800/30 cursor-pointer transition-colors items-center"
+                          style={{ gridTemplateColumns: "1fr 1.5fr 1fr 1fr 1fr 1fr 1.5fr" }}
+                          onClick={() => onSelectTicker(s.ticker)}
+                        >
+                          {/* Ticker */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-600 text-xs w-4">{i + 1}</span>
+                            <span className="text-slate-100 font-bold text-sm">{s.ticker}</span>
+                          </div>
+
+                          {/* Patterns badges */}
+                          <div className="flex gap-1 flex-wrap">
+                            {(s.patterns ?? []).map(p => (
+                              <span
+                                key={p}
+                                className="text-xs font-black px-1.5 py-0.5 rounded"
+                                style={{ background: patternColor(p) + "26", color: patternColor(p) }}
+                              >
+                                {p}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Intraday RVOL */}
+                          <div className="text-right text-sm font-bold"
+                               style={{ color: rvolColor(s.intraday_rvol ?? 0) }}>
+                            {s.intraday_rvol != null ? `${s.intraday_rvol.toFixed(1)}×` : "—"}
+                          </div>
+
+                          {/* Gap */}
+                          <div className="text-right text-sm font-semibold"
+                               style={{ color: gapColor(s.today_gap_pct) }}>
+                            {s.today_gap_pct != null
+                              ? `${s.today_gap_pct >= 0 ? "+" : ""}${s.today_gap_pct.toFixed(1)}%`
+                              : "—"}
+                          </div>
+
+                          {/* ORB High */}
+                          <div className="text-right text-slate-300 text-sm">
+                            {s.orb_high != null ? `$${s.orb_high.toFixed(2)}` : "—"}
+                          </div>
+
+                          {/* Current price */}
+                          <div className="text-right text-slate-300 text-sm font-medium">
+                            {s.current_price != null ? `$${s.current_price.toFixed(2)}` : "—"}
+                          </div>
+
+                          {/* Breakout */}
+                          <div className="text-right">
+                            {s.breakout_detected ? (
+                              <div>
+                                <div className="text-emerald-400 text-xs font-bold">
+                                  ✓ ${s.breakout_price?.toFixed(2) ?? "—"}
+                                </div>
+                                <div className="text-slate-600 text-xs">{s.breakout_time ?? ""}</div>
+                              </div>
+                            ) : (
+                              <span className="text-slate-600 text-xs">pending</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Methodology */}
+                <div className="bg-slate-900/50 border border-slate-800/60 rounded-xl p-4 text-xs text-slate-500 space-y-1.5">
+                  <div className="text-slate-400 font-semibold mb-1">Strategy &amp; methodology</div>
+                  <div>• <span className="text-slate-300">Entry:</span> First 5-min bar after 10:00 AM ET closing &gt; ORB High × 1.003 (avoids 1-tick pierces)</div>
+                  <div>• <span className="text-slate-300">ORB window:</span> 9:30–9:59 AM ET — High and Low set the breakout level</div>
+                  <div>• <span className="text-slate-300">Stops:</span> 5% hard stop from entry; 10% trailing from peak (manage after entry)</div>
+                  <div>• <span className="text-slate-300">RVOL:</span> Intraday — 30-min opening volume ÷ (20d avg daily vol × 0.20)</div>
+                  <div>• <span className="text-slate-300">Pre-screen:</span> polygon_rvol_scan tickers with yesterday RVOL ≥ 2× · price ≥ $2</div>
+                  <div>• <span className="text-slate-300">Gap alone adds no edge</span> — RVOL is the signal driver; gap refines pattern strength</div>
+                </div>
+              </div>
+            );
+          }
+          return <OrbTab onSelectTicker={selectTicker} />;
         })()}
 
         {/* ── Washout Complete Tab ── */}

@@ -2318,6 +2318,34 @@ export function fetchGapVolumeSignal() {
   return fetchJson<GapVolumeResult>("/gap-volume-signal");
 }
 
+export interface OrbSignal {
+  ticker: string;
+  scan_date: string;
+  orb_high: number | null;
+  orb_low: number | null;
+  intraday_rvol: number | null;
+  today_gap_pct: number | null;
+  patterns: string[];          // e.g. ["A", "B", "C"]
+  breakout_detected: boolean;
+  breakout_price: number | null;
+  breakout_time: string | null;
+  current_price: number | null;
+  updated_at: string | null;
+}
+
+export interface OrbSignalsResult {
+  signals: OrbSignal[];
+  count: number;
+  scan_date: string | null;
+  patterns: Record<string, string>;
+  backtest_note: string;
+  stale: boolean;
+}
+
+export function fetchOrbSignals() {
+  return fetchJson<OrbSignalsResult>("/orb-signals");
+}
+
 export function fetchFlowScores(tickers: string[]): Promise<Record<string, number | null>> {
   if (!tickers.length) return Promise.resolve({});
   const params = new URLSearchParams({ tickers: tickers.join(",") });
