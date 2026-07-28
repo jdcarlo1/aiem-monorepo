@@ -1,0 +1,32 @@
+# Directive: Item 2 / Item 4 Closeout — Raw Evidence + Protocol Scope
+
+## Standing checklist (applies to this directive in full)
+- Raw execution output only — no paraphrase/narrative for any completion claim
+- Raw grep -n / sed -n for any code-location or line-number claim
+- Raw SQL query + full result set (CSV via \copy if >10 rows) for any DB claim
+- sha256 before/after for any file changed
+- No deletion/overwrite of any row/file without Joel's prior explicit approval
+- All evidence-producing commands run through verified_run.sh, validated with verify_chain.sh, output pasted
+- "PASS" only if every item above is met with nothing deferred — otherwise label as "partial" or "cleared to proceed," not "pass"
+- Compact output only: raw output, no headers/banners/interpretation
+
+## Open items from your last report
+
+**1. Item 2 (final_confidence >= 42.0)**
+- Paste the raw `grep -n`/`sed -n` output showing main.py line 18364 in context
+- Paste the actual SQL query run + full result set (not "SQL confirms zero rows" — the query and its output)
+
+**2. Item 4 (conviction-stack sizing)**
+- Paste raw grep/sed showing the `_conviction_stack_scores.get(_t, min(9.0, pick["score"]))` line in context
+- Paste the full 27-pick shadow-run table (all rows, not "1 CSW hit + 26 misses use capped fallback") — CSV attached if >10 rows, per protocol
+- Paste `verify_chain.sh` output for this session, plus sha256sum of tools/verified_run.sh and tools/verify_chain.sh (or wherever this repo's equivalents live) — see item 3 below before running this
+
+**3. Protocol-scope question — answer before re-running item 2 above**
+- Does this repo (stockscanner-ai) have its own verified_run.sh / verify_chain.sh equivalents, or does it use AIEM's?
+- If separate: what are the current on-disk sha256 values, and has this repo ever been under the standing evidence-chain protocol before now?
+- If it has never been under this protocol: say so plainly — do not backfill or imply prior compliance
+- Do NOT compare against AIEM's pinned canonicals (dce94f6e...s / 4804b547...) unless you confirm this repo actually shares those files
+
+## Not yet actioned — do not start
+- #71 (conviction stack coverage too sparse for sizing differentiation) — no fix authorized yet
+- #72 (v3_discovery score needs /10 normalization) — no fix authorized yet
