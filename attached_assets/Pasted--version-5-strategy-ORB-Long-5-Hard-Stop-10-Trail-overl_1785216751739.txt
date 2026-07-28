@@ -1,0 +1,56 @@
+//@version=5
+strategy("ORB Long - 5% Hard Stop + 10% Trail", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ——— ORB Levels (First 30 min) ———
+var float orbHigh = na
+var float orbLow = na
+
+if (hour == 9 and minute == 30)
+    orbHigh := high
+    orbLow := low
+
+if (hour == 9 and minute >= 30 and minute <= 59) or (hour == 10 and minute == 0)
+    orbHigh := math.max(orbHigh, high)
+    orbLow := math.min(orbLow, low)
+
+plot(orbHigh, color=color.blue, linewidth=2, title="ORB High")
+plot(orbLow,  color=color.orange, linewidth=2, title="ORB Low")
+
+// ——— Entry (LONG ONLY, after 10 AM) ———
+allowTrade = (hour > 10) or (hour == 10 and minute > 0)
+longCondition = allowTrade and close > orbHigh
+
+// ——— Tracking Variables ———
+var float entryPrice = na
+var float hardStop = na
+var float trailStop = na
+var float highestPrice = na
+
+if (longCondition)
+    strategy.entry("Long", strategy.long)
+    entryPrice := close
+    hardStop := entryPrice * 0.95          // 5% hard stop
+    trailStop := entryPrice * 0.90         // 10% initial trail (starts wider)
+    highestPrice := close                  // reset highest price
+
+// ——— Update Trail & Check Stop ———
+if (strategy.position_size > 0)
+    // Update the highest price reached
+    highestPrice := math.max(highestPrice, high)
+    
+    // Move the trailing stop up to 10% below the new peak
+    trailStop := highestPrice * 0.90
+    
+    // The actual stop is the HIGHER of the two (hard stop vs trailing stop)
+    // Once trail moves above hard stop, the trail takes over.
+    effectiveStop = math.max(hardStop, trailStop)
+    
+    // Plot the active stop on your chart
+    plot(effectiveStop, color=color.red, linewidth=2, title="Active Stop")
+    
+    // Sell automatically if price hits the stop
+    if (low < effectiveStop)
+        strategy.close("Long", comment="Stop Hit")
+
+// ——— Visual Buy Signal ———
+plotshape(longCondition, location=location.belowbar, color=color.green, style=shape.triangleup, text="BUY")
