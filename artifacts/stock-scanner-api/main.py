@@ -50117,7 +50117,7 @@ def zero_dte_paper_trades_endpoint():
     Query param: ?days=N (default 30).
     """
     try:
-        import psycopg2.extras as _pext
+        import psycopg2 as psycopg2; import psycopg2.extras as _pext
         _days = request.args.get("days", 30, type=int)
         _conn = psycopg2.connect(_DB_URL, connect_timeout=4)
         _cur  = _conn.cursor(cursor_factory=_pext.RealDictCursor)
@@ -50149,7 +50149,7 @@ def zero_dte_paper_stats_endpoint():
     Updated on every query — not a static snapshot.
     """
     try:
-        import psycopg2.extras as _pext
+        import psycopg2 as psycopg2; import psycopg2.extras as _pext
         _conn = psycopg2.connect(_DB_URL, connect_timeout=4)
         _cur  = _conn.cursor(cursor_factory=_pext.RealDictCursor)
         _cur.execute("SELECT * FROM v_paper_0dte_stats")
