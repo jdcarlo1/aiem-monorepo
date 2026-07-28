@@ -1533,19 +1533,25 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 if _typ == "call" and abs(_sk - call_strike) < 7.5:
                     call_vol = int(_o.get("volume") or 0)
                     call_oi  = int(_o.get("open_interest") or 0)
+                    _cb, _ca = _o.get("bid"), _o.get("ask")
+                    if _cb is not None and _ca is not None and float(_cb) > 0 and float(_ca) > 0:
+                        call_mid = round((float(_cb) + float(_ca)) / 2, 2)
                     if _grk.get("delta") is not None:
                         call_delta_bs        = round(abs(float(_grk["delta"])), 4)
                         call_probability_itm = call_delta_bs
                 elif _typ == "put" and abs(_sk - put_strike) < 7.5:
                     put_vol = int(_o.get("volume") or 0)
                     put_oi  = int(_o.get("open_interest") or 0)
+                    _pb, _pa = _o.get("bid"), _o.get("ask")
+                    if _pb is not None and _pa is not None and float(_pb) > 0 and float(_pa) > 0:
+                        put_mid = round((float(_pb) + float(_pa)) / 2, 2)
                     if _grk.get("delta") is not None:
                         put_delta_bs        = round(float(_grk["delta"]), 4)
                         put_probability_itm = round(abs(float(_grk["delta"])), 4)
             log.info(
                 f"[exec] [{trace_id}] Tradier chain expiry={_exp} "
-                f"call δ={call_delta_bs} vol={call_vol} oi={call_oi}  "
-                f"put δ={put_delta_bs} vol={put_vol} oi={put_oi}"
+                f"call δ={call_delta_bs} vol={call_vol} oi={call_oi} call_mid={call_mid}  "
+                f"put δ={put_delta_bs} vol={put_vol} oi={put_oi} put_mid={put_mid}"
             )
         except Exception as _trd_e:
             log.warning(
