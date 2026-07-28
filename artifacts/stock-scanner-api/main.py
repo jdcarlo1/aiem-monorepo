@@ -18361,7 +18361,7 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
                         WHERE ticker = ANY(%s)
                           AND decision_date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
                           AND decision IN ('BUY', 'SMALL_BUY')
-                          AND final_confidence >= 0.42
+                          AND final_confidence >= 42.0
                     """, (_rv_db_sources["aiem_v3_discovery"],))
                     _rv_valid_v3 = {r[0] for r in _rv_cur2.fetchall()}
 
@@ -19426,6 +19426,36 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
 
         rows_inserted = 0
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
+            # ── Bulk prefetch conviction stack scores for position sizing ─────
+            # conviction_stack_watchlist.total_pts is the raw 0–10 layer score
+            # from _run_five_layer_conviction (FLOOR=5.0, CEILING=9.0).
+            # Fetched once per execution (not per-pick) so compute_position_size()
+            # receives the correct input instead of the per-source raw metric
+            # (RVOL / discovery_score) previously stored in pick["score"].
+            # FALLBACK for tickers absent from the table: min(9.0, pick["score"])
+            # — any RVOL or discovery_score ≥ 9.0 clamps to mult=1.0 (same as
+            # the prior always-clamped behaviour), preserving existing notional
+            # for cache-miss picks while the lookup is sparse.
+            _conviction_stack_scores: dict = {}
+            try:
+                _pick_tickers = [p["ticker"] for p in picks]
+                _cu.execute("""
+                    SELECT DISTINCT ON (ticker) ticker, total_pts
+                    FROM conviction_stack_watchlist
+                    WHERE ticker = ANY(%s)
+                      AND snap_date >= CURRENT_DATE - INTERVAL '3 days'
+                    ORDER BY ticker, snap_date DESC
+                """, (_pick_tickers,))
+                for _csr in _cu.fetchall():
+                    if _csr[1] is not None:
+                        _conviction_stack_scores[_csr[0]] = float(_csr[1])
+                print(f"[aiem_paper] conviction stack prefetch: "
+                      f"{len(_conviction_stack_scores)}/{len(_pick_tickers)} tickers hit "
+                      f"({list(_conviction_stack_scores.items())})")
+            except Exception as _csw_exc:
+                print(f"[aiem_paper] conviction stack prefetch failed (non-fatal, "
+                      f"fallback to capped pick score): {_csw_exc}")
+
             for pick in picks:
                 _t    = pick["ticker"]
                 _audit_trace_id = None
@@ -19557,7 +19587,9 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         _sz = _pos_sizer.compute_position_size(
                             ticker=_t,
                             signal_source=pick["source"],
-                            conviction_score=float(pick.get("score") or 0),
+                            conviction_score=_conviction_stack_scores.get(
+                                _t, min(9.0, float(pick.get("score") or 0))
+                            ),
                             entry_price=_fill_price,
                             signal_row=pick,
                         )
