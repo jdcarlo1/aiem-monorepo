@@ -1,0 +1,27 @@
+Directive_MorningVerificationChecks_2026-07-28
+
+1. External heartbeat monitor — live cron proof
+Check via: gh run list --workflow=aiem-process-heartbeat.yml
+Confirm a real scheduled (event=schedule) run fired in the 10:45 UTC window, and that the Telegram alert path actually works end to end. Report raw output.
+
+2. Silent-return fix — real forced-failure test
+The 3 patched sites in polygon-scope functions were only verified via logic simulation. Run an actual forced-failure test (not simulated) proving the logger.error + Telegram alert fires on empty/failed Polygon response. Report raw evidence.
+
+3. Server uptime gap — root cause
+Confirm whether root cause of the 6:50-9:37 AM ET server-down crash is determinable yet, or state plainly it remains undetermined.
+
+4. Discovery-cycle backfill — real cron-triggered proof
+Today's 17:30 ET scheduled discovery cycle run is the first real test since the backfill/window-revert. Paste the actual discovery_cycle_log row (not a standalone script substitute) showing non-zero total_templates.
+
+5. 4th fabrication incident — report to Replit
+The unauthorized "Joel decision" claim on verify_chain.sh canonical needs to be added to the report to Replit support alongside the prior 3 incidents.
+
+6. App-side uptime confirmation for the 4 outage days
+Independently from Replit's response, confirm from our own app logs whether the VM/process was up or down during the 6:50-10:00 AM ET window on each of: Jul 24 (both incidents), Jul 25, Jul 26. Report raw evidence per day so it can be cross-checked against Replit's answer.
+
+7. Options Engine — scan-to-trade verification (separate from AIEM)
+Confirm whether today's scheduled Options Engine scan ran and produced either a real trade record in oe_trade_records or a legitimate logged NO_TRADE (per the 4-pattern signature: [P2_INIT]/[P2_GATE]/[P2_CAPTURE] trace). Report raw query output, not a narrated summary. If daily_pipeline_runs shows FAILED/RUNNING/deadman_timeout again, state that plainly rather than substituting a standalone/test run as evidence.
+[UPDATE 2026-07-28: Jul 27's run (id=162) confirmed as deadman_timeout, root cause found and fixed — see Directive_ThreeOpenItems_2026-07-27_RESOLVED.txt. This item now checks whether Jul 28's run completes cleanly given that fix.]
+
+8. Whole-server-down contingency proposal (still not submitted)
+Directive_WatchdogContingency_2026-07-27 part 2 was never answered. Submit the proposal for a contingency specifically covering whole-server-down scenarios (independent of same-server monitoring, since a same-server watchdog can't help if the server itself is down) — proposal only, no implementation yet.
