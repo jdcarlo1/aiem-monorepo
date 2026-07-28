@@ -2992,12 +2992,16 @@ class _HealthHandler(BaseHTTPRequestHandler):
             _sd = _sdate.today()
             _sel = {"bid": 2.50, "ask": 2.60, "delta": -0.35, "gamma": 0.02,
                     "theta": -0.05, "vega": 0.15, "iv": 0.35, "slippage_pct": 0.05,
-                    "premium_at_risk": 255.0, "profit_target": 510.0}
+                    "premium_at_risk": 255.0, "profit_target": 510.0,
+                    # Item 1: spot_at_alert + dte needed for rho/charm/vanna computation
+                    "spot_at_alert": 198.0, "dte": 9}
             log.info(f"[synth] [{_sid}] [P2_CAPTURE] calling capture_trade_record alert_id=8888 ticker=SYNTH_SCHED scan_date={_sd}")
             _tr = _sp2.capture_trade_record(
                 alert_id=8888, trace_id=f"SYNTH_{_sid}", ticker="SYNTH_SCHED",
                 scan_date=_sd, direction="LONG_PUT", sel_data=_sel, sel_strike=200.0,
-                alert_fields={"breakeven": 197.5}, call_score=0.0, put_score=75.0,
+                alert_fields={"breakeven": 197.5, "spot_at_alert": 198.0, "strike": 200.0,
+                               "dte": 9, "iv": 0.35},
+                call_score=0.0, put_score=75.0,
                 stock_data={"market_regime": "BEAR", "sector": "SYNTH"},
                 verify_result={"gate_passed": True}, db_url=_DB_URL,
             )

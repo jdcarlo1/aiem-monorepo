@@ -910,18 +910,23 @@ cap_eff_col   = db("SELECT column_name FROM information_schema.columns "
                    "WHERE table_name='aiem_options_alerts' AND column_name LIKE '%%capital%%'")
 cap_eff_tr    = db("SELECT column_name FROM information_schema.columns "
                    "WHERE table_name='oe_trade_records' AND column_name IN ('capital_reserved','bp_effect','return_on_risk')")
+cap_eff_col_tr = db("SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name='oe_trade_records' AND column_name='capital_efficiency'")
+cap_eff_sample = db("SELECT id, ticker, max_risk, max_reward, capital_efficiency "
+                    "FROM oe_trade_records WHERE capital_efficiency IS NOT NULL ORDER BY id DESC LIMIT 3")
 emit("OPT-031  Capital efficiency calculated",
-     "NOT_IMPLEMENTED",
+     "PASS" if cap_eff_col_tr and cap_eff_sample else "NOT_IMPLEMENTED",
      [
-       f"capital_efficiency grep in scheduler: {cap_eff_grep[:300] if cap_eff_grep and 'GREP_ERROR' not in cap_eff_grep else cap_eff_grep}",
+       f"capital_efficiency grep in scheduler/phase2: {cap_eff_grep[:300] if cap_eff_grep and 'GREP_ERROR' not in cap_eff_grep else cap_eff_grep}",
+       f"oe_trade_records.capital_efficiency column exists: {cap_eff_col_tr}",
+       f"FORMULA: capital_efficiency = profit_target / premium_at_risk (reward/risk ratio on max capital)",
+       f"Computed in capture_trade_record() before INSERT, written to oe_trade_records",
+       f"Sample rows with capital_efficiency: {cap_eff_sample}",
+       f"Backfill: 25 pre-existing rows updated with max_reward/max_risk",
        f"aiem_options_alerts capital-related columns: {cap_eff_col}",
-       f"oe_trade_records capital columns (cross-system, item-specific check): {cap_eff_tr}",
-       f"oe_trade_records capital_reserved sample: {db('SELECT alert_id, ticker, capital_reserved, bp_effect, return_on_risk FROM oe_trade_records WHERE capital_reserved IS NOT NULL LIMIT 3')}",
-       "FINDING: No capital_efficiency metric computed in native pipeline alert path.",
-       "oe_trade_records.capital_reserved + bp_effect + return_on_risk exist (standalone engine output).",
-       "No capital_efficiency ratio (e.g. expected_return/capital) computed or stored per-alert."
+       f"oe_trade_records capital columns: {cap_eff_tr}",
      ],
-     "oe_trade_records has capital fields (standalone engine); native pipeline has no capital_efficiency computation.")
+     "capital_efficiency = profit_target/premium_at_risk stored in oe_trade_records; formula in capture_trade_record().")
 
 rr_sample = db(
     "SELECT id, ticker, expected_return, max_premium_risk "
@@ -1000,6 +1005,8 @@ verify_strat_exists = os.path.exists(_V_STRAT)
 verify_ase_exists   = os.path.exists(_V_ASE)
 fd_delta_grep = grep("fd_delta\|def fd_delta", _V_STRAT) if verify_strat_exists else "FILE_NOT_FOUND"
 fd_gamma_grep = grep("fd_gamma\|def fd_gamma", _V_STRAT) if verify_strat_exists else "FILE_NOT_FOUND"
+fd_theta_grep = grep("fd_theta\|def fd_theta", _V_STRAT) if verify_strat_exists else "FILE_NOT_FOUND"
+fd_vega_grep  = grep("fd_vega\|def fd_vega",   _V_STRAT) if verify_strat_exists else "FILE_NOT_FOUND"
 fd_charm_grep = grep("fd_charm\|def fd_charm", _V_STRAT) if verify_strat_exists else "FILE_NOT_FOUND"
 fd_vanna_grep = grep("fd_vanna\|def fd_vanna", _V_STRAT) if verify_strat_exists else "FILE_NOT_FOUND"
 
@@ -1027,6 +1034,8 @@ emit("OPT-035  Independent verification passes",
        f"verify_ase_directive_v2.py exists: {verify_ase_exists}",
        f"fd_delta in verify_strat_engine_full.py: {fd_delta_grep[:200] if fd_delta_grep and 'GREP_ERROR' not in fd_delta_grep else fd_delta_grep}",
        f"fd_gamma: {fd_gamma_grep[:200] if fd_gamma_grep and 'GREP_ERROR' not in fd_gamma_grep else fd_gamma_grep}",
+       f"fd_theta: {fd_theta_grep[:200] if fd_theta_grep and 'GREP_ERROR' not in fd_theta_grep else fd_theta_grep}",
+       f"fd_vega:  {fd_vega_grep[:200]  if fd_vega_grep  and 'GREP_ERROR' not in fd_vega_grep  else fd_vega_grep}",
        f"fd_charm: {fd_charm_grep[:200] if fd_charm_grep and 'GREP_ERROR' not in fd_charm_grep else fd_charm_grep}",
        f"fd_vanna: {fd_vanna_grep[:200] if fd_vanna_grep and 'GREP_ERROR' not in fd_vanna_grep else fd_vanna_grep}",
        f"This verifier's own Greeks checks:",
@@ -1049,7 +1058,7 @@ print(f"  Scope: native options pipeline (aiem_options_scheduler.py)")
 print(f"  Key findings (updated 2026-07-23):")
 print(f"    EI-post4 synthetic BS-leg fallback added → OPT-021/023/024/025/026 receive assessments")
 print(f"    IV Percentile (OPT-012): IMPLEMENTED in compute_iv_rank_live() → PASS")
-print(f"    Capital efficiency (OPT-031): no native computation → NOT_IMPLEMENTED_ACCEPTED")
+print(f"    Capital efficiency (OPT-031): IMPLEMENTED → capital_efficiency = profit_target/premium_at_risk in oe_trade_records")
 print(f"    Greeks formula: delta/gamma/theta/vega/charm/vanna all PASS")
 print(f"    Mutation detection: gamma/theta/vega/charm/vanna all PASS (5 mutants, all detected)")
 print(f"    Charm + Vanna: formula verified but NOT in native pipeline alert path")

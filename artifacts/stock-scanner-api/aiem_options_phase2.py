@@ -1206,6 +1206,10 @@ def capture_trade_record(
             _call_g = (direction == "LONG_CALL")
             _T_g    = _dte_g / 365.0
             if _spot_g > 0 and _k_g > 0 and _T_g > 0 and _iv_g > 0:
+                import sys as _sys, os as _os
+                _p2_dir = _os.path.dirname(_os.path.abspath(__file__))
+                if _p2_dir not in _sys.path:
+                    _sys.path.insert(0, _p2_dir)
                 from aiem_strat_engine.greeks import bs_rho, bs_charm, bs_vanna
                 greeks["rho"]   = round(bs_rho(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
                 greeks["charm"] = round(bs_charm(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
@@ -1241,6 +1245,11 @@ def capture_trade_record(
                            if isinstance(put_scoring, dict) else put_scoring,
         }
 
+        # OPT-031: capital_efficiency = profit_target / premium_at_risk (ROI on max capital at risk)
+        _max_risk_val   = float(sel_data.get("premium_at_risk", entry_mid * 100) or 0)
+        _max_reward_val = float(sel_data.get("profit_target",   entry_mid * 200) or 0)
+        _cap_eff = round(_max_reward_val / max(0.01, _max_risk_val), 4) if _max_reward_val else None
+
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO oe_trade_records (
@@ -1253,7 +1262,8 @@ def capture_trade_record(
                     breakeven_lower, breakeven_upper,
                     entry_greeks_json, entry_iv,
                     regime, sector,
-                    portfolio_state_json, subsystem_outputs_json
+                    portfolio_state_json, subsystem_outputs_json,
+                    capital_efficiency
                 ) VALUES (
                     %s,%s,%s,%s,
                     %s,%s,%s,
@@ -1264,7 +1274,8 @@ def capture_trade_record(
                     %s,%s,
                     %s,%s,
                     %s,%s,
-                    %s,%s
+                    %s,%s,
+                    %s
                 ) RETURNING id
             """, (
                 alert_id, trace_id, ticker, scan_date,
@@ -1284,6 +1295,7 @@ def capture_trade_record(
                 stock_data.get("sector") or stock_data.get("sector_name"),
                 json.dumps({}),
                 json.dumps(subsystem, default=str),
+                _cap_eff,
             ))
             tr_id = cur.fetchone()[0]
             conn.commit()
