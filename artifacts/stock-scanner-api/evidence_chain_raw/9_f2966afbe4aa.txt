@@ -1,0 +1,132 @@
+=== Item 2 — AIEM: formula-level verification of D1/D2/D3 decision logic ===
+
+--- 0. Formula locations (raw grep) ---
+  [final_confidence formula] aiem_v3_discovery.py:
+223:    score = min(100.0, (raw / 100.0) * 100.0)
+246:        "confidence":       round(min(0.95, score / 100.0), 2),
+
+  [conviction scoring — total_pts + conviction_pct] main.py:
+3795:                total_pts      FLOAT,
+3796:                conviction_pct INT,
+3831:                total_pts   DOUBLE PRECISION,
+4005:    """Persist today's L1-L8 EXTREME cohort (total_pts >= min_pts) from the money-
+4021:    cohort = [r for r in results if float(r.get("total_pts", 0) or 0) >= min_pts]
+4022:    cohort.sort(key=lambda r: r.get("total_pts", 0) or 0, reverse=True)
+4040:                       (snap_date,ticker,total_pts,conviction_pct,label,price,
+4044:                       total_pts=EXCLUDED.total_pts, conviction_pct=EXCLUDED.conviction_pct,
+4048:                (today, r["ticker"], float(r.get("total_pts", 0) or 0),
+4049:                 int(r.get("conviction_pct", 0) or 0), r.get("label", ""),
+
+  [MTM P&L formulas] main.py:
+6410:         "Step 2: For the top 15 movers, use mkt_retrospective_backtest(min_move_pct=5.0, "
+26600:                pnl_pct = round((exit_price - float(entry_price)) / float(entry_price) * 100, 3)
+26605:                        pnl_pct=%s, direction_correct=%s, updated_at=NOW()
+28708:def _aiem_tool_analyze_missed_movers(min_move_pct=5.0, lookback_days=30):
+30111:def _mkt_tool_analyze_top_movers(min_move_pct=5.0, max_move_pct=50.0, horizon="next_day",
+31635:                        min_move_pct=3.0, hold_days=1):
+37972:def _rebuild_templates(min_move_pct=10.0, days_before=10, max_templates=2000):
+48362:                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
+48363:                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
+48366:                    _pnl_pct  = round(max(-100.0, _move_pct * 2.0), 4)
+48367:                    _pnl      = round(_not_f * _pnl_pct / 100, 2)
+48369:                    _pnl      = round((_entry_f - _last) * _qty_f, 2)
+
+  [position-sizing core formula] aiem_position_sizing.py:
+611:    stop_dist_frac = stop["stop_distance_pct"] / 100.0
+619:    notional = (equity * risk_pct) / stop_dist_frac
+627:        notional   = (equity * risk_pct) / total_frac
+640:            f"notional=${notional:.0f} < min=${_MIN_POSITION_NOTIONAL:.0f}"
+--- 1. final_confidence = min(0.95, discovery_score / 100.0) ---
+  score=0 → 0.0: got=0.000 expected=0.000  PASS
+  score=50 → 0.5: got=0.500 expected=0.500  PASS
+  score=90 → 0.90: got=0.900 expected=0.900  PASS
+  score=95 → cap 0.95: got=0.950 expected=0.950  PASS
+  score=100 → cap 0.95 (ceiling): got=0.950 expected=0.950  PASS
+  score=150 → cap 0.95 (overflow): got=0.950 expected=0.950  PASS
+  score=42 → 0.42 (min_confidence threshold in main.py): got=0.420 expected=0.420  PASS
+  score=40 → 0.40: got=0.400 expected=0.400  PASS
+  PASS: final_confidence — all vectors match, cross-check agrees
+  PASS MUTATION_confidence: score=60 correct=0.6 mutant=0.95
+--- 2. Conviction scoring: total_pts → conviction_pct ---
+     Formula (main.py _run_five_layer_conviction ~line 23696):
+       adj_total  = total_pts * regime_mult          (regime_mult ∈ {0.70, 0.85, 1.00})
+       conviction = min(95, round(adj_total / 10.0 * 95, 0))
+     Layer point allocations:
+       L1 oi_accum:       0-2.0 pts  (oi_pct≥50→2.0, ≥25→1.5, else→1.0)
+       L2 gamma_fir:      0-2.0 pts  (fir≥5→2.0, ≥3→1.5, else→1.0)
+       L3 charm:          0-2.0 pts  (charm_score≥1000→2.0, ≥400→1.5, else→1.0)
+       L4 short_int:      0-2.0 pts  (si_pct≥20→2.0, ≥15→1.5, ≥8→1.0, else→0)
+       L5 dark_pool:      0-2.0 pts  (dp_pct≥60→2.0, ≥50→1.5, ≥40→1.0, else→0)
+       L6 float_pressure: 0-2.0 pts  (per _get_float_pressure_signals)
+       L7 far_otm_sweep:  0-2.0 pts  (voi≥10→2.0, ≥7→1.5, else→1.0)
+       L8 sector_sympathy:0-1.5 pts  (heat≥3→1.5, ≥2→1.0, else→0.5)
+       M7 sector_rotation:±0.5 pts   (modifier, capped at ±0.5)
+       L10 fragility:     0 to -N pts (penalty)
+  8pts full_exposure: got=76% expected=76%  PASS
+  6pts full_exposure: got=57% expected=57%  PASS
+  4pts full_exposure: got=38% expected=38%  PASS
+  10pts → cap 95: got=95% expected=95%  PASS
+  8pts reduce_exposure 0.85×: got=65% expected=65%  PASS
+  8pts sit_out 0.70×: got=53% expected=53%  PASS
+  0pts → 0%: got=0% expected=0%  PASS
+  2pts → 19%: got=19% expected=19%  PASS
+  PASS cross-check manual: 8pts → 76%
+  PASS MUTATION_regime: 8pts×0.70 correct=53 mutant_no-mult=76
+  PASS: conviction scoring — all vectors match
+--- 3. MTM P&L formulas (4 trade types) ---
+     Formulas from main.py lines ~48362-48373:
+       CALL_OPTION: move_pct=(last-entry)/entry*100; pnl_pct=max(-100,move_pct*2.0)
+                    pnl=notional*pnl_pct/100
+       PUT_OPTION:  move_pct=(entry-last)/entry*100; pnl_pct=max(-100,move_pct*2.0)
+                    pnl=notional*pnl_pct/100
+       SHORT_STOCK: pnl=(entry-last)*qty; pnl_pct=(entry-last)/entry*100
+       STOCK/ETF:   pnl=(last-entry)*qty; pnl_pct=(last-entry)/entry*100
+  CALL win [entry=100 last=105 not=1000]: pnl=100.00 (100.00)  pnl_pct=10.0000 (10.0000)  PASS
+  CALL floor [entry=100 last=45 not=1000 → floor]: pnl=-1000.00 (-1000.00)  pnl_pct=-100.0000 (-100.0000)  PASS
+  PUT  win [entry=100 last=90 not=1000]: pnl=200.00 (200.00)  pnl_pct=20.0000 (20.0000)  PASS
+  PUT  loss [entry=100 last=102 not=1000]: pnl=-40.00 (-40.00)  pnl_pct=-4.0000 (-4.0000)  PASS
+  SHORT win [entry=50 last=45 qty=20]: pnl=100.00 (100.00)  pnl_pct=10.0000 (10.0000)  PASS
+  LONG  win [entry=50 last=55 qty=20]: pnl=100.00 (100.00)  pnl_pct=10.0000 (10.0000)  PASS
+  LONG  loss [entry=50 last=48 qty=20]: pnl=-40.00 (-40.00)  pnl_pct=-4.0000 (-4.0000)  PASS
+  XCHECK CALL entry=100 last=105 not=1000: method1=(100.0,10.0000) method2=(100.0,10.0000)  PASS
+  PASS MUTATION_call_2x: correct=200.0 mutant_1x=100.0
+  PASS: MTM P&L — all vectors match, cross-check agrees
+--- 4. Position-sizing formula ---
+     Formula from aiem_position_sizing.py (compute_position_size, Section 2+4):
+       mult      = 0.50 + (score-5.0)/(9.0-5.0) * (1.0-0.50)
+       risk_pct  = 0.01 * mult
+       notional  = (equity * risk_pct) / (stop_distance_pct / 100)
+     Constants: equity=20000, max_risk=1%, floor=5.0, ceiling=9.0, min_mult=0.50
+  score=9.0 stop=5%  → $4000: notional=4000.00 (4000.00)  mult=1.000 (1.000)  PASS
+  score=5.0 stop=5%  → $2000: notional=2000.00 (2000.00)  mult=0.500 (0.500)  PASS
+  score=7.0 stop=8%  → $1875: notional=1875.00 (1875.00)  mult=0.750 (0.750)  PASS
+  score=9.0 stop=10% → $2000: notional=2000.00 (2000.00)  mult=1.000 (1.000)  PASS
+  score=5.0 stop=1%  → $10000: notional=10000.00 (10000.00)  mult=0.500 (0.500)  PASS
+  XCHECK score=7.0 stop=8%: method1=1875.00 method2=1875.00  PASS
+  PASS MUTATION_sizing_invert: correct=4000.00 mutant=0.00025000
+  PASS: position-sizing — all vectors match, cross-check agrees
+--- 5. Formulas that cannot be formula-verified ---
+  The following AIEM decision components have no independently verifiable closed-form math:
+
+  a) Five-layer conviction scoring (layer point values): The per-layer thresholds
+     (oi_pct≥50→2.0 pts etc.) are empirically chosen constants, not derived from
+     a mathematical model. They can be confirmed to match their source code but
+     there is no external reference to "check against". CANNOT VERIFY.
+
+  b) aiem_v3_discovery: discovery_type classification criteria (MOMENTUM_LEADER,
+     BREAKOUT_CANDIDATE, etc.) and the discovery_score composite weighting are
+     rule-based assessments with no closed-form formula to test against.
+     CANNOT VERIFY (no external reference).
+
+  c) MetaModel / specialist council LLM outputs: Final trade decisions from
+     the LLM (via _run_five_layer_conviction L8-onwards and AIEM quant agent)
+     are stochastic by design — not formula-testable. CANNOT VERIFY.
+
+  d) EMA trust-weight adaptation (α=0.15): The formula `new = α*result + (1-α)*old`
+     is correctly implemented per design, but α=0.15 is a stated preference, not
+     a mathematically derivable parameter. Implementation is correct; the constant
+     itself has no external verification target. PARTIALLY VERIFIABLE (formula only).
+
+  All four are documented gaps by design, not errors.
+
+SUMMARY: PASS=5 FAIL=0

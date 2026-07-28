@@ -1,0 +1,32 @@
+# Directive: Greeks Wiring (Options Engine) + Formula-Level Verification (AIEM)
+
+Two separate items, two separate systems — handle independently, do not conflate.
+
+## ITEM 1 — OPTIONS ENGINE: wire rho/charm/vanna into the live scheduler
+Delta/gamma/theta/vega already compute correctly in the live alert path. Rho/charm/vanna do not — formulas are correct but only exist in a standalone module never called from the live path. rho has no bs_rho() at all (Tradier pass-through only); entry_greeks_json.rho/.charm/.vanna are null on every live alert.
+
+Required:
+1. State wiring approach before changing code (call the existing standalone functions from the live scheduler path vs. reimplementing inline)
+2. Implement bs_rho() (none currently exists)
+3. Wire all three into the same live path that already populates delta/gamma/theta/vega, writing real values to entry_greeks_json
+4. Raw diff + sha256 before/after
+5. Known-answer test vectors for all three (external reference values, not self-derived)
+6. Finite-difference cross-check + mutation check for each (same standard already applied to delta/gamma/theta/vega)
+7. Confirm on a real production alert (not test ticker) that entry_greeks_json shows non-null computed values
+
+## ITEM 2 — AIEM: formula-level verification of D1/D2/D3 decision logic
+No formula-level/decision-logic verification has ever been run on AIEM's own math — conviction weight matrix, final_confidence derivation, MTM P&L calculation, position-sizing. This is a genuine gap, not parity with the Options Engine's more mature Greeks/FIN-style verification history.
+
+Required:
+1. Agent states plainly what math exists (locate each formula's code location via raw grep, not description)
+2. For each: known-answer test vectors derived externally, not invented by the agent
+3. Cross-check via a second independent method where feasible (e.g. manual recomputation of conviction score from stated inputs)
+4. Mutation check — deliberately break a known-correct value, confirm the test catches it
+5. State plainly if any of these formulas cannot be verified this way, rather than assume they're fine
+
+## Standing checklist (applies to both items)
+- Raw command output only, no narrative substitute
+- sha256 cross-check vs current canonicals: tools/verified_run.sh = dce94f6e19dfc5c7952ab9eee7015b7eb10c3ff1e0ca60263279658ab166f826; tools/verify_chain.sh = 4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12
+- No deletions without prior approval
+- "PASS" only if fully evidenced — otherwise label accepted-risk/partial/cleared-to-proceed
+- Permanent record file required for each item once closed

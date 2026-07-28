@@ -318,3 +318,7 @@ print("ALL CHECKS PASSED")
 155	2026-07-27T23:00:09Z	1	c1fa779fbafd8f99a8a7b7cd3ab8b5b73d3a9ed3acd3199e097bd084f9d22b94	bash /tmp/negctrl_item2_unrecognized.sh
 156	2026-07-27T23:00:50Z	0	fddf0ba6a84d82c0d2934988c8836c7ae33a08498f5227ec9204753e5edb00a2	bash /tmp/negctrl_item2_unrecognized.sh
 157	2026-07-27T23:52:29Z	0	12659cf799420f7b26faa0e9e1796bcec46841dac443abcd55d1df984356d603	bash /tmp/negctrl_task63.sh
+158	2026-07-28T00:05:56Z	1	197edae651daa8c23c21d9cbd8ce53ec89d8efaeb590261aef891cc24179d182	bash /tmp/verify_item1_greeks_wiring.sh
+159	2026-07-28T00:05:59Z	0	1ab273d15c8387a3f0836a4dfc911f62170f1fee892bc6037df2f6fa645fe6f6	bash /tmp/verify_item2_aiem_formulas.sh
+160	2026-07-28T00:07:43Z	1	ee2b12e4e614b1a91a2a7035d13fbe93b4413ef9e71a5d6ea24f626c99fb490f	bash /tmp/verify_item1_greeks_wiring.sh
+161	2026-07-28T00:08:25Z	0	a70580f82dab43b1561df3abdfc8bd2cec937397a60c88cbd73e12fdba73cb3d	bash /tmp/verify_item1_greeks_wiring.sh

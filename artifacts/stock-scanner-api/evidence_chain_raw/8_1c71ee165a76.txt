@@ -1,0 +1,23 @@
+=== Item 1 — Options Engine: rho/charm/vanna wiring ===
+--- 0. Tool canonicals ---
+PASS: verified_run.sh canonical
+PASS: verify_chain.sh canonical
+--- 1. bs_rho() added to aiem_strat_engine/greeks.py ---
+72:def bs_rho(S: float, K: float, T: float, sigma: float, call: bool = True, r: float = 0.0) -> float:
+PASS: bs_rho() defined
+--- 2. rho/charm/vanna wired into aiem_options_phase2.capture_trade_record ---
+1209:                from aiem_strat_engine.greeks import bs_rho, bs_charm, bs_vanna
+1210:                greeks["rho"]   = round(bs_rho(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
+1211:                greeks["charm"] = round(bs_charm(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
+1212:                greeks["vanna"] = round(bs_vanna(_spot_g, _k_g, _T_g, _iv_g), 6)
+1214:                greeks["rho"]   = None
+1215:                greeks["charm"] = None
+1216:                greeks["vanna"] = None
+1219:            greeks["rho"]   = None
+1220:            greeks["charm"] = None
+1221:            greeks["vanna"] = None
+PASS: all three keys written to greeks dict
+--- 3. Known-answer test vectors ---
+  Hull Table 19.4 — call rho=0.0891  (expected ≈ 0.0891 / 100 units; Hull reports 8.91 per 1% but our unit is /100): raw=0.089070
+  PASS Hull_A call rho=0.089070 ≈ 0.0891
+  FAIL Hull_A put  rho=-0.099575 ≠ -0.1157

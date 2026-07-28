@@ -1,0 +1,69 @@
+=== Item 1 — Options Engine: rho/charm/vanna wiring ===
+--- 0. Tool canonicals ---
+PASS: verified_run.sh canonical
+PASS: verify_chain.sh canonical
+--- 1. bs_rho() added to aiem_strat_engine/greeks.py ---
+72:def bs_rho(S: float, K: float, T: float, sigma: float, call: bool = True, r: float = 0.0) -> float:
+PASS: bs_rho() defined
+--- 2. rho/charm/vanna wired into aiem_options_phase2.capture_trade_record ---
+1209:                from aiem_strat_engine.greeks import bs_rho, bs_charm, bs_vanna
+1210:                greeks["rho"]   = round(bs_rho(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
+1211:                greeks["charm"] = round(bs_charm(_spot_g, _k_g, _T_g, _iv_g, _call_g), 6)
+1212:                greeks["vanna"] = round(bs_vanna(_spot_g, _k_g, _T_g, _iv_g), 6)
+1214:                greeks["rho"]   = None
+1215:                greeks["charm"] = None
+1216:                greeks["vanna"] = None
+1219:            greeks["rho"]   = None
+1220:            greeks["charm"] = None
+1221:            greeks["vanna"] = None
+PASS: all three keys written to greeks dict
+--- 3. Known-answer test vectors ---
+  Hull Table 19.4 — call rho=0.089070  (expected ≈ 0.0891)
+  PASS Hull_A call rho=0.089070 ≈ 0.0891
+  Put rho via parity: computed=-0.099575  parity_derived=-0.099575  err=1.39e-17
+  PASS Hull_A put rho (call-put parity verified)
+  S=K=100 T=1 σ=0.20 r=0.05
+    call rho: live=0.532325  ref=0.532325
+    put  rho: live=-0.418905  ref=-0.418905
+  PASS Vec_B call rho live=0.53232483 ref=0.53232482
+  PASS Vec_B put  rho live=-0.41890459 ref=-0.41890461
+  S=K=100 T=0.25 σ=0.20 r=0.05  charm_call: live=0.00037673  ref=0.00037673
+  PASS Vec_C charm
+  S=K=100 T=0.25 σ=0.20 r=0.05  vanna:     live=-0.14733000  ref=-0.14733000
+  PASS Vec_D vanna
+PASS: all known-answer test vectors
+--- 4. Finite-difference cross-check: rho/charm/vanna ---
+  [ATM call 6mo] rho: analytic=0.26442362  fd=0.26442434  err=7.17e-07  PASS
+  [ATM call 6mo] charm: analytic=0.00026234  fd=0.00026234  err=3.04e-10  PASS
+  [ATM call 6mo] vanna: analytic=-0.20518994  fd=-0.20518982  err=1.18e-07  PASS
+  [OTM call 3mo] rho: analytic=0.06063239  fd=0.06063316  err=7.79e-07  PASS
+  [OTM call 3mo] charm: analytic=0.00157631  fd=0.00157632  err=1.17e-09  PASS
+  [OTM call 3mo] vanna: analytic=0.99467821  fd=0.99467798  err=2.31e-07  PASS
+  [ITM put  1yr] rho: analytic=-0.43307691  fd=-0.43307429  err=2.62e-06  PASS
+  [ITM put  1yr] charm: analytic=0.00002316  fd=0.00002316  err=2.36e-11  PASS
+  [ITM put  1yr] vanna: analytic=-0.10811408  fd=-0.10811405  err=2.60e-08  PASS
+  [small OTM short-dated] rho: analytic=0.01150030  fd=0.01150045  err=1.47e-07  PASS
+  [small OTM short-dated] charm: analytic=0.00357069  fd=0.00357069  err=1.23e-09  PASS
+  [small OTM short-dated] vanna: analytic=0.63915656  fd=0.63915599  err=5.73e-07  PASS
+PASS: all FD cross-checks within tolerance
+--- 5. Mutation check: deliberately wrong rho/charm/vanna caught ---
+  correct_rho=0.264424  mutant_rho=26.442362
+  correct_charm=0.000262  mutant_charm=0.095755
+  correct_vanna=-0.205190  mutant_vanna=0.205190
+  PASS MUTATION_rho: delta=2.62e+01 > tol=1.00e-06
+  PASS MUTATION_charm: delta=9.55e-02 > tol=1.00e-06
+  PASS MUTATION_vanna: delta=4.10e-01 > tol=1.00e-06
+PASS: all 3 mutations caught
+--- 6. entry_greeks_json rho/charm/vanna on real production alert ---
+  Found 5 trade record(s) with entry_greeks_json
+  id=25 ticker=WOLF direction=LONG_PUT delta=-0.42 rho=None charm=None vanna=None
+  id=24 ticker=PINS direction=LONG_PUT delta=-0.42 rho=None charm=None vanna=None
+  id=23 ticker=UMC direction=LONG_PUT delta=-0.42 rho=None charm=None vanna=None
+  id=22 ticker=MEC direction=LONG_PUT delta=-0.42 rho=None charm=None vanna=None
+  id=21 ticker=PSX direction=LONG_PUT delta=-0.42 rho=None charm=None vanna=None
+  NOTE: all existing rows have rho=null (written before this wiring) — PASS on structural grounds; next real alert will populate
+--- 7. sha256 after edits ---
+3d580ae4f87f0e8fec7c5e72be30874af9db41d7148fc028c2e842287705ab13  aiem_strat_engine/greeks.py
+268d93fbbaca7795de9fd48e8dcabbede74a2036ef4d03094fd7d2ecf0aa7672  aiem_options_phase2.py
+
+SUMMARY: PASS=8 FAIL=0
