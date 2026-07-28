@@ -1221,17 +1221,61 @@ _ETF_SET = {
 }
 
 
+def _log_polygon_api_call_nt(caller: str, endpoint: str, http_status, error_msg, rows: int, elapsed_ms: int):
+    """Best-effort write to polygon_api_calls. Never raises."""
+    try:
+        import psycopg2 as _lpg
+        _db = DATABASE_URL
+        if not _db:
+            return
+        with _lpg.connect(_db, connect_timeout=3) as _lc, _lc.cursor() as _lcu:
+            _lcu.execute("""
+                CREATE TABLE IF NOT EXISTS polygon_api_calls (
+                    id          BIGSERIAL PRIMARY KEY,
+                    ts          TIMESTAMPTZ DEFAULT NOW(),
+                    caller      TEXT NOT NULL,
+                    endpoint    TEXT,
+                    http_status INTEGER,
+                    error_msg   TEXT,
+                    rows_returned INTEGER,
+                    elapsed_ms  INTEGER
+                )
+            """)
+            _lcu.execute(
+                "INSERT INTO polygon_api_calls (caller,endpoint,http_status,error_msg,rows_returned,elapsed_ms) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (caller, endpoint, http_status, error_msg, rows, elapsed_ms),
+            )
+            _lc.commit()
+    except Exception:
+        pass
+
+
 def _poly_req(path: str, timeout: int = 12) -> dict:
     if not _POLY_KEY:
         return {}
+    import urllib.error as _ue_nt, time as _t_nt
     sep = "&" if "?" in path else "?"
     url = f"https://api.polygon.io{path}{sep}apiKey={_POLY_KEY}"
+    _t0 = _t_nt.monotonic()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "AIEM-Notifier/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return _json_mod.loads(r.read().decode("utf-8", errors="replace"))
+            _http_status = r.status
+            _body = _json_mod.loads(r.read().decode("utf-8", errors="replace"))
+        _rows = len(_body.get("results", [])) if isinstance(_body, dict) else 0
+        _log_polygon_api_call_nt("notifier", path.split("?")[0], _http_status, None,
+                                  _rows, int((_t_nt.monotonic()-_t0)*1000))
+        return _body
+    except _ue_nt.HTTPError as _he:
+        log.warning(f"[poly_req] {path[:70]} → HTTP {_he.code} {_he.reason}")
+        _log_polygon_api_call_nt("notifier", path.split("?")[0], _he.code, str(_he),
+                                  0, int((_t_nt.monotonic()-_t0)*1000))
+        return {}
     except Exception as e:
         log.debug(f"[poly_req] {path[:70]} → {e}")
+        _log_polygon_api_call_nt("notifier", path.split("?")[0], None, str(e),
+                                  0, int((_t_nt.monotonic()-_t0)*1000))
         return {}
 
 
@@ -3414,16 +3458,15 @@ def main():
     )
 
     def _nightly_notifier_reset():
-        import os as _o, gc as _gc
-        _is_prod = _o.environ.get("REPLIT_DEPLOYMENT") == "1"
-        if _is_prod:
-            log.info("[NIGHTLY-RESET] 3:04 AM ET — production mode: running gc.collect() "
-                     "instead of exit (exit triggers crash loop on deployment platform)")
-            _gc.collect()
-        else:
-            log.info("[NIGHTLY-RESET] 3:04 AM ET scheduled memory reset — exiting cleanly for platform restart")
-            import sys as _s; _s.stdout.flush()
-            _o._exit(0)
+        # FIX-2026-07-28: always gc.collect(), never os._exit(0).
+        # os._exit(0) in dev mode killed the daemon vm_resource_monitor thread,
+        # producing a ~5.9-hour gap (3:04–8:58 AM ET) in vm_resource_log on
+        # every trading day.  Production already used gc.collect() only; dev
+        # now matches.  Memory relief comes from gc.collect(); the platform
+        # does not need to restart this process to get a fresh heap.
+        import gc as _gc
+        log.info("[NIGHTLY-RESET] 3:04 AM ET — gc.collect() (vm_resource_monitor stays alive)")
+        _gc.collect()
 
     scheduler.add_job(
         _nightly_notifier_reset,

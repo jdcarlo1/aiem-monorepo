@@ -710,16 +710,60 @@ def _market_day() -> bool:
 # ─────────────────────────────────────────────────────────────
 # HELPERS: POLYGON
 # ─────────────────────────────────────────────────────────────
+def _log_polygon_api_call_ap(caller: str, endpoint: str, http_status, error_msg, rows: int, elapsed_ms: int):
+    """Best-effort write to polygon_api_calls. Never raises."""
+    try:
+        import psycopg2 as _lpg_ap
+        _db = DB_URL
+        if not _db:
+            return
+        with _lpg_ap.connect(_db, connect_timeout=3) as _lc, _lc.cursor() as _lcu:
+            _lcu.execute("""
+                CREATE TABLE IF NOT EXISTS polygon_api_calls (
+                    id          BIGSERIAL PRIMARY KEY,
+                    ts          TIMESTAMPTZ DEFAULT NOW(),
+                    caller      TEXT NOT NULL,
+                    endpoint    TEXT,
+                    http_status INTEGER,
+                    error_msg   TEXT,
+                    rows_returned INTEGER,
+                    elapsed_ms  INTEGER
+                )
+            """)
+            _lcu.execute(
+                "INSERT INTO polygon_api_calls (caller,endpoint,http_status,error_msg,rows_returned,elapsed_ms) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (caller, endpoint, http_status, error_msg, rows, elapsed_ms),
+            )
+            _lc.commit()
+    except Exception:
+        pass
+
+
 def _pg_get(url: str, timeout: int = 15) -> dict:
     """GET a Polygon URL; return parsed JSON or {}."""
+    import urllib.error as _ue_ap, time as _t_ap
+    _t0 = _t_ap.monotonic()
     try:
         sep = "&" if "?" in url else "?"
         full = f"{url}{sep}apiKey={POLYGON_KEY}"
         req  = urllib.request.Request(full, headers={"User-Agent": "AIEM/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
+            _http_status = r.status
+            data = json.loads(r.read())
+        _rows = len(data.get("results", [])) if isinstance(data, dict) else 0
+        _log_polygon_api_call_ap("aiem_process", url.split("?")[0], _http_status, None,
+                                  _rows, int((_t_ap.monotonic()-_t0)*1000))
+        return data
+    except _ue_ap.HTTPError as _he:
+        log.warning(f"polygon GET HTTP {_he.code} ({url[:60]}…): {_he}")
+        _log_polygon_api_call_ap("aiem_process", url.split("?")[0], _he.code, str(_he),
+                                  0, int((_t_ap.monotonic()-_t0)*1000))
+        return {}
     except Exception as e:
         log.warning(f"polygon GET error ({url[:60]}…): {e}")
+        _log_polygon_api_call_ap("aiem_process", url.split("?")[0], None, str(e),
+                                  0, int((_t_ap.monotonic()-_t0)*1000))
         return {}
 
 
@@ -2241,9 +2285,17 @@ def main():
     sched.add_job(aiem_warmup, CronTrigger(day_of_week="mon-fri", hour=6, minute=55, timezone=ET),
                   id="aiem_warmup", replace_existing=True)
 
-    # 7:00–9:15 AM — premarket scan every 15 min
+    # 7:00–9:15 AM — premarket scan offset by +2 min from the :00/:15/:30/:45 grid.
+    # FIX-2026-07-28: was minute="*/15" (fires at :00,:15,:30,:45).
+    # StockScanner calls Polygon at 8:35 ET on the same POLYGON_API_KEY (5 req/min plan).
+    # 8:30 and 8:45 were within a 15-min straddle of 8:35; with a rolling window quota
+    # any burst could land two calls in the same 60-second window.
+    # New schedule (minute="2,17,32,47") fires at :02,:17,:32,:47 — gaps vs 8:35:
+    #   8:32 → 3 min before StockScanner   (safe: different quota window)
+    #   8:47 → 12 min after StockScanner   (safe)
+    # Effective fire times Mon-Fri: 7:02,7:17,7:32,7:47,8:02,8:17,8:32,8:47,9:02,9:17
     sched.add_job(aiem_premarket_scan,
-                  CronTrigger(day_of_week="mon-fri", hour="7-9", minute="*/15", timezone=ET),
+                  CronTrigger(day_of_week="mon-fri", hour="7-9", minute="2,17,32,47", timezone=ET),
                   id="aiem_premarket_scan", replace_existing=True)
 
     # 9:30 AM – 3:30 PM — open watcher: every 5 min through 10:30 (primary
@@ -2785,7 +2837,7 @@ def main():
 
     log.info("Scheduler running — 18 jobs:")
     log.info("  6:55 AM               warm-up (Polygon full snapshot)")
-    log.info("  7:00–9:15 every 15m   premarket scan + funnel")
+    log.info("  7:02–9:17 every 15m   premarket scan + funnel (offset +2min from :00/:15/:30/:45 to avoid 8:35 Polygon collision)")
     log.info("  9:30–10:30 every  5m  open watcher + Telegram alert (primary)")
     log.info("  9:36 AM               first-candle capture (gap-up universe, Tradier 5-min bar)")
     log.info("  11:00–3:30 every 15m  open watcher catch-up net (idempotent)")

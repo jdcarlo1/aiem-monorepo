@@ -65568,11 +65568,43 @@ def _polygon_recent_trading_days(n: int) -> list:
     return days
 
 
+def _log_polygon_api_call(caller: str, endpoint: str, http_status, error_msg, rows: int, elapsed_ms: int):
+    """Best-effort write to polygon_api_calls. Never raises."""
+    try:
+        import psycopg2 as _lpg_sc
+        _db = os.environ.get("DATABASE_URL", "")
+        if not _db:
+            return
+        with _lpg_sc.connect(_db, connect_timeout=3) as _lc, _lc.cursor() as _lcu:
+            _lcu.execute("""
+                CREATE TABLE IF NOT EXISTS polygon_api_calls (
+                    id          BIGSERIAL PRIMARY KEY,
+                    ts          TIMESTAMPTZ DEFAULT NOW(),
+                    caller      TEXT NOT NULL,
+                    endpoint    TEXT,
+                    http_status INTEGER,
+                    error_msg   TEXT,
+                    rows_returned INTEGER,
+                    elapsed_ms  INTEGER
+                )
+            """)
+            _lcu.execute(
+                "INSERT INTO polygon_api_calls (caller,endpoint,http_status,error_msg,rows_returned,elapsed_ms) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (caller, endpoint, http_status, error_msg, rows, elapsed_ms),
+            )
+            _lc.commit()
+    except Exception:
+        pass
+
+
 def _polygon_grouped_daily(date_str: str) -> dict:
     """Fetch all US stock OHLCV for a given date via Polygon grouped daily.
     Uses urllib.request directly to bypass any patched requests session."""
     import urllib.request as _ureq
+    import urllib.error as _uerr
     import json as _json2
+    import time as _time_pgd
     _key = os.environ.get("POLYGON_API_KEY", "")
     if not _key:
         # Silent return here means _polygon_full_market_scan gets 0 tickers for every
@@ -65585,17 +65617,30 @@ def _polygon_grouped_daily(date_str: str) -> dict:
         return {}
     _url = (f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
             f"?adjusted=true&apiKey={_key}")
+    _endpoint = f"/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+    _t0 = _time_pgd.monotonic()
     try:
         with _ureq.urlopen(_url, timeout=20) as _r:
+            _http_status = _r.status
             _data = _json2.load(_r)
         _status = _data.get("status", "")
         if _status in ("OK", "DELAYED"):
             results = _data.get("results", [])
             if results:
+                _log_polygon_api_call("stockscanner", _endpoint, _http_status, None,
+                                      len(results), int((_time_pgd.monotonic()-_t0)*1000))
                 return {x["T"]: x for x in results}
         app.logger.warning(f"[polygon_rvol] grouped daily {date_str} status={_status} n={_data.get('resultsCount',0)}")
+        _log_polygon_api_call("stockscanner", _endpoint, _http_status,
+                              f"polygon_status={_status}", 0, int((_time_pgd.monotonic()-_t0)*1000))
+    except _uerr.HTTPError as _he:
+        app.logger.error(f"[polygon_rvol] grouped daily {date_str} HTTP {_he.code}: {_he}")
+        _log_polygon_api_call("stockscanner", _endpoint, _he.code, str(_he),
+                              0, int((_time_pgd.monotonic()-_t0)*1000))
     except Exception as _e:
         app.logger.error(f"[polygon_rvol] grouped daily {date_str} error: {_e}")
+        _log_polygon_api_call("stockscanner", _endpoint, None, str(_e),
+                              0, int((_time_pgd.monotonic()-_t0)*1000))
     return {}
 
 
