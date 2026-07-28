@@ -1,17 +1,17 @@
 # Item 1 — Live rho/charm/vanna Population Check
 **Directive:** Three Open Items Closeout (2026-07-28)
-**Date:** 2026-07-28
+**Date:** 2026-07-28T00:10Z UTC / 2026-07-27 20:10 ET
 **Status: OPEN — no post-wiring production row exists yet**
 
 ---
 
 ## Current State
 
-The wiring commit (`819f20c`, 2026-07-28T00:08 UTC) modified:
+The wiring commit (`819f20c`, 2026-07-28T00:08Z UTC / 2026-07-27 20:08 ET) modified:
 - `aiem_strat_engine/greeks.py` — added `bs_rho()`
 - `aiem_options_phase2.py` — `capture_trade_record()` now computes rho/charm/vanna
 
-Query: newest `oe_trade_records` rows as of 2026-07-28T00:10 UTC:
+Query: newest `oe_trade_records` rows as of 2026-07-28T00:10Z UTC / 2026-07-27 20:10 ET:
 
 ```
 id  | ticker | created_at                              | rho  | charm | vanna | iv

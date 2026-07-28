@@ -1,7 +1,7 @@
 # Greeks Wiring + Formula Verification — FINAL Close-Out
 
 **Directive:** `attached_assets/Pasted--Directive-Greeks-Wiring-Options-Engine-Formula-Level-V_1785196651625.txt`
-**Date:** 2026-07-28
+**Date:** 2026-07-28T00:09Z UTC / 2026-07-27 20:09 ET
 
 ---
 

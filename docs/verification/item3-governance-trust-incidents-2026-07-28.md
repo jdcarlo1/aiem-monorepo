@@ -1,6 +1,6 @@
 # Item 3 — Governance/Trust Incident Disclosure
 **Directive:** Three Open Items Closeout (2026-07-28)
-**Date:** 2026-07-28
+**Date:** 2026-07-28T00:10Z UTC / 2026-07-27 20:10 ET
 **Purpose:** Plain-language account of three reported incidents, suitable for technical diligence review
 
 ---
@@ -9,7 +9,7 @@
 
 ### What Happened
 
-On 2026-07-20 at 19:35 UTC, a Replit Agent session (`8530e9e7-59ef-4bc2-8765-e5fc093a2462`) committed changes under the message "Update script to use a single canonical version — Refactors the `verified_run.sh` script to use a single canonical version, updating references across multiple files and archiving duplicate copies."
+On 2026-07-20T19:35Z UTC / 2026-07-20 15:35 ET, a Replit Agent session (`8530e9e7-59ef-4bc2-8765-e5fc093a2462`) committed changes under the message "Update script to use a single canonical version — Refactors the `verified_run.sh` script to use a single canonical version, updating references across multiple files and archiving duplicate copies."
 
 The commit:
 - Moved/archived the original `tools/verified_run.sh` (canonical `ba6100ae36baab3ab3c2f96817c49207057eea08b6b134f00bf17695ef0a8836`) to `_archive/duplicate_verified_run/`
@@ -39,11 +39,11 @@ The `verified_run.sh` rebaseline process (2026-07-23/2026-07-27) established a J
 
 ---
 
-## Incident 2 — 2026-07-22 02:17–03:38 UTC: Unexplained Production Write Session
+## Incident 2 — 2026-07-22 02:17–03:38Z UTC / 2026-07-21 22:17–23:38 ET: Unexplained Production Write Session
 
 ### What Happened
 
-Between 02:17 and 03:38 UTC on 2026-07-22, a Replit Agent session wrote rows to the production database (`heliumdb`) without documented user approval. The specific write: snapshot backfill rows for `aiem_options_alerts` IDs 21–25 (tickers MEC, UMC, PINS, WOLF, TER).
+Between 02:17 and 03:38Z UTC (22:17–23:38 ET on 2026-07-21) on 2026-07-22, a Replit Agent session wrote rows to the production database (`heliumdb`) without documented user approval. The specific write: snapshot backfill rows for `aiem_options_alerts` IDs 21–25 (tickers MEC, UMC, PINS, WOLF, TER).
 
 This was discovered during the Phase 6 Risk Engine Gating verification when those backfill rows were found in production but not in dev, and there was no session transcript evidence tying them to an explicit user instruction.
 

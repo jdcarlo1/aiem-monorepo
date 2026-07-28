@@ -1,6 +1,6 @@
 # Item 2 — E2E Trading Logic Correctness Status
 **Directive:** Three Open Items Closeout (2026-07-28)
-**Date:** 2026-07-28
+**Date:** 2026-07-28T00:10Z UTC / 2026-07-27 20:10 ET
 
 ---
 
@@ -43,7 +43,7 @@ The five formula types identified as unverified: conviction layer weights, `fina
 
 ---
 
-## AIEM Formula Gap — Subsequently Closed (2026-07-28)
+## AIEM Formula Gap — Subsequently Closed (2026-07-28T00:05Z UTC / 2026-07-27 20:05 ET)
 
 The gap identified under Item 3 was addressed in the same session as the Greeks wiring directive.
 
@@ -85,8 +85,8 @@ Both the Options Engine correctness items and the AIEM formula gap are closed wi
 Evidence chain entries covering this directive:
 | SEQ | Timestamp | Item | Verdict |
 |---|---|---|---|
-| 153 | 2026-07-27T22:59:41Z | aiem_v3_discovery NOT PASS_THROUGH; DB revalidation; neg ctrl | PASS=5/FAIL=0 |
-| 156 | 2026-07-27T23:00:50Z | Unrecognized-source durable DB log | PASS=5/FAIL=0 |
-| 159 | 2026-07-28T00:07:19Z | AIEM formula math (final_confidence/conviction/MTM/sizing) | PASS=5/FAIL=0 |
+| 153 | 2026-07-27T22:59:41Z UTC / 2026-07-27 18:59 ET | aiem_v3_discovery NOT PASS_THROUGH; DB revalidation; neg ctrl | PASS=5/FAIL=0 |
+| 156 | 2026-07-27T23:00:50Z UTC / 2026-07-27 19:00 ET | Unrecognized-source durable DB log | PASS=5/FAIL=0 |
+| 159 | 2026-07-28T00:05:57Z UTC / 2026-07-27 20:05 ET | AIEM formula math (final_confidence/conviction/MTM/sizing) | PASS=5/FAIL=0 |
 
 verify_chain.sh: CHAIN VALID through SEQ=162 (see Item 2 chain run in this closeout session).
