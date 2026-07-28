@@ -79,8 +79,8 @@
   "scoring_fn_combined_hash_note": "sha256(getsource(compute_req6_score) + '\\x00' + json.dumps(_REQ6_SCORING_WEIGHTS, sort_keys=True)) — same computation as replay_decision combined_hash check. Used by C52_replay_returns_structure fixture patch.",
   "scoring_fn_module": "aiem_options_pipeline",
   "scoring_fn_name": "compute_req6_score",
-  "tools_verify_chain_sh_note": "tools/verify_chain.sh is the Standing Protocol canonical chain verifier (94L). Stays active. Archived: root verify_chain.sh (469edcd4) and .local/verify_chain.sh (64f2cffd) to _archive/verify_chain/ per Directive 18 sign-off 2026-07-21.",
-  "tools_verify_chain_sh_sha256": "972ff44a02eded8816f97b8c1455211d1f224aa571459c4bc135835a68058d75",
+  "tools_verify_chain_sh_note": "tools/verify_chain.sh is the Standing Protocol canonical chain verifier (94L). Stays active. Archived: root verify_chain.sh (469edcd4) and .local/verify_chain.sh (64f2cffd) to _archive/verify_chain/ per Directive 18 sign-off 2026-07-21. Hash updated 2026-07-28: prior value 972ff44a was correct at time of writing (2026-07-21) but became stale after tools/verify_chain.sh was restored to 4804b547 at commit 8c97974 per VerifyChainCanonicalReject_2026-07-27. No fabricated-approval language was present for this key — stale hash only. Pending Joel review before this correction is treated as closed.",
+  "tools_verify_chain_sh_sha256": "4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12",
   "weights_snapshot": {
     "D10_technical_confirmation": 0.08,
     "D11_options_flow_confirmation": 0.07,
