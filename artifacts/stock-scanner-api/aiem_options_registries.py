@@ -464,12 +464,16 @@ def capture_options_metrics(
     voi  = round(vol / oi, 4) if vol and oi else None
     iv   = _f("iv")
     iv_rank = _f("iv_rank")
-    rr   = (_f("profit_target") / _f("premium_at_risk")
-            if _f("profit_target") and _f("premium_at_risk") else None)
     ev   = ((_f("probability_estimate") * _f("expected_return")) -
             ((1 - _f("probability_estimate")) * 1.0)
             if _f("probability_estimate") is not None and _f("expected_return") is not None
             else None)
+    # return_on_risk = probability-weighted expected return per unit of capital at risk.
+    # Old formula (profit_target / premium_at_risk) was a per-share / per-contract mismatch
+    # that always produced 0.016 (PUTs) or 0.010 (CALLs) — not a real metric.
+    # ev is already the correct quantity: pop * expected_return_ratio - (1-pop) * 1.0,
+    # where expected_return_ratio comes from lognormal payoff analysis and varies per option.
+    rr   = round(ev, 4) if ev is not None else None
 
     try:
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:

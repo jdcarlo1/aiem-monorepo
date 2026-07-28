@@ -1598,7 +1598,7 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             "expected_return":     _call_expected_return,
             "slippage_pct":        round(call_spread * 0.5, 4),
             "entry_premium_lo":    call_bid, "entry_premium_hi": call_ask,
-            "profit_target":       round((call_bid + call_ask) * 0.5, 2),
+            "profit_target":       round((call_bid + call_ask) * 0.8, 2),
             "stop_level":          f"Close above ${call_strike + 3:.0f}",
         }
         put_data = {
