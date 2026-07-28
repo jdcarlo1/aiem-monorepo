@@ -32548,6 +32548,10 @@ def _mkt_backfill_indicators_all():
         global _MKT_INDICATOR_BACKFILL_RUNNING
         _MKT_INDICATOR_BACKFILL_RUNNING = True
         import psycopg2, psycopg2.extras, time as _t
+        # Delay 30 min so market-hours pool traffic clears before this long-running
+        # job holds a persistent connection.  The backfill is resumable (ON CONFLICT)
+        # so a delayed start is safe.
+        _t.sleep(1800)
         try:
             with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
                 cur.execute("SELECT DISTINCT ticker FROM polygon_market_daily ORDER BY ticker")
@@ -32569,7 +32573,7 @@ def _mkt_backfill_indicators_all():
                 if done % 250 == 0:
                     print(f"[mkt_indicators] backfill progress: {done}/{len(tickers)} tickers, "
                           f"{written} rows written, {errors} errors")
-                _t.sleep(0.05)
+                _t.sleep(0.15)  # was 0.05 — slower tick reduces pool pressure
             conn.close()
             print(f"[mkt_indicators] backfill DONE: {done} tickers, {written} rows, {errors} errors")
         except Exception as e:
