@@ -18133,7 +18133,7 @@ try:
 except Exception as _e_0dte_paper:
     print(f"[0dte_paper] scheduler registration error: {_e_0dte_paper}")
 
-# Ensure paper_0dte_trades + v_paper_0dte_stats exist from boot
+# Ensure paper_0dte_trades exists from boot
 # (ensure_tables() is lazy inside scan_once, but API routes need the table on day 1)
 try:
     from patterns.zero_dte_sweep import ensure_tables as _0dte_ensure_tables
@@ -50145,14 +50145,31 @@ def zero_dte_paper_trades_endpoint():
 @app.route("/stock-api/0dte/paper-stats", methods=["GET"])
 def zero_dte_paper_stats_endpoint():
     """
-    Live win-rate stats from v_paper_0dte_stats view.
+    Live win-rate stats for 0DTE paper trades.
     Updated on every query — not a static snapshot.
     """
     try:
         import psycopg2 as psycopg2; import psycopg2.extras as _pext
         _conn = psycopg2.connect(_DB_URL, connect_timeout=4)
         _cur  = _conn.cursor(cursor_factory=_pext.RealDictCursor)
-        _cur.execute("SELECT * FROM v_paper_0dte_stats")
+        _cur.execute("""
+            SELECT
+                count(*)                                                    AS total_trades,
+                count(*) FILTER (WHERE win IS TRUE)                        AS wins,
+                count(*) FILTER (WHERE win IS FALSE)                       AS losses,
+                count(*) FILTER (WHERE status = 'open')                    AS open_trades,
+                round(100.0 * count(*) FILTER (WHERE win IS TRUE)::numeric
+                    / NULLIF(count(*) FILTER (WHERE status = 'closed'), 0)::numeric, 2)
+                                                                            AS win_rate_pct,
+                round(avg(pnl_usd) FILTER (WHERE win IS TRUE), 2)          AS avg_win_usd,
+                round(avg(pnl_pct) FILTER (WHERE win IS TRUE), 4)          AS avg_win_pct,
+                round(avg(pnl_usd) FILTER (WHERE win IS FALSE
+                                           AND status = 'closed'), 2)      AS avg_loss_usd,
+                round(avg(pnl_pct) FILTER (WHERE win IS FALSE
+                                           AND status = 'closed'), 4)      AS avg_loss_pct,
+                max(opened_at)                                              AS last_trade_at
+            FROM paper_0dte_trades
+        """)
         _row = _cur.fetchone()
         _cur.close(); _conn.close()
         return jsonify(dict(_row) if _row else {})

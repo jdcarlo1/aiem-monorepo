@@ -25,7 +25,7 @@ Paper trading:
   - A separate 1-min monitor (registered in main.py) polls current prices and
     closes trades at profit_target or stop_loss.
   - An EOD closer (15:35 ET cron in main.py) sweeps remaining open trades.
-  - Win-rate stats are live via the v_paper_0dte_stats view.
+  - Win-rate stats are computed inline by the /stock-api/0dte/paper-stats endpoint.
 """
 
 import os
@@ -295,27 +295,8 @@ def ensure_tables() -> None:
                     opened_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
             """)
-            # Live win-rate view — updated on every query, not a static snapshot
-            cur.execute("""
-                CREATE OR REPLACE VIEW v_paper_0dte_stats AS
-                SELECT
-                    COUNT(*)                                                          AS total_trades,
-                    COUNT(*) FILTER (WHERE win IS TRUE)                               AS wins,
-                    COUNT(*) FILTER (WHERE win IS FALSE)                              AS losses,
-                    COUNT(*) FILTER (WHERE status = 'open')                           AS open_trades,
-                    ROUND(
-                        100.0 * COUNT(*) FILTER (WHERE win IS TRUE)
-                        / NULLIF(COUNT(*) FILTER (WHERE status = 'closed'), 0), 2
-                    )                                                                 AS win_rate_pct,
-                    ROUND(AVG(pnl_usd) FILTER (WHERE win IS TRUE),  2)               AS avg_win_usd,
-                    ROUND(AVG(pnl_pct) FILTER (WHERE win IS TRUE),  4)               AS avg_win_pct,
-                    ROUND(AVG(pnl_usd) FILTER (WHERE win IS FALSE AND status='closed'), 2) AS avg_loss_usd,
-                    ROUND(AVG(pnl_pct) FILTER (WHERE win IS FALSE AND status='closed'), 4) AS avg_loss_pct,
-                    MAX(opened_at)                                                    AS last_trade_at
-                FROM paper_0dte_trades;
-            """)
             conn.commit()
-        print("[0dte] tables ready (pattern_0dte_matches, pattern_0dte_iv_history, paper_0dte_trades, v_paper_0dte_stats)")
+        print("[0dte] tables ready (pattern_0dte_matches, pattern_0dte_iv_history, paper_0dte_trades)")
     except Exception as exc:
         print(f"[0dte] table init error: {exc}")
 
