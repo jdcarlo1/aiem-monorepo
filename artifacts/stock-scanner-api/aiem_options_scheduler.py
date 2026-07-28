@@ -1579,7 +1579,15 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
                 _put_expected_return = round(
                     max(-1.0, min(3.0, _put_ev_raw  / (put_mid  * 100))), 4)
         except Exception as _ev_e:
-            log.debug(f"[EV] lognormal EV skipped, using heuristic fallback: {_ev_e}")
+            import traceback as _ev_tb
+            log.warning(
+                f"[EV] lognormal EV skipped, using heuristic fallback "
+                f"ticker={ticker} spot={spot} front_iv={front_iv} _dte={_dte} "
+                f"call_mid={call_mid} put_mid={put_mid} "
+                f"call_strike={call_strike} put_strike={put_strike} "
+                f"exception={type(_ev_e).__name__}: {_ev_e}\n"
+                + _ev_tb.format_exc()
+            )
 
         call_data = {
             **base_fields,
