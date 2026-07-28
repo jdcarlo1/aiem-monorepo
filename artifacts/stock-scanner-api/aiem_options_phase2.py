@@ -1245,10 +1245,15 @@ def capture_trade_record(
                            if isinstance(put_scoring, dict) else put_scoring,
         }
 
-        # OPT-031: capital_efficiency = profit_target / premium_at_risk (ROI on max capital at risk)
-        _max_risk_val   = float(sel_data.get("premium_at_risk", entry_mid * 100) or 0)
-        _max_reward_val = float(sel_data.get("profit_target",   entry_mid * 200) or 0)
-        _cap_eff = round(_max_reward_val / max(0.01, _max_risk_val), 4) if _max_reward_val else None
+        # OPT-031: capital_efficiency = (profit_target_per_share - entry_mid) / entry_mid
+        # profit_target in scheduler is a per-share exit price (bid+ask)*0.8 for puts,
+        # (bid+ask)*0.5 for calls; entry_mid is also per-share. This gives fractional
+        # return on premium invested (e.g. 0.60 = 60% return on option premium).
+        # Do NOT use max_risk (per-contract) in the denominator — that creates a 1/100
+        # scale error producing 0.016 instead of 0.60.
+        _profit_tgt = float(sel_data.get("profit_target") or 0)
+        _cap_eff = (round((_profit_tgt - entry_mid) / entry_mid, 4)
+                    if entry_mid > 0 and _profit_tgt > entry_mid else None)
 
         with psycopg2.connect(db_url, connect_timeout=4) as conn, conn.cursor() as cur:
             cur.execute("""
