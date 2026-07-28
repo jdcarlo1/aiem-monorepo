@@ -1471,9 +1471,16 @@ def _execute_job(job_id: int, ticker: str, scan_date: date, claim_id: str) -> di
             d1 = (_math.log(S / K) + 0.5 * sig**2 * T) / (sig * _math.sqrt(T))
             return d1, d1 - sig * _math.sqrt(T)
 
-        # Strike levels: strategy design parameters (±2.5% from spot)
-        put_strike  = round(spot * 0.975 / 5) * 5
-        call_strike = round(spot * 1.025 / 5) * 5
+        # Strike levels — increment adapts to spot price to match real market
+        # strike grids; floor/ceil guarantee put is OTM (below spot) and call
+        # is OTM (above spot) for all spot values including sub-$5 tickers.
+        _sinc       = 1.0 if spot < 5 else 2.5 if spot < 25 else 5.0
+        put_strike  = _math.floor(spot * 0.975 / _sinc) * _sinc
+        call_strike = _math.ceil(spot * 1.025 / _sinc) * _sinc
+        if put_strike >= spot:   # hard OTM guard for exact-multiple edge case
+            put_strike  -= _sinc
+        if call_strike <= spot:
+            call_strike += _sinc
 
         # Pricing — unchanged; derived from live spot + front_iv per ticker
         put_mid    = round(spot * front_iv * _T**0.5 * 0.85, 2)
