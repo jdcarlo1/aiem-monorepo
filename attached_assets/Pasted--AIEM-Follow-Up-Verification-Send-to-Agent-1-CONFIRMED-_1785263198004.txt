@@ -1,0 +1,30 @@
+# AIEM Follow-Up Verification — Send to Agent
+
+## 1. CONFIRMED state logic fix
+
+The `closes[-1] > closes[-2]` condition is confirmed to select dead-cat bounces in the RSI 36-45 zone (CONFIRMED underperforms WATCHING by 7.3pp there, on 63% of CONFIRMED rows), but works fine at RSI≤35.
+
+**Fix:** Restrict the up-close condition to RSI≤35 only. Remove it (or make it a no-op) for RSI 36-45.
+
+**Before implementing, answer this:**
+- Does conviction score discriminate win rate *within* CONFIRMED rows specifically? Bucket CONFIRMED rows by score (5, 6, 7, 8, 9, 10) and report `n` and `wr_5d` for each bucket.
+- If flat here too (no meaningful spread), flag that the `score >= 5` gate applied after state assignment is also non-predictive, not just the `closes[-1] > closes[-2]` condition. Both need fixing, not one.
+
+## 2. FULL_EXIT threshold (7 vs 6)
+
+Current test (n=7, 2 tickers, 1 week in April) is too small to validate the FULL_EXIT@7 threshold vs the spec's example of 6.
+
+**Run a real comparative backtest:**
+- Pull every historical instance where `signals_triggered_count >= 6` (not filtered to April, not filtered to 4+ only) — full history available in the data.
+- Split results by exact count: 6, 7, 8+.
+- Report `n`, win rate, and avg forward return (1d/3d/5d/10d) for each count separately.
+- If 6 and 7 perform statistically indistinguishably, say so explicitly — that means the current threshold is an arbitrary choice, not a data-backed one, and should be picked based on trade frequency/risk tolerance instead.
+
+## 3. Conviction score predictive power (overall)
+
+Confirmed: conviction score spans 2-10 (not flat) but WR spread across all 9 levels is only 2.4pp with no monotonic trend — no demonstrated predictive value in backtest.
+
+**Questions:**
+- Is conviction score currently used anywhere to rank, filter, or size trades in live/paper execution? If so, where exactly (file/line)?
+- Does any individual component of the score (EMA21 support, light volume, intact RS, etc.) show predictive value on its own, even if the combined score doesn't?
+- If no component or combination shows predictive value, what is the recommended path: rebuild the scoring formula from scratch using features that do show a backtested edge, or drop the score as a ranking mechanism and rely on the RSI/state logic alone?
