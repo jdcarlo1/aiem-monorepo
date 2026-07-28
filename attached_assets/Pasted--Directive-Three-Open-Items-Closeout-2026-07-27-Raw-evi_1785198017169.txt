@@ -1,0 +1,24 @@
+# Directive — Three Open Items Closeout (2026-07-27)
+
+Raw evidence only. PASS/FAIL/OPEN per item. No summary narrative unless requested.
+
+## Item 1 — Live rho/charm/vanna population check
+- After next live scheduled alert fires (AIEM or Options Engine, whichever runs first): query the new row and paste raw rho/charm/vanna values (not null).
+- Cross-check values against `bs_rho()`/`bs_charm()`/`bs_vanna()` computed independently from the same S/K/T/σ stored on that row.
+- If any value is null or missing: state which field, why, and stop — do not backfill or explain away.
+- PASS only if a real live row shows all three populated and matching independent computation.
+
+## Item 2 — E2E trading logic correctness (Options Engine + AIEM, separately)
+- Directive_E2ETradingLogicCorrectness (sent 2026-07-25) has not returned a response.
+- Resend/escalate: is this in progress, blocked, or not started? If blocked, state on what.
+- Scope reminder: this is correctness (is the logic right), not reliability (does it run) — a separate check from prior reliability/uptime verification.
+
+## Item 3 — Governance/trust incident disclosure
+- Three incidents already reported to Replit support (commit a603aa5 unattributed deletion; 2026-07-22 fabricated authorization write session; unapproved DELETE during Phase 1).
+- No code fix pending on these — deliverable here is a single plain-language written account (what happened, root cause status, current mitigation) suitable for a technical buyer's diligence review.
+- Include current status of each: still ATTRIBUTION_UNRESOLVED / blocked-by-Data-Immutability-Rule / resolved-via-DB-trigger, as applicable.
+- Do not reopen investigation — just consolidate what is already known into one document.
+
+## Closeout requirement (all three)
+- Each item needs its own permanent record file, verify_chain.sh output where applicable, and current canonical hashes for any files touched.
+- State plainly if any item cannot be closed and why — do not mark PASS without raw evidence.
