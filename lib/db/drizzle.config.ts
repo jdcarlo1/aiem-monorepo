@@ -12,5 +12,4 @@ export default defineConfig({
     url: process.env.DATABASE_URL,
   },
   tablesFilter: ["sessions", "affiliates", "questions", "answers", "session_claims"],
-  extensionsFilters: ["pg_stat_statements"],
 });
