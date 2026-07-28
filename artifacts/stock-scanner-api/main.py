@@ -3582,7 +3582,12 @@ def _run_td_intraday_capture():
     """Snapshot 1-min bars for the priority watchlist + any live-signal tickers.
     Runs every 5 min 9:35–16:00 ET via the scheduler.
     _td_intraday() returns the full session bars each call; the DB upsert is
-    idempotent so only new bars are inserted on each pass."""
+    idempotent so only new bars are inserted on each pass.
+
+    Pool-pressure fix: fetch all tickers in parallel (Tradier I/O, no DB),
+    then bulk-insert ALL rows in ONE pooled connection instead of one connection
+    per ticker.  This reduces pool usage from max_workers concurrent slots → 1.
+    """
     if not _intraday_scan_allowed():
         return
 
@@ -3602,24 +3607,66 @@ def _run_td_intraday_capture():
 
     universe = list(dict.fromkeys(_TD_INTRADAY_WATCHLIST + _live_extra))
 
+    # Phase 1: fetch bars from Tradier in parallel (pure I/O, no DB connections)
     from concurrent.futures import ThreadPoolExecutor as _TDIE_TPE, as_completed as _tdie_asc
-    total_bars = 0
+    import psycopg2 as _pg_tdi, psycopg2.extras as _ext_tdi
 
-    def _fetch_one(t):
-        df = _td_intraday(t, "1min")
-        return _save_td_intraday_bars(t, df)
+    ticker_dfs: dict = {}
 
-    with _TDIE_TPE(max_workers=4) as ex:
-        futs = {ex.submit(_fetch_one, t): t for t in universe}
+    def _fetch_only(t):
+        return t, _td_intraday(t, "1min")
+
+    with _TDIE_TPE(max_workers=6) as ex:
+        futs = {ex.submit(_fetch_only, t): t for t in universe}
         try:
             for fut in _tdie_asc(futs, timeout=90):
                 try:
-                    total_bars += fut.result()
+                    t, df = fut.result()
+                    if df is not None and not df.empty:
+                        ticker_dfs[t] = df
                 except Exception as _exc:
                     print(f"[silent_except:L1202] {type(_exc).__name__}: {_exc}")
         except TimeoutError:
             for f in futs:
                 f.cancel()
+
+    # Phase 2: build all rows and bulk-insert with ONE pooled connection
+    all_rows = []
+    for t, df in ticker_dfs.items():
+        for ts, row in df.iterrows():
+            try:
+                all_rows.append((
+                    t,
+                    ts.isoformat(),
+                    float(row.get("Open")   or 0) or None,
+                    float(row.get("High")   or 0) or None,
+                    float(row.get("Low")    or 0) or None,
+                    float(row.get("Close")  or 0) or None,
+                    int(  row.get("Volume") or 0) or None,
+                    float(row.get("VWAP")   or 0) or None,
+                ))
+            except Exception:
+                pass
+
+    total_bars = 0
+    if all_rows:
+        try:
+            with _pg_tdi.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
+                _ext_tdi.execute_values(
+                    _cur,
+                    """
+                    INSERT INTO td_intraday_cache
+                        (ticker, ts, open, high, low, close, volume, vwap)
+                    VALUES %s
+                    ON CONFLICT (ticker, ts) DO NOTHING
+                    """,
+                    all_rows,
+                    page_size=1000,
+                )
+                _c.commit()
+                total_bars = len(all_rows)
+        except Exception as _e_tdi:
+            print(f"[td_intraday_cache] bulk save error: {_e_tdi}")
 
     print(f"[td_intraday_cache] {len(universe)} tickers → {total_bars} bars upserted")
 
@@ -14919,14 +14966,30 @@ def _init_owner_email_log():
 _DEFERRED_INITS.append(lambda: _init_owner_email_log())
 
 
-def _owner_claim_slot(kind: str, slot: str) -> bool:
+def _owner_claim_slot(kind: str, slot: str, _shared_conn=None) -> bool:
     """Atomically claim (kind, slot, today-ET). Returns True if WE claimed it (the
     caller should send), False if it was already sent/claimed today (skip). This is
-    the single dedup gate shared by the scheduler and the wake-up catch-up."""
+    the single dedup gate shared by the scheduler and the wake-up catch-up.
+
+    Pass _shared_conn to reuse an existing pool connection (avoids opening a new
+    connection per slot when claiming many slots in a batch).
+    """
     import psycopg2 as _pg2
     from datetime import datetime as _dt
     today = _dt.now(_ET_TZ).date()
     try:
+        if _shared_conn is not None:
+            # Reuse caller-provided connection — no open/close overhead
+            with _shared_conn.cursor() as _cur:
+                _cur.execute(
+                    "INSERT INTO owner_email_log (kind, slot, sent_date) "
+                    "VALUES (%s, %s, %s) "
+                    "ON CONFLICT (kind, slot, sent_date) DO NOTHING",
+                    (kind, slot, today),
+                )
+                claimed = _cur.rowcount > 0
+            _shared_conn.commit()
+            return claimed
         with _pg2.connect(os.environ["DATABASE_URL"]) as _c, _c.cursor() as _cur:
             _cur.execute(
                 "INSERT INTO owner_email_log (kind, slot, sent_date) "
@@ -15078,23 +15141,39 @@ def _owner_run_due_emails() -> dict:
         cur_min = now.hour * 60 + now.minute
         schedule = dict(_OWNER_EMAIL_SCHEDULE)
         schedule["smart_money"] = list(schedule.get("smart_money", [])) + [_EOD_SMART_MONEY_SLOT]
-        for kind, slots in schedule.items():
-            newly = 0
-            latest = None
-            for (h, m) in slots:
-                if h * 60 + m <= cur_min:
-                    slot = f"{h:02d}:{m:02d}"
-                    latest = slot
-                    if _owner_claim_slot(kind, slot):
-                        newly += 1
-            if newly > 0:
+        # Open ONE shared connection for all slot claims so we use 1 pool slot
+        # instead of 1 per claim (20+ claims × 1 connection each was the pool-
+        # exhaustion culprit during _owner_run_due_emails wake-up sweeps).
+        import psycopg2 as _orde_pg
+        try:
+            _shared = _orde_pg.connect(os.environ["DATABASE_URL"])
+        except Exception as _ce:
+            print(f"[owner_email_log] shared conn error: {_ce}")
+            _shared = None
+        try:
+            for kind, slots in schedule.items():
+                newly = 0
+                latest = None
+                for (h, m) in slots:
+                    if h * 60 + m <= cur_min:
+                        slot = f"{h:02d}:{m:02d}"
+                        latest = slot
+                        if _owner_claim_slot(kind, slot, _shared_conn=_shared):
+                            newly += 1
+                if newly > 0:
+                    try:
+                        _owner_send_now(kind)
+                        out[kind] = f"sent (caught up {newly} slot(s), latest {latest})"
+                    except Exception as _e_send:
+                        out[kind] = f"error: {_e_send}"
+                else:
+                    out[kind] = "nothing due or already sent"
+        finally:
+            if _shared is not None:
                 try:
-                    _owner_send_now(kind)
-                    out[kind] = f"sent (caught up {newly} slot(s), latest {latest})"
-                except Exception as _e_send:
-                    out[kind] = f"error: {_e_send}"
-            else:
-                out[kind] = "nothing due or already sent"
+                    _shared.close()
+                except Exception:
+                    pass
         return {"status": "ok", "et_time": now.strftime("%a %H:%M"), "detail": out}
     except Exception as _e:
         return {"status": "error", "error": str(_e)}
@@ -16458,7 +16537,7 @@ try:
     _pg2_orig_connect = _psycopg2.connect
 
     _PG_POOL = _pg_pool_mod.ThreadedConnectionPool(
-        minconn=4, maxconn=45, dsn=_DB_URL,
+        minconn=4, maxconn=80, dsn=_DB_URL,
         connect_timeout=5,
         keepalives=1, keepalives_idle=10,
         keepalives_interval=5, keepalives_count=3,
@@ -16503,7 +16582,7 @@ try:
         return conn
     _PG_POOL._connect = _ptypes.MethodType(_pool_direct_connect, _PG_POOL)
 
-    print("[db] connection pool ready (min=4 max=45)")
+    print(f"[db] connection pool ready (min=4 max=80)")
 except Exception as _pool_init_err:
     print(f"[db] pool init failed — falling back to direct connections: {_pool_init_err}")
 
@@ -60335,10 +60414,11 @@ def _run_layer9_bg_scan():
     print(f"[layer9_bg] done — {_upserted} scored, {_errors} errors, {_elapsed:.0f}s elapsed")
 
 
-# Kick off one scan 3 minutes after startup (let preload settle first)
+# Kick off one scan 20 minutes after startup (let pool settle — pool exhaustion at 3 min was
+# competing with backfill delay=30min, td_intraday, news_catalyst, and deferred inits).
 def _layer9_startup_kick():
     import time as _l9sk_time
-    _l9sk_time.sleep(180)
+    _l9sk_time.sleep(1200)
     _run_layer9_bg_scan()
 
 import threading as _l9_startup_thr
@@ -60351,7 +60431,7 @@ _l9_startup_thr.Thread(target=_layer9_startup_kick, daemon=True).start()
 # never empty after a fresh deploy.
 def _stat_arb_bootstrap_kick():
     import time as _sabk_time, psycopg2 as _sabk_pg
-    _sabk_time.sleep(240)   # wait 4 min — let layer9 startup settle first
+    _sabk_time.sleep(1500)  # wait 25 min — let layer9 + backfill settle first
     try:
         with _sabk_pg.connect(_DB_URL, connect_timeout=4) as _sabk_c, \
              _sabk_c.cursor() as _sabk_cu:
