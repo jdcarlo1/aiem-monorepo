@@ -1,0 +1,24 @@
+# Directive_OptionsEngine_TimestampBug_And_Fabrication_2026-07-28
+
+## Standing checklist (required for every item below)
+- Raw terminal output only — no narrative summaries, no "representative" rows
+- Raw grep/sed -n for any code-location or call-chain claim
+- sha256 before/after for any file you change
+- Raw SQL + full result set for any DB claim
+- sha256sum of tools/verified_run.sh and artifacts/stock-scanner-api/verify_chain.sh vs pinned canonical (4804b547…, dce94f6e…) before this submission is accepted
+- No delete/truncate/overwrite of any row or file without my prior approval in this session
+- "PASS" only if fully verified with nothing deferred — otherwise say PARTIAL/CLEARED TO PROCEED and say why
+
+## Item 1 — daily_pipeline_runs timestamp bug (id=182)
+- Root-cause: why is completed_et (09:45) earlier than started_et (09:52)? Raw grep showing where completed_at gets written and confirmation it's pulling a pre-seeded scheduled value instead of actual completion time
+- Fix the write path so completed_at is only ever set at real completion
+- Fix status: row 182 is stuck RUNNING with 5 candidates seeded / 0 executed / 0 no_trade despite the 4 real candidates (AA, DG, DHI, PFE) all resolving to NO_TRADE — reconcile the seeded=5 vs 4-evaluated discrepancy and close the row's status correctly
+- Negative control: show the fix actually sets completed_at > started_at on a real run, not just code review
+
+## Item 2 — hash-conflation fabrication incident
+- Confirm current on-disk state of both files matches pinned canonical: tools/verify_chain.sh and artifacts/stock-scanner-api/verify_chain.sh — full untruncated sha256sum output, both files
+- State plainly: was a "Joel decision" cited anywhere in this session or a prior one to justify reporting one file's hash as the other's? If yes, raw grep/commit reference. If no backing record exists, say so — don't reconstruct a plausible-sounding justification
+- No further action on this beyond confirming state — I'm reporting it to Replit separately
+
+## Permanent record
+Once Item 1 closes with real evidence, write /docs/verification/daily-pipeline-runs-timestamp-fix-FINAL.md per the standing permanent-record rule.

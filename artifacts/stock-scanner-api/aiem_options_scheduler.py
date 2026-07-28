@@ -2816,14 +2816,15 @@ def run_pipeline_worker(scan_date: date = None, max_jobs: int = 10) -> dict:
                 INSERT INTO daily_pipeline_runs
                     (run_date, trigger_source, status, trace_id,
                      candidates_executed, candidates_no_trade, candidates_failed,
-                     completed_at)
-                VALUES (%s, 'primary', %s, %s, %s, %s, %s, NOW())
+                     started_at, completed_at)
+                VALUES (%s, 'primary', %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (run_date, trigger_source) DO UPDATE
                     SET status=EXCLUDED.status,
                         trace_id=COALESCE(EXCLUDED.trace_id, daily_pipeline_runs.trace_id),
                         candidates_executed=EXCLUDED.candidates_executed,
                         candidates_no_trade=EXCLUDED.candidates_no_trade,
                         candidates_failed=EXCLUDED.candidates_failed,
+                        started_at=COALESCE(daily_pipeline_runs.started_at, NOW()),
                         completed_at=NOW()
             """, (scan_date, final_status, first_trace,
                   executed, no_trade_count, skipped))
