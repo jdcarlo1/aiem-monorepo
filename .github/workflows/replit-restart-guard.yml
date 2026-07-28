@@ -1,0 +1,134 @@
+name: Replit Restart Guard
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TIER 3 — External restart guard, independent of Replit's own recovery.
+#
+# If aiem-process is unreachable, this workflow:
+#   1. Detects outage via /stock-api/admin/aiem-process-liveness
+#   2. Calls /stock-api/admin/aiem-process/run-warmup up to 3 times (30s apart)
+#      -- triggers lazy initialization if process has partially started
+#   3. Re-checks liveness after warmup
+#   4. Fires Telegram alert with result (RECOVERED or STILL DOWN)
+#
+# "Restart" mechanism: /run-warmup proxies to localhost:5055/run-warmup on the
+# aiem-process admin server, which re-runs premarket scan and seed cycle.
+# GH Actions cannot directly signal the Replit VM supervisor; warmup is the
+# closest external equivalent to a process restart.
+#
+# Fires every 5 min Mon-Fri 6:30-10:30 AM ET (10:30-14:30 UTC).
+# Path-limited on:push keeps its own cron active without firing on every commit.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/replit-restart-guard.yml'
+  schedule:
+    - cron: '30,35,40,45,50,55 10 * * 1-5'
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 11 * * 1-5'
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 12 * * 1-5'
+    - cron: '0,5,10,15,20,25,30,35,40,45,50,55 13 * * 1-5'
+    - cron: '0,5,10,15,20,25,30 14 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'true = probe only, no warmup trigger'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: replit-restart-guard
+  cancel-in-progress: false
+
+jobs:
+  restart-guard:
+    name: Detect outage and trigger warmup
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - name: Check liveness and attempt warmup if down
+        env:
+          REPLIT_APP_URL:     ${{ secrets.REPLIT_APP_URL }}
+          ADMIN_TOKEN:        ${{ secrets.ADMIN_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN:            ${{ github.event.inputs.dry_run || 'false' }}
+          RUN_URL:            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "=== Replit Restart Guard ==="
+          echo "UTC    : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Run    : ${{ github.run_id }}"
+
+          # Push trigger (path-limited) -- keepalive only
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Push trigger -- keepalive only, skipping probe"
+            exit 0
+          fi
+
+          # ── Step 1: liveness probe ────────────────────────────────────────
+          LIVENESS="${REPLIT_APP_URL}/stock-api/admin/aiem-process-liveness"
+          echo "Probing: ${LIVENESS}"
+          HTTP=$(curl -s -o /tmp/live_body.json -w "%{http_code}" \
+            "${LIVENESS}" --max-time 15 2>&1) || HTTP="000"
+          BODY=$(cat /tmp/live_body.json 2>/dev/null || echo '{}')
+          echo "HTTP ${HTTP}: ${BODY}"
+
+          if [ "${HTTP}" = "200" ]; then
+            echo "aiem-process alive -- no restart needed"
+            exit 0
+          fi
+
+          echo "aiem-process UNREACHABLE (HTTP ${HTTP}) -- attempting warmup"
+
+          if [ "${DRY_RUN}" = "true" ]; then
+            echo "DRY RUN -- warmup suppressed"
+            exit 0
+          fi
+
+          # ── Step 2: warmup attempts (up to 3, 30 s apart) ────────────────
+          WARMUP_URL="${REPLIT_APP_URL}/stock-api/admin/aiem-process/run-warmup"
+          WARMUP_OK=0
+          for ATTEMPT in 1 2 3; do
+            echo "Warmup attempt ${ATTEMPT}/3..."
+            WU_HTTP=$(curl -s -o /tmp/warmup_${ATTEMPT}.json -w "%{http_code}" \
+              -X POST \
+              -H "X-Admin-Token: ${ADMIN_TOKEN}" \
+              "${WARMUP_URL}" --max-time 30 2>&1) || WU_HTTP="000"
+            WU_BODY=$(cat /tmp/warmup_${ATTEMPT}.json 2>/dev/null || echo '{}')
+            echo "  attempt=${ATTEMPT}  HTTP=${WU_HTTP}  body=${WU_BODY}"
+            if [ "${WU_HTTP}" = "200" ] || [ "${WU_HTTP}" = "202" ]; then
+              WARMUP_OK=1
+              break
+            fi
+            [ "${ATTEMPT}" -lt 3 ] && sleep 30
+          done
+
+          # ── Step 3: re-check liveness after warmup ────────────────────────
+          sleep 20
+          RECHECK=$(curl -s -o /tmp/recheck.json -w "%{http_code}" \
+            "${LIVENESS}" --max-time 15 2>&1) || RECHECK="000"
+          echo "Re-check HTTP ${RECHECK}"
+
+          NOW_UTC=$(date -u '+%Y-%m-%dT%H:%M+UTC')
+
+          if [ "${RECHECK}" = "200" ]; then
+            RESULT="RECOVERED+after+warmup"
+            OUTCOME=0
+          else
+            RESULT="STILL+DOWN+after+warmup+-+manual+restart+needed"
+            OUTCOME=1
+          fi
+
+          # ── Step 4: Telegram alert ────────────────────────────────────────
+          TEXT="GH-RESTART-GUARD%3A+aiem-process+${RESULT}%0Ainitial_http%3D${HTTP}+warmup_ok%3D${WARMUP_OK}+recheck%3D${RECHECK}%0AUTC%3A+${NOW_UTC}%0ARun%3A+${RUN_URL}%0AAction%3A+Replit+%3E+aiem-process+%3E+Restart+if+STILL+DOWN"
+
+          curl -s -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}&text=${TEXT}" \
+            --max-time 10
+          echo ""
+
+          exit ${OUTCOME}

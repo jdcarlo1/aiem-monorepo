@@ -1,0 +1,56 @@
+name: Heartbeat Keepalive B
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TIER 2 — Mutual partner of heartbeat-keepalive-a.yml.
+#
+# A dispatches B; B dispatches A back.  The pair sustains each other even
+# after pushes stop.  B fires on a schedule offset from A so coverage is
+# staggered across the day.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    # 04:00 UTC (midnight ET) — early morning run, offset from A
+    - cron: '0 4 * * *'
+    # 16:00 UTC (12:00 PM ET) — midday run
+    - cron: '0 16 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: heartbeat-keepalive-b
+  cancel-in-progress: true
+
+jobs:
+  keepalive:
+    name: Dispatch A back (mutual keepalive)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Dispatch heartbeat-keepalive-a and aiem-process-heartbeat
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+        run: |
+          echo "=== Heartbeat Keepalive B ==="
+          echo "Trigger : ${{ github.event_name }}"
+          echo "UTC     : $(date -u '+%Y-%m-%dT%H:%M:%S UTC')"
+          echo "Run     : ${{ github.run_id }}"
+
+          dispatch() {
+            local WF="$1"
+            HTTP=$(curl -s -o /tmp/dispatch_${WF}.json -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: token ${GH_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d '{"ref":"main"}' \
+              "https://api.github.com/repos/${REPO}/actions/workflows/${WF}/dispatches")
+            echo "dispatch ${WF} → HTTP ${HTTP}"
+          }
+
+          dispatch "heartbeat-keepalive-a.yml"
+          dispatch "aiem-process-heartbeat.yml"
+          dispatch "premarket-backup.yml"
+          dispatch "market-hours-watchdog.yml"
+
+          echo "Done"

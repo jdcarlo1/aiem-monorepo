@@ -24487,6 +24487,42 @@ def admin_aiem_process_liveness():
     return jsonify(_data), 200
 
 
+@app.route("/stock-api/admin/heartbeat-age", methods=["GET"])
+def admin_heartbeat_age():
+    """Dead-man's switch probe: age of the last aiem_process_heartbeat row.
+    No auth — read-only, non-sensitive.  Used by aiem-deadmans-switch GH workflow.
+    Returns 200 with {last_ts, age_seconds, pid, status} always.
+    status='OK' if age<600s, 'STALE' if 600-1800s, 'DEAD' if >1800s.
+    """
+    import psycopg2 as _hb_pg
+    from datetime import datetime, timezone as _hb_tz
+    try:
+        with _hb_pg.connect(DATABASE_URL, connect_timeout=4) as _hc, _hc.cursor() as _hcu:
+            _hcu.execute(
+                "SELECT ts, pid FROM aiem_process_heartbeat ORDER BY id DESC LIMIT 1"
+            )
+            _row = _hcu.fetchone()
+    except Exception as _hbe:
+        return jsonify({"status": "DB_ERROR", "detail": str(_hbe)}), 503
+
+    if _row is None:
+        return jsonify({"status": "NO_ROWS", "age_seconds": None, "last_ts": None, "pid": None}), 200
+
+    _last_ts, _pid = _row
+    _now = datetime.now(_hb_tz.utc)
+    if _last_ts.tzinfo is None:
+        _last_ts = _last_ts.replace(tzinfo=_hb_tz.utc)
+    _age = int((_now - _last_ts).total_seconds())
+    _status = "OK" if _age < 600 else ("STALE" if _age < 1800 else "DEAD")
+    return jsonify({
+        "status":      _status,
+        "age_seconds": _age,
+        "last_ts":     _last_ts.isoformat(),
+        "pid":         _pid,
+        "probe_ts":    _now.isoformat(),
+    }), 200
+
+
 # ── AI Trade Log - DB-backed track record ────────────────────────────────────
 
 def _init_ai_trade_log_table():
