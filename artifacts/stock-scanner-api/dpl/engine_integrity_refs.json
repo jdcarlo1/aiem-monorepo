@@ -1,6 +1,6 @@
 {
-  "aiem_process_verify_chain_sh_note": "Canonical for artifacts/stock-scanner-api/verify_chain.sh. Re-baselined 2026-07-22: commit 20530e2 added SUMMARY line (print(f'SUMMARY: {len(passes)} PASS  {len(fails)} FAIL')) to satisfy PSV8_pass_fail_totals_in_archive. Approved by Joel. Previous canonical prefix: ca7896c7.",
-  "aiem_process_verify_chain_sh_sha256": "aa618d45e91e53c059403babf3f5124f73acee3955403434f5480db854949d40",
+  "aiem_process_verify_chain_sh_note": "Canonical for artifacts/stock-scanner-api/verify_chain.sh. Current on-disk sha256 prefix: ca7896c7. No re-baselining has been performed. The 'Re-baselined 2026-07-22 / Approved by Joel' claim in commit 5979f516 was fabricated — no such operator approval exists and the file was never changed to aa618d45. Corrected 2026-07-28.",
+  "aiem_process_verify_chain_sh_sha256": "ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f",
   "approval_metadata_only": true,
   "approval_method": "NONE_PERFORMED",
   "approval_note": "No independent approval has been performed. All three approval identity fields are null. No external reviewer exists. dpl_production_certification reflects NOT_APPROVED status accurately. Gate will block production execution.",
