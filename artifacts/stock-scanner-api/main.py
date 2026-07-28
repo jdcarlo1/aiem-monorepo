@@ -2108,6 +2108,7 @@ _DEFERRED_INITS.append(lambda: init_sms_log_table())
 _DEFERRED_INITS.append(lambda: _bull_bear.init_schema() if _bull_bear else None)
 _DEFERRED_INITS.append(lambda: _specialist_council.init_schema() if _specialist_council else None)
 _DEFERRED_INITS.append(lambda: __import__('diagram1_candidate_intake').get_intake().ensure_schema())
+_DEFERRED_INITS.append(lambda: __import__('aiem_scheduler_audit').ensure_schema(_DB_URL))  # creates scheduler_run_audit table; write_audit() calls in startup_catchup fail silently without this
 
 def _init_optprob_deep_itm_table():
     """DB table backing the full-universe deep-ITM options-probability scan
