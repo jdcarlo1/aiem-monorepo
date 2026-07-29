@@ -238,6 +238,55 @@ describe("WebhookHandlers.processWebhook — unit", () => {
       WebhookHandlers.processWebhook(Buffer.from("not json"), "sig_mock")
     ).resolves.toBeUndefined();
   });
+
+  it("invoice.payment_succeeded with referralCode on session → referralCode branch entered, affiliate DB lookup fires; no Stripe Connect call when affiliate has no Connect account", async () => {
+    // This test covers lines 138-151 of webhookHandlers.ts.
+    // The referralCode conditional (lines 149-151) is entered when the session row
+    // has a referralCode. sendAffiliateTransfer is called, but it exits early
+    // (line 22-24) because the affiliate row has no stripeConnectId — so no
+    // Stripe Connect API call is made. Only the DB lookups are exercised here.
+    //
+    // The actual stripe.transfers.create call is blocked pending a live Connect
+    // account; see it.skip below.
+
+    // First select: invoice handler looks up session by stripeCustomerId
+    selectOnce([{
+      sessionId: "sess-ref-001",
+      referralCode: "FRIEND10",
+      stripeCustomerId: "cus_ref_001",
+    }]);
+    // Second select: sendAffiliateTransfer looks up affiliate by code
+    // — affiliate exists but has NO stripeConnectId → function returns early
+    selectOnce([{ code: "FRIEND10", commissionPct: 20 }]);
+
+    const event = {
+      type: "invoice.payment_succeeded",
+      id: "evt_inv_001",
+      data: {
+        object: {
+          customer: "cus_ref_001",
+          amount_paid: 5000,
+          billing_reason: "subscription_cycle",
+        },
+      },
+    };
+
+    await WebhookHandlers.processWebhook(
+      Buffer.from(JSON.stringify(event)),
+      "sig_mock"
+    );
+
+    // DB queried twice: session lookup + affiliate lookup inside sendAffiliateTransfer
+    expect(db.select).toHaveBeenCalledTimes(2);
+    // No Stripe Connect calls — affiliate has no stripeConnectId, so exits early
+    expect(mockStripe.accounts.retrieve).not.toHaveBeenCalled();
+    expect(mockStripe.transfers.create).not.toHaveBeenCalled();
+  });
+
+  // The test above proves the referralCode branch is entered and the affiliate
+  // DB lookup fires. The actual Stripe Connect transfer (stripe.transfers.create)
+  // is blocked here because it requires a live Connect account with payouts_enabled.
+  it.skip("BLOCKED: invoice.payment_succeeded referralCode → actual Stripe Connect transfer — requires live affiliate account with payouts_enabled", () => {});
 });
 
 // ── POST /stripe/checkout ─────────────────────────────────────────────────────
@@ -360,6 +409,133 @@ describe("POST /stripe/checkout — monthly and lifetime happy paths", () => {
     const createCall = mockStripe.checkout.sessions.create.mock.calls[0][0];
     expect(createCall.customer).toBe("cus_existing_001");
   });
+
+  it("session exists but stripeCustomerId is null — new customer created and saved to the existing row (line 68)", async () => {
+    // DB: session row exists but has no stripeCustomerId yet.
+    // This hits the code path at line 68:
+    //   if (dbSession) { await db.update(...).set({ stripeCustomerId }) }
+    // Previous tests either had no session (insert path) or a session with a
+    // customerId already (skip the !customerId block entirely). This is the third
+    // case: session exists, customerId absent → create customer → update row.
+    selectOnce([{ sessionId: SESSION_ID, stripeCustomerId: null }]);
+    updateOnce(); // save new customerId to the existing session row (line 68)
+
+    mockStripe.customers.create.mockResolvedValue({ id: "cus_new_for_existing" });
+    mockStripe.products.search.mockResolvedValue({ data: [{ id: "prod_monthly_001" }] });
+    mockStripe.prices.list.mockResolvedValue({ data: [{ id: "price_monthly_001" }] });
+    mockStripe.checkout.sessions.create.mockResolvedValue({ url: CHECKOUT_URL });
+
+    const res = await request(app)
+      .post("/api/stripe/checkout")
+      .send({ sessionId: SESSION_ID, plan: "monthly" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    // A new Stripe customer was created (session had none)
+    expect(mockStripe.customers.create).toHaveBeenCalledOnce();
+    // The new customerId was written back to the existing session row
+    expect(db.update).toHaveBeenCalledOnce();
+    const setArg = (db.update as Mock).mock.results[0].value.set.mock.calls[0][0];
+    expect(setArg.stripeCustomerId).toBe("cus_new_for_existing");
+    // insert was NOT called (session row already existed)
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("valid referralCode in checkout body — uppercased, affiliate found, code written to session (lines 76-80)", async () => {
+    // Submitting referralCode exercises:
+    //   line 76: const upper = referralCode.trim().toUpperCase()
+    //   line 77: const [affiliate] = await db.select()...affiliatesTable...
+    //   line 78: if (affiliate) {
+    //   line 79: validatedCode = upper
+    //   line 80: await db.update(...).set({ referralCode: validatedCode })
+    selectOnce([]);  // no existing session
+    insertOnce();    // new session row inserted
+
+    // affiliate lookup (second db.select call, inside the referralCode block)
+    selectOnce([{ id: 1, code: "FRIEND10", commissionPct: 20 }]);
+    updateOnce(); // referralCode written to session row
+
+    mockStripe.customers.create.mockResolvedValue({ id: "cus_referral_001" });
+    mockStripe.products.search.mockResolvedValue({ data: [{ id: "prod_monthly_001" }] });
+    mockStripe.prices.list.mockResolvedValue({ data: [{ id: "price_monthly_001" }] });
+    mockStripe.checkout.sessions.create.mockResolvedValue({ url: CHECKOUT_URL });
+
+    const res = await request(app)
+      .post("/api/stripe/checkout")
+      .send({ sessionId: SESSION_ID, plan: "monthly", referralCode: "friend10" }) // lowercase input
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    // referralCode was uppercased and persisted
+    expect(db.update).toHaveBeenCalledOnce();
+    const setArg = (db.update as Mock).mock.results[0].value.set.mock.calls[0][0];
+    expect(setArg.referralCode).toBe("FRIEND10");
+    // referralCode appears in the Stripe checkout session metadata
+    const checkoutArg = mockStripe.checkout.sessions.create.mock.calls[0][0];
+    expect(checkoutArg.metadata.referralCode).toBe("FRIEND10");
+  });
+
+  it("monthly plan — Stripe product not found → 500 with specific error message (line 89)", async () => {
+    selectOnce([]);
+    insertOnce();
+    mockStripe.customers.create.mockResolvedValue({ id: "cus_500_test" });
+    mockStripe.products.search.mockResolvedValue({ data: [] }); // empty → product not found
+
+    const res = await request(app)
+      .post("/api/stripe/checkout")
+      .send({ sessionId: SESSION_ID, plan: "monthly" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Monthly plan product not found in Stripe.");
+  });
+
+  it("monthly plan — Stripe price not found → 500 with specific error message (line 91)", async () => {
+    selectOnce([]);
+    insertOnce();
+    mockStripe.customers.create.mockResolvedValue({ id: "cus_500_test" });
+    mockStripe.products.search.mockResolvedValue({ data: [{ id: "prod_exists" }] });
+    mockStripe.prices.list.mockResolvedValue({ data: [] }); // empty → price not found
+
+    const res = await request(app)
+      .post("/api/stripe/checkout")
+      .send({ sessionId: SESSION_ID, plan: "monthly" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Monthly price not found.");
+  });
+
+  it("lifetime plan — Stripe product not found → 500 with specific error message (line 106)", async () => {
+    selectOnce([]);
+    insertOnce();
+    mockStripe.customers.create.mockResolvedValue({ id: "cus_500_test" });
+    mockStripe.products.search.mockResolvedValue({ data: [] }); // empty → product not found
+
+    const res = await request(app)
+      .post("/api/stripe/checkout")
+      .send({ sessionId: SESSION_ID, plan: "lifetime" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Lifetime plan product not found in Stripe.");
+  });
+
+  it("lifetime plan — Stripe price not found → 500 with specific error message (line 108)", async () => {
+    selectOnce([]);
+    insertOnce();
+    mockStripe.customers.create.mockResolvedValue({ id: "cus_500_test" });
+    mockStripe.products.search.mockResolvedValue({ data: [{ id: "prod_exists" }] });
+    mockStripe.prices.list.mockResolvedValue({ data: [] }); // empty → price not found
+
+    const res = await request(app)
+      .post("/api/stripe/checkout")
+      .send({ sessionId: SESSION_ID, plan: "lifetime" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Lifetime price not found.");
+  });
 });
 
 // ── POST /stripe/verify-checkout ─────────────────────────────────────────────
@@ -419,6 +595,38 @@ describe("POST /stripe/verify-checkout", () => {
     expect(res.body.success).toBe(false);
     expect(res.body.isSubscribed).toBe(false);
     expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("verify-checkout: subscription and customer returned as objects not strings — .id path and null type guard (lines 139-141)", async () => {
+    // All previous tests pass subscription/customer as plain strings (e.g.
+    // "sub_001", "cus_001"), hitting only the string-shortcut branch of:
+    //   typeof x === "string" ? x : x?.id ?? null  (subscription)
+    //   typeof x === "string" ? x : null            (customer)
+    // This test passes full Stripe objects so the alternative arms fire.
+    mockStripe.checkout.sessions.retrieve.mockResolvedValue({
+      payment_status: "paid",
+      status: "complete",
+      subscription: { id: "sub_obj_001" }, // object → uses ?.id path (line 139 alt arm)
+      customer:     { id: "cus_obj_001" }, // object → typeof !== "string" → null (line 140 alt)
+      customer_details: { email: "obj-path@example.com" },
+    });
+    updateOnce();
+
+    const res = await request(app)
+      .post("/api/stripe/verify-checkout")
+      .send({ sessionId: "sess-obj-verify", checkoutSessionId: "cs_obj_001" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const setArg = (db.update as Mock).mock.results[0].value.set.mock.calls[0][0];
+    // subscription resolved via .id (object path, not string shortcut)
+    expect(setArg.stripeSubscriptionId).toBe("sub_obj_001");
+    // customer was an object → typeof !== "string" → customerId = null
+    expect(setArg.stripeCustomerId).toBeNull();
+    // customers.update NOT called because customerId is null (falsy)
+    expect(mockStripe.customers.update).not.toHaveBeenCalled();
   });
 });
 

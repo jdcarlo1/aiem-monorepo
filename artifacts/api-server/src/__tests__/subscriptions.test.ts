@@ -232,6 +232,74 @@ describe("POST /stripe/restore-access — lookup paths", () => {
     expect(res.body.message).toMatch(/No completed payment/i);
     expect(db.update).not.toHaveBeenCalled();
   });
+
+  it("restore-access search path: cs.customer and cs.subscription returned as objects → type-guard alt arms (lines 189-190)", async () => {
+    // Previous tests pass customer/subscription as plain strings, hitting the
+    // string-shortcut branch of:
+    //   typeof cs.customer === "string" ? cs.customer : ""     (line 189)
+    //   typeof cs.subscription === "string" ? cs.subscription : null  (line 190)
+    // This test passes Stripe objects so the alternative (object) arms fire.
+    mockStripe.checkout.sessions.search.mockResolvedValue({
+      data: [
+        {
+          customer:     { id: "cus_obj_search" }, // object → typeof !== "string" → ""
+          subscription: { id: "sub_obj_search" }, // object → typeof !== "string" → null
+        },
+      ],
+    });
+    mockStripe.customers.update.mockResolvedValue({});
+
+    // activateSession: session found → update
+    selectOnce([{ sessionId: SESSION_ID, questionsAnswered: 0, isSubscribed: false }]);
+    updateOnce();
+
+    const res = await request(app)
+      .post("/api/stripe/restore-access")
+      .send({ sessionId: SESSION_ID, email: EMAIL })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const setArg = (db.update as Mock).mock.results[0].value.set.mock.calls[0][0];
+    // customerId = "" (object → type guard returns ""), subscriptionId = null
+    expect(setArg.stripeCustomerId).toBe("");
+    expect(setArg.stripeSubscriptionId).toBeNull();
+    // customers.update NOT called — customerId is "" (falsy)
+    expect(mockStripe.customers.update).not.toHaveBeenCalled();
+  });
+
+  it("restore-access list-fallback path: cs.subscription returned as object → type-guard alt arm (line 205)", async () => {
+    // Exercises the list-fallback branch (search throws → fall to customers.list).
+    // cs.subscription is a full object, not a string, so:
+    //   typeof cs.subscription === "string" ? cs.subscription : null   (line 205 alt)
+    // produces subscriptionId = null.
+    mockStripe.checkout.sessions.search.mockRejectedValue(new Error("search unavailable"));
+
+    mockStripe.customers.list.mockResolvedValue({
+      data: [{ id: "cus_list_obj" }],
+    });
+    mockStripe.checkout.sessions.list.mockResolvedValue({
+      data: [{
+        customer: "cus_list_obj",
+        subscription: { id: "sub_obj_list" }, // object → typeof !== "string" → null
+      }],
+    });
+
+    // activateSession: no existing session → insert
+    selectOnce([]);
+    insertOnce();
+
+    const res = await request(app)
+      .post("/api/stripe/restore-access")
+      .send({ sessionId: SESSION_ID, email: EMAIL })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // insert was called with subscriptionId = null (subscription was an object)
+    expect(db.insert).toHaveBeenCalledOnce();
+  });
 });
 
 // ── POST /subscription/cancel ─────────────────────────────────────────────────

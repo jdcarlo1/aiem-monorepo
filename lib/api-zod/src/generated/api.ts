@@ -50,7 +50,11 @@ export const GetQuestionResponse = zod.object({
  * @summary Get session status including free questions used and subscription state
  */
 export const GetSessionStatusQueryParams = zod.object({
-  "sessionId": zod.coerce.string()
+  // zod.string().min(1) — not coerce.string() — so that a missing or empty
+  // sessionId query param triggers a real parse failure (the 400 branch in the
+  // route handler). coerce.string() would silently turn undefined → "undefined"
+  // and make the 400 path structurally unreachable.
+  "sessionId": zod.string().min(1)
 })
 
 export const GetSessionStatusResponse = zod.object({

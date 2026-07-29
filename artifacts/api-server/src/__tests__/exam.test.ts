@@ -204,6 +204,40 @@ describe("GET /session/status", () => {
     expect(res.body.isSubscribed).toBe(true);
   });
 
+  it("missing sessionId → 400 (schema uses zod.string().min(1), not coerce.string())", async () => {
+    // With zod.coerce.string(), undefined would be coerced to the string
+    // "undefined" and pass — making the 400 branch dead code. After fixing the
+    // schema to zod.string().min(1), a missing query param is a real failure.
+    const res = await request(app)
+      .get("/api/session/status")
+      // deliberately no .query() — sessionId is absent from the query string
+      .set("Accept", "application/json");
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/sessionId is required/i);
+  });
+
+  it("subscriptionEndDate is a real Date object → .toISOString() serialised correctly in response", async () => {
+    // All other tests pass subscriptionEndDate: null to avoid a crash when the
+    // route calls .toISOString() on a non-Date value. This test passes a real
+    // Date so the truthy branch of the ternary is actually exercised.
+    const endDate = new Date("2026-12-31T00:00:00.000Z");
+    selectOnce([{
+      sessionId: "sub-date-uuid",
+      questionsAnswered: 5,
+      isSubscribed: true,
+      subscriptionEndDate: endDate,
+    }]);
+
+    const res = await request(app)
+      .get("/api/session/status")
+      .query({ sessionId: "sub-date-uuid" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.subscriptionEndDate).toBe("2026-12-31T00:00:00.000Z");
+    expect(res.body.isSubscribed).toBe(true);
+  });
+
   it("unsubscribed session at free limit → canAnswerMore is false", async () => {
     selectOnce([{
       sessionId: "at-limit-uuid",
@@ -251,6 +285,34 @@ describe("POST /session/answer — input validation", () => {
 describe("POST /session/answer — question lookup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("question has no questionType in DB (null) → fallback 'single' applied, answer checked correctly", async () => {
+    // The route does: const questionType = question.questionType ?? "single"
+    // The ?? right-hand side fires only when questionType is null/undefined.
+    // All other tests supply an explicit questionType, so the fallback was never hit.
+    selectOnce([{
+      id: 7,
+      correctLetter: "A",
+      explanation: "A is correct.",
+      questionType: null, // null → falls back to "single"
+    }]);
+    setupAnswerTransaction({
+      id: 42,
+      session_id: "fallback-session",
+      questions_answered: 0,
+      is_subscribed: false,
+    });
+
+    const res = await request(app)
+      .post("/api/session/answer")
+      .send({ sessionId: "fallback-session", questionId: 7, selectedLetter: "A" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.correct).toBe(true);
+    // confirm single-answer logic was applied (not SATA) — correct letter matches exactly
+    expect(res.body.correctLetter).toBe("A");
   });
 
   it("question not found → 404", async () => {

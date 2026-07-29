@@ -1,0 +1,29 @@
+# Directive: Close Real Coverage Gaps (Critical-Path Bar Not Yet Met)
+
+Source: coverage-final.json, artifact 8711431893, commit 9bc1a57.
+
+## Status
+- checkAnswer.ts: 100% — PASS, no action
+- sessionAuth.ts: 100% — PASS, no action
+- session.ts: 97.78%/92.50% — NOT 100%, action below
+- stripe.ts (in-scope): 85.57%/65.22% — NOT 100%, action below
+- webhookHandlers.ts: 45.31%/35.59% — mostly out-of-scope/blocked, one real gap below
+
+## session.ts
+1. Line 38-40 (sessionId 400 path): confirm dead — zod `coerce.string()` turns `undefined` into `"undefined"`, so `!parsed.success` can never fire on a missing sessionId. Either remove this branch or change the schema so a genuinely invalid sessionId can reach it. Do not just add a test to force coverage — fix the schema logic first, then test it.
+2. Line 55: add a test where `subscriptionEndDate` is a real (non-null) date, asserting `.toISOString()` runs without throwing.
+3. Line 86: add a test that omits `questionType` from the question object, asserting the `?? "single"` fallback is applied.
+
+## stripe.ts (lines 44-213 only)
+1. Line 68: add a test — session already exists in DB, has no `stripeCustomerId` yet, new customerId gets written to it.
+2. Lines 76-80: add a test that submits a valid `referralCode` in the checkout body; assert it's uppercased, matched against `affiliatesTable`, and written to the session row.
+3. Lines 89, 91, 106, 108: add 4 tests where Stripe's mocked product/price lookups return empty arrays; assert each returns its correct 500 + error message.
+4. Lines 139-141, 189-190, 205: add tests where mocked Stripe returns full `subscription`/`customer` objects (not string IDs) for `checkout.session.completed` and the restore-access endpoints; assert the `?.id` / type-guard paths work, not just the string-ID shortcut currently tested everywhere.
+
+## webhookHandlers.ts
+1. Lines 149-151 (`invoice.payment_succeeded` → referralCode conditional): this check does NOT require the blocked Stripe Connect account — only the `sendAffiliateTransfer` call after it does. Split this: add a test that the referralCode branch is entered/read correctly, then explicitly `it.skip` only the actual transfer call with a comment stating why (Connect account blocked).
+2. Everything else uncovered in this file (sendAffiliateTransfer body, StockScanner activation, Connect-dependent payout call sites) — leave as-is. Confirmed out of NCLEX critical-path scope or genuinely blocked pending a live Stripe Connect test account.
+
+## Do not
+- Do not mark any of the above "covered" by weakening an assertion or adding a trivial test that doesn't exercise real logic.
+- Do not touch the dead-code branch (session.ts 38-40) by adding a test to force coverage without fixing the underlying schema issue.
