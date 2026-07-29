@@ -1,0 +1,38 @@
+# Directive — Critical-Path Testing (Scoped)
+
+Scope narrowed from full test-suite directive to critical paths only. Skip broad 90% coverage targets and load/performance testing for now — revisit only if buyer due diligence specifically asks for it.
+
+## Required coverage — 100% on these only
+1. **Authentication** — login, logout, session handling, Clerk integration, invalid/expired token handling
+2. **Payments** — Stripe checkout, webhooks, failure/retry paths
+3. **Subscriptions** — restore-access flow, plan changes, cancellation
+4. **Exam workflow** — register → take exam → submit → view results
+
+## Test types (for the 4 areas above only)
+- Unit tests for the core logic in each area
+- Integration tests for each external dependency (Clerk, Stripe, DB)
+- One E2E happy-path test per area
+- Security checks already covered by the security audit — do not re-run, just confirm no regressions on the 4 areas above
+
+## CI
+- Tests run automatically on every push/PR
+- Build fails if any test fails
+- Coverage report published for these 4 areas only (not full-app 90% target)
+
+## Deliverables
+- Passing test suite for the 4 areas
+- Coverage report scoped to the 4 areas
+- CI pipeline config
+- Permanent record file (e.g. /docs/testing/critical-path-FINAL.md) with coverage numbers, CI status, any gaps
+
+---
+
+## Standing verification checklist
+- No task marked done on description alone — raw command output required
+- Coverage numbers: raw coverage tool output, not narrative or a claimed percentage
+- CI: paste actual passing run log/URL, not a claim it "was set up"
+- Any "test covers X" claim backed by raw grep -n showing the test file/line
+- sha256 before/after for any file changed; git diff --stat for anything touched
+- No delete/truncate/overwrite of any existing file/test/data without explicit approval first
+- "PASS" only when zero outstanding gaps with real execution evidence — otherwise "PARTIAL"/"BLOCKED," stated plainly
+- If anything can't be tested in this environment, state that explicitly per item, don't skip silently
