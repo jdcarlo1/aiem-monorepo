@@ -101,8 +101,6 @@ This document distinguishes "genuinely unreachable" (structural — no code path
 | 7 | brace-expansion | GHSA-mh99-v99m-4gvg | lib__api-spec (build) | GENUINELY UNREACHABLE — build tool chain |
 | 8 | fast-uri | GHSA-4c8g-83qw-93j6 | lib__api-spec (build) | GENUINELY UNREACHABLE — build tool chain |
 
-**All 8 HIGH CVEs are genuinely unreachable in production**, not merely unlikely:
-- 7 of 8 have no presence in the production bundle (build-time tooling under `lib__api-spec/orval/typedoc`).
-- 1 of 8 (form-data) is in a runtime dep but the vulnerable code path (`files.upload()`) is never called.
+**Corrected summary (per `pnpm list --prod --depth Infinity` on artifacts/api-server):**
 
-The dependency row in SECURITY_MATRIX.md is promoted from "PASS (with caveat)" to **PASS — all 8 confirmed unreachable**.
+7 of 8 HIGH severity findings (linkify-it ×2, brace-expansion ×2, js-yaml, fast-uri ×2) trace exclusively through the orval/typedoc build-toolchain in the `lib__api-spec` workspace package and are entirely absent from the api-server production dependency tree. The remaining 1 HIGH finding (form-data, GHSA-hmw2-7cc7-3qxx) is present in the production tree via `@anthropic-ai/sdk → @types/node-fetch → form-data 4.0.5`; it is unreachable at runtime because the API server never calls `client.files.upload()` or any multipart code path in the Anthropic SDK (confirmed: no call to `files.upload`, `FormData`, `multipart`, or `filename` in any Anthropic-calling route). The one production-path CVE whose dependency path cannot be argued unreachable is body-parser (via express), which the audit rates severity **LOW**, not HIGH.
