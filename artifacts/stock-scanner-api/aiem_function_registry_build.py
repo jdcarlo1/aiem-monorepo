@@ -19,7 +19,7 @@ This is phase-by-phase, additive, same discipline as aiem_registry_build.py:
       VERIFIED_EXISTS-> function confirmed real (non-stub) and its own
                          direct effect confirmed, but its own deeper
                          upstream chain belongs to a phase not yet reached
-                         (e.g. _run_five_layer_conviction's L1-L8 signal
+                         (e.g. _run_conviction_scanner's L1-L8 signal
                          inputs belong to Phase 9; not faked here, flagged
                          for revisit when that phase is verified).
 
@@ -55,7 +55,7 @@ PHASE0_FUNCTIONS = [
         outputs="dict {status, candidates:[{ticker, total_pts, conviction_pct, label, "
                 "price, layers, rank, ...}], n}",
         upstream_dependencies="Reads conviction_stack_watchlist table directly (no live "
-                "call) -> written by snapshot_conviction_stack()/_run_five_layer_conviction()",
+                "call) -> written by snapshot_conviction_stack()/_run_conviction_scanner()",
         downstream_dependencies="AI chat tool dispatch map (tool_name get_daily_candidates); "
                 "consumed by AIEM chat sessions",
         owning_phase=0,
@@ -73,19 +73,19 @@ PHASE0_FUNCTIONS = [
         inputs="min_pts:float=8.0, max_tickers:int=CONVICTION_STACK_MAX, precomputed=None",
         outputs="dict {ok, status, snap_date, universe_count, logged}; writes rows to "
                 "conviction_stack_watchlist",
-        upstream_dependencies="_run_five_layer_conviction() (L1-L8 money-pressure scoring engine)",
+        upstream_dependencies="_run_conviction_scanner() (L1-L8 money-pressure scoring engine)",
         downstream_dependencies="conviction_stack_watchlist table -> "
                 "_aiem_tool_get_daily_candidates, TOP SCORE tab, owner smart-money email",
         owning_phase=0,
         owning_module="INLINE (main.py) — no dedicated Phase 0 module file",
         verification_status="VERIFIED",
         verification_evidence="grep -n 'def snapshot_conviction_stack' main.py + confirmed "
-                "call to _run_five_layer_conviction inside body",
+                "call to _run_conviction_scanner inside body",
         verified_by_command="grep + sed trace, 2026-07-08",
     ),
     dict(
         file_name="main.py",
-        function_name="_run_five_layer_conviction",
+        function_name="_run_conviction_scanner",
         purpose="Master 5-layer conviction scanner — scores tickers 0-10 pts on a "
                 "unified money-pressure conviction score (8.0+ pts ~= 90% probability setup).",
         inputs="max_tickers:int=15, force_tickers=None",
@@ -99,7 +99,7 @@ PHASE0_FUNCTIONS = [
         owning_phase=0,
         owning_module="INLINE (main.py) — no dedicated Phase 0 module file",
         verification_status="VERIFIED_EXISTS",
-        verification_evidence="grep -n 'def _run_five_layer_conviction' main.py; docstring "
+        verification_evidence="grep -n 'def _run_conviction_scanner' main.py; docstring "
                 "+ signature confirmed real; full upstream signal chain deferred to Phase 9",
         verified_by_command="grep + sed trace, 2026-07-08",
     ),

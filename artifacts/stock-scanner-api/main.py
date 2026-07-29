@@ -3726,7 +3726,7 @@ _DEFERRED_INITS.append(lambda: _init_conviction_outcomes_table())
 # TOP SCORE 8+ - L1-L8 Smart Money Pressure snapshot + track record
 # ------------------------------------------------------------------------------
 # The TOP SCORE 8+ tab is scored by the EXISTING 8-layer money-pressure engine
-# (_run_five_layer_conviction): total_pts >= 8 = EXTREME. This block persists the
+# (_run_conviction_scanner): total_pts >= 8 = EXTREME. This block persists the
 # daily EXTREME cohort and measures STOCK returns from a next-open entry over
 # 1/2/3/4 weeks. Universe today = whatever the FREE options feed covers (~25-150
 # tickers the engine already signals); adding a paid feed later just widens the
@@ -4087,14 +4087,14 @@ def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTIO
     dropped out). Logs NOTHING on an empty cohort (status skipped_empty_extreme)
     so a quiet day never pollutes the track record.
 
-    Pass `precomputed` (a prior _run_five_layer_conviction result) to reuse a
+    Pass `precomputed` (a prior _run_conviction_scanner result) to reuse a
     single heavy scan for both this snapshot and the owner smart-money email."""
     import psycopg2 as _pg2
     from psycopg2.extras import Json as _Json
     from datetime import datetime as _dt
     today = _dt.now(_ET_TZ).date()
     try:
-        results = precomputed if precomputed is not None else _run_five_layer_conviction(max_tickers=max_tickers)
+        results = precomputed if precomputed is not None else _run_conviction_scanner(max_tickers=max_tickers)
     except Exception as e:
         return {"ok": False, "reason": f"engine error: {e}", "snap_date": str(today)}
     universe_count = len(results)
@@ -4137,7 +4137,7 @@ def snapshot_conviction_stack(min_pts: float = 8.0, max_tickers: int = CONVICTIO
 
 def _run_conviction_eval_log_job() -> dict:
     """Item 7 — Broader-universe evaluation logger.
-    Runs _run_five_layer_conviction with max_tickers=100 (no min_pts gate)
+    Runs _run_conviction_scanner with max_tickers=100 (no min_pts gate)
     and logs every scored ticker to aiem_conviction_eval_log.
     Called daily at 4:35 PM ET Mon-Fri. UNIQUE(eval_date, ticker) = idempotent.
     Builds the forward-looking training corpus for shadow learning (item 5).
@@ -4146,7 +4146,7 @@ def _run_conviction_eval_log_job() -> dict:
     from datetime import datetime as _dt
     try:
         today = _dt.now(_ET_TZ).date()
-        results = _run_five_layer_conviction(max_tickers=100)
+        results = _run_conviction_scanner(max_tickers=100)
         if not results:
             return {"logged": 0, "reason": "no results from conviction engine"}
         rows = []
@@ -7537,7 +7537,7 @@ try:
             if not got:
                 print("[scheduler] EOD conviction: scan lock busy - proceeding unguarded")
             try:
-                results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
+                results = _run_conviction_scanner(max_tickers=CONVICTION_STACK_MAX)
                 try:
                     snapshot_conviction_stack(precomputed=results)
                 except Exception as _e_snap:
@@ -9803,7 +9803,7 @@ def _send_top_pick_email() -> None:
         date_str = _dt.now().strftime("%A, %B %d")
 
         # ── Run full 8-layer conviction to find #1 pick ───────────────────────
-        results = _run_five_layer_conviction(max_tickers=20)
+        results = _run_conviction_scanner(max_tickers=20)
         if not results:
             print("[top_pick] no conviction results today - skipping")
             return
@@ -10332,7 +10332,7 @@ def _send_smart_money_pressure_email(results: list = None, max_picks: int = 15) 
             return
 
         if results is None:
-            results = _run_five_layer_conviction(max_tickers=40)
+            results = _run_conviction_scanner(max_tickers=40)
         if not results:
             print("[smart_money_email] no engine results - skipping")
             return
@@ -10515,7 +10515,7 @@ def _send_smp_morning() -> None:
         if not smtp_configured():
             print("[smp_morning] SMTP not configured - skipping")
             return
-        results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
+        results = _run_conviction_scanner(max_tickers=CONVICTION_STACK_MAX)
         if not results:
             print("[smp_morning] no engine results - skipping")
             return
@@ -14135,7 +14135,7 @@ def _send_morning_inflows_email() -> None:
         # ── 8-Layer High Conviction (live-scored every morning) ───────────────
         conviction_section_html = ""
         try:
-            _hc_results = _run_five_layer_conviction(max_tickers=10)
+            _hc_results = _run_conviction_scanner(max_tickers=10)
             _hc_top = [r for r in _hc_results if r["total_pts"] >= 4.0][:5]
             if _hc_top:
                 _hc_rows_html = ""
@@ -19428,7 +19428,7 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
         with _psycopg2.connect(_DB_URL, connect_timeout=4) as _c, _c.cursor() as _cu:
             # ── Bulk prefetch conviction stack scores for position sizing ─────
             # conviction_stack_watchlist.total_pts is the raw 0–10 layer score
-            # from _run_five_layer_conviction (FLOOR=5.0, CEILING=9.0).
+            # from _run_conviction_scanner (FLOOR=5.0, CEILING=9.0).
             # Fetched once per execution (not per-pick) so compute_position_size()
             # receives the correct input instead of the per-source raw metric
             # (RVOL / discovery_score) previously stored in pick["score"].
@@ -22119,7 +22119,7 @@ def _send_morning_gamma_watchlist_sms() -> None:
             return
 
         # ── 7-Layer Conviction Stack (L1-L8) ──────────────────────────────────
-        conviction_results = _run_five_layer_conviction(max_tickers=8)
+        conviction_results = _run_conviction_scanner(max_tickers=8)
         extreme_setups = [r for r in conviction_results if r["total_pts"] >= 6.0]
         if extreme_setups:
             lines.append("")
@@ -23558,14 +23558,34 @@ def _get_fragility_crowding_penalties(tickers: list) -> dict:
     return result
 
 
-def _run_five_layer_conviction(max_tickers: int = 15, force_tickers=None) -> list:
+def _run_conviction_scanner(max_tickers: int = 15, force_tickers=None) -> list:
     """
-    Master 5-layer conviction scanner. Runs all signal layers and returns
-    a ranked list of tickers with a unified conviction score (0-10 pts).
-    8.0+ pts ≈ 90% probability setup. Called by API and morning SMS.
+    Multi-signal conviction scanner (10 scoring signals). Returns a ranked list
+    of tickers with a unified conviction score (0–95 pts, capped).
+    8.0+ adj_pts ≈ EXTREME label. Called by API, morning SMS, and paper-pick engine.
+
+    Signals executed in call order:
+      1. OI Accumulation        — _get_oi_accumulation_signals()    pts 1.0/1.5/2.0
+      2. Charm Cascade          — _get_charm_cascade_signals()       pts 1.0/1.5/2.0
+      3. Gamma FIR              — gamma_pressure_alerts SQL          pts 1.0/1.5/2.0
+         [widening funnel: _get_far_otm_sweeps() + _get_conviction_seed_accum()
+          seed candidates into scores/seed_priority — not independent scoring signals]
+      4. Short Interest         — _get_short_interest()              pts 0/1.0/1.5/2.0
+      5. Dark Pool Convergence  — _get_dark_pool_convergence()       pts 0/1.0/1.5/2.0
+      6. Float-Adj Options Demand — _get_float_pressure_signals()    pts from l6_pts
+      7. Far-OTM Sweep          — sweep_by_ticker (from signal 3 seed) pts 1.0/1.5/2.0
+      8. Sector Theme Correlation — _get_sector_heat()               pts 0.5/1.0/1.5
+      9. Tier-3 Sector Rotation — _m7.get_all_tier3_sectors()       ±0.5 (capped)
+     10. Fragility & Crowding   — _get_fragility_crowding_penalties() ≤0 (penalty only)
+
+    Note: there is no signal numbered L9 in the original inline comments; the
+    comment labels ran L1/L3/L2/L4-L8/M7/L10 out of sequence. The enumeration
+    above is the correct execution order. Function was formerly named
+    _run_five_layer_conviction (misnomer — renamed 2026-07-28).
+
     `force_tickers` are scored even with no OI/charm/gamma signal: they're added
     to the heavy-fetch 'active' set and kept in the output regardless of the cap
-    or the 1.0-pt floor - used by the on-demand single-ticker score endpoint.
+    or the 1.0-pt floor — used by the on-demand single-ticker score endpoint.
     """
     import psycopg2, os as _os
     from datetime import date as _date
@@ -53960,7 +53980,7 @@ def _get_smp_scores_batch(tickers: list) -> dict:
     Returns {ticker: {"smp_score": float, "smp_label": str, "smp_layers": list}}
     """
     try:
-        all_results = _run_five_layer_conviction(max_tickers=200)
+        all_results = _run_conviction_scanner(max_tickers=200)
         ticker_set = set(tickers)
         lookup = {}
         for r in all_results:
@@ -56867,7 +56887,7 @@ def conviction_stack_endpoint():
             if _yf_breaker_open():
                 print("[conviction-stack] bg skipped — Yahoo rate limited; using DB data")
                 return
-            _results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX)
+            _results = _run_conviction_scanner(max_tickers=CONVICTION_STACK_MAX)
             _out = {"results": _results, "count": len(_results),
                     "source": "free_yfinance", "universe_count": len(_results)}
             app._cs_stk_cache = _out
@@ -56911,7 +56931,7 @@ def conviction_stack_score_ticker_route(ticker):
         t = (ticker or "").strip().upper()
         if not t:
             return jsonify({"error": "no ticker"}), 400
-        results = _run_five_layer_conviction(max_tickers=CONVICTION_STACK_MAX, force_tickers=[t])
+        results = _run_conviction_scanner(max_tickers=CONVICTION_STACK_MAX, force_tickers=[t])
         match = next((r for r in results if r["ticker"] == t), None)
         if not match:
             return jsonify({"ticker": t, "found": False, "source": "free_yfinance",
@@ -57346,7 +57366,7 @@ def admin_run_aiem_grader():
 @app.route("/stock-api/admin/run-conviction-eval-log", methods=["POST"])
 def admin_run_conviction_eval_log():
     """Admin: trigger the conviction eval-log job immediately.
-    Runs _run_five_layer_conviction(max_tickers=100) and writes scored tickers
+    Runs _run_conviction_scanner(max_tickers=100) and writes scored tickers
     to aiem_conviction_eval_log — the training corpus for shadow learning."""
     tok = request.headers.get("X-Admin-Token", "")
     if tok != os.environ.get("ADMIN_TOKEN", ""):

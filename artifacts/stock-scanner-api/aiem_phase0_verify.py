@@ -16,7 +16,7 @@ What this proves, with real evidence (see PROOF dict per item):
      code location. Finding: none of the 8 tools call into any of the 10
      Phase 0 module files. All 8 are inline main.py logic reading/writing
      tables that main.py itself owns (conviction_stack_watchlist via
-     _run_five_layer_conviction/snapshot_conviction_stack, aiem_independent_picks
+     _run_conviction_scanner/snapshot_conviction_stack, aiem_independent_picks
      via _aiem_indep_tool_save_independent_picks/_indep_scan_thread, and the
      mkt_* full-market research engine on polygon_market_daily/ticker_meta/
      ticker_lifecycle). This is reported, not silently corrected to a false
@@ -88,7 +88,7 @@ PHASE0_TOOLS = {
         "dispatch_pattern": r'"get_daily_candidates":\s*_aiem_tool_get_daily_candidates',
         "handler": "_aiem_tool_get_daily_candidates",
         "real_source": "inline main.py — reads conviction_stack_watchlist, written by "
-                        "snapshot_conviction_stack() / _run_five_layer_conviction() "
+                        "snapshot_conviction_stack() / _run_conviction_scanner() "
                         "(the L1-L8 money-pressure engine, not a Phase 0 file module)",
         "maps_to_phase0_file": False,
     },
