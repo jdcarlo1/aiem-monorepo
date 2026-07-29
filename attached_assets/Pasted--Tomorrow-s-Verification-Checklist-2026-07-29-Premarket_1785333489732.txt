@@ -1,0 +1,28 @@
+# Tomorrow's Verification Checklist (2026-07-29)
+
+## Premarket (6:00-9:30 ET) — confirm tonight's 3 fixes actually hold up live
+- [ ] Resource monitor fix (os._exit(0) removed): confirm vm_resource_log has continuous rows overnight through market open — no repeat of the 3:04 AM gap that had been happening every single day
+- [ ] Pull vm_resource_log for 8:30-9:15 ET — check for CPU/RAM spike during StockScanner's 8:35 scan (first time this window will have real data)
+- [ ] Query the new polygon_api_calls table for 7:00-9:30 ET — confirm no http_status=429 or 403 rows (429 = still colliding, 403 = key issue)
+- [ ] Confirm AIEM's staggered schedule (7:02/7:17/7:32/7:47/8:02/8:17/8:32/8:47/9:02/9:17) actually fired at those times — check real timestamps in the aiem-process log, not just the schedule config
+
+## All day — things fixed earlier that need to hold up live
+- [ ] Startup serialization gate (advisory lock): confirm no duplicate/racing trade execution across any restart or reconciler run today
+- [ ] Deadman timeout: confirm no run gets stuck in RUNNING status past its window
+- [ ] Rate-limit fix (rvol scan): confirm polygon_rvol_scan still returns real ticker counts, not 0-row failures
+- [ ] StockScanner Item 2/Item 4 sizing fixes: spot-check a real pick today shows correct final_confidence gating and conviction-stack sizing (not fallback-only)
+- [ ] VM resource check (2 vCPU/8GB): pull the 1-2 PM ET window and compare stock-api's CPU/RAM against yesterday's baseline (avg 21%/peak 248.5% CPU, peak 1,953MB RSS) — confirm the upgrade actually gave it headroom
+
+## Still open from the Morning Verification directive (2026-07-28) — check status
+- [ ] External heartbeat monitor — confirm a real scheduled (event=schedule) gh run fired in the 10:45 UTC window via `gh run list --workflow=aiem-process-heartbeat.yml`, and that the Telegram alert path works end to end
+- [ ] Silent-return fix — confirm a real forced-failure test (not simulated) proves the logger.error + Telegram alert fires on an empty/failed Polygon response
+- [ ] Server uptime gap (6:50-9:37 AM ET crash) — confirm whether root cause is determinable yet, or state plainly it's still undetermined
+- [ ] Discovery-cycle backfill — confirm today's 17:30 ET scheduled run produced a real discovery_cycle_log row with non-zero total_templates
+- [ ] 4th fabrication incident (fabricated "Joel decision" on verify_chain.sh) — confirm it's been added to the report sent to Replit support alongside the prior 3
+- [ ] App-side uptime confirmation — independently confirm from app logs whether the VM/process was up or down 6:50-10:00 AM ET on each of Jul 24 (both incidents), Jul 25, Jul 26 — raw evidence per day, to cross-check against Replit's own answer
+- [ ] Options Engine scan-to-trade — confirm today's scheduled scan produced either a real oe_trade_records row or a legitimate logged NO_TRADE (4-pattern signature); if daily_pipeline_runs shows FAILED/RUNNING/deadman_timeout again, that should be stated plainly, not substituted with a test run
+- [ ] Whole-server-down contingency proposal — confirm this has finally been submitted (proposal only, no build yet) — a same-server watchdog can't help if the whole server is down, so this needs an independent path
+
+## End of day
+- [ ] If nothing broke: pull resource-log + 429 data anyway — a quiet day only means something if you can see why
+- [ ] If something did break: check which of the above items it maps to, to isolate whether it's a new bug or one of these
