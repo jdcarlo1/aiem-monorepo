@@ -11,7 +11,7 @@
 | Metric | Value |
 |--------|-------|
 | Test files | 6 (2 pre-existing + 4 new) |
-| Total tests | **94 PASS / 0 FAIL** |
+| Total tests | **94 PASS / 4 SKIP / 0 FAIL** |
 | Run command | `pnpm --filter @workspace/api-server test` |
 | Coverage command | `pnpm --filter @workspace/api-server test:coverage` |
 | CI pipeline | `.github/workflows/nclex-tests.yml` |
@@ -58,7 +58,7 @@ src/lib (checkAnswer)  |   75.00 |    76.31 |   87.50 |   74.54 |
 | HTTP | `POST /session/claim` — valid new claim → 201 with `clerkUserId` + `sessionId` | PASS |
 | E2E | Anonymous session exists → user signs in → claims session → 201 confirmed | PASS |
 
-**Test file sha256:** `72024acd4ba9ec55f75f866f3fab9c6331fa27fa041edb2a12af78d0691c862a`
+**Test file sha256:** `bc9cb11e1387dbfc3c5dd39e723dd1e37557305d7ce17b3767daa71111b02f05`
 
 ---
 
@@ -85,7 +85,7 @@ src/lib (checkAnswer)  |   75.00 |    76.31 |   87.50 |   74.54 |
 | Integration (Stripe) | `POST /stripe/verify-checkout` — not paid → 200 `success:false`, no DB update | PASS |
 | E2E | Valid checkout body → customer created → Stripe session created → URL returned | PASS |
 
-**Test file sha256:** `d891d22495ca0255030068369829d91b200cedc1042bc20331a8824ffd8bb345`
+**Test file sha256:** `6ae5c7a54fb587566c4ff40a97c78acfcac8205df6786d4bfebf0af853af9b87`
 
 ---
 
@@ -107,7 +107,7 @@ src/lib (checkAnswer)  |   75.00 |    76.31 |   87.50 |   74.54 |
 | Integration (DB+Stripe) | `POST /subscription/cancel` — valid monthly → `stripe.subscriptions.cancel` called + DB cleared → 200 | PASS |
 | E2E | Restore-access with found email → `isSubscribed:true`, `stripeCustomerId` + `stripeSubscriptionId` written | PASS |
 
-**Test file sha256:** `ebf848e20870c7ed8aa90d08455e13e85e762b4cfdb39f5ed038b3bd59be5179`
+**Test file sha256:** `6a3fbf2d2083f29cdb4c64a1e5717aa2a2fa06db50e732ad67c977a620fa125b`
 
 ---
 

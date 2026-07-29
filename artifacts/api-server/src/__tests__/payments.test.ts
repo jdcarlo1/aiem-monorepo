@@ -422,6 +422,21 @@ describe("POST /stripe/verify-checkout", () => {
   });
 });
 
+// ── Blocked items — cannot test in this environment ──────────────────────────
+
+// STRIPE WEBHOOK SIG: stripe-signature header verification requires the live
+// STRIPE_SECRET_KEY to construct a real Stripe::Webhook.construct_event().
+// The test environment has no live key; processWebhook() is tested above with
+// a mocked getStripeSync. Signature path is intentionally untested here.
+it.skip("BLOCKED: live stripe-signature webhook verification — requires live STRIPE_SECRET_KEY not available in test env", () => {});
+
+// STRIPE CONNECT AFFILIATE TRANSFERS: sendAffiliateTransfer() calls
+// stripe.accounts.retrieve() + stripe.transfers.create() against a real
+// Stripe Connect account with payouts_enabled. No such account exists in
+// the test environment; the helper is invoked only when referralCode is
+// present in checkout.session.completed and mode === 'payment'.
+it.skip("BLOCKED: Stripe Connect affiliate transfer — requires live Connect account with payouts_enabled", () => {});
+
 // ── E2E happy path ────────────────────────────────────────────────────────────
 
 describe("Payments E2E — checkout session creation happy path", () => {

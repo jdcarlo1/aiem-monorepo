@@ -304,6 +304,15 @@ describe("POST /subscription/cancel", () => {
   });
 });
 
+// ── Blocked items — cannot test in this environment ──────────────────────────
+
+// STRIPE CONNECT AFFILIATE TRANSFERS: the affiliate payout path inside
+// invoice.payment_succeeded calls sendAffiliateTransfer(), which calls
+// stripe.accounts.retrieve() + stripe.transfers.create() against a live
+// Stripe Connect account with payouts_enabled. No such account exists in
+// the test environment.
+it.skip("BLOCKED: Stripe Connect affiliate monthly transfer — requires live Connect account with payouts_enabled", () => {});
+
 // ── E2E happy path ────────────────────────────────────────────────────────────
 
 describe("Subscriptions E2E — restore-access happy path", () => {

@@ -196,6 +196,14 @@ describe("POST /session/claim — route logic", () => {
   });
 });
 
+// ── Blocked items — cannot test in this environment ──────────────────────────
+
+// CLERK JWT VERIFICATION: clerkMiddleware() validates the Authorization Bearer
+// token against live Clerk JWKS. In tests, @clerk/express is fully mocked and
+// getAuth() returns a configured stub. Real token issuance and expiry checks
+// require a live Clerk instance and a valid signed JWT — not available here.
+it.skip("BLOCKED: real Clerk JWT signature verification — requires live Clerk instance and signed token", () => {});
+
 // ── E2E happy path: unauthenticated → claim session ──────────────────────────
 
 describe("Auth E2E — anonymous session claim happy path", () => {
