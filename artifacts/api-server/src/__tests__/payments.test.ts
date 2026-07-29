@@ -286,6 +286,7 @@ describe("WebhookHandlers.processWebhook — unit", () => {
   // The test above proves the referralCode branch is entered and the affiliate
   // DB lookup fires. The actual Stripe Connect transfer (stripe.transfers.create)
   // is blocked here because it requires a live Connect account with payouts_enabled.
+  // SKIP REASON: live Stripe Connect required — stripe.transfers.create needs a real connected account with payouts_enabled; not available in test environment
   it.skip("BLOCKED: invoice.payment_succeeded referralCode → actual Stripe Connect transfer — requires live affiliate account with payouts_enabled", () => {});
 });
 
@@ -473,6 +474,38 @@ describe("POST /stripe/checkout — monthly and lifetime happy paths", () => {
     // referralCode appears in the Stripe checkout session metadata
     const checkoutArg = mockStripe.checkout.sessions.create.mock.calls[0][0];
     expect(checkoutArg.metadata.referralCode).toBe("FRIEND10");
+  });
+
+  it("referralCode provided but affiliate NOT found in DB → if(affiliate) FALSE arm (bid=5 line 78 false branch)", async () => {
+    // Exercises the FALSE arm of `if (affiliate)` at stripe.ts line 78:
+    //   const [affiliate] = await db.select()...affiliatesTable...
+    //   if (affiliate) { ... }  ← FALSE: affiliate not found → validatedCode stays null
+    // referralCode is NOT written to the session, and does NOT appear in metadata.
+    selectOnce([]);   // no existing session row
+    insertOnce();     // new session inserted
+
+    // affiliate lookup returns empty array → [affiliate] = undefined → if(affiliate) false
+    selectOnce([]);
+
+    mockStripe.customers.create.mockResolvedValue({ id: "cus_noaff_001" });
+    mockStripe.products.search.mockResolvedValue({ data: [{ id: "prod_monthly_001" }] });
+    mockStripe.prices.list.mockResolvedValue({ data: [{ id: "price_monthly_001" }] });
+    mockStripe.checkout.sessions.create.mockResolvedValue({ url: CHECKOUT_URL });
+
+    const res = await request(app)
+      .post("/api/stripe/checkout")
+      .send({ sessionId: SESSION_ID, plan: "monthly", referralCode: "UNKNOWN_CODE" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toBe(CHECKOUT_URL);
+
+    // db.update must NOT have been called — no referralCode to persist
+    expect(db.update).not.toHaveBeenCalled();
+
+    // Stripe checkout session metadata must NOT contain referralCode
+    const checkoutArg = mockStripe.checkout.sessions.create.mock.calls[0][0];
+    expect(checkoutArg.metadata).not.toHaveProperty("referralCode");
   });
 
   it("monthly plan — Stripe product not found → 500 with specific error message (line 89)", async () => {
@@ -687,6 +720,7 @@ describe("POST /stripe/verify-checkout", () => {
 // STRIPE_SECRET_KEY to construct a real Stripe::Webhook.construct_event().
 // The test environment has no live key; processWebhook() is tested above with
 // a mocked getStripeSync. Signature path is intentionally untested here.
+// SKIP REASON: live webhook HMAC secret required — stripe.webhooks.constructEvent() verifies HMAC-SHA256 of raw bytes against STRIPE_WEBHOOK_SECRET; no live secret in test env
 it.skip("BLOCKED: live stripe-signature webhook verification — requires live STRIPE_SECRET_KEY not available in test env", () => {});
 
 // STRIPE CONNECT AFFILIATE TRANSFERS: sendAffiliateTransfer() calls
@@ -694,6 +728,7 @@ it.skip("BLOCKED: live stripe-signature webhook verification — requires live S
 // Stripe Connect account with payouts_enabled. No such account exists in
 // the test environment; the helper is invoked only when referralCode is
 // present in checkout.session.completed and mode === 'payment'.
+// SKIP REASON: live Stripe Connect required — stripe.transfers.create needs a real connected account with payouts_enabled; not available in test environment
 it.skip("BLOCKED: Stripe Connect affiliate transfer — requires live Connect account with payouts_enabled", () => {});
 
 // ── E2E happy path ────────────────────────────────────────────────────────────

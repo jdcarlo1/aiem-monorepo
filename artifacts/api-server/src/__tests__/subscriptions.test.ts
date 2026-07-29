@@ -218,6 +218,31 @@ describe("POST /stripe/restore-access — lookup paths", () => {
     expect(res.body.success).toBe(true);
   });
 
+  it("customer found in list but has NO completed checkouts → if(checkouts.data.length>0) FALSE arm (bid=28 line 203)", async () => {
+    // Exercises the FALSE arm of `if (checkouts.data.length > 0)` at stripe.ts line 203.
+    // The for-loop at line 201 iterates over customers; for this customer,
+    // checkout.sessions.list returns { data: [] } → condition is false → loop
+    // continues (no more customers) → falls through to success:false at line 212.
+    mockStripe.checkout.sessions.search.mockRejectedValue(new Error("search not available"));
+
+    mockStripe.customers.list.mockResolvedValue({
+      data: [{ id: "cus_nocheckouts_001" }], // customer exists...
+    });
+    mockStripe.checkout.sessions.list.mockResolvedValue({
+      data: [], // ...but has zero completed checkouts
+    });
+
+    const res = await request(app)
+      .post("/api/stripe/restore-access")
+      .send({ sessionId: SESSION_ID, email: "nocheckouts@example.com" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.message).toMatch(/No completed payment/i);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
   it("email not found in Stripe at all → 200 success:false", async () => {
     mockStripe.checkout.sessions.search.mockResolvedValue({ data: [] });
     mockStripe.customers.list.mockResolvedValue({ data: [] });
@@ -410,6 +435,7 @@ describe("POST /subscription/cancel", () => {
 // stripe.accounts.retrieve() + stripe.transfers.create() against a live
 // Stripe Connect account with payouts_enabled. No such account exists in
 // the test environment.
+// SKIP REASON: live Stripe Connect required — stripe.transfers.create needs a real connected account with payouts_enabled; not available in test environment
 it.skip("BLOCKED: Stripe Connect affiliate monthly transfer — requires live Connect account with payouts_enabled", () => {});
 
 // ── E2E happy path ────────────────────────────────────────────────────────────
