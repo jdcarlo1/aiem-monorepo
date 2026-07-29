@@ -1,0 +1,25 @@
+# Directive — Close 2 Gaps: Rename Scope + Seed-Step Double-Count Proof
+
+## Gap 1 — Non-.py stale reference check
+
+Your rename check only grepped live `.py` files. Repeat it against everything else.
+
+Steps:
+1. Run: `grep -rn "five_layer\|five-layer\|Five Layer\|5-layer\|5 layer" --include="*.md" --include="*.html" --include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.sql" --include="*.json" --include="*.yaml" --include="*.yml" .`
+2. Also grep the DB directly for any column/label/comment referencing "five layer" or "5-layer" (check table comments, any config rows, any UI-facing string tables).
+3. Also check frontend-rendered strings on stocksai.com itself (search the deployed UI source, not just backend) for "5-layer" / "five layer" text shown to users.
+4. Paste the raw grep/query output — not a summary. If anything hits, fix it and show before/after. If truly zero hits, say so with the raw command + empty output shown.
+
+## Gap 2 — Prove no double-counting between seed step and signal #7
+
+Claim to verify: `_get_far_otm_sweeps()` at the seed step (~23690/23703) populates `seed_priority` only, and signal #7 "Far-OTM Sweep" (~23796) is what actually contributes to the final conviction score — with zero overlap between the two.
+
+Steps:
+1. Pick one real live trade (use trade id=40 / SLN again for continuity).
+2. Print the full per-signal score breakdown for that trade — every one of the 10 signals plus the seed step, each with its own point contribution, labeled by variable name (not narrated).
+3. Show the exact line(s) where `seed_priority` is used downstream — confirm via grep whether `seed_priority` ever gets added into the final conviction score sum, or whether it's used only for candidate ordering/selection (not scoring).
+4. Show the exact line(s) where signal #7's Far-OTM Sweep score enters the final sum.
+5. State explicitly, with the two line numbers side by side: "seed_priority feeds X, not the score sum" / "signal #7 feeds the score sum at line Y" — or if there IS overlap, disclose it plainly rather than asserting there isn't.
+
+## Standing rule
+No narration in place of raw output. Every claim in this directive gets closed with pasted grep/query/print output, not a description of what you checked.

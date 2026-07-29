@@ -6,7 +6,7 @@ description: The 9:05 ET pre-open Smart-Money-Pressure idea-email family — one
 # Morning Smart-Money Pressure idea emails (cap-split)
 
 A MORNING owner-email family that scores optionable stocks with the existing L1-L8
-"Smart Money Pressure" conviction engine (`_run_five_layer_conviction`) and splits the
+"Smart Money Pressure" conviction engine (`_run_conviction_scanner`) and splits the
 ranked output by market cap into THREE SEPARATE owner emails: Small ($300M-$2B), Mid
 ($2B-$10B), Large ($10B+). Framed as idea generation ("gives us an idea"), NOT a sized
 buy list. Owner-email kind `smp_morning`, slot 9:05 ET. Sibling of the nano/sc morning

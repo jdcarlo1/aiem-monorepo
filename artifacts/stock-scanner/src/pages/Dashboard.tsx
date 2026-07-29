@@ -12730,7 +12730,7 @@ function SignalIntelTab() {
           last="4:00 PM ET daily" />
 
         <SigCard icon="🏆" name="High Conviction Stack"
-          desc="5-layer conviction scoring engine: Layer 1 (sweep volume), Layer 2 (dark pool), Layer 3 (short squeeze risk), Layer 4 (sector heat), Layer 5 (insider activity). Only shows HIGH conviction names."
+          desc="10-signal conviction scoring engine: OI accumulation, charm cascade, gamma FIR, short interest, dark pool convergence, float-adjusted options demand, far-OTM sweep, sector heat, tier-3 sector rotation, and fragility penalty. Only shows HIGH conviction names."
           status="active" reading="Tab: High Conviction · scored daily · 91% WR on HIGH tier (backtest Jun 1–13)"
           last="Daily" />
 

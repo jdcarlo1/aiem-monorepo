@@ -6,7 +6,7 @@ description: The "TOP SCORE 8+" tab is now scored by the Smart Money Pressure (L
 # TOP SCORE 8+ — now driven by the L1-L8 conviction engine
 
 The "💎 TOP SCORE 8+" tab (`TopScoreTab` in `Dashboard.tsx`, `tab==="topscore"`) is
-scored by the existing **Smart Money Pressure** engine `_run_five_layer_conviction`
+scored by the existing **Smart Money Pressure** engine `_run_conviction_scanner`
 (`total_pts >= 8` = EXTREME), NOT the technical `compute_score`/composite pipeline.
 
 **Why:** the composite/technical score and the money-pressure engine disagreed;
@@ -28,7 +28,7 @@ documents that dormant pipeline; it no longer describes the TOP SCORE tab.)
 - `CONVICTION_STACK_MAX` (module const, currently 60) is the **single knob** for
   universe width. BOTH the live `/conviction-stack` endpoint AND
   `snapshot_conviction_stack()` use it, so displayed universe == logged universe.
-- `max_tickers` in `_run_five_layer_conviction` caps BOTH the output
+- `max_tickers` in `_run_conviction_scanner` caps BOTH the output
   (`results[:max_tickers]`) AND the heavy L4-L8 fetch pool (`active[:max_tickers*3]`),
   so too small a value *suppresses scores* (fewer layers fire → names can't reach 8),
   not just truncates the list. Prior bug: endpoint used 25 while snapshot used 60.
@@ -44,7 +44,7 @@ documents that dormant pipeline; it no longer describes the TOP SCORE tab.)
   (OI / gamma / charm) signal. So a name whose only footprint is a sweep (L7) or
   dark pool shows a deceptively low score (e.g. SMCI/TLN at ~2.0) because L4-L6
   were never computed for it.
-- `_run_five_layer_conviction(force_tickers=[...])` seeds those tickers into
+- `_run_conviction_scanner(force_tickers=[...])` seeds those tickers into
   `scores` + `active` so ALL 8 layers run, and keeps them in the output past the
   cap / 1.0-pt floor. Route `GET /conviction-stack/score/<ticker>` wraps it.
 - **Why:** lets any ticker be scored on demand (user asks "score X") without it

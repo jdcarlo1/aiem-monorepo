@@ -8,7 +8,7 @@ project, traced all 8 Phase-0-tagged AI tools to their real implementation and
 found 0/8 call into any of the 10 Phase 0 module files (scanner.py,
 composite_scan.py, multiday_runner.py, etc). All 8 are inline functions
 defined directly in main.py, reading/writing tables main.py itself owns
-(conviction_stack_watchlist via the L1-L8 `_run_five_layer_conviction` engine,
+(conviction_stack_watchlist via the L1-L8 `_run_conviction_scanner` engine,
 aiem_independent_picks via `_indep_scan_thread`, polygon_market_daily/
 ticker_meta via the mkt_* full-market research engine).
 
@@ -25,7 +25,7 @@ phase-tagged. Trace the real DB writes/reads and record `owning_module` as
 either a real module file OR "inline main.py — <function name(s)>" with the
 actual write-path evidence. This pattern likely recurs in later phases
 (Phase 9 Scoring, Phase 4 Discovery, etc. also have heavy main.py-inline
-logic per prior memory notes on _run_five_layer_conviction, mkt_* tools,
+logic per prior memory notes on _run_conviction_scanner, mkt_* tools,
 and aiem_independent_picks) — expect it, verify honestly each time, and
 never round it up to "module_verified: <phase-N-file>" without real trace
 evidence like this.
