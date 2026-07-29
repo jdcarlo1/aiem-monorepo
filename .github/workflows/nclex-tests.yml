@@ -33,6 +33,52 @@ jobs:
         env:
           NODE_ENV: test
 
+      - name: Enforce coverage baselines — stripe.ts and webhookHandlers.ts must be 100%
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const cov = JSON.parse(
+            fs.readFileSync('artifacts/api-server/coverage/coverage-final.json', 'utf8')
+          );
+
+          const TARGETS = [
+            { match: f => f.includes('/src/routes/stripe.ts'),    label: 'stripe.ts' },
+            { match: f => f.includes('/src/webhookHandlers.ts'),  label: 'webhookHandlers.ts' },
+          ];
+          const THRESHOLD = 100;
+          let anyFail = false;
+
+          for (const { match, label } of TARGETS) {
+            const key = Object.keys(cov).find(match);
+            if (!key) {
+              console.error('ERROR: ' + label + ' not found in coverage JSON');
+              anyFail = true;
+              continue;
+            }
+            const v = cov[key];
+            const pct = (vals) => vals.length ? 100 * vals.filter(x => x > 0).length / vals.length : 100;
+            const stmts    = pct(Object.values(v.s));
+            const branches = pct(Object.values(v.b).flat());
+            const fns      = pct(Object.values(v.f));
+            const ok = stmts >= THRESHOLD && branches >= THRESHOLD && fns >= THRESHOLD;
+            console.log((ok ? '✓' : '✗') + ' ' + label +
+              ': stmts=' + stmts.toFixed(1) + '%' +
+              ' branches=' + branches.toFixed(1) + '%' +
+              ' fns=' + fns.toFixed(1) + '%');
+            if (!ok) anyFail = true;
+          }
+
+          if (anyFail) {
+            console.error(
+              '\nCoverage threshold FAILED.\n' +
+              'Required: 100% stmts/branches/fns on stripe.ts and webhookHandlers.ts.\n' +
+              'A test was deleted, a branch was left uncovered, or a new code path was added without tests.'
+            );
+            process.exit(1);
+          }
+          console.log('\nAll coverage thresholds passed.');
+          EOF
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
