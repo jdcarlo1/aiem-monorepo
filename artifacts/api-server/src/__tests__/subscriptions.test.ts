@@ -269,6 +269,37 @@ describe("POST /stripe/restore-access — lookup paths", () => {
     expect(mockStripe.customers.update).not.toHaveBeenCalled();
   });
 
+  it("restore-access list-fallback path: cs.subscription is a plain string → TRUE arm of type-guard (b29[0] line 205)", async () => {
+    // typeof cs.subscription === "string" ? cs.subscription : null
+    // Branch b29[0] is the TRUE arm (subscription IS a string).
+    // Previous list-fallback tests use null or object subscriptions, hitting only b29[1].
+    // This test passes a plain string → b29[0] fires → subscriptionId = "sub_str_123".
+    mockStripe.checkout.sessions.search.mockRejectedValue(new Error("search unavailable"));
+
+    mockStripe.customers.list.mockResolvedValue({
+      data: [{ id: "cus_str_list" }],
+    });
+    mockStripe.checkout.sessions.list.mockResolvedValue({
+      data: [{
+        customer: "cus_str_list",
+        subscription: "sub_str_123", // plain string → b29[0] TRUE arm → "sub_str_123"
+      }],
+    });
+
+    selectOnce([]); // no existing session → insert
+    insertOnce();
+
+    const res = await request(app)
+      .post("/api/stripe/restore-access")
+      .send({ sessionId: SESSION_ID, email: EMAIL })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // The insert was called with subscriptionId = "sub_str_123" (string path)
+    expect(db.insert).toHaveBeenCalledOnce();
+  });
+
   it("restore-access list-fallback path: cs.subscription returned as object → type-guard alt arm (line 205)", async () => {
     // Exercises the list-fallback branch (search throws → fall to customers.list).
     // cs.subscription is a full object, not a string, so:

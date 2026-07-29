@@ -597,6 +597,57 @@ describe("POST /stripe/verify-checkout", () => {
     expect(db.update).not.toHaveBeenCalled();
   });
 
+  it("subscription is an empty object {} → subscription?.id is undefined → ?? null fires (b17[1] line 139 right arm)", async () => {
+    // typeof checkoutSession.subscription === "string" → false (object)
+    // checkoutSession.subscription?.id → undefined (no 'id' key)
+    // undefined ?? null → null   ← this ?? null arm (b17[1]) was uncovered
+    mockStripe.checkout.sessions.retrieve.mockResolvedValue({
+      payment_status: "paid",
+      status: "complete",
+      subscription: {},          // object with no 'id' → ?.id = undefined → ?? null
+      customer: "cus_noid_001",  // plain string → covered string path
+      customer_details: { email: "noid@example.com" },
+    });
+    mockStripe.customers.update.mockResolvedValue({});
+    updateOnce();
+
+    const res = await request(app)
+      .post("/api/stripe/verify-checkout")
+      .send({ sessionId: "sess-noid", checkoutSessionId: "cs_noid_001" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    const setArg = (db.update as Mock).mock.results[0].value.set.mock.calls[0][0];
+    // subscription?.id was undefined → ?? null fired → subscriptionId = null
+    expect(setArg.stripeSubscriptionId).toBeNull();
+  });
+
+  it("customer_details absent → customerEmail is null, customers.update NOT called (b19[1] line 141 ?? null arm)", async () => {
+    // customer_details?.email ?? null — the ?? null arm fires when customer_details is absent.
+    // Also verifies customers.update is skipped when customerEmail is null.
+    mockStripe.checkout.sessions.retrieve.mockResolvedValue({
+      payment_status: "paid",
+      status: "complete",
+      subscription: "sub_nodemail_001",
+      customer: "cus_nodemail_001",
+      // no customer_details field at all
+    });
+    updateOnce();
+
+    const res = await request(app)
+      .post("/api/stripe/verify-checkout")
+      .send({ sessionId: "sess-nodemail", checkoutSessionId: "cs_nodemail_001" })
+      .set("Content-Type", "application/json");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // customerEmail = null (customer_details absent) → customers.update NOT called
+    expect(mockStripe.customers.update).not.toHaveBeenCalled();
+    // email in response is null
+    expect(res.body.email).toBeNull();
+  });
+
   it("verify-checkout: subscription and customer returned as objects not strings — .id path and null type guard (lines 139-141)", async () => {
     // All previous tests pass subscription/customer as plain strings (e.g.
     // "sub_001", "cus_001"), hitting only the string-shortcut branch of:
