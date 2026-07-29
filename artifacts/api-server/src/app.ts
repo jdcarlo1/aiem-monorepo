@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
@@ -62,7 +63,29 @@ app.use(
   }),
 );
 
-app.use(cors({ credentials: true, origin: true }));
+// Explicit CORS allowlist — do NOT use `origin: true` (reflects any origin
+// with credentials, which is a CORS misconfiguration for credentialed requests).
+const _CORS_ALLOWED_ORIGINS: (string | RegExp)[] = [
+  "https://nclexai.org",
+  /^https:\/\/[\w-]+\.replit\.app$/,
+  /^https:\/\/[\w-]+\.repl\.co$/,
+  /^https:\/\/[\w-]+\.janeway\.replit\.dev$/,
+  /^https:\/\/[\w-]+\.replit\.dev$/,
+];
+if (process.env.NODE_ENV !== "production") {
+  _CORS_ALLOWED_ORIGINS.push(/^http:\/\/localhost(:\d+)?$/);
+}
+app.use(cors({ credentials: true, origin: _CORS_ALLOWED_ORIGINS }));
+
+// Security headers via helmet (after CORS so preflight headers aren't overridden)
+app.use(
+  helmet({
+    // CSP relaxed for Clerk hosted scripts + Stripe iframe
+    contentSecurityPolicy: false,
+    // Allow Stripe/Clerk iframes in the frontend
+    crossOriginEmbedderPolicy: false,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
