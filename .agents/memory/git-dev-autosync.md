@@ -3,28 +3,26 @@ name: Git dev-branch autosync
 description: Standing rule — push tracked-file changes to the dev branch at the end of every session; workflow slot was unavailable.
 ---
 
-## Rule
+## Status — LIVE DAEMON (as of 2026-07-29)
 
-At the **end of every session**, before the final reply to the user, run:
+`git-autosync` workflow is registered and running (PID 2027). Checks every 60s.
+Slot freed by removing the `[[services]]` block from `artifacts/mockup-sandbox/.replit-artifact/artifact.toml` via `verifyAndReplaceArtifactToml`.
 
-```bash
-cd /home/runner/workspace
-git add -u
-git diff --cached --quiet || git commit -m "auto-sync: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-git push origin HEAD:dev
-```
+## What the daemon does
 
-This keeps `dev` on GitHub current with all session changes without waiting for a PR.
+`git_autosync_daemon.py` at workspace root — loop every 60s:
+- `git fetch origin dev`
+- local ahead → `git push origin HEAD:dev`
+- local behind → `git pull --ff-only origin dev`
+- diverged → logs WARNING, no action (manual reconcile needed)
+- All actions logged to `logs/git_autosync.log`
 
-## Why
+## Manual end-of-session push (still good practice)
 
-All 10 Replit workflow slots are occupied by live production services (aiem-process, stock-api, notifier, options-pipeline-scheduler, probability-engine-scheduler, aiem-dashboard web, stock-scanner web, nclex-prep web, api-server, mockup-sandbox). A persistent autosync workflow cannot be registered until one slot frees.
-
-Memory rule: `setsid`/`nohup` die on bash exit — `configureWorkflow()` is the only durable background mechanism on Replit. No slot = no persistent daemon.
+Even with the daemon, new **untracked** files need `git add <file>` before the daemon can pick them up (daemon uses `git add -u` implicitly via push, not add). Explicitly stage new files during the session.
 
 ## How to apply
 
-- `git add -u` only (tracked files) — never `git add -A`. New untracked files must be explicitly staged during the session.
-- `dev` has no branch protection — direct push always succeeds.
+- `dev` has no branch protection — daemon push always succeeds.
 - When the user wants changes on `main`, run the sync PR flow (branch → PR → CI → merge).
-- `tools/git-autosync.sh` is the canonical script; the Replit workflow registration can be completed once any production workflow slot frees.
+- If daemon is ever not running: `ps aux | grep git_autosync_daemon` to confirm; restart via WorkflowsRestart `git-autosync`.
