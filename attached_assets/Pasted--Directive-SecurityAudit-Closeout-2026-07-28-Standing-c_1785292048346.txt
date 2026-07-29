@@ -1,0 +1,26 @@
+# Directive_SecurityAudit_Closeout_2026-07-28
+
+## Standing checklist (applies to every item below)
+- Raw output only — no narrative, no summary tables, no "representative" samples
+- Raw grep -n/-rn for any code-location or existence claim — no paraphrasing
+- Exact before/after sha256 for any file changed this session
+- git diff --stat (or "no changes") for anything touched
+- If a claim can't be backed by real command output, state that in one line — no padding
+- No delete/truncate/overwrite of any row/file without explicit approval first
+- verified_run.sh/verify_chain.sh chain protocol: N/A to this repo (already established 2026-07-23 — those scripts belong to the AIEM repo only)
+- Any phase that fully closes under this directive gets a permanent file at security_audit/CLOSEOUT-FINAL.md — do not write it until all 3 items below are resolved
+
+## Item 1 — Auth/CORS/SQLi/XSS/CSRF re-evidence
+Currently: zero raw output in raw_evidence.md for JWT, CORS, admin token, SQL injection, XSS, CSRF.
+Fix: re-run all six checks fresh, this session, against current code. Paste raw curl/grep output for each directly into raw_evidence.md. If any check cannot be run in this environment, state that explicitly per check — do not carry forward last session's claims as if re-verified.
+
+## Item 2 — #74 IDOR cross-user 403
+Currently PARTIAL — anonymous-403 proven live, cross-user-403 blocked by lack of two live Clerk JWTs in the build environment.
+Fix: do not attempt to fabricate or simulate this. State plainly it remains PARTIAL pending a manual test with two real accounts (Joel will do this himself outside the build environment). No code-level circumstantial evidence substitutes for a live PASS here.
+
+## Item 3 — Permanent record
+Fix: once Items 1 and 2 are resolved (or explicitly left open with reasons stated), write security_audit/CLOSEOUT-FINAL.md containing: full corrected matrix, the commit hash the audit ran against, and explicit note of any item still open.
+
+## Rejected outcomes
+- "Fixed" or "PASS" on Item 1 without fresh raw output = rejected
+- Any label other than PARTIAL on Item 2 without a live cross-user test = rejected
