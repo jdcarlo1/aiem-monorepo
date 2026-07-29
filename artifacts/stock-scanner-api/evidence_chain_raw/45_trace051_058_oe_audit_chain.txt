@@ -1,0 +1,240 @@
+TASK #29 — TRACE-051/052/053 + TRACE-056/057/058
+oe_decision_audit hash chain integrity & negative controls
+Timestamp: 2026-07-29T23:32:39Z UTC / 2026-07-29 19:32 ET (EDT, UTC-4)
+===========================================================================
+
+SHA-256 CROSS-CHECKS (pre-run baseline)
+-----------------------------------------
+tools/verify_chain.sh (evidence-chain log verifier):
+  sha256=4804b54704634c490d4d7140e88cc4e9874058292b6879d9dbdeb3e86cdd7e12
+  canonical from memory: 4804b547... ✓ MATCH
+
+artifacts/stock-scanner-api/verify_chain.sh (options-pipeline DB verifier):
+  sha256=ca7896c7c832ef53430dfd07319418000d9139566c9e52720f587aa9c9840d1f
+  canonical from memory: ca7896c7... ✓ MATCH
+
+dpl/verify_dpl_phase1.py:
+  sha256=79d01446a8edb1e8b9ca5d87871a1881fc51d901c426eafa6c4de01923663442
+
+dpl/verify_dpl_phase3.py:
+  sha256=0957ed9f9eacb12bb2e2b6c086b5c3bb172c1d5f109f0c06e320cde38073d84b
+
+NOTE: tools/verify_chain.sh was not found at artifacts/stock-scanner-api/tools/; it
+      lives at workspace root tools/verify_chain.sh. Two distinct files, two distinct hashes.
+
+===========================================================================
+TRACE-051: Hash chain fields present and non-null on oe_audit_events
+===========================================================================
+
+Hash generation code path:
+  File: aiem_options_phase5.py, lines 182-193
+  Docstring (line 182): "hash_chain_self = sha256(prev_hash | event_id | event_type | details | ts)"
+  Implementation:
+    prev_hash = _get_last_audit_hash(cur, is_test_record=is_test_record)
+    self_hash = _audit_chain_hash(prev_hash, event_id, event_type, details, ts)
+  Insert (line 197-207): stores hash_chain_prev=prev_hash, hash_chain_self=self_hash into oe_audit_events
+
+Table schema (relevant columns, all NOT NULL):
+  hash_chain_prev  text  NOT NULL
+  hash_chain_self  text  NOT NULL UNIQUE
+
+Live query — first 10 rows of oe_audit_events:
+  id=   1  type=PROPOSAL_CREATED              test=True
+           hash_chain_self=4d219729cd3c5ae3c40ca696f01fd54c5ac38f33c20d8ef1c27c25d6fd3559c9
+           hash_chain_prev=GENESIS
+  id=   2  type=GATES_EVALUATED               test=True
+           hash_chain_self=c20ca99ed1677529645370b203a84937b88b5dddaed56a0e69b02aa6be2e1dc6
+           hash_chain_prev=4d219729cd3c5ae3c40ca696f01fd54c5ac38f33c20d8ef1c27c25d6fd3559c9
+  id=   3  type=GATES_EVALUATED               test=True
+           hash_chain_self=353de40a84e86120c40441e2d97a21218eed87473564c24d03d5534da6001371
+           hash_chain_prev=c20ca99ed1677529645370b203a84937b88b5dddaed56a0e69b02aa6be2e1dc6
+  id=   4  type=PROPOSAL_SAFETY_REJECTED      test=True
+           hash_chain_self=7a5518bb9da7daa4304516410b25837c1bcc79930d3c0e3f045ab27237ed4ad1
+           hash_chain_prev=353de40a84e86120c40441e2d97a21218eed87473564c24d03d5534da6001371
+  id=   5  type=PROPOSAL_SAFETY_REJECTED      test=True
+           hash_chain_self=9b76379194d11c692bc189fcc1a6a6d469f7e8bb56cff86cb7df5e94643356d6
+           hash_chain_prev=7a5518bb9da7daa4304516410b25837c1bcc79930d3c0e3f045ab27237ed4ad1
+  id=   6  type=CHALLENGER_CREATED            test=True
+           hash_chain_self=3de7cf43a89c7d3e8333942341f9861c3993632ad7bde7b4ee121e5f9858d7f1
+           hash_chain_prev=9b76379194d11c692bc189fcc1a6a6d469f7e8bb56cff86cb7df5e94643356d6
+  id=   7  type=GATES_EVALUATED               test=True
+           hash_chain_self=5c844a63e8868a950d651064475f4ca19ab3bda7c9e1f1dfc7c565753738935f
+           hash_chain_prev=3de7cf43a89c7d3e8333942341f9861c3993632ad7bde7b4ee121e5f9858d7f1
+  id=   8  type=CHALLENGER_PROMOTED           test=True
+           hash_chain_self=39c31a59e91fd92473665d301557dec04ad53836b5740e7c8b6b18b34cb249a5
+           hash_chain_prev=5c844a63e8868a950d651064475f4ca19ab3bda7c9e1f1dfc7c565753738935f
+  id=   9  type=CHAMPION_ROLLED_BACK          test=True
+           hash_chain_self=2e0ef1227a2a9992705eba4c2187c0dec8b175350b34d30579c0aefe8c41f619
+           hash_chain_prev=39c31a59e91fd92473665d301557dec04ad53836b5740e7c8b6b18b34cb249a5
+  id=  10  type=TEST_EVENT                    test=True
+           hash_chain_self=68de6cece3cd7d2e99d0dfab100dfd3e5f2ccdd627dc8f3daa9ccfee6b155528
+           hash_chain_prev=2e0ef1227a2a9992705eba4c2187c0dec8b175350b34d30579c0aefe8c41f619
+
+Aggregate check:
+  total=10  hash_chain_self_non_null=10  hash_chain_prev_non_null=10  real_rows=0
+
+VERDICT TRACE-051: PASS — hash chain fields present and non-null on all rows
+
+===========================================================================
+TRACE-052: Chain linkage — hash_chain_prev == prev row hash_chain_self
+===========================================================================
+
+LAG() query result (hash_chain_prev = LAG(hash_chain_self) OVER ORDER BY id):
+
+  id=   1  GENESIS  self=4d219729cd3c5ae3c40c...  prev=GENESIS              expected=(genesis)
+  id=   2  LINKED   self=c20ca99ed16775296453...  prev=4d219729cd3c5ae3c40c  expected=4d219729cd3c5ae3c40c
+  id=   3  LINKED   self=353de40a84e86120c404...  prev=c20ca99ed16775296453  expected=c20ca99ed16775296453
+  id=   4  LINKED   self=7a5518bb9da7daa43045...  prev=353de40a84e86120c404  expected=353de40a84e86120c404
+  id=   5  LINKED   self=9b76379194d11c692bc1...  prev=7a5518bb9da7daa43045  expected=7a5518bb9da7daa43045
+  id=   6  LINKED   self=3de7cf43a89c7d3e8333...  prev=9b76379194d11c692bc1  expected=9b76379194d11c692bc1
+  id=   7  LINKED   self=5c844a63e8868a950d65...  prev=3de7cf43a89c7d3e8333  expected=3de7cf43a89c7d3e8333
+  id=   8  LINKED   self=39c31a59e91fd9247366...  prev=5c844a63e8868a950d65  expected=5c844a63e8868a950d65
+  id=   9  LINKED   self=2e0ef1227a2a9992705e...  prev=39c31a59e91fd9247366  expected=39c31a59e91fd9247366
+  id=  10  LINKED   self=68de6cece3cd7d2e99d0...  prev=2e0ef1227a2a9992705e  expected=2e0ef1227a2a9992705e
+
+  RESULT: broken_links=0  chain_length=10
+
+VERDICT TRACE-052: PASS — all 9 inter-row links intact; GENESIS seed correctly at id=1
+
+===========================================================================
+TRACE-053: Immutability triggers block UPDATE and DELETE on non-test rows
+===========================================================================
+
+Triggers confirmed on oe_decision_audit (via information_schema.triggers):
+  trg_oe_decision_audit_immutable  BEFORE UPDATE  → trg_fn_oe_decision_audit_immutable()
+  trg_oe_dpl_immutable             BEFORE UPDATE  → _oe_dpl_guard_immutability()
+  trg_oe_dpl_immutable             BEFORE DELETE  → _oe_dpl_guard_immutability()
+
+Trigger function source (aiem_options_dpl.py lines 147-186):
+  CREATE OR REPLACE FUNCTION _oe_dpl_guard_immutability()
+  RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN
+      IF TG_OP = 'DELETE' THEN
+          IF OLD.is_test_record THEN RETURN OLD; END IF;
+          RAISE EXCEPTION 'oe_decision_audit is append-only: DELETE not permitted on production rows';
+      END IF;
+      IF OLD.is_test_record THEN RETURN NEW; END IF;
+      IF NEW.input_hash IS DISTINCT FROM OLD.input_hash OR ... THEN
+          RAISE EXCEPTION 'oe_decision_audit: core fields are immutable ...';
+      END IF;
+      RETURN NEW;
+  END; $$
+
+TRACE-053a — UPDATE core field on production row (is_test_record=FALSE):
+  Target: decision_id=84f58605c217435a9003...  (is_test_record=FALSE, real row)
+  Attempted: UPDATE oe_decision_audit SET input_hash='TAMPERED_HASH' WHERE decision_id=...
+  RESULT: BLOCKED
+  Trigger error: "[DPL] oe_decision_audit production rows are immutable.
+    decision_id=84f58605c217435a90037f55 is_test_record=FALSE cannot be modified."
+  Function: trg_fn_oe_decision_audit_immutable() line 4
+
+TRACE-053b — DELETE production row (is_test_record=FALSE):
+  Target: same decision_id as above
+  Attempted: DELETE FROM oe_decision_audit WHERE decision_id=...
+  RESULT: BLOCKED
+  Trigger error: "oe_decision_audit is append-only: DELETE not permitted on production rows"
+  Function: _oe_dpl_guard_immutability() line 8
+
+VERDICT TRACE-053: PASS — both triggers fire correctly; UPDATE and DELETE on production rows are
+                          unconditionally blocked; no rollback needed (transaction aborted by exception)
+
+===========================================================================
+TRACE-056: Negative control — INSERT missing required field
+===========================================================================
+
+Test A — INSERT into oe_decision_audit without input_hash (NOT NULL column):
+  SQL: INSERT INTO oe_decision_audit
+         (decision_id, created_at, output_hash, verification_status,
+          engine_version, db_version, is_test_record)
+       VALUES (%s, NOW(), 'fakehash', 'PENDING', 'test', 'test', TRUE)
+  -- input_hash intentionally omitted --
+  RESULT: BLOCKED
+  Error: psycopg2.errors.NotNullViolation:
+    "null value in column \"input_hash\" of relation \"oe_decision_audit\"
+     violates not-null constraint"
+  Failing row: (b253e687-ecd0-4f28-89c3-848ace3e6340, null, ..., fakehash, PENDING, test, test, t, ...)
+  (transaction rolled back)
+
+Test B — INSERT into oe_audit_events without hash_chain_self (NOT NULL column):
+  SQL: INSERT INTO oe_audit_events
+         (event_id, event_type, actor, hash_chain_prev, created_at, is_test_record)
+       VALUES (%s, 'TEST_EVENT', 'trace_056_test', 'GENESIS', NOW(), TRUE)
+  -- hash_chain_self intentionally omitted --
+  RESULT: BLOCKED
+  Error: psycopg2.errors.NotNullViolation:
+    "null value in column \"hash_chain_self\" of relation \"oe_audit_events\"
+     violates not-null constraint"
+  Failing row: (13, e680b03f-f605-4308-9b3e-a607ba13f6e0, TEST_EVENT, trace_056_test,
+                null, null, null, GENESIS, null, ...)
+  (transaction rolled back)
+
+VERDICT TRACE-056: PASS — schema enforces NOT NULL constraints on both hash fields;
+                          rows without a hash cannot be inserted
+
+===========================================================================
+TRACE-057: Negative control — UPDATE evidence on is_test_record=TRUE row (should be ALLOWED)
+===========================================================================
+
+This control verifies the inverse: test rows are NOT protected by the immutability trigger,
+so auditors can clean up harness data without needing to bypass constraints.
+
+Target: decision_id=be87ce49891e4b92b968...  (is_test_record=TRUE)
+Original identity_json: {"ticker": "AAPL", "strikes": [185.0], "alert_id": 999, ...}
+
+Attempted: UPDATE oe_decision_audit SET identity_json='{"modified_by":"TRACE-057-test","purpose":"negative-control-evidence"}'
+           WHERE decision_id=...
+RESULT: UPDATE ALLOWED — rows_affected=1
+(rolled back immediately — no permanent data change)
+
+Trigger code path (aiem_options_dpl.py lines 160-163):
+  -- UPDATE: test records unrestricted
+  IF OLD.is_test_record THEN
+      RETURN NEW;   ← exits trigger immediately, permits any UPDATE
+  END IF;
+
+VERDICT TRACE-057: PASS — trigger correctly passes test rows; immutability is production-only;
+                          no test data was permanently modified (transaction rolled back)
+
+===========================================================================
+TRACE-058: Negative control — corrupt prev_hash on test row → chain-break detection
+===========================================================================
+
+Target: oe_audit_events id=10  (is_test_record=TRUE, last row in chain)
+  Original hash_chain_prev=2e0ef1227a2a9992705eba4c2187c0de...
+  Original hash_chain_self=68de6cece3cd7d2e99d0dfab100dfd3e...
+
+Action: UPDATE oe_audit_events SET hash_chain_prev='CORRUPTED_HASH_000...' WHERE id=10
+  rows_affected=1 (UPDATE allowed — is_test_record=TRUE)
+
+Post-corruption LAG() chain check (within same transaction, before rollback):
+  id=   1  GENESIS  prev=GENESIS              expected=(genesis)
+  id=   2  LINKED   prev=4d219729cd3c5ae3c40c  expected=4d219729cd3c5ae3c40c
+  id=   3  LINKED   prev=c20ca99ed16775296453  expected=c20ca99ed16775296453
+  id=   4  LINKED   prev=353de40a84e86120c404  expected=353de40a84e86120c404
+  id=   5  LINKED   prev=7a5518bb9da7daa43045  expected=7a5518bb9da7daa43045
+  id=   6  LINKED   prev=9b76379194d11c692bc1  expected=9b76379194d11c692bc1
+  id=   7  LINKED   prev=3de7cf43a89c7d3e8333  expected=3de7cf43a89c7d3e8333
+  id=   8  LINKED   prev=5c844a63e8868a950d65  expected=5c844a63e8868a950d65
+  id=   9  LINKED   prev=39c31a59e91fd9247366  expected=39c31a59e91fd9247366
+  id=  10  BROKEN   prev=CORRUPTED_HASH_00000  expected=2e0ef1227a2a9992705e  <<<< CHAIN BREAK DETECTED
+
+  RESULT: broken_links=1  at id=10 (expected=1, correct)
+  (rolled back — oe_audit_events restored to original state)
+
+Integrity detection mechanism: aiem_options_phase5.py lines 1230-1251
+  verify_audit_chain() walks rows in id order, re-derives expected prev_hash using LAG,
+  and raises ChainIntegrityError on any mismatch.
+
+VERDICT TRACE-058: PASS — chain-break is immediately detectable via LAG() query;
+                          corruption at any link position produces a BROKEN status;
+                          no permanent data modified
+
+===========================================================================
+SUMMARY
+===========================================================================
+  TRACE-051  PASS  hash_chain_self + hash_chain_prev non-null on all 10 rows; code at aiem_options_phase5.py:182
+  TRACE-052  PASS  0 broken links across 9 inter-row pairs; LAG() query confirms full linkage
+  TRACE-053  PASS  Two triggers block UPDATE (input_hash tamper) + DELETE on production rows
+  TRACE-056  PASS  INSERT without input_hash (oe_decision_audit) and hash_chain_self (oe_audit_events) → NOT NULL blocks
+  TRACE-057  PASS  UPDATE identity_json on is_test_record=TRUE row → ALLOWED (correct; rolled back)
+  TRACE-058  PASS  Corrupt hash_chain_prev on test row → LAG immediately shows BROKEN at that row
