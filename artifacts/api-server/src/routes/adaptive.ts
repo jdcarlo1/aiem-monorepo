@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, answersTable, questionsTable } from "@workspace/db";
 import { eq, inArray, notInArray } from "drizzle-orm";
+import { verifySessionAccess } from "../lib/sessionAuth";
 
 const router = Router();
 
@@ -112,7 +113,7 @@ async function computeAdaptiveNext(sessionId: string): Promise<{
   return { questionId, categoryPerformance, totalAnswered };
 }
 
-router.get("/adaptive/next", async (req, res) => {
+router.get("/adaptive/next", verifySessionAccess, async (req, res) => {
   const sessionId = req.query.sessionId as string;
   if (!sessionId) {
     res.status(400).json({ error: "sessionId is required" });
@@ -127,7 +128,7 @@ router.get("/adaptive/next", async (req, res) => {
   }
 });
 
-router.get("/adaptive/performance", async (req, res) => {
+router.get("/adaptive/performance", verifySessionAccess, async (req, res) => {
   const sessionId = req.query.sessionId as string;
   if (!sessionId) {
     res.status(400).json({ error: "sessionId is required" });

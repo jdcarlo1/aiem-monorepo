@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
@@ -96,6 +97,46 @@ app.use(
       process.env.CLERK_PUBLISHABLE_KEY,
     ),
   })),
+);
+
+// ── Per-route rate limiters ────────────────────────────────────────────────
+// session/answer: 60 req/min per IP — a real student answers ~1q/30s (≈2/min);
+//   60/min gives 30× legitimate headroom while blocking automated harvesting.
+app.use(
+  "/api/session/answer",
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many answer submissions — please slow down" },
+  })
+);
+
+// stripe/restore-access: 5 req/15min per IP — email-guessing protection.
+//   Legitimate use is once per user session; 5 gives enough room for retries.
+app.use(
+  "/api/stripe/restore-access",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many restore attempts — try again in 15 minutes" },
+  })
+);
+
+// stripe/checkout: 20 req/15min per IP — prevents checkout session flooding.
+//   Legitimate users create one checkout session per purchase attempt.
+app.use(
+  "/api/stripe/checkout",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many checkout requests — try again in 15 minutes" },
+  })
 );
 
 app.use("/api", router);
