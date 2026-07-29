@@ -33,7 +33,7 @@ jobs:
         env:
           NODE_ENV: test
 
-      - name: Enforce coverage baselines — stripe.ts and webhookHandlers.ts must be 100%
+      - name: Enforce 100% coverage on all critical-path files
         run: |
           node - <<'EOF'
           const fs = require('fs');
@@ -41,9 +41,18 @@ jobs:
             fs.readFileSync('artifacts/api-server/coverage/coverage-final.json', 'utf8')
           );
 
+          // Critical-path files — every reachable branch must be tested.
+          // Grouped by layer so failure messages are easy to triage:
+          //   Payment layer  : stripe.ts, webhookHandlers.ts
+          //   Auth layer     : sessionAuth.ts, session.ts
+          //   Exam layer     : questions.ts, checkAnswer.ts
           const TARGETS = [
-            { match: f => f.includes('/src/routes/stripe.ts'),    label: 'stripe.ts' },
-            { match: f => f.includes('/src/webhookHandlers.ts'),  label: 'webhookHandlers.ts' },
+            { match: f => f.includes('/src/routes/stripe.ts'),         label: 'stripe.ts          (payment routes)' },
+            { match: f => f.includes('/src/webhookHandlers.ts'),        label: 'webhookHandlers.ts (Stripe webhooks)' },
+            { match: f => f.includes('/src/lib/sessionAuth.ts'),        label: 'sessionAuth.ts     (IDOR guard)' },
+            { match: f => f.includes('/src/routes/session.ts'),         label: 'session.ts         (auth + exam workflow)' },
+            { match: f => f.includes('/src/routes/questions.ts'),       label: 'questions.ts       (question delivery + answer reveal)' },
+            { match: f => f.includes('/src/lib/checkAnswer.ts'),        label: 'checkAnswer.ts     (answer scoring)' },
           ];
           const THRESHOLD = 100;
           let anyFail = false;
@@ -71,12 +80,12 @@ jobs:
           if (anyFail) {
             console.error(
               '\nCoverage threshold FAILED.\n' +
-              'Required: 100% stmts/branches/fns on stripe.ts and webhookHandlers.ts.\n' +
+              'Required: 100% stmts/branches/fns on all 6 critical-path files.\n' +
               'A test was deleted, a branch was left uncovered, or a new code path was added without tests.'
             );
             process.exit(1);
           }
-          console.log('\nAll coverage thresholds passed.');
+          console.log('\nAll coverage thresholds passed (' + TARGETS.length + '/6 files at 100%).');
           EOF
 
       - name: Upload coverage report
