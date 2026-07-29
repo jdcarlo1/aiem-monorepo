@@ -1,3 +1,4 @@
+- [Git dev-branch autosync](git-dev-autosync.md) — push `git add -u && commit && push origin dev` at end of every session; all 10 workflow slots full so no persistent daemon possible
 - [Crash forensics infrastructure](crash-forensics-infrastructure.md) — 4-gap system: lifecycle wrapper (exit code 137=OOM), vm_resource_log, crash_log_buffer_aiem, resource monitor; query patterns for post-crash diagnosis
 - [StockScanner export package](stockscanner-export-package.md) — pre-built zip at project root `stockscanner-ai-source.zip`; 228 files, 1.8MB, no AIEM/options engine; present instantly without rebuild
 - [Discovery engine on-the-fly COALESCE pattern](discovery-engine-coalesce.md) — polygon_market_daily UPDATE is permanently blocked by Flask pool RowExclusiveLock; read-only COALESCE+LAG/AVG is the correct fix; run_status="aborted_no_data" prevents silent log nulls
