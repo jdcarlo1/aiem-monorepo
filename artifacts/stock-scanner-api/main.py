@@ -18474,7 +18474,26 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
             _rv_crit  = "price>=2.0,gap_pct>=1.0,rvol_adj>=2.0"
 
             if _rv_price == 0:
-                _rv_approved.append(_rv_pick)
+                # Task #90 fix 2026-07-30: price=0 means Tradier returned no live quote.
+                # Previous code silently approved — this allowed ZCMD to execute at $1.43
+                # on 2026-07-24 (below the $2.00 gate) because the live check was bypassed.
+                # Fix: treat missing quote as a failed gate, write to revalidation_log.
+                _rv_nq_sv = _rv_scan_vals.get(_rv_t) or {}
+                print(f"[revalid] REJECTED {_rv_t} (gap_volume) — no live quote (price=0) "
+                      f"REJECTED_NO_LIVE_QUOTE | "
+                      f"scan({_rv_nq_sv.get('scan_date','?')}): "
+                      f"price={_rv_nq_sv.get('scan_price','?')}")
+                _rv_rejections.append({
+                    "ticker": _rv_t, "source": _rv_src, "criteria_checked": _rv_crit,
+                    "scan_date": _rv_nq_sv.get("scan_date"),
+                    "scan_price": _rv_nq_sv.get("scan_price"),
+                    "scan_gap_pct": _rv_nq_sv.get("scan_gap_pct"),
+                    "scan_rvol": _rv_nq_sv.get("scan_rvol"),
+                    "exec_price": 0.0, "exec_gap_pct": None,
+                    "exec_rvol_raw": None, "exec_rvol_adj": None,
+                    "failed_checks": "no_live_quote",
+                    "action": "REJECTED_NO_LIVE_QUOTE",
+                })
                 continue
 
             _rv_failed = []
@@ -18520,7 +18539,24 @@ def _stage4_execution_revalidate(picks: list, quotes: dict) -> list:
             _rv_crit  = "price>=5.0,gap_pct<=-1.5,rvol_adj>=2.5"
 
             if _rv_price == 0:
-                _rv_approved.append(_rv_pick)
+                # Task #90 fix 2026-07-30: same fail-open as gap_volume — price=0 means
+                # Tradier returned no live quote; must reject, not silently approve.
+                _rv_nq_sv2 = _rv_scan_vals.get(_rv_t) or {}
+                print(f"[revalid] REJECTED {_rv_t} (gap_down_distribution) — no live quote "
+                      f"(price=0) REJECTED_NO_LIVE_QUOTE | "
+                      f"scan({_rv_nq_sv2.get('scan_date','?')}): "
+                      f"price={_rv_nq_sv2.get('scan_price','?')}")
+                _rv_rejections.append({
+                    "ticker": _rv_t, "source": _rv_src, "criteria_checked": _rv_crit,
+                    "scan_date": _rv_nq_sv2.get("scan_date"),
+                    "scan_price": _rv_nq_sv2.get("scan_price"),
+                    "scan_gap_pct": _rv_nq_sv2.get("scan_gap_pct"),
+                    "scan_rvol": _rv_nq_sv2.get("scan_rvol"),
+                    "exec_price": 0.0, "exec_gap_pct": None,
+                    "exec_rvol_raw": None, "exec_rvol_adj": None,
+                    "failed_checks": "no_live_quote",
+                    "action": "REJECTED_NO_LIVE_QUOTE",
+                })
                 continue
 
             _rv_failed = []
@@ -19610,9 +19646,14 @@ def _aiem_paper_execute_today(trigger_source: str = "unknown", _test_mode: bool 
                         _sz = _pos_sizer.compute_position_size(
                             ticker=_t,
                             signal_source=pick["source"],
-                            conviction_score=_conviction_stack_scores.get(
-                                _t, min(9.0, float(pick.get("score") or 0))
-                            ),
+                            # min(9.0,...) applied at BOTH paths:
+                            # — conviction_stack total_pts (0-12 range; cap prevents >9.0)
+                            # — per-source normalized pick["score"] (already 5-9 after #91
+                            #   normalizations; cap is defense-in-depth for dormant sources)
+                            # Task #91 fix 2026-07-30.
+                            conviction_score=min(9.0, _conviction_stack_scores.get(
+                                _t, float(pick.get("score") or 0)
+                            )),
                             entry_price=_fill_price,
                             signal_row=pick,
                         )
@@ -47719,7 +47760,13 @@ def _aiem_paper_pick_candidates() -> list:
                 LIMIT 20
             """)
             for _t, _prem, _voi, _urg, _strk, _exp in _cu.fetchall():
-                _score = (float(_prem or 0) / 100000) * (float(_voi or 1))
+                # Raw composite: (prem_$100k) × VOI — range 0.75 to 9,000+
+                # Normalize to 5.0–9.0 conviction scale via hyperbolic compression
+                # (half-saturation at raw=50, i.e. $500k prem × VOI=10 → score≈7.0).
+                # Task #91 fix 2026-07-30: raw score exceeded ceiling=9.0 on every
+                # real trade, clamping mult to 1.0 for all unusual_calls picks.
+                _score_raw = (float(_prem or 0) / 100000) * (float(_voi or 1))
+                _score = 5.0 + 4.0 * _score_raw / (_score_raw + 50.0) if _score_raw > 0 else 5.0
                 _add(_t, _score, "CALL_OPTION", "unusual_calls",
                      f"${int(_prem or 0):,} prem VOI={_voi}",
                      strike=float(_strk) if _strk is not None else None,
@@ -47734,7 +47781,13 @@ def _aiem_paper_pick_candidates() -> list:
                 ORDER BY (gap_pct * rvol) DESC LIMIT 10
             """)
             for _t, _rv, _gp, _pr, _cs in _cu.fetchall():
-                _score = float(_rv or 1) * float(_gp or 1) * (1 + float(_cs or 0))
+                # Raw composite: rvol × gap_pct × (1+close_str) — range 2 to 8,000+
+                # Normalize to 5.0–9.0 conviction scale via hyperbolic compression
+                # (half-saturation at raw=50, i.e. rvol=5×gap=10%×cs=1 → score≈7.0).
+                # Task #91 fix 2026-07-30: raw score exceeded ceiling=9.0 on every
+                # real trade, clamping mult to 1.0 for all gap_volume picks.
+                _score_raw = float(_rv or 1) * float(_gp or 1) * (1 + float(_cs or 0))
+                _score = 5.0 + 4.0 * _score_raw / (_score_raw + 50.0) if _score_raw > 0 else 5.0
                 _add(_t, _score, "STOCK", "gap_volume",
                      f"gap={_gp:.1f}% rvol={_rv:.1f}x")
 
@@ -47800,7 +47853,13 @@ def _aiem_paper_pick_candidates() -> list:
                     LIMIT 8
                 """)
                 for _t, _oip, _days in _cu.fetchall():
-                    _score = float(_oip or 0) / 10 * (1 + float(_days or 0) * 0.1)
+                    # Raw composite: oi_change_pct/10 × (1+days×0.1) — range 2 to ~100
+                    # Normalize to 5.0–9.0 conviction scale via hyperbolic compression
+                    # (half-saturation at raw=5, i.e. 50% OI gain over 1 day → score≈7.0).
+                    # Task #91 fix 2026-07-30: raw score exceeded ceiling=9.0 on strong
+                    # OI signals, clamping mult to 1.0 and suppressing sizing differentiation.
+                    _score_raw = float(_oip or 0) / 10 * (1 + float(_days or 0) * 0.1)
+                    _score = 5.0 + 4.0 * _score_raw / (_score_raw + 5.0) if _score_raw > 0 else 5.0
                     _add(_t, _score, "CALL_OPTION", "oi_buildup",
                          f"OI +{_oip:.0f}% over {_days}d")
             except Exception as _oib_e:
@@ -47896,7 +47955,14 @@ def _aiem_paper_pick_candidates() -> list:
             for _v3dec in _v3_decisions:
                 if _v3dec["decision"] in ("BUY", "SMALL_BUY"):
                     _size_mult = 0.8 if _v3dec["decision"] == "SMALL_BUY" else 1.0
-                    _v3_score  = _v3dec["confidence"] * _size_mult
+                    # confidence is 0-100 (conf = 50+weighted×50 in aiem_v3_orchestrator).
+                    # Map valid range [60,100] → [5.0,9.0] so conviction drives sizing.
+                    # Apply _size_mult after, floor at 5.0 so SMALL_BUY stays tradeable.
+                    # Task #91 fix 2026-07-30: raw confidence×size_mult (e.g. 49–69) always
+                    # exceeded ceiling=9.0, clamping mult to 1.0 for all v3_discovery picks.
+                    _v3_score  = max(5.0,
+                        (5.0 + (_v3dec["confidence"] - 60.0) / 40.0 * 4.0) * _size_mult
+                    )
                     # Find matching discovery for detail
                     _v3_detail = next(
                         (d["detail"] for d in _v3_disc if d["ticker"] == _v3dec["ticker"]),
