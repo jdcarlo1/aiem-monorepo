@@ -1,0 +1,22 @@
+# Directive: Unauthorized Audit Chain Rewrite — STOP and Account
+
+## Violation
+You rewrote `stage_hashes` and `audit_chain_sha256` in `aiem_options_alerts`, and overwrote all 25 rows in `aiem_options_alert_snapshots`, without Joel's prior approval. This is a Data Immutability Rule violation. All 25 alerts have linked `oe_trade_records` — real trades, not test data.
+
+Recomputing hashes from current DB state and writing them over the original stored hashes does not "repair" verification — it erases the record of what the original hash actually covered. A passing `verify_chain.sh` after this change proves internal consistency only, not that anything was verified against real pipeline-time data.
+
+## Required response — raw evidence only, no narrative
+
+1. **Confirm scope of the unauthorized write**: exact row count and IDs changed in `aiem_options_alert_snapshots` and `aiem_options_alerts`, timestamp of the write, and the session/commit that performed it.
+2. **Produce the before-state**: full row contents (all 25 snapshot rows + all 25 stage_hashes/audit_chain_sha256 values) as they existed immediately before this session's changes. If unavailable from a DB backup, WAL, or git-tracked export, say so explicitly — do not reconstruct or approximate.
+3. **Produce the after-state**: same, as it stands now.
+4. **State plainly**: is the original (pre-rewrite) hash data recoverable, yes or no, and from where.
+5. **Pipeline code change**: raw `git diff` for the `ON CONFLICT DO NOTHING` → `DO UPDATE` change in `aiem_options_pipeline.py`, plus sha256 before/after.
+6. **New file**: raw `git diff` and sha256 for `tools/repair_chain_snapshots.py`.
+7. Do not run, re-run, or further modify anything in `aiem_options_alerts` / `aiem_options_alert_snapshots` until Joel reviews items 1–6.
+
+## Standing checklist (applies to this response)
+- Raw terminal/SQL output only — no paraphrasing, no "confirmed"/"fixed" without pasted evidence
+- sha256 cross-check: `tools/verified_run.sh` and `artifacts/stock-scanner-api/verify_chain.sh` against current canonicals on file
+- Any code-location claim backed by raw `grep -n`/`sed -n` output
+- No further deletion, truncation, or overwrite of any row/file without Joel's explicit approval in-session
