@@ -1,0 +1,27 @@
+# Directive_ExecMisfire_PolygonParam_FailedMislabel_2026-07-30
+
+## Item 1 — Today's run (id=216) never executed: fix the misfire, don't just note it
+- Root cause confirmed: APScheduler misfire_grace_time=1s skipped the 09:40 ET seed job when the workflow restarted at 12:57 ET (>3h late)
+- Fix: raise misfire_grace_time on the daily seed/pipeline job to cover realistic restart delays (e.g. 4-6 hours), OR add explicit catch-up logic: on startup, check daily_pipeline_runs for today's row — if status=SCHEDULED and run_date=today and now > scheduled time, trigger the run immediately instead of waiting for next cron fire
+- Do NOT just increase grace time blindly without checking whether a late run today still produces a valid open — options entries may need a same-day cutoff; state what cutoff you use and why
+- Proof required: grep -n showing the exact misfire_grace_time change or catch-up code added, plus a real (not simulated) test showing a deliberately-delayed startup still triggers the run
+
+## Item 2 — Polygon 400s: fix the actual API call, not just identify it
+- Root cause confirmed: Polygon /v3/snapshot/options/{ticker} now requires expiration_date; missing it returns 400 for all tickers regardless of optionability
+- Fix: add expiration_date to every call site of this endpoint (grep all usages, not just send_oi_buildup_brief — confirm no other job hits the same endpoint unpatched)
+- The notifier's silent fallback to DB cache on 400 is masking a 100%-failure condition as a normal completion. Add an alert/log line when the fallback triggers for ALL tickers in a batch (not per-ticker) so a full-endpoint outage is visible, not silent
+- Proof required: raw grep -n of every call site before/after, a live test call showing 200 instead of 400, and confirmation of what value is used for expiration_date (nearest weekly? nearest monthly?) and why
+
+## Item 3 — Jul 28-29 rows mislabeled status=FAILED
+- These days had 5 seeded, all rejected at hard gates (real "no trade" outcome, not a crash) — but written as status=FAILED with candidates_failed=5
+- Fix: when the rejection reason is gate-rejection (both directions fail quality gates), write to candidates_no_trade and status=NO_TRADE_GATES (or similar), not FAILED. Reserve FAILED for actual exceptions/crashes
+- Proof required: grep -n of the code path that currently classifies gate-rejections as FAILED, the fix, and a before/after example row
+
+## Item 4 — Heartbeat query still unresolved
+- Your last query used the wrong column (written_at) and was never re-run with the correct columns (id, ts, pid)
+- Re-run it and specifically answer: is there continuous heartbeat coverage for the 12:00-3:00 AM ET window tonight, given the nightly os._exit(0) reset wipes the in-process buffer at 3:00 AM ET?
+- If that window structurally cannot be covered by aiem_process_heartbeat (buffer wipe), say so plainly and propose what would close the gap (e.g. persisting last-heartbeat timestamp to DB before the reset, not just in-memory)
+- Proof required: raw query output with correct columns, not narrated
+
+## Standing requirement
+All 4 items require raw evidence (grep/query output), not narrative summaries. No "should work now" — show it.
