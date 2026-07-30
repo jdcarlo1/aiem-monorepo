@@ -6382,15 +6382,51 @@ try:
     # Loop B - prediction grader: 4:35 PM ET Mon-Fri
     # Grades T+1 / T+3 / T+5 outcomes for Loop B predictions using Tradier history.
     def _run_aiem_grader_job():
-        try:
-            import threading as _agj_thr
-            _agj_thr.Thread(target=_run_aiem_prediction_grader, daemon=True).start()
-            # Also grade AIEM chat track record predictions
-            _agj_thr.Thread(target=_grade_aiem_track_record, daemon=True).start()
-            record_job_success("aiem_prediction_grader")
-        except Exception as e:
-            record_job_failure("aiem_prediction_grader", str(e))
-            print(f"[scheduler] aiem grader error: {e}")
+        # Use globals().get() to guard against startup-race NameError:
+        # APScheduler registers this job early in module load (line ~6384); the
+        # grader function is defined at line 44481. If the process restarts close
+        # to 4:35 PM ET the scheduler can fire before line 44481 is executed.
+        _grader_fn = globals().get('_run_aiem_prediction_grader')
+        _track_fn  = globals().get('_grade_aiem_track_record')
+        if _grader_fn is None:
+            _err = ("_run_aiem_prediction_grader not in module globals — "
+                    "startup-race: scheduler fired before line 44481 was executed")
+            record_job_failure("aiem_prediction_grader", _err)
+            print(f"[scheduler] aiem grader setup error: {_err}")
+            # Telegram alert if repeated
+            try:
+                import psycopg2 as _pgr2, os as _osr
+                with _pgr2.connect(_osr.environ["DATABASE_URL"]) as _cr:
+                    with _cr.cursor() as _cur:
+                        _cur.execute("SELECT consecutive_failures FROM job_heartbeats WHERE job_name='aiem_prediction_grader'")
+                        _row = _cur.fetchone()
+                        if _row and _row[0] >= 2:
+                            _tg_send(f"⚠️ aiem_prediction_grader: {_row[0]} consecutive failures\nlast_error: {_err}")
+            except Exception:
+                pass
+            return
+        import threading as _agj_thr
+        def _grader_wrapper():
+            # Record success/failure AFTER the work completes (not before thread.start)
+            try:
+                _grader_fn()
+                if _track_fn:
+                    _track_fn()
+                record_job_success("aiem_prediction_grader")
+            except Exception as _we:
+                record_job_failure("aiem_prediction_grader", str(_we))
+                print(f"[scheduler] aiem grader thread error: {_we}")
+                try:
+                    import psycopg2 as _pgr2b, os as _osrb
+                    with _pgr2b.connect(_osrb.environ["DATABASE_URL"]) as _crb:
+                        with _crb.cursor() as _curb:
+                            _curb.execute("SELECT consecutive_failures FROM job_heartbeats WHERE job_name='aiem_prediction_grader'")
+                            _rowb = _curb.fetchone()
+                            if _rowb and _rowb[0] >= 2:
+                                _tg_send(f"⚠️ aiem_prediction_grader: {_rowb[0]} consecutive failures\nerror: {_we}")
+                except Exception:
+                    pass
+        _agj_thr.Thread(target=_grader_wrapper, daemon=True).start()
     _scheduler.add_job(
         _run_aiem_grader_job,
         CronTrigger(day_of_week="mon-fri", hour=16, minute=35, timezone=_ET),
